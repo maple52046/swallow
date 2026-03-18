@@ -11,15 +11,19 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
+import { ModelLabel } from '@/presentation/components/ModelLabel'
+import { resolveModelInfo } from '@/presentation/components/modelLabelUtils'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { formatRelative, formatDuration } from '@/shared/utils/time'
+import type { Model } from '@/domain/platform/types'
 
 export function RunsPage() {
-  const { runs } = useApp()
+  const { runs, platform } = useApp()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [items, setItems] = useState<Run[]>([])
+  const [modelsById, setModelsById] = useState<Map<string, Model>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -31,11 +35,16 @@ export function RunsPage() {
     setLoading(true)
     setError(null)
     try {
-      const result = await runs.list.execute({ status, missionId })
+      const [result, models] = await Promise.all([
+        runs.list.execute({ status, missionId }),
+        platform.listModels.execute(),
+      ])
+      const modelMap = new Map(models.map((m) => [m.id, m]))
+      setModelsById(modelMap)
       const filtered = search
         ? result.filter((r) =>
             r.id.includes(search) ||
-            r.model.toLowerCase().includes(search.toLowerCase()) ||
+            resolveModelInfo(r.modelId, modelMap).searchText.includes(search.toLowerCase()) ||
             r.target.toLowerCase().includes(search.toLowerCase()) ||
             r.goal.toLowerCase().includes(search.toLowerCase()),
           )
@@ -46,7 +55,7 @@ export function RunsPage() {
     } finally {
       setLoading(false)
     }
-  }, [runs.list, status, missionId, search])
+  }, [runs.list, platform.listModels, status, missionId, search])
 
   useEffect(() => {
     void load()
@@ -140,7 +149,7 @@ export function RunsPage() {
                   <Badge size="xs" variant="outline">{run.trigger}</Badge>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm">{run.model}</Text>
+                  <ModelLabel modelId={run.modelId} modelsById={modelsById} />
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" ff="mono">{run.target}</Text>

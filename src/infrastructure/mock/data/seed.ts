@@ -1,10 +1,13 @@
 import type { Mission } from '@/domain/mission/types'
 import type { Run } from '@/domain/run/types'
+type LegacyMission = Omit<Mission, 'modelId'> & { modelId?: string; model?: string }
+type LegacyRun = Omit<Run, 'modelId'> & { modelId?: string; model?: string }
+
 import type { Host, StorageDevice, NetworkSwitch, Connection, SSHKey } from '@/domain/asset/types'
 import type { GPUDevice, GPUMetrics, GPUProfile } from '@/domain/gpu/types'
 import type { Alert } from '@/domain/alert/types'
 import type { K8sCluster, SlurmCluster } from '@/domain/plane/types'
-import type { Agent, Model, Plugin, ProvisioningImage, ProvisioningProfile, ProvisioningJob } from '@/domain/platform/types'
+import type { Agent, Plugin, ProvisioningImage, ProvisioningProfile, ProvisioningJob } from '@/domain/platform/types'
 import type { AuditEvent } from '@/domain/audit/types'
 
 const now = new Date()
@@ -152,7 +155,7 @@ export const seedAlerts: Alert[] = [
   },
 ]
 
-export const seedMissions: Mission[] = [
+export const seedMissions: LegacyMission[] = [
   {
     id: 'mission-001',
     name: 'GPU Health Diagnostics Fleet',
@@ -406,7 +409,7 @@ const makeRunSteps = (names: string[]) =>
     durationMs: 8000 + i * 2000,
   }))
 
-export const seedRuns: Run[] = [
+export const seedRuns: LegacyRun[] = [
   {
     id: 'run-001',
     missionId: 'mission-001',
@@ -791,7 +794,7 @@ export const seedAgents: Agent[] = [
   { id: 'agent-executor', name: 'Executor Agent', description: 'Executes mission runs, manages run lifecycle and artifacts', version: '3.1.0', enabled: true, status: 'running', capabilities: ['run-execution', 'artifact-collection', 'log-streaming', 'plugin-execution'], lastHeartbeatAt: hoursAgo(0.01) },
 ]
 
-export const seedModels: Model[] = [
+export const seedModels: Array<Record<string, unknown>> = [
   { id: 'model-gpt4o', name: 'gpt-4o', provider: 'OpenAI', description: 'Flagship multimodal model with strong reasoning and code generation', contextWindow: 128000, isDefault: true, enabled: true, capabilities: ['reasoning', 'code', 'analysis', 'tool-use'], costPer1kTokens: 0.005 },
   { id: 'model-claude', name: 'claude-3-5-sonnet', provider: 'Anthropic', description: 'High-performance model with strong code and analysis capabilities', contextWindow: 200000, isDefault: false, enabled: true, capabilities: ['reasoning', 'code', 'analysis', 'long-context'], costPer1kTokens: 0.003 },
   { id: 'model-llama', name: 'llama-3.1-70b', provider: 'Meta / Self-hosted', description: 'Open-source 70B model, self-hosted for data privacy', contextWindow: 128000, isDefault: false, enabled: true, capabilities: ['reasoning', 'code', 'analysis'], costPer1kTokens: 0.001 },

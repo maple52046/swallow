@@ -6,6 +6,8 @@ import { MockProvisioningRepository } from '@/infrastructure/mock/repos/MockProv
 import { MockAccessRepository } from '@/infrastructure/mock/repos/MockAccessRepository'
 import { MockPlaneRepository } from '@/infrastructure/mock/repos/MockPlaneRepository'
 import { MockPlatformRepository } from '@/infrastructure/mock/repos/MockPlatformRepository'
+import { MockServerRepository } from '@/infrastructure/mock/repos/MockServerRepository'
+import { MockTeamRepository } from '@/infrastructure/mock/repos/MockTeamRepository'
 
 import { ListMissionsUseCase } from '@/application/usecases/missions/ListMissionsUseCase'
 import { GetMissionUseCase } from '@/application/usecases/missions/GetMissionUseCase'
@@ -50,11 +52,17 @@ import { ListAgentsUseCase } from '@/application/usecases/platform/ListAgentsUse
 import { EnableDisableAgentUseCase } from '@/application/usecases/platform/EnableDisableAgentUseCase'
 import { ListModelsUseCase } from '@/application/usecases/platform/ListModelsUseCase'
 import { SetDefaultModelUseCase } from '@/application/usecases/platform/SetDefaultModelUseCase'
+import { AddModelUseCase } from '@/application/usecases/platform/AddModelUseCase'
+import { DeleteModelUseCase } from '@/application/usecases/platform/DeleteModelUseCase'
 import { ListPluginsUseCase } from '@/application/usecases/platform/ListPluginsUseCase'
 import { EnableDisablePluginUseCase } from '@/application/usecases/platform/EnableDisablePluginUseCase'
 import { ListAuditEventsUseCase } from '@/application/usecases/platform/ListAuditEventsUseCase'
 
 import { GetOverviewUseCase } from '@/application/usecases/overview/GetOverviewUseCase'
+
+import type { Server, ServerStatus } from '@/domain/server/types'
+import type { Team, CreateTeamInput, UpdateTeamInput } from '@/domain/team/types'
+import type { ListServersFilters } from '@/application/ports/ServerRepository'
 
 export interface AppContainer {
   missions: {
@@ -106,11 +114,32 @@ export interface AppContainer {
     enableDisableAgent: EnableDisableAgentUseCase
     listModels: ListModelsUseCase
     setDefaultModel: SetDefaultModelUseCase
+    addModel: AddModelUseCase
+    deleteModel: DeleteModelUseCase
     listPlugins: ListPluginsUseCase
     enableDisablePlugin: EnableDisablePluginUseCase
     listAuditEvents: ListAuditEventsUseCase
   }
   overview: { get: GetOverviewUseCase }
+  servers: {
+    list: { execute: (filters?: ListServersFilters) => Promise<Server[]> }
+    get: { execute: (id: string) => Promise<Server | null> }
+    assignToTeam: { execute: (id: string, teamId: string) => Promise<Server> }
+    assignToUser: { execute: (id: string, userId: string) => Promise<Server> }
+    unassign: { execute: (id: string) => Promise<Server> }
+    updateStatus: { execute: (id: string, status: ServerStatus) => Promise<Server> }
+  }
+  teams: {
+    list: { execute: () => Promise<Team[]> }
+    get: { execute: (id: string) => Promise<Team | null> }
+    create: { execute: (input: CreateTeamInput) => Promise<Team> }
+    update: { execute: (id: string, input: UpdateTeamInput) => Promise<Team> }
+    deleteTeam: { execute: (id: string) => Promise<void> }
+    addMember: { execute: (teamId: string, userId: string) => Promise<Team> }
+    removeMember: { execute: (teamId: string, userId: string) => Promise<Team> }
+    addOwner: { execute: (teamId: string, userId: string) => Promise<Team> }
+    removeOwner: { execute: (teamId: string, userId: string) => Promise<Team> }
+  }
 }
 
 export function createContainer(): AppContainer {
@@ -122,6 +151,8 @@ export function createContainer(): AppContainer {
   const accessRepo = new MockAccessRepository()
   const planeRepo = new MockPlaneRepository()
   const platformRepo = new MockPlatformRepository()
+  const serverRepo = new MockServerRepository()
+  const teamRepo = new MockTeamRepository()
 
   return {
     missions: {
@@ -173,12 +204,33 @@ export function createContainer(): AppContainer {
       enableDisableAgent: new EnableDisableAgentUseCase(platformRepo),
       listModels: new ListModelsUseCase(platformRepo),
       setDefaultModel: new SetDefaultModelUseCase(platformRepo),
+      addModel: new AddModelUseCase(platformRepo),
+      deleteModel: new DeleteModelUseCase(platformRepo),
       listPlugins: new ListPluginsUseCase(platformRepo),
       enableDisablePlugin: new EnableDisablePluginUseCase(platformRepo),
       listAuditEvents: new ListAuditEventsUseCase(platformRepo),
     },
     overview: {
       get: new GetOverviewUseCase(missionRepo, runRepo, obsRepo, planeRepo),
+    },
+    servers: {
+      list: { execute: (filters?) => serverRepo.listServers(filters) },
+      get: { execute: (id) => serverRepo.getServer(id) },
+      assignToTeam: { execute: (id, teamId) => serverRepo.assignToTeam(id, teamId) },
+      assignToUser: { execute: (id, userId) => serverRepo.assignToUser(id, userId) },
+      unassign: { execute: (id) => serverRepo.unassign(id) },
+      updateStatus: { execute: (id, status) => serverRepo.updateStatus(id, status) },
+    },
+    teams: {
+      list: { execute: () => teamRepo.listTeams() },
+      get: { execute: (id) => teamRepo.getTeam(id) },
+      create: { execute: (input) => teamRepo.createTeam(input) },
+      update: { execute: (id, input) => teamRepo.updateTeam(id, input) },
+      deleteTeam: { execute: (id) => teamRepo.deleteTeam(id) },
+      addMember: { execute: (teamId, userId) => teamRepo.addMember(teamId, userId) },
+      removeMember: { execute: (teamId, userId) => teamRepo.removeMember(teamId, userId) },
+      addOwner: { execute: (teamId, userId) => teamRepo.addOwner(teamId, userId) },
+      removeOwner: { execute: (teamId, userId) => teamRepo.removeOwner(teamId, userId) },
     },
   }
 }

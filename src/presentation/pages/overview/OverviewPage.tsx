@@ -13,6 +13,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { formatRelative } from '@/shared/utils/time'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 
 function KPICard({
   label, value, sub, color, icon, onClick,
@@ -40,6 +41,7 @@ function KPICard({
 
 export function OverviewPage() {
   const { overview } = useApp()
+  const { currentUser } = useAuth()
   const navigate = useNavigate()
   const [data, setData] = useState<OverviewData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -82,9 +84,36 @@ export function OverviewPage() {
     return 'blue'
   }
 
+  const modulesByRole: Record<string, string[]> = {
+    admin: ['Dashboard', 'Resources', 'Users', 'Settings'],
+    owner: ['Dashboard', 'Resources', 'Team Views'],
+    member: ['Dashboard', 'My Resources', 'Profile'],
+  }
+
+  const visibleModules = currentUser ? modulesByRole[currentUser.role] ?? ['Dashboard'] : ['Dashboard']
+
   return (
     <>
       <PageHeader title={t('overview.title')} subtitle="Real-time platform status" />
+
+      {currentUser && (
+        <Card withBorder radius="md" mb="md">
+          <Group justify="space-between" align="flex-start">
+            <div>
+              <Text size="sm" c="dimmed">Current user</Text>
+              <Text fw={600}>{currentUser.displayName} ({currentUser.username})</Text>
+            </div>
+            <Badge color={currentUser.role === 'admin' ? 'red' : currentUser.role === 'owner' ? 'blue' : 'gray'} variant="light">
+              {currentUser.role}
+            </Badge>
+          </Group>
+          <Group gap={8} mt="sm">
+            {visibleModules.map((module) => (
+              <Badge key={module} variant="outline">{module}</Badge>
+            ))}
+          </Group>
+        </Card>
+      )}
 
       <SimpleGrid cols={{ base: 2, sm: 4, lg: 7 }} mb="lg">
         <KPICard label={t('overview.kpi.activeMissions')} value={kpis.activeMissions} sub={`of ${kpis.totalMissions} total`} color="blue" icon={<IconRocket size={16} />} onClick={() => navigate('/missions?status=active')} />

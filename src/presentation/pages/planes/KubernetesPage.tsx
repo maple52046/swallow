@@ -14,11 +14,19 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 
 export function KubernetesPage() {
-  const { planes, missions } = useApp()
+  const { planes, missions, platform } = useApp()
   const navigate = useNavigate()
 
   const [clusters, setClusters] = useState<K8sCluster[]>([])
   const [loading, setLoading] = useState(true)
+  const [defaultModelId, setDefaultModelId] = useState('model-gpt4o')
+
+  useEffect(() => {
+    platform.listModels.execute().then((models) => {
+      const fallback = models.find((m) => m.isDefault) ?? models[0]
+      if (fallback) setDefaultModelId(fallback.id)
+    }).catch(() => null)
+  }, [platform.listModels])
 
   useEffect(() => {
     planes.list.execute().then((result) => {
@@ -36,7 +44,7 @@ export function KubernetesPage() {
     const mission = await missions.create.execute({
       name: `K8s ${action} — ${cluster.name}`,
       goal: goalMap[action] ?? `Execute ${action} on cluster ${cluster.name}`,
-      model: 'gpt-4o',
+      modelId: defaultModelId,
       target: cluster.id,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 120 },

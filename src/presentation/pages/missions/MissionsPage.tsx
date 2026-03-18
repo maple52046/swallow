@@ -14,14 +14,17 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { PageHeader } from '@/presentation/components/PageHeader'
+import { ModelLabel } from '@/presentation/components/ModelLabel'
 import { formatRelative } from '@/shared/utils/time'
+import type { Model } from '@/domain/platform/types'
 
 export function MissionsPage() {
-  const { missions } = useApp()
+  const { missions, platform } = useApp()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [data, setData] = useState<Mission[] | null>(null)
+  const [modelsById, setModelsById] = useState<Map<string, Model>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,17 +35,21 @@ export function MissionsPage() {
     try {
       setLoading(true)
       setError(null)
-      const result = await missions.list.execute({
-        status: statusFilter as Mission['status'] || undefined,
-        search: searchQuery || undefined,
-      })
+      const [result, models] = await Promise.all([
+        missions.list.execute({
+          status: statusFilter as Mission['status'] || undefined,
+          search: searchQuery || undefined,
+        }),
+        platform.listModels.execute(),
+      ])
       setData(result)
+      setModelsById(new Map(models.map((m) => [m.id, m])))
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
-  }, [missions.list, statusFilter, searchQuery])
+  }, [missions.list, platform.listModels, statusFilter, searchQuery])
 
   useEffect(() => { void load() }, [load])
 
@@ -126,7 +133,14 @@ export function MissionsPage() {
             { value: 'archived', label: t('mission.status.archived') },
           ]}
           value={statusFilter || null}
-          onChange={(v) => setSearchParams((p) => { const n = new URLSearchParams(p); v ? n.set('status', v) : n.delete('status'); return n })}
+          onChange={(v) =>
+            setSearchParams((p) => {
+              const n = new URLSearchParams(p)
+              if (v) n.set('status', v)
+              else n.delete('status')
+              return n
+            })
+          }
           w={160}
         />
       </Group>
@@ -177,7 +191,7 @@ export function MissionsPage() {
                   <Badge variant="outline" size="xs">{m.trigger}</Badge>
                   {m.schedule && <Text size="xs" c="dimmed" mt={2}>{m.schedule}</Text>}
                 </Table.Td>
-                <Table.Td><Text size="xs">{m.model}</Text></Table.Td>
+                <Table.Td><ModelLabel modelId={m.modelId} modelsById={modelsById} /></Table.Td>
                 <Table.Td><Text size="sm">{m.runCount}</Text></Table.Td>
                 <Table.Td><Text size="xs" c="dimmed">{formatRelative(m.lastRunAt)}</Text></Table.Td>
                 <Table.Td>

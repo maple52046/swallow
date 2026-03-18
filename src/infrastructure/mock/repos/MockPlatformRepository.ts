@@ -1,4 +1,4 @@
-import type { Agent, Model, Plugin } from '@/domain/platform/types'
+import type { Agent, Model, Plugin, CreateModelInput } from '@/domain/platform/types'
 import type { AuditEvent } from '@/domain/audit/types'
 import type { PlatformRepository, ListAuditFilters } from '@/application/ports/PlatformRepository'
 import { seedAgents, seedModels, seedPlugins, seedAuditEvents } from '@/infrastructure/mock/data/seedPlatform'
@@ -37,13 +37,26 @@ export class MockPlatformRepository implements PlatformRepository {
     return Array.from(this.models.values())
   }
 
-  async updateModel(id: string, partial: Partial<Model>): Promise<Model> {
+  async updateModel(id: string, partial: Record<string, unknown>): Promise<Model> {
     const existing = this.models.get(id)
     if (!existing) throw new Error('Model not found: ' + id)
-    const updated = { ...existing, ...partial }
+    const updated = { ...existing, ...partial } as Model
     this.models.set(id, updated)
     lsSet('models', Array.from(this.models.values()))
     return updated
+  }
+
+  async addModel(model: CreateModelInput): Promise<Model> {
+    const id = 'model-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)
+    const full = { ...model, id } as Model
+    this.models.set(id, full)
+    lsSet('models', Array.from(this.models.values()))
+    return full
+  }
+
+  async deleteModel(id: string): Promise<void> {
+    this.models.delete(id)
+    lsSet('models', Array.from(this.models.values()))
   }
 
   async listPlugins(): Promise<Plugin[]> {

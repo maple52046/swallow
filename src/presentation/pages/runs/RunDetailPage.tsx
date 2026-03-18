@@ -17,8 +17,10 @@ import { t } from '@/presentation/app/i18n'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
+import { ModelLabel } from '@/presentation/components/ModelLabel'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { formatRelative, formatDuration, formatDateTime } from '@/shared/utils/time'
+import type { Model } from '@/domain/platform/types'
 
 function stepStatusIcon(status: string) {
   if (status === 'succeeded') return <ThemeIcon color="green" size="sm" radius="xl"><IconCheck size={12} /></ThemeIcon>
@@ -36,9 +38,10 @@ function formatBytes(bytes: number) {
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { runs, missions } = useApp()
+  const { runs, missions, platform } = useApp()
 
   const [run, setRun] = useState<Run | null>(null)
+  const [modelsById, setModelsById] = useState<Map<string, Model>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
@@ -49,14 +52,18 @@ export function RunDetailPage() {
   const load = useCallback(async () => {
     if (!id) return
     try {
-      const data = await runs.get.execute(id)
+      const [data, models] = await Promise.all([
+        runs.get.execute(id),
+        platform.listModels.execute(),
+      ])
       setRun(data)
+      setModelsById(new Map(models.map((m) => [m.id, m])))
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
-  }, [id, runs.get])
+  }, [id, runs.get, platform.listModels])
 
   useEffect(() => {
     void load()
@@ -167,7 +174,10 @@ export function RunDetailPage() {
       <Group gap="xs" mb="xl">
         <StatusBadge status={run.status} />
         <Badge variant="outline" size="sm">{run.trigger}</Badge>
-        <Text size="sm" c="dimmed">Model: <b>{run.model}</b></Text>
+        <Group gap={6}>
+          <Text size="sm" c="dimmed">Model:</Text>
+          <ModelLabel modelId={run.modelId} modelsById={modelsById} />
+        </Group>
         <Text size="sm" c="dimmed">Target: <Code>{run.target}</Code></Text>
         {duration && <Text size="sm" c="dimmed">Duration: <b>{formatDuration(duration)}</b></Text>}
         <Text size="sm" c="dimmed">{t('run.queuedAt')}: {formatRelative(run.queuedAt)}</Text>

@@ -11,6 +11,7 @@ import './index.css'
 import { router } from './router'
 import { theme, loadColorScheme } from './presentation/app/theme'
 import { AppProvider } from './di/AppProvider'
+import { AuthProvider } from './presentation/contexts/AuthContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -18,9 +19,11 @@ createRoot(document.getElementById('root')!).render(
       <ColorSchemeScript defaultColorScheme={loadColorScheme()} />
       <ModalsProvider>
         <Notifications position="top-right" />
-        <AppProvider>
-          <RouterProvider router={router} />
-        </AppProvider>
+        <AuthProvider>
+          <AppProvider>
+            <RouterProvider router={router} />
+          </AppProvider>
+        </AuthProvider>
       </ModalsProvider>
     </MantineProvider>
   </StrictMode>,

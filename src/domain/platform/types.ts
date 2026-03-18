@@ -9,17 +9,34 @@ export interface Agent {
   lastHeartbeatAt?: string
 }
 
-export interface Model {
+export interface BaseModel {
   id: string
   name: string
-  provider: string
   description: string
-  contextWindow: number
   isDefault: boolean
   enabled: boolean
   capabilities: string[]
+}
+
+export interface PublicModel extends BaseModel {
+  type: 'public'
+  provider: string
+  accessKey?: string
+  contextWindow: number
   costPer1kTokens?: number
 }
+
+export type ServerFramework = 'ollama' | 'sglang' | 'vllm'
+
+export interface LocalModel extends BaseModel {
+  type: 'local'
+  serverHost: string
+  serverPort: number
+  framework: ServerFramework
+}
+
+export type Model = PublicModel | LocalModel
+export type CreateModelInput = Omit<PublicModel, 'id'> | Omit<LocalModel, 'id'>
 
 export interface PluginAction {
   name: string

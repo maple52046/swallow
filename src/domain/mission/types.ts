@@ -29,7 +29,7 @@ export interface Mission {
   status: MissionStatus
   trigger: MissionTrigger
   schedule?: string
-  model: string
+  modelId: string
   target: string
   plan: MissionPlan
   permissions: MissionPermissions

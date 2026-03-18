@@ -18,7 +18,7 @@ export class RunSimulationEngine {
     this.appendLog(run.id, `[${ts()}] Run queued (trigger: ${run.trigger})`)
     const queuedTimer = setTimeout(() => {
       this.updateRun(run.id, { status: 'running', startedAt: new Date().toISOString() })
-      this.appendLog(run.id, `[${ts()}] Run started — model: ${run.model}, target: ${run.target}`)
+      this.appendLog(run.id, `[${ts()}] Run started — modelId: ${run.modelId}, target: ${run.target}`)
       this.appendLog(run.id, `[${ts()}] Goal: ${run.goal.slice(0, 120)}`)
       this.advanceStep(run.id, run.steps, 0)
     }, 1200)

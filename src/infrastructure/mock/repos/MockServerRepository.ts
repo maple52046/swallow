@@ -1,0 +1,90 @@
+import type { Server, ServerStatus } from '@/domain/server/types'
+import type { ServerRepository, ListServersFilters } from '@/application/ports/ServerRepository'
+import { seedServers } from '@/infrastructure/mock/data/seedServers'
+import { lsGet, lsSet } from '@/infrastructure/persistence/localStorage'
+
+const LS_KEY = 'servers'
+
+function now() {
+  return new Date().toISOString()
+}
+
+export class MockServerRepository implements ServerRepository {
+  private servers: Map<string, Server>
+
+  constructor() {
+    const stored = lsGet<Server[]>(LS_KEY, seedServers)
+    this.servers = new Map(stored.map((s) => [s.id, s]))
+  }
+
+  private persist() {
+    lsSet(LS_KEY, Array.from(this.servers.values()))
+  }
+
+  async listServers(filters?: ListServersFilters): Promise<Server[]> {
+    let items = Array.from(this.servers.values())
+
+    if (filters?.status) {
+      items = items.filter((s) => s.status === filters.status)
+    }
+    if (filters?.allocation === 'free') {
+      items = items.filter((s) => s.ownerTeamId === null && s.ownerUserId === null)
+    } else if (filters?.allocation === 'assigned') {
+      items = items.filter((s) => s.ownerTeamId !== null || s.ownerUserId !== null)
+    }
+    if (filters?.teamId) {
+      items = items.filter((s) => s.ownerTeamId === filters.teamId)
+    }
+    if (filters?.userId) {
+      items = items.filter((s) => s.ownerUserId === filters.userId)
+    }
+    if (filters?.search) {
+      const q = filters.search.toLowerCase()
+      items = items.filter(
+        (s) => s.hostname.toLowerCase().includes(q) || s.ip.includes(q),
+      )
+    }
+
+    return items.sort((a, b) => a.hostname.localeCompare(b.hostname))
+  }
+
+  async getServer(id: string): Promise<Server | null> {
+    return this.servers.get(id) ?? null
+  }
+
+  async assignToTeam(id: string, teamId: string): Promise<Server> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+    const updated: Server = { ...server, ownerTeamId: teamId, ownerUserId: null, updatedAt: now() }
+    this.servers.set(id, updated)
+    this.persist()
+    return updated
+  }
+
+  async assignToUser(id: string, userId: string): Promise<Server> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+    const updated: Server = { ...server, ownerTeamId: null, ownerUserId: userId, updatedAt: now() }
+    this.servers.set(id, updated)
+    this.persist()
+    return updated
+  }
+
+  async unassign(id: string): Promise<Server> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+    const updated: Server = { ...server, ownerTeamId: null, ownerUserId: null, updatedAt: now() }
+    this.servers.set(id, updated)
+    this.persist()
+    return updated
+  }
+
+  async updateStatus(id: string, status: ServerStatus): Promise<Server> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+    const updated: Server = { ...server, status, updatedAt: now() }
+    this.servers.set(id, updated)
+    this.persist()
+    return updated
+  }
+}

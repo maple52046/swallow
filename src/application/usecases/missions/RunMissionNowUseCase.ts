@@ -18,7 +18,7 @@ export class RunMissionNowUseCase {
       missionId: mission.id,
       missionName: mission.name,
       trigger,
-      model: mission.model,
+      modelId: mission.modelId,
       target: mission.target,
       goal: mission.goal,
       stepNames: mission.plan.steps.map((s) => s.name),

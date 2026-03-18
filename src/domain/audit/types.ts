@@ -15,6 +15,8 @@ export type AuditEventType =
   | 'plane.disconnected'
   | 'plugin.enabled'
   | 'plugin.disabled'
+  | 'model.added'
+  | 'model.deleted'
   | 'model.default_set'
   | 'agent.enabled'
   | 'agent.disabled'

@@ -3,7 +3,7 @@ import type { MissionTrigger, MissionPlan, MissionPermissions } from '@/domain/m
 export interface CreateMissionDto {
   name: string
   goal: string
-  model: string
+  modelId: string
   target: string
   trigger: MissionTrigger
   schedule?: string

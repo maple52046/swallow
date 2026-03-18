@@ -17,15 +17,18 @@ import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { PageHeader } from '@/presentation/components/PageHeader'
+import { ModelLabel } from '@/presentation/components/ModelLabel'
 import { formatRelative, formatDuration } from '@/shared/utils/time'
+import type { Model } from '@/domain/platform/types'
 
 export function MissionDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { missions, runs } = useApp()
+  const { missions, runs, platform } = useApp()
 
   const [mission, setMission] = useState<Mission | null>(null)
   const [missionRuns, setMissionRuns] = useState<Run[]>([])
+  const [modelsById, setModelsById] = useState<Map<string, Model>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,19 +37,21 @@ export function MissionDetailPage() {
     try {
       setLoading(true)
       setError(null)
-      const [m, r] = await Promise.all([
+      const [m, r, models] = await Promise.all([
         missions.get.execute(id),
         runs.list.execute({ missionId: id }),
+        platform.listModels.execute(),
       ])
       if (!m) { setError('Mission not found'); return }
       setMission(m)
       setMissionRuns(r)
+      setModelsById(new Map(models.map((model) => [model.id, model])))
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
-  }, [id, missions.get, runs.list])
+  }, [id, missions.get, runs.list, platform.listModels])
 
   useEffect(() => { void load() }, [load])
 
@@ -141,7 +146,9 @@ export function MissionDetailPage() {
         </Card>
         <Card withBorder radius="md" p="sm">
           <Text size="xs" c="dimmed">{t('mission.model')}</Text>
-          <Text size="sm" fw={500} mt={4}>{mission.model}</Text>
+          <Group mt={4}>
+            <ModelLabel modelId={mission.modelId} modelsById={modelsById} />
+          </Group>
         </Card>
         <Card withBorder radius="md" p="sm">
           <Text size="xs" c="dimmed">{t('mission.runCount')}</Text>

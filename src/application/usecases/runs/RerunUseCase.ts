@@ -21,7 +21,7 @@ export class RerunUseCase {
       missionId: mission.id,
       missionName: mission.name,
       trigger: 'rerun',
-      model: sourceRun.model,
+      modelId: sourceRun.modelId,
       target: sourceRun.target,
       goal: sourceRun.goal,
       stepNames: mission.plan.steps.map((s) => s.name),

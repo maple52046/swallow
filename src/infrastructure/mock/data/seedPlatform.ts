@@ -21,11 +21,13 @@ export const seedAgents: Agent[] = [
 ]
 
 export const seedModels: Model[] = [
-  { id: 'model-gpt4o', name: 'gpt-4o', provider: 'OpenAI', description: 'Flagship multimodal model with strong reasoning', contextWindow: 128000, isDefault: true, enabled: true, capabilities: ['reasoning', 'code', 'analysis', 'tool-use'], costPer1kTokens: 0.005 },
-  { id: 'model-claude', name: 'claude-3-5-sonnet', provider: 'Anthropic', description: 'High-performance model with long context', contextWindow: 200000, isDefault: false, enabled: true, capabilities: ['reasoning', 'code', 'analysis', 'long-context'], costPer1kTokens: 0.003 },
-  { id: 'model-llama', name: 'llama-3.1-70b', provider: 'Meta / Self-hosted', description: 'Open-source 70B, self-hosted for data privacy', contextWindow: 128000, isDefault: false, enabled: true, capabilities: ['reasoning', 'code', 'analysis'], costPer1kTokens: 0.001 },
-  { id: 'model-mistral', name: 'mistral-large', provider: 'Mistral AI', description: 'High performance model for complex reasoning', contextWindow: 32000, isDefault: false, enabled: false, capabilities: ['reasoning', 'code', 'multilingual'], costPer1kTokens: 0.004 },
-  { id: 'model-gemini', name: 'gemini-1.5-pro', provider: 'Google', description: 'Multimodal model with 1M context window', contextWindow: 1000000, isDefault: false, enabled: false, capabilities: ['reasoning', 'code', 'multimodal'], costPer1kTokens: 0.0035 },
+  { id: 'model-gpt4o', type: 'public', name: 'gpt-4o', provider: 'OpenAI', description: 'Flagship multimodal model with strong reasoning', contextWindow: 128000, isDefault: true, enabled: true, capabilities: ['reasoning', 'code', 'analysis', 'tool-use'], costPer1kTokens: 0.005 },
+  { id: 'model-claude', type: 'public', name: 'claude-3-5-sonnet', provider: 'Anthropic', description: 'High-performance model with long context', contextWindow: 200000, isDefault: false, enabled: true, capabilities: ['reasoning', 'code', 'analysis', 'long-context'], costPer1kTokens: 0.003 },
+  { id: 'model-mistral', type: 'public', name: 'mistral-large', provider: 'Mistral AI', description: 'High performance model for complex reasoning', contextWindow: 32000, isDefault: false, enabled: false, capabilities: ['reasoning', 'code', 'multilingual'], costPer1kTokens: 0.004 },
+  { id: 'model-gemini', type: 'public', name: 'gemini-1.5-pro', provider: 'Google', description: 'Multimodal model with 1M context window', contextWindow: 1000000, isDefault: false, enabled: false, capabilities: ['reasoning', 'code', 'multimodal'], costPer1kTokens: 0.0035 },
+  { id: 'model-local-llama', type: 'local', name: 'llama-3.1-8b', serverHost: '192.168.1.100', serverPort: 11434, framework: 'ollama', description: 'Llama 3.1 8B for lightweight inference tasks', isDefault: false, enabled: true, capabilities: ['reasoning', 'code'] },
+  { id: 'model-local-qwen', type: 'local', name: 'qwen2.5-72b', serverHost: '192.168.1.101', serverPort: 8000, framework: 'vllm', description: 'Qwen 2.5 72B on internal H100 node, data-privacy workloads', isDefault: false, enabled: true, capabilities: ['reasoning', 'code', 'analysis', 'multilingual'] },
+  { id: 'model-local-deepseek', type: 'local', name: 'deepseek-r1-70b', serverHost: '10.0.1.50', serverPort: 30000, framework: 'sglang', description: 'DeepSeek R1 for advanced reasoning, dev environment only', isDefault: false, enabled: false, capabilities: ['reasoning', 'code', 'analysis'] },
 ]
 
 export const seedPlugins: Plugin[] = [

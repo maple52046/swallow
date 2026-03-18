@@ -23,7 +23,7 @@ export class CreateMissionFromAlertUseCase {
       goal: dto.goal,
       status: 'draft',
       trigger: 'manual',
-      model: defaultModel?.name ?? 'gpt-4o',
+      modelId: defaultModel?.id ?? 'model-gpt4o',
       target: dto.target,
       plan: {
         steps: dto.plugins.map((plugin, i) => ({

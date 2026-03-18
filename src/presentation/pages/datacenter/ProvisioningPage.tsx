@@ -15,7 +15,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { formatRelative } from '@/shared/utils/time'
 
 export function ProvisioningPage() {
-  const { datacenter, missions } = useApp()
+  const { datacenter, missions, platform } = useApp()
   const navigate = useNavigate()
 
   const [images, setImages] = useState<ProvisioningImage[]>([])
@@ -23,6 +23,14 @@ export function ProvisioningPage() {
   const [jobs, setJobs] = useState<ProvisioningJob[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [defaultModelId, setDefaultModelId] = useState('model-gpt4o')
+
+  useEffect(() => {
+    platform.listModels.execute().then((models) => {
+      const fallback = models.find((m) => m.isDefault) ?? models[0]
+      if (fallback) setDefaultModelId(fallback.id)
+    }).catch(() => null)
+  }, [platform.listModels])
 
   useEffect(() => {
     Promise.all([
@@ -41,7 +49,7 @@ export function ProvisioningPage() {
     const mission = await missions.create.execute({
       name: `Provision — ${profile.name}`,
       goal: `Apply provisioning profile "${profile.name}" to target hosts. Configure OS, drivers, and software stack as defined.`,
-      model: 'gpt-4o',
+      modelId: defaultModelId,
       target: 'all-hosts',
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 600 },

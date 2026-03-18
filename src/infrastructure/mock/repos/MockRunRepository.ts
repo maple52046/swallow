@@ -1,6 +1,7 @@
 import type { Run, RunStep } from '@/domain/run/types'
 import type { RunRepository, CreateRunInput, ListRunsFilters } from '@/application/ports/RunRepository'
 import { seedRuns } from '@/infrastructure/mock/data/seedRuns'
+import { seedModels } from '@/infrastructure/mock/data/seedPlatform'
 import { RunSimulationEngine } from '@/infrastructure/mock/simulation/RunSimulationEngine'
 import { lsGet, lsSet } from '@/infrastructure/persistence/localStorage'
 
@@ -8,13 +9,23 @@ function genId() {
   return 'run-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 }
 
+function resolveModelId(modelId: string | undefined, legacyModelName: string | undefined): string {
+  if (modelId) return modelId
+  const byName = legacyModelName ? seedModels.find((m) => m.name === legacyModelName) : undefined
+  return byName?.id ?? seedModels.find((m) => m.isDefault)?.id ?? 'model-gpt4o'
+}
+
 export class MockRunRepository implements RunRepository {
   private store: Map<string, Run>
   private engine: RunSimulationEngine
 
   constructor() {
-    const saved = lsGet<Run[]>('runs', seedRuns)
-    this.store = new Map(saved.map((r) => [r.id, r]))
+    const saved = lsGet<Array<Run & { model?: string }>>('runs', seedRuns as Array<Run & { model?: string }>)
+    const normalized = saved.map((r) => ({
+      ...r,
+      modelId: resolveModelId(r.modelId, r.model),
+    }))
+    this.store = new Map(normalized.map((r) => [r.id, r]))
     this.engine = new RunSimulationEngine(
       (id, partial) => this._updateRun(id, partial),
       (id, stepIdx, partial) => this._updateStep(id, stepIdx, partial),
@@ -75,7 +86,7 @@ export class MockRunRepository implements RunRepository {
       missionName: input.missionName,
       status: 'queued',
       trigger: input.trigger as Run['trigger'],
-      model: input.model,
+      modelId: input.modelId,
       target: input.target,
       goal: input.goal,
       steps: input.stepNames.map((name, i) => ({

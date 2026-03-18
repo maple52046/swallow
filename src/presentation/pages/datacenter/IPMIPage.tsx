@@ -14,11 +14,19 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 
 export function IPMIPage() {
-  const { datacenter, missions } = useApp()
+  const { datacenter, missions, platform } = useApp()
   const navigate = useNavigate()
 
   const [hosts, setHosts] = useState<Host[]>([])
   const [loading, setLoading] = useState(true)
+  const [defaultModelId, setDefaultModelId] = useState('model-gpt4o')
+
+  useEffect(() => {
+    platform.listModels.execute().then((models) => {
+      const fallback = models.find((m) => m.isDefault) ?? models[0]
+      if (fallback) setDefaultModelId(fallback.id)
+    }).catch(() => null)
+  }, [platform.listModels])
 
   useEffect(() => {
     datacenter.listHosts.execute({}).then(setHosts).catch(() => null).finally(() => setLoading(false))
@@ -36,7 +44,7 @@ export function IPMIPage() {
         const mission = await missions.create.execute({
           name: `IPMI ${action} — ${host.name}`,
           goal: `Execute IPMI ${action.toLowerCase()} on host ${host.name} (BMC: ${host.bmcAddress}).`,
-          model: 'gpt-4o',
+          modelId: defaultModelId,
           target: host.id,
           trigger: 'manual',
           plan: { steps: [{ id: 'step-1', order: 1, name: `IPMI ${action}`, description: `Execute ${action} via BMC`, plugin: 'ipmi', action: action.toLowerCase().replace(' ', '-'), parameters: { address: host.bmcAddress } }], estimatedDurationSeconds: 30 },
@@ -53,7 +61,7 @@ export function IPMIPage() {
     const mission = await missions.create.execute({
       name: `IPMI Sensors — ${host.name}`,
       goal: `Collect all IPMI sensor readings from ${host.name} (BMC: ${host.bmcAddress}). Report temperature, power, fan speeds, and voltage.`,
-      model: 'gpt-4o',
+      modelId: defaultModelId,
       target: host.id,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 60 },

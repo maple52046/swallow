@@ -17,13 +17,21 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { formatRelative } from '@/shared/utils/time'
 
 export function GPUProfilingPage() {
-  const { observability, missions } = useApp()
+  const { observability, missions, platform } = useApp()
   const navigate = useNavigate()
 
   const [profiles, setProfiles] = useState<GPUProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [defaultModelId, setDefaultModelId] = useState('model-gpt4o')
+
+  useEffect(() => {
+    platform.listModels.execute().then((models) => {
+      const fallback = models.find((m) => m.isDefault) ?? models[0]
+      if (fallback) setDefaultModelId(fallback.id)
+    }).catch(() => null)
+  }, [platform.listModels])
 
   const load = useCallback(async () => {
     try {
@@ -42,7 +50,7 @@ export function GPUProfilingPage() {
     const mission = await missions.create.execute({
       name: `GPU Profiling Analysis — ${profile.gpuId}`,
       goal: `Analyze profiling data for GPU ${profile.gpuModel} on ${profile.hostName}. Identify performance bottlenecks and optimization opportunities.`,
-      model: 'gpt-4o',
+      modelId: defaultModelId,
       target: profile.hostId,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 300 },

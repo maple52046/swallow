@@ -1,6 +1,8 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { AppLayout } from './presentation/app/layout/AppLayout'
 import { NotFoundPage } from './presentation/pages/NotFoundPage'
+import { LoginPage } from './presentation/pages/auth/LoginPage'
+import { ForbiddenPage } from './presentation/pages/errors/ForbiddenPage'
 import { OverviewPage } from './presentation/pages/overview/OverviewPage'
 import { MissionsPage } from './presentation/pages/missions/MissionsPage'
 import { MissionDetailPage } from './presentation/pages/missions/MissionDetailPage'
@@ -26,11 +28,30 @@ import { ModelsPage } from './presentation/pages/platform/ModelsPage'
 import { PluginsPage } from './presentation/pages/platform/PluginsPage'
 import { AuditLogPage } from './presentation/pages/platform/AuditLogPage'
 import { SettingsPage } from './presentation/pages/platform/SettingsPage'
+import { UsersPage } from './presentation/pages/users/UsersPage'
+import { ServersPage } from './presentation/pages/servers/ServersPage'
+import { TeamsPage } from './presentation/pages/teams/TeamsPage'
+import { TeamDetailPage } from './presentation/pages/teams/TeamDetailPage'
+import { ProtectedRoute } from './presentation/components/ProtectedRoute'
+import { RoleGuard } from './presentation/components/RoleGuard'
 
 export const router = createBrowserRouter([
+  { path: '/login', element: <LoginPage /> },
+  {
+    path: '/403',
+    element: (
+      <ProtectedRoute>
+        <ForbiddenPage />
+      </ProtectedRoute>
+    ),
+  },
   {
     path: '/',
-    element: <AppLayout />,
+    element: (
+      <ProtectedRoute>
+        <AppLayout />
+      </ProtectedRoute>
+    ),
     children: [
       { index: true, element: <OverviewPage /> },
       { path: 'missions', element: <MissionsPage /> },
@@ -56,8 +77,40 @@ export const router = createBrowserRouter([
       { path: 'platform/models', element: <ModelsPage /> },
       { path: 'platform/plugins', element: <PluginsPage /> },
       { path: 'platform/audit', element: <AuditLogPage /> },
+      {
+        path: 'users',
+        element: (
+          <RoleGuard allowedRoles={['admin']}>
+            <UsersPage />
+          </RoleGuard>
+        ),
+      },
+      { path: 'servers', element: <ServersPage /> },
+      {
+        path: 'teams',
+        element: (
+          <RoleGuard allowedRoles={['admin']}>
+            <TeamsPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'teams/:id',
+        element: (
+          <RoleGuard allowedRoles={['admin']}>
+            <TeamDetailPage />
+          </RoleGuard>
+        ),
+      },
       { path: 'settings', element: <SettingsPage /> },
     ],
   },
-  { path: '*', element: <NotFoundPage /> },
+  {
+    path: '*',
+    element: (
+      <ProtectedRoute>
+        <NotFoundPage />
+      </ProtectedRoute>
+    ),
+  },
 ])

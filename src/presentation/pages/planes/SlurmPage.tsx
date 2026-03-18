@@ -14,11 +14,19 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 
 export function SlurmPage() {
-  const { planes, missions } = useApp()
+  const { planes, missions, platform } = useApp()
   const navigate = useNavigate()
 
   const [clusters, setClusters] = useState<SlurmCluster[]>([])
   const [loading, setLoading] = useState(true)
+  const [defaultModelId, setDefaultModelId] = useState('model-gpt4o')
+
+  useEffect(() => {
+    platform.listModels.execute().then((models) => {
+      const fallback = models.find((m) => m.isDefault) ?? models[0]
+      if (fallback) setDefaultModelId(fallback.id)
+    }).catch(() => null)
+  }, [platform.listModels])
 
   useEffect(() => {
     planes.list.execute().then((result) => {
@@ -35,7 +43,7 @@ export function SlurmPage() {
     const mission = await missions.create.execute({
       name: `Slurm ${action} — ${cluster.name}`,
       goal: goalMap[action] ?? `Execute ${action} on Slurm cluster ${cluster.name}`,
-      model: 'gpt-4o',
+      modelId: defaultModelId,
       target: cluster.id,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 120 },

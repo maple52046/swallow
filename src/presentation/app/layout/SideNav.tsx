@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { NavLink, ScrollArea, Stack, Text, ThemeIcon, Collapse, UnstyledButton, Group, Badge } from '@mantine/core'
+import { Divider, NavLink, ScrollArea, Stack, Text, ThemeIcon, Collapse, UnstyledButton, Group, Badge } from '@mantine/core'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   IconLayoutDashboard, IconRocket, IconPlayerPlay, IconCpu, IconAlertTriangle,
   IconChartBar, IconServer, IconBuildingWarehouse, IconKey, IconTerminal2,
   IconNetwork, IconDatabase, IconServer2, IconSitemap, IconBrain,
   IconPuzzle, IconClipboardList, IconSettings, IconChevronDown, IconChevronRight,
-  IconPlus, IconList,
+  IconPlus, IconList, IconUsers, IconBuildingCommunity,
 } from '@tabler/icons-react'
 import { t } from '@/presentation/app/i18n'
+import { useAuth, type UserRole } from '@/presentation/contexts/AuthContext'
 
 interface NavItem {
   label: string
@@ -16,27 +17,18 @@ interface NavItem {
   icon?: React.ReactNode
   children?: NavItem[]
   badge?: string
+  allowedRoles?: UserRole[]
+  divider?: boolean
 }
 
 const NAV: NavItem[] = [
   { label: t('nav.overview'), path: '/', icon: <IconLayoutDashboard size={16} /> },
-  {
-    label: t('nav.missions'), icon: <IconRocket size={16} />,
-    children: [
-      { label: t('nav.allMissions'), path: '/missions', icon: <IconList size={14} /> },
-      { label: t('nav.newMission'), path: '/missions/new', icon: <IconPlus size={14} /> },
-    ],
-  },
-  { label: t('nav.runs'), path: '/runs', icon: <IconPlayerPlay size={16} /> },
-  {
-    label: t('nav.observability'), icon: <IconCpu size={16} />,
-    children: [
-      { label: t('nav.gpuMetrics'), path: '/observability/gpu-metrics', icon: <IconCpu size={14} /> },
-      { label: t('nav.gpuProfiling'), path: '/observability/gpu-profiling', icon: <IconChartBar size={14} /> },
-      { label: t('nav.alerts'), path: '/observability/alerts', icon: <IconAlertTriangle size={14} />, badge: 'hot' },
-      { label: t('nav.dashboards'), path: '/observability/dashboards', icon: <IconChartBar size={14} /> },
-    ],
-  },
+  { label: '__divider_1__', divider: true },
+  { label: 'Servers', path: '/servers', icon: <IconServer size={16} /> },
+  { label: '__divider_2__', divider: true },
+  { label: 'Teams', path: '/teams', icon: <IconBuildingCommunity size={16} />, allowedRoles: ['admin'] },
+  { label: 'Users', path: '/users', icon: <IconUsers size={16} />, allowedRoles: ['admin'] },
+  { label: '__divider_3__', divider: true },
   {
     label: t('nav.datacenter'), icon: <IconBuildingWarehouse size={16} />,
     children: [
@@ -46,6 +38,15 @@ const NAV: NavItem[] = [
       { label: t('nav.ipmi'), path: '/datacenter/ipmi', icon: <IconTerminal2 size={14} /> },
       { label: t('nav.networking'), path: '/datacenter/networking', icon: <IconNetwork size={14} /> },
       { label: t('nav.storage'), path: '/datacenter/storage', icon: <IconDatabase size={14} /> },
+    ],
+  },
+  {
+    label: t('nav.observability'), icon: <IconCpu size={16} />,
+    children: [
+      { label: t('nav.gpuMetrics'), path: '/observability/gpu-metrics', icon: <IconCpu size={14} /> },
+      { label: t('nav.gpuProfiling'), path: '/observability/gpu-profiling', icon: <IconChartBar size={14} /> },
+      { label: t('nav.alerts'), path: '/observability/alerts', icon: <IconAlertTriangle size={14} />, badge: 'hot' },
+      { label: t('nav.dashboards'), path: '/observability/dashboards', icon: <IconChartBar size={14} /> },
     ],
   },
   {
@@ -66,7 +67,32 @@ const NAV: NavItem[] = [
     ],
   },
   { label: t('nav.settings'), path: '/settings', icon: <IconSettings size={16} /> },
+  {
+    label: t('nav.missions'), icon: <IconRocket size={16} />,
+    children: [
+      { label: t('nav.allMissions'), path: '/missions', icon: <IconList size={14} /> },
+      { label: t('nav.newMission'), path: '/missions/new', icon: <IconPlus size={14} /> },
+    ],
+  },
+  { label: t('nav.runs'), path: '/runs', icon: <IconPlayerPlay size={16} /> },
 ]
+
+function isRoleAllowed(item: NavItem, role: UserRole | undefined) {
+  if (!item.allowedRoles || item.allowedRoles.length === 0) return true
+  if (!role) return false
+  return item.allowedRoles.includes(role)
+}
+
+function filterNavByRole(items: NavItem[], role: UserRole | undefined): NavItem[] {
+  return items
+    .filter((item) => item.divider || isRoleAllowed(item, role))
+    .map((item) => {
+      if (!item.children) return item
+      const filteredChildren = filterNavByRole(item.children, role)
+      return { ...item, children: filteredChildren }
+    })
+    .filter((item) => !item.children || item.children.length > 0 || !!item.path || !!item.divider)
+}
 
 function NavSection({ item, depth = 0 }: { item: NavItem; depth?: number }) {
   const location = useLocation()
@@ -138,12 +164,19 @@ function NavSection({ item, depth = 0 }: { item: NavItem; depth?: number }) {
 }
 
 export function SideNav() {
+  const { currentUser } = useAuth()
+  const visibleNav = filterNavByRole(NAV, currentUser?.role)
+
   return (
     <ScrollArea h="100%" type="scroll">
       <Stack gap={2} p="xs">
-        {NAV.map((item) => (
-          <NavSection key={item.label} item={item} />
-        ))}
+        {visibleNav.map((item) =>
+          item.divider ? (
+            <Divider key={item.label} my={4} />
+          ) : (
+            <NavSection key={item.label} item={item} />
+          ),
+        )}
       </Stack>
     </ScrollArea>
   )

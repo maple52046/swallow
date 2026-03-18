@@ -1,0 +1,91 @@
+import type { Server } from '@/domain/server/types'
+
+const minsAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString()
+const daysAgo = (d: number) => new Date(Date.now() - d * 86400 * 1000).toISOString()
+
+export const seedServers: Server[] = [
+  {
+    id: 'srv-001', hostname: 'gpu-node-001', status: 'live',
+    ip: '10.0.1.11', cpuCores: 96, ramGB: 512,
+    gpuType: 'NVIDIA A100 80GB', gpuCount: 8,
+    ownerTeamId: 'team-ai', ownerUserId: null,
+    lastSeenAt: minsAgo(1), createdAt: daysAgo(90), updatedAt: minsAgo(1),
+  },
+  {
+    id: 'srv-002', hostname: 'gpu-node-002', status: 'live',
+    ip: '10.0.1.12', cpuCores: 96, ramGB: 512,
+    gpuType: 'NVIDIA A100 80GB', gpuCount: 8,
+    ownerTeamId: 'team-ai', ownerUserId: null,
+    lastSeenAt: minsAgo(2), createdAt: daysAgo(90), updatedAt: minsAgo(2),
+  },
+  {
+    id: 'srv-003', hostname: 'gpu-node-003', status: 'warning',
+    ip: '10.0.1.13', cpuCores: 64, ramGB: 256,
+    gpuType: 'NVIDIA H100 80GB', gpuCount: 4,
+    ownerTeamId: 'team-research', ownerUserId: null,
+    lastSeenAt: minsAgo(5), createdAt: daysAgo(60), updatedAt: minsAgo(5),
+  },
+  {
+    id: 'srv-004', hostname: 'gpu-node-004', status: 'live',
+    ip: '10.0.1.14', cpuCores: 128, ramGB: 1024,
+    gpuType: 'NVIDIA H100 80GB', gpuCount: 8,
+    ownerTeamId: null, ownerUserId: 'user-owner',
+    lastSeenAt: minsAgo(1), createdAt: daysAgo(45), updatedAt: minsAgo(1),
+  },
+  {
+    id: 'srv-005', hostname: 'gpu-node-005', status: 'error',
+    ip: '10.0.1.15', cpuCores: 64, ramGB: 256,
+    gpuType: 'AMD MI300X', gpuCount: 4,
+    ownerTeamId: 'team-infra', ownerUserId: null,
+    lastSeenAt: minsAgo(30), createdAt: daysAgo(30), updatedAt: minsAgo(30),
+  },
+  {
+    id: 'srv-006', hostname: 'cpu-node-001', status: 'live',
+    ip: '10.0.2.11', cpuCores: 192, ramGB: 2048,
+    gpuType: '', gpuCount: 0,
+    ownerTeamId: 'team-infra', ownerUserId: null,
+    lastSeenAt: minsAgo(3), createdAt: daysAgo(120), updatedAt: minsAgo(3),
+  },
+  {
+    id: 'srv-007', hostname: 'gpu-node-006', status: 'maintain',
+    ip: '10.0.1.16', cpuCores: 96, ramGB: 512,
+    gpuType: 'NVIDIA A100 80GB', gpuCount: 8,
+    ownerTeamId: null, ownerUserId: null,
+    lastSeenAt: minsAgo(120), createdAt: daysAgo(80), updatedAt: minsAgo(120),
+  },
+  {
+    id: 'srv-008', hostname: 'gpu-node-007', status: 'live',
+    ip: '10.0.1.17', cpuCores: 64, ramGB: 256,
+    gpuType: 'NVIDIA L40S', gpuCount: 4,
+    ownerTeamId: null, ownerUserId: null,
+    lastSeenAt: minsAgo(2), createdAt: daysAgo(20), updatedAt: minsAgo(2),
+  },
+  {
+    id: 'srv-009', hostname: 'gpu-node-008', status: 'live',
+    ip: '10.0.1.18', cpuCores: 64, ramGB: 256,
+    gpuType: 'NVIDIA L40S', gpuCount: 4,
+    ownerTeamId: null, ownerUserId: null,
+    lastSeenAt: minsAgo(2), createdAt: daysAgo(20), updatedAt: minsAgo(2),
+  },
+  {
+    id: 'srv-010', hostname: 'cpu-node-002', status: 'offline',
+    ip: '10.0.2.12', cpuCores: 96, ramGB: 512,
+    gpuType: '', gpuCount: 0,
+    ownerTeamId: null, ownerUserId: null,
+    lastSeenAt: daysAgo(2), createdAt: daysAgo(100), updatedAt: daysAgo(2),
+  },
+  {
+    id: 'srv-011', hostname: 'gpu-node-009', status: 'live',
+    ip: '10.0.1.19', cpuCores: 96, ramGB: 512,
+    gpuType: 'AMD MI300X', gpuCount: 8,
+    ownerTeamId: 'team-research', ownerUserId: null,
+    lastSeenAt: minsAgo(1), createdAt: daysAgo(15), updatedAt: minsAgo(1),
+  },
+  {
+    id: 'srv-012', hostname: 'gpu-node-010', status: 'warning',
+    ip: '10.0.1.20', cpuCores: 64, ramGB: 256,
+    gpuType: 'NVIDIA H100 80GB', gpuCount: 4,
+    ownerTeamId: null, ownerUserId: null,
+    lastSeenAt: minsAgo(10), createdAt: daysAgo(10), updatedAt: minsAgo(10),
+  },
+]

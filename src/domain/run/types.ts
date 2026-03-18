@@ -27,7 +27,7 @@ export interface Run {
   missionName: string
   status: RunStatus
   trigger: RunTrigger
-  model: string
+  modelId: string
   target: string
   goal: string
   steps: RunStep[]

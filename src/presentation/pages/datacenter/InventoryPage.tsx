@@ -19,7 +19,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 
 export function InventoryPage() {
-  const { datacenter, missions } = useApp()
+  const { datacenter, missions, platform } = useApp()
   const navigate = useNavigate()
 
   const [hosts, setHosts] = useState<Host[]>([])
@@ -29,6 +29,14 @@ export function InventoryPage() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [defaultModelId, setDefaultModelId] = useState('model-gpt4o')
+
+  useEffect(() => {
+    platform.listModels.execute().then((models) => {
+      const fallback = models.find((m) => m.isDefault) ?? models[0]
+      if (fallback) setDefaultModelId(fallback.id)
+    }).catch(() => null)
+  }, [platform.listModels])
 
   const load = useCallback(async () => {
     try {
@@ -53,7 +61,7 @@ export function InventoryPage() {
     const mission = await missions.create.execute({
       name: `IPMI Sensors — ${host.name}`,
       goal: `Collect IPMI sensor data from host ${host.name} (BMC: ${host.bmcAddress}). Check temperature, power, fans.`,
-      model: 'gpt-4o',
+      modelId: defaultModelId,
       target: host.id,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 60 },

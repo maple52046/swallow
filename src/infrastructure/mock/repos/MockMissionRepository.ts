@@ -1,16 +1,27 @@
 import type { Mission } from '@/domain/mission/types'
 import type { MissionRepository, ListMissionsFilters } from '@/application/ports/MissionRepository'
 import { seedMissions } from '@/infrastructure/mock/data/seedMissions'
+import { seedModels } from '@/infrastructure/mock/data/seedPlatform'
 import { lsGet, lsSet } from '@/infrastructure/persistence/localStorage'
 
 function genId() { return 'mission-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
+
+function resolveModelId(modelId: string | undefined, legacyModelName: string | undefined): string {
+  if (modelId) return modelId
+  const byName = legacyModelName ? seedModels.find((m) => m.name === legacyModelName) : undefined
+  return byName?.id ?? seedModels.find((m) => m.isDefault)?.id ?? 'model-gpt4o'
+}
 
 export class MockMissionRepository implements MissionRepository {
   private store: Map<string, Mission>
 
   constructor() {
-    const saved = lsGet<Mission[]>('missions', seedMissions)
-    this.store = new Map(saved.map((m) => [m.id, m]))
+    const saved = lsGet<Array<Mission & { model?: string }>>('missions', seedMissions as Array<Mission & { model?: string }>)
+    const normalized = saved.map((m) => ({
+      ...m,
+      modelId: resolveModelId(m.modelId, m.model),
+    }))
+    this.store = new Map(normalized.map((m) => [m.id, m]))
   }
 
   private save() { lsSet('missions', Array.from(this.store.values())) }

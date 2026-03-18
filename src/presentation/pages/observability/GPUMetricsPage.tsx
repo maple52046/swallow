@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   SimpleGrid, Card, Text, Group, Select, TextInput, Stack,
-  Table, ActionIcon, Tooltip, Progress, ThemeIcon, Button, RingProgress, Center,
+  Table, ActionIcon, Tooltip, Progress, ThemeIcon, Button, RingProgress, Center, SegmentedControl,
 } from '@mantine/core'
 import { AreaChart } from '@mantine/charts'
 import { IconSearch, IconRefresh, IconAlertCircle, IconActivity, IconSparkles } from '@tabler/icons-react'
@@ -17,12 +17,22 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 
 type GPUWithMetrics = GPUDevice & { metrics: GPUMetrics }
+type TempUnit = 'C' | 'F'
 
 function healthColor(health: string) {
   if (health === 'healthy') return 'green'
   if (health === 'degraded') return 'yellow'
   if (health === 'critical') return 'red'
   return 'gray'
+}
+
+function toDisplayTemp(celsius: number, unit: TempUnit): number {
+  if (unit === 'F') return Math.round((celsius * 9 / 5 + 32) * 10) / 10
+  return Math.round(celsius * 10) / 10
+}
+
+function tempUnitLabel(unit: TempUnit): string {
+  return unit === 'C' ? '°C' : '°F'
 }
 
 function GaugeCard({ label, value, max, unit, color }: { label: string; value: number; max: number; unit: string; color: string }) {
@@ -37,7 +47,7 @@ function GaugeCard({ label, value, max, unit, color }: { label: string; value: n
 }
 
 export function GPUMetricsPage() {
-  const { observability, missions } = useApp()
+  const { observability, missions, platform } = useApp()
   const navigate = useNavigate()
 
   const [gpus, setGpus] = useState<GPUWithMetrics[]>([])
@@ -48,6 +58,14 @@ export function GPUMetricsPage() {
   const [healthFilter, setHealthFilter] = useState<string | null>(null)
   const [hostFilter, setHostFilter] = useState<string | null>(null)
   const [history, setHistory] = useState<{ time: string; util: number; temp: number; power: number }[]>([])
+  const [refreshInterval, setRefreshInterval] = useState<number | null>(5000)
+  const [tempUnit, setTempUnit] = useState<TempUnit>('C')
+  const [defaultModelId, setDefaultModelId] = useState('model-gpt4o')
+
+  // Use a ref to read `selected` inside load() without adding it as a dependency,
+  // which would cause an infinite re-render loop (load → setSelected → new load → ...).
+  const selectedRef = useRef<GPUWithMetrics | null>(null)
+  selectedRef.current = selected
 
   const load = useCallback(async () => {
     try {
@@ -73,9 +91,9 @@ export function GPUMetricsPage() {
         },
       }))
       setGpus(merged)
-      if (!selected && merged.length > 0) setSelected(merged[0])
-      else if (selected) {
-        const updated = merged.find((g) => g.id === selected.id)
+      if (!selectedRef.current && merged.length > 0) setSelected(merged[0])
+      else if (selectedRef.current) {
+        const updated = merged.find((g) => g.id === selectedRef.current!.id)
         if (updated) setSelected(updated)
       }
     } catch (e) {
@@ -83,13 +101,21 @@ export function GPUMetricsPage() {
     } finally {
       setLoading(false)
     }
-  }, [observability.listGPUDevices, observability.getGPUMetrics, selected])
+  }, [observability.listGPUDevices, observability.getGPUMetrics])
+
+  useEffect(() => {
+    platform.listModels.execute().then((models) => {
+      const fallback = models.find((m) => m.isDefault) ?? models[0]
+      if (fallback) setDefaultModelId(fallback.id)
+    }).catch(() => null)
+  }, [platform.listModels])
 
   useEffect(() => {
     void load()
-    const iv = setInterval(() => void load(), 3000)
+    if (refreshInterval === null) return
+    const iv = setInterval(() => void load(), refreshInterval)
     return () => clearInterval(iv)
-  }, [load])
+  }, [load, refreshInterval])
 
   useEffect(() => {
     if (!selected) return
@@ -110,7 +136,7 @@ export function GPUMetricsPage() {
     const mission = await missions.create.execute({
       name: `GPU Diagnostics — ${selected.model}`,
       goal: `Run comprehensive diagnostics on GPU ${selected.model} (host: ${selected.hostId}). Check ECC errors, temperature, throttling, and XID errors.`,
-      model: 'gpt-4o',
+      modelId: defaultModelId,
       target: selected.hostId,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 120 },
@@ -145,7 +171,8 @@ export function GPUMetricsPage() {
         }
       />
 
-      <Group gap="sm" mb="md">
+      <Group gap="sm" mb="md" justify="space-between">
+        <Group gap="sm">
         <TextInput
           placeholder={t('common.search')}
           leftSection={<IconSearch size={14} />}
@@ -174,6 +201,32 @@ export function GPUMetricsPage() {
           clearable
           w={160}
         />
+        </Group>
+        <Group gap="xs">
+          <SegmentedControl
+            value={tempUnit}
+            onChange={(v) => setTempUnit(v as TempUnit)}
+            data={[
+              { value: 'C', label: '°C' },
+              { value: 'F', label: '°F' },
+            ]}
+            size="xs"
+          />
+          <SegmentedControl
+            value={refreshInterval === null ? 'manual' : String(refreshInterval)}
+            onChange={(v) => setRefreshInterval(v === 'manual' ? null : Number(v))}
+            data={[
+              { value: 'manual', label: 'Manual' },
+              { value: '1000', label: '1s' },
+              { value: '5000', label: '5s' },
+              { value: '10000', label: '10s' },
+              { value: '30000', label: '30s' },
+              { value: '60000', label: '1 min' },
+              { value: '300000', label: '5 min' },
+            ]}
+            size="xs"
+          />
+        </Group>
       </Group>
 
       <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
@@ -183,45 +236,49 @@ export function GPUMetricsPage() {
           ) : (
             <Card withBorder>
               <Text fw={500} mb="sm">{filtered.length} GPUs</Text>
-              <Stack gap="xs" style={{ maxHeight: 500, overflow: 'auto' }}>
+              <Stack gap="sm" style={{ maxHeight: 600, overflow: 'auto' }}>
                 {filtered.map((gpu) => (
                   <Card
                     key={gpu.id}
                     withBorder
-                    p="sm"
-                    style={{ cursor: 'pointer', borderColor: selected?.id === gpu.id ? 'var(--mantine-color-blue-5)' : undefined }}
+                    p="lg"
+                    style={{ cursor: 'pointer', minHeight: 170, borderColor: selected?.id === gpu.id ? 'var(--mantine-color-blue-5)' : undefined }}
                     onClick={() => setSelected(gpu)}
                   >
-                    <Group justify="space-between" mb="xs">
-                      <Group gap="xs">
-                        <ThemeIcon size="sm" color={healthColor(gpu.health)} variant="light">
-                          <IconActivity size={12} />
+                    <Group justify="space-between" mb="md">
+                      <Group gap="sm">
+                        <ThemeIcon size="lg" color={healthColor(gpu.health)} variant="light">
+                          <IconActivity size={16} />
                         </ThemeIcon>
-                        <Text size="sm" fw={500}>{gpu.model}</Text>
+                        <Stack gap={2}>
+                          <Text size="md" fw={600}>{gpu.model}</Text>
+                          <Text size="xs" c="dimmed">{gpu.hostName} · {gpu.vendor.toUpperCase()}</Text>
+                        </Stack>
                       </Group>
                       <StatusBadge status={gpu.health} />
                     </Group>
-                    <Group gap="xs">
-                      <Text size="xs" c="dimmed">{gpu.hostName}</Text>
-                      <Text size="xs" c="dimmed">·</Text>
-                      <Text size="xs" c="dimmed">{gpu.vendor.toUpperCase()}</Text>
-                    </Group>
-                    <SimpleGrid cols={4} mt="xs">
-                      <Stack gap={0}>
+                    <SimpleGrid cols={4} mt="sm" spacing="md">
+                      <Stack gap={4}>
                         <Text size="xs" c="dimmed">{t('gpu.utilization')}</Text>
-                        <Text size="sm" fw={500}>{Math.round(gpu.metrics.utilization)}%</Text>
+                        <Text size="sm" fw={600}>{Math.round(gpu.metrics.utilization)}%</Text>
+                        <Progress value={Math.round(gpu.metrics.utilization)} size="sm" color="blue" />
                       </Stack>
-                      <Stack gap={0}>
+                      <Stack gap={4}>
                         <Text size="xs" c="dimmed">{t('gpu.temperature')}</Text>
-                        <Text size="sm" fw={500} c={gpu.metrics.temperatureC > 80 ? 'red' : undefined}>{gpu.metrics.temperatureC}°C</Text>
+                        <Text size="sm" fw={600} c={gpu.metrics.temperatureC > 80 ? 'red' : undefined}>
+                          {toDisplayTemp(gpu.metrics.temperatureC, tempUnit)}{tempUnitLabel(tempUnit)}
+                        </Text>
+                        <Progress value={(gpu.metrics.temperatureC / 100) * 100} size="sm" color={gpu.metrics.temperatureC > 80 ? 'red' : 'orange'} />
                       </Stack>
-                      <Stack gap={0}>
+                      <Stack gap={4}>
                         <Text size="xs" c="dimmed">{t('gpu.powerDraw')}</Text>
-                        <Text size="sm" fw={500}>{Math.round(gpu.metrics.powerDrawW)}W</Text>
+                        <Text size="sm" fw={600}>{Math.round(gpu.metrics.powerDrawW)}W</Text>
+                        <Progress value={(gpu.metrics.powerDrawW / gpu.metrics.powerLimitW) * 100} size="sm" color="violet" />
                       </Stack>
-                      <Stack gap={0}>
+                      <Stack gap={4}>
                         <Text size="xs" c="dimmed">VRAM</Text>
-                        <Text size="sm" fw={500}>{Math.round(gpu.metrics.memoryUsedMB / 1024)}G</Text>
+                        <Text size="sm" fw={600}>{Math.round(gpu.metrics.memoryUsedMB / 1024)}G / {Math.round(gpu.metrics.memoryTotalMB / 1024)}G</Text>
+                        <Progress value={(gpu.metrics.memoryUsedMB / gpu.metrics.memoryTotalMB) * 100} size="sm" color="cyan" />
                       </Stack>
                     </SimpleGrid>
                   </Card>
@@ -267,7 +324,13 @@ export function GPUMetricsPage() {
                   />
                 </Center>
                 <Stack gap="xs">
-                  <GaugeCard label={t('gpu.temperature')} value={selected.metrics.temperatureC} max={100} unit="°C" color={selected.metrics.temperatureC > 80 ? 'red' : 'orange'} />
+                  <GaugeCard
+                    label={t('gpu.temperature')}
+                    value={toDisplayTemp(selected.metrics.temperatureC, tempUnit)}
+                    max={toDisplayTemp(100, tempUnit)}
+                    unit={tempUnitLabel(tempUnit)}
+                    color={selected.metrics.temperatureC > 80 ? 'red' : 'orange'}
+                  />
                   <GaugeCard label={t('gpu.powerDraw')} value={Math.round(selected.metrics.powerDrawW)} max={selected.metrics.powerLimitW} unit="W" color="violet" />
                   <GaugeCard label={t('gpu.memoryUsed')} value={Math.round(selected.metrics.memoryUsedMB / 1024)} max={Math.round(selected.metrics.memoryTotalMB / 1024)} unit="GB" color="cyan" />
                 </Stack>
@@ -302,11 +365,14 @@ export function GPUMetricsPage() {
                 <Text size="sm" fw={500} mb="sm">Live Metrics (last 30 samples)</Text>
                 <AreaChart
                   h={200}
-                  data={history}
+                  data={history.map((h) => ({
+                    ...h,
+                    temp: toDisplayTemp(h.temp, tempUnit),
+                  }))}
                   dataKey="time"
                   series={[
                     { name: 'util', label: 'Utilization %', color: 'blue' },
-                    { name: 'temp', label: 'Temperature °C', color: 'orange' },
+                    { name: 'temp', label: `Temperature ${tempUnitLabel(tempUnit)}`, color: 'orange' },
                   ]}
                   curveType="monotone"
                   withDots={false}

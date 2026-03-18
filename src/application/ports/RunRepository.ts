@@ -13,7 +13,7 @@ export interface CreateRunInput {
   missionId: string
   missionName: string
   trigger: string
-  model: string
+  modelId: string
   target: string
   goal: string
   stepNames: string[]
