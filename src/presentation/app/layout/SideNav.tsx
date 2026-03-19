@@ -3,7 +3,7 @@ import { Divider, NavLink, ScrollArea, Stack, Text, ThemeIcon, Collapse, Unstyle
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   IconLayoutDashboard, IconRocket, IconPlayerPlay, IconCpu, IconAlertTriangle,
-  IconChartBar, IconServer, IconBuildingWarehouse, IconKey, IconTerminal2,
+  IconChartBar, IconServer, IconBuildingWarehouse, IconTerminal2,
   IconNetwork, IconDatabase, IconServer2, IconSitemap, IconBrain,
   IconPuzzle, IconClipboardList, IconChevronDown, IconChevronRight,
   IconPlus, IconList, IconUsers, IconBuildingCommunity,
@@ -34,7 +34,6 @@ const NAV: NavItem[] = [
     children: [
       { label: t('nav.inventory'), path: '/datacenter/inventory', icon: <IconServer size={14} /> },
       { label: t('nav.provisioning'), path: '/datacenter/provisioning', icon: <IconBuildingWarehouse size={14} /> },
-      { label: t('nav.access'), path: '/datacenter/access', icon: <IconKey size={14} /> },
       { label: t('nav.ipmi'), path: '/datacenter/ipmi', icon: <IconTerminal2 size={14} /> },
       { label: t('nav.networking'), path: '/datacenter/networking', icon: <IconNetwork size={14} /> },
       { label: t('nav.storage'), path: '/datacenter/storage', icon: <IconDatabase size={14} /> },

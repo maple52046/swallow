@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
-  Table, Badge, Group, Text, Tabs, Button, Card, Stack, ThemeIcon, Modal, TextInput, Select, NumberInput,
+  Table, Badge, Group, Text, Button, Stack, Modal, TextInput, Select, NumberInput,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconKey, IconLink, IconPlus } from '@tabler/icons-react'
+import { IconLink, IconPlus } from '@tabler/icons-react'
 import { useApp } from '@/di/AppProvider'
-import type { Connection, SSHKey } from '@/domain/asset/types'
+import type { Connection } from '@/domain/asset/types'
 import { t } from '@/presentation/app/i18n'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -17,7 +17,6 @@ export function AccessPage() {
   const { datacenter } = useApp()
 
   const [connections, setConnections] = useState<Connection[]>([])
-  const [sshKeys, setSshKeys] = useState<SSHKey[]>([])
   const [loading, setLoading] = useState(true)
   const [addOpened, { open: openAdd, close: closeAdd }] = useDisclosure(false)
 
@@ -29,13 +28,10 @@ export function AccessPage() {
   const [saving, setSaving] = useState(false)
 
   const load = () => {
-    Promise.all([
-      datacenter.listConnections.execute(),
-      datacenter.listSSHKeys.execute(),
-    ]).then(([conns, keys]) => {
-      setConnections(conns)
-      setSshKeys(keys)
-    }).catch(() => null).finally(() => setLoading(false))
+    datacenter.listConnections.execute()
+      .then((conns) => { setConnections(conns) })
+      .catch(() => null)
+      .finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
@@ -67,7 +63,7 @@ export function AccessPage() {
     <>
       <PageHeader
         title={t('access.title')}
-        subtitle="Manage SSH connections, keys, and access policies"
+        subtitle="Manage SSH connections and access policies"
         actions={
           <Button size="sm" leftSection={<IconPlus size={14} />} onClick={openAdd}>
             {t('access.addConnection')}
@@ -75,79 +71,45 @@ export function AccessPage() {
         }
       />
 
-      <Tabs defaultValue="connections">
-        <Tabs.List mb="md">
-          <Tabs.Tab value="connections" leftSection={<IconLink size={14} />}>
-            {t('access.connections')} ({connections.length})
-          </Tabs.Tab>
-          <Tabs.Tab value="sshkeys" leftSection={<IconKey size={14} />}>
-            {t('access.sshKeys')} ({sshKeys.length})
-          </Tabs.Tab>
-        </Tabs.List>
+      <Group gap="sm" mb="md" align="center">
+        <IconLink size={16} />
+        <Text fw={500}>{t('access.connections')} ({connections.length})</Text>
+      </Group>
 
-        <Tabs.Panel value="connections">
-          {connections.length === 0 ? (
-            <EmptyState message={t('access.empty.connections')} />
-          ) : (
-            <Table highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t('common.name')}</Table.Th>
-                  <Table.Th>Host</Table.Th>
-                  <Table.Th>Port</Table.Th>
-                  <Table.Th>User</Table.Th>
-                  <Table.Th>{t('common.type')}</Table.Th>
-                  <Table.Th>Labels</Table.Th>
-                  <Table.Th>Created</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {connections.map((conn) => (
-                  <Table.Tr key={conn.id}>
-                    <Table.Td><Text size="sm" fw={500}>{conn.name}</Text></Table.Td>
-                    <Table.Td><Text size="sm" ff="mono">{conn.host}</Text></Table.Td>
-                    <Table.Td><Text size="sm">{conn.port}</Text></Table.Td>
-                    <Table.Td><Text size="sm">{conn.username}</Text></Table.Td>
-                    <Table.Td><Badge size="sm" variant="outline">{conn.type}</Badge></Table.Td>
-                    <Table.Td>
-                      <Group gap={4}>
-                        {conn.labels.slice(0, 3).map((l) => <Badge key={l} size="xs" variant="dot">{l}</Badge>)}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td><Text size="sm" c="dimmed">{formatRelative(conn.createdAt)}</Text></Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          )}
-        </Tabs.Panel>
-
-        <Tabs.Panel value="sshkeys">
-          {sshKeys.length === 0 ? (
-            <EmptyState message={t('access.empty.sshKeys')} />
-          ) : (
-            <Stack gap="sm">
-              {sshKeys.map((key) => (
-                <Card key={key.id} withBorder>
-                  <Group justify="space-between">
-                    <Group gap="sm">
-                      <ThemeIcon variant="light"><IconKey size={16} /></ThemeIcon>
-                      <Stack gap={0}>
-                        <Text fw={500}>{key.name}</Text>
-                        <Text size="xs" c="dimmed" ff="mono">{key.fingerprint}</Text>
-                      </Stack>
-                    </Group>
-                    <Group gap="xs">
-                      <Text size="xs" c="dimmed">{key.vaultRef}</Text>
-                      {key.createdAt && <Text size="xs" c="dimmed">{formatRelative(key.createdAt)}</Text>}
-                    </Group>
+      {connections.length === 0 ? (
+        <EmptyState message={t('access.empty.connections')} />
+      ) : (
+        <Table highlightOnHover>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>{t('common.name')}</Table.Th>
+              <Table.Th>Host</Table.Th>
+              <Table.Th>Port</Table.Th>
+              <Table.Th>User</Table.Th>
+              <Table.Th>{t('common.type')}</Table.Th>
+              <Table.Th>Labels</Table.Th>
+              <Table.Th>Created</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {connections.map((conn) => (
+              <Table.Tr key={conn.id}>
+                <Table.Td><Text size="sm" fw={500}>{conn.name}</Text></Table.Td>
+                <Table.Td><Text size="sm" ff="mono">{conn.host}</Text></Table.Td>
+                <Table.Td><Text size="sm">{conn.port}</Text></Table.Td>
+                <Table.Td><Text size="sm">{conn.username}</Text></Table.Td>
+                <Table.Td><Badge size="sm" variant="outline">{conn.type}</Badge></Table.Td>
+                <Table.Td>
+                  <Group gap={4}>
+                    {conn.labels.slice(0, 3).map((l) => <Badge key={l} size="xs" variant="dot">{l}</Badge>)}
                   </Group>
-                </Card>
-              ))}
-            </Stack>
-          )}
-        </Tabs.Panel>
-      </Tabs>
+                </Table.Td>
+                <Table.Td><Text size="sm" c="dimmed">{formatRelative(conn.createdAt)}</Text></Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      )}
 
       <Modal opened={addOpened} onClose={closeAdd} title={t('access.addConnection')}>
         <Stack gap="md">

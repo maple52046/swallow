@@ -15,7 +15,6 @@ import { AlertsPage } from './presentation/pages/observability/AlertsPage'
 import { DashboardsPage } from './presentation/pages/observability/DashboardsPage'
 import { InventoryPage } from './presentation/pages/datacenter/InventoryPage'
 import { ProvisioningPage } from './presentation/pages/datacenter/ProvisioningPage'
-import { AccessPage } from './presentation/pages/datacenter/AccessPage'
 import { IPMIPage } from './presentation/pages/datacenter/IPMIPage'
 import { NetworkingPage } from './presentation/pages/datacenter/NetworkingPage'
 import { StoragePage } from './presentation/pages/datacenter/StoragePage'
@@ -65,7 +64,6 @@ export const router = createBrowserRouter([
       { path: 'observability/dashboards', element: <DashboardsPage /> },
       { path: 'datacenter/inventory', element: <InventoryPage /> },
       { path: 'datacenter/provisioning', element: <ProvisioningPage /> },
-      { path: 'datacenter/access', element: <AccessPage /> },
       { path: 'datacenter/ipmi', element: <IPMIPage /> },
       { path: 'datacenter/networking', element: <NetworkingPage /> },
       { path: 'datacenter/storage', element: <StoragePage /> },

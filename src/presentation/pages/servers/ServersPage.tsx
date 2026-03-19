@@ -313,7 +313,8 @@ export function ServersPage() {
           onChange={(e) => setGpuSearch(e.target.value)}
           w={160}
         />
-        <Popover position="bottom-end" withinPortal={false} style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto' }}>
+        <Popover position="bottom-end" withinPortal={false}>
           <Popover.Target>
             <Button variant="default" size="sm" leftSection={<IconColumns size={14} />}>
               Columns
@@ -333,6 +334,7 @@ export function ServersPage() {
             </Stack>
           </Popover.Dropdown>
         </Popover>
+        </div>
       </Group>
 
       {filtered.length === 0 ? (
