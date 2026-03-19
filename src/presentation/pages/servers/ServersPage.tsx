@@ -1,13 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ActionIcon, Badge, Button, Checkbox, Group, Select, Stack,
+  ActionIcon, Badge, Button, Checkbox, Group, Popover, Select, Stack,
   Table, Text, TextInput, Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
-  IconBuildingCommunity, IconRefresh, IconSearch,
+  IconBuildingCommunity, IconColumns, IconRefresh, IconSearch,
   IconUserCheck, IconPower, IconRotate, IconTool, IconTerminal2,
 } from '@tabler/icons-react'
+import { useLocation } from 'react-router-dom'
+
+// ─── Column visibility config ─────────────────────────────────────────────────
+
+const OPTIONAL_COLUMNS = [
+  { key: 'allocation', label: 'Allocation' },
+  { key: 'ip',         label: 'IP' },
+  { key: 'cpu',        label: 'CPU' },
+  { key: 'ramGb',      label: 'RAM (GB)' },
+  { key: 'gpu',        label: 'GPU' },
+  { key: 'lastSeen',   label: 'Last Seen' },
+] as const
+
+type ColKey = typeof OPTIONAL_COLUMNS[number]['key']
+type ColVisibility = Record<ColKey, boolean>
+
+const DEFAULT_VISIBILITY: ColVisibility = {
+  allocation: true, ip: true, cpu: true, ramGb: true, gpu: true, lastSeen: true,
+}
+const LS_COL_KEY = 'dc-dashboard:servers-col-visibility'
 import { useApp } from '@/di/AppProvider'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import type { Server } from '@/domain/server/types'
@@ -85,19 +105,39 @@ function AllocationBadge({
 export function ServersPage() {
   const { servers, teams } = useApp()
   const { currentUser } = useAuth()
+  const location = useLocation()
+  const navState = (location.state ?? {}) as { statusFilter?: string; allocationSearch?: string }
+
   const [serverList, setServerList] = useState<Server[]>([])
   const [teamList, setTeamList] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string | null>(null)
-  const [allocationSearch, setAllocationSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string | null>(navState.statusFilter ?? null)
+  const [allocationSearch, setAllocationSearch] = useState(navState.allocationSearch ?? '')
   const [selectedServer, setSelectedServer] = useState<Server | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [gpuVendorFilter, setGpuVendorFilter] = useState<string | null>(null)
   const [gpuSearch, setGpuSearch] = useState('')
   const isAdmin = currentUser?.role === 'admin'
+
+  const [colVis, setColVis] = useState<ColVisibility>(() => {
+    try {
+      const raw = localStorage.getItem(LS_COL_KEY)
+      return raw ? { ...DEFAULT_VISIBILITY, ...JSON.parse(raw) } : DEFAULT_VISIBILITY
+    } catch {
+      return DEFAULT_VISIBILITY
+    }
+  })
+
+  const toggleCol = (key: ColKey) => {
+    setColVis((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      localStorage.setItem(LS_COL_KEY, JSON.stringify(next))
+      return next
+    })
+  }
 
   const gpuVendorOptions = useMemo(() => {
     const vendors = new Set<string>()
@@ -273,6 +313,26 @@ export function ServersPage() {
           onChange={(e) => setGpuSearch(e.target.value)}
           w={160}
         />
+        <Popover position="bottom-end" withinPortal={false} style={{ marginLeft: 'auto' }}>
+          <Popover.Target>
+            <Button variant="default" size="sm" leftSection={<IconColumns size={14} />}>
+              Columns
+            </Button>
+          </Popover.Target>
+          <Popover.Dropdown>
+            <Stack gap="xs">
+              {OPTIONAL_COLUMNS.map(({ key, label }) => (
+                <Checkbox
+                  key={key}
+                  label={label}
+                  checked={colVis[key]}
+                  onChange={() => toggleCol(key)}
+                  size="sm"
+                />
+              ))}
+            </Stack>
+          </Popover.Dropdown>
+        </Popover>
       </Group>
 
       {filtered.length === 0 ? (
@@ -291,12 +351,12 @@ export function ServersPage() {
               </Table.Th>
               <Table.Th>Hostname</Table.Th>
               <Table.Th>Status</Table.Th>
-              <Table.Th>Allocation</Table.Th>
-              <Table.Th>IP</Table.Th>
-              <Table.Th>CPU</Table.Th>
-              <Table.Th>RAM (GB)</Table.Th>
-              <Table.Th>GPU</Table.Th>
-              <Table.Th>Last Seen</Table.Th>
+              {colVis.allocation && <Table.Th>Allocation</Table.Th>}
+              {colVis.ip         && <Table.Th>IP</Table.Th>}
+              {colVis.cpu        && <Table.Th>CPU</Table.Th>}
+              {colVis.ramGb      && <Table.Th>RAM (GB)</Table.Th>}
+              {colVis.gpu        && <Table.Th>GPU</Table.Th>}
+              {colVis.lastSeen   && <Table.Th>Last Seen</Table.Th>}
               <Table.Th>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -317,16 +377,20 @@ export function ServersPage() {
                   </Stack>
                 </Table.Td>
                 <Table.Td><ServerStatusBadge status={server.status} /></Table.Td>
-                <Table.Td>
-                  <AllocationBadge server={server} teams={teamList} onClick={() => handleAllocationClick(server)} />
-                </Table.Td>
-                <Table.Td><Text size="sm" ff="mono">{server.ip}</Text></Table.Td>
-                <Table.Td><Text size="sm">{server.cpuCores}</Text></Table.Td>
-                <Table.Td><Text size="sm">{server.ramGB}</Text></Table.Td>
-                <Table.Td>
-                  <GpuBadge gpuType={server.gpuType} gpuCount={server.gpuCount} />
-                </Table.Td>
-                <Table.Td><Text size="xs" c="dimmed">{formatRelative(server.lastSeenAt)}</Text></Table.Td>
+                {colVis.allocation && (
+                  <Table.Td>
+                    <AllocationBadge server={server} teams={teamList} onClick={() => handleAllocationClick(server)} />
+                  </Table.Td>
+                )}
+                {colVis.ip && <Table.Td><Text size="sm" ff="mono">{server.ip}</Text></Table.Td>}
+                {colVis.cpu && <Table.Td><Text size="sm">{server.cpuCores}</Text></Table.Td>}
+                {colVis.ramGb && <Table.Td><Text size="sm">{server.ramGB}</Text></Table.Td>}
+                {colVis.gpu && (
+                  <Table.Td>
+                    <GpuBadge gpuType={server.gpuType} gpuCount={server.gpuCount} />
+                  </Table.Td>
+                )}
+                {colVis.lastSeen && <Table.Td><Text size="xs" c="dimmed">{formatRelative(server.lastSeenAt)}</Text></Table.Td>}
                 <Table.Td>
                   <Group gap={4} wrap="nowrap">
                     <Tooltip label={server.status === 'offline' ? 'Power On' : 'Power Off'}>

@@ -13,8 +13,15 @@ export class MockServerRepository implements ServerRepository {
   private servers: Map<string, Server>
 
   constructor() {
-    const stored = lsGet<Server[]>(LS_KEY, seedServers)
-    this.servers = new Map(stored.map((s) => [s.id, s]))
+    const stored = lsGet<Server[] | null>(LS_KEY, null)
+    if (stored) {
+      // Merge seed defaults for any fields missing in localStorage (e.g. after schema updates)
+      const seedById = new Map(seedServers.map((s) => [s.id, s]))
+      const merged = stored.map((s) => ({ ...seedById.get(s.id), ...s })) as Server[]
+      this.servers = new Map(merged.map((s) => [s.id, s]))
+    } else {
+      this.servers = new Map(seedServers.map((s) => [s.id, s]))
+    }
   }
 
   private persist() {

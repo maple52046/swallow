@@ -7,6 +7,8 @@ export interface Server {
   ip: string
   cpuCores: number
   ramGB: number
+  cpuUsagePct: number
+  ramUsagePct: number
   gpuType: string
   gpuCount: number
   ownerTeamId: string | null

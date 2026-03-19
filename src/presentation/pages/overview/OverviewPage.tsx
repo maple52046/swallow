@@ -1,49 +1,147 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Grid, Card, Text, Group, ThemeIcon, SimpleGrid, Table, Badge, Stack, Timeline, ScrollArea, ActionIcon, Tooltip } from '@mantine/core'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import {
+  Grid, Card, Text, Group, ThemeIcon, Stack, Badge,
+  Timeline, ScrollArea, ActionIcon, Tooltip, Divider,
+} from '@mantine/core'
+import { AreaChart } from '@mantine/charts'
 import { useNavigate } from 'react-router-dom'
 import {
-  IconRocket, IconPlayerPlay, IconAlertTriangle, IconCpu,
-  IconArrowUpRight, IconSitemap, IconCheck, IconX, IconClock, IconAlertCircle,
+  IconAlertTriangle, IconAlertCircle, IconCheck, IconX, IconClock,
+  IconPlayerPlay, IconServerOff, IconAlertOctagon, IconTool, IconPlugConnectedX,
+  IconCpu, IconDatabase, IconDeviceDesktopAnalytics,
 } from '@tabler/icons-react'
 import { useApp } from '@/di/AppProvider'
+import type { Server } from '@/domain/server/types'
+import type { GPUMetrics } from '@/domain/gpu/types'
 import type { OverviewData } from '@/application/dtos'
-import { t } from '@/presentation/app/i18n'
-import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { PageHeader } from '@/presentation/components/PageHeader'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
-import { PageHeader } from '@/presentation/components/PageHeader'
 import { formatRelative } from '@/shared/utils/time'
-import { useAuth } from '@/presentation/contexts/AuthContext'
 
-function KPICard({
-  label, value, sub, color, icon, onClick,
+// ─── Summary Card ────────────────────────────────────────────────────────────
+
+function SummaryCard({
+  label, value, color, icon, isZero, onClick,
 }: {
-  label: string; value: number | string; sub?: string; color: string; icon: React.ReactNode; onClick?: () => void
+  label: string
+  value: string | number
+  color: string
+  icon?: React.ReactNode
+  isZero?: boolean
+  onClick?: () => void
 }) {
+  const accentColor = isZero ? 'gray' : color
+  const numColor = isZero ? 'dimmed' : color
+
   return (
     <Card
       withBorder
       radius="md"
-      style={{ cursor: onClick ? 'pointer' : undefined }}
+      style={{
+        cursor: onClick ? 'pointer' : undefined,
+        borderLeft: `3px solid var(--mantine-color-${accentColor}-5)`,
+        minHeight: 96,
+        position: 'relative',
+        flex: 1,
+      }}
       onClick={onClick}
     >
-      <Group justify="space-between" mb="xs">
-        <Text size="sm" c="dimmed" fw={500}>{label}</Text>
-        <ThemeIcon variant="light" color={color} size="md" radius="md">
+      <Stack gap={4}>
+        <Text size="xs" c="dimmed" fw={500}>{label}</Text>
+        <Text fz={32} fw={800} c={numColor} lh={1}>{value}</Text>
+      </Stack>
+      {icon && (
+        <div style={{ position: 'absolute', top: 10, right: 12, opacity: isZero ? 0.25 : 0.45 }}>
           {icon}
-        </ThemeIcon>
-      </Group>
-      <Text size="xl" fw={700}>{value}</Text>
-      {sub && <Text size="xs" c="dimmed" mt={2}>{sub}</Text>}
+        </div>
+      )}
     </Card>
   )
 }
 
+// ─── Monitoring Panel ─────────────────────────────────────────────────────────
+
+type TrendPoint = { h: string; v: number }
+
+function monitoringStatus(current: number, peak: number): { label: string; color: string } {
+  if (current > 80 && peak > 90) return { label: 'High (sustained)', color: 'red' }
+  if (current > 80) return { label: 'High', color: 'orange' }
+  return { label: 'Normal', color: 'green' }
+}
+
+function MonitoringPanel({
+  label, current, avg, peak, trendData, icon,
+}: {
+  label: string
+  current: number
+  avg: number
+  peak: number
+  trendData: TrendPoint[]
+  icon?: React.ReactNode
+}) {
+  const status = monitoringStatus(current, peak)
+
+  return (
+    <Card
+      withBorder
+      radius="md"
+      style={{
+        borderLeft: '3px solid var(--mantine-color-blue-5)',
+        flex: 1,
+      }}
+    >
+      {/* Header */}
+      <Group justify="space-between" mb={8}>
+        <Group gap={6}>
+          {icon && <span style={{ opacity: 0.5 }}>{icon}</span>}
+          <Text size="sm" fw={600}>{label}</Text>
+        </Group>
+        <Text size="xs" c="dimmed">last 72h</Text>
+      </Group>
+
+      {/* Primary value + status */}
+      <Group align="flex-end" gap="sm" mb={10}>
+        <Text fz={28} fw={700} c="blue" lh={1}>{current}%</Text>
+        <Badge size="sm" color={status.color} variant="light" mb={2}>
+          {status.label}
+        </Badge>
+      </Group>
+
+      {/* Trend chart */}
+      <AreaChart
+        h={100}
+        data={trendData}
+        dataKey="h"
+        series={[{ name: 'v', color: 'blue.4' }]}
+        curveType="monotone"
+        withXAxis={false}
+        withYAxis={false}
+        withDots={false}
+        withLegend={false}
+        fillOpacity={0.15}
+        strokeWidth={1.5}
+        style={{ margin: '0 -16px' }}
+      />
+
+      {/* Supporting metrics */}
+      <Group gap="lg" mt={8}>
+        <Text size="xs" c="dimmed">avg: <Text span size="xs" fw={600} c="blue.6">{avg}%</Text></Text>
+        <Text size="xs" c="dimmed">peak: <Text span size="xs" fw={600} c="blue.6">{peak}%</Text></Text>
+      </Group>
+    </Card>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export function OverviewPage() {
-  const { overview } = useApp()
-  const { currentUser } = useAuth()
+  const { overview, servers, observability } = useApp()
   const navigate = useNavigate()
-  const [data, setData] = useState<OverviewData | null>(null)
+
+  const [serverList, setServerList] = useState<Server[]>([])
+  const [gpuMetrics, setGpuMetrics] = useState<GPUMetrics[]>([])
+  const [overviewData, setOverviewData] = useState<OverviewData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,22 +149,83 @@ export function OverviewPage() {
     try {
       setLoading(true)
       setError(null)
-      const result = await overview.get.execute()
-      setData(result)
+      const [srvResult, ovResult, gpuResult] = await Promise.all([
+        servers.list.execute(),
+        overview.get.execute(),
+        observability.getGPUMetrics.execute(),
+      ])
+      setServerList(srvResult)
+      setOverviewData(ovResult)
+      setGpuMetrics(gpuResult)
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
-  }, [overview.get])
+  }, [servers.list, overview.get, observability.getGPUMetrics])
 
   useEffect(() => { void load() }, [load])
 
-  if (loading) return <LoadingState rows={6} height={80} />
-  if (error) return <ErrorState message={error} onRetry={load} />
-  if (!data) return null
+  // ── Aggregations ───────────────────────────────────────────────────────────
 
-  const { kpis, recentRuns, topCriticalGPUs, activeAlerts, opsTimeline } = data
+  const stats = useMemo(() => {
+    const total = serverList.length
+    const warning = serverList.filter((s) => s.status === 'warning').length
+    const error = serverList.filter((s) => s.status === 'error').length
+    const offline = serverList.filter((s) => s.status === 'offline').length
+    const maintain = serverList.filter((s) => s.status === 'maintain').length
+    const free = serverList.filter((s) => s.ownerTeamId === null && s.ownerUserId === null).length
+    const issues = warning + error + offline + maintain
+    return { total, warning, error, offline, maintain, free, issues }
+  }, [serverList])
+
+  const resourceStats = useMemo(() => {
+    const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0
+    const active = serverList.filter((s) => s.status !== 'offline' && s.status !== 'error')
+    const cpuAvg = avg(active.map((s) => s.cpuUsagePct))
+    const ramAvg = avg(active.map((s) => s.ramUsagePct))
+    const gpuAvg = gpuMetrics.length ? avg(gpuMetrics.map((m) => m.utilization)) : 0
+    const highCpu = cpuAvg > 80
+    const highRam = ramAvg > 80
+    const highGpu = gpuAvg > 80
+    const highLabel = highCpu ? 'CPU' : highRam ? 'RAM' : highGpu ? 'GPU' : null
+    return { cpuAvg, ramAvg, gpuAvg, highLabel }
+  }, [serverList, gpuMetrics])
+
+  const trendData = useMemo(() => {
+    const gen = (base: number, seed: number): TrendPoint[] =>
+      Array.from({ length: 72 }, (_, i) => ({
+        h: `${i}h`,
+        v: Math.max(5, Math.min(100,
+          base
+          + Math.sin((i + seed) * 0.35) * 15
+          + Math.sin((i + seed * 2) * 0.8) * 8
+          + (i % 7 === 0 ? 12 : 0)
+          - 3
+        )),
+      }))
+    return {
+      cpu: gen(resourceStats.cpuAvg, 1),
+      ram: gen(resourceStats.ramAvg, 3),
+      gpu: gen(resourceStats.gpuAvg, 5),
+    }
+  }, [resourceStats])
+
+  const panelStats = useMemo(() => {
+    const calc = (data: TrendPoint[]) => {
+      const vals = data.map((d) => d.v)
+      const avg = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length)
+      const peak = Math.round(Math.max(...vals))
+      return { avg, peak }
+    }
+    return {
+      cpu: calc(trendData.cpu),
+      ram: calc(trendData.ram),
+      gpu: calc(trendData.gpu),
+    }
+  }, [trendData])
+
+  // ── Timeline helpers ───────────────────────────────────────────────────────
 
   const timelineIcon = (type: string) => {
     if (type === 'run_completed') return <IconCheck size={12} />
@@ -84,130 +243,148 @@ export function OverviewPage() {
     return 'blue'
   }
 
-  const modulesByRole: Record<string, string[]> = {
-    admin: ['Dashboard', 'Resources', 'Users', 'Settings'],
-    owner: ['Dashboard', 'Resources', 'Team Views'],
-    member: ['Dashboard', 'My Resources', 'Profile'],
-  }
+  // ──────────────────────────────────────────────────────────────────────────
 
-  const visibleModules = currentUser ? modulesByRole[currentUser.role] ?? ['Dashboard'] : ['Dashboard']
+  if (loading) return <LoadingState rows={6} height={80} />
+  if (error) return <ErrorState message={error} onRetry={load} />
+
+  const { activeAlerts, opsTimeline } = overviewData ?? { activeAlerts: [], opsTimeline: [] }
 
   return (
     <>
-      <PageHeader title={t('overview.title')} subtitle="Real-time platform status" />
+      <PageHeader title="Overview" subtitle="Datacenter status at a glance" />
 
-      {currentUser && (
-        <Card withBorder radius="md" mb="md">
-          <Group justify="space-between" align="flex-start">
-            <div>
-              <Text size="sm" c="dimmed">Current user</Text>
-              <Text fw={600}>{currentUser.displayName} ({currentUser.username})</Text>
-            </div>
-            <Badge color={currentUser.role === 'admin' ? 'red' : currentUser.role === 'owner' ? 'blue' : 'gray'} variant="light">
-              {currentUser.role}
-            </Badge>
-          </Group>
-          <Group gap={8} mt="sm">
-            {visibleModules.map((module) => (
-              <Badge key={module} variant="outline">{module}</Badge>
-            ))}
-          </Group>
-        </Card>
-      )}
+      {/* ── Section 1: Servers ────────────────────────────────────────── */}
+      <Group justify="space-between" align="baseline" mb="sm">
+        <Text fw={700} size="lg">Servers</Text>
+        <Text size="sm" c="dimmed">total: {stats.total}</Text>
+      </Group>
 
-      <SimpleGrid cols={{ base: 2, sm: 4, lg: 7 }} mb="lg">
-        <KPICard label={t('overview.kpi.activeMissions')} value={kpis.activeMissions} sub={`of ${kpis.totalMissions} total`} color="blue" icon={<IconRocket size={16} />} onClick={() => navigate('/missions?status=active')} />
-        <KPICard label={t('overview.kpi.runningRuns')} value={kpis.runningRuns} sub={`of ${kpis.totalRuns} total`} color="violet" icon={<IconPlayerPlay size={16} />} onClick={() => navigate('/runs?status=running')} />
-        <KPICard label={t('overview.kpi.activeAlerts')} value={kpis.activeAlerts} color={kpis.activeAlerts > 0 ? 'red' : 'green'} icon={<IconAlertTriangle size={16} />} onClick={() => navigate('/observability/alerts')} />
-        <KPICard label={t('overview.kpi.criticalGPUs')} value={kpis.criticalGPUs} color={kpis.criticalGPUs > 0 ? 'red' : 'green'} icon={<IconCpu size={16} />} onClick={() => navigate('/observability/gpu-metrics?health=critical')} />
-        <KPICard label={t('overview.kpi.connectedPlanes')} value={kpis.connectedPlanes} color="teal" icon={<IconSitemap size={16} />} onClick={() => navigate('/planes')} />
-        <KPICard label={t('overview.kpi.totalMissions')} value={kpis.totalMissions} color="indigo" icon={<IconRocket size={16} />} onClick={() => navigate('/missions')} />
-        <KPICard label={t('overview.kpi.totalRuns')} value={kpis.totalRuns} color="cyan" icon={<IconPlayerPlay size={16} />} onClick={() => navigate('/runs')} />
-      </SimpleGrid>
+      {/* Summary message */}
+      <div
+        style={{
+          borderLeft: `3px solid var(--mantine-color-${stats.issues === 0 ? 'green' : 'red'}-5)`,
+          backgroundColor: `var(--mantine-color-${stats.issues === 0 ? 'green' : 'red'}-0)`,
+          borderRadius: 4,
+          padding: '8px 12px',
+          marginBottom: 16,
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+      >
+        <Text size="sm" fw={700} c={stats.issues === 0 ? 'green' : 'red'}>
+          {stats.issues === 0 ? '✅ All systems healthy' : `🚨 ${stats.issues} issues detected`}
+        </Text>
+      </div>
+
+      {/* 5 status cards */}
+      <Group gap="sm" align="stretch" wrap="nowrap" mb="xl">
+        <SummaryCard
+          label="Warning"
+          value={stats.warning}
+          color="yellow"
+          icon={<IconAlertTriangle size={14} />}
+          isZero={stats.warning === 0}
+          onClick={() => navigate('/servers', { state: { statusFilter: 'warning' } })}
+        />
+        <SummaryCard
+          label="Error"
+          value={stats.error}
+          color="red"
+          icon={<IconAlertOctagon size={14} />}
+          isZero={stats.error === 0}
+          onClick={() => navigate('/servers', { state: { statusFilter: 'error' } })}
+        />
+        <SummaryCard
+          label="Offline"
+          value={stats.offline}
+          color="gray"
+          icon={<IconServerOff size={14} />}
+          isZero={stats.offline === 0}
+          onClick={() => navigate('/servers', { state: { statusFilter: 'offline' } })}
+        />
+        <SummaryCard
+          label="Maintenance"
+          value={stats.maintain}
+          color="blue"
+          icon={<IconTool size={14} />}
+          isZero={stats.maintain === 0}
+          onClick={() => navigate('/servers', { state: { statusFilter: 'maintain' } })}
+        />
+        <Divider orientation="vertical" />
+        <SummaryCard
+          label="Free"
+          value={stats.free}
+          color="teal"
+          icon={<IconPlugConnectedX size={14} />}
+          onClick={() => navigate('/servers', { state: { allocationSearch: 'free' } })}
+        />
+      </Group>
+
+      {/* ── Section 2: Total Resource Utilization ────────────────────── */}
+      <Divider mb="md" />
+      <Text fw={700} size="lg" mb="sm">Total Resource Utilization</Text>
+
+      {/* Monitoring summary message */}
+      <div
+        style={{
+          borderLeft: `3px solid var(--mantine-color-${resourceStats.highLabel ? 'orange' : 'green'}-5)`,
+          backgroundColor: `var(--mantine-color-${resourceStats.highLabel ? 'orange' : 'green'}-0)`,
+          borderRadius: 4,
+          padding: '8px 12px',
+          marginBottom: 16,
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+      >
+        <Text size="sm" fw={700} c={resourceStats.highLabel ? 'orange' : 'green'}>
+          {resourceStats.highLabel
+            ? `⚠️ High ${resourceStats.highLabel} utilization`
+            : '🟢 Resource usage stable'}
+        </Text>
+      </div>
+
+      {/* 3 monitoring panels */}
+      <Group gap="sm" align="stretch" wrap="nowrap" mb="xl">
+        <MonitoringPanel
+          label="CPU Usage"
+          current={resourceStats.cpuAvg}
+          avg={panelStats.cpu.avg}
+          peak={panelStats.cpu.peak}
+          trendData={trendData.cpu}
+          icon={<IconCpu size={16} />}
+        />
+        <MonitoringPanel
+          label="RAM Usage"
+          current={resourceStats.ramAvg}
+          avg={panelStats.ram.avg}
+          peak={panelStats.ram.peak}
+          trendData={trendData.ram}
+          icon={<IconDatabase size={16} />}
+        />
+        <MonitoringPanel
+          label="GPU Usage"
+          current={resourceStats.gpuAvg}
+          avg={panelStats.gpu.avg}
+          peak={panelStats.gpu.peak}
+          trendData={trendData.gpu}
+          icon={<IconDeviceDesktopAnalytics size={16} />}
+        />
+      </Group>
+
+      {/* ── Section 3: Operation ──────────────────────────────────────── */}
+      <Divider mb="md" />
+      <Text fw={700} size="lg" mb="md">Operation</Text>
 
       <Grid>
-        <Grid.Col span={{ base: 12, lg: 8 }}>
-          <Card withBorder radius="md" mb="md">
-            <Group justify="space-between" mb="md">
-              <Text fw={600}>{t('overview.recentRuns')}</Text>
-              <Tooltip label={t('common.viewAll')}>
-                <ActionIcon variant="subtle" onClick={() => navigate('/runs')}><IconArrowUpRight size={16} /></ActionIcon>
-              </Tooltip>
-            </Group>
-            <Table highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t('mission.title')}</Table.Th>
-                  <Table.Th>{t('common.status')}</Table.Th>
-                  <Table.Th>{t('run.trigger.manual')}</Table.Th>
-                  <Table.Th>{t('run.queuedAt')}</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {recentRuns.slice(0, 8).map((run) => (
-                  <Table.Tr key={run.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/runs/${run.id}`)}>
-                    <Table.Td>
-                      <Text size="sm" fw={500}>{run.missionName}</Text>
-                      <Text size="xs" c="dimmed">{run.target}</Text>
-                    </Table.Td>
-                    <Table.Td><StatusBadge status={run.status} label={t(`run.status.${run.status}`)} /></Table.Td>
-                    <Table.Td><Badge variant="outline" size="xs">{run.trigger}</Badge></Table.Td>
-                    <Table.Td><Text size="xs" c="dimmed">{formatRelative(run.queuedAt)}</Text></Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Card>
-
+        <Grid.Col span={{ base: 12, lg: 4 }}>
           <Card withBorder radius="md">
             <Group justify="space-between" mb="md">
-              <Text fw={600}>{t('overview.gpuHealthSnapshot')}</Text>
-              <Tooltip label={t('common.viewAll')}>
-                <ActionIcon variant="subtle" onClick={() => navigate('/observability/gpu-metrics')}><IconArrowUpRight size={16} /></ActionIcon>
-              </Tooltip>
-            </Group>
-            <Table highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>GPU</Table.Th>
-                  <Table.Th>{t('common.health')}</Table.Th>
-                  <Table.Th>{t('gpu.temperature')}</Table.Th>
-                  <Table.Th>{t('gpu.utilization')}</Table.Th>
-                  <Table.Th>{t('gpu.eccErrors')}</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {topCriticalGPUs.map((gpu) => (
-                  <Table.Tr key={gpu.id} style={{ cursor: 'pointer' }} onClick={() => navigate('/observability/gpu-metrics')}>
-                    <Table.Td>
-                      <Text size="sm" fw={500}>{gpu.id}</Text>
-                      <Text size="xs" c="dimmed">{gpu.model} · {gpu.hostName}</Text>
-                    </Table.Td>
-                    <Table.Td><StatusBadge status={gpu.health} label={t(`gpu.health.${gpu.health}`)} /></Table.Td>
-                    <Table.Td>
-                      <Text size="sm" c={gpu.metrics.temperatureC > 88 ? 'red' : gpu.metrics.temperatureC > 80 ? 'yellow' : undefined}>
-                        {gpu.metrics.temperatureC.toFixed(0)}°C
-                      </Text>
-                    </Table.Td>
-                    <Table.Td><Text size="sm">{gpu.metrics.utilization.toFixed(0)}%</Text></Table.Td>
-                    <Table.Td>
-                      <Text size="sm" c={gpu.metrics.eccErrors > 0 ? 'red' : 'dimmed'}>
-                        {gpu.metrics.eccErrors}
-                      </Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Card>
-        </Grid.Col>
-
-        <Grid.Col span={{ base: 12, lg: 4 }}>
-          <Card withBorder radius="md" mb="md">
-            <Group justify="space-between" mb="md">
-              <Text fw={600}>{t('alert.titlePlural')}</Text>
-              <Tooltip label={t('common.viewAll')}>
-                <ActionIcon variant="subtle" onClick={() => navigate('/observability/alerts')}><IconArrowUpRight size={16} /></ActionIcon>
+              <Text fw={600}>Alerts</Text>
+              <Tooltip label="View all alerts">
+                <ActionIcon variant="subtle" onClick={() => navigate('/observability/alerts')}>
+                  <IconAlertTriangle size={16} />
+                </ActionIcon>
               </Tooltip>
             </Group>
             <Stack gap="xs">
@@ -221,21 +398,22 @@ export function OverviewPage() {
                       <Text size="xs" fw={500} lineClamp={1}>{alert.title}</Text>
                       <Text size="xs" c="dimmed">{formatRelative(alert.createdAt)}</Text>
                     </div>
-                    <Badge size="xs" color={alert.severity === 'critical' ? 'red' : 'yellow'}>{alert.severity}</Badge>
                   </Group>
                 </Card>
               ))}
               {activeAlerts.length === 0 && (
                 <Group gap="xs" py="xs">
                   <ThemeIcon color="green" variant="light" size="sm"><IconCheck size={12} /></ThemeIcon>
-                  <Text size="sm" c="dimmed">{t('alert.empty')}</Text>
+                  <Text size="sm" c="dimmed">No active alerts</Text>
                 </Group>
               )}
             </Stack>
           </Card>
+        </Grid.Col>
 
+        <Grid.Col span={{ base: 12, lg: 8 }}>
           <Card withBorder radius="md">
-            <Text fw={600} mb="md">{t('overview.opsTimeline')}</Text>
+            <Text fw={600} mb="md">Operations Timeline</Text>
             <ScrollArea h={280}>
               <Timeline bulletSize={20} lineWidth={2}>
                 {opsTimeline.slice(0, 10).map((event) => (
@@ -249,6 +427,9 @@ export function OverviewPage() {
                     <Text size="xs" c="dimmed">{formatRelative(event.timestamp)}</Text>
                   </Timeline.Item>
                 ))}
+                {opsTimeline.length === 0 && (
+                  <Text size="xs" c="dimmed">No recent operations</Text>
+                )}
               </Timeline>
             </ScrollArea>
           </Card>

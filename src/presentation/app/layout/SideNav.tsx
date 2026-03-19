@@ -5,7 +5,7 @@ import {
   IconLayoutDashboard, IconRocket, IconPlayerPlay, IconCpu, IconAlertTriangle,
   IconChartBar, IconServer, IconBuildingWarehouse, IconKey, IconTerminal2,
   IconNetwork, IconDatabase, IconServer2, IconSitemap, IconBrain,
-  IconPuzzle, IconClipboardList, IconSettings, IconChevronDown, IconChevronRight,
+  IconPuzzle, IconClipboardList, IconChevronDown, IconChevronRight,
   IconPlus, IconList, IconUsers, IconBuildingCommunity,
 } from '@tabler/icons-react'
 import { t } from '@/presentation/app/i18n'
@@ -66,7 +66,6 @@ const NAV: NavItem[] = [
       { label: t('nav.auditLog'), path: '/platform/audit', icon: <IconClipboardList size={14} /> },
     ],
   },
-  { label: t('nav.settings'), path: '/settings', icon: <IconSettings size={16} /> },
   {
     label: t('nav.missions'), icon: <IconRocket size={16} />,
     children: [

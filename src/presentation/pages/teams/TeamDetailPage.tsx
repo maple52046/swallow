@@ -283,7 +283,7 @@ export function TeamDetailPage() {
         <Card withBorder radius="md">
           <Group justify="space-between" mb="md">
             <Text fw={600}>Assigned Servers</Text>
-            <Button size="xs" variant="subtle" onClick={() => navigate(`/servers`)}>
+            <Button size="xs" variant="subtle" onClick={() => navigate('/servers', { state: { allocationSearch: team.name } })}>
               View all servers
             </Button>
           </Group>
