@@ -60,7 +60,7 @@ export function MissionDetailPage() {
     try {
       const run = await missions.runNow.execute(mission.id)
       notifications.show({ title: 'Run started', message: `Run ${run.id.slice(0, 8)}...`, color: 'green' })
-      navigate(`/runs/${run.id}`)
+      navigate(`/deprecated/runs/${run.id}`)
     } catch (e) { notifications.show({ title: 'Error', message: String(e), color: 'red' }) }
   }
 
@@ -81,7 +81,7 @@ export function MissionDetailPage() {
     try {
       const cloned = await missions.clone.execute(mission.id)
       notifications.show({ title: 'Cloned', message: `Created "${cloned.name}"`, color: 'blue' })
-      navigate(`/missions/${cloned.id}`)
+      navigate(`/deprecated/missions/${cloned.id}`)
     } catch (e) { notifications.show({ title: 'Error', message: String(e), color: 'red' }) }
   }
 
@@ -92,7 +92,7 @@ export function MissionDetailPage() {
   return (
     <>
       <Group mb="md">
-        <ActionIcon variant="subtle" onClick={() => navigate('/missions')}><IconArrowLeft size={16} /></ActionIcon>
+        <ActionIcon variant="subtle" onClick={() => navigate('/deprecated/missions')}><IconArrowLeft size={16} /></ActionIcon>
         <Text size="sm" c="dimmed">{t('mission.titlePlural')}</Text>
       </Group>
 
@@ -111,7 +111,7 @@ export function MissionDetailPage() {
                 <Button variant="default" size="sm" rightSection={<IconDots size={14} />}>{t('common.actions')}</Button>
               </Menu.Target>
               <Menu.Dropdown>
-                <Menu.Item leftSection={<IconEdit size={14} />} onClick={() => navigate(`/missions/new?clone=${mission.id}`)}>
+                <Menu.Item leftSection={<IconEdit size={14} />} onClick={() => navigate(`/deprecated/missions/new?clone=${mission.id}`)}>
                   {t('mission.actions.editPlan')}
                 </Menu.Item>
                 {mission.status === 'active' && (
@@ -124,7 +124,7 @@ export function MissionDetailPage() {
                 {mission.status !== 'archived' && (
                   <>
                     <Menu.Divider />
-                    <Menu.Item leftSection={<IconArchive size={14} />} color="red" onClick={async () => { await missions.archive.execute(mission.id); navigate('/missions') }}>
+                    <Menu.Item leftSection={<IconArchive size={14} />} color="red" onClick={async () => { await missions.archive.execute(mission.id); navigate('/deprecated/missions') }}>
                       {t('mission.actions.archive')}
                     </Menu.Item>
                   </>
@@ -223,7 +223,7 @@ export function MissionDetailPage() {
         <Card withBorder radius="md">
           <Group justify="space-between" mb="md">
             <Title order={5}>{t('run.titlePlural')}</Title>
-            <Button variant="subtle" size="xs" onClick={() => navigate(`/runs?missionId=${mission.id}`)}>
+            <Button variant="subtle" size="xs" onClick={() => navigate(`/deprecated/runs?missionId=${mission.id}`)}>
               {t('common.viewAll')}
             </Button>
           </Group>
@@ -242,7 +242,7 @@ export function MissionDetailPage() {
               </Table.Thead>
               <Table.Tbody>
                 {missionRuns.slice(0, 10).map((run) => (
-                  <Table.Tr key={run.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/runs/${run.id}`)}>
+                  <Table.Tr key={run.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/deprecated/runs/${run.id}`)}>
                     <Table.Td><Text size="xs" ff="monospace">{run.id.slice(0, 12)}...</Text></Table.Td>
                     <Table.Td><StatusBadge status={run.status} label={t(`run.status.${run.status}`)} /></Table.Td>
                     <Table.Td><Badge variant="outline" size="xs">{run.trigger}</Badge></Table.Td>

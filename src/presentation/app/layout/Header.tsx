@@ -74,7 +74,7 @@ export function Header({ opened, toggle }: HeaderProps) {
                 </Group>
                 <Text size="xs" c="dimmed">{currentUser.username}</Text>
               </Menu.Label>
-              <Menu.Item leftSection={<IconSettings size={14} />} onClick={() => navigate('/settings')}>
+              <Menu.Item leftSection={<IconSettings size={14} />} onClick={() => navigate('/account/settings')}>
                 {t('nav.settings')}
               </Menu.Item>
               <Menu.Divider />

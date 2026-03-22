@@ -140,7 +140,7 @@ export function RunsPage() {
           </Table.Thead>
           <Table.Tbody>
             {items.map((run) => (
-              <Table.Tr key={run.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/runs/${run.id}`)}>
+              <Table.Tr key={run.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/deprecated/runs/${run.id}`)}>
                 <Table.Td>
                   <Text size="xs" c="dimmed" ff="mono">{run.id.slice(0, 8)}</Text>
                 </Table.Td>
@@ -170,7 +170,7 @@ export function RunsPage() {
                   <Text size="sm" c="dimmed">{formatRelative(run.queuedAt)}</Text>
                 </Table.Td>
                 <Table.Td>
-                  <ActionIcon variant="subtle" size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/runs/${run.id}`) }}>
+                  <ActionIcon variant="subtle" size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/deprecated/runs/${run.id}`) }}>
                     <IconEye size={14} />
                   </ActionIcon>
                 </Table.Td>

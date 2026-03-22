@@ -57,7 +57,7 @@ export function ProvisioningPage() {
       tags: ['provisioning', profile.name],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'green' })
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   if (loading) return <LoadingState />

@@ -1,4 +1,4 @@
-import type { Server, ServerStatus } from '@/domain/server/types'
+import type { Server, ServerStatus, CreateServerInput } from '@/domain/server/types'
 import type { ServerRepository, ListServersFilters } from '@/application/ports/ServerRepository'
 import { seedServers } from '@/infrastructure/mock/data/seedServers'
 import { lsGet, lsSet } from '@/infrastructure/persistence/localStorage'
@@ -57,6 +57,35 @@ export class MockServerRepository implements ServerRepository {
 
   async getServer(id: string): Promise<Server | null> {
     return this.servers.get(id) ?? null
+  }
+
+  async createServer(input: CreateServerInput): Promise<Server> {
+    const id = 'srv-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)
+    const ts = now()
+    const server: Server = {
+      id,
+      hostname: input.hostname,
+      ip: input.ip,
+      status: input.status ?? 'unknown',
+      cpuCores: input.cpuCores ?? 0,
+      ramGB: input.ramGB ?? 0,
+      cpuUsagePct: 0,
+      ramUsagePct: 0,
+      gpuType: input.gpuType ?? '',
+      gpuCount: input.gpuCount ?? 0,
+      ownerTeamId: input.ownerTeamId ?? null,
+      ownerUserId: input.ownerUserId ?? null,
+      location: input.location,
+      bmc: input.bmc,
+      ssh: input.ssh,
+      os: input.os,
+      lastSeenAt: ts,
+      createdAt: ts,
+      updatedAt: ts,
+    }
+    this.servers.set(id, server)
+    this.persist()
+    return server
   }
 
   async assignToTeam(id: string, teamId: string): Promise<Server> {

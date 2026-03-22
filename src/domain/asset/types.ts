@@ -69,9 +69,16 @@ export interface Connection {
 export interface SSHKey {
   id: string
   name: string
+  publicKey?: string
+  type?: string
   fingerprint: string
   vaultRef: string
   createdAt: string
+}
+
+export interface ImportSSHKeyInput {
+  name: string
+  publicKey: string
 }
 
 export interface AccessPolicy {

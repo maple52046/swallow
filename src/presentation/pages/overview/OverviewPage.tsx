@@ -382,14 +382,14 @@ export function OverviewPage() {
             <Group justify="space-between" mb="md">
               <Text fw={600}>Alerts</Text>
               <Tooltip label="View all alerts">
-                <ActionIcon variant="subtle" onClick={() => navigate('/observability/alerts')}>
+                <ActionIcon variant="subtle" onClick={() => navigate('/deprecated/observability/alerts')}>
                   <IconAlertTriangle size={16} />
                 </ActionIcon>
               </Tooltip>
             </Group>
             <Stack gap="xs">
               {activeAlerts.slice(0, 5).map((alert) => (
-                <Card key={alert.id} withBorder radius="sm" p="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/observability/alerts')}>
+                <Card key={alert.id} withBorder radius="sm" p="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/deprecated/observability/alerts')}>
                   <Group gap="xs" wrap="nowrap">
                     <ThemeIcon variant="light" color={alert.severity === 'critical' ? 'red' : 'yellow'} size="sm" radius="sm">
                       <IconAlertCircle size={12} />

@@ -103,7 +103,7 @@ export function RunDetailPage() {
     try {
       const newRun = await runs.rerun.execute(id)
       notifications.show({ title: 'Rerun started', message: newRun.id, color: 'blue' })
-      navigate(`/runs/${newRun.id}`)
+      navigate(`/deprecated/runs/${newRun.id}`)
     } catch (e) {
       notifications.show({ title: 'Error', message: String(e), color: 'red' })
     } finally {
@@ -114,7 +114,7 @@ export function RunDetailPage() {
   const handleFollowUp = async () => {
     if (!run) return
     const mission = await missions.clone.execute(run.missionId)
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   if (loading) return <LoadingState />
@@ -135,7 +135,7 @@ export function RunDetailPage() {
   return (
     <>
       <Group mb="md">
-        <ActionIcon variant="subtle" onClick={() => navigate('/runs')}>
+        <ActionIcon variant="subtle" onClick={() => navigate('/deprecated/runs')}>
           <IconArrowLeft size={16} />
         </ActionIcon>
       </Group>
@@ -184,7 +184,7 @@ export function RunDetailPage() {
       </Group>
 
       <Text size="sm" mb="md" c="dimmed">
-        Mission: <Anchor size="sm" onClick={() => navigate(`/missions/${run.missionId}`)}>{run.missionName}</Anchor>
+        Mission: <Anchor size="sm" onClick={() => navigate(`/deprecated/missions/${run.missionId}`)}>{run.missionName}</Anchor>
       </Text>
 
       {isActive && totalSteps > 0 && (

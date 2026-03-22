@@ -52,7 +52,7 @@ export function IPMIPage() {
           tags: ['ipmi', action.toLowerCase()],
         })
         notifications.show({ title: `Mission created: ${action}`, message: mission.name, color: 'blue' })
-        navigate(`/missions/${mission.id}`)
+        navigate(`/deprecated/missions/${mission.id}`)
       },
     })
   }
@@ -69,7 +69,7 @@ export function IPMIPage() {
       tags: ['ipmi', 'sensors'],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'green' })
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   if (loading) return <LoadingState />

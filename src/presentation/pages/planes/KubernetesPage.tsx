@@ -52,7 +52,7 @@ export function KubernetesPage() {
       tags: ['kubernetes', action],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'blue' })
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   if (loading) return <LoadingState />

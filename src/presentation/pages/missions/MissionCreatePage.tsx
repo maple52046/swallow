@@ -106,9 +106,9 @@ export function MissionCreatePage() {
       notifications.show({ title: 'Mission created', message: mission.name, color: 'green' })
       if (runNow) {
         const run = await missions.runNow.execute(mission.id)
-        navigate(`/runs/${run.id}`)
+        navigate(`/deprecated/runs/${run.id}`)
       } else {
-        navigate(`/missions/${mission.id}`)
+        navigate(`/deprecated/missions/${mission.id}`)
       }
     } catch (e) {
       notifications.show({ title: 'Error', message: String(e), color: 'red' })
@@ -146,7 +146,7 @@ export function MissionCreatePage() {
   return (
     <>
       <Group mb="md">
-        <ActionIcon variant="subtle" onClick={() => navigate('/missions')}><IconArrowLeft size={16} /></ActionIcon>
+        <ActionIcon variant="subtle" onClick={() => navigate('/deprecated/missions')}><IconArrowLeft size={16} /></ActionIcon>
       </Group>
       <PageHeader title={t('mission.create')} subtitle="Define a new autonomous mission" />
       <Stack gap="md">

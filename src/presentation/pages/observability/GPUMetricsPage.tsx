@@ -144,7 +144,7 @@ export function GPUMetricsPage() {
       tags: ['gpu', 'diagnostics'],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'green' })
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   const filtered = gpus.filter((g) => {

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ActionIcon, Badge, Button, Checkbox, Group, Popover, Select, Stack,
+  ActionIcon, Anchor, Badge, Button, Checkbox, Group, Popover, Select, Stack,
   Table, Text, TextInput, Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
-  IconBuildingCommunity, IconColumns, IconRefresh, IconSearch,
+  IconBuildingCommunity, IconColumns, IconPlus, IconRefresh, IconSearch,
   IconUserCheck, IconPower, IconRotate, IconTool, IconTerminal2,
 } from '@tabler/icons-react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 // ─── Column visibility config ─────────────────────────────────────────────────
 
@@ -47,6 +47,7 @@ function ServerStatusBadge({ status }: { status: Server['status'] }) {
     error: { color: 'red', label: 'Error' },
     maintain: { color: 'blue', label: 'Maintain' },
     offline: { color: 'gray', label: 'Offline' },
+    unknown: { color: 'gray', label: 'Unknown' },
   }
   const { color, label } = map[status]
   return <Badge color={color} variant="light" size="sm">{label}</Badge>
@@ -106,6 +107,7 @@ export function ServersPage() {
   const { servers, teams } = useApp()
   const { currentUser } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   const navState = (location.state ?? {}) as { statusFilter?: string; allocationSearch?: string }
 
   const [serverList, setServerList] = useState<Server[]>([])
@@ -261,9 +263,14 @@ export function ServersPage() {
         title="Servers"
         subtitle={`${serverList.length} total · ${freeCount} free`}
         actions={
-          <ActionIcon variant="default" onClick={() => void load()}>
-            <IconRefresh size={16} />
-          </ActionIcon>
+          <Group gap="sm">
+            <ActionIcon variant="default" onClick={() => void load()}>
+              <IconRefresh size={16} />
+            </ActionIcon>
+            <Button size="sm" leftSection={<IconPlus size={14} />} onClick={() => navigate('/servers/new')}>
+              Add Server
+            </Button>
+          </Group>
         }
       />
 
@@ -374,7 +381,9 @@ export function ServersPage() {
                 </Table.Td>
                 <Table.Td>
                   <Stack gap={0}>
-                    <Text size="sm" fw={500}>{server.hostname}</Text>
+                    <Anchor size="sm" fw={500} onClick={() => navigate(`/servers/${server.id}`)}>
+                      {server.hostname}
+                    </Anchor>
                     <Text size="xs" c="dimmed" ff="mono">{server.id}</Text>
                   </Stack>
                 </Table.Td>

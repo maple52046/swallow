@@ -6,7 +6,7 @@ import {
   IconChartBar, IconServer, IconBuildingWarehouse, IconTerminal2,
   IconNetwork, IconDatabase, IconServer2, IconSitemap, IconBrain,
   IconPuzzle, IconClipboardList, IconChevronDown, IconChevronRight,
-  IconPlus, IconList, IconUsers, IconBuildingCommunity,
+  IconPlus, IconList, IconUsers, IconBuildingCommunity, IconArchive,
 } from '@tabler/icons-react'
 import { t } from '@/presentation/app/i18n'
 import { useAuth, type UserRole } from '@/presentation/contexts/AuthContext'
@@ -23,31 +23,11 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { label: t('nav.overview'), path: '/', icon: <IconLayoutDashboard size={16} /> },
-  { label: '__divider_1__', divider: true },
+  { label: '__div1__', divider: true },
   { label: 'Servers', path: '/servers', icon: <IconServer size={16} /> },
-  { label: '__divider_2__', divider: true },
-  { label: 'Teams', path: '/teams', icon: <IconBuildingCommunity size={16} />, allowedRoles: ['admin'] },
-  { label: 'Users', path: '/users', icon: <IconUsers size={16} />, allowedRoles: ['admin'] },
-  { label: '__divider_3__', divider: true },
-  {
-    label: t('nav.datacenter'), icon: <IconBuildingWarehouse size={16} />,
-    children: [
-      { label: t('nav.inventory'), path: '/datacenter/inventory', icon: <IconServer size={14} /> },
-      { label: t('nav.provisioning'), path: '/datacenter/provisioning', icon: <IconBuildingWarehouse size={14} /> },
-      { label: t('nav.ipmi'), path: '/datacenter/ipmi', icon: <IconTerminal2 size={14} /> },
-      { label: t('nav.networking'), path: '/datacenter/networking', icon: <IconNetwork size={14} /> },
-      { label: t('nav.storage'), path: '/datacenter/storage', icon: <IconDatabase size={14} /> },
-    ],
-  },
-  {
-    label: t('nav.observability'), icon: <IconCpu size={16} />,
-    children: [
-      { label: t('nav.gpuMetrics'), path: '/observability/gpu-metrics', icon: <IconCpu size={14} /> },
-      { label: t('nav.gpuProfiling'), path: '/observability/gpu-profiling', icon: <IconChartBar size={14} /> },
-      { label: t('nav.alerts'), path: '/observability/alerts', icon: <IconAlertTriangle size={14} />, badge: 'hot' },
-      { label: t('nav.dashboards'), path: '/observability/dashboards', icon: <IconChartBar size={14} /> },
-    ],
-  },
+  { label: 'Datacenter', path: '/datacenter', icon: <IconBuildingWarehouse size={16} /> },
+  { label: t('nav.provisioning'), path: '/provisioning', icon: <IconBuildingWarehouse size={16} /> },
+  { label: '__div2__', divider: true },
   {
     label: t('nav.managementPlanes'), icon: <IconSitemap size={16} />,
     children: [
@@ -56,23 +36,50 @@ const NAV: NavItem[] = [
       { label: t('nav.slurm'), path: '/planes/slurm', icon: <IconServer2 size={14} /> },
     ],
   },
+  { label: '__div3__', divider: true },
+  { label: 'Teams', path: '/teams', icon: <IconBuildingCommunity size={16} />, allowedRoles: ['admin'] },
+  { label: 'Users', path: '/users', icon: <IconUsers size={16} />, allowedRoles: ['admin'] },
+  { label: '__div4__', divider: true },
   {
-    label: t('nav.platform'), icon: <IconBrain size={16} />,
+    label: 'Deprecated', icon: <IconArchive size={16} />,
     children: [
-      { label: t('nav.agents'), path: '/platform/agents', icon: <IconBrain size={14} /> },
-      { label: t('nav.models'), path: '/platform/models', icon: <IconBrain size={14} /> },
-      { label: t('nav.plugins'), path: '/platform/plugins', icon: <IconPuzzle size={14} /> },
-      { label: t('nav.auditLog'), path: '/platform/audit', icon: <IconClipboardList size={14} /> },
+      {
+        label: t('nav.datacenter'), icon: <IconBuildingWarehouse size={16} />,
+        children: [
+          { label: t('nav.inventory'), path: '/deprecated/datacenter/inventory', icon: <IconServer size={14} /> },
+          { label: t('nav.ipmi'), path: '/deprecated/datacenter/ipmi', icon: <IconTerminal2 size={14} /> },
+          { label: t('nav.networking'), path: '/deprecated/datacenter/networking', icon: <IconNetwork size={14} /> },
+          { label: t('nav.storage'), path: '/deprecated/datacenter/storage', icon: <IconDatabase size={14} /> },
+        ],
+      },
+      {
+        label: t('nav.observability'), icon: <IconCpu size={16} />,
+        children: [
+          { label: t('nav.gpuMetrics'), path: '/deprecated/observability/gpu-metrics', icon: <IconCpu size={14} /> },
+          { label: t('nav.gpuProfiling'), path: '/deprecated/observability/gpu-profiling', icon: <IconChartBar size={14} /> },
+          { label: t('nav.alerts'), path: '/deprecated/observability/alerts', icon: <IconAlertTriangle size={14} />, badge: 'hot' },
+          { label: t('nav.dashboards'), path: '/deprecated/observability/dashboards', icon: <IconChartBar size={14} /> },
+        ],
+      },
+      {
+        label: t('nav.platform'), icon: <IconBrain size={16} />,
+        children: [
+          { label: t('nav.agents'), path: '/deprecated/platform/agents', icon: <IconBrain size={14} /> },
+          { label: t('nav.models'), path: '/deprecated/platform/models', icon: <IconBrain size={14} /> },
+          { label: t('nav.plugins'), path: '/deprecated/platform/plugins', icon: <IconPuzzle size={14} /> },
+          { label: t('nav.auditLog'), path: '/deprecated/platform/audit', icon: <IconClipboardList size={14} /> },
+        ],
+      },
+      {
+        label: t('nav.missions'), icon: <IconRocket size={16} />,
+        children: [
+          { label: t('nav.allMissions'), path: '/deprecated/missions', icon: <IconList size={14} /> },
+          { label: t('nav.newMission'), path: '/deprecated/missions/new', icon: <IconPlus size={14} /> },
+        ],
+      },
+      { label: t('nav.runs'), path: '/deprecated/runs', icon: <IconPlayerPlay size={16} /> },
     ],
   },
-  {
-    label: t('nav.missions'), icon: <IconRocket size={16} />,
-    children: [
-      { label: t('nav.allMissions'), path: '/missions', icon: <IconList size={14} /> },
-      { label: t('nav.newMission'), path: '/missions/new', icon: <IconPlus size={14} /> },
-    ],
-  },
-  { label: t('nav.runs'), path: '/runs', icon: <IconPlayerPlay size={16} /> },
 ]
 
 function isRoleAllowed(item: NavItem, role: UserRole | undefined) {

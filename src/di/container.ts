@@ -8,6 +8,7 @@ import { MockPlaneRepository } from '@/infrastructure/mock/repos/MockPlaneReposi
 import { MockPlatformRepository } from '@/infrastructure/mock/repos/MockPlatformRepository'
 import { MockServerRepository } from '@/infrastructure/mock/repos/MockServerRepository'
 import { MockTeamRepository } from '@/infrastructure/mock/repos/MockTeamRepository'
+import { MockTopologyRepository } from '@/infrastructure/mock/repos/MockTopologyRepository'
 
 import { ListMissionsUseCase } from '@/application/usecases/missions/ListMissionsUseCase'
 import { GetMissionUseCase } from '@/application/usecases/missions/GetMissionUseCase'
@@ -43,6 +44,8 @@ import { ListProvisioningJobsUseCase } from '@/application/usecases/datacenter/L
 import { ListConnectionsUseCase } from '@/application/usecases/datacenter/ListConnectionsUseCase'
 import { UpsertConnectionUseCase } from '@/application/usecases/datacenter/UpsertConnectionUseCase'
 import { ListSSHKeysUseCase } from '@/application/usecases/datacenter/ListSSHKeysUseCase'
+import { ImportSSHKeyUseCase } from '@/application/usecases/datacenter/ImportSSHKeyUseCase'
+import { DeleteSSHKeyUseCase } from '@/application/usecases/datacenter/DeleteSSHKeyUseCase'
 
 import { ListPlanesUseCase } from '@/application/usecases/planes/ListPlanesUseCase'
 import { GetPlaneUseCase } from '@/application/usecases/planes/GetPlaneUseCase'
@@ -60,9 +63,11 @@ import { ListAuditEventsUseCase } from '@/application/usecases/platform/ListAudi
 
 import { GetOverviewUseCase } from '@/application/usecases/overview/GetOverviewUseCase'
 
-import type { Server, ServerStatus } from '@/domain/server/types'
+import type { Server, ServerStatus, CreateServerInput } from '@/domain/server/types'
 import type { Team, CreateTeamInput, UpdateTeamInput } from '@/domain/team/types'
+import type { Datacenter, Room, Rack, CreateDatacenterInput, UpdateDatacenterInput, CreateRoomInput, UpdateRoomInput, CreateRackInput, UpdateRackInput } from '@/domain/topology/types'
 import type { ListServersFilters } from '@/application/ports/ServerRepository'
+import type { ListRoomsFilters, ListRacksFilters } from '@/application/ports/TopologyRepository'
 
 export interface AppContainer {
   missions: {
@@ -103,6 +108,8 @@ export interface AppContainer {
     listConnections: ListConnectionsUseCase
     upsertConnection: UpsertConnectionUseCase
     listSSHKeys: ListSSHKeysUseCase
+    importSSHKey: ImportSSHKeyUseCase
+    deleteSSHKey: DeleteSSHKeyUseCase
   }
   planes: {
     list: ListPlanesUseCase
@@ -124,6 +131,7 @@ export interface AppContainer {
   servers: {
     list: { execute: (filters?: ListServersFilters) => Promise<Server[]> }
     get: { execute: (id: string) => Promise<Server | null> }
+    create: { execute: (input: CreateServerInput) => Promise<Server> }
     assignToTeam: { execute: (id: string, teamId: string) => Promise<Server> }
     assignToUser: { execute: (id: string, userId: string) => Promise<Server> }
     unassign: { execute: (id: string) => Promise<Server> }
@@ -140,6 +148,29 @@ export interface AppContainer {
     addOwner: { execute: (teamId: string, userId: string) => Promise<Team> }
     removeOwner: { execute: (teamId: string, userId: string) => Promise<Team> }
   }
+  topology: {
+    datacenters: {
+      list: { execute: () => Promise<Datacenter[]> }
+      get: { execute: (id: string) => Promise<Datacenter | null> }
+      create: { execute: (input: CreateDatacenterInput) => Promise<Datacenter> }
+      update: { execute: (id: string, input: UpdateDatacenterInput) => Promise<Datacenter> }
+      delete: { execute: (id: string) => Promise<void> }
+    }
+    rooms: {
+      list: { execute: (filters?: ListRoomsFilters) => Promise<Room[]> }
+      get: { execute: (id: string) => Promise<Room | null> }
+      create: { execute: (input: CreateRoomInput) => Promise<Room> }
+      update: { execute: (id: string, input: UpdateRoomInput) => Promise<Room> }
+      delete: { execute: (id: string) => Promise<void> }
+    }
+    racks: {
+      list: { execute: (filters?: ListRacksFilters) => Promise<Rack[]> }
+      get: { execute: (id: string) => Promise<Rack | null> }
+      create: { execute: (input: CreateRackInput) => Promise<Rack> }
+      update: { execute: (id: string, input: UpdateRackInput) => Promise<Rack> }
+      delete: { execute: (id: string) => Promise<void> }
+    }
+  }
 }
 
 export function createContainer(): AppContainer {
@@ -153,6 +184,7 @@ export function createContainer(): AppContainer {
   const platformRepo = new MockPlatformRepository()
   const serverRepo = new MockServerRepository()
   const teamRepo = new MockTeamRepository()
+  const topologyRepo = new MockTopologyRepository()
 
   return {
     missions: {
@@ -193,6 +225,8 @@ export function createContainer(): AppContainer {
       listConnections: new ListConnectionsUseCase(accessRepo),
       upsertConnection: new UpsertConnectionUseCase(accessRepo),
       listSSHKeys: new ListSSHKeysUseCase(accessRepo),
+      importSSHKey: new ImportSSHKeyUseCase(accessRepo),
+      deleteSSHKey: new DeleteSSHKeyUseCase(accessRepo),
     },
     planes: {
       list: new ListPlanesUseCase(planeRepo),
@@ -216,6 +250,7 @@ export function createContainer(): AppContainer {
     servers: {
       list: { execute: (filters?) => serverRepo.listServers(filters) },
       get: { execute: (id) => serverRepo.getServer(id) },
+      create: { execute: (input) => serverRepo.createServer(input) },
       assignToTeam: { execute: (id, teamId) => serverRepo.assignToTeam(id, teamId) },
       assignToUser: { execute: (id, userId) => serverRepo.assignToUser(id, userId) },
       unassign: { execute: (id) => serverRepo.unassign(id) },
@@ -231,6 +266,29 @@ export function createContainer(): AppContainer {
       removeMember: { execute: (teamId, userId) => teamRepo.removeMember(teamId, userId) },
       addOwner: { execute: (teamId, userId) => teamRepo.addOwner(teamId, userId) },
       removeOwner: { execute: (teamId, userId) => teamRepo.removeOwner(teamId, userId) },
+    },
+    topology: {
+      datacenters: {
+        list: { execute: () => topologyRepo.listDatacenters() },
+        get: { execute: (id) => topologyRepo.getDatacenter(id) },
+        create: { execute: (input) => topologyRepo.createDatacenter(input) },
+        update: { execute: (id, input) => topologyRepo.updateDatacenter(id, input) },
+        delete: { execute: (id) => topologyRepo.deleteDatacenter(id) },
+      },
+      rooms: {
+        list: { execute: (filters?) => topologyRepo.listRooms(filters) },
+        get: { execute: (id) => topologyRepo.getRoom(id) },
+        create: { execute: (input) => topologyRepo.createRoom(input) },
+        update: { execute: (id, input) => topologyRepo.updateRoom(id, input) },
+        delete: { execute: (id) => topologyRepo.deleteRoom(id) },
+      },
+      racks: {
+        list: { execute: (filters?) => topologyRepo.listRacks(filters) },
+        get: { execute: (id) => topologyRepo.getRack(id) },
+        create: { execute: (input) => topologyRepo.createRack(input) },
+        update: { execute: (id, input) => topologyRepo.updateRack(id, input) },
+        delete: { execute: (id) => topologyRepo.deleteRack(id) },
+      },
     },
   }
 }

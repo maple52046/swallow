@@ -1,4 +1,4 @@
-import type { Connection, SSHKey, AccessPolicy } from '@/domain/asset/types'
+import type { Connection, SSHKey, AccessPolicy, ImportSSHKeyInput } from '@/domain/asset/types'
 import type { AccessRepository, UpsertConnectionInput } from '@/application/ports/AccessRepository'
 import { seedConnections, seedSSHKeys } from '@/infrastructure/mock/data/seedHosts'
 
@@ -53,6 +53,24 @@ export class MockAccessRepository implements AccessRepository {
 
   async listSSHKeys(): Promise<SSHKey[]> {
     return [...this.sshKeys]
+  }
+
+  async importSSHKey(input: ImportSSHKeyInput): Promise<SSHKey> {
+    const key: SSHKey = {
+      id: 'key-' + genId(),
+      name: input.name,
+      publicKey: input.publicKey,
+      type: input.publicKey.trim().split(' ')[0],
+      fingerprint: 'SHA256:' + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12),
+      vaultRef: '',
+      createdAt: new Date().toISOString(),
+    }
+    this.sshKeys.push(key)
+    return key
+  }
+
+  async deleteSSHKey(id: string): Promise<void> {
+    this.sshKeys = this.sshKeys.filter((k) => k.id !== id)
   }
 
   async listPolicies(): Promise<AccessPolicy[]> {

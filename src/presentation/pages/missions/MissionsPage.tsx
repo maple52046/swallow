@@ -57,7 +57,7 @@ export function MissionsPage() {
     try {
       const run = await missions.runNow.execute(id)
       notifications.show({ title: 'Run started', message: `Run ${run.id.slice(0, 8)}... created`, color: 'green' })
-      navigate(`/runs/${run.id}`)
+      navigate(`/deprecated/runs/${run.id}`)
     } catch (e) {
       notifications.show({ title: 'Error', message: String(e), color: 'red' })
     }
@@ -97,7 +97,7 @@ export function MissionsPage() {
     try {
       const cloned = await missions.clone.execute(id)
       notifications.show({ title: 'Mission cloned', message: `Created "${cloned.name}"`, color: 'blue' })
-      navigate(`/missions/${cloned.id}`)
+      navigate(`/deprecated/missions/${cloned.id}`)
     } catch (e) {
       notifications.show({ title: 'Error', message: String(e), color: 'red' })
     }
@@ -109,7 +109,7 @@ export function MissionsPage() {
         title={t('mission.titlePlural')}
         subtitle={data ? `${data.length} missions` : undefined}
         actions={
-          <Button leftSection={<IconPlus size={16} />} onClick={() => navigate('/missions/new')}>
+          <Button leftSection={<IconPlus size={16} />} onClick={() => navigate('/deprecated/missions/new')}>
             {t('mission.create')}
           </Button>
         }
@@ -152,7 +152,7 @@ export function MissionsPage() {
       ) : !data?.length ? (
         <EmptyState
           title={t('mission.empty')}
-          action={{ label: t('mission.create'), onClick: () => navigate('/missions/new') }}
+          action={{ label: t('mission.create'), onClick: () => navigate('/deprecated/missions/new') }}
           icon={<IconRocket size={24} />}
         />
       ) : (
@@ -175,7 +175,7 @@ export function MissionsPage() {
                   <Stack gap={2}>
                     <Text
                       size="sm" fw={500} style={{ cursor: 'pointer' }}
-                      c="blue" onClick={() => navigate(`/missions/${m.id}`)}
+                      c="blue" onClick={() => navigate(`/deprecated/missions/${m.id}`)}
                     >
                       {m.name}
                     </Text>
@@ -209,7 +209,7 @@ export function MissionsPage() {
                         <ActionIcon variant="subtle" size="sm"><IconDots size={14} /></ActionIcon>
                       </Menu.Target>
                       <Menu.Dropdown>
-                        <Menu.Item leftSection={<IconEdit size={14} />} onClick={() => navigate(`/missions/${m.id}`)}>
+                        <Menu.Item leftSection={<IconEdit size={14} />} onClick={() => navigate(`/deprecated/missions/${m.id}`)}>
                           {t('common.viewDetails')}
                         </Menu.Item>
                         {m.status === 'active' && (

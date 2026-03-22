@@ -69,7 +69,7 @@ export function InventoryPage() {
       tags: ['ipmi', 'inventory'],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'green' })
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   const filteredHosts = hosts.filter((h) => {

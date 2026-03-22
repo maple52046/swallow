@@ -51,7 +51,7 @@ export function SlurmPage() {
       tags: ['slurm', action],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'violet' })
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   if (loading) return <LoadingState />

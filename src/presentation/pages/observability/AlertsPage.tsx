@@ -74,7 +74,7 @@ export function AlertsPage() {
       plugins: alert.suggestedPlugins ?? ['ssh', 'nvidia-smi'],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'blue' })
-    navigate(`/missions/${mission.id}`)
+    navigate(`/deprecated/missions/${mission.id}`)
   }
 
   const filtered = items.filter((a) =>
