@@ -9,6 +9,7 @@ export const en = {
     gpuMetrics: 'GPU Metrics',
     gpuProfiling: 'GPU Profiling',
     alerts: 'Alerts',
+    analysis: 'Analysis',
     dashboards: 'Dashboards',
     datacenter: 'Datacenter',
     inventory: 'Inventory',

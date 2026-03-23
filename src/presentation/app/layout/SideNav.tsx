@@ -29,6 +29,7 @@ const NAV: NavItem[] = [
   { label: t('nav.provisioning'), path: '/provisioning', icon: <IconBuildingWarehouse size={16} /> },
   { label: '__div2__', divider: true },
   { label: t('nav.alerts'), path: '/alerts', icon: <IconAlertTriangle size={16} />, badge: 'hot' },
+  { label: t('nav.analysis'), path: '/analysis', icon: <IconChartBar size={16} /> },
   { label: '__div5__', divider: true },
   {
     label: t('nav.managementPlanes'), icon: <IconSitemap size={16} />,

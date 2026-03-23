@@ -12,6 +12,7 @@ import { RunDetailPage } from './presentation/pages/runs/RunDetailPage'
 import { GPUMetricsPage } from './presentation/pages/observability/GPUMetricsPage'
 import { GPUProfilingPage } from './presentation/pages/observability/GPUProfilingPage'
 import { AlertsPage } from './presentation/pages/observability/AlertsPage'
+import { AnalysisPage } from './presentation/pages/analysis/AnalysisPage'
 import { DashboardsPage } from './presentation/pages/observability/DashboardsPage'
 import { InventoryPage } from './presentation/pages/datacenter/InventoryPage'
 import { ProvisioningPage } from './presentation/pages/datacenter/ProvisioningPage'
@@ -94,6 +95,7 @@ export const router = createBrowserRouter([
       { path: 'datacenter', element: <DatacenterTopologyPage /> },
       { path: 'provisioning', element: <ProvisioningPage /> },
       { path: 'alerts', element: <AlertsPage /> },
+      { path: 'analysis', element: <AnalysisPage /> },
       {
         path: 'teams',
         element: (
