@@ -68,4 +68,10 @@ func applyAPIFlagOverlay(cfg *Config, overlay *APIConfig) {
 	if overlay.BootstrapAdminPassword != "" {
 		cfg.API.BootstrapAdminPassword = overlay.BootstrapAdminPassword
 	}
+	if overlay.GRPCAddr != "" {
+		cfg.API.GRPCAddr = overlay.GRPCAddr
+	}
+	if overlay.NodeAuthToken != "" {
+		cfg.API.NodeAuthToken = overlay.NodeAuthToken
+	}
 }

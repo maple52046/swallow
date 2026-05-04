@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // applyEnv overlays cfg with GDCM_-prefixed environment variables.
@@ -47,8 +48,32 @@ func applyEnv(cfg *Config) {
 
 	// --- Agent config ---
 
-	if v := os.Getenv("GDCM_AGENT_CONTROLLER_ADDR"); v != "" {
-		cfg.Agent.ControllerAddr = v
+	if v := os.Getenv("GDCM_AGENT_NODE_ID"); v != "" {
+		cfg.Agent.NodeID = v
+	}
+	if v := os.Getenv("GDCM_AGENT_SERVER_ADDRESS"); v != "" {
+		cfg.Agent.ServerAddress = v
+	}
+	if v := os.Getenv("GDCM_AGENT_HEARTBEAT_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Agent.HeartbeatInterval = d
+		}
+	}
+	if v := os.Getenv("GDCM_AGENT_STATE_FILE"); v != "" {
+		cfg.Agent.StateFile = v
+	}
+	if v := os.Getenv("GDCM_AGENT_AUTH_TOKEN"); v != "" {
+		cfg.Agent.AuthToken = v
+	}
+
+	if v := os.Getenv("GDCM_API_NODE_AUTH_TOKEN"); v != "" {
+		cfg.API.NodeAuthToken = v
+	}
+
+	// --- API gRPC config ---
+
+	if v := os.Getenv("GDCM_API_GRPC_ADDR"); v != "" {
+		cfg.API.GRPCAddr = v
 	}
 }
 

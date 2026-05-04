@@ -1,11 +1,14 @@
 # swallow config example
 # Values shown here are for local development only.
 # Production deployments must override jwtSecret, bootstrapAdminPassword,
-# and mongoUri with real credentials — never commit production secrets.
+# mongoUri, nodeAuthToken, and agent.authToken with real credentials — never commit secrets.
 
 api:
   # HTTP listen address for the API server.
-  addr: ":3000"
+  addr: ":30051"
+
+  # gRPC listen address for the agent stream service.
+  grpcAddr: ":50051"
 
   # MongoDB connection string.
   mongoUri: "mongodb://localhost:27017"
@@ -23,6 +26,24 @@ api:
   bootstrapAdminUsername: "admin"
   bootstrapAdminPassword: "admin"
 
+  # Shared secret that all agents must present when establishing gRPC connections.
+  # Must match agent.authToken on every node. Never log or commit this value.
+  nodeAuthToken: "changeme-node-secret"
+
 agent:
-  # Base URL of the API server this agent connects to.
-  controllerAddr: "http://localhost:3000"
+  # Pre-configured node ID. When empty, the agent reads from stateFile
+  # or auto-generates a UUID (which must then be registered in the API server).
+  nodeId: ""
+
+  # gRPC address of the API server this agent connects to.
+  serverAddress: "localhost:50051"
+
+  # How often the agent sends a heartbeat over the gRPC stream.
+  heartbeatInterval: "30s"
+
+  # Path to the local state file used to persist the auto-generated node ID.
+  stateFile: "/var/lib/swallow/agent-state.json"
+
+  # Bearer token sent to the API server when establishing the gRPC connection.
+  # Must match api.nodeAuthToken on the server side. Must be kept private; do not commit.
+  authToken: "changeme-node-secret"

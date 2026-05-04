@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/AFDEAPAC/swallow/gen/agent/v1;agentv1";
+
+// AgentService is the gRPC service for agent-server bidirectional communication.
+// The agent initiates a single persistent stream and sends Hello, Inventory, then
+// periodic Heartbeat messages. The server sends back acceptance, acks, or errors.
+service AgentService {
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage) {}
+}
+
+// AgentMessage is the union of all messages the agent can send on the stream.
+message AgentMessage {
+  oneof payload {
+    HelloRequest     hello     = 1;
+    InventoryUpdate  inventory = 2;
+    HeartbeatRequest heartbeat = 3;
+  }
+}
+
+message HelloRequest {
+  string node_id       = 1;
+  string agent_version = 2;
+}
+
+message HeartbeatRequest {
+  string node_id        = 1;
+  int64  timestamp_unix = 2;
+  string agent_version  = 3;
+}
+
+// InventoryUpdate carries the full environment snapshot detected by the agent.
+// It is sent once after Hello is accepted, then on explicit re-detection triggers.
+message InventoryUpdate {
+  string      node_id = 1;
+  OSInfo      os      = 2;
+  CPUInfo     cpu     = 3;
+  MemoryInfo  memory  = 4;
+  repeated GPUInfo gpus = 5;
+  NetworkInfo network = 6;
+  IPMIInfo    ipmi    = 7;
+}
+
+message OSInfo {
+  string type           = 1;
+  string distribution   = 2;
+  string version        = 3;
+  string kernel_version = 4;
+  string architecture   = 5;
+}
+
+message CPUInfo {
+  string model   = 1;
+  int32  cores   = 2;
+  int32  threads = 3;
+}
+
+message MemoryInfo {
+  int64 total_kb = 1;
+}
+
+message GPUInfo {
+  string vendor = 1;
+  string model  = 2;
+  int32  index  = 3;
+}
+
+message NetworkInfo {
+  string hostname   = 1;
+  string primary_ip = 2;
+  repeated string all_ips = 3;
+}
+
+message IPMIInfo {
+  bool   available = 1;
+  string bmc_ip    = 2;
+  string source    = 3;
+  string status    = 4;
+}
+
+// ServerMessage is the union of all messages the server can send on the stream.
+message ServerMessage {
+  oneof payload {
+    HelloResponse  hello_response  = 1;
+    InventoryAck   inventory_ack   = 2;
+    ErrorMessage   error           = 3;
+  }
+}
+
+message HelloResponse {
+  bool   accepted = 1;
+  string message  = 2;
+}
+
+message InventoryAck {
+  bool ok = 1;
+}
+
+message ErrorMessage {
+  string code    = 1;
+  string message = 2;
+}

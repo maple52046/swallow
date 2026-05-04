@@ -36,8 +36,17 @@ func validateAPI(cfg APIConfig) error {
 }
 
 func validateAgent(cfg AgentConfig) error {
-	if cfg.ControllerAddr == "" {
-		return fmt.Errorf("agent.controllerAddr is required")
+	if cfg.ServerAddress == "" {
+		return fmt.Errorf("agent.serverAddress is required")
+	}
+	if cfg.HeartbeatInterval <= 0 {
+		return fmt.Errorf("agent.heartbeatInterval must be > 0")
+	}
+	if cfg.StateFile == "" {
+		return fmt.Errorf("agent.stateFile is required")
+	}
+	if cfg.AuthToken == "" {
+		return fmt.Errorf("agent.authToken is required")
 	}
 	return nil
 }

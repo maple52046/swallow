@@ -84,6 +84,32 @@ func (r *fakeServerRepo) ExistsByIP(_ context.Context, ip string) (bool, error) 
 	return false, nil
 }
 
+func (r *fakeServerRepo) FindByID(_ context.Context, id string) (*serverdomain.Server, error) {
+	s, ok := r.servers[id]
+	if !ok {
+		return nil, serverdomain.ErrServerNotFound
+	}
+	return s, nil
+}
+
+func (r *fakeServerRepo) UpdateInventory(_ context.Context, id string, inv serverdomain.Inventory) error {
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Inventory = &inv
+	return nil
+}
+
+func (r *fakeServerRepo) UpdateAgentInfo(_ context.Context, id string, info serverdomain.AgentInfo) error {
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Agent = &info
+	return nil
+}
+
 func setupServerApp(t *testing.T) (*fiber.App, *fakeServerRepo, *jwt.Service) {
 	t.Helper()
 
