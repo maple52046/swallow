@@ -4,8 +4,9 @@ import { MockServerRepository } from '@/infrastructure/mock/repos/MockServerRepo
 import * as serverApi from './serverApi'
 import type { ServerListItem } from './types'
 
-// Fields not yet provided by the backend API — filled with defaults until the API is extended.
 function mapToServer(item: ServerListItem): Server {
+  const inv = item.inventory
+  const gpus = inv?.gpus ?? []
   return {
     id: item.id,
     hostname: item.hostname,
@@ -13,17 +14,18 @@ function mapToServer(item: ServerListItem): Server {
     status: item.status,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
-    // TODO(api): Backend does not currently provide these fields.
-    // Keep using defaults until the API is extended.
-    cpuCores: 0,
-    ramGB: 0,
+    cpuCores: inv?.cpu.cores ?? 0,
+    ramGB: inv ? Math.round(inv.memory.totalKB / (1024 * 1024)) : 0,
     cpuUsagePct: 0,
     ramUsagePct: 0,
-    gpuType: '',
-    gpuCount: 0,
+    gpuType: gpus[0]?.model ?? '',
+    gpuCount: gpus.length,
+    os: inv?.os.distribution && inv.os.version
+      ? `${inv.os.distribution} ${inv.os.version}`
+      : undefined,
     ownerTeamId: null,
     ownerUserId: null,
-    lastSeenAt: item.updatedAt,
+    lastSeenAt: item.agent?.lastSeenAt ?? item.updatedAt,
   }
 }
 

@@ -26,6 +26,17 @@ export interface ServerListItem {
   status: 'unknown' | 'live' | 'warning' | 'error' | 'maintain' | 'offline'
   createdAt: string
   updatedAt: string
+  inventory?: {
+    cpu: { model: string; cores: number; threads: number }
+    memory: { totalKB: number }
+    gpus: Array<{ vendor: string; model: string; index: number }>
+    os: { type: string; distribution: string; version: string; kernelVersion: string; architecture: string }
+  }
+  agent?: {
+    status: string
+    lastSeenAt: string
+    agentVersion: string
+  }
 }
 
 export interface ServerListResponse {

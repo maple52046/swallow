@@ -2,7 +2,7 @@ export function formatRelative(dateStr: string | undefined): string {
   if (!dateStr) return '—'
   const date = new Date(dateStr)
   const now = Date.now()
-  const diff = now - date.getTime()
+  const diff = Math.abs(now - date.getTime())
   const s = Math.floor(diff / 1000)
   if (s < 60) return `${s}s ago`
   const m = Math.floor(s / 60)
