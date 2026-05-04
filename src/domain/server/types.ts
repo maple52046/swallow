@@ -77,6 +77,8 @@ export interface CreateServerInput {
   os?: string
 }
 
+export type OwnerType = 'team' | 'user'
+
 export type AllocationState = 'free' | 'team' | 'user'
 
 export function getAllocationState(server: Server): AllocationState {

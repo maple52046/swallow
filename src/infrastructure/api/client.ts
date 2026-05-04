@@ -1,0 +1,57 @@
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://127.0.0.1:30051'
+
+const TOKEN_KEY = 'access_token'
+
+export const tokenStore = {
+  get(): string | null {
+    return localStorage.getItem(TOKEN_KEY)
+  },
+  set(token: string): void {
+    localStorage.setItem(TOKEN_KEY, token)
+  },
+  clear(): void {
+    localStorage.removeItem(TOKEN_KEY)
+  },
+}
+
+export class ApiRequestError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
+export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = tokenStore.get()
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers,
+  })
+
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T
+  }
+
+  const body = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const code = (body as { error?: { code?: string; message?: string } } | null)?.error?.code ?? 'internal_error'
+    const message = (body as { error?: { code?: string; message?: string } } | null)?.error?.message ?? `Request failed with status ${response.status}`
+    throw new ApiRequestError(code, message, response.status)
+  }
+
+  return body as T
+}

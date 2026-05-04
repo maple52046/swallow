@@ -1,11 +1,11 @@
-import type { GPUDevice, GPUMetrics, GPUProfile, GPUVendor, GPUHealth } from '@/domain/gpu/types'
+import type { GPUDevice, GPUMetrics, GPUProfile, GPUVendor, GPUStatus } from '@/domain/gpu/types'
 import type { Alert, AlertSeverity, AlertStatus } from '@/domain/alert/types'
 
 export interface ListGPUDevicesFilters {
   vendor?: GPUVendor
-  health?: GPUHealth
-  site?: string
-  hostId?: string
+  status?: GPUStatus
+  datacenter?: string
+  serverId?: string
   search?: string
 }
 

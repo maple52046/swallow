@@ -18,8 +18,8 @@ const PROFILES: ProvisioningProfile[] = [
 ]
 
 const JOBS: ProvisioningJob[] = [
-  { id: 'job-001', profileId: 'profile-amd-prod', profileName: 'AMD ROCm 6.1 Stack', targetHostId: 'host-06', targetHostName: 'gpu-host-06', status: 'running', progress: 65, startedAt: hoursAgo(0.5), createdAt: hoursAgo(0.6), logs: ['[00:00] Starting provisioning', '[00:05] Image downloaded', '[00:20] ROCm packages installing...'] },
-  { id: 'job-002', profileId: 'profile-nvidia-prod', profileName: 'NVIDIA Production Stack', targetHostId: 'host-07', targetHostName: 'gpu-host-07', status: 'succeeded', progress: 100, startedAt: daysAgo(1), completedAt: daysAgo(0.99), createdAt: daysAgo(1.01), logs: ['[00:00] Starting', '[00:30] All packages installed', '[00:35] Validation passed'] },
+  { id: 'job-001', profileId: 'profile-amd-prod', profileName: 'AMD ROCm 6.1 Stack', targetServerId: 'host-06', targetServerName: 'gpu-host-06', status: 'running', progress: 65, startedAt: hoursAgo(0.5), createdAt: hoursAgo(0.6), logs: ['[00:00] Starting provisioning', '[00:05] Image downloaded', '[00:20] ROCm packages installing...'] },
+  { id: 'job-002', profileId: 'profile-nvidia-prod', profileName: 'NVIDIA Production Stack', targetServerId: 'host-07', targetServerName: 'gpu-host-07', status: 'succeeded', progress: 100, startedAt: daysAgo(1), completedAt: daysAgo(0.99), createdAt: daysAgo(1.01), logs: ['[00:00] Starting', '[00:30] All packages installed', '[00:35] Validation passed'] },
 ]
 
 export class MockProvisioningRepository implements ProvisioningRepository {

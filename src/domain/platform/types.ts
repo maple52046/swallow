@@ -87,8 +87,8 @@ export interface ProvisioningJob {
   id: string
   profileId: string
   profileName: string
-  targetHostId: string
-  targetHostName: string
+  targetServerId: string
+  targetServerName: string
   status: ProvisioningJobStatus
   progress: number
   startedAt?: string

@@ -48,7 +48,7 @@ export function DashboardsPage() {
     if (gpus.length === 0) return
     const avgUtil = Math.round(gpus.reduce((sum, g) => sum + g.metrics.utilization, 0) / gpus.length)
     const avgTemp = Math.round(gpus.reduce((sum, g) => sum + g.metrics.temperatureC, 0) / gpus.length)
-    const critical = gpus.filter((g) => g.health === 'critical').length
+    const critical = gpus.filter((g) => g.status === 'critical').length
     setHistory((prev) => {
       const next = [...prev, { time: new Date().toLocaleTimeString(), avgUtil, avgTemp, critical }]
       return next.slice(-30)
@@ -58,10 +58,10 @@ export function DashboardsPage() {
   if (loading) return <LoadingState />
 
   const healthDistribution = [
-    { name: 'Healthy', value: gpus.filter((g) => g.health === 'healthy').length, color: 'green' },
-    { name: 'Degraded', value: gpus.filter((g) => g.health === 'degraded').length, color: 'yellow' },
-    { name: 'Critical', value: gpus.filter((g) => g.health === 'critical').length, color: 'red' },
-    { name: 'Offline', value: gpus.filter((g) => g.health === 'offline').length, color: 'gray' },
+    { name: 'Healthy', value: gpus.filter((g) => g.status === 'healthy').length, color: 'green' },
+    { name: 'Degraded', value: gpus.filter((g) => g.status === 'degraded').length, color: 'yellow' },
+    { name: 'Critical', value: gpus.filter((g) => g.status === 'critical').length, color: 'red' },
+    { name: 'Offline', value: gpus.filter((g) => g.status === 'offline').length, color: 'gray' },
   ].filter((d) => d.value > 0)
 
   const vendorDistribution = Object.entries(
@@ -98,7 +98,7 @@ export function DashboardsPage() {
             </Card>
             <Card withBorder>
               <Text size="xs" c="dimmed">Critical GPUs</Text>
-              <Text size="xl" fw={700} c="red">{gpus.filter((g) => g.health === 'critical').length}</Text>
+              <Text size="xl" fw={700} c="red">{gpus.filter((g) => g.status === 'critical').length}</Text>
             </Card>
           </SimpleGrid>
 
@@ -144,7 +144,7 @@ export function DashboardsPage() {
               h={200}
               data={Object.entries(
                 gpus.reduce<Record<string, number>>((acc, g) => {
-                  acc[g.hostId] = (acc[g.hostId] ?? 0) + g.metrics.powerDrawW
+                  acc[g.serverId] = (acc[g.serverId] ?? 0) + g.metrics.powerDrawW
                   return acc
                 }, {}),
               ).map(([host, power]) => ({ host, power: Math.round(power) }))}

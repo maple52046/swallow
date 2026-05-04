@@ -164,4 +164,13 @@ export const seedServers: Server[] = [
     },
     ssh: { host: '10.0.1.20', port: 22, username: 'root', keyAuthEnabled: true },
   },
+  {
+    id: 'srv-013', hostname: 'new-node-001', status: 'unknown',
+    ip: '10.0.2.50', cpuCores: 0, ramGB: 0,
+    cpuUsagePct: 0, ramUsagePct: 0,
+    gpuType: '', gpuCount: 0,
+    ownerTeamId: null, ownerUserId: null,
+    lastSeenAt: daysAgo(0), createdAt: daysAgo(0), updatedAt: daysAgo(0),
+    location: { datacenter: 'DC-East', room: 'B', rack: 'R05' },
+  },
 ]

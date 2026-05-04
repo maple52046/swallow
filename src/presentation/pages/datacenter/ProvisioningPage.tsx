@@ -165,7 +165,7 @@ export function ProvisioningPage() {
                   <Table.Tr key={job.id}>
                     <Table.Td><Text size="xs" ff="mono" c="dimmed">{job.id.slice(0, 8)}</Text></Table.Td>
                     <Table.Td><Text size="sm">{job.profileName}</Text></Table.Td>
-                    <Table.Td><Text size="sm" ff="mono">{job.targetHostName}</Text></Table.Td>
+                    <Table.Td><Text size="sm" ff="mono">{job.targetServerName}</Text></Table.Td>
                     <Table.Td>
                       <Badge size="sm" color={
                         job.status === 'succeeded' ? 'green' :

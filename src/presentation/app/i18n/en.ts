@@ -136,7 +136,7 @@ export const en = {
     title: 'GPU',
     titlePlural: 'GPUs',
     vendor: { nvidia: 'NVIDIA', amd: 'AMD' },
-    health: { healthy: 'Healthy', degraded: 'Degraded', critical: 'Critical', offline: 'Offline' },
+    status: { healthy: 'Healthy', degraded: 'Degraded', critical: 'Critical', offline: 'Offline' },
     utilization: 'Utilization',
     temperature: 'Temperature',
     powerDraw: 'Power Draw',

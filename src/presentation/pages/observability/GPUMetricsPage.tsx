@@ -135,12 +135,12 @@ export function GPUMetricsPage() {
     if (!selected) return
     const mission = await missions.create.execute({
       name: `GPU Diagnostics — ${selected.model}`,
-      goal: `Run comprehensive diagnostics on GPU ${selected.model} (host: ${selected.hostId}). Check ECC errors, temperature, throttling, and XID errors.`,
+      goal: `Run comprehensive diagnostics on GPU ${selected.model} (server: ${selected.serverId}). Check ECC errors, temperature, throttling, and XID errors.`,
       modelId: defaultModelId,
-      target: selected.hostId,
+      target: selected.serverId,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 120 },
-      permissions: { allowedPlugins: ['nvidia-smi', 'ssh'], allowedTargets: [selected.hostId], guardrails: ['read-only'] },
+      permissions: { allowedPlugins: ['nvidia-smi', 'ssh'], allowedTargets: [selected.serverId], guardrails: ['read-only'] },
       tags: ['gpu', 'diagnostics'],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'green' })
@@ -148,13 +148,13 @@ export function GPUMetricsPage() {
   }
 
   const filtered = gpus.filter((g) => {
-    if (healthFilter && g.health !== healthFilter) return false
-    if (hostFilter && g.hostId !== hostFilter) return false
-    if (search && !g.model.toLowerCase().includes(search.toLowerCase()) && !g.hostId.toLowerCase().includes(search.toLowerCase()) && !g.hostName.toLowerCase().includes(search.toLowerCase())) return false
+    if (healthFilter && g.status !== healthFilter) return false
+    if (hostFilter && g.serverId !== hostFilter) return false
+    if (search && !g.model.toLowerCase().includes(search.toLowerCase()) && !g.serverId.toLowerCase().includes(search.toLowerCase()) && !g.serverName.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
 
-  const hostOptions = [...new Set(gpus.map((g) => g.hostId))].map((h) => ({ value: h, label: h }))
+  const hostOptions = [...new Set(gpus.map((g) => g.serverId))].map((h) => ({ value: h, label: h }))
 
   if (loading) return <LoadingState />
   if (error) return <ErrorState message={error} onRetry={() => void load()} />
@@ -163,7 +163,7 @@ export function GPUMetricsPage() {
     <>
       <PageHeader
         title={t('gpu.titlePlural')}
-        subtitle={`${gpus.length} devices · ${gpus.filter((g) => g.health === 'critical').length} critical`}
+        subtitle={`${gpus.length} devices · ${gpus.filter((g) => g.status === 'critical').length} critical`}
         actions={
           <Tooltip label="Refresh">
             <ActionIcon variant="default" onClick={() => void load()}><IconRefresh size={16} /></ActionIcon>
@@ -183,10 +183,10 @@ export function GPUMetricsPage() {
         <Select
           placeholder="Health"
           data={[
-            { value: 'healthy', label: t('gpu.health.healthy') },
-            { value: 'degraded', label: t('gpu.health.degraded') },
-            { value: 'critical', label: t('gpu.health.critical') },
-            { value: 'offline', label: t('gpu.health.offline') },
+            { value: 'healthy', label: t('gpu.status.healthy') },
+            { value: 'degraded', label: t('gpu.status.degraded') },
+            { value: 'critical', label: t('gpu.status.critical') },
+            { value: 'offline', label: t('gpu.status.offline') },
           ]}
           value={healthFilter}
           onChange={setHealthFilter}
@@ -247,15 +247,15 @@ export function GPUMetricsPage() {
                   >
                     <Group justify="space-between" mb="md">
                       <Group gap="sm">
-                        <ThemeIcon size="lg" color={healthColor(gpu.health)} variant="light">
+                        <ThemeIcon size="lg" color={healthColor(gpu.status)} variant="light">
                           <IconActivity size={16} />
                         </ThemeIcon>
                         <Stack gap={2}>
                           <Text size="md" fw={600}>{gpu.model}</Text>
-                          <Text size="xs" c="dimmed">{gpu.hostName} · {gpu.vendor.toUpperCase()}</Text>
+                          <Text size="xs" c="dimmed">{gpu.serverName} · {gpu.vendor.toUpperCase()}</Text>
                         </Stack>
                       </Group>
-                      <StatusBadge status={gpu.health} />
+                      <StatusBadge status={gpu.status} />
                     </Group>
                     <SimpleGrid cols={4} mt="sm" spacing="md">
                       <Stack gap={4}>

@@ -4,28 +4,28 @@ const daysAgo = (d: number) => new Date(Date.now() - d * 86400 * 1000).toISOStri
 
 export const seedGPUDevices: GPUDevice[] = [
   // host-01: 8x NVIDIA A100 80GB
-  ...Array.from({ length: 8 }, (_, i) => ({ id: `gpu-h01-${i}`, hostId: 'host-01', hostName: 'gpu-host-01', index: i, vendor: 'nvidia' as const, model: 'A100 80GB', serial: `A100-H01-${i}`, uuid: `GPU-a100-h01-${i}`, driverVersion: '535.161.08', cudaVersion: '12.2', health: 'healthy' as const, site: 'dc-east', rack: 'R01', memoryGB: 80 })),
+  ...Array.from({ length: 8 }, (_, i) => ({ id: `gpu-h01-${i}`, serverId: 'host-01', serverName: 'gpu-host-01', index: i, vendor: 'nvidia' as const, model: 'A100 80GB', serial: `A100-H01-${i}`, uuid: `GPU-a100-h01-${i}`, driverVersion: '535.161.08', cudaVersion: '12.2', status: 'healthy' as const, datacenter: 'dc-east', rack: 'R01', memoryGB: 80 })),
   // host-02: 8x NVIDIA A100 80GB
-  ...Array.from({ length: 8 }, (_, i) => ({ id: `gpu-h02-${i}`, hostId: 'host-02', hostName: 'gpu-host-02', index: i, vendor: 'nvidia' as const, model: 'A100 80GB', serial: `A100-H02-${i}`, uuid: `GPU-a100-h02-${i}`, driverVersion: '535.161.08', cudaVersion: '12.2', health: 'healthy' as const, site: 'dc-east', rack: 'R01', memoryGB: 80 })),
+  ...Array.from({ length: 8 }, (_, i) => ({ id: `gpu-h02-${i}`, serverId: 'host-02', serverName: 'gpu-host-02', index: i, vendor: 'nvidia' as const, model: 'A100 80GB', serial: `A100-H02-${i}`, uuid: `GPU-a100-h02-${i}`, driverVersion: '535.161.08', cudaVersion: '12.2', status: 'healthy' as const, datacenter: 'dc-east', rack: 'R01', memoryGB: 80 })),
   // host-03: 4x NVIDIA H100 80GB
-  ...Array.from({ length: 4 }, (_, i) => ({ id: `gpu-h03-${i}`, hostId: 'host-03', hostName: 'gpu-host-03', index: i, vendor: 'nvidia' as const, model: 'H100 80GB SXM5', serial: `H100-H03-${i}`, uuid: `GPU-h100-h03-${i}`, driverVersion: '550.54.15', cudaVersion: '12.4', health: 'healthy' as const, site: 'dc-east', rack: 'R02', memoryGB: 80 })),
+  ...Array.from({ length: 4 }, (_, i) => ({ id: `gpu-h03-${i}`, serverId: 'host-03', serverName: 'gpu-host-03', index: i, vendor: 'nvidia' as const, model: 'H100 80GB SXM5', serial: `H100-H03-${i}`, uuid: `GPU-h100-h03-${i}`, driverVersion: '550.54.15', cudaVersion: '12.4', status: 'healthy' as const, datacenter: 'dc-east', rack: 'R02', memoryGB: 80 })),
   // host-04: 4x NVIDIA H100 80GB (1 critical - ECC errors)
-  { id: 'gpu-h04-0', hostId: 'host-04', hostName: 'gpu-host-04', index: 0, vendor: 'nvidia' as const, model: 'H100 80GB SXM5', serial: 'H100-H04-0', uuid: 'GPU-h100-h04-0', driverVersion: '550.54.15', cudaVersion: '12.4', health: 'critical' as const, site: 'dc-east', rack: 'R02', memoryGB: 80 },
-  ...Array.from({ length: 3 }, (_, i) => ({ id: `gpu-h04-${i + 1}`, hostId: 'host-04', hostName: 'gpu-host-04', index: i + 1, vendor: 'nvidia' as const, model: 'H100 80GB SXM5', serial: `H100-H04-${i + 1}`, uuid: `GPU-h100-h04-${i + 1}`, driverVersion: '550.54.15', cudaVersion: '12.4', health: 'healthy' as const, site: 'dc-east', rack: 'R02', memoryGB: 80 })),
+  { id: 'gpu-h04-0', serverId: 'host-04', serverName: 'gpu-host-04', index: 0, vendor: 'nvidia' as const, model: 'H100 80GB SXM5', serial: 'H100-H04-0', uuid: 'GPU-h100-h04-0', driverVersion: '550.54.15', cudaVersion: '12.4', status: 'critical' as const, datacenter: 'dc-east', rack: 'R02', memoryGB: 80 },
+  ...Array.from({ length: 3 }, (_, i) => ({ id: `gpu-h04-${i + 1}`, serverId: 'host-04', serverName: 'gpu-host-04', index: i + 1, vendor: 'nvidia' as const, model: 'H100 80GB SXM5', serial: `H100-H04-${i + 1}`, uuid: `GPU-h100-h04-${i + 1}`, driverVersion: '550.54.15', cudaVersion: '12.4', status: 'healthy' as const, datacenter: 'dc-east', rack: 'R02', memoryGB: 80 })),
   // host-05: 8x AMD MI300X (1 degraded)
-  { id: 'gpu-h05-0', hostId: 'host-05', hostName: 'gpu-host-05', index: 0, vendor: 'amd' as const, model: 'MI300X 192GB', serial: 'MI300X-H05-0', uuid: 'GPU-mi300x-h05-0', driverVersion: '', rocmVersion: '6.1.2', health: 'degraded' as const, site: 'dc-west', rack: 'R10', memoryGB: 192 },
-  ...Array.from({ length: 7 }, (_, i) => ({ id: `gpu-h05-${i + 1}`, hostId: 'host-05', hostName: 'gpu-host-05', index: i + 1, vendor: 'amd' as const, model: 'MI300X 192GB', serial: `MI300X-H05-${i + 1}`, uuid: `GPU-mi300x-h05-${i + 1}`, driverVersion: '', rocmVersion: '6.1.2', health: 'healthy' as const, site: 'dc-west', rack: 'R10', memoryGB: 192 })),
+  { id: 'gpu-h05-0', serverId: 'host-05', serverName: 'gpu-host-05', index: 0, vendor: 'amd' as const, model: 'MI300X 192GB', serial: 'MI300X-H05-0', uuid: 'GPU-mi300x-h05-0', driverVersion: '', rocmVersion: '6.1.2', status: 'degraded' as const, datacenter: 'dc-west', rack: 'R10', memoryGB: 192 },
+  ...Array.from({ length: 7 }, (_, i) => ({ id: `gpu-h05-${i + 1}`, serverId: 'host-05', serverName: 'gpu-host-05', index: i + 1, vendor: 'amd' as const, model: 'MI300X 192GB', serial: `MI300X-H05-${i + 1}`, uuid: `GPU-mi300x-h05-${i + 1}`, driverVersion: '', rocmVersion: '6.1.2', status: 'healthy' as const, datacenter: 'dc-west', rack: 'R10', memoryGB: 192 })),
   // host-06: 8x AMD MI300X
-  ...Array.from({ length: 8 }, (_, i) => ({ id: `gpu-h06-${i}`, hostId: 'host-06', hostName: 'gpu-host-06', index: i, vendor: 'amd' as const, model: 'MI300X 192GB', serial: `MI300X-H06-${i}`, uuid: `GPU-mi300x-h06-${i}`, driverVersion: '', rocmVersion: '6.0.0', health: 'healthy' as const, site: 'dc-west', rack: 'R10', memoryGB: 192 })),
+  ...Array.from({ length: 8 }, (_, i) => ({ id: `gpu-h06-${i}`, serverId: 'host-06', serverName: 'gpu-host-06', index: i, vendor: 'amd' as const, model: 'MI300X 192GB', serial: `MI300X-H06-${i}`, uuid: `GPU-mi300x-h06-${i}`, driverVersion: '', rocmVersion: '6.0.0', status: 'healthy' as const, datacenter: 'dc-west', rack: 'R10', memoryGB: 192 })),
   // host-07: 4x NVIDIA A100 40GB (degraded / throttling)
-  ...Array.from({ length: 4 }, (_, i) => ({ id: `gpu-h07-${i}`, hostId: 'host-07', hostName: 'gpu-host-07', index: i, vendor: 'nvidia' as const, model: 'A100 40GB', serial: `A100-H07-${i}`, uuid: `GPU-a100-h07-${i}`, driverVersion: '535.104.05', cudaVersion: '12.2', health: 'degraded' as const, site: 'dc-east', rack: 'R03', memoryGB: 40 })),
+  ...Array.from({ length: 4 }, (_, i) => ({ id: `gpu-h07-${i}`, serverId: 'host-07', serverName: 'gpu-host-07', index: i, vendor: 'nvidia' as const, model: 'A100 40GB', serial: `A100-H07-${i}`, uuid: `GPU-a100-h07-${i}`, driverVersion: '535.104.05', cudaVersion: '12.2', status: 'degraded' as const, datacenter: 'dc-east', rack: 'R03', memoryGB: 40 })),
   // host-08: 4x NVIDIA A100 40GB (critical / overheating)
-  ...Array.from({ length: 4 }, (_, i) => ({ id: `gpu-h08-${i}`, hostId: 'host-08', hostName: 'gpu-host-08', index: i, vendor: 'nvidia' as const, model: 'A100 40GB', serial: `A100-H08-${i}`, uuid: `GPU-a100-h08-${i}`, driverVersion: '535.104.05', cudaVersion: '12.2', health: 'critical' as const, site: 'dc-east', rack: 'R03', memoryGB: 40 })),
+  ...Array.from({ length: 4 }, (_, i) => ({ id: `gpu-h08-${i}`, serverId: 'host-08', serverName: 'gpu-host-08', index: i, vendor: 'nvidia' as const, model: 'A100 40GB', serial: `A100-H08-${i}`, uuid: `GPU-a100-h08-${i}`, driverVersion: '535.104.05', cudaVersion: '12.2', status: 'critical' as const, datacenter: 'dc-east', rack: 'R03', memoryGB: 40 })),
 ]
 
 function makeBaseMetrics(gpu: GPUDevice): Omit<GPUMetrics, 'timestamp'> {
-  const isCritical = gpu.health === 'critical'
-  const isDegraded = gpu.health === 'degraded'
+  const isCritical = gpu.status === 'critical'
+  const isDegraded = gpu.status === 'degraded'
   const isNvidia = gpu.vendor === 'nvidia'
   const isH100 = gpu.model.includes('H100')
   const isMI300X = gpu.model.includes('MI300X')
@@ -53,8 +53,8 @@ export const seedGPUProfiles: GPUProfile[] = [
     id: 'profile-001',
     gpuId: 'gpu-h03-0',
     gpuModel: 'H100 80GB SXM5',
-    hostId: 'host-03',
-    hostName: 'gpu-host-03',
+    serverId: 'host-03',
+    serverName: 'gpu-host-03',
     runId: 'run-004',
     missionId: 'mission-004',
     missionName: 'GPU Profiling: Training Job Analysis',
@@ -81,8 +81,8 @@ export const seedGPUProfiles: GPUProfile[] = [
     id: 'profile-002',
     gpuId: 'gpu-h05-1',
     gpuModel: 'MI300X 192GB',
-    hostId: 'host-05',
-    hostName: 'gpu-host-05',
+    serverId: 'host-05',
+    serverName: 'gpu-host-05',
     status: 'completed',
     startedAt: daysAgo(3),
     completedAt: daysAgo(2.99),

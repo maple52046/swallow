@@ -1,10 +1,10 @@
 export type GPUVendor = 'nvidia' | 'amd'
-export type GPUHealth = 'healthy' | 'degraded' | 'critical' | 'offline'
+export type GPUStatus = 'healthy' | 'degraded' | 'critical' | 'offline'
 
 export interface GPUDevice {
   id: string
-  hostId: string
-  hostName: string
+  serverId: string
+  serverName: string
   index: number
   vendor: GPUVendor
   model: string
@@ -13,8 +13,8 @@ export interface GPUDevice {
   driverVersion: string
   cudaVersion?: string
   rocmVersion?: string
-  health: GPUHealth
-  site: string
+  status: GPUStatus
+  datacenter: string
   rack: string
   memoryGB: number
 }
@@ -38,8 +38,8 @@ export interface GPUProfile {
   id: string
   gpuId: string
   gpuModel: string
-  hostId: string
-  hostName: string
+  serverId: string
+  serverName: string
   runId?: string
   missionId?: string
   missionName?: string

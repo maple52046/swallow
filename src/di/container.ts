@@ -6,7 +6,7 @@ import { MockProvisioningRepository } from '@/infrastructure/mock/repos/MockProv
 import { MockAccessRepository } from '@/infrastructure/mock/repos/MockAccessRepository'
 import { MockPlaneRepository } from '@/infrastructure/mock/repos/MockPlaneRepository'
 import { MockPlatformRepository } from '@/infrastructure/mock/repos/MockPlatformRepository'
-import { MockServerRepository } from '@/infrastructure/mock/repos/MockServerRepository'
+import { RealServerRepository } from '@/infrastructure/api/RealServerRepository'
 import { MockTeamRepository } from '@/infrastructure/mock/repos/MockTeamRepository'
 import { MockTopologyRepository } from '@/infrastructure/mock/repos/MockTopologyRepository'
 
@@ -182,7 +182,7 @@ export function createContainer(): AppContainer {
   const accessRepo = new MockAccessRepository()
   const planeRepo = new MockPlaneRepository()
   const platformRepo = new MockPlatformRepository()
-  const serverRepo = new MockServerRepository()
+  const serverRepo = new RealServerRepository()
   const teamRepo = new MockTeamRepository()
   const topologyRepo = new MockTopologyRepository()
 

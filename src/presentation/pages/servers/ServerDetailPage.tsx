@@ -11,7 +11,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   IconAdjustments, IconAlertTriangle, IconCheck, IconClock,
   IconCopy, IconCpu, IconDatabase, IconDeviceDesktopAnalytics,
-  IconEdit, IconEye, IconEyeOff, IconNetwork, IconPlayerPlay,
+  IconEdit, IconEye, IconEyeOff, IconPlayerPlay,
   IconPlus, IconPower, IconRefresh, IconRotate, IconServer,
   IconServerOff, IconTerminal2, IconTool, IconUser, IconUsers, IconX,
 } from '@tabler/icons-react'
@@ -20,6 +20,7 @@ import { useAuth } from '@/presentation/contexts/AuthContext'
 import type { Server } from '@/domain/server/types'
 import type { Alert } from '@/domain/alert/types'
 import type { Team } from '@/domain/team/types'
+import type { Container } from '@/domain/workload/types'
 import { getAllocationState } from '@/domain/server/types'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -30,16 +31,7 @@ import { formatRelative, formatDateTime } from '@/shared/utils/time'
 
 type TrendPoint = { h: string; v: number }
 
-interface ContainerWorkload {
-  id: string
-  name: string
-  image: string
-  state: 'running' | 'stopped' | 'exited' | 'restarting'
-  restartCount: number
-  cpuPct: number
-  ramPct: number
-  startedAt: string
-}
+type ContainerWithUsage = Container & { cpuPct: number; ramPct: number }
 
 interface OpsEvent {
   title: string
@@ -79,7 +71,7 @@ function genTrend(seed: number, base: number, amplitude: number): TrendPoint[] {
   }).reverse()
 }
 
-function genWorkloads(server: Server): ContainerWorkload[] {
+function genWorkloads(server: Server): ContainerWithUsage[] {
   const h = hashId(server.id)
   if (server.status === 'offline' || server.status === 'maintain') return []
   const count = 2 + (h % 3)
@@ -96,13 +88,13 @@ function genWorkloads(server: Server): ContainerWorkload[] {
     'training-job', 'inference-server', 'vllm-api', 'tgi-service',
     'ollama-runner', 'data-pipeline', 'monitor-agent', 'checkpoint-saver',
   ]
-  const states: ContainerWorkload['state'][] = ['running', 'running', 'running', 'stopped', 'exited']
+  const states: Container['state'][] = ['running', 'running', 'running', 'stopped', 'exited']
   return Array.from({ length: count }, (_, i) => ({
     id: `${server.id}-wl-${i}`,
     name: names[(h + i) % names.length],
     image: images[(h + i * 3) % images.length],
     state: states[(h + i) % states.length],
-    restartCount: (h + i) % 4,
+    restarts: (h + i) % 4,
     cpuPct: ((h * (i + 1)) % 80) + 5,
     ramPct: ((h * (i + 2)) % 70) + 10,
     startedAt: daysAgo(((h + i) % 7) + 1),
@@ -154,11 +146,12 @@ function AlertSeverityBadge({ severity }: { severity: Alert['severity'] }) {
   return <Badge color={map[severity].color} size="xs" variant="filled">{severity}</Badge>
 }
 
-function WorkloadStateBadge({ state }: { state: ContainerWorkload['state'] }) {
-  const map: Record<ContainerWorkload['state'], { color: string; label: string }> = {
+function WorkloadStateBadge({ state }: { state: Container['state'] }) {
+  const map: Record<Container['state'], { color: string; label: string }> = {
     running: { color: 'green', label: 'Running' },
     stopped: { color: 'gray', label: 'Stopped' },
     exited: { color: 'red', label: 'Exited' },
+    created: { color: 'blue', label: 'Created' },
     restarting: { color: 'orange', label: 'Restarting' },
   }
   const { color, label } = map[state]
@@ -1242,7 +1235,7 @@ export function ServerDetailPage() {
                         </Table.Td>
                         <Table.Td><WorkloadStateBadge state={wl.state} /></Table.Td>
                         <Table.Td>
-                          <Text size="sm" c={wl.restartCount > 2 ? 'red' : 'inherit'}>{wl.restartCount}</Text>
+                          <Text size="sm" c={wl.restarts > 2 ? 'red' : 'inherit'}>{wl.restarts}</Text>
                         </Table.Td>
                         <Table.Td>
                           <Text size="sm" c="dimmed">{formatRelative(wl.startedAt)}</Text>

@@ -1,19 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import type { User, UserRole, UserStatus } from '@/domain/user/types'
+import * as authApi from '@/infrastructure/api/authApi'
+import { tokenStore, ApiRequestError } from '@/infrastructure/api/client'
+import type { MeResponse } from '@/infrastructure/api/types'
 
-export type UserRole = 'admin' | 'owner' | 'member'
-export type UserStatus = 'active' | 'disabled'
-
-export interface AuthUser {
-  id: string
-  username: string
-  displayName: string
-  role: UserRole
-  status: UserStatus
+// Backend role 'user' maps to frontend UserRole 'member'.
+function mapBackendRole(role: MeResponse['role']): UserRole {
+  return role === 'user' ? 'member' : role
 }
 
-interface DemoCredential extends AuthUser {
-  password: string
-}
+export type { UserRole, UserStatus }
+export type AuthUser = User
 
 interface AuthContextValue {
   currentUser: AuthUser | null
@@ -26,16 +23,15 @@ interface AuthContextValue {
   updateUserRole: (username: string, role: UserRole) => void
 }
 
-const SESSION_KEY = 'auth-session'
 const USERS_KEY = 'auth-users'
 
-const demoCredentials: DemoCredential[] = [
-  { id: 'user-admin', username: 'admin', password: 'admin', role: 'admin', displayName: 'Admin User', status: 'active' },
-  { id: 'user-owner', username: 'owner', password: 'owner', role: 'owner', displayName: 'Owner User', status: 'active' },
-  { id: 'user-member', username: 'member', password: 'member', role: 'member', displayName: 'Member User', status: 'active' },
+// Demo users list for display purposes (user management UI).
+// This is distinct from authentication — auth is handled by the real backend.
+const defaultUsers: AuthUser[] = [
+  { id: 'user-admin', username: 'admin', role: 'admin', displayName: 'Admin User', status: 'active' },
+  { id: 'user-owner', username: 'owner', role: 'owner', displayName: 'Owner User', status: 'active' },
+  { id: 'user-member', username: 'member', role: 'member', displayName: 'Member User', status: 'active' },
 ]
-
-const defaultUsers: AuthUser[] = demoCredentials.map(({ password: _password, ...u }) => u)
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
@@ -64,23 +60,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedUsers = readUsersFromStorage()
     setUsers(storedUsers)
 
-    try {
-      const raw = localStorage.getItem(SESSION_KEY)
-      if (!raw) {
-        setCurrentUser(null)
-        return
-      }
-      const session = JSON.parse(raw) as { username?: string }
-      const username = session?.username
-      if (!username) {
-        setCurrentUser(null)
-        return
-      }
-      const user = storedUsers.find((u) => u.username === username && u.status === 'active') ?? null
-      setCurrentUser(user)
-    } catch {
+    const token = tokenStore.get()
+    if (!token) {
       setCurrentUser(null)
+      return
     }
+
+    // Verify the stored token is still valid by calling /auth/me.
+    authApi.getMe().then((me) => {
+      const user: AuthUser = {
+        id: me.id,
+        username: me.username,
+        // TODO(api): Backend does not provide displayName yet. Fall back to username.
+        displayName: me.username,
+        role: mapBackendRole(me.role),
+        status: 'active',
+      }
+      setCurrentUser(user)
+    }).catch(() => {
+      // Token is invalid or expired — clear it and require re-login.
+      tokenStore.clear()
+      setCurrentUser(null)
+    })
   }
 
   useEffect(() => {
@@ -93,22 +94,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     writeUsersToStorage(users)
   }, [initializing, users])
 
-  const login = async (username: string, password: string) => {
-    const matched = demoCredentials.find((u) => u.username === username && u.password === password)
-    if (!matched) {
-      throw new Error('Invalid username or password')
+  const login = async (username: string, password: string): Promise<AuthUser> => {
+    try {
+      // Call the real backend — token is stored inside authApi.login().
+      await authApi.login(username, password)
+      const me = await authApi.getMe()
+      const user: AuthUser = {
+        id: me.id,
+        username: me.username,
+        // TODO(api): Backend does not provide displayName yet. Fall back to username.
+        displayName: me.username,
+        role: mapBackendRole(me.role),
+        status: 'active',
+      }
+      setCurrentUser(user)
+      return user
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        if (err.status === 401) throw new Error('Invalid username or password')
+        throw new Error(err.message)
+      }
+      throw err
     }
-    const user = users.find((u) => u.username === matched.username)
-    if (!user || user.status !== 'active') {
-      throw new Error('User is disabled')
-    }
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ username: user.username }))
-    setCurrentUser(user)
-    return user
   }
 
   const logout = () => {
-    localStorage.removeItem(SESSION_KEY)
+    authApi.logout()
     setCurrentUser(null)
   }
 

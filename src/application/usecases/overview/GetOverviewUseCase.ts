@@ -57,7 +57,7 @@ export class GetOverviewUseCase {
         runningRuns: allRuns.filter((r) => r.status === 'running' || r.status === 'queued').length,
         totalRuns: allRuns.length,
         activeAlerts: activeAlerts.length,
-        criticalGPUs: topCriticalGPUs.filter((g) => g.health === 'critical').length,
+        criticalGPUs: topCriticalGPUs.filter((g) => g.status === 'critical').length,
         connectedPlanes: planes.filter((p) => p.status === 'connected').length,
       },
       recentRuns,

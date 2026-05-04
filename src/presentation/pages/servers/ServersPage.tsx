@@ -290,6 +290,7 @@ export function ServersPage() {
             { value: 'error', label: 'Error' },
             { value: 'maintain', label: 'Maintain' },
             { value: 'offline', label: 'Offline' },
+            { value: 'unknown', label: 'Unknown' },
           ]}
           value={statusFilter}
           onChange={setStatusFilter}

@@ -1,6 +1,6 @@
 export type AlertSeverity = 'critical' | 'warning' | 'info'
 export type AlertStatus = 'active' | 'acknowledged' | 'resolved'
-export type AlertCategory = 'gpu' | 'host' | 'network' | 'storage' | 'plane' | 'system'
+export type AlertCategory = 'gpu' | 'server' | 'network' | 'storage' | 'plane' | 'system'
 
 export interface Alert {
   id: string

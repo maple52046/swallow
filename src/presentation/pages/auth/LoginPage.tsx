@@ -23,7 +23,9 @@ export function LoginPage() {
     }
   }, [isAuthenticated, navigate])
 
-  const handleLogin = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!username || !password || submitting) return
     try {
       setSubmitting(true)
       setError(null)
@@ -41,53 +43,54 @@ export function LoginPage() {
   return (
     <Container size={460} py={80}>
       <Card withBorder radius="md" p="xl">
-        <Stack gap="md">
-          <div>
-            <Title order={2}>Sign in</Title>
-            <Text c="dimmed" size="sm">Datacenter Prototype Auth Demo</Text>
-            {currentUser && (
-              <Text c="dimmed" size="xs" mt={4}>
-                Current: {currentUser.displayName} ({currentUser.role})
-              </Text>
+        <form onSubmit={(e) => void handleSubmit(e)}>
+          <Stack gap="md">
+            <div>
+              <Title order={2}>Sign in</Title>
+              <Text c="dimmed" size="sm">Datacenter Prototype Auth Demo</Text>
+              {currentUser && (
+                <Text c="dimmed" size="xs" mt={4}>
+                  Current: {currentUser.displayName} ({currentUser.role})
+                </Text>
+              )}
+            </div>
+
+            {error && (
+              <Alert color="red" icon={<IconAlertCircle size={16} />} title="Login failed">
+                {error}
+              </Alert>
             )}
-          </div>
 
-          {error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} title="Login failed">
-              {error}
-            </Alert>
-          )}
+            <TextInput
+              label="Username"
+              value={username}
+              onChange={(e) => setUsername(e.currentTarget.value)}
+              placeholder="Enter your account identifier"
+              autoComplete="username"
+              required
+            />
 
-          <TextInput
-            label="Username"
-            value={username}
-            onChange={(e) => setUsername(e.currentTarget.value)}
-            placeholder="Enter your account identifier"
-            autoComplete="username"
-            required
-          />
+            <PasswordInput
+              label="Password"
+              value={password}
+              onChange={(e) => setPassword(e.currentTarget.value)}
+              placeholder="Enter your password"
+              autoComplete="current-password"
+              required
+            />
 
-          <PasswordInput
-            label="Password"
-            value={password}
-            onChange={(e) => setPassword(e.currentTarget.value)}
-            placeholder="Enter your password"
-            autoComplete="current-password"
-            required
-          />
-
-          <Group justify="flex-end">
-            <Button
-              leftSection={<IconLogin2 size={16} />}
-              onClick={() => void handleLogin()}
-              loading={submitting}
-              disabled={!username || !password}
-            >
-              Login
-            </Button>
-          </Group>
-
-        </Stack>
+            <Group justify="flex-end">
+              <Button
+                type="submit"
+                leftSection={<IconLogin2 size={16} />}
+                loading={submitting}
+                disabled={!username || !password}
+              >
+                Login
+              </Button>
+            </Group>
+          </Stack>
+        </form>
       </Card>
     </Container>
   )

@@ -49,12 +49,12 @@ export function GPUProfilingPage() {
   const handleCreateProfilingMission = async (profile: GPUProfile) => {
     const mission = await missions.create.execute({
       name: `GPU Profiling Analysis — ${profile.gpuId}`,
-      goal: `Analyze profiling data for GPU ${profile.gpuModel} on ${profile.hostName}. Identify performance bottlenecks and optimization opportunities.`,
+      goal: `Analyze profiling data for GPU ${profile.gpuModel} on ${profile.serverName}. Identify performance bottlenecks and optimization opportunities.`,
       modelId: defaultModelId,
-      target: profile.hostId,
+      target: profile.serverId,
       trigger: 'manual',
       plan: { steps: [], estimatedDurationSeconds: 300 },
-      permissions: { allowedPlugins: ['gpu-profiler', 'nvidia-smi', 'ssh'], allowedTargets: [profile.hostId], guardrails: ['read-only'] },
+      permissions: { allowedPlugins: ['gpu-profiler', 'nvidia-smi', 'ssh'], allowedTargets: [profile.serverId], guardrails: ['read-only'] },
       tags: ['gpu', 'profiling'],
     })
     notifications.show({ title: 'Mission created', message: mission.name, color: 'green' })
@@ -85,7 +85,7 @@ export function GPUProfilingPage() {
                   <ThemeIcon variant="light" color="violet"><IconChartBar size={16} /></ThemeIcon>
                   <Stack gap={0}>
                     <Text fw={500}>{profile.gpuModel}</Text>
-                    <Text size="xs" c="dimmed">{profile.hostName} · {formatRelative(profile.startedAt)}</Text>
+                    <Text size="xs" c="dimmed">{profile.serverName} · {formatRelative(profile.startedAt)}</Text>
                   </Stack>
                 </Group>
                 <Group gap="xs">

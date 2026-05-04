@@ -24,12 +24,12 @@ export class MockObservabilityRepository implements ObservabilityRepository {
   async listGPUDevices(filters?: ListGPUDevicesFilters): Promise<GPUDevice[]> {
     let items = [...seedGPUDevices]
     if (filters?.vendor) items = items.filter((g) => g.vendor === filters.vendor)
-    if (filters?.health) items = items.filter((g) => g.health === filters.health)
-    if (filters?.site) items = items.filter((g) => g.site === filters.site)
-    if (filters?.hostId) items = items.filter((g) => g.hostId === filters.hostId)
+    if (filters?.status) items = items.filter((g) => g.status === filters.status)
+    if (filters?.datacenter) items = items.filter((g) => g.datacenter === filters.datacenter)
+    if (filters?.serverId) items = items.filter((g) => g.serverId === filters.serverId)
     if (filters?.search) {
       const q = filters.search.toLowerCase()
-      items = items.filter((g) => g.model.toLowerCase().includes(q) || g.hostName.toLowerCase().includes(q) || g.id.includes(q))
+      items = items.filter((g) => g.model.toLowerCase().includes(q) || g.serverName.toLowerCase().includes(q) || g.id.includes(q))
     }
     return items
   }
@@ -52,7 +52,7 @@ export class MockObservabilityRepository implements ObservabilityRepository {
 
   async getTopCriticalGPUs(limit: number): Promise<Array<GPUDevice & { metrics: GPUMetrics }>> {
     const priority: Record<string, number> = { critical: 3, degraded: 2, offline: 1, healthy: 0 }
-    const sorted = [...seedGPUDevices].sort((a, b) => (priority[b.health] ?? 0) - (priority[a.health] ?? 0))
+    const sorted = [...seedGPUDevices].sort((a, b) => (priority[b.status] ?? 0) - (priority[a.status] ?? 0))
     const top = sorted.slice(0, limit)
     const metrics = await this.getGPUMetrics(top.map((g) => g.id))
     const metricsById = new Map(metrics.map((m) => [m.gpuId, m]))

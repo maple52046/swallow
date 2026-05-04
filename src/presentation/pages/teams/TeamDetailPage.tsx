@@ -305,12 +305,18 @@ export function TeamDetailPage() {
                   <Table.Tr key={s.id}>
                     <Table.Td><Text size="sm" fw={500}>{s.hostname}</Text></Table.Td>
                     <Table.Td>
-                      <Badge
-                        color={s.status === 'live' ? 'green' : s.status === 'error' ? 'red' : s.status === 'offline' ? 'gray' : 'yellow'}
-                        variant="light" size="sm"
-                      >
-                        {s.status}
-                      </Badge>
+                      {(() => {
+                        const statusMap: Record<string, { color: string; label: string }> = {
+                          live: { color: 'green', label: 'Live' },
+                          warning: { color: 'yellow', label: 'Warning' },
+                          error: { color: 'red', label: 'Error' },
+                          maintain: { color: 'blue', label: 'Maintenance' },
+                          offline: { color: 'gray', label: 'Offline' },
+                          unknown: { color: 'gray', label: 'Unknown' },
+                        }
+                        const { color, label } = statusMap[s.status] ?? { color: 'gray', label: s.status }
+                        return <Badge color={color} variant="light" size="sm">{label}</Badge>
+                      })()}
                     </Table.Td>
                     <Table.Td><Text size="sm" ff="mono">{s.ip}</Text></Table.Td>
                     <Table.Td>
