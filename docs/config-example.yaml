@@ -1,0 +1,28 @@
+# swallow config example
+# Values shown here are for local development only.
+# Production deployments must override jwtSecret, bootstrapAdminPassword,
+# and mongoUri with real credentials — never commit production secrets.
+
+api:
+  # HTTP listen address for the API server.
+  addr: ":3000"
+
+  # MongoDB connection string.
+  mongoUri: "mongodb://localhost:27017"
+
+  # MongoDB database name.
+  mongoDb: "swallow"
+
+  # HMAC secret for signing JWT tokens. Must be kept private.
+  jwtSecret: "dev-secret-change-in-production"
+
+  # JWT token validity window in hours.
+  jwtExpiryHours: 24
+
+  # Admin user seeded on first startup. Ignored if the user already exists.
+  bootstrapAdminUsername: "admin"
+  bootstrapAdminPassword: "admin"
+
+agent:
+  # Base URL of the API server this agent connects to.
+  controllerAddr: "http://localhost:3000"

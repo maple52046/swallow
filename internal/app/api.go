@@ -1,42 +1,44 @@
-package main
+// Package app provides top-level runtime bootstrap functions.
+// Each function accepts a fully assembled config object so that no application
+// code needs to parse environment variables or CLI flags directly.
+package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/AFDEAPAC/swallow/bootstrap"
 	"github.com/AFDEAPAC/swallow/config"
-	authdelivery "github.com/AFDEAPAC/swallow/internal/auth/delivery"
 	authapp "github.com/AFDEAPAC/swallow/internal/auth/application"
+	authdelivery "github.com/AFDEAPAC/swallow/internal/auth/delivery"
 	authinfra "github.com/AFDEAPAC/swallow/internal/auth/infra"
-	serverdelivery "github.com/AFDEAPAC/swallow/internal/server/delivery"
 	serverapp "github.com/AFDEAPAC/swallow/internal/server/application"
+	serverdelivery "github.com/AFDEAPAC/swallow/internal/server/delivery"
 	serverinfra "github.com/AFDEAPAC/swallow/internal/server/infra"
 	"github.com/AFDEAPAC/swallow/internal/shared/jwt"
 	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
 )
 
-func main() {
-	_ = godotenv.Load()
-
-	cfg := config.Load()
-
+// RunAPI starts the HTTP API server using the provided config.
+// It connects to MongoDB, bootstraps the admin user, registers all routes,
+// and blocks until the server exits.
+func RunAPI(cfg config.APIConfig) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	client, err := mongo.Connect(ctx, mongoopts.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
-		log.Fatalf("mongo connect: %v", err)
+		return fmt.Errorf("mongo connect: %w", err)
 	}
 	if err := client.Ping(ctx, nil); err != nil {
-		log.Fatalf("mongo ping: %v", err)
+		return fmt.Errorf("mongo ping: %w", err)
 	}
 	log.Println("connected to mongodb")
 
@@ -45,14 +47,18 @@ func main() {
 	userRepo := authinfra.NewMongoUserRepo(db)
 	serverRepo, err := serverinfra.NewMongoServerRepo(db)
 	if err != nil {
-		log.Fatalf("server repo init: %v", err)
+		return fmt.Errorf("server repo init: %w", err)
 	}
 
-	if err := bootstrap.EnsureAdminUser(context.Background(), userRepo, cfg.AdminUser, cfg.AdminPass); err != nil {
-		log.Fatalf("bootstrap admin: %v", err)
+	if err := bootstrap.EnsureAdminUser(
+		context.Background(), userRepo,
+		cfg.BootstrapAdminUsername, cfg.BootstrapAdminPassword,
+	); err != nil {
+		return fmt.Errorf("bootstrap admin: %w", err)
 	}
 
-	jwtSvc := jwt.NewService(cfg.JWTSecret, cfg.JWTExpiry)
+	// JWTExpiryHours is stored as int; convert here so domain code stays decoupled.
+	jwtSvc := jwt.NewService(cfg.JWTSecret, time.Duration(cfg.JWTExpiryHours)*time.Hour)
 
 	loginUC := authapp.NewLoginUseCase(userRepo, jwtSvc)
 	meUC := authapp.NewMeUseCase(userRepo)
@@ -95,8 +101,6 @@ func main() {
 	servers.Get("/", serverHandler.List)
 	servers.Delete("/:id", serverHandler.Delete)
 
-	log.Printf("starting server on :%s", cfg.Port)
-	if err := app.Listen(":" + cfg.Port); err != nil {
-		log.Fatalf("server error: %v", err)
-	}
+	log.Printf("starting server on %s", cfg.Addr)
+	return app.Listen(cfg.Addr)
 }

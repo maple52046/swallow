@@ -1,43 +1,35 @@
+// Package config defines the runtime configuration model for swallow.
+// All environment variable parsing, config file loading, and validation are
+// centralized here; application code receives a fully assembled Config object.
 package config
 
-import (
-	"os"
-	"strconv"
-	"time"
-)
-
+// Config is the top-level runtime configuration.
+// Populated by merging: defaults → config file → CLI flags → env vars.
 type Config struct {
-	MongoURI   string
-	MongoDB    string
-	Port       string
-	JWTSecret  string
-	JWTExpiry  time.Duration
-	AdminUser  string
-	AdminPass  string
+	API   APIConfig   `yaml:"api"`
+	Agent AgentConfig `yaml:"agent"`
 }
 
-func Load() *Config {
-	expiry := 24 * time.Hour
-	if raw := os.Getenv("JWT_EXPIRY_HOURS"); raw != "" {
-		if h, err := strconv.Atoi(raw); err == nil {
-			expiry = time.Duration(h) * time.Hour
-		}
-	}
-
-	return &Config{
-		MongoURI:  getEnv("MONGO_URI", "mongodb://localhost:27017"),
-		MongoDB:   getEnv("MONGO_DB", "swallow"),
-		Port:      getEnv("PORT", "3000"),
-		JWTSecret: getEnv("JWT_SECRET", "changeme-in-production"),
-		JWTExpiry: expiry,
-		AdminUser: getEnv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
-		AdminPass: getEnv("BOOTSTRAP_ADMIN_PASSWORD", "admin"),
-	}
+// APIConfig holds all configuration required to run the API server.
+type APIConfig struct {
+	// Addr is the HTTP listen address, e.g. ":3000".
+	Addr string `yaml:"addr"`
+	// MongoURI is the full MongoDB connection string.
+	MongoURI string `yaml:"mongoUri"`
+	// MongoDB is the MongoDB database name.
+	MongoDB string `yaml:"mongoDb"`
+	// JWTSecret is the HMAC secret used to sign JWT tokens. Never log this.
+	JWTSecret string `yaml:"jwtSecret"`
+	// JWTExpiryHours is the number of hours before a JWT token expires.
+	JWTExpiryHours int `yaml:"jwtExpiryHours"`
+	// BootstrapAdminUsername is the username seeded on first startup.
+	BootstrapAdminUsername string `yaml:"bootstrapAdminUsername"`
+	// BootstrapAdminPassword is the password for the bootstrap admin. Never log this.
+	BootstrapAdminPassword string `yaml:"bootstrapAdminPassword"`
 }
 
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+// AgentConfig holds configuration for the agent subcommand.
+type AgentConfig struct {
+	// ControllerAddr is the base URL of the API server the agent connects to.
+	ControllerAddr string `yaml:"controllerAddr"`
 }
