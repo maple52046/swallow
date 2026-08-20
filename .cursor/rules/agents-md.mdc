@@ -1,0 +1,31 @@
+---
+description: Always read the repository agent entry guide before making changes
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Read Agent Entry Guide
+
+Before making any code changes, you must read the repository root `AGENTS.md`.
+
+`AGENTS.md` is the entry point for AI-assisted development in this project. It explains how to follow the project-wide development documents under `docs/`.
+
+## Required behavior
+
+When starting a task:
+
+1. Read `AGENTS.md` from the repository root.
+2. Follow the document-reading workflow defined in `AGENTS.md`.
+3. Read the required project documents before editing code.
+4. Do not skip architecture, codebase-structure, glossary, API contract, data model, or coding-style documents when the task scope requires them.
+5. When the task touches a sub project under `src/`, also read that project's own `AGENTS.md` and follow it.
+6. If `AGENTS.md` does not exist, stop and report that the project entry guide is missing.
+
+## Important
+
+The project rules are not defined in this Cursor rule.
+
+This Cursor rule only requires you to start from `AGENTS.md`.
+
+The actual source of truth for development rules, architecture rules, domain glossary, API contracts, and data models is defined by the project documentation referenced from `AGENTS.md`.

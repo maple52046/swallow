@@ -40,10 +40,16 @@ GPU Datacenter Management 由多個獨立 sub-project 組成
 .
 ├── api-server  -> src/swallow      # symlink, component
 ├── dashboard   -> src/dashboard    # symlink, component
+├── AGENTS.md                       # AI agent 入口導引
 ├── docs/                           # platform 共通約束文件
-│   ├── architecture.md             # repo 結構契約
-│   ├── glossaries/                 # 共通領域術語
-│   └── api-contracts/              # 跨 sub-project API / 資料契約
+│   ├── development/                # 平台層級開發規範
+│   │   ├── architecture-spec.md    # Strategic DDD 架構憲法
+│   │   ├── codebase-structure.md   # repo 結構契約
+│   │   ├── api-contracts.md        # API contract discovery workflow
+│   │   ├── commit-spec.md          # commit message 規範
+│   │   └── glossaries/             # 共通領域術語（ubiquitous language）
+│   ├── decisions/                  # 輕量 ADR
+│   └── plans/                      # 歷史計畫紀錄
 ├── src/                            # 所有 sub-project 的 submodule
 │   ├── swallow/
 │   └── dashboard/
@@ -59,14 +65,27 @@ GPU Datacenter Management 由多個獨立 sub-project 組成
 - **dashboard** → [`src/dashboard`](src/dashboard)
   — 前端 dashboard，採 React + TypeScript + Vite。
 
-完整 component 註冊規則與新增流程請見 [`docs/architecture.md`](docs/architecture.md)。
+完整 component 註冊規則與新增流程請見
+[`docs/development/codebase-structure.md`](docs/development/codebase-structure.md)。
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — repo 結構契約（必讀）。
-- [`docs/glossaries/`](docs/glossaries) — 跨 sub-project 共通的領域術語，
-  定義 platform 的 ubiquitous language。
-- [`docs/api-contracts/`](docs/api-contracts) — 跨 sub-project 的 API 與資料契約。
+開發（含 AI agent 協作）一律從 [`AGENTS.md`](AGENTS.md) 進入，它會依任務類型指出最小必讀集合。
+
+- [`AGENTS.md`](AGENTS.md) — agent 入口導引（必讀起點）。
+- [`docs/development/codebase-structure.md`](docs/development/codebase-structure.md) —
+  repo 結構契約：component、submodule、symlink 與 docs 分類。
+- [`docs/development/architecture-spec.md`](docs/development/architecture-spec.md) —
+  Strategic DDD 架構憲法：bounded context、context map、distillation 與跨 context 規則。
+- [`docs/development/glossaries/`](docs/development/glossaries/README.md) —
+  跨 sub-project 共通的領域術語，定義 platform 的 ubiquitous language。
+- [`docs/development/api-contracts.md`](docs/development/api-contracts.md) —
+  API contract 的 provider-first discovery workflow；實際 contract 由 provider component 擁有。
+- [`docs/development/commit-spec.md`](docs/development/commit-spec.md) — commit message 規範。
+- [`docs/decisions/`](docs/decisions/README.md) — 影響面廣的架構決策紀錄（ADR）。
+
+各 sub-project 採用完整 Clean Architecture，內部架構與 coding style 見其
+`AGENTS.md` 與 `docs/development/`。
 
 ## Getting Started
 
@@ -92,11 +111,15 @@ git submodule update --remote
 
 ## Contributing
 
-- **新增 / 移除 component**：請依 [`docs/architecture.md`](docs/architecture.md)
+- **新增 / 移除 component**：請依
+  [`docs/development/codebase-structure.md`](docs/development/codebase-structure.md)
   的 Operating Conventions 流程執行（`git submodule add` → 建立 symlink →
-  在 architecture.md 的 Components 章節登錄）。
-- **新增跨 sub-project 共通概念**：請於 [`docs/glossaries/`](docs/glossaries)
-  或 [`docs/api-contracts/`](docs/api-contracts) 增補對應定義文件，
-  讓所有 sub-project 共享同一份事實。
+  在 Component Alias 章節登錄）。
+- **新增跨 sub-project 共通概念**：請依
+  [`docs/development/glossaries/README.md`](docs/development/glossaries/README.md)
+  的流程增補 term，並更新 outline，讓所有 sub-project 共享同一份事實。
+- **新增 / 修改 API 行為**：請依
+  [`docs/development/api-contracts.md`](docs/development/api-contracts.md)
+  找到 provider component，並更新該 provider 擁有的 contract 後再實作。
 - **sub-project 內部實作**：build、test、deploy、模組結構等細節
   在對應的 `src/<repo>/` 中處理，本 repo 不重複描述。
