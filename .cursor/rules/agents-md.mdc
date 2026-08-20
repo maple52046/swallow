@@ -1,0 +1,35 @@
+---
+description: Always read the project agent entry guide before making changes
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Read Agent Entry Guide
+
+Before making any code changes, you must read this project's `AGENTS.md` at the
+dashboard project root.
+
+`AGENTS.md` is the entry point for AI-assisted development in this project. It
+explains how to follow the development documents under `docs/`.
+
+## Required behavior
+
+When starting a task:
+
+1. Read `AGENTS.md` from the dashboard project root.
+2. Follow the document-reading workflow defined in `AGENTS.md`.
+3. Read the required project documents before editing code.
+4. Do not skip the architecture spec or coding style documents when the task scope requires them.
+5. Treat the coding-style completion gate in `AGENTS.md` as part of "done", not as optional background reading.
+6. When integrating with a backend API, use the provider component's API contract as the source of truth; never infer API behavior from provider implementation details.
+7. If this project is checked out inside the gdcm superproject (as `src/dashboard`), also follow the superproject's root `AGENTS.md` for platform-level glossary and contract rules.
+8. If `AGENTS.md` does not exist, stop and report that the project entry guide is missing.
+
+## Important
+
+The project rules are not defined in this Cursor rule.
+
+This Cursor rule only requires you to start from `AGENTS.md`.
+
+The actual source of truth for development rules, architecture rules, coding style, and API integration is defined by the project documentation referenced from `AGENTS.md`.
