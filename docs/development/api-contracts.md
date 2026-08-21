@@ -36,12 +36,12 @@ For the current platform, these components provide APIs and own API contracts:
 | --- | --- | --- |
 | `api-server` | `src/swallow` | `src/swallow/docs/development/api-contracts/README.md` |
 
-`api-server` owns two API surfaces: the HTTP REST API consumed by `dashboard`,
-and the gRPC service consumed by `agent`.
+`api-server` owns one API surface: the HTTP REST API consumed by `dashboard`.
 
-The `agent` component is a consumer of the `api-server` gRPC service and does not
-own API contracts. The `dashboard` component is a consumer of the `api-server`
-HTTP API and does not own API contracts.
+The `dashboard` component is a consumer of the `api-server` HTTP API and does not
+own API contracts. (An earlier `agent` component and its gRPC surface were removed
+in [decision 001](../decisions/001-system-ownership-boundaries.md); the platform reads
+inventory and liveness from the provisioner and from `node_exporter` instead.)
 
 If a future component provides APIs from another source project, its contracts
 should be discovered through the same component-first workflow and stored under
@@ -57,7 +57,6 @@ For example:
 - APIs provided by `api-server` are owned by the `api-server` component.
 - The dashboard consumes provider-owned contracts but does not own contracts for
   APIs provided by backend components.
-- The agent consumes the `api-server` gRPC contract but does not own it.
 - If the dashboard later provides its own API, those contracts should be owned by
   the dashboard provider component and stored under the dashboard source project.
 
@@ -72,7 +71,6 @@ The consumer component must integrate according to the contract.
 
 Neither side should rely on private implementation details from the other side.
 
-This rule also applies inside one source project when different platform
-components call each other. The gRPC API between `agent` and `api-server` is a
-provider-owned contract even though both components' code lives under
-`src/swallow`.
+This rule also applies inside one source project when different platform components
+call each other, should such a case arise; today `api-server` and `dashboard` are the
+only components and live in separate source projects.

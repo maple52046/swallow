@@ -1,24 +1,19 @@
 # Server Status
 
-- Bounded context: Platform-wide. The value set is authoritative for `api-server`, `agent`, and `dashboard`.
-- Definition: The operational health and availability state of a Server, expressed as one closed set of domain values.
-- Allowed meaning: Exactly one of the following six values. The domain value is the string on the left; a UI may render a different label but must not introduce a new state.
+- Bounded context: Platform-wide, authoritative for `api-server` and `dashboard`.
+- Definition: A server has **no single status**. Its condition is **three independent axes**, each owned by a different external system, each carrying its own `observedAt`, and each absent until its owner has been observed at least once.
+- Allowed meaning: The three axes are:
 
-  | Value | Meaning |
-  | --- | --- |
-  | `live` | Server is reachable and operating normally. |
-  | `warning` | Server is reachable but has non-critical issues. |
-  | `error` | Server has a critical fault. |
-  | `maintain` | Server is in maintenance mode — intentional downtime. |
-  | `offline` | Server is confirmed unreachable or unavailable. |
-  | `unknown` | Insufficient information to determine health or availability. Common causes: newly registered Server not yet probed, monitoring agent has not reported, or the data source is unavailable. |
+  | Axis | Owner | Answers |
+  | --- | --- | --- |
+  | `provisioning` | Provisioner (MAAS) | Can it be deployed, is a deployment running, did it fail; also power, ephemerality, lock, and commissioning/testing status |
+  | `membership` | Kubernetes API, Slurm | Is it in a cluster, in what role, is it draining |
+  | `health` | Central TSDB (Prometheus) | Is it up |
 
-  `unknown` is the correct default for a newly registered Server, before any monitoring data has been received. The three "not healthy" states are distinct and must not be collapsed: `unknown` means *we do not know*, `offline` means *confirmed unreachable*, and `maintain` means *intentionally out of service*.
-
-  The dashboard renders `maintain` as "Maintenance". The domain value remains `maintain`, and the display label must not leak into API payloads, filters, or persistence.
-- Disallowed meaning: A power state, a provisioning state, a workload state, an allocation state, or an alert severity. Server Status must not be used to express whether a Server is assigned to an owner, nor whether its hardware is powered on.
-- Synonyms: None. Do not use "health" for this concept when the value set above is meant.
-- Deprecated terms: None.
-- Examples: "Filter the server list by `status=live` to show only normally operating servers." / "A server under planned firmware upgrade is `maintain`, not `offline`, so operators can distinguish intentional downtime from a fault."
-- Related terms: Server（本值集所描述的實體）, Alert Severity（不同概念，不可互換）.
-- Change note: Extracted from the previous single-file `docs/glossaries/server.md` "Related Enums" section into its own term document, because a closed value set is authoritative domain language and needs to be findable on its own.
+  An axis that has never been observed is **absent, not defaulted**: "we do not know" must never be presentable as "we know it is bad". A provisioner being unreachable does not make its servers unhealthy, and a server with no metrics is not down — it may simply not be scraped yet. The normalized `provisioning.state` is the value to branch on (`new | commissioning | ready | allocated | deploying | deployed | releasing | testing | rescue | broken | failed | retired | unknown`); the provider's own label is display-only. The `health` axis is `up` or `down`, and null when unobserved.
+- Disallowed meaning: A single collapsed value. Collapsing the three axes into one badge is disallowed: a server that is `deployed`, in no cluster, and reporting no metrics is either a spare awaiting allocation or a broken host, and no rule can tell which. Do not use one axis to express another — provisioning state is not power state, membership is not health.
+- Synonyms: None. "Health" refers specifically to the `health` axis, not to the whole of a server's condition.
+- Deprecated terms: The closed six-value set `live | warning | error | maintain | offline | unknown` — a single operational status — is **superseded**. It predates the refoundation and never matched what the backend implements; the three axes replace it. A UI may still summarise the axes for a glance, but must not persist or filter on a single combined status.
+- Examples: "A newly reconciled server has a `provisioning` axis but null `membership` and `health`, because no cluster or metrics store has reported on it yet." / "Filter the server list by `provisioningState=deployed`; there is no single `status` filter."
+- Related terms: Server（the entity these axes describe）, Alert（a different concept, read from Alertmanager）.
+- Change note: Rewritten from the previous single closed six-value set to the three-axis model of [decision 002](../../../decisions/002-server-identity.md) and [decision 003](../../../decisions/003-metrics-label-contract.md), which is what `api-server` and `dashboard` implement.

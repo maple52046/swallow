@@ -2,18 +2,47 @@
 
 ## Decision
 
-**gdcm owns intent, policy, and identity mapping. It owns no facts about the physical or
-runtime world.**
+**gdcm owns intent, policy, and identity mapping. For everything else, it integrates a
+system that already owns the capability rather than rebuilding it — and where no such
+system exists, it may own the data itself.**
 
-Every fact about hardware, operating systems, execution, metrics, or cluster state is
-owned by an external system. gdcm references those facts; it does not become their
-second home. The only fact gdcm caches is external inventory, and only because fleet
-scale forces it — that cache is always marked with its own staleness so that no reader
-can mistake it for the truth.
+This is a test applied per capability, not a blanket ban on holding facts. An earlier
+wording — "gdcm owns no facts about the physical or runtime world" — was too rigid: it
+could not tell the difference between "do not rebuild a time-series database" (always
+right, because that is Prometheus's whole problem domain) and "gdcm may never store a
+hardware attribute" (not obviously right, and an obstacle to features that have no
+external owner).
 
-What gdcm does own is the part no external system can: which sites and integrations
-exist, what an operator wants to happen, what policy applies where, and how an
-identifier in one system maps to an identifier in another.
+The test for any new capability:
+
+1. **Does a mature system already do this well, with an API to integrate?** Then
+   integrate it. Do not copy its data model into gdcm; reference it and mirror only what
+   fleet-scale querying forces you to cache. OS provisioning is the archetype: MAAS and
+   Ironic already do it completely, so gdcm drives them rather than reimplementing them.
+2. **Is there no such system, or is the value in correlating several of them?** Then gdcm
+   may own it outright, including its own tables. Identity mapping, policy, sites, and
+   tenancy are here because nothing else can hold them.
+
+### The two kinds of data gdcm holds
+
+Every field gdcm stores is exactly one of these, and the distinction is the point:
+
+- **Owned data** — gdcm is the source of truth. There is no external owner to disagree
+  with, so there is no `observedAt` and no staleness: sites, integrations, identity
+  mapping, policy, operations, tenancy. Reading it back is authoritative.
+- **Mirrored facts** — a copy of something an external system owns, held only so the
+  fleet can be queried without fanning out to every site on every request. Every
+  mirrored field carries its source and when that source was last observed, and it is
+  never authoritative for a write.
+
+A new feature must say which kind each of its fields is before it is built. That single
+question is what this document exists to force; the earlier version answered it by
+forbidding the second category, which is why it read as a prohibition rather than a
+guide.
+
+> **Out of scope here:** whether gdcm's owned data lives in MongoDB or something lighter
+> like SQLite is a storage decision, independent of this ownership boundary, and is not
+> settled by this document.
 
 ## Context
 
@@ -68,23 +97,32 @@ data model.
 | Operations: intent, target set, and the reference to the AWX job that executes it | AWX knows the job ran. Only gdcm knows it was "drain and reimage these 12 servers to move them from cluster A to B" |
 | Tenancy: teams, users, server allocation | Allocation is a platform-level policy question, not a fact any provisioner or cluster holds |
 
-### The one cache, and its rules
+### Rules for mirrored facts
 
-Provider inventory is cached because a fleet cannot be served by fanning out to every
-site on every request: the slowest provisioner would set page latency, one unreachable
-site would break the whole listing, and cross-site sorting and pagination cannot be
-computed correctly by merging per-provider pages.
+Mirroring exists because a fleet cannot be served by fanning out to every site on every
+request: the slowest provisioner would set page latency, one unreachable site would
+break the whole listing, and cross-site sorting and pagination cannot be computed
+correctly by merging per-provider pages. So gdcm keeps a local copy of external facts it
+needs to query across sites — provisioner inventory today, and any future integration's
+facts under the same rules.
 
-The cache is therefore permitted, under three rules that make it honest:
+A mirrored fact is honest only under three rules:
 
-1. Every cached record carries the source it came from and when that source was last
+1. Every mirrored record carries the source it came from and when that source was last
    observed.
 2. Freshness is part of the API, not an implementation detail. A client can always ask
    how stale a view is and must be able to tell "this site last synced 14 minutes ago"
    from "this site is up to date".
-3. The cache is never authoritative for a write. An action always goes to the owning
-   system, and the cache converges afterwards. gdcm never writes to the cache to reflect
+3. A mirror is never authoritative for a write. An action always goes to the owning
+   system, and the mirror converges afterwards. gdcm never writes to a mirror to reflect
    what it hopes happened.
+
+How much to mirror is itself the integrate-or-own test applied field by field. Mirror
+what the fleet is queried, filtered, sorted, or aggregated by — a machine's GPU
+inventory, its coarse lifecycle state, the tags it is grouped under. Do not mirror what
+is only ever read one machine at a time: a machine's full firmware detail, its per-disk
+layout, its PCI bus map. Those stay a live read against the owner, fetched when a single
+machine is opened, so that gdcm carries no schema for them and no staleness to explain.
 
 ## Consequences
 
@@ -96,7 +134,10 @@ in that Kubernetes cluster, emitting these metrics, last touched by that AWX job
 
 That correlation is the product. Everything else is someone else's job.
 
-### What this forbids
+### What the test still rules out
+
+These are not banned by category; each is a case where a mature system already owns the
+capability, so the integrate-or-own test lands on "integrate, do not rebuild":
 
 - **No custom agent on managed servers.** Its two jobs are already covered: hardware
   detail by provisioner commissioning, liveness and host metrics by `node_exporter`.
@@ -111,7 +152,10 @@ That correlation is the product. Everything else is someone else's job.
   a provisioning "profile" containing packages and scripts. Those belong in git.
 - **No network management.** No DHCP, DNS, subnet, or VLAN modelling.
 - **No scheduler.** Deciding which workload runs where is Slurm's and Kubernetes' job.
-- **No hardware history or CMDB.** The provisioner keeps commissioning history.
+- **No hardware history or CMDB.** gdcm may mirror a machine's *current* hardware as the
+  provisioner reports it — enough to query the fleet by GPU model or vendor — but it does
+  not keep the history of how that hardware changed. Commissioning history stays with the
+  provisioner, which is the system built to own it.
 
 ### What must be deleted or changed
 

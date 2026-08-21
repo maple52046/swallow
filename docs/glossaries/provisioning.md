@@ -149,6 +149,51 @@ Release acts on the provider only. It does not remove the corresponding server: 
 physical machine still exists and gdcm still manages it. Release changes the
 `provisioning` axis, nothing else.
 
+## Deepened provider integration
+
+Deploy and release are the minimum. A provider that does more, gdcm surfaces more of —
+following the integrate-or-own test in [decision 001](../decisions/001-system-ownership-boundaries.md):
+mirror what the fleet is queried by, proxy live what is read one machine at a time, and
+drive the provider's own actions rather than reimplementing them.
+
+### Mirrored hardware facts
+
+Beyond the coarse lifecycle state, the reconciler mirrors the hardware facts a fleet is
+routinely grouped and filtered by: the machine's **GPU inventory**, its system vendor and
+product, its CPU model, its tags, the VM host it belongs to, and its lock and
+commissioning/testing status. These are mirrored, not owned — each rides the same
+`observedAt` freshness as the rest of the projection, and the provider stays the source
+of truth.
+
+The GPU inventory is refreshed on its **own slower cadence**, not on every reconcile
+pass. Attached devices cost a call per machine and change only at commissioning, so
+folding them into the 60-second reconcile would multiply its request count for
+near-static data. The reconcile pass is careful to leave the swept GPU list untouched,
+the same way it leaves the cluster-owned membership axis alone.
+
+### Live provisioner detail
+
+The full picture of one machine — firmware, per-disk layout, NUMA topology, the PCI
+device map — is **read live from the provider on demand**, never mirrored. It is only
+ever looked at one machine at a time, so a live read is always fresh and gdcm carries no
+schema for it and no staleness to explain. It is exposed as a provider-neutral set of
+labelled sections and tables, so a second provider fills the same shape with its own
+content.
+
+### Provisioner actions
+
+Actions beyond deploy and release — powering a machine on or off, re-running
+commissioning or hardware tests, locking a machine or marking it broken, entering rescue
+mode — are the **provider's own operations**, triggered through gdcm and mirrored back.
+gdcm does not reimplement them.
+
+They are **optional capabilities**: an adapter declares which it supports, and an action a
+provider cannot do is **refused, not silently dropped**, exactly as an unsupported
+ephemeral deploy is. A client reads the capability set and offers only the actions that
+exist, rather than presenting a button that always fails. This is the same principle as
+ephemerality: an instruction the provider cannot honour must fail loudly, because silently
+doing nothing — or the opposite — is worse than an error.
+
 ## Retired Concepts
 
 Named here because they appear in older documents and in the frontend:
