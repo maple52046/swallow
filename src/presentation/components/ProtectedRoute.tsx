@@ -19,7 +19,10 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    // Search and hash are kept so that a filtered or anchored link survives a login,
+    // not just the path.
+    const from = `${location.pathname}${location.search}${location.hash}`
+    return <Navigate to="/login" replace state={{ from }} />
   }
 
   return children ? <>{children}</> : <Outlet />

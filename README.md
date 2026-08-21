@@ -1,73 +1,96 @@
-# React + TypeScript + Vite
+# dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend for the GDCM platform. React + TypeScript + Vite, Mantine for UI.
 
-Currently, two official plugins are available:
+## What is here
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Only screens backed by a real endpoint:
 
-## React Compiler
+| Route | Shows |
+|-------|-------|
+| `/login` | Authentication |
+| `/` | Site, server, and GPU counts, plus integration freshness |
+| `/servers` | The server projection, filterable |
+| `/servers/:id` | One server's three status axes, observed attributes, identity, and OS deploy/release |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The API also has clusters, operations, alerts, and metrics. Those have **no screen yet**,
+and are deliberately absent rather than present with placeholder data: a screen that looks
+like it works is worse than one that is missing.
 
-## Expanding the ESLint configuration
+There are no mock repositories and no flag to switch to them. Every binding in
+[`src/di/container.ts`](src/di/container.ts) is a real HTTP implementation.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Three things to get right
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+**Null means unknown.** A server's status is three independent axes — `provisioning`,
+`membership`, `health` — each owned by a different system and each `null` until observed.
+Rendering `null` as a negative state is the most common way to get this model wrong: a
+provisioner being unreachable does not make its servers unhealthy, and a server with no
+metrics is not down.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+For the same reason there is no combined status badge. A server that is deployed, in no
+cluster, and not reporting metrics is either a spare awaiting allocation or a broken host,
+and no rule can tell which.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+**Show staleness.** The backend caches provisioner inventory and mirrors external state.
+Integrations carry a `sync` object and every status axis carries `observedAt`. When a
+sync has failed, say so and say how old the data is — the components already do this, and
+new screens should too.
+
+**`id` is the only identifier.** `hostname` and addresses are observed, mutable, and not
+unique: two sites may both have `gpu-node-01` at `10.0.1.10`. Never key on them.
+
+## Layout
+
+```
+src/
+├── domain/           entities and their invariants; no framework imports
+├── application/
+│   └── ports/        repository interfaces the UI depends on
+├── infrastructure/
+│   ├── api/          HTTP implementations of the ports
+│   └── persistence/  browser storage, for UI preferences only
+├── presentation/     pages, components, layout, contexts
+└── di/               container wiring the ports to implementations
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Repositories are exposed from the container directly rather than behind pass-through use
+cases. The boundary that matters is the port interface; a use case earns its own type when
+it has logic of its own.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Development
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+The dashboard runs as part of the platform dev stack rather than on its own, so that it
+has an API to talk to:
+
+```bash
+cd ../../deploy/dev
+docker compose up -d
 ```
+
+Then open <http://localhost:5173>. See
+[`deploy/dev/README.md`](../../deploy/dev/README.md).
+
+Standalone, against an API you are running yourself:
+
+```bash
+npm install
+VITE_API_BASE_URL=http://127.0.0.1:30051 npm run dev
+```
+
+```bash
+npm run build    # tsc -b && vite build
+npm run lint
+```
+
+## Contract
+
+Request and response shapes are defined in
+[`docs/api-contracts/README.md`](../../docs/api-contracts/README.md), and section 14 of
+that document lists what changed from the previous model. The concepts behind the shapes
+are in [`docs/glossaries/`](../../docs/glossaries), and the reasoning is in
+[`docs/decisions/`](../../docs/decisions).
+
+Read the decisions before adding a screen that stores or derives state. Several obvious
+features — an alert acknowledged flag, stored metrics, a provisioning profile editor — are
+ruled out there because another system owns them.

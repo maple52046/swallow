@@ -1,19 +1,25 @@
-import type { Server, ServerStatus, CreateServerInput } from '@/domain/server/types'
+import type {
+  DeployServerInput,
+  ListServersFilters,
+  ProvisioningActionResult,
+  Server,
+} from '@/domain/server/types'
 
-export interface ListServersFilters {
-  status?: ServerStatus
-  allocation?: 'free' | 'assigned'
-  teamId?: string
-  userId?: string
-  search?: string
+export interface Paginated<T> {
+  items: T[]
+  total: number
+  page: number
+  pageSize: number
 }
 
+/**
+ * Servers are read-only: the backend produces them by reconciling provisioner
+ * inventory, so there is no create or delete here. The two actions delegate to the
+ * server's own provisioner and return a state snapshot, not a completion.
+ */
 export interface ServerRepository {
-  listServers(filters?: ListServersFilters): Promise<Server[]>
+  listServers(filters?: ListServersFilters): Promise<Paginated<Server>>
   getServer(id: string): Promise<Server | null>
-  createServer(input: CreateServerInput): Promise<Server>
-  assignToTeam(id: string, teamId: string): Promise<Server>
-  assignToUser(id: string, userId: string): Promise<Server>
-  unassign(id: string): Promise<Server>
-  updateStatus(id: string, status: ServerStatus): Promise<Server>
+  deployServer(id: string, input: DeployServerInput): Promise<ProvisioningActionResult>
+  releaseServer(id: string): Promise<ProvisioningActionResult>
 }

@@ -17,11 +17,22 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Only same-origin paths are honoured, so that a crafted `from` cannot be used to
+  // bounce someone off-site after a successful login.
+  const returnPath = (() => {
+    const state = location.state as LoginLocationState | null
+    const from = state?.from
+    return from && from.startsWith('/') && !from.startsWith('//') ? from : '/'
+  })()
+
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/', { replace: true })
+      // Deep-linking to a protected page arrives here already authenticated, because
+      // the route guard redirects before the session check resolves. Sending everyone
+      // to the default route would silently discard the page they asked for.
+      navigate(returnPath, { replace: true })
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, navigate, returnPath])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,9 +41,7 @@ export function LoginPage() {
       setSubmitting(true)
       setError(null)
       await login(username.trim(), password)
-      const state = location.state as LoginLocationState | null
-      const fromPath = state?.from && state.from.startsWith('/') ? state.from : '/'
-      navigate(fromPath, { replace: true })
+      navigate(returnPath, { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invalid username or password')
     } finally {

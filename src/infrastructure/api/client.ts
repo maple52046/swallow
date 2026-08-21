@@ -1,4 +1,25 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://127.0.0.1:30051'
+/** The api-server's default listen port. */
+const DEFAULT_API_PORT = 30051
+
+/**
+ * Resolves the API address, preferring an explicit VITE_API_BASE_URL.
+ *
+ * Without one it is derived from whatever host the browser used to reach the dashboard.
+ * That matters because the dashboard is served from a host that is usually not the
+ * browser's: a hardcoded localhost works only when the two happen to be the same
+ * machine, and everywhere else it fails by sending every request to the user's own
+ * laptop — which looks like the backend being down rather than a misconfiguration.
+ */
+function resolveApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL as string | undefined
+  if (configured) {
+    return configured.replace(/\/+$/, '')
+  }
+  const { protocol, hostname } = window.location
+  return `${protocol}//${hostname}:${DEFAULT_API_PORT}`
+}
+
+const API_BASE_URL = resolveApiBaseUrl()
 
 const TOKEN_KEY = 'access_token'
 

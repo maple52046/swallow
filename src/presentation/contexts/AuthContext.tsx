@@ -56,7 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [initializing, setInitializing] = useState(true)
 
-  const restoreSession = () => {
+  // Awaited before initializing is cleared. Returning early here would let the route
+  // guard decide the user is signed out while /auth/me is still in flight, which shows
+  // the login page for a moment on every reload of a protected page.
+  const restoreSession = async () => {
     const storedUsers = readUsersFromStorage()
     setUsers(storedUsers)
 
@@ -67,26 +70,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Verify the stored token is still valid by calling /auth/me.
-    authApi.getMe().then((me) => {
-      const user: AuthUser = {
+    try {
+      const me = await authApi.getMe()
+      setCurrentUser({
         id: me.id,
         username: me.username,
         // TODO(api): Backend does not provide displayName yet. Fall back to username.
         displayName: me.username,
         role: mapBackendRole(me.role),
         status: 'active',
-      }
-      setCurrentUser(user)
-    }).catch(() => {
+      })
+    } catch {
       // Token is invalid or expired — clear it and require re-login.
       tokenStore.clear()
       setCurrentUser(null)
-    })
+    }
   }
 
   useEffect(() => {
-    restoreSession()
-    setInitializing(false)
+    void restoreSession().finally(() => setInitializing(false))
   }, [])
 
   useEffect(() => {
