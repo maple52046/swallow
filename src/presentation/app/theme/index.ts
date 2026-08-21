@@ -1,30 +1,41 @@
-import { createTheme, type MantineColorsTuple } from '@mantine/core'
+/**
+ * Theme configuration and colour-scheme persistence for the Radix Themes UI.
+ *
+ * The dashboard renders inside a single Radix `<Theme>` (see `AppearanceProvider`).
+ * These constants are the app-wide look, and the colour-scheme helpers own the one piece
+ * of UI state the browser is the right home for: whether the user prefers light or dark.
+ */
 import { lsGet, lsSet } from '@/infrastructure/persistence/localStorage'
 
-const dcBlue: MantineColorsTuple = [
-  '#e8f3ff', '#cce0ff', '#9fc0f9', '#6f9df3', '#4780ed',
-  '#2d6de8', '#1f63e4', '#1252c9', '#0947b4', '#003ba0',
-]
+/**
+ * Static `<Theme>` props shared by the whole app.
+ *
+ * Kept here rather than inline in the provider so the accent, radius, and scaling are one
+ * documented source of truth, mirroring the single Mantine theme this replaced.
+ */
+export const THEME_CONFIG = {
+  accentColor: 'blue',
+  grayColor: 'slate',
+  radius: 'medium',
+  scaling: '100%',
+} as const
 
-export const theme = createTheme({
-  primaryColor: 'dcBlue',
-  colors: { dcBlue },
-  fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-  fontFamilyMonospace: 'JetBrains Mono, Fira Code, Consolas, monospace',
-  defaultRadius: 'md',
-  components: {
-    Button: { defaultProps: { radius: 'md' } },
-    Badge: { defaultProps: { radius: 'sm' } },
-    Card: { defaultProps: { radius: 'md', withBorder: true } },
-  },
-})
-
+/** The two colour schemes the dashboard supports; maps onto Radix `appearance`. */
 export type ColorScheme = 'light' | 'dark'
 
+/** The localStorage key for the persisted colour scheme. Unchanged across the Radix migration. */
+const COLOR_SCHEME_KEY = 'color-scheme'
+
+/**
+ * Reads the persisted colour scheme, defaulting to dark.
+ *
+ * Owned by the browser because it is a per-device UI preference, not platform state.
+ */
 export function loadColorScheme(): ColorScheme {
-  return lsGet<ColorScheme>('color-scheme', 'dark')
+  return lsGet<ColorScheme>(COLOR_SCHEME_KEY, 'dark')
 }
 
-export function saveColorScheme(cs: ColorScheme): void {
-  lsSet('color-scheme', cs)
+/** Persists the colour scheme so the choice survives a reload. */
+export function saveColorScheme(scheme: ColorScheme): void {
+  lsSet(COLOR_SCHEME_KEY, scheme)
 }

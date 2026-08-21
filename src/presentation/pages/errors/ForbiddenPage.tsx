@@ -1,18 +1,24 @@
-import { Button, Stack, Text, Title } from '@mantine/core'
-import { IconArrowLeft } from '@tabler/icons-react'
+import { Button, Flex, Heading, Text } from '@radix-ui/themes'
+import { ArrowLeftIcon } from '@radix-ui/react-icons'
 import { useNavigate } from 'react-router-dom'
 
+/** The 403 screen shown when a role guard blocks access to a route. */
 export function ForbiddenPage() {
   const navigate = useNavigate()
 
   return (
-    <Stack align="center" py={80} gap="md">
-      <Title order={1} c="dimmed">403</Title>
-      <Title order={3}>Forbidden</Title>
-      <Text c="dimmed">You do not have permission to access this page.</Text>
-      <Button leftSection={<IconArrowLeft size={16} />} onClick={() => navigate('/')}>
+    <Flex direction="column" align="center" gap="3" py="9">
+      <Text as="div" size="9" weight="bold" color="gray">
+        403
+      </Text>
+      <Heading as="h1" size="5">
+        Forbidden
+      </Heading>
+      <Text color="gray">You do not have permission to access this page.</Text>
+      <Button onClick={() => navigate('/')}>
+        <ArrowLeftIcon />
         Back to Dashboard
       </Button>
-    </Stack>
+    </Flex>
   )
 }

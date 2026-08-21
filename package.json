@@ -10,12 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mantine/charts": "^8.3.15",
-    "@mantine/core": "^8.3.15",
-    "@mantine/hooks": "^8.3.15",
-    "@mantine/modals": "^8.3.15",
-    "@mantine/notifications": "^8.3.15",
-    "@tabler/icons-react": "^3.38.0",
+    "@radix-ui/react-accordion": "^1.2.20",
+    "@radix-ui/react-icons": "^1.3.2",
+    "@radix-ui/react-toast": "^1.2.23",
+    "@radix-ui/themes": "^3.3.0",
     "dayjs": "^1.11.19",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

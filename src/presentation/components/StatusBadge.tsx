@@ -1,38 +1,38 @@
-import { Badge, type BadgeProps } from '@mantine/core'
+import { Badge } from '@radix-ui/themes'
+
+/** The Radix accent colours this badge maps onto. */
+type RadixColor = 'green' | 'red' | 'yellow' | 'blue' | 'gray'
 
 type StatusType = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'running'
 
-const STATUS_COLORS: Record<string, StatusType> = {
-  // Mission statuses
+/**
+ * Maps a domain status string to a semantic type. Kept broad so one badge serves every
+ * status value set in the platform (mission, run, GPU health, alert, plane, job).
+ */
+const STATUS_TYPES: Record<string, StatusType> = {
   active: 'success',
   paused: 'warning',
   archived: 'neutral',
   draft: 'neutral',
-  // Run statuses
   queued: 'info',
   running: 'running',
   succeeded: 'success',
   failed: 'error',
   canceled: 'neutral',
-  // GPU health
   healthy: 'success',
   degraded: 'warning',
   critical: 'error',
   offline: 'neutral',
-  // Alert severity/status
   warning: 'warning',
   acknowledged: 'info',
   resolved: 'neutral',
-  // Asset
   unknown: 'neutral',
-  // Plane
   connected: 'success',
   disconnected: 'error',
-  // Job
   pending: 'info',
 }
 
-const TYPE_COLORS: Record<StatusType, string> = {
+const TYPE_COLORS: Record<StatusType, RadixColor> = {
   success: 'green',
   error: 'red',
   warning: 'yellow',
@@ -41,18 +41,24 @@ const TYPE_COLORS: Record<StatusType, string> = {
   running: 'blue',
 }
 
-interface StatusBadgeProps extends Omit<BadgeProps, 'color'> {
+interface StatusBadgeProps {
+  /** Domain status value (not a display label); the mapping owns colour choice. */
   status: string
+  /** Optional display override; defaults to the status value itself. */
   label?: string
 }
 
-export function StatusBadge({ status, label, ...rest }: StatusBadgeProps) {
-  const type = STATUS_COLORS[status] ?? 'neutral'
-  const color = TYPE_COLORS[type]
-  const variant = status === 'running' ? 'dot' : 'light'
-
+/**
+ * The shared status badge for every status value set in the dashboard.
+ *
+ * `status` is the domain value from the platform glossary, not a display label; the badge
+ * always carries text, so status is never conveyed by colour alone. Reuse this rather
+ * than colouring badges per page (coding-style DRY gate).
+ */
+export function StatusBadge({ status, label }: StatusBadgeProps) {
+  const type = STATUS_TYPES[status] ?? 'neutral'
   return (
-    <Badge color={color} variant={variant} size="sm" {...rest}>
+    <Badge color={TYPE_COLORS[type]} variant="soft">
       {label ?? status}
     </Badge>
   )

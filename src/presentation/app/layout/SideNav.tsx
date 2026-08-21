@@ -1,6 +1,7 @@
-import { Divider, NavLink, ScrollArea, Stack, Text, ThemeIcon } from '@mantine/core'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { IconLayoutDashboard, IconServer } from '@tabler/icons-react'
+import { Flex } from '@radix-ui/themes'
+import { DashboardIcon, DesktopIcon } from '@radix-ui/react-icons'
+import type { ReactNode } from 'react'
+import { NavLink } from '@/presentation/components/radix/NavLink'
 
 /**
  * Only screens backed by a real endpoint appear here.
@@ -11,46 +12,42 @@ import { IconLayoutDashboard, IconServer } from '@tabler/icons-react'
  */
 interface NavItem {
   label: string
-  path: string
-  icon: React.ReactNode
+  to: string
+  icon: ReactNode
+  /** Exact-match the route so a prefix route does not keep the item permanently active. */
+  end?: boolean
 }
 
 const NAV: NavItem[] = [
-  { label: 'Overview', path: '/', icon: <IconLayoutDashboard size={16} /> },
-  { label: 'Servers', path: '/servers', icon: <IconServer size={16} /> },
+  { label: 'Overview', to: '/', icon: <DashboardIcon />, end: true },
+  { label: 'Servers', to: '/servers', icon: <DesktopIcon /> },
 ]
 
-function NavItemLink({ item }: { item: NavItem }) {
-  const location = useLocation()
-  const navigate = useNavigate()
-
-  const isActive =
-    item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
-
-  return (
-    <NavLink
-      label={<Text size="sm">{item.label}</Text>}
-      leftSection={
-        <ThemeIcon variant="transparent" size="sm" c={isActive ? 'blue' : 'dimmed'}>
-          {item.icon}
-        </ThemeIcon>
-      }
-      active={isActive}
-      onClick={() => navigate(item.path)}
-      styles={{ root: { borderRadius: 6 } }}
-    />
-  )
+interface SideNavProps {
+  /** Called after a nav item is chosen, so the mobile overlay can close itself. */
+  onNavigate?: () => void
 }
 
-export function SideNav() {
+/**
+ * The primary sidebar navigation.
+ *
+ * Active state comes from react-router via the shared `NavLink`, not manual path matching.
+ * On mobile this renders inside the shell's overlay; `onNavigate` lets a selection close
+ * that overlay.
+ */
+export function SideNav({ onNavigate }: SideNavProps) {
   return (
-    <ScrollArea h="100%" type="scroll">
-      <Stack gap={2} p="xs">
-        {NAV.map((item) => (
-          <NavItemLink key={item.path} item={item} />
-        ))}
-        <Divider my={4} />
-      </Stack>
-    </ScrollArea>
+    <Flex direction="column" gap="1" p="2">
+      {NAV.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          label={item.label}
+          icon={item.icon}
+          end={item.end}
+          onNavigate={onNavigate}
+        />
+      ))}
+    </Flex>
   )
 }

@@ -20,7 +20,7 @@
 
 - TypeScript 5.9；`target`/`lib` ES2022；`module: ESNext`；`moduleResolution: bundler`；由 Vite 7 打包。
 - React 19，automatic JSX runtime（`jsx: react-jsx`）——不需要為了寫 JSX 而 import React。
-- 元件庫 Mantine 8（`core`、`hooks`、`modals`、`notifications`、`charts`）與 `@tabler/icons-react`；路由 `react-router-dom` 7；日期 `dayjs`；圖表 Mantine Charts 或 `recharts`。
+- 元件庫 Radix Themes（`@radix-ui/themes`）搭配必要的 Radix Primitives（`@radix-ui/react-toast`、`@radix-ui/react-accordion`）與 `@radix-ui/react-icons`；Themes 未提供的元件（分頁、toast、可搜尋 select、accordion、app shell、nav link）集中在 `src/presentation/components/radix/`。路由 `react-router-dom` 7；日期 `dayjs`；圖表 `recharts`。
 - `strict: true`，另加 `noUnusedLocals`、`noUnusedParameters`、`noFallthroughCasesInSwitch`、`noUncheckedSideEffectImports`。**不得為了讓程式碼編譯而放寬任何一項。**
 - `verbatimModuleSyntax: true`：只作為型別使用的 import **必須**寫成 `import type { … }`，否則產出的模組是錯的。
 - 路徑別名 `@/*` 對應 `src/*`。
@@ -103,8 +103,8 @@ Dashboard 程式碼必須優先滿足以下目標，順序不可顛倒：
 - `useMemo`、`useCallback` 只在能改善 referential stability、避免昂貴計算或符合 dependency contract 時使用；不可作為預設包裝。
 - Dependency array 必須誠實。相依項不對時，修法是改程式碼（把值移進去、讓它穩定、或改成推導），不是刪陣列項目。抑制 `react-hooks` 規則必須加註說明為何安全。
 - 能由 render、memo 或 event handler 完成的邏輯，不塞進 effect。`useEffect` 只描述與外部世界的同步。
-- 優先使用受控的 Mantine 元件搭配明確 state，而不是用 ref 讀取非受控 widget。
-- 顏色、間距、字體來自 `presentation/app/theme` 的 Mantine theme，不寫死 hex 值。
+- 優先使用受控的 Radix 元件搭配明確 state，而不是用 ref 讀取非受控 widget。
+- 顏色、間距、字體來自 Radix Themes token（CSS 變數，如 `var(--accent-9)`、`var(--gray-11)`、`var(--space-2)`）與 `presentation/app/theme` 的 `<Theme>` 設定，不寫死 hex 值。
 
 ## 元件共用與組合（DRY）
 
@@ -122,7 +122,7 @@ Dashboard 遵守 platform architecture spec 的「共用實作 / Reuse-first」�
 
 - 所有 `<img>` 必須有 `alt`。裝飾圖片使用空字串 `alt=""`。
 - `alt` 不重複寫入 "image"、"photo"、"icon" 等輔助科技已會朗讀的字詞。
-- 互動元素優先使用語意化元件或 HTML：Mantine `Button`/`Anchor`/`TextInput`，或 `<button>`、`<a>`、`<label>`。
+- 互動元素優先使用語意化元件或 HTML：Radix `Button`/`Link`/`TextField`，或 `<button>`、`<a>`、`<label>`。
 - 若必須使用非語意元素模擬互動，必須補齊 `role`、keyboard interaction、focus state 與必要 ARIA attributes。
 - 只使用有效且非抽象的 ARIA role。ARIA 不應用來掩蓋錯誤的 HTML 結構。
 - 不使用 `accessKey`。
@@ -268,7 +268,7 @@ const rows = pendingServers ?? previousServers
 - `try` 區塊只包會 throw 的呼叫。
 - Transport 失敗在 infrastructure 層轉成 domain 有意義的錯誤：use case 不該收到 HTTP status code，presentation 也不該解析錯誤字串來決定畫面。
 - 使用者可見錯誤訊息應描述可採取的下一步；診斷資訊放在 log 或 debug context，不直接暴露敏感資料。
-- 不使用 `alert` 作為一般錯誤處理或使用者通知機制；使用 Mantine notifications。
+- 不使用 `alert` 作為一般錯誤處理或使用者通知機制；使用共用的 toast（`useToast`，`src/presentation/components/radix/toast/`）。
 
 ## 測試規範
 

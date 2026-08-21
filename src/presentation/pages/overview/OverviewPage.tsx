@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Card, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core'
-import { IconAlertCircle } from '@tabler/icons-react'
+import { Callout, Card, Flex, Grid, Heading, Table, Text } from '@radix-ui/themes'
+import { ExclamationTriangleIcon } from '@radix-ui/react-icons'
 import { useApp } from '@/di/AppProvider'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { LoadingState } from '@/presentation/components/LoadingState'
@@ -9,22 +9,22 @@ import type { Server } from '@/domain/server/types'
 import type { Integration, Site } from '@/domain/site/types'
 
 /**
- * Counts derived from one real listing, and integration freshness.
+ * A single headline count on the overview.
  *
- * The previous overview synthesised CPU, RAM, and GPU trend lines in the browser.
- * Nothing here is invented: if a number cannot be read from the API it is not shown.
+ * Every value shown here is read from the API, never synthesised: if a number cannot be
+ * derived from a real listing it is not shown.
  */
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <Card withBorder>
-      <Text size="xs" c="dimmed">
+    <Card>
+      <Text size="1" color="gray">
         {label}
       </Text>
-      <Text fz={28} fw={600}>
+      <Text as="div" size="7" weight="bold">
         {value}
       </Text>
       {hint && (
-        <Text size="xs" c="dimmed">
+        <Text size="1" color="gray">
           {hint}
         </Text>
       )}
@@ -37,6 +37,7 @@ type OverviewState =
   | { status: 'ready'; servers: Server[]; sites: Site[]; integrations: Integration[] }
   | { status: 'error'; message: string }
 
+/** Human-readable sync freshness for an integration row. */
 function freshness(integration: Integration): string {
   if (integration.sync.lastError) {
     return integration.sync.lastSucceededAt
@@ -49,11 +50,18 @@ function freshness(integration: Integration): string {
   return 'not synced yet'
 }
 
+/**
+ * The landing screen: what the platform currently knows, as counts plus integration
+ * freshness.
+ *
+ * Loads one server listing, the sites, and the integrations, then derives counts from
+ * them. State is a discriminated union set only from the fetch callbacks, so nothing is
+ * written synchronously during the effect. Numbers cover the first page of servers (the
+ * API maximum); this is called out when the fleet exceeds it.
+ */
 export function OverviewPage() {
   const { servers, sites } = useApp()
 
-  // Written only from the fetch callbacks, so nothing sets state synchronously during
-  // the effect.
   const [state, setState] = useState<OverviewState>({ status: 'loading' })
 
   useEffect(() => {
@@ -103,30 +111,29 @@ export function OverviewPage() {
       <PageHeader title="Overview" subtitle="What the platform currently knows." />
 
       {integrations.length === 0 && (
-        <Alert
-          icon={<IconAlertCircle size={16} />}
-          color="yellow"
-          mb="md"
-          title="Nothing is integrated yet"
-        >
-          gdcm reads everything from external systems. Register a site and at least one
-          provisioner through the API to see servers here.
-        </Alert>
+        <Callout.Root color="amber" mb="4">
+          <Callout.Icon>
+            <ExclamationTriangleIcon />
+          </Callout.Icon>
+          <Callout.Text>
+            Nothing is integrated yet. gdcm reads everything from external systems. Register
+            a site and at least one provisioner through the API to see servers here.
+          </Callout.Text>
+        </Callout.Root>
       )}
 
       {failing.map((integration) => (
-        <Alert
-          key={integration.id}
-          icon={<IconAlertCircle size={16} />}
-          color="orange"
-          mb="md"
-          title={`${integration.name} is not answering`}
-        >
-          <Text size="sm">{integration.sync.lastError}</Text>
-        </Alert>
+        <Callout.Root key={integration.id} color="orange" mb="4">
+          <Callout.Icon>
+            <ExclamationTriangleIcon />
+          </Callout.Icon>
+          <Callout.Text>
+            {integration.name} is not answering: {integration.sync.lastError}
+          </Callout.Text>
+        </Callout.Root>
       ))}
 
-      <SimpleGrid cols={{ base: 2, md: 5 }} mb="lg">
+      <Grid columns={{ initial: '2', md: '5' }} gap="3" mb="4">
         <Stat label="Sites" value={String(siteList.length)} />
         <Stat
           label="Servers"
@@ -144,55 +151,55 @@ export function OverviewPage() {
           value={String(gpuCount)}
           hint={gpuServers.length > 0 ? `across ${gpuServers.length} servers` : undefined}
         />
-      </SimpleGrid>
+      </Grid>
 
       {allServers.length >= 100 && (
-        <Text size="xs" c="dimmed" mb="md">
+        <Text size="1" color="gray" mb="4" as="div">
           Counts cover the first 100 servers. Use the servers page for the full fleet.
         </Text>
       )}
 
-      <Card withBorder>
-        <Group justify="space-between" mb="sm">
-          <Title order={5}>Integrations</Title>
-          <Text size="xs" c="dimmed">
+      <Card>
+        <Flex justify="between" align="center" mb="3">
+          <Heading as="h2" size="3">
+            Integrations
+          </Heading>
+          <Text size="1" color="gray">
             Everything gdcm reads comes from one of these
           </Text>
-        </Group>
+        </Flex>
 
         {integrations.length === 0 ? (
-          <Text size="sm" c="dimmed">
+          <Text size="2" color="gray">
             None registered.
           </Text>
         ) : (
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Kind</Table.Th>
-                <Table.Th>Product</Table.Th>
-                <Table.Th>Enabled</Table.Th>
-                <Table.Th>Freshness</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
+          <Table.Root variant="surface">
+            <Table.Header>
+              <Table.Row>
+                <Table.ColumnHeaderCell>Name</Table.ColumnHeaderCell>
+                <Table.ColumnHeaderCell>Kind</Table.ColumnHeaderCell>
+                <Table.ColumnHeaderCell>Product</Table.ColumnHeaderCell>
+                <Table.ColumnHeaderCell>Enabled</Table.ColumnHeaderCell>
+                <Table.ColumnHeaderCell>Freshness</Table.ColumnHeaderCell>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
               {integrations.map((integration) => (
-                <Table.Tr key={integration.id}>
-                  <Table.Td>{integration.name}</Table.Td>
-                  <Table.Td>{integration.kind}</Table.Td>
-                  <Table.Td>{integration.providerKind}</Table.Td>
-                  <Table.Td>{integration.enabled ? 'yes' : 'paused'}</Table.Td>
-                  <Table.Td>
-                    <Stack gap={0}>
-                      <Text size="sm" c={integration.sync.lastError ? 'orange' : undefined}>
-                        {freshness(integration)}
-                      </Text>
-                    </Stack>
-                  </Table.Td>
-                </Table.Tr>
+                <Table.Row key={integration.id}>
+                  <Table.Cell>{integration.name}</Table.Cell>
+                  <Table.Cell>{integration.kind}</Table.Cell>
+                  <Table.Cell>{integration.providerKind}</Table.Cell>
+                  <Table.Cell>{integration.enabled ? 'yes' : 'paused'}</Table.Cell>
+                  <Table.Cell>
+                    <Text size="2" color={integration.sync.lastError ? 'orange' : undefined}>
+                      {freshness(integration)}
+                    </Text>
+                  </Table.Cell>
+                </Table.Row>
               ))}
-            </Table.Tbody>
-          </Table>
+            </Table.Body>
+          </Table.Root>
         )}
       </Card>
     </>

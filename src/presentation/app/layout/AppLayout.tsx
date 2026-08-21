@@ -1,35 +1,30 @@
 import { useState } from 'react'
-import { AppShell } from '@mantine/core'
 import { Outlet } from 'react-router-dom'
+import { AppShell } from '@/presentation/components/radix/AppShell'
 import { Header } from './Header'
 import { SideNav } from './SideNav'
 import { Footer } from './Footer'
 
+/**
+ * The authenticated app layout: header, sidebar, footer, and the routed outlet.
+ *
+ * Owns the mobile nav open/close state (the shell only renders it). The sidebar is a
+ * fixed column on desktop and a toggled overlay on mobile; selecting a nav item or
+ * tapping the scrim closes the overlay.
+ */
 export function AppLayout() {
-  const [opened, setOpened] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
+  const closeNav = () => setNavOpen(false)
 
   return (
     <AppShell
-      header={{ height: 56 }}
-      navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}
-      footer={{ height: 36 }}
-      padding="md"
+      navOpen={navOpen}
+      onNavClose={closeNav}
+      header={<Header onToggleNav={() => setNavOpen((open) => !open)} />}
+      navbar={<SideNav onNavigate={closeNav} />}
+      footer={<Footer />}
     >
-      <AppShell.Header>
-        <Header opened={opened} toggle={() => setOpened((o) => !o)} />
-      </AppShell.Header>
-
-      <AppShell.Navbar>
-        <SideNav />
-      </AppShell.Navbar>
-
-      <AppShell.Main>
-        <Outlet />
-      </AppShell.Main>
-
-      <AppShell.Footer>
-        <Footer />
-      </AppShell.Footer>
+      <Outlet />
     </AppShell>
   )
 }

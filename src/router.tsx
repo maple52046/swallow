@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppLayout } from './presentation/app/layout/AppLayout'
 import { NotFoundPage } from './presentation/pages/NotFoundPage'
 import { LoginPage } from './presentation/pages/auth/LoginPage'
@@ -6,6 +6,12 @@ import { ForbiddenPage } from './presentation/pages/errors/ForbiddenPage'
 import { OverviewPage } from './presentation/pages/overview/OverviewPage'
 import { ServersPage } from './presentation/pages/servers/ServersPage'
 import { ServerDetailPage } from './presentation/pages/servers/ServerDetailPage'
+import { ServerSummaryTab } from './presentation/pages/servers/ServerSummaryTab'
+import {
+  ServerNetworkTab,
+  ServerStorageTab,
+  ServerPciTab,
+} from './presentation/pages/servers/ServerDetailTableTab'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 
 /**
@@ -35,7 +41,17 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <OverviewPage /> },
       { path: 'servers', element: <ServersPage /> },
-      { path: 'servers/:id', element: <ServerDetailPage /> },
+      {
+        path: 'servers/:id',
+        element: <ServerDetailPage />,
+        children: [
+          { index: true, element: <Navigate to="summary" replace /> },
+          { path: 'summary', element: <ServerSummaryTab /> },
+          { path: 'network', element: <ServerNetworkTab /> },
+          { path: 'storage', element: <ServerStorageTab /> },
+          { path: 'pci', element: <ServerPciTab /> },
+        ],
+      },
     ],
   },
   {

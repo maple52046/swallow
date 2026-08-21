@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Container, Group, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core'
-import { IconAlertCircle, IconLogin2 } from '@tabler/icons-react'
+import { Box, Button, Callout, Card, Flex, Heading, Text, TextField } from '@radix-ui/themes'
+import { EnterIcon, ExclamationTriangleIcon } from '@radix-ui/react-icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 
@@ -8,6 +8,14 @@ interface LoginLocationState {
   from?: string
 }
 
+/**
+ * The unauthenticated sign-in screen.
+ *
+ * On success it returns the user to the page they were sent from (`location.state.from`,
+ * set by `ProtectedRoute`), so a deep link survives login. Only same-origin paths are
+ * honoured, so a crafted `from` cannot bounce someone off-site. An already-authenticated
+ * visitor is redirected away by the effect rather than shown the form.
+ */
 export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -27,80 +35,94 @@ export function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      // Deep-linking to a protected page arrives here already authenticated, because
-      // the route guard redirects before the session check resolves. Sending everyone
-      // to the default route would silently discard the page they asked for.
+      // Deep-linking to a protected page arrives here already authenticated, because the
+      // route guard redirects before the session check resolves. Sending everyone to the
+      // default route would silently discard the page they asked for.
       navigate(returnPath, { replace: true })
     }
   }, [isAuthenticated, navigate, returnPath])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
     if (!username || !password || submitting) return
     try {
       setSubmitting(true)
       setError(null)
       await login(username.trim(), password)
       navigate(returnPath, { replace: true })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Invalid username or password')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid username or password')
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <Container size={460} py={80}>
-      <Card withBorder radius="md" p="xl">
-        <form onSubmit={(e) => void handleSubmit(e)}>
-          <Stack gap="md">
-            <div>
-              <Title order={2}>Sign in</Title>
-              <Text c="dimmed" size="sm">Datacenter Prototype Auth Demo</Text>
-              {currentUser && (
-                <Text c="dimmed" size="xs" mt={4}>
-                  Current: {currentUser.displayName} ({currentUser.role})
+    <Flex justify="center" px="4" py="9">
+      <Box style={{ width: '100%', maxWidth: 420 }}>
+        <Card size="4">
+          <form onSubmit={(event) => void handleSubmit(event)}>
+            <Flex direction="column" gap="4">
+              <Flex direction="column" gap="1">
+                <Heading as="h1" size="6">
+                  Sign in
+                </Heading>
+                <Text color="gray" size="2">
+                  Datacenter Prototype Auth Demo
                 </Text>
+                {currentUser && (
+                  <Text color="gray" size="1">
+                    Current: {currentUser.displayName} ({currentUser.role})
+                  </Text>
+                )}
+              </Flex>
+
+              {error && (
+                <Callout.Root color="red" role="alert">
+                  <Callout.Icon>
+                    <ExclamationTriangleIcon />
+                  </Callout.Icon>
+                  <Callout.Text>{error}</Callout.Text>
+                </Callout.Root>
               )}
-            </div>
 
-            {error && (
-              <Alert color="red" icon={<IconAlertCircle size={16} />} title="Login failed">
-                {error}
-              </Alert>
-            )}
+              <label>
+                <Text as="div" size="2" weight="medium" mb="1">
+                  Username
+                </Text>
+                <TextField.Root
+                  value={username}
+                  onChange={(event) => setUsername(event.currentTarget.value)}
+                  placeholder="Enter your account identifier"
+                  autoComplete="username"
+                  required
+                />
+              </label>
 
-            <TextInput
-              label="Username"
-              value={username}
-              onChange={(e) => setUsername(e.currentTarget.value)}
-              placeholder="Enter your account identifier"
-              autoComplete="username"
-              required
-            />
+              <label>
+                <Text as="div" size="2" weight="medium" mb="1">
+                  Password
+                </Text>
+                <TextField.Root
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.currentTarget.value)}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
 
-            <PasswordInput
-              label="Password"
-              value={password}
-              onChange={(e) => setPassword(e.currentTarget.value)}
-              placeholder="Enter your password"
-              autoComplete="current-password"
-              required
-            />
-
-            <Group justify="flex-end">
-              <Button
-                type="submit"
-                leftSection={<IconLogin2 size={16} />}
-                loading={submitting}
-                disabled={!username || !password}
-              >
-                Login
-              </Button>
-            </Group>
-          </Stack>
-        </form>
-      </Card>
-    </Container>
+              <Flex justify="end">
+                <Button type="submit" loading={submitting} disabled={!username || !password}>
+                  <EnterIcon />
+                  Login
+                </Button>
+              </Flex>
+            </Flex>
+          </form>
+        </Card>
+      </Box>
+    </Flex>
   )
 }

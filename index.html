@@ -6,9 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DC Dashboard</title>
     <script>
+      // Set the colour scheme before React mounts to avoid a flash. Reads the same
+      // localStorage key the app persists ('color-scheme', stored as a JSON string); the
+      // Radix <Theme appearance> then takes over once the app renders.
       try {
-        var cs = window.localStorage.getItem('dc-color-scheme');
-        document.documentElement.setAttribute('data-mantine-color-scheme', cs || 'dark');
+        var raw = window.localStorage.getItem('color-scheme');
+        var cs = raw ? raw.replace(/"/g, '') : 'dark';
+        document.documentElement.classList.add(cs);
+        document.documentElement.style.colorScheme = cs;
       } catch (e) {}
     </script>
   </head>

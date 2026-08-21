@@ -1,33 +1,51 @@
-import { Group, Burger, Text, Menu, ActionIcon, useMantineColorScheme, Tooltip, Avatar, Badge, Button } from '@mantine/core'
+import { Avatar, Badge, Button, DropdownMenu, Flex, IconButton, Text, Tooltip } from '@radix-ui/themes'
 import { useNavigate } from 'react-router-dom'
-import { IconSun, IconMoon, IconSettings, IconLogout, IconServer } from '@tabler/icons-react'
+import {
+  DesktopIcon,
+  ExitIcon,
+  HamburgerMenuIcon,
+  MoonIcon,
+  SunIcon,
+} from '@radix-ui/react-icons'
 import { t } from '@/presentation/app/i18n'
-import { saveColorScheme } from '@/presentation/app/theme'
+import { useAppearance } from '@/presentation/app/theme/appearanceContext'
+import { useMediaQuery } from '@/presentation/components/radix/useMediaQuery'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 
 interface HeaderProps {
-  opened: boolean
-  toggle: () => void
+  /** Toggles the mobile nav overlay; the burger that calls it is shown only on mobile. */
+  onToggleNav: () => void
 }
 
-export function Header({ opened, toggle }: HeaderProps) {
+/** Role-to-colour for the badge in the user menu. Text always names the role too. */
+const ROLE_COLOR: Record<string, 'red' | 'blue' | 'gray'> = {
+  admin: 'red',
+  owner: 'blue',
+  user: 'gray',
+}
+
+/**
+ * The top application bar: brand, light/dark toggle, and the user menu.
+ *
+ * The colour-scheme toggle goes through `useAppearance` so the choice updates the live
+ * Radix theme and persists. The burger appears only below the mobile breakpoint, matching
+ * the shell's overlay behaviour. The user menu reads the current session from `useAuth`;
+ * signing out clears it and returns to login.
+ */
+export function Header({ onToggleNav }: HeaderProps) {
   const navigate = useNavigate()
-  const { colorScheme, setColorScheme } = useMantineColorScheme()
+  const { appearance, toggle } = useAppearance()
   const { currentUser, logout } = useAuth()
+  const isMobile = useMediaQuery('(max-width: 768px)')
 
-  const isDark = colorScheme === 'dark'
+  const isDark = appearance === 'dark'
 
-  const toggleTheme = () => {
-    const next = isDark ? 'light' : 'dark'
-    setColorScheme(next)
-    saveColorScheme(next)
-  }
-
-  const initials = currentUser?.displayName
-    .split(' ')
-    .map((p) => p[0]?.toUpperCase())
-    .join('')
-    .slice(0, 2) ?? 'NA'
+  const initials =
+    currentUser?.displayName
+      .split(' ')
+      .map((part) => part[0]?.toUpperCase())
+      .join('')
+      .slice(0, 2) ?? 'NA'
 
   const handleLogout = () => {
     logout()
@@ -35,60 +53,67 @@ export function Header({ opened, toggle }: HeaderProps) {
   }
 
   return (
-    <Group h="100%" px="md" justify="space-between">
-      <Group gap="sm">
-        <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-        <Group
-          gap="xs"
-          style={{ cursor: 'pointer' }}
-          onClick={() => navigate('/')}
-        >
-          <IconServer size={22} color="var(--mantine-color-blue-5)" />
-          <Text fw={700} size="lg" c="blue">
+    <Flex height="100%" px="4" align="center" justify="between">
+      <Flex align="center" gap="3">
+        {isMobile && (
+          <IconButton variant="ghost" color="gray" aria-label="Toggle navigation" onClick={onToggleNav}>
+            <HamburgerMenuIcon />
+          </IconButton>
+        )}
+        <Flex align="center" gap="2" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+          <DesktopIcon color="var(--accent-9)" />
+          <Text weight="bold" size="4" color="blue">
             DC Dashboard
           </Text>
-        </Group>
-      </Group>
+        </Flex>
+      </Flex>
 
-      <Group gap="xs">
-        <Tooltip label={isDark ? t('settings.lightMode') : t('settings.darkMode')}>
-          <ActionIcon variant="subtle" onClick={toggleTheme} size="lg">
-            {isDark ? <IconSun size={18} /> : <IconMoon size={18} />}
-          </ActionIcon>
+      <Flex align="center" gap="2">
+        <Tooltip content={isDark ? t('settings.lightMode') : t('settings.darkMode')}>
+          <IconButton
+            variant="ghost"
+            color="gray"
+            aria-label={isDark ? t('settings.lightMode') : t('settings.darkMode')}
+            onClick={toggle}
+          >
+            {isDark ? <SunIcon /> : <MoonIcon />}
+          </IconButton>
         </Tooltip>
 
         {currentUser ? (
-          <Menu position="bottom-end" withArrow>
-            <Menu.Target>
-              <Avatar color="blue" radius="xl" size="sm" style={{ cursor: 'pointer' }}>
-                {initials}
-              </Avatar>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Label>
-                <Group gap={6}>
-                  <Text size="xs">{currentUser.displayName}</Text>
-                  <Badge size="xs" variant="light" color={currentUser.role === 'admin' ? 'red' : currentUser.role === 'owner' ? 'blue' : 'gray'}>
-                    {currentUser.role}
-                  </Badge>
-                </Group>
-                <Text size="xs" c="dimmed">{currentUser.username}</Text>
-              </Menu.Label>
-              <Menu.Item leftSection={<IconSettings size={14} />} onClick={() => navigate('/account/settings')}>
-                {t('nav.settings')}
-              </Menu.Item>
-              <Menu.Divider />
-              <Menu.Item leftSection={<IconLogout size={14} />} color="red" onClick={handleLogout}>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger>
+              <Button variant="ghost" color="gray" aria-label="Account menu">
+                <Avatar size="1" radius="full" fallback={initials} color="blue" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content align="end">
+              <DropdownMenu.Label>
+                <Flex direction="column" gap="1">
+                  <Flex align="center" gap="2">
+                    <Text size="1">{currentUser.displayName}</Text>
+                    <Badge size="1" color={ROLE_COLOR[currentUser.role] ?? 'gray'}>
+                      {currentUser.role}
+                    </Badge>
+                  </Flex>
+                  <Text size="1" color="gray">
+                    {currentUser.username}
+                  </Text>
+                </Flex>
+              </DropdownMenu.Label>
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item color="red" onSelect={handleLogout}>
+                <ExitIcon />
                 {t('nav.signOut')}
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
         ) : (
-          <Button variant="subtle" size="xs" onClick={() => navigate('/login')}>
+          <Button variant="ghost" size="1" onClick={() => navigate('/login')}>
             Login
           </Button>
         )}
-      </Group>
-    </Group>
+      </Flex>
+    </Flex>
   )
 }

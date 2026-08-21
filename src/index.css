@@ -16,3 +16,12 @@ body {
   margin: 0;
   min-width: 320px;
 }
+
+/* Accordion chevron rotates with the section's open state (see radix/Accordion.tsx). */
+.accordion-chevron {
+  transition: transform 150ms ease;
+}
+[data-state='open'] > * .accordion-chevron,
+[data-state='open'] .accordion-chevron {
+  transform: rotate(180deg);
+}

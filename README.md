@@ -1,6 +1,6 @@
 # dashboard
 
-Frontend for the GDCM platform. React + TypeScript + Vite, Mantine for UI.
+Frontend for the GDCM platform. React + TypeScript + Vite, Radix Themes for UI.
 
 ## What is here
 
