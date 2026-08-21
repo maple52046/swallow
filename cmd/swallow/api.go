@@ -14,28 +14,23 @@ var apiCmd = &cobra.Command{
 }
 
 func init() {
-	apiCmd.Flags().String("addr", "", "HTTP listen address (e.g. :3000)")
-	apiCmd.Flags().String("grpc-addr", "", "gRPC listen address for the agent service (e.g. :50051)")
+	apiCmd.Flags().String("addr", "", "HTTP listen address (e.g. :30051)")
 	apiCmd.Flags().String("mongo-uri", "", "MongoDB connection URI")
 	apiCmd.Flags().String("mongo-db", "", "MongoDB database name")
 	apiCmd.Flags().String("jwt-secret", "", "JWT signing secret")
 	apiCmd.Flags().Int("jwt-expiry", 0, "JWT token expiry in hours")
-	apiCmd.Flags().String("node-auth-token", "", "shared secret that agents must present when connecting via gRPC")
 }
 
 func runAPI(cmd *cobra.Command, _ []string) error {
-	overlay := buildAPIFlagOverlay(cmd)
-
 	cfg, err := config.Load(config.LoadOptions{
 		ConfigFile:  rootConfigFile,
-		FlagOverlay: overlay,
-		Role:        "api",
+		FlagOverlay: buildAPIFlagOverlay(cmd),
 	})
 	if err != nil {
 		return err
 	}
 
-	logStartup("api", rootConfigFile, cfg.API.Addr, cfg.API.MongoURI, cfg.API.MongoDB, "")
+	logStartup(rootConfigFile, cfg.API.Addr, cfg.API.MongoURI, cfg.API.MongoDB)
 	return app.RunAPI(cfg.API)
 }
 
@@ -64,14 +59,6 @@ func buildAPIFlagOverlay(cmd *cobra.Command) *config.APIConfig {
 	}
 	if cmd.Flags().Changed("jwt-expiry") {
 		overlay.JWTExpiryHours, _ = cmd.Flags().GetInt("jwt-expiry")
-		changed = true
-	}
-	if cmd.Flags().Changed("grpc-addr") {
-		overlay.GRPCAddr, _ = cmd.Flags().GetString("grpc-addr")
-		changed = true
-	}
-	if cmd.Flags().Changed("node-auth-token") {
-		overlay.NodeAuthToken, _ = cmd.Flags().GetString("node-auth-token")
 		changed = true
 	}
 

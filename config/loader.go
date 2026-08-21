@@ -9,8 +9,6 @@ type LoadOptions struct {
 	// Only non-zero fields are applied; nil means no flag overlay.
 	// This prevents zero-value CLI flags from overwriting config file values.
 	FlagOverlay *APIConfig
-	// Role is "api" or "agent" and determines which validation rules apply.
-	Role string
 }
 
 // Load assembles the runtime Config in strict priority order:
@@ -18,7 +16,7 @@ type LoadOptions struct {
 //  2. Config file (if ConfigFile is set)
 //  3. CLI flags (FlagOverlay; only explicitly-set fields)
 //  4. Environment variables (GDCM_-prefixed; highest priority)
-//  5. Role-specific validation
+//  5. Validation
 //
 // If ConfigFile is non-empty but cannot be read or parsed, Load returns an
 // error immediately so that misconfiguration is never silently ignored.
@@ -37,7 +35,7 @@ func Load(opts LoadOptions) (*Config, error) {
 
 	applyEnv(&cfg)
 
-	if err := Validate(&cfg, opts.Role); err != nil {
+	if err := Validate(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -67,11 +65,5 @@ func applyAPIFlagOverlay(cfg *Config, overlay *APIConfig) {
 	}
 	if overlay.BootstrapAdminPassword != "" {
 		cfg.API.BootstrapAdminPassword = overlay.BootstrapAdminPassword
-	}
-	if overlay.GRPCAddr != "" {
-		cfg.API.GRPCAddr = overlay.GRPCAddr
-	}
-	if overlay.NodeAuthToken != "" {
-		cfg.API.NodeAuthToken = overlay.NodeAuthToken
 	}
 }

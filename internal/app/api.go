@@ -5,85 +5,166 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"net"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"go.mongodb.org/mongo-driver/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/mongo/options"
-	"google.golang.org/grpc"
 
 	"github.com/AFDEAPAC/swallow/bootstrap"
 	"github.com/AFDEAPAC/swallow/config"
-	agentv1 "github.com/AFDEAPAC/swallow/gen/agent/v1"
 	authapp "github.com/AFDEAPAC/swallow/internal/auth/application"
 	authdelivery "github.com/AFDEAPAC/swallow/internal/auth/delivery"
 	authinfra "github.com/AFDEAPAC/swallow/internal/auth/infra"
+	clusterapp "github.com/AFDEAPAC/swallow/internal/cluster/application"
+	clusterdelivery "github.com/AFDEAPAC/swallow/internal/cluster/delivery"
+	clusterinfra "github.com/AFDEAPAC/swallow/internal/cluster/infra"
+	discoveryapp "github.com/AFDEAPAC/swallow/internal/discovery/application"
+	discoverydelivery "github.com/AFDEAPAC/swallow/internal/discovery/delivery"
+	monitoringapp "github.com/AFDEAPAC/swallow/internal/monitoring/application"
+	monitoringdelivery "github.com/AFDEAPAC/swallow/internal/monitoring/delivery"
+	monitoringinfra "github.com/AFDEAPAC/swallow/internal/monitoring/infra"
+	operationapp "github.com/AFDEAPAC/swallow/internal/operation/application"
+	operationdelivery "github.com/AFDEAPAC/swallow/internal/operation/delivery"
+	operationinfra "github.com/AFDEAPAC/swallow/internal/operation/infra"
+	provisioningapp "github.com/AFDEAPAC/swallow/internal/provisioning/application"
+	provisioningdelivery "github.com/AFDEAPAC/swallow/internal/provisioning/delivery"
+	provisioninginfra "github.com/AFDEAPAC/swallow/internal/provisioning/infra"
 	serverapp "github.com/AFDEAPAC/swallow/internal/server/application"
 	serverdelivery "github.com/AFDEAPAC/swallow/internal/server/delivery"
 	serverinfra "github.com/AFDEAPAC/swallow/internal/server/infra"
 	"github.com/AFDEAPAC/swallow/internal/shared/jwt"
 	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
+	"github.com/AFDEAPAC/swallow/internal/shared/secret"
+	siteapp "github.com/AFDEAPAC/swallow/internal/site/application"
+	sitedelivery "github.com/AFDEAPAC/swallow/internal/site/delivery"
+	siteinfra "github.com/AFDEAPAC/swallow/internal/site/infra"
 )
 
-// RunAPI starts the HTTP API server and the gRPC agent service using the provided config.
-// It connects to MongoDB, bootstraps the admin user, registers all routes,
-// and blocks until the HTTP server exits.
-func RunAPI(cfg config.APIConfig) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+// shutdownTimeout bounds how long in-flight requests get to finish on shutdown.
+const shutdownTimeout = 10 * time.Second
 
-	client, err := mongo.Connect(ctx, mongoopts.Client().ApplyURI(cfg.MongoURI))
+// RunAPI starts the HTTP API server and the reconciler, and blocks until interrupted.
+func RunAPI(cfg config.APIConfig) error {
+	// Cancelled on SIGINT or SIGTERM, which stops the reconciler and triggers a
+	// graceful HTTP shutdown instead of dropping in-flight requests.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	sealer, err := secret.NewSealer(cfg.CredentialKey)
+	if err != nil {
+		return fmt.Errorf("credential key: %w", err)
+	}
+
+	connectCtx, cancelConnect := context.WithTimeout(ctx, 15*time.Second)
+	defer cancelConnect()
+
+	client, err := mongo.Connect(connectCtx, mongoopts.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
 		return fmt.Errorf("mongo connect: %w", err)
 	}
-	if err := client.Ping(ctx, nil); err != nil {
+	if err := client.Ping(connectCtx, nil); err != nil {
 		return fmt.Errorf("mongo ping: %w", err)
 	}
 	log.Println("connected to mongodb")
+	defer func() {
+		disconnectCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		_ = client.Disconnect(disconnectCtx)
+	}()
 
 	db := client.Database(cfg.MongoDB)
 
 	userRepo := authinfra.NewMongoUserRepo(db)
+	siteRepo, err := siteinfra.NewMongoSiteRepo(db)
+	if err != nil {
+		return fmt.Errorf("site repo init: %w", err)
+	}
+	integrationRepo, err := siteinfra.NewMongoIntegrationRepo(db, sealer)
+	if err != nil {
+		return fmt.Errorf("integration repo init: %w", err)
+	}
 	serverRepo, err := serverinfra.NewMongoServerRepo(db)
 	if err != nil {
 		return fmt.Errorf("server repo init: %w", err)
 	}
 
 	if err := bootstrap.EnsureAdminUser(
-		context.Background(), userRepo,
+		ctx, userRepo,
 		cfg.BootstrapAdminUsername, cfg.BootstrapAdminPassword,
 	); err != nil {
 		return fmt.Errorf("bootstrap admin: %w", err)
 	}
 
-	// JWTExpiryHours is stored as int; convert here so domain code stays decoupled.
 	jwtSvc := jwt.NewService(cfg.JWTSecret, time.Duration(cfg.JWTExpiryHours)*time.Hour)
 
-	loginUC := authapp.NewLoginUseCase(userRepo, jwtSvc)
-	meUC := authapp.NewMeUseCase(userRepo)
-	authHandler := authdelivery.NewAuthHandler(loginUC, meUC)
+	authHandler := authdelivery.NewAuthHandler(
+		authapp.NewLoginUseCase(userRepo, jwtSvc),
+		authapp.NewMeUseCase(userRepo),
+	)
 
-	createServerUC := serverapp.NewCreateServerUseCase(serverRepo)
-	listServersUC := serverapp.NewListServersUseCase(serverRepo)
-	deleteServerUC := serverapp.NewDeleteServerUseCase(serverRepo)
-	serverHandler := serverdelivery.NewServerHandler(createServerUC, listServersUC, deleteServerUC)
+	siteHandler := sitedelivery.NewSiteHandler(
+		siteapp.NewSiteService(siteRepo, integrationRepo),
+		siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo),
+	)
 
-	// gRPC agent service — only started when nodeAuthToken is configured.
-	// When nodeAuthToken is absent the HTTP/JWT service continues to work normally;
-	// agents simply cannot connect until the token is configured and the server restarted.
-	if cfg.NodeAuthToken != "" {
-		updateInventoryUC := serverapp.NewUpdateInventoryUseCase(serverRepo)
-		agentGRPCHandler := serverdelivery.NewAgentGRPCHandler(updateInventoryUC, serverRepo, cfg.NodeAuthToken)
-		if err := startGRPCServer(cfg.GRPCAddr, agentGRPCHandler); err != nil {
-			return fmt.Errorf("grpc server: %w", err)
-		}
-	} else {
-		log.Println("nodeAuthToken not configured; gRPC agent service is disabled")
+	// The health axis is resolved from the metrics store at query time and never
+	// persisted. With no metrics integration registered the resolver returns nothing,
+	// which reads as "not known" rather than as anything about the machine.
+	monitoringFactory := monitoringinfra.NewMonitoringFactory(integrationRepo)
+	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
+		monitoringapp.NewAlertService(monitoringFactory),
+		monitoringapp.NewServerMetricsService(monitoringFactory),
+	)
+	var healthResolver serverapp.HealthResolver = monitoringapp.NewHealthResolver(monitoringFactory)
+
+	serverHandler := serverdelivery.NewServerHandler(
+		serverapp.NewListServersUseCase(serverRepo, healthResolver),
+		serverapp.NewGetServerUseCase(serverRepo, healthResolver),
+	)
+
+	providerFactory := provisioninginfra.NewProviderFactory(integrationRepo)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory)
+	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
+		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
+		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory),
+		provisioningapp.NewListOSImagesUseCase(providerFactory),
+		reconcileUC,
+	)
+
+	clusterRepo, err := clusterinfra.NewMongoClusterRepo(db)
+	if err != nil {
+		return fmt.Errorf("cluster repo init: %w", err)
 	}
+	membershipSync := clusterapp.NewMembershipSyncUseCase(
+		clusterRepo, serverRepo, clusterinfra.NewReaderFactory(integrationRepo))
+	clusterHandler := clusterdelivery.NewClusterHandler(
+		clusterapp.NewClusterService(clusterRepo, siteRepo, serverRepo),
+		membershipSync,
+	)
+
+	operationRepo, err := operationinfra.NewMongoOperationRepo(db)
+	if err != nil {
+		return fmt.Errorf("operation repo init: %w", err)
+	}
+	// The cluster context enforces the gpuStackOwner policy, so that an operation
+	// never has to know what a GPU operator is in order to refuse fighting one.
+	operationService := operationapp.NewOperationService(
+		operationRepo, serverRepo, integrationRepo,
+		operationinfra.NewControllerFactory(integrationRepo),
+		clusterapp.NewPolicyChecker(clusterRepo, serverRepo),
+	)
+	operationHandler := operationdelivery.NewOperationHandler(operationService)
+
+	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
+		discoveryapp.NewDiscoveryUseCase(serverRepo),
+	)
 
 	fiberApp := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -102,41 +183,136 @@ func RunAPI(cfg config.APIConfig) error {
 	// management platform; restrict to a specific origin if needed.
 	fiberApp.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
-		AllowMethods: "GET,POST,DELETE,OPTIONS",
+		AllowMethods: "GET,POST,PATCH,PUT,DELETE,OPTIONS",
 		AllowHeaders: "Content-Type,Authorization",
 	}))
 
-	v1 := fiberApp.Group("/api/v1")
+	registerRoutes(fiberApp, routeDeps{
+		jwtSvc:       jwtSvc,
+		machineToken: cfg.MachineToken,
+		auth:         authHandler,
+		sites:        siteHandler,
+		servers:      serverHandler,
+		provisioning: provisioningHandler,
+		operations:   operationHandler,
+		monitoring:   monitoringHandler,
+		clusters:     clusterHandler,
+		discovery:    discoveryHandler,
+	})
 
-	auth := v1.Group("/auth")
-	auth.Post("/login", authHandler.Login)
-	auth.Get("/me", middleware.Auth(jwtSvc), authHandler.Me)
+	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
+	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
+	go runOperationPoller(ctx, operationService, cfg.OperationPollInterval)
 
-	servers := v1.Group("/servers", middleware.Auth(jwtSvc), middleware.AdminOnly())
-	servers.Post("/", serverHandler.Create)
-	servers.Get("/", serverHandler.List)
-	servers.Delete("/:id", serverHandler.Delete)
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("starting HTTP server on %s", cfg.Addr)
+		serverErr <- fiberApp.Listen(cfg.Addr)
+	}()
 
-	log.Printf("starting HTTP server on %s", cfg.Addr)
-	return fiberApp.Listen(cfg.Addr)
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		log.Println("shutdown requested; draining in-flight requests")
+		if err := fiberApp.ShutdownWithTimeout(shutdownTimeout); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("shutdown: %w", err)
+		}
+		return nil
+	}
 }
 
-// startGRPCServer creates a TCP listener and starts the gRPC server in a goroutine.
-// The server runs for the lifetime of the process; errors after startup are logged.
-func startGRPCServer(addr string, handler *serverdelivery.AgentGRPCHandler) error {
-	lis, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("listen %s: %w", addr, err)
-	}
+type routeDeps struct {
+	jwtSvc       *jwt.Service
+	machineToken string
+	auth         *authdelivery.AuthHandler
+	sites        *sitedelivery.SiteHandler
+	servers      *serverdelivery.ServerHandler
+	provisioning *provisioningdelivery.ProvisioningHandler
+	operations   *operationdelivery.OperationHandler
+	monitoring   *monitoringdelivery.MonitoringHandler
+	clusters     *clusterdelivery.ClusterHandler
+	discovery    *discoverydelivery.DiscoveryHandler
+}
 
-	grpcSrv := grpc.NewServer()
-	agentv1.RegisterAgentServiceServer(grpcSrv, handler)
+func registerRoutes(app *fiber.App, deps routeDeps) {
+	// Unauthenticated: a readiness probe that needs a credential is not usable by the
+	// thing that needs it.
+	app.Get("/healthz", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
 
-	log.Printf("starting gRPC agent service on %s", addr)
-	go func() {
-		if err := grpcSrv.Serve(lis); err != nil {
-			log.Printf("gRPC server error: %v", err)
-		}
-	}()
-	return nil
+	v1 := app.Group("/api/v1")
+
+	auth := v1.Group("/auth")
+	auth.Post("/login", deps.auth.Login)
+	auth.Get("/me", middleware.Auth(deps.jwtSvc), deps.auth.Me)
+
+	admin := []fiber.Handler{middleware.Auth(deps.jwtSvc), middleware.AdminOnly()}
+
+	sites := v1.Group("/sites", admin...)
+	sites.Post("/", deps.sites.CreateSite)
+	sites.Get("/", deps.sites.ListSites)
+	sites.Get("/:id", deps.sites.GetSite)
+	sites.Patch("/:id", deps.sites.UpdateSite)
+	sites.Delete("/:id", deps.sites.DeleteSite)
+
+	integrations := v1.Group("/integrations", admin...)
+	integrations.Post("/", deps.sites.CreateIntegration)
+	integrations.Get("/", deps.sites.ListIntegrations)
+	integrations.Get("/:id", deps.sites.GetIntegration)
+	integrations.Patch("/:id", deps.sites.UpdateIntegration)
+	integrations.Put("/:id/credential", deps.sites.ReplaceCredential)
+	integrations.Delete("/:id", deps.sites.DeleteIntegration)
+
+	// Servers are read-only: they are produced by reconciliation, so there is nothing
+	// to create or delete. The lifecycle actions belong to the provisioning context
+	// but are addressed by server, because that is the identifier callers hold.
+	servers := v1.Group("/servers", admin...)
+	servers.Get("/", deps.servers.List)
+	servers.Get("/:id", deps.servers.Get)
+	servers.Post("/:id/deploy", deps.provisioning.Deploy)
+	servers.Post("/:id/release", deps.provisioning.Release)
+
+	provisioning := v1.Group("/provisioning", admin...)
+	provisioning.Get("/images", deps.provisioning.ListImages)
+	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
+	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
+
+	// gdcm owns a cluster's registration and its policy. Membership is read from the
+	// cluster's own API, so there is no endpoint here to change it.
+	clusters := v1.Group("/clusters", admin...)
+	clusters.Post("/", deps.clusters.Create)
+	clusters.Get("/", deps.clusters.List)
+	clusters.Get("/:id", deps.clusters.Get)
+	clusters.Patch("/:id", deps.clusters.Update)
+	clusters.Delete("/:id", deps.clusters.Delete)
+	clusters.Post("/:id/sync", deps.clusters.SyncMembership)
+	clusters.Post("/sync", deps.clusters.SyncAllMembership)
+
+	// Alerts and metrics are read straight from the monitoring stack: gdcm stores
+	// neither, and acknowledging an alert creates a silence in Alertmanager.
+	monitoring := v1.Group("/monitoring", admin...)
+	monitoring.Get("/alerts", deps.monitoring.ListAlerts)
+	monitoring.Post("/alerts/:fingerprint/acknowledge", deps.monitoring.Acknowledge)
+	monitoring.Get("/metrics", deps.monitoring.ServerMetrics)
+	monitoring.Get("/metrics/names", deps.monitoring.MetricNames)
+
+	operations := v1.Group("/operations", admin...)
+	operations.Post("/", deps.operations.Create)
+	operations.Get("/", deps.operations.List)
+	operations.Get("/:id", deps.operations.Get)
+	operations.Get("/:id/logs", deps.operations.Logs)
+	operations.Post("/:id/refresh", deps.operations.Refresh)
+
+	// Machine-to-machine endpoints. Prometheus and AWX pull their target lists from
+	// discovery rather than being pushed into, and AWX posts job notifications back
+	// as a hint to re-read. See docs/decisions/003 and 004.
+	machine := middleware.MachineAuth(deps.jwtSvc, deps.machineToken)
+
+	discovery := v1.Group("/discovery", machine)
+	discovery.Get("/prometheus", deps.discovery.PrometheusTargets)
+	discovery.Get("/ansible", deps.discovery.AnsibleInventory)
+
+	v1.Post("/webhooks/automation/:integrationId", machine, deps.operations.Webhook)
 }

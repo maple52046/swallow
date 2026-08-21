@@ -5,12 +5,17 @@ import "github.com/gofiber/fiber/v2"
 type Code string
 
 const (
-	CodeValidation  Code = "validation_error"
+	CodeValidation   Code = "validation_error"
 	CodeUnauthorized Code = "unauthorized"
-	CodeForbidden   Code = "forbidden"
-	CodeNotFound    Code = "not_found"
-	CodeConflict    Code = "conflict"
-	CodeInternal    Code = "internal_error"
+	CodeForbidden    Code = "forbidden"
+	CodeNotFound     Code = "not_found"
+	CodeConflict     Code = "conflict"
+	CodeInternal     Code = "internal_error"
+	// CodeProviderUnavailable means an upstream integration gdcm depends on is
+	// not configured or cannot be reached. It is distinct from CodeInternal so
+	// that clients can tell "this deployment is not wired up / the upstream is
+	// down" apart from "gdcm has a bug".
+	CodeProviderUnavailable Code = "provider_unavailable"
 )
 
 type APIError struct {
@@ -34,6 +39,8 @@ func (e *APIError) HTTPStatus() int {
 		return fiber.StatusNotFound
 	case CodeConflict:
 		return fiber.StatusConflict
+	case CodeProviderUnavailable:
+		return fiber.StatusServiceUnavailable
 	default:
 		return fiber.StatusInternalServerError
 	}

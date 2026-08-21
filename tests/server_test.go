@@ -1,332 +1,226 @@
 package tests
 
 import (
-	"context"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-
-	serverapp "github.com/AFDEAPAC/swallow/internal/server/application"
-	serverdelivery "github.com/AFDEAPAC/swallow/internal/server/delivery"
 	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/jwt"
-	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
-	"github.com/AFDEAPAC/swallow/internal/shared/pagination"
 )
 
-// fakeServerRepo is an in-memory ServerRepository for testing.
-type fakeServerRepo struct {
-	servers map[string]*serverdomain.Server
-}
+func TestListServers_ShapeAndAxes(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
 
-func newFakeServerRepo() *fakeServerRepo {
-	return &fakeServerRepo{servers: make(map[string]*serverdomain.Server)}
-}
-
-func (r *fakeServerRepo) Create(_ context.Context, server *serverdomain.Server) error {
-	for _, s := range r.servers {
-		if s.Hostname == server.Hostname {
-			return serverdomain.ErrHostnameTaken
-		}
-		if s.IP == server.IP {
-			return serverdomain.ErrIPTaken
-		}
-	}
-	r.servers[server.ID] = server
-	return nil
-}
-
-func (r *fakeServerRepo) List(_ context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
-	var all []*serverdomain.Server
-	for _, s := range r.servers {
-		if filter.Status != "" && s.Status != filter.Status {
-			continue
-		}
-		all = append(all, s)
-	}
-	total := len(all)
-	start := filter.Offset
-	if start > total {
-		start = total
-	}
-	end := start + filter.Limit
-	if end > total {
-		end = total
-	}
-	return serverdomain.ListResult{Servers: all[start:end], Total: total}, nil
-}
-
-func (r *fakeServerRepo) Delete(_ context.Context, id string) error {
-	if _, ok := r.servers[id]; !ok {
-		return serverdomain.ErrServerNotFound
-	}
-	delete(r.servers, id)
-	return nil
-}
-
-func (r *fakeServerRepo) ExistsByHostname(_ context.Context, hostname string) (bool, error) {
-	for _, s := range r.servers {
-		if s.Hostname == hostname {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func (r *fakeServerRepo) ExistsByIP(_ context.Context, ip string) (bool, error) {
-	for _, s := range r.servers {
-		if s.IP == ip {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func (r *fakeServerRepo) FindByID(_ context.Context, id string) (*serverdomain.Server, error) {
-	s, ok := r.servers[id]
-	if !ok {
-		return nil, serverdomain.ErrServerNotFound
-	}
-	return s, nil
-}
-
-func (r *fakeServerRepo) UpdateInventory(_ context.Context, id string, inv serverdomain.Inventory) error {
-	s, ok := r.servers[id]
-	if !ok {
-		return serverdomain.ErrServerNotFound
-	}
-	s.Inventory = &inv
-	return nil
-}
-
-func (r *fakeServerRepo) UpdateAgentInfo(_ context.Context, id string, info serverdomain.AgentInfo) error {
-	s, ok := r.servers[id]
-	if !ok {
-		return serverdomain.ErrServerNotFound
-	}
-	s.Agent = &info
-	return nil
-}
-
-func setupServerApp(t *testing.T) (*fiber.App, *fakeServerRepo, *jwt.Service) {
-	t.Helper()
-
-	repo := newFakeServerRepo()
-	jwtSvc := jwt.NewService("test-secret", time.Hour)
-
-	createUC := serverapp.NewCreateServerUseCase(repo)
-	listUC := serverapp.NewListServersUseCase(repo)
-	deleteUC := serverapp.NewDeleteServerUseCase(repo)
-	handler := serverdelivery.NewServerHandler(createUC, listUC, deleteUC)
-
-	app := fiber.New()
-	servers := app.Group("/api/v1/servers", middleware.Auth(jwtSvc), middleware.AdminOnly())
-	servers.Post("/", handler.Create)
-	servers.Get("/", handler.List)
-	servers.Delete("/:id", handler.Delete)
-
-	return app, repo, jwtSvc
-}
-
-func adminToken(t *testing.T, jwtSvc *jwt.Service) string {
-	t.Helper()
-	token, err := jwtSvc.Sign("admin-1", "admin", "admin")
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
-	return token
-}
-
-func userToken(t *testing.T, jwtSvc *jwt.Service) string {
-	t.Helper()
-	token, err := jwtSvc.Sign("user-1", "alice", "user")
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
-	return token
-}
-
-func TestCreateServer_Success(t *testing.T) {
-	app, _, jwtSvc := setupServerApp(t)
-
-	resp := doRequest(t, app, "POST", "/api/v1/servers/", map[string]string{
-		"hostname": "node-01",
-		"ip":       "10.0.0.1",
-	}, map[string]string{"Authorization": "Bearer " + adminToken(t, jwtSvc)})
-
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", resp.StatusCode)
-	}
-	body := parseBody(t, resp)
-	if body["id"] == nil || body["id"] == "" {
-		t.Fatal("expected id in response")
-	}
-}
-
-func TestCreateServer_DuplicateHostname(t *testing.T) {
-	app, repo, jwtSvc := setupServerApp(t)
-
-	repo.servers["existing"] = &serverdomain.Server{
-		ID: "existing", Hostname: "node-01", IP: "10.0.0.2",
-		Status: serverdomain.StatusUnknown, CreatedAt: time.Now(), UpdatedAt: time.Now(),
-	}
-
-	resp := doRequest(t, app, "POST", "/api/v1/servers/", map[string]string{
-		"hostname": "node-01",
-		"ip":       "10.0.0.99",
-	}, map[string]string{"Authorization": "Bearer " + adminToken(t, jwtSvc)})
-
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", resp.StatusCode)
-	}
-	body := parseBody(t, resp)
-	errObj, _ := body["error"].(map[string]any)
-	if errObj["code"] != "conflict" {
-		t.Fatalf("expected code=conflict, got %v", errObj["code"])
-	}
-}
-
-func TestCreateServer_DuplicateIP(t *testing.T) {
-	app, repo, jwtSvc := setupServerApp(t)
-
-	repo.servers["existing"] = &serverdomain.Server{
-		ID: "existing", Hostname: "node-existing", IP: "10.0.0.1",
-		Status: serverdomain.StatusUnknown, CreatedAt: time.Now(), UpdatedAt: time.Now(),
-	}
-
-	resp := doRequest(t, app, "POST", "/api/v1/servers/", map[string]string{
-		"hostname": "node-new",
-		"ip":       "10.0.0.1",
-	}, map[string]string{"Authorization": "Bearer " + adminToken(t, jwtSvc)})
-
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", resp.StatusCode)
-	}
-}
-
-func TestCreateServer_MissingFields(t *testing.T) {
-	app, _, jwtSvc := setupServerApp(t)
-
-	resp := doRequest(t, app, "POST", "/api/v1/servers/", map[string]string{
-		"hostname": "node-01",
-	}, map[string]string{"Authorization": "Bearer " + adminToken(t, jwtSvc)})
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
-	}
-}
-
-func TestListServers_Success(t *testing.T) {
-	app, repo, jwtSvc := setupServerApp(t)
-
-	now := time.Now()
-	repo.servers["s1"] = &serverdomain.Server{ID: "s1", Hostname: "node-01", IP: "10.0.0.1", Status: serverdomain.StatusUnknown, CreatedAt: now, UpdatedAt: now}
-	repo.servers["s2"] = &serverdomain.Server{ID: "s2", Hostname: "node-02", IP: "10.0.0.2", Status: serverdomain.StatusLive, CreatedAt: now, UpdatedAt: now}
-
-	resp := doRequest(t, app, "GET", "/api/v1/servers/", nil, map[string]string{
-		"Authorization": "Bearer " + adminToken(t, jwtSvc),
-	})
-
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	body := parseBody(t, resp)
-	if body["total"].(float64) != 2 {
-		t.Fatalf("expected total=2, got %v", body["total"])
+
+	items := parseBody(t, resp)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 server, got %d", len(items))
 	}
-	items := body["items"].([]any)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(items))
+	item := items[0].(map[string]any)
+
+	source := item["source"].(map[string]any)
+	if source["siteId"] != testSiteID || source["providerMachineId"] != "machine-srv-1" {
+		t.Errorf("unexpected source: %v", source)
+	}
+
+	provisioning, ok := item["provisioning"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a provisioning axis, got %v", item["provisioning"])
+	}
+	if provisioning["state"] != "deployed" {
+		t.Errorf("provisioning state: got %v", provisioning["state"])
+	}
+	if provisioning["observedAt"] == nil {
+		t.Error("every axis must carry observedAt so staleness is visible")
+	}
+
+	// Axes with no observation must be null, not an empty object or a default state.
+	if _, present := item["membership"]; !present {
+		t.Error("membership must be present as a key")
+	}
+	if item["membership"] != nil {
+		t.Errorf("membership must be null when never observed, got %v", item["membership"])
+	}
+	if item["health"] != nil {
+		t.Errorf("health must be null with no metrics integration, got %v", item["health"])
 	}
 }
 
-func TestListServers_Pagination(t *testing.T) {
-	app, repo, jwtSvc := setupServerApp(t)
-
-	now := time.Now()
-	for i := 0; i < 5; i++ {
-		id := "s" + string(rune('0'+i))
-		repo.servers[id] = &serverdomain.Server{
-			ID: id, Hostname: "node-0" + string(rune('0'+i)),
-			IP: "10.0.0." + string(rune('1'+i)),
-			Status: serverdomain.StatusUnknown, CreatedAt: now, UpdatedAt: now,
-		}
-	}
-
-	_ = pagination.Page{}
-	resp := doRequest(t, app, "GET", "/api/v1/servers/?page=1&pageSize=2", nil, map[string]string{
-		"Authorization": "Bearer " + adminToken(t, jwtSvc),
+func TestListServers_NullableHostnameAndAddresses(t *testing.T) {
+	f := setupPlatform(t)
+	// An uncommissioned machine: no hostname and no address is a normal state.
+	f.seedServer("srv-new", "", "", func(s *serverdomain.Server) {
+		s.Observed.FQDN = ""
+		s.Provisioning.State = "new"
 	})
 
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
+	item := parseBody(t, resp)["items"].([]any)[0].(map[string]any)
+
+	if item["hostname"] != nil {
+		t.Errorf("hostname must be null when the provisioner has none, got %v", item["hostname"])
+	}
+	addresses, ok := item["addresses"].([]any)
+	if !ok {
+		t.Fatalf("addresses must be an array, got %v", item["addresses"])
+	}
+	if len(addresses) != 0 {
+		t.Errorf("expected no addresses, got %v", addresses)
+	}
+}
+
+// Two sites may legitimately hold the same hostname and address. The old model made
+// this unrepresentable, so it is worth asserting.
+func TestListServers_DuplicateHostnameAcrossSitesIsAllowed(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-east", "gpu-node-01", "10.0.1.10", nil)
+	f.seedServer("srv-west", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
+		s.Source.SiteID = "site-2"
+		s.Source.IntegrationID = "integration-2"
+	})
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
+	if total := parseBody(t, resp)["total"].(float64); total != 2 {
+		t.Fatalf("expected both servers, got total=%v", total)
+	}
+}
+
+func TestListServers_ExcludesAbsentUnlessAsked(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-present", "gpu-node-01", "10.0.1.10", nil)
+	f.seedServer("srv-gone", "gpu-node-02", "10.0.1.11", func(s *serverdomain.Server) {
+		s.Absent = true
+	})
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
+	if total := parseBody(t, resp)["total"].(float64); total != 1 {
+		t.Fatalf("absent servers must be excluded by default, got total=%v", total)
+	}
+
+	resp = doRequest(t, f.app, "GET", "/api/v1/servers/?includeAbsent=true", nil, f.adminAuth(t))
+	if total := parseBody(t, resp)["total"].(float64); total != 2 {
+		t.Fatalf("absent servers must remain findable, got total=%v", total)
+	}
+}
+
+func TestListServers_FiltersAndPagination(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.seedServer("srv-2", "gpu-node-02", "10.0.1.11", func(s *serverdomain.Server) {
+		s.Provisioning.State = "ready"
+	})
+	f.seedServer("srv-3", "storage-01", "10.0.1.12", nil)
+	auth := f.adminAuth(t)
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/?provisioningState=ready", nil, auth)
+	if total := parseBody(t, resp)["total"].(float64); total != 1 {
+		t.Errorf("provisioningState filter: got total=%v", total)
+	}
+
+	resp = doRequest(t, f.app, "GET", "/api/v1/servers/?keyword=GPU-NODE", nil, auth)
+	if total := parseBody(t, resp)["total"].(float64); total != 2 {
+		t.Errorf("keyword filter should be case-insensitive: got total=%v", total)
+	}
+
+	resp = doRequest(t, f.app, "GET", "/api/v1/servers/?page=2&pageSize=2", nil, auth)
+	body := parseBody(t, resp)
+	if body["total"].(float64) != 3 {
+		t.Errorf("total must count all matches, got %v", body["total"])
+	}
+	if items := body["items"].([]any); len(items) != 1 {
+		t.Errorf("expected 1 item on the last page, got %d", len(items))
+	}
+}
+
+func TestGetServer_ResolvesHealthAxis(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.health.health["srv-1"] = &serverdomain.HealthStatus{
+		State: serverdomain.HealthUp, ObservedAt: time.Now().UTC(),
+	}
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-1", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	body := parseBody(t, resp)
-	items := body["items"].([]any)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items (pageSize=2), got %d", len(items))
+
+	health, ok := parseBody(t, resp)["health"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a health axis, got %v", parseBody(t, resp)["health"])
 	}
-	if body["total"].(float64) != 5 {
-		t.Fatalf("expected total=5, got %v", body["total"])
+	if health["state"] != "up" {
+		t.Errorf("health state: got %v", health["state"])
 	}
 }
 
-func TestDeleteServer_Success(t *testing.T) {
-	app, repo, jwtSvc := setupServerApp(t)
+// An unreachable metrics store must leave health unknown, not make the request fail and
+// not make the server look down.
+func TestGetServer_MetricsFailureLeavesHealthNull(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.health.err = errTestMetricsDown
 
-	now := time.Now()
-	repo.servers["srv-del"] = &serverdomain.Server{
-		ID: "srv-del", Hostname: "to-delete", IP: "10.0.9.9",
-		Status: serverdomain.StatusUnknown, CreatedAt: now, UpdatedAt: now,
-	}
-
-	resp := doRequest(t, app, "DELETE", "/api/v1/servers/srv-del", nil, map[string]string{
-		"Authorization": "Bearer " + adminToken(t, jwtSvc),
-	})
-
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-1", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+		t.Fatalf("a metrics outage must not fail the request, got %d", resp.StatusCode)
 	}
-	body := parseBody(t, resp)
-	if body["success"] != true {
-		t.Fatalf("expected success=true, got %v", body["success"])
-	}
-	if _, exists := repo.servers["srv-del"]; exists {
-		t.Fatal("server should have been deleted")
+	if parseBody(t, resp)["health"] != nil {
+		t.Error("health must be null rather than reporting a state nobody observed")
 	}
 }
 
-func TestDeleteServer_NotFound(t *testing.T) {
-	app, _, jwtSvc := setupServerApp(t)
+func TestGetServer_NotFound(t *testing.T) {
+	f := setupPlatform(t)
 
-	resp := doRequest(t, app, "DELETE", "/api/v1/servers/nonexistent", nil, map[string]string{
-		"Authorization": "Bearer " + adminToken(t, jwtSvc),
-	})
-
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/nope", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if code := errorCode(t, resp); code != "not_found" {
+		t.Fatalf("expected not_found, got %s", code)
+	}
+}
+
+// Servers are produced by reconciliation, so there is no creation endpoint. Asserting
+// it stays absent keeps a second, weaker creation path from reappearing.
+func TestServers_HaveNoCreateOrDeleteEndpoint(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	auth := f.adminAuth(t)
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/servers/", map[string]string{
+		"hostname": "manual-node", "ip": "10.0.9.9",
+	}, auth)
+	if resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected no create route, got %d", resp.StatusCode)
+	}
+
+	resp = doRequest(t, f.app, "DELETE", "/api/v1/servers/srv-1", nil, auth)
+	if resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected no delete route, got %d", resp.StatusCode)
 	}
 }
 
 func TestServerRoutes_NonAdminForbidden(t *testing.T) {
-	app, _, jwtSvc := setupServerApp(t)
+	f := setupPlatform(t)
 
-	resp := doRequest(t, app, "GET", "/api/v1/servers/", nil, map[string]string{
-		"Authorization": "Bearer " + userToken(t, jwtSvc),
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, map[string]string{
+		"Authorization": "Bearer " + userToken(t, f.jwtSvc),
 	})
-
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
 }
 
 func TestServerRoutes_NoToken(t *testing.T) {
-	app, _, _ := setupServerApp(t)
+	f := setupPlatform(t)
 
-	resp := doRequest(t, app, "GET", "/api/v1/servers/", nil, nil)
-
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}

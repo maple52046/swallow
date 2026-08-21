@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -20,22 +20,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&rootConfigFile, "config", "c", "", "path to YAML config file")
 
 	rootCmd.AddCommand(apiCmd)
-	rootCmd.AddCommand(agentCmd)
 }
 
 // logStartup prints non-sensitive effective config values at startup so that the
 // active configuration is observable without exposing credentials in logs.
-func logStartup(mode string, configFile, addr, mongoURI, mongoDB, controllerAddr string) {
-	dbHost := redactURI(mongoURI)
-
-	switch mode {
-	case "api":
-		log.Printf("[swallow] mode=api addr=%s mongo-host=%s mongo-db=%s config-file=%q",
-			addr, dbHost, mongoDB, configFile)
-	case "agent":
-		log.Printf("[swallow] mode=agent controller=%s config-file=%q",
-			controllerAddr, configFile)
-	}
+func logStartup(configFile, addr, mongoURI, mongoDB string) {
+	log.Printf("[swallow] addr=%s mongo-host=%s mongo-db=%s config-file=%q",
+		addr, redactURI(mongoURI), mongoDB, configFile)
 }
 
 // redactURI returns only the host portion of a MongoDB URI to avoid logging credentials.
@@ -55,14 +46,11 @@ func redactURI(uri string) string {
 		}
 	}
 	// no credentials in URI; return host portion only
-	trimmed := uri
-	if len(trimmed) >= 10 && trimmed[:10] == "mongodb://" {
-		trimmed = trimmed[10:]
-	}
+	trimmed := strings.TrimPrefix(uri, "mongodb://")
 	for j, c := range trimmed {
 		if c == '/' || c == '?' {
 			return trimmed[:j]
 		}
 	}
-	return fmt.Sprintf("%s", trimmed)
+	return trimmed
 }

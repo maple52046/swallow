@@ -2,51 +2,34 @@ package config
 
 import "fmt"
 
-// Validate checks that all required fields for the given role are present
-// in the final merged config. Validation must run after all sources have
-// been merged so that it reflects the true effective configuration.
-func Validate(cfg *Config, role string) error {
-	switch role {
-	case "api":
-		return validateAPI(cfg.API)
-	case "agent":
-		return validateAgent(cfg.Agent)
-	default:
-		return fmt.Errorf("unknown role %q; must be \"api\" or \"agent\"", role)
-	}
-}
-
-func validateAPI(cfg APIConfig) error {
-	if cfg.Addr == "" {
+// Validate checks that all required fields are present in the final merged config.
+// Validation must run after all sources have been merged so that it reflects the
+// true effective configuration.
+func Validate(cfg *Config) error {
+	if cfg.API.Addr == "" {
 		return fmt.Errorf("api.addr is required")
 	}
-	if cfg.MongoURI == "" {
+	if cfg.API.MongoURI == "" {
 		return fmt.Errorf("api.mongoUri is required")
 	}
-	if cfg.MongoDB == "" {
+	if cfg.API.MongoDB == "" {
 		return fmt.Errorf("api.mongoDb is required")
 	}
-	if cfg.JWTSecret == "" {
+	if cfg.API.JWTSecret == "" {
 		return fmt.Errorf("api.jwtSecret is required")
 	}
-	if cfg.JWTExpiryHours <= 0 {
+	if cfg.API.JWTExpiryHours <= 0 {
 		return fmt.Errorf("api.jwtExpiryHours must be > 0")
 	}
-	return nil
-}
-
-func validateAgent(cfg AgentConfig) error {
-	if cfg.ServerAddress == "" {
-		return fmt.Errorf("agent.serverAddress is required")
+	if cfg.API.CredentialKey == "" {
+		return fmt.Errorf(
+			"api.credentialKey is required; generate one with: openssl rand -base64 32")
 	}
-	if cfg.HeartbeatInterval <= 0 {
-		return fmt.Errorf("agent.heartbeatInterval must be > 0")
+	if cfg.API.ReconcileInterval <= 0 {
+		return fmt.Errorf("api.reconcileInterval must be > 0")
 	}
-	if cfg.StateFile == "" {
-		return fmt.Errorf("agent.stateFile is required")
-	}
-	if cfg.AuthToken == "" {
-		return fmt.Errorf("agent.authToken is required")
+	if cfg.API.OperationPollInterval <= 0 {
+		return fmt.Errorf("api.operationPollInterval must be > 0")
 	}
 	return nil
 }
