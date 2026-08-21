@@ -2,8 +2,11 @@ import type { Paginated, ServerRepository } from '@/application/ports/ServerRepo
 import type {
   DeployServerInput,
   ListServersFilters,
+  PowerStateResult,
+  ProvisionerDetail,
   ProvisioningActionResult,
   Server,
+  ServerAction,
 } from '@/domain/server/types'
 import { ApiRequestError, apiRequest } from './client'
 
@@ -53,6 +56,25 @@ export class ApiServerRepository implements ServerRepository {
     return apiRequest<ProvisioningActionResult>(
       `/api/v1/servers/${encodeURIComponent(id)}/release`,
       { method: 'POST' },
+    )
+  }
+
+  async getProvisionerDetail(id: string): Promise<ProvisionerDetail> {
+    return apiRequest<ProvisionerDetail>(
+      `/api/v1/servers/${encodeURIComponent(id)}/provisioner-detail`,
+    )
+  }
+
+  async runServerAction(id: string, action: ServerAction): Promise<ProvisioningActionResult> {
+    return apiRequest<ProvisioningActionResult>(
+      `/api/v1/servers/${encodeURIComponent(id)}/${action}`,
+      { method: 'POST' },
+    )
+  }
+
+  async queryPowerState(id: string): Promise<PowerStateResult> {
+    return apiRequest<PowerStateResult>(
+      `/api/v1/servers/${encodeURIComponent(id)}/power-state`,
     )
   }
 }

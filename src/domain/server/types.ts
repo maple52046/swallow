@@ -62,6 +62,11 @@ export interface ProvisioningAxis {
   ephemeral: boolean
   /** The provisioner's own kernel label, e.g. "ga-24.04". Display only. */
   hweKernel: string
+  /** The provisioner is refusing state-changing actions; explains a rejected deploy. */
+  locked: boolean
+  /** The provisioner's labels for the last inspection and test run. Display only. */
+  commissioningStatus: string
+  testingStatus: string
   integrationId: string
   observedAt: string
 }
@@ -94,13 +99,22 @@ export interface Server {
   addresses: string[]
   architecture: string
   cpuCores: number
+  /** The provisioner's CPU model string, e.g. "Intel(R) Xeon(R) Platinum 8480+". */
+  cpuModel: string
   /** Mebibytes, matching what the provisioner's own UI shows. */
   memoryMiB: number
   storageGB: number
   gpus: ServerGPU[]
+  /** Hardware make as the provisioner commissioned it, for grouping the fleet. */
+  systemVendor: string
+  systemProduct: string
   /** The provisioner's own grouping labels. Not a gdcm placement hierarchy. */
   providerZone: string
   providerResourcePool: string
+  /** The VM host a virtual machine belongs to, empty for bare metal. */
+  providerPod: string
+  /** The provisioner's own labels for the machine, e.g. "gpu". */
+  tags: string[]
 
   hardware: ServerHardware
 
@@ -160,7 +174,78 @@ export interface ProvisioningActionResult {
   distroSeries: string
   ephemeral: boolean
   hweKernel: string
+  locked: boolean
+  commissioningStatus: string
+  testingStatus: string
   observedAt: string
+}
+
+/**
+ * The provisioner actions beyond deploy and release. Each maps to a POST under the
+ * server, and each is refused by a provisioner that does not offer it — so a client
+ * should present only the ones its capabilities allow.
+ */
+export type ServerAction =
+  | 'power-on'
+  | 'power-off'
+  | 'commission'
+  | 'test'
+  | 'abort'
+  | 'override-failed-testing'
+  | 'lock'
+  | 'unlock'
+  | 'mark-broken'
+  | 'mark-fixed'
+  | 'rescue-mode'
+  | 'exit-rescue-mode'
+
+/**
+ * What a provisioner offers. A client shows exactly the actions that exist rather than
+ * buttons that always fail, and the backend refuses any action whose flag is false.
+ */
+export interface ProvisionerCapabilities {
+  ephemeralDeploy: boolean
+  power: boolean
+  hardwareValidation: boolean
+  operatorState: boolean
+  machineDetail: boolean
+  hardwareInventory: boolean
+}
+
+/** A labelled value in a provisioner detail section. */
+export interface DetailField {
+  label: string
+  value: string
+}
+
+/** A titled group of provisioner detail fields. */
+export interface DetailSection {
+  title: string
+  fields: DetailField[]
+}
+
+/** Titled tabular provisioner detail, e.g. disks or NICs. Columns are provider-defined. */
+export interface DetailTable {
+  title: string
+  columns: string[]
+  rows: string[][]
+}
+
+/**
+ * The live single-machine view proxied from the provisioner, plus the capabilities that
+ * decide which actions to show. Read on demand rather than mirrored: it is only ever
+ * looked at one machine at a time.
+ */
+export interface ProvisionerDetail {
+  capabilities: ProvisionerCapabilities
+  sections: DetailSection[]
+  tables: DetailTable[]
+}
+
+/** The live power state returned by a query. */
+export interface PowerStateResult {
+  serverId: string
+  powerState: string
 }
 
 /** Display label for a server. There is no gdcm-owned name. */

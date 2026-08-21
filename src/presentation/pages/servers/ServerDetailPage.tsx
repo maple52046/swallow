@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Divider,
   Grid,
   Group,
   Select,
@@ -26,7 +27,7 @@ import {
   MembershipBadge,
   ProvisioningBadge,
 } from '@/presentation/components/AxisBadge'
-import type { Server } from '@/domain/server/types'
+import type { ProvisionerDetail, Server, ServerAction } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
 import type { OSImage } from '@/domain/site/types'
 
@@ -58,6 +59,14 @@ export function ServerDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionNote, setActionNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // Provisioner-action feedback is kept separate from the deploy/release feedback so it
+  // can render next to the action buttons that produced it, rather than in the OS card.
+  const [actionsError, setActionsError] = useState<string | null>(null)
+  const [actionsNote, setActionsNote] = useState<string | null>(null)
+
+  const [detail, setDetail] = useState<ProvisionerDetail | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     if (!id) return
@@ -93,6 +102,32 @@ export function ServerDetailPage() {
     }
   }, [sites, server])
 
+  // The provisioner detail is read live, one machine at a time, so it is fetched
+  // separately from the mirrored projection and refetched with `detailNonce` after an
+  // action changes the machine.
+  const [detailNonce, setDetailNonce] = useState(0)
+  useEffect(() => {
+    if (!server) return
+    let cancelled = false
+
+    servers
+      .getProvisionerDetail(server.id)
+      .then((result) => {
+        if (cancelled) return
+        setDetail(result)
+        setDetailError(null)
+      })
+      .catch((err: Error) => {
+        if (cancelled) return
+        setDetail(null)
+        setDetailError(err.message)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [servers, server, detailNonce])
+
   const runAction = async (action: 'deploy' | 'release') => {
     if (!server) return
     setBusy(true)
@@ -119,6 +154,39 @@ export function ServerDetailPage() {
       setActionError((err as Error).message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  const runProvisionerAction = async (action: ServerAction) => {
+    if (!server) return
+    setBusy(true)
+    setActionsError(null)
+    setActionsNote(null)
+
+    try {
+      const result = await servers.runServerAction(server.id, action)
+      setActionsNote(
+        `Accepted "${action}". The provisioner reports "${result.state}"; the reconciler will follow it from here.`,
+      )
+      load()
+      // Re-read the live detail, since the action changed the machine.
+      setDetailNonce((n) => n + 1)
+    } catch (err) {
+      setActionsError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const queryPower = async () => {
+    if (!server) return
+    setActionsError(null)
+    setActionsNote(null)
+    try {
+      const result = await servers.queryPowerState(server.id)
+      setActionsNote(`Live power state: ${result.powerState}.`)
+    } catch (err) {
+      setActionsError((err as Error).message)
     }
   }
 
@@ -194,6 +262,9 @@ export function ServerDetailPage() {
                   }
                 />
                 <Field label="Kernel" value={server.provisioning.hweKernel || null} />
+                <Field label="Commissioning" value={server.provisioning.commissioningStatus || null} />
+                <Field label="Testing" value={server.provisioning.testingStatus || null} />
+                {server.provisioning.locked && <Field label="Locked" value="yes" />}
               </SimpleGrid>
             )}
           </Card>
@@ -211,6 +282,7 @@ export function ServerDetailPage() {
               />
               <Field label="Architecture" value={server.architecture || null} />
               <Field label="CPU cores" value={server.cpuCores ? String(server.cpuCores) : null} />
+              <Field label="CPU model" value={server.cpuModel || null} />
               <Field
                 label="Memory"
                 value={server.memoryMiB ? `${Math.round(server.memoryMiB / 1024)} GiB` : null}
@@ -219,8 +291,15 @@ export function ServerDetailPage() {
                 label="Storage"
                 value={server.storageGB ? `${Math.round(server.storageGB)} GB` : null}
               />
+              <Field label="System vendor" value={server.systemVendor || null} />
+              <Field label="System product" value={server.systemProduct || null} />
               <Field label="Provisioner zone" value={server.providerZone || null} />
               <Field label="Resource pool" value={server.providerResourcePool || null} />
+              <Field label="VM host" value={server.providerPod || null} />
+              <Field
+                label="Tags"
+                value={server.tags.length > 0 ? server.tags.join(', ') : null}
+              />
             </SimpleGrid>
           </Card>
 
@@ -269,6 +348,69 @@ export function ServerDetailPage() {
               />
               <Field label="Last seen" value={server.lastSeenAt} />
             </SimpleGrid>
+          </Card>
+
+          <Card withBorder mt="md">
+            <Title order={5} mb="sm">
+              Provisioner detail
+            </Title>
+            <Text size="xs" c="dimmed" mb="sm">
+              Read live from the provisioner for this machine. Not stored by gdcm, so it
+              is always current and reflects the provisioner exactly.
+            </Text>
+
+            {detailError && (
+              <Alert icon={<IconAlertCircle size={16} />} color="gray">
+                Could not read live detail from the provisioner: {detailError}
+              </Alert>
+            )}
+
+            {!detailError && !detail && <Text size="sm" c="dimmed">Loading…</Text>}
+
+            {!detailError && detail && detail.sections.length === 0 && detail.tables.length === 0 && (
+              <Text size="sm" c="dimmed">
+                This provisioner offers no additional detail.
+              </Text>
+            )}
+
+            {detail?.sections.map((section) => (
+              <div key={section.title} style={{ marginBottom: 'var(--mantine-spacing-md)' }}>
+                <Text size="sm" fw={600} mb={4}>
+                  {section.title}
+                </Text>
+                <SimpleGrid cols={2} spacing="sm">
+                  {section.fields.map((field) => (
+                    <Field key={field.label} label={field.label} value={field.value || null} />
+                  ))}
+                </SimpleGrid>
+              </div>
+            ))}
+
+            {detail?.tables.map((table) => (
+              <div key={table.title} style={{ marginBottom: 'var(--mantine-spacing-md)' }}>
+                <Text size="sm" fw={600} mb={4}>
+                  {table.title}
+                </Text>
+                <Table>
+                  <Table.Thead>
+                    <Table.Tr>
+                      {table.columns.map((column) => (
+                        <Table.Th key={column}>{column}</Table.Th>
+                      ))}
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {table.rows.map((row, rowIndex) => (
+                      <Table.Tr key={`${table.title}-${rowIndex}`}>
+                        {row.map((cell, cellIndex) => (
+                          <Table.Td key={`${table.title}-${rowIndex}-${cellIndex}`}>{cell}</Table.Td>
+                        ))}
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </div>
+            ))}
           </Card>
         </Grid.Col>
 
@@ -364,6 +506,109 @@ export function ServerDetailPage() {
               )}
             </Stack>
           </Card>
+
+          {detail?.capabilities &&
+            (detail.capabilities.power ||
+              detail.capabilities.hardwareValidation ||
+              detail.capabilities.operatorState) && (
+              <Card withBorder mt="md">
+                <Title order={5} mb="sm">
+                  Provisioner actions
+                </Title>
+                <Text size="xs" c="dimmed" mb="sm">
+                  Only the actions this provisioner supports are shown. Each is carried out
+                  by the provisioner; gdcm mirrors the result.
+                </Text>
+
+                {actionsError && (
+                  <Alert icon={<IconAlertCircle size={16} />} color="red" mb="sm">
+                    {actionsError}
+                  </Alert>
+                )}
+                {actionsNote && (
+                  <Alert color="blue" mb="sm">
+                    {actionsNote}
+                  </Alert>
+                )}
+
+                <Stack gap="sm">
+                  {detail.capabilities.power && (
+                    <div>
+                      <Text size="xs" c="dimmed" mb={4}>
+                        Power
+                      </Text>
+                      <Group gap="xs">
+                        <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('power-on')}>
+                          Power on
+                        </Button>
+                        <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('power-off')}>
+                          Power off
+                        </Button>
+                        <Button size="xs" variant="subtle" onClick={queryPower}>
+                          Query state
+                        </Button>
+                      </Group>
+                    </div>
+                  )}
+
+                  {detail.capabilities.hardwareValidation && (
+                    <>
+                      <Divider />
+                      <div>
+                        <Text size="xs" c="dimmed" mb={4}>
+                          Hardware validation
+                        </Text>
+                        <Group gap="xs">
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('commission')}>
+                            Commission
+                          </Button>
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('test')}>
+                            Test
+                          </Button>
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('abort')}>
+                            Abort
+                          </Button>
+                          <Button size="xs" variant="subtle" loading={busy} onClick={() => runProvisionerAction('override-failed-testing')}>
+                            Override failed testing
+                          </Button>
+                        </Group>
+                      </div>
+                    </>
+                  )}
+
+                  {detail.capabilities.operatorState && (
+                    <>
+                      <Divider />
+                      <div>
+                        <Text size="xs" c="dimmed" mb={4}>
+                          Operator state
+                        </Text>
+                        <Group gap="xs">
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('lock')}>
+                            Lock
+                          </Button>
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('unlock')}>
+                            Unlock
+                          </Button>
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('mark-broken')}>
+                            Mark broken
+                          </Button>
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('mark-fixed')}>
+                            Mark fixed
+                          </Button>
+                          <Button size="xs" variant="default" loading={busy} onClick={() => runProvisionerAction('rescue-mode')}>
+                            Rescue mode
+                          </Button>
+                          <Button size="xs" variant="subtle" loading={busy} onClick={() => runProvisionerAction('exit-rescue-mode')}>
+                            Exit rescue
+                          </Button>
+                        </Group>
+                      </div>
+                    </>
+                  )}
+                </Stack>
+              </Card>
+            )}
         </Grid.Col>
       </Grid>
     </>
