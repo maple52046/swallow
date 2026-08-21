@@ -51,9 +51,17 @@
 
 ## 既有 ADR
 
-目前尚無 ADR。
+| 文件 | 決定了什麼 |
+| --- | --- |
+| [`001-system-ownership-boundaries.md`](001-system-ownership-boundaries.md) | 哪個系統擁有哪些事實，以及 gdcm 因此不得儲存或重建什麼 |
+| [`002-server-identity.md`](002-server-identity.md) | server 如何跨站點與重裝維持身分，以及狀態為何是三個獨立軸而非單一值 |
+| [`003-metrics-label-contract.md`](003-metrics-label-contract.md) | monitoring 拓撲，以及把 metrics 接回 server 的標籤集 |
+| [`004-automation-via-awx.md`](004-automation-via-awx.md) | 長時間執行的 operation 由誰擁有、如何指定目標與觀察 |
 
-平台已有若干值得記錄的決策（例如 submodule + root symlink 的 component 管理方式、
-`api-server` 與 `agent` 共用同一 source project、API contract 由 provider component 擁有），
-但這些理由目前只存在於結構契約與實作中，尚未經確認。新增這些 ADR 時，請與知道當時脈絡的人
-確認，或明確標注「（inferred）」。
+這四筆沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
+Consequences / Rejected alternatives，沒有 Status 與 Date）。它們與本文件的格式對齊
+尚未處理。
+
+平台另有若干值得記錄的決策（例如 submodule + root symlink 的 component 管理方式、
+API contract 由 provider component 擁有），但這些理由目前只存在於結構契約與實作中，
+尚未經確認。新增這些 ADR 時，請與知道當時脈絡的人確認，或明確標注「（inferred）」。

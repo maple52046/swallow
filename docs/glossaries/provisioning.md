@@ -1,0 +1,174 @@
+# OS Provisioning
+
+## Definition
+
+**OS provisioning** is installing an operating system onto bare-metal hardware. gdcm does
+not do this. It delegates to a system that already owns hardware discovery, PXE boot, and
+OS installation, and presents that system through one interface.
+
+## OS Provisioning Provider
+
+An external system that enumerates provisionable hardware and installs operating systems
+onto it. Ubuntu MAAS is the first and currently only provider.
+
+A provider is registered as an [Integration](site.md#integration) of kind `provisioner`,
+scoped to one [Site](site.md). A fleet has **many** provider instances — typically one
+MAAS per site — so provider connection details are data, not configuration.
+
+Each provider is identified by its `integrationId` and a stable `providerKind` string
+(`maas`). `providerKind` selects the adapter; `integrationId` selects the instance.
+Both are persisted in every [Server](server.md) source, so neither may be reissued to mean
+something else.
+
+## Machine
+
+An entry in a provider's inventory.
+
+**A machine is not a [Server](server.md).** The distinction survives this redesign, but
+its meaning has narrowed: a machine is now the *provider's view*, and a server is *gdcm's
+projection of it*. They are one-to-one while both exist.
+
+| | `Machine` | `Server` |
+|---|---|---|
+| Owned by | The provider | gdcm |
+| Identifier | Provider-side (`system_id`) | `serverId`, gdcm-issued |
+| Lifetime | Until re-enrolled or removed from the provider | The physical machine's whole life in the platform |
+| Status describes | Provisioning readiness | Three separate axes |
+
+The one-to-one link can be re-established: if a machine is re-enrolled and gets a new
+provider ID, the reconciler recognises the hardware and re-points the existing server at
+it rather than creating a second one. That is the reason `Machine` remains a distinct
+concept instead of collapsing into `Server` — the provider's identifier is not stable
+enough to be gdcm's.
+
+Machine data reaches gdcm only through the reconciler. Nothing reads a provider inline to
+serve a request.
+
+## MachineStatus
+
+The normalized provisioning lifecycle state, and the value of a server's `provisioning`
+axis.
+
+Values: `new | commissioning | ready | allocated | deploying | deployed | releasing | testing | rescue | broken | failed | retired | unknown`
+
+| Value | Meaning |
+|-------|---------|
+| `new` | Discovered but not yet ready to deploy |
+| `commissioning` | The provider is inspecting the hardware |
+| `ready` | Can accept a deployment |
+| `allocated` | Reserved for a deployment that has not started |
+| `deploying` | An OS deployment is in progress |
+| `deployed` | An OS is installed and running |
+| `releasing` | Being returned to the provider's available pool |
+| `testing` | The provider is running hardware tests |
+| `rescue` | In a provider rescue mode |
+| `broken` | The provider has marked it unusable |
+| `failed` | The last lifecycle operation failed |
+| `retired` | Withdrawn from service |
+| `unknown` | The provider reported a state this version does not recognise |
+
+The set is deliberately **coarse**: it carries only the distinctions gdcm acts on. A
+provider's richer vocabulary is collapsed into these values, with the original label kept
+alongside as `providerStatus` for display. When a provider gains a new state,
+`providerStatus` widens and `MachineStatus` does not.
+
+`MachineStatus` is not `ServerStatus` — there is no longer any such thing. It is one of
+three axes, and it answers only "can this be deployed". See
+[Server](server.md#the-three-status-axes).
+
+## OS Image
+
+An operating system a provider can currently deploy.
+
+- `id` — the value passed back when requesting a deployment (e.g. `ubuntu/jammy`)
+- `name` — the label the provider presents to operators
+- `osSystem`, `release`, `architecture`
+
+An OS image carries **no packages and no scripts**. Post-install configuration is an
+[Operation](../decisions/004-automation-via-awx.md) executed by AWX from a playbook in
+git. The earlier `ProvisioningProfile` concept — an image plus packages plus scripts,
+stored in gdcm — is retired: it made gdcm an owner of automation content, which
+[decision 001](../decisions/001-system-ownership-boundaries.md) forbids.
+
+## Deployment
+
+Requesting that a provider install an operating system onto a machine.
+
+Deployment is **asynchronous**. A request returns when the provider accepts it, not when
+the OS is installed. Progress is observed by the reconciler updating the server's
+`provisioning` axis through `deploying` to `deployed` or `failed`.
+
+There is no gdcm-side job record for a deployment: the provider owns the work, and the
+axis is the progress signal. Long-running work that gdcm *does* track is an
+[Operation](../decisions/004-automation-via-awx.md), which is a different thing — an
+operation is gdcm's intent executed by AWX, whereas a deployment is entirely the
+provider's.
+
+A machine generally must be `ready` to be deployed, and a `deployed` machine must be
+released first.
+
+Installing an OS is only the first half of making a GPU host useful. Drivers, fabric
+manager, InfiniBand stack, and kernel tuning are operations that follow, subject to the
+cluster's `gpuStackOwner` policy
+([decision 003](../decisions/003-metrics-label-contract.md#the-gpustackowner-policy)).
+
+### Ephemeral deployment
+
+A deployment can be **ephemeral**: the OS runs from memory and the machine's disks are
+left untouched, so the whole root filesystem is lost on reboot.
+
+gdcm treats ephemerality as two separate things, and both matter:
+
+- **An intent**, on the deploy request. A provisioner that cannot do it must refuse the
+  request rather than deploy normally. This is the one deploy option where being ignored
+  produces the *opposite* of the instruction: the operator asked for a machine that keeps
+  nothing, and a disk installation keeps everything.
+- **A fact**, on the `provisioning` axis, read back from the provisioner on every pass.
+  It is not a memory of what was requested, because a machine can be redeployed the other
+  way round without gdcm being involved.
+
+The fact has to be visible wherever provisioning state is shown. An ephemeral machine and
+a disk-installed one are identical in state, OS, and release, and the difference only
+becomes apparent when something is lost.
+
+It also changes what an operation means. Anything an operation configures on an ephemeral
+machine — a driver, a package, a tuned kernel parameter — reports success and then
+silently un-happens at the next boot. gdcm records the ephemerality but does not yet
+refuse or warn about operations targeting such a machine; see
+[decision 004](../decisions/004-automation-via-awx.md).
+
+Only options meaningful to any provisioner belong on a deploy request. A provisioner's
+own switches stay out: mirroring one product's parameter list into a provider-neutral
+port would leave every other adapter implementing no-ops.
+
+## Release
+
+Returning a machine to the provider's available pool, making it `ready` again.
+
+Release acts on the provider only. It does not remove the corresponding server: the
+physical machine still exists and gdcm still manages it. Release changes the
+`provisioning` axis, nothing else.
+
+## Retired Concepts
+
+Named here because they appear in older documents and in the frontend:
+
+| Concept | Why it is gone |
+|---------|----------------|
+| `ProvisioningProfile` | Automation content in gdcm. Belongs in a playbook in git |
+| `ProvisioningJob` | Execution state in gdcm. Deployments are tracked by the provisioning axis; everything else is an Operation |
+| Machine **import** | There is nothing to import. Every machine is already projected as a server by the reconciler. What import meant is now tenant allocation |
+| `provisioningSource` on a server | Replaced by the server's `source`, which is now identity rather than provenance |
+
+## Out of Scope
+
+- How a provider discovers hardware, boots it, or installs an OS.
+- Post-install configuration, which is an Operation.
+- Network, DHCP, and DNS management, which the provider owns.
+
+## Related Concepts
+
+- [Server](server.md) — the projection of a machine.
+- [Site and Integration](site.md) — how a provider instance is registered.
+- [decision 001](../decisions/001-system-ownership-boundaries.md) — the ownership rules
+  this document follows.
