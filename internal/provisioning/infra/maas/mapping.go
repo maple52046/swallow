@@ -26,6 +26,11 @@ type machineJSON struct {
 	TagNames     []string   `json:"tag_names"`
 	Zone         *namedJSON `json:"zone"`
 	Pool         *namedJSON `json:"pool"`
+	Pod          *namedJSON `json:"pod"`
+	Locked       bool       `json:"locked"`
+
+	CommissioningStatusName string `json:"commissioning_status_name"`
+	TestingStatusName       string `json:"testing_status_name"`
 
 	// EphemeralDeploy is a pointer so that "MAAS did not report this" stays
 	// distinguishable from "MAAS reported false". The difference matters when
@@ -48,8 +53,21 @@ type namedJSON struct {
 	Name string `json:"name"`
 }
 
+// hardwareInfoJSON is MAAS's DMI-derived hardware description. Every field is a plain
+// string that may be a placeholder like "Unknown"; callers decide what to keep.
 type hardwareInfoJSON struct {
-	SystemSerial string `json:"system_serial"`
+	SystemVendor  string `json:"system_vendor"`
+	SystemProduct string `json:"system_product"`
+	SystemSerial  string `json:"system_serial"`
+	CPUModel      string `json:"cpu_model"`
+
+	MainboardVendor          string `json:"mainboard_vendor"`
+	MainboardProduct         string `json:"mainboard_product"`
+	MainboardFirmwareVendor  string `json:"mainboard_firmware_vendor"`
+	MainboardFirmwareVersion string `json:"mainboard_firmware_version"`
+	MainboardFirmwareDate    string `json:"mainboard_firmware_date"`
+	ChassisVendor            string `json:"chassis_vendor"`
+	ChassisType              string `json:"chassis_type"`
 }
 
 type interfaceJSON struct {
@@ -126,21 +144,24 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 	}
 
 	machine := &provisioningdomain.Machine{
-		ID:             m.SystemID,
-		Hostname:       m.Hostname,
-		FQDN:           m.FQDN,
-		Status:         status,
-		ProviderStatus: m.StatusName,
-		PowerState:     powerState,
-		Architecture:   m.Architecture,
-		CPUCores:       m.CPUCount,
-		MemoryMiB:      m.Memory,
-		StorageGB:      m.Storage / bytesPerMBToGB,
-		OSSystem:       m.OSystem,
-		DistroSeries:   m.DistroSeries,
-		HWEKernel:      m.HWEKernel,
-		IPAddresses:    m.IPAddresses,
-		Tags:           m.TagNames,
+		ID:                  m.SystemID,
+		Hostname:            m.Hostname,
+		FQDN:                m.FQDN,
+		Status:              status,
+		ProviderStatus:      m.StatusName,
+		PowerState:          powerState,
+		Architecture:        m.Architecture,
+		CPUCores:            m.CPUCount,
+		MemoryMiB:           m.Memory,
+		StorageGB:           m.Storage / bytesPerMBToGB,
+		OSSystem:            m.OSystem,
+		DistroSeries:        m.DistroSeries,
+		HWEKernel:           m.HWEKernel,
+		Locked:              m.Locked,
+		CommissioningStatus: m.CommissioningStatusName,
+		TestingStatus:       m.TestingStatusName,
+		IPAddresses:         m.IPAddresses,
+		Tags:                m.TagNames,
 	}
 
 	if m.EphemeralDeploy != nil {
@@ -153,10 +174,19 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 	if m.Pool != nil {
 		machine.ResourcePool = m.Pool.Name
 	}
+	if m.Pod != nil {
+		machine.Pod = m.Pod.Name
+	}
 
 	machine.SystemUUID = m.HardwareUUID
-	if m.HardwareInfo != nil {
-		machine.SerialNumber = m.HardwareInfo.SystemSerial
+	if hw := m.HardwareInfo; hw != nil {
+		machine.SerialNumber = hw.SystemSerial
+		// Placeholders like "Unknown" are dropped: MAAS reports them for every field a
+		// vendor left blank, and mirroring them as if they were data makes a fleet look
+		// as though it were all one make. See serverdomain hardware normalization.
+		machine.SystemVendor = cleanField(hw.SystemVendor)
+		machine.SystemProduct = cleanField(hw.SystemProduct)
+		machine.CPUModel = cleanField(hw.CPUModel)
 	}
 	for _, iface := range m.InterfaceSet {
 		// Skip blanks rather than carrying them: an empty identifier would match
@@ -210,6 +240,27 @@ func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImag
 	}
 
 	return images
+}
+
+// maasPlaceholders are the strings MAAS fills a DMI field with when the vendor left it
+// blank. They are not identity and not data, so they are dropped from display fields.
+var maasPlaceholders = map[string]bool{
+	"unknown":        true,
+	"":               true,
+	"not specified":  true,
+	"default string": true,
+	"none":           true,
+	"n/a":            true,
+}
+
+// cleanField blanks a MAAS placeholder so a mirrored hardware field is either real or
+// empty, never the literal "Unknown".
+func cleanField(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if maasPlaceholders[strings.ToLower(trimmed)] {
+		return ""
+	}
+	return trimmed
 }
 
 // matchesFilter applies the domain filter in gdcm, because the MAAS machines

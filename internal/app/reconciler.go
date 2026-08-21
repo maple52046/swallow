@@ -72,6 +72,48 @@ func reconcileOnce(ctx context.Context, reconcile *provisioningapp.ReconcileUseC
 	}
 }
 
+// runInventorySweep refreshes every provisioner's attached-hardware inventory (GPUs) on
+// its own slower interval.
+//
+// Separate from the reconciler because attached hardware costs a call per machine and
+// changes only at commissioning: polling it as often as lifecycle state would multiply
+// the reconciler's request count for data that is nearly static.
+func runInventorySweep(ctx context.Context, sweep *provisioningapp.InventorySweepUseCase, interval time.Duration) {
+	sweepInventoryOnce(ctx, sweep)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("inventory sweep stopped")
+			return
+		case <-ticker.C:
+			sweepInventoryOnce(ctx, sweep)
+		}
+	}
+}
+
+func sweepInventoryOnce(ctx context.Context, sweep *provisioningapp.InventorySweepUseCase) {
+	reports, err := sweep.ExecuteAll(ctx)
+	if err != nil {
+		log.Printf("inventory sweep: cannot list provisioners: %v", err)
+		return
+	}
+
+	for _, report := range reports {
+		if report.Error != nil {
+			log.Printf("inventory sweep: %s failed: %s", report.IntegrationName, *report.Error)
+			continue
+		}
+		if report.Updated > 0 || report.Skipped > 0 {
+			log.Printf("inventory sweep: %s: %d servers, %d updated, %d skipped",
+				report.IntegrationName, report.Servers, report.Updated, report.Skipped)
+		}
+	}
+}
+
 // runMembershipSync reads every registered cluster's membership on an interval.
 //
 // Separate from the provisioner reconciler because they read different systems and fail

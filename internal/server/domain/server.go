@@ -129,6 +129,16 @@ type Observed struct {
 	GPUs                 []GPU
 	ProviderZone         string
 	ProviderResourcePool string
+	// SystemVendor, SystemProduct, and CPUModel describe the physical machine as the
+	// provisioner commissioned it, so the fleet can be grouped by hardware generation.
+	SystemVendor  string
+	SystemProduct string
+	CPUModel      string
+	// ProviderPod is the VM host a virtual machine belongs to, empty for bare metal.
+	ProviderPod string
+	// Tags are the provisioner's own labels for the machine. Mirrored because a fleet
+	// is routinely filtered by them, e.g. "every machine tagged gpu".
+	Tags []string
 }
 
 // ProvisioningStatus is the axis owned by the provisioner: can this be deployed, is a
@@ -150,9 +160,18 @@ type ProvisioningStatus struct {
 	// re-deployed the other way round without gdcm being involved.
 	Ephemeral bool
 	// HWEKernel is the provisioner's own kernel label. Display only.
-	HWEKernel     string
-	IntegrationID string
-	ObservedAt    time.Time
+	HWEKernel string
+	// Locked reports that the provisioner is refusing state-changing actions on the
+	// machine, which explains why a deploy or release can be rejected in a state that
+	// would otherwise allow it.
+	Locked bool
+	// CommissioningStatus and TestingStatus are the provisioner's own labels for the
+	// last hardware inspection and test run. Display only; the normalized State above
+	// is what to branch on.
+	CommissioningStatus string
+	TestingStatus       string
+	IntegrationID       string
+	ObservedAt          time.Time
 }
 
 // MembershipStatus is the axis owned by a cluster's own API.

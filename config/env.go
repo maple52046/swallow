@@ -54,6 +54,12 @@ func applyEnv(cfg *Config) {
 		}
 	}
 
+	if v := os.Getenv("GDCM_API_INVENTORY_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.InventoryInterval = d
+		}
+	}
+
 	if v := os.Getenv("GDCM_API_OPERATION_POLL_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.OperationPollInterval = d

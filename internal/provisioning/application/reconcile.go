@@ -289,6 +289,11 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 
 	server.Source = source
 	server.Hardware = hardwareOf(machine)
+	// GPUs are carried forward, not set from the machine. They come from the inventory
+	// sweep on its own cadence, so a machine listing has none; overwriting Observed
+	// wholesale would wipe what the sweep found. The Mongo repository mirrors this by
+	// keeping the stored gpus field out of the reconcile Upsert.
+	gpus := server.Observed.GPUs
 	server.Observed = serverdomain.Observed{
 		Hostname:             machine.Hostname,
 		FQDN:                 machine.FQDN,
@@ -297,19 +302,28 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 		CPUCores:             machine.CPUCores,
 		MemoryMiB:            machine.MemoryMiB,
 		StorageGB:            machine.StorageGB,
+		GPUs:                 gpus,
 		ProviderZone:         machine.Zone,
 		ProviderResourcePool: machine.ResourcePool,
+		SystemVendor:         machine.SystemVendor,
+		SystemProduct:        machine.SystemProduct,
+		CPUModel:             machine.CPUModel,
+		ProviderPod:          machine.Pod,
+		Tags:                 machine.Tags,
 	}
 	server.Provisioning = &serverdomain.ProvisioningStatus{
-		State:         string(machine.Status),
-		ProviderState: machine.ProviderStatus,
-		PowerState:    string(machine.PowerState),
-		OSSystem:      machine.OSSystem,
-		DistroSeries:  machine.DistroSeries,
-		Ephemeral:     machine.Ephemeral,
-		HWEKernel:     machine.HWEKernel,
-		IntegrationID: integrationID,
-		ObservedAt:    now,
+		State:               string(machine.Status),
+		ProviderState:       machine.ProviderStatus,
+		PowerState:          string(machine.PowerState),
+		OSSystem:            machine.OSSystem,
+		DistroSeries:        machine.DistroSeries,
+		Ephemeral:           machine.Ephemeral,
+		HWEKernel:           machine.HWEKernel,
+		Locked:              machine.Locked,
+		CommissioningStatus: machine.CommissioningStatus,
+		TestingStatus:       machine.TestingStatus,
+		IntegrationID:       integrationID,
+		ObservedAt:          now,
 	}
 	server.Absent = false
 	server.LastSeenAt = now

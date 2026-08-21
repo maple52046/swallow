@@ -149,11 +149,24 @@ func (r *fakeServerRepo) Upsert(_ context.Context, server *serverdomain.Server) 
 		// Membership is owned by the cluster context and must survive a reconcile,
 		// exactly as the Mongo implementation leaves it untouched.
 		server.Membership = existing.Membership
+		// GPUs are written by the inventory sweep on their own cadence, so a reconcile
+		// Upsert must preserve them just as the Mongo implementation does by keeping them
+		// out of its $set.
+		server.Observed.GPUs = existing.Observed.GPUs
 		if !existing.CreatedAt.IsZero() {
 			server.CreatedAt = existing.CreatedAt
 		}
 	}
 	r.servers[server.ID] = server
+	return nil
+}
+
+func (r *fakeServerRepo) SetGPUs(_ context.Context, id string, gpus []serverdomain.GPU) error {
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Observed.GPUs = gpus
 	return nil
 }
 
@@ -358,8 +371,21 @@ type fakeProvider struct {
 	// point of the test is a provisioner that cannot do something.
 	capabilities provisioningdomain.ProviderCapabilities
 
+	// gpus answers ListGPUs by machine ID, so the inventory sweep can be exercised
+	// without a real device inventory.
+	gpus   map[string][]provisioningdomain.GPU
+	gpuErr error
+	// detail is what GetMachineDetail returns; detailErr forces a failure.
+	detail    *provisioningdomain.MachineDetail
+	detailErr error
+	// actionErr forces every capability action to fail, for testing error propagation.
+	actionErr error
+
 	deployRequests []provisioningdomain.DeployRequest
 	releaseCalls   []string
+	// actions records every capability action taken, as "op machineID", so a test can
+	// assert the provider was driven correctly.
+	actions []string
 }
 
 func newFakeProvider() *fakeProvider {
@@ -368,7 +394,17 @@ func newFakeProvider() *fakeProvider {
 		images: []*provisioningdomain.OSImage{
 			{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64"},
 		},
-		capabilities: provisioningdomain.ProviderCapabilities{EphemeralDeploy: true},
+		gpus: make(map[string][]provisioningdomain.GPU),
+		// The full set, matching the MAAS adapter, so capability assertions succeed by
+		// default; a test that needs an incapable provisioner uses minimalProvider.
+		capabilities: provisioningdomain.ProviderCapabilities{
+			EphemeralDeploy:    true,
+			Power:              true,
+			HardwareValidation: true,
+			OperatorState:      true,
+			MachineDetail:      true,
+			HardwareInventory:  true,
+		},
 	}
 }
 
@@ -381,6 +417,140 @@ func (p *fakeProvider) Name() string { return "maas" }
 
 func (p *fakeProvider) Capabilities() provisioningdomain.ProviderCapabilities {
 	return p.capabilities
+}
+
+// recordAction stands in for a state-changing MAAS operation: it notes the call and
+// returns the machine as it would look afterwards.
+func (p *fakeProvider) recordAction(op, machineID string) (*provisioningdomain.Machine, error) {
+	if p.actionErr != nil {
+		return nil, p.actionErr
+	}
+	machine, ok := p.machines[machineID]
+	if !ok {
+		return nil, provisioningdomain.ErrMachineNotFound
+	}
+	p.actions = append(p.actions, op+" "+machineID)
+	updated := *machine
+	return &updated, nil
+}
+
+func (p *fakeProvider) ListGPUs(_ context.Context, machineID string) ([]provisioningdomain.GPU, error) {
+	if p.gpuErr != nil {
+		return nil, p.gpuErr
+	}
+	return p.gpus[machineID], nil
+}
+
+func (p *fakeProvider) GetMachineDetail(_ context.Context, machineID string) (*provisioningdomain.MachineDetail, error) {
+	if p.detailErr != nil {
+		return nil, p.detailErr
+	}
+	if _, ok := p.machines[machineID]; !ok {
+		return nil, provisioningdomain.ErrMachineNotFound
+	}
+	if p.detail != nil {
+		return p.detail, nil
+	}
+	return &provisioningdomain.MachineDetail{}, nil
+}
+
+func (p *fakeProvider) PowerOn(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	m, err := p.recordAction("power_on", machineID)
+	if err == nil {
+		m.PowerState = provisioningdomain.PowerStateOn
+	}
+	return m, err
+}
+
+func (p *fakeProvider) PowerOff(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	m, err := p.recordAction("power_off", machineID)
+	if err == nil {
+		m.PowerState = provisioningdomain.PowerStateOff
+	}
+	return m, err
+}
+
+func (p *fakeProvider) QueryPowerState(_ context.Context, machineID string) (provisioningdomain.PowerState, error) {
+	if p.actionErr != nil {
+		return provisioningdomain.PowerStateUnknown, p.actionErr
+	}
+	if m, ok := p.machines[machineID]; ok {
+		return m.PowerState, nil
+	}
+	return provisioningdomain.PowerStateUnknown, provisioningdomain.ErrMachineNotFound
+}
+
+func (p *fakeProvider) Commission(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("commission", machineID)
+}
+
+func (p *fakeProvider) Test(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("test", machineID)
+}
+
+func (p *fakeProvider) Abort(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("abort", machineID)
+}
+
+func (p *fakeProvider) OverrideFailedTesting(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("override_failed_testing", machineID)
+}
+
+func (p *fakeProvider) Lock(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("lock", machineID)
+}
+
+func (p *fakeProvider) Unlock(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("unlock", machineID)
+}
+
+func (p *fakeProvider) MarkBroken(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("mark_broken", machineID)
+}
+
+func (p *fakeProvider) MarkFixed(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("mark_fixed", machineID)
+}
+
+func (p *fakeProvider) EnterRescueMode(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("rescue_mode", machineID)
+}
+
+func (p *fakeProvider) ExitRescueMode(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("exit_rescue_mode", machineID)
+}
+
+// minimalProvider implements only the base OSProvisioningProvider, standing in for a
+// provisioner that offers none of the optional capabilities. It is how the "refused, not
+// silently dropped" path is tested.
+type minimalProvider struct {
+	machines map[string]*provisioningdomain.Machine
+}
+
+func (p *minimalProvider) Name() string { return "minimal" }
+func (p *minimalProvider) Capabilities() provisioningdomain.ProviderCapabilities {
+	return provisioningdomain.ProviderCapabilities{}
+}
+func (p *minimalProvider) Probe(_ context.Context) (provisioningdomain.ProviderInfo, error) {
+	return provisioningdomain.ProviderInfo{Name: "minimal"}, nil
+}
+func (p *minimalProvider) ListMachines(_ context.Context, _ provisioningdomain.MachineFilter) ([]*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+func (p *minimalProvider) GetMachine(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	if m, ok := p.machines[machineID]; ok {
+		return m, nil
+	}
+	return nil, provisioningdomain.ErrMachineNotFound
+}
+func (p *minimalProvider) ListOSImages(_ context.Context) ([]*provisioningdomain.OSImage, error) {
+	return nil, nil
+}
+func (p *minimalProvider) Deploy(_ context.Context, _ provisioningdomain.DeployRequest) (*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+func (p *minimalProvider) Release(_ context.Context, _ string) (*provisioningdomain.Machine, error) {
+	return nil, nil
 }
 
 func (p *fakeProvider) Probe(_ context.Context) (provisioningdomain.ProviderInfo, error) {

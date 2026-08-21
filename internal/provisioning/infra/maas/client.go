@@ -120,6 +120,16 @@ func (c *Client) postOperation(ctx context.Context, path, operation string, fiel
 	return c.do(req, out)
 }
 
+// getOperation invokes a read-only MAAS named operation, e.g. op=query_power_state.
+//
+// MAAS exposes these as GET with an op query parameter; using POST for a read would be
+// refused. No body is sent because a read takes no parameters gdcm supplies.
+func (c *Client) getOperation(ctx context.Context, path, operation string, out any) error {
+	query := url.Values{}
+	query.Set("op", operation)
+	return c.get(ctx, path, query, out)
+}
+
 func (c *Client) newRequest(
 	ctx context.Context,
 	method, path string,

@@ -34,14 +34,112 @@ type DeployRequest struct {
 }
 
 // ProviderCapabilities declares what an adapter can express, so that a request the
-// provider cannot honour is refused before it is sent rather than silently downgraded.
+// provider cannot honour is refused before it is sent rather than silently downgraded,
+// and so that a client can hide an action a provisioner does not offer instead of
+// presenting a button that always fails.
 //
 // This is a static property of the adapter, deliberately not a probe: it is consulted on
 // the deploy path, where an extra round trip could fail for reasons unrelated to the
-// question being asked.
+// question being asked. Each optional capability corresponds to one of the optional
+// interfaces below; an adapter that sets a flag true must implement the matching
+// interface.
 type ProviderCapabilities struct {
 	// EphemeralDeploy reports that DeployRequest.Ephemeral is honoured.
 	EphemeralDeploy bool
+	// Power reports that PowerController is implemented.
+	Power bool
+	// HardwareValidation reports that HardwareValidator is implemented.
+	HardwareValidation bool
+	// OperatorState reports that OperatorStateController is implemented.
+	OperatorState bool
+	// MachineDetail reports that MachineDetailInspector is implemented.
+	MachineDetail bool
+	// HardwareInventory reports that HardwareInventoryInspector is implemented.
+	HardwareInventory bool
+}
+
+// The interfaces below are optional capabilities. The base OSProvisioningProvider is the
+// minimum every adapter implements; these are added by adapters whose backend supports
+// them and reached by a type assertion. This keeps a new provider from having to stub a
+// dozen methods it cannot honour, while still letting gdcm refuse — rather than silently
+// drop — an action the provider does not offer. See docs/decisions/001.
+
+// PowerController controls a machine's power through the provisioner's BMC integration.
+type PowerController interface {
+	PowerOn(ctx context.Context, machineID string) (*Machine, error)
+	PowerOff(ctx context.Context, machineID string) (*Machine, error)
+	// QueryPowerState reads the live power state from the BMC rather than the
+	// provisioner's cached value.
+	QueryPowerState(ctx context.Context, machineID string) (PowerState, error)
+}
+
+// HardwareValidator re-runs the provisioner's own commissioning and hardware tests, and
+// resolves their outcomes.
+type HardwareValidator interface {
+	Commission(ctx context.Context, machineID string) (*Machine, error)
+	Test(ctx context.Context, machineID string) (*Machine, error)
+	// Abort stops an in-progress commissioning, testing, or deployment.
+	Abort(ctx context.Context, machineID string) (*Machine, error)
+	// OverrideFailedTesting accepts a machine whose tests failed, moving it back to a
+	// usable state on an operator's judgement.
+	OverrideFailedTesting(ctx context.Context, machineID string) (*Machine, error)
+}
+
+// OperatorStateController makes the operator-driven state changes that are neither a
+// deployment nor a release: taking a machine out of automation, flagging it, or putting
+// it into a recovery environment.
+type OperatorStateController interface {
+	Lock(ctx context.Context, machineID string) (*Machine, error)
+	Unlock(ctx context.Context, machineID string) (*Machine, error)
+	MarkBroken(ctx context.Context, machineID string) (*Machine, error)
+	MarkFixed(ctx context.Context, machineID string) (*Machine, error)
+	EnterRescueMode(ctx context.Context, machineID string) (*Machine, error)
+	ExitRescueMode(ctx context.Context, machineID string) (*Machine, error)
+}
+
+// HardwareInventoryInspector reads a machine's attached hardware devices that the base
+// machine listing does not include, such as GPUs. Separated because it costs a call per
+// machine and changes only at commissioning, so it runs on its own slow cadence.
+type HardwareInventoryInspector interface {
+	ListGPUs(ctx context.Context, machineID string) ([]GPU, error)
+}
+
+// MachineDetailInspector returns a live, display-oriented dump of everything the
+// provisioner knows about one machine, for a single-machine view.
+//
+// The return type is deliberately generic rather than provider-specific: it is read one
+// machine at a time, never queried across the fleet, so gdcm proxies it live rather than
+// mirroring it, and carries no schema for it. A second provider fills the same sections
+// with its own content.
+type MachineDetailInspector interface {
+	GetMachineDetail(ctx context.Context, machineID string) (*MachineDetail, error)
+}
+
+// MachineDetail is a provider-neutral, display-oriented view of one machine: labelled
+// fields grouped into sections, plus tabular data like disks and NICs. It holds strings
+// because it is for display, not for gdcm to reason about.
+type MachineDetail struct {
+	Sections []DetailSection
+	Tables   []DetailTable
+}
+
+// DetailSection is a titled group of label/value fields.
+type DetailSection struct {
+	Title  string
+	Fields []DetailField
+}
+
+// DetailField is one labelled value.
+type DetailField struct {
+	Label string
+	Value string
+}
+
+// DetailTable is titled tabular data whose columns are provider-defined.
+type DetailTable struct {
+	Title   string
+	Columns []string
+	Rows    [][]string
 }
 
 // OSProvisioningProvider is the port an OS provisioning backend must implement

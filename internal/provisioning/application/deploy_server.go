@@ -14,15 +14,18 @@ import (
 // completion report: deployment continues asynchronously and the reconciler is what
 // tracks it to completion.
 type ProvisioningStateItem struct {
-	ServerID      string `json:"serverId"`
-	State         string `json:"state"`
-	ProviderState string `json:"providerState"`
-	PowerState    string `json:"powerState"`
-	OSSystem      string `json:"osSystem"`
-	DistroSeries  string `json:"distroSeries"`
-	Ephemeral     bool   `json:"ephemeral"`
-	HWEKernel     string `json:"hweKernel"`
-	ObservedAt    string `json:"observedAt"`
+	ServerID            string `json:"serverId"`
+	State               string `json:"state"`
+	ProviderState       string `json:"providerState"`
+	PowerState          string `json:"powerState"`
+	OSSystem            string `json:"osSystem"`
+	DistroSeries        string `json:"distroSeries"`
+	Ephemeral           bool   `json:"ephemeral"`
+	HWEKernel           string `json:"hweKernel"`
+	Locked              bool   `json:"locked"`
+	CommissioningStatus string `json:"commissioningStatus"`
+	TestingStatus       string `json:"testingStatus"`
+	ObservedAt          string `json:"observedAt"`
 }
 
 type DeployServerInput struct {
@@ -112,28 +115,34 @@ func applyProvisioningResult(
 	now := time.Now().UTC()
 
 	server.Provisioning = &serverdomain.ProvisioningStatus{
-		State:         string(machine.Status),
-		ProviderState: machine.ProviderStatus,
-		PowerState:    string(machine.PowerState),
-		OSSystem:      machine.OSSystem,
-		DistroSeries:  machine.DistroSeries,
-		Ephemeral:     machine.Ephemeral,
-		HWEKernel:     machine.HWEKernel,
-		IntegrationID: server.Source.IntegrationID,
-		ObservedAt:    now,
+		State:               string(machine.Status),
+		ProviderState:       machine.ProviderStatus,
+		PowerState:          string(machine.PowerState),
+		OSSystem:            machine.OSSystem,
+		DistroSeries:        machine.DistroSeries,
+		Ephemeral:           machine.Ephemeral,
+		HWEKernel:           machine.HWEKernel,
+		Locked:              machine.Locked,
+		CommissioningStatus: machine.CommissioningStatus,
+		TestingStatus:       machine.TestingStatus,
+		IntegrationID:       server.Source.IntegrationID,
+		ObservedAt:          now,
 	}
 	server.UpdatedAt = now
 	_ = servers.Upsert(ctx, server)
 
 	return &ProvisioningStateItem{
-		ServerID:      server.ID,
-		State:         server.Provisioning.State,
-		ProviderState: server.Provisioning.ProviderState,
-		PowerState:    server.Provisioning.PowerState,
-		OSSystem:      server.Provisioning.OSSystem,
-		DistroSeries:  server.Provisioning.DistroSeries,
-		Ephemeral:     server.Provisioning.Ephemeral,
-		HWEKernel:     server.Provisioning.HWEKernel,
-		ObservedAt:    now.Format(time.RFC3339),
+		ServerID:            server.ID,
+		State:               server.Provisioning.State,
+		ProviderState:       server.Provisioning.ProviderState,
+		PowerState:          server.Provisioning.PowerState,
+		OSSystem:            server.Provisioning.OSSystem,
+		DistroSeries:        server.Provisioning.DistroSeries,
+		Ephemeral:           server.Provisioning.Ephemeral,
+		HWEKernel:           server.Provisioning.HWEKernel,
+		Locked:              server.Provisioning.Locked,
+		CommissioningStatus: server.Provisioning.CommissioningStatus,
+		TestingStatus:       server.Provisioning.TestingStatus,
+		ObservedAt:          now.Format(time.RFC3339),
 	}
 }

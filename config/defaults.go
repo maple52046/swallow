@@ -18,6 +18,7 @@ func DefaultConfig() Config {
 			BootstrapAdminUsername: "admin",
 			BootstrapAdminPassword: "admin",
 			ReconcileInterval:      60 * time.Second,
+			InventoryInterval:      15 * time.Minute,
 			OperationPollInterval:  15 * time.Second,
 		},
 	}

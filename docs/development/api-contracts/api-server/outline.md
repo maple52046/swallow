@@ -22,23 +22,44 @@ Consumer: `dashboard`.
 | --- | --- | --- | --- |
 | [auth-login.md](auth-login.md) | Active | `POST /api/v1/auth/login` | Exchange username and password for an access token. |
 | [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity and role. |
-| [servers-create.md](servers-create.md) | Active | `POST /api/v1/servers/` | Register a Server with a unique hostname and IP. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List Servers with filtering and pagination. |
-| [servers-delete.md](servers-delete.md) | Active | `DELETE /api/v1/servers/{id}` | Remove a Server from the registry. |
 
-## gRPC Agent Service
+There is **no** `POST /api/v1/servers/` and **no** `DELETE /api/v1/servers/{id}`. Servers
+are produced by reconciling provisioner inventory, not registered or deleted by a caller;
+the two contract files that described them were removed because the endpoints do not
+exist. See [decision 002](../../../../../docs/decisions/002-server-identity.md) and the
+platform glossary term for Server.
 
-Consumer: `agent`.
+### Implemented, contract file pending
 
-| Contract | Status | RPC | Purpose |
-| --- | --- | --- | --- |
-| — | Planned | `agent.v1.AgentService/Connect` (bidirectional stream) | The outbound tunnel the agent uses to report identity and inventory and to receive server messages. |
+These endpoints are implemented and exercised by the dashboard, but do not yet have a
+per-endpoint contract file. Their authoritative description is the provisioning glossary
+([`docs/glossaries/provisioning.md`](../../../../../docs/glossaries/provisioning.md)) and
+[decision 001](../../../../../docs/decisions/001-system-ownership-boundaries.md); extract
+each into its own file from [../template.md](../template.md) when the contract is worth
+pinning.
 
-`proto/agent/v1/agent.proto` is currently the only definition of this surface. It
-describes the wire format but not the contract: stream lifecycle, authentication,
-reconnect expectations, error semantics, and which side may close are all
-undocumented. Write this contract from [../template.md](../template.md) before
-changing or extending the agent protocol.
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/servers/{id}` | One server projection. |
+| `GET /api/v1/servers/{id}/provisioner-detail` | Live, provider-neutral detail for one machine, plus provisioner capabilities. |
+| `POST /api/v1/servers/{id}/deploy` | Start an OS deployment; `ephemeral` optional and refused if unsupported. |
+| `POST /api/v1/servers/{id}/release` | Return the machine to the provisioner's pool. |
+| `POST /api/v1/servers/{id}/power-on` \| `power-off` | Power control. |
+| `GET /api/v1/servers/{id}/power-state` | Live BMC power state (read-only). |
+| `POST /api/v1/servers/{id}/commission` \| `test` \| `abort` \| `override-failed-testing` | Hardware validation. |
+| `POST /api/v1/servers/{id}/lock` \| `unlock` \| `mark-broken` \| `mark-fixed` \| `rescue-mode` \| `exit-rescue-mode` | Operator state. |
+
+Each action beyond deploy/release is an optional provider capability: a provisioner that
+does not support one refuses the request rather than silently dropping it, and the
+capability set returned by `provisioner-detail` says which exist.
+
+## Agent Service
+
+The `agent` component and its gRPC service were **removed** in the refoundation
+([decision 001](../../../../../docs/decisions/001-system-ownership-boundaries.md)):
+inventory and liveness are read from the provisioner and from `node_exporter`, so there
+is no bespoke agent protocol. `proto/agent/v1/agent.proto` no longer exists.
 
 ## Planned HTTP Surface
 
@@ -53,12 +74,14 @@ routes and no active contract:
 - Teams
 - Users (management)
 - Topology: Datacenter, Room, Rack
-- Provisioning: Image, Profile, Job
-- Alerts
-- Management Planes: Kubernetes, Slurm
 - GPU Observability
 - Access and SSH Keys
-- Server detail, update, assign/unassign, and container endpoints
+
+Note: some groups in `planned-surface.md` are no longer planned. Provisioning `Profile`
+and `Job` are retired (automation content belongs in a playbook; deployment progress is
+the provisioning axis). Server detail, clusters (Kubernetes/Slurm registration),
+operations, and monitoring alerts are now implemented rather than planned — see the
+tables above and the platform's current API surface.
 
 To implement any of them: extract that endpoint from `planned-surface.md` into
 its own contract file using [../template.md](../template.md), reconcile it with

@@ -20,11 +20,16 @@ type ServerItem struct {
 	Addresses            []string        `json:"addresses"`
 	Architecture         string          `json:"architecture"`
 	CPUCores             int             `json:"cpuCores"`
+	CPUModel             string          `json:"cpuModel"`
 	MemoryMiB            int64           `json:"memoryMiB"`
 	StorageGB            float64         `json:"storageGB"`
 	GPUs                 []ServerGPUItem `json:"gpus"`
+	SystemVendor         string          `json:"systemVendor"`
+	SystemProduct        string          `json:"systemProduct"`
 	ProviderZone         string          `json:"providerZone"`
 	ProviderResourcePool string          `json:"providerResourcePool"`
+	ProviderPod          string          `json:"providerPod"`
+	Tags                 []string        `json:"tags"`
 
 	Hardware ServerHardwareItem `json:"hardware"`
 
@@ -66,10 +71,13 @@ type ProvisioningAxisItem struct {
 	// Ephemeral means the deployed OS runs from memory: anything written to it is
 	// lost on reboot. Clients must show it, because no other field distinguishes such
 	// a machine from one with the same OS installed on disk.
-	Ephemeral     bool   `json:"ephemeral"`
-	HWEKernel     string `json:"hweKernel"`
-	IntegrationID string `json:"integrationId"`
-	ObservedAt    string `json:"observedAt"`
+	Ephemeral           bool   `json:"ephemeral"`
+	HWEKernel           string `json:"hweKernel"`
+	Locked              bool   `json:"locked"`
+	CommissioningStatus string `json:"commissioningStatus"`
+	TestingStatus       string `json:"testingStatus"`
+	IntegrationID       string `json:"integrationId"`
+	ObservedAt          string `json:"observedAt"`
 }
 
 type MembershipAxisItem struct {
@@ -99,11 +107,16 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 		Addresses:            wire.Strings(s.Observed.Addresses),
 		Architecture:         s.Observed.Architecture,
 		CPUCores:             s.Observed.CPUCores,
+		CPUModel:             s.Observed.CPUModel,
 		MemoryMiB:            s.Observed.MemoryMiB,
 		StorageGB:            s.Observed.StorageGB,
 		GPUs:                 make([]ServerGPUItem, 0, len(s.Observed.GPUs)),
+		SystemVendor:         s.Observed.SystemVendor,
+		SystemProduct:        s.Observed.SystemProduct,
 		ProviderZone:         s.Observed.ProviderZone,
 		ProviderResourcePool: s.Observed.ProviderResourcePool,
+		ProviderPod:          s.Observed.ProviderPod,
+		Tags:                 wire.Strings(s.Observed.Tags),
 		Hardware: ServerHardwareItem{
 			SystemUUID:   wire.String(s.Hardware.SystemUUID),
 			SerialNumber: wire.String(s.Hardware.SerialNumber),
@@ -125,15 +138,18 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 
 	if p := s.Provisioning; p != nil {
 		item.Provisioning = &ProvisioningAxisItem{
-			State:         p.State,
-			ProviderState: p.ProviderState,
-			PowerState:    p.PowerState,
-			OSSystem:      p.OSSystem,
-			DistroSeries:  p.DistroSeries,
-			Ephemeral:     p.Ephemeral,
-			HWEKernel:     p.HWEKernel,
-			IntegrationID: p.IntegrationID,
-			ObservedAt:    wire.Time(p.ObservedAt),
+			State:               p.State,
+			ProviderState:       p.ProviderState,
+			PowerState:          p.PowerState,
+			OSSystem:            p.OSSystem,
+			DistroSeries:        p.DistroSeries,
+			Ephemeral:           p.Ephemeral,
+			HWEKernel:           p.HWEKernel,
+			Locked:              p.Locked,
+			CommissioningStatus: p.CommissioningStatus,
+			TestingStatus:       p.TestingStatus,
+			IntegrationID:       p.IntegrationID,
+			ObservedAt:          wire.Time(p.ObservedAt),
 		}
 	}
 

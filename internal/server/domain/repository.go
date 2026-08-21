@@ -64,6 +64,14 @@ type ServerRepository interface {
 	// SetMembership replaces the membership axis, or clears it when membership is nil.
 	SetMembership(ctx context.Context, id string, membership *MembershipStatus) error
 
+	// SetGPUs replaces the mirrored GPU inventory, or clears it when gpus is empty.
+	//
+	// Separate from Upsert because the inventory sweep writes it on its own cadence: a
+	// reconcile pass must be able to rewrite the rest of the projection without wiping
+	// the GPUs the sweep found, and the sweep must be able to update GPUs without a full
+	// projection in hand.
+	SetGPUs(ctx context.Context, id string, gpus []GPU) error
+
 	// CountByIntegration reports how many servers were projected from an
 	// integration, so that deleting one that still has servers can be refused.
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)

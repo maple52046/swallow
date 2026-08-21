@@ -40,6 +40,11 @@ type APIConfig struct {
 	// ReconcileInterval is how often each enabled provisioner integration is
 	// polled to refresh its server projections.
 	ReconcileInterval time.Duration `yaml:"reconcileInterval"`
+	// InventoryInterval is how often the attached-hardware inventory (GPUs) is
+	// refreshed. Much longer than ReconcileInterval because attached hardware costs a
+	// call per machine and changes only at commissioning, so polling it as often as
+	// lifecycle state would multiply request count for near-static data.
+	InventoryInterval time.Duration `yaml:"inventoryInterval"`
 	// OperationPollInterval is how often unfinished operations are re-read from
 	// their automation controller. Shorter than ReconcileInterval because a job
 	// changes state far faster than a fleet's inventory does.

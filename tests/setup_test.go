@@ -95,6 +95,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewReleaseServerUseCase(servers, factory),
 		provisioningapp.NewListOSImagesUseCase(factory),
 		provisioningapp.NewReconcileUseCase(integrations, servers, factory),
+		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
+		provisioningapp.NewMachineActionsUseCase(servers, factory),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
@@ -147,8 +149,22 @@ func setupPlatform(t *testing.T) *platformFixture {
 	serverGroup := v1.Group("/servers", admin...)
 	serverGroup.Get("/", serverHandler.List)
 	serverGroup.Get("/:id", serverHandler.Get)
+	serverGroup.Get("/:id/provisioner-detail", provisioningHandler.ProvisionerDetail)
 	serverGroup.Post("/:id/deploy", provisioningHandler.Deploy)
 	serverGroup.Post("/:id/release", provisioningHandler.Release)
+	serverGroup.Post("/:id/power-on", provisioningHandler.PowerOn)
+	serverGroup.Post("/:id/power-off", provisioningHandler.PowerOff)
+	serverGroup.Get("/:id/power-state", provisioningHandler.PowerState)
+	serverGroup.Post("/:id/commission", provisioningHandler.Commission)
+	serverGroup.Post("/:id/test", provisioningHandler.Test)
+	serverGroup.Post("/:id/abort", provisioningHandler.Abort)
+	serverGroup.Post("/:id/override-failed-testing", provisioningHandler.OverrideFailedTesting)
+	serverGroup.Post("/:id/lock", provisioningHandler.Lock)
+	serverGroup.Post("/:id/unlock", provisioningHandler.Unlock)
+	serverGroup.Post("/:id/mark-broken", provisioningHandler.MarkBroken)
+	serverGroup.Post("/:id/mark-fixed", provisioningHandler.MarkFixed)
+	serverGroup.Post("/:id/rescue-mode", provisioningHandler.RescueMode)
+	serverGroup.Post("/:id/exit-rescue-mode", provisioningHandler.ExitRescueMode)
 
 	provisioningGroup := v1.Group("/provisioning", admin...)
 	provisioningGroup.Get("/images", provisioningHandler.ListImages)

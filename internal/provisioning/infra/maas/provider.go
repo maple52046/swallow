@@ -124,11 +124,19 @@ func (p *Provider) Deploy(
 	return toDomainMachine(&out), nil
 }
 
-// Capabilities reports what this adapter honours. MAAS has exposed ephemeral_deploy on
-// the machine deploy operation since 3.x, which is the oldest version this adapter
-// targets.
+// Capabilities reports what this adapter honours. All of these are present on the MAAS
+// versions this adapter targets, so every flag is set; the flags exist so a client can
+// hide an action a future provider lacks, and so an unsupported request is refused
+// rather than silently dropped.
 func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
-	return provisioningdomain.ProviderCapabilities{EphemeralDeploy: true}
+	return provisioningdomain.ProviderCapabilities{
+		EphemeralDeploy:    true,
+		Power:              true,
+		HardwareValidation: true,
+		OperatorState:      true,
+		MachineDetail:      true,
+		HardwareInventory:  true,
+	}
 }
 
 func (p *Provider) Release(ctx context.Context, machineID string) (*provisioningdomain.Machine, error) {

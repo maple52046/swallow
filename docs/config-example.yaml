@@ -48,6 +48,12 @@ api:
   # each registered cluster to refresh membership.
   reconcileInterval: "60s"
 
+  # How often the attached-hardware inventory (GPUs) is refreshed. Much longer than
+  # reconcileInterval because attached devices cost a call per machine and change only at
+  # commissioning, so polling them as often as lifecycle state would multiply request
+  # count for near-static data.
+  inventoryInterval: "15m"
+
   # How often unfinished operations are re-read from their automation controller.
   # Shorter than reconcileInterval because a job changes state far faster than a
   # fleet's inventory does.

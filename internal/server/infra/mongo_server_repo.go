@@ -25,6 +25,12 @@ type serverDoc struct {
 	Hardware hardwareDoc `bson:"hardware"`
 	Observed observedDoc `bson:"observed"`
 
+	// GPUs is stored at the top level, not inside observed, because it is written by
+	// the inventory sweep on its own cadence. Keeping it out of the observed sub-document
+	// lets a reconcile pass rewrite observed wholesale without wiping the sweep's work,
+	// the same way membership is left untouched.
+	GPUs []gpuDoc `bson:"gpus,omitempty"`
+
 	Provisioning *provisioningDoc `bson:"provisioning,omitempty"`
 	Membership   *membershipDoc   `bson:"membership,omitempty"`
 
@@ -52,11 +58,15 @@ type observedDoc struct {
 	Addresses            []string `bson:"addresses,omitempty"`
 	Architecture         string   `bson:"architecture,omitempty"`
 	CPUCores             int      `bson:"cpuCores,omitempty"`
+	CPUModel             string   `bson:"cpuModel,omitempty"`
 	MemoryMiB            int64    `bson:"memoryMiB,omitempty"`
 	StorageGB            float64  `bson:"storageGB,omitempty"`
-	GPUs                 []gpuDoc `bson:"gpus,omitempty"`
+	SystemVendor         string   `bson:"systemVendor,omitempty"`
+	SystemProduct        string   `bson:"systemProduct,omitempty"`
 	ProviderZone         string   `bson:"providerZone,omitempty"`
 	ProviderResourcePool string   `bson:"providerResourcePool,omitempty"`
+	ProviderPod          string   `bson:"providerPod,omitempty"`
+	Tags                 []string `bson:"tags,omitempty"`
 }
 
 type gpuDoc struct {
@@ -66,15 +76,18 @@ type gpuDoc struct {
 }
 
 type provisioningDoc struct {
-	State         string    `bson:"state"`
-	ProviderState string    `bson:"providerState"`
-	PowerState    string    `bson:"powerState"`
-	OSSystem      string    `bson:"osSystem,omitempty"`
-	DistroSeries  string    `bson:"distroSeries,omitempty"`
-	Ephemeral     bool      `bson:"ephemeral"`
-	HWEKernel     string    `bson:"hweKernel,omitempty"`
-	IntegrationID string    `bson:"integrationId"`
-	ObservedAt    time.Time `bson:"observedAt"`
+	State               string    `bson:"state"`
+	ProviderState       string    `bson:"providerState"`
+	PowerState          string    `bson:"powerState"`
+	OSSystem            string    `bson:"osSystem,omitempty"`
+	DistroSeries        string    `bson:"distroSeries,omitempty"`
+	Ephemeral           bool      `bson:"ephemeral"`
+	HWEKernel           string    `bson:"hweKernel,omitempty"`
+	Locked              bool      `bson:"locked"`
+	CommissioningStatus string    `bson:"commissioningStatus,omitempty"`
+	TestingStatus       string    `bson:"testingStatus,omitempty"`
+	IntegrationID       string    `bson:"integrationId"`
+	ObservedAt          time.Time `bson:"observedAt"`
 }
 
 type membershipDoc struct {
@@ -375,6 +388,29 @@ func (r *MongoServerRepo) SetMembership(ctx context.Context, id string, membersh
 	return nil
 }
 
+// SetGPUs replaces the GPU inventory, or clears it when gpus is empty.
+//
+// Written separately from the reconcile Upsert because it is produced by the inventory
+// sweep on its own cadence: folding it into Upsert would mean either fetching devices on
+// every reconcile pass or having the pass wipe what the sweep found.
+func (r *MongoServerRepo) SetGPUs(ctx context.Context, id string, gpus []serverdomain.GPU) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if docs := gpuDocs(gpus); len(docs) > 0 {
+		update["$set"].(bson.M)["gpus"] = docs
+	} else {
+		update["$unset"] = bson.M{"gpus": ""}
+	}
+
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return nil
+}
+
 func (r *MongoServerRepo) CountByIntegration(ctx context.Context, integrationID string) (int, error) {
 	count, err := r.col.CountDocuments(ctx, bson.M{"source.integrationId": integrationID})
 	return int(count), err
@@ -410,40 +446,53 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 			Addresses:            s.Observed.Addresses,
 			Architecture:         s.Observed.Architecture,
 			CPUCores:             s.Observed.CPUCores,
+			CPUModel:             s.Observed.CPUModel,
 			MemoryMiB:            s.Observed.MemoryMiB,
 			StorageGB:            s.Observed.StorageGB,
+			SystemVendor:         s.Observed.SystemVendor,
+			SystemProduct:        s.Observed.SystemProduct,
 			ProviderZone:         s.Observed.ProviderZone,
 			ProviderResourcePool: s.Observed.ProviderResourcePool,
+			ProviderPod:          s.Observed.ProviderPod,
+			Tags:                 s.Observed.Tags,
 		},
+		GPUs:       gpuDocs(s.Observed.GPUs),
 		Absent:     s.Absent,
 		LastSeenAt: s.LastSeenAt,
 		CreatedAt:  s.CreatedAt,
 		UpdatedAt:  s.UpdatedAt,
 	}
 
-	for _, gpu := range s.Observed.GPUs {
-		doc.Observed.GPUs = append(doc.Observed.GPUs, gpuDoc{
-			Vendor: gpu.Vendor,
-			Model:  gpu.Model,
-			Count:  gpu.Count,
-		})
-	}
-
 	if p := s.Provisioning; p != nil {
 		doc.Provisioning = &provisioningDoc{
-			State:         p.State,
-			ProviderState: p.ProviderState,
-			PowerState:    p.PowerState,
-			OSSystem:      p.OSSystem,
-			DistroSeries:  p.DistroSeries,
-			Ephemeral:     p.Ephemeral,
-			HWEKernel:     p.HWEKernel,
-			IntegrationID: p.IntegrationID,
-			ObservedAt:    p.ObservedAt,
+			State:               p.State,
+			ProviderState:       p.ProviderState,
+			PowerState:          p.PowerState,
+			OSSystem:            p.OSSystem,
+			DistroSeries:        p.DistroSeries,
+			Ephemeral:           p.Ephemeral,
+			HWEKernel:           p.HWEKernel,
+			Locked:              p.Locked,
+			CommissioningStatus: p.CommissioningStatus,
+			TestingStatus:       p.TestingStatus,
+			IntegrationID:       p.IntegrationID,
+			ObservedAt:          p.ObservedAt,
 		}
 	}
 
 	return doc
+}
+
+// gpuDocs converts domain GPUs to their stored form.
+func gpuDocs(gpus []serverdomain.GPU) []gpuDoc {
+	if len(gpus) == 0 {
+		return nil
+	}
+	docs := make([]gpuDoc, 0, len(gpus))
+	for _, gpu := range gpus {
+		docs = append(docs, gpuDoc{Vendor: gpu.Vendor, Model: gpu.Model, Count: gpu.Count})
+	}
+	return docs
 }
 
 func toServer(doc *serverDoc) *serverdomain.Server {
@@ -465,10 +514,15 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			Addresses:            doc.Observed.Addresses,
 			Architecture:         doc.Observed.Architecture,
 			CPUCores:             doc.Observed.CPUCores,
+			CPUModel:             doc.Observed.CPUModel,
 			MemoryMiB:            doc.Observed.MemoryMiB,
 			StorageGB:            doc.Observed.StorageGB,
+			SystemVendor:         doc.Observed.SystemVendor,
+			SystemProduct:        doc.Observed.SystemProduct,
 			ProviderZone:         doc.Observed.ProviderZone,
 			ProviderResourcePool: doc.Observed.ProviderResourcePool,
+			ProviderPod:          doc.Observed.ProviderPod,
+			Tags:                 doc.Observed.Tags,
 		},
 		Absent:     doc.Absent,
 		LastSeenAt: doc.LastSeenAt,
@@ -476,7 +530,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 		UpdatedAt:  doc.UpdatedAt,
 	}
 
-	for _, gpu := range doc.Observed.GPUs {
+	for _, gpu := range doc.GPUs {
 		s.Observed.GPUs = append(s.Observed.GPUs, serverdomain.GPU{
 			Vendor: gpu.Vendor,
 			Model:  gpu.Model,
@@ -486,15 +540,18 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 
 	if p := doc.Provisioning; p != nil {
 		s.Provisioning = &serverdomain.ProvisioningStatus{
-			State:         p.State,
-			ProviderState: p.ProviderState,
-			PowerState:    p.PowerState,
-			OSSystem:      p.OSSystem,
-			DistroSeries:  p.DistroSeries,
-			Ephemeral:     p.Ephemeral,
-			HWEKernel:     p.HWEKernel,
-			IntegrationID: p.IntegrationID,
-			ObservedAt:    p.ObservedAt,
+			State:               p.State,
+			ProviderState:       p.ProviderState,
+			PowerState:          p.PowerState,
+			OSSystem:            p.OSSystem,
+			DistroSeries:        p.DistroSeries,
+			Ephemeral:           p.Ephemeral,
+			HWEKernel:           p.HWEKernel,
+			Locked:              p.Locked,
+			CommissioningStatus: p.CommissioningStatus,
+			TestingStatus:       p.TestingStatus,
+			IntegrationID:       p.IntegrationID,
+			ObservedAt:          p.ObservedAt,
 		}
 	}
 

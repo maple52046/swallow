@@ -131,11 +131,14 @@ func RunAPI(cfg config.APIConfig) error {
 
 	providerFactory := provisioninginfra.NewProviderFactory(integrationRepo)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory)
+	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewListOSImagesUseCase(providerFactory),
 		reconcileUC,
+		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
+		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory),
 	)
 
 	clusterRepo, err := clusterinfra.NewMongoClusterRepo(db)
@@ -201,6 +204,7 @@ func RunAPI(cfg config.APIConfig) error {
 	})
 
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
+	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runOperationPoller(ctx, operationService, cfg.OperationPollInterval)
 
@@ -271,8 +275,26 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers := v1.Group("/servers", admin...)
 	servers.Get("/", deps.servers.List)
 	servers.Get("/:id", deps.servers.Get)
+	// The provisioner detail is a live proxy read one machine at a time, distinct from
+	// the mirrored projection the list and get return.
+	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)
 	servers.Post("/:id/deploy", deps.provisioning.Deploy)
 	servers.Post("/:id/release", deps.provisioning.Release)
+	// Power, hardware validation, and operator state are the provisioner actions beyond
+	// deploy and release. Each is refused by a provisioner that does not offer it.
+	servers.Post("/:id/power-on", deps.provisioning.PowerOn)
+	servers.Post("/:id/power-off", deps.provisioning.PowerOff)
+	servers.Get("/:id/power-state", deps.provisioning.PowerState)
+	servers.Post("/:id/commission", deps.provisioning.Commission)
+	servers.Post("/:id/test", deps.provisioning.Test)
+	servers.Post("/:id/abort", deps.provisioning.Abort)
+	servers.Post("/:id/override-failed-testing", deps.provisioning.OverrideFailedTesting)
+	servers.Post("/:id/lock", deps.provisioning.Lock)
+	servers.Post("/:id/unlock", deps.provisioning.Unlock)
+	servers.Post("/:id/mark-broken", deps.provisioning.MarkBroken)
+	servers.Post("/:id/mark-fixed", deps.provisioning.MarkFixed)
+	servers.Post("/:id/rescue-mode", deps.provisioning.RescueMode)
+	servers.Post("/:id/exit-rescue-mode", deps.provisioning.ExitRescueMode)
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)

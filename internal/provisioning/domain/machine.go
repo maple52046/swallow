@@ -108,12 +108,44 @@ type Machine struct {
 	Zone         string
 	ResourcePool string
 
+	// SystemVendor, SystemProduct, and CPUModel describe the physical machine as the
+	// provisioner commissioned it. Mirrored so a fleet can be queried by hardware
+	// generation without opening each machine; see decision 001.
+	SystemVendor  string
+	SystemProduct string
+	CPUModel      string
+	// Pod is the provider's name for the VM host a virtual machine belongs to, empty
+	// for bare metal.
+	Pod string
+	// Locked reports that the provisioner is refusing state-changing actions on the
+	// machine, which is why a deploy or release may be rejected even when the state
+	// otherwise allows it.
+	Locked bool
+	// CommissioningStatus and TestingStatus are the provisioner's own labels for the
+	// last hardware inspection and test run, e.g. "Passed" or "Failed". Display only.
+	CommissioningStatus string
+	TestingStatus       string
+	// GPUs is the machine's attached GPU inventory. It is empty on a plain machine
+	// listing: providers report attached devices through a separate call, so it is
+	// filled by the inventory sweep rather than by every reconcile pass.
+	GPUs []GPU
+
 	// Hardware identifiers, used to recognise the same physical machine after it is
 	// re-enrolled under a new provider ID. Any of these may be empty: providers do
 	// not all report them, and some hardware does not populate its DMI fields.
 	SystemUUID   string
 	SerialNumber string
 	MACAddresses []string
+}
+
+// GPU is a GPU as the provisioner's hardware inventory reports it. Telemetry never
+// belongs here — only what commissioning detected. Identical GPUs are collapsed into one
+// entry with a count, because a machine with eight of one model is the common case and
+// eight identical rows are noise.
+type GPU struct {
+	Vendor string
+	Model  string
+	Count  int
 }
 
 // PrimaryIP returns the address to register a machine under, or "" when the

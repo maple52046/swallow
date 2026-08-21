@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"errors"
 	"log"
 
@@ -18,6 +19,8 @@ type ProvisioningHandler struct {
 	release   *application.ReleaseServerUseCase
 	images    *application.ListOSImagesUseCase
 	reconcile *application.ReconcileUseCase
+	detail    *application.GetProvisionerDetailUseCase
+	actions   *application.MachineActionsUseCase
 }
 
 func NewProvisioningHandler(
@@ -25,8 +28,17 @@ func NewProvisioningHandler(
 	release *application.ReleaseServerUseCase,
 	images *application.ListOSImagesUseCase,
 	reconcile *application.ReconcileUseCase,
+	detail *application.GetProvisionerDetailUseCase,
+	actions *application.MachineActionsUseCase,
 ) *ProvisioningHandler {
-	return &ProvisioningHandler{deploy: deploy, release: release, images: images, reconcile: reconcile}
+	return &ProvisioningHandler{
+		deploy:    deploy,
+		release:   release,
+		images:    images,
+		reconcile: reconcile,
+		detail:    detail,
+		actions:   actions,
+	}
 }
 
 type deployRequest struct {
@@ -82,6 +94,102 @@ func (h *ProvisioningHandler) Release(c *fiber.Ctx) error {
 		return RespondError(c, err)
 	}
 	return c.Status(fiber.StatusAccepted).JSON(item)
+}
+
+// ProvisionerDetail proxies the provisioner for one machine's full detail, plus the
+// capabilities that tell a client which actions to offer. Read live, so it reflects the
+// provisioner exactly and gdcm keeps no schema for it.
+func (h *ProvisioningHandler) ProvisionerDetail(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+
+	item, err := h.detail.Execute(c.Context(), id)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
+}
+
+// serverAction runs one lifecycle action addressed by server ID and returns the resulting
+// provisioning snapshot with 202: the provisioner has accepted the request, and the
+// reconciler tracks it from there. The shared shape keeps each action's handler to its
+// intent.
+func (h *ProvisioningHandler) serverAction(
+	c *fiber.Ctx,
+	run func(ctx context.Context, id string) (*application.ProvisioningStateItem, error),
+) error {
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	item, err := run(c.Context(), id)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(item)
+}
+
+func (h *ProvisioningHandler) PowerOn(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.PowerOn)
+}
+
+func (h *ProvisioningHandler) PowerOff(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.PowerOff)
+}
+
+// PowerState reads the live BMC power state. It is a GET because it changes nothing.
+func (h *ProvisioningHandler) PowerState(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	item, err := h.actions.QueryPower(c.Context(), id)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
+}
+
+func (h *ProvisioningHandler) Commission(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.Commission)
+}
+
+func (h *ProvisioningHandler) Test(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.Test)
+}
+
+func (h *ProvisioningHandler) Abort(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.Abort)
+}
+
+func (h *ProvisioningHandler) OverrideFailedTesting(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.OverrideFailedTesting)
+}
+
+func (h *ProvisioningHandler) Lock(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.Lock)
+}
+
+func (h *ProvisioningHandler) Unlock(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.Unlock)
+}
+
+func (h *ProvisioningHandler) MarkBroken(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.MarkBroken)
+}
+
+func (h *ProvisioningHandler) MarkFixed(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.MarkFixed)
+}
+
+func (h *ProvisioningHandler) RescueMode(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.RescueMode)
+}
+
+func (h *ProvisioningHandler) ExitRescueMode(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.ExitRescueMode)
 }
 
 // ListImages returns the images one provisioner can deploy. The integration must be
