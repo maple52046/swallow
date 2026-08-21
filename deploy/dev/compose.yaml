@@ -1,0 +1,98 @@
+name: gdcm-dev
+
+# Local development stack for the whole platform: MongoDB plus every component
+# in src/, each running from a bind-mounted working tree with hot reload.
+# Every setting below has a development default, so the stack starts without a
+# .env file; copy .env.example to .env only when you need to override something.
+
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  api-server:
+    build:
+      context: .
+      dockerfile: api-server.Dockerfile
+      args:
+        UID: ${DEV_UID:-1001}
+        GID: ${DEV_GID:-1001}
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      GDCM_API_ADDR: ":30051"
+      GDCM_API_MONGO_URI: "mongodb://mongo:27017"
+      GDCM_API_MONGO_DB: "${GDCM_API_MONGO_DB:-swallow}"
+      GDCM_API_JWT_SECRET: "${GDCM_API_JWT_SECRET:-dev-secret-change-me}"
+      GDCM_API_JWT_EXPIRY_HOURS: "${GDCM_API_JWT_EXPIRY_HOURS:-24}"
+      GDCM_API_BOOTSTRAP_ADMIN_USERNAME: "${GDCM_API_BOOTSTRAP_ADMIN_USERNAME:-admin}"
+      GDCM_API_BOOTSTRAP_ADMIN_PASSWORD: "${GDCM_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
+      # Seals integration credentials at rest. Required: without it an integration
+      # cannot be registered, and starting anyway would defer that failure to the
+      # first operator who tries. The dev default is a fixed key on purpose — it is
+      # not a secret, and a real deployment must supply its own.
+      GDCM_API_CREDENTIAL_KEY: "${GDCM_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
+      # Static bearer token for callers that are other systems: Prometheus pulling
+      # scrape targets, AWX posting job notifications.
+      GDCM_API_MACHINE_TOKEN: "${GDCM_API_MACHINE_TOKEN:-dev-machine-token}"
+      # How often provisioner inventory and cluster membership are re-read, and how
+      # often unfinished operations are re-read from their controller.
+      GDCM_API_RECONCILE_INTERVAL: "${GDCM_API_RECONCILE_INTERVAL:-60s}"
+      GDCM_API_OPERATION_POLL_INTERVAL: "${GDCM_API_OPERATION_POLL_INTERVAL:-15s}"
+    ports:
+      - "${API_HTTP_PORT:-30051}:30051"
+    volumes:
+      - ../../src/swallow:/app
+      - ./air.toml:/etc/gdcm/air.toml:ro
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/go/cache
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/30051"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard.Dockerfile
+      args:
+        UID: ${DEV_UID:-1001}
+        GID: ${DEV_GID:-1001}
+    restart: unless-stopped
+    depends_on:
+      - api-server
+    environment:
+      # Empty by default: the dashboard then derives the API address from whatever host
+      # the browser used to reach it, which works from this host, from the LAN, and
+      # through a tunnel without anyone having to remember to change it.
+      #
+      # Set it only when the API is somewhere the browser cannot infer — behind a
+      # reverse proxy, or on a different port. Read by the browser, not the container,
+      # so restart this service after changing it.
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
+    ports:
+      - "${DASHBOARD_PORT:-5173}:5173"
+    volumes:
+      - ../../src/dashboard:/app
+      - ./dashboard-entrypoint.sh:/etc/gdcm/dashboard-entrypoint.sh:ro
+      - npm-cache:/npm-cache
+
+volumes:
+  mongo-data:
+  go-mod-cache:
+  go-build-cache:
+  npm-cache:

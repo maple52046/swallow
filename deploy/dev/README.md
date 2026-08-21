@@ -1,0 +1,139 @@
+# Local Development Environment
+
+## Purpose
+
+以 Docker Compose 啟動整個 platform 的本機開發環境：MongoDB 加上 `src/` 底下
+所有 component，每個 component 都以 bind mount 掛入自己的原始碼並支援 hot reload。
+
+toolchain（Go、Node）全部封裝在 container 內，host 只需要 Docker，
+不需要另外安裝 Go 或 Node。
+
+## Prerequisites
+
+- Docker Engine 與 Compose plugin。
+- 目前使用者屬於 `docker` group（`id -nG` 應包含 `docker`；剛加入時需重新登入才生效）。
+- submodule 已拉齊：`git submodule update --init --recursive`。
+
+## Quick Start
+
+```bash
+cd deploy/dev
+docker compose up -d
+```
+
+首次啟動需要下載 Go modules 與 npm 套件，約 1–2 分鐘；之後兩者都會落在
+named volume 與 `src/dashboard/node_modules`，重啟即為秒級。
+
+啟動後：
+
+| Service      | Host port      | 說明                                            |
+|--------------|----------------|-------------------------------------------------|
+| `dashboard`  | 5173           | Vite dev server，含 HMR                          |
+| `api-server` | 30051          | swallow HTTP API                                 |
+| `mongo`      | 27017          | MongoDB 8，資料存於 named volume `mongo-data`    |
+
+預設帶入的 admin 帳號為 `admin` / `admin`，於 api-server 首次啟動時建立。
+
+## 常用指令
+
+```bash
+docker compose ps                      # 服務狀態
+docker compose logs -f api-server      # 追蹤單一服務日誌
+docker compose restart dashboard       # 重啟服務（改動環境變數後需要）
+docker compose down                    # 停止並移除 container，保留資料
+docker compose down -v                 # 連 MongoDB 資料與快取 volume 一併清除
+docker compose build --no-cache        # 重建開發映像（改動 Dockerfile 後）
+```
+
+## Configuration
+
+所有設定在 `compose.yaml` 中都帶有開發用預設值，因此**不需要 `.env` 也能直接啟動**。
+需要覆寫時才 `cp .env.example .env` 並修改；`.env` 已被 gitignore。
+
+其中兩項較常需要調整：
+
+- `DEV_UID` / `DEV_GID` — container 內執行身分。必須與 `src/` 的擁有者一致，
+  否則 container 寫入 bind mount 的檔案（如 `node_modules`）在 host 端會無法編輯。
+  預設 `1001:1001`；修改後需重建映像。
+- `VITE_API_BASE_URL` — 預設留空，dashboard 會從瀏覽器實際使用的主機推導 API 位址
+  （`<瀏覽器用的 host>:30051`）。這樣從本機、從區網、從 SSH tunnel 都能用，不需要記得改。
+  只有 API 在瀏覽器推不出來的地方時才需要設定，例如放在 reverse proxy 後面。
+- `GDCM_API_CREDENTIAL_KEY` — 用來加密 integration 憑證的 base64 32-byte 金鑰，**必填**。
+  compose 帶了一個開發用預設值；真實部署必須自己產生（`openssl rand -base64 32`）。
+  換掉這個金鑰會讓既有的已存憑證無法解密，等於要重新輸入所有 integration 憑證。
+- `GDCM_API_MACHINE_TOKEN` — 給「呼叫者是機器」的端點用的靜態 bearer token：
+  Prometheus 抓 `/api/v1/discovery/prometheus`、AWX 回報 job 通知。
+  只有那些端點接受它，不是進入其餘 API 的第二條路。
+
+**MAAS 與 AWX 不再是環境變數。** 它們改成執行期註冊的 integration，因為艦隊的每個站點
+各有一套。註冊方式見下方。
+
+## Hot Reload 行為
+
+- **api-server** — 由 [air](https://github.com/air-verse/air) 監看 `src/swallow`，
+  `.go` / `.yaml` 變更即重新編譯並重啟。編譯產物寫在 container 的 `/tmp/air`，
+  不會弄髒 submodule 的 working tree。設定見 [`air.toml`](air.toml)。
+- **dashboard** — Vite HMR，`src/dashboard` 的變更立即反映在瀏覽器。
+  `package-lock.json` 較 `node_modules` 新時，entrypoint 會自動重跑 `npm ci`。
+
+api-server 的 Go 版本刻意固定在 `src/swallow/go.mod` 宣告的 1.25；
+air 因為需要較新的 compiler，改由獨立的 build stage 編譯後複製進來。
+
+## 從其他機器連入
+
+Vite 與 API 都綁在 `0.0.0.0`，直接用這台的 IP 開 `http://<host-ip>:5173` 即可，
+不需要改任何設定：dashboard 會用同一個 host 去推導 API 位址。
+
+透過 SSH tunnel 也一樣，只要兩個 port 都轉發：
+
+```bash
+ssh -L 5173:localhost:5173 -L 30051:localhost:30051 <user>@<host>
+```
+
+Vite 預設只信任以 IP 或 localhost 形式送來的 Host header；
+若要用網域名稱存取，需在 `src/dashboard/vite.config.ts` 設定 `server.allowedHosts`。
+
+## 註冊 integration
+
+api-server 啟動後本身不知道任何外部系統，要用 API 註冊。以 MAAS 為例：
+
+```bash
+API=http://127.0.0.1:30051/api/v1
+TOKEN=$(curl -s -X POST $API/auth/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}' | jq -r .accessToken)
+
+SITE=$(curl -s -X POST $API/sites -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"dc-east"}' | jq -r .id)
+
+curl -s -X POST $API/integrations -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d "{
+    \"siteId\":       \"$SITE\",
+    \"kind\":         \"provisioner\",
+    \"providerKind\": \"maas\",
+    \"name\":         \"maas-east\",
+    \"endpoint\":     \"http://10.0.0.5:5240/MAAS\",
+    \"credential\":   \"<consumer>:<token>:<secret>\"
+  }"
+```
+
+註冊之後 reconciler 會在下一輪（預設 60 秒）把 MAAS 的 machine 投影成 server，
+或用 `POST $API/provisioning/reconcile` 立刻跑一次。
+
+憑證寫進去之後**讀不回來**，任何回應都不會包含它；`hasCredential` 只告訴你有沒有存。
+`GET $API/integrations` 的 `sync` 欄位會顯示上次同步的時間與錯誤，連不上 MAAS 時
+`lastSucceededAt` 會保持舊值而 `lastError` 有內容——這樣看得出資料有多舊。
+
+其他 kind 同樣方式註冊：`automation`/`awx`、`metrics`/`prometheus`、
+`cluster`/`kubernetes`、`cluster`/`slurm`。
+
+## Troubleshooting
+
+- **`permission denied ... /var/run/docker.sock`** — 目前 shell 尚未套用 `docker`
+  group。重新登入，或以 `sg docker -c "docker compose ps"` 暫時取得群組身分。
+- **`npm warn allow-scripts ... esbuild`** — 可忽略。esbuild 透過
+  optionalDependencies 取得平台 binary，被擋下的 postinstall 只是備援路徑。
+  若要執行 Playwright 測試，需另外在容器內安裝瀏覽器。
+- **改了環境變數但沒生效** — Vite 的 `import.meta.env` 在 dev server 啟動時就已固定，
+  請 `docker compose restart dashboard`。
+- **api-server 一直重啟** — 多半是編譯錯誤，`docker compose logs api-server`
+  會直接顯示 air 的 build 輸出。

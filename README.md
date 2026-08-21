@@ -33,6 +33,7 @@ GPU Datacenter Management 由多個獨立 sub-project 組成
 - 根目錄 component symlinks — 以角色名稱（如 `api-server`、`dashboard`）
   指向 `src/<repo>`，讓路徑語意貼近領域而非 repo 命名。
 - [`docs/`](docs/) — platform 共通約束文件，包含結構契約、glossary、API contract 等。
+- [`deploy/`](deploy/) — 跨 sub-project 的環境編排，例如本機開發環境。
 
 ## Repository Layout
 
@@ -41,6 +42,8 @@ GPU Datacenter Management 由多個獨立 sub-project 組成
 ├── api-server  -> src/swallow      # symlink, component
 ├── dashboard   -> src/dashboard    # symlink, component
 ├── AGENTS.md                       # AI agent 入口導引
+├── deploy/                         # 跨 sub-project 環境編排
+│   └── dev/                        # 本機開發環境 (Docker Compose)
 ├── docs/                           # platform 共通約束文件
 │   ├── development/                # 平台層級開發規範
 │   │   ├── architecture-spec.md    # Strategic DDD 架構憲法
@@ -107,7 +110,20 @@ git submodule update --init --recursive
 git submodule update --remote
 ```
 
-各 sub-project 的 build、run、test、deploy 指令請見其對應的 [`src/<repo>/`](src/) README。
+### 啟動本機開發環境
+
+MongoDB 與所有 component 以 Docker Compose 一次啟動，host 只需要 Docker：
+
+```bash
+cd deploy/dev
+docker compose up -d
+```
+
+dashboard 位於 <http://localhost:5173>，API 位於 <http://localhost:30051>，
+預設 admin 帳號為 `admin` / `admin`。
+完整說明（設定、hot reload、遠端存取）見 [`deploy/dev/README.md`](deploy/dev/README.md)。
+
+各 sub-project 單獨的 build、run、test 指令請見其對應的 [`src/<repo>/`](src/) README。
 
 ## Contributing
 
