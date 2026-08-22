@@ -8,10 +8,16 @@ alwaysApply: true
 When creating or updating implementation plans for this codebase:
 
 - Do not store project plans only in Cursor's default user-level plan storage.
-- Save all project-level plan manuscripts under:
+- Save all project-level plan manuscripts under the superproject root, in the
+  single canonical, flat location:
 
   `docs/plans/manuscripts/`
 
+- This location is absolute for this workspace: even when a plan is about a
+  component under `src/<project>` (e.g. `dashboard`, `swallow`), the manuscript
+  still goes in the **root** `docs/plans/manuscripts/`. Do NOT write plan
+  manuscripts into a submodule's `docs/plans/manuscripts/`, and do NOT drop the
+  `plans/` path segment (`docs/manuscripts/` is wrong).
 - Use Markdown files.
 - File naming convention:
 
@@ -19,3 +25,11 @@ When creating or updating implementation plans for this codebase:
 
 - Before implementation, create or update the relevant plan file first.
 - If a plan already exists for the same topic, update the existing file instead of creating a duplicate.
+
+## Enforcement
+
+This convention is not advisory-only. A `preToolUse` project hook
+(`.cursor/hooks/enforce-plan-location.py`, wired in `.cursor/hooks.json`)
+hard-blocks any `Write` that creates a plan manuscript outside
+`docs/plans/manuscripts/`. A blocked write returns `permission: "deny"` with the
+correct target path; re-issue the write there instead of working around it.

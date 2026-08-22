@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": "python3 .cursor/hooks/enforce-plan-location.py",
+        "matcher": "Write",
+        "failClosed": false
+      }
+    ]
+  }
+}
