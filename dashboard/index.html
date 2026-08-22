@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DC Dashboard</title>
+    <script>
+      // Set the colour scheme before React mounts to avoid a flash. Reads the same
+      // localStorage key the app persists ('color-scheme', stored as a JSON string); the
+      // Radix <Theme appearance> then takes over once the app renders.
+      try {
+        var raw = window.localStorage.getItem('color-scheme');
+        var cs = raw ? raw.replace(/"/g, '') : 'dark';
+        document.documentElement.classList.add(cs);
+        document.documentElement.style.colorScheme = cs;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
