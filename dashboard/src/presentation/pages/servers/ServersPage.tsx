@@ -7,6 +7,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { InfoCallout } from '@/presentation/components/InfoCallout'
 import { Pagination } from '@/presentation/components/radix/Pagination'
 import { DoubleRow } from '@/presentation/components/table/DoubleRow'
 import { SortableTh } from '@/presentation/components/table/SortableTh'
@@ -284,16 +285,11 @@ export function ServersPage() {
       />
 
       {provisioners.length === 0 && state.status === 'ready' && (
-        <Callout.Root color="amber" mb="4">
-          <Callout.Icon>
-            <ExclamationTriangleIcon />
-          </Callout.Icon>
-          <Callout.Text>
-            No provisioner registered. Servers appear once a provisioner integration is
-            registered and reconciled. Register one through the API; the dashboard does not
-            handle credentials.
-          </Callout.Text>
-        </Callout.Root>
+        <InfoCallout>
+          No provisioner registered. Servers appear once a provisioner integration is
+          registered and reconciled. Register one through the API; the dashboard does not
+          handle credentials.
+        </InfoCallout>
       )}
 
       {staleProvisioners.map((integration) => (
