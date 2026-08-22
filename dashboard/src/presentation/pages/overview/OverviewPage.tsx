@@ -5,7 +5,6 @@ import { useApp } from '@/di/AppProvider'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
-import { InfoCallout } from '@/presentation/components/InfoCallout'
 import type { Server } from '@/domain/server/types'
 import type { Integration, Site } from '@/domain/site/types'
 
@@ -110,13 +109,6 @@ export function OverviewPage() {
   return (
     <>
       <PageHeader title="Overview" subtitle="What the platform currently knows." />
-
-      {integrations.length === 0 && (
-        <InfoCallout>
-          Nothing is integrated yet. swallow reads everything from external systems. Register
-          a site and at least one provisioner through the API to see servers here.
-        </InfoCallout>
-      )}
 
       {failing.map((integration) => (
         <Callout.Root key={integration.id} color="orange" mb="4">
