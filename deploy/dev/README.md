@@ -2,8 +2,8 @@
 
 ## Purpose
 
-以 Docker Compose 啟動整個 platform 的本機開發環境：MongoDB 加上 `src/` 底下
-所有 component，每個 component 都以 bind mount 掛入自己的原始碼並支援 hot reload。
+以 Docker Compose 啟動整個 platform 的本機開發環境：MongoDB 加上每個 component，
+每個 component 都以 bind mount 掛入自己的原始碼並支援 hot reload。
 
 toolchain（Go、Node）全部封裝在 container 內，host 只需要 Docker，
 不需要另外安裝 Go 或 Node。
@@ -12,7 +12,6 @@ toolchain（Go、Node）全部封裝在 container 內，host 只需要 Docker，
 
 - Docker Engine 與 Compose plugin。
 - 目前使用者屬於 `docker` group（`id -nG` 應包含 `docker`；剛加入時需重新登入才生效）。
-- submodule 已拉齊：`git submodule update --init --recursive`。
 
 ## Quick Start
 
@@ -22,7 +21,7 @@ docker compose up -d
 ```
 
 首次啟動需要下載 Go modules 與 npm 套件，約 1–2 分鐘；之後兩者都會落在
-named volume 與 `src/dashboard/node_modules`，重啟即為秒級。
+named volume 與 `dashboard/node_modules`，重啟即為秒級。
 
 啟動後：
 
@@ -52,7 +51,7 @@ docker compose build --no-cache        # 重建開發映像（改動 Dockerfile 
 
 其中兩項較常需要調整：
 
-- `DEV_UID` / `DEV_GID` — container 內執行身分。必須與 `src/` 的擁有者一致，
+- `DEV_UID` / `DEV_GID` — container 內執行身分。必須與 component 目錄的擁有者一致，
   否則 container 寫入 bind mount 的檔案（如 `node_modules`）在 host 端會無法編輯。
   預設 `1001:1001`；修改後需重建映像。
 - `VITE_API_BASE_URL` — 預設留空，dashboard 會從瀏覽器實際使用的主機推導 API 位址
@@ -70,13 +69,13 @@ docker compose build --no-cache        # 重建開發映像（改動 Dockerfile 
 
 ## Hot Reload 行為
 
-- **api-server** — 由 [air](https://github.com/air-verse/air) 監看 `src/swallow`，
+- **api-server** — 由 [air](https://github.com/air-verse/air) 監看 `api-server`，
   `.go` / `.yaml` 變更即重新編譯並重啟。編譯產物寫在 container 的 `/tmp/air`，
-  不會弄髒 submodule 的 working tree。設定見 [`air.toml`](air.toml)。
-- **dashboard** — Vite HMR，`src/dashboard` 的變更立即反映在瀏覽器。
+  不會弄髒 working tree。設定見 [`air.toml`](air.toml)。
+- **dashboard** — Vite HMR，`dashboard` 的變更立即反映在瀏覽器。
   `package-lock.json` 較 `node_modules` 新時，entrypoint 會自動重跑 `npm ci`。
 
-api-server 的 Go 版本刻意固定在 `src/swallow/go.mod` 宣告的 1.25；
+api-server 的 Go 版本刻意固定在 `api-server/go.mod` 宣告的 1.25；
 air 因為需要較新的 compiler，改由獨立的 build stage 編譯後複製進來。
 
 ## 從其他機器連入
@@ -91,7 +90,7 @@ ssh -L 5173:localhost:5173 -L 30051:localhost:30051 <user>@<host>
 ```
 
 Vite 預設只信任以 IP 或 localhost 形式送來的 Host header；
-若要用網域名稱存取，需在 `src/dashboard/vite.config.ts` 設定 `server.allowedHosts`。
+若要用網域名稱存取，需在 `dashboard/vite.config.ts` 設定 `server.allowedHosts`。
 
 ## 註冊 integration
 

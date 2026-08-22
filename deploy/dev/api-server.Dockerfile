@@ -1,4 +1,4 @@
-# Development image for the api-server component (src/swallow).
+# Development image for the api-server component (api-server).
 #
 # The image ships only the toolchain; the source tree is bind-mounted at runtime
 # so that editing a file on the host never requires an image rebuild.

@@ -1,6 +1,6 @@
 # Hot-reload config for the api-server dev container.
 # Build artefacts go to /tmp inside the container so the bind-mounted
-# submodule working tree stays clean.
+# working tree stays clean.
 
 root = "/app"
 tmp_dir = "/tmp/air"

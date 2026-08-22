@@ -54,7 +54,7 @@ services:
     ports:
       - "${API_HTTP_PORT:-30051}:30051"
     volumes:
-      - ../../src/swallow:/app
+      - ../../api-server:/app
       - ./air.toml:/etc/swallow/air.toml:ro
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/go/cache
@@ -87,7 +87,7 @@ services:
     ports:
       - "${DASHBOARD_PORT:-5173}:5173"
     volumes:
-      - ../../src/dashboard:/app
+      - ../../dashboard:/app
       - ./dashboard-entrypoint.sh:/etc/swallow/dashboard-entrypoint.sh:ro
       - npm-cache:/npm-cache
 

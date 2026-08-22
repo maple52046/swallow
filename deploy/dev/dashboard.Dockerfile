@@ -1,4 +1,4 @@
-# Development image for the dashboard component (src/dashboard).
+# Development image for the dashboard component (dashboard).
 #
 # The image ships only the Node toolchain; the source tree is bind-mounted at
 # runtime and dependencies are installed by the entrypoint, so a dependency
