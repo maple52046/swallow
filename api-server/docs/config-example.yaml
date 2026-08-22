@@ -1,0 +1,60 @@
+# swallow config example
+#
+# This file covers only how the process runs. What swallow talks to — provisioners,
+# automation controllers, metrics stores, clusters — is registered at runtime as
+# integration records, because a fleet has many of each and they change without a
+# redeploy. There is deliberately no MAAS or AWX section here.
+#
+# Values shown are for local development. Production must override jwtSecret,
+# credentialKey, machineToken, bootstrapAdminPassword, and mongoUri.
+
+api:
+  # HTTP listen address.
+  addr: ":30051"
+
+  # MongoDB connection string.
+  mongoUri: "mongodb://localhost:27017"
+
+  # MongoDB database name.
+  mongoDb: "swallow"
+
+  # HMAC secret for signing JWT tokens. Must be kept private.
+  jwtSecret: "dev-secret-change-in-production"
+
+  # JWT token validity window in hours.
+  jwtExpiryHours: 24
+
+  # Admin user seeded on first startup. Ignored if the user already exists.
+  bootstrapAdminUsername: "admin"
+  bootstrapAdminPassword: "admin"
+
+  # Base64-encoded 32-byte key that seals integration credentials at rest.
+  # Required, with no default: a shipped default encryption key looks like protection
+  # and is not. Generate one with:  openssl rand -base64 32
+  # Never log or commit this value. Changing it makes existing stored credentials
+  # unreadable, so rotating it means re-entering every integration credential.
+  credentialKey: "REPLACE-ME-openssl-rand-base64-32"
+
+  # Static bearer token for callers that are other systems: Prometheus pulling scrape
+  # targets from /api/v1/discovery/prometheus, AWX posting job notifications to
+  # /api/v1/webhooks/automation/{integrationId}.
+  #
+  # Optional. When unset those endpoints require an admin JWT, which is fine for
+  # inspecting them by hand but not for Prometheus, which cannot refresh one.
+  # Accepted only on those endpoints. Never log or commit this value.
+  machineToken: ""
+
+  # How often each enabled provisioner is polled to refresh server projections, and
+  # each registered cluster to refresh membership.
+  reconcileInterval: "60s"
+
+  # How often the attached-hardware inventory (GPUs) is refreshed. Much longer than
+  # reconcileInterval because attached devices cost a call per machine and change only at
+  # commissioning, so polling them as often as lifecycle state would multiply request
+  # count for near-static data.
+  inventoryInterval: "15m"
+
+  # How often unfinished operations are re-read from their automation controller.
+  # Shorter than reconcileInterval because a job changes state far faster than a
+  # fleet's inventory does.
+  operationPollInterval: "15s"

@@ -1,0 +1,358 @@
+package tests
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+
+	clusterapp "github.com/AFDEAPAC/swallow/internal/cluster/application"
+	clusterdelivery "github.com/AFDEAPAC/swallow/internal/cluster/delivery"
+	discoveryapp "github.com/AFDEAPAC/swallow/internal/discovery/application"
+	discoverydelivery "github.com/AFDEAPAC/swallow/internal/discovery/delivery"
+	monitoringapp "github.com/AFDEAPAC/swallow/internal/monitoring/application"
+	monitoringdelivery "github.com/AFDEAPAC/swallow/internal/monitoring/delivery"
+	operationapp "github.com/AFDEAPAC/swallow/internal/operation/application"
+	operationdelivery "github.com/AFDEAPAC/swallow/internal/operation/delivery"
+	provisioningapp "github.com/AFDEAPAC/swallow/internal/provisioning/application"
+	provisioningdelivery "github.com/AFDEAPAC/swallow/internal/provisioning/delivery"
+	serverapp "github.com/AFDEAPAC/swallow/internal/server/application"
+	serverdelivery "github.com/AFDEAPAC/swallow/internal/server/delivery"
+	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	"github.com/AFDEAPAC/swallow/internal/shared/jwt"
+	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
+	siteapp "github.com/AFDEAPAC/swallow/internal/site/application"
+	sitedelivery "github.com/AFDEAPAC/swallow/internal/site/delivery"
+	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+)
+
+// testHealthResolver stands in for the metrics integration.
+type testHealthResolver struct {
+	health map[string]*serverdomain.HealthStatus
+	err    error
+}
+
+func (r *testHealthResolver) ResolveHealth(_ context.Context, serverIDs []string) (map[string]*serverdomain.HealthStatus, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	resolved := map[string]*serverdomain.HealthStatus{}
+	for _, id := range serverIDs {
+		if h, ok := r.health[id]; ok {
+			resolved[id] = h
+		}
+	}
+	return resolved, nil
+}
+
+type platformFixture struct {
+	app          *fiber.App
+	jwtSvc       *jwt.Service
+	servers      *fakeServerRepo
+	sites        *fakeSiteRepo
+	integrations *fakeIntegrationRepo
+	provider     *fakeProvider
+	factory      *fakeProviderFactory
+	health       *testHealthResolver
+
+	operationRepo *fakeOperationRepo
+	controller    *fakeController
+	monitoring    *fakeMonitoringFactory
+	clusterRepo   *fakeClusterRepo
+	clusterReader *fakeReaderFactory
+}
+
+// setupPlatform wires the routes exactly as internal/app does, so that route shape and
+// middleware are covered rather than only the use cases.
+func setupPlatform(t *testing.T) *platformFixture {
+	t.Helper()
+
+	servers := newFakeServerRepo()
+	sites := newFakeSiteRepo()
+	integrations := newFakeIntegrationRepo()
+	provider := newFakeProvider()
+	factory := newFakeProviderFactory()
+	factory.providers[testIntegrationID] = provider
+	health := &testHealthResolver{health: map[string]*serverdomain.HealthStatus{}}
+
+	jwtSvc := jwt.NewService("test-secret", time.Hour)
+
+	siteHandler := sitedelivery.NewSiteHandler(
+		siteapp.NewSiteService(sites, integrations),
+		siteapp.NewIntegrationService(integrations, sites, servers),
+	)
+	serverHandler := serverdelivery.NewServerHandler(
+		serverapp.NewListServersUseCase(servers, health),
+		serverapp.NewGetServerUseCase(servers, health),
+	)
+	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
+		provisioningapp.NewDeployServerUseCase(servers, factory),
+		provisioningapp.NewReleaseServerUseCase(servers, factory),
+		provisioningapp.NewListOSImagesUseCase(factory),
+		provisioningapp.NewReconcileUseCase(integrations, servers, factory),
+		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
+		provisioningapp.NewMachineActionsUseCase(servers, factory),
+	)
+	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
+		discoveryapp.NewDiscoveryUseCase(servers),
+	)
+
+	monitoringFactory := newFakeMonitoringFactory()
+	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
+		monitoringapp.NewAlertService(monitoringFactory),
+		monitoringapp.NewServerMetricsService(monitoringFactory),
+	)
+
+	clusterRepo := newFakeClusterRepo()
+	readerFactory := newFakeReaderFactory()
+	membershipSync := clusterapp.NewMembershipSyncUseCase(clusterRepo, servers, readerFactory)
+	clusterHandler := clusterdelivery.NewClusterHandler(
+		clusterapp.NewClusterService(clusterRepo, sites, servers),
+		membershipSync,
+	)
+
+	operationRepo := newFakeOperationRepo()
+	controller := newFakeController()
+	controllerFactory := newFakeControllerFactory()
+	controllerFactory.controllers[testAutomationID] = controller
+	// The real policy checker, so that the gpuStackOwner conflict is exercised end to
+	// end rather than being asserted against a stub.
+	operationService := operationapp.NewOperationService(
+		operationRepo, servers, integrations, controllerFactory,
+		clusterapp.NewPolicyChecker(clusterRepo, servers))
+	operationHandler := operationdelivery.NewOperationHandler(operationService)
+
+	app := fiber.New()
+	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
+	v1 := app.Group("/api/v1")
+
+	siteGroup := v1.Group("/sites", admin...)
+	siteGroup.Post("/", siteHandler.CreateSite)
+	siteGroup.Get("/", siteHandler.ListSites)
+	siteGroup.Get("/:id", siteHandler.GetSite)
+	siteGroup.Patch("/:id", siteHandler.UpdateSite)
+	siteGroup.Delete("/:id", siteHandler.DeleteSite)
+
+	integrationGroup := v1.Group("/integrations", admin...)
+	integrationGroup.Post("/", siteHandler.CreateIntegration)
+	integrationGroup.Get("/", siteHandler.ListIntegrations)
+	integrationGroup.Get("/:id", siteHandler.GetIntegration)
+	integrationGroup.Patch("/:id", siteHandler.UpdateIntegration)
+	integrationGroup.Put("/:id/credential", siteHandler.ReplaceCredential)
+	integrationGroup.Delete("/:id", siteHandler.DeleteIntegration)
+
+	serverGroup := v1.Group("/servers", admin...)
+	serverGroup.Get("/", serverHandler.List)
+	serverGroup.Get("/:id", serverHandler.Get)
+	serverGroup.Get("/:id/provisioner-detail", provisioningHandler.ProvisionerDetail)
+	serverGroup.Post("/:id/deploy", provisioningHandler.Deploy)
+	serverGroup.Post("/:id/release", provisioningHandler.Release)
+	serverGroup.Post("/:id/power-on", provisioningHandler.PowerOn)
+	serverGroup.Post("/:id/power-off", provisioningHandler.PowerOff)
+	serverGroup.Get("/:id/power-state", provisioningHandler.PowerState)
+	serverGroup.Post("/:id/commission", provisioningHandler.Commission)
+	serverGroup.Post("/:id/test", provisioningHandler.Test)
+	serverGroup.Post("/:id/abort", provisioningHandler.Abort)
+	serverGroup.Post("/:id/override-failed-testing", provisioningHandler.OverrideFailedTesting)
+	serverGroup.Post("/:id/lock", provisioningHandler.Lock)
+	serverGroup.Post("/:id/unlock", provisioningHandler.Unlock)
+	serverGroup.Post("/:id/mark-broken", provisioningHandler.MarkBroken)
+	serverGroup.Post("/:id/mark-fixed", provisioningHandler.MarkFixed)
+	serverGroup.Post("/:id/rescue-mode", provisioningHandler.RescueMode)
+	serverGroup.Post("/:id/exit-rescue-mode", provisioningHandler.ExitRescueMode)
+
+	provisioningGroup := v1.Group("/provisioning", admin...)
+	provisioningGroup.Get("/images", provisioningHandler.ListImages)
+	provisioningGroup.Post("/reconcile", provisioningHandler.ReconcileAll)
+	provisioningGroup.Post("/integrations/:id/reconcile", provisioningHandler.Reconcile)
+
+	clusterGroup := v1.Group("/clusters", admin...)
+	clusterGroup.Post("/", clusterHandler.Create)
+	clusterGroup.Get("/", clusterHandler.List)
+	clusterGroup.Get("/:id", clusterHandler.Get)
+	clusterGroup.Patch("/:id", clusterHandler.Update)
+	clusterGroup.Delete("/:id", clusterHandler.Delete)
+	clusterGroup.Post("/:id/sync", clusterHandler.SyncMembership)
+
+	monitoringGroup := v1.Group("/monitoring", admin...)
+	monitoringGroup.Get("/alerts", monitoringHandler.ListAlerts)
+	monitoringGroup.Post("/alerts/:fingerprint/acknowledge", monitoringHandler.Acknowledge)
+	monitoringGroup.Get("/metrics", monitoringHandler.ServerMetrics)
+	monitoringGroup.Get("/metrics/names", monitoringHandler.MetricNames)
+
+	operationGroup := v1.Group("/operations", admin...)
+	operationGroup.Post("/", operationHandler.Create)
+	operationGroup.Get("/", operationHandler.List)
+	operationGroup.Get("/:id", operationHandler.Get)
+	operationGroup.Get("/:id/logs", operationHandler.Logs)
+	operationGroup.Post("/:id/refresh", operationHandler.Refresh)
+
+	machine := middleware.MachineAuth(jwtSvc, testMachineToken)
+
+	discoveryGroup := v1.Group("/discovery", machine)
+	discoveryGroup.Get("/prometheus", discoveryHandler.PrometheusTargets)
+	discoveryGroup.Get("/ansible", discoveryHandler.AnsibleInventory)
+
+	v1.Post("/webhooks/automation/:integrationId", machine, operationHandler.Webhook)
+
+	return &platformFixture{
+		app:           app,
+		jwtSvc:        jwtSvc,
+		servers:       servers,
+		sites:         sites,
+		integrations:  integrations,
+		provider:      provider,
+		factory:       factory,
+		health:        health,
+		operationRepo: operationRepo,
+		controller:    controller,
+		monitoring:    monitoringFactory,
+		clusterRepo:   clusterRepo,
+		clusterReader: readerFactory,
+	}
+}
+
+const testAutomationID = "integration-awx"
+
+// seedAutomationIntegration registers an AWX controller for the test site, which every
+// operation needs in order to have something to execute with.
+func seedAutomation(t *testing.T, f *platformFixture) {
+	t.Helper()
+	now := time.Now().UTC()
+	if err := f.integrations.Create(context.Background(), &sitedomain.Integration{
+		ID:           testAutomationID,
+		SiteID:       testSiteID,
+		Kind:         sitedomain.IntegrationKindAutomation,
+		ProviderKind: sitedomain.ProviderKindAWX,
+		Name:         "awx",
+		Endpoint:     "https://awx.example.com",
+		Enabled:      true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}, "awx-token"); err != nil {
+		t.Fatalf("seed automation: %v", err)
+	}
+}
+
+const testMachineToken = "discovery-token-for-tests"
+
+// errTestMetricsDown stands in for an unreachable metrics store.
+var errTestMetricsDown = errors.New("metrics store unreachable")
+
+func adminToken(t *testing.T, jwtSvc *jwt.Service) string {
+	t.Helper()
+	token, err := jwtSvc.Sign("admin-1", "admin", "admin")
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	return token
+}
+
+func userToken(t *testing.T, jwtSvc *jwt.Service) string {
+	t.Helper()
+	token, err := jwtSvc.Sign("user-1", "alice", "user")
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	return token
+}
+
+func parseArrayBody(t *testing.T, resp *http.Response) []map[string]any {
+	t.Helper()
+	var items []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode array body: %v", err)
+	}
+	return items
+}
+
+// rawBody returns the response body as text, for assertions about what must not appear
+// anywhere in it.
+func rawBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(raw)
+}
+
+func errorCode(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	body := parseBody(t, resp)
+	errObj, ok := body["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected an error envelope, got %v", body)
+	}
+	code, _ := errObj["code"].(string)
+	return code
+}
+
+func (f *platformFixture) adminAuth(t *testing.T) map[string]string {
+	t.Helper()
+	return map[string]string{"Authorization": "Bearer " + adminToken(t, f.jwtSvc)}
+}
+
+func seedProvisionerIntegration(t *testing.T, f *platformFixture) {
+	t.Helper()
+	now := time.Now().UTC()
+	if err := f.integrations.Create(context.Background(), &sitedomain.Integration{
+		ID:           testIntegrationID,
+		SiteID:       testSiteID,
+		Kind:         sitedomain.IntegrationKindProvisioner,
+		ProviderKind: sitedomain.ProviderKindMAAS,
+		Name:         "maas-east",
+		Endpoint:     "http://maas:5240/MAAS",
+		Enabled:      true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}, "ck:tk:ts"); err != nil {
+		t.Fatalf("seed provisioner: %v", err)
+	}
+}
+
+// seedServer adds a projected server directly, standing in for a reconcile pass.
+func (f *platformFixture) seedServer(id, hostname, address string, mutate func(*serverdomain.Server)) *serverdomain.Server {
+	now := time.Now().UTC()
+	server := &serverdomain.Server{
+		ID: id,
+		Source: serverdomain.Source{
+			SiteID:            testSiteID,
+			IntegrationID:     testIntegrationID,
+			ProviderMachineID: "machine-" + id,
+		},
+		Observed: serverdomain.Observed{
+			Hostname:     hostname,
+			FQDN:         hostname + ".maas",
+			Architecture: "amd64/generic",
+			CPUCores:     32,
+			MemoryMiB:    131072,
+			StorageGB:    512,
+		},
+		Provisioning: &serverdomain.ProvisioningStatus{
+			State:         "deployed",
+			ProviderState: "Deployed",
+			PowerState:    "on",
+			OSSystem:      "ubuntu",
+			DistroSeries:  "jammy",
+			IntegrationID: testIntegrationID,
+			ObservedAt:    now,
+		},
+		LastSeenAt: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if address != "" {
+		server.Observed.Addresses = []string{address}
+	}
+	if mutate != nil {
+		mutate(server)
+	}
+	f.servers.servers[id] = server
+	return server
+}

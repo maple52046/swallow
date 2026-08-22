@@ -1,0 +1,522 @@
+package maas
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
+)
+
+const apiPrefix = "/MAAS/api/2.0"
+
+// readyMachineJSON and deployingMachineJSON are trimmed copies of real MAAS
+// machine objects, keeping the fields the adapter reads.
+const readyMachineJSON = `{
+  "system_id": "abc123",
+  "hostname": "gpu-node-01",
+  "fqdn": "gpu-node-01.maas",
+  "status": 4,
+  "status_name": "Ready",
+  "architecture": "amd64/generic",
+  "cpu_count": 32,
+  "memory": 131072,
+  "storage": 512000.0,
+  "power_state": "off",
+  "osystem": "",
+  "distro_series": "",
+  "ip_addresses": ["10.0.1.10", "10.0.1.11"],
+  "tag_names": ["gpu", "a100"],
+  "zone": {"name": "dc-east"},
+  "pool": {"name": "gpu-pool"}
+}`
+
+const deployingMachineJSON = `{
+  "system_id": "abc123",
+  "hostname": "gpu-node-01",
+  "fqdn": "gpu-node-01.maas",
+  "status": 9,
+  "status_name": "Deploying",
+  "power_state": "on",
+  "osystem": "ubuntu",
+  "distro_series": "jammy"
+}`
+
+// fakeMAAS stands in for a MAAS region controller. Each test registers only the
+// responses it needs, and the recorded request lets tests assert on what the
+// adapter actually sent.
+type fakeMAAS struct {
+	server *httptest.Server
+	mux    *http.ServeMux
+
+	lastAuthorization string
+	lastContentType   string
+	lastOperation     string
+	lastForm          map[string]string
+}
+
+func newFakeMAAS(t *testing.T) *fakeMAAS {
+	t.Helper()
+
+	f := &fakeMAAS{mux: http.NewServeMux()}
+	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.lastAuthorization = r.Header.Get("Authorization")
+		f.lastContentType = r.Header.Get("Content-Type")
+		f.lastOperation = r.URL.Query().Get("op")
+
+		if r.Method == http.MethodPost {
+			f.lastForm = map[string]string{}
+			// An operation with no parameters produces an empty multipart body,
+			// so a parse failure here is not a test failure.
+			if err := r.ParseMultipartForm(1 << 20); err == nil {
+				for name, values := range r.MultipartForm.Value {
+					if len(values) > 0 {
+						f.lastForm[name] = values[0]
+					}
+				}
+			}
+		}
+
+		f.mux.ServeHTTP(w, r)
+	}))
+	t.Cleanup(f.server.Close)
+
+	return f
+}
+
+func (f *fakeMAAS) respond(pattern string, statusCode int, body string) {
+	f.mux.HandleFunc(pattern, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		_, _ = w.Write([]byte(body))
+	})
+}
+
+func (f *fakeMAAS) onListMachines(statusCode int, body string) {
+	f.respond("GET "+apiPrefix+"/machines/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onGetMachine(statusCode int, body string) {
+	f.respond("GET "+apiPrefix+"/machines/{id}/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onMachineOperation(statusCode int, body string) {
+	f.respond("POST "+apiPrefix+"/machines/{id}/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onVersion(statusCode int, body string) {
+	f.respond("GET "+apiPrefix+"/version/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onBootResources(statusCode int, body string) {
+	f.respond("GET "+apiPrefix+"/boot-resources/{$}", statusCode, body)
+}
+
+func newTestProvider(t *testing.T, f *fakeMAAS) *Provider {
+	t.Helper()
+	client, err := NewClient(f.server.URL, "ck:tk:ts", 5*time.Second, false)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	return NewProvider(client)
+}
+
+func TestListMachines_MapsMAASFields(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onListMachines(http.StatusOK, "["+readyMachineJSON+"]")
+	provider := newTestProvider(t, fake)
+
+	machines, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{})
+	if err != nil {
+		t.Fatalf("ListMachines: %v", err)
+	}
+	if len(machines) != 1 {
+		t.Fatalf("expected 1 machine, got %d", len(machines))
+	}
+
+	m := machines[0]
+	if m.ID != "abc123" {
+		t.Errorf("ID: got %q, want %q", m.ID, "abc123")
+	}
+	if m.Hostname != "gpu-node-01" {
+		t.Errorf("Hostname: got %q", m.Hostname)
+	}
+	if m.FQDN != "gpu-node-01.maas" {
+		t.Errorf("FQDN: got %q", m.FQDN)
+	}
+	if m.Status != provisioningdomain.MachineStatusReady {
+		t.Errorf("Status: got %q, want %q", m.Status, provisioningdomain.MachineStatusReady)
+	}
+	if m.ProviderStatus != "Ready" {
+		t.Errorf("ProviderStatus: got %q, want %q", m.ProviderStatus, "Ready")
+	}
+	if m.PowerState != provisioningdomain.PowerStateOff {
+		t.Errorf("PowerState: got %q", m.PowerState)
+	}
+	if m.CPUCores != 32 {
+		t.Errorf("CPUCores: got %d, want 32", m.CPUCores)
+	}
+	if m.MemoryMiB != 131072 {
+		t.Errorf("MemoryMiB: got %d, want 131072", m.MemoryMiB)
+	}
+	if m.StorageGB != 512 {
+		t.Errorf("StorageGB: got %v, want 512", m.StorageGB)
+	}
+	if m.PrimaryIP() != "10.0.1.10" {
+		t.Errorf("PrimaryIP: got %q", m.PrimaryIP())
+	}
+	if m.Zone != "dc-east" {
+		t.Errorf("Zone: got %q", m.Zone)
+	}
+	if m.ResourcePool != "gpu-pool" {
+		t.Errorf("ResourcePool: got %q", m.ResourcePool)
+	}
+	if len(m.Tags) != 2 {
+		t.Errorf("Tags: got %v", m.Tags)
+	}
+}
+
+func TestListMachines_NormalizesStatusCodes(t *testing.T) {
+	cases := []struct {
+		code int
+		want provisioningdomain.MachineStatus
+	}{
+		{0, provisioningdomain.MachineStatusNew},
+		{1, provisioningdomain.MachineStatusCommissioning},
+		{2, provisioningdomain.MachineStatusFailed},
+		{3, provisioningdomain.MachineStatusBroken},
+		{4, provisioningdomain.MachineStatusReady},
+		{5, provisioningdomain.MachineStatusAllocated},
+		{6, provisioningdomain.MachineStatusDeployed},
+		{7, provisioningdomain.MachineStatusRetired},
+		{8, provisioningdomain.MachineStatusBroken},
+		{9, provisioningdomain.MachineStatusDeploying},
+		{10, provisioningdomain.MachineStatusAllocated},
+		{11, provisioningdomain.MachineStatusFailed},
+		{12, provisioningdomain.MachineStatusReleasing},
+		{14, provisioningdomain.MachineStatusReleasing},
+		{16, provisioningdomain.MachineStatusRescue},
+		{21, provisioningdomain.MachineStatusTesting},
+		{22, provisioningdomain.MachineStatusFailed},
+		// A status this version has never heard of must not be guessed at.
+		{999, provisioningdomain.MachineStatusUnknown},
+	}
+
+	for _, tc := range cases {
+		got := toDomainMachine(&machineJSON{Status: tc.code}).Status
+		if got != tc.want {
+			t.Errorf("status %d: got %q, want %q", tc.code, got, tc.want)
+		}
+	}
+}
+
+func TestListMachines_AppliesFilters(t *testing.T) {
+	body := `[` + readyMachineJSON + `,` + deployingMachineJSON + `]`
+
+	t.Run("by status", func(t *testing.T) {
+		fake := newFakeMAAS(t)
+		fake.onListMachines(http.StatusOK, body)
+		provider := newTestProvider(t, fake)
+
+		machines, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{
+			Status: provisioningdomain.MachineStatusDeploying,
+		})
+		if err != nil {
+			t.Fatalf("ListMachines: %v", err)
+		}
+		if len(machines) != 1 || machines[0].Status != provisioningdomain.MachineStatusDeploying {
+			t.Fatalf("expected only the deploying machine, got %d results", len(machines))
+		}
+	})
+
+	t.Run("by keyword is case insensitive", func(t *testing.T) {
+		fake := newFakeMAAS(t)
+		fake.onListMachines(http.StatusOK, body)
+		provider := newTestProvider(t, fake)
+
+		machines, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{
+			Keyword: "GPU-NODE",
+		})
+		if err != nil {
+			t.Fatalf("ListMachines: %v", err)
+		}
+		if len(machines) != 2 {
+			t.Fatalf("expected both machines to match, got %d", len(machines))
+		}
+	})
+
+	t.Run("keyword with no match", func(t *testing.T) {
+		fake := newFakeMAAS(t)
+		fake.onListMachines(http.StatusOK, body)
+		provider := newTestProvider(t, fake)
+
+		machines, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{
+			Keyword: "storage-node",
+		})
+		if err != nil {
+			t.Fatalf("ListMachines: %v", err)
+		}
+		if len(machines) != 0 {
+			t.Fatalf("expected no matches, got %d", len(machines))
+		}
+	})
+}
+
+func TestGetMachine_NotFoundBecomesDomainError(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onGetMachine(http.StatusNotFound, `Not Found`)
+	provider := newTestProvider(t, fake)
+
+	_, err := provider.GetMachine(context.Background(), "missing")
+	if !errors.Is(err, provisioningdomain.ErrMachineNotFound) {
+		t.Fatalf("expected ErrMachineNotFound, got %v", err)
+	}
+}
+
+func TestDeploy_SendsMultipartFormWithEncodedUserData(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onMachineOperation(http.StatusOK, deployingMachineJSON)
+	provider := newTestProvider(t, fake)
+
+	state, err := provider.Deploy(context.Background(), provisioningdomain.DeployRequest{
+		MachineID:    "abc123",
+		OSSystem:     "ubuntu",
+		DistroSeries: "jammy",
+		UserData:     "#cloud-config\npackages: [htop]\n",
+		Comment:      "provisioned by gdcm",
+	})
+	if err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	if fake.lastOperation != "deploy" {
+		t.Errorf("operation: got %q, want %q", fake.lastOperation, "deploy")
+	}
+	// MAAS 2.0 rejects JSON bodies, so the encoding itself is part of the contract.
+	if !strings.HasPrefix(fake.lastContentType, "multipart/form-data") {
+		t.Errorf("content type: got %q, want multipart/form-data", fake.lastContentType)
+	}
+	if fake.lastForm["osystem"] != "ubuntu" {
+		t.Errorf("osystem: got %q", fake.lastForm["osystem"])
+	}
+	if fake.lastForm["distro_series"] != "jammy" {
+		t.Errorf("distro_series: got %q", fake.lastForm["distro_series"])
+	}
+	if fake.lastForm["comment"] != "provisioned by gdcm" {
+		t.Errorf("comment: got %q", fake.lastForm["comment"])
+	}
+
+	wantUserData := base64.StdEncoding.EncodeToString([]byte("#cloud-config\npackages: [htop]\n"))
+	if fake.lastForm["user_data"] != wantUserData {
+		t.Errorf("user_data: got %q, want base64 %q", fake.lastForm["user_data"], wantUserData)
+	}
+
+	if state.Status != provisioningdomain.MachineStatusDeploying {
+		t.Errorf("status: got %q, want deploying", state.Status)
+	}
+}
+
+func TestDeploy_OmitsUnsetOptionalFields(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onMachineOperation(http.StatusOK, deployingMachineJSON)
+	provider := newTestProvider(t, fake)
+
+	if _, err := provider.Deploy(context.Background(), provisioningdomain.DeployRequest{
+		MachineID:    "abc123",
+		DistroSeries: "jammy",
+	}); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	for _, field := range []string{"osystem", "comment", "user_data"} {
+		if _, present := fake.lastForm[field]; present {
+			t.Errorf("expected %q to be omitted when unset, got %q", field, fake.lastForm[field])
+		}
+	}
+}
+
+func TestDeploy_RejectionSurfacesMAASMessage(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onMachineOperation(http.StatusBadRequest,
+		`{"storage": ["Mount the root '/' filesystem to be able to deploy this node."]}`)
+	provider := newTestProvider(t, fake)
+
+	_, err := provider.Deploy(context.Background(), provisioningdomain.DeployRequest{
+		MachineID:    "abc123",
+		DistroSeries: "jammy",
+	})
+
+	var provErr *provisioningdomain.ProviderError
+	if !errors.As(err, &provErr) {
+		t.Fatalf("expected a ProviderError, got %v", err)
+	}
+	if provErr.Kind != provisioningdomain.ProviderErrorRejected {
+		t.Errorf("kind: got %q, want %q", provErr.Kind, provisioningdomain.ProviderErrorRejected)
+	}
+	if !strings.Contains(provErr.Detail, "Mount the root") {
+		t.Errorf("expected MAAS's own explanation in the detail, got %q", provErr.Detail)
+	}
+	if !strings.Contains(provErr.Detail, "storage") {
+		t.Errorf("expected the offending field name in the detail, got %q", provErr.Detail)
+	}
+}
+
+func TestRelease_UsesReleaseOperation(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onMachineOperation(http.StatusOK, readyMachineJSON)
+	provider := newTestProvider(t, fake)
+
+	state, err := provider.Release(context.Background(), "abc123")
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if fake.lastOperation != "release" {
+		t.Errorf("operation: got %q, want %q", fake.lastOperation, "release")
+	}
+	if state.Status != provisioningdomain.MachineStatusReady {
+		t.Errorf("status: got %q, want ready", state.Status)
+	}
+}
+
+func TestRequestsAreSigned(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onListMachines(http.StatusOK, `[]`)
+	provider := newTestProvider(t, fake)
+
+	if _, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{}); err != nil {
+		t.Fatalf("ListMachines: %v", err)
+	}
+
+	auth := fake.lastAuthorization
+	for _, want := range []string{
+		`OAuth `,
+		`oauth_signature_method="PLAINTEXT"`,
+		`oauth_consumer_key="ck"`,
+		`oauth_token="tk"`,
+		`oauth_signature="&ts"`,
+	} {
+		if !strings.Contains(auth, want) {
+			t.Errorf("Authorization header missing %s: %s", want, auth)
+		}
+	}
+}
+
+func TestAuthFailureIsClassifiedAsAuth(t *testing.T) {
+	for _, statusCode := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		fake := newFakeMAAS(t)
+		fake.onListMachines(statusCode, `Invalid API key`)
+		provider := newTestProvider(t, fake)
+
+		_, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{})
+
+		var provErr *provisioningdomain.ProviderError
+		if !errors.As(err, &provErr) {
+			t.Fatalf("HTTP %d: expected a ProviderError, got %v", statusCode, err)
+		}
+		if provErr.Kind != provisioningdomain.ProviderErrorAuth {
+			t.Errorf("HTTP %d: kind got %q, want %q", statusCode, provErr.Kind, provisioningdomain.ProviderErrorAuth)
+		}
+	}
+}
+
+func TestServerErrorIsClassifiedAsUnavailable(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onListMachines(http.StatusInternalServerError, `boom`)
+	provider := newTestProvider(t, fake)
+
+	_, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{})
+
+	var provErr *provisioningdomain.ProviderError
+	if !errors.As(err, &provErr) {
+		t.Fatalf("expected a ProviderError, got %v", err)
+	}
+	if provErr.Kind != provisioningdomain.ProviderErrorUnavailable {
+		t.Errorf("kind: got %q, want %q", provErr.Kind, provisioningdomain.ProviderErrorUnavailable)
+	}
+}
+
+func TestUnreachableProviderIsClassifiedAsUnavailable(t *testing.T) {
+	fake := newFakeMAAS(t)
+	provider := newTestProvider(t, fake)
+	// Closing the listener makes every call a transport failure.
+	fake.server.Close()
+
+	_, err := provider.ListMachines(context.Background(), provisioningdomain.MachineFilter{})
+
+	var provErr *provisioningdomain.ProviderError
+	if !errors.As(err, &provErr) {
+		t.Fatalf("expected a ProviderError, got %v", err)
+	}
+	if provErr.Kind != provisioningdomain.ProviderErrorUnavailable {
+		t.Errorf("kind: got %q, want %q", provErr.Kind, provisioningdomain.ProviderErrorUnavailable)
+	}
+	if provErr.Err == nil {
+		t.Error("expected the underlying transport error to be retained for logs")
+	}
+}
+
+func TestProbe_ReportsVersion(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onVersion(http.StatusOK, `{"version": "3.6.1", "subversion": "beta"}`)
+	provider := newTestProvider(t, fake)
+
+	info, err := provider.Probe(context.Background())
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if info.Name != "maas" {
+		t.Errorf("Name: got %q, want maas", info.Name)
+	}
+	if info.DisplayName != "Ubuntu MAAS" {
+		t.Errorf("DisplayName: got %q", info.DisplayName)
+	}
+	if info.Version != "3.6.1 beta" {
+		t.Errorf("Version: got %q, want %q", info.Version, "3.6.1 beta")
+	}
+}
+
+func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onBootResources(http.StatusOK, `[
+	  {"id": 1, "type": "Synced", "name": "ubuntu/jammy", "title": "Ubuntu 22.04 LTS", "architecture": "amd64/hwe-22.04"},
+	  {"id": 2, "type": "Synced", "name": "ubuntu/jammy", "title": "Ubuntu 22.04 LTS", "architecture": "amd64/ga-22.04"},
+	  {"id": 3, "type": "Synced", "name": "ubuntu/noble", "title": "", "architecture": "arm64/generic"},
+	  {"id": 4, "type": "Synced", "name": "grub-efi", "architecture": "amd64/generic"}
+	]`)
+	provider := newTestProvider(t, fake)
+
+	images, err := provider.ListOSImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListOSImages: %v", err)
+	}
+
+	// The two jammy kernels collapse into one image, and the bootloader resource
+	// is dropped because it is not an OS/release pair.
+	if len(images) != 2 {
+		t.Fatalf("expected 2 images, got %d: %+v", len(images), images)
+	}
+
+	jammy := images[0]
+	if jammy.ID != "ubuntu/jammy" {
+		t.Errorf("ID: got %q, want the distro_series value ubuntu/jammy", jammy.ID)
+	}
+	if jammy.Name != "Ubuntu 22.04 LTS" {
+		t.Errorf("Name: got %q", jammy.Name)
+	}
+	if jammy.OSSystem != "ubuntu" || jammy.Release != "jammy" {
+		t.Errorf("OSSystem/Release: got %q/%q", jammy.OSSystem, jammy.Release)
+	}
+	if jammy.Architecture != "amd64" {
+		t.Errorf("Architecture: got %q, want amd64 without the kernel flavour", jammy.Architecture)
+	}
+
+	noble := images[1]
+	if noble.Name != "ubuntu/noble" {
+		t.Errorf("expected the resource name as a fallback display name, got %q", noble.Name)
+	}
+}

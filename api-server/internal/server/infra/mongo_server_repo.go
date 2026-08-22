@@ -1,0 +1,569 @@
+package infra
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+
+	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+)
+
+// serverDoc is the MongoDB representation of a server projection.
+//
+// The health axis is deliberately absent: it is owned by the metrics store and
+// resolved at query time, so persisting it would create a copy that is wrong within
+// seconds.
+type serverDoc struct {
+	ID       string      `bson:"_id"`
+	Source   sourceDoc   `bson:"source"`
+	Hardware hardwareDoc `bson:"hardware"`
+	Observed observedDoc `bson:"observed"`
+
+	// GPUs is stored at the top level, not inside observed, because it is written by
+	// the inventory sweep on its own cadence. Keeping it out of the observed sub-document
+	// lets a reconcile pass rewrite observed wholesale without wiping the sweep's work,
+	// the same way membership is left untouched.
+	GPUs []gpuDoc `bson:"gpus,omitempty"`
+
+	Provisioning *provisioningDoc `bson:"provisioning,omitempty"`
+	Membership   *membershipDoc   `bson:"membership,omitempty"`
+
+	Absent     bool      `bson:"absent"`
+	LastSeenAt time.Time `bson:"lastSeenAt"`
+	CreatedAt  time.Time `bson:"createdAt"`
+	UpdatedAt  time.Time `bson:"updatedAt"`
+}
+
+type sourceDoc struct {
+	SiteID            string `bson:"siteId"`
+	IntegrationID     string `bson:"integrationId"`
+	ProviderMachineID string `bson:"providerMachineId"`
+}
+
+type hardwareDoc struct {
+	SystemUUID   string   `bson:"systemUuid,omitempty"`
+	SerialNumber string   `bson:"serialNumber,omitempty"`
+	MACAddresses []string `bson:"macAddresses,omitempty"`
+}
+
+type observedDoc struct {
+	Hostname             string   `bson:"hostname,omitempty"`
+	FQDN                 string   `bson:"fqdn,omitempty"`
+	Addresses            []string `bson:"addresses,omitempty"`
+	Architecture         string   `bson:"architecture,omitempty"`
+	CPUCores             int      `bson:"cpuCores,omitempty"`
+	CPUModel             string   `bson:"cpuModel,omitempty"`
+	MemoryMiB            int64    `bson:"memoryMiB,omitempty"`
+	StorageGB            float64  `bson:"storageGB,omitempty"`
+	SystemVendor         string   `bson:"systemVendor,omitempty"`
+	SystemProduct        string   `bson:"systemProduct,omitempty"`
+	ProviderZone         string   `bson:"providerZone,omitempty"`
+	ProviderResourcePool string   `bson:"providerResourcePool,omitempty"`
+	ProviderPod          string   `bson:"providerPod,omitempty"`
+	Tags                 []string `bson:"tags,omitempty"`
+}
+
+type gpuDoc struct {
+	Vendor string `bson:"vendor"`
+	Model  string `bson:"model"`
+	Count  int    `bson:"count"`
+}
+
+type provisioningDoc struct {
+	State               string    `bson:"state"`
+	ProviderState       string    `bson:"providerState"`
+	PowerState          string    `bson:"powerState"`
+	OSSystem            string    `bson:"osSystem,omitempty"`
+	DistroSeries        string    `bson:"distroSeries,omitempty"`
+	Ephemeral           bool      `bson:"ephemeral"`
+	HWEKernel           string    `bson:"hweKernel,omitempty"`
+	Locked              bool      `bson:"locked"`
+	CommissioningStatus string    `bson:"commissioningStatus,omitempty"`
+	TestingStatus       string    `bson:"testingStatus,omitempty"`
+	IntegrationID       string    `bson:"integrationId"`
+	ObservedAt          time.Time `bson:"observedAt"`
+}
+
+type membershipDoc struct {
+	ClusterID  string    `bson:"clusterId"`
+	NodeName   string    `bson:"nodeName"`
+	Role       string    `bson:"role,omitempty"`
+	State      string    `bson:"state,omitempty"`
+	ObservedAt time.Time `bson:"observedAt"`
+}
+
+type MongoServerRepo struct {
+	col *mongo.Collection
+}
+
+// obsoleteIndexes are indexes from the pre-projection server model.
+//
+// They are dropped by name on startup because two of them are unique on fields the
+// projection no longer has: a second server would collide on a null hostname. There is
+// no migration framework, and adding one to delete three indexes would be more
+// machinery than the problem deserves — but leaving them would break silently on the
+// second machine a provisioner reports.
+var obsoleteIndexes = []string{
+	"hostname_1",
+	"ip_1",
+	"provisioningSource.provider_1_provisioningSource.machineId_1",
+}
+
+func NewMongoServerRepo(db *mongo.Database) (*MongoServerRepo, error) {
+	col := db.Collection("servers")
+
+	if err := dropObsoleteIndexes(col); err != nil {
+		return nil, err
+	}
+
+	indexes := []mongo.IndexModel{
+		// The external key. The only uniqueness constraint on a server: hostname and
+		// address are observed attributes and legitimately collide across sites.
+		{
+			Keys: bson.D{
+				{Key: "source.siteId", Value: 1},
+				{Key: "source.integrationId", Value: 1},
+				{Key: "source.providerMachineId", Value: 1},
+			},
+			Options: options.Index().SetUnique(true).SetName("source_key"),
+		},
+		// Re-enrollment lookup. Sparse so that the many servers with no serial or no
+		// system UUID are not all indexed under the empty string.
+		{
+			Keys:    bson.D{{Key: "hardware.systemUuid", Value: 1}},
+			Options: options.Index().SetSparse(true).SetName("hardware_system_uuid"),
+		},
+		{
+			Keys:    bson.D{{Key: "hardware.serialNumber", Value: 1}},
+			Options: options.Index().SetSparse(true).SetName("hardware_serial"),
+		},
+		{
+			Keys:    bson.D{{Key: "hardware.macAddresses", Value: 1}},
+			Options: options.Index().SetSparse(true).SetName("hardware_macs"),
+		},
+		// Listing and filtering.
+		{
+			Keys:    bson.D{{Key: "source.integrationId", Value: 1}, {Key: "lastSeenAt", Value: 1}},
+			Options: options.Index().SetName("integration_last_seen"),
+		},
+		{
+			Keys:    bson.D{{Key: "observed.hostname", Value: 1}},
+			Options: options.Index().SetName("hostname"),
+		},
+		{
+			Keys:    bson.D{{Key: "membership.clusterId", Value: 1}},
+			Options: options.Index().SetSparse(true).SetName("membership_cluster"),
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := col.Indexes().CreateMany(ctx, indexes); err != nil {
+		return nil, err
+	}
+
+	return &MongoServerRepo{col: col}, nil
+}
+
+// dropObsoleteIndexes removes indexes from the previous model, tolerating their absence
+// so that a fresh database is not a special case.
+func dropObsoleteIndexes(col *mongo.Collection) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for _, name := range obsoleteIndexes {
+		_, err := col.Indexes().DropOne(ctx, name)
+		if err == nil {
+			log.Printf("dropped obsolete index %q on servers", name)
+			continue
+		}
+		// IndexNotFound (27) is the expected case on any database that never had the
+		// old model. Anything else is a real failure.
+		var cmdErr mongo.CommandError
+		if errors.As(err, &cmdErr) && cmdErr.Code == 27 {
+			continue
+		}
+		return fmt.Errorf("drop obsolete index %q: %w", name, err)
+	}
+	return nil
+}
+
+func (r *MongoServerRepo) FindByID(ctx context.Context, id string) (*serverdomain.Server, error) {
+	var doc serverDoc
+	err := r.col.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
+	if err == mongo.ErrNoDocuments {
+		return nil, serverdomain.ErrServerNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return toServer(&doc), nil
+}
+
+func (r *MongoServerRepo) FindBySource(ctx context.Context, source serverdomain.Source) (*serverdomain.Server, error) {
+	var doc serverDoc
+	err := r.col.FindOne(ctx, bson.M{
+		"source.siteId":            source.SiteID,
+		"source.integrationId":     source.IntegrationID,
+		"source.providerMachineId": source.ProviderMachineID,
+	}).Decode(&doc)
+	if err == mongo.ErrNoDocuments {
+		return nil, serverdomain.ErrServerNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return toServer(&doc), nil
+}
+
+// FindByHardware matches on any non-empty identifier.
+//
+// Empty identifiers are excluded before building the query: a clause matching the
+// empty string would match every server that lacks that identifier, turning an
+// identity lookup into a full scan with arbitrary results.
+func (r *MongoServerRepo) FindByHardware(ctx context.Context, hardware serverdomain.Hardware) ([]*serverdomain.Server, error) {
+	systemUUID, serialNumber, macs := hardware.Identifiers()
+
+	var clauses bson.A
+	if systemUUID != "" {
+		clauses = append(clauses, bson.M{"hardware.systemUuid": systemUUID})
+	}
+	if serialNumber != "" {
+		clauses = append(clauses, bson.M{"hardware.serialNumber": serialNumber})
+	}
+	if len(macs) > 0 {
+		clauses = append(clauses, bson.M{"hardware.macAddresses": bson.M{"$in": macs}})
+	}
+	if len(clauses) == 0 {
+		return nil, nil
+	}
+
+	cursor, err := r.col.Find(ctx, bson.M{"$or": clauses})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var docs []serverDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+
+	servers := make([]*serverdomain.Server, len(docs))
+	for i := range docs {
+		servers[i] = toServer(&docs[i])
+	}
+	return servers, nil
+}
+
+func (r *MongoServerRepo) List(ctx context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
+	query := bson.M{}
+
+	if filter.SiteID != "" {
+		query["source.siteId"] = filter.SiteID
+	}
+	if filter.IntegrationID != "" {
+		query["source.integrationId"] = filter.IntegrationID
+	}
+	if filter.ProvisioningState != "" {
+		query["provisioning.state"] = filter.ProvisioningState
+	}
+	if filter.ClusterID != "" {
+		query["membership.clusterId"] = filter.ClusterID
+	}
+	if !filter.IncludeAbsent {
+		query["absent"] = false
+	}
+	if filter.Keyword != "" {
+		regex := bson.M{"$regex": filter.Keyword, "$options": "i"}
+		query["$or"] = bson.A{
+			bson.M{"observed.hostname": regex},
+			bson.M{"observed.fqdn": regex},
+			bson.M{"observed.addresses": regex},
+		}
+	}
+
+	total, err := r.col.CountDocuments(ctx, query)
+	if err != nil {
+		return serverdomain.ListResult{}, err
+	}
+
+	opts := options.Find().
+		SetSkip(int64(filter.Offset)).
+		SetSort(bson.D{{Key: "observed.hostname", Value: 1}, {Key: "_id", Value: 1}})
+	// Limit 0 means unlimited, which the discovery endpoints rely on: a scrape target
+	// list or an automation inventory has to be complete.
+	if filter.Limit > 0 {
+		opts.SetLimit(int64(filter.Limit))
+	}
+
+	cursor, err := r.col.Find(ctx, query, opts)
+	if err != nil {
+		return serverdomain.ListResult{}, err
+	}
+	defer cursor.Close(ctx)
+
+	var docs []serverDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		return serverdomain.ListResult{}, err
+	}
+
+	servers := make([]*serverdomain.Server, len(docs))
+	for i := range docs {
+		servers[i] = toServer(&docs[i])
+	}
+
+	return serverdomain.ListResult{Servers: servers, Total: int(total)}, nil
+}
+
+// Upsert writes the projection and clears the absent flag: a machine the provisioner
+// just reported is by definition present.
+func (r *MongoServerRepo) Upsert(ctx context.Context, server *serverdomain.Server) error {
+	doc := toDoc(server)
+
+	_, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": server.ID},
+		bson.M{
+			"$set": bson.M{
+				"source":       doc.Source,
+				"hardware":     doc.Hardware,
+				"observed":     doc.Observed,
+				"provisioning": doc.Provisioning,
+				"absent":       false,
+				"lastSeenAt":   doc.LastSeenAt,
+				"updatedAt":    doc.UpdatedAt,
+			},
+			// Membership is not written here: it is owned by the cluster context and
+			// would be erased on every reconcile pass if this replaced the document.
+			"$setOnInsert": bson.M{"createdAt": doc.CreatedAt},
+		},
+		options.Update().SetUpsert(true),
+	)
+	return err
+}
+
+func (r *MongoServerRepo) MarkAbsent(ctx context.Context, integrationID string, seenBefore time.Time) (int, error) {
+	result, err := r.col.UpdateMany(ctx,
+		bson.M{
+			"source.integrationId": integrationID,
+			"lastSeenAt":           bson.M{"$lt": seenBefore},
+			"absent":               false,
+		},
+		bson.M{"$set": bson.M{"absent": true, "updatedAt": time.Now().UTC()}},
+	)
+	if err != nil {
+		return 0, err
+	}
+	return int(result.ModifiedCount), nil
+}
+
+func (r *MongoServerRepo) SetMembership(ctx context.Context, id string, membership *serverdomain.MembershipStatus) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if membership == nil {
+		update["$unset"] = bson.M{"membership": ""}
+	} else {
+		update["$set"].(bson.M)["membership"] = membershipDoc{
+			ClusterID:  membership.ClusterID,
+			NodeName:   membership.NodeName,
+			Role:       membership.Role,
+			State:      membership.State,
+			ObservedAt: membership.ObservedAt,
+		}
+	}
+
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return nil
+}
+
+// SetGPUs replaces the GPU inventory, or clears it when gpus is empty.
+//
+// Written separately from the reconcile Upsert because it is produced by the inventory
+// sweep on its own cadence: folding it into Upsert would mean either fetching devices on
+// every reconcile pass or having the pass wipe what the sweep found.
+func (r *MongoServerRepo) SetGPUs(ctx context.Context, id string, gpus []serverdomain.GPU) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if docs := gpuDocs(gpus); len(docs) > 0 {
+		update["$set"].(bson.M)["gpus"] = docs
+	} else {
+		update["$unset"] = bson.M{"gpus": ""}
+	}
+
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return nil
+}
+
+func (r *MongoServerRepo) CountByIntegration(ctx context.Context, integrationID string) (int, error) {
+	count, err := r.col.CountDocuments(ctx, bson.M{"source.integrationId": integrationID})
+	return int(count), err
+}
+
+func (r *MongoServerRepo) Delete(ctx context.Context, id string) error {
+	result, err := r.col.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return nil
+}
+
+func toDoc(s *serverdomain.Server) *serverDoc {
+	doc := &serverDoc{
+		ID: s.ID,
+		Source: sourceDoc{
+			SiteID:            s.Source.SiteID,
+			IntegrationID:     s.Source.IntegrationID,
+			ProviderMachineID: s.Source.ProviderMachineID,
+		},
+		Hardware: hardwareDoc{
+			SystemUUID:   s.Hardware.SystemUUID,
+			SerialNumber: s.Hardware.SerialNumber,
+			MACAddresses: s.Hardware.MACAddresses,
+		},
+		Observed: observedDoc{
+			Hostname:             s.Observed.Hostname,
+			FQDN:                 s.Observed.FQDN,
+			Addresses:            s.Observed.Addresses,
+			Architecture:         s.Observed.Architecture,
+			CPUCores:             s.Observed.CPUCores,
+			CPUModel:             s.Observed.CPUModel,
+			MemoryMiB:            s.Observed.MemoryMiB,
+			StorageGB:            s.Observed.StorageGB,
+			SystemVendor:         s.Observed.SystemVendor,
+			SystemProduct:        s.Observed.SystemProduct,
+			ProviderZone:         s.Observed.ProviderZone,
+			ProviderResourcePool: s.Observed.ProviderResourcePool,
+			ProviderPod:          s.Observed.ProviderPod,
+			Tags:                 s.Observed.Tags,
+		},
+		GPUs:       gpuDocs(s.Observed.GPUs),
+		Absent:     s.Absent,
+		LastSeenAt: s.LastSeenAt,
+		CreatedAt:  s.CreatedAt,
+		UpdatedAt:  s.UpdatedAt,
+	}
+
+	if p := s.Provisioning; p != nil {
+		doc.Provisioning = &provisioningDoc{
+			State:               p.State,
+			ProviderState:       p.ProviderState,
+			PowerState:          p.PowerState,
+			OSSystem:            p.OSSystem,
+			DistroSeries:        p.DistroSeries,
+			Ephemeral:           p.Ephemeral,
+			HWEKernel:           p.HWEKernel,
+			Locked:              p.Locked,
+			CommissioningStatus: p.CommissioningStatus,
+			TestingStatus:       p.TestingStatus,
+			IntegrationID:       p.IntegrationID,
+			ObservedAt:          p.ObservedAt,
+		}
+	}
+
+	return doc
+}
+
+// gpuDocs converts domain GPUs to their stored form.
+func gpuDocs(gpus []serverdomain.GPU) []gpuDoc {
+	if len(gpus) == 0 {
+		return nil
+	}
+	docs := make([]gpuDoc, 0, len(gpus))
+	for _, gpu := range gpus {
+		docs = append(docs, gpuDoc{Vendor: gpu.Vendor, Model: gpu.Model, Count: gpu.Count})
+	}
+	return docs
+}
+
+func toServer(doc *serverDoc) *serverdomain.Server {
+	s := &serverdomain.Server{
+		ID: doc.ID,
+		Source: serverdomain.Source{
+			SiteID:            doc.Source.SiteID,
+			IntegrationID:     doc.Source.IntegrationID,
+			ProviderMachineID: doc.Source.ProviderMachineID,
+		},
+		Hardware: serverdomain.Hardware{
+			SystemUUID:   doc.Hardware.SystemUUID,
+			SerialNumber: doc.Hardware.SerialNumber,
+			MACAddresses: doc.Hardware.MACAddresses,
+		},
+		Observed: serverdomain.Observed{
+			Hostname:             doc.Observed.Hostname,
+			FQDN:                 doc.Observed.FQDN,
+			Addresses:            doc.Observed.Addresses,
+			Architecture:         doc.Observed.Architecture,
+			CPUCores:             doc.Observed.CPUCores,
+			CPUModel:             doc.Observed.CPUModel,
+			MemoryMiB:            doc.Observed.MemoryMiB,
+			StorageGB:            doc.Observed.StorageGB,
+			SystemVendor:         doc.Observed.SystemVendor,
+			SystemProduct:        doc.Observed.SystemProduct,
+			ProviderZone:         doc.Observed.ProviderZone,
+			ProviderResourcePool: doc.Observed.ProviderResourcePool,
+			ProviderPod:          doc.Observed.ProviderPod,
+			Tags:                 doc.Observed.Tags,
+		},
+		Absent:     doc.Absent,
+		LastSeenAt: doc.LastSeenAt,
+		CreatedAt:  doc.CreatedAt,
+		UpdatedAt:  doc.UpdatedAt,
+	}
+
+	for _, gpu := range doc.GPUs {
+		s.Observed.GPUs = append(s.Observed.GPUs, serverdomain.GPU{
+			Vendor: gpu.Vendor,
+			Model:  gpu.Model,
+			Count:  gpu.Count,
+		})
+	}
+
+	if p := doc.Provisioning; p != nil {
+		s.Provisioning = &serverdomain.ProvisioningStatus{
+			State:               p.State,
+			ProviderState:       p.ProviderState,
+			PowerState:          p.PowerState,
+			OSSystem:            p.OSSystem,
+			DistroSeries:        p.DistroSeries,
+			Ephemeral:           p.Ephemeral,
+			HWEKernel:           p.HWEKernel,
+			Locked:              p.Locked,
+			CommissioningStatus: p.CommissioningStatus,
+			TestingStatus:       p.TestingStatus,
+			IntegrationID:       p.IntegrationID,
+			ObservedAt:          p.ObservedAt,
+		}
+	}
+
+	if m := doc.Membership; m != nil {
+		s.Membership = &serverdomain.MembershipStatus{
+			ClusterID:  m.ClusterID,
+			NodeName:   m.NodeName,
+			Role:       m.Role,
+			State:      m.State,
+			ObservedAt: m.ObservedAt,
+		}
+	}
+
+	return s
+}
