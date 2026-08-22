@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // seedCluster registers a cluster directly, standing in for the create endpoint.

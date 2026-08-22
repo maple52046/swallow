@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // serverDoc is the MongoDB representation of a server projection.

@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
-	"github.com/AFDEAPAC/swallow/internal/operation/infra/awx"
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	"github.com/maple52046/swallow/internal/operation/infra/awx"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 // --- server repository ---

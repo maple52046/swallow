@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
 // seedActionableServer wires a server whose provider machine exists, so a capability

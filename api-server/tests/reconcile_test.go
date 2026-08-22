@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	provisioningapp "github.com/AFDEAPAC/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 const (

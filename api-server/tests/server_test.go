@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 func TestListServers_ShapeAndAxes(t *testing.T) {

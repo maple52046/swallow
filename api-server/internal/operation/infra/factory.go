@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
-	"github.com/AFDEAPAC/swallow/internal/operation/infra/awx"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	"github.com/maple52046/swallow/internal/operation/infra/awx"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 const defaultTimeout = 30 * time.Second

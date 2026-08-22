@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	clusterapp "github.com/AFDEAPAC/swallow/internal/cluster/application"
-	provisioningapp "github.com/AFDEAPAC/swallow/internal/provisioning/application"
+	clusterapp "github.com/maple52046/swallow/internal/cluster/application"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 )
 
 // runReconciler polls every enabled provisioner on an interval until ctx is cancelled.

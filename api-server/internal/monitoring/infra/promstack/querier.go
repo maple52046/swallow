@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
 )
 
 // Querier implements monitoringdomain.MetricsQuerier against a Prometheus-compatible

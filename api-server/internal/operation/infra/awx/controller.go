@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
 const (

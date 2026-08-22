@@ -8,10 +8,10 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/monitoring/application"
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
-	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
+	"github.com/maple52046/swallow/internal/monitoring/application"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/middleware"
 )
 
 // maxMetricServers bounds a metrics request so that one call cannot ask the store for

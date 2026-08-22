@@ -1,4 +1,4 @@
-module github.com/AFDEAPAC/swallow
+module github.com/maple52046/swallow
 
 go 1.25.0
 

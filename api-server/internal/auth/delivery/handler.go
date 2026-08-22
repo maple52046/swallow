@@ -3,10 +3,10 @@ package delivery
 import (
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/auth/application"
-	authdomain "github.com/AFDEAPAC/swallow/internal/auth/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
-	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
+	"github.com/maple52046/swallow/internal/auth/application"
+	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/middleware"
 )
 
 type AuthHandler struct {

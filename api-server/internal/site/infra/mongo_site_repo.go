@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 type siteDoc struct {

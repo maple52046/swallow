@@ -3,8 +3,8 @@ package application
 import (
 	"context"
 
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/pagination"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/pagination"
 )
 
 type ListServersInput struct {

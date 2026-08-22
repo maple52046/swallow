@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // defaultProvisioningState restricts discovery to machines that are actually running

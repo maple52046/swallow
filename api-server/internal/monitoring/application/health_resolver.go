@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // HealthResolver fills in the health axis from the metrics store.

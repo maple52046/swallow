@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/wire"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
 // defaultSilenceDuration is how long an acknowledgement lasts when the caller does not

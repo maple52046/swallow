@@ -3,8 +3,8 @@ package application
 import (
 	"context"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // CapabilitiesItem is what a provisioner offers, so a client can present exactly the

@@ -7,13 +7,13 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/operation/application"
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
-	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
-	"github.com/AFDEAPAC/swallow/internal/shared/pagination"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	"github.com/maple52046/swallow/internal/operation/application"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/middleware"
+	"github.com/maple52046/swallow/internal/shared/pagination"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 type OperationHandler struct {

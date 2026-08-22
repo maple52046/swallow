@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	provisioningapp "github.com/AFDEAPAC/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // The GPU inventory is the whole reason the fleet's GPU count is not permanently zero, so

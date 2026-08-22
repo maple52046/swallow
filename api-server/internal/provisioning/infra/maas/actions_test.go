@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
 // Each capability action is a thin wrapper over a named MAAS operation. The test that

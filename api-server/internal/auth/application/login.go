@@ -3,8 +3,8 @@ package application
 import (
 	"context"
 
-	authdomain "github.com/AFDEAPAC/swallow/internal/auth/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/jwt"
+	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	"github.com/maple52046/swallow/internal/shared/jwt"
 )
 
 type LoginInput struct {

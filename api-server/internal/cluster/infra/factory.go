@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
-	"github.com/AFDEAPAC/swallow/internal/cluster/infra/clusterapi"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	"github.com/maple52046/swallow/internal/cluster/infra/clusterapi"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 const defaultTimeout = 30 * time.Second

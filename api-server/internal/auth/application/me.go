@@ -3,7 +3,7 @@ package application
 import (
 	"context"
 
-	authdomain "github.com/AFDEAPAC/swallow/internal/auth/domain"
+	authdomain "github.com/maple52046/swallow/internal/auth/domain"
 )
 
 type MeOutput struct {

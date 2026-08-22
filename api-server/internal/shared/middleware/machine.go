@@ -6,8 +6,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
-	"github.com/AFDEAPAC/swallow/internal/shared/jwt"
+	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/jwt"
 )
 
 // MachineAuth guards endpoints whose callers are other systems rather than people,

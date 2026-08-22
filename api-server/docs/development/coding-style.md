@@ -13,7 +13,7 @@
 
 ## 基準環境
 
-- Go 1.25，module `github.com/AFDEAPAC/swallow`。
+- Go 1.25，module `github.com/maple52046/swallow`。
 - 主要相依：Fiber v2（HTTP）、gRPC + protobuf（agent 通道）、MongoDB driver、Cobra（CLI）、golang-jwt。
 - 提交前必須執行：`gofmt -l .`（必須無輸出）、`go vet ./...`、`go build ./...`、`go test ./...`。若環境有 `golangci-lint`，一併執行並修正回報，不得以 nolint 掩蓋。
 

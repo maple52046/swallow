@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // Deploy is addressed by server ID; which provisioner to call is derived from the

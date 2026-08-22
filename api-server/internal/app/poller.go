@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	operationapp "github.com/AFDEAPAC/swallow/internal/operation/application"
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
 )
 
 // runOperationPoller re-reads unfinished operations from their automation controller

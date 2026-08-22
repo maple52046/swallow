@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
-	"github.com/AFDEAPAC/swallow/internal/provisioning/infra/maas"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	"github.com/maple52046/swallow/internal/provisioning/infra/maas"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 // defaultTimeout bounds a single provider API call when the integration does not

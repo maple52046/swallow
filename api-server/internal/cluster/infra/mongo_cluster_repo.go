@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 )
 
 type clusterDoc struct {

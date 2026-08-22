@@ -1,8 +1,8 @@
 package application
 
 import (
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/wire"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
 // ServerItem is the API representation of a server projection.

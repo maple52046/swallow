@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 func setupOperations(t *testing.T) *platformFixture {

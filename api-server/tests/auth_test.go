@@ -12,11 +12,11 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	authapp "github.com/AFDEAPAC/swallow/internal/auth/application"
-	authdelivery "github.com/AFDEAPAC/swallow/internal/auth/delivery"
-	authdomain "github.com/AFDEAPAC/swallow/internal/auth/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/jwt"
-	"github.com/AFDEAPAC/swallow/internal/shared/middleware"
+	authapp "github.com/maple52046/swallow/internal/auth/application"
+	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
+	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	"github.com/maple52046/swallow/internal/shared/jwt"
+	"github.com/maple52046/swallow/internal/shared/middleware"
 )
 
 // fakeUserRepo is an in-memory UserRepository for testing.

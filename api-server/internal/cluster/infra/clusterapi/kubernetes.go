@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 )
 
 const maxErrorBodyBytes = 512

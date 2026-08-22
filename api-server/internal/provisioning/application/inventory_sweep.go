@@ -3,9 +3,9 @@ package application
 import (
 	"context"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 // InventorySweepReport summarises one pass over one provisioner's attached-hardware

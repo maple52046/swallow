@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
-	"github.com/AFDEAPAC/swallow/internal/monitoring/infra/promstack"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	"github.com/maple52046/swallow/internal/monitoring/infra/promstack"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 const defaultTimeout = 30 * time.Second

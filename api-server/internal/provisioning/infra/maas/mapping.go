@@ -3,7 +3,7 @@ package maas
 import (
 	"strings"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
 // machineJSON is the subset of a MAAS machine object gdcm reads. MAAS returns far

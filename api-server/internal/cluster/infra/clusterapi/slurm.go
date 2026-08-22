@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 )
 
 // DefaultSlurmAPIVersion is slurmrestd's path version. It is configurable because

@@ -5,10 +5,10 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/server/application"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
-	"github.com/AFDEAPAC/swallow/internal/shared/pagination"
+	"github.com/maple52046/swallow/internal/server/application"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/pagination"
 )
 
 // ServerHandler serves the server projection. It is read-only: servers are produced by

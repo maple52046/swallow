@@ -8,8 +8,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/AFDEAPAC/swallow/internal/shared/secret"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	"github.com/maple52046/swallow/internal/shared/secret"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 // integrationDoc stores an integration and its sealed credential.

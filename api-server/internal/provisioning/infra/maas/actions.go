@@ -3,7 +3,7 @@ package maas
 import (
 	"context"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
 // This file implements the optional provider capabilities against MAAS. Each is a thin

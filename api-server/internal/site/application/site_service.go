@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 type SiteService struct {

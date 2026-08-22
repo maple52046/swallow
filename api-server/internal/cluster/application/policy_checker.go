@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // PolicyChecker refuses operations that contradict a cluster's gpuStackOwner policy.

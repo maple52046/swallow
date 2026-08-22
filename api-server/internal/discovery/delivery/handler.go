@@ -5,8 +5,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/discovery/application"
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/discovery/application"
+	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
 // defaultExporterPort is node_exporter's port, which is the most common caller.

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
 const (

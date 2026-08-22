@@ -11,12 +11,12 @@ import (
 
 	"github.com/google/uuid"
 
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
-	"github.com/AFDEAPAC/swallow/internal/operation/infra/awx"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/pagination"
-	"github.com/AFDEAPAC/swallow/internal/shared/wire"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	"github.com/maple52046/swallow/internal/operation/infra/awx"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/pagination"
+	"github.com/maple52046/swallow/internal/shared/wire"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 // templateSettingPrefix is how an operator maps an operation kind to a job template

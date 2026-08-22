@@ -3,7 +3,7 @@ package application
 import (
 	"context"
 
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 type GetServerUseCase struct {

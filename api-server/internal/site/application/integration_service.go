@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AFDEAPAC/swallow/internal/shared/wire"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	"github.com/maple52046/swallow/internal/shared/wire"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 // ServerCounter reports how many servers were projected from an integration, so that

@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	operationdomain "github.com/AFDEAPAC/swallow/internal/operation/domain"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
 type operationDoc struct {

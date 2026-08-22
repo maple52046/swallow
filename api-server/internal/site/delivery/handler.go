@@ -5,9 +5,9 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
-	"github.com/AFDEAPAC/swallow/internal/site/application"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/site/application"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 type SiteHandler struct {

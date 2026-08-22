@@ -6,10 +6,10 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/AFDEAPAC/swallow/internal/cluster/application"
-	clusterdomain "github.com/AFDEAPAC/swallow/internal/cluster/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/apierror"
-	sitedomain "github.com/AFDEAPAC/swallow/internal/site/domain"
+	"github.com/maple52046/swallow/internal/cluster/application"
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	"github.com/maple52046/swallow/internal/shared/apierror"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 type ClusterHandler struct {

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
-	"github.com/AFDEAPAC/swallow/internal/shared/wire"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
 // namedQueries is the complete set of expressions gdcm will evaluate.

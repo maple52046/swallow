@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	monitoringapp "github.com/AFDEAPAC/swallow/internal/monitoring/application"
-	monitoringdomain "github.com/AFDEAPAC/swallow/internal/monitoring/domain"
-	serverdomain "github.com/AFDEAPAC/swallow/internal/server/domain"
+	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
+	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // --- health axis resolution ---

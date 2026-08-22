@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	provisioningdomain "github.com/AFDEAPAC/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
 func (f *fakeMAAS) onNodeDevices(statusCode int, body string) {

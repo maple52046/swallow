@@ -3,8 +3,8 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/AFDEAPAC/swallow/config"
-	"github.com/AFDEAPAC/swallow/internal/app"
+	"github.com/maple52046/swallow/config"
+	"github.com/maple52046/swallow/internal/app"
 )
 
 var apiCmd = &cobra.Command{
