@@ -184,10 +184,13 @@ func dropObsoleteIndexes(col *mongo.Collection) error {
 			log.Printf("dropped obsolete index %q on servers", name)
 			continue
 		}
-		// IndexNotFound (27) is the expected case on any database that never had the
-		// old model. Anything else is a real failure.
+		// Two codes mean there is simply nothing to drop, and both are expected rather
+		// than failures: IndexNotFound (27) on a database that has the collection but
+		// never carried the old index, and NamespaceNotFound (26) on a fresh database
+		// where the servers collection does not exist yet. Anything else is a real
+		// failure.
 		var cmdErr mongo.CommandError
-		if errors.As(err, &cmdErr) && cmdErr.Code == 27 {
+		if errors.As(err, &cmdErr) && (cmdErr.Code == 26 || cmdErr.Code == 27) {
 			continue
 		}
 		return fmt.Errorf("drop obsolete index %q: %w", name, err)
