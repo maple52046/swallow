@@ -58,10 +58,10 @@ docker compose build --no-cache        # 重建開發映像（改動 Dockerfile 
 - `VITE_API_BASE_URL` — 預設留空，dashboard 會從瀏覽器實際使用的主機推導 API 位址
   （`<瀏覽器用的 host>:30051`）。這樣從本機、從區網、從 SSH tunnel 都能用，不需要記得改。
   只有 API 在瀏覽器推不出來的地方時才需要設定，例如放在 reverse proxy 後面。
-- `GDCM_API_CREDENTIAL_KEY` — 用來加密 integration 憑證的 base64 32-byte 金鑰，**必填**。
+- `SWALLOW_API_CREDENTIAL_KEY` — 用來加密 integration 憑證的 base64 32-byte 金鑰，**必填**。
   compose 帶了一個開發用預設值；真實部署必須自己產生（`openssl rand -base64 32`）。
   換掉這個金鑰會讓既有的已存憑證無法解密，等於要重新輸入所有 integration 憑證。
-- `GDCM_API_MACHINE_TOKEN` — 給「呼叫者是機器」的端點用的靜態 bearer token：
+- `SWALLOW_API_MACHINE_TOKEN` — 給「呼叫者是機器」的端點用的靜態 bearer token：
   Prometheus 抓 `/api/v1/discovery/prometheus`、AWX 回報 job 通知。
   只有那些端點接受它，不是進入其餘 API 的第二條路。
 

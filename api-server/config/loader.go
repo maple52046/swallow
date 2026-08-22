@@ -15,7 +15,7 @@ type LoadOptions struct {
 //  1. DefaultConfig (lowest priority)
 //  2. Config file (if ConfigFile is set)
 //  3. CLI flags (FlagOverlay; only explicitly-set fields)
-//  4. Environment variables (GDCM_-prefixed; highest priority)
+//  4. Environment variables (SWALLOW_-prefixed; highest priority)
 //  5. Validation
 //
 // If ConfigFile is non-empty but cannot be read or parsed, Load returns an

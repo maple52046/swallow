@@ -109,9 +109,9 @@ belongs in Grafana, which swallow deep-links to.
 ## Running
 
 ```bash
-export GDCM_API_MONGO_URI="mongodb://localhost:27017"
-export GDCM_API_JWT_SECRET="your-secret"
-export GDCM_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
+export SWALLOW_API_MONGO_URI="mongodb://localhost:27017"
+export SWALLOW_API_JWT_SECRET="your-secret"
+export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
 
 swallow api
 ```
@@ -125,7 +125,7 @@ swallow api --config swallow.yaml
 
 ## Configuration priority (highest → lowest)
 
-1. Environment variables (`GDCM_API_*`)
+1. Environment variables (`SWALLOW_API_*`)
 2. CLI flags (`--addr`, `--mongo-uri`, …)
 3. Config file (`--config path/to/swallow.yaml`)
 4. Default values
@@ -134,17 +134,17 @@ swallow api --config swallow.yaml
 
 | Variable | Config field | Default |
 |----------|--------------|---------|
-| `GDCM_API_ADDR` | `api.addr` | `:30051` |
-| `GDCM_API_MONGO_URI` | `api.mongoUri` | `mongodb://localhost:27017` |
-| `GDCM_API_MONGO_DB` | `api.mongoDb` | `swallow` |
-| `GDCM_API_JWT_SECRET` | `api.jwtSecret` | *(required in prod)* |
-| `GDCM_API_JWT_EXPIRY_HOURS` | `api.jwtExpiryHours` | `24` |
-| `GDCM_API_BOOTSTRAP_ADMIN_USERNAME` | `api.bootstrapAdminUsername` | `admin` |
-| `GDCM_API_BOOTSTRAP_ADMIN_PASSWORD` | `api.bootstrapAdminPassword` | `admin` |
-| `GDCM_API_CREDENTIAL_KEY` | `api.credentialKey` | **required, no default** |
-| `GDCM_API_MACHINE_TOKEN` | `api.machineToken` | *(unset: those endpoints need an admin JWT)* |
-| `GDCM_API_RECONCILE_INTERVAL` | `api.reconcileInterval` | `60s` |
-| `GDCM_API_OPERATION_POLL_INTERVAL` | `api.operationPollInterval` | `15s` |
+| `SWALLOW_API_ADDR` | `api.addr` | `:30051` |
+| `SWALLOW_API_MONGO_URI` | `api.mongoUri` | `mongodb://localhost:27017` |
+| `SWALLOW_API_MONGO_DB` | `api.mongoDb` | `swallow` |
+| `SWALLOW_API_JWT_SECRET` | `api.jwtSecret` | *(required in prod)* |
+| `SWALLOW_API_JWT_EXPIRY_HOURS` | `api.jwtExpiryHours` | `24` |
+| `SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME` | `api.bootstrapAdminUsername` | `admin` |
+| `SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD` | `api.bootstrapAdminPassword` | `admin` |
+| `SWALLOW_API_CREDENTIAL_KEY` | `api.credentialKey` | **required, no default** |
+| `SWALLOW_API_MACHINE_TOKEN` | `api.machineToken` | *(unset: those endpoints need an admin JWT)* |
+| `SWALLOW_API_RECONCILE_INTERVAL` | `api.reconcileInterval` | `60s` |
+| `SWALLOW_API_OPERATION_POLL_INTERVAL` | `api.operationPollInterval` | `15s` |
 
 `credentialKey` has no default on purpose: a shipped default encryption key looks like
 protection and is not. Starting without one would defer the failure to the first operator

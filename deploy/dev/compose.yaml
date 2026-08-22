@@ -32,30 +32,30 @@ services:
       mongo:
         condition: service_healthy
     environment:
-      GDCM_API_ADDR: ":30051"
-      GDCM_API_MONGO_URI: "mongodb://mongo:27017"
-      GDCM_API_MONGO_DB: "${GDCM_API_MONGO_DB:-swallow}"
-      GDCM_API_JWT_SECRET: "${GDCM_API_JWT_SECRET:-dev-secret-change-me}"
-      GDCM_API_JWT_EXPIRY_HOURS: "${GDCM_API_JWT_EXPIRY_HOURS:-24}"
-      GDCM_API_BOOTSTRAP_ADMIN_USERNAME: "${GDCM_API_BOOTSTRAP_ADMIN_USERNAME:-admin}"
-      GDCM_API_BOOTSTRAP_ADMIN_PASSWORD: "${GDCM_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
+      SWALLOW_API_ADDR: ":30051"
+      SWALLOW_API_MONGO_URI: "mongodb://mongo:27017"
+      SWALLOW_API_MONGO_DB: "${SWALLOW_API_MONGO_DB:-swallow}"
+      SWALLOW_API_JWT_SECRET: "${SWALLOW_API_JWT_SECRET:-dev-secret-change-me}"
+      SWALLOW_API_JWT_EXPIRY_HOURS: "${SWALLOW_API_JWT_EXPIRY_HOURS:-24}"
+      SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME: "${SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME:-admin}"
+      SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD: "${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
       # Seals integration credentials at rest. Required: without it an integration
       # cannot be registered, and starting anyway would defer that failure to the
       # first operator who tries. The dev default is a fixed key on purpose — it is
       # not a secret, and a real deployment must supply its own.
-      GDCM_API_CREDENTIAL_KEY: "${GDCM_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
+      SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
       # Static bearer token for callers that are other systems: Prometheus pulling
       # scrape targets, AWX posting job notifications.
-      GDCM_API_MACHINE_TOKEN: "${GDCM_API_MACHINE_TOKEN:-dev-machine-token}"
+      SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
       # How often provisioner inventory and cluster membership are re-read, and how
       # often unfinished operations are re-read from their controller.
-      GDCM_API_RECONCILE_INTERVAL: "${GDCM_API_RECONCILE_INTERVAL:-60s}"
-      GDCM_API_OPERATION_POLL_INTERVAL: "${GDCM_API_OPERATION_POLL_INTERVAL:-15s}"
+      SWALLOW_API_RECONCILE_INTERVAL: "${SWALLOW_API_RECONCILE_INTERVAL:-60s}"
+      SWALLOW_API_OPERATION_POLL_INTERVAL: "${SWALLOW_API_OPERATION_POLL_INTERVAL:-15s}"
     ports:
       - "${API_HTTP_PORT:-30051}:30051"
     volumes:
       - ../../src/swallow:/app
-      - ./air.toml:/etc/gdcm/air.toml:ro
+      - ./air.toml:/etc/swallow/air.toml:ro
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/go/cache
     healthcheck:
@@ -88,7 +88,7 @@ services:
       - "${DASHBOARD_PORT:-5173}:5173"
     volumes:
       - ../../src/dashboard:/app
-      - ./dashboard-entrypoint.sh:/etc/gdcm/dashboard-entrypoint.sh:ro
+      - ./dashboard-entrypoint.sh:/etc/swallow/dashboard-entrypoint.sh:ro
       - npm-cache:/npm-cache
 
 volumes:

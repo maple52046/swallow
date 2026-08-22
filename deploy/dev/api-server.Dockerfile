@@ -33,4 +33,4 @@ RUN groupadd -g "${GID}" dev \
 USER dev
 WORKDIR /app
 
-CMD ["air", "-c", "/etc/gdcm/air.toml"]
+CMD ["air", "-c", "/etc/swallow/air.toml"]

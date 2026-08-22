@@ -19,4 +19,4 @@ RUN groupadd -g "${GID}" dev \
 USER dev
 WORKDIR /app
 
-ENTRYPOINT ["/etc/gdcm/dashboard-entrypoint.sh"]
+ENTRYPOINT ["/etc/swallow/dashboard-entrypoint.sh"]
