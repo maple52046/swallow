@@ -57,11 +57,12 @@
 | [`002-server-identity.md`](002-server-identity.md) | server 如何跨站點與重裝維持身分，以及狀態為何是三個獨立軸而非單一值 |
 | [`003-metrics-label-contract.md`](003-metrics-label-contract.md) | monitoring 拓撲，以及把 metrics 接回 server 的標籤集 |
 | [`004-automation-via-awx.md`](004-automation-via-awx.md) | 長時間執行的 operation 由誰擁有、如何指定目標與觀察 |
+| [`005-monorepo-consolidation.md`](005-monorepo-consolidation.md) | 平台從 gdcm submodule superproject 收斂為單一 swallow monorepo，並完成品牌改名 |
 
-這四筆沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
+`001`–`004` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
 Consequences / Rejected alternatives，沒有 Status 與 Date）。它們與本文件的格式對齊
-尚未處理。
+尚未處理。`005` 起採用本文件定義的格式。
 
-平台另有若干值得記錄的決策（例如 submodule + root symlink 的 component 管理方式、
-API contract 由 provider component 擁有），但這些理由目前只存在於結構契約與實作中，
-尚未經確認。新增這些 ADR 時，請與知道當時脈絡的人確認，或明確標注「（inferred）」。
+平台另有若干值得記錄的決策（例如 API contract 由 provider component 擁有），但這些理由
+目前只存在於結構契約與實作中，尚未經確認。新增這些 ADR 時，請與知道當時脈絡的人確認，
+或明確標注「（inferred）」。

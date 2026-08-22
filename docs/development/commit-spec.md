@@ -34,11 +34,11 @@ machine-readable history and maps cleanly onto SemVer.
 An optional noun in parentheses describing the affected area. In this repository
 the natural scopes are the platform component or the shared document category:
 
-- Platform component: `api-server`, `agent`, `dashboard`.
-- Shared documents: `glossary`, `contracts`, `docs`, `standards`, `submodule`.
+- Platform component: `api-server`, `dashboard`.
+- Shared documents / areas: `glossary`, `contracts`, `docs`, `standards`, `deploy`.
 
-Examples: `docs(glossary): define allocation state`, `chore(submodule): bump
-dashboard pointer`.
+Examples: `docs(glossary): define allocation state`, `chore(deploy): update the
+dev compose stack`.
 
 ## Breaking changes (SemVer MAJOR)
 
@@ -54,11 +54,11 @@ feat(api-server): add pagination to the server list endpoint
 
 refactor(dashboard): replace boolean flags with an explicit status type
 
-fix(agent): propagate detection errors instead of swallowing them
+fix(api-server): propagate detection errors instead of swallowing them
 
 docs(glossary): split server terminology into per-term documents
 
-chore(submodule): sync swallow to the latest upstream commit
+chore(deploy): rename the environment prefix to SWALLOW_
 ```
 
 ## Rules
@@ -68,6 +68,6 @@ chore(submodule): sync swallow to the latest upstream commit
 - Type and description are required; everything else is optional.
 - Keep the description concise and in the imperative ("add", not "added").
 - One logical change per commit where practical.
-- This repository and each `src/<project>` submodule are separate git
-  repositories. Commit source changes in the submodule first, then commit the
-  updated submodule pointer here.
+- This is a single git repository (a monorepo). A change that spans components —
+  for example an API contract plus its provider and consumer — is committed
+  together here; there is no submodule-pointer step.

@@ -9,8 +9,8 @@
 - Root spec 定義 repository-level architecture principles and constraints。
 - Sub project spec 定義特定 bounded context 內的架構、分層、資料流、API contract 與實作限制。
 - 當 root spec 與 sub project spec 都適用時，必須同時遵守；若有衝突，先停止並釐清，不得自行選擇性忽略。
-- Root spec 不取代 sub project spec。進入 `src/<project>` 或某個 component 前，必須依 root [`AGENTS.md`](../../AGENTS.md) 讀取該 project 的 `AGENTS.md`。
-- 本 repository 不放任何業務原始碼。所有實作位於 `src/<project>` 之內，因此 root spec 只規範跨 context 的語言、契約與邊界，不規範任何 sub project 的內部分層。
+- Root spec 不取代 component spec。進入任一 component 目錄前，必須依 root [`AGENTS.md`](../../AGENTS.md) 讀取該 component 的 `AGENTS.md`。
+- 業務原始碼一律位於某個 component 目錄之內（`api-server/`、`dashboard/`）；因此 root spec 只規範跨 context 的語言、契約與邊界，不規範任何 component 的內部分層。
 
 ## Strategic DDD 核心原則
 
@@ -72,7 +72,9 @@ Bounded context 是 model 適用的邊界，通常對應到 sub project、platfo
 
 在同一 bounded context 內，glossary、程式命名、測試案例、API 文件與討論用語必須保持一致。
 
-注意：一個 source project 可以承載多個 platform component（例如 `src/swallow` 同時提供 `api-server` 與 `agent`）。共用 source project 不等於共用 context 邊界；component 邊界必須維持清楚。
+注意：component 邊界是邏輯邊界，與 repository 是否單一無關。所有 component 同在一個
+monorepo，並不代表可以共用彼此的內部 model；跨 component 一律透過 provider-owned API
+contract 與共通 glossary 互動，component 邊界必須維持清楚。
 
 ## Context Map
 
@@ -164,21 +166,19 @@ flowchart TB
 
 這個結構只定義必要秩序，不應限制 sub project 做出符合自身 bounded context 的細部設計。當專案理解變深時，root spec、glossary、API contract workflow 與 sub project spec 都可以演進，但必須在文件中留下清楚語意。
 
-## Sub Project Spec Discovery
+## Component Spec Discovery
 
-修改 `src/<project>` 或任何 component 前，必須依 root [`AGENTS.md`](../../AGENTS.md) 先讀取該 project 的 `AGENTS.md`。Project-local `AGENTS.md` 會用相對路徑列出該 project 的 architecture spec、coding style、API contract outline 或其他必讀文件。
+修改任一 component 前，必須依 root [`AGENTS.md`](../../AGENTS.md) 先讀取該 component 的 `AGENTS.md`。Component-local `AGENTS.md` 會用相對路徑列出該 component 的 architecture spec、coding style、API contract outline 或其他必讀文件。
 
-各 sub project 採用 **完整 Clean Architecture** 作為內部架構原則；細節由該 project 的 architecture spec 定義：
+各 component 採用 **完整 Clean Architecture** 作為內部架構原則；細節由該 component 的 architecture spec 定義：
 
-| Component | Source project | Architecture spec |
-| --- | --- | --- |
-| `api-server`、`agent` | `src/swallow` | `src/swallow/docs/development/architecture-spec.md` |
-| `dashboard` | `src/dashboard` | `src/dashboard/docs/development/architecture-spec.md` |
+- `api-server` — [`api-server/docs/development/architecture-spec.md`](../../api-server/docs/development/architecture-spec.md)
+- `dashboard` — [`dashboard/docs/development/architecture-spec.md`](../../dashboard/docs/development/architecture-spec.md)
 
-若 project-local `AGENTS.md` 不存在，才依下列路徑尋找 architecture spec，並將缺漏視為需要補齊的 project 入口問題：
+若 component-local `AGENTS.md` 不存在，才依下列路徑尋找 architecture spec，並將缺漏視為需要補齊的 component 入口問題：
 
-- `src/<project>/docs/development/architecture-spec.md`
-- `src/<project>/docs/architecture-spec.md`
+- `<component>/docs/development/architecture-spec.md`
+- `<component>/docs/architecture-spec.md`
 
 若 sub project spec 不存在：
 
