@@ -1,6 +1,0 @@
-[submodule "dashboard"]
-	path = src/dashboard
-	url = git@github.com:maple52046/dashboard.git
-[submodule "swallow"]
-	path = src/swallow
-	url = git@github.com:AFDEAPAC/swallow.git
