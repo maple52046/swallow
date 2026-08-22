@@ -31,6 +31,13 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+    # This api-server runs on the default bridge network, where `localhost` means the
+    # container itself. Map host.docker.internal to the host gateway so an integration
+    # endpoint that lives on the host (e.g. a MAAS at http://host.docker.internal:5240/MAAS)
+    # is reachable. Integrations on the LAN or other baremetal are reached by their own
+    # routable address and need nothing here.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       SWALLOW_API_ADDR: ":30051"
       SWALLOW_API_MONGO_URI: "mongodb://mongo:27017"
