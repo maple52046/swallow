@@ -1,7 +1,7 @@
-// Package domain defines Site and Integration: the only part of the world gdcm
+// Package domain defines Site and Integration: the only part of the world swallow
 // defines rather than observes.
 //
-// No external system knows the set of sites, and none knows which other systems gdcm
+// No external system knows the set of sites, and none knows which other systems swallow
 // should talk to. Everything else in the platform is a projection of, or a reference
 // into, one of the integrations registered here.
 package domain
@@ -24,7 +24,7 @@ type Site struct {
 	UpdatedAt   time.Time
 }
 
-// IntegrationKind is the role an external system plays for gdcm.
+// IntegrationKind is the role an external system plays for swallow.
 type IntegrationKind string
 
 const (

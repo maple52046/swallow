@@ -1,5 +1,5 @@
 /**
- * Sites and integrations are the only part of the world gdcm defines rather than
+ * Sites and integrations are the only part of the world swallow defines rather than
  * observes. See docs/glossaries/site.md.
  */
 

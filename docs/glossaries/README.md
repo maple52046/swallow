@@ -1,6 +1,6 @@
 # Glossary Index
 
-This directory defines the **ubiquitous language** of the gdcm platform: the terms
+This directory defines the **ubiquitous language** of the swallow platform: the terms
 every sub-project must use with the same meaning.
 
 Use this file as an index. When working on a specific concept, read the detail
@@ -10,11 +10,11 @@ document for that concept rather than every document here.
 
 | Document | Concepts defined |
 |----------|------------------|
-| [`site.md`](site.md) | `Site`, `Integration`, `Staleness` — the only part of the world gdcm defines rather than observes |
+| [`site.md`](site.md) | `Site`, `Integration`, `Staleness` — the only part of the world swallow defines rather than observes |
 | [`server.md`](server.md) | `Server`, its three identity layers, and the three status axes |
 | [`provisioning.md`](provisioning.md) | `OS Provisioning Provider`, `Machine`, `MachineStatus`, `OS Image`, `Deployment`, `Release` |
 | [`cluster.md`](cluster.md) | `Cluster`, `GPU Stack Owner`, `Membership` |
-| [`operation.md`](operation.md) | `Operation`, the automation mirror, and what gdcm refuses |
+| [`operation.md`](operation.md) | `Operation`, the automation mirror, and what swallow refuses |
 
 Monitoring vocabulary — the metrics label contract, `gpuStackOwner`'s effect on exporters,
 and why alerts are read rather than stored — lives in

@@ -1,6 +1,6 @@
 # swallow
 
-Backend control plane for the GDCM platform.
+Backend control plane for the Swallow platform.
 
 ## What this service is
 

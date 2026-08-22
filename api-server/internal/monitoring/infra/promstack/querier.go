@@ -119,7 +119,7 @@ func translateError(err error) error {
 	case apiErr.StatusCode == http.StatusUnauthorized, apiErr.StatusCode == http.StatusForbidden:
 		return &monitoringdomain.QueryError{
 			Kind:   monitoringdomain.QueryErrorAuth,
-			Detail: "The monitoring backend rejected the credential gdcm is configured with.",
+			Detail: "The monitoring backend rejected the credential swallow is configured with.",
 			Err:    err,
 		}
 	case apiErr.StatusCode >= http.StatusInternalServerError:

@@ -1,4 +1,4 @@
-// Package application coordinates operations: gdcm's intent, executed by AWX.
+// Package application coordinates operations: swallow's intent, executed by AWX.
 package application
 
 import (
@@ -23,7 +23,7 @@ import (
 // name on the automation integration, e.g. "template.install-gpu-driver".
 //
 // The mapping lives on the integration because which templates exist is a property of
-// the deployment, not of gdcm.
+// the deployment, not of swallow.
 const templateSettingPrefix = "template."
 
 // PolicyChecker rejects operations that contradict cluster policy.
@@ -74,7 +74,7 @@ type OperationItem struct {
 }
 
 // AutomationItem is a mirror of the controller's job, with the time it was observed.
-// gdcm never infers that a job finished because time passed.
+// swallow never infers that a job finished because time passed.
 type AutomationItem struct {
 	IntegrationID string  `json:"integrationId"`
 	JobTemplateID string  `json:"jobTemplateId"`
@@ -284,8 +284,8 @@ func (s *OperationService) automationFor(ctx context.Context, siteID string) (*s
 	return integrations[0], nil
 }
 
-// buildExtraVars passes gdcm's identifiers to the playbook so that it can report back
-// in terms gdcm understands, and so that a playbook never has to guess which operation
+// buildExtraVars passes swallow's identifiers to the playbook so that it can report back
+// in terms swallow understands, and so that a playbook never has to guess which operation
 // it belongs to.
 func buildExtraVars(
 	operation *operationdomain.Operation,
@@ -293,26 +293,26 @@ func buildExtraVars(
 	operatorVars map[string]any,
 ) map[string]any {
 	vars := map[string]any{
-		"gdcm_operation_id":   operation.ID,
-		"gdcm_operation_kind": string(operation.Kind),
-		"gdcm_site_id":        operation.SiteID,
-		"gdcm_server_ids":     operation.TargetServerIDs,
+		"swallow_operation_id":   operation.ID,
+		"swallow_operation_kind": string(operation.Kind),
+		"swallow_site_id":        operation.SiteID,
+		"swallow_server_ids":     operation.TargetServerIDs,
 	}
 	if operation.ClusterID != "" {
-		vars["gdcm_cluster_id"] = operation.ClusterID
+		vars["swallow_cluster_id"] = operation.ClusterID
 	}
 	if len(targets) > 0 {
 		hostnames := make([]string, 0, len(targets))
 		for _, target := range targets {
 			hostnames = append(hostnames, target.DisplayName())
 		}
-		vars["gdcm_server_hostnames"] = hostnames
+		vars["swallow_server_hostnames"] = hostnames
 	}
 
 	// Operator-supplied vars last so that a playbook parameter can be overridden,
-	// but never the gdcm identifiers a playbook reports against.
+	// but never the swallow identifiers a playbook reports against.
 	for key, value := range operatorVars {
-		if strings.HasPrefix(key, "gdcm_") {
+		if strings.HasPrefix(key, "swallow_") {
 			continue
 		}
 		vars[key] = value
@@ -363,8 +363,8 @@ func (s *OperationService) Get(ctx context.Context, id string) (*OperationItem, 
 	return &item, nil
 }
 
-// Logs proxies the controller's output. gdcm never stores logs: the controller already
-// retains them, a copy could not be complete for a running job, and gdcm's storage
+// Logs proxies the controller's output. swallow never stores logs: the controller already
+// retains them, a copy could not be complete for a running job, and swallow's storage
 // should not grow with playbook verbosity.
 func (s *OperationService) Logs(ctx context.Context, id string) (string, error) {
 	operation, err := s.operations.FindByID(ctx, id)
@@ -398,7 +398,7 @@ func (s *OperationService) Refresh(ctx context.Context, id string) (*OperationIt
 // RefreshByJob refreshes the operation mirroring a controller job.
 //
 // Used by the controller's webhook, which is treated as a hint to go and look rather
-// than as a source of truth: the state gdcm records always comes from a read it made
+// than as a source of truth: the state swallow records always comes from a read it made
 // itself.
 func (s *OperationService) RefreshByJob(ctx context.Context, integrationID, jobID string) error {
 	operation, err := s.operations.FindByJobID(ctx, integrationID, jobID)

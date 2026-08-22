@@ -10,7 +10,7 @@ import "errors"
 
 // MachineStatus is the provider-agnostic lifecycle state of a provisionable machine.
 //
-// The set is deliberately coarse: it carries only the distinctions gdcm acts on
+// The set is deliberately coarse: it carries only the distinctions swallow acts on
 // (can it be deployed, is it being deployed, did it fail). Adapters map their own
 // richer vocabulary onto these values and preserve the original label in
 // Machine.ProviderStatus, so a provider gaining new states never invents a new
@@ -61,18 +61,18 @@ const (
 // Machine is a provisionable unit in an OS provisioning provider's inventory.
 //
 // A Machine is not a server.Server. It lives in the provider's inventory and may
-// never be managed by gdcm at all; gdcm reads it to decide what can be deployed.
+// never be managed by swallow at all; swallow reads it to decide what can be deployed.
 // The two become linked only when an operator imports a Machine, which creates a
 // Server carrying a server.ProvisioningSource back-reference.
 type Machine struct {
-	// ID is the provider-side identifier (a MAAS system_id). Opaque to gdcm:
+	// ID is the provider-side identifier (a MAAS system_id). Opaque to swallow:
 	// it is passed back to the provider verbatim and never parsed.
 	ID string
 	// Hostname is the short name the provider knows the machine by.
 	Hostname string
 	// FQDN is the fully qualified name, when the provider manages DNS for it.
 	FQDN string
-	// Status is the normalized lifecycle state gdcm reasons about.
+	// Status is the normalized lifecycle state swallow reasons about.
 	Status MachineStatus
 	// ProviderStatus is the provider's own status label, retained because the
 	// normalized Status is intentionally coarse. Display and diagnostics only —
@@ -99,12 +99,12 @@ type Machine struct {
 	// it — a driver, a package, a config file — silently un-happens on the next boot.
 	Ephemeral bool
 	// HWEKernel is the provider's own label for the running kernel, e.g. "ga-24.04".
-	// Display only: the vocabulary is the provider's, not gdcm's.
+	// Display only: the vocabulary is the provider's, not swallow's.
 	HWEKernel   string
 	IPAddresses []string
 	Tags        []string
 	// Zone and ResourcePool are the provider's own grouping labels. They are carried
-	// through opaquely and are not mapped onto any gdcm hierarchy.
+	// through opaquely and are not mapped onto any swallow hierarchy.
 	Zone         string
 	ResourcePool string
 
@@ -183,7 +183,7 @@ type ProviderInfo struct {
 }
 
 var (
-	// ErrProviderNotConfigured means gdcm has no provisioning provider configured.
+	// ErrProviderNotConfigured means swallow has no provisioning provider configured.
 	// This is a deployment configuration state, not a failure of the provider.
 	ErrProviderNotConfigured = errors.New("provisioning provider not configured")
 
@@ -207,7 +207,7 @@ const (
 	// ProviderErrorUnavailable means the provider could not be reached, timed
 	// out, or returned a server-side failure.
 	ProviderErrorUnavailable ProviderErrorKind = "unavailable"
-	// ProviderErrorAuth means the provider rejected the credentials gdcm is
+	// ProviderErrorAuth means the provider rejected the credentials swallow is
 	// configured with. This is an operator configuration problem, never an
 	// indication about the caller's own credentials.
 	ProviderErrorAuth ProviderErrorKind = "auth"

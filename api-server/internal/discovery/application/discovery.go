@@ -1,7 +1,7 @@
 // Package application projects servers into the formats external systems consume.
 //
 // Prometheus and AWX both need to be told which machines exist and how to reach them.
-// Both pull that list from gdcm rather than being told: gdcm holds the identity mapping,
+// Both pull that list from swallow rather than being told: swallow holds the identity mapping,
 // so serving it is the one thing neither of them can do for itself, and pulling means
 // there is no second copy to keep in sync.
 //
@@ -48,7 +48,7 @@ type DiscoveryInput struct {
 	SiteID string
 	// ProvisioningState defaults to "deployed". The literal "all" removes the filter.
 	ProvisioningState string
-	// Port is the exporter port for Prometheus targets. One gdcm endpoint serves
+	// Port is the exporter port for Prometheus targets. One swallow endpoint serves
 	// several scrape jobs — node_exporter on 9100, dcgm-exporter on 9400 — by being
 	// asked for a different port each time.
 	Port int
@@ -101,7 +101,7 @@ func (uc *DiscoveryUseCase) PrometheusTargets(ctx context.Context, input Discove
 // AnsibleInventory returns an inventory AWX can consume as a dynamic source.
 //
 // Hosts are keyed by server ID with ansible_host carrying the address, so that a
-// playbook and its output refer to gdcm's stable identifier rather than to an IP that
+// playbook and its output refer to swallow's stable identifier rather than to an IP that
 // changes on every reinstall.
 func (uc *DiscoveryUseCase) AnsibleInventory(ctx context.Context, input DiscoveryInput) (AnsibleInventory, error) {
 	servers, err := uc.discoverable(ctx, input)

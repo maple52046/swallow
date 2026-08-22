@@ -93,7 +93,7 @@ func TestReconcile_CreatesServerFromMachine(t *testing.T) {
 			t.Errorf("unexpected source: %+v", server.Source)
 		}
 		if server.ID == "abc123" {
-			t.Error("server ID must be gdcm-issued, not the provider's machine ID")
+			t.Error("server ID must be swallow-issued, not the provider's machine ID")
 		}
 		if server.Observed.Hostname != "gpu-node-01" {
 			t.Errorf("hostname: got %q", server.Observed.Hostname)
@@ -426,8 +426,8 @@ func TestReconcile_SecondMachineClaimingTheSameServerInOnePassConflicts(t *testi
 	}
 }
 
-// Ephemerality is the provisioner's fact, not a memory of what gdcm once asked for: a
-// machine can be redeployed the other way round without gdcm being involved, so the
+// Ephemerality is the provisioner's fact, not a memory of what swallow once asked for: a
+// machine can be redeployed the other way round without swallow being involved, so the
 // reconciler has to carry whatever the provisioner currently reports.
 func TestReconcile_ProjectsEphemeralityFromTheProvisioner(t *testing.T) {
 	f := setupReconcile(t)
@@ -448,7 +448,7 @@ func TestReconcile_ProjectsEphemeralityFromTheProvisioner(t *testing.T) {
 		}
 	}
 
-	// Redeployed to disk outside gdcm: the axis must follow the provisioner rather than
+	// Redeployed to disk outside swallow: the axis must follow the provisioner rather than
 	// keeping the value it first saw.
 	machine.Ephemeral = false
 	f.provider.withMachine(machine)

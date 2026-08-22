@@ -2,15 +2,15 @@
 
 ## Decision
 
-**AWX owns every long-running run. gdcm owns the intent that started it.**
+**AWX owns every long-running run. swallow owns the intent that started it.**
 
-An `Operation` in gdcm is: what an operator wanted, which servers it targets, which AWX job
-template executes it, the AWX job ID, and a mirror of that job's status. gdcm stores no
+An `Operation` in swallow is: what an operator wanted, which servers it targets, which AWX job
+template executes it, the AWX job ID, and a mirror of that job's status. swallow stores no
 logs, implements no retry, and enforces no idempotency — those are Ansible's and AWX's
 problem, already solved.
 
-Targeting flows the other way from what would be expected: **gdcm does not write
-inventory into AWX**. gdcm serves a dynamic inventory endpoint that AWX pulls from.
+Targeting flows the other way from what would be expected: **swallow does not write
+inventory into AWX**. swallow serves a dynamic inventory endpoint that AWX pulls from.
 
 ## Context
 
@@ -25,13 +25,13 @@ Nothing implemented it, and the backend has no execution capability at all — n
 queue, no worker, no SSH, no scheduler. The `Run` model was then deprecated, which left
 every action button pointing at a concept that no longer existed.
 
-Building it in gdcm means owning idempotency, retry, concurrency limits, rollback, log
+Building it in swallow means owning idempotency, retry, concurrency limits, rollback, log
 durability, and secret handling for host access. That is Ansible's and AWX's entire
 problem domain. AWX has a REST API with job templates, job status, per-event logs, and
 inventory management, and Ansible modules are idempotent by design — which is precisely
 the property that makes "run it again" a safe answer to a partial failure.
 
-## What gdcm Stores
+## What swallow Stores
 
 ```
 Operation
@@ -55,17 +55,17 @@ Operation
 live query would silently change scope between request and execution — a server joining a
 cluster mid-run would be swept into an operation nobody asked for.
 
-Status is a **mirror**, and it says when it was last observed. gdcm never infers that a
+Status is a **mirror**, and it says when it was last observed. swallow never infers that a
 job finished because time passed.
 
 ## Inventory Direction: Pull, Not Push
 
-AWX pulls from gdcm, using gdcm's dynamic inventory endpoint as an inventory source.
+AWX pulls from swallow, using swallow's dynamic inventory endpoint as an inventory source.
 
-Pushing — gdcm creating and updating AWX hosts and groups through the AWX API — was the
-obvious approach and is rejected. It makes gdcm responsible for keeping two databases
+Pushing — swallow creating and updating AWX hosts and groups through the AWX API — was the
+obvious approach and is rejected. It makes swallow responsible for keeping two databases
 consistent, which means reconciling AWX inventory against the server projection, handling
-partial failures mid-push, and deciding what to do about hosts in AWX that gdcm did not
+partial failures mid-push, and deciding what to do about hosts in AWX that swallow did not
 create. That is a second reconciliation loop for no gain.
 
 Pulling means the server projection is the only source of targeting truth. AWX asks at job
@@ -75,25 +75,25 @@ drift.
 The same projection also serves the Prometheus `http_sd` endpoint
 ([003](003-metrics-label-contract.md)). One projection, two consumers, both pulling.
 
-Groups exposed to AWX are derived from gdcm data that automation needs to branch on:
+Groups exposed to AWX are derived from swallow data that automation needs to branch on:
 site, cluster, cluster role, GPU vendor, and provisioning state. Host variables carry
-`server_id` so that a playbook can report back in gdcm's own identifiers.
+`server_id` so that a playbook can report back in swallow's own identifiers.
 
 ## Status and Logs
 
 **Status** is refreshed two ways, because neither alone is sufficient. AWX notification
-webhooks give prompt updates but are lossy — a webhook lost while gdcm is restarting is
+webhooks give prompt updates but are lossy — a webhook lost while swallow is restarting is
 gone. A poller over operations that are not in a terminal state is the backstop. Webhooks
 make it feel live; polling makes it correct.
 
 **Logs** are proxied on demand from AWX, never copied. An operation record holds the job
-reference; asking gdcm for logs makes gdcm ask AWX. Copying them would mean gdcm owning
+reference; asking swallow for logs makes swallow ask AWX. Copying them would mean swallow owning
 log retention for content that AWX already retains, and the copy would be incomplete for
 any job still running.
 
-## What gdcm Must Still Guard
+## What swallow Must Still Guard
 
-Delegating execution does not delegate judgement. gdcm refuses an operation when:
+Delegating execution does not delegate judgement. swallow refuses an operation when:
 
 - **It contradicts policy.** A driver installation targeting servers in a `gpu-operator`
   cluster ([003](003-metrics-label-contract.md)).
@@ -102,8 +102,8 @@ Delegating execution does not delegate judgement. gdcm refuses an operation when
 - **A target is in the wrong provisioning state.** Configuring Slurm on a server that is
   mid-deployment will fail slowly and confusingly; refusing is faster and clearer.
 
-These checks are the reason an `Operation` record exists at all rather than gdcm being a
-thin button that launches AWX jobs. AWX knows a job ran; only gdcm knows whether it
+These checks are the reason an `Operation` record exists at all rather than swallow being a
+thin button that launches AWX jobs. AWX knows a job ran; only swallow knows whether it
 should have.
 
 ### Open: operations targeting an ephemerally deployed server
@@ -113,7 +113,7 @@ A server whose OS runs from memory
 whole root filesystem on reboot. An operation that installs anything on it will report
 success honestly — the playbook did run and did succeed — and then silently un-happen.
 
-That is the same shape as the `gpuStackOwner` conflict: work gdcm believes it has done
+That is the same shape as the `gpuStackOwner` conflict: work swallow believes it has done
 that the world does not agree with. The difference is only in timing, which arguably makes
 it worse, because the operation record stays green.
 
@@ -131,31 +131,31 @@ than a guess about how they will be used.
 | AWX unreachable while mirroring | Status keeps its last value with a stale `observedAt`. Never inferred as failed |
 | Job template missing | Rejected at creation with the template name, not at execution |
 | Job vanished from AWX | Operation marked indeterminate, not failed. Absence is not an outcome |
-| gdcm restarts mid-operation | Nothing is lost. State lives in AWX; the poller picks the operation up again |
+| swallow restarts mid-operation | Nothing is lost. State lives in AWX; the poller picks the operation up again |
 
-The pattern is the same throughout: gdcm never converts "I do not know" into an outcome.
+The pattern is the same throughout: swallow never converts "I do not know" into an outcome.
 This mirrors the staleness rule in [002](002-server-identity.md).
 
 ## Consequences
 
-- gdcm implements an AWX client (launch, status, logs, template lookup), an `Operation`
+- swallow implements an AWX client (launch, status, logs, template lookup), an `Operation`
   context, a dynamic inventory endpoint, and a status poller.
-- The poller is gdcm's second background loop, alongside the provider reconciler. Both
+- The poller is swallow's second background loop, alongside the provider reconciler. Both
   are periodic readers of external state, which is the only kind of background work this
   architecture needs.
-- Playbook content lives in git and is referenced by AWX job template. gdcm stores no
+- Playbook content lives in git and is referenced by AWX job template. swallow stores no
   automation content, which retires the `ProvisioningProfile` concept — packages and
   scripts belong in a role, not in a platform database.
-- Which job templates exist becomes part of deployment configuration. gdcm maps its
+- Which job templates exist becomes part of deployment configuration. swallow maps its
   operation kinds to template identifiers; it does not create templates.
 - Deploying Kubernetes and configuring Slurm are operation kinds, not bespoke subsystems.
   Feature 3 is largely a matter of naming the right templates.
 
 ## Rejected Alternatives
 
-**gdcm runs `ansible-playbook` itself and captures the output.** No external dependency,
+**swallow runs `ansible-playbook` itself and captures the output.** No external dependency,
 full control of the interface, and easy to start. Rejected because everything hard about
-running automation is in the parts this skips: durable state across a gdcm restart,
+running automation is in the parts this skips: durable state across a swallow restart,
 concurrency limits, log retention, credential handling for host access, and a place to
 look when a run half-succeeded. It reproduces AWX badly, and it reproduces exactly the
 gap that made the first iteration unrealistic.
@@ -173,13 +173,13 @@ Rejected on bootstrapping: they run on Kubernetes, and deploying the first Kuber
 cluster is one of the operations that needs an engine. A dependency cycle at the exact
 moment the platform is most needed.
 
-**Push inventory into AWX from gdcm.** Covered above: a second database to keep
+**Push inventory into AWX from swallow.** Covered above: a second database to keep
 consistent, for nothing.
 
-**Copy AWX logs into gdcm for a unified API and retention.** One place to search, and
+**Copy AWX logs into swallow for a unified API and retention.** One place to search, and
 logs survive AWX being rebuilt. Rejected because it duplicates retention that AWX already
-provides, cannot be complete for a running job, and makes gdcm's storage grow with
-automation verbosity — a chatty playbook should not cost gdcm disk.
+provides, cannot be complete for a running job, and makes swallow's storage grow with
+automation verbosity — a chatty playbook should not cost swallow disk.
 
 ## Related
 

@@ -12,7 +12,7 @@ import (
 // runReconciler polls every enabled provisioner on an interval until ctx is cancelled.
 //
 // This is one of only two background loops in the service, and both are periodic
-// readers of external state. gdcm executes nothing itself; a loop that reads is the
+// readers of external state. swallow executes nothing itself; a loop that reads is the
 // most it needs. See docs/decisions/001-system-ownership-boundaries.md.
 func runReconciler(ctx context.Context, reconcile *provisioningapp.ReconcileUseCase, interval time.Duration) {
 	// Run once at startup so that a restart does not leave the projection stale for a
@@ -147,7 +147,7 @@ func syncMembershipOnce(ctx context.Context, membership *clusterapp.MembershipSy
 			log.Printf("membership sync: %s failed: %s", report.ClusterName, *report.Error)
 			continue
 		}
-		// Unmatched members mean the cluster contains machines gdcm does not manage,
+		// Unmatched members mean the cluster contains machines swallow does not manage,
 		// which is worth surfacing rather than quietly ignoring.
 		if len(report.Unmatched) > 0 {
 			log.Printf("membership sync: %s: %d members, %d matched, %d cleared, unmatched: %v",

@@ -1,6 +1,6 @@
 // Package domain defines the monitoring ports.
 //
-// gdcm stores no metrics and no alerts. It queries the metrics store and reads alerts
+// swallow stores no metrics and no alerts. It queries the metrics store and reads alerts
 // from Alertmanager, and its only contribution is correlation: turning a label set back
 // into the server, site, and cluster it belongs to.
 //
@@ -20,7 +20,7 @@ const (
 	LabelSite     = "site"
 	LabelCluster  = "cluster"
 	// LabelKubernetesNode is what in-cluster metrics carry instead of a server_id,
-	// because gdcm does not own a cluster's scrape configuration.
+	// because swallow does not own a cluster's scrape configuration.
 	LabelKubernetesNode = "node"
 )
 
@@ -39,7 +39,7 @@ func (s Sample) ServerID() string {
 
 // MetricsQuerier reads from the central metrics store.
 //
-// Deliberately narrow: gdcm exposes named, parameterised queries rather than a PromQL
+// Deliberately narrow: swallow exposes named, parameterised queries rather than a PromQL
 // passthrough, so the set of expressions that can reach the store is bounded by this
 // codebase rather than by a client.
 type MetricsQuerier interface {
@@ -55,12 +55,12 @@ const (
 	AlertStateFiring AlertState = "firing"
 	// AlertStateSuppressed means a silence or an inhibition rule is hiding it. This
 	// is what "acknowledged" looks like: it is a fact in Alertmanager, not a field
-	// gdcm sets.
+	// swallow sets.
 	AlertStateSuppressed AlertState = "suppressed"
 	AlertStateUnknown    AlertState = "unknown"
 )
 
-// Alert is an alert as Alertmanager reports it, plus gdcm's correlation.
+// Alert is an alert as Alertmanager reports it, plus swallow's correlation.
 type Alert struct {
 	// Fingerprint is Alertmanager's identifier. Opaque.
 	Fingerprint string
@@ -72,7 +72,7 @@ type Alert struct {
 	Labels      map[string]string
 	StartsAt    time.Time
 
-	// Correlation, resolved by gdcm from the label set. Empty when the alert's labels
+	// Correlation, resolved by swallow from the label set. Empty when the alert's labels
 	// do not identify one.
 	ServerID  string
 	SiteID    string
@@ -80,7 +80,7 @@ type Alert struct {
 }
 
 // SilenceRequest suppresses an alert. Silencing is how an alert is acknowledged: the
-// state lives in Alertmanager, so that gdcm and the alerting pipeline cannot disagree
+// state lives in Alertmanager, so that swallow and the alerting pipeline cannot disagree
 // about whether something was dealt with.
 type SilenceRequest struct {
 	// Matchers select what to silence, as exact label equality.

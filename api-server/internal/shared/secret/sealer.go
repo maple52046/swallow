@@ -1,6 +1,6 @@
 // Package secret seals integration credentials for storage.
 //
-// gdcm holds exactly one class of secret it cannot avoid: the credentials it uses to
+// swallow holds exactly one class of secret it cannot avoid: the credentials it uses to
 // authenticate to the systems it integrates with. Those are sealed here so that a
 // database dump alone does not yield working credentials, and so that every read path
 // has to go through an explicit Open call rather than reading a field.

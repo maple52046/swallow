@@ -51,7 +51,7 @@ type acknowledgeRequest struct {
 	Comment  string            `json:"comment"`
 }
 
-// Acknowledge creates an Alertmanager silence. There is no gdcm-side acknowledged flag:
+// Acknowledge creates an Alertmanager silence. There is no swallow-side acknowledged flag:
 // the state belongs to the system that evaluates the rules.
 func (h *MonitoringHandler) Acknowledge(c *fiber.Ctx) error {
 	fingerprint := c.Params("fingerprint")

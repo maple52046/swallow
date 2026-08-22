@@ -49,7 +49,7 @@ type DeployServerInput struct {
 //
 // The action is addressed by server ID, not by provider machine ID: callers know
 // servers, and which provisioner to talk to is derived from the server's source. That
-// is the identity mapping gdcm exists to hold.
+// is the identity mapping swallow exists to hold.
 type DeployServerUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory

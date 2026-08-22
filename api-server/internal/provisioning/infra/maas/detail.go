@@ -129,7 +129,7 @@ type numaNodeJSON struct {
 // and the device inventory for the PCI table.
 //
 // It is not cached: this is read one machine at a time, so a live read is always fresh
-// and gdcm needs no schema for MAAS's disk and NUMA shapes.
+// and swallow needs no schema for MAAS's disk and NUMA shapes.
 func (p *Provider) GetMachineDetail(ctx context.Context, machineID string) (*provisioningdomain.MachineDetail, error) {
 	var m detailMachineJSON
 	if err := p.client.get(ctx, machinePath(machineID), nil, &m); err != nil {

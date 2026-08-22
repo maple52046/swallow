@@ -288,7 +288,7 @@ func TestDeploy_SendsMultipartFormWithEncodedUserData(t *testing.T) {
 		OSSystem:     "ubuntu",
 		DistroSeries: "jammy",
 		UserData:     "#cloud-config\npackages: [htop]\n",
-		Comment:      "provisioned by gdcm",
+		Comment:      "provisioned by swallow",
 	})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
@@ -307,7 +307,7 @@ func TestDeploy_SendsMultipartFormWithEncodedUserData(t *testing.T) {
 	if fake.lastForm["distro_series"] != "jammy" {
 		t.Errorf("distro_series: got %q", fake.lastForm["distro_series"])
 	}
-	if fake.lastForm["comment"] != "provisioned by gdcm" {
+	if fake.lastForm["comment"] != "provisioned by swallow" {
 		t.Errorf("comment: got %q", fake.lastForm["comment"])
 	}
 

@@ -100,7 +100,7 @@ func (p *Provider) Deploy(
 	}
 	if req.Ephemeral {
 		// Sent only when asked, so that MAAS keeps deciding what a plain deployment
-		// means rather than gdcm asserting a default it does not own.
+		// means rather than swallow asserting a default it does not own.
 		fields["ephemeral_deploy"] = "true"
 	}
 
@@ -177,11 +177,11 @@ func translateError(err error, machineID string) error {
 		return provisioningdomain.ErrMachineNotFound
 
 	case apiErr.StatusCode == http.StatusUnauthorized, apiErr.StatusCode == http.StatusForbidden:
-		// The caller's own credentials were already accepted by gdcm, so this can
-		// only be the API key gdcm is configured with.
+		// The caller's own credentials were already accepted by swallow, so this can
+		// only be the API key swallow is configured with.
 		return &provisioningdomain.ProviderError{
 			Kind:   provisioningdomain.ProviderErrorAuth,
-			Detail: "MAAS rejected the API key gdcm is configured with.",
+			Detail: "MAAS rejected the API key swallow is configured with.",
 			Err:    err,
 		}
 

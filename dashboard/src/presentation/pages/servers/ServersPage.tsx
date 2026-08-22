@@ -83,7 +83,7 @@ function toFilterOptions(counts: Map<string, number>): FilterOption[] {
 }
 
 /**
- * The servers list, modelled on MAAS's machines list but on Radix and the gdcm API.
+ * The servers list, modelled on MAAS's machines list but on Radix and the swallow API.
  *
  * A working set is loaded once (coarse `keyword`/`includeAbsent` are server-side) and then
  * filtered, sorted, grouped, and paginated on the client, because the API does none of

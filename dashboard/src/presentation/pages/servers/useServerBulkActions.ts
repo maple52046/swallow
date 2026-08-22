@@ -19,7 +19,7 @@ export interface BulkActionResult {
 /**
  * Runs a provisioner action across many servers by fanning out over the per-server API.
  *
- * gdcm exposes no bulk endpoint, so "bulk" is N independent calls. They run concurrently
+ * swallow exposes no bulk endpoint, so "bulk" is N independent calls. They run concurrently
  * and failures are collected rather than aborting the batch — one server that cannot do
  * the action (the backend refuses unsupported ones per server) must not stop the rest.
  * The result is summarised in a toast (success count and, when any failed, a partial

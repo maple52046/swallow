@@ -85,7 +85,7 @@ func (h *OperationHandler) Get(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-// Logs proxies the controller's output as plain text. Nothing is stored by gdcm.
+// Logs proxies the controller's output as plain text. Nothing is stored by swallow.
 func (h *OperationHandler) Logs(c *fiber.Ctx) error {
 	logs, err := h.operations.Logs(c.Context(), c.Params("id"))
 	if err != nil {
@@ -104,10 +104,10 @@ func (h *OperationHandler) Refresh(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-// webhookRequest is the part of an AWX notification gdcm reads.
+// webhookRequest is the part of an AWX notification swallow reads.
 //
 // Only the job id is used. The payload's status is deliberately ignored: the webhook is
-// a hint to go and look, and the status gdcm records always comes from a read it made
+// a hint to go and look, and the status swallow records always comes from a read it made
 // itself. That keeps one unauthenticated-ish payload from being able to mark an
 // operation successful.
 type webhookRequest struct {
@@ -128,8 +128,8 @@ func (h *OperationHandler) Webhook(c *fiber.Ctx) error {
 
 	err := h.operations.RefreshByJob(c.Context(), integrationID, strconv.Itoa(req.ID))
 	if errors.Is(err, operationdomain.ErrOperationNotFound) {
-		// A job gdcm did not start. Acknowledged rather than rejected, so that AWX
-		// does not retry a notification gdcm will never care about.
+		// A job swallow did not start. Acknowledged rather than rejected, so that AWX
+		// does not retry a notification swallow will never care about.
 		return c.JSON(fiber.Map{"ignored": true})
 	}
 	if err != nil {

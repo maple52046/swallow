@@ -1,7 +1,7 @@
 // Package domain defines Operation: an operator's intent, executed by an external
 // automation controller.
 //
-// gdcm stores what someone wanted and a reference to the job doing it. It stores no
+// swallow stores what someone wanted and a reference to the job doing it. It stores no
 // logs, implements no retry, and enforces no idempotency — those belong to Ansible and
 // AWX, which solved them. See docs/decisions/004-automation-via-awx.md.
 package domain
@@ -19,7 +19,7 @@ const (
 	OperationKindInstallGPUDriver OperationKind = "install-gpu-driver"
 	OperationKindDeployKubernetes OperationKind = "deploy-kubernetes"
 	OperationKindConfigureSlurm   OperationKind = "configure-slurm"
-	// OperationKindCustom runs a named job template with no gdcm-side expectations
+	// OperationKindCustom runs a named job template with no swallow-side expectations
 	// about what it does, which is the escape hatch for anything not yet modelled.
 	OperationKindCustom OperationKind = "custom"
 )
@@ -59,7 +59,7 @@ type Status string
 
 const (
 	// StatusPending covers every pre-run controller state: queued, waiting for a
-	// slot, and so on. gdcm has no use for the distinctions.
+	// slot, and so on. swallow has no use for the distinctions.
 	StatusPending Status = "pending"
 	StatusRunning Status = "running"
 	// StatusSucceeded and the failure states are terminal.
@@ -85,13 +85,13 @@ func (s Status) Terminal() bool {
 
 // AutomationRef is the reference to, and mirror of, the controller's job.
 //
-// Status is a mirror and says when it was last observed. gdcm never infers that a job
+// Status is a mirror and says when it was last observed. swallow never infers that a job
 // finished because time passed.
 type AutomationRef struct {
 	IntegrationID string
 	JobTemplateID string
 	// JobName is what an operator configured, kept so that a template renamed or
-	// deleted in the controller can be reported by the name gdcm was asked for.
+	// deleted in the controller can be reported by the name swallow was asked for.
 	JobName string
 	// JobID is empty until the controller has accepted the launch.
 	JobID      string

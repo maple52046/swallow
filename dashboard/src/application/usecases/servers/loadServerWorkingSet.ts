@@ -2,7 +2,7 @@
  * Loads the full set of servers the list needs to group, multi-filter, and paginate on
  * the client.
  *
- * The gdcm API paginates but offers no grouping or multi-dimension filtering, so the
+ * The swallow API paginates but offers no grouping or multi-dimension filtering, so the
  * servers list fetches a working set and does that work in the browser. Only the coarse
  * filters the API supports (`keyword`, `includeAbsent`) are pushed server-side; the rest
  * is applied by the domain list helpers. Pages are fetched sequentially until the total

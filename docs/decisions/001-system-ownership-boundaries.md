@@ -2,32 +2,32 @@
 
 ## Decision
 
-**gdcm owns intent, policy, and identity mapping. For everything else, it integrates a
+**swallow owns intent, policy, and identity mapping. For everything else, it integrates a
 system that already owns the capability rather than rebuilding it — and where no such
 system exists, it may own the data itself.**
 
 This is a test applied per capability, not a blanket ban on holding facts. An earlier
-wording — "gdcm owns no facts about the physical or runtime world" — was too rigid: it
+wording — "swallow owns no facts about the physical or runtime world" — was too rigid: it
 could not tell the difference between "do not rebuild a time-series database" (always
-right, because that is Prometheus's whole problem domain) and "gdcm may never store a
+right, because that is Prometheus's whole problem domain) and "swallow may never store a
 hardware attribute" (not obviously right, and an obstacle to features that have no
 external owner).
 
 The test for any new capability:
 
 1. **Does a mature system already do this well, with an API to integrate?** Then
-   integrate it. Do not copy its data model into gdcm; reference it and mirror only what
+   integrate it. Do not copy its data model into swallow; reference it and mirror only what
    fleet-scale querying forces you to cache. OS provisioning is the archetype: MAAS and
-   Ironic already do it completely, so gdcm drives them rather than reimplementing them.
-2. **Is there no such system, or is the value in correlating several of them?** Then gdcm
+   Ironic already do it completely, so swallow drives them rather than reimplementing them.
+2. **Is there no such system, or is the value in correlating several of them?** Then swallow
    may own it outright, including its own tables. Identity mapping, policy, sites, and
    tenancy are here because nothing else can hold them.
 
-### The two kinds of data gdcm holds
+### The two kinds of data swallow holds
 
-Every field gdcm stores is exactly one of these, and the distinction is the point:
+Every field swallow stores is exactly one of these, and the distinction is the point:
 
-- **Owned data** — gdcm is the source of truth. There is no external owner to disagree
+- **Owned data** — swallow is the source of truth. There is no external owner to disagree
   with, so there is no `observedAt` and no staleness: sites, integrations, identity
   mapping, policy, operations, tenancy. Reading it back is authoritative.
 - **Mirrored facts** — a copy of something an external system owns, held only so the
@@ -40,17 +40,17 @@ question is what this document exists to force; the earlier version answered it 
 forbidding the second category, which is why it read as a prohibition rather than a
 guide.
 
-> **Out of scope here:** whether gdcm's owned data lives in MongoDB or something lighter
+> **Out of scope here:** whether swallow's owned data lives in MongoDB or something lighter
 > like SQLite is a storage decision, independent of this ownership boundary, and is not
 > settled by this document.
 
 ## Context
 
-The first iteration of gdcm modelled the world directly: a `Server` record with
+The first iteration of swallow modelled the world directly: a `Server` record with
 hostname, IP, hardware inventory, an operational status, and a bespoke agent reporting
 into it. Every one of those fields already had an owner elsewhere — MAAS knew the
 hardware in far more detail, Prometheus knew whether the host was up, and nobody had
-decided which one gdcm should believe.
+decided which one swallow should believe.
 
 That is the actual defect. It was not bad code; it was modelling before deciding
 ownership. The symptoms all followed from it:
@@ -60,7 +60,7 @@ ownership. The symptoms all followed from it:
 - The agent collected inventory once at startup and never again, because there was no
   answer to "who asks it to look again".
 - `AgentStatusStale` was defined and never set, because nothing owned the passage of time.
-- Alerts had an `acknowledge`/`resolve` lifecycle in gdcm while Alertmanager already had
+- Alerts had an `acknowledge`/`resolve` lifecycle in swallow while Alertmanager already had
   silences, so two systems claimed the same state.
 
 This document exists so that the next feature starts from ownership instead of from a
@@ -68,9 +68,9 @@ data model.
 
 ## The Boundaries
 
-### Facts gdcm does not own
+### Facts swallow does not own
 
-| Fact | Owner | gdcm access | gdcm stores |
+| Fact | Owner | swallow access | swallow stores |
 |------|-------|-------------|-------------|
 | Which machines exist; CPU, RAM, GPU, disk, NIC detail | Provisioner (MAAS, one per site) | Reconciler poll | Cached projection, with staleness |
 | OS deployment state and deployed OS | Provisioner | Reconciler poll | Cached projection |
@@ -85,16 +85,16 @@ data model.
 | Slurm partitions, Slurm node states, jobs | Slurm | Live read | Nothing |
 | Job scheduling and queueing | Slurm and Kubernetes | Live read | Nothing |
 
-### Facts gdcm owns
+### Facts swallow owns
 
-| Fact | Why gdcm must own it |
+| Fact | Why swallow must own it |
 |------|----------------------|
 | Sites | No external system knows the set of sites; it is the frame everything else hangs off |
-| Integrations: endpoints and credentials per site | This is gdcm's own configuration. Credentials may be delegated to a secret store, but the registry of what exists is gdcm's |
-| Identity mapping | The join between a provisioner machine ID, a metrics label set, and a cluster's own node name exists nowhere else. This is gdcm's central value |
+| Integrations: endpoints and credentials per site | This is swallow's own configuration. Credentials may be delegated to a secret store, but the registry of what exists is swallow's |
+| Identity mapping | The join between a provisioner machine ID, a metrics label set, and a cluster's own node name exists nowhere else. This is swallow's central value |
 | Clusters as records: which cluster exists, at which site, with which policy | The cluster's own API knows its members but not its intended shape or its governing policy |
 | Policy, e.g. `gpuStackOwner` | Pure intent. Two subsystems both want to install GPU drivers; only an operator decision resolves it |
-| Operations: intent, target set, and the reference to the AWX job that executes it | AWX knows the job ran. Only gdcm knows it was "drain and reimage these 12 servers to move them from cluster A to B" |
+| Operations: intent, target set, and the reference to the AWX job that executes it | AWX knows the job ran. Only swallow knows it was "drain and reimage these 12 servers to move them from cluster A to B" |
 | Tenancy: teams, users, server allocation | Allocation is a platform-level policy question, not a fact any provisioner or cluster holds |
 
 ### Rules for mirrored facts
@@ -102,7 +102,7 @@ data model.
 Mirroring exists because a fleet cannot be served by fanning out to every site on every
 request: the slowest provisioner would set page latency, one unreachable site would
 break the whole listing, and cross-site sorting and pagination cannot be computed
-correctly by merging per-provider pages. So gdcm keeps a local copy of external facts it
+correctly by merging per-provider pages. So swallow keeps a local copy of external facts it
 needs to query across sites — provisioner inventory today, and any future integration's
 facts under the same rules.
 
@@ -114,7 +114,7 @@ A mirrored fact is honest only under three rules:
    how stale a view is and must be able to tell "this site last synced 14 minutes ago"
    from "this site is up to date".
 3. A mirror is never authoritative for a write. An action always goes to the owning
-   system, and the mirror converges afterwards. gdcm never writes to a mirror to reflect
+   system, and the mirror converges afterwards. swallow never writes to a mirror to reflect
    what it hopes happened.
 
 How much to mirror is itself the integrate-or-own test applied field by field. Mirror
@@ -122,13 +122,13 @@ what the fleet is queried, filtered, sorted, or aggregated by — a machine's GP
 inventory, its coarse lifecycle state, the tags it is grouped under. Do not mirror what
 is only ever read one machine at a time: a machine's full firmware detail, its per-disk
 layout, its PCI bus map. Those stay a live read against the owner, fetched when a single
-machine is opened, so that gdcm carries no schema for them and no staleness to explain.
+machine is opened, so that swallow carries no schema for them and no staleness to explain.
 
 ## Consequences
 
 ### What this makes possible
 
-A single view across sites that no individual tool can produce, because gdcm holds the
+A single view across sites that no individual tool can produce, because swallow holds the
 identity mapping: this server, in this site, provisioned by that MAAS, currently a worker
 in that Kubernetes cluster, emitting these metrics, last touched by that AWX job.
 
@@ -142,17 +142,17 @@ capability, so the integrate-or-own test lands on "integrate, do not rebuild":
 - **No custom agent on managed servers.** Its two jobs are already covered: hardware
   detail by provisioner commissioning, liveness and host metrics by `node_exporter`.
   A bespoke agent on every server in a fleet is a maintenance cost with no unique output.
-- **No metric storage.** gdcm queries a TSDB. It does not keep a `GPUMetrics` table.
+- **No metric storage.** swallow queries a TSDB. It does not keep a `GPUMetrics` table.
   Storing metrics is rebuilding a time-series database badly.
 - **No log storage.** Operation logs live in AWX and are proxied on demand.
-- **No alert rule evaluation.** Rules live with Prometheus. gdcm receives what fires.
+- **No alert rule evaluation.** Rules live with Prometheus. swallow receives what fires.
 - **No alert lifecycle of its own.** Acknowledging is creating an Alertmanager silence,
   not setting a field in Mongo.
-- **No automation content.** gdcm does not store playbooks, scripts, or an equivalent of
+- **No automation content.** swallow does not store playbooks, scripts, or an equivalent of
   a provisioning "profile" containing packages and scripts. Those belong in git.
 - **No network management.** No DHCP, DNS, subnet, or VLAN modelling.
 - **No scheduler.** Deciding which workload runs where is Slurm's and Kubernetes' job.
-- **No hardware history or CMDB.** gdcm may mirror a machine's *current* hardware as the
+- **No hardware history or CMDB.** swallow may mirror a machine's *current* hardware as the
   provisioner reports it — enough to query the fleet by GPU model or vendor — but it does
   not keep the history of how that hardware changed. Commissioning history stays with the
   provisioner, which is the system built to own it.
@@ -168,26 +168,26 @@ capability, so the integrate-or-own test lands on "integrate, do not rebuild":
   instances stored as data, one or more per site.
 - Change provider reads from pass-through to a reconciled cache with visible staleness.
 - Drop the frontend's `ProvisioningProfile` and `ProvisioningJob` concepts, which
-  assumed gdcm owned both automation content and execution state.
+  assumed swallow owned both automation content and execution state.
 - Drop the frontend's alert acknowledge and resolve mutations in favour of silences.
 
 ## Rejected Alternatives
 
-**gdcm owns orchestration and drives servers itself.** This is the most capable design and
+**swallow owns orchestration and drives servers itself.** This is the most capable design and
 gives the most consistent experience, and it is what the original agent plus a bidirectional
 gRPC stream was drifting towards. Rejected because it means owning idempotency, retry,
 concurrency limits, rollback, and log durability — that is Ansible's and AWX's entire
 problem domain, solved, and reimplementing it is the largest possible detour from what
-gdcm is for. The gRPC control channel was structurally already in place, which made this
+swallow is for. The gRPC control channel was structurally already in place, which made this
 tempting and is worth recording as the closest call in this document.
 
-**gdcm as a pure read-only pane of glass, with every change made in the underlying tools.**
+**swallow as a pure read-only pane of glass, with every change made in the underlying tools.**
 Cheapest to build and impossible to get wrong. Rejected because the cross-cutting
 workflows are the reason the platform exists: moving servers between clusters, or reimaging
 a rack and putting it back into service, spans provisioner, automation, and cluster. If
-every action has to be performed by hand in three tools, gdcm is a dashboard.
+every action has to be performed by hand in three tools, swallow is a dashboard.
 
-**Store metrics in gdcm for a unified API.** Superficially attractive: one API for
+**Store metrics in swallow for a unified API.** Superficially attractive: one API for
 clients, no PromQL knowledge needed in the frontend, no dependency on a TSDB being
 reachable. Rejected because it is a time-series database with worse retention,
 cardinality handling, and query language than the one already deployed, and because the

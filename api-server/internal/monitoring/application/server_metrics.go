@@ -9,12 +9,12 @@ import (
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// namedQueries is the complete set of expressions gdcm will evaluate.
+// namedQueries is the complete set of expressions swallow will evaluate.
 //
 // A fixed set rather than a PromQL passthrough: an arbitrary expression through an
-// authenticated API makes gdcm responsible for query cost it cannot predict, and lets
+// authenticated API makes swallow responsible for query cost it cannot predict, and lets
 // one client trigger a fleet-wide high-cardinality scan. Exploration belongs in Grafana,
-// which gdcm deep-links to.
+// which swallow deep-links to.
 //
 // Each expression takes the server_id label pattern via %s and must aggregate
 // by (server_id) so that results can be attributed.
@@ -52,7 +52,7 @@ func NewServerMetricsService(factory monitoringdomain.MonitoringFactory) *Server
 	return &ServerMetricsService{factory: factory}
 }
 
-// ErrUnknownMetric means a client asked for a query gdcm does not define.
+// ErrUnknownMetric means a client asked for a query swallow does not define.
 var ErrUnknownMetric = errors.New("unknown metric")
 
 // Query evaluates the named metrics for the given servers.
@@ -133,7 +133,7 @@ func expandQuery(template, pattern string) string {
 }
 
 // GrafanaLink returns a Grafana base URL for a client to deep-link into, or null when
-// none is configured. Dashboards are Grafana's job; gdcm only points at it.
+// none is configured. Dashboards are Grafana's job; swallow only points at it.
 func (s *ServerMetricsService) GrafanaLink(ctx context.Context) *string {
 	factory, ok := s.factory.(interface {
 		GrafanaURL(ctx context.Context, siteID string) string

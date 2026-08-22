@@ -75,18 +75,18 @@ func TestCreateOperation_LimitsToTargetServerIDs(t *testing.T) {
 		t.Errorf("limit should be server ids, got %v", launch.Limit)
 	}
 
-	// gdcm's identifiers reach the playbook so it can report back in them.
-	if launch.ExtraVars["gdcm_operation_id"] == nil {
-		t.Error("expected gdcm_operation_id in extra vars")
+	// swallow's identifiers reach the playbook so it can report back in them.
+	if launch.ExtraVars["swallow_operation_id"] == nil {
+		t.Error("expected swallow_operation_id in extra vars")
 	}
-	if launch.ExtraVars["gdcm_site_id"] != testSiteID {
-		t.Errorf("gdcm_site_id: got %v", launch.ExtraVars["gdcm_site_id"])
+	if launch.ExtraVars["swallow_site_id"] != testSiteID {
+		t.Errorf("swallow_site_id: got %v", launch.ExtraVars["swallow_site_id"])
 	}
 }
 
 // Operator-supplied vars must not be able to overwrite the identifiers a playbook
 // reports against.
-func TestCreateOperation_ExtraVarsCannotOverrideGdcmIdentifiers(t *testing.T) {
+func TestCreateOperation_ExtraVarsCannotOverrideSwallowIdentifiers(t *testing.T) {
 	f := setupOperations(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
 
@@ -95,7 +95,7 @@ func TestCreateOperation_ExtraVarsCannotOverrideGdcmIdentifiers(t *testing.T) {
 		"targetServerIds": []string{"srv-1"},
 		"extraVars": map[string]any{
 			"driver_version":    "550.54.14",
-			"gdcm_operation_id": "forged",
+			"swallow_operation_id": "forged",
 		},
 	}, f.adminAuth(t))
 
@@ -103,13 +103,13 @@ func TestCreateOperation_ExtraVarsCannotOverrideGdcmIdentifiers(t *testing.T) {
 	if launch.ExtraVars["driver_version"] != "550.54.14" {
 		t.Errorf("operator vars should pass through, got %v", launch.ExtraVars["driver_version"])
 	}
-	if launch.ExtraVars["gdcm_operation_id"] == "forged" {
-		t.Error("a gdcm_ prefixed var must not be overridable")
+	if launch.ExtraVars["swallow_operation_id"] == "forged" {
+		t.Error("a swallow_ prefixed var must not be overridable")
 	}
 }
 
 // AWX will happily run two jobs against the same host, because it sees two unrelated
-// jobs. gdcm is the only thing that can refuse.
+// jobs. swallow is the only thing that can refuse.
 func TestCreateOperation_RefusesOverlappingTargets(t *testing.T) {
 	f := setupOperations(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
@@ -487,12 +487,12 @@ func TestWebhook_IgnoresPayloadStatusAndRereadsFromController(t *testing.T) {
 	}
 
 	if got := f.operationRepo.operations[operationID].Automation.Status; got != operationdomain.StatusFailed {
-		t.Fatalf("status must come from gdcm's own read, got %q", got)
+		t.Fatalf("status must come from swallow's own read, got %q", got)
 	}
 }
 
-// A notification about a job gdcm did not start is acknowledged, so AWX does not retry
-// something gdcm will never care about.
+// A notification about a job swallow did not start is acknowledged, so AWX does not retry
+// something swallow will never care about.
 func TestWebhook_UnknownJobIsAcknowledged(t *testing.T) {
 	f := setupOperations(t)
 

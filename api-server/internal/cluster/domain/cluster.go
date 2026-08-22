@@ -1,6 +1,6 @@
-// Package domain defines Cluster: a Kubernetes or Slurm cluster gdcm knows about.
+// Package domain defines Cluster: a Kubernetes or Slurm cluster swallow knows about.
 //
-// gdcm owns the cluster's registration and its policy. It does not own the cluster's
+// swallow owns the cluster's registration and its policy. It does not own the cluster's
 // membership — that is read from the cluster's own API, and when the two disagree the
 // cluster is right. See docs/decisions/002-server-identity.md.
 package domain
@@ -34,7 +34,7 @@ func (t ClusterType) Valid() bool {
 //
 // Both provisioning and an in-cluster GPU operator want to own them, and they cannot
 // coexist on one host. Each cluster declares which one wins, once and explicitly, and
-// gdcm refuses operations that contradict it.
+// swallow refuses operations that contradict it.
 //
 // See docs/decisions/003-metrics-label-contract.md.
 type GPUStackOwner string
@@ -68,7 +68,7 @@ type Cluster struct {
 	SiteID string
 	Name   string
 	Type   ClusterType
-	// IntegrationID is the cluster-kind integration gdcm reads live state through.
+	// IntegrationID is the cluster-kind integration swallow reads live state through.
 	// Empty when the cluster is registered but not yet reachable, which is the normal
 	// state between deciding to build one and having built it.
 	IntegrationID string
@@ -87,8 +87,8 @@ type SyncState struct {
 	LastError       string
 	// MemberCount is how many members the last successful read saw.
 	MemberCount int
-	// MatchedCount is how many of them gdcm could match to a server. A gap between
-	// the two means the cluster contains machines gdcm does not manage, which is
+	// MatchedCount is how many of them swallow could match to a server. A gap between
+	// the two means the cluster contains machines swallow does not manage, which is
 	// worth seeing rather than silently ignoring.
 	MatchedCount int
 }
@@ -107,7 +107,7 @@ type Member struct {
 
 // ClusterReader reads live state from a cluster's own API.
 //
-// Read-only on purpose: gdcm does not create, drain, or modify anything through this
+// Read-only on purpose: swallow does not create, drain, or modify anything through this
 // port. Changing a cluster is an operation executed by AWX.
 type ClusterReader interface {
 	// ListMembers returns the cluster's current nodes.

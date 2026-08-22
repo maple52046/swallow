@@ -23,7 +23,7 @@ type MembershipReport struct {
 // MembershipSyncUseCase reads a cluster's membership and writes it onto the servers'
 // membership axis.
 //
-// The cluster is authoritative: gdcm records what the cluster says, and never the other
+// The cluster is authoritative: swallow records what the cluster says, and never the other
 // way around. An operation may have asked a server to join, but only the cluster can say
 // whether it did.
 type MembershipSyncUseCase struct {

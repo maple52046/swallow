@@ -6,8 +6,8 @@
 
 Identity:
 
-1. `serverId` — a gdcm-issued opaque identifier, stable for the physical machine's whole
-   life in the platform. Every gdcm reference (operation targets, allocations, cluster
+1. `serverId` — a swallow-issued opaque identifier, stable for the physical machine's whole
+   life in the platform. Every swallow reference (operation targets, allocations, cluster
    membership, metrics labels) uses this and only this.
 2. `source` — the external key `(siteId, integrationId, providerMachineId)`. Unique.
    How the reconciler finds the record it is updating.
@@ -22,7 +22,7 @@ Status is not one field. It is three axes, each with its own owner and its own
 
 ## Terminology
 
-`Server` stays gdcm's word for a managed physical machine, as the API contract's naming
+`Server` stays swallow's word for a managed physical machine, as the API contract's naming
 rules already require. This redesign does **not** rename it to `Node`, even though the
 projection is now derived entirely from provider inventory.
 
@@ -58,7 +58,7 @@ points on one scale, and no single value can honestly represent them.
 
 Each layer answers a question the others cannot:
 
-- `serverId` gives gdcm a reference that survives everything. If a machine is
+- `serverId` gives swallow a reference that survives everything. If a machine is
   re-enrolled in MAAS and gets a new `system_id`, allocation history and past operations
   must still point somewhere.
 - `source` gives the reconciler a deterministic lookup. It is the only key that can be
@@ -114,7 +114,7 @@ with it.
 ### What is not part of identity
 
 No operator-assigned display name. The provider's `hostname` is the display label, with
-`serverId` as the fallback when there is none. Adding a gdcm-owned name invites two names
+`serverId` as the fallback when there is none. Adding a swallow-owned name invites two names
 for the same machine that disagree, and nothing currently needs it. If a stable label is
 wanted later, it is additive.
 
@@ -147,8 +147,8 @@ the reason is the state of its own source.
 
 ### Membership is a projection, never a write target
 
-gdcm does not record that a server "belongs to" a cluster by setting a field. Membership
-is read from the cluster's own API. gdcm's server record holds the *intent* — an operation
+swallow does not record that a server "belongs to" a cluster by setting a field. Membership
+is read from the cluster's own API. swallow's server record holds the *intent* — an operation
 that requested this server join that cluster — and the cluster API holds the fact. When
 they disagree, the cluster is right and the disagreement is worth showing.
 
@@ -161,8 +161,8 @@ they disagree, the cluster is right and the disagreement is worth showing.
 - `hostname` and addresses become nullable and non-unique.
 - The single `status` field is replaced by three optional sub-documents.
 - Server records are created by the reconciler, not by an operator. The manual
-  "register a server" endpoint loses its reason to exist: a machine gdcm has not
-  discovered through a provider is a machine gdcm cannot act on anyway. Manual
+  "register a server" endpoint loses its reason to exist: a machine swallow has not
+  discovered through a provider is a machine swallow cannot act on anyway. Manual
   registration is removed rather than kept as a second, weaker creation path.
 - The import action from [001](001-system-ownership-boundaries.md) disappears with it.
   There is nothing to import: every provider machine is already a server projection. What
@@ -179,10 +179,10 @@ find it by.
 **Keep hostname as the primary key, scoped per site.** Would preserve human-readable
 references and needs no reconciler matching rules. Rejected because hostname is not
 stable across a reinstall — the whole point of a provisioning platform is that it changes
-what is installed, including the name — and because the provider, not gdcm, decides it.
+what is installed, including the name — and because the provider, not swallow, decides it.
 
-**Use the provider's machine ID as gdcm's server ID directly.** Removes a layer and makes
-every reference traceable by eye. Rejected because it makes gdcm's identifiers hostage to
+**Use the provider's machine ID as swallow's server ID directly.** Removes a layer and makes
+every reference traceable by eye. Rejected because it makes swallow's identifiers hostage to
 a provider's database: a re-enrollment or a MAAS rebuild would orphan every operation
 record and allocation that referenced the old ID.
 

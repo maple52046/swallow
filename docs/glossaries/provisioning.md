@@ -2,7 +2,7 @@
 
 ## Definition
 
-**OS provisioning** is installing an operating system onto bare-metal hardware. gdcm does
+**OS provisioning** is installing an operating system onto bare-metal hardware. swallow does
 not do this. It delegates to a system that already owns hardware discovery, PXE boot, and
 OS installation, and presents that system through one interface.
 
@@ -25,13 +25,13 @@ something else.
 An entry in a provider's inventory.
 
 **A machine is not a [Server](server.md).** The distinction survives this redesign, but
-its meaning has narrowed: a machine is now the *provider's view*, and a server is *gdcm's
+its meaning has narrowed: a machine is now the *provider's view*, and a server is *swallow's
 projection of it*. They are one-to-one while both exist.
 
 | | `Machine` | `Server` |
 |---|---|---|
-| Owned by | The provider | gdcm |
-| Identifier | Provider-side (`system_id`) | `serverId`, gdcm-issued |
+| Owned by | The provider | swallow |
+| Identifier | Provider-side (`system_id`) | `serverId`, swallow-issued |
 | Lifetime | Until re-enrolled or removed from the provider | The physical machine's whole life in the platform |
 | Status describes | Provisioning readiness | Three separate axes |
 
@@ -39,9 +39,9 @@ The one-to-one link can be re-established: if a machine is re-enrolled and gets 
 provider ID, the reconciler recognises the hardware and re-points the existing server at
 it rather than creating a second one. That is the reason `Machine` remains a distinct
 concept instead of collapsing into `Server` — the provider's identifier is not stable
-enough to be gdcm's.
+enough to be swallow's.
 
-Machine data reaches gdcm only through the reconciler. Nothing reads a provider inline to
+Machine data reaches swallow only through the reconciler. Nothing reads a provider inline to
 serve a request.
 
 ## MachineStatus
@@ -67,7 +67,7 @@ Values: `new | commissioning | ready | allocated | deploying | deployed | releas
 | `retired` | Withdrawn from service |
 | `unknown` | The provider reported a state this version does not recognise |
 
-The set is deliberately **coarse**: it carries only the distinctions gdcm acts on. A
+The set is deliberately **coarse**: it carries only the distinctions swallow acts on. A
 provider's richer vocabulary is collapsed into these values, with the original label kept
 alongside as `providerStatus` for display. When a provider gains a new state,
 `providerStatus` widens and `MachineStatus` does not.
@@ -87,7 +87,7 @@ An operating system a provider can currently deploy.
 An OS image carries **no packages and no scripts**. Post-install configuration is an
 [Operation](../decisions/004-automation-via-awx.md) executed by AWX from a playbook in
 git. The earlier `ProvisioningProfile` concept — an image plus packages plus scripts,
-stored in gdcm — is retired: it made gdcm an owner of automation content, which
+stored in swallow — is retired: it made swallow an owner of automation content, which
 [decision 001](../decisions/001-system-ownership-boundaries.md) forbids.
 
 ## Deployment
@@ -98,10 +98,10 @@ Deployment is **asynchronous**. A request returns when the provider accepts it, 
 the OS is installed. Progress is observed by the reconciler updating the server's
 `provisioning` axis through `deploying` to `deployed` or `failed`.
 
-There is no gdcm-side job record for a deployment: the provider owns the work, and the
-axis is the progress signal. Long-running work that gdcm *does* track is an
+There is no swallow-side job record for a deployment: the provider owns the work, and the
+axis is the progress signal. Long-running work that swallow *does* track is an
 [Operation](../decisions/004-automation-via-awx.md), which is a different thing — an
-operation is gdcm's intent executed by AWX, whereas a deployment is entirely the
+operation is swallow's intent executed by AWX, whereas a deployment is entirely the
 provider's.
 
 A machine generally must be `ready` to be deployed, and a `deployed` machine must be
@@ -117,7 +117,7 @@ cluster's `gpuStackOwner` policy
 A deployment can be **ephemeral**: the OS runs from memory and the machine's disks are
 left untouched, so the whole root filesystem is lost on reboot.
 
-gdcm treats ephemerality as two separate things, and both matter:
+swallow treats ephemerality as two separate things, and both matter:
 
 - **An intent**, on the deploy request. A provisioner that cannot do it must refuse the
   request rather than deploy normally. This is the one deploy option where being ignored
@@ -125,7 +125,7 @@ gdcm treats ephemerality as two separate things, and both matter:
   nothing, and a disk installation keeps everything.
 - **A fact**, on the `provisioning` axis, read back from the provisioner on every pass.
   It is not a memory of what was requested, because a machine can be redeployed the other
-  way round without gdcm being involved.
+  way round without swallow being involved.
 
 The fact has to be visible wherever provisioning state is shown. An ephemeral machine and
 a disk-installed one are identical in state, OS, and release, and the difference only
@@ -133,7 +133,7 @@ becomes apparent when something is lost.
 
 It also changes what an operation means. Anything an operation configures on an ephemeral
 machine — a driver, a package, a tuned kernel parameter — reports success and then
-silently un-happens at the next boot. gdcm records the ephemerality but does not yet
+silently un-happens at the next boot. swallow records the ephemerality but does not yet
 refuse or warn about operations targeting such a machine; see
 [decision 004](../decisions/004-automation-via-awx.md).
 
@@ -146,12 +146,12 @@ port would leave every other adapter implementing no-ops.
 Returning a machine to the provider's available pool, making it `ready` again.
 
 Release acts on the provider only. It does not remove the corresponding server: the
-physical machine still exists and gdcm still manages it. Release changes the
+physical machine still exists and swallow still manages it. Release changes the
 `provisioning` axis, nothing else.
 
 ## Deepened provider integration
 
-Deploy and release are the minimum. A provider that does more, gdcm surfaces more of —
+Deploy and release are the minimum. A provider that does more, swallow surfaces more of —
 following the integrate-or-own test in [decision 001](../decisions/001-system-ownership-boundaries.md):
 mirror what the fleet is queried by, proxy live what is read one machine at a time, and
 drive the provider's own actions rather than reimplementing them.
@@ -175,7 +175,7 @@ the same way it leaves the cluster-owned membership axis alone.
 
 The full picture of one machine — firmware, per-disk layout, NUMA topology, the PCI
 device map — is **read live from the provider on demand**, never mirrored. It is only
-ever looked at one machine at a time, so a live read is always fresh and gdcm carries no
+ever looked at one machine at a time, so a live read is always fresh and swallow carries no
 schema for it and no staleness to explain. It is exposed as a provider-neutral set of
 labelled sections and tables, so a second provider fills the same shape with its own
 content.
@@ -184,8 +184,8 @@ content.
 
 Actions beyond deploy and release — powering a machine on or off, re-running
 commissioning or hardware tests, locking a machine or marking it broken, entering rescue
-mode — are the **provider's own operations**, triggered through gdcm and mirrored back.
-gdcm does not reimplement them.
+mode — are the **provider's own operations**, triggered through swallow and mirrored back.
+swallow does not reimplement them.
 
 They are **optional capabilities**: an adapter declares which it supports, and an action a
 provider cannot do is **refused, not silently dropped**, exactly as an unsupported
@@ -200,8 +200,8 @@ Named here because they appear in older documents and in the frontend:
 
 | Concept | Why it is gone |
 |---------|----------------|
-| `ProvisioningProfile` | Automation content in gdcm. Belongs in a playbook in git |
-| `ProvisioningJob` | Execution state in gdcm. Deployments are tracked by the provisioning axis; everything else is an Operation |
+| `ProvisioningProfile` | Automation content in swallow. Belongs in a playbook in git |
+| `ProvisioningJob` | Execution state in swallow. Deployments are tracked by the provisioning axis; everything else is an Operation |
 | Machine **import** | There is nothing to import. Every machine is already projected as a server by the reconciler. What import meant is now tenant allocation |
 | `provisioningSource` on a server | Replaced by the server's `source`, which is now identity rather than provenance |
 

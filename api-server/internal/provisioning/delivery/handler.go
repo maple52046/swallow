@@ -98,7 +98,7 @@ func (h *ProvisioningHandler) Release(c *fiber.Ctx) error {
 
 // ProvisionerDetail proxies the provisioner for one machine's full detail, plus the
 // capabilities that tell a client which actions to offer. Read live, so it reflects the
-// provisioner exactly and gdcm keeps no schema for it.
+// provisioner exactly and swallow keeps no schema for it.
 func (h *ProvisioningHandler) ProvisionerDetail(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
@@ -261,7 +261,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 	var provErr *provisioningdomain.ProviderError
 	if errors.As(err, &provErr) {
 		// The provider's own wording is preserved: it explains a refusal far better
-		// than gdcm can, and the adapter keeps credentials out of it.
+		// than swallow can, and the adapter keeps credentials out of it.
 		if provErr.Kind == provisioningdomain.ProviderErrorRejected {
 			return apierror.Respond(c, apierror.New(apierror.CodeValidation, provErr.Detail))
 		}

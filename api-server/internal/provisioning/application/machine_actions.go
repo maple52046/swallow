@@ -11,7 +11,7 @@ import (
 // power, hardware validation, and operator state changes.
 //
 // Every action is addressed by server ID and dispatched to the server's own provisioner,
-// which is the identity mapping gdcm exists to hold. Each action needs an optional
+// which is the identity mapping swallow exists to hold. Each action needs an optional
 // provider capability; a provisioner that lacks it gets a clear refusal rather than a
 // silently dropped request, so a caller can trust that a success means the thing happened.
 type MachineActionsUseCase struct {

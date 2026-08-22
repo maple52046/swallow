@@ -136,7 +136,7 @@ func (c *Controller) JobLogs(ctx context.Context, jobID string) (string, error) 
 
 // mapStatus collapses AWX job statuses onto the domain set.
 //
-// Every pre-run state becomes pending: gdcm has no use for the difference between
+// Every pre-run state becomes pending: swallow has no use for the difference between
 // queued and waiting for a capacity slot. An unrecognised status becomes pending rather
 // than an outcome, because guessing that an unknown state is a failure would be worse
 // than waiting for the next poll.
@@ -197,7 +197,7 @@ func translateError(err error) error {
 	case apiErr.StatusCode == http.StatusUnauthorized, apiErr.StatusCode == http.StatusForbidden:
 		return &operationdomain.ControllerError{
 			Kind:   operationdomain.ControllerErrorAuth,
-			Detail: "AWX rejected the token gdcm is configured with.",
+			Detail: "AWX rejected the token swallow is configured with.",
 			Err:    err,
 		}
 

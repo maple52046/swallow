@@ -109,7 +109,7 @@ func TestPrometheusTargets_DefaultsToDeployedOnly(t *testing.T) {
 }
 
 // Hosts are keyed by server ID with ansible_host carrying the address, so a playbook
-// refers to gdcm's stable identifier rather than an IP that changes on reinstall.
+// refers to swallow's stable identifier rather than an IP that changes on reinstall.
 func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
@@ -136,7 +136,7 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 		t.Errorf("ansible_host: got %v", vars["ansible_host"])
 	}
 	if vars["server_id"] != "srv-1" {
-		t.Errorf("server_id must be a host var so a playbook can report back in gdcm ids: %v", vars["server_id"])
+		t.Errorf("server_id must be a host var so a playbook can report back in swallow ids: %v", vars["server_id"])
 	}
 	if vars["cluster_role"] != "worker" {
 		t.Errorf("cluster_role: got %v", vars["cluster_role"])

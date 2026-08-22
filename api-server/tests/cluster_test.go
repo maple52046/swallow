@@ -98,7 +98,7 @@ func TestCreateCluster_RejectsUnknownTypeAndDuplicateName(t *testing.T) {
 	}
 }
 
-// The cluster is authoritative for membership: gdcm records what it says.
+// The cluster is authoritative for membership: swallow records what it says.
 func TestSyncMembership_WritesMembershipAxis(t *testing.T) {
 	f := setupPlatform(t)
 	cluster := seedCluster(t, f, "cluster-1", "prod-k8s", "provisioning")
@@ -152,7 +152,7 @@ func TestSyncMembership_MatchesByAddressWhenNameDiffers(t *testing.T) {
 	}
 }
 
-// A cluster containing machines gdcm does not manage is normal and worth surfacing
+// A cluster containing machines swallow does not manage is normal and worth surfacing
 // rather than silently ignoring.
 func TestSyncMembership_ReportsUnmatchedMembers(t *testing.T) {
 	f := setupPlatform(t)

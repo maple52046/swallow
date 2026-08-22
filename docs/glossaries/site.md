@@ -2,9 +2,9 @@
 
 ## Definition
 
-These two concepts are the only part of the world gdcm defines rather than observes. No
+These two concepts are the only part of the world swallow defines rather than observes. No
 external system knows the set of sites, and no external system knows which other systems
-gdcm should talk to.
+swallow should talk to.
 
 ## Site
 
@@ -18,7 +18,7 @@ serves one site, and `site` is a required label in the
 
 ### Key Fields
 
-- `siteId` — gdcm-issued, opaque, stable
+- `siteId` — swallow-issued, opaque, stable
 - `name` — operator-facing label
 - `description` — optional
 
@@ -27,11 +27,11 @@ building. Anything more specific about location is an attribute of the things in
 
 ## Integration
 
-A registered external system that gdcm talks to, scoped to one site.
+A registered external system that swallow talks to, scoped to one site.
 
 ### Kinds
 
-| Kind | System | gdcm uses it to |
+| Kind | System | swallow uses it to |
 |------|--------|-----------------|
 | `provisioner` | MAAS | Read machine inventory, deploy and release operating systems |
 | `automation` | AWX | Launch long-running operations, mirror their status, proxy their logs |
@@ -40,7 +40,7 @@ A registered external system that gdcm talks to, scoped to one site.
 
 ### Key Fields
 
-- `integrationId` — gdcm-issued, opaque, stable. Persisted in every
+- `integrationId` — swallow-issued, opaque, stable. Persisted in every
   [Server](server.md) source, so it must never be reissued for a different system
 - `siteId` — the site this integration serves
 - `kind` — from the table above
@@ -51,7 +51,7 @@ A registered external system that gdcm talks to, scoped to one site.
 
 ### Credentials
 
-An integration's credential is the one secret gdcm cannot avoid holding, because gdcm is
+An integration's credential is the one secret swallow cannot avoid holding, because swallow is
 the thing that authenticates. Rules:
 
 - A credential is **never** returned by any API, in any form, including redacted.
@@ -62,7 +62,7 @@ the thing that authenticates. Rules:
 
 ## Staleness
 
-Because gdcm caches provisioner inventory, every projection carries the freshness of its
+Because swallow caches provisioner inventory, every projection carries the freshness of its
 source. Staleness is **part of the API**, not an implementation detail.
 
 ### Key Fields (per integration)
@@ -97,11 +97,11 @@ flowchart LR
 - **Multiple sites per integration.** An integration serves exactly one site. A MAAS
   spanning two sites is modelled as two integrations, because the alternative is a
   many-to-many relationship in service of an arrangement that does not currently exist.
-- **Integration discovery.** Integrations are registered by an operator. gdcm does not
+- **Integration discovery.** Integrations are registered by an operator. swallow does not
   scan for them.
 
 ## Related Concepts
 
 - [Server](server.md) — what a provisioner integration produces.
-- [decision 001](../decisions/001-system-ownership-boundaries.md) — why gdcm owns these
+- [decision 001](../decisions/001-system-ownership-boundaries.md) — why swallow owns these
   two concepts and almost nothing else.

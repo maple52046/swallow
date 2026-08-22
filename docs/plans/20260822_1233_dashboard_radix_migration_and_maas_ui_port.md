@@ -8,7 +8,7 @@ Deliver two ordered dashboard workstreams:
    (`@radix-ui/themes`) — provider, theme, and every Mantine file — and remove
    the Mantine dependency entirely.
 2. Port MAAS UI's machines list and machine summary UX onto Radix, built over
-   the existing gdcm server API.
+   the existing swallow server API.
 
 ## 2. Source Scope
 
@@ -85,12 +85,12 @@ Radix gap kit built under `src/presentation/components/radix/`:
 
 ## 8. Data Model and Format Notes
 
-MAAS-to-gdcm field mapping:
+MAAS-to-swallow field mapping:
 
 - **Kept (via the projection)**: FQDN + MAC, Power, Status (+ ephemeral), Tags,
-  Resource pool, Zone, Cores + Arch, RAM, Storage, GPUs; plus gdcm-only axes
+  Resource pool, Zone, Cores + Arch, RAM, Storage, GPUs; plus swallow-only axes
   Cluster and Health.
-- **Dropped (no gdcm data)**: Owner/tenancy, Fabric/VLAN/Spaces, physical disk
+- **Dropped (no swallow data)**: Owner/tenancy, Fabric/VLAN/Spaces, physical disk
   count in the list, description/note, workload annotations, kernel crash dump.
 - **Client-side only (no server-side API support)**: grouping, multi-dimension
   filtering (zone/pool/tags/GPU), and bulk actions. The list loads a working set
@@ -111,7 +111,7 @@ Radix component mapping:
 
 ## 9. CLI / API / Config Notes
 
-- No backend or API changes. Everything runs against the current gdcm server
+- No backend or API changes. Everything runs against the current swallow server
   API.
 - Light/dark persistence moves to Radix `<Theme appearance>` while keeping the
   existing `color-scheme` localStorage key.
@@ -144,7 +144,7 @@ Radix component mapping:
 ## 11. Non-goals
 
 - Backend changes. Everything runs on the current API.
-- MAAS features with no gdcm data (owner/tenancy, network fabric/VLAN/spaces,
+- MAAS features with no swallow data (owner/tenancy, network fabric/VLAN/spaces,
   workload annotations).
 - Bulk deploy (needs an image form) — deferred to a follow-up.
 

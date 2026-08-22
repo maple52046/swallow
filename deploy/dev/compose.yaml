@@ -1,4 +1,4 @@
-name: gdcm-dev
+name: swallow-dev
 
 # Local development stack for the whole platform: MongoDB plus every component
 # in src/, each running from a bind-mounted working tree with hot reload.

@@ -61,7 +61,7 @@ type ProviderCapabilities struct {
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
 // minimum every adapter implements; these are added by adapters whose backend supports
 // them and reached by a type assertion. This keeps a new provider from having to stub a
-// dozen methods it cannot honour, while still letting gdcm refuse — rather than silently
+// dozen methods it cannot honour, while still letting swallow refuse — rather than silently
 // drop — an action the provider does not offer. See docs/decisions/001.
 
 // PowerController controls a machine's power through the provisioner's BMC integration.
@@ -108,7 +108,7 @@ type HardwareInventoryInspector interface {
 // provisioner knows about one machine, for a single-machine view.
 //
 // The return type is deliberately generic rather than provider-specific: it is read one
-// machine at a time, never queried across the fleet, so gdcm proxies it live rather than
+// machine at a time, never queried across the fleet, so swallow proxies it live rather than
 // mirroring it, and carries no schema for it. A second provider fills the same sections
 // with its own content.
 type MachineDetailInspector interface {
@@ -117,7 +117,7 @@ type MachineDetailInspector interface {
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled
 // fields grouped into sections, plus tabular data like disks and NICs. It holds strings
-// because it is for display, not for gdcm to reason about.
+// because it is for display, not for swallow to reason about.
 type MachineDetail struct {
 	Sections []DetailSection
 	Tables   []DetailTable
@@ -143,7 +143,7 @@ type DetailTable struct {
 }
 
 // OSProvisioningProvider is the port an OS provisioning backend must implement
-// to be usable by gdcm.
+// to be usable by swallow.
 //
 // Implementations live under infra/ and own all translation between provider
 // vocabulary and this package's types. In particular they must map:
@@ -152,7 +152,7 @@ type DetailTable struct {
 //   - refused-but-understood requests onto *ProviderError{Kind: ProviderErrorRejected}
 //   - unknown machine identifiers onto ErrMachineNotFound
 //
-// Deploy and Release are asynchronous on every provider gdcm targets: they
+// Deploy and Release are asynchronous on every provider swallow targets: they
 // return once the provider has accepted the request, and progress is observed by
 // re-reading the machine.
 type OSProvisioningProvider interface {

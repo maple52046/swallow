@@ -1,6 +1,6 @@
 # 架構決策紀錄（ADR）
 
-本目錄以輕量 ADR（Architecture Decision Record）記錄 gdcm 重要且影響面廣的架構決策，
+本目錄以輕量 ADR（Architecture Decision Record）記錄 swallow 重要且影響面廣的架構決策，
 讓不熟悉脈絡的成員能快速理解「為什麼是這樣設計」。
 
 > **與其他文件的關係**：domain 術語的權威定義在
@@ -53,7 +53,7 @@
 
 | 文件 | 決定了什麼 |
 | --- | --- |
-| [`001-system-ownership-boundaries.md`](001-system-ownership-boundaries.md) | 哪個系統擁有哪些事實，以及 gdcm 因此不得儲存或重建什麼 |
+| [`001-system-ownership-boundaries.md`](001-system-ownership-boundaries.md) | 哪個系統擁有哪些事實，以及 swallow 因此不得儲存或重建什麼 |
 | [`002-server-identity.md`](002-server-identity.md) | server 如何跨站點與重裝維持身分，以及狀態為何是三個獨立軸而非單一值 |
 | [`003-metrics-label-contract.md`](003-metrics-label-contract.md) | monitoring 拓撲，以及把 metrics 接回 server 的標籤集 |
 | [`004-automation-via-awx.md`](004-automation-via-awx.md) | 長時間執行的 operation 由誰擁有、如何指定目標與觀察 |

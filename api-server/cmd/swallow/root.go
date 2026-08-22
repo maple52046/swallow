@@ -13,7 +13,7 @@ var rootConfigFile string
 var rootCmd = &cobra.Command{
 	Use:   "swallow",
 	Short: "GPU Datacenter Management backend",
-	Long:  "swallow is the backend service for the GDCM platform. Run 'swallow api' to start the API server.",
+	Long:  "swallow is the backend service for the Swallow platform. Run 'swallow api' to start the API server.",
 }
 
 func init() {

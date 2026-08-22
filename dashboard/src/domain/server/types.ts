@@ -71,7 +71,7 @@ export interface ProvisioningAxis {
   observedAt: string
 }
 
-/** Cluster membership, owned by the cluster's own API. Never written by gdcm. */
+/** Cluster membership, owned by the cluster's own API. Never written by swallow. */
 export interface MembershipAxis {
   clusterId: string
   /** The cluster's name for this machine. */
@@ -108,7 +108,7 @@ export interface Server {
   /** Hardware make as the provisioner commissioned it, for grouping the fleet. */
   systemVendor: string
   systemProduct: string
-  /** The provisioner's own grouping labels. Not a gdcm placement hierarchy. */
+  /** The provisioner's own grouping labels. Not a swallow placement hierarchy. */
   providerZone: string
   providerResourcePool: string
   /** The VM host a virtual machine belongs to, empty for bare metal. */
@@ -248,7 +248,7 @@ export interface PowerStateResult {
   powerState: string
 }
 
-/** Display label for a server. There is no gdcm-owned name. */
+/** Display label for a server. There is no swallow-owned name. */
 export function serverDisplayName(server: Server): string {
   return server.hostname ?? server.fqdn ?? server.id
 }

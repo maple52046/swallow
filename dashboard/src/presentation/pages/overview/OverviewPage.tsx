@@ -116,7 +116,7 @@ export function OverviewPage() {
             <ExclamationTriangleIcon />
           </Callout.Icon>
           <Callout.Text>
-            Nothing is integrated yet. gdcm reads everything from external systems. Register
+            Nothing is integrated yet. swallow reads everything from external systems. Register
             a site and at least one provisioner through the API to see servers here.
           </Callout.Text>
         </Callout.Root>
@@ -165,7 +165,7 @@ export function OverviewPage() {
             Integrations
           </Heading>
           <Text size="1" color="gray">
-            Everything gdcm reads comes from one of these
+            Everything swallow reads comes from one of these
           </Text>
         </Flex>
 

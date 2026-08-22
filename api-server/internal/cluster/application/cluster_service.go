@@ -37,7 +37,7 @@ type ClusterItem struct {
 	Name          string  `json:"name"`
 	Type          string  `json:"type"`
 	IntegrationID *string `json:"integrationId"`
-	// GPUStackOwner decides which subsystem installs GPU drivers. gdcm refuses
+	// GPUStackOwner decides which subsystem installs GPU drivers. swallow refuses
 	// operations that contradict it.
 	GPUStackOwner string          `json:"gpuStackOwner"`
 	Sync          ClusterSyncItem `json:"sync"`
@@ -50,8 +50,8 @@ type ClusterSyncItem struct {
 	LastSucceededAt *string `json:"lastSucceededAt"`
 	LastError       *string `json:"lastError"`
 	MemberCount     int     `json:"memberCount"`
-	// MatchedCount is how many members gdcm could match to a server. A gap means the
-	// cluster contains machines gdcm does not manage.
+	// MatchedCount is how many members swallow could match to a server. A gap means the
+	// cluster contains machines swallow does not manage.
 	MatchedCount int `json:"matchedCount"`
 }
 

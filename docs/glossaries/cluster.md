@@ -2,19 +2,19 @@
 
 ## Definition
 
-A Kubernetes or Slurm cluster gdcm knows about.
+A Kubernetes or Slurm cluster swallow knows about.
 
-gdcm owns two things about a cluster: its **registration** and its **policy**. It does not
+swallow owns two things about a cluster: its **registration** and its **policy**. It does not
 own the cluster's membership, its configuration, or its behaviour — those belong to the
 cluster, and changing any of them is an [Operation](operation.md) executed by AWX.
 
 ## Key Fields
 
-- `clusterId` — gdcm-issued, opaque
+- `clusterId` — swallow-issued, opaque
 - `siteId` — the [Site](site.md) it lives at
 - `name` — unique within its site
 - `type` — `kubernetes` or `slurm`
-- `integrationId` — the cluster-kind [Integration](site.md#integration) gdcm reads live
+- `integrationId` — the cluster-kind [Integration](site.md#integration) swallow reads live
   state through. **Nullable**: a cluster that is registered but not yet reachable is the
   normal state between deciding to build one and having built it
 - `gpuStackOwner` — see below
@@ -35,7 +35,7 @@ one host**:
 
 **There is no default.** Guessing would silently pick a side in a conflict that leaves two
 owners on one host, which is how a GPU node ends up with a driver that neither subsystem
-believes it installed. gdcm refuses operations that contradict the policy: a driver
+believes it installed. swallow refuses operations that contradict the policy: a driver
 installation targeting servers in a `gpu-operator` cluster is rejected, not executed.
 
 Under either policy the host `node_exporter` stays: it exists before the cluster does, and
@@ -44,21 +44,21 @@ survives the cluster being rebuilt. Only the driver and DCGM are contested.
 ## Membership
 
 Which servers are in a cluster is **read from the cluster's own API**, never written by
-gdcm. It appears as the `membership` axis on a [Server](server.md#the-three-status-axes).
+swallow. It appears as the `membership` axis on a [Server](server.md#the-three-status-axes).
 
-gdcm holds the *intent* — an operation that asked a server to join — and the cluster holds
+swallow holds the *intent* — an operation that asked a server to join — and the cluster holds
 the *fact*. When they disagree the cluster is right, and the disagreement is worth
 surfacing rather than reconciling away.
 
 ### Matching members to servers
 
-A cluster reports its own node names. gdcm matches them to servers by hostname first, then
+A cluster reports its own node names. swallow matches them to servers by hostname first, then
 by address. Two rules matter:
 
 - **An ambiguous match is no match.** If two servers share a hostname, neither is given
   the membership: attributing it to the wrong server would misdirect every operation aimed
   at it.
-- **Unmatched members are reported, not ignored.** A cluster containing machines gdcm does
+- **Unmatched members are reported, not ignored.** A cluster containing machines swallow does
   not manage is normal, and the count gap between `memberCount` and `matchedCount` is the
   honest way to show it.
 
@@ -92,12 +92,12 @@ produced inside the cluster, which carry `cluster` and the node name rather than
 - **Cluster configuration and lifecycle.** Deploying, upgrading, draining, or cordoning
   are operations, not fields.
 - **Workload scheduling.** That is what the cluster is for.
-- **Cluster-internal objects** — pods, jobs, partitions. gdcm reads membership, not
+- **Cluster-internal objects** — pods, jobs, partitions. swallow reads membership, not
   workloads.
 
 ## Related Concepts
 
-- [Server](server.md) — what a cluster's members are, from gdcm's side.
+- [Server](server.md) — what a cluster's members are, from swallow's side.
 - [Operation](operation.md) — how a cluster is built and changed.
 - [decision 003](../decisions/003-metrics-label-contract.md) — the `gpuStackOwner`
   reasoning and the monitoring components each policy disables.

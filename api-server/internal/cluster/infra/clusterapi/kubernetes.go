@@ -1,6 +1,6 @@
 // Package clusterapi reads live state from cluster APIs.
 //
-// Both readers speak plain REST rather than pulling in a vendored client library: gdcm
+// Both readers speak plain REST rather than pulling in a vendored client library: swallow
 // reads one collection from each cluster and never writes, so a full client would be a
 // large dependency for a single GET.
 package clusterapi
@@ -195,7 +195,7 @@ func translateError(err error, system string) error {
 	case apiErr.StatusCode == http.StatusUnauthorized, apiErr.StatusCode == http.StatusForbidden:
 		return &clusterdomain.ReaderError{
 			Kind:   clusterdomain.ReaderErrorAuth,
-			Detail: fmt.Sprintf("The %s API rejected the credential gdcm is configured with.", system),
+			Detail: fmt.Sprintf("The %s API rejected the credential swallow is configured with.", system),
 			Err:    err,
 		}
 	case apiErr.StatusCode >= http.StatusInternalServerError:

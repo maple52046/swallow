@@ -11,10 +11,10 @@ const (
 	CodeNotFound     Code = "not_found"
 	CodeConflict     Code = "conflict"
 	CodeInternal     Code = "internal_error"
-	// CodeProviderUnavailable means an upstream integration gdcm depends on is
+	// CodeProviderUnavailable means an upstream integration swallow depends on is
 	// not configured or cannot be reached. It is distinct from CodeInternal so
 	// that clients can tell "this deployment is not wired up / the upstream is
-	// down" apart from "gdcm has a bug".
+	// down" apart from "swallow has a bug".
 	CodeProviderUnavailable Code = "provider_unavailable"
 )
 

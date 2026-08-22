@@ -40,7 +40,7 @@ type ServerRepository interface {
 	FindByID(ctx context.Context, id string) (*Server, error)
 
 	// FindBySource looks a server up by its external key. Returns ErrServerNotFound
-	// when the provisioner is reporting a machine gdcm has not seen before.
+	// when the provisioner is reporting a machine swallow has not seen before.
 	FindBySource(ctx context.Context, source Source) (*Server, error)
 
 	// FindByHardware returns every server matching any non-empty hardware

@@ -26,7 +26,7 @@ type OperationRepository interface {
 	Create(ctx context.Context, operation *Operation) error
 	FindByID(ctx context.Context, id string) (*Operation, error)
 	// FindByJobID finds the operation mirroring a controller job, which is how a
-	// webhook naming a job is turned into something gdcm can refresh.
+	// webhook naming a job is turned into something swallow can refresh.
 	FindByJobID(ctx context.Context, integrationID, jobID string) (*Operation, error)
 	List(ctx context.Context, filter ListFilter) (ListResult, error)
 	// UpdateAutomation replaces the automation reference, which is the only part of

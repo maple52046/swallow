@@ -15,7 +15,7 @@ import (
 // say. Bounded on purpose: an indefinite silence is how an alert gets forgotten.
 const defaultSilenceDuration = 4 * time.Hour
 
-// AlertItem is an alert as Alertmanager reports it, with gdcm's correlation attached.
+// AlertItem is an alert as Alertmanager reports it, with swallow's correlation attached.
 type AlertItem struct {
 	Fingerprint string            `json:"fingerprint"`
 	Name        string            `json:"name"`
@@ -86,7 +86,7 @@ func (s *AlertService) List(ctx context.Context, input ListAlertsInput) ([]Alert
 }
 
 // AcknowledgeInput silences an alert. Acknowledging is creating a silence in
-// Alertmanager: the state lives where the alerting pipeline can see it, so gdcm and
+// Alertmanager: the state lives where the alerting pipeline can see it, so swallow and
 // Alertmanager cannot disagree about whether something was dealt with.
 type AcknowledgeInput struct {
 	SiteID      string
@@ -116,7 +116,7 @@ func (s *AlertService) Acknowledge(ctx context.Context, input AcknowledgeInput) 
 
 	comment := input.Comment
 	if comment == "" {
-		comment = "Acknowledged in gdcm"
+		comment = "Acknowledged in swallow"
 	}
 
 	return source.Silence(ctx, monitoringdomain.SilenceRequest{

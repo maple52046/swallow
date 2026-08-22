@@ -11,7 +11,7 @@ import (
 // AlertSource implements monitoringdomain.AlertSource against Alertmanager.
 //
 // Alerts are read rather than received: Alertmanager owns alert state, so querying it
-// means gdcm has no copy that can disagree. Acknowledging is creating a silence, which
+// means swallow has no copy that can disagree. Acknowledging is creating a silence, which
 // is the same fact expressed in the system that owns it.
 type AlertSource struct {
 	client *Client

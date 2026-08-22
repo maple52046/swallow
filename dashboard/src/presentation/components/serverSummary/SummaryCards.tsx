@@ -4,7 +4,7 @@ import type { Server } from '@/domain/server/types'
 
 /**
  * The shared server-summary card set, modelled on MAAS's OverviewCard composite but on
- * Radix and the gdcm projection. Each card renders one facet of a `Server`; the Summary
+ * Radix and the swallow projection. Each card renders one facet of a `Server`; the Summary
  * tab composes them into the MAAS grid. Kept as one cohesive set so a field added to a
  * facet lands in one place.
  */

@@ -1,8 +1,8 @@
-# gdcm — GPU Datacenter Management
+# swallow — GPU Datacenter Management
 
 ## Overview
 
-本 repository 是 **GPU Datacenter Management (gdcm) platform** 的 monorepo
+本 repository 是 **GPU Datacenter Management (swallow) platform** 的 monorepo
 入口，採用 git submodule 統一管理整個 platform 所有的 sub-project，
 並集中收納跨 sub-project 共通的約束文件。
 

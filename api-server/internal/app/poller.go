@@ -12,7 +12,7 @@ import (
 // until ctx is cancelled.
 //
 // This is the correctness backstop for status mirroring. Controller webhooks make
-// status feel live but are lossy — one lost while gdcm restarts is gone — so the poller
+// status feel live but are lossy — one lost while swallow restarts is gone — so the poller
 // is what guarantees an operation eventually reflects reality.
 func runOperationPoller(ctx context.Context, operations *operationapp.OperationService, interval time.Duration) {
 	ticker := time.NewTicker(interval)

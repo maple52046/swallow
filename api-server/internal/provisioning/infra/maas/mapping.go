@@ -6,7 +6,7 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
-// machineJSON is the subset of a MAAS machine object gdcm reads. MAAS returns far
+// machineJSON is the subset of a MAAS machine object swallow reads. MAAS returns far
 // more (interfaces, block devices, power parameters); anything not listed here is
 // deliberately ignored.
 type machineJSON struct {
@@ -48,7 +48,7 @@ type machineJSON struct {
 	InterfaceSet []interfaceJSON   `json:"interface_set"`
 }
 
-// namedJSON covers the MAAS objects gdcm only needs a name from.
+// namedJSON covers the MAAS objects swallow only needs a name from.
 type namedJSON struct {
 	Name string `json:"name"`
 }
@@ -90,7 +90,7 @@ type versionJSON struct {
 // maasStatusToDomain maps MAAS NODE_STATUS codes onto normalized machine statuses.
 //
 // The grouping follows MAAS's own SIMPLIFIED_NODE_STATUSES_MAP (src/maasserver/enum.py)
-// so that gdcm collapses lifecycle states the same way the MAAS UI does. The three
+// so that swallow collapses lifecycle states the same way the MAAS UI does. The three
 // codes MAAS leaves out of that map — MISSING, RESERVED and RETIRED — are mapped
 // explicitly rather than to "unknown", because each has a clear equivalent.
 //
@@ -202,7 +202,7 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 // toDomainOSImages converts MAAS boot resources into deployable images.
 //
 // MAAS reports one boot resource per name and architecture, where the architecture
-// carries a kernel flavour ("amd64/hwe-22.04"). gdcm only needs the CPU
+// carries a kernel flavour ("amd64/hwe-22.04"). swallow only needs the CPU
 // architecture, so entries collapse to one image per name and CPU architecture.
 // The resource name ("ubuntu/jammy") is kept as the image ID because that is the
 // value the deploy operation expects back as distro_series.
@@ -263,7 +263,7 @@ func cleanField(value string) string {
 	return trimmed
 }
 
-// matchesFilter applies the domain filter in gdcm, because the MAAS machines
+// matchesFilter applies the domain filter in swallow, because the MAAS machines
 // endpoint has no equivalent free-text or normalized-status query.
 func matchesFilter(m *provisioningdomain.Machine, filter provisioningdomain.MachineFilter) bool {
 	if filter.Status != "" && m.Status != filter.Status {

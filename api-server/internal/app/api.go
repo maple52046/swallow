@@ -301,7 +301,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 
-	// gdcm owns a cluster's registration and its policy. Membership is read from the
+	// swallow owns a cluster's registration and its policy. Membership is read from the
 	// cluster's own API, so there is no endpoint here to change it.
 	clusters := v1.Group("/clusters", admin...)
 	clusters.Post("/", deps.clusters.Create)
@@ -312,7 +312,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	clusters.Post("/:id/sync", deps.clusters.SyncMembership)
 	clusters.Post("/sync", deps.clusters.SyncAllMembership)
 
-	// Alerts and metrics are read straight from the monitoring stack: gdcm stores
+	// Alerts and metrics are read straight from the monitoring stack: swallow stores
 	// neither, and acknowledging an alert creates a silence in Alertmanager.
 	monitoring := v1.Group("/monitoring", admin...)
 	monitoring.Get("/alerts", deps.monitoring.ListAlerts)

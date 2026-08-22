@@ -13,7 +13,7 @@ reading requirements first, then consult the relevant skill.
 
 This index covers skills owned by this source project, which hosts the
 `api-server` and `agent` platform components. When this project is checked out
-inside the gdcm superproject, repository-wide skills are indexed separately in the
+inside the swallow superproject, repository-wide skills are indexed separately in the
 superproject's root `skills/README.md`; use this index for work scoped to this
 project.
 

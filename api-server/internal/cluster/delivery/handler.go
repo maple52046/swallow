@@ -101,7 +101,7 @@ func (h *ClusterHandler) Delete(c *fiber.Ctx) error {
 }
 
 // SyncMembership reads the cluster's membership now instead of waiting for the interval.
-// The report names members gdcm could not match to a server, which is the part that
+// The report names members swallow could not match to a server, which is the part that
 // needs a human.
 func (h *ClusterHandler) SyncMembership(c *fiber.Ctx) error {
 	report, err := h.membership.Execute(c.Context(), c.Params("id"))

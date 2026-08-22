@@ -9,7 +9,7 @@ import (
 )
 
 // Deploy is addressed by server ID; which provisioner to call is derived from the
-// server's source. That mapping is what gdcm exists to hold.
+// server's source. That mapping is what swallow exists to hold.
 func TestDeployServer_ResolvesProviderFromServerSource(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
@@ -218,7 +218,7 @@ func TestReleaseServer_DoesNotRemoveTheServer(t *testing.T) {
 		t.Fatalf("unexpected release calls: %v", f.provider.releaseCalls)
 	}
 
-	// The physical machine still exists and gdcm still manages it.
+	// The physical machine still exists and swallow still manages it.
 	if _, ok := f.servers.servers["srv-1"]; !ok {
 		t.Fatal("release must not delete the server")
 	}

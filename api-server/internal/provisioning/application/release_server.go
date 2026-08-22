@@ -10,7 +10,7 @@ import (
 // ReleaseServerUseCase returns a server to its provisioner's available pool, which is
 // what makes an already-deployed machine deployable again.
 //
-// It does not remove the server: the physical machine still exists and gdcm still
+// It does not remove the server: the physical machine still exists and swallow still
 // manages it. Only the provisioning axis changes.
 type ReleaseServerUseCase struct {
 	servers   serverdomain.ServerRepository

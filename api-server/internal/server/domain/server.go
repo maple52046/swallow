@@ -1,8 +1,8 @@
-// Package domain defines Server: a physical machine gdcm manages, projected from a
+// Package domain defines Server: a physical machine swallow manages, projected from a
 // provisioner's inventory.
 //
 // A server is not created by an operator. It comes into being when the reconciler sees
-// a machine in a provisioner's inventory that has no server yet. gdcm owns the
+// a machine in a provisioner's inventory that has no server yet. swallow owns the
 // server's identity; everything else here is either cached observation or a status
 // read from a system that owns it.
 //
@@ -157,7 +157,7 @@ type ProvisioningStatus struct {
 	//
 	// It belongs on this axis rather than being remembered from the deploy request:
 	// the provisioner reports it as a property of the machine, and a machine can be
-	// re-deployed the other way round without gdcm being involved.
+	// re-deployed the other way round without swallow being involved.
 	Ephemeral bool
 	// HWEKernel is the provisioner's own kernel label. Display only.
 	HWEKernel string
@@ -176,7 +176,7 @@ type ProvisioningStatus struct {
 
 // MembershipStatus is the axis owned by a cluster's own API.
 //
-// gdcm never writes this to express intent. Intent lives in an operation; this is the
+// swallow never writes this to express intent. Intent lives in an operation; this is the
 // cluster's answer, and when the two disagree the cluster is right.
 type MembershipStatus struct {
 	ClusterID string
@@ -203,10 +203,10 @@ const (
 	HealthDown = "down"
 )
 
-// Server is a physical machine gdcm manages.
+// Server is a physical machine swallow manages.
 type Server struct {
-	// ID is gdcm-issued and stable for the machine's whole life in the platform.
-	// Every gdcm reference uses this and only this.
+	// ID is swallow-issued and stable for the machine's whole life in the platform.
+	// Every swallow reference uses this and only this.
 	ID       string
 	Source   Source
 	Hardware Hardware
@@ -227,7 +227,7 @@ type Server struct {
 	UpdatedAt time.Time
 }
 
-// DisplayName is the label to show for this server. There is no gdcm-owned name, so
+// DisplayName is the label to show for this server. There is no swallow-owned name, so
 // the provisioner's hostname is used, falling back to the identifier.
 func (s *Server) DisplayName() string {
 	if s.Observed.Hostname != "" {

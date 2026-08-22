@@ -10,7 +10,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Compute Resource
 
-- [Server](terms/server.md): The platform's primary managed compute unit, projected from a provisioner's inventory, identified by a gdcm-issued `serverId` (not by hostname or IP, which are observed and non-unique).
+- [Server](terms/server.md): The platform's primary managed compute unit, projected from a provisioner's inventory, identified by a swallow-issued `serverId` (not by hostname or IP, which are observed and non-unique).
 - [Server Status](terms/server-status.md): Not a single value but three independent status axes — `provisioning`, `membership`, and `health` — each owned by a different system and absent until observed.
 
 ## Pending Terms

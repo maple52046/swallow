@@ -81,9 +81,9 @@ func (r *HealthResolver) ResolveHealth(
 
 // labelPattern builds a PromQL regex alternation from server IDs.
 //
-// Identifiers are validated rather than escaped: they are gdcm-issued UUIDs, so
+// Identifiers are validated rather than escaped: they are swallow-issued UUIDs, so
 // anything outside this character set means the caller is passing something that did
-// not come from gdcm, and interpolating it into a query would be the wrong response.
+// not come from swallow, and interpolating it into a query would be the wrong response.
 func labelPattern(serverIDs []string) (string, error) {
 	for _, id := range serverIDs {
 		if id == "" {

@@ -8,11 +8,11 @@ import (
 // LaunchRequest describes a job to start.
 type LaunchRequest struct {
 	JobTemplateID string
-	// Limit restricts the job to these inventory hosts. gdcm's dynamic inventory
+	// Limit restricts the job to these inventory hosts. swallow's dynamic inventory
 	// keys hosts by server ID, so these are server IDs and need no translation.
 	Limit []string
-	// ExtraVars are passed to the playbook. They carry gdcm's identifiers so that a
-	// playbook can report back in terms gdcm understands.
+	// ExtraVars are passed to the playbook. They carry swallow's identifiers so that a
+	// playbook can report back in terms swallow understands.
 	ExtraVars map[string]any
 }
 
@@ -32,7 +32,7 @@ type AutomationController interface {
 	Name() string
 
 	// FindJobTemplate resolves a template name to its controller-side ID, so that
-	// operators configure names and gdcm stores whatever the controller uses.
+	// operators configure names and swallow stores whatever the controller uses.
 	FindJobTemplate(ctx context.Context, name string) (string, error)
 
 	// Launch starts a job and returns its identifier and initial state.
@@ -43,7 +43,7 @@ type AutomationController interface {
 	JobState(ctx context.Context, jobID string) (JobState, error)
 
 	// JobLogs returns the job's output. Logs are proxied on demand and never stored
-	// by gdcm, so this may be called repeatedly while a job runs.
+	// by swallow, so this may be called repeatedly while a job runs.
 	JobLogs(ctx context.Context, jobID string) (string, error)
 }
 

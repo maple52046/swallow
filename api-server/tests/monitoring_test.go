@@ -77,8 +77,8 @@ func TestHealthResolver_NoIntegrationIsNotAnError(t *testing.T) {
 	}
 }
 
-// Identifiers are validated rather than escaped: anything outside the gdcm identifier
-// character set did not come from gdcm and must not be interpolated into a query.
+// Identifiers are validated rather than escaped: anything outside the swallow identifier
+// character set did not come from swallow and must not be interpolated into a query.
 func TestHealthResolver_RejectsUnsafeServerID(t *testing.T) {
 	factory := newFakeMonitoringFactory()
 	resolver := monitoringapp.NewHealthResolver(factory)
@@ -165,7 +165,7 @@ func TestListAlerts_FiltersByServerAndSeverity(t *testing.T) {
 	}
 }
 
-// Acknowledging is creating a silence in Alertmanager, so that gdcm and the alerting
+// Acknowledging is creating a silence in Alertmanager, so that swallow and the alerting
 // pipeline cannot disagree about whether something was dealt with.
 func TestAcknowledgeAlert_CreatesSilence(t *testing.T) {
 	f := setupPlatform(t)
@@ -269,7 +269,7 @@ func TestServerMetrics_MissingDataIsAbsentNotZero(t *testing.T) {
 	}
 }
 
-// gdcm exposes a fixed query set rather than a PromQL passthrough, so an unknown metric
+// swallow exposes a fixed query set rather than a PromQL passthrough, so an unknown metric
 // is a validation error that names what is available.
 func TestServerMetrics_RejectsUnknownMetric(t *testing.T) {
 	f := setupPlatform(t)
