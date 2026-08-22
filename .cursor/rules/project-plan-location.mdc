@@ -8,16 +8,16 @@ alwaysApply: true
 When creating or updating implementation plans for this codebase:
 
 - Do not store project plans only in Cursor's default user-level plan storage.
-- Save all project-level plan manuscripts under the superproject root, in the
+- Save all project-level plan manuscripts under the repository root, in the
   single canonical, flat location:
 
   `docs/plans/manuscripts/`
 
 - This location is absolute for this workspace: even when a plan is about a
-  component under `src/<project>` (e.g. `dashboard`, `swallow`), the manuscript
-  still goes in the **root** `docs/plans/manuscripts/`. Do NOT write plan
-  manuscripts into a submodule's `docs/plans/manuscripts/`, and do NOT drop the
-  `plans/` path segment (`docs/manuscripts/` is wrong).
+  specific component (e.g. `api-server`, `dashboard`), the manuscript still goes
+  in the **root** `docs/plans/manuscripts/`. Do NOT write plan manuscripts into a
+  component's own `docs/plans/manuscripts/`, and do NOT drop the `plans/` path
+  segment (`docs/manuscripts/` is wrong).
 - Use Markdown files.
 - File naming convention:
 

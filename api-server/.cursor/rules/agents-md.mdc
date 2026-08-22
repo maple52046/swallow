@@ -22,7 +22,7 @@ When starting a task:
 3. Read the required project documents before editing code.
 4. Do not skip the architecture spec, coding style, or API contract documents when the task scope requires them.
 5. Treat the coding-style completion gate in `AGENTS.md` as part of "done", not as optional background reading.
-6. If this project is checked out inside the swallow superproject (as `src/swallow`), also follow the superproject's root `AGENTS.md` for platform-level glossary and contract rules.
+6. This component lives in the swallow monorepo as `api-server/`; also follow the repository root `AGENTS.md` for platform-level glossary and contract rules.
 7. If `AGENTS.md` does not exist, stop and report that the project entry guide is missing.
 
 ## Important

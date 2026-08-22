@@ -19,7 +19,7 @@ contexts — under `docs/`.
 
 Before planning, editing, reviewing, or explaining repository work, read:
 
-1. `docs/development/codebase-structure.md` — understand the root codebase structure, platform components, source projects, and the relationship between the root component symlinks and `src/`.
+1. `docs/development/codebase-structure.md` — understand the repository structure, the platform components, and how each component maps to its top-level directory.
 
 ## Development Work
 

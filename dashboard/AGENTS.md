@@ -84,11 +84,12 @@ adapter, and must never become the de-facto definition of API behavior.
 
 ## Domain Language
 
-Names in code must match the platform ubiquitous language. This project's domain
-terminology is owned by the platform superproject glossary, not by this
-repository. When a task introduces or changes a domain term, entity, status
-value, or data model concept, confirm the term against the platform glossary
-first; if the term is missing or ambiguous, resolve it there before implementing.
+Names in code must match the platform ubiquitous language. This component's domain
+terminology is owned by the platform glossary at the repository root
+(`docs/development/glossaries/`), not by this component. When a task introduces or
+changes a domain term, entity, status value, or data model concept, confirm the
+term against the platform glossary first; if the term is missing or ambiguous,
+resolve it there before implementing.
 
 A UI label may differ from a domain value — for example status `maintain` is
 displayed as "Maintenance" — but the domain value is what flows through filters,

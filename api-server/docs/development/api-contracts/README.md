@@ -89,7 +89,8 @@ provider-owned contract.
 ## Domain Language
 
 Field names, enum values, and resource names in a contract must match the
-platform ubiquitous language owned by the superproject glossary. A contract must
+platform ubiquitous language owned by the platform glossary at the repository
+root (`docs/development/glossaries/`). A contract must
 not introduce a domain term or status value that the glossary does not define. If
 a needed term is missing or ambiguous, resolve it in the glossary first, then
 write the contract.
@@ -97,10 +98,8 @@ write the contract.
 ## Cross-Component API Consumption
 
 When one component calls another component's API, the caller must follow the
-provider's API contract. The gRPC API between `agent` and `api-server` is a
-provider-owned contract even though both components' code lives in this source
-project.
-
-Consumers outside this source project — currently `dashboard` — discover these
-contracts through the superproject's API contract workflow and must integrate
-according to the contract, not according to this project's implementation.
+provider's API contract. `dashboard` consumes the `api-server` HTTP API and must
+integrate according to the published contract, not according to this component's
+implementation. (An earlier gRPC contract between a node-side `agent` and
+`api-server` was retired; see the repository root's
+`docs/decisions/001-system-ownership-boundaries.md`.)

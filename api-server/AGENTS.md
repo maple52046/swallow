@@ -1,7 +1,8 @@
 # Swallow Agent Entry Guide
 
-This file is the entry point for AI agents working in the swallow codebase.
-All paths in this file are relative to the swallow project root.
+This file is the entry point for AI agents working in the swallow backend, the
+`api-server` component. All paths in this file are relative to this component's
+root (`api-server/`).
 
 ## Required Reading
 
@@ -73,23 +74,24 @@ truth, and implementation must not define API behavior that is absent from it.
 
 ## Component Boundary
 
-Swallow contains two platform components:
+This directory is the `api-server` platform component: the Data Center API
+Service — an HTTP REST API plus the background reconcile / poll loops that own
+intent, policy, and identity mapping.
 
-- `api-server` — the Data Center API Service: HTTP REST API plus the gRPC service the agent connects to.
-- `agent` — the node-side runtime: identity resolution, environment detection, and the outbound stream to `api-server`.
-
-Always identify the affected platform component before changing code or
-contracts. Do not treat a shared source project location as permission to blur
-component ownership. `api-server` owns the API contracts; `agent` is a consumer
-of the gRPC contract.
+Keep the component boundary clear even inside the monorepo: `dashboard` consumes
+the `api-server` HTTP API through its published contract and must not reach into
+`api-server` internals; `api-server` owns the API contracts. (An earlier
+node-side `agent` component and its gRPC surface were retired; see the repository
+root's `docs/decisions/001-system-ownership-boundaries.md`.)
 
 ## Domain Language
 
-Names in code must match the platform ubiquitous language. This project's domain
-terminology is owned by the platform superproject glossary, not by this
-repository. When a task introduces or changes a domain term, entity, status
-value, or data model concept, confirm the term against the platform glossary
-first; if the term is missing or ambiguous, resolve it there before implementing.
+Names in code must match the platform ubiquitous language. This component's domain
+terminology is owned by the platform glossary at the repository root
+(`docs/development/glossaries/`), not by this component. When a task introduces or
+changes a domain term, entity, status value, or data model concept, confirm the
+term against the platform glossary first; if the term is missing or ambiguous,
+resolve it there before implementing.
 
 ## Plans
 

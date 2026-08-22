@@ -29,7 +29,7 @@ endpoints that are **not yet implemented and have no active contract**.
   list, servers delete) already have Active contracts; treat their sections here
   as historical design notes only.
 
-> Original version marker: 2026-03-27. Migrated from the superproject
+> Original version marker: 2026-03-27. Migrated from the platform root
 > (`docs/api-contracts/README.md`) into the provider component that owns it.
 
 ---
@@ -86,7 +86,7 @@ The following are **excluded** from this contract. They belong to deprecated pat
 
 | Document | Role |
 |----------|------|
-| Platform glossary (superproject `docs/development/glossaries/`) | Canonical domain language. Authoritative for every term and enum value below. |
+| Platform glossary (repository root `docs/development/glossaries/`) | Canonical domain language. Authoritative for every term and enum value below. |
 | [`conventions.md`](conventions.md) | The Active shared HTTP conventions: base path, auth, error envelope, timestamps, pagination. Supersedes the convention sections in this document. |
 | [`outline.md`](outline.md) | Which contracts are Active versus Planned. |
 

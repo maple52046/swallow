@@ -23,7 +23,7 @@ When starting a task:
 4. Do not skip the architecture spec or coding style documents when the task scope requires them.
 5. Treat the coding-style completion gate in `AGENTS.md` as part of "done", not as optional background reading.
 6. When integrating with a backend API, use the provider component's API contract as the source of truth; never infer API behavior from provider implementation details.
-7. If this project is checked out inside the swallow superproject (as `src/dashboard`), also follow the superproject's root `AGENTS.md` for platform-level glossary and contract rules.
+7. This component lives in the swallow monorepo as `dashboard/`; also follow the repository root `AGENTS.md` for platform-level glossary and contract rules.
 8. If `AGENTS.md` does not exist, stop and report that the project entry guide is missing.
 
 ## Important

@@ -5,7 +5,7 @@ This hook is the enforcement backstop for `.cursor/rules/project-plan-location.m
 A Cursor rule is only advisory context; it cannot mechanically stop a Write to the
 wrong path. This guard runs before every `Write` tool call and *denies* any attempt
 to create a plan manuscript outside the single canonical location for this
-superproject:
+monorepo:
 
     docs/plans/manuscripts/<name>.md   (relative to the workspace root)
 
@@ -18,7 +18,7 @@ Design constraints:
     1. the path contains a `manuscripts/` directory segment, or
     2. the basename matches the `YYYYMMDD-<topic>.md` naming convention.
   This catches both the missing-`plans/` bug (`docs/manuscripts/...`) and misplaced
-  writes into a submodule tree (`src/<proj>/docs/plans/manuscripts/...`).
+  writes into a component tree (`<component>/docs/plans/manuscripts/...`).
 """
 
 import json
@@ -45,11 +45,11 @@ def deny(rel_path: str, correct_path: str):
     """Block the write and tell both the user and the agent the correct path."""
     agent_message = (
         f"Blocked by the plan-location guard: '{rel_path}' is a plan manuscript "
-        f"written outside the canonical location. In this gdcm superproject, plan "
+        f"written outside the canonical location. In this swallow monorepo, plan "
         f"manuscripts must live at '{correct_path}' (flat, at the repository root), "
         f"regardless of which component the plan is about. Re-issue the write to "
         f"'{correct_path}'. Do not create a 'manuscripts' directory anywhere else, "
-        f"and do not write plan manuscripts into a src/<project> submodule."
+        f"and do not write plan manuscripts into a component's own docs tree."
     )
     user_message = (
         f"Plan manuscript blocked: attempted to write '{rel_path}'. "

@@ -11,11 +11,10 @@ reading requirements first, then consult the relevant skill.
 
 ## Scope
 
-This index covers skills owned by this source project, which hosts the
-`api-server` and `agent` platform components. When this project is checked out
-inside the swallow superproject, repository-wide skills are indexed separately in the
-superproject's root `skills/README.md`; use this index for work scoped to this
-project.
+This index covers skills owned by the `api-server` component. This component
+lives in the swallow monorepo as `api-server/`; repository-wide skills are indexed
+separately in the repository root `skills/README.md`. Use this index for work
+scoped to this component.
 
 ## Skill Layout
 
@@ -25,17 +24,18 @@ and must be listed in the Skill Index below.
 
 ## Skill Index
 
-| Skill | Path | When to Use |
-| --- | --- | --- |
-| Git Commit | `skills/git-commit/SKILL.md` | When the task needs to analyse this project's changes, draft a Conventional Commits message following `docs/development/commit-spec.md`, and optionally run `git commit` / `git push`. Triggered by `/git-commit`. |
-| Summarize Manuscript Plans | `skills/summarize-manuscript-plans/SKILL.md` | When the task needs to consolidate, summarize, or roll up the AI plan manuscripts under `docs/plans/manuscripts/` into a single long-term plan (following `docs/plans/manuscripts/README.md`) and then delete the original draft manuscripts (never `README.md`). Triggered by `/summarize-manuscript-plans`. |
+This component currently defines no component-scoped skills. Repository-wide
+skills (for example `git-commit` and `summarize-manuscript-plans`) live in the
+repository root `skills/` and are indexed in the root
+[`skills/README.md`](../../skills/README.md).
 
 ## Lookup Workflow
 
-1. Decide whether the task matches a skill in the Skill Index above.
-2. If it does, read that `SKILL.md` and follow it.
-3. If it does not, fall back to [`AGENTS.md`](../AGENTS.md) and the documentation
-   it requires.
+1. This component currently defines no component-scoped skills.
+2. For repository-wide skills, consult the repository root
+   [`skills/README.md`](../../skills/README.md).
+3. Otherwise, fall back to [`AGENTS.md`](../AGENTS.md) and the documentation it
+   requires.
 
 ## Adding A New Skill
 
@@ -50,8 +50,8 @@ For every new skill:
 4. Add a row to the Skill Index above with the skill title, its path, and a
    one-sentence "When to Use" description.
 
-Behavior that belongs to the platform as a whole rather than to this project does
-not go here; it belongs in the superproject's root `skills/` directory.
+Behavior that belongs to the platform as a whole rather than to this component
+does not go here; it belongs in the repository root `skills/` directory.
 
 ## IDE Integration (Wrapper Convention)
 
