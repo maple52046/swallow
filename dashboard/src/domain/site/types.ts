@@ -11,7 +11,7 @@ export interface Site {
   updatedAt: string
 }
 
-export type IntegrationKind = 'provisioner' | 'automation' | 'metrics' | 'cluster'
+export type IntegrationKind = 'provisioner' | 'metrics' | 'cluster'
 
 /**
  * Freshness of whatever an integration feeds. Part of the API, not an implementation

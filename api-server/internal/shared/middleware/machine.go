@@ -13,7 +13,7 @@ import (
 // MachineAuth guards endpoints whose callers are other systems rather than people,
 // accepting either an admin JWT or a static machine token.
 //
-// The static token exists because those callers — Prometheus scraping discovery, AWX
+// The static token exists because those callers — Prometheus scraping discovery and external Ansible diagnostics
 // posting a job notification — hold one credential in their configuration and cannot
 // log in to refresh a JWT. It is accepted only on those endpoints, and is deliberately
 // not a second way into the rest of the API.

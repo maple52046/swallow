@@ -22,8 +22,8 @@ services:
 
   api-server:
     build:
-      context: .
-      dockerfile: api-server.Dockerfile
+      context: ../..
+      dockerfile: deploy/dev/api-server.Dockerfile
       args:
         UID: ${DEV_UID:-1001}
         GID: ${DEV_GID:-1001}
@@ -49,20 +49,24 @@ services:
       # Seals integration credentials at rest. Required: without it an integration
       # cannot be registered, and starting anyway would defer that failure to the
       # first operator who tries. The dev default is a fixed key on purpose — it is
-      # not a secret, and a real deployment must supply its own.
+      # not a secret, and a real installation must supply its own.
       SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
-      # Static bearer token for callers that are other systems: Prometheus pulling
-      # scrape targets, AWX posting job notifications.
+      # Static bearer token for machine-to-machine discovery.
       SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
-      # How often provisioner inventory and cluster membership are re-read, and how
-      # often unfinished operations are re-read from their controller.
+      # Reconciliation, hardware inventory, and embedded-operation dispatch cadence.
       SWALLOW_API_RECONCILE_INTERVAL: "${SWALLOW_API_RECONCILE_INTERVAL:-60s}"
-      SWALLOW_API_OPERATION_POLL_INTERVAL: "${SWALLOW_API_OPERATION_POLL_INTERVAL:-15s}"
+      SWALLOW_API_INVENTORY_INTERVAL: "${SWALLOW_API_INVENTORY_INTERVAL:-15m}"
+      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: "${SWALLOW_API_OPERATION_DISPATCH_INTERVAL:-1s}"
+      SWALLOW_API_OPERATION_LEASE_DURATION: "${SWALLOW_API_OPERATION_LEASE_DURATION:-90s}"
+      SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
+      SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
+      SWALLOW_API_JOB_ARTIFACT_RETENTION: "${SWALLOW_API_JOB_ARTIFACT_RETENTION:-720h}"
     ports:
       - "${API_HTTP_PORT:-30051}:30051"
     volumes:
       - ../../api-server:/app
       - ./air.toml:/etc/swallow/air.toml:ro
+      - job-artifacts:/var/lib/swallow/jobs
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/go/cache
     healthcheck:
@@ -83,6 +87,7 @@ services:
     depends_on:
       - api-server
     environment:
+      VITE_DEV_API_PROXY_TARGET: "http://api-server:30051"
       # Empty by default: the dashboard then derives the API address from whatever host
       # the browser used to reach it, which works from this host, from the LAN, and
       # through a tunnel without anyone having to remember to change it.
@@ -100,6 +105,7 @@ services:
 
 volumes:
   mongo-data:
+  job-artifacts:
   go-mod-cache:
   go-build-cache:
   npm-cache:

@@ -1,0 +1,8 @@
+/var/log/swallow/*.log {
+    daily
+    rotate 30
+    compress
+    missingok
+    notifempty
+    create 0640 swallow adm
+}

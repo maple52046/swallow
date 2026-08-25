@@ -18,6 +18,8 @@ type Config struct {
 
 // APIConfig holds all configuration required to run the API server.
 type APIConfig struct {
+	// ReleaseVersion is the promoted SemVer presented by health and metrics.
+	ReleaseVersion string `yaml:"releaseVersion"`
 	// Addr is the HTTP listen address, e.g. ":30051".
 	Addr string `yaml:"addr"`
 	// MongoURI is the full MongoDB connection string.
@@ -45,13 +47,26 @@ type APIConfig struct {
 	// call per machine and changes only at commissioning, so polling it as often as
 	// lifecycle state would multiply request count for near-static data.
 	InventoryInterval time.Duration `yaml:"inventoryInterval"`
-	// OperationPollInterval is how often unfinished operations are re-read from
-	// their automation controller. Shorter than ReconcileInterval because a job
-	// changes state far faster than a fleet's inventory does.
-	OperationPollInterval time.Duration `yaml:"operationPollInterval"`
+	// OperationDispatchInterval controls how quickly pending embedded runs are claimed.
+	OperationDispatchInterval time.Duration `yaml:"operationDispatchInterval"`
+	// OperationLeaseDuration is renewed while ansible-runner is alive.
+	OperationLeaseDuration time.Duration `yaml:"operationLeaseDuration"`
+	// AnsibleRunnerCommand is the pinned runner binary from the Execution Environment.
+	AnsibleRunnerCommand string `yaml:"ansibleRunnerCommand"`
+	// PlaybookManifest and PlaybookDir identify the immutable release bundle.
+	PlaybookManifest string `yaml:"playbookManifest"`
+	PlaybookDir      string `yaml:"playbookDir"`
+	// JobRuntimeDir holds mode-0600 ephemeral credentials.
+	JobRuntimeDir string `yaml:"jobRuntimeDir"`
+	// JobArtifactDir retains logs and runner artifacts.
+	JobArtifactDir string `yaml:"jobArtifactDir"`
+	// JobArtifactRetention controls automatic removal of local runner artifacts.
+	JobArtifactRetention time.Duration `yaml:"jobArtifactRetention"`
+	// AllowedOrigins is a comma-separated development exception.
+	AllowedOrigins string `yaml:"allowedOrigins"`
 	// MachineToken is a static bearer token accepted by the endpoints whose callers
-	// are other systems: Prometheus scraping discovery, AWX posting a job
-	// notification. Those hold one credential in their configuration and cannot
+	// are other systems, such as Prometheus scraping discovery. Those hold one
+	// credential in their configuration and cannot
 	// refresh a JWT. Optional: without it those endpoints require an admin JWT.
 	// Never log this value.
 	MachineToken string `yaml:"machineToken"`

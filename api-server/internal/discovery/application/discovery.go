@@ -1,12 +1,11 @@
 // Package application projects servers into the formats external systems consume.
 //
-// Prometheus and AWX both need to be told which machines exist and how to reach them.
-// Both pull that list from swallow rather than being told: swallow holds the identity mapping,
-// so serving it is the one thing neither of them can do for itself, and pulling means
-// there is no second copy to keep in sync.
+// Prometheus, the embedded runner, and external diagnostics all consume the same
+// server projection. Keeping inventory generation in one use case preserves stable
+// identity and avoids a second targeting database.
 //
 // See docs/decisions/003-metrics-label-contract.md and
-// docs/decisions/004-automation-via-awx.md.
+// docs/decisions/006-embedded-ansible-execution.md.
 package application
 
 import (
@@ -98,7 +97,7 @@ func (uc *DiscoveryUseCase) PrometheusTargets(ctx context.Context, input Discove
 	return targets, nil
 }
 
-// AnsibleInventory returns an inventory AWX can consume as a dynamic source.
+// AnsibleInventory returns the canonical dynamic inventory shape.
 //
 // Hosts are keyed by server ID with ansible_host carrying the address, so that a
 // playbook and its output refer to swallow's stable identifier rather than to an IP that

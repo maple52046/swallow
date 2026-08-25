@@ -1,0 +1,24 @@
+name: swallow-testing
+
+include:
+  - ../production/compose.yaml
+
+secrets:
+  mongo_root_username:
+    file: ./secrets/mongo-root-username
+  mongo_root_password:
+    file: ./secrets/mongo-root-password
+  mongo_uri:
+    file: ./secrets/mongo-uri
+  jwt_secret:
+    file: ./secrets/jwt-secret
+  bootstrap_admin_password:
+    file: ./secrets/bootstrap-admin-password
+  credential_key:
+    file: ./secrets/credential-key
+  machine_token:
+    file: ./secrets/machine-token
+  tls_certificate:
+    file: ./secrets/tls.crt
+  tls_private_key:
+    file: ./secrets/tls.key

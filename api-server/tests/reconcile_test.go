@@ -629,7 +629,7 @@ func TestReconcile_RejectsNonProvisionerIntegration(t *testing.T) {
 		ID:           "integration-awx",
 		SiteID:       testSiteID,
 		Kind:         sitedomain.IntegrationKindAutomation,
-		ProviderKind: sitedomain.ProviderKindAWX,
+		ProviderKind: "awx",
 		Name:         "awx",
 		Enabled:      true,
 		CreatedAt:    now,

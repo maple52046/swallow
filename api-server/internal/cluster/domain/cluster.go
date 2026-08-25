@@ -40,7 +40,7 @@ func (t ClusterType) Valid() bool {
 type GPUStackOwner string
 
 const (
-	// GPUStackOwnerProvisioning means an AWX playbook installs the driver after OS
+	// GPUStackOwnerProvisioning means an embedded Ansible playbook installs the driver after OS
 	// deployment and the DCGM exporter runs on the host. One driver version per site
 	// under change control, and it works for servers not in any cluster, at the cost
 	// of reprovisioning to change a driver.
@@ -108,7 +108,7 @@ type Member struct {
 // ClusterReader reads live state from a cluster's own API.
 //
 // Read-only on purpose: swallow does not create, drain, or modify anything through this
-// port. Changing a cluster is an operation executed by AWX.
+// port. Changing a cluster is an operation executed by the embedded Ansible runner.
 type ClusterReader interface {
 	// ListMembers returns the cluster's current nodes.
 	ListMembers(ctx context.Context) ([]Member, error)

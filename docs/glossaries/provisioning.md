@@ -94,6 +94,10 @@ stored in swallow — is retired: it made swallow an owner of automation content
 
 Requesting that a provider install an operating system onto a machine.
 
+This term is reserved for the server/OS action. Installing, starting, upgrading, or
+uninstalling the Swallow control plane is an
+[Installation](../development/glossaries/terms/installation.md), not a deployment.
+
 Deployment is **asynchronous**. A request returns when the provider accepts it, not when
 the OS is installed. Progress is observed by the reconciler updating the server's
 `provisioning` axis through `deploying` to `deployed` or `failed`.

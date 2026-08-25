@@ -23,6 +23,8 @@ Consumer: `dashboard`.
 | [auth-login.md](auth-login.md) | Active | `POST /api/v1/auth/login` | Exchange username and password for an access token. |
 | [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity and role. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List Servers with filtering and pagination. |
+| [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
+| [operations.md](operations.md) | Active | `/api/v1/operations` | Create and observe Swallow-owned playbook executions and logs. |
 
 There is **no** `POST /api/v1/servers/` and **no** `DELETE /api/v1/servers/{id}`. Servers
 are produced by reconciling provisioner inventory, not registered or deleted by a caller;

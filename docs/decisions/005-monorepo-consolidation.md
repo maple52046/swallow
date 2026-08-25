@@ -14,7 +14,7 @@ ADRs, and the structure contract.
 
 Two things changed the calculus:
 
-1. The product is deployed to a single login / management node, not as a
+1. The product is installed on a single login / management node, not as a
    distributed fleet agent. The node-side `agent` was already retired in
    [ADR-001](001-system-ownership-boundaries.md); node control is delegated to
    AWX / Ansible ([ADR-004](004-automation-via-awx.md)). The original

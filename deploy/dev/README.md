@@ -54,18 +54,18 @@ docker compose build --no-cache        # 重建開發映像（改動 Dockerfile 
 - `DEV_UID` / `DEV_GID` — container 內執行身分。必須與 component 目錄的擁有者一致，
   否則 container 寫入 bind mount 的檔案（如 `node_modules`）在 host 端會無法編輯。
   預設 `1001:1001`；修改後需重建映像。
-- `VITE_API_BASE_URL` — 預設留空，dashboard 會從瀏覽器實際使用的主機推導 API 位址
-  （`<瀏覽器用的 host>:30051`）。這樣從本機、從區網、從 SSH tunnel 都能用，不需要記得改。
-  只有 API 在瀏覽器推不出來的地方時才需要設定，例如放在 reverse proxy 後面。
+- `VITE_API_BASE_URL` — 預設留空，dashboard 透過 Vite 的同源 `/api` proxy 存取
+  `api-server:30051`。只有刻意測試 split-origin 時才覆寫。
 - `SWALLOW_API_CREDENTIAL_KEY` — 用來加密 integration 憑證的 base64 32-byte 金鑰，**必填**。
-  compose 帶了一個開發用預設值；真實部署必須自己產生（`openssl rand -base64 32`）。
+  compose 帶了一個開發用預設值；正式 installation 必須自己產生（`openssl rand -base64 32`）。
   換掉這個金鑰會讓既有的已存憑證無法解密，等於要重新輸入所有 integration 憑證。
 - `SWALLOW_API_MACHINE_TOKEN` — 給「呼叫者是機器」的端點用的靜態 bearer token：
-  Prometheus 抓 `/api/v1/discovery/prometheus`、AWX 回報 job 通知。
+  Prometheus 抓 metrics/discovery，或外部 Ansible 工具抓 inventory。
   只有那些端點接受它，不是進入其餘 API 的第二條路。
 
-**MAAS 與 AWX 不再是環境變數。** 它們改成執行期註冊的 integration，因為艦隊的每個站點
-各有一套。註冊方式見下方。
+**MAAS 不再是環境變數。** 它是 per-site runtime integration。Ansible 則不是
+integration：每個 site 透過 `/sites/{id}/automation` 設定 SSH policy、manifest
+playbook mapping 與 write-only credential。
 
 ## Hot Reload 行為
 
@@ -81,12 +81,12 @@ air 因為需要較新的 compiler，改由獨立的 build stage 編譯後複製
 ## 從其他機器連入
 
 Vite 與 API 都綁在 `0.0.0.0`，直接用這台的 IP 開 `http://<host-ip>:5173` 即可，
-不需要改任何設定：dashboard 會用同一個 host 去推導 API 位址。
+不需要改任何設定：Vite 會以同源方式代理 API。
 
-透過 SSH tunnel 也一樣，只要兩個 port 都轉發：
+透過 SSH tunnel 只需轉發 dashboard port：
 
 ```bash
-ssh -L 5173:localhost:5173 -L 30051:localhost:30051 <user>@<host>
+ssh -L 5173:localhost:5173 <user>@<host>
 ```
 
 Vite 預設只信任以 IP 或 localhost 形式送來的 Host header；
@@ -122,8 +122,9 @@ curl -s -X POST $API/integrations -H "Authorization: Bearer $TOKEN" \
 `GET $API/integrations` 的 `sync` 欄位會顯示上次同步的時間與錯誤，連不上 MAAS 時
 `lastSucceededAt` 會保持舊值而 `lastError` 有內容——這樣看得出資料有多舊。
 
-其他 kind 同樣方式註冊：`automation`/`awx`、`metrics`/`prometheus`、
-`cluster`/`kubernetes`、`cluster`/`slurm`。
+其他 external kind 同樣方式註冊：`metrics`/`prometheus`、
+`cluster`/`kubernetes`、`cluster`/`slurm`。Automation 使用 site-scoped API，
+不是 external integration。
 
 ## Troubleshooting
 

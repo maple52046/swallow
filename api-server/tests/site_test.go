@@ -74,8 +74,8 @@ func TestCreateIntegration_ValidatesKindAndProviderKindTogether(t *testing.T) {
 	f := setupPlatform(t)
 	siteID := createSite(t, f, "dc-east")
 
-	// Registering a MAAS endpoint as an automation controller is the mistake that
-	// actually happens, and it must be caught here rather than at first use.
+	// Automation is no longer an external integration. It is configured through the
+	// site-scoped automation endpoint.
 	resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", map[string]any{
 		"siteId":       siteID,
 		"kind":         "automation",
@@ -88,8 +88,8 @@ func TestCreateIntegration_ValidatesKindAndProviderKindTogether(t *testing.T) {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
 	message, _ := parseBody(t, resp)["error"].(map[string]any)["message"].(string)
-	if !strings.Contains(message, "awx") {
-		t.Errorf("the error should name the valid provider kinds, got %q", message)
+	if strings.Contains(message, "awx") {
+		t.Errorf("the error must not advertise the removed AWX provider, got %q", message)
 	}
 }
 

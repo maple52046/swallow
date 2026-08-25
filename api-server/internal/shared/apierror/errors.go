@@ -13,7 +13,7 @@ const (
 	CodeInternal     Code = "internal_error"
 	// CodeProviderUnavailable means an upstream integration swallow depends on is
 	// not configured or cannot be reached. It is distinct from CodeInternal so
-	// that clients can tell "this deployment is not wired up / the upstream is
+	// that clients can tell "this installation is not wired up / the upstream is
 	// down" apart from "swallow has a bug".
 	CodeProviderUnavailable Code = "provider_unavailable"
 )

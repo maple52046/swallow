@@ -1,0 +1,8 @@
+[Unit]
+Description=Swallow daily MongoDB and credential backup
+After=mongod.service
+Requires=mongod.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/swallow/swallowctl backup

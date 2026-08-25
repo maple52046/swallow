@@ -94,7 +94,7 @@ func TestCreateOperation_ExtraVarsCannotOverrideSwallowIdentifiers(t *testing.T)
 		"kind":            "install-gpu-driver",
 		"targetServerIds": []string{"srv-1"},
 		"extraVars": map[string]any{
-			"driver_version":    "550.54.14",
+			"driver_version":       "550.54.14",
 			"swallow_operation_id": "forged",
 		},
 	}, f.adminAuth(t))

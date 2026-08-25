@@ -154,7 +154,7 @@ They cannot coexist on one host, so each cluster declares which one wins.
 
 | Policy | Driver and DCGM installed by | Must be disabled |
 |--------|------------------------------|------------------|
-| `provisioning` | AWX playbook after OS deployment; DCGM exporter runs on the host | GPU Operator's driver and DCGM components; `kube-prometheus-stack`'s `node-exporter` DaemonSet |
+| `provisioning` | Manifest-listed embedded Ansible playbook after OS deployment; DCGM exporter runs on the host | GPU Operator's driver and DCGM components; `kube-prometheus-stack`'s `node-exporter` DaemonSet |
 | `gpu-operator` | GPU Operator inside the cluster | Host-level driver installation and host `dcgm-exporter` for these servers |
 
 Under either policy the host `node_exporter` stays, and `kube-prometheus-stack`'s
@@ -174,16 +174,14 @@ installation targeting servers in a `gpu-operator` cluster is rejected rather th
 
 - swallow implements a Prometheus `http_sd` endpoint serving host-layer targets with
   `server_id` and `site` attached, derived from the server projection.
-- The same projection also serves the AWX dynamic inventory
-  ([004](004-automation-via-awx.md)). One source of targeting truth, two consumers, no
-  synchronisation between them.
+- The same projection serves both the diagnostic dynamic-inventory endpoint and the embedded runner through one application use case ([006](006-embedded-ansible-execution.md)).
 - swallow stores no metrics. The `GPUMetrics` and `GPUDevice` entities as storage concepts
   are dropped; GPU inventory comes from the provisioner and GPU telemetry from the TSDB.
 - Alerts are read from Alertmanager on demand and correlated to servers by label;
   acknowledging is creating a silence in Alertmanager, not a field write in swallow.
 - The frontend's synthesised metric data is removed rather than left as plausible-looking
   placeholder numbers.
-- Which central store to deploy — Thanos, Mimir, or VictoriaMetrics — is deliberately
+- Which central store to operate — Thanos, Mimir, or VictoriaMetrics — is deliberately
   left open. All three satisfy this contract through `remote_write` and PromQL, so the
   choice can be made on operational grounds when the monitoring work starts, without
   changing anything decided here.
@@ -221,4 +219,4 @@ responsible for, and it exports the two-join-path complexity to every caller.
 
 - [001 — System Ownership Boundaries](001-system-ownership-boundaries.md)
 - [002 — Server Identity](002-server-identity.md)
-- [004 — Automation via AWX](004-automation-via-awx.md)
+- [006 — Embedded Ansible execution](006-embedded-ansible-execution.md)

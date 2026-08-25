@@ -90,7 +90,7 @@ This is why there is no provisioning profile: an image plus packages plus script
 in swallow, would make it an owner of automation content, which
 [decision 001](../decisions/001-system-ownership-boundaries.md) forbids.
 
-Which template implements which kind is a property of the deployment, configured as a
+Which template implements which kind is a property of the installation, configured as a
 setting on the automation [Integration](site.md#integration).
 
 ## Relationships

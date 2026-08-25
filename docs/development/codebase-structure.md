@@ -32,7 +32,7 @@ Repository 以頂層目錄承載每個 platform component，目錄名即 compone
 > Note：早期設計曾規劃節點端 `agent` component，並以 `src/<project>` git submodule 搭配
 > root component symlink 承載程式碼。`agent` 已依
 > [ADR-001](../decisions/001-system-ownership-boundaries.md) 退場（node control 交由
-> AWX / Ansible），submodule 架構亦已依
+> Swallow embedded Ansible execution），submodule 架構亦已依
 > [ADR-005](../decisions/005-monorepo-consolidation.md) 收斂為本 monorepo。若在舊文件或
 > 討論中看到 `src/swallow`、`src/dashboard` 或 component symlink，一律以本檔為準。
 
@@ -42,7 +42,7 @@ Repository 以頂層目錄承載每個 platform component，目錄名即 compone
 .
 ├── api-server/     # Go backend (component)
 ├── dashboard/      # TypeScript frontend (component)
-├── deploy/         # 跨 component 的環境編排（本機開發 compose 等）
+├── deploy/         # dev/testing/production、release 與 third-party installation assets
 ├── docs/           # platform 共通約束文件（shared model）
 ├── skills/         # 任務導向操作指南
 ├── AGENTS.md       # AI agent 入口導引
@@ -126,7 +126,7 @@ git clone <repo-url>
    並在該 component 內建立 provider-owned contract。
 4. 若該 component 引入新的共通概念，於 [`glossaries/`](glossaries) 增補對應 term，並更新
    glossary outline。
-5. 於 [`deploy/`](../../deploy) 增補該 component 的執行方式（如需要）。
+5. 於 [`deploy/`](../../deploy) 增補該 component 的執行或安裝方式（如需要）。
 
 ### 移除或重命名 Component
 
@@ -140,6 +140,6 @@ git clone <repo-url>
 下列項目**不**在本檔範圍內，由各 component 自行維護：
 
 - 各 component 的內部模組結構與分層細節（見各 component 的 architecture spec）。
-- 各 component 的 build、run、deploy 指令。
+- 各 component 的 build、run、installation 指令。
 - 各 component 的 CI/CD pipeline。
 - 各 component 的依賴版本與套件管理策略。

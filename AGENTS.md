@@ -65,11 +65,16 @@ Do not proactively read `docs/plans/` during normal development work. Plans are
 historical records and should only be read when the user asks for historical
 planning context, decision archaeology, or plan consolidation.
 
+Before beginning implementation work, create or update the relevant
+project-level plan manuscript. Store it under `docs/plans/manuscripts/` rather
+than relying only on user-level plan storage.
+
 When creating or updating an implementation plan for the current project, store
-the project-level manuscript under `docs/plans/manuscripts/` instead of relying
-only on user-level plan storage. Use the naming convention
-`YYYYMMDD-<short-topic>.md`, and update an existing plan for the same topic
-instead of creating a duplicate.
+the manuscript in that single root-level location even when the plan concerns a
+specific component. Do not use a component-local `docs/plans/manuscripts/`
+directory or omit the `plans/` path segment. Use Markdown with the naming
+convention `YYYYMMDD-<short-topic>.md`, and update an existing plan for the same
+topic instead of creating a duplicate.
 
 ## Commit Messages
 

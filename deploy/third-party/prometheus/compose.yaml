@@ -1,0 +1,25 @@
+name: swallow-site-prometheus
+
+services:
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:?set an exact digest-pinned PROMETHEUS_IMAGE}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.listen-address=:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./secrets/machine-token:/run/secrets/swallow-machine-token:ro
+      - ./secrets/swallow-ca.crt:/run/secrets/swallow-ca.crt:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  prometheus-data:

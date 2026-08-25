@@ -1,14 +1,18 @@
 # swallow config example
 #
 # This file covers only how the process runs. What swallow talks to — provisioners,
-# automation controllers, metrics stores, clusters — is registered at runtime as
+# metrics stores, clusters — is registered at runtime as
 # integration records, because a fleet has many of each and they change without a
-# redeploy. There is deliberately no MAAS or AWX section here.
+# redeploy. Site automation is configured through the API and executed locally.
 #
 # Values shown are for local development. Production must override jwtSecret,
 # credentialKey, machineToken, bootstrapAdminPassword, and mongoUri.
 
 api:
+  # Promoted SemVer reported by health and metrics. Release installers set this;
+  # source builds default to the compile-time version.
+  releaseVersion: ""
+
   # HTTP listen address.
   addr: ":30051"
 
@@ -35,9 +39,7 @@ api:
   # unreadable, so rotating it means re-entering every integration credential.
   credentialKey: "REPLACE-ME-openssl-rand-base64-32"
 
-  # Static bearer token for callers that are other systems: Prometheus pulling scrape
-  # targets from /api/v1/discovery/prometheus, AWX posting job notifications to
-  # /api/v1/webhooks/automation/{integrationId}.
+  # Static bearer token for Prometheus metrics/discovery and external Ansible diagnostics.
   #
   # Optional. When unset those endpoints require an admin JWT, which is fine for
   # inspecting them by hand but not for Prometheus, which cannot refresh one.
@@ -54,7 +56,16 @@ api:
   # count for near-static data.
   inventoryInterval: "15m"
 
-  # How often unfinished operations are re-read from their automation controller.
-  # Shorter than reconcileInterval because a job changes state far faster than a
-  # fleet's inventory does.
-  operationPollInterval: "15s"
+  # Embedded dispatcher and lease heartbeat settings.
+  operationDispatchInterval: "1s"
+  operationLeaseDuration: "90s"
+
+  # Immutable release playbooks and mutable runner paths.
+  ansibleRunnerCommand: "ansible-runner"
+  playbookManifest: "automation/manifest.json"
+  playbookDir: "automation/playbooks"
+  jobRuntimeDir: "/tmp/swallow/jobs"
+  jobArtifactDir: "./var/jobs"
+
+  # Empty means same-origin only. Dev may list explicit origins, comma-separated.
+  allowedOrigins: ""

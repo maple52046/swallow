@@ -7,11 +7,11 @@ Backend control plane for the Swallow platform.
 swallow owns **intent, policy, and identity mapping**. It owns no facts about the
 physical or runtime world.
 
-Every fact about hardware, operating systems, execution, metrics, or cluster state is
-owned by an external system that swallow integrates with. The one thing swallow keeps
+Facts about hardware, operating systems, metrics, and cluster state are owned by external
+systems. Swallow owns automation intent and embedded execution. The unique value it keeps
 that nothing else can is the mapping between them: this server, at this site, provisioned
 by that MAAS, currently a worker in that Kubernetes cluster, emitting these metrics, last
-touched by that AWX job.
+touched by this versioned operation.
 
 That correlation is the product. Everything else is someone else's job.
 
@@ -27,7 +27,6 @@ provisioner per site and they change without a redeploy.
 | Kind | Product | Used for |
 |------|---------|----------|
 | `provisioner` | Ubuntu MAAS | Machine inventory, OS deploy and release |
-| `automation` | AWX | Long-running operations, their status and logs |
 | `metrics` | Prometheus-compatible store | Metric queries; Alertmanager for alerts |
 | `cluster` | Kubernetes API, Slurm (slurmrestd) | Live cluster state and membership |
 
@@ -81,18 +80,17 @@ be presentable as "we know it is bad".
 
 ## Operations
 
-Long-running work is executed by AWX. An operation is swallow's intent plus a reference to
-the job doing it — swallow stores no logs, implements no retry, and enforces no
-idempotency.
+Long-running work is executed by the embedded dispatcher through pinned
+`ansible-runner`. Intent is stored as `pending` before execution. A MongoDB lease
+enforces one job per site while allowing different sites to run concurrently.
 
-Targeting flows the opposite way from what you might expect: **swallow does not push
-inventory into AWX**. AWX pulls from `GET /api/v1/discovery/ansible`, so there is one
-source of targeting truth and nothing to keep in sync. Hosts are keyed by `serverId`, so
-`--limit` takes server IDs directly.
+Each site owns SSH settings, mandatory known-hosts, write-only encrypted credentials, and
+operation-kind mappings. Only playbooks registered in the release manifest can run.
+Temporary credentials are removed after the job; persistent local artifacts serve the
+logs API. An expired run becomes `indeterminate` and is never retried automatically.
 
-Operation kinds map to AWX job template names through settings on the automation
-integration, e.g. `template.install-gpu-driver`. Playbooks live in git; swallow stores no
-automation content.
+The dynamic Ansible inventory remains available for diagnostics and external tools. The
+embedded runner calls the same use case directly rather than making an HTTP round trip.
 
 ## Monitoring
 
@@ -144,23 +142,25 @@ swallow api --config swallow.yaml
 | `SWALLOW_API_CREDENTIAL_KEY` | `api.credentialKey` | **required, no default** |
 | `SWALLOW_API_MACHINE_TOKEN` | `api.machineToken` | *(unset: those endpoints need an admin JWT)* |
 | `SWALLOW_API_RECONCILE_INTERVAL` | `api.reconcileInterval` | `60s` |
-| `SWALLOW_API_OPERATION_POLL_INTERVAL` | `api.operationPollInterval` | `15s` |
+| `SWALLOW_API_INVENTORY_INTERVAL` | `api.inventoryInterval` | `15m` |
+| `SWALLOW_API_OPERATION_DISPATCH_INTERVAL` | `api.operationDispatchInterval` | `1s` |
+| `SWALLOW_API_OPERATION_LEASE_DURATION` | `api.operationLeaseDuration` | `90s` |
+| `SWALLOW_API_PLAYBOOK_MANIFEST` | `api.playbookManifest` | `automation/manifest.json` |
+| `SWALLOW_API_JOB_ARTIFACT_DIR` | `api.jobArtifactDir` | `./var/jobs` |
 
 `credentialKey` has no default on purpose: a shipped default encryption key looks like
 protection and is not. Starting without one would defer the failure to the first operator
 who tries to register an integration.
 
-`machineToken` is a static bearer token for callers that are other systems — Prometheus
-pulling scrape targets, AWX posting job notifications. It is accepted only on those
-endpoints and is not a second way into the rest of the API.
+`machineToken` is a static bearer token for Prometheus metrics/discovery and external
+Ansible inventory diagnostics. It is not a second way into the operator API.
 
 ## Background loops
 
-Two, and both are periodic readers of external state. swallow executes nothing itself.
-
 - **Reconciler** — polls each enabled provisioner and each registered cluster.
-- **Operation poller** — re-reads unfinished operations from their controller. The
-  correctness backstop behind AWX webhooks, which are lossy.
+- **Inventory sweep** — refreshes expensive attached-hardware observations.
+- **Embedded dispatcher** — claims durable pending operations, renews site leases, and
+  records a terminal or indeterminate result.
 
 ## Building
 

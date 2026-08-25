@@ -74,7 +74,7 @@ func (f *ControllerFactory) For(ctx context.Context, integrationID string) (oper
 
 func (f *ControllerFactory) build(ctx context.Context, integration *sitedomain.Integration) (operationdomain.AutomationController, error) {
 	switch integration.ProviderKind {
-	case sitedomain.ProviderKindAWX:
+	case "awx": // legacy test-only controller path; not a registered provider kind
 		token, err := f.integrations.Credential(ctx, integration.ID)
 		if err != nil {
 			return nil, err

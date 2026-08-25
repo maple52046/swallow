@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "commit": "COMMIT_SHA",
+  "platforms": ["linux-amd64", "ubuntu-24.04-amd64"],
+  "schemaVersions": {"mongo": 2, "playbookManifest": 1},
+  "images": {
+    "api": "ghcr.io/example/swallow-api@sha256:REPLACE",
+    "dashboard": "ghcr.io/example/swallow-dashboard@sha256:REPLACE",
+    "mongo": "mongo@sha256:REPLACE"
+  },
+  "compatibility": {
+    "host": "ubuntu-24.04-amd64",
+    "maas": "3.6",
+    "mongodb": "8.0",
+    "prometheus": "release-managed",
+    "dockerCE": "release-managed"
+  },
+  "artifacts": {
+    "ociArchive": "swallow-oci-1.0.0.tar",
+    "nativeBundle": "swallow-native-1.0.0.tar.zst",
+    "composeBundle": "swallow-compose-1.0.0.tar.zst",
+    "thirdPartyMediaManifest": "offline-media-manifest.json"
+  },
+  "upgrade": {
+    "from": [2],
+    "to": 2,
+    "downgradeSupported": false
+  }
+}

@@ -1,0 +1,7 @@
+---
+- name: Verify Swallow automation connectivity
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Ping managed host
+      ansible.builtin.ping:

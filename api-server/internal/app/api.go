@@ -7,13 +7,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 	"os/signal"
+	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"go.mongodb.org/mongo-driver/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/mongo/options"
 
@@ -27,6 +31,7 @@ import (
 	clusterinfra "github.com/maple52046/swallow/internal/cluster/infra"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
+	"github.com/maple52046/swallow/internal/migration"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
 	monitoringinfra "github.com/maple52046/swallow/internal/monitoring/infra"
@@ -45,13 +50,25 @@ import (
 	siteapp "github.com/maple52046/swallow/internal/site/application"
 	sitedelivery "github.com/maple52046/swallow/internal/site/delivery"
 	siteinfra "github.com/maple52046/swallow/internal/site/infra"
+	"github.com/maple52046/swallow/internal/version"
 )
 
 // shutdownTimeout bounds how long in-flight requests get to finish on shutdown.
 const shutdownTimeout = 10 * time.Second
 
+var httpRequestCount atomic.Uint64
+
 // RunAPI starts the HTTP API server and the reconciler, and blocks until interrupted.
 func RunAPI(cfg config.APIConfig) error {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	releaseVersion := cfg.ReleaseVersion
+	if releaseVersion == "" {
+		releaseVersion = version.Version
+	}
+	slog.Info("starting swallow API",
+		"version", releaseVersion, "commit", version.Commit, "builtAt", version.BuiltAt,
+		"addr", cfg.Addr, "mongoDatabase", cfg.MongoDB,
+		"playbookManifest", cfg.PlaybookManifest, "jobArtifactDir", cfg.JobArtifactDir)
 	// Cancelled on SIGINT or SIGTERM, which stops the reconciler and triggers a
 	// graceful HTTP shutdown instead of dropping in-flight requests.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -72,7 +89,7 @@ func RunAPI(cfg config.APIConfig) error {
 	if err := client.Ping(connectCtx, nil); err != nil {
 		return fmt.Errorf("mongo ping: %w", err)
 	}
-	log.Println("connected to mongodb")
+	slog.Info("connected to mongodb")
 	defer func() {
 		disconnectCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
@@ -80,6 +97,9 @@ func RunAPI(cfg config.APIConfig) error {
 	}()
 
 	db := client.Database(cfg.MongoDB)
+	if err := migration.EnsureInitialized(connectCtx, db); err != nil {
+		return fmt.Errorf("database schema: %w", err)
+	}
 
 	userRepo := authinfra.NewMongoUserRepo(db)
 	siteRepo, err := siteinfra.NewMongoSiteRepo(db)
@@ -152,26 +172,38 @@ func RunAPI(cfg config.APIConfig) error {
 		membershipSync,
 	)
 
-	operationRepo, err := operationinfra.NewMongoOperationRepo(db)
+	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
+	if err != nil {
+		return fmt.Errorf("playbook catalog: %w", err)
+	}
+	operationRepo, err := operationinfra.NewMongoExecutionRepo(db)
 	if err != nil {
 		return fmt.Errorf("operation repo init: %w", err)
 	}
-	// The cluster context enforces the gpuStackOwner policy, so that an operation
-	// never has to know what a GPU operator is in order to refuse fighting one.
-	operationService := operationapp.NewOperationService(
-		operationRepo, serverRepo, integrationRepo,
-		operationinfra.NewControllerFactory(integrationRepo),
+	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
+	runner := operationinfra.NewLocalRunner(
+		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
+	operationService := operationapp.NewExecutionService(
+		operationRepo, serverRepo, automationRepo, catalog, runner,
 		clusterapp.NewPolicyChecker(clusterRepo, serverRepo),
 	)
-	operationHandler := operationdelivery.NewOperationHandler(operationService)
+	automationService := operationapp.NewAutomationConfigurationService(
+		automationRepo, siteRepo, catalog,
+	)
+	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService)
 
-	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
-		discoveryapp.NewDiscoveryUseCase(serverRepo),
+	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
+	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase)
+	dispatcher := operationapp.NewDispatcher(
+		operationRepo, operationinfra.NewMongoSiteLeaseRepo(db), automationRepo,
+		catalog, runner, executionInventoryAdapter{discovery: discoveryUseCase},
+		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration,
 	)
 
 	fiberApp := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			log.Printf("unhandled error: %v", err)
+			slog.Error("unhandled HTTP error",
+				"requestId", c.GetRespHeader(fiber.HeaderXRequestID), "error", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": fiber.Map{
 					"code":    "internal_error",
@@ -180,37 +212,54 @@ func RunAPI(cfg config.APIConfig) error {
 			})
 		},
 	})
-
-	// Allow cross-origin requests so browser preflight OPTIONS is handled before
-	// any route matching occurs. AllowOrigins "*" is appropriate for an internal
-	// management platform; restrict to a specific origin if needed.
-	fiberApp.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowMethods: "GET,POST,PATCH,PUT,DELETE,OPTIONS",
-		AllowHeaders: "Content-Type,Authorization",
-	}))
+	fiberApp.Use(requestid.New())
+	fiberApp.Use(func(c *fiber.Ctx) error {
+		started := time.Now()
+		err := c.Next()
+		httpRequestCount.Add(1)
+		slog.Info("http request",
+			"requestId", c.GetRespHeader(fiber.HeaderXRequestID),
+			"method", c.Method(), "path", c.Path(), "status", c.Response().StatusCode(),
+			"durationMs", time.Since(started).Milliseconds())
+		return err
+	})
+	if cfg.AllowedOrigins != "" {
+		fiberApp.Use(cors.New(cors.Config{
+			AllowOrigins: cfg.AllowedOrigins,
+			AllowMethods: "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+			AllowHeaders: "Content-Type,Authorization",
+		}))
+	}
 
 	registerRoutes(fiberApp, routeDeps{
-		jwtSvc:       jwtSvc,
-		machineToken: cfg.MachineToken,
-		auth:         authHandler,
-		sites:        siteHandler,
-		servers:      serverHandler,
-		provisioning: provisioningHandler,
-		operations:   operationHandler,
-		monitoring:   monitoringHandler,
-		clusters:     clusterHandler,
-		discovery:    discoveryHandler,
+		jwtSvc:         jwtSvc,
+		machineToken:   cfg.MachineToken,
+		auth:           authHandler,
+		sites:          siteHandler,
+		servers:        serverHandler,
+		provisioning:   provisioningHandler,
+		operations:     operationHandler,
+		monitoring:     monitoringHandler,
+		clusters:       clusterHandler,
+		discovery:      discoveryHandler,
+		releaseVersion: releaseVersion,
+		readiness: func(ctx context.Context) error {
+			if err := client.Ping(ctx, nil); err != nil {
+				return err
+			}
+			return migration.Check(ctx, db)
+		},
 	})
 
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
-	go runOperationPoller(ctx, operationService, cfg.OperationPollInterval)
+	go dispatcher.Run(ctx)
+	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
 
 	serverErr := make(chan error, 1)
 	go func() {
-		log.Printf("starting HTTP server on %s", cfg.Addr)
+		slog.Info("HTTP server listening", "addr", cfg.Addr)
 		serverErr <- fiberApp.Listen(cfg.Addr)
 	}()
 
@@ -218,7 +267,7 @@ func RunAPI(cfg config.APIConfig) error {
 	case err := <-serverErr:
 		return err
 	case <-ctx.Done():
-		log.Println("shutdown requested; draining in-flight requests")
+		slog.Info("shutdown requested; draining in-flight requests")
 		if err := fiberApp.ShutdownWithTimeout(shutdownTimeout); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("shutdown: %w", err)
 		}
@@ -227,24 +276,46 @@ func RunAPI(cfg config.APIConfig) error {
 }
 
 type routeDeps struct {
-	jwtSvc       *jwt.Service
-	machineToken string
-	auth         *authdelivery.AuthHandler
-	sites        *sitedelivery.SiteHandler
-	servers      *serverdelivery.ServerHandler
-	provisioning *provisioningdelivery.ProvisioningHandler
-	operations   *operationdelivery.OperationHandler
-	monitoring   *monitoringdelivery.MonitoringHandler
-	clusters     *clusterdelivery.ClusterHandler
-	discovery    *discoverydelivery.DiscoveryHandler
+	jwtSvc         *jwt.Service
+	machineToken   string
+	auth           *authdelivery.AuthHandler
+	sites          *sitedelivery.SiteHandler
+	servers        *serverdelivery.ServerHandler
+	provisioning   *provisioningdelivery.ProvisioningHandler
+	operations     *operationdelivery.ExecutionHandler
+	monitoring     *monitoringdelivery.MonitoringHandler
+	clusters       *clusterdelivery.ClusterHandler
+	discovery      *discoverydelivery.DiscoveryHandler
+	readiness      func(context.Context) error
+	releaseVersion string
 }
 
 func registerRoutes(app *fiber.App, deps routeDeps) {
-	// Unauthenticated: a readiness probe that needs a credential is not usable by the
-	// thing that needs it.
-	app.Get("/healthz", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
+	app.Get("/livez", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "alive", "version": deps.releaseVersion})
 	})
+	ready := func(c *fiber.Ctx) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := deps.readiness(ctx); err != nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"status": "not-ready", "reason": "mongodb",
+			})
+		}
+		return c.JSON(fiber.Map{"status": "ready", "schemaVersion": 2})
+	}
+	app.Get("/readyz", ready)
+	app.Get("/healthz", ready)
+	metricsHandler := func(c *fiber.Ctx) error {
+		c.Set(fiber.HeaderContentType, "text/plain; version=0.0.4")
+		return c.SendString(
+			"# HELP swallow_http_requests_total Total HTTP requests.\n" +
+				"# TYPE swallow_http_requests_total counter\n" +
+				"swallow_http_requests_total " + strconv.FormatUint(httpRequestCount.Load(), 10) + "\n" +
+				"# HELP swallow_build_info Build metadata.\n" +
+				"# TYPE swallow_build_info gauge\n" +
+				"swallow_build_info{version=\"" + deps.releaseVersion + "\",commit=\"" + version.Commit + "\"} 1\n")
+	}
 
 	v1 := app.Group("/api/v1")
 
@@ -260,6 +331,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	sites.Get("/:id", deps.sites.GetSite)
 	sites.Patch("/:id", deps.sites.UpdateSite)
 	sites.Delete("/:id", deps.sites.DeleteSite)
+	sites.Get("/:id/automation", deps.operations.GetAutomation)
+	sites.Put("/:id/automation", deps.operations.PutAutomation)
+	sites.Put("/:id/automation/credential", deps.operations.PutAutomationCredential)
 
 	integrations := v1.Group("/integrations", admin...)
 	integrations.Post("/", deps.sites.CreateIntegration)
@@ -325,16 +399,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	operations.Get("/", deps.operations.List)
 	operations.Get("/:id", deps.operations.Get)
 	operations.Get("/:id/logs", deps.operations.Logs)
-	operations.Post("/:id/refresh", deps.operations.Refresh)
 
-	// Machine-to-machine endpoints. Prometheus and AWX pull their target lists from
-	// discovery rather than being pushed into, and AWX posts job notifications back
-	// as a hint to re-read. See docs/decisions/003 and 004.
+	// Machine-to-machine discovery remains pull-based for Prometheus and external
+	// Ansible diagnostics. The embedded runner calls the same use case directly.
 	machine := middleware.MachineAuth(deps.jwtSvc, deps.machineToken)
+	app.Get("/metrics", machine, metricsHandler)
 
 	discovery := v1.Group("/discovery", machine)
 	discovery.Get("/prometheus", deps.discovery.PrometheusTargets)
 	discovery.Get("/ansible", deps.discovery.AnsibleInventory)
-
-	v1.Post("/webhooks/automation/:integrationId", machine, deps.operations.Webhook)
 }

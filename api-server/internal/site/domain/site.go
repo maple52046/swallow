@@ -30,7 +30,8 @@ type IntegrationKind string
 const (
 	// IntegrationKindProvisioner enumerates machines and installs operating systems.
 	IntegrationKindProvisioner IntegrationKind = "provisioner"
-	// IntegrationKindAutomation executes long-running operations.
+	// IntegrationKindAutomation is retained only to decode pre-v2 development data.
+	// Deprecated: automation is an owned site configuration, not an integration.
 	IntegrationKindAutomation IntegrationKind = "automation"
 	// IntegrationKindMetrics answers metric queries.
 	IntegrationKindMetrics IntegrationKind = "metrics"
@@ -42,7 +43,6 @@ const (
 // what they may have meant.
 var ValidIntegrationKinds = []IntegrationKind{
 	IntegrationKindProvisioner,
-	IntegrationKindAutomation,
 	IntegrationKindMetrics,
 	IntegrationKindCluster,
 }
@@ -60,7 +60,6 @@ func (k IntegrationKind) Valid() bool {
 // select an adapter and are persisted in server sources, so they must stay stable.
 const (
 	ProviderKindMAAS       = "maas"
-	ProviderKindAWX        = "awx"
 	ProviderKindPrometheus = "prometheus"
 	ProviderKindKubernetes = "kubernetes"
 	ProviderKindSlurm      = "slurm"
@@ -73,7 +72,6 @@ const (
 // would otherwise fail much later with a confusing protocol error.
 var providerKindsByIntegrationKind = map[IntegrationKind][]string{
 	IntegrationKindProvisioner: {ProviderKindMAAS},
-	IntegrationKindAutomation:  {ProviderKindAWX},
 	IntegrationKindMetrics:     {ProviderKindPrometheus},
 	IntegrationKindCluster:     {ProviderKindKubernetes, ProviderKindSlurm},
 }

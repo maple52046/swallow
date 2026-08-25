@@ -1,5 +1,7 @@
 # 004 — Automation via AWX
 
+> Superseded by [006 — Embedded Ansible execution](006-embedded-ansible-execution.md).
+
 ## Decision
 
 **AWX owns every long-running run. swallow owns the intent that started it.**
@@ -146,7 +148,7 @@ This mirrors the staleness rule in [002](002-server-identity.md).
 - Playbook content lives in git and is referenced by AWX job template. swallow stores no
   automation content, which retires the `ProvisioningProfile` concept — packages and
   scripts belong in a role, not in a platform database.
-- Which job templates exist becomes part of deployment configuration. swallow maps its
+- Which job templates exist becomes part of installation configuration. swallow maps its
   operation kinds to template identifiers; it does not create templates.
 - Deploying Kubernetes and configuring Slurm are operation kinds, not bespoke subsystems.
   Feature 3 is largely a matter of naming the right templates.

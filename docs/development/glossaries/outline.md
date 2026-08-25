@@ -8,6 +8,11 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ## Terms
 
+### Platform Delivery
+
+- [Installation](terms/installation.md): Installing and managing the Swallow control
+  plane; never the MAAS-owned deployment of an OS to a managed server.
+
 ### Compute Resource
 
 - [Server](terms/server.md): The platform's primary managed compute unit, projected from a provisioner's inventory, identified by a swallow-issued `serverId` (not by hostname or IP, which are observed and non-unique).
@@ -38,6 +43,11 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - `Alert` 及其 severity / status / category 值集。
 - `GPU Device`、`GPU Metrics`、`GPU Status`、`GPU Profile`。
+
+### Automation
+
+- [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for embedded Ansible execution.
+- [Operation](terms/operation.md): A durable operator intent and its locally owned execution lifecycle.
 
 ### Provisioning and Management Planes
 

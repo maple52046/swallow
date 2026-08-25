@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${1:-}"
+shift || true
+bundle_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+install_root="/opt/swallow"
+state_root="/var/lib/swallow"
+config_root="/etc/swallow"
+backup_root="${SWALLOW_BACKUP_DIR:-/var/backups/swallow}"
+
+require_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    printf 'this command must run as root\n' >&2
+    exit 1
+  fi
+}
+
+preflight() {
+  [[ "$(uname -m)" == "x86_64" ]] || { printf 'amd64 is required\n' >&2; exit 1; }
+  source /etc/os-release
+  [[ "${ID}" == "ubuntu" && "${VERSION_ID}" == "24.04" ]] ||
+    { printf 'Ubuntu 24.04 is required\n' >&2; exit 1; }
+  for tool in systemctl openssl tar sha256sum python3 apt-get; do
+    command -v "${tool}" >/dev/null || { printf 'missing prerequisite: %s\n' "${tool}" >&2; exit 1; }
+  done
+  [[ -s "${config_root}/tls/tls.crt" && -s "${config_root}/tls/tls.key" ]] ||
+    { printf 'installation CA certificate and key are required under %s/tls\n' "${config_root}" >&2; exit 1; }
+  for secret in mongo-root-username mongo-root-password mongo-uri jwt-secret \
+    bootstrap-admin-password credential-key machine-token; do
+    [[ -s "${config_root}/secrets/${secret}" ]] ||
+      { printf 'missing native secret: %s\n' "${secret}" >&2; exit 1; }
+  done
+  printf 'preflight passed\n'
+}
+
+run_migrate() {
+  SWALLOW_API_MONGO_URI_FILE="${config_root}/secrets/mongo-uri" \
+  SWALLOW_API_JWT_SECRET_FILE="${config_root}/secrets/jwt-secret" \
+  SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE="${config_root}/secrets/bootstrap-admin-password" \
+  SWALLOW_API_CREDENTIAL_KEY_FILE="${config_root}/secrets/credential-key" \
+  SWALLOW_API_MACHINE_TOKEN_FILE="${config_root}/secrets/machine-token" \
+  SWALLOW_API_PLAYBOOK_MANIFEST="${install_root}/current/automation/manifest.json" \
+  SWALLOW_API_PLAYBOOK_DIR="${install_root}/current/automation/playbooks" \
+    "${install_root}/current/bin/swallow" migrate
+}
+
+require_runtime_tools() {
+  for tool in nginx mongosh mongodump mongorestore; do
+    command -v "${tool}" >/dev/null ||
+      { printf 'offline bundle did not install prerequisite: %s\n' "${tool}" >&2; exit 1; }
+  done
+}
+
+configure_mongodb() {
+  local uri
+  uri="$(<"${config_root}/secrets/mongo-uri")"
+  if mongosh "${uri}" --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1; then
+    return
+  fi
+  if ! mongosh mongodb://127.0.0.1:27017/admin --quiet \
+    --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1; then
+    printf 'MongoDB is neither freshly local nor reachable with configured credentials\n' >&2
+    exit 1
+  fi
+  mongosh mongodb://127.0.0.1:27017/admin --quiet --eval \
+    'const fs=require("fs");
+     const u=fs.readFileSync("/etc/swallow/secrets/mongo-root-username","utf8").trim();
+     const p=fs.readFileSync("/etc/swallow/secrets/mongo-root-password","utf8").trim();
+     if (!db.getUser(u)) db.createUser({user:u,pwd:p,roles:[{role:"root",db:"admin"}]});'
+  if ! grep -Eq '^[[:space:]]*authorization:[[:space:]]*enabled' /etc/mongod.conf; then
+    if grep -Eq '^security:' /etc/mongod.conf; then
+      printf 'existing MongoDB security configuration requires manual authorization setup\n' >&2
+      exit 1
+    fi
+    printf '\nsecurity:\n  authorization: enabled\n' >>/etc/mongod.conf
+  fi
+  systemctl restart mongod
+  mongosh "${uri}" --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null
+}
+
+active_operations() {
+  local uri
+  uri="$(<"${config_root}/secrets/mongo-uri")"
+  mongosh "${uri}" --quiet --eval \
+    'db.getSiblingDB("swallow").operations.countDocuments({schemaVersion:2,terminal:false})'
+}
+
+prune_backups() {
+  local prefix="$1" keep="$2" index
+  local -a candidates=()
+  mapfile -t candidates < <(
+    find "${backup_root}" -mindepth 1 -maxdepth 1 -type d -name "${prefix}-*" -print | sort -r
+  )
+  for ((index = keep; index < ${#candidates[@]}; index++)); do
+    rm -rf -- "${candidates[index]}"
+  done
+}
+
+backup() {
+  require_root
+  local stamp target uri
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  target="${backup_root}/daily-${stamp}"
+  uri="$(<"${config_root}/secrets/mongo-uri")"
+  install -d -m 0700 "${target}"
+  mongodump --uri "${uri}" --archive="${target}/mongo.archive.gz" --gzip
+  tar -C "${state_root}" -czf "${target}/job-artifacts.tar.gz" jobs
+  install -m 0600 "${config_root}/secrets/credential-key" "${target}/credential-key"
+  sha256sum "${target}"/* >"${target}/SHA256SUMS"
+  if [[ "$(date -u +%u)" == "7" ]]; then
+    cp -al -- "${target}" "${backup_root}/weekly-${stamp}"
+  fi
+  prune_backups daily 7
+  prune_backups weekly 4
+  printf '%s\n' "${target}"
+}
+
+install_release() {
+  require_root
+  preflight
+  local manifest version release_dir media_dir package package_count
+  local -a packages=()
+  manifest="${bundle_dir}/release-manifest.json"
+  version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "${manifest}")"
+  [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] ||
+    { printf 'release manifest version is not SemVer\n' >&2; exit 1; }
+  release_dir="${install_root}/releases/${version}"
+  install -d -m 0755 "${release_dir}/bin" "${release_dir}/dashboard" "${release_dir}/automation"
+  install -m 0755 "${bundle_dir}/native/bin/swallow" "${release_dir}/bin/swallow"
+  for media_dir in "${bundle_dir}/third-party/mongodb" "${bundle_dir}/third-party/native-runtime"; do
+    [[ -s "${media_dir}/SHA256SUMS" && -d "${media_dir}/packages" ]] ||
+      { printf 'missing checksummed native media: %s\n' "${media_dir}" >&2; exit 1; }
+    (cd "${media_dir}" && sha256sum -c SHA256SUMS)
+    package_count="${#packages[@]}"
+    while IFS= read -r -d '' package; do
+      packages+=("${package}")
+    done < <(find "${media_dir}/packages" -maxdepth 1 -type f -name '*.deb' -print0)
+    (( ${#packages[@]} > package_count )) ||
+      { printf 'native media has no deb packages: %s\n' "${media_dir}" >&2; exit 1; }
+  done
+  apt-get install -y --no-download "${packages[@]}"
+  require_runtime_tools
+  cp -a "${bundle_dir}/native/dashboard/." "${release_dir}/dashboard/"
+  cp -a "${bundle_dir}/native/automation/." "${release_dir}/automation/"
+  python3 -m venv "${release_dir}/venv"
+  "${release_dir}/venv/bin/pip" install --no-index \
+    --find-links "${bundle_dir}/native/wheelhouse" -r "${release_dir}/automation/requirements.txt"
+  id swallow >/dev/null 2>&1 || useradd --system --home "${state_root}" --shell /usr/sbin/nologin swallow
+  install -d -o swallow -g swallow -m 0750 "${state_root}/jobs"
+  ln -sfn "${release_dir}" "${install_root}/current"
+  printf 'SWALLOW_API_RELEASE_VERSION=%s\n' "${version}" >"${config_root}/release.env"
+  chmod 0644 "${config_root}/release.env"
+  install -m 0755 "${bundle_dir}/native/swallowctl" "${install_root}/swallowctl"
+  install -m 0644 "${bundle_dir}/native/systemd/swallow-api.service" /etc/systemd/system/swallow-api.service
+  install -m 0644 "${bundle_dir}/native/systemd/swallow-backup.service" /etc/systemd/system/swallow-backup.service
+  install -m 0644 "${bundle_dir}/native/systemd/swallow-backup.timer" /etc/systemd/system/swallow-backup.timer
+  install -m 0644 "${bundle_dir}/native/systemd/swallow.tmpfiles" /etc/tmpfiles.d/swallow.conf
+  install -m 0644 "${bundle_dir}/native/logrotate/swallow" /etc/logrotate.d/swallow
+  install -m 0644 "${bundle_dir}/native/nginx/swallow.conf" /etc/nginx/sites-available/swallow
+  ln -sfn /etc/nginx/sites-available/swallow /etc/nginx/sites-enabled/swallow
+  systemd-tmpfiles --create /etc/tmpfiles.d/swallow.conf
+  systemctl daemon-reload
+  systemctl enable --now mongod
+  configure_mongodb
+  run_migrate
+  systemctl enable --now nginx swallow-api swallow-backup.timer
+}
+
+upgrade() {
+  require_root
+  local force=false
+  [[ "${1:-}" == "--force" ]] && force=true
+  local active
+  active="$(active_operations)"
+  if [[ "${active}" != "0" && "${force}" != true ]]; then
+    printf 'refusing upgrade: %s operation(s) active; wait or pass --force\n' "${active}" >&2
+    exit 1
+  fi
+  backup >/dev/null
+  install_release
+  curl --fail --silent --show-error https://127.0.0.1/readyz --cacert "${config_root}/tls/tls.crt" >/dev/null
+}
+
+restore() {
+  require_root
+  local source="${1:?usage: swallowctl restore BACKUP_DIRECTORY}"
+  (cd "${source}" && sha256sum -c SHA256SUMS)
+  systemctl stop swallow-api
+  local uri
+  uri="$(<"${config_root}/secrets/mongo-uri")"
+  mongorestore --uri "${uri}" --archive="${source}/mongo.archive.gz" --gzip --drop
+  tar -C "${state_root}" -xzf "${source}/job-artifacts.tar.gz"
+  install -m 0600 "${source}/credential-key" "${config_root}/secrets/credential-key"
+  chown -R swallow:swallow "${state_root}/jobs"
+  systemctl start swallow-api
+}
+
+doctor() {
+  systemctl --no-pager --full status mongod swallow-api nginx
+  curl --fail --silent --show-error https://127.0.0.1/readyz --cacert "${config_root}/tls/tls.crt"
+  run_migrate
+}
+
+uninstall_release() {
+  require_root
+  systemctl disable --now swallow-api swallow-backup.timer || true
+  rm -f /etc/systemd/system/swallow-api.service /etc/systemd/system/swallow-backup.service \
+    /etc/systemd/system/swallow-backup.timer /etc/nginx/sites-enabled/swallow
+  systemctl daemon-reload
+  if [[ "${1:-}" == "--purge-data" ]]; then
+    rm -rf -- "${state_root}" "${config_root}" "${backup_root}" "${install_root}"
+  else
+    printf 'data retained under %s, %s, and %s\n' "${state_root}" "${config_root}" "${backup_root}"
+  fi
+}
+
+case "${command_name}" in
+  preflight) preflight ;;
+  install) install_release ;;
+  upgrade) upgrade "$@" ;;
+  backup) backup ;;
+  restore) restore "$@" ;;
+  doctor) doctor ;;
+  uninstall) uninstall_release "$@" ;;
+  *) printf 'usage: swallowctl {preflight|install|upgrade|backup|restore|doctor|uninstall}\n' >&2; exit 2 ;;
+esac

@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: swallow-api
+    scheme: https
+    static_configs:
+      - targets: [swallow.example.internal]
+    metrics_path: /metrics
+    tls_config:
+      ca_file: /run/secrets/swallow-ca.crt
+    authorization:
+      credentials_file: /run/secrets/swallow-machine-token
+
+  - job_name: site-node-exporter
+    http_sd_configs:
+      - url: https://swallow.example.internal/api/v1/discovery/prometheus?port=9100
+        refresh_interval: 60s
+        tls_config:
+          ca_file: /run/secrets/swallow-ca.crt
+        authorization:
+          credentials_file: /run/secrets/swallow-machine-token
+
+# An installation may add remote_write here without changing Swallow's label contract.

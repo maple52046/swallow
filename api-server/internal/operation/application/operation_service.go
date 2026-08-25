@@ -23,7 +23,7 @@ import (
 // name on the automation integration, e.g. "template.install-gpu-driver".
 //
 // The mapping lives on the integration because which templates exist is a property of
-// the deployment, not of swallow.
+// the installation, not of swallow.
 const templateSettingPrefix = "template."
 
 // PolicyChecker rejects operations that contradict cluster policy.

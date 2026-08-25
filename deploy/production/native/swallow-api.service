@@ -1,0 +1,44 @@
+[Unit]
+Description=Swallow API and embedded Ansible dispatcher
+After=network-online.target mongod.service
+Wants=network-online.target
+Requires=mongod.service
+
+[Service]
+Type=simple
+User=swallow
+Group=swallow
+Environment=SWALLOW_API_ADDR=127.0.0.1:30051
+EnvironmentFile=-/etc/swallow/release.env
+LoadCredential=mongo-uri:/etc/swallow/secrets/mongo-uri
+LoadCredential=jwt-secret:/etc/swallow/secrets/jwt-secret
+LoadCredential=bootstrap-admin-password:/etc/swallow/secrets/bootstrap-admin-password
+LoadCredential=credential-key:/etc/swallow/secrets/credential-key
+LoadCredential=machine-token:/etc/swallow/secrets/machine-token
+Environment=SWALLOW_API_MONGO_URI_FILE=%d/mongo-uri
+Environment=SWALLOW_API_MONGO_DB=swallow
+Environment=SWALLOW_API_JWT_SECRET_FILE=%d/jwt-secret
+Environment=SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME=admin
+Environment=SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE=%d/bootstrap-admin-password
+Environment=SWALLOW_API_CREDENTIAL_KEY_FILE=%d/credential-key
+Environment=SWALLOW_API_MACHINE_TOKEN_FILE=%d/machine-token
+Environment=SWALLOW_API_ANSIBLE_RUNNER_COMMAND=/opt/swallow/current/venv/bin/ansible-runner
+Environment=SWALLOW_API_PLAYBOOK_MANIFEST=/opt/swallow/current/automation/manifest.json
+Environment=SWALLOW_API_PLAYBOOK_DIR=/opt/swallow/current/automation/playbooks
+Environment=SWALLOW_API_JOB_RUNTIME_DIR=/run/swallow/jobs
+Environment=SWALLOW_API_JOB_ARTIFACT_DIR=/var/lib/swallow/jobs
+Environment=SWALLOW_API_JOB_ARTIFACT_RETENTION=720h
+ExecStart=/opt/swallow/current/bin/swallow api
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/swallow /run/swallow
+CapabilityBoundingSet=
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

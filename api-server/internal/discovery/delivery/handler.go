@@ -43,7 +43,7 @@ func (h *DiscoveryHandler) PrometheusTargets(c *fiber.Ctx) error {
 	return c.JSON(targets)
 }
 
-// AnsibleInventory serves an Ansible dynamic inventory for AWX.
+// AnsibleInventory serves an Ansible dynamic inventory for diagnostics and external tools.
 func (h *DiscoveryHandler) AnsibleInventory(c *fiber.Ctx) error {
 	inventory, err := h.discovery.AnsibleInventory(c.Context(), application.DiscoveryInput{
 		SiteID:            c.Query("siteId"),

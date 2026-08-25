@@ -228,7 +228,7 @@ func seedAutomation(t *testing.T, f *platformFixture) {
 		ID:           testAutomationID,
 		SiteID:       testSiteID,
 		Kind:         sitedomain.IntegrationKindAutomation,
-		ProviderKind: sitedomain.ProviderKindAWX,
+		ProviderKind: "awx",
 		Name:         "awx",
 		Endpoint:     "https://awx.example.com",
 		Enabled:      true,

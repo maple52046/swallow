@@ -20,6 +20,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&rootConfigFile, "config", "c", "", "path to YAML config file")
 
 	rootCmd.AddCommand(apiCmd)
+	rootCmd.AddCommand(migrateCmd)
 }
 
 // logStartup prints non-sensitive effective config values at startup so that the

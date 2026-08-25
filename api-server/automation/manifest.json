@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "playbooks": [
+    {
+      "name": "diagnostic-ping",
+      "path": "diagnostic-ping.yml"
+    }
+  ]
+}

@@ -136,7 +136,7 @@ type Service struct {
 	repo ServerRepository
 }
 
-// Environment variables have the highest priority so deployment systems can
+// Environment variables have the highest priority so installation systems can
 // override mounted config files without rewriting them.
 ```
 

@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useEffect, useState } from 'react'
 import type { User, UserRole, UserStatus } from '@/domain/user/types'
 import * as authApi from '@/infrastructure/api/authApi'
 import { tokenStore, ApiRequestError } from '@/infrastructure/api/client'
@@ -88,7 +89,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    void restoreSession().finally(() => setInitializing(false))
+    let canceled = false
+    const initialize = async () => {
+      await restoreSession()
+      if (!canceled) setInitializing(false)
+    }
+    void initialize()
+    return () => {
+      canceled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -134,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }
 
-  const value = useMemo<AuthContextValue>(() => ({
+  const value: AuthContextValue = {
     currentUser,
     isAuthenticated: currentUser !== null,
     initializing,
@@ -143,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     restoreSession,
     updateUserRole,
-  }), [currentUser, initializing, users])
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

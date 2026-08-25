@@ -23,6 +23,16 @@ ENV GOPATH=/go \
 
 COPY --from=air-build /go/bin/air /usr/local/bin/air
 
+# Match the production execution environment: the lock is copied before the source bind
+# mount replaces /app, and the venv is available to the non-root developer user.
+COPY api-server/automation/requirements.txt /tmp/ansible-requirements.txt
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssh-client python3-venv \
+ && python3 -m venv /opt/ansible \
+ && /opt/ansible/bin/pip install --no-cache-dir -r /tmp/ansible-requirements.txt \
+ && rm -rf /var/lib/apt/lists/* /tmp/ansible-requirements.txt
+ENV PATH="/opt/ansible/bin:${PATH}"
+
 # Run as the host developer's UID/GID so that anything written into the
 # bind-mounted source tree or the cache volumes stays owned by them, not root.
 RUN groupadd -g "${GID}" dev \

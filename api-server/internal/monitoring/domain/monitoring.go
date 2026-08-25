@@ -100,7 +100,7 @@ type AlertSource interface {
 type MonitoringFactory interface {
 	// Querier returns a metrics querier for the site, or ErrNoMetricsIntegration.
 	// An empty siteID means any site's metrics integration will do, which is correct
-	// while a deployment has one central store.
+	// while an installation has one central store.
 	Querier(ctx context.Context, siteID string) (MetricsQuerier, error)
 	// Alerts returns an alert source for the site, or ErrNoAlertSource.
 	Alerts(ctx context.Context, siteID string) (AlertSource, error)

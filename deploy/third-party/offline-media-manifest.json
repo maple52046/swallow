@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "platform": "ubuntu-24.04-amd64",
+  "components": {
+    "docker-ce": {
+      "version": "release-managed",
+      "media": "docker-ce/",
+      "requiredFiles": [
+        "SHA256SUMS",
+        "repository-metadata"
+      ]
+    },
+    "mongodb": {
+      "version": "8.0",
+      "media": "mongodb/",
+      "requiredFiles": [
+        "SHA256SUMS",
+        "packages/"
+      ]
+    },
+    "prometheus": {
+      "version": "release-managed",
+      "media": "prometheus/",
+      "requiredFiles": [
+        "SHA256SUMS",
+        "prometheus",
+        "node_exporter"
+      ]
+    },
+    "maas": {
+      "version": "3.6",
+      "media": "maas/",
+      "requiredFiles": [
+        "SHA256SUMS",
+        "repository/",
+        "boot-resources/"
+      ]
+    },
+    "native-runtime": {
+      "version": "release-managed",
+      "media": "native-runtime/",
+      "requiredFiles": [
+        "SHA256SUMS",
+        "packages/"
+      ]
+    }
+  }
+}

@@ -56,8 +56,9 @@
 | [`001-system-ownership-boundaries.md`](001-system-ownership-boundaries.md) | 哪個系統擁有哪些事實，以及 swallow 因此不得儲存或重建什麼 |
 | [`002-server-identity.md`](002-server-identity.md) | server 如何跨站點與重裝維持身分，以及狀態為何是三個獨立軸而非單一值 |
 | [`003-metrics-label-contract.md`](003-metrics-label-contract.md) | monitoring 拓撲，以及把 metrics 接回 server 的標籤集 |
-| [`004-automation-via-awx.md`](004-automation-via-awx.md) | 長時間執行的 operation 由誰擁有、如何指定目標與觀察 |
+| [`004-automation-via-awx.md`](004-automation-via-awx.md) | 已由 006 取代；歷史 AWX 執行模型 |
 | [`005-monorepo-consolidation.md`](005-monorepo-consolidation.md) | 平台從 gdcm submodule superproject 收斂為單一 swallow monorepo，並完成品牌改名 |
+| [`006-embedded-ansible-execution.md`](006-embedded-ansible-execution.md) | Swallow 如何以 Mongo lease 與 pinned runner 擁有 Ansible operation 執行 |
 
 `001`–`004` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
 Consequences / Rejected alternatives，沒有 Status 與 Date）。它們與本文件的格式對齊

@@ -28,8 +28,26 @@ func Validate(cfg *Config) error {
 	if cfg.API.ReconcileInterval <= 0 {
 		return fmt.Errorf("api.reconcileInterval must be > 0")
 	}
-	if cfg.API.OperationPollInterval <= 0 {
-		return fmt.Errorf("api.operationPollInterval must be > 0")
+	if cfg.API.InventoryInterval <= 0 {
+		return fmt.Errorf("api.inventoryInterval must be > 0")
+	}
+	if cfg.API.OperationDispatchInterval <= 0 {
+		return fmt.Errorf("api.operationDispatchInterval must be > 0")
+	}
+	if cfg.API.OperationLeaseDuration < 3*cfg.API.OperationDispatchInterval {
+		return fmt.Errorf("api.operationLeaseDuration must be at least 3x operationDispatchInterval")
+	}
+	if cfg.API.AnsibleRunnerCommand == "" {
+		return fmt.Errorf("api.ansibleRunnerCommand is required")
+	}
+	if cfg.API.PlaybookManifest == "" || cfg.API.PlaybookDir == "" {
+		return fmt.Errorf("api.playbookManifest and api.playbookDir are required")
+	}
+	if cfg.API.JobRuntimeDir == "" || cfg.API.JobArtifactDir == "" {
+		return fmt.Errorf("api.jobRuntimeDir and api.jobArtifactDir are required")
+	}
+	if cfg.API.JobArtifactRetention <= 0 {
+		return fmt.Errorf("api.jobArtifactRetention must be > 0")
 	}
 	return nil
 }

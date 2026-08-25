@@ -1,5 +1,7 @@
 # 001 — System Ownership Boundaries
 
+> Automation ownership in this decision is amended by [ADR 006](006-embedded-ansible-execution.md).
+
 ## Decision
 
 **swallow owns intent, policy, and identity mapping. For everything else, it integrates a
@@ -76,8 +78,8 @@ data model.
 | OS deployment state and deployed OS | Provisioner | Reconciler poll | Cached projection |
 | Power state | Provisioner (via BMC) | Reconciler poll | Cached projection, short freshness window |
 | IP assignment, DHCP, DNS, subnets, VLANs | Provisioner | Read-only, as machine attributes | Nothing modelled |
-| Long-running execution: state, logs, retries, concurrency | AWX | REST API | Job reference plus mirrored status |
-| Playbooks, roles, automation content | Git, consumed by AWX | Not accessed | Nothing |
+| Long-running execution: state, logs, leases, concurrency | Swallow embedded Ansible runtime | Internal application port | Owned operation metadata and retained local artifacts |
+| Playbooks, roles, automation content | Git and the signed Swallow release | Manifest allowlist | Immutable release bundle, not mutable database content |
 | Time-series metrics | Central TSDB | PromQL at query time | Nothing, ever |
 | Alert rule evaluation and firing state | Prometheus and Alertmanager | Read on demand, silences out | Nothing |
 | Dashboards | Grafana | Deep link | Nothing |
@@ -94,7 +96,7 @@ data model.
 | Identity mapping | The join between a provisioner machine ID, a metrics label set, and a cluster's own node name exists nowhere else. This is swallow's central value |
 | Clusters as records: which cluster exists, at which site, with which policy | The cluster's own API knows its members but not its intended shape or its governing policy |
 | Policy, e.g. `gpuStackOwner` | Pure intent. Two subsystems both want to install GPU drivers; only an operator decision resolves it |
-| Operations: intent, target set, and the reference to the AWX job that executes it | AWX knows the job ran. Only swallow knows it was "drain and reimage these 12 servers to move them from cluster A to B" |
+| Operations: intent, target set, lease, execution state, and artifact reference | No external controller owns this cross-system intent or its execution record |
 | Tenancy: teams, users, server allocation | Allocation is a platform-level policy question, not a fact any provisioner or cluster holds |
 
 ### Rules for mirrored facts
@@ -130,7 +132,7 @@ machine is opened, so that swallow carries no schema for them and no staleness t
 
 A single view across sites that no individual tool can produce, because swallow holds the
 identity mapping: this server, in this site, provisioned by that MAAS, currently a worker
-in that Kubernetes cluster, emitting these metrics, last touched by that AWX job.
+in that Kubernetes cluster, emitting these metrics, last touched by that Swallow-owned Ansible run.
 
 That correlation is the product. Everything else is someone else's job.
 
@@ -144,12 +146,11 @@ capability, so the integrate-or-own test lands on "integrate, do not rebuild":
   A bespoke agent on every server in a fleet is a maintenance cost with no unique output.
 - **No metric storage.** swallow queries a TSDB. It does not keep a `GPUMetrics` table.
   Storing metrics is rebuilding a time-series database badly.
-- **No log storage.** Operation logs live in AWX and are proxied on demand.
+- **Bounded operation log storage.** Runner artifacts live locally for 30 days; durable operation metadata remains in MongoDB.
 - **No alert rule evaluation.** Rules live with Prometheus. swallow receives what fires.
 - **No alert lifecycle of its own.** Acknowledging is creating an Alertmanager silence,
   not setting a field in Mongo.
-- **No automation content.** swallow does not store playbooks, scripts, or an equivalent of
-  a provisioning "profile" containing packages and scripts. Those belong in git.
+- **No mutable automation content in MongoDB.** Versioned playbooks belong in git and the signed release bundle; site configuration may select only manifest-listed names.
 - **No network management.** No DHCP, DNS, subnet, or VLAN modelling.
 - **No scheduler.** Deciding which workload runs where is Slurm's and Kubernetes' job.
 - **No hardware history or CMDB.** swallow may mirror a machine's *current* hardware as the
@@ -190,7 +191,7 @@ every action has to be performed by hand in three tools, swallow is a dashboard.
 **Store metrics in swallow for a unified API.** Superficially attractive: one API for
 clients, no PromQL knowledge needed in the frontend, no dependency on a TSDB being
 reachable. Rejected because it is a time-series database with worse retention,
-cardinality handling, and query language than the one already deployed, and because the
+cardinality handling, and query language than the one already in operation, and because the
 copy is guaranteed to disagree with the original.
 
 **A single Prometheus scraping the whole fleet directly.** Simplest topology, one place
@@ -210,5 +211,6 @@ new to deploy.
 
 - [002 — Server Identity](002-server-identity.md)
 - [003 — Metrics Label Contract](003-metrics-label-contract.md)
-- [004 — Automation via AWX](004-automation-via-awx.md)
+- [004 — Automation via AWX](004-automation-via-awx.md) (superseded)
+- [006 — Embedded Ansible execution](006-embedded-ansible-execution.md)
 - [`docs/glossaries/provisioning.md`](../glossaries/provisioning.md)

@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+  actions: read
+  packages: write
+  id-token: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified candidate artifact for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./deploy/release/download-candidate.sh "${GITHUB_SHA}"
+      - uses: imjasonh/setup-crane@v0.4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v3
+      - name: Promote digests without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: ./deploy/release/promote.sh
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/release/*.tar
+            out/release/*.tar.zst
+            out/release/*.json
+            out/release/SHA256SUMS
+          generate_release_notes: true

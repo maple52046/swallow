@@ -35,7 +35,7 @@ swallow platform 由多個 component 組成（後端 API、前端 dashboard，�
 - [`api-server/`](api-server/) — Go 後端 control plane（component）。
 - [`dashboard/`](dashboard/) — React + TypeScript + Vite 前端（component）。
 - [`docs/`](docs/) — platform 共通約束文件，包含結構契約、glossary、API contract 等。
-- [`deploy/`](deploy/) — 跨 component 的環境編排，例如本機開發環境。
+- [`deploy/`](deploy/) — 跨 component 的環境編排與 Swallow installation assets，例如本機開發環境。
 
 ## Repository Layout
 
@@ -44,8 +44,12 @@ swallow platform 由多個 component 組成（後端 API、前端 dashboard，�
 ├── api-server/                     # Go backend (component)
 ├── dashboard/                      # TS frontend (component)
 ├── AGENTS.md                       # AI agent 入口導引
-├── deploy/                         # 跨 component 環境編排
-│   └── dev/                        # 本機開發環境 (Docker Compose)
+├── deploy/                         # 跨 component 環境編排與 installation assets
+│   ├── dev/                        # 唯一開發 golden path
+│   ├── testing/                    # production image + isolated test data
+│   ├── production/                 # Compose 與 native installation lifecycle
+│   ├── release/                    # candidate / SemVer promotion tooling
+│   └── third-party/                # 第三方 installation media contract
 ├── docs/                           # platform 共通約束文件
 │   ├── development/                # 平台層級開發規範
 │   │   ├── architecture-spec.md    # Strategic DDD 架構憲法
@@ -111,6 +115,16 @@ dashboard 位於 <http://localhost:5173>，API 位於 <http://localhost:30051>�
 預設 admin 帳號為 `admin` / `admin`。
 完整說明（設定、hot reload、遠端存取）見 [`deploy/dev/README.md`](deploy/dev/README.md)。
 
+### Testing 與 Production installation
+
+- [Testing](deploy/testing/README.md) 只接受 candidate manifest 的 exact image digests，
+  不 build 且不掛 source。
+- [Production Compose installation](deploy/production/README.md) 與
+  [Ubuntu native installation](deploy/production/native/README.md) 共用同一 binary、dashboard dist、
+  playbook bundle 與 migration。
+- [Third-party services](deploy/third-party/README.md) 與 Swallow core 分開交付；MAAS
+  必須在獨立 host/VM。
+
 各 component 單獨的 build、run、test 指令請見其對應目錄的 README
 （[`api-server/`](api-server/)、[`dashboard/`](dashboard/)）。
 
@@ -125,5 +139,5 @@ dashboard 位於 <http://localhost:5173>，API 位於 <http://localhost:30051>�
 - **新增 / 修改 API 行為**：請依
   [`docs/development/api-contracts.md`](docs/development/api-contracts.md)
   找到 provider component，並更新該 provider 擁有的 contract 後再實作。
-- **component 內部實作**：build、test、deploy、模組結構等細節
+- **component 內部實作**：build、test、run、installation、模組結構等細節
   在對應的 component 目錄中處理，本文件不重複描述。

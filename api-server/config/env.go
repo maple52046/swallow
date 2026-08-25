@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -12,13 +13,17 @@ import (
 // when a legacy variable is found, a deprecation notice is printed to stderr.
 // SWALLOW_-prefixed variables take precedence over legacy names.
 func applyEnv(cfg *Config) {
+	if v := os.Getenv("SWALLOW_API_RELEASE_VERSION"); v != "" {
+		cfg.API.ReleaseVersion = v
+	}
+
 	if v := getEnvWithLegacy("SWALLOW_API_ADDR", "PORT", func(port string) string {
 		return ":" + port
 	}); v != "" {
 		cfg.API.Addr = v
 	}
 
-	if v := getEnvWithLegacy("SWALLOW_API_MONGO_URI", "MONGO_URI", nil); v != "" {
+	if v := getSecretEnv("SWALLOW_API_MONGO_URI", "MONGO_URI"); v != "" {
 		cfg.API.MongoURI = v
 	}
 
@@ -26,7 +31,7 @@ func applyEnv(cfg *Config) {
 		cfg.API.MongoDB = v
 	}
 
-	if v := getEnvWithLegacy("SWALLOW_API_JWT_SECRET", "JWT_SECRET", nil); v != "" {
+	if v := getSecretEnv("SWALLOW_API_JWT_SECRET", "JWT_SECRET"); v != "" {
 		cfg.API.JWTSecret = v
 	}
 
@@ -40,11 +45,11 @@ func applyEnv(cfg *Config) {
 		cfg.API.BootstrapAdminUsername = v
 	}
 
-	if v := getEnvWithLegacy("SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD", "BOOTSTRAP_ADMIN_PASSWORD", nil); v != "" {
+	if v := getSecretEnv("SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD", "BOOTSTRAP_ADMIN_PASSWORD"); v != "" {
 		cfg.API.BootstrapAdminPassword = v
 	}
 
-	if v := os.Getenv("SWALLOW_API_CREDENTIAL_KEY"); v != "" {
+	if v := getSecretEnv("SWALLOW_API_CREDENTIAL_KEY", ""); v != "" {
 		cfg.API.CredentialKey = v
 	}
 
@@ -60,15 +65,60 @@ func applyEnv(cfg *Config) {
 		}
 	}
 
-	if v := os.Getenv("SWALLOW_API_OPERATION_POLL_INTERVAL"); v != "" {
+	if v := os.Getenv("SWALLOW_API_OPERATION_DISPATCH_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
-			cfg.API.OperationPollInterval = d
+			cfg.API.OperationDispatchInterval = d
 		}
 	}
-
-	if v := os.Getenv("SWALLOW_API_MACHINE_TOKEN"); v != "" {
+	if v := os.Getenv("SWALLOW_API_OPERATION_LEASE_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.OperationLeaseDuration = d
+		}
+	}
+	if v := os.Getenv("SWALLOW_API_ANSIBLE_RUNNER_COMMAND"); v != "" {
+		cfg.API.AnsibleRunnerCommand = v
+	}
+	if v := os.Getenv("SWALLOW_API_PLAYBOOK_MANIFEST"); v != "" {
+		cfg.API.PlaybookManifest = v
+	}
+	if v := os.Getenv("SWALLOW_API_PLAYBOOK_DIR"); v != "" {
+		cfg.API.PlaybookDir = v
+	}
+	if v := os.Getenv("SWALLOW_API_JOB_RUNTIME_DIR"); v != "" {
+		cfg.API.JobRuntimeDir = v
+	}
+	if v := os.Getenv("SWALLOW_API_JOB_ARTIFACT_DIR"); v != "" {
+		cfg.API.JobArtifactDir = v
+	}
+	if v := os.Getenv("SWALLOW_API_JOB_ARTIFACT_RETENTION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.JobArtifactRetention = d
+		}
+	}
+	if v := os.Getenv("SWALLOW_API_ALLOWED_ORIGINS"); v != "" {
+		cfg.API.AllowedOrigins = v
+	}
+	if v := getSecretEnv("SWALLOW_API_MACHINE_TOKEN", ""); v != "" {
 		cfg.API.MachineToken = v
 	}
+}
+
+// getSecretEnv supports Compose secrets and root-only systemd credential files.
+// A direct value takes precedence over the corresponding *_FILE path.
+func getSecretEnv(canonical, legacy string) string {
+	if value := getEnvWithLegacy(canonical, legacy, nil); value != "" {
+		return value
+	}
+	path := os.Getenv(canonical + "_FILE")
+	if path == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: cannot read %s: %v\n", canonical+"_FILE", err)
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 // getEnvWithLegacy reads the canonical SWALLOW_ key first; if absent, falls back to

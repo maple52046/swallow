@@ -37,7 +37,7 @@ term for an entry in a provisioner's inventory.
 ## Context
 
 The previous model made `hostname` and `ip` unique keys on the server record. That cannot
-survive contact with the intended deployment:
+survive contact with the intended installation topology:
 
 - Two sites can legitimately both have `gpu-node-01` at `10.0.1.10`. A fleet-wide unique
   constraint on either makes the second site unregistrable.

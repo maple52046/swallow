@@ -2,7 +2,7 @@
 
 本文件定義本 project 的架構開發原則，適用於所有開發人員與 AI agent。
 
-本 project 採用 Clean Architecture 作為主要架構原則。實作時必須讓核心業務規則獨立於 framework、database、UI、外部服務與部署細節。
+本 project 採用 Clean Architecture 作為主要架構原則。實作時必須讓核心業務規則獨立於 framework、database、UI、外部服務與安裝／執行環境細節。
 
 本文整理自 [The Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)，並搭配 Go 撰寫規範 [`coding-style.md`](coding-style.md) 使用。
 
@@ -81,7 +81,7 @@ Entities 不得包含：
 - Database schema、`bson`/`json` tag 只為序列化服務的欄位、Mongo document mapping。
 - HTTP、gRPC、CLI 或 queue payload 型別。
 - 外部 SDK 型別。
-- Framework lifecycle、config 讀取或部署設定。
+- Framework lifecycle、config 讀取或安裝／執行環境設定。
 
 ### Use Cases
 

@@ -34,7 +34,6 @@ A registered external system that swallow talks to, scoped to one site.
 | Kind | System | swallow uses it to |
 |------|--------|-----------------|
 | `provisioner` | MAAS | Read machine inventory, deploy and release operating systems |
-| `automation` | AWX | Launch long-running operations, mirror their status, proxy their logs |
 | `metrics` | Central TSDB | Query metrics with PromQL |
 | `cluster` | Kubernetes API, Slurm | Read live cluster state and membership |
 
@@ -57,7 +56,7 @@ the thing that authenticates. Rules:
 - A credential is **never** returned by any API, in any form, including redacted.
 - An integration's credential is write-only: it can be replaced, never read back.
 - Where the credential physically lives — an encrypted field, or a reference into an
-  external secret store — is a deployment decision, not a model decision. The model only
+  external secret store — is an installation decision, not a model decision. The model only
   commits to `credentialRef` being an indirection.
 
 ## Staleness
@@ -86,7 +85,7 @@ make that data wrong — only old. See the "unknown is not a status value" rule 
 flowchart LR
     Site --> Integration
     Integration -->|"provisioner: reconciles"| Server
-    Integration -->|"automation: executes"| Operation
+    Site -->|"automation configuration: executes"| Operation
     Integration -->|"metrics: queried by"| Health["health axis"]
     Integration -->|"cluster: read by"| Membership["membership axis"]
     Server --> Site

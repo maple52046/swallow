@@ -21,7 +21,7 @@ type ListServersInput struct {
 // never persisted.
 //
 // It is an interface here so that the server context does not depend on the monitoring
-// context, and so that a deployment with no metrics integration simply has no resolver
+// context, and so that an installation with no metrics integration simply has no resolver
 // and returns servers with a null health axis.
 type HealthResolver interface {
 	// ResolveHealth returns health by server ID. Servers it has no answer for are

@@ -121,7 +121,7 @@ func (f *MonitoringFactory) GrafanaURL(ctx context.Context, siteID string) strin
 
 // metricsIntegration finds the metrics integration to use.
 //
-// An empty siteID matches any, which is correct while a deployment has one central
+// An empty siteID matches any, which is correct while an installation has one central
 // store: every site's Prometheus remote-writes into it, so any site's registration
 // points at the same place.
 func (f *MonitoringFactory) metricsIntegration(ctx context.Context, siteID string) (*sitedomain.Integration, error) {
