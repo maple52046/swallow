@@ -1,0 +1,61 @@
+---
+# Join a worker using a worker token minted on the initial controller. As with a
+# controller, the token file must survive until the node is Ready, or the service loops.
+
+- name: Check for an existing worker service
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k0sworker.service
+  register: k0s_worker_unit
+
+- name: Generate a worker join token on the initial controller
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s token create --role=worker --expiry=1h
+  become: true
+  delegate_to: "{{ swallow_k0s_initial_controller_id }}"
+  register: k0s_worker_token
+  no_log: true
+  changed_when: false
+  when: not k0s_worker_unit.stat.exists
+
+- name: Write the join token
+  ansible.builtin.copy:
+    content: "{{ k0s_worker_token.stdout }}"
+    dest: /etc/k0s/join-token
+    mode: "0600"
+  become: true
+  no_log: true
+  when: not k0s_worker_unit.stat.exists
+
+- name: Install the worker with the join token
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s install worker --token-file /etc/k0s/join-token
+  become: true
+  when: not k0s_worker_unit.stat.exists
+  changed_when: true
+
+- name: Start k0s
+  ansible.builtin.systemd:
+    name: k0sworker
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Wait for the node to become Ready
+  # k0s kubectl wait avoids the jsonpath-quote trap and tolerates the first CNI image pull,
+  # which can take a couple of minutes.
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s kubectl wait --for=condition=Ready node/{{ k0s_node_name }} --timeout=120s
+  become: true
+  delegate_to: "{{ swallow_k0s_initial_controller_id }}"
+  register: k0s_worker_ready
+  until: k0s_worker_ready.rc == 0
+  retries: 10
+  delay: 15
+  changed_when: false
+
+- name: Remove the join token now that the worker has joined
+  ansible.builtin.file:
+    path: /etc/k0s/join-token
+    state: absent
+  become: true

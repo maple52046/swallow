@@ -1,0 +1,35 @@
+---
+# A light end-of-run check that the cluster took the shape swallow asked for: every
+# controller is an etcd member, and every worker registered as a node. This turns a
+# half-formed cluster into a failed operation rather than a succeeded one with a silently
+# incomplete result.
+
+- name: Read the etcd member list
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s etcd member-list
+  become: true
+  register: k0s_verify_etcd
+  changed_when: false
+
+- name: Assert every controller is an etcd member
+  ansible.builtin.assert:
+    that:
+      - (k0s_verify_etcd.stdout | from_json).members | length == swallow_k0s_controller_ids | length
+    fail_msg: >-
+      expected {{ swallow_k0s_controller_ids | length }} etcd members,
+      found {{ (k0s_verify_etcd.stdout | from_json).members | length }}
+
+- name: Count Ready worker nodes
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s kubectl get nodes --no-headers
+  become: true
+  register: k0s_verify_nodes
+  changed_when: false
+
+- name: Assert every worker registered as a node
+  ansible.builtin.assert:
+    that:
+      - k0s_verify_nodes.stdout_lines | length == swallow_k0s_worker_ids | length
+    fail_msg: >-
+      expected {{ swallow_k0s_worker_ids | length }} worker nodes,
+      found {{ k0s_verify_nodes.stdout_lines | length }}

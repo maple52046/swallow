@@ -30,6 +30,13 @@ const STATUS_TYPES: Record<string, StatusType> = {
   connected: 'success',
   disconnected: 'error',
   pending: 'info',
+  // Operation execution states and per-task event results share this badge; absence of
+  // evidence (indeterminate) is a warning, never an error.
+  indeterminate: 'warning',
+  ok: 'success',
+  changed: 'info',
+  skipped: 'neutral',
+  unreachable: 'error',
 }
 
 const TYPE_COLORS: Record<StatusType, RadixColor> = {

@@ -29,14 +29,30 @@ const (
 	labelMaster       = "node-role.kubernetes.io/master"
 )
 
+// controllerLeasePrefix is the name prefix k0s gives the Lease each controller renews in
+// kube-node-lease. It is a k0s implementation detail, not a Kubernetes standard, which is
+// why reading it is opt-in per integration rather than always on.
+const controllerLeasePrefix = "k0s-ctrl-"
+
+// controllerLeaseFreshFor bounds how recently a controller lease must have been renewed to
+// be reported as ready. k0s renews the controller lease on the order of every ten seconds,
+// so a minute without a renewal means the controller is not currently heartbeating. A lease
+// that advertises its own duration overrides this with three times that duration, since a
+// slower renewal cadence should not read as stale.
+const controllerLeaseFreshFor = 60 * time.Second
+
 // KubernetesReader reads nodes from the Kubernetes API.
+//
+// When discoverControllerLeases is set it also reports dedicated k0s controllers, which are
+// not registered as Kubernetes nodes and would otherwise be invisible to a membership read.
 type KubernetesReader struct {
-	baseURL    string
-	token      string
-	httpClient *http.Client
+	baseURL                  string
+	token                    string
+	httpClient               *http.Client
+	discoverControllerLeases bool
 }
 
-func NewKubernetesReader(rawURL, token string, timeout time.Duration, insecureSkipVerify bool) (*KubernetesReader, error) {
+func NewKubernetesReader(rawURL, token string, timeout time.Duration, insecureSkipVerify, discoverControllerLeases bool) (*KubernetesReader, error) {
 	baseURL, err := normalizeBaseURL(rawURL)
 	if err != nil {
 		return nil, err
@@ -51,9 +67,10 @@ func NewKubernetesReader(rawURL, token string, timeout time.Duration, insecureSk
 	}
 
 	return &KubernetesReader{
-		baseURL:    baseURL,
-		token:      token,
-		httpClient: &http.Client{Timeout: timeout, Transport: transport},
+		baseURL:                  baseURL,
+		token:                    token,
+		httpClient:               &http.Client{Timeout: timeout, Transport: transport},
+		discoverControllerLeases: discoverControllerLeases,
 	}, nil
 }
 
@@ -90,6 +107,7 @@ func (r *KubernetesReader) ListMembers(ctx context.Context) ([]clusterdomain.Mem
 	}
 
 	members := make([]clusterdomain.Member, 0, len(out.Items))
+	seen := map[string]bool{}
 	for _, item := range out.Items {
 		member := clusterdomain.Member{
 			Name: item.Metadata.Name,
@@ -115,9 +133,99 @@ func (r *KubernetesReader) ListMembers(ctx context.Context) ([]clusterdomain.Mem
 			}
 		}
 
+		seen[strings.ToLower(member.Name)] = true
 		members = append(members, member)
 	}
+
+	if r.discoverControllerLeases {
+		controllers, err := r.controllerMembers(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, controller := range controllers {
+			// A controller that is also a node (an all-in-one node with the lease
+			// naming enabled) is already reported through the node list; the node
+			// carries readiness and addresses, so it wins.
+			if seen[strings.ToLower(controller.Name)] {
+				continue
+			}
+			members = append(members, controller)
+		}
+	}
+
 	return members, nil
+}
+
+// leaseListJSON is the subset of a Lease list swallow reads. renewTime is the heartbeat.
+type leaseListJSON struct {
+	Items []struct {
+		Metadata struct {
+			Name string `json:"name"`
+		} `json:"metadata"`
+		Spec struct {
+			RenewTime            string `json:"renewTime"`
+			LeaseDurationSeconds *int   `json:"leaseDurationSeconds"`
+		} `json:"spec"`
+	} `json:"items"`
+}
+
+// controllerMembers reports dedicated k0s controllers from their kube-node-lease Leases.
+//
+// Dedicated controllers are installed without --enable-worker and so never register as
+// Kubernetes nodes; the lease each one renews is the only place the API exposes them.
+// Leases carry no addresses, so a controller can only be matched to a server by name.
+func (r *KubernetesReader) controllerMembers(ctx context.Context) ([]clusterdomain.Member, error) {
+	endpoint := r.baseURL + "/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build kubernetes lease request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+r.token)
+	req.Header.Set("Accept", "application/json")
+
+	var out leaseListJSON
+	if err := doJSON(r.httpClient, req, &out); err != nil {
+		return nil, translateError(err, "Kubernetes")
+	}
+
+	now := time.Now()
+	members := make([]clusterdomain.Member, 0)
+	for _, item := range out.Items {
+		name, ok := strings.CutPrefix(item.Metadata.Name, controllerLeasePrefix)
+		if !ok || name == "" {
+			continue
+		}
+		members = append(members, clusterdomain.Member{
+			Name:  name,
+			Role:  "control-plane",
+			State: leaseState(item.Spec.RenewTime, item.Spec.LeaseDurationSeconds, now),
+		})
+	}
+	return members, nil
+}
+
+// leaseState reports "ready" when the lease was renewed recently enough, mirroring how a
+// node's Ready condition is read. A missing or unparseable renewTime is "notready" rather
+// than an error: a controller whose heartbeat swallow cannot read is not one it can call
+// healthy.
+func leaseState(renewTime string, leaseDurationSeconds *int, now time.Time) string {
+	if renewTime == "" {
+		return "notready"
+	}
+	renewed, err := time.Parse(time.RFC3339Nano, renewTime)
+	if err != nil {
+		return "notready"
+	}
+	freshFor := controllerLeaseFreshFor
+	if leaseDurationSeconds != nil && *leaseDurationSeconds > 0 {
+		if scaled := time.Duration(*leaseDurationSeconds) * 3 * time.Second; scaled > freshFor {
+			freshFor = scaled
+		}
+	}
+	if now.Sub(renewed) <= freshFor {
+		return "ready"
+	}
+	return "notready"
 }
 
 func normalizeBaseURL(rawURL string) (string, error) {

@@ -2,15 +2,11 @@ package tests
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	"github.com/maple52046/swallow/internal/operation/infra/awx"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
@@ -678,6 +674,26 @@ func (r *fakeClusterRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// fakeDeploymentLauncher records the last launch and returns a fixed operation id, so
+// cluster deployment HTTP tests can assert acceptance without an operation backend.
+type fakeDeploymentLauncher struct {
+	lastLaunch  *clusterdomain.DeploymentLaunch
+	operationID string
+	err         error
+}
+
+func (l *fakeDeploymentLauncher) Launch(_ context.Context, launch clusterdomain.DeploymentLaunch) (string, error) {
+	if l.err != nil {
+		return "", l.err
+	}
+	launchCopy := launch
+	l.lastLaunch = &launchCopy
+	if l.operationID == "" {
+		return "operation-deploy-1", nil
+	}
+	return l.operationID, nil
+}
+
 type fakeClusterReader struct {
 	members []clusterdomain.Member
 	err     error
@@ -791,179 +807,6 @@ func (f *fakeMonitoringFactory) Alerts(_ context.Context, _ string) (monitoringd
 
 func (f *fakeMonitoringFactory) GrafanaURL(_ context.Context, _ string) string {
 	return f.grafanaURL
-}
-
-// --- operations ---
-
-type fakeOperationRepo struct {
-	operations map[string]*operationdomain.Operation
-	createErr  error
-}
-
-func newFakeOperationRepo() *fakeOperationRepo {
-	return &fakeOperationRepo{operations: make(map[string]*operationdomain.Operation)}
-}
-
-func (r *fakeOperationRepo) Create(_ context.Context, operation *operationdomain.Operation) error {
-	if r.createErr != nil {
-		return r.createErr
-	}
-	r.operations[operation.ID] = operation
-	return nil
-}
-
-func (r *fakeOperationRepo) FindByID(_ context.Context, id string) (*operationdomain.Operation, error) {
-	operation, ok := r.operations[id]
-	if !ok {
-		return nil, operationdomain.ErrOperationNotFound
-	}
-	return operation, nil
-}
-
-func (r *fakeOperationRepo) FindByJobID(_ context.Context, integrationID, jobID string) (*operationdomain.Operation, error) {
-	for _, operation := range r.operations {
-		if operation.Automation.IntegrationID == integrationID && operation.Automation.JobID == jobID {
-			return operation, nil
-		}
-	}
-	return nil, operationdomain.ErrOperationNotFound
-}
-
-func (r *fakeOperationRepo) List(_ context.Context, filter operationdomain.ListFilter) (operationdomain.ListResult, error) {
-	var matches []*operationdomain.Operation
-	for _, operation := range r.operations {
-		if filter.SiteID != "" && operation.SiteID != filter.SiteID {
-			continue
-		}
-		if filter.ServerID != "" && !containsString(operation.TargetServerIDs, filter.ServerID) {
-			continue
-		}
-		if filter.Kind != "" && operation.Kind != filter.Kind {
-			continue
-		}
-		if filter.Status != "" && operation.Automation.Status != filter.Status {
-			continue
-		}
-		if filter.ActiveOnly && operation.Automation.Status.Terminal() {
-			continue
-		}
-		matches = append(matches, operation)
-	}
-	return operationdomain.ListResult{Operations: matches, Total: len(matches)}, nil
-}
-
-func (r *fakeOperationRepo) UpdateAutomation(_ context.Context, id string, ref operationdomain.AutomationRef) error {
-	operation, ok := r.operations[id]
-	if !ok {
-		return operationdomain.ErrOperationNotFound
-	}
-	operation.Automation = ref
-	return nil
-}
-
-func (r *fakeOperationRepo) FindActiveByServerIDs(_ context.Context, serverIDs []string) ([]*operationdomain.Operation, error) {
-	var matches []*operationdomain.Operation
-	for _, operation := range r.operations {
-		if operation.Automation.Status.Terminal() {
-			continue
-		}
-		for _, id := range serverIDs {
-			if containsString(operation.TargetServerIDs, id) {
-				matches = append(matches, operation)
-				break
-			}
-		}
-	}
-	return matches, nil
-}
-
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
-
-// fakeController stands in for AWX.
-type fakeController struct {
-	templates map[string]string
-	jobStates map[string]operationdomain.JobState
-	logs      map[string]string
-
-	launchErr error
-	stateErr  error
-
-	launches  []operationdomain.LaunchRequest
-	nextJobID int
-}
-
-func newFakeController() *fakeController {
-	return &fakeController{
-		templates: map[string]string{
-			"install-gpu-driver": "10",
-			"deploy-kubernetes":  "11",
-			"configure-slurm":    "12",
-		},
-		jobStates: make(map[string]operationdomain.JobState),
-		logs:      make(map[string]string),
-	}
-}
-
-func (c *fakeController) Name() string { return "awx" }
-
-func (c *fakeController) FindJobTemplate(_ context.Context, name string) (string, error) {
-	id, ok := c.templates[name]
-	if !ok {
-		return "", fmt.Errorf("%w: %q", operationdomain.ErrJobTemplateNotFound, name)
-	}
-	return id, nil
-}
-
-func (c *fakeController) Launch(_ context.Context, req operationdomain.LaunchRequest) (string, operationdomain.JobState, error) {
-	if c.launchErr != nil {
-		return "", operationdomain.JobState{}, c.launchErr
-	}
-	c.launches = append(c.launches, req)
-
-	c.nextJobID++
-	jobID := strconv.Itoa(100 + c.nextJobID)
-	started := time.Now().UTC()
-	state := operationdomain.JobState{Status: operationdomain.StatusRunning, StartedAt: &started}
-	c.jobStates[jobID] = state
-	return jobID, state, nil
-}
-
-func (c *fakeController) JobState(_ context.Context, jobID string) (operationdomain.JobState, error) {
-	if c.stateErr != nil {
-		return operationdomain.JobState{}, c.stateErr
-	}
-	state, ok := c.jobStates[jobID]
-	if !ok {
-		return operationdomain.JobState{}, awx.ErrJobNotFound
-	}
-	return state, nil
-}
-
-func (c *fakeController) JobLogs(_ context.Context, jobID string) (string, error) {
-	return c.logs[jobID], nil
-}
-
-type fakeControllerFactory struct {
-	controllers map[string]operationdomain.AutomationController
-}
-
-func newFakeControllerFactory() *fakeControllerFactory {
-	return &fakeControllerFactory{controllers: make(map[string]operationdomain.AutomationController)}
-}
-
-func (f *fakeControllerFactory) For(_ context.Context, integrationID string) (operationdomain.AutomationController, error) {
-	controller, ok := f.controllers[integrationID]
-	if !ok {
-		return nil, sitedomain.ErrIntegrationNotFound
-	}
-	return controller, nil
 }
 
 // fakeProviderFactory resolves integration IDs to providers, standing in for the real

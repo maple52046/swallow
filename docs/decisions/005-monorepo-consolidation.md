@@ -17,9 +17,9 @@ Two things changed the calculus:
 1. The product is installed on a single login / management node, not as a
    distributed fleet agent. The node-side `agent` was already retired in
    [ADR-001](001-system-ownership-boundaries.md); node control is delegated to
-   AWX / Ansible ([ADR-004](004-automation-via-awx.md)). The original
-   distributed-systems motivation for keeping separate repositories no longer
-   applies.
+   embedded Ansible execution ([ADR-006](006-embedded-ansible-execution.md)). The
+   original distributed-systems motivation for keeping separate repositories no
+   longer applies.
 2. The platform has no external consumers yet. The submodules had no independent
    release cadence, no third-party consumers, and no separate access-control
    boundary — one team ships one product on one release train.
@@ -52,7 +52,7 @@ the platform from `gdcm` to `swallow`.
 - The rebrand is comprehensive: prose, the Go module path
   (`github.com/AFDEAPAC/swallow` -> `github.com/maple52046/swallow`), the
   environment-variable prefix (`GDCM_` -> `SWALLOW_`), the in-container config
-  path (`/etc/gdcm` -> `/etc/swallow`), and AWX extra-var keys
+  path (`/etc/gdcm` -> `/etc/swallow`), and automation extra-var keys
   (`gdcm_operation_id` -> `swallow_operation_id`, etc.). The lowercase `swallow`
   denotes the running service; `Swallow` denotes the platform brand.
 - The backend binary keeps the name `swallow`: it is now unambiguously "the

@@ -17,8 +17,6 @@ import (
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdelivery "github.com/maple52046/swallow/internal/operation/delivery"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
@@ -60,8 +58,6 @@ type platformFixture struct {
 	factory      *fakeProviderFactory
 	health       *testHealthResolver
 
-	operationRepo *fakeOperationRepo
-	controller    *fakeController
 	monitoring    *fakeMonitoringFactory
 	clusterRepo   *fakeClusterRepo
 	clusterReader *fakeReaderFactory
@@ -111,21 +107,9 @@ func setupPlatform(t *testing.T) *platformFixture {
 	clusterRepo := newFakeClusterRepo()
 	readerFactory := newFakeReaderFactory()
 	membershipSync := clusterapp.NewMembershipSyncUseCase(clusterRepo, servers, readerFactory)
-	clusterHandler := clusterdelivery.NewClusterHandler(
-		clusterapp.NewClusterService(clusterRepo, sites, servers),
-		membershipSync,
-	)
-
-	operationRepo := newFakeOperationRepo()
-	controller := newFakeController()
-	controllerFactory := newFakeControllerFactory()
-	controllerFactory.controllers[testAutomationID] = controller
-	// The real policy checker, so that the gpuStackOwner conflict is exercised end to
-	// end rather than being asserted against a stub.
-	operationService := operationapp.NewOperationService(
-		operationRepo, servers, integrations, controllerFactory,
-		clusterapp.NewPolicyChecker(clusterRepo, servers))
-	operationHandler := operationdelivery.NewOperationHandler(operationService)
+	clusterService := clusterapp.NewClusterService(clusterRepo, sites, servers)
+	deployService := clusterapp.NewDeployService(clusterService, clusterRepo, servers, &fakeDeploymentLauncher{})
+	clusterHandler := clusterdelivery.NewClusterHandler(clusterService, membershipSync, deployService)
 
 	app := fiber.New()
 	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
@@ -174,6 +158,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 	clusterGroup := v1.Group("/clusters", admin...)
 	clusterGroup.Post("/", clusterHandler.Create)
 	clusterGroup.Get("/", clusterHandler.List)
+	clusterGroup.Post("/deploy", clusterHandler.Deploy)
+	clusterGroup.Post("/sync", clusterHandler.SyncAllMembership)
 	clusterGroup.Get("/:id", clusterHandler.Get)
 	clusterGroup.Patch("/:id", clusterHandler.Update)
 	clusterGroup.Delete("/:id", clusterHandler.Delete)
@@ -185,20 +171,11 @@ func setupPlatform(t *testing.T) *platformFixture {
 	monitoringGroup.Get("/metrics", monitoringHandler.ServerMetrics)
 	monitoringGroup.Get("/metrics/names", monitoringHandler.MetricNames)
 
-	operationGroup := v1.Group("/operations", admin...)
-	operationGroup.Post("/", operationHandler.Create)
-	operationGroup.Get("/", operationHandler.List)
-	operationGroup.Get("/:id", operationHandler.Get)
-	operationGroup.Get("/:id/logs", operationHandler.Logs)
-	operationGroup.Post("/:id/refresh", operationHandler.Refresh)
-
 	machine := middleware.MachineAuth(jwtSvc, testMachineToken)
 
 	discoveryGroup := v1.Group("/discovery", machine)
 	discoveryGroup.Get("/prometheus", discoveryHandler.PrometheusTargets)
 	discoveryGroup.Get("/ansible", discoveryHandler.AnsibleInventory)
-
-	v1.Post("/webhooks/automation/:integrationId", machine, operationHandler.Webhook)
 
 	return &platformFixture{
 		app:           app,
@@ -209,33 +186,31 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provider:      provider,
 		factory:       factory,
 		health:        health,
-		operationRepo: operationRepo,
-		controller:    controller,
 		monitoring:    monitoringFactory,
 		clusterRepo:   clusterRepo,
 		clusterReader: readerFactory,
 	}
 }
 
-const testAutomationID = "integration-awx"
+const testNonProvisionerIntegrationID = "integration-metrics"
 
-// seedAutomationIntegration registers an AWX controller for the test site, which every
-// operation needs in order to have something to execute with.
-func seedAutomation(t *testing.T, f *platformFixture) {
+// seedNonProvisionerIntegration registers a non-provisioner integration (a metrics
+// integration) so that a test can assert provisioning reconcile refuses one.
+func seedNonProvisionerIntegration(t *testing.T, f *platformFixture) {
 	t.Helper()
 	now := time.Now().UTC()
 	if err := f.integrations.Create(context.Background(), &sitedomain.Integration{
-		ID:           testAutomationID,
+		ID:           testNonProvisionerIntegrationID,
 		SiteID:       testSiteID,
-		Kind:         sitedomain.IntegrationKindAutomation,
-		ProviderKind: "awx",
-		Name:         "awx",
-		Endpoint:     "https://awx.example.com",
+		Kind:         sitedomain.IntegrationKindMetrics,
+		ProviderKind: sitedomain.ProviderKindPrometheus,
+		Name:         "prometheus",
+		Endpoint:     "http://prometheus.example.com",
 		Enabled:      true,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-	}, "awx-token"); err != nil {
-		t.Fatalf("seed automation: %v", err)
+	}, "prometheus-token"); err != nil {
+		t.Fatalf("seed non-provisioner integration: %v", err)
 	}
 }
 

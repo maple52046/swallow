@@ -43,16 +43,17 @@ func NewExecutionService(
 
 // ExecutionOperationItem is the public operation representation.
 type ExecutionOperationItem struct {
-	ID              string        `json:"id"`
-	Kind            string        `json:"kind"`
-	Intent          string        `json:"intent"`
-	SiteID          string        `json:"siteId"`
-	ClusterID       *string       `json:"clusterId"`
-	TargetServerIDs []string      `json:"targetServerIds"`
-	Execution       ExecutionItem `json:"execution"`
-	RequestedBy     string        `json:"requestedBy"`
-	RequestedAt     string        `json:"requestedAt"`
-	UpdatedAt       string        `json:"updatedAt"`
+	ID                 string        `json:"id"`
+	Kind               string        `json:"kind"`
+	Intent             string        `json:"intent"`
+	SiteID             string        `json:"siteId"`
+	ClusterID          *string       `json:"clusterId"`
+	TargetServerIDs    []string      `json:"targetServerIds"`
+	RetryOfOperationID *string       `json:"retryOfOperationId"`
+	Execution          ExecutionItem `json:"execution"`
+	RequestedBy        string        `json:"requestedBy"`
+	RequestedAt        string        `json:"requestedAt"`
+	UpdatedAt          string        `json:"updatedAt"`
 }
 
 // ExecutionItem contains no controller-specific fields.
@@ -73,7 +74,15 @@ type CreateExecutionInput struct {
 	ClusterID       string
 	PlaybookName    string
 	ExtraVars       map[string]any
-	RequestedBy     string
+	// TrustedVars are extra vars the caller is a trusted server-side use case, so they
+	// bypass the swallow_ prefix filter that operator-supplied ExtraVars are subject to.
+	// A cluster deployment uses this to assign node roles the client cannot forge.
+	TrustedVars map[string]any
+	// SecretVars are sealed at rest and materialised only for the run, for values such as
+	// a VRRP password that must not persist in plain text.
+	SecretVars         map[string]any
+	RetryOfOperationID string
+	RequestedBy        string
 }
 
 // Create validates intent and persists pending state before dispatch.
@@ -137,13 +146,15 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	operation := &operationdomain.ExecutionOperation{
 		ID: uuid.NewString(), Kind: kind, Intent: strings.TrimSpace(input.Intent),
 		SiteID: siteID, ClusterID: input.ClusterID,
-		TargetServerIDs: append([]string(nil), input.TargetServerIDs...),
-		RequestedBy:     input.RequestedBy, RequestedAt: now, UpdatedAt: now,
+		TargetServerIDs:    append([]string(nil), input.TargetServerIDs...),
+		SecretVars:         input.SecretVars,
+		RetryOfOperationID: input.RetryOfOperationID,
+		RequestedBy:        input.RequestedBy, RequestedAt: now, UpdatedAt: now,
 	}
 	operation.Execution = operationdomain.Execution{
 		RunID: uuid.NewString(), Playbook: playbook, Status: operationdomain.StatusPending,
 	}
-	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars)
+	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars)
 	if err := s.operations.Create(ctx, operation); err != nil {
 		return nil, err
 	}
@@ -175,7 +186,24 @@ func (s *ExecutionService) resolveTargets(ctx context.Context, kind operationdom
 	return targets, siteID, nil
 }
 
-func buildExecutionExtraVars(operation *operationdomain.ExecutionOperation, targets []*serverdomain.Server, operator map[string]any) map[string]any {
+// standardExtraVarKeys are the swallow_-prefixed vars Create regenerates for every
+// operation. They are listed so a retry can strip them from a carried-over var set and
+// have them rebuilt for the new operation, while keeping trusted swallow_-prefixed vars
+// such as a deployment's role assignment.
+var standardExtraVarKeys = map[string]bool{
+	"swallow_operation_id":     true,
+	"swallow_operation_kind":   true,
+	"swallow_site_id":          true,
+	"swallow_server_ids":       true,
+	"swallow_cluster_id":       true,
+	"swallow_server_hostnames": true,
+}
+
+// buildExecutionExtraVars assembles a run's extra vars from three sources: the standard
+// swallow_ identifiers, operator-supplied vars (which may not use the swallow_ prefix, so
+// a client cannot forge a trusted variable), and trusted server-side vars (which may, and
+// are used for things like node-role assignment the client must not control).
+func buildExecutionExtraVars(operation *operationdomain.ExecutionOperation, targets []*serverdomain.Server, operator, trusted map[string]any) map[string]any {
 	vars := map[string]any{
 		"swallow_operation_id":   operation.ID,
 		"swallow_operation_kind": string(operation.Kind),
@@ -194,6 +222,14 @@ func buildExecutionExtraVars(operation *operationdomain.ExecutionOperation, targ
 		if !strings.HasPrefix(key, "swallow_") {
 			vars[key] = value
 		}
+	}
+	// Trusted vars are applied last and unfiltered; the standard identifiers above still
+	// win, so a caller cannot override the operation's own identity.
+	for key, value := range trusted {
+		if standardExtraVarKeys[key] {
+			continue
+		}
+		vars[key] = value
 	}
 	return vars
 }
@@ -235,11 +271,111 @@ func (s *ExecutionService) Logs(ctx context.Context, id string) (string, error) 
 	return s.runner.Logs(ctx, operation.Execution.RunID)
 }
 
+// Retry creates a new operation repeating a finished one, linked back to it.
+//
+// The original is left untouched, so its logs and events remain. The new operation copies
+// the kind, targets, cluster, playbook, and both the carried extra vars and sealed secret
+// vars, so a cluster deployment retry keeps the same VRRP password and role assignment
+// that the already-installed nodes were built with.
+func (s *ExecutionService) Retry(ctx context.Context, id, requestedBy string) (*ExecutionOperationItem, error) {
+	original, err := s.operations.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !original.Execution.Status.Terminal() {
+		return nil, fmt.Errorf("%w: only a finished operation can be retried", ErrInvalidOperation)
+	}
+
+	secretVars, err := s.operations.SecretVars(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Carry over every var except the standard identifiers, which Create regenerates for
+	// the new operation. Passed as trusted so a trusted swallow_-prefixed var survives.
+	carried := make(map[string]any, len(original.ExtraVars))
+	for key, value := range original.ExtraVars {
+		if standardExtraVarKeys[key] {
+			continue
+		}
+		carried[key] = value
+	}
+
+	return s.Create(ctx, CreateExecutionInput{
+		Kind:               string(original.Kind),
+		Intent:             original.Intent,
+		TargetServerIDs:    original.TargetServerIDs,
+		ClusterID:          original.ClusterID,
+		PlaybookName:       original.Execution.Playbook,
+		TrustedVars:        carried,
+		SecretVars:         secretVars,
+		RetryOfOperationID: original.ID,
+		RequestedBy:        requestedBy,
+	})
+}
+
+// OperationEventsItem is the task-level progress of a run.
+type OperationEventsItem struct {
+	RunID        string          `json:"runId"`
+	Status       string          `json:"status"`
+	OKCount      int             `json:"okCount"`
+	ChangedCount int             `json:"changedCount"`
+	FailedCount  int             `json:"failedCount"`
+	Events       []TaskEventItem `json:"events"`
+}
+
+// TaskEventItem is one task result on one host.
+type TaskEventItem struct {
+	Play      string  `json:"play"`
+	Task      string  `json:"task"`
+	Host      string  `json:"host"`
+	Status    string  `json:"status"`
+	Changed   bool    `json:"changed"`
+	StartedAt *string `json:"startedAt"`
+	EndedAt   *string `json:"endedAt"`
+}
+
+// Events returns a run's task-level progress, derived from the runner's retained events.
+func (s *ExecutionService) Events(ctx context.Context, id string) (*OperationEventsItem, error) {
+	operation, err := s.operations.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	events, err := s.runner.Events(ctx, operation.Execution.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	item := &OperationEventsItem{
+		RunID:  operation.Execution.RunID,
+		Status: string(operation.Execution.Status),
+		Events: make([]TaskEventItem, 0, len(events)),
+	}
+	for _, event := range events {
+		switch event.Status {
+		case "ok":
+			item.OKCount++
+		case "failed", "unreachable":
+			item.FailedCount++
+		}
+		if event.Changed {
+			item.ChangedCount++
+		}
+		item.Events = append(item.Events, TaskEventItem{
+			Play: event.Play, Task: event.Task, Host: event.Host,
+			Status: event.Status, Changed: event.Changed,
+			StartedAt: optionalTime(event.StartedAt), EndedAt: optionalTime(event.EndedAt),
+		})
+	}
+	return item, nil
+}
+
 func toExecutionOperationItem(operation *operationdomain.ExecutionOperation) ExecutionOperationItem {
 	return ExecutionOperationItem{
 		ID: operation.ID, Kind: string(operation.Kind), Intent: operation.Intent,
 		SiteID: operation.SiteID, ClusterID: wire.String(operation.ClusterID),
-		TargetServerIDs: wire.Strings(operation.TargetServerIDs),
+		TargetServerIDs:    wire.Strings(operation.TargetServerIDs),
+		RetryOfOperationID: wire.String(operation.RetryOfOperationID),
 		Execution: ExecutionItem{
 			RunID: operation.Execution.RunID, Playbook: operation.Execution.Playbook,
 			Status: string(operation.Execution.Status), StatusReason: wire.String(operation.Execution.StatusReason),

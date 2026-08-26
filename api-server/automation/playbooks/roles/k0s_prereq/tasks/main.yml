@@ -1,0 +1,18 @@
+---
+# kube-proxy needs conntrack. The pod/service CIDR conflict the knowledge base warns about
+# is already refused by swallow before this playbook runs, so it is not re-checked here.
+
+- name: Install conntrack on Debian or Ubuntu
+  ansible.builtin.apt:
+    name: conntrack
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install conntrack on RHEL-family hosts
+  ansible.builtin.dnf:
+    name: conntrack-tools
+    state: present
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'

@@ -16,6 +16,15 @@ type InventorySource interface {
 	Inventory(ctx context.Context, siteID string) (map[string]any, error)
 }
 
+// CompletionObserver is notified when an operation finishes successfully, with whatever
+// the run captured. It lets another context react to an operation whose intent it owns —
+// recording the credential a cluster deployment produced, for instance — without the
+// operation context depending on that context. A failure to react is the observer's to
+// log; it does not change the operation's own outcome, which the run already decided.
+type CompletionObserver interface {
+	OperationSucceeded(ctx context.Context, operation *operationdomain.ExecutionOperation, result operationdomain.RunnerResult)
+}
+
 // Dispatcher claims pending operations and executes different sites concurrently.
 type Dispatcher struct {
 	operations     operationdomain.ExecutionRepository
@@ -24,12 +33,14 @@ type Dispatcher struct {
 	catalog        operationdomain.PlaybookCatalog
 	runner         operationdomain.Runner
 	inventory      InventorySource
+	observer       CompletionObserver
 	interval       time.Duration
 	leaseDuration  time.Duration
 	owner          string
 }
 
-// NewDispatcher constructs an embedded dispatcher instance.
+// NewDispatcher constructs an embedded dispatcher instance. observer may be nil when no
+// context needs to react to successful operations.
 func NewDispatcher(
 	operations operationdomain.ExecutionRepository,
 	leases operationdomain.SiteLeaseRepository,
@@ -37,11 +48,12 @@ func NewDispatcher(
 	catalog operationdomain.PlaybookCatalog,
 	runner operationdomain.Runner,
 	inventory InventorySource,
+	observer CompletionObserver,
 	interval, leaseDuration time.Duration,
 ) *Dispatcher {
 	return &Dispatcher{
 		operations: operations, leases: leases, configurations: configurations,
-		catalog: catalog, runner: runner, inventory: inventory,
+		catalog: catalog, runner: runner, inventory: inventory, observer: observer,
 		interval: interval, leaseDuration: leaseDuration, owner: uuid.NewString(),
 	}
 }
@@ -136,30 +148,41 @@ func (d *Dispatcher) execute(ctx context.Context, operation *operationdomain.Exe
 		d.finish(operation, owner, operationdomain.StatusFailed, err)
 		return
 	}
+	secretVars, err := d.operations.SecretVars(ctx, operation.ID)
+	if err != nil {
+		d.finish(operation, owner, operationdomain.StatusFailed, err)
+		return
+	}
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	result := make(chan error, 1)
+	type runOutcome struct {
+		result operationdomain.RunnerResult
+		err    error
+	}
+	done := make(chan runOutcome, 1)
 	go func() {
-		result <- d.runner.Run(runCtx, operationdomain.RunnerInput{
+		result, runErr := d.runner.Run(runCtx, operationdomain.RunnerInput{
 			Operation: operation, Configuration: configuration, Credential: credential,
-			Inventory: inventory, PlaybookPath: playbookPath,
+			Inventory: inventory, PlaybookPath: playbookPath, SecretVars: secretVars,
 		})
+		done <- runOutcome{result: result, err: runErr}
 	}()
 
 	heartbeat := time.NewTicker(d.leaseDuration / 3)
 	defer heartbeat.Stop()
 	for {
 		select {
-		case runErr := <-result:
-			if runErr != nil {
+		case outcome := <-done:
+			if outcome.err != nil {
 				status := operationdomain.StatusFailed
 				if runCtx.Err() != nil {
 					status = operationdomain.StatusIndeterminate
 				}
-				d.finish(operation, owner, status, runErr)
+				d.finish(operation, owner, status, outcome.err)
 			} else {
 				d.finish(operation, owner, operationdomain.StatusSucceeded, nil)
+				d.notifySuccess(operation, outcome.result)
 			}
 			return
 		case <-heartbeat.C:
@@ -183,6 +206,18 @@ func (d *Dispatcher) execute(ctx context.Context, operation *operationdomain.Exe
 			return
 		}
 	}
+}
+
+// notifySuccess lets an observer react to a successful operation. Its failure is logged
+// and does not change the operation's outcome: the run already succeeded, and a follow-on
+// such as recording a cluster credential can be recovered by retrying the operation.
+func (d *Dispatcher) notifySuccess(operation *operationdomain.ExecutionOperation, result operationdomain.RunnerResult) {
+	if d.observer == nil {
+		return
+	}
+	// A fresh context: the dispatcher's ctx may already be cancelled at shutdown, but the
+	// operation succeeded and its side effects should still be recorded.
+	d.observer.OperationSucceeded(context.Background(), operation, result)
 }
 
 func (d *Dispatcher) finish(operation *operationdomain.ExecutionOperation, owner string, status operationdomain.Status, runErr error) {

@@ -2,18 +2,21 @@ package delivery
 
 import (
 	"errors"
+	"log"
 
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/shared/pagination"
 	"github.com/maple52046/swallow/internal/shared/wire"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
-// ExecutionHandler serves the controller-independent operation API.
+// ExecutionHandler serves the embedded-execution operation API.
 type ExecutionHandler struct {
 	operations *application.ExecutionService
 	automation *application.AutomationConfigurationService
@@ -84,6 +87,28 @@ func (h *ExecutionHandler) Logs(c *fiber.Ctx) error {
 	}
 	c.Set(fiber.HeaderContentType, fiber.MIMETextPlainCharsetUTF8)
 	return c.SendString(logs)
+}
+
+// Events returns a run's task-level progress.
+func (h *ExecutionHandler) Events(c *fiber.Ctx) error {
+	events, err := h.operations.Events(c.Context(), c.Params("id"))
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.JSON(events)
+}
+
+// Retry creates a new operation repeating a finished one.
+func (h *ExecutionHandler) Retry(c *fiber.Ctx) error {
+	requestedBy := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		requestedBy = claims.Username
+	}
+	item, err := h.operations.Retry(c.Context(), c.Params("id"), requestedBy)
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(item)
 }
 
 type automationRequest struct {
@@ -176,6 +201,15 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, operationdomain.ErrAutomationDisabled),
 		errors.Is(err, operationdomain.ErrAutomationCredentialMissing):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
+	case errors.Is(err, serverdomain.ErrServerNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "A target server was not found."))
+	case errors.Is(err, sitedomain.ErrCredentialNotSet):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
+			"The site automation credential is not configured."))
+	case errors.Is(err, sitedomain.ErrIntegrationNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Integration not found."))
 	}
-	return respondError(c, err)
+
+	log.Printf("operation: unhandled error: %v", err)
+	return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
 }

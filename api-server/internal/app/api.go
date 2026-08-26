@@ -167,16 +167,13 @@ func RunAPI(cfg config.APIConfig) error {
 	}
 	membershipSync := clusterapp.NewMembershipSyncUseCase(
 		clusterRepo, serverRepo, clusterinfra.NewReaderFactory(integrationRepo))
-	clusterHandler := clusterdelivery.NewClusterHandler(
-		clusterapp.NewClusterService(clusterRepo, siteRepo, serverRepo),
-		membershipSync,
-	)
+	clusterService := clusterapp.NewClusterService(clusterRepo, siteRepo, serverRepo)
 
 	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
 		return fmt.Errorf("playbook catalog: %w", err)
 	}
-	operationRepo, err := operationinfra.NewMongoExecutionRepo(db)
+	operationRepo, err := operationinfra.NewMongoExecutionRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("operation repo init: %w", err)
 	}
@@ -192,11 +189,22 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService)
 
+	// Cluster deployment: the deploy use case validates topology and hands off to the
+	// operation service through the launcher adapter; the observer records the credential a
+	// successful deployment produced. Both adapters keep the two contexts decoupled.
+	deployService := clusterapp.NewDeployService(
+		clusterService, clusterRepo, serverRepo,
+		clusterDeploymentLauncher{operations: operationService},
+	)
+	clusterHandler := clusterdelivery.NewClusterHandler(clusterService, membershipSync, deployService)
+	deploymentCredentials := clusterapp.NewDeploymentCredentialService(clusterRepo, integrationRepo, membershipSync)
+
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase)
 	dispatcher := operationapp.NewDispatcher(
 		operationRepo, operationinfra.NewMongoSiteLeaseRepo(db), automationRepo,
 		catalog, runner, executionInventoryAdapter{discovery: discoveryUseCase},
+		clusterDeploymentObserver{credentials: deploymentCredentials},
 		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration,
 	)
 
@@ -380,11 +388,12 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	clusters := v1.Group("/clusters", admin...)
 	clusters.Post("/", deps.clusters.Create)
 	clusters.Get("/", deps.clusters.List)
+	clusters.Post("/deploy", deps.clusters.Deploy)
+	clusters.Post("/sync", deps.clusters.SyncAllMembership)
 	clusters.Get("/:id", deps.clusters.Get)
 	clusters.Patch("/:id", deps.clusters.Update)
 	clusters.Delete("/:id", deps.clusters.Delete)
 	clusters.Post("/:id/sync", deps.clusters.SyncMembership)
-	clusters.Post("/sync", deps.clusters.SyncAllMembership)
 
 	// Alerts and metrics are read straight from the monitoring stack: swallow stores
 	// neither, and acknowledging an alert creates a silence in Alertmanager.
@@ -399,6 +408,8 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	operations.Get("/", deps.operations.List)
 	operations.Get("/:id", deps.operations.Get)
 	operations.Get("/:id/logs", deps.operations.Logs)
+	operations.Get("/:id/events", deps.operations.Events)
+	operations.Post("/:id/retry", deps.operations.Retry)
 
 	// Machine-to-machine discovery remains pull-based for Prometheus and external
 	// Ansible diagnostics. The embedded runner calls the same use case directly.

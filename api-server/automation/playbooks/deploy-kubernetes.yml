@@ -1,0 +1,68 @@
+---
+# Deploy a highly available k0s cluster onto already-provisioned servers.
+#
+# Inventory hosts are keyed by serverId; swallow assigns roles through trusted extra vars
+# (swallow_k0s_roles, swallow_k0s_initial_controller_id), which a client cannot forge. The
+# play order follows the verified pure-Ansible path: classify, prepare, bootstrap the first
+# controller, join the rest one at a time, join workers, then mint swallow's read credential
+# and verify. Idempotency is keyed on whether the k0s systemd unit already exists, so a
+# retry or a scale-out is the same play with the same or a larger target set.
+
+- name: Classify k0s nodes by assigned role
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Resolve this host's role
+      ansible.builtin.set_fact:
+        k0s_role: "{{ swallow_k0s_roles[inventory_hostname] }}"
+        k0s_is_initial: "{{ inventory_hostname == swallow_k0s_initial_controller_id }}"
+
+    - name: Fail on an unassigned host
+      ansible.builtin.fail:
+        msg: "server {{ inventory_hostname }} has no role assignment"
+      when: k0s_role is not defined or k0s_role | length == 0
+
+    - name: Group by k0s membership
+      ansible.builtin.group_by:
+        key: >-
+          {{ 'k0s_initial_controller' if k0s_is_initial
+             else ('k0s_controller' if k0s_role == 'control-plane' else 'k0s_worker') }}
+
+- name: Prepare every node
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Remember this node's kubernetes name
+      # k0s names a node by its hostname, which is the key used in etcd member-list and in
+      # the node list, not the serverId that keys the inventory.
+      ansible.builtin.set_fact:
+        k0s_node_name: "{{ ansible_hostname }}"
+  roles:
+    - role: k0s_prereq
+    - role: k0s_binary
+
+- name: Bootstrap the initial controller
+  hosts: k0s_initial_controller
+  gather_facts: false
+  roles:
+    - role: k0s_controller_bootstrap
+
+- name: Join the remaining controllers one at a time
+  hosts: k0s_controller
+  gather_facts: false
+  serial: 1
+  roles:
+    - role: k0s_controller_join
+
+- name: Join the workers
+  hosts: k0s_worker
+  gather_facts: false
+  roles:
+    - role: k0s_worker_join
+
+- name: Record swallow's read credential and verify the cluster
+  hosts: k0s_initial_controller
+  gather_facts: false
+  roles:
+    - role: k0s_cluster_credential
+    - role: k0s_verify

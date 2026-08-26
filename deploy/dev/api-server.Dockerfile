@@ -35,10 +35,13 @@ ENV PATH="/opt/ansible/bin:${PATH}"
 
 # Run as the host developer's UID/GID so that anything written into the
 # bind-mounted source tree or the cache volumes stays owned by them, not root.
+# The job artifact directory is created here so the named volume mounted over it
+# inherits the developer's ownership on first init; otherwise the embedded runner
+# cannot write run artifacts as the non-root user.
 RUN groupadd -g "${GID}" dev \
  && useradd -u "${UID}" -g "${GID}" -m -s /bin/bash dev \
- && mkdir -p "${GOCACHE}" "${GOMODCACHE}" /tmp/air \
- && chown -R "${UID}:${GID}" /go /tmp/air
+ && mkdir -p "${GOCACHE}" "${GOMODCACHE}" /tmp/air /var/lib/swallow/jobs \
+ && chown -R "${UID}:${GID}" /go /tmp/air /var/lib/swallow/jobs
 
 USER dev
 WORKDIR /app

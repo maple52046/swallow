@@ -4,6 +4,10 @@
     {
       "name": "diagnostic-ping",
       "path": "diagnostic-ping.yml"
+    },
+    {
+      "name": "deploy-kubernetes",
+      "path": "deploy-kubernetes.yml"
     }
   ]
 }

@@ -1,14 +1,19 @@
 import { Flex } from '@radix-ui/themes'
-import { DashboardIcon, DesktopIcon } from '@radix-ui/react-icons'
+import {
+  DashboardIcon,
+  DesktopIcon,
+  GearIcon,
+  LayersIcon,
+} from '@radix-ui/react-icons'
 import type { ReactNode } from 'react'
 import { NavLink } from '@/presentation/components/radix/NavLink'
 
 /**
  * Only screens backed by a real endpoint appear here.
  *
- * Clusters, operations, alerts, and metrics all exist in the API but have no screen
- * yet. They are deliberately absent rather than present with mock data: a screen that
- * looks like it works is worse than one that is missing.
+ * Alerts and metrics exist in the API but have no screen yet, and are deliberately absent
+ * rather than present with mock data: a screen that looks like it works is worse than one
+ * that is missing. Clusters and operations now have real screens.
  */
 interface NavItem {
   label: string
@@ -21,6 +26,8 @@ interface NavItem {
 const NAV: NavItem[] = [
   { label: 'Overview', to: '/', icon: <DashboardIcon />, end: true },
   { label: 'Servers', to: '/servers', icon: <DesktopIcon /> },
+  { label: 'Clusters', to: '/clusters', icon: <LayersIcon /> },
+  { label: 'Operations', to: '/operations', icon: <GearIcon /> },
 ]
 
 interface SideNavProps {

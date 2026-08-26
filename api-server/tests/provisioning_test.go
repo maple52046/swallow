@@ -298,10 +298,10 @@ func TestReconcileEndpoint_ReturnsReportWithConflicts(t *testing.T) {
 
 func TestReconcileEndpoint_RejectsNonProvisioner(t *testing.T) {
 	f := setupPlatform(t)
-	seedAutomation(t, f)
+	seedNonProvisionerIntegration(t, f)
 
 	resp := doRequest(t, f.app,
-		"POST", "/api/v1/provisioning/integrations/"+testAutomationID+"/reconcile", nil, f.adminAuth(t))
+		"POST", "/api/v1/provisioning/integrations/"+testNonProvisionerIntegrationID+"/reconcile", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}

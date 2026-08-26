@@ -1,0 +1,5 @@
+---
+# The ClusterRole bound to swallow's read ServiceAccount. cluster-admin matches the access
+# level chosen for deployed clusters; narrowing it to a read-only role is a one-line change
+# here and needs no code change.
+swallow_k0s_reader_clusterrole: cluster-admin

@@ -11,5 +11,5 @@ operation dispatcher ──> ansible-runner ──> managed hosts
 ```
 
 Ansible is an execution mechanism, not a bounded context or network service. MAAS and
-Prometheus remain external site integrations. No component may call AWX or expose an AWX
-webhook.
+Prometheus remain external site integrations. Execution is embedded: no component may
+delegate it to an external automation controller or expose a controller webhook.

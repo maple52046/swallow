@@ -99,14 +99,16 @@ cluster is right, and the disagreement is worth surfacing.
   The pair is re-linked, not duplicated, if the machine is re-enrolled.
 - A server may be a member of a cluster. That is a fact read from the cluster.
 - A server may be allocated to a tenant. That is swallow-owned policy.
-- A server may be the target of an [Operation](../decisions/004-automation-via-awx.md).
+- A server may be the target of an [Operation](operation.md).
 
 ## Out of Scope
 
 - **Hardware history.** The provisioner keeps commissioning history in more detail than
   swallow could.
-- **BMC and SSH credentials.** Host access credentials belong to the provisioner and to
-  AWX, which need them to do their jobs. swallow never holds them.
+- **BMC and SSH credentials.** The server projection never carries host-access
+  credentials. BMC credentials belong to the provisioner. The SSH credential the embedded
+  Ansible runner uses is site-scoped automation configuration, stored encrypted and
+  write-only, not a field on any server.
 - **Physical placement hierarchy.** swallow models `Site` and carries the provisioner's zone
   and pool labels. A swallow-owned datacenter, room, and rack hierarchy is deferred: it is
   not needed by any current feature, and inventing it now would mean maintaining

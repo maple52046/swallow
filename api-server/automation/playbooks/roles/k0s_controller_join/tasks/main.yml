@@ -1,0 +1,65 @@
+---
+# Join an additional controller using a controller token minted on the initial controller.
+# The token file is written into the systemd ExecStart and is read on every start until the
+# node has joined, so it is removed only after this controller appears in etcd — removing it
+# earlier would put the service into a crash loop.
+
+- name: Check for an existing controller service
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k0scontroller.service
+  register: k0s_controller_unit
+
+- name: Write the shared k0s config
+  ansible.builtin.include_role:
+    name: k0s_config
+
+- name: Generate a controller join token on the initial controller
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s token create --role=controller --expiry=1h
+  become: true
+  delegate_to: "{{ swallow_k0s_initial_controller_id }}"
+  register: k0s_controller_token
+  no_log: true
+  changed_when: false
+  when: not k0s_controller_unit.stat.exists
+
+- name: Write the join token
+  ansible.builtin.copy:
+    content: "{{ k0s_controller_token.stdout }}"
+    dest: /etc/k0s/join-token
+    mode: "0600"
+  become: true
+  no_log: true
+  when: not k0s_controller_unit.stat.exists
+
+- name: Install this controller with the join token
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s install controller -c /etc/k0s/k0s.yaml --token-file /etc/k0s/join-token
+  become: true
+  when: not k0s_controller_unit.stat.exists
+  changed_when: true
+
+- name: Start k0s
+  ansible.builtin.systemd:
+    name: k0scontroller
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Wait until this controller is in the etcd member list
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s etcd member-list
+  become: true
+  delegate_to: "{{ swallow_k0s_initial_controller_id }}"
+  register: k0s_etcd_members
+  until: k0s_etcd_members.rc == 0 and k0s_node_name in k0s_etcd_members.stdout
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Remove the join token now that the controller has joined
+  ansible.builtin.file:
+    path: /etc/k0s/join-token
+    state: absent
+  become: true

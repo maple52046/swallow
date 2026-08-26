@@ -177,7 +177,7 @@ capability, so the integrate-or-own test lands on "integrate, do not rebuild":
 **swallow owns orchestration and drives servers itself.** This is the most capable design and
 gives the most consistent experience, and it is what the original agent plus a bidirectional
 gRPC stream was drifting towards. Rejected because it means owning idempotency, retry,
-concurrency limits, rollback, and log durability — that is Ansible's and AWX's entire
+concurrency limits, rollback, and log durability — that is Ansible's entire
 problem domain, solved, and reimplementing it is the largest possible detour from what
 swallow is for. The gRPC control channel was structurally already in place, which made this
 tempting and is worth recording as the closest call in this document.
@@ -211,6 +211,5 @@ new to deploy.
 
 - [002 — Server Identity](002-server-identity.md)
 - [003 — Metrics Label Contract](003-metrics-label-contract.md)
-- [004 — Automation via AWX](004-automation-via-awx.md) (superseded)
 - [006 — Embedded Ansible execution](006-embedded-ansible-execution.md)
 - [`docs/glossaries/provisioning.md`](../glossaries/provisioning.md)

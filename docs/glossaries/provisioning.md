@@ -85,10 +85,11 @@ An operating system a provider can currently deploy.
 - `osSystem`, `release`, `architecture`
 
 An OS image carries **no packages and no scripts**. Post-install configuration is an
-[Operation](../decisions/004-automation-via-awx.md) executed by AWX from a playbook in
-git. The earlier `ProvisioningProfile` concept — an image plus packages plus scripts,
-stored in swallow — is retired: it made swallow an owner of automation content, which
-[decision 001](../decisions/001-system-ownership-boundaries.md) forbids.
+[Operation](operation.md) that swallow executes with its embedded Ansible runner from a
+playbook in the release bundle. The earlier `ProvisioningProfile` concept — an image plus
+packages plus scripts, stored in swallow — is retired: it made swallow an owner of
+automation content, which [decision 001](../decisions/001-system-ownership-boundaries.md)
+forbids.
 
 ## Deployment
 
@@ -104,8 +105,8 @@ the OS is installed. Progress is observed by the reconciler updating the server'
 
 There is no swallow-side job record for a deployment: the provider owns the work, and the
 axis is the progress signal. Long-running work that swallow *does* track is an
-[Operation](../decisions/004-automation-via-awx.md), which is a different thing — an
-operation is swallow's intent executed by AWX, whereas a deployment is entirely the
+[Operation](operation.md), which is a different thing — an operation is swallow's intent
+executed by its own embedded Ansible runner, whereas a deployment is entirely the
 provider's.
 
 A machine generally must be `ready` to be deployed, and a `deployed` machine must be
@@ -138,8 +139,8 @@ becomes apparent when something is lost.
 It also changes what an operation means. Anything an operation configures on an ephemeral
 machine — a driver, a package, a tuned kernel parameter — reports success and then
 silently un-happens at the next boot. swallow records the ephemerality but does not yet
-refuse or warn about operations targeting such a machine; see
-[decision 004](../decisions/004-automation-via-awx.md).
+refuse or warn about operations targeting such a machine; see the
+[Operation](operation.md) glossary.
 
 Only options meaningful to any provisioner belong on a deploy request. A provisioner's
 own switches stay out: mirroring one product's parameter list into a provider-neutral

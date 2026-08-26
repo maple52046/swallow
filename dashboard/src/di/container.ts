@@ -1,7 +1,11 @@
 import { ApiServerRepository } from '@/infrastructure/api/ApiServerRepository'
 import { ApiSiteRepository } from '@/infrastructure/api/ApiSiteRepository'
+import { ApiClusterRepository } from '@/infrastructure/api/ApiClusterRepository'
+import { ApiOperationRepository } from '@/infrastructure/api/ApiOperationRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { SiteRepository } from '@/application/ports/SiteRepository'
+import type { ClusterRepository } from '@/application/ports/ClusterRepository'
+import type { OperationRepository } from '@/application/ports/OperationRepository'
 
 /**
  * Repositories are exposed directly rather than behind pass-through use cases.
@@ -17,11 +21,15 @@ import type { SiteRepository } from '@/application/ports/SiteRepository'
 export interface AppContainer {
   servers: ServerRepository
   sites: SiteRepository
+  clusters: ClusterRepository
+  operations: OperationRepository
 }
 
 export function createContainer(): AppContainer {
   return {
     servers: new ApiServerRepository(),
     sites: new ApiSiteRepository(),
+    clusters: new ApiClusterRepository(),
+    operations: new ApiOperationRepository(),
   }
 }

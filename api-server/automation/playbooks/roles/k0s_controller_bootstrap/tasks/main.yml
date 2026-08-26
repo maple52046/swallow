@@ -1,0 +1,40 @@
+---
+# Bootstrap the first controller. Dedicated controller: no --enable-worker and no
+# --no-taints, so it never registers as a Kubernetes node. Guarded by the systemd unit so a
+# rerun does not reinstall.
+
+- name: Check for an existing controller service
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k0scontroller.service
+  register: k0s_controller_unit
+
+- name: Write the shared k0s config
+  ansible.builtin.include_role:
+    name: k0s_config
+
+- name: Install the initial controller
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s install controller -c /etc/k0s/k0s.yaml
+  become: true
+  when: not k0s_controller_unit.stat.exists
+  changed_when: true
+
+- name: Start k0s
+  ansible.builtin.systemd:
+    name: k0scontroller
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Wait for the control plane to become ready
+  # k0s kubectl get --raw /readyz returns "ok"; using it avoids the jsonpath-quote trap
+  # that would make a condition check silently never match.
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s kubectl get --raw /readyz
+  become: true
+  register: k0s_readyz
+  until: k0s_readyz.rc == 0 and 'ok' in k0s_readyz.stdout
+  retries: 30
+  delay: 10
+  changed_when: false

@@ -8,20 +8,24 @@ import (
 
 	"github.com/maple52046/swallow/internal/cluster/application"
 	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/middleware"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 type ClusterHandler struct {
 	clusters   *application.ClusterService
 	membership *application.MembershipSyncUseCase
+	deploy     *application.DeployService
 }
 
 func NewClusterHandler(
 	clusters *application.ClusterService,
 	membership *application.MembershipSyncUseCase,
+	deploy *application.DeployService,
 ) *ClusterHandler {
-	return &ClusterHandler{clusters: clusters, membership: membership}
+	return &ClusterHandler{clusters: clusters, membership: membership, deploy: deploy}
 }
 
 type createClusterRequest struct {
@@ -52,6 +56,66 @@ func (h *ClusterHandler) Create(c *fiber.Ctx) error {
 		return respondError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(item)
+}
+
+type roleAssignmentRequest struct {
+	ServerID string `json:"serverId"`
+	Role     string `json:"role"`
+}
+
+type deployClusterRequest struct {
+	SiteID          string                  `json:"siteId"`
+	Name            string                  `json:"name"`
+	GPUStackOwner   string                  `json:"gpuStackOwner"`
+	K0sVersion      string                  `json:"k0sVersion"`
+	PodCIDR         string                  `json:"podCidr"`
+	ServiceCIDR     string                  `json:"serviceCidr"`
+	APIVIP          string                  `json:"apiVip"`
+	APIVIPPrefix    int                     `json:"apiVipPrefix"`
+	RoleAssignments []roleAssignmentRequest `json:"roleAssignments"`
+}
+
+// Deploy creates a cluster and starts the operation that builds it with k0s.
+func (h *ClusterHandler) Deploy(c *fiber.Ctx) error {
+	var req deployClusterRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if req.SiteID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
+	}
+
+	assignments := make([]clusterdomain.RoleAssignment, len(req.RoleAssignments))
+	for i, assignment := range req.RoleAssignments {
+		assignments[i] = clusterdomain.RoleAssignment{
+			ServerID: assignment.ServerID,
+			Role:     clusterdomain.NodeRole(assignment.Role),
+		}
+	}
+
+	requestedBy := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		requestedBy = claims.Username
+	}
+
+	result, err := h.deploy.Deploy(c.Context(), application.DeployClusterInput{
+		SiteID:        req.SiteID,
+		Name:          req.Name,
+		GPUStackOwner: req.GPUStackOwner,
+		Spec: clusterdomain.DeploymentSpec{
+			K0sVersion:      req.K0sVersion,
+			PodCIDR:         req.PodCIDR,
+			ServiceCIDR:     req.ServiceCIDR,
+			APIVIP:          req.APIVIP,
+			APIVIPPrefix:    req.APIVIPPrefix,
+			RoleAssignments: assignments,
+		},
+		RequestedBy: requestedBy,
+	})
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(result)
 }
 
 func (h *ClusterHandler) List(c *fiber.Ctx) error {
@@ -135,6 +199,8 @@ func respondError(c *fiber.Ctx, err error) error {
 			"A cluster with this name already exists at this site."))
 
 	case errors.Is(err, application.ErrInvalidCluster),
+		errors.Is(err, clusterdomain.ErrInvalidDeployment),
+		errors.Is(err, serverdomain.ErrServerNotFound),
 		errors.Is(err, clusterdomain.ErrUnsupportedClusterType):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 

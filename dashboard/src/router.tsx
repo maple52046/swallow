@@ -12,14 +12,19 @@ import {
   ServerStorageTab,
   ServerPciTab,
 } from './presentation/pages/servers/ServerDetailTableTab'
+import { ClustersPage } from './presentation/pages/clusters/ClustersPage'
+import { ClusterDetailPage } from './presentation/pages/clusters/ClusterDetailPage'
+import { DeployClusterPage } from './presentation/pages/clusters/DeployClusterPage'
+import { OperationsPage } from './presentation/pages/operations/OperationsPage'
+import { OperationDetailPage } from './presentation/pages/operations/OperationDetailPage'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 
 /**
  * Every route here is backed by a real endpoint.
  *
- * The API also has clusters, operations, alerts, and metrics, which have no screen
- * yet. They are absent rather than mocked, because a screen that appears to work is
- * worse than one that is missing.
+ * Alerts and metrics still have no screen: they are absent rather than mocked, because a
+ * screen that appears to work is worse than one that is missing. Clusters and operations
+ * now have screens, backed by the clusters and operations contracts.
  */
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -52,6 +57,11 @@ export const router = createBrowserRouter([
           { path: 'pci', element: <ServerPciTab /> },
         ],
       },
+      { path: 'clusters', element: <ClustersPage /> },
+      { path: 'clusters/deploy', element: <DeployClusterPage /> },
+      { path: 'clusters/:id', element: <ClusterDetailPage /> },
+      { path: 'operations', element: <OperationsPage /> },
+      { path: 'operations/:id', element: <OperationDetailPage /> },
     ],
   },
   {

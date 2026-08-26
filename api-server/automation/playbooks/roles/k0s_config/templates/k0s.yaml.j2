@@ -1,0 +1,33 @@
+apiVersion: k0s.k0sproject.io/v1beta1
+kind: ClusterConfig
+metadata:
+  name: k0s
+spec:
+  api:
+    # The VIP is a SAN so the API certificate is valid when reached through the
+    # control-plane load balancer rather than a single controller's address.
+    sans:
+      - {{ swallow_k0s_api_vip }}
+  network:
+    podCIDR: {{ swallow_k0s_pod_cidr }}
+    serviceCIDR: {{ swallow_k0s_service_cidr }}
+    provider: kuberouter
+    # Control plane load balancing: a keepalived VRRP virtual IP plus k0s's in-process
+    # reverse proxy. Every controller carries the same config except the interface, which
+    # k0s picks from the default route.
+    controlPlaneLoadBalancing:
+      enabled: true
+      type: Keepalived
+      keepalived:
+        vrrpInstances:
+          - virtualIPs: ["{{ swallow_k0s_api_vip }}/{{ swallow_k0s_api_vip_prefix }}"]
+            authPass: "{{ swallow_k0s_vrrp_auth_pass }}"
+    # Node-local load balancing keeps worker to control-plane traffic working when a
+    # controller is down, and is recommended alongside CPLB.
+    nodeLocalLoadBalancing:
+      enabled: true
+      type: EnvoyProxy
+  workerProfiles:
+    - name: default
+      values:
+        failSwapOn: false

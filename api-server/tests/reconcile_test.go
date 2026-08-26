@@ -626,17 +626,17 @@ func TestReconcile_RejectsNonProvisionerIntegration(t *testing.T) {
 
 	now := time.Now().UTC()
 	_ = f.integrations.Create(context.Background(), &sitedomain.Integration{
-		ID:           "integration-awx",
+		ID:           "integration-metrics",
 		SiteID:       testSiteID,
-		Kind:         sitedomain.IntegrationKindAutomation,
-		ProviderKind: "awx",
-		Name:         "awx",
+		Kind:         sitedomain.IntegrationKindMetrics,
+		ProviderKind: sitedomain.ProviderKindPrometheus,
+		Name:         "prometheus",
 		Enabled:      true,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}, "token")
 
-	_, err := f.uc.Execute(context.Background(), "integration-awx")
+	_, err := f.uc.Execute(context.Background(), "integration-metrics")
 	if !errors.Is(err, provisioningdomain.ErrIntegrationNotProvisioner) {
 		t.Fatalf("expected ErrIntegrationNotProvisioner, got %v", err)
 	}

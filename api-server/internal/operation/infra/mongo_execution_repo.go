@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -9,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
 type executionDoc struct {
@@ -31,20 +33,26 @@ type executionOperationDoc struct {
 	ClusterID       string         `bson:"clusterId,omitempty"`
 	TargetServerIDs []string       `bson:"targetServerIds"`
 	ExtraVars       map[string]any `bson:"extraVars,omitempty"`
-	Execution       executionDoc   `bson:"execution"`
-	Terminal        bool           `bson:"terminal"`
-	RequestedBy     string         `bson:"requestedBy"`
-	RequestedAt     time.Time      `bson:"requestedAt"`
-	UpdatedAt       time.Time      `bson:"updatedAt"`
+	// SealedSecretVars is an AES-GCM sealed JSON object of run-time secret vars, so a
+	// value like a VRRP password is never stored in plain text alongside extraVars.
+	SealedSecretVars   string       `bson:"sealedSecretVars,omitempty"`
+	RetryOfOperationID string       `bson:"retryOfOperationId,omitempty"`
+	Execution          executionDoc `bson:"execution"`
+	Terminal           bool         `bson:"terminal"`
+	RequestedBy        string       `bson:"requestedBy"`
+	RequestedAt        time.Time    `bson:"requestedAt"`
+	UpdatedAt          time.Time    `bson:"updatedAt"`
 }
 
 // MongoExecutionRepo stores the v2 locally-owned operation schema.
 type MongoExecutionRepo struct {
-	col *mongo.Collection
+	col    *mongo.Collection
+	sealer *secret.Sealer
 }
 
-// NewMongoExecutionRepo creates the execution indexes.
-func NewMongoExecutionRepo(db *mongo.Database) (*MongoExecutionRepo, error) {
+// NewMongoExecutionRepo creates the execution indexes. The sealer protects run-time
+// secret vars at rest; it is the same key used for integration credentials.
+func NewMongoExecutionRepo(db *mongo.Database, sealer *secret.Sealer) (*MongoExecutionRepo, error) {
 	col := db.Collection("operations")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -59,13 +67,52 @@ func NewMongoExecutionRepo(db *mongo.Database) (*MongoExecutionRepo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &MongoExecutionRepo{col: col}, nil
+	return &MongoExecutionRepo{col: col, sealer: sealer}, nil
 }
 
-// Create persists pending intent before any runner is started.
+// Create persists pending intent before any runner is started. Secret vars are sealed
+// here so they never touch the database in plain text.
 func (r *MongoExecutionRepo) Create(ctx context.Context, operation *operationdomain.ExecutionOperation) error {
-	_, err := r.col.InsertOne(ctx, toExecutionDoc(operation))
+	doc := toExecutionDoc(operation)
+	if len(operation.SecretVars) > 0 {
+		raw, err := json.Marshal(operation.SecretVars)
+		if err != nil {
+			return err
+		}
+		sealed, err := r.sealer.Seal(string(raw))
+		if err != nil {
+			return err
+		}
+		doc.SealedSecretVars = sealed
+	}
+	_, err := r.col.InsertOne(ctx, doc)
 	return err
+}
+
+// SecretVars decrypts one operation's run-time secret vars for the dispatcher. An
+// operation with none returns a nil map and no error.
+func (r *MongoExecutionRepo) SecretVars(ctx context.Context, id string) (map[string]any, error) {
+	var doc executionOperationDoc
+	err := r.col.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 2},
+		options.FindOne().SetProjection(bson.M{"sealedSecretVars": 1})).Decode(&doc)
+	if err == mongo.ErrNoDocuments {
+		return nil, operationdomain.ErrOperationNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if doc.SealedSecretVars == "" {
+		return nil, nil
+	}
+	raw, err := r.sealer.Open(doc.SealedSecretVars)
+	if err != nil {
+		return nil, err
+	}
+	var vars map[string]any
+	if err := json.Unmarshal([]byte(raw), &vars); err != nil {
+		return nil, err
+	}
+	return vars, nil
 }
 
 // FindByID reads one v2 operation.
@@ -209,8 +256,9 @@ func toExecutionDoc(operation *operationdomain.ExecutionOperation) executionOper
 	return executionOperationDoc{
 		ID: operation.ID, SchemaVersion: 2, Kind: string(operation.Kind), Intent: operation.Intent,
 		SiteID: operation.SiteID, ClusterID: operation.ClusterID, TargetServerIDs: operation.TargetServerIDs,
-		ExtraVars: operation.ExtraVars, Execution: toExecutionSubdoc(operation.Execution),
-		Terminal: operation.Execution.Status.Terminal(), RequestedBy: operation.RequestedBy,
+		ExtraVars: operation.ExtraVars, RetryOfOperationID: operation.RetryOfOperationID,
+		Execution: toExecutionSubdoc(operation.Execution),
+		Terminal:  operation.Execution.Status.Terminal(), RequestedBy: operation.RequestedBy,
 		RequestedAt: operation.RequestedAt, UpdatedAt: operation.UpdatedAt,
 	}
 }
@@ -228,7 +276,7 @@ func fromExecutionDoc(doc *executionOperationDoc) *operationdomain.ExecutionOper
 	return &operationdomain.ExecutionOperation{
 		ID: doc.ID, Kind: operationdomain.OperationKind(doc.Kind), Intent: doc.Intent,
 		SiteID: doc.SiteID, ClusterID: doc.ClusterID, TargetServerIDs: doc.TargetServerIDs,
-		ExtraVars: doc.ExtraVars,
+		ExtraVars: doc.ExtraVars, RetryOfOperationID: doc.RetryOfOperationID,
 		Execution: operationdomain.Execution{
 			RunID: doc.Execution.RunID, Playbook: doc.Execution.Playbook,
 			Status: operationdomain.Status(doc.Execution.Status), StatusReason: doc.Execution.StatusReason,

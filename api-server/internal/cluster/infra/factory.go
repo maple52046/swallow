@@ -19,6 +19,10 @@ const (
 	// SettingSlurmAPIVersion selects the slurmrestd endpoint version, which tracks
 	// the Slurm release.
 	SettingSlurmAPIVersion = "slurmApiVersion"
+	// SettingControllerLeaseDiscovery makes the Kubernetes reader also report dedicated
+	// k0s controllers from their kube-node-lease leases. Off by default because the lease
+	// naming is a k0s implementation detail; a cluster swallow itself deploys turns it on.
+	SettingControllerLeaseDiscovery = "controllerLeaseDiscovery"
 )
 
 // ReaderFactory builds cluster readers from a cluster's integration.
@@ -63,7 +67,8 @@ func (f *ReaderFactory) For(ctx context.Context, cluster *clusterdomain.Cluster)
 
 	switch cluster.Type {
 	case clusterdomain.ClusterTypeKubernetes:
-		return clusterapi.NewKubernetesReader(integration.Endpoint, token, timeout, insecure)
+		controllerLeases := integration.SettingBool(SettingControllerLeaseDiscovery)
+		return clusterapi.NewKubernetesReader(integration.Endpoint, token, timeout, insecure, controllerLeases)
 
 	case clusterdomain.ClusterTypeSlurm:
 		return clusterapi.NewSlurmReader(

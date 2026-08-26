@@ -50,7 +50,7 @@ func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 		Execution: operationdomain.Execution{RunID: "run-1", Playbook: "ping"},
 		ExtraVars: map[string]any{"safe": true},
 	}
-	err := runner.Run(context.Background(), operationdomain.RunnerInput{
+	_, err := runner.Run(context.Background(), operationdomain.RunnerInput{
 		Operation: operation,
 		Configuration: &operationdomain.AutomationConfiguration{
 			SSHUser: "ubuntu", SSHPort: 22, KnownHosts: "host ssh-ed25519 AAAA",

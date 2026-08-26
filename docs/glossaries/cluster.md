@@ -4,9 +4,13 @@
 
 A Kubernetes or Slurm cluster swallow knows about.
 
-swallow owns two things about a cluster: its **registration** and its **policy**. It does not
-own the cluster's membership, its configuration, or its behaviour — those belong to the
-cluster, and changing any of them is an [Operation](operation.md) executed by AWX.
+swallow owns three things about a cluster: its **registration**, its **policy**, and the
+**intent to build it**. It does not own the cluster's membership, its configuration, or its
+behaviour — those belong to the cluster, and changing any of them is an
+[Operation](operation.md) that swallow executes through its embedded Ansible runner.
+
+A cluster therefore arrives one of two ways: registered because it already exists, or
+declared with a deployment specification and then built. Both end at the same record.
 
 ## Key Fields
 
@@ -30,7 +34,7 @@ one host**:
 
 | Policy | Installs drivers and DCGM | Trade-off |
 |--------|---------------------------|-----------|
-| `provisioning` | An AWX playbook after OS deployment, on the host | One driver version per site under change control, and it works for servers in no cluster — but changing a driver means reprovisioning |
+| `provisioning` | An embedded Ansible playbook after OS deployment, on the host | One driver version per site under change control, and it works for servers in no cluster — but changing a driver means reprovisioning |
 | `gpu-operator` | The GPU operator inside the cluster | Per-cluster versions and in-cluster upgrades — but only for cluster members, and the driver's lifecycle is coupled to the cluster's |
 
 **There is no default.** Guessing would silently pick a side in a conflict that leaves two

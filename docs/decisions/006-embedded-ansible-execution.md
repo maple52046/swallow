@@ -5,9 +5,9 @@
 
 ## Context
 
-ADR 004 delegated long-running execution to AWX. The supported production installation
-for AWX is Kubernetes Operator based, while Swallow's first release must run on one
-Ubuntu 24.04 host, support air-gapped installation, and have both Compose and native
+An earlier design delegated long-running execution to AWX. The supported production
+installation for AWX is Kubernetes Operator based, while Swallow's first release must run
+on one Ubuntu 24.04 host, support air-gapped installation, and have both Compose and native
 systemd paths. Operating AWX would therefore add an orchestration platform larger than
 the control plane it serves.
 

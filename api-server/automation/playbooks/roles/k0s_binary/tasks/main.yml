@@ -1,0 +1,26 @@
+---
+# Install the pinned k0s binary. Guarded by the binary's presence so a rerun is a no-op;
+# the version is only honoured on first install, which matches k0s's own upgrade model
+# (changing the version later is a separate, out-of-scope operation).
+
+- name: Check for an existing k0s binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/k0s
+  register: k0s_binary_stat
+
+- name: Download the k0s installer
+  ansible.builtin.get_url:
+    url: https://get.k0s.sh
+    dest: /tmp/get-k0s.sh
+    mode: "0755"
+  become: true
+  when: not k0s_binary_stat.stat.exists
+
+- name: Install k0s at the pinned version
+  ansible.builtin.command:
+    cmd: /tmp/get-k0s.sh
+  environment:
+    K0S_VERSION: "{{ swallow_k0s_version }}"
+  become: true
+  when: not k0s_binary_stat.stat.exists
+  changed_when: true
