@@ -1,28 +1,22 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
-import '@radix-ui/themes/styles.css'
+import '@patternfly/react-core/dist/styles/base.css'
 import './index.css'
 import { router } from './router'
 import { AppearanceProvider } from './presentation/app/theme/AppearanceProvider'
-import { ToastProvider } from './presentation/components/radix/toast/ToastProvider'
+import { ToastProvider } from './presentation/components/toast/ToastProvider'
 import { AppProvider } from './di/AppProvider'
 import { AuthProvider } from './presentation/contexts/AuthContext'
 
-// Composition root. AppearanceProvider renders the single Radix <Theme> and owns
-// light/dark; ToastProvider is the app-wide transient-message channel (replacing Mantine
-// notifications). Auth and the DI container wrap the router beneath the theme so every
-// screen has theme, toasts, session, and use cases available.
+/** Browser composition root for the Swallow operator console. */
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <AppearanceProvider>
-      <ToastProvider>
+  <AppearanceProvider>
+    <ToastProvider>
+      <AppProvider>
         <AuthProvider>
-          <AppProvider>
-            <RouterProvider router={router} />
-          </AppProvider>
+          <RouterProvider router={router} />
         </AuthProvider>
-      </ToastProvider>
-    </AppearanceProvider>
-  </StrictMode>,
+      </AppProvider>
+    </ToastProvider>
+  </AppearanceProvider>,
 )

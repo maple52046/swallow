@@ -1,46 +1,47 @@
-import { useCallback, useMemo, useState } from 'react'
-import { Theme } from '@radix-ui/themes'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AppearanceContext } from './appearanceContext'
-import { THEME_CONFIG, loadColorScheme, saveColorScheme, type ColorScheme } from './index'
+import {
+  loadAppearanceMode,
+  resolveAppearance,
+  saveAppearanceMode,
+  type AppearanceMode,
+} from './index'
 
 interface AppearanceProviderProps {
-  children: React.ReactNode
+  children: ReactNode
 }
 
 /**
- * App shell theme boundary: renders the single Radix `<Theme>` and owns the live
- * light/dark appearance.
+ * Applies PatternFly's official dark class to the document root.
  *
- * Radix reads `appearance` from the nearest `<Theme>`, so the toggle has to live in React
- * state here rather than being a CSS class flip. The initial value comes from
- * localStorage (`loadColorScheme`) and every change is persisted, so the choice is stable
- * across reloads. Consumers switch the scheme through `useAppearance`, never by writing
- * storage directly.
+ * System mode subscribes to `prefers-color-scheme`; the listener is removed on unmount
+ * and explicit Light/Dark selections remain stable even when the OS changes. No custom
+ * palette is applied, so both schemes use stock PatternFly semantic tokens.
  */
 export function AppearanceProvider({ children }: AppearanceProviderProps) {
-  const [appearance, setAppearance] = useState<ColorScheme>(loadColorScheme)
+  const [mode, setModeState] = useState<AppearanceMode>(loadAppearanceMode)
+  const [systemDark, setSystemDark] = useState(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches,
+  )
+  const resolved = resolveAppearance(mode, systemDark)
 
-  const toggle = useCallback(() => {
-    setAppearance((current) => {
-      const next: ColorScheme = current === 'dark' ? 'light' : 'dark'
-      saveColorScheme(next)
-      return next
-    })
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
   }, [])
 
-  const value = useMemo(() => ({ appearance, toggle }), [appearance, toggle])
+  useEffect(() => {
+    document.documentElement.classList.toggle('pf-v6-theme-dark', resolved === 'dark')
+    document.documentElement.style.colorScheme = resolved
+  }, [resolved])
 
-  return (
-    <AppearanceContext.Provider value={value}>
-      <Theme
-        appearance={appearance}
-        accentColor={THEME_CONFIG.accentColor}
-        grayColor={THEME_CONFIG.grayColor}
-        radius={THEME_CONFIG.radius}
-        scaling={THEME_CONFIG.scaling}
-      >
-        {children}
-      </Theme>
-    </AppearanceContext.Provider>
-  )
+  const setMode = useCallback((next: AppearanceMode) => {
+    saveAppearanceMode(next)
+    setModeState(next)
+  }, [])
+
+  const value = useMemo(() => ({ mode, resolved, setMode }), [mode, resolved, setMode])
+  return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>
 }

@@ -22,11 +22,15 @@ Consumer: `dashboard`.
 | --- | --- | --- | --- |
 | [auth-login.md](auth-login.md) | Active | `POST /api/v1/auth/login` | Exchange username and password for an access token. |
 | [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity and role. |
-| [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List Servers with filtering and pagination. |
+| [overview.md](overview.md) | Active | `GET /api/v1/overview` | Site-scoped inventory, integration, cluster, operation, and monitoring summary. |
+| [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
+| [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List complete Server projections with filtering and pagination. |
+| [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server and run provider-backed machine actions. |
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
 | [operations.md](operations.md) | Active | `/api/v1/operations` | Create, observe, and retry Swallow-owned playbook executions, with logs and per-task events. |
 | [clusters.md](clusters.md) | Active | `/api/v1/clusters` | Register clusters, read membership, and deploy a k0s cluster onto provisioned servers. |
 | [server-metrics.md](server-metrics.md) | Active | `GET /api/v1/monitoring/metrics` | Read current metric values for servers from the metrics backend, and list the fixed metric-name set. |
+| [monitoring-alerts.md](monitoring-alerts.md) | Active | `/api/v1/monitoring/alerts` | List correlated alerts and create Alertmanager silences. |
 | [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus` | Prometheus `http_sd` target list with the metrics label contract; `tag` selects one server type. |
 
 There is **no** `POST /api/v1/servers/` and **no** `DELETE /api/v1/servers/{id}`. Servers
@@ -35,29 +39,9 @@ the two contract files that described them were removed because the endpoints do
 exist. See [decision 002](../../../../../docs/decisions/002-server-identity.md) and the
 platform glossary term for Server.
 
-### Implemented, contract file pending
-
-These endpoints are implemented and exercised by the dashboard, but do not yet have a
-per-endpoint contract file. Their authoritative description is the provisioning glossary
-([`docs/glossaries/provisioning.md`](../../../../../docs/glossaries/provisioning.md)) and
-[decision 001](../../../../../docs/decisions/001-system-ownership-boundaries.md); extract
-each into its own file from [../template.md](../template.md) when the contract is worth
-pinning.
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/v1/servers/{id}` | One server projection. |
-| `GET /api/v1/servers/{id}/provisioner-detail` | Live, provider-neutral detail for one machine, plus provisioner capabilities. |
-| `POST /api/v1/servers/{id}/deploy` | Start an OS deployment; `ephemeral` optional and refused if unsupported. |
-| `POST /api/v1/servers/{id}/release` | Return the machine to the provisioner's pool. |
-| `POST /api/v1/servers/{id}/power-on` \| `power-off` | Power control. |
-| `GET /api/v1/servers/{id}/power-state` | Live BMC power state (read-only). |
-| `POST /api/v1/servers/{id}/commission` \| `test` \| `abort` \| `override-failed-testing` | Hardware validation. |
-| `POST /api/v1/servers/{id}/lock` \| `unlock` \| `mark-broken` \| `mark-fixed` \| `rescue-mode` \| `exit-rescue-mode` | Operator state. |
-
-Each action beyond deploy/release is an optional provider capability: a provisioner that
-does not support one refuses the request rather than silently dropping it, and the
-capability set returned by `provisioner-detail` says which exist.
+Server detail, machine actions, Sites, Integrations, and monitoring alerts are
+published as Active contracts above. Provider-specific capabilities remain optional and
+are advertised by `provisioner-detail`.
 
 ## Agent Service
 

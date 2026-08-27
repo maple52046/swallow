@@ -1,24 +1,10 @@
-import { Button, Flex, Heading, Text } from '@radix-ui/themes'
-import { ArrowLeftIcon } from '@radix-ui/react-icons'
+import { Button } from '@patternfly/react-core'
+import { ArrowLeftIcon } from '@patternfly/react-icons'
 import { useNavigate } from 'react-router-dom'
+import { RouteErrorTemplate } from '@/presentation/components/RouteErrorTemplate'
 
-/** The 403 screen shown when a role guard blocks access to a route. */
+/** Shared 403 route shown when authorization blocks an operator surface. */
 export function ForbiddenPage() {
   const navigate = useNavigate()
-
-  return (
-    <Flex direction="column" align="center" gap="3" py="9">
-      <Text as="div" size="9" weight="bold" color="gray">
-        403
-      </Text>
-      <Heading as="h1" size="5">
-        Forbidden
-      </Heading>
-      <Text color="gray">You do not have permission to access this page.</Text>
-      <Button onClick={() => navigate('/')}>
-        <ArrowLeftIcon />
-        Back to Dashboard
-      </Button>
-    </Flex>
-  )
+  return <RouteErrorTemplate code="403" title="Access denied" message="Your account does not have permission to open this operator surface." action={<Button icon={<ArrowLeftIcon />} onClick={() => navigate('/')}>Back to Overview</Button>} />
 }

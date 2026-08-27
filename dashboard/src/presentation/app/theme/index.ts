@@ -1,41 +1,28 @@
-/**
- * Theme configuration and colour-scheme persistence for the Radix Themes UI.
- *
- * The dashboard renders inside a single Radix `<Theme>` (see `AppearanceProvider`).
- * These constants are the app-wide look, and the colour-scheme helpers own the one piece
- * of UI state the browser is the right home for: whether the user prefers light or dark.
- */
-import { lsGet, lsSet } from '@/infrastructure/persistence/localStorage'
+/** A browser appearance preference. System follows the live OS color-scheme setting. */
+export type AppearanceMode = 'system' | 'light' | 'dark'
 
-/**
- * Static `<Theme>` props shared by the whole app.
- *
- * Kept here rather than inline in the provider so the accent, radius, and scaling are one
- * documented source of truth, mirroring the single Mantine theme this replaced.
- */
-export const THEME_CONFIG = {
-  accentColor: 'blue',
-  grayColor: 'slate',
-  radius: 'medium',
-  scaling: '100%',
-} as const
+/** The concrete PatternFly color scheme currently applied to the document. */
+export type ResolvedAppearance = 'light' | 'dark'
 
-/** The two colour schemes the dashboard supports; maps onto Radix `appearance`. */
-export type ColorScheme = 'light' | 'dark'
+const APPEARANCE_KEY = 'swallow.appearance'
+const MODES: readonly AppearanceMode[] = ['system', 'light', 'dark']
 
-/** The localStorage key for the persisted colour scheme. Unchanged across the Radix migration. */
-const COLOR_SCHEME_KEY = 'color-scheme'
-
-/**
- * Reads the persisted colour scheme, defaulting to dark.
- *
- * Owned by the browser because it is a per-device UI preference, not platform state.
- */
-export function loadColorScheme(): ColorScheme {
-  return lsGet<ColorScheme>(COLOR_SCHEME_KEY, 'dark')
+/** Reads the per-browser appearance choice and rejects stale values from earlier themes. */
+export function loadAppearanceMode(): AppearanceMode {
+  try {
+    const stored = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '"system"') as string
+    return MODES.includes(stored as AppearanceMode) ? stored as AppearanceMode : 'system'
+  } catch { return 'system' }
 }
 
-/** Persists the colour scheme so the choice survives a reload. */
-export function saveColorScheme(scheme: ColorScheme): void {
-  lsSet(COLOR_SCHEME_KEY, scheme)
+/** Persists only the preference; the provider owns resolving and applying it. */
+export function saveAppearanceMode(mode: AppearanceMode): void {
+  try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(mode)) } catch {
+    // Browser policy may block persistence; current session appearance remains usable.
+  }
+}
+
+/** Resolves System against the supplied media-query result without touching the DOM. */
+export function resolveAppearance(mode: AppearanceMode, systemDark: boolean): ResolvedAppearance {
+  return mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
 }

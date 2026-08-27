@@ -1,51 +1,32 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { AppLayout } from './presentation/app/layout/AppLayout'
+import { OperatorLayout } from './presentation/app/layout/OperatorLayout'
 import { NotFoundPage } from './presentation/pages/NotFoundPage'
 import { LoginPage } from './presentation/pages/auth/LoginPage'
 import { ForbiddenPage } from './presentation/pages/errors/ForbiddenPage'
-import { OverviewPage } from './presentation/pages/overview/OverviewPage'
+import { OperatorOverviewPage } from './presentation/pages/overview/OperatorOverviewPage'
+import { MonitoringPage } from './presentation/pages/monitoring/MonitoringPage'
 import { ServersPage } from './presentation/pages/servers/ServersPage'
 import { ServerDetailPage } from './presentation/pages/servers/ServerDetailPage'
 import { ServerSummaryTab } from './presentation/pages/servers/ServerSummaryTab'
 import { ServerMonitoringTab } from './presentation/pages/servers/ServerMonitoringTab'
-import {
-  ServerNetworkTab,
-  ServerStorageTab,
-  ServerPciTab,
-} from './presentation/pages/servers/ServerDetailTableTab'
+import { ServerNetworkTab, ServerStorageTab, ServerPciTab } from './presentation/pages/servers/ServerDetailTableTab'
 import { ClustersPage } from './presentation/pages/clusters/ClustersPage'
 import { ClusterDetailPage } from './presentation/pages/clusters/ClusterDetailPage'
-import { DeployClusterPage } from './presentation/pages/clusters/DeployClusterPage'
-import { OperationsPage } from './presentation/pages/operations/OperationsPage'
-import { OperationDetailPage } from './presentation/pages/operations/OperationDetailPage'
+import { DeployClusterWizardPage } from './presentation/pages/clusters/DeployClusterWizardPage'
+import { OperatorOperationsPage } from './presentation/pages/operations/OperatorOperationsPage'
+import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 
-/**
- * Every route here is backed by a real endpoint.
- *
- * Per-server metrics have their own Monitoring tab under the server detail, backed by the
- * server-metrics contract. Alerts still have no screen: they are absent rather than mocked,
- * because a screen that appears to work is worse than one that is missing.
- */
+/** Stable Dashboard routes, each backed by active `/api/v1` provider contracts. */
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
-  {
-    path: '/403',
-    element: (
-      <ProtectedRoute>
-        <ForbiddenPage />
-      </ProtectedRoute>
-    ),
-  },
+  { path: '/403', element: <ProtectedRoute><ForbiddenPage /></ProtectedRoute> },
   {
     path: '/',
-    element: (
-      <ProtectedRoute>
-        <AppLayout />
-      </ProtectedRoute>
-    ),
+    element: <ProtectedRoute><OperatorLayout /></ProtectedRoute>,
     children: [
-      { index: true, element: <OverviewPage /> },
+      { index: true, element: <OperatorOverviewPage /> },
+      { path: 'monitoring', element: <MonitoringPage /> },
       { path: 'servers', element: <ServersPage /> },
       {
         path: 'servers/:id',
@@ -60,18 +41,11 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'clusters', element: <ClustersPage /> },
-      { path: 'clusters/deploy', element: <DeployClusterPage /> },
+      { path: 'clusters/deploy', element: <DeployClusterWizardPage /> },
       { path: 'clusters/:id', element: <ClusterDetailPage /> },
-      { path: 'operations', element: <OperationsPage /> },
-      { path: 'operations/:id', element: <OperationDetailPage /> },
+      { path: 'operations', element: <OperatorOperationsPage /> },
+      { path: 'operations/:id', element: <OperatorOperationDetailPage /> },
     ],
   },
-  {
-    path: '*',
-    element: (
-      <ProtectedRoute>
-        <NotFoundPage />
-      </ProtectedRoute>
-    ),
-  },
+  { path: '*', element: <ProtectedRoute><NotFoundPage /></ProtectedRoute> },
 ])

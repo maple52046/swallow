@@ -1,16 +1,18 @@
-import type { MetricName, ServerMetricsResult } from '@/domain/monitoring/types'
+import type {
+  AcknowledgeAlertInput,
+  AcknowledgeAlertResult,
+  MetricName,
+  MonitoringAlert,
+  MonitoringAlertFilters,
+  ServerMetricsResult,
+} from '@/domain/monitoring/types'
 
-/**
- * Reads per-server metrics from the backend's fixed named-query set. There is no write
- * side: swallow stores no metrics, and alert handling is a separate concern. A missing
- * metrics backend surfaces as an error the caller renders as "no data" rather than a
- * page failure.
- */
+/** Provider boundary for current metrics and Alertmanager alert operations. */
 export interface MonitoringRepository {
-  /**
-   * Current metric values for the given servers. `metrics` selects which named queries to
-   * evaluate; omit it for the full set. At most 200 servers per call, matching the backend
-   * bound.
-   */
+  /** Lists current firing and suppressed alerts using supported provider filters. */
+  listAlerts(filters?: MonitoringAlertFilters): Promise<MonitoringAlert[]>
+  /** Creates an Alertmanager silence using exact label matchers. */
+  acknowledgeAlert(input: AcknowledgeAlertInput): Promise<AcknowledgeAlertResult>
+  /** Queries at most 200 servers for the backend's fixed named instant metrics. */
   getServerMetrics(serverIds: string[], metrics?: MetricName[]): Promise<ServerMetricsResult>
 }

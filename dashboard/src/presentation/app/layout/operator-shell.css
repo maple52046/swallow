@@ -1,0 +1,39 @@
+.sw-operator-shell {
+  min-height: 100vh;
+  --pf-v6-c-page__dock--Width: 15.5rem;
+}
+
+.sw-brand-mark {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: var(--pf-t--global--border--radius--small);
+  background: var(--pf-t--global--color--brand--default);
+  color: var(--pf-t--global--text--color--on-brand--default);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.sw-brand-name {
+  font-size: var(--pf-t--global--font--size--body--lg);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.sw-page-section { padding: 0; }
+
+.sw-page-content {
+  width: min(100%, 1600px);
+  min-width: 0;
+  margin-inline: auto;
+  padding: var(--pf-t--global--spacer--lg);
+}
+
+@media (min-width: 62rem) {
+  .sw-operator-shell .pf-v6-c-page__dock:not(.pf-m-text-expanded) { width: 4rem; }
+  .sw-operator-shell .pf-v6-c-page__dock:not(.pf-m-text-expanded) .pf-v6-c-masthead.pf-m-docked { --pf-v6-c-masthead--PaddingInlineStart: var(--pf-t--global--spacer--xs); --pf-v6-c-masthead--PaddingInlineEnd: var(--pf-t--global--spacer--xs); }
+}
+
+@media (max-width: 768px) {
+  .sw-page-content { padding: var(--pf-t--global--spacer--md); }
+  .sw-brand-name { display: none; }
+}

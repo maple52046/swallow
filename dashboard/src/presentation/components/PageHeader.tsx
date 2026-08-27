@@ -1,37 +1,53 @@
-import { Flex, Heading, Text } from '@radix-ui/themes'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  Content,
+  Flex,
+  FlexItem,
+  Title,
+} from '@patternfly/react-core'
+import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
+
+/** One breadcrumb segment; the final segment normally omits href. */
+export interface PageBreadcrumb {
+  label: string
+  href?: string
+}
 
 interface PageHeaderProps {
   title: string
   subtitle?: string
-  /** Right-aligned actions, e.g. a status badge or buttons. */
+  breadcrumbs?: PageBreadcrumb[]
+  metadata?: ReactNode
   actions?: ReactNode
 }
 
 /**
- * The shared page title block, used at the top of every routed screen.
- *
- * Keeps title, optional subtitle, and optional right-aligned actions consistent across
- * pages. Reused rather than hand-written per page (coding-style DRY gate).
+ * Shared PatternFly contextual header for list and detail routes.
+ * Breadcrumbs use router links, metadata stays adjacent to the title, and commands wrap
+ * into a separate action row at narrow widths without overlapping the heading.
  */
-export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
+export function PageHeader({ title, subtitle, breadcrumbs, metadata, actions }: PageHeaderProps) {
   return (
-    <Flex justify="between" align="start" mb="4" gap="3" wrap="wrap">
-      <Flex direction="column" gap="1">
-        <Heading as="h1" size="6">
-          {title}
-        </Heading>
-        {subtitle && (
-          <Text color="gray" size="2">
-            {subtitle}
-          </Text>
+    <header className="sw-page-header">
+      <div className="sw-page-header__main">
+        {breadcrumbs && breadcrumbs.length > 0 && (
+          <Breadcrumb aria-label="Breadcrumb">
+            {breadcrumbs.map((item, index) => (
+              <BreadcrumbItem key={`${item.label}-${index}`} isActive={!item.href}>
+                {item.href ? <Link to={item.href}>{item.label}</Link> : item.label}
+              </BreadcrumbItem>
+            ))}
+          </Breadcrumb>
         )}
-      </Flex>
-      {actions && (
-        <Flex gap="2" align="center">
-          {actions}
+        <Flex alignItems={{ default: 'alignItemsBaseline' }} gap={{ default: 'gapMd' }} flexWrap={{ default: 'wrap' }}>
+          <FlexItem><Title headingLevel="h1" size="2xl">{title}</Title></FlexItem>
+          {metadata && <FlexItem>{metadata}</FlexItem>}
         </Flex>
-      )}
-    </Flex>
+        {subtitle && <Content component="p" className="sw-page-subtitle">{subtitle}</Content>}
+      </div>
+      {actions && <div className="sw-page-header__actions">{actions}</div>}
+    </header>
   )
 }

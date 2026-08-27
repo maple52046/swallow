@@ -1,6 +1,7 @@
 # dashboard
 
-Frontend for the Swallow platform. React + TypeScript + Vite, Radix Themes for UI.
+Frontend for the Swallow operator console. React, TypeScript, Vite, and PatternFly 6
+provide one shared design system across every domain workflow.
 
 ## What is here
 
@@ -9,13 +10,20 @@ Only screens backed by a real endpoint:
 | Route | Shows |
 |-------|-------|
 | `/login` | Authentication |
-| `/` | Site, server, and GPU counts, plus integration freshness |
-| `/servers` | The server projection, filterable |
-| `/servers/:id` | One server's three status axes, observed attributes, identity, and OS deploy/release |
+| `/` | Fleet health, attention items, integrations, clusters, and recent operations |
+| `/servers` | NetBox-style inventory filters and saved views with MAAS-style actions |
+| `/servers/:id/*` | Cockpit-style machine summary, monitoring, network, storage, and PCI views |
+| `/clusters` | Multi-cluster readiness and membership issues |
+| `/clusters/:id` | Cluster members, roles, issues, and related operations |
+| `/clusters/deploy` | Validated four-step cluster deployment wizard |
+| `/operations` | Compact jobs list with URL-owned filters |
+| `/operations/:id` | Stdout-first job detail, events, search, download, and retry |
+| `/monitoring` | Current alerts, acknowledgement, fleet health, metrics, and Grafana link |
+| `/sites`, `/integrations` | Scoped resource management |
 
-The API also has clusters, operations, alerts, and metrics. Those have **no screen yet**,
-and are deliberately absent rather than present with placeholder data: a screen that looks
-like it works is worse than one that is missing.
+Screens expose only behavior backed by the provider-owned API contracts. PatternFly owns
+the visual language; Cockpit, NetBox, MAAS, Headlamp, Rancher, AWX, and Grafana inform the
+information architecture without contributing their CSS, components, assets, or branding.
 
 There are no mock repositories and no flag to switch to them. Every binding in
 [`src/di/container.ts`](src/di/container.ts) is a real HTTP implementation.

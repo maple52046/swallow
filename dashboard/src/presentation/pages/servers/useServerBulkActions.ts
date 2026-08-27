@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
-import { useToast } from '@/presentation/components/radix/toast/toastContext'
+import { useToast } from '@/presentation/components/toast/toastContext'
 import { actionLabel, type BulkAction } from './serverActions'
 
 /** One server's failure within a bulk run. */

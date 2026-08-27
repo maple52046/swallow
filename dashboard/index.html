@@ -2,18 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DC Dashboard</title>
+    <title>Swallow</title>
     <script>
-      // Set the colour scheme before React mounts to avoid a flash. Reads the same
-      // localStorage key the app persists ('color-scheme', stored as a JSON string); the
-      // Radix <Theme appearance> then takes over once the app renders.
       try {
-        var raw = window.localStorage.getItem('color-scheme');
-        var cs = raw ? raw.replace(/"/g, '') : 'dark';
-        document.documentElement.classList.add(cs);
-        document.documentElement.style.colorScheme = cs;
+        var stored = JSON.parse(window.localStorage.getItem('swallow.appearance') || '"system"');
+        var appearance = stored === 'light' || stored === 'dark' ? stored : 'system';
+        var dark = appearance === 'dark' || (appearance === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('pf-v6-theme-dark', dark);
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       } catch (e) {}
     </script>
   </head>

@@ -1,72 +1,27 @@
-import { Badge } from '@radix-ui/themes'
+import { Label } from '@patternfly/react-core'
 
-/** The Radix accent colours this badge maps onto. */
-type RadixColor = 'green' | 'red' | 'yellow' | 'blue' | 'gray'
+/** PatternFly semantic label color for platform status families. */
+type StatusColor = 'green' | 'red' | 'orange' | 'blue' | 'grey' | 'purple' | 'teal' | 'yellow'
 
-type StatusType = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'running'
-
-/**
- * Maps a domain status string to a semantic type. Kept broad so one badge serves every
- * status value set in the platform (mission, run, GPU health, alert, plane, job).
- */
-const STATUS_TYPES: Record<string, StatusType> = {
-  active: 'success',
-  paused: 'warning',
-  archived: 'neutral',
-  draft: 'neutral',
-  queued: 'info',
-  running: 'running',
-  succeeded: 'success',
-  failed: 'error',
-  canceled: 'neutral',
-  healthy: 'success',
-  degraded: 'warning',
-  critical: 'error',
-  offline: 'neutral',
-  warning: 'warning',
-  acknowledged: 'info',
-  resolved: 'neutral',
-  unknown: 'neutral',
-  connected: 'success',
-  disconnected: 'error',
-  pending: 'info',
-  // Operation execution states and per-task event results share this badge; absence of
-  // evidence (indeterminate) is a warning, never an error.
-  indeterminate: 'warning',
-  ok: 'success',
-  changed: 'info',
-  skipped: 'neutral',
-  unreachable: 'error',
-}
-
-const TYPE_COLORS: Record<StatusType, RadixColor> = {
-  success: 'green',
-  error: 'red',
-  warning: 'yellow',
-  info: 'blue',
-  neutral: 'gray',
-  running: 'blue',
+const STATUS_COLORS: Record<string, StatusColor> = {
+  active: 'green', healthy: 'green', succeeded: 'green', ok: 'green', connected: 'green', up: 'green', ready: 'green',
+  failed: 'red', critical: 'red', disconnected: 'red', unreachable: 'red', down: 'red', broken: 'red',
+  warning: 'orange', degraded: 'orange', indeterminate: 'orange',
+  pending: 'blue', queued: 'blue', running: 'blue', changed: 'blue', info: 'blue', firing: 'red',
+  acknowledged: 'purple', suppressed: 'purple',
+  canceled: 'grey', resolved: 'grey', unknown: 'grey', offline: 'grey', archived: 'grey', draft: 'grey', skipped: 'grey',
 }
 
 interface StatusBadgeProps {
-  /** Domain status value (not a display label); the mapping owns colour choice. */
   status: string
-  /** Optional display override; defaults to the status value itself. */
   label?: string
 }
 
 /**
- * The shared status badge for every status value set in the dashboard.
- *
- * `status` is the domain value from the platform glossary, not a display label; the badge
- * always carries text, so status is never conveyed by colour alone. Reuse this rather
- * than colouring badges per page (coding-style DRY gate).
+ * Shared status label for all bounded contexts.
+ * The domain value selects a semantic PatternFly color, while visible text always carries
+ * the status meaning so unknown, warning, and failure are distinguishable without color.
  */
 export function StatusBadge({ status, label }: StatusBadgeProps) {
-  const type = STATUS_TYPES[status] ?? 'neutral'
-  return (
-    <Badge color={TYPE_COLORS[type]} variant="soft">
-      {label ?? status}
-    </Badge>
-  )
+  return <Label color={STATUS_COLORS[status.toLocaleLowerCase()] ?? 'grey'}>{label ?? status}</Label>
 }

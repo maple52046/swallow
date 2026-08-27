@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { Site } from '@/domain/site/types'
 import type { Server } from '@/domain/server/types'
+import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerWorkingSet'
 
 export interface DeployableData {
   sites: Site[]
@@ -30,9 +31,8 @@ export function useDeployableServers(siteId: string | undefined): DeployableStat
 
     const loadSites = sites.listSites()
     const loadServers = siteId
-      ? servers
-          .listServers({ siteId, provisioningState: 'deployed', pageSize: 200 })
-          .then((page) => page.items)
+      ? loadServerWorkingSet(servers, { siteId, provisioningState: 'deployed' })
+          .then((workingSet) => workingSet.servers)
       : Promise.resolve([] as Server[])
 
     Promise.all([loadSites, loadServers])

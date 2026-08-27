@@ -38,6 +38,9 @@ import (
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdelivery "github.com/maple52046/swallow/internal/operation/delivery"
 	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
+	overviewapp "github.com/maple52046/swallow/internal/overview/application"
+	overviewdelivery "github.com/maple52046/swallow/internal/overview/delivery"
+	overviewinfra "github.com/maple52046/swallow/internal/overview/infra"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
@@ -138,11 +141,12 @@ func RunAPI(cfg config.APIConfig) error {
 	// persisted. With no metrics integration registered the resolver returns nothing,
 	// which reads as "not known" rather than as anything about the machine.
 	monitoringFactory := monitoringinfra.NewMonitoringFactory(integrationRepo)
+	alertService := monitoringapp.NewAlertService(monitoringFactory)
 	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
-		monitoringapp.NewAlertService(monitoringFactory),
+		alertService,
 		monitoringapp.NewServerMetricsService(monitoringFactory),
 	)
-	var healthResolver serverapp.HealthResolver = monitoringapp.NewHealthResolver(monitoringFactory)
+	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory)
 
 	serverHandler := serverdelivery.NewServerHandler(
 		serverapp.NewListServersUseCase(serverRepo, healthResolver),
@@ -188,6 +192,13 @@ func RunAPI(cfg config.APIConfig) error {
 		automationRepo, siteRepo, catalog,
 	)
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService)
+
+	overviewReader := overviewinfra.NewReader(
+		siteRepo, integrationRepo, serverRepo, healthResolver, clusterRepo, operationRepo,
+		alertService,
+	)
+	overviewHandler := overviewdelivery.NewHandler(
+		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
 	// Cluster deployment: the deploy use case validates topology and hands off to the
 	// operation service through the launcher adapter; the observer records the credential a
@@ -251,6 +262,7 @@ func RunAPI(cfg config.APIConfig) error {
 		jwtSvc:         jwtSvc,
 		machineToken:   cfg.MachineToken,
 		auth:           authHandler,
+		overview:       overviewHandler,
 		sites:          siteHandler,
 		servers:        serverHandler,
 		provisioning:   provisioningHandler,
@@ -296,6 +308,7 @@ type routeDeps struct {
 	jwtSvc         *jwt.Service
 	machineToken   string
 	auth           *authdelivery.AuthHandler
+	overview       *overviewdelivery.Handler
 	sites          *sitedelivery.SiteHandler
 	servers        *serverdelivery.ServerHandler
 	provisioning   *provisioningdelivery.ProvisioningHandler
@@ -341,6 +354,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	auth.Get("/me", middleware.Auth(deps.jwtSvc), deps.auth.Me)
 
 	admin := []fiber.Handler{middleware.Auth(deps.jwtSvc), middleware.AdminOnly()}
+
+	overview := v1.Group("/overview", admin...)
+	overview.Get("/", deps.overview.Get)
 
 	sites := v1.Group("/sites", admin...)
 	sites.Post("/", deps.sites.CreateSite)

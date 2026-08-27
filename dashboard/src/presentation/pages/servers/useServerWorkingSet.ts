@@ -32,12 +32,12 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
 
   // Destructured so the effect depends on the primitive query fields, not a fresh object
   // identity each render.
-  const { keyword, includeAbsent } = query
+  const { siteId, keyword, includeAbsent } = query
 
   useEffect(() => {
     let cancelled = false
 
-    loadServerWorkingSet(servers, { keyword, includeAbsent })
+    loadServerWorkingSet(servers, { siteId, keyword, includeAbsent })
       .then((data) => {
         if (!cancelled) setState({ status: 'ready', data })
       })
@@ -48,7 +48,7 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
     return () => {
       cancelled = true
     }
-  }, [servers, keyword, includeAbsent, nonce])
+  }, [servers, siteId, keyword, includeAbsent, nonce])
 
   return { state, reload }
 }

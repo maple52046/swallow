@@ -1,152 +1,29 @@
-import { Badge, Card, Flex, Heading, Table, Text } from '@radix-ui/themes'
+import { Card, CardBody, CardTitle, DescriptionList, DescriptionListDescription, DescriptionListGroup, DescriptionListTerm, Flex, Label } from '@patternfly/react-core'
+import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { ProvisioningBadge, HealthBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
 import type { Server } from '@/domain/server/types'
 
-/**
- * The shared server-summary card set, modelled on MAAS's OverviewCard composite but on
- * Radix and the swallow projection. Each card renders one facet of a `Server`; the Summary
- * tab composes them into the MAAS grid. Kept as one cohesive set so a field added to a
- * facet lands in one place.
- */
-
-/** A labelled value line used inside the cards; muted when the value is absent. */
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <Flex justify="between" gap="4">
-      <Text size="2" color="gray">
-        {label}
-      </Text>
-      <Text size="2" color={value ? undefined : 'gray'} style={{ textAlign: 'right' }}>
-        {value || 'not observed'}
-      </Text>
-    </Flex>
-  )
+function Fields({ items }: { items: Array<{ label: string; value: string | null | undefined }> }) {
+  return <DescriptionList isHorizontal isCompact>{items.map((item) => <DescriptionListGroup key={item.label}><DescriptionListTerm>{item.label}</DescriptionListTerm><DescriptionListDescription>{item.value || 'Not observed'}</DescriptionListDescription></DescriptionListGroup>)}</DescriptionList>
 }
 
-/**
- * A single headline resource card (CPU / Memory / Storage): a big value with an optional
- * sub-line. Reused for the three resource facets so they stay visually identical.
- */
-export function SummaryStatCard({
-  title,
-  value,
-  sub,
-}: {
-  title: string
-  value: string
-  sub?: string
-}) {
-  return (
-    <Card>
-      <Text size="1" color="gray">
-        {title}
-      </Text>
-      <Text as="div" size="6" weight="bold">
-        {value}
-      </Text>
-      {sub && (
-        <Text size="1" color="gray">
-          {sub}
-        </Text>
-      )}
-    </Card>
-  )
+/** Compact resource headline card reused for CPU, memory, and storage. */
+export function SummaryStatCard({ title, value, sub }: { title: string; value: string; sub?: string }) {
+  return <Card isCompact><CardTitle>{title}</CardTitle><CardBody><strong className="sw-resource-value">{value}</strong>{sub && <small>{sub}</small>}</CardBody></Card>
 }
 
-/**
- * Machine status: the three axes plus the provisioner facts that qualify them
- * (ephemerality, lock, commissioning/testing outcomes). Status is shown by badges with
- * text, never colour alone.
- */
+/** Independent machine lifecycle, membership, and liveness axes with provider qualifiers. */
 export function StatusCard({ server }: { server: Server }) {
-  const provisioning = server.provisioning
-  return (
-    <Card>
-      <Heading as="h2" size="3" mb="2">
-        Machine status
-      </Heading>
-      <Flex direction="column" gap="2">
-        <Flex align="center" gap="2" wrap="wrap">
-          <ProvisioningBadge axis={provisioning} />
-          <MembershipBadge axis={server.membership} />
-          <HealthBadge axis={server.health} />
-        </Flex>
-        {provisioning && (
-          <Flex direction="column" gap="1" mt="1">
-            <Field
-              label="Deployed OS"
-              value={
-                provisioning.distroSeries
-                  ? [provisioning.osSystem, provisioning.distroSeries].filter(Boolean).join(' ')
-                  : null
-              }
-            />
-            <Field label="Kernel" value={provisioning.hweKernel || null} />
-            <Field label="Commissioning" value={provisioning.commissioningStatus || null} />
-            <Field label="Testing" value={provisioning.testingStatus || null} />
-            {provisioning.locked && (
-              <Flex justify="between">
-                <Text size="2" color="gray">
-                  Locked
-                </Text>
-                <Badge color="amber">locked</Badge>
-              </Flex>
-            )}
-          </Flex>
-        )}
-      </Flex>
-    </Card>
-  )
+  const axis = server.provisioning
+  return <Card><CardTitle>Power and provisioning</CardTitle><CardBody><Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={axis} /><MembershipBadge axis={server.membership} /><HealthBadge axis={server.health} />{axis?.locked && <Label color="orange">locked</Label>}</Flex>{axis && <Fields items={[{ label: 'Power', value: axis.powerState }, { label: 'Deployed OS', value: axis.distroSeries ? [axis.osSystem, axis.distroSeries].filter(Boolean).join(' ') : null }, { label: 'Kernel', value: axis.hweKernel }, { label: 'Commissioning', value: axis.commissioningStatus }, { label: 'Testing', value: axis.testingStatus }]} />}</CardBody></Card>
 }
 
-/** Provisioner grouping facts: zone, resource pool, VM host, and tags. */
+/** Provider placement and inventory labels kept separate from Swallow-owned identity. */
 export function DetailsCard({ server }: { server: Server }) {
-  return (
-    <Card>
-      <Heading as="h2" size="3" mb="2">
-        Details
-      </Heading>
-      <Flex direction="column" gap="1">
-        <Field label="Zone" value={server.providerZone || null} />
-        <Field label="Resource pool" value={server.providerResourcePool || null} />
-        <Field label="VM host" value={server.providerPod || null} />
-        <Field label="Tags" value={server.tags.length ? server.tags.join(', ') : null} />
-      </Flex>
-    </Card>
-  )
+  return <Card><CardTitle>Provider details</CardTitle><CardBody><Fields items={[{ label: 'Zone', value: server.providerZone }, { label: 'Resource pool', value: server.providerResourcePool }, { label: 'VM host', value: server.providerPod }, { label: 'Tags', value: server.tags.length ? server.tags.join(', ') : null }]} /></CardBody></Card>
 }
 
-/** The machine's GPU inventory, the reason this platform exists; empty state is explicit. */
+/** Hardware GPU inventory; absence is explicit and never confused with zero utilization. */
 export function GpuCard({ server }: { server: Server }) {
-  return (
-    <Card>
-      <Heading as="h2" size="3" mb="2">
-        GPUs
-      </Heading>
-      {server.gpus.length === 0 ? (
-        <Text size="2" color="gray">
-          No GPUs reported.
-        </Text>
-      ) : (
-        <Table.Root variant="surface">
-          <Table.Header>
-            <Table.Row>
-              <Table.ColumnHeaderCell>Vendor</Table.ColumnHeaderCell>
-              <Table.ColumnHeaderCell>Model</Table.ColumnHeaderCell>
-              <Table.ColumnHeaderCell>Count</Table.ColumnHeaderCell>
-            </Table.Row>
-          </Table.Header>
-          <Table.Body>
-            {server.gpus.map((gpu, index) => (
-              <Table.Row key={`${gpu.vendor}-${gpu.model}-${index}`}>
-                <Table.Cell>{gpu.vendor}</Table.Cell>
-                <Table.Cell>{gpu.model}</Table.Cell>
-                <Table.Cell>{gpu.count}</Table.Cell>
-              </Table.Row>
-            ))}
-          </Table.Body>
-        </Table.Root>
-      )}
-    </Card>
-  )
+  return <Card><CardTitle>GPU inventory</CardTitle><CardBody>{server.gpus.length === 0 ? 'No GPUs reported.' : <Table aria-label="GPU inventory" variant="compact"><Thead><Tr><Th>Vendor</Th><Th>Model</Th><Th>Count</Th></Tr></Thead><Tbody>{server.gpus.map((gpu, index) => <Tr key={`${gpu.vendor}-${gpu.model}-${index}`}><Td dataLabel="Vendor">{gpu.vendor}</Td><Td dataLabel="Model">{gpu.model}</Td><Td dataLabel="Count">{gpu.count}</Td></Tr>)}</Tbody></Table>}</CardBody></Card>
 }

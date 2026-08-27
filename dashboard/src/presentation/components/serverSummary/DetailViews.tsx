@@ -1,87 +1,27 @@
-import { Card, Flex, Heading, Table, Text } from '@radix-ui/themes'
+import { Card, CardBody, CardTitle, DescriptionList, DescriptionListDescription, DescriptionListGroup, DescriptionListTerm } from '@patternfly/react-core'
+import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import type { DetailSection, DetailTable } from '@/domain/server/types'
 
-/**
- * Shared renderers for the provider-neutral `provisioner-detail` shape (labelled sections
- * and generic tables). The Summary tab reuses `DetailTableCard` for its NUMA/Network
- * cards, and the Network/Storage/PCI tabs reuse it for the full tables — one renderer, so
- * every provider detail table looks the same.
- */
-
-/** Renders one detail section (label/value pairs) as a two-column labelled grid. */
+/** Provider-neutral OpenBMC/Ironic labelled section rendered without assuming field names. */
 export function DetailSectionView({ section }: { section: DetailSection }) {
-  if (section.fields.length === 0) return null
-  return (
-    <Flex direction="column" gap="2">
-      <Heading as="h2" size="3">
-        {section.title}
-      </Heading>
-      <Flex direction="column" gap="1">
-        {section.fields.map((field) => (
-          <Flex key={field.label} justify="between" gap="4">
-            <Text size="2" color="gray">
-              {field.label}
-            </Text>
-            <Text size="2" style={{ textAlign: 'right' }}>
-              {field.value}
-            </Text>
-          </Flex>
-        ))}
-      </Flex>
-    </Flex>
-  )
+  if (!section.fields.length) return null
+  return <DescriptionList isHorizontal isCompact>{section.fields.map((field) => <DescriptionListGroup key={field.label}><DescriptionListTerm>{field.label}</DescriptionListTerm><DescriptionListDescription>{field.value || 'No data'}</DescriptionListDescription></DescriptionListGroup>)}</DescriptionList>
 }
 
-/** Renders one detail table with its provider-defined columns. */
+/** Provider-defined detail table shared by Network, Storage, PCI, and summary sections. */
 export function DetailTableView({ table }: { table: DetailTable }) {
-  if (table.rows.length === 0) {
-    return (
-      <Text size="2" color="gray">
-        No {table.title.toLowerCase()} reported.
-      </Text>
-    )
-  }
-  return (
-    <Table.Root variant="surface">
-      <Table.Header>
-        <Table.Row>
-          {table.columns.map((column) => (
-            <Table.ColumnHeaderCell key={column}>{column}</Table.ColumnHeaderCell>
-          ))}
-        </Table.Row>
-      </Table.Header>
-      <Table.Body>
-        {table.rows.map((row, rowIndex) => (
-          <Table.Row key={rowIndex}>
-            {row.map((cell, cellIndex) => (
-              <Table.Cell key={cellIndex}>{cell}</Table.Cell>
-            ))}
-          </Table.Row>
-        ))}
-      </Table.Body>
-    </Table.Root>
-  )
+  if (!table.rows.length) return <EmptyState title={`No ${table.title.toLowerCase()}`} message={`The provisioner reported no ${table.title.toLowerCase()} rows.`} />
+  return <StickyTableFrame><Table aria-label={table.title} variant="compact"><Thead><Tr>{table.columns.map((column) => <Th key={column}>{column}</Th>)}</Tr></Thead><Tbody>{table.rows.map((row, rowIndex) => <Tr key={rowIndex}>{row.map((cell, cellIndex) => <Td key={cellIndex} dataLabel={table.columns[cellIndex]}>{cell || 'No data'}</Td>)}</Tr>)}</Tbody></Table></StickyTableFrame>
 }
 
-/** A titled card wrapping one detail table, used by the Summary tab (NUMA, Network). */
+/** Titled provider table card used in Cockpit-style summary sections. */
 export function DetailTableCard({ table }: { table: DetailTable }) {
-  return (
-    <Card>
-      <Heading as="h2" size="3" mb="2">
-        {table.title}
-      </Heading>
-      <DetailTableView table={table} />
-    </Card>
-  )
+  return <Card><CardTitle>{table.title}</CardTitle><CardBody><DetailTableView table={table} /></CardBody></Card>
 }
 
-/** Standard "no live detail" surface for a tab when the provisioner could not be read. */
+/** Standard partial-unavailable state for live provider detail. */
 export function DetailUnavailable({ message }: { message: string }) {
-  return (
-    <EmptyState
-      title="Provisioner detail unavailable"
-      message={message}
-    />
-  )
+  return <EmptyState title="Provisioner detail unavailable" message={message} />
 }

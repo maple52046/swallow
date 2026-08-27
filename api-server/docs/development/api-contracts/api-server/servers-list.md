@@ -14,8 +14,9 @@ Active
 
 ## Purpose
 
-Lists registered Servers with optional filtering and pagination. This is the
-inventory surface the dashboard renders.
+Lists the complete, secret-free Server projections with optional filtering and
+pagination. This inventory surface includes the independently observed
+provisioning, cluster-membership, and health axes.
 
 ## Related Glossary Terms
 
@@ -50,11 +51,15 @@ Bearer token required. See [`conventions.md`](conventions.md).
 | --- | --- | -------: | --- |
 | `page` | integer | No | Page number; default `1`. See [`conventions.md`](conventions.md). |
 | `pageSize` | integer | No | Items per page; default `20`, max `100`. |
-| `status` | string | No | Filter by Server Status: `unknown`, `live`, `warning`, `error`, `maintain`, `offline`. |
-| `keyword` | string | No | Case-insensitive substring match on `hostname` or `ip`. |
+| `siteId` | string | No | Return Servers observed through integrations at this Site. |
+| `integrationId` | string | No | Return Servers observed through this integration. |
+| `provisioningState` | string | No | Filter on the provisioning axis state. |
+| `clusterId` | string | No | Return Servers whose membership axis names this Cluster. |
+| `keyword` | string | No | Case-insensitive match on hostname, FQDN, address, serial number, or system UUID. |
+| `includeAbsent` | boolean | No | Include projections absent from the latest provider inventory; default `false`. |
 
-`status` accepts a single value. `keyword` matches either field — it is a search
-convenience, not a structured query language.
+Filters are conjunctive. `keyword` is a search convenience, not a structured
+query language. `includeAbsent=true` changes visibility only.
 
 ## Response
 
@@ -66,26 +71,44 @@ convenience, not a structured query language.
 {
   "items": [
     {
-      "id":        "string",
-      "hostname":  "string",
-      "ip":        "string",
-      "status":    "unknown | live | warning | error | maintain | offline",
+      "id": "server-id",
+      "source": {
+        "siteId": "site-id",
+        "integrationId": "integration-id",
+        "providerMachineId": "machine-42"
+      },
+      "hostname": "gpu-42",
+      "addresses": ["192.0.2.42"],
+      "gpus": [{"vendor": "AMD", "model": "MI300X", "count": 8}],
+      "hardware": {"systemUuid": "uuid", "serialNumber": "serial", "macAddresses": []},
+      "provisioning": {
+        "state": "deployed",
+        "powerState": "on",
+        "osSystem": "ubuntu",
+        "observedAt": "2026-05-02T15:00:00Z"
+      },
+      "membership": {
+        "clusterId": "cluster-id",
+        "role": "worker",
+        "state": "ready",
+        "observedAt": "2026-05-02T15:00:00Z"
+      },
+      "health": {"state": "up", "observedAt": "2026-05-02T15:00:00Z"},
+      "absent": false,
+      "lastSeenAt": "2026-05-02T15:00:00Z",
       "createdAt": "2026-05-02T15:00:00Z",
       "updatedAt": "2026-05-02T15:00:00Z"
     }
   ],
-  "total":    0,
-  "page":     1,
+  "total": 1,
+  "page": 1,
   "pageSize": 20
 }
 ```
 
-This is a **summary shape**. It carries no credentials and no large nested
-objects; BMC and SSH configuration are never returned by a list endpoint.
-
-`status` values and their meanings are owned by the `Server Status` glossary
-term. `maintain` is the domain value — a consumer may display "Maintenance" but
-must send and store `maintain`.
+This is the same complete Server projection returned by the detail endpoint.
+Optional observations use `null`; an unavailable axis is not assigned a default
+state. No BMC, SSH, integration, or automation credential is returned.
 
 ### Error Response
 
@@ -98,18 +121,14 @@ See [`conventions.md`](conventions.md) for the envelope.
 | `unauthorized` | 401 | Token is missing, malformed, or expired. |
 | `forbidden` | 403 | Caller's role is not `admin`. |
 
-An unknown `status` value or an out-of-range `pageSize` is a client error; the
+An unknown filter value or an out-of-range `pageSize` is a client error; the
 contract does not currently define a distinct code for it, so consumers must send
 only documented values.
 
 ## Compatibility Notes
 
-Adding an optional summary field is backward compatible. Adding a credential
-field to this response is forbidden by the summary-versus-detail rule, not merely
-discouraged.
-
-Widening `status` to accept multiple comma-separated values would be additive,
-but must be documented here before consumers rely on it.
+Adding an optional projection field is backward compatible. Adding a credential
+field is forbidden. The three state axes and `absent` remain independent.
 
 ## Implementation Notes
 

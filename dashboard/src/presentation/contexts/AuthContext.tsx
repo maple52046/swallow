@@ -1,14 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { useApp } from '@/di/AppProvider'
 import type { User, UserRole, UserStatus } from '@/domain/user/types'
-import * as authApi from '@/infrastructure/api/authApi'
-import { tokenStore, ApiRequestError } from '@/infrastructure/api/client'
-import type { MeResponse } from '@/infrastructure/api/types'
-
-// Backend role 'user' maps to frontend UserRole 'member'.
-function mapBackendRole(role: MeResponse['role']): UserRole {
-  return role === 'user' ? 'member' : role
-}
 
 export type { UserRole, UserStatus }
 export type AuthUser = User
@@ -25,142 +18,69 @@ interface AuthContextValue {
 }
 
 const USERS_KEY = 'auth-users'
-
-// Demo users list for display purposes (user management UI).
-// This is distinct from authentication — auth is handled by the real backend.
 const defaultUsers: AuthUser[] = [
   { id: 'user-admin', username: 'admin', role: 'admin', displayName: 'Admin User', status: 'active' },
   { id: 'user-owner', username: 'owner', role: 'owner', displayName: 'Owner User', status: 'active' },
   { id: 'user-member', username: 'member', role: 'member', displayName: 'Member User', status: 'active' },
 ]
-
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 function readUsersFromStorage(): AuthUser[] {
   try {
-    const raw = localStorage.getItem(USERS_KEY)
-    if (!raw) return defaultUsers
-    const parsed = JSON.parse(raw) as AuthUser[]
-    if (!Array.isArray(parsed) || parsed.length === 0) return defaultUsers
-    return parsed
-  } catch {
-    return defaultUsers
+    const parsed = JSON.parse(localStorage.getItem(USERS_KEY) ?? '[]') as AuthUser[]
+    return Array.isArray(parsed) && parsed.length ? parsed : defaultUsers
+  } catch { return defaultUsers }
+}
+
+function writeUsersToStorage(users: AuthUser[]): void {
+  try { localStorage.setItem(USERS_KEY, JSON.stringify(users)) } catch {
+    // Browser storage policy may disable the demo user-list preference.
   }
 }
 
-function writeUsersToStorage(users: AuthUser[]) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
-}
-
+/** Session provider that consumes only the application auth port. */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { auth } = useApp()
   const [users, setUsers] = useState<AuthUser[]>(defaultUsers)
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [initializing, setInitializing] = useState(true)
 
-  // Awaited before initializing is cleared. Returning early here would let the route
-  // guard decide the user is signed out while /auth/me is still in flight, which shows
-  // the login page for a moment on every reload of a protected page.
-  const restoreSession = async () => {
-    const storedUsers = readUsersFromStorage()
-    setUsers(storedUsers)
-
-    const token = tokenStore.get()
-    if (!token) {
-      setCurrentUser(null)
-      return
-    }
-
-    // Verify the stored token is still valid by calling /auth/me.
-    try {
-      const me = await authApi.getMe()
-      setCurrentUser({
-        id: me.id,
-        username: me.username,
-        // TODO(api): Backend does not provide displayName yet. Fall back to username.
-        displayName: me.username,
-        role: mapBackendRole(me.role),
-        status: 'active',
-      })
-    } catch {
-      // Token is invalid or expired — clear it and require re-login.
-      tokenStore.clear()
-      setCurrentUser(null)
-    }
-  }
+  const restoreSession = useCallback(async () => {
+    setUsers(readUsersFromStorage())
+    if (!auth.hasSession()) { setCurrentUser(null); return }
+    try { setCurrentUser(await auth.restoreSession()) }
+    catch { auth.logout(); setCurrentUser(null) }
+  }, [auth])
 
   useEffect(() => {
-    let canceled = false
-    const initialize = async () => {
-      await restoreSession()
-      if (!canceled) setInitializing(false)
-    }
+    let cancelled = false
+    const initialize = async () => { await restoreSession(); if (!cancelled) setInitializing(false) }
     void initialize()
-    return () => {
-      canceled = true
-    }
-  }, [])
+    return () => { cancelled = true }
+  }, [restoreSession])
 
-  useEffect(() => {
-    if (initializing) return
-    writeUsersToStorage(users)
-  }, [initializing, users])
+  useEffect(() => { if (!initializing) writeUsersToStorage(users) }, [initializing, users])
 
   const login = async (username: string, password: string): Promise<AuthUser> => {
-    try {
-      // Call the real backend — token is stored inside authApi.login().
-      await authApi.login(username, password)
-      const me = await authApi.getMe()
-      const user: AuthUser = {
-        id: me.id,
-        username: me.username,
-        // TODO(api): Backend does not provide displayName yet. Fall back to username.
-        displayName: me.username,
-        role: mapBackendRole(me.role),
-        status: 'active',
-      }
-      setCurrentUser(user)
-      return user
-    } catch (err) {
-      if (err instanceof ApiRequestError) {
-        if (err.status === 401) throw new Error('Invalid username or password')
-        throw new Error(err.message)
-      }
-      throw err
-    }
+    const user = await auth.login(username, password)
+    setCurrentUser(user)
+    return user
   }
-
-  const logout = () => {
-    authApi.logout()
-    setCurrentUser(null)
-  }
-
+  const logout = () => { auth.logout(); setCurrentUser(null) }
   const updateUserRole = (username: string, role: UserRole) => {
-    setUsers((prev) => {
-      const next = prev.map((u) => (u.username === username ? { ...u, role } : u))
-      const updatedCurrent = currentUser ? next.find((u) => u.username === currentUser.username) ?? null : null
-      setCurrentUser(updatedCurrent)
+    setUsers((current) => {
+      const next = current.map((user) => user.username === username ? { ...user, role } : user)
+      if (currentUser?.username === username) setCurrentUser(next.find((user) => user.username === username) ?? null)
       return next
     })
   }
-
-  const value: AuthContextValue = {
-    currentUser,
-    isAuthenticated: currentUser !== null,
-    initializing,
-    users,
-    login,
-    logout,
-    restoreSession,
-    updateUserRole,
-  }
-
+  const value: AuthContextValue = { currentUser, isAuthenticated: currentUser !== null, initializing, users, login, logout, restoreSession: () => { void restoreSession() }, updateUserRole }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) {
-    throw new Error('useAuth must be used within AuthProvider')
-  }
-  return ctx
+/** Returns the current authenticated session boundary. */
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext)
+  if (!context) throw new Error('useAuth must be used within AuthProvider')
+  return context
 }
