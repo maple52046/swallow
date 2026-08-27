@@ -1,0 +1,25 @@
+---
+# rdc_exporter role defaults.
+#
+# The image is self-contained (bundles ROCm), so the host needs no ROCm/rdcd install —
+# only Docker and the AMD GPU device nodes. The metrics list is telemetry-only on
+# purpose: profiling fields (RDC_FI_PROF_*) map to a bounded set of GPU hardware
+# performance counters and can silently wedge collection if too many are requested, so
+# they are left out of the platform-managed default.
+rdc_exporter_state: present
+rdc_exporter_image: ghcr.io/maple52046/rdc-exporter:v1-rocm7.2.4-20260610
+rdc_exporter_port: 5000
+rdc_exporter_container_name: swallow-rdc-exporter
+rdc_exporter_unit: swallow-rdc-exporter.service
+rdc_exporter_config_dir: /etc/swallow/rdc-exporter
+rdc_exporter_metrics:
+  - RDC_FI_GPU_CLOCK
+  - RDC_FI_MEM_CLOCK
+  - RDC_FI_MEMORY_TEMP
+  - RDC_FI_GPU_TEMP
+  - RDC_FI_POWER_USAGE
+  - RDC_FI_GPU_UTIL
+  - RDC_FI_GPU_MEMORY_USAGE
+  - RDC_FI_GPU_MEMORY_TOTAL
+  - RDC_FI_ECC_CORRECT_TOTAL
+  - RDC_FI_ECC_UNCORRECT_TOTAL

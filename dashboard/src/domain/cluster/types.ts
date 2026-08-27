@@ -12,6 +12,9 @@ export type ClusterType = 'kubernetes' | 'slurm'
 /** Which subsystem installs GPU drivers; has no default at creation. */
 export type GPUStackOwner = 'provisioning' | 'gpu-operator'
 
+/** Which subsystem installs this cluster's Prometheus exporters. Defaults to `ansible`. */
+export type ExporterOwner = 'ansible' | 'k8s'
+
 /**
  * Freshness of the last membership read. `matchedCount` below `memberCount` means the
  * cluster contains machines swallow does not manage, which is worth showing rather than
@@ -33,6 +36,8 @@ export interface Cluster {
   /** Null while a cluster is registered or declared but not yet reachable. */
   integrationId: string | null
   gpuStackOwner: GPUStackOwner
+  /** Which subsystem installs this cluster's exporters; `ansible` unless set to `k8s`. */
+  exporterOwner: ExporterOwner
   sync: ClusterSyncState
   createdAt: string
   updatedAt: string

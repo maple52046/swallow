@@ -35,6 +35,30 @@ func TestManifestCatalogAllowsOnlyRegisteredFiles(t *testing.T) {
 	}
 }
 
+// The shipped manifest must reference real files: LoadManifestCatalog stats each path at
+// startup, so a manifest entry with no playbook behind it would fail the API on boot.
+// This guards the exporter playbooks in particular against being registered but missing.
+func TestShippedManifestResolvesExporterPlaybooks(t *testing.T) {
+	// Manifest lives at automation/manifest.json; its paths are relative to the
+	// playbook bundle root automation/playbooks (see config defaults).
+	automation := filepath.Join("..", "..", "..", "automation")
+	manifest := filepath.Join(automation, "manifest.json")
+	projectRoot := filepath.Join(automation, "playbooks")
+
+	catalog, err := LoadManifestCatalog(manifest, projectRoot)
+	if err != nil {
+		t.Fatalf("load shipped manifest: %v", err)
+	}
+	for _, name := range []string{
+		"install-exporters", "uninstall-exporters",
+		"deploy-k8s-exporters", "remove-k8s-exporters",
+	} {
+		if _, err := catalog.Resolve(name); err != nil {
+			t.Errorf("shipped manifest must register %q: %v", name, err)
+		}
+	}
+}
+
 func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 	root := t.TempDir()
 	command := filepath.Join(root, "runner")

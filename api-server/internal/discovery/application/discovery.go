@@ -48,9 +48,13 @@ type DiscoveryInput struct {
 	// ProvisioningState defaults to "deployed". The literal "all" removes the filter.
 	ProvisioningState string
 	// Port is the exporter port for Prometheus targets. One swallow endpoint serves
-	// several scrape jobs — node_exporter on 9100, dcgm-exporter on 9400 — by being
+	// several scrape jobs — node_exporter on 9100, the RDC exporter on 5000 — by being
 	// asked for a different port each time.
 	Port int
+	// Tag restricts targets to servers carrying this provisioner tag. It is how the
+	// RDC exporter scrape job asks for AMD GPU servers only (tag "amd-gpu"): the caller
+	// names the tag, so the endpoint does not encode what a server type means.
+	Tag string
 }
 
 type DiscoveryUseCase struct {
@@ -78,6 +82,14 @@ func (uc *DiscoveryUseCase) PrometheusTargets(ctx context.Context, input Discove
 		if address == "" {
 			// Nothing to scrape. Emitting a target with no address would create a
 			// permanently failing series attributed to this server.
+			continue
+		}
+
+		// A locked machine is off-limits ("unmanaged"): swallow installs no exporter on
+		// it, so scraping it would only produce a permanently-down series and make an
+		// unmanaged machine look unhealthy. Leave it out; its health stays unknown, which
+		// is the truthful answer for a machine swallow does not monitor.
+		if server.Provisioning != nil && server.Provisioning.Locked {
 			continue
 		}
 
@@ -159,6 +171,20 @@ func (uc *DiscoveryUseCase) AnsibleInventory(ctx context.Context, input Discover
 			}
 		}
 
+		// Provisioner tags become both a host var and one group per tag, so a playbook
+		// can target a server type by group — e.g. the RDC exporter play runs on
+		// "tag_amd_gpu". The host var is named server_tags, not tags, because "tags" is a
+		// reserved Ansible variable. The group name is tokenized the same way as the others.
+		if len(server.Observed.Tags) > 0 {
+			vars["server_tags"] = server.Observed.Tags
+			for _, tag := range server.Observed.Tags {
+				if tag == "" {
+					continue
+				}
+				addGroup(groups, "tag_"+groupToken(tag), server.ID)
+			}
+		}
+
 		hostvars[server.ID] = vars
 	}
 
@@ -194,6 +220,7 @@ func (uc *DiscoveryUseCase) discoverable(ctx context.Context, input DiscoveryInp
 	result, err := uc.servers.List(ctx, serverdomain.ListFilter{
 		SiteID:            input.SiteID,
 		ProvisioningState: state,
+		Tag:               input.Tag,
 		Limit:             0,
 	})
 	if err != nil {

@@ -192,7 +192,8 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 		errors.Is(err, operationdomain.ErrAutomationConfigNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
 	case errors.Is(err, operationdomain.ErrTargetsBusy),
-		errors.Is(err, operationdomain.ErrPolicyConflict):
+		errors.Is(err, operationdomain.ErrPolicyConflict),
+		errors.Is(err, operationdomain.ErrTargetLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 	case errors.Is(err, application.ErrInvalidOperation),
 		errors.Is(err, operationdomain.ErrTargetStateInvalid),

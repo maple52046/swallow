@@ -1,0 +1,16 @@
+---
+# Deploy the exporter DaemonSets onto a Kubernetes cluster, run on a control-plane target.
+#
+# This is the Kubernetes half of exporter ownership. The DaemonSets use hostNetwork on the
+# fixed ports (9100 node, 5000 RDC), so swallow keeps discovering and scraping each node
+# through http_sd with server_id — the metrics join is identical to the Ansible path. The
+# operation targets one control-plane server; kubectl apply affects the whole cluster.
+#
+# Hand-off is arbitrated as operations: before deploying here, the members' Ansible
+# exporters are removed with uninstall-exporters, so a host never carries two owners.
+
+- name: Deploy exporter DaemonSets to the cluster
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: k8s_exporters

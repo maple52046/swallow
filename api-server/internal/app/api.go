@@ -199,6 +199,14 @@ func RunAPI(cfg config.APIConfig) error {
 	clusterHandler := clusterdelivery.NewClusterHandler(clusterService, membershipSync, deployService)
 	deploymentCredentials := clusterapp.NewDeploymentCredentialService(clusterRepo, integrationRepo, membershipSync)
 
+	// Auto-install exporters when a server reaches the deployed state and its effective
+	// exporter owner is ansible. The resolver bridges the provisioning lock and cluster
+	// policy so the operation context stays free of cluster types.
+	autoExporterDeploy := operationapp.NewAutoExporterDeployUseCase(
+		serverRepo, operationRepo, operationService,
+		exporterOwnerResolver{clusters: clusterRepo},
+	)
+
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase)
 	dispatcher := operationapp.NewDispatcher(
@@ -262,6 +270,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
+	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go dispatcher.Run(ctx)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
 

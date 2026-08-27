@@ -42,7 +42,9 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
   "sshPort": 22,
   "knownHosts": "host ssh-ed25519 AAAA...",
   "playbookMappings": {
-    "install-gpu-driver": "install-gpu-driver"
+    "install-gpu-driver": "install-gpu-driver",
+    "install-exporters": "install-exporters",
+    "uninstall-exporters": "uninstall-exporters"
   }
 }
 ```
@@ -50,6 +52,17 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 Every mapped operation kind must be a built-in non-custom kind. Every playbook value must
 exist in the release manifest. Enabled configurations require a non-empty SSH user and
 known-hosts content; host-key verification cannot be disabled.
+
+The `install-exporters` / `uninstall-exporters` mappings are what let swallow install the
+Prometheus exporter containers (node-exporter on every host, the RDC exporter on
+`amd-gpu` hosts) and remove them again when a host is handed to a Kubernetes exporter
+owner. `install-exporters` is also the playbook the platform auto-runs when a server
+reaches the `deployed` provisioning state.
+
+The `deploy-k8s-exporters` / `remove-k8s-exporters` mappings are the Kubernetes side of
+exporter ownership: they apply or delete the exporter DaemonSets on a cluster (run on a
+control-plane target). Switching a cluster's `exporterOwner` to `k8s` uninstalls the
+members' Ansible exporters and deploys the DaemonSets; switching back removes them.
 
 ## Configuration Response
 

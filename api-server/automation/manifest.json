@@ -8,6 +8,22 @@
     {
       "name": "deploy-kubernetes",
       "path": "deploy-kubernetes.yml"
+    },
+    {
+      "name": "install-exporters",
+      "path": "install-exporters.yml"
+    },
+    {
+      "name": "uninstall-exporters",
+      "path": "uninstall-exporters.yml"
+    },
+    {
+      "name": "deploy-k8s-exporters",
+      "path": "deploy-k8s-exporters.yml"
+    },
+    {
+      "name": "remove-k8s-exporters",
+      "path": "remove-k8s-exporters.yml"
     }
   ]
 }

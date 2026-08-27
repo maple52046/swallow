@@ -1,0 +1,59 @@
+---
+# Install or remove node-exporter as a systemd-managed container.
+#
+# The container runs in the foreground under systemd (docker run --rm, no -d), so systemd
+# owns its lifecycle and restarts it on failure or reboot. It uses the host network and
+# mounts the host root read-only at /host with --path.rootfs=/host, which is what lets a
+# containerised node-exporter report the host's real filesystem and network metrics.
+
+- name: Install node-exporter
+  when: node_exporter_state == 'present'
+  become: true
+  block:
+    - name: Write the node-exporter systemd unit
+      ansible.builtin.template:
+        src: swallow-node-exporter.service.j2
+        dest: "/etc/systemd/system/{{ node_exporter_unit }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: node_exporter_unit_file
+
+    - name: Reload systemd when the unit changed
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: node_exporter_unit_file.changed
+
+    - name: Enable and start node-exporter
+      ansible.builtin.systemd:
+        name: "{{ node_exporter_unit }}"
+        state: "{{ 'restarted' if node_exporter_unit_file.changed else 'started' }}"
+        enabled: true
+
+- name: Remove node-exporter
+  when: node_exporter_state == 'absent'
+  become: true
+  block:
+    - name: Stop and disable node-exporter
+      ansible.builtin.systemd:
+        name: "{{ node_exporter_unit }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the node-exporter systemd unit
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ node_exporter_unit }}"
+        state: absent
+      register: node_exporter_unit_removed
+
+    - name: Reload systemd after removing the unit
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: node_exporter_unit_removed.changed
+
+    - name: Remove any leftover container
+      ansible.builtin.command: "docker rm -f {{ node_exporter_container_name }}"
+      register: node_exporter_rm
+      changed_when: node_exporter_rm.rc == 0
+      failed_when: false

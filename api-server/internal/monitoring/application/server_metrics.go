@@ -18,13 +18,26 @@ import (
 //
 // Each expression takes the server_id label pattern via %s and must aggregate
 // by (server_id) so that results can be attributed.
+//
+// The GPU expressions are vendor-neutral: each evaluates the NVIDIA DCGM series or the
+// AMD RDC series with `or`, so one metric name serves both stacks and the caller never
+// has to know which exporter a server runs. Only the first non-empty vector per server
+// contributes, because a host runs one GPU exporter, not both. Units are aligned across
+// vendors by the RDC exporter's metric catalog (Celsius, Watts), so no PromQL rescaling
+// is needed here.
 var namedQueries = map[string]string{
 	"cpuUsagePercent": `100 - (avg by (server_id) (rate(node_cpu_seconds_total{mode="idle",server_id=~"%s"}[5m])) * 100)`,
 	"memoryUsedPercent": `100 * (1 - sum by (server_id) (node_memory_MemAvailable_bytes{server_id=~"%s"}) ` +
 		`/ sum by (server_id) (node_memory_MemTotal_bytes{server_id=~"%s"}))`,
-	"gpuUtilizationPercent": `avg by (server_id) (DCGM_FI_DEV_GPU_UTIL{server_id=~"%s"})`,
-	"gpuTemperatureCelsius": `max by (server_id) (DCGM_FI_DEV_GPU_TEMP{server_id=~"%s"})`,
-	"gpuPowerWatts":         `sum by (server_id) (DCGM_FI_DEV_POWER_USAGE{server_id=~"%s"})`,
+	"gpuUtilizationPercent": `avg by (server_id) (DCGM_FI_DEV_GPU_UTIL{server_id=~"%s"}) ` +
+		`or avg by (server_id) (gpu_util{server_id=~"%s"})`,
+	"gpuTemperatureCelsius": `max by (server_id) (DCGM_FI_DEV_GPU_TEMP{server_id=~"%s"}) ` +
+		`or max by (server_id) (gpu_temp{server_id=~"%s"})`,
+	"gpuPowerWatts": `sum by (server_id) (DCGM_FI_DEV_POWER_USAGE{server_id=~"%s"}) ` +
+		`or sum by (server_id) (power_usage{server_id=~"%s"})`,
+	"gpuMemoryUsedPercent": `100 * sum by (server_id) (DCGM_FI_DEV_FB_USED{server_id=~"%s"}) ` +
+		`/ (sum by (server_id) (DCGM_FI_DEV_FB_USED{server_id=~"%s"}) + sum by (server_id) (DCGM_FI_DEV_FB_FREE{server_id=~"%s"})) ` +
+		`or 100 * sum by (server_id) (gpu_memory_usage{server_id=~"%s"}) / sum by (server_id) (gpu_memory_total{server_id=~"%s"})`,
 }
 
 // MetricNames lists the queries a client may ask for.

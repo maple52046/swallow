@@ -1,0 +1,10 @@
+---
+# node_exporter role defaults.
+#
+# node_exporter_state toggles install vs removal so one role serves both the
+# install-exporters and uninstall-exporters playbooks.
+node_exporter_state: present
+node_exporter_image: quay.io/prometheus/node-exporter:v1.8.2
+node_exporter_port: 9100
+node_exporter_container_name: swallow-node-exporter
+node_exporter_unit: swallow-node-exporter.service

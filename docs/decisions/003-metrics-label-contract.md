@@ -170,6 +170,39 @@ of the driver's lifecycle being coupled to the cluster's.
 swallow records the policy per cluster and refuses operations that contradict it — a driver
 installation targeting servers in a `gpu-operator` cluster is rejected rather than executed.
 
+## Amendment (2026-08-27): switchable exporter ownership and the AMD RDC exporter
+
+Two refinements, both driven by implementing monitoring for CPU and AMD GPU servers.
+
+**Exporter ownership is a single, switchable owner per host.** This decision originally
+said the host `node_exporter` always stays and a cluster's `node-exporter` DaemonSet is
+always disabled. Implementation replaced that with a generalisation of `gpuStackOwner`: a
+per-host **exporter owner** with exactly three values — `ansible` (swallow installs an
+exporter container on the host), `k8s` (a cluster DaemonSet installs it), and `unmanaged`
+(the operator installed something by hand, or the machine is locked; swallow keeps out).
+
+The owner is decided as a per-cluster policy (`exporterOwner`): a member of a Kubernetes
+cluster follows that cluster's policy, a host in no cluster is `ansible`, and a locked
+machine (`provisioning.locked`) is always `unmanaged`. At most one owner installs the
+exporter, so the two-exporters-fighting-for-a-port problem the original text avoided by
+"host always wins" is instead avoided by "one owner at a time".
+
+Crucially this does **not** change the label contract or the join. The k8s DaemonSet
+exposes the exporter on the node with `hostNetwork` on the same fixed ports (9100 for
+node, 5000 for the GPU exporter), so swallow's per-site Prometheus keeps scraping
+`host:port` through the same `http_sd` endpoint and keeps attaching `server_id`. The
+in-cluster `(cluster, node)` join path stays reserved for metrics swallow does not own a
+scrape target for; it is not needed for these exporters.
+
+**AMD servers use an RDC exporter, the AMD analogue of the DCGM exporter.** The AMD GPU
+host exporter is [`maple52046/rdc-exporter`](https://github.com/maple52046/rdc-exporter),
+which exports `gpu_util`, `gpu_temp`, `power_usage`, `gpu_memory_usage`, and
+`gpu_memory_total` (labelled by `gpu_index`) on port 5000. swallow classifies a machine as
+an AMD GPU server by the MAAS tag `amd-gpu` (mirrored into `observed.tags`), and its
+`http_sd` endpoint takes a `tag` filter so the RDC scrape job targets only those machines.
+Named GPU queries are vendor-neutral: each evaluates the DCGM series or the RDC series, so
+one metric name serves both stacks without the caller knowing which is present.
+
 ## Consequences
 
 - swallow implements a Prometheus `http_sd` endpoint serving host-layer targets with

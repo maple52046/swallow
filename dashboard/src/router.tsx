@@ -7,6 +7,7 @@ import { OverviewPage } from './presentation/pages/overview/OverviewPage'
 import { ServersPage } from './presentation/pages/servers/ServersPage'
 import { ServerDetailPage } from './presentation/pages/servers/ServerDetailPage'
 import { ServerSummaryTab } from './presentation/pages/servers/ServerSummaryTab'
+import { ServerMonitoringTab } from './presentation/pages/servers/ServerMonitoringTab'
 import {
   ServerNetworkTab,
   ServerStorageTab,
@@ -22,9 +23,9 @@ import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 /**
  * Every route here is backed by a real endpoint.
  *
- * Alerts and metrics still have no screen: they are absent rather than mocked, because a
- * screen that appears to work is worse than one that is missing. Clusters and operations
- * now have screens, backed by the clusters and operations contracts.
+ * Per-server metrics have their own Monitoring tab under the server detail, backed by the
+ * server-metrics contract. Alerts still have no screen: they are absent rather than mocked,
+ * because a screen that appears to work is worse than one that is missing.
  */
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="summary" replace /> },
           { path: 'summary', element: <ServerSummaryTab /> },
+          { path: 'monitoring', element: <ServerMonitoringTab /> },
           { path: 'network', element: <ServerNetworkTab /> },
           { path: 'storage', element: <ServerStorageTab /> },
           { path: 'pci', element: <ServerPciTab /> },

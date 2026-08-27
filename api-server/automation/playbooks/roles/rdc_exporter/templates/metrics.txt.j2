@@ -1,0 +1,5 @@
+# Managed by Swallow (install-exporters). RDC fields the exporter collects.
+# One field name per line; profiling (RDC_FI_PROF_*) fields are omitted on purpose.
+{% for field in rdc_exporter_metrics %}
+{{ field }}
+{% endfor %}

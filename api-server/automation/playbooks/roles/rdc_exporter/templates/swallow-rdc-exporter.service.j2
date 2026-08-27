@@ -1,0 +1,23 @@
+# Managed by Swallow (install-exporters). Do not edit by hand.
+[Unit]
+Description=Swallow AMD RDC exporter (Prometheus)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=5
+ExecStartPre=-/usr/bin/docker rm -f {{ rdc_exporter_container_name }}
+# Host network exposes /metrics on the node's port {{ rdc_exporter_port }}. The GPU
+# device nodes and SYS_PTRACE are required for RDC to read the AMD GPUs; the image
+# already bundles ROCm, so nothing GPU-related is needed on the host itself.
+ExecStart=/usr/bin/docker run --rm --name {{ rdc_exporter_container_name }} \
+  --network host \
+  --device=/dev/kfd --device=/dev/dri --cap-add SYS_PTRACE \
+  -v {{ rdc_exporter_config_dir }}/metrics.txt:/etc/rdc-exporter/metrics.txt:ro \
+  {{ rdc_exporter_image }} \
+  -f /etc/rdc-exporter/metrics.txt
+ExecStop=/usr/bin/docker stop {{ rdc_exporter_container_name }}
+
+[Install]
+WantedBy=multi-user.target

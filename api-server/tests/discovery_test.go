@@ -62,6 +62,47 @@ func TestPrometheusTargets_HonoursPortParameter(t *testing.T) {
 	}
 }
 
+// The RDC exporter job asks for AMD GPU servers only by passing tag=amd-gpu, so the
+// endpoint must return just the tagged servers on the requested port.
+func TestPrometheusTargets_FiltersByTag(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-amd", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
+		s.Observed.Tags = []string{"amd-gpu"}
+	})
+	f.seedServer("srv-cpu", "cpu-node-01", "10.0.1.20", nil)
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/discovery/prometheus?port=5000&tag=amd-gpu", nil, discoveryAuth())
+	entries := parseArrayBody(t, resp)
+	if len(entries) != 1 {
+		t.Fatalf("expected only the amd-gpu server, got %d", len(entries))
+	}
+	if entries[0]["labels"].(map[string]any)["server_id"] != "srv-amd" {
+		t.Errorf("wrong server included: %v", entries[0])
+	}
+	if targets := entries[0]["targets"].([]any); targets[0] != "10.0.1.10:5000" {
+		t.Errorf("expected the rdc-exporter port, got %v", targets)
+	}
+}
+
+// A locked machine is off-limits and unmonitored, so it must not appear as a scrape
+// target; otherwise it would be a permanently-down series making it look unhealthy.
+func TestPrometheusTargets_SkipsLockedServers(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-open", "node-01", "10.0.1.10", nil)
+	f.seedServer("srv-locked", "node-02", "10.0.1.11", func(s *serverdomain.Server) {
+		s.Provisioning.Locked = true
+	})
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/discovery/prometheus", nil, discoveryAuth())
+	entries := parseArrayBody(t, resp)
+	if len(entries) != 1 {
+		t.Fatalf("expected only the unlocked server, got %d", len(entries))
+	}
+	if entries[0]["labels"].(map[string]any)["server_id"] != "srv-open" {
+		t.Errorf("locked server must be excluded, got %v", entries[0])
+	}
+}
+
 func TestPrometheusTargets_RejectsInvalidPort(t *testing.T) {
 	f := setupPlatform(t)
 
@@ -114,6 +155,7 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
 		s.Observed.GPUs = []serverdomain.GPU{{Vendor: "NVIDIA", Model: "A100", Count: 8}}
+		s.Observed.Tags = []string{"amd-gpu"}
 		s.Membership = &serverdomain.MembershipStatus{
 			ClusterID: "cluster-1", NodeName: "gpu-node-01", Role: "worker",
 			ObservedAt: time.Now().UTC(),
@@ -142,8 +184,9 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 		t.Errorf("cluster_role: got %v", vars["cluster_role"])
 	}
 
-	// Groups automation needs to branch on.
-	for _, group := range []string{"site_site_1", "provisioning_deployed", "cluster_cluster_1", "role_worker", "gpu_nvidia"} {
+	// Groups automation needs to branch on. tag_amd_gpu is what the install-exporters
+	// playbook uses to run the RDC exporter play on AMD GPU servers only.
+	for _, group := range []string{"site_site_1", "provisioning_deployed", "cluster_cluster_1", "role_worker", "gpu_nvidia", "tag_amd_gpu"} {
 		entry, ok := inventory[group].(map[string]any)
 		if !ok {
 			t.Errorf("expected group %q, got groups %v", group, groupNames(inventory))

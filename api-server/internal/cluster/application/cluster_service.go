@@ -39,7 +39,10 @@ type ClusterItem struct {
 	IntegrationID *string `json:"integrationId"`
 	// GPUStackOwner decides which subsystem installs GPU drivers. swallow refuses
 	// operations that contradict it.
-	GPUStackOwner string          `json:"gpuStackOwner"`
+	GPUStackOwner string `json:"gpuStackOwner"`
+	// ExporterOwner decides which subsystem installs this cluster's Prometheus
+	// exporters — "ansible" (default) or "k8s".
+	ExporterOwner string          `json:"exporterOwner"`
 	Sync          ClusterSyncItem `json:"sync"`
 	CreatedAt     string          `json:"createdAt"`
 	UpdatedAt     string          `json:"updatedAt"`
@@ -61,6 +64,9 @@ type CreateClusterInput struct {
 	Type          string
 	IntegrationID string
 	GPUStackOwner string
+	// ExporterOwner is optional; empty defaults to ansible. Only "ansible" or "k8s"
+	// are accepted.
+	ExporterOwner string
 }
 
 // ErrInvalidCluster covers validation failures the delivery layer turns into a 400.
@@ -82,6 +88,17 @@ func (s *ClusterService) Create(ctx context.Context, input CreateClusterInput) (
 		return nil, fmt.Errorf("%w: gpuStackOwner must be one of %v", ErrInvalidCluster, clusterdomain.ValidGPUStackOwners)
 	}
 
+	// Exporter owner defaults to ansible: unlike GPU drivers there is a safe default,
+	// because a host in no cluster is already ansible-owned and joining a cluster does
+	// not change that unless the operator explicitly chooses k8s.
+	exporterOwner := clusterdomain.ExporterOwner(strings.TrimSpace(input.ExporterOwner))
+	if exporterOwner == "" {
+		exporterOwner = clusterdomain.ExporterOwnerAnsible
+	}
+	if !exporterOwner.Valid() {
+		return nil, fmt.Errorf("%w: exporterOwner must be one of %v", ErrInvalidCluster, clusterdomain.ValidExporterOwners)
+	}
+
 	if _, err := s.sites.FindByID(ctx, input.SiteID); err != nil {
 		return nil, err
 	}
@@ -94,6 +111,7 @@ func (s *ClusterService) Create(ctx context.Context, input CreateClusterInput) (
 		Type:          clusterType,
 		IntegrationID: input.IntegrationID,
 		GPUStackOwner: owner,
+		ExporterOwner: exporterOwner,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -132,6 +150,7 @@ type UpdateClusterInput struct {
 	Name          *string
 	IntegrationID *string
 	GPUStackOwner *string
+	ExporterOwner *string
 }
 
 func (s *ClusterService) Update(ctx context.Context, id string, input UpdateClusterInput) (*ClusterItem, error) {
@@ -156,6 +175,14 @@ func (s *ClusterService) Update(ctx context.Context, id string, input UpdateClus
 				ErrInvalidCluster, clusterdomain.ValidGPUStackOwners)
 		}
 		cluster.GPUStackOwner = owner
+	}
+	if input.ExporterOwner != nil {
+		exporterOwner := clusterdomain.ExporterOwner(strings.TrimSpace(*input.ExporterOwner))
+		if !exporterOwner.Valid() {
+			return nil, fmt.Errorf("%w: exporterOwner must be one of %v",
+				ErrInvalidCluster, clusterdomain.ValidExporterOwners)
+		}
+		cluster.ExporterOwner = exporterOwner
 	}
 	cluster.UpdatedAt = time.Now().UTC()
 
@@ -197,6 +224,7 @@ func toClusterItem(cluster *clusterdomain.Cluster) ClusterItem {
 		Type:          string(cluster.Type),
 		IntegrationID: wire.String(cluster.IntegrationID),
 		GPUStackOwner: string(cluster.GPUStackOwner),
+		ExporterOwner: string(cluster.ExporterOwner),
 		Sync: ClusterSyncItem{
 			LastStartedAt:   optionalTime(cluster.Sync.LastStartedAt),
 			LastSucceededAt: optionalTime(cluster.Sync.LastSucceededAt),

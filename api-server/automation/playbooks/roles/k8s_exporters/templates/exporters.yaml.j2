@@ -1,0 +1,126 @@
+# Managed by Swallow (deploy-k8s-exporters). Do not edit by hand.
+# node-exporter and RDC exporter DaemonSets, both hostNetwork so swallow scrapes the node
+# on the fixed ports via http_sd exactly as for the Ansible-installed containers.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ k8s_exporters_namespace }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: swallow-node-exporter
+  namespace: {{ k8s_exporters_namespace }}
+  labels:
+    app: swallow-node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: swallow-node-exporter
+  template:
+    metadata:
+      labels:
+        app: swallow-node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-exporter
+          image: {{ node_exporter_image }}
+          args:
+            - --path.rootfs=/host
+            - --web.listen-address=:{{ node_exporter_port }}
+          ports:
+            - containerPort: {{ node_exporter_port }}
+              protocol: TCP
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+              mountPropagation: HostToContainer
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+  updateStrategy:
+    type: RollingUpdate
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swallow-rdc-exporter-metrics
+  namespace: {{ k8s_exporters_namespace }}
+  labels:
+    app: swallow-rdc-exporter
+data:
+  metrics.txt: |
+{% for field in rdc_exporter_metrics %}
+    {{ field }}
+{% endfor %}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: swallow-rdc-exporter
+  namespace: {{ k8s_exporters_namespace }}
+  labels:
+    app: swallow-rdc-exporter
+spec:
+  selector:
+    matchLabels:
+      app: swallow-rdc-exporter
+  template:
+    metadata:
+      labels:
+        app: swallow-rdc-exporter
+    spec:
+      hostNetwork: true
+      # Only schedule where an AMD GPU was labelled, so CPU nodes do not run a GPU exporter.
+      nodeSelector:
+        amd.com/gpu.present: "true"
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: rdc-exporter
+          image: {{ rdc_exporter_image }}
+          args: ["-k", "{{ rdc_exporter_pod_resources_socket }}", "-f", "/etc/rdc-exporter/metrics.txt"]
+          ports:
+            - containerPort: {{ rdc_exporter_port }}
+              protocol: TCP
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_PTRACE"]
+          volumeMounts:
+            - name: dev-kfd
+              mountPath: /dev/kfd
+            - name: dev-dri
+              mountPath: /dev/dri
+            - name: pod-resources
+              mountPath: {{ rdc_exporter_pod_resources_socket }}
+              readOnly: true
+            - name: metrics
+              mountPath: /etc/rdc-exporter
+              readOnly: true
+      volumes:
+        - name: dev-kfd
+          hostPath:
+            path: /dev/kfd
+            type: CharDevice
+        - name: dev-dri
+          hostPath:
+            path: /dev/dri
+            type: Directory
+        - name: pod-resources
+          hostPath:
+            path: {{ rdc_exporter_pod_resources_socket }}
+            type: Socket
+        - name: metrics
+          configMap:
+            name: swallow-rdc-exporter-metrics
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%

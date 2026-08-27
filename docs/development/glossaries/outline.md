@@ -17,6 +17,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - [Server](terms/server.md): The platform's primary managed compute unit, projected from a provisioner's inventory, identified by a swallow-issued `serverId` (not by hostname or IP, which are observed and non-unique).
 - [Server Status](terms/server-status.md): Not a single value but three independent status axes — `provisioning`, `membership`, and `health` — each owned by a different system and absent until observed.
+- [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
 - [Node Role](terms/node-role.md): The part a server plays in a cluster — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a cluster.
 
 ## Pending Terms
@@ -42,6 +43,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Observability
 
+- [Exporter Ownership](terms/exporter-ownership.md): Which subsystem installs a host's Prometheus exporters — `ansible`, `k8s`, or `unmanaged` — resolved per host so exactly one owner exists and exporters never contend for a fixed port.
 - `Alert` 及其 severity / status / category 值集。
 - `GPU Device`、`GPU Metrics`、`GPU Status`、`GPU Profile`。
 

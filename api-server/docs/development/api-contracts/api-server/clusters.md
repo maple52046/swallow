@@ -50,6 +50,7 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
   "type": "kubernetes",
   "integrationId": null,
   "gpuStackOwner": "provisioning",
+  "exporterOwner": "ansible",
   "sync": {
     "lastStartedAt": null,
     "lastSucceededAt": null,
@@ -63,10 +64,12 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 ```
 
 `type` is `kubernetes` or `slurm`. `gpuStackOwner` is `provisioning` or `gpu-operator`
-and has no default. `integrationId` is `null` until the cluster is reachable, which is the
-normal state between deciding to build a cluster and having built it. `sync.matchedCount`
-is how many members swallow matched to a server; a gap from `memberCount` means the
-cluster contains machines swallow does not manage.
+and has no default. `exporterOwner` is `ansible` (default) or `k8s`, and decides which
+subsystem installs this cluster's Prometheus exporters; a member host's effective owner is
+`unmanaged` when the machine is locked. `integrationId` is `null` until the cluster is
+reachable, which is the normal state between deciding to build a cluster and having built
+it. `sync.matchedCount` is how many members swallow matched to a server; a gap from
+`memberCount` means the cluster contains machines swallow does not manage.
 
 ## Register An Existing Cluster
 
@@ -78,13 +81,15 @@ cluster contains machines swallow does not manage.
   "name": "lab-k0s",
   "type": "kubernetes",
   "integrationId": "cluster-integration-id",
-  "gpuStackOwner": "provisioning"
+  "gpuStackOwner": "provisioning",
+  "exporterOwner": "ansible"
 }
 ```
 
-`siteId`, `name`, `type`, and `gpuStackOwner` are required. `integrationId` is optional;
-without it the cluster is registered but its membership cannot be read yet. Success is
-`201 Created` returning the cluster resource.
+`siteId`, `name`, `type`, and `gpuStackOwner` are required. `integrationId` and
+`exporterOwner` are optional; `exporterOwner` defaults to `ansible`. Without
+`integrationId` the cluster is registered but its membership cannot be read yet. Success
+is `201 Created` returning the cluster resource.
 
 ## Deploy A New Cluster
 
@@ -143,8 +148,8 @@ its membership; the cluster resource's `integrationId` becomes non-null.
 `siteId`. `GET /api/v1/clusters/{clusterId}` returns one. Both are small and bounded and
 are not paginated.
 
-`PATCH /api/v1/clusters/{clusterId}` updates `name`, `integrationId`, or `gpuStackOwner`;
-each field is optional and only provided fields change.
+`PATCH /api/v1/clusters/{clusterId}` updates `name`, `integrationId`, `gpuStackOwner`, or
+`exporterOwner`; each field is optional and only provided fields change.
 
 `DELETE /api/v1/clusters/{clusterId}` removes the registration and clears the membership
 axis it produced, so no server is left claiming to belong to a cluster that no longer
@@ -179,7 +184,7 @@ swallow could not match to a server, which is the part that needs a human.
 ## Errors
 
 Unknown cluster, site, or integration returns `not_found`. A duplicate name at a site
-returns `conflict`. Invalid type, invalid `gpuStackOwner`, an even or fewer-than-three
+returns `conflict`. Invalid type, invalid `gpuStackOwner`, invalid `exporterOwner`, an even or fewer-than-three
 control-plane count, a target that is not `deployed`, targets spanning sites, or a
 pod/service range covering a node address returns `validation_error`. A cluster with no
 integration whose membership is requested returns `validation_error`; a missing cluster

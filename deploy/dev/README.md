@@ -30,6 +30,7 @@ named volume 與 `dashboard/node_modules`，重啟即為秒級。
 | `dashboard`  | 5173           | Vite dev server，含 HMR                          |
 | `api-server` | 30051          | swallow HTTP API                                 |
 | `mongo`      | 27017          | MongoDB 8，資料存於 named volume `mongo-data`    |
+| `prometheus` | 9090           | 透過 swallow http_sd 抓 exporter，資料存於 `prometheus-data` |
 
 預設帶入的 admin 帳號為 `admin` / `admin`，於 api-server 首次啟動時建立。
 
@@ -125,6 +126,25 @@ curl -s -X POST $API/integrations -H "Authorization: Bearer $TOKEN" \
 其他 external kind 同樣方式註冊：`metrics`/`prometheus`、
 `cluster`/`kubernetes`、`cluster`/`slurm`。Automation 使用 site-scoped API，
 不是 external integration。
+
+## Prometheus 監控 demo
+
+compose 內含一個 `prometheus` 服務，透過 swallow 的 http_sd（`/api/v1/discovery/prometheus`）
+抓每台 server 的 node-exporter（:9100）與 AMD GPU server 的 rdc-exporter（:5000，tag `amd-gpu`），
+scrape 到的序列自帶 `server_id`/`site`/`cluster` 標籤。設定檔為 [`prometheus.yml`](prometheus.yml)。
+
+一鍵種子（登入、建立 site、註冊指向 in-compose Prometheus 的 metrics 整合、設定 automation
+與 exporter playbook 對應、可選註冊 MAAS）：
+
+```bash
+cp .env.example .env          # 填入 MAAS URL/key 與 SSH key（見檔內註解）
+docker compose up -d
+bash seed.sh
+```
+
+`seed.sh` 會冪等執行；未提供 MAAS 或 SSH 值時會略過對應步驟並印出提示。OS 佈署完成
+（reconcile 偵測到 `deployed`）後，平台會自動對該機建立 `install-exporters` operation；
+被鎖定的機器視為 `unmanaged`，不會被自動安裝。
 
 ## Troubleshooting
 

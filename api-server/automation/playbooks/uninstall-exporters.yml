@@ -1,0 +1,23 @@
+---
+# Remove the Ansible-installed exporters from a host.
+#
+# Used when a host is handed over to a Kubernetes DaemonSet owner (so the fixed ports are
+# freed for the DaemonSet) or cleaned up on retire. Both roles run with their `_state`
+# set to `absent`; on a host that has no such container the tasks are a no-op, so this is
+# safe to run against a mixed target set.
+
+- name: Remove node-exporter from every managed host
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: node_exporter
+      vars:
+        node_exporter_state: absent
+
+- name: Remove the RDC exporter from AMD GPU hosts
+  hosts: tag_amd_gpu
+  gather_facts: false
+  roles:
+    - role: rdc_exporter
+      vars:
+        rdc_exporter_state: absent

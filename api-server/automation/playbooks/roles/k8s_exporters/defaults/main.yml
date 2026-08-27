@@ -1,0 +1,39 @@
+---
+# k8s_exporters role defaults.
+#
+# The exporters are deployed as DaemonSets with hostNetwork on the same fixed ports as the
+# Ansible-installed containers (9100 node, 5000 RDC), so swallow keeps scraping the node
+# via http_sd and the server_id join is unchanged. Applied with the cluster's on-host
+# kubectl (k0s by default) rather than a stored kubeconfig, matching how the k0s roles talk
+# to the cluster; override k8s_exporters_kubectl to "kubectl" for a non-k0s cluster.
+k8s_exporters_state: present
+k8s_exporters_kubectl: /usr/local/bin/k0s kubectl
+k8s_exporters_namespace: monitoring
+k8s_exporters_manifest_dir: /etc/swallow/k8s-exporters
+
+node_exporter_image: quay.io/prometheus/node-exporter:v1.8.2
+node_exporter_port: 9100
+
+rdc_exporter_image: ghcr.io/maple52046/rdc-exporter:v1-rocm7.2.4-20260610
+rdc_exporter_port: 5000
+# The kubelet pod-resources socket path on the node; varies by distribution. k0s default
+# below; a kubeadm cluster uses /var/lib/kubelet/pod-resources/kubelet.sock.
+rdc_exporter_pod_resources_socket: /var/lib/k0s/kubelet/pod-resources/kubelet.sock
+rdc_exporter_metrics:
+  - RDC_FI_GPU_CLOCK
+  - RDC_FI_MEM_CLOCK
+  - RDC_FI_MEMORY_TEMP
+  - RDC_FI_GPU_TEMP
+  - RDC_FI_POWER_USAGE
+  - RDC_FI_GPU_UTIL
+  - RDC_FI_GPU_MEMORY_USAGE
+  - RDC_FI_GPU_MEMORY_TOTAL
+  - RDC_FI_ECC_CORRECT_TOTAL
+  - RDC_FI_ECC_UNCORRECT_TOTAL
+
+# The AMD GPU device-plugin and node-labeller are prerequisites for GPU scheduling and for
+# the RDC exporter's pod/namespace labels. Applied from the official ROCm project by
+# default; set to false (and pre-install them) for an air-gapped cluster.
+k8s_exporters_install_amd_gpu_prereqs: true
+amd_gpu_node_labeller_url: https://raw.githubusercontent.com/ROCm/k8s-device-plugin/master/k8s-ds-amdgpu-labeller.yaml
+amd_gpu_device_plugin_url: https://raw.githubusercontent.com/ROCm/k8s-device-plugin/master/k8s-ds-amdgpu-dp.yaml

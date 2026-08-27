@@ -1,0 +1,41 @@
+---
+# Ensure a container runtime is present so the exporter containers can run.
+#
+# Docker CE is the platform's documented host prerequisite; this role only fills the gap
+# on hosts that do not have it yet (e.g. a freshly deployed lab VM) and is otherwise a
+# no-op. It intentionally installs Ubuntu's `docker.io` when the CLI is missing rather
+# than reconfiguring an existing engine, so a host that already runs Docker CE is left
+# untouched.
+
+- name: Check for an existing Docker CLI
+  ansible.builtin.command: docker --version
+  register: docker_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Install the Docker engine on Debian/Ubuntu when missing
+  ansible.builtin.apt:
+    name: docker.io
+    state: present
+    update_cache: true
+  become: true
+  when:
+    - docker_version_check.rc != 0
+    - ansible_facts['os_family'] == 'Debian'
+
+- name: Fail clearly when Docker is missing and cannot be auto-installed
+  ansible.builtin.fail:
+    msg: >-
+      Docker is required to run the exporter containers but is not installed and this
+      host is not Debian/Ubuntu. Install Docker CE (the documented host prerequisite)
+      and retry.
+  when:
+    - docker_version_check.rc != 0
+    - ansible_facts['os_family'] != 'Debian'
+
+- name: Ensure the Docker service is running and enabled
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  become: true

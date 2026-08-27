@@ -1,0 +1,15 @@
+---
+# Remove the exporter DaemonSets from a Kubernetes cluster, run on a control-plane target.
+#
+# Used when a cluster's exporter owner is switched back to ansible (or the cluster is torn
+# down): deleting the DaemonSets frees the fixed ports so the platform can re-install the
+# Ansible host exporters. Deletion ignores already-absent objects, so a remove on a clean
+# cluster is a no-op rather than a failure.
+
+- name: Remove exporter DaemonSets from the cluster
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: k8s_exporters
+      vars:
+        k8s_exporters_state: absent

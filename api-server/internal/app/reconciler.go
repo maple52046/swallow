@@ -6,6 +6,7 @@ import (
 	"time"
 
 	clusterapp "github.com/maple52046/swallow/internal/cluster/application"
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 )
 
@@ -131,6 +132,31 @@ func runMembershipSync(ctx context.Context, membership *clusterapp.MembershipSyn
 			return
 		case <-ticker.C:
 			syncMembershipOnce(ctx, membership)
+		}
+	}
+}
+
+// runAutoExporterDeploy installs the Ansible exporters on newly deployed, ansible-owned
+// servers on an interval. It shares the reconcile cadence: a server only becomes eligible
+// after a reconcile pass has projected it as deployed, so there is nothing to do more
+// often than that. Creation is deduplicated per server, so a rerun is cheap.
+func runAutoExporterDeploy(ctx context.Context, autoDeploy *operationapp.AutoExporterDeployUseCase, interval time.Duration) {
+	deployOnce := func() {
+		if err := autoDeploy.Run(ctx); err != nil {
+			log.Printf("auto-exporters: sweep failed: %v", err)
+		}
+	}
+
+	deployOnce()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("auto-exporter deploy stopped")
+			return
+		case <-ticker.C:
+			deployOnce()
 		}
 	}
 }

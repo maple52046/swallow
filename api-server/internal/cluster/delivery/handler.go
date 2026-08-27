@@ -34,6 +34,7 @@ type createClusterRequest struct {
 	Type          string `json:"type"`
 	IntegrationID string `json:"integrationId"`
 	GPUStackOwner string `json:"gpuStackOwner"`
+	ExporterOwner string `json:"exporterOwner"`
 }
 
 func (h *ClusterHandler) Create(c *fiber.Ctx) error {
@@ -51,6 +52,7 @@ func (h *ClusterHandler) Create(c *fiber.Ctx) error {
 		Type:          req.Type,
 		IntegrationID: req.IntegrationID,
 		GPUStackOwner: req.GPUStackOwner,
+		ExporterOwner: req.ExporterOwner,
 	})
 	if err != nil {
 		return respondError(c, err)
@@ -138,6 +140,7 @@ type updateClusterRequest struct {
 	Name          *string `json:"name"`
 	IntegrationID *string `json:"integrationId"`
 	GPUStackOwner *string `json:"gpuStackOwner"`
+	ExporterOwner *string `json:"exporterOwner"`
 }
 
 func (h *ClusterHandler) Update(c *fiber.Ctx) error {
@@ -150,6 +153,7 @@ func (h *ClusterHandler) Update(c *fiber.Ctx) error {
 		Name:          req.Name,
 		IntegrationID: req.IntegrationID,
 		GPUStackOwner: req.GPUStackOwner,
+		ExporterOwner: req.ExporterOwner,
 	})
 	if err != nil {
 		return respondError(c, err)

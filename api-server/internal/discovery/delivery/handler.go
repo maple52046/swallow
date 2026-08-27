@@ -36,6 +36,9 @@ func (h *DiscoveryHandler) PrometheusTargets(c *fiber.Ctx) error {
 		SiteID:            c.Query("siteId"),
 		ProvisioningState: c.Query("provisioningState"),
 		Port:              port,
+		// tag lets a scrape job select one server type, e.g. the RDC exporter job
+		// passes tag=amd-gpu so it only targets AMD GPU servers.
+		Tag: c.Query("tag"),
 	})
 	if err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))

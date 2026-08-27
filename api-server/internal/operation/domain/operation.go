@@ -19,6 +19,24 @@ const (
 	OperationKindInstallGPUDriver OperationKind = "install-gpu-driver"
 	OperationKindDeployKubernetes OperationKind = "deploy-kubernetes"
 	OperationKindConfigureSlurm   OperationKind = "configure-slurm"
+	// OperationKindInstallExporters installs a host's Prometheus exporters as
+	// containers: node-exporter on every target and the RDC exporter on AMD GPU
+	// targets. It is the Ansible half of exporter ownership and is what OS deployment
+	// auto-triggers.
+	OperationKindInstallExporters OperationKind = "install-exporters"
+	// OperationKindUninstallExporters removes the Ansible-installed exporters, so a
+	// host can be handed over to a Kubernetes DaemonSet owner or cleaned up on retire.
+	// It requires no particular provisioning state so a machine leaving service can
+	// still be cleaned.
+	OperationKindUninstallExporters OperationKind = "uninstall-exporters"
+	// OperationKindDeployK8sExporters applies the exporter DaemonSets (node-exporter and
+	// the RDC exporter) plus the AMD GPU device-plugin to a Kubernetes cluster, run on a
+	// control-plane target. The DaemonSets use hostNetwork on the same fixed ports, so
+	// swallow's http_sd scrape and server_id join are unchanged.
+	OperationKindDeployK8sExporters OperationKind = "deploy-k8s-exporters"
+	// OperationKindRemoveK8sExporters deletes those DaemonSets, freeing the fixed ports so
+	// the host can return to an Ansible-installed exporter.
+	OperationKindRemoveK8sExporters OperationKind = "remove-k8s-exporters"
 	// OperationKindCustom runs a named playbook with no swallow-side expectations
 	// about what it does, which is the escape hatch for anything not yet modelled.
 	OperationKindCustom OperationKind = "custom"
@@ -28,6 +46,10 @@ var ValidOperationKinds = []OperationKind{
 	OperationKindInstallGPUDriver,
 	OperationKindDeployKubernetes,
 	OperationKindConfigureSlurm,
+	OperationKindInstallExporters,
+	OperationKindUninstallExporters,
+	OperationKindDeployK8sExporters,
+	OperationKindRemoveK8sExporters,
 	OperationKindCustom,
 }
 
@@ -47,9 +69,12 @@ func (k OperationKind) Valid() bool {
 // and confusingly; refusing up front is faster and says why.
 func (k OperationKind) RequiredProvisioningState() string {
 	switch k {
-	case OperationKindInstallGPUDriver, OperationKindDeployKubernetes, OperationKindConfigureSlurm:
+	case OperationKindInstallGPUDriver, OperationKindDeployKubernetes, OperationKindConfigureSlurm,
+		OperationKindInstallExporters, OperationKindDeployK8sExporters:
 		return "deployed"
 	default:
+		// Uninstalling exporters intentionally has no state requirement: a machine
+		// being retired or handed to a k8s owner must still be cleanable.
 		return ""
 	}
 }
@@ -72,6 +97,20 @@ const (
 	StatusIndeterminate Status = "indeterminate"
 )
 
+// RefusedWhenLocked reports whether swallow must refuse this kind of operation against a
+// locked machine. The exporter operations are refused because a locked machine is
+// declared off-limits ("unmanaged"): swallow must neither install nor remove exporters on
+// it. Other kinds are left to the operator's explicit judgement, matching the provisioner
+// lock, which blocks provisioner state changes rather than every SSH action.
+func (k OperationKind) RefusedWhenLocked() bool {
+	switch k {
+	case OperationKindInstallExporters, OperationKindUninstallExporters:
+		return true
+	default:
+		return false
+	}
+}
+
 // Terminal reports whether a status will no longer change on its own, which is what stops
 // the dispatcher and any watcher from following an operation forever.
 func (s Status) Terminal() bool {
@@ -91,6 +130,9 @@ var (
 	// ErrTargetStateInvalid means a target is not in the provisioning state this kind
 	// of operation requires.
 	ErrTargetStateInvalid = errors.New("a target is not in the required provisioning state")
+	// ErrTargetLocked means a target machine is locked and this kind of operation must
+	// not change it. It protects machines an operator has deliberately taken off-limits.
+	ErrTargetLocked = errors.New("a target is locked and must not be changed")
 	// ErrPolicyConflict means the operation contradicts a cluster policy, e.g.
 	// installing GPU drivers on nodes whose cluster delegates that to the GPU operator.
 	ErrPolicyConflict = errors.New("operation conflicts with cluster policy")

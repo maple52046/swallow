@@ -97,6 +97,9 @@ func (r *fakeServerRepo) List(_ context.Context, filter serverdomain.ListFilter)
 				continue
 			}
 		}
+		if filter.Tag != "" && !containsString(s.Observed.Tags, filter.Tag) {
+			continue
+		}
 		if !filter.IncludeAbsent && s.Absent {
 			continue
 		}
@@ -124,6 +127,17 @@ func (r *fakeServerRepo) List(_ context.Context, filter serverdomain.ListFilter)
 	}
 
 	return serverdomain.ListResult{Servers: all[start:end], Total: total}, nil
+}
+
+// containsString reports whether value is present in list, used by the fake repo to
+// mirror MongoDB's scalar-against-array tag match.
+func containsString(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 func sortServersByHostname(servers []*serverdomain.Server) {

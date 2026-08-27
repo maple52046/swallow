@@ -84,7 +84,7 @@ export function ClusterDetailPage() {
     <Box>
       <PageHeader
         title={cluster.name}
-        subtitle={`${cluster.type} · GPU stack owned by ${cluster.gpuStackOwner}`}
+        subtitle={`${cluster.type} · GPU stack owned by ${cluster.gpuStackOwner} · exporters: ${cluster.exporterOwner}`}
         actions={
           <Button onClick={onSync} loading={syncing} disabled={syncing || !cluster.integrationId}>
             <UpdateIcon />

@@ -1,0 +1,22 @@
+# Managed by Swallow (install-exporters). Do not edit by hand.
+[Unit]
+Description=Swallow node-exporter (Prometheus)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=5
+# Remove any stale container from a previous run before starting a fresh one, so the
+# unit is safe to restart and the container name never collides.
+ExecStartPre=-/usr/bin/docker rm -f {{ node_exporter_container_name }}
+ExecStart=/usr/bin/docker run --rm --name {{ node_exporter_container_name }} \
+  --network host --pid host \
+  -v /:/host:ro,rslave \
+  {{ node_exporter_image }} \
+  --path.rootfs=/host \
+  --web.listen-address=:{{ node_exporter_port }}
+ExecStop=/usr/bin/docker stop {{ node_exporter_container_name }}
+
+[Install]
+WantedBy=multi-user.target

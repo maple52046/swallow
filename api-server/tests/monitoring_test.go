@@ -255,6 +255,25 @@ func TestServerMetrics_ReturnsNamedQueries(t *testing.T) {
 	}
 }
 
+// The GPU metrics are vendor-neutral: an AMD server exports the RDC series (gpu_util),
+// and the same named query resolves it without the caller knowing which stack is present.
+func TestServerMetrics_ResolvesAMDRDCSeries(t *testing.T) {
+	f := setupPlatform(t)
+	f.monitoring.querier.samples["gpu_util"] = []monitoringdomain.Sample{
+		{Labels: map[string]string{"server_id": "srv-amd"}, Value: 63, Timestamp: time.Now().UTC()},
+	}
+
+	resp := doRequest(t, f.app, "GET",
+		"/api/v1/monitoring/metrics?serverIds=srv-amd&metrics=gpuUtilizationPercent", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	metrics := parseBody(t, resp)["items"].([]any)[0].(map[string]any)["metrics"].(map[string]any)
+	if metrics["gpuUtilizationPercent"].(float64) != 63 {
+		t.Errorf("expected the AMD RDC value, got %v", metrics["gpuUtilizationPercent"])
+	}
+}
+
 // A metric the store had no answer for is absent, not zero: no data and zero
 // utilisation are different facts.
 func TestServerMetrics_MissingDataIsAbsentNotZero(t *testing.T) {

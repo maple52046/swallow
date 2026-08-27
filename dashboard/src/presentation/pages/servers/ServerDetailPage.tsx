@@ -12,6 +12,7 @@ import { useServerDetail } from './useServerDetail'
 /** The tabs, in order. Values are the child route path segments. */
 const TABS = [
   { value: 'summary', label: 'Summary' },
+  { value: 'monitoring', label: 'Monitoring' },
   { value: 'network', label: 'Network' },
   { value: 'storage', label: 'Storage' },
   { value: 'pci', label: 'PCI devices' },

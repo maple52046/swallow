@@ -1,0 +1,77 @@
+---
+# Install or remove the AMD RDC exporter as a systemd-managed container.
+#
+# Only runs on AMD GPU hosts (the tag_amd_gpu group). The metrics list is written to the
+# host and bind-mounted read-only into the container, so changing the collected fields is
+# a config change picked up on the next unit restart rather than an image change.
+
+- name: Install the RDC exporter
+  when: rdc_exporter_state == 'present'
+  become: true
+  block:
+    - name: Ensure the RDC exporter config directory exists
+      ansible.builtin.file:
+        path: "{{ rdc_exporter_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write the RDC metrics list
+      ansible.builtin.template:
+        src: metrics.txt.j2
+        dest: "{{ rdc_exporter_config_dir }}/metrics.txt"
+        owner: root
+        group: root
+        mode: "0644"
+      register: rdc_exporter_metrics_file
+
+    - name: Write the RDC exporter systemd unit
+      ansible.builtin.template:
+        src: swallow-rdc-exporter.service.j2
+        dest: "/etc/systemd/system/{{ rdc_exporter_unit }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: rdc_exporter_unit_file
+
+    - name: Reload systemd when the unit changed
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: rdc_exporter_unit_file.changed
+
+    - name: Enable and start the RDC exporter
+      ansible.builtin.systemd:
+        name: "{{ rdc_exporter_unit }}"
+        # Restart when either the unit or the metrics list changed, so a field change is
+        # actually applied to the running container.
+        state: "{{ 'restarted' if (rdc_exporter_unit_file.changed or rdc_exporter_metrics_file.changed) else 'started' }}"
+        enabled: true
+
+- name: Remove the RDC exporter
+  when: rdc_exporter_state == 'absent'
+  become: true
+  block:
+    - name: Stop and disable the RDC exporter
+      ansible.builtin.systemd:
+        name: "{{ rdc_exporter_unit }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the RDC exporter systemd unit
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ rdc_exporter_unit }}"
+        state: absent
+      register: rdc_exporter_unit_removed
+
+    - name: Reload systemd after removing the unit
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: rdc_exporter_unit_removed.changed
+
+    - name: Remove any leftover container
+      ansible.builtin.command: "docker rm -f {{ rdc_exporter_container_name }}"
+      register: rdc_exporter_rm
+      changed_when: rdc_exporter_rm.rc == 0
+      failed_when: false

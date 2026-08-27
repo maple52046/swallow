@@ -22,4 +22,15 @@ scrape_configs:
         authorization:
           credentials_file: /run/secrets/swallow-machine-token
 
+  # AMD GPU servers only: the tag filter selects machines tagged amd-gpu, so this job
+  # never produces a failing target on a CPU-only host. The RDC exporter listens on 5000.
+  - job_name: site-rdc-exporter
+    http_sd_configs:
+      - url: https://swallow.example.internal/api/v1/discovery/prometheus?port=5000&tag=amd-gpu
+        refresh_interval: 60s
+        tls_config:
+          ca_file: /run/secrets/swallow-ca.crt
+        authorization:
+          credentials_file: /run/secrets/swallow-machine-token
+
 # An installation may add remote_write here without changing Swallow's label contract.

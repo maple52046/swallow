@@ -26,6 +26,8 @@ Consumer: `dashboard`.
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
 | [operations.md](operations.md) | Active | `/api/v1/operations` | Create, observe, and retry Swallow-owned playbook executions, with logs and per-task events. |
 | [clusters.md](clusters.md) | Active | `/api/v1/clusters` | Register clusters, read membership, and deploy a k0s cluster onto provisioned servers. |
+| [server-metrics.md](server-metrics.md) | Active | `GET /api/v1/monitoring/metrics` | Read current metric values for servers from the metrics backend, and list the fixed metric-name set. |
+| [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus` | Prometheus `http_sd` target list with the metrics label contract; `tag` selects one server type. |
 
 There is **no** `POST /api/v1/servers/` and **no** `DELETE /api/v1/servers/{id}`. Servers
 are produced by reconciling provisioner inventory, not registered or deleted by a caller;

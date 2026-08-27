@@ -12,12 +12,15 @@ import (
 )
 
 type clusterDoc struct {
-	ID            string      `bson:"_id"`
-	SiteID        string      `bson:"siteId"`
-	Name          string      `bson:"name"`
-	Type          string      `bson:"type"`
-	IntegrationID string      `bson:"integrationId,omitempty"`
-	GPUStackOwner string      `bson:"gpuStackOwner"`
+	ID            string `bson:"_id"`
+	SiteID        string `bson:"siteId"`
+	Name          string `bson:"name"`
+	Type          string `bson:"type"`
+	IntegrationID string `bson:"integrationId,omitempty"`
+	GPUStackOwner string `bson:"gpuStackOwner"`
+	// ExporterOwner is omitempty so a document written before this field existed
+	// decodes as empty and is defaulted to ansible on read.
+	ExporterOwner string      `bson:"exporterOwner,omitempty"`
 	Sync          clusterSync `bson:"sync"`
 	CreatedAt     time.Time   `bson:"createdAt"`
 	UpdatedAt     time.Time   `bson:"updatedAt"`
@@ -103,6 +106,7 @@ func (r *MongoClusterRepo) Update(ctx context.Context, cluster *clusterdomain.Cl
 			"name":          cluster.Name,
 			"integrationId": cluster.IntegrationID,
 			"gpuStackOwner": string(cluster.GPUStackOwner),
+			"exporterOwner": string(cluster.ExporterOwner),
 			"updatedAt":     cluster.UpdatedAt,
 		}},
 	)
@@ -157,6 +161,7 @@ func toDoc(cluster *clusterdomain.Cluster) *clusterDoc {
 		Type:          string(cluster.Type),
 		IntegrationID: cluster.IntegrationID,
 		GPUStackOwner: string(cluster.GPUStackOwner),
+		ExporterOwner: string(cluster.ExporterOwner),
 		Sync: clusterSync{
 			LastStartedAt:   cluster.Sync.LastStartedAt,
 			LastSucceededAt: cluster.Sync.LastSucceededAt,
@@ -170,6 +175,12 @@ func toDoc(cluster *clusterdomain.Cluster) *clusterDoc {
 }
 
 func toCluster(doc *clusterDoc) *clusterdomain.Cluster {
+	// A cluster stored before exporterOwner existed decodes as empty; treat that as the
+	// default ansible owner rather than an invalid empty value.
+	exporterOwner := clusterdomain.ExporterOwner(doc.ExporterOwner)
+	if exporterOwner == "" {
+		exporterOwner = clusterdomain.ExporterOwnerAnsible
+	}
 	return &clusterdomain.Cluster{
 		ID:            doc.ID,
 		SiteID:        doc.SiteID,
@@ -177,6 +188,7 @@ func toCluster(doc *clusterDoc) *clusterdomain.Cluster {
 		Type:          clusterdomain.ClusterType(doc.Type),
 		IntegrationID: doc.IntegrationID,
 		GPUStackOwner: clusterdomain.GPUStackOwner(doc.GPUStackOwner),
+		ExporterOwner: exporterOwner,
 		Sync: clusterdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,

@@ -19,6 +19,11 @@ type ListFilter struct {
 	IncludeAbsent bool
 	// ClusterID filters on the membership axis.
 	ClusterID string
+	// Tag restricts the result to servers whose provisioner tags include this exact
+	// value. It exists so a Prometheus scrape job can target one server type — the RDC
+	// exporter job asks for "amd-gpu" — without the discovery endpoint hard-coding what
+	// the tag means.
+	Tag string
 
 	Offset int
 	// Limit of 0 means no limit, which is what the discovery endpoints need: a

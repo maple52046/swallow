@@ -62,6 +62,43 @@ func (o GPUStackOwner) Valid() bool {
 	return false
 }
 
+// ExporterOwner decides which subsystem installs the Prometheus exporters on this
+// cluster's member hosts. It generalises GPUStackOwner from GPU drivers to all host
+// exporters, so exactly one subsystem installs an exporter on a host and two never
+// contend for the fixed ports (9100 node, 5000 RDC).
+//
+// See docs/decisions/003-metrics-label-contract.md (2026-08-27 amendment).
+type ExporterOwner string
+
+const (
+	// ExporterOwnerAnsible means swallow installs the exporters as host containers via
+	// embedded Ansible. This is the default, and the effective owner for any host that
+	// is in no cluster.
+	ExporterOwnerAnsible ExporterOwner = "ansible"
+	// ExporterOwnerK8s means a Kubernetes DaemonSet installs the exporters on the node.
+	// The DaemonSet uses hostNetwork on the same fixed ports, so swallow's scrape and
+	// join are unchanged.
+	ExporterOwnerK8s ExporterOwner = "k8s"
+	// ExporterOwnerUnmanaged is not a cluster policy value. It is the resolved effective
+	// owner of a host swallow must not touch: a locked machine, or one where the
+	// operator installed exporters by hand. It is deliberately excluded from
+	// ValidExporterOwners so it can never be set as a cluster policy.
+	ExporterOwnerUnmanaged ExporterOwner = "unmanaged"
+)
+
+// ValidExporterOwners lists the values a cluster policy may take. ExporterOwnerUnmanaged
+// is intentionally absent: it is only ever a resolved per-host effective value.
+var ValidExporterOwners = []ExporterOwner{ExporterOwnerAnsible, ExporterOwnerK8s}
+
+func (o ExporterOwner) Valid() bool {
+	for _, valid := range ValidExporterOwners {
+		if o == valid {
+			return true
+		}
+	}
+	return false
+}
+
 // Cluster is a registered cluster.
 type Cluster struct {
 	ID     string
@@ -73,6 +110,9 @@ type Cluster struct {
 	// state between deciding to build one and having built it.
 	IntegrationID string
 	GPUStackOwner GPUStackOwner
+	// ExporterOwner decides who installs this cluster's exporters. Defaults to
+	// ExporterOwnerAnsible; only ExporterOwnerK8s is honoured as an alternative.
+	ExporterOwner ExporterOwner
 
 	Sync      SyncState
 	CreatedAt time.Time

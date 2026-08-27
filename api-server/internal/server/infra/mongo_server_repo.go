@@ -281,6 +281,11 @@ func (r *MongoServerRepo) List(ctx context.Context, filter serverdomain.ListFilt
 	if filter.ClusterID != "" {
 		query["membership.clusterId"] = filter.ClusterID
 	}
+	if filter.Tag != "" {
+		// Exact membership in the mirrored tag array; MongoDB matches an array field
+		// against a scalar by element containment, which is the intended semantics here.
+		query["observed.tags"] = filter.Tag
+	}
 	if !filter.IncludeAbsent {
 		query["absent"] = false
 	}

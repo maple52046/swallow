@@ -181,6 +181,12 @@ func (s *ExecutionService) resolveTargets(ctx context.Context, kind operationdom
 			return nil, "", fmt.Errorf("%w: %s requires %q",
 				operationdomain.ErrTargetStateInvalid, server.DisplayName(), required)
 		}
+		// A locked machine is off-limits to the exporter operations: swallow must not
+		// install or remove exporters on a machine an operator has locked.
+		if kind.RefusedWhenLocked() && server.Provisioning != nil && server.Provisioning.Locked {
+			return nil, "", fmt.Errorf("%w: %s is locked",
+				operationdomain.ErrTargetLocked, server.DisplayName())
+		}
 		targets = append(targets, server)
 	}
 	return targets, siteID, nil

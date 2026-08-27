@@ -73,6 +73,7 @@ Every error response uses one envelope:
 | `not_found` | 404 | The addressed resource does not exist. |
 | `conflict` | 409 | The request violates a uniqueness or state constraint. |
 | `internal_error` | 500 | An unexpected server-side failure. |
+| `provider_unavailable` | 503 | An upstream integration swallow depends on (e.g. the metrics backend) is not configured or cannot be reached. Distinct from `internal_error` so a client can tell "not wired up / upstream down" from "swallow has a bug". |
 
 Adding a new `error.code` is a contract change: add it here first, then in the
 endpoint contract that returns it.

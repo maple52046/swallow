@@ -1,0 +1,55 @@
+---
+# Apply or delete the exporter DaemonSets on a Kubernetes cluster, run on a control-plane
+# target using the cluster's on-host kubectl (k0s by default). This is the k8s owner of
+# exporter ownership; the Ansible install-exporters is the other owner, and exactly one
+# runs on a host at a time so the fixed ports never collide.
+
+- name: Install the k8s exporters
+  when: k8s_exporters_state == 'present'
+  become: true
+  block:
+    - name: Install the AMD GPU node-labeller
+      ansible.builtin.command:
+        cmd: "{{ k8s_exporters_kubectl }} apply -f {{ amd_gpu_node_labeller_url }}"
+      changed_when: true
+      when: k8s_exporters_install_amd_gpu_prereqs | bool
+
+    - name: Install the AMD GPU device-plugin
+      ansible.builtin.command:
+        cmd: "{{ k8s_exporters_kubectl }} apply -f {{ amd_gpu_device_plugin_url }}"
+      changed_when: true
+      when: k8s_exporters_install_amd_gpu_prereqs | bool
+
+    - name: Ensure the manifest directory exists
+      ansible.builtin.file:
+        path: "{{ k8s_exporters_manifest_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Render the exporter DaemonSet manifests
+      ansible.builtin.template:
+        src: exporters.yaml.j2
+        dest: "{{ k8s_exporters_manifest_dir }}/exporters.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Apply the exporter DaemonSets
+      ansible.builtin.command:
+        cmd: "{{ k8s_exporters_kubectl }} apply -f {{ k8s_exporters_manifest_dir }}/exporters.yaml"
+      changed_when: true
+
+- name: Remove the k8s exporters
+  when: k8s_exporters_state == 'absent'
+  become: true
+  block:
+    - name: Delete the exporter DaemonSets
+      ansible.builtin.command:
+        # --ignore-not-found makes this a no-op when they were never applied, so a
+        # remove on a clean cluster is not a failure.
+        cmd: "{{ k8s_exporters_kubectl }} delete -f {{ k8s_exporters_manifest_dir }}/exporters.yaml --ignore-not-found"
+      changed_when: true
+      # The manifest may be absent if it was never rendered on this host; treat that as done.
+      failed_when: false

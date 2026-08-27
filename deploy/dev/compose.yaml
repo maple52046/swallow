@@ -76,6 +76,27 @@ services:
       retries: 12
       start_period: 90s
 
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.1.0}
+    restart: unless-stopped
+    depends_on:
+      - api-server
+    # Reaches the api-server over the compose network for http_sd, and reaches lab VMs
+    # (node-exporter/rdc-exporter targets) by their own routable LAN address. host-gateway
+    # is mapped for exporters that happen to live on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.listen-address=:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
   dashboard:
     build:
       context: .
@@ -109,3 +130,4 @@ volumes:
   go-mod-cache:
   go-build-cache:
   npm-cache:
+  prometheus-data:

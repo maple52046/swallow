@@ -1,0 +1,22 @@
+---
+# Install a host's Prometheus exporters as containers, managed by systemd.
+#
+# node-exporter goes on every target; the RDC exporter goes only on AMD GPU servers,
+# which the discovery inventory groups as `tag_amd_gpu` (the MAAS tag `amd-gpu`). The
+# ports are fixed (9100 node, 5000 RDC) so swallow's http_sd keeps scraping the host
+# regardless of which subsystem installed the exporter. Both roles are idempotent, so a
+# rerun — including the automatic one after OS deployment — is a no-op when nothing
+# changed.
+
+- name: Install node-exporter on every managed host
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: docker_runtime
+    - role: node_exporter
+
+- name: Install the RDC exporter on AMD GPU hosts
+  hosts: tag_amd_gpu
+  gather_facts: false
+  roles:
+    - role: rdc_exporter

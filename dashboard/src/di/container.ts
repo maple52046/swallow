@@ -2,10 +2,12 @@ import { ApiServerRepository } from '@/infrastructure/api/ApiServerRepository'
 import { ApiSiteRepository } from '@/infrastructure/api/ApiSiteRepository'
 import { ApiClusterRepository } from '@/infrastructure/api/ApiClusterRepository'
 import { ApiOperationRepository } from '@/infrastructure/api/ApiOperationRepository'
+import { ApiMonitoringRepository } from '@/infrastructure/api/ApiMonitoringRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { SiteRepository } from '@/application/ports/SiteRepository'
 import type { ClusterRepository } from '@/application/ports/ClusterRepository'
 import type { OperationRepository } from '@/application/ports/OperationRepository'
+import type { MonitoringRepository } from '@/application/ports/MonitoringRepository'
 
 /**
  * Repositories are exposed directly rather than behind pass-through use cases.
@@ -23,6 +25,7 @@ export interface AppContainer {
   sites: SiteRepository
   clusters: ClusterRepository
   operations: OperationRepository
+  monitoring: MonitoringRepository
 }
 
 export function createContainer(): AppContainer {
@@ -31,5 +34,6 @@ export function createContainer(): AppContainer {
     sites: new ApiSiteRepository(),
     clusters: new ApiClusterRepository(),
     operations: new ApiOperationRepository(),
+    monitoring: new ApiMonitoringRepository(),
   }
 }
