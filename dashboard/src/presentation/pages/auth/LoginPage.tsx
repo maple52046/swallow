@@ -16,6 +16,7 @@ import {
 } from '@patternfly/react-core'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/presentation/contexts/AuthContext'
+import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 
 interface LoginLocationState { from?: string }
 
@@ -58,7 +59,7 @@ export function LoginPage() {
   return (
     <PatternFlyLoginPage className="sw-login" loginTitle="Swallow" loginSubtitle="Operator console">
       <LoginMainHeader>
-        <div className="sw-login-brand"><span className="sw-brand-mark" aria-hidden="true">S</span><Title headingLevel="h1">Swallow</Title></div>
+        <div className="sw-login-brand"><SwallowLogo /><Title headingLevel="h1">Swallow</Title></div>
         <Content component="p">Sign in to manage infrastructure, clusters, and automation.</Content>
       </LoginMainHeader>
       <LoginMainBody>

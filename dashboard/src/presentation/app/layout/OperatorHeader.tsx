@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import {
   Button,
-  Divider,
   Dropdown,
   DropdownItem,
   DropdownList,
@@ -28,6 +27,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAppearance } from '@/presentation/app/theme/appearanceContext'
 import type { AppearanceMode } from '@/presentation/app/theme'
 import { useAuth } from '@/presentation/contexts/AuthContext'
+import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 
 interface OperatorHeaderProps {
@@ -59,25 +59,38 @@ export function OperatorHeader({ variant, expanded, onToggle, navigation }: Oper
   }
 
   const brand = (
-    <MastheadBrand>
+    <MastheadBrand className="sw-masthead-brand">
       <MastheadLogo
         component={(props) => <a {...props} href={scopedHref('/')} onClick={(event) => {
           event.preventDefault()
           navigate(scopedHref('/'))
-        }} />}
-        isCompact
+        }} aria-label="Swallow home" />}
       >
-        <span className="sw-brand-mark" aria-hidden="true">S</span>
-      </MastheadLogo>
-      <MastheadLogo
-        component={(props) => <a {...props} href={scopedHref('/')} onClick={(event) => {
-          event.preventDefault()
-          navigate(scopedHref('/'))
-        }} />}
-      >
-        <span className="sw-brand-name">Swallow</span>
+        <span className="sw-brand-content"><SwallowLogo /><span className="sw-brand-name">Swallow</span></span>
       </MastheadLogo>
     </MastheadBrand>
+  )
+
+  const navigationToggle = (
+    <MastheadToggle>
+      {isDocked ? (
+        <Button
+          variant="plain"
+          isHamburger
+          onClick={onToggle}
+          aria-label="Global navigation"
+          aria-expanded={expanded}
+        />
+      ) : (
+        <PageToggleButton
+          variant="plain"
+          aria-label="Global navigation"
+          isSidebarOpen={expanded}
+          onSidebarToggle={onToggle}
+          isHamburgerButton
+        />
+      )}
+    </MastheadToggle>
   )
 
   const utilities = (
@@ -177,29 +190,10 @@ export function OperatorHeader({ variant, expanded, onToggle, navigation }: Oper
 
   return (
     <Masthead variant={isDocked ? 'docked' : 'default'} id={`swallow-${variant}-masthead`}>
-      <MastheadMain>
-        <MastheadToggle>
-          {isDocked ? (
-            <Button
-              variant="plain"
-              isHamburger
-              onClick={onToggle}
-              aria-label="Global navigation"
-              aria-expanded={expanded}
-            />
-          ) : (
-            <PageToggleButton
-              variant="plain"
-              aria-label="Global navigation"
-              isSidebarOpen={expanded}
-              onSidebarToggle={onToggle}
-              isHamburgerButton
-            />
-          )}
-        </MastheadToggle>
+      <MastheadMain className="sw-masthead-main">
         {brand}
+        {navigationToggle}
       </MastheadMain>
-      {isDocked && <Divider />}
       <MastheadContent>
         <Toolbar isVertical={isDocked} isStatic={!isDocked}>
           <ToolbarContent>

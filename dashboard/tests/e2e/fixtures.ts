@@ -2,20 +2,22 @@ import type { Page, Route } from 'playwright/test'
 
 const now = '2026-08-27T03:00:00Z'
 
+/** Builds fleet fixtures; Server four deliberately models an unobserved inventory. */
 function makeServer(index: number) {
   const ordinal = index + 1
   const named = ordinal <= 4
+  const hasInventory = ordinal !== 4
   return {
     id: `srv-${ordinal}`,
     source: { siteId: 'site-a', integrationId: 'maas-a', providerMachineId: `machine-${ordinal}` },
     hostname: named ? `gpu-node-0${ordinal}` : `compute-node-${String(ordinal).padStart(3, '0')}`,
     fqdn: named ? `gpu-node-0${ordinal}.lab.example` : `compute-node-${String(ordinal).padStart(3, '0')}.lab.example`,
-    addresses: [named ? `192.168.40.${20 + ordinal}` : `10.20.${Math.floor(index / 250)}.${(index % 250) + 1}`],
-    architecture: 'amd64/generic', cpuCores: 64, cpuModel: 'AMD EPYC 9554', memoryMiB: 524288, storageGB: 3840,
-    gpus: named ? [{ vendor: 'AMD', model: 'MI300X', count: 8 }] : [],
-    systemVendor: 'Supermicro', systemProduct: 'AS-8125GS-TNHR', providerZone: index < 2 ? 'rack-a' : 'rack-b',
-    providerResourcePool: named ? 'accelerators' : 'compute', providerPod: '', tags: named ? ['gpu', 'production'] : ['compute'],
-    hardware: { systemUuid: `uuid-${ordinal}`, serialNumber: `SN${String(ordinal).padStart(4, '0')}`, macAddresses: [`02:00:00:00:${String(Math.floor(index / 250)).padStart(2, '0')}:${String((index % 250) + 1).padStart(2, '0')}`] },
+    addresses: hasInventory ? [named ? `192.168.40.${20 + ordinal}` : `10.20.${Math.floor(index / 250)}.${(index % 250) + 1}`] : [],
+    architecture: hasInventory ? 'amd64/generic' : '', cpuCores: hasInventory ? 64 : 0, cpuModel: hasInventory ? 'AMD EPYC 9554' : '', memoryMiB: hasInventory ? 524288 : 0, storageGB: hasInventory ? 3840 : 0,
+    gpus: named && hasInventory ? [{ vendor: 'AMD', model: 'MI300X', count: 8 }] : [],
+    systemVendor: hasInventory ? 'Supermicro' : '', systemProduct: hasInventory ? 'AS-8125GS-TNHR' : '', providerZone: hasInventory ? index < 2 ? 'rack-a' : 'rack-b' : '',
+    providerResourcePool: hasInventory ? named ? 'accelerators' : 'compute' : '', providerPod: '', tags: hasInventory ? named ? ['gpu', 'production'] : ['compute'] : [],
+    hardware: { systemUuid: `uuid-${ordinal}`, serialNumber: `SN${String(ordinal).padStart(4, '0')}`, macAddresses: hasInventory ? [`02:00:00:00:${String(Math.floor(index / 250)).padStart(2, '0')}:${String((index % 250) + 1).padStart(2, '0')}`] : [] },
     provisioning: { state: 'deployed', providerState: 'deployed', powerState: 'on', osSystem: 'ubuntu', distroSeries: '24.04', ephemeral: false, hweKernel: 'ga-24.04', locked: false, commissioningStatus: 'passed', testingStatus: 'passed', integrationId: 'maas-a', observedAt: now },
     membership: ordinal <= 3 ? { clusterId: 'cluster-a', nodeName: `gpu-node-0${ordinal}`, role: 'control-plane', state: 'ready', observedAt: now } : ordinal === 4 ? { clusterId: 'cluster-a', nodeName: 'gpu-node-04', role: 'worker', state: 'ready', observedAt: now } : null,
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
@@ -80,7 +82,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const siteId = url.searchParams.get('siteId')
       return json(route, {
         generatedAt: now, scope: { siteId },
-        inventory: { sites: siteId ? 1 : 2, servers: 4, absent: 0, deployed: 4, clustered: 4, gpuDevices: 32, health: { up: 3, down: 1, unknown: 0 } },
+        inventory: { sites: siteId ? 1 : 2, servers: 4, absent: 0, deployed: 4, clustered: 4, gpuDevices: 24, health: { up: 3, down: 1, unknown: 0 } },
         integrations: { total: integrations.length, failing: 1, items: integrations.map((item) => ({ id: item.id, siteId: item.siteId, name: item.name, kind: item.kind, providerKind: item.providerKind, enabled: item.enabled, lastSucceededAt: item.sync.lastSucceededAt, lastError: item.sync.lastError })) },
         clusters: { total: 2, unreachable: 1, unmatchedMembers: 1 }, operations: { active: 1, failedLast24Hours: 1, recent: operations },
         monitoring: { available: true, error: null, firing: { critical: 1, warning: 1, items: alerts.filter((alert) => alert.state === 'firing') } },

@@ -20,6 +20,37 @@ body {
   font-family: var(--pf-t--global--font--family--body);
 }
 
+.sw-swallow-logo {
+  width: 3rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  color: var(--pf-t--global--color--brand--default);
+}
+
+.sw-swallow-logo__primary {
+  fill: currentcolor;
+}
+
+.sw-swallow-logo__light {
+  fill: var(--pf-t--global--background--color--primary--default);
+  stroke: currentcolor;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}
+
+.sw-swallow-logo__eye {
+  stroke: var(--pf-t--global--background--color--primary--default);
+  stroke-width: 1.25;
+}
+
+.sw-swallow-logo__accent {
+  fill: var(--pf-t--global--color--status--warning--default);
+}
+
+.sw-swallow-logo__glint {
+  fill: var(--pf-t--global--background--color--primary--default);
+}
+
 button,
 input,
 select,
@@ -252,16 +283,46 @@ a.sw-attention-row:hover { background: var(--pf-t--global--background--color--pr
   font-weight: var(--pf-t--global--font--weight--body--bold);
 }
 
-.sw-server-table { min-width: 1180px; }
-.sw-sticky-name { position: sticky; inset-inline-start: 0; min-width: 260px; background: var(--pf-t--global--background--color--primary--default); }
-.sw-sticky-actions { position: sticky; inset-inline-end: 0; width: 52px; background: var(--pf-t--global--background--color--primary--default); }
+.sw-server-table { min-width: 2520px; }
+.sw-server-table > thead > tr > th,
+.sw-server-table > tbody > tr > td { vertical-align: middle; }
+.sw-server-table .sw-sticky-selection { position: sticky; inset-inline-start: 0; width: 72px; min-width: 72px; background: var(--pf-t--global--background--color--primary--default); }
+.sw-server-table .sw-sticky-name { position: sticky; inset-inline-start: 72px; width: 220px; min-width: 220px; background: var(--pf-t--global--background--color--primary--default); }
+.sw-server-table .sw-sticky-actions { position: sticky; inset-inline-end: 0; width: 72px; min-width: 72px; background: var(--pf-t--global--background--color--primary--default); }
 thead .sw-sticky-name,
 thead .sw-sticky-actions { z-index: 4; background: var(--pf-t--global--background--color--sticky--default); }
+.sw-server-table .sw-power-cell { width: 96px; min-width: 96px; }
 tbody .sw-sticky-name,
 tbody .sw-sticky-actions { z-index: 1; }
-.sw-select-name { display: flex; min-width: 0; align-items: flex-start; gap: var(--pf-t--global--spacer--sm); }
-.sw-select-name > span { min-width: 0; }
-.sw-select-name .pf-v6-c-label { margin-inline-start: var(--pf-t--global--spacer--xs); }
+thead .sw-sticky-selection { z-index: 5; background: var(--pf-t--global--background--color--sticky--default); }
+tbody .sw-sticky-selection { z-index: 2; }
+.sw-cell-center { text-align: center; vertical-align: middle; }
+.sw-cell-center .pf-v6-c-check { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
+.sw-machine-name { display: flex; min-width: 0; align-items: center; gap: var(--pf-t--global--spacer--xs); white-space: nowrap; }
+.sw-tag-list { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); flex-wrap: wrap; }
+.sw-server-table .sw-column-tags { min-width: 150px; }
+.sw-server-table .sw-hardware-column { white-space: nowrap; }
+.sw-server-table .sw-column-architecture { min-width: 148px; }
+.sw-server-table .sw-column-cpu-cores { min-width: 112px; }
+.sw-server-table .sw-column-cpu-model { min-width: 220px; }
+.sw-server-table .sw-column-memory { min-width: 104px; }
+.sw-server-table .sw-column-storage { min-width: 112px; }
+.sw-server-table .sw-column-system-vendor { min-width: 160px; }
+.sw-server-table .sw-column-system-product { min-width: 180px; }
+.sw-gpu-inventory { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--md); flex-wrap: wrap; }
+.sw-gpu-inventory > span { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); }
+.sw-gpu-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sw-gpu-vendor-logo { display: inline-flex; width: 76px; height: 24px; align-items: center; color: var(--pf-t--global--text--color--regular); }
+.sw-gpu-vendor-logo svg { width: 100%; height: 24px; overflow: visible; }
+.sw-gpu-vendor-logo path,
+.sw-gpu-vendor-logo text { fill: currentcolor; }
+.sw-gpu-vendor-logo text { font-family: var(--pf-t--global--font--family--body); letter-spacing: 0; }
+.sw-gpu-vendor-logo[data-vendor='amd'] { color: #c91920; }
+.sw-gpu-vendor-logo[data-vendor='nvidia'] { color: #3e7b00; }
+.sw-gpu-vendor-logo[data-vendor='intel'] { color: #0068b5; }
+.pf-v6-theme-dark .sw-gpu-vendor-logo[data-vendor='amd'] { color: #ff6b70; }
+.pf-v6-theme-dark .sw-gpu-vendor-logo[data-vendor='nvidia'] { color: #9bdc28; }
+.pf-v6-theme-dark .sw-gpu-vendor-logo[data-vendor='intel'] { color: #4cb5f5; }
 .sw-group-row td { background: var(--pf-t--global--background--color--secondary--default); }
 .sw-group-row td > span { display: flex; align-items: center; gap: var(--pf-t--global--spacer--sm); }
 .sw-sort-button { min-width: 0; padding: 0; font-weight: var(--pf-t--global--font--weight--body--bold); }

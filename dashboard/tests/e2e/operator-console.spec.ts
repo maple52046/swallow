@@ -64,8 +64,27 @@ test.describe('operator interactions', () => {
 
   test('desktop dock collapses to icons with tooltip and persists', async ({ page }) => {
     await page.goto('/')
-    await visibleGlobalNavigation(page).click()
+    const masthead = page.locator('#swallow-docked-masthead')
+    const brand = masthead.getByRole('link', { name: 'Swallow home' })
+    const toggle = masthead.getByRole('button', { name: 'Global navigation' })
     const dock = page.locator('.pf-v6-c-page__dock')
+    await expect.poll(() => dock.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(186)
+    const logo = brand.locator('svg')
+    await expect(logo).toBeVisible()
+    await expect(logo).toHaveAttribute('viewBox', '0 0 104 88')
+    const logoBox = await logo.boundingBox()
+    if (!logoBox) throw new Error('Swallow logo is not measurable')
+    expect(logoBox.width).toBeGreaterThan(logoBox.height)
+    await expect(masthead.locator('.pf-v6-c-divider')).toHaveCount(0)
+    expect(await brand.evaluate((element) => getComputedStyle(element).textDecorationLine)).toBe('none')
+    const brandBox = await brand.boundingBox()
+    const toggleBox = await toggle.boundingBox()
+    if (!brandBox || !toggleBox) throw new Error('Docked brand row is not measurable')
+    const brandCenter = brandBox.y + brandBox.height / 2
+    const toggleCenter = toggleBox.y + toggleBox.height / 2
+    expect(Math.abs(brandCenter - toggleCenter)).toBeLessThan(2)
+    expect(brandBox.x + brandBox.width).toBeLessThan(toggleBox.x)
+    await visibleGlobalNavigation(page).click()
     await expect(dock).not.toHaveClass(/pf-m-text-expanded/)
     await expect.poll(() => dock.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
     await expect.poll(() => page.evaluate(() => localStorage.getItem('swallow.shell.sidebar-collapsed'))).toBe('true')
@@ -79,6 +98,13 @@ test.describe('operator interactions', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
     const toggle = visibleGlobalNavigation(page)
+    const brand = page.locator('#swallow-mobile-masthead').getByRole('link', { name: 'Swallow home' })
+    await expect(brand).toContainText('Swallow')
+    await expect(brand.locator('..')).toHaveCSS('border-bottom-style', 'none')
+    const brandBox = await brand.boundingBox()
+    const toggleBox = await toggle.boundingBox()
+    if (!brandBox || !toggleBox) throw new Error('Mobile brand row is not measurable')
+    expect(Math.abs((brandBox.y + brandBox.height / 2) - (toggleBox.y + toggleBox.height / 2))).toBeLessThan(2)
     await toggle.click()
     const dock = page.locator('.pf-v6-c-page__dock')
     await expect(dock).toBeVisible()
@@ -91,6 +117,48 @@ test.describe('operator interactions', () => {
   test('NetBox views, columns, selection, and MAAS actions work together', async ({ page }) => {
     await page.goto('/servers?site=site-a')
     await page.getByLabel('Select all on this page').click()
+    const table = page.getByRole('grid', { name: 'Servers' })
+    await expect(table.getByRole('columnheader', { name: 'MAC address' })).toBeVisible()
+    await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toBeVisible()
+    await expect(table.getByRole('columnheader', { name: 'Pool', exact: true })).toBeVisible()
+    for (const heading of ['Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product']) {
+      await expect(table.getByRole('columnheader', { name: heading, exact: true })).toHaveCount(1)
+    }
+    for (const [heading, minimumWidth] of Object.entries({ 'CPU cores': 112, Memory: 104, Storage: 112, 'System vendor': 160 })) {
+      expect((await table.getByRole('columnheader', { name: heading, exact: true }).boundingBox())?.width).toBeGreaterThanOrEqual(minimumWidth)
+    }
+    await expect(table.getByRole('columnheader', { name: 'Hardware', exact: true })).toHaveCount(0)
+    const firstRow = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
+    const selectionCell = firstRow.locator('td[data-label="Selection"]')
+    const powerCell = firstRow.locator('td[data-label="Power"]')
+    await expect(selectionCell).toHaveCSS('text-align', 'center')
+    await expect(selectionCell).toHaveCSS('vertical-align', 'middle')
+    await expect(selectionCell).toHaveCSS('position', 'sticky')
+    await expect(powerCell).toHaveCSS('text-align', 'center')
+    expect((await powerCell.boundingBox())?.width).toBeGreaterThanOrEqual(96)
+    await expect(powerCell).toHaveCSS('vertical-align', 'middle')
+    expect(await firstRow.locator('td').evaluateAll((cells) => cells.every((cell) => getComputedStyle(cell).verticalAlign === 'middle'))).toBe(true)
+    await expect(firstRow.locator('td[data-label="Machine"]')).not.toContainText('02:00:00:00:00:01')
+    await expect(firstRow.locator('td[data-label="MAC address"]')).toHaveText('02:00:00:00:00:01')
+    await expect(firstRow.locator('td[data-label="Zone"]')).toHaveText('rack-a')
+    await expect(firstRow.locator('td[data-label="Pool"]')).toHaveText('accelerators')
+    await expect(firstRow.locator('td[data-label="Architecture"]')).toHaveText('amd64/generic')
+    await expect(firstRow.locator('td[data-label="CPU cores"]')).toHaveText('64')
+    await expect(firstRow.locator('td[data-label="CPU model"]')).toHaveText('AMD EPYC 9554')
+    await expect(firstRow.locator('td[data-label="Memory"]')).toHaveText('512 GiB')
+    await expect(firstRow.locator('td[data-label="Storage"]')).toHaveText('3840 GB')
+    await expect(firstRow.locator('td[data-label="System vendor"]')).toHaveText('Supermicro')
+    await expect(firstRow.locator('td[data-label="System product"]')).toHaveText('AS-8125GS-TNHR')
+    expect(parseFloat(await firstRow.locator('.sw-tag-list').evaluate((element) => getComputedStyle(element).columnGap))).toBeGreaterThan(0)
+    await expect(firstRow.locator('td[data-label="GPUs"]')).toContainText('8 x')
+    const vendorLogo = firstRow.getByRole('img', { name: 'AMD GPU vendor logo' })
+    await expect(vendorLogo).toBeVisible()
+    await vendorLogo.focus()
+    await expect(page.getByRole('tooltip')).toHaveText('AMD MI300X')
+    const missingRow = table.getByRole('row').filter({ hasText: 'gpu-node-04' }).first()
+    for (const label of ['Address', 'MAC address', 'Zone', 'Pool', 'Tags', 'Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product', 'GPUs']) {
+      await expect(missingRow.locator(`td[data-label="${label}"]`)).toHaveText('-')
+    }
     await expect(page.getByText('4 selected')).toBeVisible()
     await page.getByRole('button', { name: 'Take action' }).click()
     await expect(page.getByRole('menuitem', { name: 'Power on' })).toBeVisible()
@@ -117,6 +185,18 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Operators', { exact: true })).toHaveCount(0)
   })
 
+
+  test('legacy composed visibility migrates to independent columns', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('swallow.servers.hidden-columns', JSON.stringify(['placement', 'hardware'])))
+    await page.goto('/servers?site=site-a')
+    const table = page.getByRole('grid', { name: 'Servers' })
+    await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toHaveCount(0)
+    await expect(table.getByRole('columnheader', { name: 'Pool', exact: true })).toHaveCount(0)
+    for (const heading of ['Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product']) {
+      await expect(table.getByRole('columnheader', { name: heading, exact: true })).toHaveCount(0)
+    }
+    await expect(table.getByRole('columnheader', { name: 'Address', exact: true })).toBeVisible()
+  })
   test('Cockpit machine detail retains tabs and real action controls', async ({ page }) => {
     await page.goto('/servers/srv-1/summary?site=site-a')
     await expect(page.getByText('Power and provisioning')).toBeVisible()
@@ -229,7 +309,7 @@ test.describe('operator interactions', () => {
 
   test('keyboard can traverse primary navigation', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('link', { name: 'Servers' }).focus()
+    await page.getByRole('link', { name: 'Servers', exact: true }).focus()
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL('/servers')
   })

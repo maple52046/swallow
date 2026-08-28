@@ -36,7 +36,6 @@ import {
   groupValueOf,
   matchesServerFilters,
   serverDisplayName,
-  serverGpuCount,
   serverMacAddress,
   serverPrimaryAddress,
   type ServerDimension,
@@ -47,6 +46,7 @@ import {
 } from '@/domain/server/list'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { GpuVendorLogo } from '@/presentation/components/GpuVendorLogo'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -62,10 +62,18 @@ interface ColumnToggle { key: string; label: string }
 interface FilterOption { value: string; label: string; count: number }
 interface ServerFilterOptions { provisioningState: FilterOption[]; zone: FilterOption[]; pool: FilterOption[]; tag: FilterOption[] }
 
+/** Independent provider observations that replace the former composed Hardware cell. */
+const HARDWARE_COLUMNS: ColumnToggle[] = [
+  { key: 'architecture', label: 'Architecture' }, { key: 'cpuCores', label: 'CPU cores' },
+  { key: 'cpuModel', label: 'CPU model' }, { key: 'memory', label: 'Memory' },
+  { key: 'storage', label: 'Storage' }, { key: 'systemVendor', label: 'System vendor' },
+  { key: 'systemProduct', label: 'System product' },
+]
 const OPTIONAL_COLUMNS: ColumnToggle[] = [
   { key: 'power', label: 'Power' }, { key: 'status', label: 'Provisioning' },
-  { key: 'address', label: 'Address' }, { key: 'placement', label: 'Zone / pool' },
-  { key: 'tags', label: 'Tags' }, { key: 'hardware', label: 'Hardware' },
+  { key: 'address', label: 'Address' }, { key: 'mac', label: 'MAC address' },
+  { key: 'zone', label: 'Zone' }, { key: 'pool', label: 'Pool' },
+  { key: 'tags', label: 'Tags' }, ...HARDWARE_COLUMNS,
   { key: 'gpus', label: 'GPUs' }, { key: 'cluster', label: 'Cluster' },
   { key: 'health', label: 'Health' },
 ]
@@ -88,6 +96,31 @@ function toFilterOptions(counts: Map<string, number>): FilterOption[] {
 }
 function filtersAreEmpty(filters: ServerFilters, keyword: string): boolean {
   return keyword === '' && filters.provisioningStates.length === 0 && filters.zones.length === 0 && filters.pools.length === 0 && filters.tags.length === 0 && filters.hasGpu === null
+}
+
+/** Preserves visibility choices when a composed legacy column becomes independent fields. */
+function normalizeHiddenColumns(columns: readonly string[]): string[] {
+  const normalized = new Set(columns)
+  if (normalized.delete('placement')) {
+    normalized.add('zone')
+    normalized.add('pool')
+  }
+  if (normalized.delete('hardware')) {
+    HARDWARE_COLUMNS.forEach((column) => normalized.add(column.key))
+  }
+  return [...normalized]
+}
+
+/** Uses one quiet placeholder for provider text that has not been observed. */
+function textOrDash(value: string | null | undefined): string {
+  return value?.trim() || '-'
+}
+
+/** Formats positive hardware quantities while treating zero as an absent observation. */
+function quantityOrDash(value: number, unit = '', divisor = 1): string {
+  if (!Number.isFinite(value) || value <= 0) return '-'
+  const quantity = Math.round(value / divisor)
+  return unit ? `${quantity} ${unit}` : String(quantity)
 }
 
 interface RenderGroup { key: string; label: string; items: Server[] }
@@ -123,12 +156,12 @@ export function ServersPage() {
   const [density, setDensity] = useState<ServerDensity>('compact')
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set())
-  const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<string>>(() => new Set(readPreference<string[]>(COLUMNS_KEY, [])))
+  const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<string>>(() => new Set(normalizeHiddenColumns(readPreference<string[]>(COLUMNS_KEY, []))))
   const [provisioners, setProvisioners] = useState<Integration[]>([])
 
   const savedViewState = useMemo<SavedServerViewState>(() => ({ filters, keyword: searchInput, includeAbsent, groupBy, sortKey, sortDirection: sortDir, hiddenColumns: [...hiddenColumns], density, pageSize }), [density, filters, groupBy, hiddenColumns, includeAbsent, pageSize, searchInput, sortDir, sortKey])
   const applySavedView = useCallback((view: SavedServerViewState) => {
-    setFilters(view.filters); setSearchInput(view.keyword); setCoarseKeyword(view.keyword); setIncludeAbsent(view.includeAbsent); setGroupBy(view.groupBy); setSortKey(view.sortKey); setSortDir(view.sortDirection); setHiddenColumns(new Set(view.hiddenColumns)); setDensity(view.density); setPageSize(view.pageSize); setSelected(new Set()); setCollapsedGroups(new Set()); setPage(1)
+    setFilters(view.filters); setSearchInput(view.keyword); setCoarseKeyword(view.keyword); setIncludeAbsent(view.includeAbsent); setGroupBy(view.groupBy); setSortKey(view.sortKey); setSortDir(view.sortDirection); setHiddenColumns(new Set(normalizeHiddenColumns(view.hiddenColumns))); setDensity(view.density); setPageSize(view.pageSize); setSelected(new Set()); setCollapsedGroups(new Set()); setPage(1)
   }, [])
 
   useEffect(() => { const id = setTimeout(() => { setCoarseKeyword(searchInput); setPage(1) }, 300); return () => clearTimeout(id) }, [searchInput])
@@ -158,7 +191,7 @@ export function ServersPage() {
   const toggleColumn = useCallback((key: string) => setHiddenColumns((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); writePreference(COLUMNS_KEY, [...next]); return next }), [])
   const runAction = useCallback(async (action: BulkAction, ids: string[]) => { if (!ids.length) return; await bulk.run(action, ids); clearSelection(); reload() }, [bulk, clearSelection, reload])
   const visible = useCallback((key: string) => !hiddenColumns.has(key), [hiddenColumns])
-  const columnSpan = 2 + OPTIONAL_COLUMNS.filter((column) => visible(column.key)).length
+  const columnSpan = 3 + OPTIONAL_COLUMNS.filter((column) => visible(column.key)).length
   const staleProvisioners = provisioners.filter((item) => item.sync.lastError !== null)
 
   const sort = (key: ServerSortKey) => {
@@ -185,10 +218,13 @@ export function ServersPage() {
     {state.status === 'ready' && sorted.length > 0 && <>
       {selected.size > 0 && selected.size < filtered.length && <Button variant="link" onClick={() => setMany(filtered.map((server) => server.id), true)}>Select all {filtered.length} matching Servers</Button>}
       <StickyTableFrame><Table aria-label="Servers" variant={density === 'compact' ? 'compact' : undefined} isStriped className="sw-server-table" gridBreakPoint=""><Thead><Tr>
-        <Th className="sw-sticky-name"><span className="sw-select-name"><Checkbox id="select-page" aria-label="Select all on this page" isChecked={allPageSelected ? true : somePageSelected ? null : false} onChange={() => setMany(pageIds, !allPageSelected)} /><SortableHeader label="Machine" active={sortKey === 'name'} direction={sortDir} onClick={() => sort('name')} /></span></Th>
-        {visible('power') && <Th><SortableHeader label="Power" active={sortKey === 'power'} direction={sortDir} onClick={() => sort('power')} /></Th>}
+        <Th className="sw-sticky-selection sw-cell-center"><Checkbox id="select-page" aria-label="Select all on this page" isChecked={allPageSelected ? true : somePageSelected ? null : false} onChange={() => setMany(pageIds, !allPageSelected)} /></Th>
+        <Th className="sw-sticky-name"><SortableHeader label="Machine" active={sortKey === 'name'} direction={sortDir} onClick={() => sort('name')} /></Th>
+        {visible('power') && <Th className="sw-cell-center sw-power-cell"><SortableHeader label="Power" active={sortKey === 'power'} direction={sortDir} onClick={() => sort('power')} /></Th>}
         {visible('status') && <Th><SortableHeader label="Provisioning" active={sortKey === 'provisioning'} direction={sortDir} onClick={() => sort('provisioning')} /></Th>}
-        {visible('address') && <Th>Address</Th>}{visible('placement') && <Th>Zone / pool</Th>}{visible('tags') && <Th>Tags</Th>}{visible('hardware') && <Th>Hardware</Th>}{visible('gpus') && <Th>GPUs</Th>}{visible('cluster') && <Th>Cluster</Th>}{visible('health') && <Th>Health</Th>}<Th className="sw-sticky-actions" screenReaderText="Actions" />
+        {visible('address') && <Th>Address</Th>}{visible('mac') && <Th>MAC address</Th>}{visible('zone') && <Th>Zone</Th>}{visible('pool') && <Th>Pool</Th>}{visible('tags') && <Th className="sw-column-tags">Tags</Th>}
+        {visible('architecture') && <Th className="sw-hardware-column sw-column-architecture">Architecture</Th>}{visible('cpuCores') && <Th className="sw-hardware-column sw-column-cpu-cores">CPU cores</Th>}{visible('cpuModel') && <Th className="sw-hardware-column sw-column-cpu-model">CPU model</Th>}{visible('memory') && <Th className="sw-hardware-column sw-column-memory">Memory</Th>}{visible('storage') && <Th className="sw-hardware-column sw-column-storage">Storage</Th>}{visible('systemVendor') && <Th className="sw-hardware-column sw-column-system-vendor">System vendor</Th>}{visible('systemProduct') && <Th className="sw-hardware-column sw-column-system-product">System product</Th>}
+        {visible('gpus') && <Th>GPUs</Th>}{visible('cluster') && <Th>Cluster</Th>}{visible('health') && <Th>Health</Th>}<Th className="sw-sticky-actions" screenReaderText="Actions" />
       </Tr></Thead><Tbody>{renderGroups(pageItems, groupBy).map((group) => <GroupRows key={group.key || 'all'} group={group} grouped={groupBy !== 'none'} columnSpan={columnSpan} collapsed={collapsedGroups.has(group.key)} onCollapse={() => setCollapsedGroups((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next })} selected={selected} onToggleOne={toggleOne} onToggleGroup={setMany} onNavigate={(id) => navigate(scopedHref(`/servers/${id}`))} onAction={(action, id) => void runAction(action, [id])} visible={visible} />)}</Tbody></Table></StickyTableFrame>
       <div className="sw-pagination"><Pagination total={totalPages} value={safePage} onChange={setPage} /></div>
     </>}
@@ -229,18 +265,38 @@ function GroupRows({ group, grouped, columnSpan, collapsed, onCollapse, selected
 }
 
 function ServerRow({ server, checked, onToggle, onNavigate, onAction, visible }: { server: Server; checked: boolean; onToggle: () => void; onNavigate: () => void; onAction: (action: BulkAction) => void; visible: (key: string) => boolean }) {
-  const gpuCount = serverGpuCount(server)
   return <Tr isClickable onRowClick={onNavigate}>
-    <Td dataLabel="Machine" className="sw-sticky-name"><span className="sw-select-name" onClick={(event) => event.stopPropagation()}><Checkbox id={`server-${server.id}`} aria-label={`Select ${serverDisplayName(server)}`} isChecked={checked} onChange={onToggle} /><span><strong>{serverDisplayName(server)}</strong>{server.absent && <Label color="grey">absent</Label>}<small className="mono">{serverMacAddress(server) ?? server.id}</small></span></span></Td>
-    {visible('power') && <Td dataLabel="Power">{server.provisioning?.powerState ?? 'unknown'}</Td>}
-    {visible('status') && <Td dataLabel="Provisioning"><ProvisioningBadge axis={server.provisioning} /></Td>}
-    {visible('address') && <Td dataLabel="Address" className="mono">{serverPrimaryAddress(server) ?? 'Not assigned'}</Td>}
-    {visible('placement') && <Td dataLabel="Zone / pool"><strong>{server.providerZone || 'No zone'}</strong><small>{server.providerResourcePool || 'No pool'}</small></Td>}
-    {visible('tags') && <Td dataLabel="Tags">{server.tags.length ? server.tags.slice(0, 3).map((tag) => <Label key={tag} color="blue" isCompact>{tag}</Label>) : 'No tags'}</Td>}
-    {visible('hardware') && <Td dataLabel="Hardware"><strong>{server.cpuCores || 'No data'} cores, {server.memoryMiB ? `${Math.round(server.memoryMiB / 1024)} GiB` : 'No RAM data'}</strong><small>{server.systemVendor || server.architecture || 'Hardware not observed'}; {server.storageGB ? `${Math.round(server.storageGB)} GB` : 'No storage data'}</small></Td>}
-    {visible('gpus') && <Td dataLabel="GPUs">{gpuCount ? server.gpus.map((gpu) => `${gpu.count}x ${gpu.model || gpu.vendor}`).join(', ') : 'None'}</Td>}
-    {visible('cluster') && <Td dataLabel="Cluster"><MembershipBadge axis={server.membership} /></Td>}
-    {visible('health') && <Td dataLabel="Health"><HealthBadge axis={server.health} /></Td>}
+    <Td dataLabel="Selection" className="sw-sticky-selection sw-cell-center" onClick={(event) => event.stopPropagation()}><Checkbox id={'server-' + server.id} aria-label={'Select ' + serverDisplayName(server)} isChecked={checked} onChange={onToggle} /></Td>
+    <Td dataLabel="Machine" className="sw-sticky-name"><span className="sw-machine-name"><strong>{serverDisplayName(server)}</strong>{server.absent && <Label color="grey">absent</Label>}</span></Td>
+    {visible('power') && <Td dataLabel="Power" className="sw-cell-center sw-power-cell">{server.provisioning ? server.provisioning.powerState : '-'}</Td>}
+    {visible('status') && <Td dataLabel="Provisioning">{server.provisioning ? <ProvisioningBadge axis={server.provisioning} /> : '-'}</Td>}
+    {visible('address') && <Td dataLabel="Address" className="mono">{textOrDash(serverPrimaryAddress(server))}</Td>}
+    {visible('mac') && <Td dataLabel="MAC address" className="mono">{textOrDash(serverMacAddress(server))}</Td>}
+    {visible('zone') && <Td dataLabel="Zone">{textOrDash(server.providerZone)}</Td>}{visible('pool') && <Td dataLabel="Pool">{textOrDash(server.providerResourcePool)}</Td>}
+    {visible('tags') && <Td dataLabel="Tags" className="sw-column-tags">{server.tags.length ? <span className="sw-tag-list">{server.tags.slice(0, 3).map((tag) => <Label key={tag} color="blue" isCompact>{tag}</Label>)}</span> : '-'}</Td>}
+    {visible('architecture') && <Td dataLabel="Architecture" className="sw-hardware-column sw-column-architecture">{textOrDash(server.architecture)}</Td>}
+    {visible('cpuCores') && <Td dataLabel="CPU cores" className="sw-hardware-column sw-column-cpu-cores">{quantityOrDash(server.cpuCores)}</Td>}
+    {visible('cpuModel') && <Td dataLabel="CPU model" className="sw-hardware-column sw-column-cpu-model">{textOrDash(server.cpuModel)}</Td>}
+    {visible('memory') && <Td dataLabel="Memory" className="sw-hardware-column sw-column-memory">{quantityOrDash(server.memoryMiB, 'GiB', 1024)}</Td>}
+    {visible('storage') && <Td dataLabel="Storage" className="sw-hardware-column sw-column-storage">{quantityOrDash(server.storageGB, 'GB')}</Td>}
+    {visible('systemVendor') && <Td dataLabel="System vendor" className="sw-hardware-column sw-column-system-vendor">{textOrDash(server.systemVendor)}</Td>}
+    {visible('systemProduct') && <Td dataLabel="System product" className="sw-hardware-column sw-column-system-product">{textOrDash(server.systemProduct)}</Td>}
+    {visible('gpus') && <Td dataLabel="GPUs"><GpuInventory server={server} /></Td>}
+    {visible('cluster') && <Td dataLabel="Cluster">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Td>}
+    {visible('health') && <Td dataLabel="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</Td>}
     <Td isActionCell className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}><ActionDropdown label="" icon={<EllipsisVIcon />} onAction={onAction} /></Td>
   </Tr>
+}
+
+/**
+ * Presents physical GPU inventory by vendor without implying utilization or health.
+ * Model details remain available through each accessible vendor-mark tooltip.
+ */
+function GpuInventory({ server }: { server: Server }) {
+  if (server.gpus.length === 0) return <>-</>
+  return <span className="sw-gpu-inventory">{server.gpus.map((gpu, index) => (
+    <span key={[gpu.vendor, gpu.model, index].join('-')}>
+      <span className="sw-gpu-count">{gpu.count} x</span><GpuVendorLogo vendor={gpu.vendor} model={gpu.model} />
+    </span>
+  ))}</span>
 }
