@@ -46,6 +46,8 @@ type DeployRequest struct {
 type ProviderCapabilities struct {
 	// EphemeralDeploy reports that DeployRequest.Ephemeral is honoured.
 	EphemeralDeploy bool
+	// DeploymentReadiness reports that DeploymentTargetValidator is implemented.
+	DeploymentReadiness bool
 	// Power reports that PowerController is implemented.
 	Power bool
 	// HardwareValidation reports that HardwareValidator is implemented.
@@ -63,6 +65,17 @@ type ProviderCapabilities struct {
 // them and reached by a type assertion. This keeps a new provider from having to stub a
 // dozen methods it cannot honour, while still letting swallow refuse — rather than silently
 // drop — an action the provider does not offer. See docs/decisions/001.
+
+// DeploymentTargetValidator checks provider-owned prerequisites before dispatch.
+//
+// It is deliberately read-only. A MAAS adapter can require a subnet link, but it
+// must not choose or create that link on the operator's behalf.
+type DeploymentTargetValidator interface {
+	// ValidateDeploymentTarget returns nil only when provider-owned prerequisites
+	// currently pass. Implementations map remediable state to ProviderErrorRejected,
+	// a missing machine to ErrMachineNotFound, and connectivity failures as usual.
+	ValidateDeploymentTarget(ctx context.Context, machineID string) error
+}
 
 // PowerController controls a machine's power through the provisioner's BMC integration.
 type PowerController interface {

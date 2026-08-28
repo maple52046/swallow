@@ -210,6 +210,9 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, sitedomain.ErrIntegrationHasServers):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"Servers are still projected from this integration. Deleting it would strand them."))
+	case errors.Is(err, sitedomain.ErrIntegrationHasDeploymentTemplates):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"Deployment templates still reference this integration. Delete them first."))
 	case errors.Is(err, application.ErrInvalidIntegration):
 		// The message names what was wrong and what the valid values are, which is
 		// the whole value of validating the kind and provider kind together.

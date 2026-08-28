@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
@@ -15,6 +16,7 @@ import (
 // --- server repository ---
 
 type fakeServerRepo struct {
+	mu      sync.Mutex
 	servers map[string]*serverdomain.Server
 }
 
@@ -23,6 +25,8 @@ func newFakeServerRepo() *fakeServerRepo {
 }
 
 func (r *fakeServerRepo) FindByID(_ context.Context, id string) (*serverdomain.Server, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	s, ok := r.servers[id]
 	if !ok {
 		return nil, serverdomain.ErrServerNotFound
@@ -154,6 +158,8 @@ func sortServersByHostname(servers []*serverdomain.Server) {
 }
 
 func (r *fakeServerRepo) Upsert(_ context.Context, server *serverdomain.Server) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	existing, ok := r.servers[server.ID]
 	if ok {
 		// Membership is owned by the cluster context and must survive a reconcile,
@@ -373,10 +379,17 @@ func (r *fakeIntegrationRepo) Delete(_ context.Context, id string) error {
 // --- provisioning provider ---
 
 type fakeProvider struct {
-	machines  map[string]*provisioningdomain.Machine
-	images    []*provisioningdomain.OSImage
-	listErr   error
-	deployErr error
+	mu                    sync.Mutex
+	machines              map[string]*provisioningdomain.Machine
+	images                []*provisioningdomain.OSImage
+	listErr               error
+	imageErr              error
+	deployErr             error
+	deployErrByMachine    map[string]error
+	readinessErrByMachine map[string]error
+	deployDelay           time.Duration
+	activeDeploys         int
+	maxActiveDeploys      int
 	// capabilities defaults to the MAAS adapter's, so a test only sets it when the
 	// point of the test is a provisioner that cannot do something.
 	capabilities provisioningdomain.ProviderCapabilities
@@ -404,16 +417,19 @@ func newFakeProvider() *fakeProvider {
 		images: []*provisioningdomain.OSImage{
 			{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64"},
 		},
-		gpus: make(map[string][]provisioningdomain.GPU),
+		gpus:                  make(map[string][]provisioningdomain.GPU),
+		deployErrByMachine:    make(map[string]error),
+		readinessErrByMachine: make(map[string]error),
 		// The full set, matching the MAAS adapter, so capability assertions succeed by
 		// default; a test that needs an incapable provisioner uses minimalProvider.
 		capabilities: provisioningdomain.ProviderCapabilities{
-			EphemeralDeploy:    true,
-			Power:              true,
-			HardwareValidation: true,
-			OperatorState:      true,
-			MachineDetail:      true,
-			HardwareInventory:  true,
+			EphemeralDeploy:     true,
+			DeploymentReadiness: true,
+			Power:               true,
+			HardwareValidation:  true,
+			OperatorState:       true,
+			MachineDetail:       true,
+			HardwareInventory:   true,
 		},
 	}
 }
@@ -586,19 +602,51 @@ func (p *fakeProvider) GetMachine(_ context.Context, machineID string) (*provisi
 	return machine, nil
 }
 
+func (p *fakeProvider) ValidateDeploymentTarget(_ context.Context, machineID string) error {
+	if err := p.readinessErrByMachine[machineID]; err != nil {
+		return err
+	}
+	return nil
+}
+
 func (p *fakeProvider) ListOSImages(_ context.Context) ([]*provisioningdomain.OSImage, error) {
+	if p.imageErr != nil {
+		return nil, p.imageErr
+	}
 	return p.images, nil
 }
 
 func (p *fakeProvider) Deploy(_ context.Context, req provisioningdomain.DeployRequest) (*provisioningdomain.Machine, error) {
-	if p.deployErr != nil {
-		return nil, p.deployErr
+	p.mu.Lock()
+	p.activeDeploys++
+	if p.activeDeploys > p.maxActiveDeploys {
+		p.maxActiveDeploys = p.activeDeploys
 	}
+	delay := p.deployDelay
+	deployErr := p.deployErr
+	machineErr := p.deployErrByMachine[req.MachineID]
 	machine, ok := p.machines[req.MachineID]
+	if ok && deployErr == nil && machineErr == nil {
+		p.deployRequests = append(p.deployRequests, req)
+	}
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.activeDeploys--
+		p.mu.Unlock()
+	}()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	if deployErr != nil {
+		return nil, deployErr
+	}
+	if machineErr != nil {
+		return nil, machineErr
+	}
 	if !ok {
 		return nil, provisioningdomain.ErrMachineNotFound
 	}
-	p.deployRequests = append(p.deployRequests, req)
 
 	deploying := *machine
 	deploying.Status = provisioningdomain.MachineStatusDeploying

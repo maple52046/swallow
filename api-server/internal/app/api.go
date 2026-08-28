@@ -117,6 +117,10 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("server repo init: %w", err)
 	}
+	templateRepo, err := provisioninginfra.NewMongoDeploymentTemplateRepo(db, sealer)
+	if err != nil {
+		return fmt.Errorf("deployment template repo init: %w", err)
+	}
 
 	if err := bootstrap.EnsureAdminUser(
 		ctx, userRepo,
@@ -134,7 +138,7 @@ func RunAPI(cfg config.APIConfig) error {
 
 	siteHandler := sitedelivery.NewSiteHandler(
 		siteapp.NewSiteService(siteRepo, integrationRepo),
-		siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo),
+		siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo),
 	)
 
 	// The health axis is resolved from the metrics store at query time and never
@@ -154,10 +158,16 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 
 	providerFactory := provisioninginfra.NewProviderFactory(integrationRepo)
+	integrationReader := provisioninginfra.NewIntegrationReader(integrationRepo, siteRepo)
+	templateService := provisioningapp.NewDeploymentTemplateService(
+		templateRepo, integrationReader, providerFactory)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
+		provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory),
+		provisioningapp.NewDeploymentTargetPreflightService(serverRepo, providerFactory),
+		templateService,
 		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewListOSImagesUseCase(providerFactory),
 		reconcileUC,
@@ -405,6 +415,15 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)
+	provisioning.Get("/templates", deps.provisioning.ListTemplates)
+	provisioning.Post("/templates", deps.provisioning.CreateTemplate)
+	provisioning.Get("/templates/:id", deps.provisioning.GetTemplate)
+	provisioning.Patch("/templates/:id", deps.provisioning.UpdateTemplate)
+	provisioning.Delete("/templates/:id", deps.provisioning.DeleteTemplate)
+	provisioning.Put("/templates/:id/user-data", deps.provisioning.ReplaceTemplateUserData)
+	provisioning.Delete("/templates/:id/user-data", deps.provisioning.ClearTemplateUserData)
+	provisioning.Post("/deployments/preflight", deps.provisioning.PreflightDeployServers)
+	provisioning.Post("/deployments", deps.provisioning.DeployServers)
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 

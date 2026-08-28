@@ -22,18 +22,31 @@ type ServerCounter interface {
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)
 }
 
+// DeploymentTemplateCounter reports references owned by provisioning without importing
+// its repository or model into the site context.
+type DeploymentTemplateCounter interface {
+	CountByIntegration(ctx context.Context, integrationID string) (int, error)
+}
+
 type IntegrationService struct {
 	integrations sitedomain.IntegrationRepository
 	sites        sitedomain.SiteRepository
 	servers      ServerCounter
+	templates    DeploymentTemplateCounter
 }
 
 func NewIntegrationService(
 	integrations sitedomain.IntegrationRepository,
 	sites sitedomain.SiteRepository,
 	servers ServerCounter,
+	templates DeploymentTemplateCounter,
 ) *IntegrationService {
-	return &IntegrationService{integrations: integrations, sites: sites, servers: servers}
+	return &IntegrationService{
+		integrations: integrations,
+		sites:        sites,
+		servers:      servers,
+		templates:    templates,
+	}
 }
 
 // IntegrationItem is the API shape. It has no credential field of any kind, not even a
@@ -217,6 +230,15 @@ func (s *IntegrationService) Delete(ctx context.Context, id string) error {
 		}
 		if count > 0 {
 			return sitedomain.ErrIntegrationHasServers
+		}
+	}
+	if s.templates != nil {
+		count, err := s.templates.CountByIntegration(ctx, id)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return sitedomain.ErrIntegrationHasDeploymentTemplates
 		}
 	}
 

@@ -14,11 +14,13 @@ import {
   SearchInput,
   ToolbarGroup,
   ToolbarItem,
+  Tooltip,
 } from '@patternfly/react-core'
 import {
   AngleDownIcon,
   AngleRightIcon,
   ColumnsIcon,
+  CloudUploadAltIcon,
   EllipsisVIcon,
   FilterIcon,
   SortAmountDownIcon,
@@ -193,6 +195,22 @@ export function ServersPage() {
   const visible = useCallback((key: string) => !hiddenColumns.has(key), [hiddenColumns])
   const columnSpan = 3 + OPTIONAL_COLUMNS.filter((column) => visible(column.key)).length
   const staleProvisioners = provisioners.filter((item) => item.sync.lastError !== null)
+  const actionTargets = workingSet.filter((server) => selected.has(server.id))
+  const targetIntegrations = new Set(actionTargets.map((server) => server.source.integrationId))
+  const deployDisabledReason = selected.size > 100
+    ? 'Deploy OS supports at most 100 Servers.'
+    : actionTargets.some((server) => server.absent)
+      ? 'Absent Servers cannot be deployed.'
+      : actionTargets.some((server) => server.provisioning?.state !== 'ready')
+        ? 'Every selected Server must be ready.'
+        : targetIntegrations.size > 1
+          ? 'Selected Servers must use the same provisioner integration.'
+          : undefined
+  const deploySelected = () => {
+    const target = new URL(scopedHref('/provisioning/deploy'), window.location.origin)
+    ;[...selected].forEach((id) => target.searchParams.append('serverId', id))
+    navigate(`${target.pathname}${target.search}`)
+  }
 
   const sort = (key: ServerSortKey) => {
     if (key === sortKey) setSortDir((direction) => direction === 'asc' ? 'desc' : 'asc')
@@ -211,7 +229,19 @@ export function ServersPage() {
       <ToolbarItem><Popover headerContent="Visible columns" bodyContent={<ColumnPanel columns={OPTIONAL_COLUMNS} hidden={hiddenColumns} onToggle={toggleColumn} />}><Button variant="secondary" icon={<ColumnsIcon />} aria-label="Configure columns" /></Popover></ToolbarItem>
       <ToolbarItem><FormSelect value={density} onChange={(_event, value) => setDensity(value as ServerDensity)} aria-label="Table density"><FormSelectOption value="compact" label="Compact" /><FormSelectOption value="comfortable" label="Comfortable" /></FormSelect></ToolbarItem>
       <ToolbarItem><FormSelect value={String(pageSize)} onChange={(_event, value) => { const size = Number(value); setPageSize(size); writePreference(PAGE_SIZE_KEY, size); setPage(1) }} aria-label="Rows per page">{[25, 50, 100].map((size) => <FormSelectOption key={size} value={String(size)} label={`${size} rows`} />)}</FormSelect></ToolbarItem>
-      {selected.size > 0 && <ToolbarGroup variant="action-group"><ToolbarItem><strong>{selected.size} selected</strong></ToolbarItem><ToolbarItem><BulkActionMenu running={bulk.running} onAction={(action) => void runAction(action, [...selected])} /></ToolbarItem><ToolbarItem><Button variant="link" onClick={clearSelection}>Clear</Button></ToolbarItem></ToolbarGroup>}
+      {selected.size > 0 && <ToolbarGroup variant="action-group">
+        <ToolbarItem><strong>{selected.size} selected</strong></ToolbarItem>
+        <ToolbarItem>
+          <Tooltip content={deployDisabledReason ?? 'Deploy one OS configuration to the selected Servers'}>
+            <span>
+              <Button variant="primary" icon={<CloudUploadAltIcon />} isDisabled={Boolean(deployDisabledReason)} onClick={deploySelected}>Deploy OS</Button>
+            </span>
+          </Tooltip>
+        </ToolbarItem>
+        <ToolbarItem><BulkActionMenu running={bulk.running} onAction={(action) => void runAction(action, [...selected])} /></ToolbarItem>
+        {deployDisabledReason && <ToolbarItem><span className="sw-action-reason">{deployDisabledReason}</span></ToolbarItem>}
+        <ToolbarItem><Button variant="link" onClick={clearSelection}>Clear</Button></ToolbarItem>
+      </ToolbarGroup>}
     </DataToolbar>
     {state.status === 'loading' && <LoadingState rows={8} />}
     {state.status === 'ready' && sorted.length === 0 && <EmptyState title="No Servers" message="Nothing matches this working view." action={!filtersAreEmpty(filters, coarseKeyword) ? { label: 'Clear filters', onClick: () => { changeFilters(EMPTY_SERVER_FILTERS); setSearchInput('') } } : undefined} />}

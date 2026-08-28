@@ -5,6 +5,7 @@ import {
   CubesIcon,
   ServerIcon,
   TachometerAltIcon,
+  CloudUploadAltIcon,
   TasksIcon,
 } from '@patternfly/react-icons'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -13,6 +14,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 const NAVIGATION = [
   { label: 'Overview', path: '/', icon: <TachometerAltIcon /> },
   { label: 'Servers', path: '/servers', icon: <ServerIcon /> },
+  { label: 'Provisioning', path: '/provisioning/deploy', icon: <CloudUploadAltIcon /> },
   { label: 'Clusters', path: '/clusters', icon: <CubesIcon /> },
   { label: 'Operations', path: '/operations', icon: <TasksIcon /> },
   { label: 'Monitoring', path: '/monitoring', icon: <ChartLineIcon /> },
@@ -45,7 +47,9 @@ export function OperatorSideNav({ collapsed, onNavigate }: OperatorSideNavProps)
           {NAVIGATION.map((item, index) => {
             const active = item.path === '/'
               ? location.pathname === '/'
-              : location.pathname.startsWith(item.path)
+              : item.path.startsWith('/provisioning')
+                ? location.pathname.startsWith('/provisioning')
+                : location.pathname.startsWith(item.path)
             const href = scopedHref(item.path)
             return (
               <NavItem

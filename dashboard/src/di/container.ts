@@ -5,6 +5,7 @@ import { ApiClusterRepository } from '@/infrastructure/api/ApiClusterRepository'
 import { ApiOperationRepository } from '@/infrastructure/api/ApiOperationRepository'
 import { ApiMonitoringRepository } from '@/infrastructure/api/ApiMonitoringRepository'
 import { ApiOverviewRepository } from '@/infrastructure/api/ApiOverviewRepository'
+import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningRepository'
 import type { AuthRepository } from '@/application/ports/AuthRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { SiteRepository } from '@/application/ports/SiteRepository'
@@ -12,11 +13,13 @@ import type { ClusterRepository } from '@/application/ports/ClusterRepository'
 import type { OperationRepository } from '@/application/ports/OperationRepository'
 import type { MonitoringRepository } from '@/application/ports/MonitoringRepository'
 import type { OverviewRepository } from '@/application/ports/OverviewRepository'
+import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
 export interface AppContainer {
   auth: AuthRepository
   overview: OverviewRepository
+  provisioning: ProvisioningRepository
   servers: ServerRepository
   sites: SiteRepository
   clusters: ClusterRepository
@@ -29,6 +32,7 @@ export function createContainer(): AppContainer {
   return {
     auth: new ApiAuthRepository(),
     overview: new ApiOverviewRepository(),
+    provisioning: new ApiProvisioningRepository(),
     servers: new ApiServerRepository(),
     sites: new ApiSiteRepository(),
     clusters: new ApiClusterRepository(),

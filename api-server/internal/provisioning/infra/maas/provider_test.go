@@ -277,6 +277,43 @@ func TestGetMachine_NotFoundBecomesDomainError(t *testing.T) {
 		t.Fatalf("expected ErrMachineNotFound, got %v", err)
 	}
 }
+func TestValidateDeploymentTarget_RequiresLinkedSubnet(t *testing.T) {
+	t.Run("linked subnet", func(t *testing.T) {
+		fake := newFakeMAAS(t)
+		fake.onGetMachine(http.StatusOK, `{
+		  "system_id": "abc123",
+		  "interface_set": [{"mac_address": "52:54:00:50:cd:84", "links": [
+		    {"mode": "AUTO", "subnet": {"name": "192.168.110.0/24"}}
+		  ]}]
+		}`)
+		provider := newTestProvider(t, fake)
+
+		if err := provider.ValidateDeploymentTarget(context.Background(), "abc123"); err != nil {
+			t.Fatalf("ValidateDeploymentTarget: %v", err)
+		}
+	})
+
+	t.Run("interface without subnet link", func(t *testing.T) {
+		fake := newFakeMAAS(t)
+		fake.onGetMachine(http.StatusOK, `{
+		  "system_id": "abc123",
+		  "interface_set": [{"mac_address": "52:54:00:50:cd:84", "links": []}]
+		}`)
+		provider := newTestProvider(t, fake)
+
+		err := provider.ValidateDeploymentTarget(context.Background(), "abc123")
+		var providerErr *provisioningdomain.ProviderError
+		if !errors.As(err, &providerErr) {
+			t.Fatalf("ValidateDeploymentTarget: got %v, want ProviderError", err)
+		}
+		if providerErr.Kind != provisioningdomain.ProviderErrorRejected {
+			t.Errorf("ValidateDeploymentTarget kind = %q, want %q", providerErr.Kind, provisioningdomain.ProviderErrorRejected)
+		}
+		if !strings.Contains(providerErr.Detail, "Network in MAAS") {
+			t.Errorf("ValidateDeploymentTarget detail = %q, want MAAS Network remediation", providerErr.Detail)
+		}
+	})
+}
 
 func TestDeploy_SendsMultipartFormWithEncodedUserData(t *testing.T) {
 	fake := newFakeMAAS(t)

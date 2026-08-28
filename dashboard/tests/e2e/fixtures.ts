@@ -41,8 +41,17 @@ const sites = [
 ]
 const integrations = [
   { id: 'maas-a', siteId: 'site-a', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Taipei', endpoint: 'https://maas.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
+  { id: 'maas-b', siteId: 'site-a', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Edge', endpoint: 'https://maas-edge.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
   { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
 ]
+const osImages = [
+  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', release: 'jammy', architecture: 'amd64' },
+  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', release: 'noble', architecture: 'amd64' },
+]
+const baseDeploymentTemplates = [
+  { id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, hasUserData: true, createdAt: now, updatedAt: now },
+]
+
 const alerts = [
   { fingerprint: 'alert-1', name: 'NodeDown', severity: 'critical', state: 'firing', summary: 'gpu-node-04 stopped reporting', description: 'No scrape data for five minutes', labels: { alertname: 'NodeDown', server_id: 'srv-4' }, startsAt: '2026-08-27T02:50:00Z', serverId: 'srv-4', siteId: 'site-a', clusterId: 'cluster-a' },
   { fingerprint: 'alert-2', name: 'GpuTemperatureHigh', severity: 'warning', state: 'firing', summary: 'GPU temperature exceeds threshold', description: '', labels: { alertname: 'GpuTemperatureHigh', server_id: 'srv-2' }, startsAt: '2026-08-27T02:45:00Z', serverId: 'srv-2', siteId: 'site-a', clusterId: 'cluster-a' },
@@ -55,6 +64,12 @@ export interface FixtureOptions {
   metricsDelayMs?: number
   failMetricsBatchIndex?: number
   acknowledgeFails?: boolean
+  readyServerCount?: number
+  secondReadyServerIntegrationId?: string
+  failImageIntegrationIds?: string[]
+  deploymentFailureIds?: string[]
+  deploymentReadinessIssues?: Record<string, string>
+  onDeploymentRequest?: (body: Record<string, unknown>) => void
   onMetricsRequest?: (serverIds: string[]) => void
   onMetricsActive?: (active: number) => void
 }
@@ -67,6 +82,17 @@ function json(route: Route, body: unknown, status = 200) {
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
   await page.unroute('**/api/v1/**')
   const fleet = Array.from({ length: options.fleetSize ?? 4 }, (_, index) => makeServer(index))
+  for (let index = 0; index < (options.readyServerCount ?? 0) && index < fleet.length; index++) {
+    fleet[index].provisioning.state = 'ready'
+    fleet[index].provisioning.providerState = 'Ready'
+    fleet[index].provisioning.osSystem = ''
+    fleet[index].provisioning.distroSeries = ''
+  }
+  if (options.secondReadyServerIntegrationId && fleet[1]) {
+    fleet[1].source.integrationId = options.secondReadyServerIntegrationId
+    fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId
+  }
+  let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
   let metricBatchIndex = 0
   let activeMetricRequests = 0
   await page.route('**/api/v1/**', async (route) => {
@@ -77,7 +103,125 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/auth/me') return json(route, { id: 'admin-1', username: 'admin', role: 'admin' })
     if (path === '/api/v1/auth/login') return json(route, { accessToken: 'e2e-token' })
     if (path === '/api/v1/sites') return json(route, sites)
-    if (path === '/api/v1/integrations') { const siteId = url.searchParams.get('siteId'); return json(route, integrations.filter((item) => !siteId || item.siteId === siteId)) }
+    if (path === '/api/v1/integrations') {
+      const siteId = url.searchParams.get('siteId')
+      const kind = url.searchParams.get('kind')
+      return json(route, integrations.filter((item) => (
+        (!siteId || item.siteId === siteId) &&
+        (!kind || item.kind === kind)
+      )))
+    }
+
+    if (path === '/api/v1/provisioning/images') {
+      const integrationId = url.searchParams.get('integrationId') ?? ''
+      if (options.failImageIntegrationIds?.includes(integrationId)) {
+        return json(route, { error: { code: 'provider_unavailable', message: 'Image provider is unavailable' } }, 503)
+      }
+      return json(route, osImages)
+    }
+    if (path === '/api/v1/provisioning/templates' && request.method() === 'GET') {
+      const siteId = url.searchParams.get('siteId')
+      const integrationId = url.searchParams.get('integrationId')
+      return json(route, deploymentTemplates.filter((item) => (
+        (!siteId || item.siteId === siteId) &&
+        (!integrationId || item.integrationId === integrationId)
+      )))
+    }
+    if (path === '/api/v1/provisioning/templates' && request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      const created = {
+        id: `template-${deploymentTemplates.length + 1}`,
+        siteId: 'site-a',
+        integrationId: String(body.integrationId),
+        name: String(body.name),
+        description: String(body.description ?? ''),
+        imageId: String(body.imageId),
+        ephemeral: Boolean(body.ephemeral),
+        hasUserData: Boolean(body.userData),
+        createdAt: now,
+        updatedAt: now,
+      }
+      deploymentTemplates.push(created)
+      return json(route, created, 201)
+    }
+    const templateUserDataMatch = path.match(/^\/api\/v1\/provisioning\/templates\/([^/]+)\/user-data$/)
+    if (templateUserDataMatch) {
+      const template = deploymentTemplates.find((item) => item.id === templateUserDataMatch[1])
+      if (!template) return json(route, { error: { code: 'not_found', message: 'Template not found' } }, 404)
+      template.hasUserData = request.method() === 'PUT'
+      template.updatedAt = now
+      return route.fulfill({ status: 204 })
+    }
+    const templateMatch = path.match(/^\/api\/v1\/provisioning\/templates\/([^/]+)$/)
+    if (templateMatch) {
+      const template = deploymentTemplates.find((item) => item.id === templateMatch[1])
+      if (!template) return json(route, { error: { code: 'not_found', message: 'Template not found' } }, 404)
+      if (request.method() === 'GET') return json(route, template)
+      if (request.method() === 'PATCH') {
+        const body = request.postDataJSON() as Record<string, unknown>
+        Object.assign(template, body, { updatedAt: now })
+        return json(route, template)
+      }
+      if (request.method() === 'DELETE') {
+        deploymentTemplates = deploymentTemplates.filter((item) => item.id !== template.id)
+        return route.fulfill({ status: 204 })
+      }
+    }
+    if (path === '/api/v1/provisioning/deployments/preflight' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { serverIds: string[] }
+      const issues = body.serverIds.flatMap((serverId) => {
+        const message = options.deploymentReadinessIssues?.[serverId]
+        return message ? [{
+          serverId,
+          code: 'provider_not_ready',
+          message,
+        }] : []
+      })
+      return json(route, {
+        valid: issues.length === 0,
+        integrationId: fleet.find((server) => body.serverIds.includes(server.id))?.source.integrationId ?? '',
+        issues,
+      })
+    }
+
+    if (path === '/api/v1/provisioning/deployments' && request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      options.onDeploymentRequest?.(body)
+      const serverIds = body.serverIds as string[]
+      const failedIds = new Set(options.deploymentFailureIds ?? [])
+      const accepted = serverIds.filter((id) => !failedIds.has(id)).map((serverId) => {
+        const server = fleet.find((item) => item.id === serverId)
+        if (server) {
+          server.provisioning.state = 'deploying'
+          server.provisioning.providerState = 'Deploying'
+          server.provisioning.observedAt = now
+        }
+        return {
+          serverId,
+          state: 'deploying',
+          providerState: 'Deploying',
+          powerState: server?.provisioning.powerState ?? 'unknown',
+          osSystem: 'ubuntu',
+          distroSeries: 'ubuntu/jammy',
+          ephemeral: false,
+          hweKernel: '',
+          locked: false,
+          commissioningStatus: 'passed',
+          testingStatus: 'passed',
+          observedAt: now,
+        }
+      })
+      return json(route, {
+        requested: serverIds.length,
+        accepted,
+        failed: serverIds.filter((id) => failedIds.has(id)).map((serverId) => ({
+          serverId,
+          code: 'provider_rejected',
+          message: 'Machine reservation changed.',
+        })),
+      }, 202)
+    }
+
     if (path === '/api/v1/overview') {
       const siteId = url.searchParams.get('siteId')
       return json(route, {

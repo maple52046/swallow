@@ -26,6 +26,7 @@ Consumer: `dashboard`.
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List complete Server projections with filtering and pagination. |
 | [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server and run provider-backed machine actions. |
+| [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List live OS Images, manage Deployment Templates, and submit multi-Server OS Deployments. |
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
 | [operations.md](operations.md) | Active | `/api/v1/operations` | Create, observe, and retry Swallow-owned playbook executions, with logs and per-task events. |
 | [clusters.md](clusters.md) | Active | `/api/v1/clusters` | Register clusters, read membership, and deploy a k0s cluster onto provisioned servers. |

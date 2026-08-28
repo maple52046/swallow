@@ -7,7 +7,7 @@ import (
 )
 
 // machineJSON is the subset of a MAAS machine object swallow reads. MAAS returns far
-// more (interfaces, block devices, power parameters); anything not listed here is
+// more (block devices, NUMA topology, power parameters); anything not listed here is
 // deliberately ignored.
 type machineJSON struct {
 	SystemID     string     `json:"system_id"`
@@ -70,8 +70,18 @@ type hardwareInfoJSON struct {
 	ChassisType              string `json:"chassis_type"`
 }
 
+// interfaceJSON carries hardware identity plus provider-owned subnet links used only
+// for deployment readiness; Swallow does not persist or mutate this network state.
 type interfaceJSON struct {
-	MACAddress string `json:"mac_address"`
+	MACAddress string              `json:"mac_address"`
+	Links      []interfaceLinkJSON `json:"links"`
+}
+
+// interfaceLinkJSON distinguishes an unlinked NIC from any MAAS link whose subnet
+// exists. Link mode is retained for future display without affecting readiness.
+type interfaceLinkJSON struct {
+	Mode   string     `json:"mode"`
+	Subnet *namedJSON `json:"subnet"`
 }
 
 type bootResourceJSON struct {

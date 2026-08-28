@@ -3,16 +3,14 @@ import {
   Alert,
   AlertVariant,
   Button,
-  Card,
-  CardBody,
   Content,
   Form,
   FormGroup,
+  Login,
+  Title,
   LoginMainBody,
   LoginMainHeader,
-  LoginPage as PatternFlyLoginPage,
   TextInput,
-  Title,
 } from '@patternfly/react-core'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/presentation/contexts/AuthContext'
@@ -37,6 +35,8 @@ export function LoginPage() {
   const from = state?.from
   const returnPath = from && from.startsWith('/') && !from.startsWith('//') ? from : '/'
 
+  // Auth state can change outside this form. Redirect only to the prevalidated
+  // same-origin path whenever the context reports an authenticated session.
   useEffect(() => {
     if (isAuthenticated) navigate(returnPath, { replace: true })
   }, [isAuthenticated, navigate, returnPath])
@@ -57,21 +57,21 @@ export function LoginPage() {
   }
 
   return (
-    <PatternFlyLoginPage className="sw-login" loginTitle="Swallow" loginSubtitle="Operator console">
+    <Login className="sw-login">
       <LoginMainHeader>
-        <div className="sw-login-brand"><SwallowLogo /><Title headingLevel="h1">Swallow</Title></div>
-        <Content component="p">Sign in to manage infrastructure, clusters, and automation.</Content>
+        <div className="sw-login-brand"><SwallowLogo /><span>Swallow</span></div>
+        <Title headingLevel="h1" size="2xl">Sign in</Title>
+        <Content component="p" className="sw-login-subtitle">Operator console</Content>
       </LoginMainHeader>
       <LoginMainBody>
-        <Card isPlain><CardBody>
-          {error && <Alert variant={AlertVariant.danger} title={error} isInline className="sw-login-error" />}
-          <Form onSubmit={(event) => void submit(event)}>
-            <FormGroup label="Username" isRequired fieldId="sw-login-username"><TextInput id="sw-login-username" value={username} onChange={(_event, value) => setUsername(value)} autoComplete="username" isRequired /></FormGroup>
-            <FormGroup label="Password" isRequired fieldId="sw-login-password"><TextInput id="sw-login-password" type="password" value={password} onChange={(_event, value) => setPassword(value)} autoComplete="current-password" isRequired /></FormGroup>
-            <Button type="submit" isBlock isLoading={submitting} isDisabled={!username.trim() || !password || submitting}>Sign in</Button>
-          </Form>
-        </CardBody></Card>
+        <Content component="p" className="sw-login-intro">Manage infrastructure, clusters, and automation.</Content>
+        {error && <Alert variant={AlertVariant.danger} title={error} isInline className="sw-login-error" />}
+        <Form onSubmit={(event) => void submit(event)}>
+          <FormGroup label="Username" isRequired fieldId="sw-login-username"><TextInput id="sw-login-username" value={username} onChange={(_event, value) => setUsername(value)} autoComplete="username" isRequired /></FormGroup>
+          <FormGroup label="Password" isRequired fieldId="sw-login-password"><TextInput id="sw-login-password" type="password" value={password} onChange={(_event, value) => setPassword(value)} autoComplete="current-password" isRequired /></FormGroup>
+          <Button type="submit" isBlock isLoading={submitting} isDisabled={!username.trim() || !password || submitting}>Sign in</Button>
+        </Form>
       </LoginMainBody>
-    </PatternFlyLoginPage>
+    </Login>
   )
 }

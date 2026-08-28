@@ -169,7 +169,7 @@ export interface ProvisioningActionResult {
   serverId: string
   state: ProvisioningState
   providerState: string
-  powerState: string
+  powerState: ProvisioningAxis['powerState']
   osSystem: string
   distroSeries: string
   ephemeral: boolean

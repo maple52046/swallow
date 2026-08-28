@@ -60,6 +60,7 @@
 | [`006-embedded-ansible-execution.md`](006-embedded-ansible-execution.md) | Swallow 如何以 Mongo lease 與 pinned runner 擁有 Ansible operation 執行 |
 | [`007-cluster-deployment-ownership.md`](007-cluster-deployment-ownership.md) | Swallow 擁有「建立叢集」的意圖：k0s HA 拓樸、專職 controller 為何不是 k8s node、部署後如何取得叢集憑證 |
 
+| [`009-deployment-template-ownership.md`](009-deployment-template-ownership.md) | Deployment Template 只擁有可重用的 OS deployment intent，不擁有 image、automation content 或 execution lifecycle |
 `001`–`003` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
 Consequences / Rejected alternatives，沒有 Status 與 Date）。它們與本文件的格式對齊
 尚未處理。`005` 起採用本文件定義的格式。（原 `004` 記錄的 AWX 執行模型已由 `006` 取代並移除。）

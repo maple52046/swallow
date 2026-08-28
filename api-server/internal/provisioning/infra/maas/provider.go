@@ -124,18 +124,41 @@ func (p *Provider) Deploy(
 	return toDomainMachine(&out), nil
 }
 
+// ValidateDeploymentTarget checks the provider-owned network prerequisite without
+// mutating the machine. MAAS refuses deployment when no interface is linked to a
+// subnet; Swallow surfaces that before dispatch but never guesses which subnet to use.
+func (p *Provider) ValidateDeploymentTarget(ctx context.Context, machineID string) error {
+	var machine machineJSON
+	if err := p.client.get(ctx, machinePath(machineID), nil, &machine); err != nil {
+		return translateError(err, machineID)
+	}
+	for _, iface := range machine.InterfaceSet {
+		for _, link := range iface.Links {
+			if link.Subnet != nil {
+				return nil
+			}
+		}
+	}
+	return &provisioningdomain.ProviderError{
+		Kind: provisioningdomain.ProviderErrorRejected,
+		Detail: "No MAAS interface is linked to a subnet. Configure the machine's " +
+			"Network in MAAS, then check deployment readiness again.",
+	}
+}
+
 // Capabilities reports what this adapter honours. All of these are present on the MAAS
 // versions this adapter targets, so every flag is set; the flags exist so a client can
 // hide an action a future provider lacks, and so an unsupported request is refused
 // rather than silently dropped.
 func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 	return provisioningdomain.ProviderCapabilities{
-		EphemeralDeploy:    true,
-		Power:              true,
-		HardwareValidation: true,
-		OperatorState:      true,
-		MachineDetail:      true,
-		HardwareInventory:  true,
+		EphemeralDeploy:     true,
+		DeploymentReadiness: true,
+		Power:               true,
+		HardwareValidation:  true,
+		OperatorState:       true,
+		MachineDetail:       true,
+		HardwareInventory:   true,
 	}
 }
 

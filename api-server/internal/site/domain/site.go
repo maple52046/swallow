@@ -153,6 +153,8 @@ var (
 	// ErrIntegrationHasServers prevents deleting an integration that servers were
 	// projected from, which would orphan them.
 	ErrIntegrationHasServers = errors.New("integration still has servers")
+	// ErrIntegrationHasDeploymentTemplates prevents deleting template ownership.
+	ErrIntegrationHasDeploymentTemplates = errors.New("integration still has deployment templates")
 	// ErrCredentialNotSet means the integration has no stored credential, which for
 	// most adapters makes it unusable.
 	ErrCredentialNotSet = errors.New("integration has no credential")

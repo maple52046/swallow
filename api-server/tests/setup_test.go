@@ -19,6 +19,7 @@ import (
 	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
+	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -54,6 +55,7 @@ type platformFixture struct {
 	servers      *fakeServerRepo
 	sites        *fakeSiteRepo
 	integrations *fakeIntegrationRepo
+	templates    *fakeDeploymentTemplateRepo
 	provider     *fakeProvider
 	factory      *fakeProviderFactory
 	health       *testHealthResolver
@@ -71,6 +73,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	servers := newFakeServerRepo()
 	sites := newFakeSiteRepo()
 	integrations := newFakeIntegrationRepo()
+	templates := newFakeDeploymentTemplateRepo()
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
 	factory.providers[testIntegrationID] = provider
@@ -80,7 +83,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	siteHandler := sitedelivery.NewSiteHandler(
 		siteapp.NewSiteService(sites, integrations),
-		siteapp.NewIntegrationService(integrations, sites, servers),
+		siteapp.NewIntegrationService(integrations, sites, servers, templates),
 	)
 	serverHandler := serverdelivery.NewServerHandler(
 		serverapp.NewListServersUseCase(servers, health),
@@ -88,6 +91,13 @@ func setupPlatform(t *testing.T) *platformFixture {
 	)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(servers, factory),
+		provisioningapp.NewDeployServersUseCase(servers, templates, factory),
+		provisioningapp.NewDeploymentTargetPreflightService(servers, factory),
+		provisioningapp.NewDeploymentTemplateService(
+			templates,
+			provisioninginfra.NewIntegrationReader(integrations, sites),
+			factory,
+		),
 		provisioningapp.NewReleaseServerUseCase(servers, factory),
 		provisioningapp.NewListOSImagesUseCase(factory),
 		provisioningapp.NewReconcileUseCase(integrations, servers, factory),
@@ -152,6 +162,15 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	provisioningGroup := v1.Group("/provisioning", admin...)
 	provisioningGroup.Get("/images", provisioningHandler.ListImages)
+	provisioningGroup.Get("/templates", provisioningHandler.ListTemplates)
+	provisioningGroup.Post("/templates", provisioningHandler.CreateTemplate)
+	provisioningGroup.Get("/templates/:id", provisioningHandler.GetTemplate)
+	provisioningGroup.Patch("/templates/:id", provisioningHandler.UpdateTemplate)
+	provisioningGroup.Delete("/templates/:id", provisioningHandler.DeleteTemplate)
+	provisioningGroup.Put("/templates/:id/user-data", provisioningHandler.ReplaceTemplateUserData)
+	provisioningGroup.Delete("/templates/:id/user-data", provisioningHandler.ClearTemplateUserData)
+	provisioningGroup.Post("/deployments/preflight", provisioningHandler.PreflightDeployServers)
+	provisioningGroup.Post("/deployments", provisioningHandler.DeployServers)
 	provisioningGroup.Post("/reconcile", provisioningHandler.ReconcileAll)
 	provisioningGroup.Post("/integrations/:id/reconcile", provisioningHandler.Reconcile)
 
@@ -183,6 +202,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		servers:       servers,
 		sites:         sites,
 		integrations:  integrations,
+		templates:     templates,
 		provider:      provider,
 		factory:       factory,
 		health:        health,

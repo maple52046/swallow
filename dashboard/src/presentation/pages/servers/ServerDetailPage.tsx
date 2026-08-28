@@ -29,8 +29,13 @@ export function ServerDetailPage() {
   const { server, detail, reload } = state.data
   const segment = location.pathname.split('/').pop() ?? ''
   const current = TABS.some((tab) => tab.value === segment) ? segment : 'summary'
+  const deployDisabledReason = server.absent
+    ? 'Server is absent'
+    : server.provisioning?.state !== 'ready'
+      ? 'Server must be ready'
+      : undefined
   return <div className="operator-page">
-    <PageHeader title={serverDisplayName(server)} breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]} subtitle={`Provider machine ${server.source.providerMachineId}, Site ${server.source.siteId}`} metadata={<Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={server.provisioning} /><HealthBadge axis={server.health} />{server.absent && <Label color="grey">absent</Label>}</Flex>} actions={<ServerActionMenu serverId={server.id} serverName={serverDisplayName(server)} capabilities={detail?.capabilities ?? null} onActed={reload} />} />
+    <PageHeader title={serverDisplayName(server)} breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]} subtitle={`Provider machine ${server.source.providerMachineId}, Site ${server.source.siteId}`} metadata={<Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={server.provisioning} /><HealthBadge axis={server.health} />{server.absent && <Label color="grey">absent</Label>}</Flex>} actions={<ServerActionMenu serverId={server.id} serverName={serverDisplayName(server)} capabilities={detail?.capabilities ?? null} deployDisabledReason={deployDisabledReason} onActed={reload} />} />
     {server.absent && <Alert variant={AlertVariant.warning} title="Machine is absent from its provisioner" isInline>Swallow retains the projection because inventory absence is commonly transient.</Alert>}
     <div className="sw-detail-tabs"><Tabs activeKey={current} onSelect={(_event, key) => navigate(scopedHref(`/servers/${server.id}/${String(key)}`))} aria-label="Server details">{TABS.map((tab) => <Tab key={tab.value} eventKey={tab.value} title={<TabTitleText>{tab.label}</TabTitleText>} />)}</Tabs></div>
     <Outlet context={state.data} />

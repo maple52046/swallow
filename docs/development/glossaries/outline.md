@@ -20,6 +20,15 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
 - [Node Role](terms/node-role.md): The part a server plays in a cluster — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a cluster.
 
+### OS Provisioning
+
+- [OS Image](terms/os-image.md): Live provider-owned operating system artifact
+  available to one provisioner Integration.
+- [OS Deployment](terms/os-deployment.md): Asynchronous provider-backed OS
+  installation whose progress is observed on each Server provisioning axis.
+- [Deployment Template](terms/deployment-template.md): Reusable,
+  integration-scoped Swallow-owned deployment intent without automation content.
+
 ## Pending Terms
 
 以下術語已被既有文件或程式碼使用，但**尚未定義**。依 [`README.md`](README.md) 的 Pending Terms 規則：任務用到其中任何一個時，必須先補上 term 或與使用者確認語意，不得沿用推測的定義。term 檔建立後，把它從本節移到上方 Terms。
@@ -54,7 +63,6 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Provisioning and Management Planes
 
-- `Provisioning Image`、`Provisioning Profile`、`Provisioning Job`。
 - `Plane`（Kubernetes / Slurm 管理平面）。
 
 ### Agent

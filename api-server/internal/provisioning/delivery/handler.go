@@ -15,16 +15,22 @@ import (
 )
 
 type ProvisioningHandler struct {
-	deploy    *application.DeployServerUseCase
-	release   *application.ReleaseServerUseCase
-	images    *application.ListOSImagesUseCase
-	reconcile *application.ReconcileUseCase
-	detail    *application.GetProvisionerDetailUseCase
-	actions   *application.MachineActionsUseCase
+	deploy          *application.DeployServerUseCase
+	deployments     *application.DeployServersUseCase
+	templates       *application.DeploymentTemplateService
+	targetPreflight *application.DeploymentTargetPreflightService
+	release         *application.ReleaseServerUseCase
+	images          *application.ListOSImagesUseCase
+	reconcile       *application.ReconcileUseCase
+	detail          *application.GetProvisionerDetailUseCase
+	actions         *application.MachineActionsUseCase
 }
 
 func NewProvisioningHandler(
 	deploy *application.DeployServerUseCase,
+	deployments *application.DeployServersUseCase,
+	targetPreflight *application.DeploymentTargetPreflightService,
+	templates *application.DeploymentTemplateService,
 	release *application.ReleaseServerUseCase,
 	images *application.ListOSImagesUseCase,
 	reconcile *application.ReconcileUseCase,
@@ -32,12 +38,15 @@ func NewProvisioningHandler(
 	actions *application.MachineActionsUseCase,
 ) *ProvisioningHandler {
 	return &ProvisioningHandler{
-		deploy:    deploy,
-		release:   release,
-		images:    images,
-		reconcile: reconcile,
-		detail:    detail,
-		actions:   actions,
+		deploy:          deploy,
+		deployments:     deployments,
+		templates:       templates,
+		targetPreflight: targetPreflight,
+		release:         release,
+		images:          images,
+		reconcile:       reconcile,
+		detail:          detail,
+		actions:         actions,
 	}
 }
 
@@ -239,6 +248,23 @@ func (h *ProvisioningHandler) ReconcileAll(c *fiber.Ctx) error {
 // that routes mounted under other resources can share one translation.
 func RespondError(c *fiber.Ctx, err error) error {
 	switch {
+	case errors.Is(err, provisioningdomain.ErrDeploymentTemplateNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Deployment template not found."))
+
+	case errors.Is(err, provisioningdomain.ErrDeploymentTemplateNameTaken):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"A deployment template with this name already exists for the integration."))
+
+	case errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+
+	case errors.Is(err, provisioningdomain.ErrInvalidDeploymentTemplate),
+		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+
+	case errors.Is(err, sitedomain.ErrSiteNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))
+
 	case errors.Is(err, serverdomain.ErrServerNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Server not found."))
 

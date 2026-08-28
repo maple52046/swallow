@@ -36,6 +36,39 @@ test.beforeEach(async ({ page }, testInfo) => {
 })
 
 test.describe('operator interactions', () => {
+  test('login layout stays aligned on desktop and mobile', async ({ page }) => {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport)
+      await page.goto('/login')
+
+      await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+      await expect(page.getByText('Swallow', { exact: true })).toHaveCount(1)
+      await expect(page.getByLabel('Username')).toBeVisible()
+      await expect(page.getByLabel('Password')).toBeVisible()
+      await expect(page.locator('.pf-v6-c-login__main-header')).toHaveCount(1)
+      await expect(page.locator('.pf-v6-c-login__main-body')).toHaveCount(1)
+
+      const layout = await page.evaluate(() => {
+        const main = document.querySelector<HTMLElement>('.pf-v6-c-login__main')
+        const brand = document.querySelector<HTMLElement>('.sw-login-brand')
+        if (!main || !brand) return null
+        const mainRect = main.getBoundingClientRect()
+        const brandRect = brand.getBoundingClientRect()
+        return {
+          hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+          mainFitsViewport: mainRect.left >= 0 && mainRect.right <= window.innerWidth,
+          mainWidth: mainRect.width,
+          brandHeight: brandRect.height,
+        }
+      })
+      expect(layout).not.toBeNull()
+      expect(layout?.hasHorizontalOverflow).toBe(false)
+      expect(layout?.mainFitsViewport).toBe(true)
+      expect(layout?.mainWidth).toBeGreaterThan(280)
+      expect(layout?.brandHeight).toBeLessThan(56)
+    }
+  })
+
   test('site scope is URL-owned and detail switching returns to the list', async ({ page }) => {
     await page.goto('/')
     await visibleSiteScope(page).click()
@@ -358,6 +391,133 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Alertmanager is unavailable')).toBeVisible()
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
     await expect(page.getByRole('row', { name: /NodeDown/ })).toBeVisible()
+  })
+
+  test('Server Detail opens the standalone OS deployment workflow with its target', async ({ page }) => {
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, { readyServerCount: 1 })
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await expect(page.getByText('Deploy operating system')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Deploy OS', exact: true }).click()
+    await expect(page).toHaveURL(/\/provisioning\/deploy\?.*site=site-a.*serverId=srv-1/)
+    await expect(page.getByText('1 of 100 selected')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled()
+  })
+
+  test('MAAS network readiness blocks deployment before provider dispatch', async ({ page }) => {
+    await page.unroute('**/api/v1/**')
+    let deploymentRequests = 0
+    await installApiFixtures(page, {
+      readyServerCount: 1,
+      deploymentReadinessIssues: {
+        'srv-1': "No MAAS interface is linked to a subnet. Configure the machine's Network in MAAS, then check deployment readiness again.",
+      },
+      onDeploymentRequest: () => { deploymentRequests += 1 },
+    })
+
+    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1')
+    await page.getByRole('button', { name: 'Next' }).click()
+
+    await expect(page.getByText('gpu-node-01: Deployment blocked')).toBeVisible()
+    await expect(page.getByText(/No MAAS interface is linked to a subnet/)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible()
+    await expect(page.getByLabel('Configuration source')).toHaveCount(0)
+    expect(deploymentRequests).toBe(0)
+
+    await page.getByRole('button', { name: 'Review Server Network' }).click()
+    await expect(page).toHaveURL('/servers/srv-1/network?site=site-a')
+  })
+
+  test('multi-node deploy preserves query targets, customizes template, and restores partial results', async ({ page }) => {
+    await page.unroute('**/api/v1/**')
+    let deploymentRequest: Record<string, unknown> | undefined
+    await installApiFixtures(page, {
+      readyServerCount: 2,
+      deploymentFailureIds: ['srv-2'],
+      onDeploymentRequest: (body) => { deploymentRequest = body },
+    })
+    await page.goto('/servers?site=site-a')
+    await page.getByLabel('Select gpu-node-01').check()
+    await page.getByLabel('Select gpu-node-02').check()
+    await page.getByRole('button', { name: 'Deploy OS' }).click()
+    await expect(page).toHaveURL(/serverId=srv-1.*serverId=srv-2/)
+    await expect(page.getByText('2 of 100 selected')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByLabel('Configuration source').selectOption('template-a')
+    await expect(page.getByLabel('OS image')).toBeDisabled()
+    await page.getByRole('button', { name: 'Customize' }).click()
+    await expect(page.getByLabel('OS image')).toBeEnabled()
+    await page.getByLabel('Cloud-init').first().selectOption('replace')
+    await page.locator('textarea#deploy-user-data').fill('#cloud-config\nhostname: batch')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByLabel('Save as a deployment template').check()
+    await page.getByLabel('New deployment template name').fill('Scale-out baseline')
+    await page.getByRole('button', { name: 'Deploy OS' }).click()
+
+    await expect(page.getByText('1 accepted', { exact: true })).toBeVisible()
+    await expect(page.getByText('1 failed', { exact: true })).toBeVisible()
+    await expect(page.getByText('Machine reservation changed.')).toBeVisible()
+    expect(deploymentRequest?.serverIds).toEqual(['srv-1', 'srv-2'])
+    expect(JSON.stringify(deploymentRequest)).toContain('#cloud-config')
+    expect(await page.evaluate(() => JSON.stringify({
+      local: { ...localStorage },
+      session: { ...sessionStorage },
+    }))).not.toContain('#cloud-config')
+
+    await page.reload()
+    await expect(page.getByText('1 accepted', { exact: true })).toBeVisible()
+    await expect(page.getByText('1 failed', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Configure and try again' }).click()
+    await expect(page.getByText('1 of 100 selected')).toBeVisible()
+    await expect(page.getByText('1 accepted', { exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => sessionStorage.getItem('swallow.provisioning.last-result'))).toBeNull()
+  })
+
+  test('cross-integration selection is blocked and Site changes clear provisioning drafts', async ({ page }) => {
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, {
+      readyServerCount: 2,
+      secondReadyServerIntegrationId: 'maas-b',
+    })
+    await page.goto('/servers?site=site-a')
+    await page.getByLabel('Select gpu-node-01').check()
+    await page.getByLabel('Select gpu-node-02').check()
+    await expect(page.getByRole('button', { name: 'Deploy OS' })).toBeDisabled()
+    await expect(page.getByText('Selected Servers must use the same provisioner integration.')).toBeVisible()
+
+    await page.getByLabel('Select gpu-node-02').uncheck()
+    await page.getByRole('button', { name: 'Deploy OS' }).click()
+    await expect(page).toHaveURL(/serverId=srv-1/)
+    await visibleSiteScope(page).click()
+    await chooseMenuItem(page, 'Hsinchu Edge')
+    await expect(page).toHaveURL('/provisioning/deploy?site=site-b')
+    await expect(page.getByText('Provisioning draft cleared')).toBeVisible()
+  })
+
+  test('template CRUD remains write-only and OS Images preserves partial provider results', async ({ page }) => {
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, { failImageIntegrationIds: ['maas-b'] })
+    await page.goto('/provisioning/templates?site=site-a')
+    await expect(page.getByText('GPU compute baseline')).toBeVisible()
+    await page.getByRole('button', { name: 'Create template' }).click()
+    await page.getByLabel('Provisioner integration').selectOption('maas-a')
+    await page.getByLabel('Name').fill('Scale-out template')
+    await page.getByLabel('OS image').selectOption('ubuntu/noble')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    const row = page.getByRole('row', { name: /Scale-out template/ })
+    await expect(row).toBeVisible()
+    await row.getByRole('button', { name: 'Add cloud-init' }).click()
+    await page.locator('textarea#template-user-data').fill('#cloud-config\nusers: []')
+    await page.locator('.pf-v6-c-card').filter({ hasText: 'Replace cloud-init for Scale-out template' }).getByRole('button', { name: 'Replace cloud-init' }).click()
+    await expect(page.getByRole('row', { name: /Scale-out template/ })).toContainText('Configured')
+    expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('#cloud-config')
+
+    await page.goto('/provisioning/images?site=site-a')
+    await expect(page.getByText('MAAS Edge image catalog unavailable')).toBeVisible()
+    await expect(page.getByRole('row', { name: /Ubuntu 22.04 LTS/ })).toBeVisible()
+    await expectTableCellsVerticallyCentered(page, 'OS images')
   })
 
   test('keyboard can traverse primary navigation', async ({ page }) => {

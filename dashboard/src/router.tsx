@@ -16,6 +16,10 @@ import { DeployClusterWizardPage } from './presentation/pages/clusters/DeployClu
 import { OperatorOperationsPage } from './presentation/pages/operations/OperatorOperationsPage'
 import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
+import { DeployOSWizardPage } from './presentation/pages/provisioning/DeployOSWizardPage'
+import { DeploymentTemplatesPage } from './presentation/pages/provisioning/DeploymentTemplatesPage'
+import { OSImagesPage } from './presentation/pages/provisioning/OSImagesPage'
+import { ProvisioningRedirect } from './presentation/pages/provisioning/ProvisioningRedirect'
 
 /** Stable Dashboard routes, each backed by active `/api/v1` provider contracts. */
 export const router = createBrowserRouter([
@@ -45,6 +49,10 @@ export const router = createBrowserRouter([
       { path: 'clusters/:id', element: <ClusterDetailPage /> },
       { path: 'operations', element: <OperatorOperationsPage /> },
       { path: 'operations/:id', element: <OperatorOperationDetailPage /> },
+      { path: 'provisioning', element: <ProvisioningRedirect /> },
+      { path: 'provisioning/deploy', element: <DeployOSWizardPage /> },
+      { path: 'provisioning/templates', element: <DeploymentTemplatesPage /> },
+      { path: 'provisioning/images', element: <OSImagesPage /> },
     ],
   },
   { path: '*', element: <ProtectedRoute><NotFoundPage /></ProtectedRoute> },

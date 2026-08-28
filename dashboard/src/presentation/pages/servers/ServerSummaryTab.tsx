@@ -2,7 +2,6 @@ import { Alert, AlertVariant, Card, CardBody, CardTitle, DescriptionList, Descri
 import { DetailSectionView, DetailTableCard } from '@/presentation/components/serverSummary/DetailViews'
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { DetailsCard, GpuCard, StatusCard, SummaryStatCard } from '@/presentation/components/serverSummary/SummaryCards'
-import { DeployCard } from './DeployCard'
 import { useServerDetailContext } from './useServerDetail'
 
 function IdentityCard() {
@@ -13,11 +12,11 @@ function IdentityCard() {
 
 /**
  * Cockpit-style Summary scan: power/provisioning first, then resources, live hardware,
- * provider details, deployment, and identity. Projection sections remain available when
+ * provider details, and identity. Projection sections remain available when
  * live provisioner detail fails, making that failure partial rather than page-wide.
  */
 export function ServerSummaryTab() {
-  const { server, detail, detailError, reload } = useServerDetailContext()
+  const { server, detail, detailError } = useServerDetailContext()
   const system = detail?.sections.find((section) => section.title === 'System')
   const numa = detail ? findTable(detail.tables, 'NUMA') : undefined
   const network = detail ? findTable(detail.tables, 'Network') : undefined
@@ -28,6 +27,6 @@ export function ServerSummaryTab() {
     <Gallery hasGutter minWidths={{ default: '220px' }}><SummaryStatCard title="CPU" value={server.cpuCores ? `${server.cpuCores} cores` : 'Unknown'} sub={cpuSub || undefined} /><SummaryStatCard title="Memory" value={server.memoryMiB ? `${Math.round(server.memoryMiB / 1024)} GiB` : 'Unknown'} /><SummaryStatCard title="Storage" value={server.storageGB ? `${Math.round(server.storageGB)} GB` : 'Unknown'} sub={storage?.rows.length ? `${storage.rows.length} devices` : undefined} /></Gallery>
     {detailError && <Alert variant={AlertVariant.warning} title="Live hardware detail unavailable" isInline>{detailError}</Alert>}
     <Gallery hasGutter minWidths={{ default: '340px' }}>{system && <Card><CardTitle>Hardware inventory</CardTitle><CardBody><DetailSectionView section={system} /></CardBody></Card>}{numa && <DetailTableCard table={numa} />}{network && <DetailTableCard table={network} />}<GpuCard server={server} /></Gallery>
-    <Gallery hasGutter minWidths={{ default: '340px' }}><DeployCard server={server} onActed={reload} /><IdentityCard /></Gallery>
+    <IdentityCard />
   </div>
 }
