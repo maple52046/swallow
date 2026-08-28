@@ -9,6 +9,20 @@ async function chooseMenuItem(page: import('playwright/test').Page, name: string
   await page.getByRole('menuitem', { name, exact: true }).click()
 }
 
+/** Reads computed styles because PatternFly gives header, body, check, and action cells different defaults. */
+async function expectTableCellsVerticallyCentered(page: import('playwright/test').Page, tableName: string) {
+  const table = page.locator(`table[aria-label="${tableName}"]`)
+  await expect(table).toBeVisible()
+  const cells = table.locator('thead th, tbody td')
+  await expect(cells.first()).toBeVisible()
+  expect(await cells.evaluateAll((items) => items.every((item) => getComputedStyle(item).verticalAlign === 'middle'))).toBe(true)
+}
+
+async function expectMediumBlockSpacing(locator: import('playwright/test').Locator) {
+  await expect(locator).toHaveCSS('padding-block-start', '16px')
+  await expect(locator).toHaveCSS('padding-block-end', '16px')
+}
+
 test.beforeEach(async ({ page }, testInfo) => {
   await installApiFixtures(page)
   const appearance = 'light'
@@ -60,6 +74,45 @@ test.describe('operator interactions', () => {
     await expect(page.locator('html')).toHaveClass(/pf-v6-theme-dark/)
     await visibleAppearance(page).click(); await chooseMenuItem(page, 'Light')
     await expect(page.locator('html')).not.toHaveClass(/pf-v6-theme-dark/)
+  })
+
+  test('shared tables center cells and separators keep PatternFly spacing', async ({ page }) => {
+    await page.goto('/')
+    await expectTableCellsVerticallyCentered(page, 'Recent operations')
+    await expect(page.locator('.sw-page-header')).toHaveCSS('padding-block-end', '16px')
+    await expect(page.locator('.sw-page-header')).toHaveCSS('align-items', 'center')
+
+    await page.goto('/servers?site=site-a')
+    await expectTableCellsVerticallyCentered(page, 'Servers')
+
+    await page.goto('/clusters?site=site-a')
+    await expectTableCellsVerticallyCentered(page, 'Clusters')
+
+    await page.goto('/monitoring?site=site-a')
+    await expectTableCellsVerticallyCentered(page, 'Monitoring alerts')
+    await expectMediumBlockSpacing(page.locator('.sw-data-toolbar').first())
+    await expect(page.locator('.sw-data-toolbar').first().locator('.pf-v6-c-toolbar__content-section')).toHaveCSS('align-items', 'center')
+
+    await page.goto('/operations?site=site-a')
+    await expectTableCellsVerticallyCentered(page, 'Operations')
+
+    await page.goto('/operations/op-running?site=site-a')
+    await page.getByRole('tab', { name: 'Details' }).click()
+    const metadataRow = page.locator('.sw-key-value-grid > div').first()
+    await expect(metadataRow).toHaveCSS('align-items', 'center')
+    await expectMediumBlockSpacing(metadataRow)
+
+    await page.goto('/clusters/deploy?site=site-a')
+    await page.getByLabel('Cluster name').fill('alignment-audit')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByLabel('API virtual IP').fill('192.168.40.200')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expectTableCellsVerticallyCentered(page, 'Deployable Servers')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/monitoring?site=site-a')
+    await expect(page.locator('.sw-page-header')).toHaveCSS('align-items', 'flex-start')
+    await expectMediumBlockSpacing(page.locator('.sw-data-toolbar').first())
   })
 
   test('desktop dock collapses to icons with tooltip and persists', async ({ page }) => {
