@@ -18,7 +18,11 @@ type OperationKind string
 const (
 	OperationKindInstallGPUDriver OperationKind = "install-gpu-driver"
 	OperationKindDeployKubernetes OperationKind = "deploy-kubernetes"
-	OperationKindConfigureSlurm   OperationKind = "configure-slurm"
+	// OperationKindUninstallKubernetes removes the k0s installation created by a
+	// deploy-kubernetes operation while preserving the host operating system.
+	OperationKindUninstallKubernetes OperationKind = "uninstall-kubernetes"
+
+	OperationKindConfigureSlurm OperationKind = "configure-slurm"
 	// OperationKindInstallExporters installs a host's Prometheus exporters as
 	// containers: node-exporter on every target and the RDC exporter on AMD GPU
 	// targets. It is the Ansible half of exporter ownership and is what OS deployment
@@ -45,6 +49,7 @@ const (
 var ValidOperationKinds = []OperationKind{
 	OperationKindInstallGPUDriver,
 	OperationKindDeployKubernetes,
+	OperationKindUninstallKubernetes,
 	OperationKindConfigureSlurm,
 	OperationKindInstallExporters,
 	OperationKindUninstallExporters,
@@ -97,14 +102,15 @@ const (
 	StatusIndeterminate Status = "indeterminate"
 )
 
-// RefusedWhenLocked reports whether swallow must refuse this kind of operation against a
-// locked machine. The exporter operations are refused because a locked machine is
-// declared off-limits ("unmanaged"): swallow must neither install nor remove exporters on
-// it. Other kinds are left to the operator's explicit judgement, matching the provisioner
-// lock, which blocks provisioner state changes rather than every SSH action.
+// RefusedWhenLocked reports whether Swallow must refuse this kind of operation against a
+// locked machine. Exporter changes and cluster uninstall are refused because they alter
+// software Swallow owns on the host; a locked machine is declared off-limits
+// ("unmanaged"). Other kinds retain their existing behavior, matching the provisioner
+// lock's narrower role in blocking provisioner state changes rather than every SSH
+// action.
 func (k OperationKind) RefusedWhenLocked() bool {
 	switch k {
-	case OperationKindInstallExporters, OperationKindUninstallExporters:
+	case OperationKindUninstallKubernetes, OperationKindInstallExporters, OperationKindUninstallExporters:
 		return true
 	default:
 		return false

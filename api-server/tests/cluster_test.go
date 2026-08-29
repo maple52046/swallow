@@ -323,3 +323,90 @@ func TestListServers_FilterByCluster(t *testing.T) {
 		t.Errorf("wrong server returned: %v", item["id"])
 	}
 }
+
+func TestUninstallCluster_AcceptsOriginalDeploymentTargets(t *testing.T) {
+	f := setupPlatform(t)
+	cluster := seedCluster(t, f, "cluster-1", "prod-k8s", "provisioning")
+	cluster.ExporterOwner = clusterdomain.ExporterOwnerK8s
+	f.seedServer("srv-1", "node-1", "10.0.1.10", nil)
+	f.seedServer("srv-2", "node-2", "10.0.1.11", nil)
+	now := time.Now().UTC()
+	f.clusterLifecycle.snapshots[cluster.ID] = clusterdomain.LifecycleSnapshot{
+		Origin:      clusterdomain.ClusterOriginDeployed,
+		State:       clusterdomain.ClusterLifecycleActive,
+		OperationID: "deploy-1",
+		Deployment: &clusterdomain.LifecycleOperation{
+			ID: "deploy-1", Status: "succeeded",
+			TargetServerIDs: []string{"srv-1", "srv-2"},
+			RequestedAt:     now,
+		},
+	}
+
+	resp := doRequest(
+		t, f.app, "POST", "/api/v1/clusters/cluster-1/uninstall", nil, f.adminAuth(t),
+	)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	body := parseBody(t, resp)
+	if body["clusterId"] != "cluster-1" || body["operationId"] != "operation-uninstall-1" {
+		t.Errorf("response = %v", body)
+	}
+	launch := f.uninstallLauncher.lastLaunch
+	if launch == nil || len(launch.TargetServerIDs) != 2 ||
+		launch.TargetServerIDs[0] != "srv-1" || launch.TargetServerIDs[1] != "srv-2" {
+		t.Fatalf("launch = %+v", launch)
+	}
+	if !launch.RestoreExporters {
+		t.Error("k8s-owned exporters must be restored through a separate operation")
+	}
+}
+
+func TestUninstallCluster_RejectsRegisteredAndNonAdminRequests(t *testing.T) {
+	f := setupPlatform(t)
+	seedCluster(t, f, "cluster-1", "external-k8s", "provisioning")
+
+	resp := doRequest(
+		t, f.app, "POST", "/api/v1/clusters/cluster-1/uninstall", nil,
+		map[string]string{"Authorization": "Bearer " + userToken(t, f.jwtSvc)},
+	)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin status = %d, want 403", resp.StatusCode)
+	}
+
+	resp = doRequest(
+		t, f.app, "POST", "/api/v1/clusters/cluster-1/uninstall", nil, f.adminAuth(t),
+	)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("registered cluster status = %d, want 409", resp.StatusCode)
+	}
+	if code := errorCode(t, resp); code != "conflict" {
+		t.Errorf("error code = %q", code)
+	}
+}
+
+func TestClusterResponseIncludesLifecycleProjection(t *testing.T) {
+	f := setupPlatform(t)
+	cluster := seedCluster(t, f, "cluster-1", "prod-k8s", "provisioning")
+	f.clusterLifecycle.snapshots[cluster.ID] = clusterdomain.LifecycleSnapshot{
+		Origin: "deployed", State: "uninstall_failed", OperationID: "uninstall-2",
+		Deployment: &clusterdomain.LifecycleOperation{
+			ID: "deploy-1", Status: "succeeded", TargetServerIDs: []string{"srv-1"},
+		},
+		Uninstall: &clusterdomain.LifecycleOperation{
+			ID: "uninstall-2", Status: "failed", TargetServerIDs: []string{"srv-1"},
+		},
+	}
+
+	resp := doRequest(
+		t, f.app, "GET", "/api/v1/clusters/cluster-1", nil, f.adminAuth(t),
+	)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	body := parseBody(t, resp)
+	if body["origin"] != "deployed" || body["lifecycleState"] != "uninstall_failed" ||
+		body["lifecycleOperationId"] != "uninstall-2" {
+		t.Errorf("lifecycle response = %v", body)
+	}
+}

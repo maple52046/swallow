@@ -1,0 +1,136 @@
+package app
+
+import (
+	"context"
+	"testing"
+
+	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	clusterinfra "github.com/maple52046/swallow/internal/cluster/infra"
+	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+)
+
+type integrationCleanerRepo struct {
+	integrations map[string]*sitedomain.Integration
+	deleted      []string
+}
+
+func (r *integrationCleanerRepo) Create(
+	context.Context,
+	*sitedomain.Integration,
+	string,
+) error {
+	return nil
+}
+
+func (r *integrationCleanerRepo) FindByID(
+	_ context.Context,
+	id string,
+) (*sitedomain.Integration, error) {
+	integration, ok := r.integrations[id]
+	if !ok {
+		return nil, sitedomain.ErrIntegrationNotFound
+	}
+	return integration, nil
+}
+
+func (r *integrationCleanerRepo) List(
+	context.Context,
+	sitedomain.IntegrationFilter,
+) ([]*sitedomain.Integration, error) {
+	return nil, nil
+}
+
+func (r *integrationCleanerRepo) Update(context.Context, *sitedomain.Integration) error {
+	return nil
+}
+
+func (r *integrationCleanerRepo) ReplaceCredential(context.Context, string, string) error {
+	return nil
+}
+
+func (r *integrationCleanerRepo) Credential(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (r *integrationCleanerRepo) UpdateSyncState(
+	context.Context,
+	string,
+	sitedomain.SyncState,
+) error {
+	return nil
+}
+
+func (r *integrationCleanerRepo) Delete(_ context.Context, id string) error {
+	r.deleted = append(r.deleted, id)
+	return nil
+}
+
+func TestManagedClusterIntegrationCleanerDeletesExplicitOwnedIntegration(t *testing.T) {
+	repo := &integrationCleanerRepo{integrations: map[string]*sitedomain.Integration{}}
+	cleaner := managedClusterIntegrationCleaner{integrations: repo}
+	cluster := &clusterdomain.Cluster{
+		ID: "cluster-1", OwnedIntegrationID: "owned-integration",
+	}
+
+	if err := cleaner.DeleteForCluster(context.Background(), cluster, false); err != nil {
+		t.Fatalf("delete owned integration: %v", err)
+	}
+	if len(repo.deleted) != 1 || repo.deleted[0] != "owned-integration" {
+		t.Fatalf("deleted = %v", repo.deleted)
+	}
+}
+
+func TestManagedClusterIntegrationCleanerRequiresCompleteLegacySignature(t *testing.T) {
+	matching := &sitedomain.Integration{
+		ID: "legacy-owned", SiteID: "site-1",
+		Kind:         sitedomain.IntegrationKindCluster,
+		ProviderKind: sitedomain.ProviderKindKubernetes,
+		Name:         "lab (deployed)",
+		Settings: map[string]string{
+			clusterinfra.SettingControllerLeaseDiscovery: "true",
+		},
+	}
+	operatorOwned := &sitedomain.Integration{
+		ID: "operator-owned", SiteID: "site-1",
+		Kind:         sitedomain.IntegrationKindCluster,
+		ProviderKind: sitedomain.ProviderKindKubernetes,
+		Name:         "operator registration",
+		Settings: map[string]string{
+			clusterinfra.SettingControllerLeaseDiscovery: "true",
+		},
+	}
+	repo := &integrationCleanerRepo{integrations: map[string]*sitedomain.Integration{
+		matching.ID:      matching,
+		operatorOwned.ID: operatorOwned,
+	}}
+	cleaner := managedClusterIntegrationCleaner{integrations: repo}
+
+	for _, test := range []struct {
+		name          string
+		integrationID string
+		allowLegacy   bool
+		wantDeleted   bool
+	}{
+		{name: "matching legacy deployment", integrationID: matching.ID, allowLegacy: true, wantDeleted: true},
+		{name: "operator owned", integrationID: operatorOwned.ID, allowLegacy: true},
+		{name: "legacy detection disabled", integrationID: matching.ID},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo.deleted = nil
+			cluster := &clusterdomain.Cluster{
+				ID: "cluster-1", SiteID: "site-1", Name: "lab",
+				IntegrationID: test.integrationID,
+			}
+			if err := cleaner.DeleteForCluster(
+				context.Background(),
+				cluster,
+				test.allowLegacy,
+			); err != nil {
+				t.Fatalf("clean integration: %v", err)
+			}
+			if got := len(repo.deleted) == 1; got != test.wantDeleted {
+				t.Fatalf("deleted = %v, want deletion %v", repo.deleted, test.wantDeleted)
+			}
+		})
+	}
+}

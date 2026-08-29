@@ -4,10 +4,22 @@
  * swallow owns a cluster's registration and policy, and — for a cluster it builds — the
  * intent to deploy it. Membership is read from the cluster's own API and appears on each
  * server's membership axis, so a cluster's members are servers, not a field here. See
- * docs/glossaries/cluster.md and docs/development/glossaries/terms/node-role.md.
+ * docs/development/glossaries/terms/cluster.md and the Node Role glossary.
  */
 
 export type ClusterType = 'kubernetes' | 'slurm'
+/** Whether Swallow registered the cluster or deployed it through a durable operation. */
+export type ClusterOrigin = 'registered' | 'deployed'
+
+/** Lifecycle derived by the API from durable deploy and uninstall operations. */
+export type ClusterLifecycleState =
+  | 'registered'
+  | 'deploying'
+  | 'deploy_failed'
+  | 'active'
+  | 'uninstalling'
+  | 'uninstall_failed'
+  | 'uninstalled'
 
 /** Which subsystem installs GPU drivers; has no default at creation. */
 export type GPUStackOwner = 'provisioning' | 'gpu-operator'
@@ -33,6 +45,9 @@ export interface Cluster {
   siteId: string
   name: string
   type: ClusterType
+  origin: ClusterOrigin
+  lifecycleState: ClusterLifecycleState
+  lifecycleOperationId: string | null
   /** Null while a cluster is registered or declared but not yet reachable. */
   integrationId: string | null
   gpuStackOwner: GPUStackOwner

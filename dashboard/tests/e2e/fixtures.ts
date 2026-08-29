@@ -27,13 +27,13 @@ function makeServer(index: number) {
 
 const servers = Array.from({ length: 4 }, (_, index) => makeServer(index))
 const operations = [
-  { id: 'op-running', kind: 'cluster.deploy', intent: 'Deploy production k0s cluster', siteId: 'site-a', clusterId: 'cluster-a', targetServerIds: servers.map((server) => server.id), retryOfOperationId: null, execution: { runId: 'run-1024', playbook: 'deploy-k0s.yml', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null }, requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z', updatedAt: now },
+  { id: 'op-running', kind: 'deploy-kubernetes', intent: 'Deploy production k0s cluster', siteId: 'site-a', clusterId: 'cluster-a', targetServerIds: servers.map((server) => server.id), retryOfOperationId: null, execution: { runId: 'run-1024', playbook: 'deploy-k0s.yml', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null }, requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z', updatedAt: now },
   { id: 'op-failed', kind: 'exporter.install', intent: 'Install GPU exporters', siteId: 'site-a', clusterId: 'cluster-a', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-1023', playbook: 'install-exporters.yml', status: 'failed', statusReason: 'Host unreachable', startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T01:09:00Z', updatedAt: '2026-08-27T01:12:00Z' },
 ]
 const clusters = [
-  { id: 'cluster-a', siteId: 'site-a', name: 'production-k0s', type: 'kubernetes', integrationId: 'k8s-a', gpuStackOwner: 'gpu-operator', exporterOwner: 'k8s', sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 5, matchedCount: 4 }, createdAt: '2026-08-10T00:00:00Z', updatedAt: now },
-  { id: 'cluster-b', siteId: 'site-a', name: 'edge-staging', type: 'kubernetes', integrationId: null, gpuStackOwner: 'provisioning', exporterOwner: 'ansible', sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 }, createdAt: '2026-08-20T00:00:00Z', updatedAt: now },
-  { id: 'cluster-slurm', siteId: 'site-a', name: 'research-slurm', type: 'slurm', integrationId: 'slurm-a', gpuStackOwner: 'provisioning', exporterOwner: 'ansible', sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 0, matchedCount: 0 }, createdAt: '2026-08-22T00:00:00Z', updatedAt: now },
+  { id: 'cluster-a', siteId: 'site-a', name: 'production-k0s', type: 'kubernetes', integrationId: 'k8s-a', origin: 'deployed', lifecycleState: 'active', lifecycleOperationId: 'op-running', gpuStackOwner: 'gpu-operator', exporterOwner: 'k8s', sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 5, matchedCount: 4 }, createdAt: '2026-08-10T00:00:00Z', updatedAt: now },
+  { id: 'cluster-b', siteId: 'site-a', name: 'edge-staging', type: 'kubernetes', integrationId: null, origin: 'deployed', lifecycleState: 'deploy_failed', lifecycleOperationId: 'op-deploy-failed', gpuStackOwner: 'provisioning', exporterOwner: 'ansible', sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 }, createdAt: '2026-08-20T00:00:00Z', updatedAt: now },
+  { id: 'cluster-slurm', siteId: 'site-a', name: 'research-slurm', type: 'slurm', integrationId: 'slurm-a', origin: 'registered', lifecycleState: 'registered', lifecycleOperationId: null, gpuStackOwner: 'provisioning', exporterOwner: 'ansible', sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 0, matchedCount: 0 }, createdAt: '2026-08-22T00:00:00Z', updatedAt: now },
 ]
 const sites = [
   { id: 'site-a', name: 'Taipei Lab', description: 'Primary accelerator lab', createdAt: now, updatedAt: now },
@@ -95,6 +95,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
   let metricBatchIndex = 0
   let activeMetricRequests = 0
+  const clusterItems = clusters.map((cluster) => ({ ...cluster }))
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -267,9 +268,27 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
 
     if (path === '/api/v1/clusters/deploy' && request.method() === 'POST') return json(route, { clusterId: 'cluster-new', operationId: 'op-running' }, 202)
-    if (path === '/api/v1/clusters') { const siteId = url.searchParams.get('siteId'); return json(route, clusters.filter((item) => !siteId || item.siteId === siteId)) }
+    if (path === '/api/v1/clusters') {
+      const siteId = url.searchParams.get('siteId')
+      return json(route, clusterItems.filter((item) => !siteId || item.siteId === siteId))
+    }
+    const uninstallMatch = path.match(/^\/api\/v1\/clusters\/([^/]+)\/uninstall$/)
+    if (uninstallMatch && request.method() === 'POST') {
+      return json(route, { clusterId: uninstallMatch[1], operationId: 'op-uninstall' }, 202)
+    }
     const clusterMatch = path.match(/^\/api\/v1\/clusters\/([^/]+)$/)
-    if (clusterMatch) return json(route, clusters.find((cluster) => cluster.id === clusterMatch[1]) ?? null)
+    if (clusterMatch && request.method() === 'DELETE') {
+      const index = clusterItems.findIndex((cluster) => cluster.id === clusterMatch[1])
+      if (index < 0) return json(route, { error: { code: 'not_found', message: 'Cluster not found' } }, 404)
+      clusterItems.splice(index, 1)
+      return json(route, { success: true })
+    }
+    if (clusterMatch) {
+      const cluster = clusterItems.find((item) => item.id === clusterMatch[1])
+      return cluster
+        ? json(route, cluster)
+        : json(route, { error: { code: 'not_found', message: 'Cluster not found' } }, 404)
+    }
     if (path === '/api/v1/operations') { let items = [...operations]; const status = url.searchParams.get('status'); if (status) items = items.filter((item) => item.execution.status === status); return json(route, { items, total: items.length, page: 1, pageSize: 30 }) }
     if (path.endsWith('/events')) return json(route, { runId: 'run-1024', status: 'running', okCount: 4, changedCount: 2, failedCount: 1, events: [{ play: 'Prepare hosts', task: 'Gather facts', host: 'gpu-node-01', status: 'ok', changed: false, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Write configuration', host: 'gpu-node-02', status: 'changed', changed: true, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Start controller', host: 'gpu-node-04', status: 'failed', changed: false, startedAt: now, endedAt: now }] })
     if (path.endsWith('/logs')) return route.fulfill({ status: 200, contentType: 'text/plain', body: 'PLAY [Prepare hosts]\nTASK [Gather facts]\nok: [gpu-node-01]\nTASK [Write configuration]\nchanged: [gpu-node-02]\nTASK [Start controller]\nfatal: [gpu-node-04]: UNREACHABLE\n' })

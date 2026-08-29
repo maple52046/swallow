@@ -35,6 +35,19 @@ export class ApiClusterRepository implements ClusterRepository {
       body: JSON.stringify(input),
     })
   }
+  async uninstallCluster(id: string): Promise<DeployClusterResult> {
+    return apiRequest<DeployClusterResult>(
+      `/api/v1/clusters/${encodeURIComponent(id)}/uninstall`,
+      { method: 'POST' },
+    )
+  }
+
+  async deleteCluster(id: string): Promise<void> {
+    await apiRequest<{ success: boolean }>(`/api/v1/clusters/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+  }
+
 
   async syncCluster(id: string): Promise<MembershipReport> {
     return apiRequest<MembershipReport>(`/api/v1/clusters/${encodeURIComponent(id)}/sync`, {

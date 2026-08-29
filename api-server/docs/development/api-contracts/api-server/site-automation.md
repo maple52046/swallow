@@ -64,6 +64,10 @@ exporter ownership: they apply or delete the exporter DaemonSets on a cluster (r
 control-plane target). Switching a cluster's `exporterOwner` to `k8s` uninstalls the
 members' Ansible exporters and deploys the DaemonSets; switching back removes them.
 
+`uninstall-kubernetes` is selected explicitly by the Cluster uninstall use case from the
+release manifest. It needs no Site mapping, so existing automation configurations remain
+valid.
+
 ## Configuration Response
 
 ```json

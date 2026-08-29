@@ -87,7 +87,7 @@ no gain.
 Owning execution does not mean running whatever is asked. An operation is refused when:
 
 - **It contradicts a cluster's policy** — installing GPU drivers where the
-  [GPU operator owns them](cluster.md#gpu-stack-owner).
+  [GPU operator owns them](../development/glossaries/terms/cluster.md).
 - **A target is already in an unfinished operation.** Two runs against one host would
   interleave.
 - **A target is in the wrong provisioning state.** Post-install automation against a
@@ -119,7 +119,7 @@ of a site's automation configuration.
 ## Relationships
 
 - An operation targets one or more [Servers](server.md), all at one [Site](site.md).
-- An operation may concern a [Cluster](cluster.md), including the operation that builds
+- An operation may concern a [Cluster](../development/glossaries/terms/cluster.md), including the operation that builds
   one.
 - An operation runs under one site's automation configuration.
 - An operation may be the retry of one earlier operation.
@@ -135,7 +135,7 @@ of a site's automation configuration.
 ## Related Concepts
 
 - [Server](server.md) — what operations target.
-- [Cluster](cluster.md) — what several operation kinds are about, and what one of them
+- [Cluster](../development/glossaries/terms/cluster.md) — what several operation kinds are about, and what one of them
   builds.
 - [decision 006](../decisions/006-embedded-ansible-execution.md) — why swallow owns
   execution rather than delegating it.

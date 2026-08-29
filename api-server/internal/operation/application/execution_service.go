@@ -112,7 +112,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 			operationdomain.ErrTargetsBusy, strings.Join(ids, ", "))
 	}
 	if s.policy != nil {
-		if err := s.policy.CheckOperation(ctx, kind, input.TargetServerIDs); err != nil {
+		if err := s.policy.CheckOperation(ctx, kind, input.ClusterID, input.TargetServerIDs); err != nil {
 			return nil, err
 		}
 	}

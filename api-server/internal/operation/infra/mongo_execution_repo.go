@@ -63,6 +63,9 @@ func NewMongoExecutionRepo(db *mongo.Database, sealer *secret.Sealer) (*MongoExe
 			Options: options.Index().SetName("execution_active_targets")},
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "execution.status", Value: 1}, {Key: "requestedAt", Value: 1}},
 			Options: options.Index().SetName("execution_dispatch")},
+		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "clusterId", Value: 1},
+			{Key: "kind", Value: 1}, {Key: "requestedAt", Value: -1}},
+			Options: options.Index().SetName("execution_cluster_lifecycle")},
 	})
 	if err != nil {
 		return nil, err
@@ -136,12 +139,16 @@ func (r *MongoExecutionRepo) List(ctx context.Context, filter operationdomain.Ex
 	}
 	if filter.ClusterID != "" {
 		query["clusterId"] = filter.ClusterID
+	} else if len(filter.ClusterIDs) > 0 {
+		query["clusterId"] = bson.M{"$in": filter.ClusterIDs}
 	}
 	if filter.ServerID != "" {
 		query["targetServerIds"] = filter.ServerID
 	}
 	if filter.Kind != "" {
 		query["kind"] = string(filter.Kind)
+	} else if len(filter.Kinds) > 0 {
+		query["kind"] = bson.M{"$in": filter.Kinds}
 	}
 	if filter.Status != "" {
 		query["execution.status"] = string(filter.Status)

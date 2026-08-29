@@ -78,7 +78,7 @@ func (uc *MembershipSyncUseCase) sync(ctx context.Context, cluster *clusterdomai
 	startedAt := time.Now().UTC()
 	state := cluster.Sync
 	state.LastStartedAt = &startedAt
-	_ = uc.clusters.UpdateSyncState(ctx, cluster.ID, state)
+	_ = uc.clusters.UpdateSyncState(ctx, cluster.ID, cluster.IntegrationID, state)
 
 	reader, err := uc.readers.For(ctx, cluster)
 	if err != nil {
@@ -144,7 +144,7 @@ func (uc *MembershipSyncUseCase) sync(ctx context.Context, cluster *clusterdomai
 	}
 
 	succeededAt := time.Now().UTC()
-	_ = uc.clusters.UpdateSyncState(ctx, cluster.ID, clusterdomain.SyncState{
+	_ = uc.clusters.UpdateSyncState(ctx, cluster.ID, cluster.IntegrationID, clusterdomain.SyncState{
 		LastStartedAt:   &startedAt,
 		LastSucceededAt: &succeededAt,
 		MemberCount:     report.Members,
@@ -166,7 +166,7 @@ func (uc *MembershipSyncUseCase) fail(
 	message := cause.Error()
 	report.Error = &message
 
-	_ = uc.clusters.UpdateSyncState(ctx, cluster.ID, clusterdomain.SyncState{
+	_ = uc.clusters.UpdateSyncState(ctx, cluster.ID, cluster.IntegrationID, clusterdomain.SyncState{
 		LastStartedAt:   &startedAt,
 		LastSucceededAt: cluster.Sync.LastSucceededAt,
 		LastError:       message,

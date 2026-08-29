@@ -13,7 +13,7 @@ document for that concept rather than every document here.
 | [`site.md`](site.md) | `Site`, `Integration`, `Staleness` — the only part of the world swallow defines rather than observes |
 | [`server.md`](server.md) | `Server`, its three identity layers, and the three status axes |
 | [`provisioning.md`](provisioning.md) | `OS Provisioning Provider`, `Machine`, `MachineStatus`, `OS Image`, `Deployment`, `Release` |
-| [`cluster.md`](cluster.md) | `Cluster`, `GPU Stack Owner`, `Membership` |
+| [canonical Cluster glossary](../development/glossaries/terms/cluster.md) | `Cluster` lifecycle language, migrated to the canonical glossary |
 | [`operation.md`](operation.md) | `Operation`, the automation mirror, and what swallow refuses |
 
 Monitoring vocabulary — the metrics label contract, `gpuStackOwner`'s effect on exporters,

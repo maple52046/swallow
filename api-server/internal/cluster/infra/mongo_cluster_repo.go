@@ -12,12 +12,13 @@ import (
 )
 
 type clusterDoc struct {
-	ID            string `bson:"_id"`
-	SiteID        string `bson:"siteId"`
-	Name          string `bson:"name"`
-	Type          string `bson:"type"`
-	IntegrationID string `bson:"integrationId,omitempty"`
-	GPUStackOwner string `bson:"gpuStackOwner"`
+	ID                 string `bson:"_id"`
+	SiteID             string `bson:"siteId"`
+	Name               string `bson:"name"`
+	Type               string `bson:"type"`
+	IntegrationID      string `bson:"integrationId,omitempty"`
+	OwnedIntegrationID string `bson:"ownedIntegrationId,omitempty"`
+	GPUStackOwner      string `bson:"gpuStackOwner"`
 	// ExporterOwner is omitempty so a document written before this field existed
 	// decodes as empty and is defaulted to ansible on read.
 	ExporterOwner string      `bson:"exporterOwner,omitempty"`
@@ -103,11 +104,12 @@ func (r *MongoClusterRepo) Update(ctx context.Context, cluster *clusterdomain.Cl
 	result, err := r.col.UpdateOne(ctx,
 		bson.M{"_id": cluster.ID},
 		bson.M{"$set": bson.M{
-			"name":          cluster.Name,
-			"integrationId": cluster.IntegrationID,
-			"gpuStackOwner": string(cluster.GPUStackOwner),
-			"exporterOwner": string(cluster.ExporterOwner),
-			"updatedAt":     cluster.UpdatedAt,
+			"name":               cluster.Name,
+			"integrationId":      cluster.IntegrationID,
+			"ownedIntegrationId": cluster.OwnedIntegrationID,
+			"gpuStackOwner":      string(cluster.GPUStackOwner),
+			"exporterOwner":      string(cluster.ExporterOwner),
+			"updatedAt":          cluster.UpdatedAt,
 		}},
 	)
 	if mongo.IsDuplicateKeyError(err) {
@@ -122,9 +124,13 @@ func (r *MongoClusterRepo) Update(ctx context.Context, cluster *clusterdomain.Cl
 	return nil
 }
 
-func (r *MongoClusterRepo) UpdateSyncState(ctx context.Context, id string, state clusterdomain.SyncState) error {
+func (r *MongoClusterRepo) UpdateSyncState(
+	ctx context.Context,
+	id, integrationID string,
+	state clusterdomain.SyncState,
+) error {
 	result, err := r.col.UpdateOne(ctx,
-		bson.M{"_id": id},
+		bson.M{"_id": id, "integrationId": integrationID},
 		bson.M{"$set": bson.M{"sync": clusterSync{
 			LastStartedAt:   state.LastStartedAt,
 			LastSucceededAt: state.LastSucceededAt,
@@ -155,13 +161,14 @@ func (r *MongoClusterRepo) Delete(ctx context.Context, id string) error {
 
 func toDoc(cluster *clusterdomain.Cluster) *clusterDoc {
 	return &clusterDoc{
-		ID:            cluster.ID,
-		SiteID:        cluster.SiteID,
-		Name:          cluster.Name,
-		Type:          string(cluster.Type),
-		IntegrationID: cluster.IntegrationID,
-		GPUStackOwner: string(cluster.GPUStackOwner),
-		ExporterOwner: string(cluster.ExporterOwner),
+		ID:                 cluster.ID,
+		SiteID:             cluster.SiteID,
+		Name:               cluster.Name,
+		Type:               string(cluster.Type),
+		IntegrationID:      cluster.IntegrationID,
+		OwnedIntegrationID: cluster.OwnedIntegrationID,
+		GPUStackOwner:      string(cluster.GPUStackOwner),
+		ExporterOwner:      string(cluster.ExporterOwner),
 		Sync: clusterSync{
 			LastStartedAt:   cluster.Sync.LastStartedAt,
 			LastSucceededAt: cluster.Sync.LastSucceededAt,
@@ -182,13 +189,14 @@ func toCluster(doc *clusterDoc) *clusterdomain.Cluster {
 		exporterOwner = clusterdomain.ExporterOwnerAnsible
 	}
 	return &clusterdomain.Cluster{
-		ID:            doc.ID,
-		SiteID:        doc.SiteID,
-		Name:          doc.Name,
-		Type:          clusterdomain.ClusterType(doc.Type),
-		IntegrationID: doc.IntegrationID,
-		GPUStackOwner: clusterdomain.GPUStackOwner(doc.GPUStackOwner),
-		ExporterOwner: exporterOwner,
+		ID:                 doc.ID,
+		SiteID:             doc.SiteID,
+		Name:               doc.Name,
+		Type:               clusterdomain.ClusterType(doc.Type),
+		IntegrationID:      doc.IntegrationID,
+		OwnedIntegrationID: doc.OwnedIntegrationID,
+		GPUStackOwner:      clusterdomain.GPUStackOwner(doc.GPUStackOwner),
+		ExporterOwner:      exporterOwner,
 		Sync: clusterdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,

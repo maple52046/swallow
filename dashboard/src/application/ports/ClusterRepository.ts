@@ -17,6 +17,10 @@ export interface ClusterRepository {
   getCluster(id: string): Promise<Cluster | null>
   /** Deploy a new k0s cluster; resolves once the cluster and its operation are accepted. */
   deployCluster(input: DeployClusterInput): Promise<DeployClusterResult>
+  /** Remove k0s from the original deployment targets and retain the record. */
+  uninstallCluster(id: string): Promise<DeployClusterResult>
+  /** Delete only the Swallow record and owned projections; hosts are untouched. */
+  deleteCluster(id: string): Promise<void>
   /** Read the cluster's membership now instead of waiting for the background interval. */
   syncCluster(id: string): Promise<MembershipReport>
 }

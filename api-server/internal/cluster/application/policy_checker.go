@@ -32,8 +32,24 @@ func NewPolicyChecker(
 func (c *PolicyChecker) CheckOperation(
 	ctx context.Context,
 	kind operationdomain.OperationKind,
+	clusterID string,
 	serverIDs []string,
 ) error {
+	if kind == operationdomain.OperationKindUninstallKubernetes && clusterID == "" {
+		return fmt.Errorf("%w: uninstall-kubernetes requires a clusterId",
+			operationdomain.ErrPolicyConflict)
+	}
+	if (kind == operationdomain.OperationKindDeployKubernetes ||
+		kind == operationdomain.OperationKindUninstallKubernetes) && clusterID != "" {
+		if _, err := c.clusters.FindByID(ctx, clusterID); err != nil {
+			if errors.Is(err, clusterdomain.ErrClusterNotFound) {
+				return fmt.Errorf("%w: cluster %s no longer exists",
+					operationdomain.ErrPolicyConflict, clusterID)
+			}
+			return err
+		}
+	}
+
 	// Only driver installation is contested today. Deploying a cluster or configuring
 	// Slurm does not touch anything a GPU operator manages.
 	if kind != operationdomain.OperationKindInstallGPUDriver {

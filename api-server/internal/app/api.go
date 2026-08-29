@@ -181,7 +181,6 @@ func RunAPI(cfg config.APIConfig) error {
 	}
 	membershipSync := clusterapp.NewMembershipSyncUseCase(
 		clusterRepo, serverRepo, clusterinfra.NewReaderFactory(integrationRepo))
-	clusterService := clusterapp.NewClusterService(clusterRepo, siteRepo, serverRepo)
 
 	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
@@ -191,6 +190,11 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("operation repo init: %w", err)
 	}
+	lifecycleReader := clusterLifecycleReader{operations: operationRepo}
+	integrationCleaner := managedClusterIntegrationCleaner{integrations: integrationRepo}
+	clusterService := clusterapp.NewClusterService(
+		clusterRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
+	)
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
@@ -210,14 +214,16 @@ func RunAPI(cfg config.APIConfig) error {
 	overviewHandler := overviewdelivery.NewHandler(
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
-	// Cluster deployment: the deploy use case validates topology and hands off to the
-	// operation service through the launcher adapter; the observer records the credential a
-	// successful deployment produced. Both adapters keep the two contexts decoupled.
+	// Cluster lifecycle adapters keep durable operations outside the cluster context.
+	clusterLauncher := clusterDeploymentLauncher{operations: operationService}
 	deployService := clusterapp.NewDeployService(
-		clusterService, clusterRepo, serverRepo,
-		clusterDeploymentLauncher{operations: operationService},
+		clusterService, clusterRepo, serverRepo, clusterLauncher,
 	)
-	clusterHandler := clusterdelivery.NewClusterHandler(clusterService, membershipSync, deployService)
+	uninstallService := clusterapp.NewUninstallService(
+		clusterRepo, serverRepo, lifecycleReader, clusterLauncher,
+	)
+	clusterHandler := clusterdelivery.NewClusterHandler(
+		clusterService, membershipSync, deployService, uninstallService)
 	deploymentCredentials := clusterapp.NewDeploymentCredentialService(clusterRepo, integrationRepo, membershipSync)
 
 	// Auto-install exporters when a server reaches the deployed state and its effective
@@ -233,7 +239,10 @@ func RunAPI(cfg config.APIConfig) error {
 	dispatcher := operationapp.NewDispatcher(
 		operationRepo, operationinfra.NewMongoSiteLeaseRepo(db), automationRepo,
 		catalog, runner, executionInventoryAdapter{discovery: discoveryUseCase},
-		clusterDeploymentObserver{credentials: deploymentCredentials},
+		clusterDeploymentObserver{
+			credentials: deploymentCredentials, clusters: clusterService,
+			operations: operationService, servers: serverRepo,
+		},
 		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration,
 	)
 
@@ -437,6 +446,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	clusters.Get("/:id", deps.clusters.Get)
 	clusters.Patch("/:id", deps.clusters.Update)
 	clusters.Delete("/:id", deps.clusters.Delete)
+	clusters.Post("/:id/uninstall", deps.clusters.Uninstall)
 	clusters.Post("/:id/sync", deps.clusters.SyncMembership)
 
 	// Alerts and metrics are read straight from the monitoring stack: swallow stores

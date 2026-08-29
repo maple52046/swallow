@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
@@ -50,6 +51,7 @@ func TestShippedManifestResolvesExporterPlaybooks(t *testing.T) {
 		t.Fatalf("load shipped manifest: %v", err)
 	}
 	for _, name := range []string{
+		"uninstall-kubernetes",
 		"install-exporters", "uninstall-exporters",
 		"deploy-k8s-exporters", "remove-k8s-exporters",
 	} {
@@ -98,5 +100,35 @@ func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("ephemeral run directory was not removed: %v", entries)
+	}
+}
+
+func TestUninstallKubernetesPlaybookPreservesHostLifecycle(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "automation", "playbooks", "uninstall-kubernetes.yml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read uninstall playbook: %v", err)
+	}
+	playbook := string(raw)
+	for _, required := range []string{
+		"cmd: /usr/local/bin/k0s reset",
+		"path: /usr/local/bin/k0s",
+		"- /etc/k0s",
+		"path: /var/lib/k0s",
+		"daemon_reload: true",
+	} {
+		if !strings.Contains(playbook, required) {
+			t.Errorf("uninstall playbook missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"ansible.builtin.reboot",
+		"name: conntrack",
+		"state: absent\\n      name: conntrack",
+		"failed_when: false",
+	} {
+		if strings.Contains(playbook, forbidden) {
+			t.Errorf("uninstall playbook must preserve host lifecycle; found %q", forbidden)
+		}
 	}
 }

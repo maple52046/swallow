@@ -84,6 +84,7 @@ func (s *DeploymentCredentialService) Record(ctx context.Context, clusterID stri
 	}
 
 	cluster.IntegrationID = integration.ID
+	cluster.OwnedIntegrationID = integration.ID
 	cluster.UpdatedAt = now
 	if err := s.clusters.Update(ctx, cluster); err != nil {
 		return err

@@ -8,6 +8,8 @@ import (
 
 	"github.com/maple52046/swallow/internal/cluster/application"
 	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 	"github.com/maple52046/swallow/internal/shared/middleware"
@@ -16,6 +18,7 @@ import (
 
 type ClusterHandler struct {
 	clusters   *application.ClusterService
+	uninstall  *application.UninstallService
 	membership *application.MembershipSyncUseCase
 	deploy     *application.DeployService
 }
@@ -24,8 +27,11 @@ func NewClusterHandler(
 	clusters *application.ClusterService,
 	membership *application.MembershipSyncUseCase,
 	deploy *application.DeployService,
+	uninstall *application.UninstallService,
 ) *ClusterHandler {
-	return &ClusterHandler{clusters: clusters, membership: membership, deploy: deploy}
+	return &ClusterHandler{
+		clusters: clusters, membership: membership, deploy: deploy, uninstall: uninstall,
+	}
 }
 
 type createClusterRequest struct {
@@ -161,6 +167,21 @@ func (h *ClusterHandler) Update(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
+// Uninstall starts removal of a Swallow-deployed k0s cluster from its original targets.
+func (h *ClusterHandler) Uninstall(c *fiber.Ctx) error {
+	requestedBy := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		requestedBy = claims.Username
+	}
+	result, err := h.uninstall.Uninstall(c.Context(), application.UninstallClusterInput{
+		ClusterID: c.Params("id"), RequestedBy: requestedBy,
+	})
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(result)
+}
+
 func (h *ClusterHandler) Delete(c *fiber.Ctx) error {
 	if err := h.clusters.Delete(c.Context(), c.Params("id")); err != nil {
 		return respondError(c, err)
@@ -201,6 +222,21 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, clusterdomain.ErrClusterNameTaken):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"A cluster with this name already exists at this site."))
+
+	case errors.Is(err, clusterdomain.ErrClusterNotDeployManaged),
+		errors.Is(err, clusterdomain.ErrClusterAlreadyUninstalled),
+		errors.Is(err, clusterdomain.ErrClusterUninstallConflict),
+		errors.Is(err, operationdomain.ErrTargetsBusy),
+		errors.Is(err, operationdomain.ErrTargetLocked),
+		errors.Is(err, operationdomain.ErrPolicyConflict):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+
+	case errors.Is(err, operationdomain.ErrAutomationConfigNotFound),
+		errors.Is(err, operationdomain.ErrAutomationDisabled),
+		errors.Is(err, operationdomain.ErrAutomationCredentialMissing),
+		errors.Is(err, operationdomain.ErrPlaybookNotAllowed),
+		errors.Is(err, operationapp.ErrInvalidOperation):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 
 	case errors.Is(err, application.ErrInvalidCluster),
 		errors.Is(err, clusterdomain.ErrInvalidDeployment),

@@ -60,9 +60,11 @@ type platformFixture struct {
 	factory      *fakeProviderFactory
 	health       *testHealthResolver
 
-	monitoring    *fakeMonitoringFactory
-	clusterRepo   *fakeClusterRepo
-	clusterReader *fakeReaderFactory
+	clusterLifecycle  *fakeLifecycleReader
+	uninstallLauncher *fakeUninstallLauncher
+	monitoring        *fakeMonitoringFactory
+	clusterRepo       *fakeClusterRepo
+	clusterReader     *fakeReaderFactory
 }
 
 // setupPlatform wires the routes exactly as internal/app does, so that route shape and
@@ -116,10 +118,16 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	clusterRepo := newFakeClusterRepo()
 	readerFactory := newFakeReaderFactory()
+	lifecycle := newFakeLifecycleReader()
+	uninstallLauncher := &fakeUninstallLauncher{}
 	membershipSync := clusterapp.NewMembershipSyncUseCase(clusterRepo, servers, readerFactory)
-	clusterService := clusterapp.NewClusterService(clusterRepo, sites, servers)
-	deployService := clusterapp.NewDeployService(clusterService, clusterRepo, servers, &fakeDeploymentLauncher{})
-	clusterHandler := clusterdelivery.NewClusterHandler(clusterService, membershipSync, deployService)
+	clusterService := clusterapp.NewClusterService(clusterRepo, sites, servers, lifecycle, nil)
+	deployService := clusterapp.NewDeployService(
+		clusterService, clusterRepo, servers, &fakeDeploymentLauncher{})
+	uninstallService := clusterapp.NewUninstallService(
+		clusterRepo, servers, lifecycle, uninstallLauncher)
+	clusterHandler := clusterdelivery.NewClusterHandler(
+		clusterService, membershipSync, deployService, uninstallService)
 
 	app := fiber.New()
 	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
@@ -183,6 +191,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	clusterGroup.Patch("/:id", clusterHandler.Update)
 	clusterGroup.Delete("/:id", clusterHandler.Delete)
 	clusterGroup.Post("/:id/sync", clusterHandler.SyncMembership)
+	clusterGroup.Post("/:id/uninstall", clusterHandler.Uninstall)
 
 	monitoringGroup := v1.Group("/monitoring", admin...)
 	monitoringGroup.Get("/alerts", monitoringHandler.ListAlerts)
@@ -197,18 +206,20 @@ func setupPlatform(t *testing.T) *platformFixture {
 	discoveryGroup.Get("/ansible", discoveryHandler.AnsibleInventory)
 
 	return &platformFixture{
-		app:           app,
-		jwtSvc:        jwtSvc,
-		servers:       servers,
-		sites:         sites,
-		integrations:  integrations,
-		templates:     templates,
-		provider:      provider,
-		factory:       factory,
-		health:        health,
-		monitoring:    monitoringFactory,
-		clusterRepo:   clusterRepo,
-		clusterReader: readerFactory,
+		app:               app,
+		jwtSvc:            jwtSvc,
+		servers:           servers,
+		sites:             sites,
+		integrations:      integrations,
+		templates:         templates,
+		provider:          provider,
+		factory:           factory,
+		health:            health,
+		monitoring:        monitoringFactory,
+		clusterRepo:       clusterRepo,
+		clusterReader:     readerFactory,
+		clusterLifecycle:  lifecycle,
+		uninstallLauncher: uninstallLauncher,
 	}
 }
 

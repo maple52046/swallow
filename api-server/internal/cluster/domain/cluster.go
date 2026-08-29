@@ -114,9 +114,12 @@ type Cluster struct {
 	// ExporterOwnerAnsible; only ExporterOwnerK8s is honoured as an alternative.
 	ExporterOwner ExporterOwner
 
-	Sync      SyncState
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// OwnedIntegrationID is set only for a credential integration created by Swallow.
+	// It is private persistence metadata and is never exposed by the cluster API.
+	OwnedIntegrationID string
+	Sync               SyncState
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // SyncState records the freshness of the membership read, so that a stale view is
@@ -200,6 +203,8 @@ type ClusterRepository interface {
 	FindByID(ctx context.Context, id string) (*Cluster, error)
 	List(ctx context.Context, siteID string) ([]*Cluster, error)
 	Update(ctx context.Context, cluster *Cluster) error
-	UpdateSyncState(ctx context.Context, id string, state SyncState) error
+	// UpdateSyncState writes only while the Cluster still references integrationID,
+	// preventing an in-flight membership read from restoring state after uninstall.
+	UpdateSyncState(ctx context.Context, id, integrationID string, state SyncState) error
 	Delete(ctx context.Context, id string) error
 }

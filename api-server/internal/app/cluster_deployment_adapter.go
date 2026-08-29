@@ -8,29 +8,28 @@ import (
 	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
-// deployKubernetesKind is the operation kind that builds a cluster. It is referenced here
-// rather than imported as a constant to keep the adapter's coupling to a single string.
-const deployKubernetesKind = "deploy-kubernetes"
+const (
+	deployKubernetesKind        = "deploy-kubernetes"
+	uninstallKubernetesKind     = "uninstall-kubernetes"
+	uninstallKubernetesPlaybook = "uninstall-kubernetes"
+	restoreExportersVar         = "swallow_restore_ansible_exporters"
+	clusterNameVar              = "swallow_cluster_name"
+)
 
-// clusterDeploymentLauncher adapts the cluster context's launcher port onto the operation
-// service, so the cluster context can start a build operation without depending on the
-// operation context. The role assignment and k0s settings arrive as trusted vars, and the
-// VRRP password as a sealed secret var, both assembled by the cluster deploy use case.
+// clusterDeploymentLauncher adapts cluster lifecycle intent onto operation execution.
 type clusterDeploymentLauncher struct {
 	operations *operationapp.ExecutionService
 }
 
 func (l clusterDeploymentLauncher) Launch(ctx context.Context, launch clusterdomain.DeploymentLaunch) (string, error) {
 	item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
-		Kind:            deployKubernetesKind,
-		Intent:          "Deploy k0s cluster " + launch.Cluster.Name,
-		TargetServerIDs: launch.TargetServerIDs,
-		ClusterID:       launch.Cluster.ID,
-		TrustedVars:     launch.TrustedVars,
-		SecretVars:      launch.SecretVars,
-		RequestedBy:     launch.RequestedBy,
+		Kind: deployKubernetesKind, Intent: "Deploy k0s cluster " + launch.Cluster.Name,
+		TargetServerIDs: launch.TargetServerIDs, ClusterID: launch.Cluster.ID,
+		TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
+		RequestedBy: launch.RequestedBy,
 	})
 	if err != nil {
 		return "", err
@@ -38,18 +37,56 @@ func (l clusterDeploymentLauncher) Launch(ctx context.Context, launch clusterdom
 	return item.ID, nil
 }
 
-// clusterDeploymentObserver adapts a successful operation into a cluster credential record.
-// It implements the operation context's completion observer, inspects only the operations
-// it recognises, and translates the run's captured result into the cluster context's own
-// vocabulary, so neither context depends on the other's internals.
-type clusterDeploymentObserver struct {
-	credentials *clusterapp.DeploymentCredentialService
+func (l clusterDeploymentLauncher) LaunchUninstall(
+	ctx context.Context,
+	launch clusterdomain.UninstallLaunch,
+) (string, error) {
+	item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
+		Kind: uninstallKubernetesKind, Intent: "Uninstall k0s cluster " + launch.Cluster.Name,
+		TargetServerIDs: launch.TargetServerIDs, ClusterID: launch.Cluster.ID,
+		PlaybookName: uninstallKubernetesPlaybook,
+		TrustedVars: map[string]any{
+			restoreExportersVar: launch.RestoreExporters,
+			clusterNameVar:      launch.Cluster.Name,
+		},
+		RetryOfOperationID: launch.RetryOfOperationID,
+		RequestedBy:        launch.RequestedBy,
+	})
+	if err != nil {
+		return "", err
+	}
+	return item.ID, nil
 }
 
-func (o clusterDeploymentObserver) OperationSucceeded(ctx context.Context, operation *operationdomain.ExecutionOperation, result operationdomain.RunnerResult) {
-	if operation.Kind != operationdomain.OperationKindDeployKubernetes || operation.ClusterID == "" {
+// clusterDeploymentObserver translates successful cluster operations into projections.
+type clusterDeploymentObserver struct {
+	credentials *clusterapp.DeploymentCredentialService
+	clusters    *clusterapp.ClusterService
+	operations  *operationapp.ExecutionService
+	servers     serverdomain.ServerRepository
+}
+
+func (o clusterDeploymentObserver) OperationSucceeded(
+	ctx context.Context,
+	operation *operationdomain.ExecutionOperation,
+	result operationdomain.RunnerResult,
+) {
+	if operation.ClusterID == "" {
 		return
 	}
+	switch operation.Kind {
+	case operationdomain.OperationKindDeployKubernetes:
+		o.completeDeployment(ctx, operation, result)
+	case operationdomain.OperationKindUninstallKubernetes:
+		o.completeUninstall(ctx, operation)
+	}
+}
+
+func (o clusterDeploymentObserver) completeDeployment(
+	ctx context.Context,
+	operation *operationdomain.ExecutionOperation,
+	result operationdomain.RunnerResult,
+) {
 	credential := clusterCredentialFromResult(result)
 	if credential == nil {
 		slog.Error("cluster deployment succeeded but returned no credential",
@@ -62,8 +99,52 @@ func (o clusterDeploymentObserver) OperationSucceeded(ctx context.Context, opera
 	}
 }
 
-// clusterCredentialFromResult reads the credential a k0s deployment playbook writes to its
-// result file. Missing endpoint or token yields nil, which the caller logs.
+func (o clusterDeploymentObserver) completeUninstall(
+	ctx context.Context,
+	operation *operationdomain.ExecutionOperation,
+) {
+	if err := o.clusters.CompleteUninstall(ctx, operation.ClusterID); err != nil {
+		slog.Error("complete cluster uninstall projections",
+			"operationId", operation.ID, "clusterId", operation.ClusterID, "error", err)
+		return
+	}
+	restore, _ := operation.ExtraVars[restoreExportersVar].(bool)
+	if !restore {
+		return
+	}
+
+	targetIDs := make([]string, 0, len(operation.TargetServerIDs))
+	for _, serverID := range operation.TargetServerIDs {
+		server, err := o.servers.FindByID(ctx, serverID)
+		if err != nil {
+			slog.Warn("skip exporter restoration target",
+				"operationId", operation.ID, "serverId", serverID, "error", err)
+			continue
+		}
+		if server.Absent || server.Provisioning == nil ||
+			server.Provisioning.State != "deployed" || server.Provisioning.Locked {
+			continue
+		}
+		targetIDs = append(targetIDs, serverID)
+	}
+	if len(targetIDs) == 0 {
+		return
+	}
+
+	if _, err := o.operations.Create(ctx, operationapp.CreateExecutionInput{
+		Kind: string(operationdomain.OperationKindInstallExporters),
+		Intent: "Restore host exporters after uninstalling cluster " +
+			stringField(operation.ExtraVars, clusterNameVar),
+		TargetServerIDs: targetIDs,
+		ClusterID:       operation.ClusterID,
+		RequestedBy:     "system",
+	}); err != nil {
+		slog.Error("queue exporter restoration after cluster uninstall",
+			"operationId", operation.ID, "clusterId", operation.ClusterID, "error", err)
+	}
+}
+
+// clusterCredentialFromResult reads the credential written by a deployment playbook.
 func clusterCredentialFromResult(result operationdomain.RunnerResult) *clusterapp.DeploymentCredential {
 	if result.Data == nil {
 		return nil
@@ -74,8 +155,7 @@ func clusterCredentialFromResult(result operationdomain.RunnerResult) *clusterap
 		return nil
 	}
 	return &clusterapp.DeploymentCredential{
-		APIEndpoint:   endpoint,
-		Token:         token,
+		APIEndpoint: endpoint, Token: token,
 		CACertificate: stringField(result.Data, "caCertificate"),
 	}
 }

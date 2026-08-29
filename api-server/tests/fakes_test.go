@@ -719,9 +719,14 @@ func (r *fakeClusterRepo) Update(_ context.Context, cluster *clusterdomain.Clust
 	return nil
 }
 
-func (r *fakeClusterRepo) UpdateSyncState(_ context.Context, id string, state clusterdomain.SyncState) error {
+func (r *fakeClusterRepo) UpdateSyncState(
+	_ context.Context, id, integrationID string, state clusterdomain.SyncState,
+) error {
 	cluster, ok := r.clusters[id]
 	if !ok {
+		return clusterdomain.ErrClusterNotFound
+	}
+	if cluster.IntegrationID != integrationID {
 		return clusterdomain.ErrClusterNotFound
 	}
 	cluster.Sync = state
@@ -891,4 +896,52 @@ func (f *fakeProviderFactory) For(_ context.Context, integrationID string) (prov
 		return nil, sitedomain.ErrIntegrationNotFound
 	}
 	return provider, nil
+}
+
+// fakeLifecycleReader supplies the operation-derived cluster projection to HTTP tests.
+type fakeLifecycleReader struct {
+	snapshots map[string]clusterdomain.LifecycleSnapshot
+}
+
+func newFakeLifecycleReader() *fakeLifecycleReader {
+	return &fakeLifecycleReader{snapshots: make(map[string]clusterdomain.LifecycleSnapshot)}
+}
+
+func (r *fakeLifecycleReader) Read(
+	_ context.Context,
+	clusterIDs []string,
+) (map[string]clusterdomain.LifecycleSnapshot, error) {
+	result := make(map[string]clusterdomain.LifecycleSnapshot, len(clusterIDs))
+	for _, id := range clusterIDs {
+		if snapshot, ok := r.snapshots[id]; ok {
+			result[id] = snapshot
+		} else {
+			result[id] = clusterdomain.LifecycleSnapshot{
+				Origin: clusterdomain.ClusterOriginRegistered,
+				State:  clusterdomain.ClusterLifecycleRegistered,
+			}
+		}
+	}
+	return result, nil
+}
+
+type fakeUninstallLauncher struct {
+	lastLaunch  *clusterdomain.UninstallLaunch
+	operationID string
+	err         error
+}
+
+func (l *fakeUninstallLauncher) LaunchUninstall(
+	_ context.Context,
+	launch clusterdomain.UninstallLaunch,
+) (string, error) {
+	if l.err != nil {
+		return "", l.err
+	}
+	copy := launch
+	l.lastLaunch = &copy
+	if l.operationID == "" {
+		return "operation-uninstall-1", nil
+	}
+	return l.operationID, nil
 }

@@ -1,0 +1,81 @@
+---
+# Remove the k0s installation created by Swallow while preserving the host OS,
+# operator data, conntrack, and unrelated packages. Every task tolerates a node that
+# was only partly installed or was already cleaned by an earlier attempt.
+
+- name: Uninstall k0s from the original deployment targets
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Check for the k0s binary
+      ansible.builtin.stat:
+        path: /usr/local/bin/k0s
+      register: k0s_uninstall_binary
+
+    - name: Check for the controller service
+      ansible.builtin.stat:
+        path: /etc/systemd/system/k0scontroller.service
+      register: k0s_uninstall_controller
+
+    - name: Check for the worker service
+      ansible.builtin.stat:
+        path: /etc/systemd/system/k0sworker.service
+      register: k0s_uninstall_worker
+
+    - name: Check for k0s configuration
+      ansible.builtin.stat:
+        path: /etc/k0s
+      register: k0s_uninstall_config
+
+    - name: Check for k0s runtime state
+      ansible.builtin.stat:
+        path: /var/lib/k0s
+      register: k0s_uninstall_state
+
+    - name: Stop and disable installed k0s services
+      ansible.builtin.systemd:
+        name: "{{ item.name }}"
+        state: stopped
+        enabled: false
+      loop:
+        - name: k0scontroller
+          installed: "{{ k0s_uninstall_controller.stat.exists }}"
+        - name: k0sworker
+          installed: "{{ k0s_uninstall_worker.stat.exists }}"
+      when: item.installed | bool
+
+    - name: Reset k0s state
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k0s reset
+      register: k0s_uninstall_reset
+      changed_when: >-
+        k0s_uninstall_controller.stat.exists or
+        k0s_uninstall_worker.stat.exists or
+        k0s_uninstall_config.stat.exists or
+        k0s_uninstall_state.stat.exists
+      when:
+        - k0s_uninstall_binary.stat.exists
+        - >-
+          k0s_uninstall_controller.stat.exists or
+          k0s_uninstall_worker.stat.exists or
+          k0s_uninstall_config.stat.exists or
+          k0s_uninstall_state.stat.exists
+
+    - name: Remove Swallow-created k0s artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/k0s
+        - /var/lib/k0s
+        - /etc/systemd/system/k0scontroller.service
+        - /etc/systemd/system/k0sworker.service
+        - /etc/systemd/system/multi-user.target.wants/k0scontroller.service
+        - /etc/systemd/system/multi-user.target.wants/k0sworker.service
+        - /tmp/get-k0s.sh
+        - /usr/local/bin/k0s
+
+    - name: Reload systemd after removing k0s units
+      ansible.builtin.systemd:
+        daemon_reload: true

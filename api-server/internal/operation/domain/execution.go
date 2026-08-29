@@ -72,8 +72,10 @@ var (
 type ExecutionListFilter struct {
 	SiteID     string
 	ClusterID  string
+	ClusterIDs []string
 	ServerID   string
 	Kind       OperationKind
+	Kinds      []OperationKind
 	Status     Status
 	ActiveOnly bool
 	Offset     int

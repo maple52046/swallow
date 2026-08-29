@@ -48,10 +48,11 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 }
 ```
 
-`playbookName` is required for `custom`; built-in kinds use their site mapping unless
-an explicit registered playbook is supplied. Target IDs are frozen at acceptance and
-must belong to one site. Success is `202 Accepted` after the pending operation is
-persisted, not after execution starts.
+`playbookName` is required for `custom`; built-in kinds use their Site mapping unless
+an explicit registered playbook is supplied. `uninstall-kubernetes` is a built-in kind;
+the Cluster use case supplies its release-owned playbook explicitly, so existing Site
+mappings need no migration. Target IDs are frozen at acceptance and must belong to one
+Site. Success is `202 Accepted` after the pending Operation is persisted.
 
 ## Operation Response
 
@@ -134,7 +135,9 @@ The new operation copies the original's kind, target servers, cluster, playbook,
 operator variables, and records `retryOfOperationId` pointing at the original. It is
 accepted only when the original operation is in a terminal state and its targets are not
 currently busy in another operation; the same creation checks as `POST /operations/`
-apply. Success is `202 Accepted` returning the new operation.
+apply. A finished `deploy-kubernetes` or `uninstall-kubernetes` Operation cannot be
+retried after its referenced Cluster has been deleted. Success is `202 Accepted`
+returning the new Operation.
 
 Retry is always operator-initiated. swallow never retries automatically; a rerun is safe
 only because the mapped playbook is idempotent.

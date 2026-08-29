@@ -16,7 +16,10 @@ import (
 // created. These tests exercise it against in-memory fakes.
 
 type deployFakeClusterRepo struct {
-	clusters map[string]*clusterdomain.Cluster
+	clusters          map[string]*clusterdomain.Cluster
+	syncClusterID     string
+	syncIntegrationID string
+	syncState         clusterdomain.SyncState
 }
 
 func (r *deployFakeClusterRepo) Create(_ context.Context, cluster *clusterdomain.Cluster) error {
@@ -41,7 +44,17 @@ func (r *deployFakeClusterRepo) Update(_ context.Context, cluster *clusterdomain
 	r.clusters[cluster.ID] = cluster
 	return nil
 }
-func (r *deployFakeClusterRepo) UpdateSyncState(_ context.Context, _ string, _ clusterdomain.SyncState) error {
+func (r *deployFakeClusterRepo) UpdateSyncState(
+	_ context.Context, id, integrationID string, state clusterdomain.SyncState,
+) error {
+	cluster, ok := r.clusters[id]
+	if !ok || cluster.IntegrationID != integrationID {
+		return clusterdomain.ErrClusterNotFound
+	}
+	cluster.Sync = state
+	r.syncClusterID = id
+	r.syncIntegrationID = integrationID
+	r.syncState = state
 	return nil
 }
 func (r *deployFakeClusterRepo) Delete(_ context.Context, id string) error {
@@ -123,7 +136,7 @@ func newDeployHarness(servers ...*serverdomain.Server) (*DeployService, *recordi
 		serverRepo.servers[s.ID] = s
 	}
 	siteRepo := &deployFakeSiteRepo{ids: map[string]bool{"site-1": true}}
-	clusterService := NewClusterService(clusterRepo, siteRepo, serverRepo)
+	clusterService := NewClusterService(clusterRepo, siteRepo, serverRepo, nil, nil)
 	launcher := &recordingLauncher{}
 	return NewDeployService(clusterService, clusterRepo, serverRepo, launcher), launcher, clusterRepo
 }

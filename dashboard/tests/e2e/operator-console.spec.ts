@@ -325,6 +325,54 @@ test.describe('operator interactions', () => {
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
+  test('Cluster list uses backend lifecycle labels and keeps Slurm uninstall disabled', async ({ page }) => {
+    await page.goto('/clusters?site=site-a')
+    const table = page.getByRole('grid', { name: 'Clusters' })
+    await expect(table.getByRole('row', { name: /production-k0s/ })).toContainText('Active')
+    await expect(table.getByRole('row', { name: /edge-staging/ })).toContainText('Deployment failed')
+    await expect(table.getByRole('row', { name: /research-slurm/ })).toContainText('Registered')
+
+    await page.goto('/clusters/cluster-slurm?site=site-a')
+    await page.getByRole('button', { name: 'Cluster actions' }).click()
+    const uninstall = page.getByRole('menuitem', { name: /Uninstall cluster/ })
+    await expect(uninstall).toBeDisabled()
+    await expect(page.getByText('Only Kubernetes clusters can be uninstalled.')).toBeVisible()
+  })
+
+  test('typed Uninstall and Delete confirmations keep host and record actions separate', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/clusters/cluster-a?site=site-a')
+    await page.getByRole('button', { name: 'Cluster actions' }).click()
+    await page.getByRole('menuitem', { name: 'Uninstall cluster', exact: true }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Uninstall cluster' })
+    const confirmation = dialog.getByLabel('Cluster name confirmation')
+    await expect(confirmation).toBeFocused()
+    await expect(dialog.locator('p').filter({ hasText: 'Targets: 4 original deployment targets' })).toBeVisible()
+    await expect(dialog.getByText(/operating system, user data, and shared packages/)).toBeVisible()
+    const uninstall = dialog.getByRole('button', { name: 'Uninstall cluster' })
+    await expect(uninstall).toBeDisabled()
+    await confirmation.fill('wrong-name')
+    await expect(uninstall).toBeDisabled()
+    await confirmation.fill('production-k0s')
+    await uninstall.click()
+    await expect(page).toHaveURL('/operations/op-uninstall?site=site-a')
+    await expect(page.getByText('Cluster uninstall accepted')).toBeVisible()
+
+    await page.goto('/clusters/cluster-a?site=site-a')
+    await page.getByRole('button', { name: 'Cluster actions' }).click()
+    await page.getByRole('menuitem', { name: 'Delete cluster', exact: true }).click()
+    const deleteDialog = page.getByRole('dialog', { name: 'Delete cluster' })
+    await expect(deleteDialog.getByText('Hosts will not be uninstalled')).toBeVisible()
+    await expect(deleteDialog.getByText(/Accepted operations will also continue/)).toBeVisible()
+    await deleteDialog.getByLabel('Cluster name confirmation').fill('production-k0s')
+    await deleteDialog.getByRole('button', { name: 'Delete cluster' }).click()
+    await expect(page).toHaveURL('/clusters?site=site-a')
+    await expect(page.getByText('Cluster deleted')).toBeVisible()
+    await expect(page.getByRole('row', { name: /production-k0s/ })).toHaveCount(0)
+  })
+
+
   test('AWX stdout is first and supports search, navigation, copy, download, events, and retry', async ({ page }) => {
     await page.goto('/operations?site=site-a')
     await page.getByLabel('Filter by status').selectOption('failed')
