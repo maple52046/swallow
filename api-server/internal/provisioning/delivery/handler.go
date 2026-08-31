@@ -24,6 +24,7 @@ type ProvisioningHandler struct {
 	reconcile       *application.ReconcileUseCase
 	detail          *application.GetProvisionerDetailUseCase
 	actions         *application.MachineActionsUseCase
+	deleteServer    *application.DeleteServerUseCase
 }
 
 func NewProvisioningHandler(
@@ -36,6 +37,7 @@ func NewProvisioningHandler(
 	reconcile *application.ReconcileUseCase,
 	detail *application.GetProvisionerDetailUseCase,
 	actions *application.MachineActionsUseCase,
+	deleteServer *application.DeleteServerUseCase,
 ) *ProvisioningHandler {
 	return &ProvisioningHandler{
 		deploy:          deploy,
@@ -47,6 +49,7 @@ func NewProvisioningHandler(
 		reconcile:       reconcile,
 		detail:          detail,
 		actions:         actions,
+		deleteServer:    deleteServer,
 	}
 }
 
@@ -103,6 +106,21 @@ func (h *ProvisioningHandler) Release(c *fiber.Ctx) error {
 		return RespondError(c, err)
 	}
 	return c.Status(fiber.StatusAccepted).JSON(item)
+}
+
+// DeleteServer removes the backing provisioner Machine before deleting the Server
+// projection. It is synchronous because returning success before both writes complete
+// would let the dashboard hide a Server that reconciliation can recreate.
+func (h *ProvisioningHandler) DeleteServer(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+
+	if err := h.deleteServer.Execute(c.Context(), id); err != nil {
+		return RespondError(c, err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 // ProvisionerDetail proxies the provisioner for one machine's full detail, plus the

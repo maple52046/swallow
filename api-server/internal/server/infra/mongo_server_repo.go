@@ -424,6 +424,8 @@ func (r *MongoServerRepo) CountByIntegration(ctx context.Context, integrationID 
 	return int(count), err
 }
 
+// Delete removes a projection after the application layer has established that its
+// provider Machine is absent. The repository deliberately performs no provider I/O.
 func (r *MongoServerRepo) Delete(ctx context.Context, id string) error {
 	result, err := r.col.DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {

@@ -50,6 +50,9 @@ type ClusterItem struct {
 	Origin               string  `json:"origin"`
 	LifecycleState       string  `json:"lifecycleState"`
 	LifecycleOperationID *string `json:"lifecycleOperationId"`
+	// Deployment is the non-secret topology intent recovered from durable Operation
+	// provenance. It is null for registered clusters and incomplete legacy history.
+	Deployment *ClusterDeploymentItem `json:"deployment"`
 	// GPUStackOwner decides which subsystem installs GPU drivers. Swallow refuses
 	// operations that contradict it.
 	GPUStackOwner string `json:"gpuStackOwner"`
@@ -59,6 +62,20 @@ type ClusterItem struct {
 	Sync          ClusterSyncItem `json:"sync"`
 	CreatedAt     string          `json:"createdAt"`
 	UpdatedAt     string          `json:"updatedAt"`
+}
+
+// ClusterDeploymentItem explains topology and workload co-location without exposing
+// runner variables or conflating the Node Role with workload capability.
+type ClusterDeploymentItem struct {
+	Topology        string                      `json:"topology"`
+	RoleAssignments []ClusterRoleAssignmentItem `json:"roleAssignments"`
+}
+
+// ClusterRoleAssignmentItem is one deployment target's desired role and placement.
+type ClusterRoleAssignmentItem struct {
+	ServerID     string `json:"serverId"`
+	Role         string `json:"role"`
+	RunWorkloads bool   `json:"runWorkloads"`
 }
 
 // ClusterSyncItem is the cluster membership freshness projection.
@@ -332,6 +349,7 @@ func toClusterItem(cluster *clusterdomain.Cluster, lifecycle clusterdomain.Lifec
 		Type: string(cluster.Type), IntegrationID: wire.String(cluster.IntegrationID),
 		Origin: string(lifecycle.Origin), LifecycleState: string(lifecycle.State),
 		LifecycleOperationID: wire.String(lifecycle.OperationID),
+		Deployment:           toClusterDeploymentItem(lifecycle.Deployment),
 		GPUStackOwner:        string(cluster.GPUStackOwner), ExporterOwner: string(cluster.ExporterOwner),
 		Sync: ClusterSyncItem{
 			LastStartedAt:   optionalTime(cluster.Sync.LastStartedAt),
@@ -340,6 +358,22 @@ func toClusterItem(cluster *clusterdomain.Cluster, lifecycle clusterdomain.Lifec
 			MemberCount:     cluster.Sync.MemberCount, MatchedCount: cluster.Sync.MatchedCount,
 		},
 		CreatedAt: wire.Time(cluster.CreatedAt), UpdatedAt: wire.Time(cluster.UpdatedAt),
+	}
+}
+
+func toClusterDeploymentItem(operation *clusterdomain.LifecycleOperation) *ClusterDeploymentItem {
+	if operation == nil || operation.Intent == nil {
+		return nil
+	}
+	assignments := make([]ClusterRoleAssignmentItem, len(operation.Intent.RoleAssignments))
+	for i, assignment := range operation.Intent.RoleAssignments {
+		assignments[i] = ClusterRoleAssignmentItem{
+			ServerID: assignment.ServerID, Role: string(assignment.Role),
+			RunWorkloads: assignment.RunWorkloads,
+		}
+	}
+	return &ClusterDeploymentItem{
+		Topology: string(operation.Intent.Topology), RoleAssignments: assignments,
 	}
 }
 

@@ -39,8 +39,9 @@ type ListResult struct {
 // ServerRepository persists server projections.
 //
 // There is no Create: servers are produced by reconciliation, so Upsert is the only
-// way one comes into being. That is deliberate — a second, manual creation path would
-// produce servers with no provisioner behind them, which nothing else could act on.
+// way one comes into being. Delete exists only for an explicit provider-backed removal;
+// its application use case must remove the external Machine first so reconciliation
+// cannot recreate a locally deleted projection.
 type ServerRepository interface {
 	FindByID(ctx context.Context, id string) (*Server, error)
 
@@ -81,5 +82,7 @@ type ServerRepository interface {
 	// integration, so that deleting one that still has servers can be refused.
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)
 
+	// Delete removes only the projection. Callers must establish the provider Machine is
+	// already absent before invoking it; repositories cannot enforce that ordering.
 	Delete(ctx context.Context, id string) error
 }

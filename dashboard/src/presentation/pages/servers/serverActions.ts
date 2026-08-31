@@ -13,11 +13,16 @@ import type { ProvisionerCapabilities, ServerAction } from '@/domain/server/type
  * is a lifecycle action offered in bulk but reached through a different repository method. */
 export type BulkAction = ServerAction | 'release'
 
+/** Every single-Server menu action; permanent deletion is intentionally excluded from bulk. */
+export type ServerMenuAction = BulkAction | 'delete'
+
 export interface ServerActionDef {
-  action: BulkAction
+  action: ServerMenuAction
   label: string
   /** Marks a destructive action for red styling and (optionally) confirmation. */
   destructive?: boolean
+  /** False for actions whose blast radius must remain one explicitly named Server. */
+  bulk?: boolean
 }
 
 export interface ServerActionGroupDef {
@@ -32,6 +37,11 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
     label: 'Lifecycle',
     capability: null,
     actions: [{ action: 'release', label: 'Release', destructive: true }],
+  },
+  {
+    label: 'Removal',
+    capability: 'machineRemoval',
+    actions: [{ action: 'delete', label: 'Delete server', destructive: true, bulk: false }],
   },
   {
     label: 'Power',
@@ -66,7 +76,7 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
 ]
 
 /** Human-readable label for an action value, for toast summaries. */
-export function actionLabel(action: BulkAction): string {
+export function actionLabel(action: ServerMenuAction): string {
   for (const group of SERVER_ACTION_GROUPS) {
     const found = group.actions.find((entry) => entry.action === action)
     if (found) return found.label

@@ -1,21 +1,15 @@
 ---
-# Mint the bearer token swallow reads the cluster with, and hand it back through the run's
-# result file. The result file lives in the runner's private directory and is read by
-# swallow before that directory is deleted, so the token never reaches an artifact or a log.
-# Every task that touches the token is no_log.
-#
-# A ServiceAccount-token Secret is used rather than `create token` so the credential does
-# not expire; the read is retried because the token controller populates the Secret a moment
-# after it is created.
+# Mint the bearer token Swallow reads the cluster with, then return it only through the
+# run's private result file. Every task touching the token remains no_log.
 
-- name: Render the swallow reader objects
+- name: Render the Swallow reader objects
   ansible.builtin.template:
     src: swallow-reader.yaml.j2
     dest: /etc/k0s/swallow-reader.yaml
     mode: "0600"
   become: true
 
-- name: Apply the swallow reader objects
+- name: Apply the Swallow reader objects
   ansible.builtin.command:
     cmd: /usr/local/bin/k0s kubectl apply -f /etc/k0s/swallow-reader.yaml
   become: true
@@ -37,10 +31,12 @@
     k0s_reader_token: "{{ (k0s_reader_secret.stdout | from_json).data.token | b64decode }}"
   no_log: true
 
-- name: Write the deployment result for swallow
+- name: Write the deployment result for Swallow
   ansible.builtin.copy:
     dest: "{{ swallow_result_path }}"
-    content: "{{ {'apiEndpoint': 'https://' ~ swallow_k0s_api_vip ~ ':6443', 'token': k0s_reader_token} | to_json }}"
+    content: >-
+      {{ {'apiEndpoint': 'https://' ~ (swallow_k0s_api_address | default(swallow_k0s_api_vip)) ~ ':6443',
+          'token': k0s_reader_token} | to_json }}
     mode: "0600"
   delegate_to: localhost
   no_log: true

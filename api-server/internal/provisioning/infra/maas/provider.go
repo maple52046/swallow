@@ -159,6 +159,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		OperatorState:       true,
 		MachineDetail:       true,
 		HardwareInventory:   true,
+		MachineRemoval:      true,
 	}
 }
 

@@ -37,8 +37,14 @@ func (r *deployFakeClusterRepo) FindByID(_ context.Context, id string) (*cluster
 	}
 	return nil, clusterdomain.ErrClusterNotFound
 }
-func (r *deployFakeClusterRepo) List(_ context.Context, _ string) ([]*clusterdomain.Cluster, error) {
-	return nil, nil
+func (r *deployFakeClusterRepo) List(_ context.Context, siteID string) ([]*clusterdomain.Cluster, error) {
+	clusters := make([]*clusterdomain.Cluster, 0, len(r.clusters))
+	for _, cluster := range r.clusters {
+		if siteID == "" || cluster.SiteID == siteID {
+			clusters = append(clusters, cluster)
+		}
+	}
+	return clusters, nil
 }
 func (r *deployFakeClusterRepo) Update(_ context.Context, cluster *clusterdomain.Cluster) error {
 	r.clusters[cluster.ID] = cluster
@@ -60,6 +66,28 @@ func (r *deployFakeClusterRepo) UpdateSyncState(
 func (r *deployFakeClusterRepo) Delete(_ context.Context, id string) error {
 	delete(r.clusters, id)
 	return nil
+}
+
+type deployFakeLifecycleReader struct {
+	snapshots map[string]clusterdomain.LifecycleSnapshot
+}
+
+func (r *deployFakeLifecycleReader) Read(
+	_ context.Context,
+	clusterIDs []string,
+) (map[string]clusterdomain.LifecycleSnapshot, error) {
+	result := make(map[string]clusterdomain.LifecycleSnapshot, len(clusterIDs))
+	for _, clusterID := range clusterIDs {
+		snapshot, ok := r.snapshots[clusterID]
+		if !ok {
+			snapshot = clusterdomain.LifecycleSnapshot{
+				Origin: clusterdomain.ClusterOriginRegistered,
+				State:  clusterdomain.ClusterLifecycleRegistered,
+			}
+		}
+		result[clusterID] = snapshot
+	}
+	return result, nil
 }
 
 type deployFakeServerRepo struct {
@@ -130,6 +158,16 @@ func deployedServer(id, hostname, siteID string, addresses ...string) *serverdom
 }
 
 func newDeployHarness(servers ...*serverdomain.Server) (*DeployService, *recordingLauncher, *deployFakeClusterRepo) {
+	return newDeployHarnessWithLifecycle(
+		&deployFakeLifecycleReader{snapshots: map[string]clusterdomain.LifecycleSnapshot{}},
+		servers...,
+	)
+}
+
+func newDeployHarnessWithLifecycle(
+	lifecycle clusterdomain.LifecycleReader,
+	servers ...*serverdomain.Server,
+) (*DeployService, *recordingLauncher, *deployFakeClusterRepo) {
 	clusterRepo := &deployFakeClusterRepo{clusters: map[string]*clusterdomain.Cluster{}}
 	serverRepo := &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}}
 	for _, s := range servers {
@@ -138,7 +176,7 @@ func newDeployHarness(servers ...*serverdomain.Server) (*DeployService, *recordi
 	siteRepo := &deployFakeSiteRepo{ids: map[string]bool{"site-1": true}}
 	clusterService := NewClusterService(clusterRepo, siteRepo, serverRepo, nil, nil)
 	launcher := &recordingLauncher{}
-	return NewDeployService(clusterService, clusterRepo, serverRepo, launcher), launcher, clusterRepo
+	return NewDeployService(clusterService, clusterRepo, serverRepo, lifecycle, launcher), launcher, clusterRepo
 }
 
 func threeControllersFourWorkers() []clusterdomain.RoleAssignment {
@@ -201,6 +239,12 @@ func TestDeploySucceedsAndBuildsTrustedVars(t *testing.T) {
 	if vars[varK0sPodCIDR] != defaultPodCIDR || vars[varK0sServiceCIDR] != defaultServiceCIDR {
 		t.Errorf("expected default CIDRs, got pod=%v service=%v", vars[varK0sPodCIDR], vars[varK0sServiceCIDR])
 	}
+	if vars[varK0sHighAvailability] != true || vars[varK0sAPIAddress] != "192.168.100.200" {
+		t.Errorf("expected HA VIP endpoint vars, got ha=%v address=%v", vars[varK0sHighAvailability], vars[varK0sAPIAddress])
+	}
+	if vars[varK0sAPIVIPPrefix] != defaultAPIVIPPrefix {
+		t.Errorf("expected default VIP prefix %d, got %v", defaultAPIVIPPrefix, vars[varK0sAPIVIPPrefix])
+	}
 	if _, ok := launcher.launched.SecretVars[varK0sVRRPAuthPass].(string); !ok {
 		t.Errorf("expected a generated VRRP password in secret vars")
 	}
@@ -255,5 +299,84 @@ func TestDeployRejectsUndeployedTarget(t *testing.T) {
 	_, err := service.Deploy(context.Background(), validDeployInput())
 	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
 		t.Fatalf("expected invalid deployment for undeployed target, got %v", err)
+	}
+}
+
+func TestDeployRejectsTargetWithObservedMembership(t *testing.T) {
+	servers := haServers()
+	servers[0].Membership = &serverdomain.MembershipStatus{
+		ClusterID: "registered-k8s",
+		NodeName:  "lab-control-1",
+		Role:      "control-plane",
+		State:     "ready",
+	}
+	service, launcher, clusters := newDeployHarness(servers...)
+	clusters.clusters["registered-k8s"] = &clusterdomain.Cluster{
+		ID: "registered-k8s", SiteID: "site-1", Name: "existing-k8s",
+		Type: clusterdomain.ClusterTypeKubernetes,
+	}
+
+	_, err := service.Deploy(context.Background(), validDeployInput())
+	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+		t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment", err)
+	}
+	if launcher.launched != nil {
+		t.Error("Deploy() launched automation for a Server with observed membership")
+	}
+}
+
+func TestDeployReservesTargetsUntilSuccessfulUninstall(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      clusterdomain.ClusterLifecycleState
+		wantReject bool
+	}{
+		{name: "deploying", state: clusterdomain.ClusterLifecycleDeploying, wantReject: true},
+		{name: "deployment failed", state: clusterdomain.ClusterLifecycleDeployFailed, wantReject: true},
+		{name: "active", state: clusterdomain.ClusterLifecycleActive, wantReject: true},
+		{name: "uninstalling", state: clusterdomain.ClusterLifecycleUninstalling, wantReject: true},
+		{name: "uninstall failed", state: clusterdomain.ClusterLifecycleUninstallFailed, wantReject: true},
+		{name: "uninstalled", state: clusterdomain.ClusterLifecycleUninstalled, wantReject: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			existing := &clusterdomain.Cluster{
+				ID: "existing-cluster", SiteID: "site-1", Name: "existing-k8s",
+				Type: clusterdomain.ClusterTypeKubernetes,
+			}
+			lifecycle := &deployFakeLifecycleReader{
+				snapshots: map[string]clusterdomain.LifecycleSnapshot{
+					existing.ID: {
+						Origin: clusterdomain.ClusterOriginDeployed,
+						State:  test.state,
+						Deployment: &clusterdomain.LifecycleOperation{
+							ID:              "existing-deployment",
+							Status:          "failed",
+							TargetServerIDs: []string{"c1"},
+						},
+					},
+				},
+			}
+			service, launcher, clusters := newDeployHarnessWithLifecycle(lifecycle, haServers()...)
+			clusters.clusters[existing.ID] = existing
+
+			_, err := service.Deploy(context.Background(), validDeployInput())
+			if test.wantReject {
+				if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+					t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment", err)
+				}
+				if launcher.launched != nil {
+					t.Error("Deploy() launched automation for a claimed Server")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Deploy() error = %v, want nil after successful uninstall", err)
+			}
+			if launcher.launched == nil {
+				t.Error("Deploy() did not release targets after successful uninstall")
+			}
+		})
 	}
 }

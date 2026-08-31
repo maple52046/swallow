@@ -45,7 +45,9 @@ Everything the provisioner reports about the machine, cached and never authorita
   labels (the last being the VM host, for a virtual machine), carried through opaquely and
   **not** mapped onto any swallow hierarchy
 - `absent`, `lastSeenAt` — set when the machine stops appearing in its provisioner's
-  inventory. An absent server is never deleted: absence is usually transient, deletion is not
+  inventory. Ordinary absence retains the Server because it is usually transient. An explicit
+  operator deletion is different: swallow deletes the backing provisioner Machine first, then
+  removes the projection so reconciliation cannot recreate it
 
 Uniqueness is enforced on the source key, never on `hostname` or an address. A required,
 unique IP would make a reinstalling machine unrepresentable.
@@ -87,6 +89,11 @@ The provisioner can also be driven beyond deploy and release — power, hardware
 validation, and operator state actions — and asked for a full live detail of one machine.
 Those are the provider's own operations, triggered through swallow and mirrored back, never
 reimplemented; see [provisioning](provisioning.md#deepened-provider-integration).
+
+Deleting a Server is likewise provider-backed, but it is synchronous and permanent: the
+provisioner must confirm deletion of its Machine before swallow removes the projection. A
+provider refusal leaves the projection intact, and swallow never implicitly force-deletes a
+Machine or hosted virtual machines.
 
 `membership` is read from the cluster, never written by swallow. swallow holds the *intent* that
 a server should join a cluster; the cluster API holds the fact. When they disagree the

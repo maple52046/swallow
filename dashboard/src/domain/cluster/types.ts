@@ -21,6 +21,15 @@ export type ClusterLifecycleState =
   | 'uninstall_failed'
   | 'uninstalled'
 
+/** Deployment topology derived from the original role assignments. */
+export type KubernetesTopology = 'standalone' | 'multi-node' | 'high-availability'
+
+/** Non-secret deployment intent projected from durable Operation provenance. */
+export interface ClusterDeployment {
+  topology: KubernetesTopology
+  roleAssignments: RoleAssignment[]
+}
+
 /** Which subsystem installs GPU drivers; has no default at creation. */
 export type GPUStackOwner = 'provisioning' | 'gpu-operator'
 
@@ -48,6 +57,8 @@ export interface Cluster {
   origin: ClusterOrigin
   lifecycleState: ClusterLifecycleState
   lifecycleOperationId: string | null
+  /** Null for registered Clusters and historical deployments without complete intent. */
+  deployment: ClusterDeployment | null
   /** Null while a cluster is registered or declared but not yet reachable. */
   integrationId: string | null
   gpuStackOwner: GPUStackOwner
@@ -61,15 +72,19 @@ export interface Cluster {
 /** The part a server plays in a cluster. The k0s term "controller" never appears here. */
 export type NodeRole = 'control-plane' | 'worker'
 
+/** Desired role and optional workload co-location for one deployment target. */
 export interface RoleAssignment {
   serverId: string
   role: NodeRole
+  /** A control-plane Server also registers as a schedulable Kubernetes node. */
+  runWorkloads?: boolean
 }
 
 /**
- * A request to deploy a k0s cluster onto already-deployed servers. Optional network fields
- * fall back to the backend defaults; `apiVip` and at least three control-plane assignments
- * are required for a highly available control plane.
+ * A request to deploy a k0s cluster onto already-deployed servers. Optional CIDRs fall
+ * back to backend defaults. `apiVip` is required only when role
+ * assignments infer a highly available control plane; one-control-plane deployments use
+ * that Server's observed address.
  */
 export interface DeployClusterInput {
   siteId: string
@@ -78,7 +93,7 @@ export interface DeployClusterInput {
   k0sVersion: string
   podCidr?: string
   serviceCidr?: string
-  apiVip: string
+  apiVip?: string
   apiVipPrefix?: number
   roleAssignments: RoleAssignment[]
 }

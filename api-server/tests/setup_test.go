@@ -105,6 +105,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewReconcileUseCase(integrations, servers, factory),
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
 		provisioningapp.NewMachineActionsUseCase(servers, factory),
+		provisioningapp.NewDeleteServerUseCase(servers, factory),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
@@ -123,7 +124,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	membershipSync := clusterapp.NewMembershipSyncUseCase(clusterRepo, servers, readerFactory)
 	clusterService := clusterapp.NewClusterService(clusterRepo, sites, servers, lifecycle, nil)
 	deployService := clusterapp.NewDeployService(
-		clusterService, clusterRepo, servers, &fakeDeploymentLauncher{})
+		clusterService, clusterRepo, servers, lifecycle, &fakeDeploymentLauncher{})
 	uninstallService := clusterapp.NewUninstallService(
 		clusterRepo, servers, lifecycle, uninstallLauncher)
 	clusterHandler := clusterdelivery.NewClusterHandler(
@@ -151,6 +152,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	serverGroup := v1.Group("/servers", admin...)
 	serverGroup.Get("/", serverHandler.List)
 	serverGroup.Get("/:id", serverHandler.Get)
+	serverGroup.Delete("/:id", provisioningHandler.DeleteServer)
 	serverGroup.Get("/:id/provisioner-detail", provisioningHandler.ProvisionerDetail)
 	serverGroup.Post("/:id/deploy", provisioningHandler.Deploy)
 	serverGroup.Post("/:id/release", provisioningHandler.Release)

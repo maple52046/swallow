@@ -11,8 +11,9 @@ import (
 	"github.com/maple52046/swallow/internal/shared/pagination"
 )
 
-// ServerHandler serves the server projection. It is read-only: servers are produced by
-// reconciliation, so there is nothing here to create or delete.
+// ServerHandler serves read-only projection queries. Servers are produced by
+// reconciliation; provider-backed lifecycle operations, including permanent deletion,
+// live in provisioning delivery rather than mutating this projection directly.
 type ServerHandler struct {
 	list *application.ListServersUseCase
 	get  *application.GetServerUseCase

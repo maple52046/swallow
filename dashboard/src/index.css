@@ -395,9 +395,20 @@ tbody .sw-sticky-selection { z-index: 2; }
   max-width: 960px;
 }
 
+.sw-network-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+  padding: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--lg);
+  background: var(--pf-t--global--background--color--secondary--default);
+}
+
 .sw-deploy-wizard { min-height: 520px; }
 .sw-wizard-section { max-width: 1050px; }
 .sw-operation-debugger { overflow: hidden; }
+.sw-operation-debugger .sw-tab-content {
+  padding: var(--pf-t--global--spacer--lg);
+}
 .sw-operation-timeline {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

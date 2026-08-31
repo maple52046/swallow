@@ -14,6 +14,7 @@ import {
   ModalHeader,
   TextInput,
 } from '@patternfly/react-core'
+import { RedoIcon } from '@patternfly/react-icons'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { clusterUninstallDisabledReason } from '@/domain/cluster/lifecycle'
@@ -26,14 +27,22 @@ type ConfirmationAction = 'uninstall' | 'delete'
 interface ClusterLifecycleActionsProps {
   cluster: Cluster
   targetCount?: number
+  onRepairStarted: () => void
 }
 
-/** Typed confirmations for the separate host-side uninstall and record-only delete actions. */
+/**
+ * Exposes Cluster-scoped repair and the separate uninstall/delete lifecycle actions.
+ *
+ * Repair deliberately delegates to the durable Operation Retry contract so original
+ * deployment inputs and secret variables are retained. The parent callback refreshes
+ * Cluster lifecycle state without redirecting operators into the automation debugger.
+ */
 export function ClusterLifecycleActions({
   cluster,
   targetCount,
+  onRepairStarted,
 }: ClusterLifecycleActionsProps) {
-  const { clusters } = useApp()
+  const { clusters, operations } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
   const navigate = useNavigate()
@@ -42,6 +51,9 @@ export function ClusterLifecycleActions({
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [repairOpen, setRepairOpen] = useState(false)
+  const [repairError, setRepairError] = useState('')
+  const [repairing, setRepairing] = useState(false)
   const uninstallDisabledReason = clusterUninstallDisabledReason(cluster)
 
   const openConfirmation = (next: ConfirmationAction) => {
@@ -95,8 +107,40 @@ export function ClusterLifecycleActions({
     ? 'the original deployment targets'
     : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
 
+  const startRepair = async () => {
+    if (!cluster.lifecycleOperationId || repairing) return
+    setRepairing(true)
+    setRepairError('')
+    try {
+      const created = await operations.retryOperation(cluster.lifecycleOperationId)
+      setRepairOpen(false)
+      showToast({
+        tone: 'success',
+        title: 'Cluster repair started',
+        description: `Operation ${created.id} is rerunning the original deployment configuration.`,
+      })
+      onRepairStarted()
+    } catch (caught) {
+      setRepairError(caught instanceof Error ? caught.message : 'Could not start cluster repair.')
+    } finally {
+      setRepairing(false)
+    }
+  }
+
   return (
     <>
+      {cluster.lifecycleState === 'deploy_failed' && (
+        <Button
+          icon={<RedoIcon />}
+          onClick={() => {
+            setRepairError('')
+            setRepairOpen(true)
+          }}
+          isDisabled={!cluster.lifecycleOperationId}
+        >
+          Repair deployment
+        </Button>
+      )}
       <Dropdown
         isOpen={menuOpen}
         onOpenChange={setMenuOpen}
@@ -123,6 +167,53 @@ export function ClusterLifecycleActions({
           </DropdownItem>
         </DropdownList>
       </Dropdown>
+
+      <Modal
+        isOpen={repairOpen}
+        onClose={() => {
+          if (!repairing) setRepairOpen(false)
+        }}
+        variant="small"
+        aria-labelledby="cluster-repair-title"
+      >
+        <ModalHeader
+          title="Repair cluster deployment"
+          labelId="cluster-repair-title"
+          description="Rerun the original deployment safely against its existing partial state."
+        />
+        <ModalBody>
+          {repairError && (
+            <Alert variant={AlertVariant.danger} title="Repair could not start" isInline>
+              {repairError}
+            </Alert>
+          )}
+          <Alert variant={AlertVariant.info} title="Original configuration will be reused" isInline>
+            Repair creates a new Operation with the same machines, roles, network settings,
+            and protected credentials. The failed Operation and its logs remain available.
+          </Alert>
+          <p><strong>Targets:</strong> {targetLabel}</p>
+          <p>
+            Completed idempotent steps are checked again. Remaining deployment work resumes
+            from the hosts' current state.
+          </p>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            onClick={() => void startRepair()}
+            isLoading={repairing}
+            isDisabled={repairing || !cluster.lifecycleOperationId}
+          >
+            Repair deployment
+          </Button>
+          <Button
+            variant="link"
+            onClick={() => setRepairOpen(false)}
+            isDisabled={repairing}
+          >
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       <Modal
         isOpen={action !== null}

@@ -186,9 +186,9 @@ func TestGetServer_NotFound(t *testing.T) {
 	}
 }
 
-// Servers are produced by reconciliation, so there is no creation endpoint. Asserting
-// it stays absent keeps a second, weaker creation path from reappearing.
-func TestServers_HaveNoCreateOrDeleteEndpoint(t *testing.T) {
+// Servers are produced by reconciliation, so there is no creation endpoint. Explicit
+// deletion is covered separately because it must remove the provider Machine first.
+func TestServers_HaveNoCreateEndpoint(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
 	auth := f.adminAuth(t)
@@ -198,11 +198,6 @@ func TestServers_HaveNoCreateOrDeleteEndpoint(t *testing.T) {
 	}, auth)
 	if resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected no create route, got %d", resp.StatusCode)
-	}
-
-	resp = doRequest(t, f.app, "DELETE", "/api/v1/servers/srv-1", nil, auth)
-	if resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusNotFound {
-		t.Errorf("expected no delete route, got %d", resp.StatusCode)
 	}
 }
 

@@ -1,7 +1,6 @@
 ---
-# Bootstrap the first controller. Dedicated controller: no --enable-worker and no
-# --no-taints, so it never registers as a Kubernetes node. Guarded by the systemd unit so a
-# rerun does not reinstall.
+# Bootstrap the first control-plane Server. Workload co-location uses --enable-worker and
+# --no-taints instead of the non-expandable single-node flag so a standalone deployment can be expanded later.
 
 - name: Check for an existing controller service
   ansible.builtin.stat:
@@ -14,7 +13,9 @@
 
 - name: Install the initial controller
   ansible.builtin.command:
-    cmd: /usr/local/bin/k0s install controller -c /etc/k0s/k0s.yaml
+    cmd: >-
+      /usr/local/bin/k0s install controller -c /etc/k0s/k0s.yaml
+      {{ '--enable-worker --no-taints' if (k0s_runs_workloads | bool) else '' }}
   become: true
   when: not k0s_controller_unit.stat.exists
   changed_when: true
@@ -28,8 +29,6 @@
   become: true
 
 - name: Wait for the control plane to become ready
-  # k0s kubectl get --raw /readyz returns "ok"; using it avoids the jsonpath-quote trap
-  # that would make a condition check silently never match.
   ansible.builtin.command:
     cmd: /usr/local/bin/k0s kubectl get --raw /readyz
   become: true
@@ -38,3 +37,14 @@
   retries: 30
   delay: 10
   changed_when: false
+
+- name: Wait for the initial controller workload node to become Ready
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s kubectl wait --for=condition=Ready node/{{ k0s_node_name }} --timeout=120s
+  become: true
+  register: k0s_initial_worker_ready
+  until: k0s_initial_worker_ready.rc == 0
+  retries: 10
+  delay: 15
+  changed_when: false
+  when: k0s_runs_workloads | bool

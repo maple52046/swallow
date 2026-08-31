@@ -44,9 +44,9 @@ func NewDeploymentCredentialService(
 
 // Record attaches a freshly deployed cluster's read credential and syncs its membership.
 //
-// The token is stored as a sealed cluster-kind integration credential; control-plane lease
-// discovery is enabled because a k0s HA cluster's controllers are not Kubernetes nodes; and
-// insecureSkipVerify is set only when the deployment returned no CA certificate. A first
+// The token is stored as a sealed cluster-kind integration credential. Control-plane lease
+// discovery is enabled because any supported topology may use dedicated control-plane Servers
+// that do not register as Kubernetes nodes; insecureSkipVerify is set only when the deployment returned no CA certificate. A first
 // membership read is triggered so the cluster's members appear without waiting for the
 // background interval; its failure is not fatal because the integration is stored and the
 // background sync retries.

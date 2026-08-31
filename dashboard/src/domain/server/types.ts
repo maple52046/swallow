@@ -130,7 +130,10 @@ export interface Server {
   membership: MembershipAxis | null
   health: HealthAxis | null
 
-  /** The provisioner stopped reporting it. Never deleted: absence is usually transient. */
+  /**
+   * The provisioner stopped reporting it, so ordinary reconciliation retains the
+   * projection. This differs from an explicit provider-backed deletion.
+   */
   absent: boolean
   lastSeenAt: string | null
 
@@ -210,6 +213,7 @@ export interface ProvisionerCapabilities {
   operatorState: boolean
   machineDetail: boolean
   hardwareInventory: boolean
+  machineRemoval: boolean
 }
 
 /** A labelled value in a provisioner detail section. */

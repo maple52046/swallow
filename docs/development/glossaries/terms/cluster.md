@@ -7,5 +7,5 @@
 - Synonyms: None.
 - Deprecated terms: Forget, when it means deleting a Cluster record.
 - Examples: A registered Kubernetes Cluster can be deleted but not uninstalled. A Swallow-deployed k0s Cluster can be uninstalled and later deleted. A failed uninstall leaves the Cluster record so an operator can inspect and retry its Operation.
-- Related terms: Server, Node Role, Operation, Cluster Lifecycle State, Integration, Exporter Ownership.
-- Change note: Moved from the legacy glossary and clarified on 2026-08-29 when host-side uninstall and record-only delete became separate lifecycle actions.
+- Related terms: Server, Node Role, Cluster Topology, Operation, Cluster Lifecycle State, Integration, Exporter Ownership.
+- Change note: Moved from the legacy glossary and clarified on 2026-08-29 when host-side uninstall and record-only delete became separate lifecycle actions. On 2026-08-30, deployment expanded from a fixed high-availability shape to the supported Cluster Topologies.

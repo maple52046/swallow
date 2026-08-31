@@ -33,6 +33,14 @@ type LifecycleOperation struct {
 	Status          string
 	TargetServerIDs []string
 	RequestedAt     time.Time
+	Intent          *LifecycleDeployment
+}
+
+// LifecycleDeployment is the non-secret deployment intent needed by Cluster read models.
+// It deliberately excludes the Operation extra-vars map and automation implementation.
+type LifecycleDeployment struct {
+	Topology        KubernetesTopology
+	RoleAssignments []RoleAssignment
 }
 
 // LifecycleSnapshot describes a cluster using durable deployment and uninstall history.

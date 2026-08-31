@@ -100,6 +100,17 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, out any
 	return c.do(req, out)
 }
 
+// delete issues an authenticated DELETE with no provider-specific override parameters.
+// MAAS deletion safeguards therefore remain authoritative; callers cannot accidentally
+// force-delete hosted virtual machines through this transport.
+func (c *Client) delete(ctx context.Context, path string) error {
+	req, err := c.newRequest(ctx, http.MethodDelete, path, nil, nil, "")
+	if err != nil {
+		return err
+	}
+	return c.do(req, nil)
+}
+
 // postOperation invokes a MAAS named operation, e.g. op=deploy.
 //
 // The MAAS 2.0 API does not accept JSON request bodies: every parameter must be a

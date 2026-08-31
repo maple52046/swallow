@@ -55,7 +55,8 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { Pagination } from '@/presentation/components/Pagination'
 import { HealthBadge, MembershipBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { SERVER_ACTION_GROUPS, type BulkAction } from './serverActions'
+import { SERVER_ACTION_GROUPS, type BulkAction, type ServerMenuAction } from './serverActions'
+import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { useServerWorkingSet } from './useServerWorkingSet'
 import { useServerBulkActions } from './useServerBulkActions'
 import { ServerSavedViews, type SavedServerViewState, type ServerDensity } from './ServerSavedViews'
@@ -160,6 +161,7 @@ export function ServersPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set())
   const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<string>>(() => new Set(normalizeHiddenColumns(readPreference<string[]>(COLUMNS_KEY, []))))
   const [provisioners, setProvisioners] = useState<Integration[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<Server | null>(null)
 
   const savedViewState = useMemo<SavedServerViewState>(() => ({ filters, keyword: searchInput, includeAbsent, groupBy, sortKey, sortDirection: sortDir, hiddenColumns: [...hiddenColumns], density, pageSize }), [density, filters, groupBy, hiddenColumns, includeAbsent, pageSize, searchInput, sortDir, sortKey])
   const applySavedView = useCallback((view: SavedServerViewState) => {
@@ -191,7 +193,17 @@ export function ServersPage() {
   const somePageSelected = pageIds.some((id) => selected.has(id))
   const changeFilters = useCallback((next: ServerFilters) => { setFilters(next); setPage(1); setSelected(new Set()) }, [])
   const toggleColumn = useCallback((key: string) => setHiddenColumns((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); writePreference(COLUMNS_KEY, [...next]); return next }), [])
-  const runAction = useCallback(async (action: BulkAction, ids: string[]) => { if (!ids.length) return; await bulk.run(action, ids); clearSelection(); reload() }, [bulk, clearSelection, reload])
+  const runAction = useCallback(async (action: ServerMenuAction, ids: string[]) => {
+    if (!ids.length) return
+    if (action === 'delete') {
+      const target = workingSet.find((server) => server.id === ids[0])
+      if (target) setDeleteTarget(target)
+      return
+    }
+    await bulk.run(action, ids)
+    clearSelection()
+    reload()
+  }, [bulk, clearSelection, reload, workingSet])
   const visible = useCallback((key: string) => !hiddenColumns.has(key), [hiddenColumns])
   const columnSpan = 3 + OPTIONAL_COLUMNS.filter((column) => visible(column.key)).length
   const staleProvisioners = provisioners.filter((item) => item.sync.lastError !== null)
@@ -258,6 +270,14 @@ export function ServersPage() {
       </Tr></Thead><Tbody>{renderGroups(pageItems, groupBy).map((group) => <GroupRows key={group.key || 'all'} group={group} grouped={groupBy !== 'none'} columnSpan={columnSpan} collapsed={collapsedGroups.has(group.key)} onCollapse={() => setCollapsedGroups((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next })} selected={selected} onToggleOne={toggleOne} onToggleGroup={setMany} onNavigate={(id) => navigate(scopedHref(`/servers/${id}`))} onAction={(action, id) => void runAction(action, [id])} visible={visible} />)}</Tbody></Table></StickyTableFrame>
       <div className="sw-pagination"><Pagination total={totalPages} value={safePage} onChange={setPage} /></div>
     </>}
+    {deleteTarget && (
+      <ServerDeleteDialog
+        serverId={deleteTarget.id}
+        serverName={serverDisplayName(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={() => { setDeleteTarget(null); clearSelection(); reload() }}
+      />
+    )}
   </div>
 }
 
@@ -281,20 +301,26 @@ function ColumnPanel({ columns, hidden, onToggle }: { columns: ColumnToggle[]; h
   return <div className="sw-column-panel">{columns.map((column) => <Checkbox key={column.key} id={`column-${column.key}`} label={column.label} isChecked={!hidden.has(column.key)} onChange={() => onToggle(column.key)} />)}</div>
 }
 
-function ActionDropdown({ label, icon, running, onAction }: { label: string; icon?: ReactNode; running?: boolean; onAction: (action: BulkAction) => void }) {
+function ActionDropdown({ label, icon, running, includeSingleOnly = true, onAction }: { label: string; icon?: ReactNode; running?: boolean; includeSingleOnly?: boolean; onAction: (action: ServerMenuAction) => void }) {
   const [open, setOpen] = useState(false)
-  return <Dropdown isOpen={open} onOpenChange={setOpen} toggle={(ref) => <MenuToggle ref={ref} icon={icon} variant={label ? 'default' : 'plain'} aria-label={label || 'Actions'} isExpanded={open} isDisabled={running} onClick={() => setOpen((value) => !value)}>{label || null}</MenuToggle>}><DropdownList>{SERVER_ACTION_GROUPS.flatMap((group) => [<DropdownItem key={`${group.label}-label`} isDisabled>{group.label}</DropdownItem>, ...group.actions.map((entry) => <DropdownItem key={entry.action} value={entry.action} onClick={() => { setOpen(false); onAction(entry.action) }}>{entry.label}</DropdownItem>)])}</DropdownList></Dropdown>
+  const groups = SERVER_ACTION_GROUPS.map((group) => ({
+    ...group,
+    actions: group.actions.filter((entry) => includeSingleOnly || entry.bulk !== false),
+  })).filter((group) => group.actions.length > 0)
+  return <Dropdown isOpen={open} onOpenChange={setOpen} toggle={(ref) => <MenuToggle ref={ref} icon={icon} variant={label ? 'default' : 'plain'} aria-label={label || 'Actions'} isExpanded={open} isDisabled={running} onClick={() => setOpen((value) => !value)}>{label || null}</MenuToggle>}><DropdownList>{groups.flatMap((group) => [<DropdownItem key={`${group.label}-label`} isDisabled>{group.label}</DropdownItem>, ...group.actions.map((entry) => <DropdownItem key={entry.action} value={entry.action} isDanger={entry.destructive} onClick={() => { setOpen(false); onAction(entry.action) }}>{entry.label}</DropdownItem>)])}</DropdownList></Dropdown>
 }
-function BulkActionMenu({ running, onAction }: { running: boolean; onAction: (action: BulkAction) => void }) { return <ActionDropdown label={running ? 'Working...' : 'Take action'} running={running} onAction={onAction} /> }
+function BulkActionMenu({ running, onAction }: { running: boolean; onAction: (action: BulkAction) => void }) {
+  return <ActionDropdown label={running ? 'Working...' : 'Take action'} running={running} includeSingleOnly={false} onAction={(action) => { if (action !== 'delete') onAction(action) }} />
+}
 
-function GroupRows({ group, grouped, columnSpan, collapsed, onCollapse, selected, onToggleOne, onToggleGroup, onNavigate, onAction, visible }: { group: RenderGroup; grouped: boolean; columnSpan: number; collapsed: boolean; onCollapse: () => void; selected: ReadonlySet<string>; onToggleOne: (id: string) => void; onToggleGroup: (ids: string[], checked: boolean) => void; onNavigate: (id: string) => void; onAction: (action: BulkAction, id: string) => void; visible: (key: string) => boolean }) {
+function GroupRows({ group, grouped, columnSpan, collapsed, onCollapse, selected, onToggleOne, onToggleGroup, onNavigate, onAction, visible }: { group: RenderGroup; grouped: boolean; columnSpan: number; collapsed: boolean; onCollapse: () => void; selected: ReadonlySet<string>; onToggleOne: (id: string) => void; onToggleGroup: (ids: string[], checked: boolean) => void; onNavigate: (id: string) => void; onAction: (action: ServerMenuAction, id: string) => void; visible: (key: string) => boolean }) {
   const ids = group.items.map((item) => item.id)
   const all = ids.length > 0 && ids.every((id) => selected.has(id))
   const some = ids.some((id) => selected.has(id))
   return <>{grouped && <Tr className="sw-group-row"><Td colSpan={columnSpan}><span><Button variant="plain" icon={collapsed ? <AngleRightIcon /> : <AngleDownIcon />} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label}`} onClick={onCollapse} /><Checkbox id={`group-${group.key}`} aria-label={`Select all in ${group.label}`} isChecked={all ? true : some ? null : false} onChange={() => onToggleGroup(ids, !all)} /><strong>{group.label}</strong><Badge isRead>{group.items.length}</Badge></span></Td></Tr>}{!collapsed && group.items.map((server) => <ServerRow key={server.id} server={server} checked={selected.has(server.id)} onToggle={() => onToggleOne(server.id)} onNavigate={() => onNavigate(server.id)} onAction={(action) => onAction(action, server.id)} visible={visible} />)}</>
 }
 
-function ServerRow({ server, checked, onToggle, onNavigate, onAction, visible }: { server: Server; checked: boolean; onToggle: () => void; onNavigate: () => void; onAction: (action: BulkAction) => void; visible: (key: string) => boolean }) {
+function ServerRow({ server, checked, onToggle, onNavigate, onAction, visible }: { server: Server; checked: boolean; onToggle: () => void; onNavigate: () => void; onAction: (action: ServerMenuAction) => void; visible: (key: string) => boolean }) {
   return <Tr isClickable onRowClick={onNavigate}>
     <Td dataLabel="Selection" className="sw-sticky-selection sw-cell-center" onClick={(event) => event.stopPropagation()}><Checkbox id={'server-' + server.id} aria-label={'Select ' + serverDisplayName(server)} isChecked={checked} onChange={onToggle} /></Td>
     <Td dataLabel="Machine" className="sw-sticky-name"><span className="sw-machine-name"><strong>{serverDisplayName(server)}</strong>{server.absent && <Label color="grey">absent</Label>}</span></Td>

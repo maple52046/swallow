@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-08-26
 
+Topology note: ADR 011 amends the fixed high-availability topology in this decision while
+retaining its ownership, trusted role assignment, credential, membership, and retry
+boundaries.
+
 ## Context
 
 `Cluster` has so far modelled the registration of a cluster that already exists. Building
@@ -95,4 +99,5 @@ settings later is not simply a rerun.
 
 ## Current status
 
-Implemented as the first release's cluster deployment path.
+Implemented as the first release's cluster deployment path. Its fixed-HA topology was
+later expanded by ADR 011.

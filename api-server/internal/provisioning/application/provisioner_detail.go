@@ -16,6 +16,7 @@ type CapabilitiesItem struct {
 	OperatorState      bool `json:"operatorState"`
 	MachineDetail      bool `json:"machineDetail"`
 	HardwareInventory  bool `json:"hardwareInventory"`
+	MachineRemoval     bool `json:"machineRemoval"`
 }
 
 // DetailFieldItem, DetailSectionItem, and DetailTableItem are the display-oriented shape
@@ -83,6 +84,7 @@ func (uc *GetProvisionerDetailUseCase) Execute(ctx context.Context, serverID str
 			OperatorState:      caps.OperatorState,
 			MachineDetail:      caps.MachineDetail,
 			HardwareInventory:  caps.HardwareInventory,
+			MachineRemoval:     caps.MachineRemoval,
 		},
 		Sections: []DetailSectionItem{},
 		Tables:   []DetailTableItem{},

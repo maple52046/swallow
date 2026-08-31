@@ -173,6 +173,7 @@ func RunAPI(cfg config.APIConfig) error {
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory),
+		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
 	)
 
 	clusterRepo, err := clusterinfra.NewMongoClusterRepo(db)
@@ -217,7 +218,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Cluster lifecycle adapters keep durable operations outside the cluster context.
 	clusterLauncher := clusterDeploymentLauncher{operations: operationService}
 	deployService := clusterapp.NewDeployService(
-		clusterService, clusterRepo, serverRepo, clusterLauncher,
+		clusterService, clusterRepo, serverRepo, lifecycleReader, clusterLauncher,
 	)
 	uninstallService := clusterapp.NewUninstallService(
 		clusterRepo, serverRepo, lifecycleReader, clusterLauncher,
@@ -395,12 +396,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	integrations.Put("/:id/credential", deps.sites.ReplaceCredential)
 	integrations.Delete("/:id", deps.sites.DeleteIntegration)
 
-	// Servers are read-only: they are produced by reconciliation, so there is nothing
-	// to create or delete. The lifecycle actions belong to the provisioning context
-	// but are addressed by server, because that is the identifier callers hold.
+	// Servers cannot be created directly: reconciliation projects provisioner inventory.
+	// Explicit deletion is provider-backed so the next pass cannot recreate the record.
+	// Lifecycle actions are addressed by server because that is the identifier callers hold.
 	servers := v1.Group("/servers", admin...)
 	servers.Get("/", deps.servers.List)
 	servers.Get("/:id", deps.servers.Get)
+	servers.Delete("/:id", deps.provisioning.DeleteServer)
 	// The provisioner detail is a live proxy read one machine at a time, distinct from
 	// the mirrored projection the list and get return.
 	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)

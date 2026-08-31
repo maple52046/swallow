@@ -59,6 +59,13 @@ export class ApiServerRepository implements ServerRepository {
     )
   }
 
+  async deleteServer(id: string): Promise<void> {
+    await apiRequest<void>(
+      `/api/v1/servers/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    )
+  }
+
   async getProvisionerDetail(id: string): Promise<ProvisionerDetail> {
     return apiRequest<ProvisionerDetail>(
       `/api/v1/servers/${encodeURIComponent(id)}/provisioner-detail`,

@@ -58,6 +58,8 @@ type ProviderCapabilities struct {
 	MachineDetail bool
 	// HardwareInventory reports that HardwareInventoryInspector is implemented.
 	HardwareInventory bool
+	// MachineRemoval reports that MachineRemover is implemented.
+	MachineRemoval bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -126,6 +128,15 @@ type HardwareInventoryInspector interface {
 // with its own content.
 type MachineDetailInspector interface {
 	GetMachineDetail(ctx context.Context, machineID string) (*MachineDetail, error)
+}
+
+// MachineRemover permanently deletes a Machine from the provisioner's inventory.
+//
+// Implementations must honour the provider's normal safeguards and must not force a
+// deletion implicitly. ErrMachineNotFound means the requested end state is already true;
+// callers may finish deleting their local projection.
+type MachineRemover interface {
+	DeleteMachine(ctx context.Context, machineID string) error
 }
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled

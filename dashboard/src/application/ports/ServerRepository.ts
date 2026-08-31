@@ -16,15 +16,18 @@ export interface Paginated<T> {
 }
 
 /**
- * Servers are read-only: the backend produces them by reconciling provisioner
- * inventory, so there is no create or delete here. The actions delegate to the
- * server's own provisioner and return a state snapshot, not a completion.
+ * The backend creates Servers only by reconciling provisioner inventory. Explicit
+ * deletion is provider-backed: an implementation must not report success until both the
+ * provisioner Machine and the Server projection are gone. Other actions return a state
+ * snapshot rather than a completion.
  */
 export interface ServerRepository {
   listServers(filters?: ListServersFilters): Promise<Paginated<Server>>
   getServer(id: string): Promise<Server | null>
   deployServer(id: string, input: DeployServerInput): Promise<ProvisioningActionResult>
   releaseServer(id: string): Promise<ProvisioningActionResult>
+  /** Permanently remove the backing provisioner Machine and then its Server projection. */
+  deleteServer(id: string): Promise<void>
 
   /**
    * The live provisioner detail for one machine, plus the provisioner's capabilities.

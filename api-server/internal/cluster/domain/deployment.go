@@ -20,15 +20,30 @@ func (r NodeRole) Valid() bool {
 	return r == NodeRoleControlPlane || r == NodeRoleWorker
 }
 
-// RoleAssignment assigns one server a role in a deployment.
+// RoleAssignment assigns one Server a role and an optional workload placement.
+//
+// RunWorkloads is meaningful only for a control-plane assignment. Worker assignments
+// always run workloads; keeping co-location separate preserves the observed Node Role
+// vocabulary while allowing a control-plane Server to register as a Kubernetes node.
 type RoleAssignment struct {
-	ServerID string
-	Role     NodeRole
+	ServerID     string
+	Role         NodeRole
+	RunWorkloads bool
 }
 
-// DeploymentSpec is the desired shape of a cluster to build. The CIDRs, version, and VIP
-// prefix are optional at the API and defaulted by the deploy use case; role assignments
-// are required.
+// KubernetesTopology names the supported control-plane and workload placement shape.
+// It is derived from role assignments rather than persisted on the Cluster record.
+type KubernetesTopology string
+
+const (
+	KubernetesTopologyStandalone       KubernetesTopology = "standalone"
+	KubernetesTopologyMultiNode        KubernetesTopology = "multi-node"
+	KubernetesTopologyHighAvailability KubernetesTopology = "high-availability"
+)
+
+// DeploymentSpec is the desired shape of a cluster to build. The CIDRs and version are
+// defaulted by the deploy use case. API VIP fields are required only when role assignments
+// infer a highly available control plane.
 type DeploymentSpec struct {
 	K0sVersion      string
 	PodCIDR         string
@@ -38,14 +53,54 @@ type DeploymentSpec struct {
 	RoleAssignments []RoleAssignment
 }
 
-// ControlPlaneServerIDs and WorkerServerIDs split the assignments by role, preserving the
-// order they were given.
+// ControlPlaneServerIDs returns control-plane targets in request order.
 func (s DeploymentSpec) ControlPlaneServerIDs() []string {
 	return s.serverIDsWithRole(NodeRoleControlPlane)
 }
 
+// WorkerServerIDs returns workload-only targets in request order.
 func (s DeploymentSpec) WorkerServerIDs() []string {
 	return s.serverIDsWithRole(NodeRoleWorker)
+}
+
+// WorkloadServerIDs returns every target that registers as a Kubernetes node.
+//
+// The result includes worker assignments and control-plane assignments that explicitly
+// opt into workload co-location, preserving request order for deterministic verification.
+func (s DeploymentSpec) WorkloadServerIDs() []string {
+	ids := make([]string, 0, len(s.RoleAssignments))
+	for _, assignment := range s.RoleAssignments {
+		if assignment.Role == NodeRoleWorker ||
+			assignment.Role == NodeRoleControlPlane && assignment.RunWorkloads {
+			ids = append(ids, assignment.ServerID)
+		}
+	}
+	return ids
+}
+
+// HighlyAvailable reports whether the assignments require control-plane failover.
+// Validation guarantees that any count above one is an odd count of at least three.
+func (s DeploymentSpec) HighlyAvailable() bool {
+	return len(s.ControlPlaneServerIDs()) >= 3
+}
+
+// Topology derives the operator-facing topology after deployment validation. An empty
+// value means historical intent was incomplete and must not be guessed by read models.
+func (s DeploymentSpec) Topology() KubernetesTopology {
+	controllers := len(s.ControlPlaneServerIDs())
+	if len(s.WorkloadServerIDs()) == 0 {
+		return ""
+	}
+	if controllers >= 3 {
+		return KubernetesTopologyHighAvailability
+	}
+	if controllers != 1 {
+		return ""
+	}
+	if len(s.RoleAssignments) == 1 && s.RoleAssignments[0].RunWorkloads {
+		return KubernetesTopologyStandalone
+	}
+	return KubernetesTopologyMultiNode
 }
 
 func (s DeploymentSpec) serverIDsWithRole(role NodeRole) []string {

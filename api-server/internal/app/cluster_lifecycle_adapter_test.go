@@ -80,8 +80,14 @@ func TestClusterLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 			ID: "deploy-1", ClusterID: "cluster-deployed",
 			Kind:            operationdomain.OperationKindDeployKubernetes,
 			TargetServerIDs: []string{"server-1", "server-2"},
-			Execution:       operationdomain.Execution{Status: operationdomain.StatusSucceeded},
-			RequestedAt:     deployedAt,
+			ExtraVars: map[string]any{
+				"swallow_k0s_roles": map[string]any{
+					"server-1": "control-plane", "server-2": "worker",
+				},
+				"swallow_k0s_workload_controller_ids": []any{"server-1"},
+			},
+			Execution:   operationdomain.Execution{Status: operationdomain.StatusSucceeded},
+			RequestedAt: deployedAt,
 		},
 	}}
 	reader := clusterLifecycleReader{operations: repo}
@@ -104,8 +110,33 @@ func TestClusterLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	if got := deployed.Deployment.TargetServerIDs; len(got) != 2 || got[1] != "server-2" {
 		t.Errorf("deployment target snapshot = %v", got)
 	}
+	if deployed.Deployment.Intent == nil ||
+		deployed.Deployment.Intent.Topology != "multi-node" {
+		t.Fatalf("deployment intent = %+v", deployed.Deployment.Intent)
+	}
+	assignments := deployed.Deployment.Intent.RoleAssignments
+	if len(assignments) != 2 || !assignments[0].RunWorkloads || assignments[1].RunWorkloads {
+		t.Errorf("deployment role assignments = %+v", assignments)
+	}
 	registered := result["cluster-registered"]
 	if registered.Origin != "registered" || registered.State != "registered" {
 		t.Errorf("registered lifecycle = %+v", registered)
+	}
+}
+
+func TestDeploymentIntentProjectsStandaloneWorkloadController(t *testing.T) {
+	intent := deploymentIntent(&operationdomain.ExecutionOperation{
+		TargetServerIDs: []string{"server-1"},
+		ExtraVars: map[string]any{
+			"swallow_k0s_roles":                   map[string]any{"server-1": "control-plane"},
+			"swallow_k0s_workload_controller_ids": []string{"server-1"},
+		},
+	})
+
+	if intent == nil || intent.Topology != "standalone" {
+		t.Fatalf("standalone deployment intent = %+v", intent)
+	}
+	if len(intent.RoleAssignments) != 1 || !intent.RoleAssignments[0].RunWorkloads {
+		t.Errorf("standalone role assignments = %+v", intent.RoleAssignments)
 	}
 }

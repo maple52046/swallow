@@ -16,8 +16,9 @@ import (
 // --- server repository ---
 
 type fakeServerRepo struct {
-	mu      sync.Mutex
-	servers map[string]*serverdomain.Server
+	mu        sync.Mutex
+	servers   map[string]*serverdomain.Server
+	deleteErr error
 }
 
 func newFakeServerRepo() *fakeServerRepo {
@@ -220,6 +221,9 @@ func (r *fakeServerRepo) CountByIntegration(_ context.Context, integrationID str
 }
 
 func (r *fakeServerRepo) Delete(_ context.Context, id string) error {
+	if r.deleteErr != nil {
+		return r.deleteErr
+	}
 	if _, ok := r.servers[id]; !ok {
 		return serverdomain.ErrServerNotFound
 	}
@@ -387,6 +391,7 @@ type fakeProvider struct {
 	deployErr             error
 	deployErrByMachine    map[string]error
 	readinessErrByMachine map[string]error
+	deleteErr             error
 	deployDelay           time.Duration
 	activeDeploys         int
 	maxActiveDeploys      int
@@ -406,6 +411,7 @@ type fakeProvider struct {
 
 	deployRequests []provisioningdomain.DeployRequest
 	releaseCalls   []string
+	deleteCalls    []string
 	// actions records every capability action taken, as "op machineID", so a test can
 	// assert the provider was driven correctly.
 	actions []string
@@ -430,6 +436,7 @@ func newFakeProvider() *fakeProvider {
 			OperatorState:       true,
 			MachineDetail:       true,
 			HardwareInventory:   true,
+			MachineRemoval:      true,
 		},
 	}
 }
@@ -544,6 +551,18 @@ func (p *fakeProvider) EnterRescueMode(_ context.Context, machineID string) (*pr
 
 func (p *fakeProvider) ExitRescueMode(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
 	return p.recordAction("exit_rescue_mode", machineID)
+}
+
+func (p *fakeProvider) DeleteMachine(_ context.Context, machineID string) error {
+	if p.deleteErr != nil {
+		return p.deleteErr
+	}
+	if _, ok := p.machines[machineID]; !ok {
+		return provisioningdomain.ErrMachineNotFound
+	}
+	p.deleteCalls = append(p.deleteCalls, machineID)
+	delete(p.machines, machineID)
+	return nil
 }
 
 // minimalProvider implements only the base OSProvisioningProvider, standing in for a

@@ -7,6 +7,14 @@
     path: /etc/systemd/system/k0sworker.service
   register: k0s_worker_unit
 
+- name: Ensure /etc/k0s exists
+  ansible.builtin.file:
+    path: /etc/k0s
+    state: directory
+    mode: "0755"
+  become: true
+  when: not k0s_worker_unit.stat.exists
+
 - name: Generate a worker join token on the initial controller
   ansible.builtin.command:
     cmd: /usr/local/bin/k0s token create --role=worker --expiry=1h

@@ -23,6 +23,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Cluster Lifecycle State](terms/cluster-lifecycle-state.md): Backend operation-derived
   state from registration through deployment and uninstall, independent of connectivity.
 - [Node Role](terms/node-role.md): The part a server plays in a cluster — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a cluster.
+- [Cluster Topology](terms/cluster-topology.md): The supported placement and availability
+  shape of a Kubernetes deployment — standalone, non-HA multi-node, or high availability.
 
 ### OS Provisioning
 

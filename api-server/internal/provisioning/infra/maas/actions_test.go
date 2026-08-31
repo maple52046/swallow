@@ -70,7 +70,7 @@ func TestQueryPowerState_ReadsLiveState(t *testing.T) {
 func TestCapabilities_AdvertisesEverythingMAASOffers(t *testing.T) {
 	provider := &Provider{}
 	caps := provider.Capabilities()
-	if !caps.Power || !caps.HardwareValidation || !caps.OperatorState || !caps.MachineDetail || !caps.HardwareInventory || !caps.EphemeralDeploy {
+	if !caps.Power || !caps.HardwareValidation || !caps.OperatorState || !caps.MachineDetail || !caps.HardwareInventory || !caps.EphemeralDeploy || !caps.MachineRemoval {
 		t.Errorf("MAAS should advertise every capability, got %+v", caps)
 	}
 }

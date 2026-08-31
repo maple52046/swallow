@@ -1,21 +1,19 @@
 ---
-# Deploy a highly available k0s cluster onto already-provisioned servers.
-#
-# Inventory hosts are keyed by serverId; swallow assigns roles through trusted extra vars
-# (swallow_k0s_roles, swallow_k0s_initial_controller_id), which a client cannot forge. The
-# play order follows the verified pure-Ansible path: classify, prepare, bootstrap the first
-# controller, join the rest one at a time, join workers, then mint swallow's read credential
-# and verify. Idempotency is keyed on whether the k0s systemd unit already exists, so a
-# retry or a scale-out is the same play with the same or a larger target set.
+# Deploy k0s onto already-provisioned Servers. Topology is supplied only through trusted
+# variables: one control-plane Server is non-HA, while three or more odd control-plane
+# Servers enable the keepalived path in the shared configuration.
 
 - name: Classify k0s nodes by assigned role
   hosts: all
   gather_facts: false
   tasks:
-    - name: Resolve this host's role
+    - name: Resolve this host's role and workload placement
       ansible.builtin.set_fact:
         k0s_role: "{{ swallow_k0s_roles[inventory_hostname] }}"
         k0s_is_initial: "{{ inventory_hostname == swallow_k0s_initial_controller_id }}"
+        k0s_runs_workloads: >-
+          {{ swallow_k0s_roles[inventory_hostname] == 'worker' or
+             inventory_hostname in (swallow_k0s_workload_controller_ids | default([])) }}
 
     - name: Fail on an unassigned host
       ansible.builtin.fail:
@@ -54,13 +52,13 @@
   roles:
     - role: k0s_controller_join
 
-- name: Join the workers
+- name: Join the workload-only nodes
   hosts: k0s_worker
   gather_facts: false
   roles:
     - role: k0s_worker_join
 
-- name: Record swallow's read credential and verify the cluster
+- name: Record Swallow's read credential and verify the cluster
   hosts: k0s_initial_controller
   gather_facts: false
   roles:

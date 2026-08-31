@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 
 	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
@@ -45,6 +46,7 @@ func (r clusterLifecycleReader) Read(ctx context.Context, clusterIDs []string) (
 		}
 		switch operation.Kind {
 		case operationdomain.OperationKindDeployKubernetes:
+			projected.Intent = deploymentIntent(operation)
 			if snapshot.Deployment == nil {
 				snapshot.Deployment = projected
 			}
@@ -60,6 +62,70 @@ func (r clusterLifecycleReader) Read(ctx context.Context, clusterIDs []string) (
 		snapshots[id] = deriveLifecycle(snapshot)
 	}
 	return snapshots, nil
+}
+
+// deploymentIntent narrows persisted runner variables back into Cluster vocabulary. The
+// general extra-vars map stays private to Operations; malformed historical values produce
+// no deployment projection instead of a plausible but incorrect topology.
+func deploymentIntent(operation *operationdomain.ExecutionOperation) *clusterdomain.LifecycleDeployment {
+	roles := decodeStringMap(operation.ExtraVars["swallow_k0s_roles"])
+	if len(roles) == 0 || len(operation.TargetServerIDs) == 0 {
+		return nil
+	}
+	workloadControllers := stringSet(decodeStringSlice(
+		operation.ExtraVars["swallow_k0s_workload_controller_ids"],
+	))
+	assignments := make([]clusterdomain.RoleAssignment, 0, len(operation.TargetServerIDs))
+	for _, serverID := range operation.TargetServerIDs {
+		role := clusterdomain.NodeRole(roles[serverID])
+		if !role.Valid() {
+			return nil
+		}
+		assignments = append(assignments, clusterdomain.RoleAssignment{
+			ServerID: serverID, Role: role,
+			RunWorkloads: role == clusterdomain.NodeRoleControlPlane && workloadControllers[serverID],
+		})
+	}
+	spec := clusterdomain.DeploymentSpec{RoleAssignments: assignments}
+	topology := spec.Topology()
+	if topology == "" {
+		return nil
+	}
+	return &clusterdomain.LifecycleDeployment{
+		Topology: topology, RoleAssignments: assignments,
+	}
+}
+
+func decodeStringMap(value any) map[string]string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return nil
+	}
+	return decoded
+}
+
+func decodeStringSlice(value any) []string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var decoded []string
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return nil
+	}
+	return decoded
+}
+
+func stringSet(values []string) map[string]bool {
+	result := make(map[string]bool, len(values))
+	for _, value := range values {
+		result[value] = true
+	}
+	return result
 }
 
 func registeredLifecycle() clusterdomain.LifecycleSnapshot {

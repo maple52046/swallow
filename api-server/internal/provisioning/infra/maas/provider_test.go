@@ -58,6 +58,8 @@ type fakeMAAS struct {
 	lastContentType   string
 	lastOperation     string
 	lastForm          map[string]string
+	lastMethod        string
+	lastRawQuery      string
 }
 
 func newFakeMAAS(t *testing.T) *fakeMAAS {
@@ -65,6 +67,8 @@ func newFakeMAAS(t *testing.T) *fakeMAAS {
 
 	f := &fakeMAAS{mux: http.NewServeMux()}
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.lastMethod = r.Method
+		f.lastRawQuery = r.URL.RawQuery
 		f.lastAuthorization = r.Header.Get("Authorization")
 		f.lastContentType = r.Header.Get("Content-Type")
 		f.lastOperation = r.URL.Query().Get("op")
@@ -107,6 +111,10 @@ func (f *fakeMAAS) onGetMachine(statusCode int, body string) {
 
 func (f *fakeMAAS) onMachineOperation(statusCode int, body string) {
 	f.respond("POST "+apiPrefix+"/machines/{id}/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onDeleteMachine(statusCode int, body string) {
+	f.respond("DELETE "+apiPrefix+"/machines/{id}/{$}", statusCode, body)
 }
 
 func (f *fakeMAAS) onVersion(statusCode int, body string) {
@@ -417,6 +425,45 @@ func TestRelease_UsesReleaseOperation(t *testing.T) {
 	}
 	if state.Status != provisioningdomain.MachineStatusReady {
 		t.Errorf("status: got %q, want ready", state.Status)
+	}
+}
+
+func TestDeleteMachine_UsesDeleteWithoutForce(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onDeleteMachine(http.StatusNoContent, "")
+	provider := newTestProvider(t, fake)
+
+	if err := provider.DeleteMachine(context.Background(), "abc123"); err != nil {
+		t.Fatalf("DeleteMachine: %v", err)
+	}
+	if fake.lastMethod != http.MethodDelete {
+		t.Errorf("method: got %q, want DELETE", fake.lastMethod)
+	}
+	if fake.lastRawQuery != "" {
+		t.Errorf("query: got %q, want no force override", fake.lastRawQuery)
+	}
+}
+
+func TestDeleteMachine_RefusalPreservesProviderMessage(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onDeleteMachine(http.StatusBadRequest, "Machine cannot be deleted while hosting virtual machines.")
+	provider := newTestProvider(t, fake)
+
+	err := provider.DeleteMachine(context.Background(), "abc123")
+	var providerErr *provisioningdomain.ProviderError
+	if !errors.As(err, &providerErr) || !strings.Contains(providerErr.Detail, "hosting virtual machines") {
+		t.Fatalf("DeleteMachine error = %v, want provider refusal detail", err)
+	}
+}
+
+func TestDeleteMachine_NotFoundBecomesDomainError(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onDeleteMachine(http.StatusNotFound, "Not Found")
+	provider := newTestProvider(t, fake)
+
+	err := provider.DeleteMachine(context.Background(), "abc123")
+	if !errors.Is(err, provisioningdomain.ErrMachineNotFound) {
+		t.Fatalf("DeleteMachine error = %v, want ErrMachineNotFound", err)
 	}
 }
 

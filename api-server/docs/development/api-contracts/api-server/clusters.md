@@ -25,6 +25,7 @@ membership.
 - [Cluster Lifecycle State](../../../../../docs/development/glossaries/terms/cluster-lifecycle-state.md)
 - [Operation](../../../../../docs/development/glossaries/terms/operation.md)
 - [Node Role](../../../../../docs/development/glossaries/terms/node-role.md)
+- [Cluster Topology](../../../../../docs/development/glossaries/terms/cluster-topology.md)
 
 ## Endpoints
 
@@ -54,6 +55,12 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
   "origin": "deployed",
   "lifecycleState": "deploying",
   "lifecycleOperationId": "operation-id",
+  "deployment": {
+    "topology": "standalone",
+    "roleAssignments": [
+      { "serverId": "server-a", "role": "control-plane", "runWorkloads": true }
+    ]
+  },
   "gpuStackOwner": "provisioning",
   "exporterOwner": "ansible",
   "sync": {
@@ -76,6 +83,14 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 uninstalled`. `lifecycleOperationId` is the newest deployment or uninstall Operation ID,
 or `null`. These fields are derived by the API in a batch from durable Operation history;
 clients must not infer them from `integrationId`, membership, or sync freshness.
+
+`deployment` is the non-secret topology intent recovered from the latest durable
+`deploy-kubernetes` Operation. It contains `topology` as `standalone`, `multi-node`, or `high-availability` and the
+original `roleAssignments`, including `runWorkloads`.
+It is `null` for registered Clusters and legacy deployment history that cannot be
+projected completely. A control-plane assignment with `runWorkloads=true` retains the
+`control-plane` Node Role while also being workload-capable; clients must not treat the
+number of worker-only assignments as total workload capacity.
 
 `integrationId` is `null` before a deployment produces a credential and again after a
 successful uninstall removes the Swallow-owned credential Integration. A registered
@@ -117,7 +132,7 @@ matched a Server.
   "apiVip": "192.168.100.200",
   "apiVipPrefix": 24,
   "roleAssignments": [
-    { "serverId": "server-a", "role": "control-plane" },
+    { "serverId": "server-a", "role": "control-plane", "runWorkloads": false },
     { "serverId": "server-b", "role": "control-plane" },
     { "serverId": "server-c", "role": "control-plane" },
     { "serverId": "server-d", "role": "worker" }
@@ -125,9 +140,34 @@ matched a Server.
 }
 ```
 
-`type` is always `kubernetes`. The target Servers must exist, be `deployed`, belong to
-one Site, include an odd number of at least three control-plane assignments, and include at
-least one worker. Pod and service ranges may not cover target addresses.
+`type` is always `kubernetes`. The target Servers must exist, be `deployed`, and belong
+to one Site. A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
+defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
+runs workloads.
+
+A target is rejected while it is claimed by another Swallow-deployed Cluster whose
+lifecycle is `deploying`, `deploy_failed`, `active`, `uninstalling`, or
+`uninstall_failed`. Claims use the durable deployment Operation's complete
+`targetServerIds` snapshot, so a partial failed deployment remains protected even before
+membership can be observed. A successful Uninstall transitions the Cluster to
+`uninstalled` and releases that claim. A target carrying any observed Cluster membership
+is also rejected. The current Server projection has one membership axis; allowing
+cross-platform co-residency requires a future platform-scoped multi-membership contract
+rather than overwriting the existing observation.
+
+The role assignments infer one of these supported topologies:
+
+- Standalone: one control-plane assignment with `runWorkloads=true` and no worker.
+- Non-HA multi-node: one control-plane assignment and one or more worker assignments; the
+  control-plane may also set `runWorkloads=true`.
+- High availability: an odd number of at least three control-plane assignments and at
+  least one workload-capable assignment.
+
+Two control-plane assignments and even control-plane counts are rejected. Every topology
+must supply workload capacity. Pod and service ranges may not cover target addresses.
+`apiVip` and `apiVipPrefix` are required only for high availability; standalone and
+non-HA multi-node deployments omit them and use the initial control-plane Server address
+as the API endpoint. An HA virtual IP may not equal a selected Server address.
 
 Success is `202 Accepted` after both records are persisted:
 
@@ -229,6 +269,9 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 - Uninstall and lifecycle fields are additive. Existing paths and Delete response remain
   unchanged.
 - Delete remains non-destructive to hosts.
-- `roleAssignments` uses `control-plane | worker`; k0s's `controller` term is an
-  implementation detail.
+- `roleAssignments` continues to use `control-plane | worker`; the k0s `controller` term is
+  an implementation detail. The additive `runWorkloads` field defaults to `false`, so
+  existing HA requests retain dedicated control-plane behavior.
+- `apiVip` remains accepted exactly as before for HA requests and is now optional for a
+  one-control-plane deployment.
 - Control-plane lease discovery remains per Integration because its naming is k0s-specific.

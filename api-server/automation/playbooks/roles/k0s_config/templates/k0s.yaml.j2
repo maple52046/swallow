@@ -1,20 +1,21 @@
+{% set k0s_api_address = swallow_k0s_api_address | default(swallow_k0s_api_vip) %}
+{% set k0s_ha = swallow_k0s_high_availability | default(true) | bool %}
 apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig
 metadata:
   name: k0s
 spec:
   api:
-    # The VIP is a SAN so the API certificate is valid when reached through the
-    # control-plane load balancer rather than a single controller's address.
+    # The selected address is a SAN for both direct non-HA access and the HA VIP.
     sans:
-      - {{ swallow_k0s_api_vip }}
+      - {{ k0s_api_address }}
   network:
     podCIDR: {{ swallow_k0s_pod_cidr }}
     serviceCIDR: {{ swallow_k0s_service_cidr }}
     provider: kuberouter
-    # Control plane load balancing: a keepalived VRRP virtual IP plus k0s's in-process
-    # reverse proxy. Every controller carries the same config except the interface, which
-    # k0s picks from the default route.
+{% if k0s_ha %}
+    # HA uses keepalived and node-local load balancing. A one-control-plane deployment
+    # reaches the controller directly and must not create an unowned virtual address.
     controlPlaneLoadBalancing:
       enabled: true
       type: Keepalived
@@ -22,11 +23,10 @@ spec:
         vrrpInstances:
           - virtualIPs: ["{{ swallow_k0s_api_vip }}/{{ swallow_k0s_api_vip_prefix }}"]
             authPass: "{{ swallow_k0s_vrrp_auth_pass }}"
-    # Node-local load balancing keeps worker to control-plane traffic working when a
-    # controller is down, and is recommended alongside CPLB.
     nodeLocalLoadBalancing:
       enabled: true
       type: EnvoyProxy
+{% endif %}
   workerProfiles:
     - name: default
       values:

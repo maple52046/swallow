@@ -34,11 +34,12 @@ Consumer: `dashboard`.
 | [monitoring-alerts.md](monitoring-alerts.md) | Active | `/api/v1/monitoring/alerts` | List correlated alerts and create Alertmanager silences. |
 | [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus` | Prometheus `http_sd` target list with the metrics label contract; `tag` selects one server type. |
 
-There is **no** `POST /api/v1/servers/` and **no** `DELETE /api/v1/servers/{id}`. Servers
-are produced by reconciling provisioner inventory, not registered or deleted by a caller;
-the two contract files that described them were removed because the endpoints do not
-exist. See [decision 002](../../../../../docs/decisions/002-server-identity.md) and the
-platform glossary term for Server.
+There is **no** `POST /api/v1/servers/`: Servers are produced by reconciling provisioner
+inventory rather than registered by a caller. `DELETE /api/v1/servers/{id}` is the explicit
+exception for removal and is provider-backed: it deletes the backing Machine before the
+projection, so a later reconcile cannot recreate the Server. See
+[decision 002](../../../../../docs/decisions/002-server-identity.md) and the platform
+glossary term for Server.
 
 Server detail, machine actions, Sites, Integrations, and monitoring alerts are
 published as Active contracts above. Provider-specific capabilities remain optional and

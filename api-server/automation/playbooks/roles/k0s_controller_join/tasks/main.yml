@@ -1,8 +1,6 @@
 ---
-# Join an additional controller using a controller token minted on the initial controller.
-# The token file is written into the systemd ExecStart and is read on every start until the
-# node has joined, so it is removed only after this controller appears in etcd — removing it
-# earlier would put the service into a crash loop.
+# Join an additional control-plane Server. A join token remains until etcd membership and,
+# when selected, workload-node readiness are both established.
 
 - name: Check for an existing controller service
   ansible.builtin.stat:
@@ -34,7 +32,10 @@
 
 - name: Install this controller with the join token
   ansible.builtin.command:
-    cmd: /usr/local/bin/k0s install controller -c /etc/k0s/k0s.yaml --token-file /etc/k0s/join-token
+    cmd: >-
+      /usr/local/bin/k0s install controller -c /etc/k0s/k0s.yaml
+      --token-file /etc/k0s/join-token
+      {{ '--enable-worker --no-taints' if (k0s_runs_workloads | bool) else '' }}
   become: true
   when: not k0s_controller_unit.stat.exists
   changed_when: true
@@ -57,6 +58,18 @@
   retries: 30
   delay: 10
   changed_when: false
+
+- name: Wait for this controller workload node to become Ready
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s kubectl wait --for=condition=Ready node/{{ k0s_node_name }} --timeout=120s
+  become: true
+  delegate_to: "{{ swallow_k0s_initial_controller_id }}"
+  register: k0s_controller_worker_ready
+  until: k0s_controller_worker_ready.rc == 0
+  retries: 10
+  delay: 15
+  changed_when: false
+  when: k0s_runs_workloads | bool
 
 - name: Remove the join token now that the controller has joined
   ansible.builtin.file:

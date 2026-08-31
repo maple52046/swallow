@@ -120,7 +120,7 @@ func TestProvisionerDetail_ReturnsCapabilitiesAndSections(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected capabilities object, got %v", body["capabilities"])
 	}
-	if caps["power"] != true || caps["machineDetail"] != true {
+	if caps["power"] != true || caps["machineDetail"] != true || caps["machineRemoval"] != true {
 		t.Errorf("capabilities should reflect the provider, got %v", caps)
 	}
 	sections, ok := body["sections"].([]any)
@@ -146,7 +146,7 @@ func TestProvisionerDetail_CapabilitiesWithoutDetailSupport(t *testing.T) {
 	}
 	body := parseBody(t, resp)
 	caps := body["capabilities"].(map[string]any)
-	if caps["machineDetail"] != false || caps["power"] != false {
+	if caps["machineDetail"] != false || caps["power"] != false || caps["machineRemoval"] != false {
 		t.Errorf("a base-only provisioner must advertise no optional capabilities, got %v", caps)
 	}
 	if sections, ok := body["sections"].([]any); !ok || len(sections) != 0 {

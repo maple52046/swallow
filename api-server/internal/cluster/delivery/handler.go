@@ -66,11 +66,16 @@ func (h *ClusterHandler) Create(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(item)
 }
 
+// roleAssignmentRequest keeps workload co-location additive: an omitted JSON boolean maps
+// to false and preserves existing dedicated control-plane requests.
 type roleAssignmentRequest struct {
-	ServerID string `json:"serverId"`
-	Role     string `json:"role"`
+	ServerID     string `json:"serverId"`
+	Role         string `json:"role"`
+	RunWorkloads bool   `json:"runWorkloads"`
 }
 
+// deployClusterRequest is the stable wire shape; zero VIP fields mean omitted and the
+// application decides whether the inferred topology requires them.
 type deployClusterRequest struct {
 	SiteID          string                  `json:"siteId"`
 	Name            string                  `json:"name"`
@@ -83,7 +88,8 @@ type deployClusterRequest struct {
 	RoleAssignments []roleAssignmentRequest `json:"roleAssignments"`
 }
 
-// Deploy creates a cluster and starts the operation that builds it with k0s.
+// Deploy maps transport data into deployment intent; topology and network rules stay in
+// the application use case so every delivery shares one policy.
 func (h *ClusterHandler) Deploy(c *fiber.Ctx) error {
 	var req deployClusterRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -96,8 +102,9 @@ func (h *ClusterHandler) Deploy(c *fiber.Ctx) error {
 	assignments := make([]clusterdomain.RoleAssignment, len(req.RoleAssignments))
 	for i, assignment := range req.RoleAssignments {
 		assignments[i] = clusterdomain.RoleAssignment{
-			ServerID: assignment.ServerID,
-			Role:     clusterdomain.NodeRole(assignment.Role),
+			ServerID:     assignment.ServerID,
+			Role:         clusterdomain.NodeRole(assignment.Role),
+			RunWorkloads: assignment.RunWorkloads,
 		}
 	}
 

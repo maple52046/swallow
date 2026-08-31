@@ -5,7 +5,7 @@ import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { clusterLifecycleLabel, clusterLifecycleStatus } from '@/domain/cluster/lifecycle'
-import type { Cluster } from '@/domain/cluster/types'
+import type { Cluster, KubernetesTopology } from '@/domain/cluster/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -19,9 +19,23 @@ import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { ClusterLifecycleActions } from './ClusterLifecycleActions'
 import { useClusterDetail } from './useClusterDetail'
 
+/** Operator label for a deployment topology value. */
+function topologyLabel(topology: KubernetesTopology): string {
+  switch (topology) {
+    case 'standalone':
+      return 'Standalone'
+    case 'multi-node':
+      return 'Multi-node (non-HA)'
+    case 'high-availability':
+      return 'High availability'
+  }
+}
+
 /**
- * Cluster drill-down combining Rancher-style readiness with Headlamp-style member rows.
- * Lifecycle commands stay contextual and type-aware; Slurm never inherits Kubernetes terms.
+ * Cluster drill-down combining readiness, lifecycle progress, members, and related work.
+ *
+ * Active deployment/uninstall state is polled by the detail hook, while raw automation
+ * output remains a secondary drill-down. Slurm never inherits Kubernetes terminology.
  */
 export function ClusterDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -68,6 +82,16 @@ export function ClusterDetailPage() {
   const controllers = members.filter((server) => server.membership?.role === 'control-plane')
   const workers = members.filter((server) => server.membership?.role !== 'control-plane')
   const isKubernetes = cluster.type === 'kubernetes'
+  const intendedControllers = cluster.deployment?.roleAssignments.filter(
+    (assignment) => assignment.role === 'control-plane',
+  ) ?? []
+  const intendedWorkers = cluster.deployment?.roleAssignments.filter(
+    (assignment) => assignment.role === 'worker',
+  ) ?? []
+  const workloadCapable = cluster.deployment?.roleAssignments.filter(
+    (assignment) => assignment.role === 'worker' || assignment.runWorkloads,
+  ) ?? []
+  const workloadControllers = intendedControllers.filter((assignment) => assignment.runWorkloads)
   const targetCount = operations.find(
     (operation) => operation.kind === 'deploy-kubernetes',
   )?.targetServerIds.length
@@ -101,11 +125,18 @@ export function ClusterDetailPage() {
             >
               Sync now
             </Button>
-            <ClusterLifecycleActions cluster={cluster} targetCount={targetCount} />
+            <ClusterLifecycleActions
+              cluster={cluster}
+              targetCount={targetCount}
+              onRepairStarted={reload}
+            />
           </>
         }
       />
-      <LifecycleNotice cluster={cluster} />
+      <LifecycleNotice
+        cluster={cluster}
+        onOpenOperation={(operationId) => navigate(scopedHref('/operations/' + operationId))}
+      />
       {cluster.sync.lastError && cluster.lifecycleState !== 'uninstalled' && (
         <Alert variant={AlertVariant.danger} title="Membership sync is failing" isInline>
           {cluster.sync.lastError}. The member list may be stale; last success{' '}
@@ -115,8 +146,32 @@ export function ClusterDetailPage() {
       <StatStrip
         items={[
           { label: 'Lifecycle', value: clusterLifecycleLabel(cluster.lifecycleState) },
-          { label: isKubernetes ? 'Control-plane' : 'Managers', value: controllers.length },
-          { label: isKubernetes ? 'Workers' : 'Compute members', value: workers.length },
+          ...(isKubernetes && cluster.deployment
+            ? [
+                { label: 'Topology', value: topologyLabel(cluster.deployment.topology) },
+                {
+                  label: 'Control-plane',
+                  value: intendedControllers.length,
+                  detail: workloadControllers.length > 0
+                    ? workloadControllers.length + (workloadControllers.length === 1
+                        ? ' also runs workloads'
+                        : ' also run workloads')
+                    : 'Dedicated control-plane',
+                },
+                {
+                  label: 'Workload-capable',
+                  value: workloadCapable.length,
+                  detail: intendedWorkers.length === 0
+                    ? 'No worker-only nodes'
+                    : intendedWorkers.length + (intendedWorkers.length === 1
+                        ? ' worker-only node'
+                        : ' worker-only nodes'),
+                },
+              ]
+            : [
+                { label: isKubernetes ? 'Control-plane' : 'Managers', value: controllers.length },
+                { label: isKubernetes ? 'Worker nodes' : 'Compute members', value: workers.length },
+              ]),
           {
             label: 'Matched members',
             value: cluster.sync.matchedCount,
@@ -143,6 +198,7 @@ export function ClusterDetailPage() {
         <MemberTable
           members={members}
           isKubernetes={isKubernetes}
+          deployment={cluster.deployment}
           onSelect={(server) => navigate(scopedHref(`/servers/${server.id}`))}
         />
       </section>
@@ -180,16 +236,53 @@ export function ClusterDetailPage() {
   )
 }
 
-function LifecycleNotice({ cluster }: { cluster: Cluster }) {
+/**
+ * Explains lifecycle in Cluster language and keeps raw automation detail a secondary action.
+ */
+function LifecycleNotice({
+  cluster,
+  onOpenOperation,
+}: {
+  cluster: Cluster
+  onOpenOperation: (operationId: string) => void
+}) {
+  const operationId = cluster.lifecycleOperationId
+  const details = operationId ? (
+    <Button
+      variant="link"
+      isInline
+      onClick={() => onOpenOperation(operationId)}
+    >
+      View automation details
+    </Button>
+  ) : null
+
   switch (cluster.lifecycleState) {
     case 'deploying':
-      return <Alert variant={AlertVariant.info} title="Cluster deployment is running" isInline>Open the related Operation for live events and stdout.</Alert>
+      return (
+        <Alert variant={AlertVariant.info} title="Cluster deployment is running" isInline>
+          Swallow is configuring {cluster.name}. Lifecycle and membership update here automatically. {details}
+        </Alert>
+      )
     case 'deploy_failed':
-      return <Alert variant={AlertVariant.danger} title="Cluster deployment failed" isInline>Hosts may contain partial k0s state. Review or retry the deployment, or uninstall the original targets.</Alert>
+      return (
+        <Alert variant={AlertVariant.danger} title="Cluster deployment failed" isInline>
+          Hosts may contain partial k0s state. Review the automation details, then use
+          Repair deployment to rerun the original configuration. {details}
+        </Alert>
+      )
     case 'uninstalling':
-      return <Alert variant={AlertVariant.warning} title="Cluster uninstall is running" isInline>The Swallow record remains available while the original deployment targets are cleaned.</Alert>
+      return (
+        <Alert variant={AlertVariant.warning} title="Cluster uninstall is running" isInline>
+          The Swallow record remains available while original deployment targets are cleaned. {details}
+        </Alert>
+      )
     case 'uninstall_failed':
-      return <Alert variant={AlertVariant.danger} title="Cluster uninstall failed" isInline>Hosts may be in mixed states. Open the related Operation to inspect stdout and retry the idempotent uninstall.</Alert>
+      return (
+        <Alert variant={AlertVariant.danger} title="Cluster uninstall failed" isInline>
+          Hosts may be in mixed states. Inspect the automation output before retrying. {details}
+        </Alert>
+      )
     case 'uninstalled':
       return <Alert variant={AlertVariant.info} title="Cluster is uninstalled" isInline>k0s was removed from the original targets. This record remains until you delete it.</Alert>
     default:
@@ -204,10 +297,12 @@ function LifecycleNotice({ cluster }: { cluster: Cluster }) {
 function MemberTable({
   members,
   isKubernetes,
+  deployment,
   onSelect,
 }: {
   members: Server[]
   isKubernetes: boolean
+  deployment: Cluster['deployment']
   onSelect: (server: Server) => void
 }) {
   if (members.length === 0) {
@@ -220,26 +315,36 @@ function MemberTable({
           <Tr><Th>{isKubernetes ? 'Node' : 'Member'}</Th><Th>Role</Th><Th>State</Th><Th>Address</Th></Tr>
         </Thead>
         <Tbody>
-          {members.map((server) => (
-            <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
-              <Td dataLabel={isKubernetes ? 'Node' : 'Member'}>
-                <strong>{server.membership?.nodeName || serverDisplayName(server)}</strong>
-              </Td>
-              <Td dataLabel="Role">
-                <StatusBadge
-                  status={server.membership?.role === 'control-plane' ? 'info' : 'neutral'}
-                  label={server.membership?.role || 'unknown'}
-                />
-              </Td>
-              <Td dataLabel="State">
-                <StatusBadge
-                  status={server.membership?.state === 'ready' ? 'succeeded' : 'warning'}
-                  label={server.membership?.state || 'unknown'}
-                />
-              </Td>
-              <Td dataLabel="Address" className="mono">{serverPrimaryAddress(server) ?? '-'}</Td>
-            </Tr>
-          ))}
+          {members.map((server) => {
+            const assignment = deployment?.roleAssignments.find(
+              (candidate) => candidate.serverId === server.id,
+            )
+            const controllerRunsWorkloads = assignment?.role === 'control-plane' &&
+              assignment.runWorkloads
+            return (
+              <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
+                <Td dataLabel={isKubernetes ? 'Node' : 'Member'}>
+                  <strong>{server.membership?.nodeName || serverDisplayName(server)}</strong>
+                </Td>
+                <Td dataLabel="Role">
+                  <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
+                    <StatusBadge
+                      status={server.membership?.role === 'control-plane' ? 'info' : 'neutral'}
+                      label={server.membership?.role || 'unknown'}
+                    />
+                    {controllerRunsWorkloads && <Label color="green">Runs workloads</Label>}
+                  </Flex>
+                </Td>
+                <Td dataLabel="State">
+                  <StatusBadge
+                    status={server.membership?.state === 'ready' ? 'succeeded' : 'warning'}
+                    label={server.membership?.state || 'unknown'}
+                  />
+                </Td>
+                <Td dataLabel="Address" className="mono">{serverPrimaryAddress(server) ?? '-'}</Td>
+              </Tr>
+            )
+          })}
         </Tbody>
       </Table>
     </StickyTableFrame>

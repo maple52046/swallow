@@ -134,13 +134,19 @@ test.describe('operator interactions', () => {
     const metadataRow = page.locator('.sw-key-value-grid > div').first()
     await expect(metadataRow).toHaveCSS('align-items', 'center')
     await expectMediumBlockSpacing(metadataRow)
+    await expect(page.locator('.sw-operation-debugger .sw-tab-content:visible')).toHaveCSS('padding-top', '24px')
 
+    await installApiFixtures(page, { freeClusterCandidates: true })
     await page.goto('/clusters/deploy?site=site-a')
     await page.getByLabel('Cluster name').fill('alignment-audit')
     await page.getByRole('button', { name: 'Next' }).click()
-    await page.getByLabel('API virtual IP').fill('192.168.40.200')
-    await page.getByRole('button', { name: 'Next' }).click()
+    for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
+      await page.getByLabel(`Role for ${server}`).selectOption('control-plane')
+    }
+    await page.getByLabel('Role for gpu-node-04').selectOption('worker')
     await expectTableCellsVerticallyCentered(page, 'Deployable Servers')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByLabel('API virtual IP').fill('192.168.40.200')
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/monitoring?site=site-a')
@@ -295,34 +301,118 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('03:00.0')).toBeVisible()
   })
 
-  test('PatternFly wizard validates, preserves input, reviews, and redirects', async ({ page }) => {
+  test('provider-backed server deletion requires typed confirmation', async ({ page }) => {
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await chooseMenuItem(page, 'Delete server')
+
+    const dialog = page.getByRole('dialog', { name: 'Delete server' })
+    await expect(dialog).toContainText("provisioner's Machine")
+    const submit = dialog.getByRole('button', { name: 'Delete server' })
+    await expect(submit).toBeDisabled()
+    await dialog.getByLabel('Server name confirmation').fill('gpu-node-01')
+    await submit.click()
+
+    await expect(page).toHaveURL('/servers?site=site-a')
+    await expect(page.getByRole('grid', { name: 'Servers' }).getByText('gpu-node-01', { exact: true })).toHaveCount(0)
+  })
+
+  test('Cluster wizard explains and excludes Servers already claimed by Clusters', async ({ page }) => {
+    await page.goto('/clusters/deploy?site=site-a')
+    await page.getByLabel('Cluster name').fill('protected-targets')
+    await page.getByRole('button', { name: 'Next' }).click()
+
+    await expect(page.getByText('Some Servers are already assigned')).toBeVisible()
+    const table = page.getByRole('grid', { name: 'Deployable Servers' })
+    const active = table.getByRole('row', { name: /gpu-node-01/ })
+    await expect(active).toContainText('In use')
+    await expect(active).toContainText('production-k0s')
+    await expect(active).toContainText('Active')
+    await expect(active.getByRole('combobox', {
+      name: /unavailable because it is assigned to production-k0s/,
+    })).toBeDisabled()
+
+    const failed = table.getByRole('row', { name: /gpu-node-04/ })
+    await expect(failed).toContainText('edge-staging')
+    await expect(failed).toContainText('Deployment failed')
+    await expect(failed.getByRole('combobox', {
+      name: /unavailable because it is assigned to edge-staging/,
+    })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
+  })
+
+  test('PatternFly wizard selects machines before networking and keeps Cluster context', async ({ page }) => {
+    await installApiFixtures(page, { freeClusterCandidates: true })
     await page.goto('/clusters/deploy?site=site-a')
     const next = page.getByRole('button', { name: 'Next' })
     await expect(next).toBeDisabled()
     await page.getByLabel('Cluster name').fill('compute-k0s')
     await next.click()
-    await page.getByLabel('API virtual IP').fill('192.168.40.200')
-    await next.click()
-    for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) await page.getByLabel(`Role for ${server}`).selectOption('control-plane')
+    await expect(page.getByRole('heading', { name: 'Topology and machines' })).toBeVisible()
+    for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
+      await page.getByLabel(`Role for ${server}`).selectOption('control-plane')
+    }
     await page.getByLabel('Role for gpu-node-04').selectOption('worker')
     await next.click()
-    await expect(page.getByText('3 control-plane, 1 workers')).toBeVisible()
-    await page.getByRole('button', { name: 'Back' }).click()
+    await expect(page.getByRole('heading', { name: 'Selected machine addresses', exact: true })).toBeVisible()
+    await page.getByLabel('API virtual IP').fill('192.168.40.200')
+    await next.click()
+    await expect(page.getByText('3 control-plane, 1 workload-capable')).toBeVisible()
     await page.getByRole('button', { name: 'Back' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveValue('192.168.40.200')
-    await next.click(); await next.click()
+    await next.click()
     await page.getByRole('button', { name: 'Deploy cluster' }).click()
-    await expect(page).toHaveURL('/operations/op-running?site=site-a')
+    await expect(page).toHaveURL('/clusters/cluster-new?site=site-a')
+    await expect(page.getByText('Cluster deployment is running')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'View automation details' })).toBeVisible()
+  })
+
+  test('Cluster wizard supports standalone and non-HA multi-node without a VIP', async ({ page }) => {
+    await installApiFixtures(page, { freeClusterCandidates: true })
+    await page.goto('/clusters/deploy?site=site-a')
+    await page.getByLabel('Cluster name').fill('edge-k0s')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.locator('#cluster-topology').selectOption('standalone')
+    await page.getByLabel('Role for gpu-node-01').selectOption('control-plane')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
+    await expect(page.getByText(/192\.168\.40\.21:6443/)).toBeVisible()
+
+    await page.getByRole('button', { name: 'Back' }).click()
+    await page.locator('#cluster-topology').selectOption('multi-node')
+    await page.getByLabel('Role for gpu-node-01').selectOption('control-plane')
+    await page.getByLabel('Role for gpu-node-02').selectOption('worker')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
+    await expect(page.getByText('Direct control-plane endpoint')).toBeVisible()
   })
 
   test('Headlamp language is type-aware and Slurm stays neutral', async ({ page }) => {
     await page.goto('/clusters/cluster-a?site=site-a')
-    await expect(page.locator('.sw-stat-strip').getByText('Control-plane', { exact: true })).toBeVisible()
+    const kubernetesStats = page.locator('.sw-stat-strip')
+    await expect(kubernetesStats.getByText('Topology', { exact: true })).toBeVisible()
+    await expect(kubernetesStats.getByText('High availability', { exact: true })).toBeVisible()
+    await expect(kubernetesStats.getByText('Control-plane', { exact: true })).toBeVisible()
+    await expect(kubernetesStats.getByText('Workload-capable', { exact: true })).toBeVisible()
+    await expect(kubernetesStats.getByText('1 also runs workloads', { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('grid', { name: 'Cluster members' }).getByRole('row', { name: /gpu-node-01/ }),
+    ).toContainText('Runs workloads')
     await expect(page.getByText(/Kubernetes membership/)).toBeVisible()
     await page.goto('/clusters/cluster-slurm?site=site-a')
     await expect(page.getByText('Managers')).toBeVisible()
     await expect(page.getByText('Compute members')).toBeVisible()
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
+  })
+
+  test('standalone Cluster summary shows one control-plane is workload-capable', async ({ page }) => {
+    await page.goto('/clusters/cluster-b?site=site-a')
+    const stats = page.locator('.sw-stat-strip')
+    await expect(stats.locator('.sw-stat').filter({ hasText: 'Topology' })).toContainText('Standalone')
+    await expect(stats.locator('.sw-stat').filter({ hasText: 'Control-plane' }))
+      .toContainText('1 also runs workloads')
+    await expect(stats.locator('.sw-stat').filter({ hasText: 'Workload-capable' }))
+      .toContainText('1')
   })
 
   test('Cluster list uses backend lifecycle labels and keeps Slurm uninstall disabled', async ({ page }) => {
@@ -339,6 +429,29 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Only Kubernetes clusters can be uninstalled.')).toBeVisible()
   })
 
+  test('failed Cluster repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
+    await page.goto('/clusters/cluster-b?site=site-a')
+    await expect(page.getByText('Cluster deployment failed')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Repair deployment' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Repair cluster deployment' })
+    await expect(dialog.getByText('Original configuration will be reused')).toBeVisible()
+    await expect(dialog.getByText(/1 original deployment target/)).toBeVisible()
+    await expect(dialog.getByText(/same machines, roles, network settings/)).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Repair deployment' }).click()
+
+    await expect(page).toHaveURL('/clusters/cluster-b?site=site-a')
+    await expect(page.getByText('Cluster repair started')).toBeVisible()
+    await expect(page.getByText('Cluster deployment is running')).toBeVisible()
+    await expect(page.getByText('Deployment failed')).toHaveCount(0)
+    await expect(
+      page.getByRole('grid', { name: 'Related operations' })
+        .getByRole('row', { name: /Deploy edge-staging k0s cluster/ })
+        .first(),
+    ).toContainText('running')
+  })
+
   test('typed Uninstall and Delete confirmations keep host and record actions separate', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/clusters/cluster-a?site=site-a')
@@ -348,7 +461,7 @@ test.describe('operator interactions', () => {
     const dialog = page.getByRole('dialog', { name: 'Uninstall cluster' })
     const confirmation = dialog.getByLabel('Cluster name confirmation')
     await expect(confirmation).toBeFocused()
-    await expect(dialog.locator('p').filter({ hasText: 'Targets: 4 original deployment targets' })).toBeVisible()
+    await expect(dialog.locator('p').filter({ hasText: 'Targets: 3 original deployment targets' })).toBeVisible()
     await expect(dialog.getByText(/operating system, user data, and shared packages/)).toBeVisible()
     const uninstall = dialog.getByRole('button', { name: 'Uninstall cluster' })
     await expect(uninstall).toBeDisabled()
