@@ -136,6 +136,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId
   }
   let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
+  let siteItems = sites.map((site) => ({ ...site }))
+  let integrationItems = integrations.map((integration) => ({
+    ...integration,
+    settings: { ...integration.settings },
+    sync: { ...integration.sync },
+  }))
   let metricBatchIndex = 0
   let activeMetricRequests = 0
   const clusterItems = clusters.map((cluster) => ({ ...cluster }))
@@ -154,14 +160,92 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
 
     if (path === '/api/v1/auth/me') return json(route, { id: 'admin-1', username: 'admin', role: 'admin' })
     if (path === '/api/v1/auth/login') return json(route, { accessToken: 'e2e-token' })
-    if (path === '/api/v1/sites') return json(route, sites)
-    if (path === '/api/v1/integrations') {
+    if (path === '/api/v1/sites' && request.method() === 'GET') return json(route, siteItems)
+    if (path === '/api/v1/sites' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { name: string; description: string }
+      const created = { id: `site-${siteItems.length + 1}`, name: body.name, description: body.description, createdAt: now, updatedAt: now }
+      siteItems.push(created)
+      return json(route, created, 201)
+    }
+    const siteMatch = path.match(/^\/api\/v1\/sites\/([^/]+)$/)
+    if (siteMatch) {
+      const site = siteItems.find((item) => item.id === siteMatch[1])
+      if (!site) return json(route, { error: { code: 'not_found', message: 'Site not found.' } }, 404)
+      if (request.method() === 'GET') return json(route, site)
+      if (request.method() === 'PATCH') {
+        Object.assign(site, request.postDataJSON(), { updatedAt: now })
+        return json(route, site)
+      }
+      if (request.method() === 'DELETE') {
+        if (integrationItems.some((integration) => integration.siteId === site.id)) {
+          return json(route, { error: { code: 'conflict', message: 'This site still has integrations. Delete them first.' } }, 409)
+        }
+        siteItems = siteItems.filter((item) => item.id !== site.id)
+        return json(route, { success: true })
+      }
+    }
+    if (path === '/api/v1/integrations' && request.method() === 'GET') {
       const siteId = url.searchParams.get('siteId')
       const kind = url.searchParams.get('kind')
-      return json(route, integrations.filter((item) => (
+      return json(route, integrationItems.filter((item) => (
         (!siteId || item.siteId === siteId) &&
         (!kind || item.kind === kind)
       )))
+    }
+    if (path === '/api/v1/integrations' && request.method() === 'POST') {
+      const body = request.postDataJSON() as {
+        siteId: string
+        kind: string
+        providerKind: string
+        name: string
+        endpoint: string
+        credential: string
+        settings: Record<string, string>
+        enabled: boolean
+      }
+      const created = {
+        id: `integration-${integrationItems.length + 1}`,
+        siteId: body.siteId,
+        kind: body.kind,
+        providerKind: body.providerKind,
+        name: body.name,
+        endpoint: body.endpoint,
+        enabled: body.enabled,
+        settings: body.settings,
+        hasCredential: Boolean(body.credential),
+        sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null },
+        createdAt: now,
+        updatedAt: now,
+      }
+      integrationItems.push(created)
+      return json(route, created, 201)
+    }
+    const credentialMatch = path.match(/^\/api\/v1\/integrations\/([^/]+)\/credential$/)
+    if (credentialMatch && request.method() === 'PUT') {
+      const integration = integrationItems.find((item) => item.id === credentialMatch[1])
+      if (!integration) return json(route, { error: { code: 'not_found', message: 'Integration not found.' } }, 404)
+      integration.hasCredential = true
+      integration.updatedAt = now
+      return json(route, { success: true })
+    }
+    const integrationMatch = path.match(/^\/api\/v1\/integrations\/([^/]+)$/)
+    if (integrationMatch) {
+      const integration = integrationItems.find((item) => item.id === integrationMatch[1])
+      if (!integration) return json(route, { error: { code: 'not_found', message: 'Integration not found.' } }, 404)
+      if (request.method() === 'GET') return json(route, integration)
+      if (request.method() === 'PATCH') {
+        Object.assign(integration, request.postDataJSON(), { updatedAt: now })
+        return json(route, integration)
+      }
+      if (request.method() === 'DELETE') {
+        const referenced = fleet.some((server) => server.source.integrationId === integration.id) ||
+          deploymentTemplates.some((template) => template.integrationId === integration.id)
+        if (referenced) {
+          return json(route, { error: { code: 'conflict', message: 'Resources still reference this Integration.' } }, 409)
+        }
+        integrationItems = integrationItems.filter((item) => item.id !== integration.id)
+        return json(route, { success: true })
+      }
     }
 
     if (path === '/api/v1/provisioning/images') {
@@ -279,7 +363,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, {
         generatedAt: now, scope: { siteId },
         inventory: { sites: siteId ? 1 : 2, servers: 4, absent: 0, deployed: 4, clustered: 4, gpuDevices: 24, health: { up: 3, down: 1, unknown: 0 } },
-        integrations: { total: integrations.length, failing: 1, items: integrations.map((item) => ({ id: item.id, siteId: item.siteId, name: item.name, kind: item.kind, providerKind: item.providerKind, enabled: item.enabled, lastSucceededAt: item.sync.lastSucceededAt, lastError: item.sync.lastError })) },
+        integrations: { total: integrationItems.length, failing: 1, items: integrationItems.map((item) => ({ id: item.id, siteId: item.siteId, name: item.name, kind: item.kind, providerKind: item.providerKind, enabled: item.enabled, lastSucceededAt: item.sync.lastSucceededAt, lastError: item.sync.lastError })) },
         clusters: { total: 2, unreachable: 1, unmatchedMembers: 1 }, operations: { active: 1, failedLast24Hours: 1, recent: operations },
         monitoring: { available: true, error: null, firing: { critical: 1, warning: 1, items: alerts.filter((alert) => alert.state === 'firing') } },
       })

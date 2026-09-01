@@ -144,23 +144,27 @@ export function MonitoringPage() {
       { label: 'Warning alerts', value: alertsState.status === 'ready' ? alerts.filter((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing').length : 'Unavailable', tone: alerts.some((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing') ? 'warning' : 'neutral' },
     ]} />
 
-    <section className="sw-section">
-      <SectionHeader title="Alerts" description="Firing and suppressed alerts from Alertmanager, ordered by provider severity." />
+    <section className="sw-section-group">
+      <SectionHeader variant="plain" title="Alerts" description="Firing and suppressed alerts from Alertmanager, ordered by provider severity." />
+      <div className="sw-section">
       <DataToolbar><ToolbarItem><SearchInput value={alertQuery} onChange={(_event, value) => setAlertQuery(value)} onClear={() => setAlertQuery('')} placeholder="Search alerts or labels" aria-label="Search alerts" /></ToolbarItem><ToolbarItem><FormSelect value={severity} onChange={(_event, value) => setFilter('severity', value)} aria-label="Filter alert severity"><FormSelectOption value="" label="All severities" /><FormSelectOption value="critical" label="Critical" /><FormSelectOption value="warning" label="Warning" /><FormSelectOption value="info" label="Info" /></FormSelect></ToolbarItem><ToolbarItem><FormSelect value={alertState ?? ''} onChange={(_event, value) => setFilter('state', value)} aria-label="Filter alert state"><FormSelectOption value="" label="All states" /><FormSelectOption value="firing" label="Firing" /><FormSelectOption value="suppressed" label="Suppressed" /></FormSelect></ToolbarItem></DataToolbar>
       {alertsState.status === 'error' && <Alert variant={AlertVariant.warning} title="Alerts are unavailable" isInline>{alertsState.message}</Alert>}
       {alertsState.status === 'loading' && <div className="sw-section-empty">Loading alerts...</div>}
       {alertsState.status === 'ready' && visibleAlerts.length === 0 && <div className="sw-section-empty">No alerts match the current filters.</div>}
       {visibleAlerts.length > 0 && <StickyTableFrame><Table aria-label="Monitoring alerts" variant="compact"><Thead><Tr><Th>Alert</Th><Th>Severity</Th><Th>State</Th><Th>Resource</Th><Th>Started</Th><Th screenReaderText="Actions" /></Tr></Thead><Tbody>{visibleAlerts.map((alert) => <Tr key={alert.fingerprint}><Td dataLabel="Alert"><strong>{alert.name}</strong><small>{alert.summary || alert.description || 'No description'}</small></Td><Td dataLabel="Severity"><Label color={severityColor(alert.severity)}>{alert.severity || 'unknown'}</Label></Td><Td dataLabel="State"><StatusBadge status={alert.state} label={alert.state === 'suppressed' ? 'Acknowledged' : alert.state} /></Td><Td dataLabel="Resource">{alert.serverId ? <Link to={scopedHref(`/servers/${alert.serverId}/monitoring`)}>{alert.serverId}</Link> : alert.clusterId ? <Link to={scopedHref(`/clusters/${alert.clusterId}`)}>{alert.clusterId}</Link> : 'Fleet'}</Td><Td dataLabel="Started">{formatRelative(alert.startsAt ?? undefined)}</Td><Td isActionCell>{alert.state === 'firing' ? <Button variant="secondary" size="sm" onClick={() => openAcknowledge(alert)}>Acknowledge</Button> : <span className="sw-muted">Silenced</span>}</Td></Tr>)}</Tbody></Table></StickyTableFrame>}
+      </div>
     </section>
 
-    <section className="sw-section">
-      <SectionHeader title="Server metrics" description="Current named metrics only. Missing samples remain No data; history belongs in Grafana." />
+    <section className="sw-section-group">
+      <SectionHeader variant="plain" title="Server metrics" description="Current named metrics only. Missing samples remain No data; history belongs in Grafana." />
+      <div className="sw-section">
       <DataToolbar><ToolbarItem><SearchInput value={serverQuery} onChange={(_event, value) => setServerQuery(value)} onClear={() => setServerQuery('')} placeholder="Search server or address" aria-label="Search server metrics" /></ToolbarItem></DataToolbar>
       {fleetState.status === 'error' && <Alert variant={AlertVariant.danger} title="Inventory is unavailable" isInline>{fleetState.message}</Alert>}
       {fleetState.status === 'loading' && <div className="sw-section-empty">Loading fleet metrics...</div>}
       {fleetState.status === 'ready' && fleetState.metrics.errors.length > 0 && <Alert variant={AlertVariant.warning} title="Some metric batches are unavailable" isInline>{`${fleetState.metrics.errors.length} batch request${fleetState.metrics.errors.length === 1 ? '' : 's'} failed. Other values remain current.`}</Alert>}
       {fleetState.status === 'ready' && visibleServers.length === 0 && <div className="sw-section-empty">No Servers match this scope or search.</div>}
       {visibleServers.length > 0 && <StickyTableFrame><Table aria-label="Server metrics" variant="compact" isStriped><Thead><Tr><Th>Server</Th><Th>Health</Th><Th>CPU usage</Th><Th>Memory used</Th><Th>GPU utilization</Th></Tr></Thead><Tbody>{visibleServers.map((server) => { const item = metricsByServer.get(server.id); return <Tr key={server.id}><Td dataLabel="Server"><Link to={scopedHref(`/servers/${server.id}/monitoring`)}><strong>{serverDisplayName(server)}</strong></Link><small>{serverPrimaryAddress(server) ?? server.id}</small></Td><Td dataLabel="Health"><StatusBadge status={server.health?.state ?? 'unknown'} /></Td><Td dataLabel="CPU usage">{metricValue(item, 'cpuUsagePercent')}</Td><Td dataLabel="Memory used">{metricValue(item, 'memoryUsedPercent')}</Td><Td dataLabel="GPU utilization">{server.gpus.length ? metricValue(item, 'gpuUtilizationPercent') : 'Not applicable'}</Td></Tr>})}</Tbody></Table></StickyTableFrame>}
+      </div>
     </section>
 
     <Modal isOpen={selectedAlert !== null} onClose={() => setSelectedAlert(null)} variant="small" aria-labelledby="acknowledge-alert-title">

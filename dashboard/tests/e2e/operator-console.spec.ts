@@ -109,6 +109,30 @@ test.describe('operator interactions', () => {
     await expect(page.locator('html')).not.toHaveClass(/pf-v6-theme-dark/)
   })
 
+  test('Deploy OS rounds its Wizard and keeps the Integration placeholder readable in dark mode', async ({ page }) => {
+    await page.goto('/provisioning/deploy?site=site-a')
+    await visibleAppearance(page).click()
+    await chooseMenuItem(page, 'Dark')
+
+    const wizard = page.locator('.sw-deploy-wizard')
+    await expect(wizard).toHaveCSS('border-radius', '6px')
+    await expect(wizard).toHaveCSS('overflow', 'hidden')
+
+    const integration = page.getByLabel('Provisioner integration')
+    const control = integration.locator('..')
+    await expect(integration).toHaveValue('')
+    await expect(integration.locator('option:checked')).toHaveText('Select an integration')
+    await expect(control).toHaveClass(/pf-m-placeholder/)
+    await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
+
+    const colors = await integration.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { text: style.color, background: style.backgroundColor }
+    })
+    expect(colors.text).not.toBe(colors.background)
+    expect(colors.text).not.toBe('rgba(0, 0, 0, 0)')
+  })
+
   test('shared tables center cells and separators keep PatternFly spacing', async ({ page }) => {
     await page.goto('/')
     await expectTableCellsVerticallyCentered(page, 'Recent operations')
@@ -128,6 +152,12 @@ test.describe('operator interactions', () => {
 
     await page.goto('/operations?site=site-a')
     await expectTableCellsVerticallyCentered(page, 'Operations')
+
+    await page.goto('/infrastructure/sites?site=site-a')
+    await expectTableCellsVerticallyCentered(page, 'Sites')
+
+    await page.goto('/infrastructure/integrations?site=site-a')
+    await expectTableCellsVerticallyCentered(page, 'Integrations')
 
     await page.goto('/operations/op-running?site=site-a')
     await page.getByRole('tab', { name: 'Details' }).click()
@@ -152,6 +182,74 @@ test.describe('operator interactions', () => {
     await page.goto('/monitoring?site=site-a')
     await expect(page.locator('.sw-page-header')).toHaveCSS('align-items', 'flex-start')
     await expectMediumBlockSpacing(page.locator('.sw-data-toolbar').first())
+  })
+
+  test('shared surfaces are rounded and hyperlinks stay undecorated', async ({ page }) => {
+    await page.goto('/')
+
+    await expect(page.locator('.sw-stat-strip')).toHaveCSS('border-radius', '6px')
+    await expect(page.locator('.sw-section').first()).toHaveCSS('border-radius', '6px')
+
+    const link = page.getByRole('link', { name: 'View all' }).first()
+    await expect(link).toHaveCSS('text-decoration-line', 'none')
+    await expect(link).toHaveCSS('text-decoration-style', 'solid')
+    await link.hover()
+    await expect(link).toHaveCSS('text-decoration-line', 'none')
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    for (let index = 0; index < 30 && !await link.evaluate((element) => element === document.activeElement); index += 1) {
+      await page.keyboard.press('Tab')
+    }
+    await expect(link).toBeFocused()
+    await expect(link).toHaveCSS('text-decoration-line', 'none')
+    await expect(link).toHaveCSS('outline-style', 'solid')
+    await expect(link).toHaveCSS('outline-width', '2px')
+
+    const expectPlainListToolbar = async () => {
+      const toolbar = page.locator('.sw-data-toolbar')
+      await expect(toolbar).toHaveClass(/sw-data-toolbar--plain/)
+      await expect(toolbar).toHaveCSS('border-bottom-style', 'none')
+      await expect(toolbar).toHaveCSS('border-radius', '0px')
+      await expect(toolbar).toHaveCSS('box-shadow', 'none')
+      const surfaces = await toolbar.evaluate((element) => ({
+        toolbar: getComputedStyle(element).backgroundColor,
+        page: getComputedStyle(document.body).backgroundColor,
+      }))
+      expect(surfaces.toolbar).toBe(surfaces.page)
+    }
+
+    for (const route of ['/servers?site=site-a', '/operations?site=site-a', '/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
+      await page.goto(route)
+      await expectPlainListToolbar()
+    }
+
+    await page.goto('/servers?site=site-a')
+    await expect(page.locator('.sw-table-frame')).toHaveCSS('border-radius', '6px')
+
+    await page.goto('/operations/op-running?site=site-a')
+    await expect(page.locator('.sw-operation-timeline')).toHaveCSS('border-radius', '6px')
+    await expect(page.locator('.sw-operation-debugger')).toHaveCSS('border-radius', '6px')
+  })
+
+  test('Monitoring headings and descriptions sit above their data containers', async ({ page }) => {
+    await page.goto('/monitoring?site=site-a')
+
+    for (const [title, description, searchLabel] of [
+      ['Alerts', 'Firing and suppressed alerts from Alertmanager, ordered by provider severity.', 'Search alerts'],
+      ['Server metrics', 'Current named metrics only. Missing samples remain No data; history belongs in Grafana.', 'Search server metrics'],
+    ]) {
+      const heading = page.getByRole('heading', { name: title, exact: true })
+      const group = page.locator('.sw-section-group').filter({ has: heading })
+      const header = group.locator(':scope > .sw-section-header--plain')
+      const container = group.locator(':scope > .sw-section')
+      await expect(group.getByText(description, { exact: true })).toBeVisible()
+      await expect(container.getByLabel(searchLabel)).toBeVisible()
+      await expect(container.locator('.sw-data-toolbar')).not.toHaveClass(/sw-data-toolbar--plain/)
+      expect(await heading.evaluate((element) => element.closest('.sw-section') === null)).toBe(true)
+      const positions = await Promise.all([header.boundingBox(), container.boundingBox()])
+      expect(positions[0]).not.toBeNull()
+      expect(positions[1]).not.toBeNull()
+      expect((positions[0]?.y ?? 0) + (positions[0]?.height ?? 0)).toBeLessThan(positions[1]?.y ?? 0)
+    }
   })
 
   test('desktop dock collapses to icons with tooltip and persists', async ({ page }) => {
@@ -184,6 +282,71 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('tooltip', { name: 'Servers' })).toBeVisible()
     await page.reload()
     await expect(dock).not.toHaveClass(/pf-m-text-expanded/)
+  })
+
+  test('authenticated body uses a flat full-width workspace instead of a container panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 900 })
+    await page.goto('/')
+
+    const dock = page.locator('.pf-v6-c-page__dock')
+    const mainContainer = page.locator('.pf-v6-c-page__main-container')
+    const section = page.locator('.sw-page-section')
+    const body = page.locator('.operator-page')
+    await expect(page.locator('.sw-page-content')).toHaveCount(0)
+
+    const measureWorkspace = () => page.evaluate(() => {
+      const dockElement = document.querySelector<HTMLElement>('.pf-v6-c-page__dock')
+      const mainElement = document.querySelector<HTMLElement>('.pf-v6-c-page__main-container')
+      const sectionElement = document.querySelector<HTMLElement>('.sw-page-section')
+      const bodyElement = document.querySelector<HTMLElement>('.operator-page')
+      if (!dockElement || !mainElement || !sectionElement || !bodyElement) return null
+      const dockRect = dockElement.getBoundingClientRect()
+      const mainRect = mainElement.getBoundingClientRect()
+      const sectionRect = sectionElement.getBoundingClientRect()
+      const bodyRect = bodyElement.getBoundingClientRect()
+      return {
+        dockRight: Math.round(dockRect.right),
+        mainLeft: Math.round(mainRect.left),
+        mainRight: Math.round(mainRect.right),
+        mainTop: Math.round(mainRect.top),
+        sectionLeft: Math.round(sectionRect.left),
+        sectionRight: Math.round(sectionRect.right),
+        contentLeftInset: Math.round(bodyRect.left - sectionRect.left),
+        contentRightInset: Math.round(sectionRect.right - bodyRect.right),
+        bodyWidth: Math.round(bodyRect.width),
+        hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+      }
+    })
+
+    await expect(mainContainer).toHaveCSS('margin-left', '0px')
+    await expect(mainContainer).toHaveCSS('margin-right', '0px')
+    await expect(mainContainer).toHaveCSS('border-radius', '0px')
+    await expect(mainContainer).toHaveCSS('box-shadow', 'none')
+    await expect(section).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(section).toHaveCSS('padding-left', '24px')
+    await expect(section).toHaveCSS('padding-right', '24px')
+    await expect(body).toBeVisible()
+    const expanded = await measureWorkspace()
+    expect(expanded).not.toBeNull()
+    expect(expanded?.mainLeft).toBe(expanded?.dockRight)
+    expect(expanded?.mainRight).toBe(1920)
+    expect(expanded?.mainTop).toBe(0)
+    expect(expanded?.sectionLeft).toBe(expanded?.mainLeft)
+    expect(expanded?.sectionRight).toBe(expanded?.mainRight)
+    expect(expanded?.contentLeftInset).toBe(24)
+    expect(expanded?.contentRightInset).toBe(24)
+    expect(expanded?.bodyWidth).toBeGreaterThan(1600)
+    expect(expanded?.hasHorizontalOverflow).toBe(false)
+
+    await dock.getByRole('button', { name: 'Global navigation' }).click()
+    const collapsed = await measureWorkspace()
+    expect(collapsed).not.toBeNull()
+    expect(collapsed?.mainLeft).toBe(collapsed?.dockRight)
+    expect(collapsed?.mainRight).toBe(1920)
+    expect(collapsed?.contentLeftInset).toBe(24)
+    expect(collapsed?.contentRightInset).toBe(24)
+    expect(collapsed?.bodyWidth).toBeGreaterThan((expanded?.bodyWidth ?? 0) + 100)
+    expect(collapsed?.hasHorizontalOverflow).toBe(false)
   })
 
   test('mobile drawer traps focus, closes with Escape, and restores the toggle', async ({ page }) => {
@@ -679,6 +842,109 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('MAAS Edge image catalog unavailable')).toBeVisible()
     await expect(page.getByRole('row', { name: /Ubuntu 22.04 LTS/ })).toBeVisible()
     await expectTableCellsVerticallyCentered(page, 'OS images')
+  })
+
+  test('Infrastructure exposes the Site hierarchy and OS Image provider sources', async ({ page }) => {
+    await page.goto('/infrastructure/sites')
+    await expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible()
+    await expect(page.getByText('Sites define infrastructure locations. Each Integration connects one Site to an external provider.')).toBeVisible()
+    const taipei = page.getByRole('row', { name: /Taipei Lab/ })
+    await expect(taipei).toContainText('Primary accelerator lab')
+    await expect(taipei.getByRole('gridcell', { name: '3' })).toBeVisible()
+    await taipei.getByRole('button', { name: 'Delete' }).click()
+    await page.getByLabel('Site name confirmation').fill('Taipei Lab')
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete site' }).click()
+    await expect(page.getByText('This site still has integrations. Delete them first.')).toBeVisible()
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+
+    await page.getByRole('tab', { name: 'Integrations' }).click()
+    const maas = page.getByRole('row', { name: /MAAS Taipei/ })
+    await expect(maas).toContainText('Taipei Lab')
+    await expect(maas).toContainText('Provisioner')
+    await expect(maas).toContainText('maas')
+
+    await page.goto('/provisioning/images?site=site-a')
+    await expect(page.getByRole('columnheader', { name: 'Provider integration' })).toBeVisible()
+    await page.getByRole('row', { name: /Ubuntu 22.04 LTS/ }).getByRole('link', { name: 'MAAS Taipei' }).click()
+    await expect(page).toHaveURL('/infrastructure/integrations?site=site-a#integration-maas-a')
+    await expect(page.locator('#integration-maas-a')).toContainText('Taipei Lab')
+  })
+
+  test('Sites and Integrations can be configured without persisting credentials', async ({ page }) => {
+    await page.goto('/infrastructure/sites')
+    await page.getByRole('button', { name: 'Create site' }).click()
+    await expect(page.getByLabel('Name')).toBeFocused()
+    await page.getByLabel('Name').fill('Singapore DC')
+    await page.getByLabel('Description').fill('Regional compute facility')
+    await page.getByRole('dialog').getByRole('button', { name: 'Create site' }).click()
+    await expect(page.getByRole('row', { name: /Singapore DC/ })).toBeVisible()
+
+    await visibleSiteScope(page).click()
+    await chooseMenuItem(page, 'Singapore DC')
+    await expect(page).toHaveURL('/infrastructure/sites?site=site-3')
+    await page.getByRole('tab', { name: 'Integrations' }).click()
+    await expect(page).toHaveURL('/infrastructure/integrations?site=site-3')
+
+    await page.locator('.sw-page-header').getByRole('button', { name: 'Create integration' }).click()
+    await expect(page.getByRole('dialog').getByLabel('Site')).toHaveValue('site-3')
+    await page.getByLabel('Name').fill('MAAS Singapore')
+    await page.getByLabel('Endpoint').fill('https://maas.sg.example')
+    await page.getByLabel('Credential').fill('consumer:token:initial-secret')
+    await page.getByLabel('Request timeout').fill('45s')
+    await page.getByRole('dialog').getByRole('button', { name: 'Create integration' }).click()
+
+    let integration = page.getByRole('row', { name: /MAAS Singapore/ })
+    await expect(integration).toContainText('Singapore DC')
+    await expect(integration).toContainText('Configured')
+    await integration.getByRole('button', { name: 'Edit' }).click()
+    await expect(page.getByRole('dialog').getByLabel('Site')).toBeDisabled()
+    await expect(page.getByRole('dialog').getByLabel('Role')).toBeDisabled()
+    await expect(page.getByRole('dialog').getByLabel('Provider')).toBeDisabled()
+    await page.getByLabel('Name').fill('MAAS Singapore Primary')
+    await page.getByLabel('Enabled').uncheck()
+    await page.getByRole('dialog').getByRole('button', { name: 'Save changes' }).click()
+
+    integration = page.getByRole('row', { name: /MAAS Singapore Primary/ })
+    await expect(integration).toContainText('Paused')
+    await integration.getByRole('button', { name: 'Credential' }).click()
+    await page.getByLabel('New credential').fill('replacement-secret')
+    await page.getByRole('dialog').getByRole('button', { name: 'Replace credential' }).click()
+    await expect(page.getByText('Credential replaced')).toBeVisible()
+    expect(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))).not.toContain('replacement-secret')
+
+    await integration.getByRole('button', { name: 'Delete' }).click()
+    await page.getByLabel('Integration name confirmation').fill('MAAS Singapore Primary')
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete integration' }).click()
+    await expect(page.getByRole('row', { name: /MAAS Singapore Primary/ })).toHaveCount(0)
+
+    await page.getByRole('tab', { name: 'Sites' }).click()
+    const site = page.getByRole('row', { name: /Singapore DC/ })
+    await site.getByRole('button', { name: 'Delete' }).click()
+    await page.getByLabel('Site name confirmation').fill('Singapore DC')
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete site' }).click()
+    await expect(page).toHaveURL('/infrastructure/sites')
+    await expect(page.getByRole('row', { name: /Singapore DC/ })).toHaveCount(0)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate(() => localStorage.setItem('swallow.appearance', JSON.stringify('dark')))
+    await page.goto('/infrastructure/integrations')
+    await expect(page.locator('html')).toHaveClass(/pf-v6-theme-dark/)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    const mobileRowLayout = await page.locator('table[aria-label="Integrations"] tbody tr').first().evaluate((row) => {
+      const rowWidth = row.getBoundingClientRect().width
+      const rowStyle = getComputedStyle(row)
+      const availableWidth = rowWidth - Number.parseFloat(rowStyle.paddingInlineStart) - Number.parseFloat(rowStyle.paddingInlineEnd)
+      const cells = [...row.querySelectorAll('td')]
+      const action = row.querySelector('.pf-v6-c-table__action')
+      return {
+        allCellsUseRowWidth: cells.every((cell) => cell.getBoundingClientRect().width >= availableWidth * 0.95),
+        allCellsUseFirstColumn: cells.every((cell) => getComputedStyle(cell).gridColumnStart === '1'),
+        actionColumn: action ? getComputedStyle(action).gridColumnStart : '',
+      }
+    })
+    expect(mobileRowLayout.allCellsUseRowWidth).toBe(true)
+    expect(mobileRowLayout.allCellsUseFirstColumn).toBe(true)
+    expect(mobileRowLayout.actionColumn).toBe('1')
   })
 
   test('keyboard can traverse primary navigation', async ({ page }) => {

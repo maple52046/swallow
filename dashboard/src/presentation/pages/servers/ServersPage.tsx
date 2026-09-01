@@ -233,7 +233,7 @@ export function ServersPage() {
   return <div className="operator-page">
     <PageHeader title="Servers" subtitle="Fleet inventory projected from Site provisioners; machines are not created here." actions={<ServerSavedViews current={savedViewState} onApply={applySavedView} />} />
     {staleProvisioners.map((item) => <div key={item.id} className="sw-inline-warning"><strong>{item.name} sync failed</strong><span>{item.sync.lastError}</span></div>)}
-    <DataToolbar>
+    <DataToolbar variant="plain">
       <ToolbarItem><SearchInput value={searchInput} onChange={(_event, value) => setSearchInput(value)} onClear={() => setSearchInput('')} placeholder="Search hostname, serial, address, or ID" aria-label="Search Servers" /></ToolbarItem>
       <ToolbarItem><Checkbox id="include-absent" label="Include absent" isChecked={includeAbsent} onChange={(_event, checked) => { setIncludeAbsent(checked); setPage(1); setSelected(new Set()) }} /></ToolbarItem>
       <ToolbarItem><FormSelect value={groupBy} onChange={(_event, value) => { setGroupBy(value as ServerGroupBy); writePreference(GROUP_KEY, value); setCollapsedGroups(new Set()) }} aria-label="Group Servers"><FormSelectOption value="none" label="No grouping" /><FormSelectOption value="provisioning" label="Provisioning" /><FormSelectOption value="zone" label="Zone" /><FormSelectOption value="pool" label="Pool" /><FormSelectOption value="architecture" label="Architecture" /><FormSelectOption value="power" label="Power" /></FormSelect></ToolbarItem>

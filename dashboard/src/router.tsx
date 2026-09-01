@@ -20,6 +20,9 @@ import { DeployOSWizardPage } from './presentation/pages/provisioning/DeployOSWi
 import { DeploymentTemplatesPage } from './presentation/pages/provisioning/DeploymentTemplatesPage'
 import { OSImagesPage } from './presentation/pages/provisioning/OSImagesPage'
 import { ProvisioningRedirect } from './presentation/pages/provisioning/ProvisioningRedirect'
+import { InfrastructureRedirect } from './presentation/pages/infrastructure/InfrastructureRedirect'
+import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
+import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
 
 /** Stable Dashboard routes, each backed by active `/api/v1` provider contracts. */
 export const router = createBrowserRouter([
@@ -53,6 +56,9 @@ export const router = createBrowserRouter([
       { path: 'provisioning/deploy', element: <DeployOSWizardPage /> },
       { path: 'provisioning/templates', element: <DeploymentTemplatesPage /> },
       { path: 'provisioning/images', element: <OSImagesPage /> },
+      { path: 'infrastructure', element: <InfrastructureRedirect /> },
+      { path: 'infrastructure/sites', element: <SitesPage /> },
+      { path: 'infrastructure/integrations', element: <IntegrationsPage /> },
     ],
   },
   { path: '*', element: <ProtectedRoute><NotFoundPage /></ProtectedRoute> },

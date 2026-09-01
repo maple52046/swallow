@@ -17,6 +17,8 @@ interface SiteScopeValue {
   sites: Site[]
   siteId?: string
   loading: boolean
+  /** Reloads the registry after management mutations so header scope choices stay current. */
+  refreshSites: () => Promise<void>
   setSite: (siteId?: string) => void
   scopedHref: (path: string) => string
 }
@@ -97,6 +99,11 @@ export function SiteScopeProvider({ children }: { children: ReactNode }) {
     ? requestedSiteId
     : undefined
 
+  const refreshSites = useCallback(async () => {
+    const items = await repository.listSites()
+    setSites(items)
+  }, [repository])
+
   const setSite = useCallback(
     (nextSiteId?: string) => {
       const listPath = detailListPath(location.pathname)
@@ -122,8 +129,8 @@ export function SiteScopeProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ sites, siteId, loading, setSite, scopedHref }),
-    [loading, scopedHref, setSite, siteId, sites],
+    () => ({ sites, siteId, loading, refreshSites, setSite, scopedHref }),
+    [loading, refreshSites, scopedHref, setSite, siteId, sites],
   )
 
   return <SiteScopeContext.Provider value={value}>{children}</SiteScopeContext.Provider>

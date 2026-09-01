@@ -49,10 +49,11 @@ export function OperatorShell({ children, collapsed, mobileNavOpen, onCloseMobil
       masthead={<OperatorHeader variant="mobile" expanded={mobileNavOpen} onToggle={onToggleMobileNav} />}
       dockContent={<OperatorHeader variant="docked" expanded={!collapsed} onToggle={onToggleDesktopNav} navigation={navigation} />}
       mainContainerId="swallow-main-content"
+      isContentFilled
       skipToContent={<SkipToContent href="#swallow-main-content">Skip to content</SkipToContent>}
       className="sw-operator-shell"
     >
-      <PageSection className="sw-page-section" isFilled><div className="sw-page-content">{children}</div></PageSection>
+      <PageSection className="sw-page-section" isFilled>{children}</PageSection>
     </Page>
   )
 }

@@ -29,13 +29,15 @@ export function SectionHeader({
   title,
   description,
   actions,
+  variant = 'contained',
 }: {
   title: string
   description?: string
   actions?: ReactNode
+  variant?: 'contained' | 'plain'
 }) {
   return (
-    <div className="sw-section-header">
+    <div className={`sw-section-header${variant === 'plain' ? ' sw-section-header--plain' : ''}`}>
       <div>
         <Title headingLevel="h2" size="lg">{title}</Title>
         {description && <Content component="p">{description}</Content>}
@@ -45,10 +47,10 @@ export function SectionHeader({
   )
 }
 
-/** PatternFly toolbar pinned above a large working set. */
-export function DataToolbar({ children }: { children: ReactNode }) {
+/** PatternFly toolbar pinned above a large working set, optionally without outer chrome. */
+export function DataToolbar({ children, variant = 'default' }: { children: ReactNode; variant?: 'default' | 'plain' }) {
   return (
-    <Toolbar className="sw-data-toolbar" clearAllFilters={() => undefined}>
+    <Toolbar className={`sw-data-toolbar${variant === 'plain' ? ' sw-data-toolbar--plain' : ''}`} clearAllFilters={() => undefined}>
       <ToolbarContent>{children}</ToolbarContent>
     </Toolbar>
   )

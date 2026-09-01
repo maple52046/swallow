@@ -39,7 +39,7 @@ export function OperatorOperationsPage() {
 
   return <div className="operator-page">
     <PageHeader title="Operations" subtitle="Retained automation runs for audit, debugging, and explicit retry." />
-    <DataToolbar>
+    <DataToolbar variant="plain">
       <ToolbarItem><FormSelect value={status} onChange={(_event, value) => setFilter('status', value)} aria-label="Filter by status">{STATUSES.map((value) => <FormSelectOption key={value} value={value} label={value === 'all' ? 'All statuses' : value} />)}</FormSelect></ToolbarItem>
       <ToolbarItem><FormSelect value={active} onChange={(_event, value) => setFilter('active', value)} aria-label="Filter active operations"><FormSelectOption value="all" label="All activity" /><FormSelectOption value="active" label="Active only" /></FormSelect></ToolbarItem>
       <ToolbarItem><SearchInput value={kind} onChange={(_event, value) => setFilter('kind', value)} onClear={() => setFilter('kind')} placeholder="Filter by kind" aria-label="Filter by operation kind" /></ToolbarItem>

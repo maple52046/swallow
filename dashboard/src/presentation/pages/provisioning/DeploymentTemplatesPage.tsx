@@ -267,7 +267,7 @@ export function DeploymentTemplatesPage() {
                   imageId: '',
                 }))}
               >
-                <FormSelectOption value="" label="Select an integration" isDisabled />
+                <FormSelectOption value="" label="Select an integration" isDisabled isPlaceholder />
                 {state.status === 'ready' && state.integrations.map((integration) => (
                   <FormSelectOption key={integration.id} value={integration.id} label={integration.name} />
                 ))}
@@ -335,7 +335,7 @@ export function DeploymentTemplatesPage() {
       </Card>
     )}
 
-    <DataToolbar>
+    <DataToolbar variant="plain">
       <ToolbarItem>
         <SearchInput
           value={query}

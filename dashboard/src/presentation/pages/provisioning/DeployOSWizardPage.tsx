@@ -561,7 +561,7 @@ export function DeployOSWizardPage() {
           <WizardSection title="Deployment targets">
             <FormGroup label="Provisioner integration" isRequired fieldId="deploy-integration">
               <FormSelect id="deploy-integration" value={integrationId} onChange={(_event, value) => selectIntegration(value)}>
-                <FormSelectOption value="" label="Select an integration" isDisabled />
+                <FormSelectOption value="" label="Select an integration" isDisabled isPlaceholder />
                 {integrations.map((integration) => <FormSelectOption key={integration.id} value={integration.id} label={integration.name} />)}
               </FormSelect>
             </FormGroup>

@@ -8,7 +8,7 @@ import {
 } from '@patternfly/react-core'
 import { SyncAltIcon } from '@patternfly/react-icons'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   loadOSImageCatalog,
   type OSImageCatalog,
@@ -105,12 +105,15 @@ export function OSImagesPage() {
   return <div className="operator-page">
     <PageHeader
       title="OS images"
-      subtitle="Live, read-only images currently offered by each provisioner."
+      subtitle="Live, read-only images offered by provisioner Integrations registered under each Site."
       breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'OS images' }]}
-      actions={<Button variant="secondary" icon={<SyncAltIcon />} onClick={() => setRefreshNonce((value) => value + 1)}>Refresh</Button>}
+      actions={<>
+        <Button variant="secondary" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>Manage integrations</Button>
+        <Button variant="secondary" icon={<SyncAltIcon />} onClick={() => setRefreshNonce((value) => value + 1)}>Refresh</Button>
+      </>}
     />
     <ProvisioningTabs />
-    <DataToolbar>
+    <DataToolbar variant="plain">
       <ToolbarItem>
         <SearchInput
           value={query}
@@ -144,7 +147,7 @@ export function OSImagesPage() {
         <Table aria-label="OS images" variant="compact" className="sw-provisioning-table">
           <Thead><Tr>
             <Th>Image</Th><Th>Image ID</Th><Th>OS</Th><Th>Release</Th>
-            <Th>Architecture</Th><Th>Site</Th><Th>Integration</Th><Th>Refreshed</Th>
+            <Th>Architecture</Th><Th>Site</Th><Th>Provider integration</Th><Th>Refreshed</Th>
             <Th screenReaderText="Actions" />
           </Tr></Thead>
           <Tbody>{filtered.map((image) => (
@@ -154,8 +157,16 @@ export function OSImagesPage() {
               <Td dataLabel="OS">{image.osSystem || '-'}</Td>
               <Td dataLabel="Release">{image.release || '-'}</Td>
               <Td dataLabel="Architecture">{image.architecture || '-'}</Td>
-              <Td dataLabel="Site">{siteName(image.siteId)}</Td>
-              <Td dataLabel="Integration">{image.integrationName}</Td>
+              <Td dataLabel="Site">
+                <Link to={`/infrastructure/sites?site=${encodeURIComponent(image.siteId)}#site-${image.siteId}`}>
+                  {siteName(image.siteId)}
+                </Link>
+              </Td>
+              <Td dataLabel="Provider integration">
+                <Link to={`/infrastructure/integrations?site=${encodeURIComponent(image.siteId)}#integration-${image.integrationId}`}>
+                  {image.integrationName}
+                </Link>
+              </Td>
               <Td dataLabel="Refreshed">{formatDateTime(image.refreshedAt)}</Td>
               <Td isActionCell>
                 <span className="sw-row-actions">

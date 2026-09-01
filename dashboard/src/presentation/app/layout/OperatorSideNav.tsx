@@ -6,6 +6,7 @@ import {
   ServerIcon,
   TachometerAltIcon,
   CloudUploadAltIcon,
+  InfrastructureIcon,
   TasksIcon,
 } from '@patternfly/react-icons'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -18,6 +19,7 @@ const NAVIGATION = [
   { label: 'Clusters', path: '/clusters', icon: <CubesIcon /> },
   { label: 'Operations', path: '/operations', icon: <TasksIcon /> },
   { label: 'Monitoring', path: '/monitoring', icon: <ChartLineIcon /> },
+  { label: 'Infrastructure', path: '/infrastructure/sites', icon: <InfrastructureIcon /> },
 ] as const
 
 interface OperatorSideNavProps {
@@ -49,7 +51,9 @@ export function OperatorSideNav({ collapsed, onNavigate }: OperatorSideNavProps)
               ? location.pathname === '/'
               : item.path.startsWith('/provisioning')
                 ? location.pathname.startsWith('/provisioning')
-                : location.pathname.startsWith(item.path)
+                : item.path.startsWith('/infrastructure')
+                  ? location.pathname.startsWith('/infrastructure')
+                  : location.pathname.startsWith(item.path)
             const href = scopedHref(item.path)
             return (
               <NavItem
