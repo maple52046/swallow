@@ -9,6 +9,7 @@ import { ServersPage } from './presentation/pages/servers/ServersPage'
 import { ServerDetailPage } from './presentation/pages/servers/ServerDetailPage'
 import { ServerSummaryTab } from './presentation/pages/servers/ServerSummaryTab'
 import { ServerMonitoringTab } from './presentation/pages/servers/ServerMonitoringTab'
+import { ServerActivityTab } from './presentation/pages/servers/ServerActivityTab'
 import { ServerNetworkTab, ServerStorageTab, ServerPciTab } from './presentation/pages/servers/ServerDetailTableTab'
 import { ClustersPage } from './presentation/pages/clusters/ClustersPage'
 import { ClusterDetailPage } from './presentation/pages/clusters/ClusterDetailPage'
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="summary" replace /> },
           { path: 'summary', element: <ServerSummaryTab /> },
+          { path: 'activity', element: <ServerActivityTab /> },
           { path: 'monitoring', element: <ServerMonitoringTab /> },
           { path: 'network', element: <ServerNetworkTab /> },
           { path: 'storage', element: <ServerStorageTab /> },

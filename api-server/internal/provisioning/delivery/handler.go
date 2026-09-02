@@ -3,7 +3,8 @@ package delivery
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -20,9 +21,11 @@ type ProvisioningHandler struct {
 	templates       *application.DeploymentTemplateService
 	targetPreflight *application.DeploymentTargetPreflightService
 	release         *application.ReleaseServerUseCase
+	refresh         *application.RefreshServerUseCase
 	images          *application.ListOSImagesUseCase
 	reconcile       *application.ReconcileUseCase
 	detail          *application.GetProvisionerDetailUseCase
+	events          *application.GetProviderEventsUseCase
 	actions         *application.MachineActionsUseCase
 	deleteServer    *application.DeleteServerUseCase
 }
@@ -33,9 +36,11 @@ func NewProvisioningHandler(
 	targetPreflight *application.DeploymentTargetPreflightService,
 	templates *application.DeploymentTemplateService,
 	release *application.ReleaseServerUseCase,
+	refresh *application.RefreshServerUseCase,
 	images *application.ListOSImagesUseCase,
 	reconcile *application.ReconcileUseCase,
 	detail *application.GetProvisionerDetailUseCase,
+	events *application.GetProviderEventsUseCase,
 	actions *application.MachineActionsUseCase,
 	deleteServer *application.DeleteServerUseCase,
 ) *ProvisioningHandler {
@@ -45,12 +50,30 @@ func NewProvisioningHandler(
 		templates:       templates,
 		targetPreflight: targetPreflight,
 		release:         release,
+		refresh:         refresh,
 		images:          images,
 		reconcile:       reconcile,
 		detail:          detail,
+		events:          events,
 		actions:         actions,
 		deleteServer:    deleteServer,
 	}
+}
+
+// RefreshServer reads the current provider state for one machine and advances only
+// its provisioning projection. It is used for bounded follow-up after asynchronous
+// actions such as Release; full inventory reconciliation remains separately owned.
+func (h *ProvisioningHandler) RefreshServer(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+
+	item, err := h.refresh.Execute(c.Context(), id)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
 }
 
 type deployRequest struct {
@@ -61,6 +84,13 @@ type deployRequest struct {
 	// Ephemeral runs the OS from memory and leaves the disks untouched. Refused, not
 	// ignored, when the provisioner cannot do it.
 	Ephemeral bool `json:"ephemeral"`
+}
+
+type releaseRequest struct {
+	Erase       bool   `json:"erase"`
+	SecureErase bool   `json:"secureErase"`
+	QuickErase  bool   `json:"quickErase"`
+	Comment     string `json:"comment"`
 }
 
 // Deploy starts an OS deployment on a server. Responds 202: the provisioner has
@@ -101,7 +131,20 @@ func (h *ProvisioningHandler) Release(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
 	}
 
-	item, err := h.release.Execute(c.Context(), id)
+	var req releaseRequest
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+		}
+	}
+
+	item, err := h.release.ExecuteWithOptions(c.Context(), application.ReleaseServerInput{
+		ServerID:    id,
+		Erase:       req.Erase,
+		SecureErase: req.SecureErase,
+		QuickErase:  req.QuickErase,
+		Comment:     req.Comment,
+	})
 	if err != nil {
 		return RespondError(c, err)
 	}
@@ -277,7 +320,8 @@ func RespondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
 	case errors.Is(err, provisioningdomain.ErrInvalidDeploymentTemplate),
-		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch):
+		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch),
+		errors.Is(err, provisioningdomain.ErrInvalidReleaseRequest):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	case errors.Is(err, sitedomain.ErrSiteNotFound):
@@ -304,17 +348,58 @@ func RespondError(c *fiber.Ctx, err error) error {
 
 	var provErr *provisioningdomain.ProviderError
 	if errors.As(err, &provErr) {
+		// Log only the adapter's client-safe detail. The wrapped provider error can
+		// contain internal addresses or values echoed from a request body.
+		slog.Warn("provisioning provider request failed",
+			"requestId", c.GetRespHeader(fiber.HeaderXRequestID),
+			"method", c.Method(),
+			"path", c.Path(),
+			"resourceId", c.Params("id"),
+			"providerErrorKind", provErr.Kind,
+			"detail", provErr.Detail,
+		)
 		// The provider's own wording is preserved: it explains a refusal far better
 		// than swallow can, and the adapter keeps credentials out of it.
 		if provErr.Kind == provisioningdomain.ProviderErrorRejected {
 			return apierror.Respond(c, apierror.New(apierror.CodeValidation, provErr.Detail))
 		}
-		// The underlying cause is logged rather than returned: it can name internal
-		// addresses, and a client can act on neither.
-		log.Printf("provisioning provider %s: %v", provErr.Kind, provErr.Err)
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, provErr.Detail))
 	}
 
-	log.Printf("provisioning: unhandled error: %v", err)
+	slog.Error("provisioning request failed",
+		"requestId", c.GetRespHeader(fiber.HeaderXRequestID),
+		"method", c.Method(),
+		"path", c.Path(),
+		"resourceId", c.Params("id"),
+		"error", err,
+	)
 	return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+}
+
+// ProviderEvents returns the recent machine history retained by the provisioner. It is
+// intentionally separate from Operations: synchronous provider actions are not durable
+// swallow Operations, while automation runs are.
+func (h *ProvisioningHandler) ProviderEvents(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+
+	limit := 50
+	if raw := c.Query("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			return apierror.Respond(c, apierror.New(
+				apierror.CodeValidation,
+				"limit must be an integer between 1 and 100.",
+			))
+		}
+		limit = parsed
+	}
+
+	item, err := h.events.Execute(c.Context(), id, limit)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
 }

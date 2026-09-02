@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import {
   loadServerWorkingSet,
@@ -27,8 +27,13 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
   const { servers } = useApp()
   const [state, setState] = useState<WorkingSetState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
+  const reloadInFlight = useRef(false)
 
-  const reload = useCallback(() => setNonce((value) => value + 1), [])
+  const reload = useCallback(() => {
+    if (reloadInFlight.current) return
+    reloadInFlight.current = true
+    setNonce((value) => value + 1)
+  }, [])
 
   // Destructured so the effect depends on the primitive query fields, not a fresh object
   // identity each render.
@@ -43,6 +48,9 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
       })
       .catch((err: Error) => {
         if (!cancelled) setState({ status: 'error', message: err.message })
+      })
+      .finally(() => {
+        reloadInFlight.current = false
       })
 
     return () => {

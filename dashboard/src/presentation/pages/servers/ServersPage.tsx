@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
+  Alert,
+  AlertActionLink,
+  AlertVariant,
   Badge,
   Button,
   Checkbox,
@@ -29,8 +32,9 @@ import {
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
 import type { Integration } from '@/domain/site/types'
-import type { Server } from '@/domain/server/types'
+import type { ProvisioningState, ReleaseServerInput, Server } from '@/domain/server/types'
 import {
   EMPTY_SERVER_FILTERS,
   compareServers,
@@ -55,10 +59,18 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { Pagination } from '@/presentation/components/Pagination'
 import { HealthBadge, MembershipBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { SERVER_ACTION_GROUPS, type BulkAction, type ServerMenuAction } from './serverActions'
+import { SERVER_ACTION_GROUPS, actionLabel, type BulkAction, type ServerMenuAction } from './serverActions'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
+import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { useServerWorkingSet } from './useServerWorkingSet'
-import { useServerBulkActions } from './useServerBulkActions'
+import { useReleaseProjectionPolling } from './useReleaseProjectionPolling'
+import { useServerBulkActions } from "./useServerBulkActions"
+import { ServerActionResultDialog } from "./ServerActionResultDialog"
+import {
+  failedServerActionOutcomes,
+  type ServerActionRunResult,
+  type ServerActionTarget,
+} from "./serverActionResults"
 import { ServerSavedViews, type SavedServerViewState, type ServerDensity } from './ServerSavedViews'
 
 interface ColumnToggle { key: string; label: string }
@@ -143,7 +155,7 @@ function renderGroups(items: Server[], groupBy: ServerGroupBy): RenderGroup[] {
  * select-all operate over the complete scoped working set rather than the first 100 rows.
  */
 export function ServersPage() {
-  const { sites } = useApp()
+  const { sites, servers } = useApp()
   const navigate = useNavigate()
   const { siteId, scopedHref } = useSiteScope()
   const bulk = useServerBulkActions()
@@ -162,6 +174,9 @@ export function ServersPage() {
   const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<string>>(() => new Set(normalizeHiddenColumns(readPreference<string[]>(COLUMNS_KEY, []))))
   const [provisioners, setProvisioners] = useState<Integration[]>([])
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null)
+  const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
+  const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
+  const [resultDialogOpen, setResultDialogOpen] = useState(false)
 
   const savedViewState = useMemo<SavedServerViewState>(() => ({ filters, keyword: searchInput, includeAbsent, groupBy, sortKey, sortDirection: sortDir, hiddenColumns: [...hiddenColumns], density, pageSize }), [density, filters, groupBy, hiddenColumns, includeAbsent, pageSize, searchInput, sortDir, sortKey])
   const applySavedView = useCallback((view: SavedServerViewState) => {
@@ -178,6 +193,14 @@ export function ServersPage() {
   }, [siteId, sites])
 
   const workingSet = state.status === 'ready' ? state.data.servers : EMPTY_SERVERS
+  const projectionStates = useMemo(() => new Map<string, ProvisioningState | null>(
+    workingSet.map((server) => [server.id, server.provisioning?.state ?? null]),
+  ), [workingSet])
+  const refreshReleaseTargets = useCallback(async (serverIds: readonly string[]) => {
+    await refreshServerProjections(servers, serverIds)
+    reload()
+  }, [reload, servers])
+  const releasePolling = useReleaseProjectionPolling(projectionStates, refreshReleaseTargets)
   const filtered = useMemo(() => workingSet.filter((server) => matchesServerFilters(server, filters)), [filters, workingSet])
   const sorted = useMemo(() => [...filtered].sort((a, b) => compareServers(a, b, sortKey, sortDir)), [filtered, sortDir, sortKey])
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
@@ -200,13 +223,37 @@ export function ServersPage() {
       if (target) setDeleteTarget(target)
       return
     }
-    await bulk.run(action, ids)
+    const targets = ids.map((id) => {
+      const server = workingSet.find((item) => item.id === id)
+      return { serverId: id, serverName: server ? serverDisplayName(server) : id }
+    })
+    if (action === 'release') {
+      setReleaseTargets(targets)
+      return
+    }
+    const result = await bulk.run(action, targets)
+    setLastActionResult(result)
+    setResultDialogOpen(failedServerActionOutcomes(result).length > 0)
     clearSelection()
     reload()
   }, [bulk, clearSelection, reload, workingSet])
+  const confirmRelease = useCallback(async (input: ReleaseServerInput) => {
+    if (!releaseTargets?.length) return
+    const result = await bulk.run('release', releaseTargets, input)
+    setLastActionResult(result)
+    setResultDialogOpen(failedServerActionOutcomes(result).length > 0)
+    clearSelection()
+    const acceptedIds = result.outcomes
+      .filter((outcome) => outcome.accepted)
+      .map((outcome) => outcome.serverId)
+    if (acceptedIds.length > 0) releasePolling.start(acceptedIds)
+  }, [bulk, clearSelection, releasePolling, releaseTargets])
   const visible = useCallback((key: string) => !hiddenColumns.has(key), [hiddenColumns])
   const columnSpan = 3 + OPTIONAL_COLUMNS.filter((column) => visible(column.key)).length
   const staleProvisioners = provisioners.filter((item) => item.sync.lastError !== null)
+  const lastActionFailures = lastActionResult
+    ? failedServerActionOutcomes(lastActionResult)
+    : []
   const actionTargets = workingSet.filter((server) => selected.has(server.id))
   const targetIntegrations = new Set(actionTargets.map((server) => server.source.integrationId))
   const deployDisabledReason = selected.size > 100
@@ -231,8 +278,25 @@ export function ServersPage() {
 
   if (state.status === 'error') return <><PageHeader title="Servers" subtitle="Projected from each Site's provisioner." /><ErrorState message={state.message} onRetry={reload} /></>
   return <div className="operator-page">
-    <PageHeader title="Servers" subtitle="Fleet inventory projected from Site provisioners; machines are not created here." actions={<ServerSavedViews current={savedViewState} onApply={applySavedView} />} />
+    <PageHeader title="Servers" subtitle="Fleet inventory projected from Site provisioners; machines are not created here." metadata={releasePolling.isPolling ? <Label color="blue">Updating released Servers...</Label> : undefined} actions={<ServerSavedViews current={savedViewState} onApply={applySavedView} />} />
     {staleProvisioners.map((item) => <div key={item.id} className="sw-inline-warning"><strong>{item.name} sync failed</strong><span>{item.sync.lastError}</span></div>)}
+    {lastActionResult && lastActionFailures.length > 0 && (
+      <Alert
+        variant={lastActionResult.succeeded > 0 ? AlertVariant.warning : AlertVariant.danger}
+        title={actionLabel(lastActionResult.action) + (lastActionResult.succeeded > 0 ? " partially accepted" : " failed")}
+        isInline
+        actionLinks={(
+          <>
+            <AlertActionLink onClick={() => setResultDialogOpen(true)}>View details</AlertActionLink>
+            <AlertActionLink onClick={() => setLastActionResult(null)}>Dismiss</AlertActionLink>
+          </>
+        )}
+      >
+        {lastActionFailures.length === 1
+          ? lastActionFailures[0].serverName + ": " + lastActionFailures[0].message
+          : lastActionResult.succeeded + " accepted; " + lastActionFailures.length + " failed."}
+      </Alert>
+    )}
     <DataToolbar variant="plain">
       <ToolbarItem><SearchInput value={searchInput} onChange={(_event, value) => setSearchInput(value)} onClear={() => setSearchInput('')} placeholder="Search hostname, serial, address, or ID" aria-label="Search Servers" /></ToolbarItem>
       <ToolbarItem><Checkbox id="include-absent" label="Include absent" isChecked={includeAbsent} onChange={(_event, checked) => { setIncludeAbsent(checked); setPage(1); setSelected(new Set()) }} /></ToolbarItem>
@@ -270,6 +334,19 @@ export function ServersPage() {
       </Tr></Thead><Tbody>{renderGroups(pageItems, groupBy).map((group) => <GroupRows key={group.key || 'all'} group={group} grouped={groupBy !== 'none'} columnSpan={columnSpan} collapsed={collapsedGroups.has(group.key)} onCollapse={() => setCollapsedGroups((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next })} selected={selected} onToggleOne={toggleOne} onToggleGroup={setMany} onNavigate={(id) => navigate(scopedHref(`/servers/${id}`))} onAction={(action, id) => void runAction(action, [id])} visible={visible} />)}</Tbody></Table></StickyTableFrame>
       <div className="sw-pagination"><Pagination total={totalPages} value={safePage} onChange={setPage} /></div>
     </>}
+    {releaseTargets && (
+      <ServerReleaseDialog
+        targets={releaseTargets}
+        onClose={() => setReleaseTargets(null)}
+        onRelease={confirmRelease}
+      />
+    )}
+    {lastActionResult && resultDialogOpen && (
+      <ServerActionResultDialog
+        result={lastActionResult}
+        onClose={() => setResultDialogOpen(false)}
+      />
+    )}
     {deleteTarget && (
       <ServerDeleteDialog
         serverId={deleteTarget.id}

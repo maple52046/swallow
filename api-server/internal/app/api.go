@@ -169,9 +169,11 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewDeploymentTargetPreflightService(serverRepo, providerFactory),
 		templateService,
 		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory),
+		provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewListOSImagesUseCase(providerFactory),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
+		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory),
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
 	)
@@ -253,8 +255,9 @@ func RunAPI(cfg config.APIConfig) error {
 				"requestId", c.GetRespHeader(fiber.HeaderXRequestID), "error", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": fiber.Map{
-					"code":    "internal_error",
-					"message": "An unexpected error occurred.",
+					"code":      "internal_error",
+					"message":   "An unexpected error occurred.",
+					"requestId": c.GetRespHeader(fiber.HeaderXRequestID),
 				},
 			})
 		},
@@ -402,10 +405,12 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers := v1.Group("/servers", admin...)
 	servers.Get("/", deps.servers.List)
 	servers.Get("/:id", deps.servers.Get)
+	servers.Post("/:id/refresh", deps.provisioning.RefreshServer)
 	servers.Delete("/:id", deps.provisioning.DeleteServer)
 	// The provisioner detail is a live proxy read one machine at a time, distinct from
 	// the mirrored projection the list and get return.
 	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)
+	servers.Get("/:id/events", deps.provisioning.ProviderEvents)
 	servers.Post("/:id/deploy", deps.provisioning.Deploy)
 	servers.Post("/:id/release", deps.provisioning.Release)
 	// Power, hardware validation, and operator state are the provisioner actions beyond

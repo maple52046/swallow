@@ -19,7 +19,7 @@ export type ServerMenuAction = BulkAction | 'delete'
 export interface ServerActionDef {
   action: ServerMenuAction
   label: string
-  /** Marks a destructive action for red styling and (optionally) confirmation. */
+  /** Marks a destructive action for red styling; Release and Delete own their required confirmation flows. */
   destructive?: boolean
   /** False for actions whose blast radius must remain one explicitly named Server. */
   bulk?: boolean

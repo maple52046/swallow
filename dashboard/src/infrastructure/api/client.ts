@@ -28,11 +28,13 @@ export const tokenStore = {
   },
 }
 
+/** A client-safe API failure with an opaque server-log correlation ID. */
 export class ApiRequestError extends Error {
   constructor(
     public readonly code: string,
     message: string,
     public readonly status: number,
+    public readonly requestId?: string,
   ) {
     super(message)
     this.name = 'ApiRequestError'
@@ -62,9 +64,11 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   const body = await response.json().catch(() => null)
 
   if (!response.ok) {
-    const code = (body as { error?: { code?: string; message?: string } } | null)?.error?.code ?? 'internal_error'
-    const message = (body as { error?: { code?: string; message?: string } } | null)?.error?.message ?? `Request failed with status ${response.status}`
-    throw new ApiRequestError(code, message, response.status)
+    const requestId = (body as { error?: { requestId?: string } } | null)?.error?.requestId
+      ?? response.headers.get('X-Request-ID') ?? undefined
+    const code = (body as { error?: { code?: string; message?: string; requestId?: string } } | null)?.error?.code ?? 'internal_error'
+    const message = (body as { error?: { code?: string; message?: string; requestId?: string } } | null)?.error?.message ?? `Request failed with status ${response.status}`
+    throw new ApiRequestError(code, message, response.status, requestId)
   }
 
   return body as T
@@ -91,14 +95,16 @@ export async function apiRequestText(path: string, options: RequestInit = {}): P
   if (!response.ok) {
     let code = 'internal_error'
     let message = `Request failed with status ${response.status}`
+    let requestId = response.headers.get('X-Request-ID') ?? undefined
     try {
-      const parsed = JSON.parse(text) as { error?: { code?: string; message?: string } }
+      const parsed = JSON.parse(text) as { error?: { code?: string; message?: string; requestId?: string } }
       code = parsed.error?.code ?? code
       message = parsed.error?.message ?? message
+      requestId = parsed.error?.requestId ?? requestId
     } catch {
       // A non-JSON error body leaves the status-derived message in place.
     }
-    throw new ApiRequestError(code, message, response.status)
+    throw new ApiRequestError(code, message, response.status, requestId)
   }
 
   return text

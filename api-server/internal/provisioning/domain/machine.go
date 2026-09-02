@@ -197,6 +197,10 @@ var (
 	// ErrProviderKindUnsupported means no adapter is built for the integration's
 	// provider kind.
 	ErrProviderKindUnsupported = errors.New("unsupported provisioning provider kind")
+
+	// ErrInvalidReleaseRequest marks release options whose combination cannot be
+	// interpreted safely, such as asking for secure erase without enabling erasure.
+	ErrInvalidReleaseRequest = errors.New("invalid release request")
 )
 
 // ProviderErrorKind classifies a provider failure so that the delivery layer can

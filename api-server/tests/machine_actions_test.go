@@ -146,10 +146,84 @@ func TestProvisionerDetail_CapabilitiesWithoutDetailSupport(t *testing.T) {
 	}
 	body := parseBody(t, resp)
 	caps := body["capabilities"].(map[string]any)
-	if caps["machineDetail"] != false || caps["power"] != false || caps["machineRemoval"] != false {
+	if caps["machineDetail"] != false || caps["power"] != false || caps["machineRemoval"] != false || caps["releaseOptions"] != false {
 		t.Errorf("a base-only provisioner must advertise no optional capabilities, got %v", caps)
 	}
 	if sections, ok := body["sections"].([]any); !ok || len(sections) != 0 {
 		t.Errorf("expected no sections without detail support, got %v", body["sections"])
+	}
+}
+
+func TestProviderEvents_ReturnsMachineHistory(t *testing.T) {
+	f := setupPlatform(t)
+	seedActionableServer(t, f)
+	f.provider.events = []provisioningdomain.MachineEvent{{
+		ID:          "4812",
+		Level:       "audit",
+		Type:        "Request from user",
+		Description: "Started releasing machine.",
+		Actor:       "admin",
+		OccurredAt:  "2026-09-02T01:02:03.000000Z",
+	}}
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-1/events?limit=17", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	body := parseBody(t, resp)
+	if body["supported"] != true {
+		t.Fatalf("supported: got %v, want true", body["supported"])
+	}
+	events, ok := body["events"].([]any)
+	if !ok || len(events) != 1 {
+		t.Fatalf("events: got %v, want one item", body["events"])
+	}
+	event := events[0].(map[string]any)
+	if event["id"] != "4812" || event["message"] != "Started releasing machine." {
+		t.Errorf("event: got %v", event)
+	}
+	if f.provider.eventMachineID != "machine-srv-1" || f.provider.eventLimit != 17 {
+		t.Errorf("provider query: machine=%q limit=%d", f.provider.eventMachineID, f.provider.eventLimit)
+	}
+}
+
+func TestProviderEvents_ReportsUnsupportedProvider(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.factory.providers[testIntegrationID] = &minimalProvider{
+		machines: map[string]*provisioningdomain.Machine{
+			"machine-srv-1": testMachine("machine-srv-1", "gpu-node-01"),
+		},
+	}
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-1/events", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	body := parseBody(t, resp)
+	if body["supported"] != false {
+		t.Errorf("supported: got %v, want false", body["supported"])
+	}
+	if events, ok := body["events"].([]any); !ok || len(events) != 0 {
+		t.Errorf("events: got %v, want empty array", body["events"])
+	}
+}
+
+func TestProviderEvents_ValidatesLimitAndServer(t *testing.T) {
+	f := setupPlatform(t)
+	for _, path := range []string{
+		"/api/v1/servers/srv-1/events?limit=0",
+		"/api/v1/servers/srv-1/events?limit=101",
+		"/api/v1/servers/srv-1/events?limit=wat",
+	} {
+		resp := doRequest(t, f.app, "GET", path, nil, f.adminAuth(t))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: got %d, want 400", path, resp.StatusCode)
+		}
+	}
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/missing/events", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("missing Server: got %d, want 404", resp.StatusCode)
 	}
 }

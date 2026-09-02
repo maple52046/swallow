@@ -4,6 +4,8 @@ import type {
   ListServersFilters,
   PowerStateResult,
   ProvisionerDetail,
+  ReleaseServerInput,
+  ProviderEvents,
   ProvisioningActionResult,
   Server,
   ServerAction,
@@ -29,7 +31,7 @@ export class ApiServerRepository implements ServerRepository {
     if (filters?.pageSize) query.set('pageSize', String(filters.pageSize))
 
     const suffix = query.toString() ? `?${query.toString()}` : ''
-    return apiRequest<Paginated<Server>>(`/api/v1/servers${suffix}`)
+    return apiRequest<Paginated<Server>>(`/api/v1/servers${suffix}`, { cache: 'no-store' })
   }
 
   async getServer(id: string): Promise<Server | null> {
@@ -52,9 +54,18 @@ export class ApiServerRepository implements ServerRepository {
     )
   }
 
-  async releaseServer(id: string): Promise<ProvisioningActionResult> {
+  async releaseServer(id: string, input?: ReleaseServerInput): Promise<ProvisioningActionResult> {
     return apiRequest<ProvisioningActionResult>(
       `/api/v1/servers/${encodeURIComponent(id)}/release`,
+      input
+        ? { method: 'POST', body: JSON.stringify(input) }
+        : { method: 'POST' },
+    )
+  }
+
+  async refreshServer(id: string): Promise<ProvisioningActionResult> {
+    return apiRequest<ProvisioningActionResult>(
+      '/api/v1/servers/' + encodeURIComponent(id) + '/refresh',
       { method: 'POST' },
     )
   }
@@ -70,6 +81,11 @@ export class ApiServerRepository implements ServerRepository {
     return apiRequest<ProvisionerDetail>(
       `/api/v1/servers/${encodeURIComponent(id)}/provisioner-detail`,
     )
+  }
+
+  async getProviderEvents(id: string, limit = 50): Promise<ProviderEvents> {
+    const path = `/api/v1/servers/${encodeURIComponent(id)}/events?limit=${encodeURIComponent(String(limit))}`
+    return apiRequest<ProviderEvents>(path)
   }
 
   async runServerAction(id: string, action: ServerAction): Promise<ProvisioningActionResult> {

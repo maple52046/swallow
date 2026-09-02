@@ -3,6 +3,8 @@ import type {
   ListServersFilters,
   PowerStateResult,
   ProvisionerDetail,
+  ReleaseServerInput,
+  ProviderEvents,
   ProvisioningActionResult,
   Server,
   ServerAction,
@@ -25,7 +27,9 @@ export interface ServerRepository {
   listServers(filters?: ListServersFilters): Promise<Paginated<Server>>
   getServer(id: string): Promise<Server | null>
   deployServer(id: string, input: DeployServerInput): Promise<ProvisioningActionResult>
-  releaseServer(id: string): Promise<ProvisioningActionResult>
+  releaseServer(id: string, input?: ReleaseServerInput): Promise<ProvisioningActionResult>
+  /** Read one machine live and advance only its mirrored provisioning state. */
+  refreshServer(id: string): Promise<ProvisioningActionResult>
   /** Permanently remove the backing provisioner Machine and then its Server projection. */
   deleteServer(id: string): Promise<void>
 
@@ -34,6 +38,9 @@ export interface ServerRepository {
    * Read on demand: it is not part of the mirrored projection.
    */
   getProvisionerDetail(id: string): Promise<ProvisionerDetail>
+
+  /** Read recent provider-owned machine history; this is not a Swallow audit log. */
+  getProviderEvents(id: string, limit?: number): Promise<ProviderEvents>
 
   /**
    * Run a provisioner action beyond deploy and release. Refused by the backend when the

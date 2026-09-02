@@ -56,6 +56,7 @@ type fakeMAAS struct {
 
 	lastAuthorization string
 	lastContentType   string
+	lastContentLength int64
 	lastOperation     string
 	lastForm          map[string]string
 	lastMethod        string
@@ -71,12 +72,13 @@ func newFakeMAAS(t *testing.T) *fakeMAAS {
 		f.lastRawQuery = r.URL.RawQuery
 		f.lastAuthorization = r.Header.Get("Authorization")
 		f.lastContentType = r.Header.Get("Content-Type")
+		f.lastContentLength = r.ContentLength
 		f.lastOperation = r.URL.Query().Get("op")
 
 		if r.Method == http.MethodPost {
 			f.lastForm = map[string]string{}
-			// An operation with no parameters produces an empty multipart body,
-			// so a parse failure here is not a test failure.
+			// Only operations with fields use multipart. Parameterless operations
+			// intentionally have no body, so a parse failure is expected there.
 			if err := r.ParseMultipartForm(1 << 20); err == nil {
 				for name, values := range r.MultipartForm.Value {
 					if len(values) > 0 {
@@ -123,6 +125,10 @@ func (f *fakeMAAS) onVersion(statusCode int, body string) {
 
 func (f *fakeMAAS) onBootResources(statusCode int, body string) {
 	f.respond("GET "+apiPrefix+"/boot-resources/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onEvents(statusCode int, body string) {
+	f.respond("GET "+apiPrefix+"/events/{$}", statusCode, body)
 }
 
 func newTestProvider(t *testing.T, f *fakeMAAS) *Provider {
@@ -423,8 +429,49 @@ func TestRelease_UsesReleaseOperation(t *testing.T) {
 	if fake.lastOperation != "release" {
 		t.Errorf("operation: got %q, want %q", fake.lastOperation, "release")
 	}
+	if fake.lastContentType != "" {
+		t.Errorf("content type: got %q, want no Content-Type", fake.lastContentType)
+	}
+	if fake.lastContentLength != 0 {
+		t.Errorf("content length: got %d, want 0", fake.lastContentLength)
+	}
 	if state.Status != provisioningdomain.MachineStatusReady {
 		t.Errorf("status: got %q, want ready", state.Status)
+	}
+}
+
+func TestReleaseWithOptions_MapsErasureControlsWithoutForce(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onMachineOperation(http.StatusOK, readyMachineJSON)
+	provider := newTestProvider(t, fake)
+
+	_, err := provider.ReleaseWithOptions(context.Background(), provisioningdomain.ReleaseRequest{
+		MachineID:   "abc123",
+		Erase:       true,
+		SecureErase: true,
+		QuickErase:  true,
+		Comment:     "retire from test pool",
+	})
+	if err != nil {
+		t.Fatalf("ReleaseWithOptions: %v", err)
+	}
+	if fake.lastOperation != "release" {
+		t.Errorf("operation: got %q, want release", fake.lastOperation)
+	}
+	if !strings.HasPrefix(fake.lastContentType, "multipart/form-data") {
+		t.Errorf("content type: got %q, want multipart/form-data", fake.lastContentType)
+	}
+	want := map[string]string{
+		"erase": "true", "secure_erase": "true", "quick_erase": "true",
+		"comment": "retire from test pool",
+	}
+	for field, value := range want {
+		if fake.lastForm[field] != value {
+			t.Errorf("%s: got %q, want %q", field, fake.lastForm[field], value)
+		}
+	}
+	if _, present := fake.lastForm["force"]; present {
+		t.Error("release options must never force past MAAS safeguards")
 	}
 }
 
@@ -602,5 +649,44 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	noble := images[1]
 	if noble.Name != "ubuntu/noble" {
 		t.Errorf("expected the resource name as a fallback display name, got %q", noble.Name)
+	}
+}
+
+func TestListMachineEvents_QueriesBySystemIDAndMapsFields(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onEvents(http.StatusOK, `{
+		"events": [{
+			"id": 4812,
+			"username": "admin",
+			"level": "AUDIT",
+			"created": "Wed, 02 Sep. 2026 01:02:03",
+			"type": "Request from user",
+			"description": "Started releasing machine."
+		}]
+	}`)
+	provider := newTestProvider(t, fake)
+
+	events, err := provider.ListMachineEvents(context.Background(), "abc123", 17)
+	if err != nil {
+		t.Fatalf("ListMachineEvents: %v", err)
+	}
+	if fake.lastMethod != http.MethodGet || fake.lastOperation != "query" {
+		t.Fatalf("request: got %s op=%q, want GET op=query", fake.lastMethod, fake.lastOperation)
+	}
+	if !strings.Contains(fake.lastRawQuery, "id=abc123") || !strings.Contains(fake.lastRawQuery, "limit=17") {
+		t.Errorf("query: got %q, want system id and limit", fake.lastRawQuery)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events: got %d, want 1", len(events))
+	}
+	event := events[0]
+	if event.ID != "4812" || event.Level != "audit" || event.Actor != "admin" {
+		t.Errorf("mapped event: %+v", event)
+	}
+	if event.Type != "Request from user" || event.Description != "Started releasing machine." {
+		t.Errorf("event content: %+v", event)
+	}
+	if event.OccurredAt != "2026-09-02T01:02:03Z" {
+		t.Errorf("occurredAt: got %q, want normalized RFC3339", event.OccurredAt)
 	}
 }

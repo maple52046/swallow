@@ -160,6 +160,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		MachineDetail:       true,
 		HardwareInventory:   true,
 		MachineRemoval:      true,
+		ReleaseOptions:      true,
 	}
 }
 
@@ -167,6 +168,31 @@ func (p *Provider) Release(ctx context.Context, machineID string) (*provisioning
 	var out machineJSON
 	if err := p.client.postOperation(ctx, machinePath(machineID), "release", nil, &out); err != nil {
 		return nil, translateError(err, machineID)
+	}
+	return toDomainMachine(&out), nil
+}
+
+// ReleaseWithOptions maps provider-neutral erasure controls onto the MAAS release
+// operation. False options are omitted rather than sent as strings, and force is never
+// supplied, so MAAS safeguards remain authoritative.
+func (p *Provider) ReleaseWithOptions(ctx context.Context, req provisioningdomain.ReleaseRequest) (*provisioningdomain.Machine, error) {
+	fields := make(map[string]string, 4)
+	if req.Erase {
+		fields["erase"] = "true"
+	}
+	if req.SecureErase {
+		fields["secure_erase"] = "true"
+	}
+	if req.QuickErase {
+		fields["quick_erase"] = "true"
+	}
+	if req.Comment != "" {
+		fields["comment"] = req.Comment
+	}
+
+	var out machineJSON
+	if err := p.client.postOperation(ctx, machinePath(req.MachineID), "release", fields, &out); err != nil {
+		return nil, translateError(err, req.MachineID)
 	}
 	return toDomainMachine(&out), nil
 }

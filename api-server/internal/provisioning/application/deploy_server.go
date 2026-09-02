@@ -112,6 +112,18 @@ func applyProvisioningResult(
 	server *serverdomain.Server,
 	machine *provisioningdomain.Machine,
 ) *ProvisioningStateItem {
+	item := updateProvisioningProjection(server, machine)
+	_ = servers.Upsert(ctx, server)
+	return item
+}
+
+// updateProvisioningProjection applies a provider observation in memory. Callers choose
+// whether persistence is best effort after an accepted action or required for a live
+// refresh whose sole purpose is to advance the stored projection.
+func updateProvisioningProjection(
+	server *serverdomain.Server,
+	machine *provisioningdomain.Machine,
+) *ProvisioningStateItem {
 	now := time.Now().UTC()
 
 	server.Provisioning = &serverdomain.ProvisioningStatus{
@@ -129,7 +141,6 @@ func applyProvisioningResult(
 		ObservedAt:          now,
 	}
 	server.UpdatedAt = now
-	_ = servers.Upsert(ctx, server)
 
 	return &ProvisioningStateItem{
 		ServerID:            server.ID,

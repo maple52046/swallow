@@ -104,8 +104,12 @@ export interface FixtureOptions {
   secondReadyServerIntegrationId?: string
   failImageIntegrationIds?: string[]
   deploymentFailureIds?: string[]
+  serverActionFailureIds?: string[]
   deploymentReadinessIssues?: Record<string, string>
   onDeploymentRequest?: (body: Record<string, unknown>) => void
+  onServerReleaseRequest?: (serverId: string, body: Record<string, unknown> | null) => void
+  onServerRefreshRequest?: (serverId: string) => void
+  releaseConvergesAfterRefreshes?: number
   onMetricsRequest?: (serverIds: string[]) => void
   /** Removes Cluster membership and deployment target claims for wizard success paths. */
   freeClusterCandidates?: boolean
@@ -144,6 +148,25 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }))
   let metricBatchIndex = 0
   let activeMetricRequests = 0
+  const releaseRefreshesRemaining = new Map<string, number>()
+  const observeRelease = (serverId: string) => {
+    const remaining = releaseRefreshesRemaining.get(serverId)
+    if (remaining === undefined) return
+    const server = fleet.find((item) => item.id === serverId)
+    if (!server) {
+      releaseRefreshesRemaining.delete(serverId)
+      return
+    }
+    if (remaining <= 1) {
+      server.provisioning.state = 'ready'
+      server.provisioning.providerState = 'Ready'
+      server.provisioning.osSystem = ''
+      server.provisioning.distroSeries = ''
+      releaseRefreshesRemaining.delete(serverId)
+    } else {
+      releaseRefreshesRemaining.set(serverId, remaining - 1)
+    }
+  }
   const clusterItems = clusters.map((cluster) => ({ ...cluster }))
   const operationItems = operations.map((operation) => ({ ...operation }))
   if (options.freeClusterCandidates) {
@@ -379,7 +402,64 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const pageNumber = Number(url.searchParams.get('page') ?? 1); const pageSize = Number(url.searchParams.get('pageSize') ?? 100); const start = (pageNumber - 1) * pageSize
       return json(route, { items: items.slice(start, start + pageSize), total: items.length, page: pageNumber, pageSize })
     }
-    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }], tables: [{ title: 'Network', columns: ['Interface', 'MAC', 'Link'], rows: [['eno1', '02:00:00:00:00:01', '100 Gbps']] }, { title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
+    const serverEventsMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/events$/)
+    if (serverEventsMatch && request.method() === 'GET') {
+      return json(route, {
+        supported: true,
+        events: [{
+          id: '4812', level: 'audit', type: 'Request from user',
+          message: 'Started releasing machine.', actor: 'admin',
+          occurredAt: '2026-08-27T02:58:00Z',
+        }],
+      })
+    }
+    const serverRefreshMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/refresh$/)
+    if (serverRefreshMatch && request.method() === "POST") {
+      const serverId = serverRefreshMatch[1]
+      options.onServerRefreshRequest?.(serverId)
+      observeRelease(serverId)
+      const server = fleet.find((item) => item.id === serverId)
+      if (!server) return json(route, { error: { code: "not_found", message: "Server not found" } }, 404)
+      return json(route, {
+        serverId, state: server.provisioning.state, providerState: server.provisioning.providerState,
+        powerState: server.provisioning.powerState, osSystem: server.provisioning.osSystem,
+        distroSeries: server.provisioning.distroSeries, ephemeral: server.provisioning.ephemeral,
+        hweKernel: server.provisioning.hweKernel, locked: server.provisioning.locked,
+        commissioningStatus: server.provisioning.commissioningStatus,
+        testingStatus: server.provisioning.testingStatus, observedAt: now,
+      })
+    }
+    const serverActionMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/([^/]+)$/)
+    if (serverActionMatch && request.method() === "POST") {
+      const [serverId, action] = serverActionMatch.slice(1)
+      if (action === "release") {
+        const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null
+        options.onServerReleaseRequest?.(serverId, body)
+      }
+      if (options.serverActionFailureIds?.includes(serverId)) {
+        return json(route, {
+          error: {
+            code: "validation_error",
+            message: "MAAS refused the request: Machine cannot be released while a hosted VM is running.",
+            requestId: "req-" + action + "-" + serverId,
+          },
+        }, 400)
+      }
+      if (action === "release") {
+        const server = fleet.find((item) => item.id === serverId)
+        if (server) {
+          server.provisioning.state = "releasing"
+          server.provisioning.providerState = "Releasing"
+          releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
+        }
+      }
+      return json(route, {
+        serverId, state: action === "release" ? "releasing" : "deployed", providerState: "Accepted",
+        powerState: "off", osSystem: "ubuntu", distroSeries: "jammy", ephemeral: false,
+        hweKernel: "", locked: false, commissioningStatus: "", testingStatus: "", observedAt: now,
+      }, 202)
+    }
+    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }], tables: [{ title: 'Network', columns: ['Interface', 'MAC', 'Link'], rows: [['eno1', '02:00:00:00:00:01', '100 Gbps']] }, { title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
     const serverMatch = path.match(/^\/api\/v1\/servers\/([^/]+)$/)
     if (serverMatch) {
       const index = fleet.findIndex((item) => item.id === serverMatch[1])
@@ -480,8 +560,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       let items = [...operationItems]
       const status = url.searchParams.get('status')
       const clusterId = url.searchParams.get('clusterId')
+      const serverId = url.searchParams.get('serverId')
       if (status) items = items.filter((item) => item.execution.status === status)
       if (clusterId) items = items.filter((item) => item.clusterId === clusterId)
+      if (serverId) items = items.filter((item) => item.targetServerIds.includes(serverId))
       return json(route, { items, total: items.length, page: 1, pageSize: 30 })
     }
     if (path.endsWith('/events')) return json(route, { runId: 'run-1024', status: 'running', okCount: 4, changedCount: 2, failedCount: 1, events: [{ play: 'Prepare hosts', task: 'Gather facts', host: 'gpu-node-01', status: 'ok', changed: false, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Write configuration', host: 'gpu-node-02', status: 'changed', changed: true, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Start controller', host: 'gpu-node-04', status: 'failed', changed: false, startedAt: now, endedAt: now }] })

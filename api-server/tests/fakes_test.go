@@ -404,14 +404,19 @@ type fakeProvider struct {
 	gpus   map[string][]provisioningdomain.GPU
 	gpuErr error
 	// detail is what GetMachineDetail returns; detailErr forces a failure.
-	detail    *provisioningdomain.MachineDetail
-	detailErr error
+	detail         *provisioningdomain.MachineDetail
+	detailErr      error
+	events         []provisioningdomain.MachineEvent
+	eventsErr      error
+	eventMachineID string
+	eventLimit     int
 	// actionErr forces every capability action to fail, for testing error propagation.
 	actionErr error
 
-	deployRequests []provisioningdomain.DeployRequest
-	releaseCalls   []string
-	deleteCalls    []string
+	deployRequests  []provisioningdomain.DeployRequest
+	releaseRequests []provisioningdomain.ReleaseRequest
+	releaseCalls    []string
+	deleteCalls     []string
 	// actions records every capability action taken, as "op machineID", so a test can
 	// assert the provider was driven correctly.
 	actions []string
@@ -437,6 +442,7 @@ func newFakeProvider() *fakeProvider {
 			MachineDetail:       true,
 			HardwareInventory:   true,
 			MachineRemoval:      true,
+			ReleaseOptions:      true,
 		},
 	}
 }
@@ -485,6 +491,18 @@ func (p *fakeProvider) GetMachineDetail(_ context.Context, machineID string) (*p
 		return p.detail, nil
 	}
 	return &provisioningdomain.MachineDetail{}, nil
+}
+
+func (p *fakeProvider) ListMachineEvents(_ context.Context, machineID string, limit int) ([]provisioningdomain.MachineEvent, error) {
+	p.eventMachineID = machineID
+	p.eventLimit = limit
+	if p.eventsErr != nil {
+		return nil, p.eventsErr
+	}
+	if _, ok := p.machines[machineID]; !ok {
+		return nil, provisioningdomain.ErrMachineNotFound
+	}
+	return p.events, nil
 }
 
 func (p *fakeProvider) PowerOn(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
@@ -689,6 +707,11 @@ func (p *fakeProvider) Release(_ context.Context, machineID string) (*provisioni
 	released.Status = provisioningdomain.MachineStatusReady
 	released.ProviderStatus = "Ready"
 	return &released, nil
+}
+
+func (p *fakeProvider) ReleaseWithOptions(ctx context.Context, req provisioningdomain.ReleaseRequest) (*provisioningdomain.Machine, error) {
+	p.releaseRequests = append(p.releaseRequests, req)
+	return p.Release(ctx, req.MachineID)
 }
 
 // --- clusters ---

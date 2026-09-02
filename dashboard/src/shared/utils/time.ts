@@ -27,7 +27,8 @@ export function formatDuration(ms: number | undefined): string {
 
 export function formatDateTime(dateStr: string | undefined): string {
   if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleString()
+  const date = new Date(dateStr)
+  return Number.isNaN(date.getTime()) ? dateStr : date.toLocaleString()
 }
 
 export function formatDate(dateStr: string | undefined): string {

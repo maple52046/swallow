@@ -57,13 +57,16 @@ Every error response uses one envelope:
 {
   "error": {
     "code": "string (snake_case)",
-    "message": "string (human-readable)"
+    "message": "string (human-readable)",
+    "requestId": "opaque correlation ID"
   }
 }
 ```
 
 `error.code` is the machine-readable value consumers may branch on.
 `error.message` is human-readable and must not be parsed.
+`error.requestId` matches the `X-Request-ID` response header and lets an
+operator correlate the failure with server logs. Consumers must treat it as opaque.
 
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |

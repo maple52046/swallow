@@ -115,6 +115,8 @@ func (c *Client) delete(ctx context.Context, path string) error {
 //
 // The MAAS 2.0 API does not accept JSON request bodies: every parameter must be a
 // separate multipart/form-data part, and sending JSON yields an opaque HTTP 500.
+// Parameterless operations follow the official MAAS CLI shape and send no body
+// or Content-Type header.
 func (c *Client) postOperation(ctx context.Context, path, operation string, fields map[string]string, out any) error {
 	query := url.Values{}
 	query.Set("op", operation)
@@ -197,11 +199,10 @@ func (c *Client) do(req *http.Request, out any) error {
 }
 
 // multipartBody encodes fields as multipart/form-data, skipping empty values so
-// that an unset optional parameter is absent rather than sent as "".
+// that an unset optional parameter is absent rather than sent as "". It returns
+// a nil body when no values remain because MAAS rejects empty multipart bodies
+// for parameterless operations such as release.
 func multipartBody(fields map[string]string) (io.Reader, string, error) {
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
 	names := make([]string, 0, len(fields))
 	for name, value := range fields {
 		if value != "" {
@@ -211,6 +212,12 @@ func multipartBody(fields map[string]string) (io.Reader, string, error) {
 	// Sorted so the encoded body is deterministic, which is what lets tests
 	// assert on it.
 	sort.Strings(names)
+	if len(names) == 0 {
+		return nil, "", nil
+	}
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
 
 	for _, name := range names {
 		if err := writer.WriteField(name, fields[name]); err != nil {

@@ -33,6 +33,18 @@ type DeployRequest struct {
 	Ephemeral bool
 }
 
+// ReleaseRequest describes how a machine should be returned to its provider's
+// available pool. Disk erasure is explicit because providers can offer materially
+// different speed and security trade-offs.
+type ReleaseRequest struct {
+	MachineID   string
+	Erase       bool
+	SecureErase bool
+	QuickErase  bool
+	// Comment is an optional note for the provider's own event log.
+	Comment string
+}
+
 // ProviderCapabilities declares what an adapter can express, so that a request the
 // provider cannot honour is refused before it is sent rather than silently downgraded,
 // and so that a client can hide an action a provisioner does not offer instead of
@@ -60,6 +72,8 @@ type ProviderCapabilities struct {
 	HardwareInventory bool
 	// MachineRemoval reports that MachineRemover is implemented.
 	MachineRemoval bool
+	// ReleaseOptions reports that ConfigurableMachineReleaser is implemented.
+	ReleaseOptions bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -130,6 +144,13 @@ type MachineDetailInspector interface {
 	GetMachineDetail(ctx context.Context, machineID string) (*MachineDetail, error)
 }
 
+// MachineEventReader reads the operational history retained by a provisioner for one
+// machine. Events remain provider-owned and are proxied live; swallow does not claim
+// that this is a complete audit record of every platform action.
+type MachineEventReader interface {
+	ListMachineEvents(ctx context.Context, machineID string, limit int) ([]MachineEvent, error)
+}
+
 // MachineRemover permanently deletes a Machine from the provisioner's inventory.
 //
 // Implementations must honour the provider's normal safeguards and must not force a
@@ -137,6 +158,13 @@ type MachineDetailInspector interface {
 // callers may finish deleting their local projection.
 type MachineRemover interface {
 	DeleteMachine(ctx context.Context, machineID string) error
+}
+
+// ConfigurableMachineReleaser releases a machine with provider-supported disk
+// erasure controls. The base parameterless Release remains available for adapters
+// without this optional capability and for backwards-compatible API requests.
+type ConfigurableMachineReleaser interface {
+	ReleaseWithOptions(ctx context.Context, req ReleaseRequest) (*Machine, error)
 }
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled
@@ -164,6 +192,18 @@ type DetailTable struct {
 	Title   string
 	Columns []string
 	Rows    [][]string
+}
+
+// MachineEvent is the provider-neutral portion of one provisioner event. Adapters normalize
+// OccurredAt to RFC3339 when the provider format is known and otherwise retain the raw value
+// so one malformed event cannot hide the otherwise usable history.
+type MachineEvent struct {
+	ID          string
+	Level       string
+	Type        string
+	Description string
+	Actor       string
+	OccurredAt  string
 }
 
 // OSProvisioningProvider is the port an OS provisioning backend must implement

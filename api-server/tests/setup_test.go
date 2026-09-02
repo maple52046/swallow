@@ -101,9 +101,11 @@ func setupPlatform(t *testing.T) *platformFixture {
 			factory,
 		),
 		provisioningapp.NewReleaseServerUseCase(servers, factory),
+		provisioningapp.NewRefreshServerUseCase(servers, factory),
 		provisioningapp.NewListOSImagesUseCase(factory),
 		provisioningapp.NewReconcileUseCase(integrations, servers, factory),
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
+		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
 		provisioningapp.NewMachineActionsUseCase(servers, factory),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
 	)
@@ -152,8 +154,10 @@ func setupPlatform(t *testing.T) *platformFixture {
 	serverGroup := v1.Group("/servers", admin...)
 	serverGroup.Get("/", serverHandler.List)
 	serverGroup.Get("/:id", serverHandler.Get)
+	serverGroup.Post("/:id/refresh", provisioningHandler.RefreshServer)
 	serverGroup.Delete("/:id", provisioningHandler.DeleteServer)
 	serverGroup.Get("/:id/provisioner-detail", provisioningHandler.ProvisionerDetail)
+	serverGroup.Get("/:id/events", provisioningHandler.ProviderEvents)
 	serverGroup.Post("/:id/deploy", provisioningHandler.Deploy)
 	serverGroup.Post("/:id/release", provisioningHandler.Release)
 	serverGroup.Post("/:id/power-on", provisioningHandler.PowerOn)

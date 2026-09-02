@@ -17,6 +17,7 @@ type CapabilitiesItem struct {
 	MachineDetail      bool `json:"machineDetail"`
 	HardwareInventory  bool `json:"hardwareInventory"`
 	MachineRemoval     bool `json:"machineRemoval"`
+	ReleaseOptions     bool `json:"releaseOptions"`
 }
 
 // DetailFieldItem, DetailSectionItem, and DetailTableItem are the display-oriented shape
@@ -85,6 +86,7 @@ func (uc *GetProvisionerDetailUseCase) Execute(ctx context.Context, serverID str
 			MachineDetail:      caps.MachineDetail,
 			HardwareInventory:  caps.HardwareInventory,
 			MachineRemoval:     caps.MachineRemoval,
+			ReleaseOptions:     caps.ReleaseOptions,
 		},
 		Sections: []DetailSectionItem{},
 		Tables:   []DetailTableItem{},
@@ -117,4 +119,78 @@ func (uc *GetProvisionerDetailUseCase) Execute(ctx context.Context, serverID str
 	}
 
 	return item, nil
+}
+
+// ProviderEventItem is one client-safe event from the provisioner's retained machine
+// history. It deliberately carries no provider credentials or raw request data.
+type ProviderEventItem struct {
+	ID         string  `json:"id"`
+	Level      string  `json:"level"`
+	Type       string  `json:"type"`
+	Message    string  `json:"message"`
+	Actor      *string `json:"actor"`
+	OccurredAt string  `json:"occurredAt"`
+}
+
+// ProviderEventsItem distinguishes an unsupported provider from a supported provider
+// whose machine simply has no retained events.
+type ProviderEventsItem struct {
+	Supported bool                `json:"supported"`
+	Events    []ProviderEventItem `json:"events"`
+}
+
+// GetProviderEventsUseCase proxies provider-owned machine history without presenting it
+// as a swallow-owned audit log.
+type GetProviderEventsUseCase struct {
+	servers   serverdomain.ServerRepository
+	providers provisioningdomain.ProviderFactory
+}
+
+func NewGetProviderEventsUseCase(
+	servers serverdomain.ServerRepository,
+	providers provisioningdomain.ProviderFactory,
+) *GetProviderEventsUseCase {
+	return &GetProviderEventsUseCase{servers: servers, providers: providers}
+}
+
+func (uc *GetProviderEventsUseCase) Execute(
+	ctx context.Context,
+	serverID string,
+	limit int,
+) (*ProviderEventsItem, error) {
+	server, err := uc.servers.FindByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := uc.providers.For(ctx, server.Source.IntegrationID)
+	if err != nil {
+		return nil, err
+	}
+
+	reader, ok := provider.(provisioningdomain.MachineEventReader)
+	if !ok {
+		return &ProviderEventsItem{Supported: false, Events: []ProviderEventItem{}}, nil
+	}
+
+	events, err := reader.ListMachineEvents(ctx, server.Source.ProviderMachineID, limit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ProviderEventItem, 0, len(events))
+	for _, event := range events {
+		var actor *string
+		if event.Actor != "" {
+			value := event.Actor
+			actor = &value
+		}
+		items = append(items, ProviderEventItem{
+			ID:         event.ID,
+			Level:      event.Level,
+			Type:       event.Type,
+			Message:    event.Description,
+			Actor:      actor,
+			OccurredAt: event.OccurredAt,
+		})
+	}
+	return &ProviderEventsItem{Supported: true, Events: items}, nil
 }

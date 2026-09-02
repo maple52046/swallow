@@ -167,6 +167,14 @@ export interface DeployServerInput {
   ephemeral?: boolean
 }
 
+/** Controls how a provisioner releases a Server and whether it erases disks first. */
+export interface ReleaseServerInput {
+  erase: boolean
+  secureErase: boolean
+  quickErase: boolean
+  comment?: string
+}
+
 /** The state a lifecycle action returned. A snapshot, not a completion report. */
 export interface ProvisioningActionResult {
   serverId: string
@@ -214,6 +222,7 @@ export interface ProvisionerCapabilities {
   machineDetail: boolean
   hardwareInventory: boolean
   machineRemoval: boolean
+  releaseOptions: boolean
 }
 
 /** A labelled value in a provisioner detail section. */
@@ -250,6 +259,22 @@ export interface ProvisionerDetail {
 export interface PowerStateResult {
   serverId: string
   powerState: string
+}
+
+/** One machine event retained by the provisioner and proxied live by Swallow. */
+export interface ProviderEvent {
+  id: string
+  level: string
+  type: string
+  message: string
+  actor: string | null
+  occurredAt: string
+}
+
+/** Provider-event capability and the newest retained events for one Server. */
+export interface ProviderEvents {
+  supported: boolean
+  events: ProviderEvent[]
 }
 
 /** Display label for a server. There is no swallow-owned name. */

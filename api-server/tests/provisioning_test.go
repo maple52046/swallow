@@ -224,6 +224,46 @@ func TestReleaseServer_DoesNotRemoveTheServer(t *testing.T) {
 	}
 }
 
+func TestReleaseServer_PassesDiskErasureOptions(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.provider.withMachine(testMachine("machine-srv-1", "gpu-node-01"))
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-1/release", map[string]any{
+		"erase": true, "secureErase": true, "quickErase": true,
+		"comment": "retire from test pool",
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+	if len(f.provider.releaseRequests) != 1 {
+		t.Fatalf("release requests: got %d, want 1", len(f.provider.releaseRequests))
+	}
+	request := f.provider.releaseRequests[0]
+	if request.MachineID != "machine-srv-1" || !request.Erase || !request.SecureErase || !request.QuickErase || request.Comment != "retire from test pool" {
+		t.Fatalf("unexpected release request: %+v", request)
+	}
+}
+
+func TestReleaseServer_RejectsEraseModesWithoutErase(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.provider.withMachine(testMachine("machine-srv-1", "gpu-node-01"))
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-1/release", map[string]any{
+		"secureErase": true,
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if code := errorCode(t, resp); code != "validation_error" {
+		t.Fatalf("expected validation_error, got %s", code)
+	}
+	if len(f.provider.releaseCalls) != 0 {
+		t.Fatalf("provider must not be called for invalid release options: %v", f.provider.releaseCalls)
+	}
+}
+
 // Images differ per site, so a merged list would offer images the target site cannot
 // deploy. The integration has to be named.
 func TestListImages_RequiresIntegrationID(t *testing.T) {
@@ -304,5 +344,43 @@ func TestReconcileEndpoint_RejectsNonProvisioner(t *testing.T) {
 		"POST", "/api/v1/provisioning/integrations/"+testNonProvisionerIntegrationID+"/reconcile", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// A targeted refresh reads the provider directly, so an accepted asynchronous action
+// can converge without waiting for the fleet-wide inventory interval.
+func TestRefreshServer_AdvancesOnlyProvisioningProjection(t *testing.T) {
+	f := setupPlatform(t)
+	server := f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(server *serverdomain.Server) {
+		server.Provisioning.State = "releasing"
+		server.Provisioning.ProviderState = "Releasing"
+	})
+	machine := testMachine("machine-srv-1", "provider-renamed-node")
+	machine.Status = provisioningdomain.MachineStatusReady
+	machine.ProviderStatus = "Ready"
+	f.provider.withMachine(machine)
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-1/refresh", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	body := parseBody(t, resp)
+	if body["state"] != "ready" {
+		t.Fatalf("refresh state: got %v, want ready", body["state"])
+	}
+	if server.Provisioning.State != "ready" || server.Provisioning.ProviderState != "Ready" {
+		t.Fatalf("projection was not advanced: %+v", server.Provisioning)
+	}
+	if server.Observed.Hostname != "gpu-node-01" {
+		t.Fatalf("targeted refresh must not rewrite inventory identity, got %q", server.Observed.Hostname)
+	}
+}
+
+func TestRefreshServer_UnknownServer(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/servers/missing/refresh", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
 	}
 }

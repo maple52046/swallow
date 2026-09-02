@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { ProvisionerDetail, Server } from '@/domain/server/types'
@@ -36,8 +36,13 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
     id ? { status: 'loading' } : { status: 'not-found' },
   )
   const [nonce, setNonce] = useState(0)
+  const reloadInFlight = useRef(false)
 
-  const reload = useCallback(() => setNonce((value) => value + 1), [])
+  const reload = useCallback(() => {
+    if (reloadInFlight.current) return
+    reloadInFlight.current = true
+    setNonce((value) => value + 1)
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -70,6 +75,9 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
       })
       .catch((err: Error) => {
         if (!cancelled) setState({ status: 'error', message: err.message })
+      })
+      .finally(() => {
+        reloadInFlight.current = false
       })
 
     return () => {
