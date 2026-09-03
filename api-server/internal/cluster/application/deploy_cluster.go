@@ -50,6 +50,7 @@ type DeployService struct {
 	servers        serverdomain.ServerRepository
 	lifecycle      clusterdomain.LifecycleReader
 	launcher       clusterdomain.DeploymentLauncher
+	protection     serverdomain.MutationGuard
 }
 
 // NewDeployService constructs deployment preflight with both Server observations and the
@@ -61,11 +62,16 @@ func NewDeployService(
 	servers serverdomain.ServerRepository,
 	lifecycle clusterdomain.LifecycleReader,
 	launcher clusterdomain.DeploymentLauncher,
+	protection ...serverdomain.MutationGuard,
 ) *DeployService {
-	return &DeployService{
+	service := &DeployService{
 		clusterService: clusterService, clusters: clusters,
 		servers: servers, lifecycle: lifecycle, launcher: launcher,
 	}
+	if len(protection) > 0 {
+		service.protection = protection[0]
+	}
+	return service
 }
 
 // DeployClusterInput is accepted by POST /clusters/deploy.
@@ -197,6 +203,9 @@ func (s *DeployService) validate(ctx context.Context, input DeployClusterInput) 
 			return invalid, fmt.Errorf("%w: server %s must be deployed before it can join a cluster",
 				clusterdomain.ErrInvalidDeployment, server.DisplayName())
 		}
+		if s.protection == nil && server.Provisioning.Locked {
+			return invalid, &serverdomain.ServerLockedError{Name: server.DisplayName()}
+		}
 		if claimedBy := availability.claims[server.ID]; claimedBy != nil {
 			return invalid, fmt.Errorf(
 				"%w: server %s is already claimed by Kubernetes Cluster %s",
@@ -223,6 +232,12 @@ func (s *DeployService) validate(ctx context.Context, input DeployClusterInput) 
 			controllers++
 		}
 		targets = append(targets, server)
+	}
+
+	if s.protection != nil {
+		if err := s.protection.RequireUnlocked(ctx, serverIDs(targets)); err != nil {
+			return invalid, err
+		}
 	}
 
 	if controllers != 1 && (controllers < minHAControllers || controllers%2 == 0) {

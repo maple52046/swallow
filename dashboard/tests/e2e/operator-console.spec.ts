@@ -158,6 +158,22 @@ test.describe('operator interactions', () => {
     await expect(integration).toContainText('MAAS Taipei')
   })
 
+  test('Deploy Cluster renders its expanded Site placeholder in dark mode', async ({ page }) => {
+    await page.goto('/clusters/deploy')
+    await visibleAppearance(page).click()
+    await chooseMenuItem(page, 'Dark')
+
+    const site = page.getByLabel('Site', { exact: true })
+    await expect(site).toContainText('Select a Site')
+    await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
+    await expectExpandedPlaceholderReadable(page, 'Site', 'Select a Site')
+    await expect(page.getByRole('option', { name: 'Taipei Lab', exact: true })).toBeVisible()
+    await page.getByRole('option', { name: 'Taipei Lab', exact: true }).click()
+
+    await expect(page.getByLabel('Site', { exact: true })).toContainText('Taipei Lab')
+    await expect(page.getByLabel('Cluster name')).toBeVisible()
+  })
+
   test('shared tables center cells and separators keep PatternFly spacing', async ({ page }) => {
     await page.goto('/')
     await expectTableCellsVerticallyCentered(page, 'Recent operations')

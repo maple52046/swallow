@@ -57,9 +57,10 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { Pagination } from '@/presentation/components/Pagination'
-import { HealthBadge, MembershipBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
+import { HealthBadge, LockBadge, MembershipBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { SERVER_ACTION_GROUPS, actionLabel, type BulkAction, type ServerMenuAction } from './serverActions'
+import { SERVER_ACTION_GROUPS, actionLabel, serverActionAvailability, type BulkAction, type ServerMenuAction } from './serverActions'
+import { ServerLockDialog } from './ServerLockDialog'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { useServerWorkingSet } from './useServerWorkingSet'
@@ -112,7 +113,7 @@ function toFilterOptions(counts: Map<string, number>): FilterOption[] {
   return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([value, count]) => ({ value, label: value, count }))
 }
 function filtersAreEmpty(filters: ServerFilters, keyword: string): boolean {
-  return keyword === '' && filters.provisioningStates.length === 0 && filters.zones.length === 0 && filters.pools.length === 0 && filters.tags.length === 0 && filters.hasGpu === null
+  return keyword === '' && filters.provisioningStates.length === 0 && filters.zones.length === 0 && filters.pools.length === 0 && filters.tags.length === 0 && filters.hasGpu === null && filters.lockState === 'any'
 }
 
 /** Preserves visibility choices when a composed legacy column becomes independent fields. */
@@ -179,10 +180,12 @@ export function ServersPage() {
   const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
+  const [pendingLockAction, setPendingLockAction] = useState<{ action: 'lock' | 'unlock'; targets: readonly Server[]; skipped: readonly Server[] } | null>(null)
 
   const savedViewState = useMemo<SavedServerViewState>(() => ({ filters, keyword: searchInput, includeAbsent, groupBy, sortKey, sortDirection: sortDir, hiddenColumns: [...hiddenColumns], density, pageSize }), [density, filters, groupBy, hiddenColumns, includeAbsent, pageSize, searchInput, sortDir, sortKey])
   const applySavedView = useCallback((view: SavedServerViewState) => {
-    setFilters(view.filters); setSearchInput(view.keyword); setCoarseKeyword(view.keyword); setIncludeAbsent(view.includeAbsent); setGroupBy(view.groupBy); setSortKey(view.sortKey); setSortDir(view.sortDirection); setHiddenColumns(new Set(normalizeHiddenColumns(view.hiddenColumns))); setDensity(view.density); setPageSize(view.pageSize); setSelected(new Set()); setCollapsedGroups(new Set()); setPage(1)
+    const normalizedFilters = { ...EMPTY_SERVER_FILTERS, ...view.filters, lockState: view.filters.lockState ?? 'any' }
+    setFilters(normalizedFilters); setSearchInput(view.keyword); setCoarseKeyword(view.keyword); setIncludeAbsent(view.includeAbsent); setGroupBy(view.groupBy); setSortKey(view.sortKey); setSortDir(view.sortDirection); setHiddenColumns(new Set(normalizeHiddenColumns(view.hiddenColumns))); setDensity(view.density); setPageSize(view.pageSize); setSelected(new Set()); setCollapsedGroups(new Set()); setPage(1)
   }, [])
 
   useEffect(() => { const id = setTimeout(() => { setCoarseKeyword(searchInput); setPage(1) }, 300); return () => clearTimeout(id) }, [searchInput])
@@ -251,8 +254,16 @@ export function ServersPage() {
   const somePageSelected = pageIds.some((id) => selected.has(id))
   const changeFilters = useCallback((next: ServerFilters) => { setFilters(next); setPage(1); setSelected(new Set()) }, [])
   const toggleColumn = useCallback((key: string) => setHiddenColumns((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); writePreference(COLUMNS_KEY, [...next]); return next }), [])
-  const runAction = useCallback(async (action: ServerMenuAction, ids: string[]) => {
+  const runAction = useCallback(async (action: ServerMenuAction, ids: string[], confirmed = false) => {
     if (!ids.length) return
+    const selectedServers = ids.map((id) => workingSet.find((server) => server.id === id)).filter((server): server is Server => Boolean(server))
+    const availability = serverActionAvailability(action, selectedServers)
+    if (availability.disabledReason) return
+    if ((action === 'lock' || action === 'unlock') && !confirmed) {
+      setPendingLockAction({ action, targets: availability.eligible, skipped: availability.skipped })
+      return
+    }
+    ids = availability.eligible.map((server) => server.id)
     if (action === 'delete') {
       const target = workingSet.find((server) => server.id === ids[0])
       if (target) setDeleteTarget(target)
@@ -295,8 +306,10 @@ export function ServersPage() {
     ? 'Deploy OS supports at most 100 Servers.'
     : actionTargets.some((server) => server.absent)
       ? 'Absent Servers cannot be deployed.'
-      : actionTargets.some((server) => server.provisioning?.state !== 'ready')
-        ? 'Every selected Server must be ready.'
+      : actionTargets.some((server) => server.provisioning?.locked)
+        ? 'Unlock every selected Server before deployment.'
+        : actionTargets.some((server) => server.provisioning?.state !== 'ready')
+          ? 'Every selected Server must be ready.'
         : targetIntegrations.size > 1
           ? 'Selected Servers must use the same provisioner integration.'
           : undefined
@@ -349,7 +362,7 @@ export function ServersPage() {
             </span>
           </Tooltip>
         </ToolbarItem>
-        <ToolbarItem><BulkActionMenu running={bulk.running} onAction={(action) => void runAction(action, [...selected])} /></ToolbarItem>
+        <ToolbarItem><BulkActionMenu targets={actionTargets} running={bulk.running} onAction={(action) => void runAction(action, [...selected])} /></ToolbarItem>
         {deployDisabledReason && <ToolbarItem><span className="sw-action-reason">{deployDisabledReason}</span></ToolbarItem>}
         <ToolbarItem><Button variant="link" onClick={clearSelection}>Clear</Button></ToolbarItem>
       </ToolbarGroup>}
@@ -390,6 +403,20 @@ export function ServersPage() {
         onDeleted={() => { setDeleteTarget(null); clearSelection(); reload() }}
       />
     )}
+    {pendingLockAction && (
+      <ServerLockDialog
+        action={pendingLockAction.action}
+        targets={pendingLockAction.targets}
+        skipped={pendingLockAction.skipped}
+        busy={bulk.running}
+        onClose={() => setPendingLockAction(null)}
+        onConfirm={() => {
+          const pending = pendingLockAction
+          setPendingLockAction(null)
+          void runAction(pending.action, pending.targets.map((server) => server.id), true)
+        }}
+      />
+    )}
   </div>
 }
 
@@ -406,23 +433,33 @@ function FilterOptions({ title, values, selected, onChange }: { title: string; v
 }
 
 function FilterPanel({ filters, options, onChange }: { filters: ServerFilters; options: ServerFilterOptions; onChange: (next: ServerFilters) => void }) {
-  return <div className="sw-filter-panel"><FilterOptions title="Provisioning" values={options.provisioningState} selected={filters.provisioningStates} onChange={(values) => onChange({ ...filters, provisioningStates: values })} /><FilterOptions title="Zone" values={options.zone} selected={filters.zones} onChange={(values) => onChange({ ...filters, zones: values })} /><FilterOptions title="Pool" values={options.pool} selected={filters.pools} onChange={(values) => onChange({ ...filters, pools: values })} /><FilterOptions title="Tags" values={options.tag} selected={filters.tags} onChange={(values) => onChange({ ...filters, tags: values })} /><fieldset className="sw-filter-group"><legend>GPU</legend><FormSelect value={filters.hasGpu === null ? 'any' : filters.hasGpu ? 'yes' : 'no'} onChange={(_event, value) => onChange({ ...filters, hasGpu: value === 'any' ? null : value === 'yes' })} aria-label="Filter GPU presence"><FormSelectOption value="any" label="Any" /><FormSelectOption value="yes" label="Has GPU" /><FormSelectOption value="no" label="No GPU" /></FormSelect></fieldset><Button variant="link" onClick={() => onChange(EMPTY_SERVER_FILTERS)}>Clear filters</Button></div>
+  return <div className="sw-filter-panel"><fieldset className="sw-filter-group"><legend>Protection</legend><FormSelect value={filters.lockState} onChange={(_event, value) => onChange({ ...filters, lockState: value as ServerFilters['lockState'] })} aria-label="Filter Server lock"><FormSelectOption value="any" label="Any" /><FormSelectOption value="locked" label="Locked" /><FormSelectOption value="unlocked" label="Unlocked" /></FormSelect></fieldset><FilterOptions title="Provisioning" values={options.provisioningState} selected={filters.provisioningStates} onChange={(values) => onChange({ ...filters, provisioningStates: values })} /><FilterOptions title="Zone" values={options.zone} selected={filters.zones} onChange={(values) => onChange({ ...filters, zones: values })} /><FilterOptions title="Pool" values={options.pool} selected={filters.pools} onChange={(values) => onChange({ ...filters, pools: values })} /><FilterOptions title="Tags" values={options.tag} selected={filters.tags} onChange={(values) => onChange({ ...filters, tags: values })} /><fieldset className="sw-filter-group"><legend>GPU</legend><FormSelect value={filters.hasGpu === null ? 'any' : filters.hasGpu ? 'yes' : 'no'} onChange={(_event, value) => onChange({ ...filters, hasGpu: value === 'any' ? null : value === 'yes' })} aria-label="Filter GPU presence"><FormSelectOption value="any" label="Any" /><FormSelectOption value="yes" label="Has GPU" /><FormSelectOption value="no" label="No GPU" /></FormSelect></fieldset><Button variant="link" onClick={() => onChange(EMPTY_SERVER_FILTERS)}>Clear filters</Button></div>
 }
 
 function ColumnPanel({ columns, hidden, onToggle }: { columns: ColumnToggle[]; hidden: ReadonlySet<string>; onToggle: (key: string) => void }) {
   return <div className="sw-column-panel">{columns.map((column) => <Checkbox key={column.key} id={`column-${column.key}`} label={column.label} isChecked={!hidden.has(column.key)} onChange={() => onToggle(column.key)} />)}</div>
 }
 
-function ActionDropdown({ label, icon, running, includeSingleOnly = true, onAction }: { label: string; icon?: ReactNode; running?: boolean; includeSingleOnly?: boolean; onAction: (action: ServerMenuAction) => void }) {
+function ActionDropdown({ label, icon, targets, running, includeSingleOnly = true, onAction }: { label: string; icon?: ReactNode; targets: readonly Server[]; running?: boolean; includeSingleOnly?: boolean; onAction: (action: ServerMenuAction) => void }) {
   const [open, setOpen] = useState(false)
   const groups = SERVER_ACTION_GROUPS.map((group) => ({
     ...group,
     actions: group.actions.filter((entry) => includeSingleOnly || entry.bulk !== false),
   })).filter((group) => group.actions.length > 0)
-  return <Dropdown isOpen={open} onOpenChange={setOpen} toggle={(ref) => <MenuToggle ref={ref} icon={icon} variant={label ? 'default' : 'plain'} aria-label={label || 'Actions'} isExpanded={open} isDisabled={running} onClick={() => setOpen((value) => !value)}>{label || null}</MenuToggle>}><DropdownList>{groups.flatMap((group) => [<DropdownItem key={`${group.label}-label`} isDisabled>{group.label}</DropdownItem>, ...group.actions.map((entry) => <DropdownItem key={entry.action} value={entry.action} isDanger={entry.destructive} onClick={() => { setOpen(false); onAction(entry.action) }}>{entry.label}</DropdownItem>)])}</DropdownList></Dropdown>
+  return <Dropdown isOpen={open} onOpenChange={setOpen} toggle={(ref) => <MenuToggle ref={ref} icon={icon} variant={label ? 'default' : 'plain'} aria-label={label || 'Actions'} isExpanded={open} isDisabled={running} onClick={() => setOpen((value) => !value)}>{label || null}</MenuToggle>}><DropdownList>{groups.flatMap((group) => [<DropdownItem key={`${group.label}-label`} isDisabled>{group.label}</DropdownItem>, ...group.actions.map((entry) => {
+    const availability = serverActionAvailability(entry.action, targets)
+    return <DropdownItem
+      key={entry.action}
+      value={entry.action}
+      isDanger={entry.destructive}
+      isDisabled={Boolean(availability.disabledReason)}
+      description={availability.disabledReason}
+      onClick={() => { setOpen(false); onAction(entry.action) }}
+    >{entry.label}</DropdownItem>
+  })])}</DropdownList></Dropdown>
 }
-function BulkActionMenu({ running, onAction }: { running: boolean; onAction: (action: BulkAction) => void }) {
-  return <ActionDropdown label={running ? 'Working...' : 'Take action'} running={running} includeSingleOnly={false} onAction={(action) => { if (action !== 'delete') onAction(action) }} />
+function BulkActionMenu({ targets, running, onAction }: { targets: readonly Server[]; running: boolean; onAction: (action: BulkAction) => void }) {
+  return <ActionDropdown label={running ? 'Working...' : 'Take action'} targets={targets} running={running} includeSingleOnly={false} onAction={(action) => { if (action !== 'delete') onAction(action) }} />
 }
 
 function GroupRows({ group, grouped, columnSpan, collapsed, onCollapse, selected, onToggleOne, onToggleGroup, onNavigate, onAction, visible }: { group: RenderGroup; grouped: boolean; columnSpan: number; collapsed: boolean; onCollapse: () => void; selected: ReadonlySet<string>; onToggleOne: (id: string) => void; onToggleGroup: (ids: string[], checked: boolean) => void; onNavigate: (id: string) => void; onAction: (action: ServerMenuAction, id: string) => void; visible: (key: string) => boolean }) {
@@ -435,7 +472,7 @@ function GroupRows({ group, grouped, columnSpan, collapsed, onCollapse, selected
 function ServerRow({ server, checked, onToggle, onNavigate, onAction, visible }: { server: Server; checked: boolean; onToggle: () => void; onNavigate: () => void; onAction: (action: ServerMenuAction) => void; visible: (key: string) => boolean }) {
   return <Tr isClickable onRowClick={onNavigate}>
     <Td dataLabel="Selection" className="sw-sticky-selection sw-cell-center" onClick={(event) => event.stopPropagation()}><Checkbox id={'server-' + server.id} aria-label={'Select ' + serverDisplayName(server)} isChecked={checked} onChange={onToggle} /></Td>
-    <Td dataLabel="Machine" className="sw-sticky-name"><span className="sw-machine-name"><strong>{serverDisplayName(server)}</strong>{server.absent && <Label color="grey">absent</Label>}</span></Td>
+    <Td dataLabel="Machine" className="sw-sticky-name"><span className="sw-machine-name"><strong>{serverDisplayName(server)}</strong><LockBadge locked={server.provisioning?.locked ?? false} />{server.absent && <Label color="grey">absent</Label>}</span></Td>
     {visible('power') && <Td dataLabel="Power" className="sw-cell-center sw-power-cell">{server.provisioning ? server.provisioning.powerState : '-'}</Td>}
     {visible('status') && <Td dataLabel="Provisioning">{server.provisioning ? <ProvisioningBadge axis={server.provisioning} /> : '-'}</Td>}
     {visible('address') && <Td dataLabel="Address" className="mono">{textOrDash(serverPrimaryAddress(server))}</Td>}
@@ -452,7 +489,7 @@ function ServerRow({ server, checked, onToggle, onNavigate, onAction, visible }:
     {visible('gpus') && <Td dataLabel="GPUs"><GpuInventory server={server} /></Td>}
     {visible('cluster') && <Td dataLabel="Cluster">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Td>}
     {visible('health') && <Td dataLabel="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</Td>}
-    <Td isActionCell className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}><ActionDropdown label="" icon={<EllipsisVIcon />} onAction={onAction} /></Td>
+    <Td isActionCell className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}><ActionDropdown label="" icon={<EllipsisVIcon />} targets={[server]} onAction={onAction} /></Td>
   </Tr>
 }
 

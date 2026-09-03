@@ -85,14 +85,6 @@ func (uc *DiscoveryUseCase) PrometheusTargets(ctx context.Context, input Discove
 			continue
 		}
 
-		// A locked machine is off-limits ("unmanaged"): swallow installs no exporter on
-		// it, so scraping it would only produce a permanently-down series and make an
-		// unmanaged machine look unhealthy. Leave it out; its health stays unknown, which
-		// is the truthful answer for a machine swallow does not monitor.
-		if server.Provisioning != nil && server.Provisioning.Locked {
-			continue
-		}
-
 		labels := map[string]string{
 			"server_id": server.ID,
 			"site":      server.Source.SiteID,

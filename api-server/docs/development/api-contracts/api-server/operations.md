@@ -21,6 +21,7 @@ retained runner logs.
 
 - [Operation](../../../../../docs/development/glossaries/terms/operation.md)
 - [Automation Configuration](../../../../../docs/development/glossaries/terms/automation-configuration.md)
+- [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
 
 ## Endpoints
 
@@ -52,7 +53,9 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 an explicit registered playbook is supplied. `uninstall-kubernetes` is a built-in kind;
 the Cluster use case supplies its release-owned playbook explicitly, so existing Site
 mappings need no migration. Target IDs are frozen at acceptance and must belong to one
-Site. Success is `202 Accepted` after the pending Operation is persisted.
+Site. Every target must also be unlocked in a live provider read before the pending
+Operation is persisted. An unavailable lock read fails closed. Success is `202 Accepted`
+after the pending Operation is persisted.
 
 ## Operation Response
 
@@ -81,7 +84,13 @@ Site. Success is `202 Accepted` after the pending Operation is persisted.
 
 Status is exactly `pending | running | succeeded | failed | canceled | indeterminate`.
 A lease expiry becomes `indeterminate` and is never retried automatically. One
-operation per site may run; different sites may run concurrently. `retryOfOperationId`
+operation per site may run; different sites may run concurrently. After claiming a
+pending
+Operation, the dispatcher reads every target lock again before runner setup. A newly
+locked target fails that Operation with an actionable status reason and the runner does
+not start. A lock appearing after the runner starts does not cancel the active work.
+
+`retryOfOperationId`
 is the operation this one was created to retry, or `null` when it was requested directly.
 
 ## List Query
@@ -135,7 +144,7 @@ The new operation copies the original's kind, target servers, cluster, playbook,
 operator variables, and records `retryOfOperationId` pointing at the original. It is
 accepted only when the original operation is in a terminal state and its targets are not
 currently busy in another operation; the same creation checks as `POST /operations/`
-apply. A finished `deploy-kubernetes` or `uninstall-kubernetes` Operation cannot be
+apply. This includes the live unlocked-target check. A finished `deploy-kubernetes` or `uninstall-kubernetes` Operation cannot be
 retried after its referenced Cluster has been deleted. Success is `202 Accepted`
 returning the new Operation.
 

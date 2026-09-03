@@ -92,9 +92,10 @@ export function ClusterDetailPage() {
     (assignment) => assignment.role === 'worker' || assignment.runWorkloads,
   ) ?? []
   const workloadControllers = intendedControllers.filter((assignment) => assignment.runWorkloads)
-  const targetCount = operations.find(
-    (operation) => operation.kind === 'deploy-kubernetes',
-  )?.targetServerIds.length
+  const lifecycleOperation = operations.find(
+    (operation) => operation.id === cluster.lifecycleOperationId,
+  ) ?? operations.find((operation) => operation.kind === 'deploy-kubernetes')
+  const targetServerIds = lifecycleOperation?.targetServerIds
 
   return (
     <div className="operator-page">
@@ -127,7 +128,7 @@ export function ClusterDetailPage() {
             </Button>
             <ClusterLifecycleActions
               cluster={cluster}
-              targetCount={targetCount}
+              targetServerIds={targetServerIds}
               onRepairStarted={reload}
             />
           </>

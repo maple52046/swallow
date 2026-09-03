@@ -235,7 +235,8 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, clusterdomain.ErrClusterUninstallConflict),
 		errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrTargetLocked),
-		errors.Is(err, operationdomain.ErrPolicyConflict):
+		errors.Is(err, operationdomain.ErrPolicyConflict),
+		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
 	case errors.Is(err, operationdomain.ErrAutomationConfigNotFound),
@@ -258,6 +259,9 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, sitedomain.ErrCredentialNotSet):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
 			"The cluster integration has no credential configured."))
+	case errors.Is(err, serverdomain.ErrServerLockUnavailable):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
+			err.Error()))
 	}
 
 	var readerErr *clusterdomain.ReaderError

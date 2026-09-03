@@ -7,7 +7,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useApp } from '@/di/AppProvider'
-import { ProvisioningBadge, HealthBadge } from '@/presentation/components/AxisBadge'
+import { ProvisioningBadge, HealthBadge, LockBadge } from '@/presentation/components/AxisBadge'
 import { serverDisplayName } from '@/domain/server/list'
 import type { ProvisioningState } from '@/domain/server/types'
 import { ServerActionMenu } from './ServerActionMenu'
@@ -53,11 +53,13 @@ export function ServerDetailPage() {
   const current = TABS.some((tab) => tab.value === segment) ? segment : 'summary'
   const deployDisabledReason = server.absent
     ? 'Server is absent'
-    : server.provisioning?.state !== 'ready'
-      ? 'Server must be ready'
-      : undefined
+    : server.provisioning?.locked
+      ? 'Unlock the Server before deployment'
+      : server.provisioning?.state !== 'ready'
+        ? 'Server must be ready'
+        : undefined
   return <div className="operator-page">
-    <PageHeader title={serverDisplayName(server)} breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]} subtitle={`Provider machine ${server.source.providerMachineId}, Site ${server.source.siteId}`} metadata={<Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={server.provisioning} /><HealthBadge axis={server.health} />{releasePolling.isPolling && <Label color="blue">Updating...</Label>}{server.absent && <Label color="grey">absent</Label>}</Flex>} actions={<ServerActionMenu serverId={server.id} serverName={serverDisplayName(server)} capabilities={detail?.capabilities ?? null} deployDisabledReason={deployDisabledReason} onActed={(action, _input, result) => {
+    <PageHeader title={serverDisplayName(server)} breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]} subtitle={`Provider machine ${server.source.providerMachineId}, Site ${server.source.siteId}`} metadata={<Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={server.provisioning} /><LockBadge locked={server.provisioning?.locked ?? false} /><HealthBadge axis={server.health} />{releasePolling.isPolling && <Label color="blue">Updating...</Label>}{server.absent && <Label color="grey">absent</Label>}</Flex>} actions={<ServerActionMenu server={server} capabilities={detail?.capabilities ?? null} deployDisabledReason={deployDisabledReason} onActed={(action, _input, result) => {
       if (action === 'release') releasePolling.start([{ serverId: server.id, taskId: result.taskId }])
       else reload()
     }} />} />

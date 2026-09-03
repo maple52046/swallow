@@ -26,6 +26,8 @@ jobs.
 - [Server](../../../../../docs/development/glossaries/terms/server.md)
 - [Server Type](../../../../../docs/development/glossaries/terms/server-type.md)
 - [Server Status](../../../../../docs/development/glossaries/terms/server-status.md)
+- [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
+- [Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md)
 
 See also [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md) for the
 label contract and monitoring topology.
@@ -82,9 +84,10 @@ its labels already attached:
 - A server with no known address is omitted rather than emitted with an empty target,
   because a target with no address would create a permanently failing series attributed
   to that server.
-- A locked machine is omitted: it is off-limits ("unmanaged"), swallow installs no
-  exporter on it, and scraping it would only produce a permanently-down series that makes
-  an unmanaged machine look unhealthy. Its health stays unknown instead.
+- A locked machine remains in discovery when it otherwise matches the query. Lock blocks
+  exporter installation, removal, and reconfiguration; it does not disable an exporter
+  already running or turn observability into a mutation. Its effective Exporter Ownership
+  is still `unmanaged`.
 - The result is never paginated: a scrape target list must be complete.
 - Label names are the canonical join keys from
   [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md); do not add

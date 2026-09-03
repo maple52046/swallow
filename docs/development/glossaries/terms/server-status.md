@@ -15,5 +15,5 @@
 - Synonyms: None. "Health" refers specifically to the `health` axis, not to the whole of a server's condition.
 - Deprecated terms: The closed six-value set `live | warning | error | maintain | offline | unknown` — a single operational status — is **superseded**. It predates the refoundation and never matched what the backend implements; the three axes replace it. A UI may still summarise the axes for a glance, but must not persist or filter on a single combined status.
 - Examples: "A newly reconciled server has a `provisioning` axis but null `membership` and `health`, because no cluster or metrics store has reported on it yet." / "Filter the server list by `provisioningState=deployed`; there is no single `status` filter."
-- Related terms: Server（the entity these axes describe）, Alert（a different concept, read from Alertmanager）.
+- Related terms: Server（the entity these axes describe）, Server Lock（a provider-owned protection fact carried by the provisioning axis）, Alert（a different concept, read from Alertmanager）.
 - Change note: Rewritten from the previous single closed six-value set to the three-axis model of [decision 002](../../../decisions/002-server-identity.md) and [decision 003](../../../decisions/003-metrics-label-contract.md), which is what `api-server` and `dashboard` implement.

@@ -13,7 +13,7 @@ import {
   TextInput,
 } from '@patternfly/react-core'
 import { BookmarkIcon, PencilAltIcon, PlusIcon, TrashIcon } from '@patternfly/react-icons'
-import type { ServerFilters, ServerGroupBy, ServerSortKey, SortDirection } from '@/domain/server/list'
+import { EMPTY_SERVER_FILTERS, type ServerFilters, type ServerGroupBy, type ServerSortKey, type SortDirection } from '@/domain/server/list'
 import { useToast } from '@/presentation/components/toast/toastContext'
 
 const STORAGE_KEY = 'swallow.servers.saved-views'
@@ -42,7 +42,18 @@ interface SavedServerView { id: string; name: string; state: SavedServerViewStat
 function loadViews(): SavedServerView[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as SavedServerView[]
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((view) => ({
+      ...view,
+      state: {
+        ...view.state,
+        filters: {
+          ...EMPTY_SERVER_FILTERS,
+          ...view.state.filters,
+          lockState: view.state.filters?.lockState ?? 'any',
+        },
+      },
+    }))
   } catch { return [] }
 }
 

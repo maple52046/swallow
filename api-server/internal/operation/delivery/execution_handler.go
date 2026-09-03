@@ -193,7 +193,8 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
 	case errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrPolicyConflict),
-		errors.Is(err, operationdomain.ErrTargetLocked):
+		errors.Is(err, operationdomain.ErrTargetLocked),
+		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 	case errors.Is(err, application.ErrInvalidOperation),
 		errors.Is(err, operationdomain.ErrTargetStateInvalid),
@@ -207,6 +208,8 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, sitedomain.ErrCredentialNotSet):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
 			"The site automation credential is not configured."))
+	case errors.Is(err, serverdomain.ErrServerLockUnavailable):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 	case errors.Is(err, sitedomain.ErrIntegrationNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Integration not found."))
 	}

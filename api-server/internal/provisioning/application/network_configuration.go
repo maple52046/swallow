@@ -261,12 +261,23 @@ func (s *NetworkConfigurationService) resolveMutable(
 	ctx context.Context,
 	serverID string,
 ) (*serverdomain.Server, provisioningdomain.NetworkConfigurationProvider, error) {
-	server, networkProvider, err := s.resolve(ctx, serverID)
+	server, err := s.servers.FindByID(ctx, serverID)
 	if err != nil {
+		return nil, nil, err
+	}
+	provider, err := s.providers.For(ctx, server.Source.IntegrationID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := requireServerUnlocked(ctx, s.servers, server, provider); err != nil {
 		return nil, nil, err
 	}
 	if reason := networkDisabledReason(server); reason != "" {
 		return nil, nil, fmt.Errorf("%w: %s", provisioningdomain.ErrNetworkConfigurationConflict, reason)
+	}
+	networkProvider, err := requireNetworkProvider(provider)
+	if err != nil {
+		return nil, nil, err
 	}
 	return server, networkProvider, nil
 }

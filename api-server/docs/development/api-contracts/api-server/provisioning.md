@@ -27,6 +27,7 @@ submit one OS deployment configuration to one or more eligible Servers.
 - Network Configuration
 - IP Binding
 - Provisioning Task
+- Server Lock
 
 ## Authentication and Authorization
 
@@ -210,7 +211,9 @@ or the sole compatible managed subnet. Multiple compatible subnets produce
 ```
 
 It performs the target identity, presence, Ready, unlocked, and same-Integration
-checks that `POST /deployments` repeats immediately before dispatch. The operation
+checks that `POST /deployments` repeats immediately before dispatch. Lock is
+read live from the provisioner; unavailable lock state returns
+`503 provider_unavailable` rather than accepting mutation work. The operation
 is read-only: it does not inspect or mutate network configuration, validate an
 image, reserve a Server, or start a deployment.
 
@@ -284,7 +287,8 @@ and gateway intent but never a NIC ID or static IP.
 
 Before any provider write, every Server must exist, be present, have provisioning
 state `ready`, be unlocked, belong to the same Integration, and match the
-template Integration when one is used. The resolved image must exist in the
+template Integration when one is used. The lock preflight reads each target live from the provider before dispatch. The
+resolved image must exist in the
 current live catalog. Swallow inspects every target's live network capability,
 NICs, subnets, existing links, and Static address before the first write. A
 preflight failure rejects the entire request without writes.
@@ -362,7 +366,9 @@ Statuses are `pending`, `running`, `succeeded`, or `failed`. Phases are
 `waiting_for_release`, `waiting_for_ready`, `cleaning_network`, or `complete`.
 `retryable` is true only for a failed task after its Release was accepted.
 `POST /tasks/{id}/retry` accepts only that retryable state, returns `202`, and
-requeues cleanup without repeating Release. A task retained after the provider
+requeues cleanup without repeating Release. A retry is rejected while the
+Server is locked; the worker also reads lock state again immediately before cleanup, so an external lock makes the task
+fail retryably without changing network links. A task retained after the provider
 refused Release remains diagnostic and is not retryable. Unknown tasks are
 `404 not_found`; a task that is not retryable is `409 conflict`.
 

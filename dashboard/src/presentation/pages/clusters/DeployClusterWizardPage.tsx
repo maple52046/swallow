@@ -26,6 +26,7 @@ import {
 } from '@patternfly/react-core'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate } from 'react-router-dom'
+import { LockBadge } from '@/presentation/components/AxisBadge'
 import { useApp } from '@/di/AppProvider'
 import { clusterLifecycleLabel } from '@/domain/cluster/lifecycle'
 import type { Cluster, GPUStackOwner, NodeRole, RoleAssignment } from '@/domain/cluster/types'
@@ -34,6 +35,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
+import { SingleSelect } from '@/presentation/components/SingleSelect'
 import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -169,11 +171,22 @@ export function DeployClusterWizardPage() {
     (item) => item.role === 'control-plane' && item.runWorkloads,
   ).length
   const basicsValid = Boolean(effectiveSiteId && name.trim() && k0sVersion.trim())
-  const machinesValid = topology === 'standalone'
+  const hasLockedAssignment = state.status === 'ready' && assignments.some((assignment) =>
+    state.data.servers.find((server) => server.id === assignment.serverId)?.provisioning?.locked)
+  const hasLockedServers = state.status === 'ready'
+    && state.data.servers.some((server) => server.provisioning?.locked)
+  const hasAssignedServers = state.status === 'ready'
+    && state.data.servers.some((server) => Boolean(existingClusterAssignment(
+      server,
+      state.data.clusters,
+      state.data.deploymentClaims,
+    )))
+  const topologyValid = topology === 'standalone'
     ? assignments.length === 1 && controllers === 1 && workloadCount === 1
     : topology === 'multi-node'
       ? assignments.length >= 2 && controllers === 1 && workers >= 1
       : controllers >= 3 && controllers % 2 === 1 && workloadCount >= 1
+  const machinesValid = topologyValid && !hasLockedAssignment
   const networkingValid = validCIDR(podCidr.trim()) && validCIDR(serviceCidr.trim()) && (
     topology !== 'high-availability' || (
       validAddress(apiVip.trim()) && Number(apiVipPrefix) >= 1 && Number(apiVipPrefix) <= 32
@@ -202,6 +215,11 @@ export function DeployClusterWizardPage() {
   }
 
   const changeRole = (serverId: string, next: RoleChoice) => {
+    const server = state.status === 'ready'
+      ? state.data.servers.find((candidate) => candidate.id === serverId)
+      : undefined
+    if (server?.provisioning?.locked) return
+
     if (topology === 'standalone') {
       setRoles(next === 'none' ? {} : { [serverId]: 'control-plane' })
       setWorkloadControllers(next === 'none' ? {} : { [serverId]: true })
@@ -282,21 +300,23 @@ export function DeployClusterWizardPage() {
             <WizardSection title="Cluster identity">
               <Form className="sw-form-grid">
                 <FormGroup label="Site" isRequired fieldId="cluster-site">
-                  <FormSelect
+                  <SingleSelect
                     id="cluster-site"
+                    ariaLabel="Site"
                     value={effectiveSiteId ?? ''}
-                    onChange={(_event, value) => {
+                    placeholder="Select a Site"
+                    options={state.data.sites.map((site) => ({
+                      value: site.id,
+                      label: site.name,
+                    }))}
+                    isRequired
+                    onChange={(value) => {
                       setSiteId(value)
                       setRoles({})
                       setWorkloadControllers({})
                       setAPIVip('')
                     }}
-                  >
-                    <FormSelectOption value="" label="Select a Site" isDisabled />
-                    {state.data.sites.map((site) => (
-                      <FormSelectOption key={site.id} value={site.id} label={site.name} />
-                    ))}
-                  </FormSelect>
+                  />
                 </FormGroup>
                 <FormGroup label="Cluster name" isRequired fieldId="cluster-name">
                   <TextInput
@@ -357,18 +377,21 @@ export function DeployClusterWizardPage() {
                 <Label color={workloadCount > 0 ? 'green' : 'orange'}>{workloadCount} workload-capable</Label>
                 <Label color={assignments.length > 0 ? 'blue' : 'grey'}>{assignments.length} selected</Label>
               </LabelGroup>
-              {state.data.servers.some((server) => existingClusterAssignment(
-                server,
-                state.data.clusters,
-                state.data.deploymentClaims,
-              )) && (
+              {(hasLockedServers || hasAssignedServers) && (
                 <Alert
                   variant={AlertVariant.warning}
-                  title="Some Servers are already assigned"
+                  title={hasLockedServers
+                    ? hasAssignedServers
+                      ? 'Some Servers are assigned or locked'
+                      : 'Some Servers are locked'
+                    : 'Some Servers are already assigned'}
                   isInline
                 >
-                  Existing Cluster targets remain visible for context, but cannot be selected
-                  while their deployment claim or observed membership remains.
+                  {hasLockedServers
+                    ? hasAssignedServers
+                      ? 'Assigned and Locked Servers remain visible for context. Unlock protected Servers or remove an existing Cluster assignment before selecting a role.'
+                      : 'Locked Servers remain visible for context. Unlock protected Servers before selecting a role.'
+                    : 'Assigned Servers remain visible for context. Remove the existing Cluster assignment before selecting a role.'}
                 </Alert>
               )}
               {state.data.servers.length === 0 ? (
@@ -389,10 +412,12 @@ export function DeployClusterWizardPage() {
                           state.data.clusters,
                           state.data.deploymentClaims,
                         )
-                        const role = existing ? 'none' : roles[server.id] ?? 'none'
+                        const locked = server.provisioning?.locked ?? false
+                        const unavailable = Boolean(existing) || locked
+                        const role = unavailable ? 'none' : roles[server.id] ?? 'none'
                         return (
                           <Tr key={server.id}>
-                            <Td dataLabel="Server"><strong>{serverDisplayName(server)}</strong></Td>
+                            <Td dataLabel="Server"><span className="sw-machine-name"><strong>{serverDisplayName(server)}</strong><LockBadge locked={locked} /></span></Td>
                             <Td dataLabel="Address" className="sw-mono">
                               {serverPrimaryAddress(server) ?? '-'}
                             </Td>
@@ -408,11 +433,13 @@ export function DeployClusterWizardPage() {
                             </Td>
                             <Td dataLabel="Role">
                               <FormSelect
-                                aria-label={existing
-                                  ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.clusterName}`
+                                aria-label={locked
+                                  ? `Role for ${serverDisplayName(server)}, unavailable because the Server is locked`
+                                  : existing
+                                    ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.clusterName}`
                                   : `Role for ${serverDisplayName(server)}`}
                                 value={role}
-                                isDisabled={Boolean(existing)}
+                                isDisabled={unavailable}
                                 onChange={(_event, value) => changeRole(server.id, value as RoleChoice)}
                               >
                                 <FormSelectOption value="none" label="Not included" />

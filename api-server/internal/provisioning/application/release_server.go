@@ -75,6 +75,9 @@ func (uc *ReleaseServerUseCase) ExecuteWithOptions(
 	if err != nil {
 		return nil, err
 	}
+	if err := requireServerUnlocked(ctx, uc.servers, server, provider); err != nil {
+		return nil, err
+	}
 
 	var task *provisioningdomain.ProvisioningTask
 	if input.UnbindStaticIPs {

@@ -9,6 +9,8 @@ The SSH private key and optional become password are write-only credentials. The
 encrypted at rest and are represented to API consumers only by `hasCredential`.
 
 Automation is not an external integration: Swallow owns the dispatcher, execution state,
-logs, artifacts, and retention policy.
+logs, artifacts, and retention policy. Automation still respects provider-owned Server
+Lock: target protection is checked at acceptance and immediately before runner startup,
+because embedded Ansible can mutate a host without going through its provisioner.
 
-See also: [Operation](operation.md).
+See also: [Operation](operation.md), [Server Lock](server-lock.md).

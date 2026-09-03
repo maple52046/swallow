@@ -39,8 +39,22 @@ POST /api/v1/servers/{id}/{override-failed-testing|lock|unlock}
 POST /api/v1/servers/{id}/{mark-broken|mark-fixed|rescue-mode|exit-rescue-mode}
 ```
 
-All routes require an admin bearer token. `GET /servers/{id}` returns the same
-complete Server projection documented in [servers-list.md](servers-list.md).
+All routes require an admin bearer token.
+
+## Server Lock Protection
+
+`POST /servers/{id}/lock` and `/unlock` return `202` with the accepted provisioning
+snapshot and immediately update `provisioning.locked`. MAAS remains the source and
+executor of that state; Swallow does not persist a second lock. MAAS only accepts Lock for a deployed Machine, so Swallow exposes Lock only in the `deployed` state and returns a clear `409 conflict` before calling the provider in every other state. Commissioning, deploying, releasing, testing, an Operation, or a Provisioning Task are also explicit conflicts. Unlock is always explicit and never resumes work.
+
+Every state-changing action except Unlock performs a live lock check before touching
+the provider. A locked Server returns `409 conflict` naming the Server and directing the
+operator to Unlock it. An unavailable lock read fails closed with
+`503 provider_unavailable`. Refresh, power query, event and network reads remain
+available. Delete also retains its compatible stale-record behavior when the provider
+explicitly reports that its Machine is already absent.
+
+`GET /servers/{id}` returns the same complete Server projection documented in [servers-list.md](servers-list.md).
 Provisioner detail is a live provider-neutral view with a capability set. The
 `machineRemoval` flag tells clients whether provider-backed deletion is available, and
 `releaseOptions` tells clients whether release can carry disk-erasure controls. Power

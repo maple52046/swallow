@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // InventorySource uses the same application projection as the public dynamic inventory.
@@ -34,6 +35,7 @@ type Dispatcher struct {
 	runner         operationdomain.Runner
 	inventory      InventorySource
 	observer       CompletionObserver
+	protection     serverdomain.MutationGuard
 	interval       time.Duration
 	leaseDuration  time.Duration
 	owner          string
@@ -50,12 +52,17 @@ func NewDispatcher(
 	inventory InventorySource,
 	observer CompletionObserver,
 	interval, leaseDuration time.Duration,
+	protection ...serverdomain.MutationGuard,
 ) *Dispatcher {
-	return &Dispatcher{
+	dispatcher := &Dispatcher{
 		operations: operations, leases: leases, configurations: configurations,
 		catalog: catalog, runner: runner, inventory: inventory, observer: observer,
 		interval: interval, leaseDuration: leaseDuration, owner: uuid.NewString(),
 	}
+	if len(protection) > 0 {
+		dispatcher.protection = protection[0]
+	}
+	return dispatcher
 }
 
 // Run recovers expired work, then continuously looks for pending intent.
@@ -128,6 +135,12 @@ func (d *Dispatcher) execute(ctx context.Context, operation *operationdomain.Exe
 			slog.Error("release operation site lease", "operationId", operation.ID, "error", err)
 		}
 	}()
+	if d.protection != nil {
+		if err := d.protection.RequireUnlocked(ctx, operation.TargetServerIDs); err != nil {
+			d.finish(operation, owner, operationdomain.StatusFailed, err)
+			return
+		}
+	}
 	configuration, err := d.configurations.FindBySiteID(ctx, operation.SiteID)
 	if err != nil {
 		d.finish(operation, owner, operationdomain.StatusFailed, err)

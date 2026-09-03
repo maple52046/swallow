@@ -73,6 +73,9 @@ func (uc *DeployServerUseCase) Execute(ctx context.Context, input DeployServerIn
 	if err != nil {
 		return nil, err
 	}
+	if err := requireServerUnlocked(ctx, uc.servers, server, provider); err != nil {
+		return nil, err
+	}
 
 	// Refused here rather than passed down, so that a provisioner which cannot deploy
 	// from memory says so instead of installing to disk. This is the one deploy option

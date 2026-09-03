@@ -188,7 +188,7 @@ func TestUninstallRejectsUnsafeTargetsAndStates(t *testing.T) {
 			mutate: func(servers *deployFakeServerRepo, _ *clusterdomain.Cluster) {
 				servers.servers["server-1"].Provisioning.Locked = true
 			},
-			want: clusterdomain.ErrClusterUninstallConflict,
+			want: serverdomain.ErrServerLocked,
 		},
 		{
 			name: "absent target", state: clusterdomain.ClusterLifecycleActive,
@@ -339,5 +339,26 @@ func TestCompleteUninstallAfterDeleteIsIdempotent(t *testing.T) {
 	)
 	if err := service.CompleteUninstall(context.Background(), "deleted-cluster"); err != nil {
 		t.Fatalf("completion after delete: %v", err)
+	}
+}
+
+func TestUninstallLiveLockGuardRunsBeforeOperationCreation(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(clusterdomain.ClusterLifecycleActive)
+	guard := &recordingMutationGuard{
+		err: &serverdomain.ServerLockedError{Name: "node-2"},
+	}
+	service.protection = guard
+
+	_, err := service.Uninstall(context.Background(), UninstallClusterInput{
+		ClusterID: "cluster-1",
+	})
+	if !errors.Is(err, serverdomain.ErrServerLocked) {
+		t.Fatalf("Uninstall() error = %v, want ErrServerLocked", err)
+	}
+	if len(guard.serverIDs) != 2 {
+		t.Fatalf("guard targets = %v, want deployment snapshot", guard.serverIDs)
+	}
+	if launcher.launch != nil {
+		t.Fatal("live lock conflict reached the Operation launcher")
 	}
 }

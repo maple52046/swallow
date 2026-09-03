@@ -15,6 +15,7 @@ import {
   Checkbox,
   DescriptionList,
   DescriptionListDescription,
+  Flex,
   DescriptionListGroup,
   DescriptionListTerm,
   Form,
@@ -53,7 +54,7 @@ import { SingleSelect } from '@/presentation/components/SingleSelect'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { PageHeader } from '@/presentation/components/PageHeader'
-import { ProvisioningBadge } from '@/presentation/components/AxisBadge'
+import { LockBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useServerWorkingSet } from '@/presentation/pages/servers/useServerWorkingSet'
@@ -106,8 +107,12 @@ function updateTargetParams(
   return next
 }
 
-function serverIsDeployable(server: Server): boolean {
+function serverIsReadyCandidate(server: Server): boolean {
   return !server.absent && server.provisioning?.state === 'ready'
+}
+
+function serverIsDeployable(server: Server): boolean {
+  return serverIsReadyCandidate(server) && !server.provisioning?.locked
 }
 function validIPv4(value: string): boolean {
   const octets = value.trim().split('.')
@@ -165,6 +170,7 @@ export function DeployOSWizardPage() {
   const [networkAssignments, setNetworkAssignments] = useState<Record<string, { interfaceId: string; subnetId: string; ipAddress: string }>>({})
   const [result, setResult] = useState<StoredDeploymentResult | null>(() => readStoredResult(initialTargetIds))
   const [liveServers, setLiveServers] = useState<Record<string, Server>>({})
+  const normalizedTargetKey = useRef('')
   const previousSite = useRef<{ initialized: boolean; value?: string }>({
     initialized: false,
     value: siteId,
@@ -275,6 +281,10 @@ export function DeployOSWizardPage() {
   )
 
   useEffect(() => {
+    const lockedTargets = initialTargetIds
+      .map((id) => servers.find((server) => server.id === id))
+      .filter((server) => server?.provisioning?.locked)
+
     if (workingSet.state.status !== 'ready' || initialTargetIds.length === 0) return
     const compatible = initialTargetIds
       .map((id) => servers.find((server) => server.id === id))
@@ -284,6 +294,9 @@ export function DeployOSWizardPage() {
       (server) => server.source.integrationId === derivedIntegration,
     )
     if (sameIntegration.length !== initialTargetIds.length) {
+      const targetKey = initialTargetIds.join(',')
+      if (normalizedTargetKey.current === targetKey) return
+      normalizedTargetKey.current = targetKey
       setSelected(new Set(sameIntegration.map((server) => server.id)))
       setTargetIssues([])
       setIntegrationId(derivedIntegration)
@@ -293,10 +306,13 @@ export function DeployOSWizardPage() {
       )
       showToast({
         tone: 'warning',
-        title: 'Incompatible targets removed',
-        description: 'Only ready, present Servers from one provisioner can be deployed together.',
+        title: lockedTargets.length > 0 ? 'Locked targets removed' : 'Incompatible targets removed',
+        description: lockedTargets.length > 0
+          ? 'Unlock the Server before deployment.'
+          : 'Only ready, present Servers from one provisioner can be deployed together.',
       })
     } else if (!integrationId && derivedIntegration) {
+      normalizedTargetKey.current = ''
       setIntegrationId(derivedIntegration)
       setSearchParams(updateTargetParams(searchParams, initialTargetIds, derivedIntegration), { replace: true })
     }
@@ -307,6 +323,7 @@ export function DeployOSWizardPage() {
     servers,
     setSearchParams,
     showToast,
+    siteId,
     workingSet.state.status,
   ])
 
@@ -375,7 +392,7 @@ export function DeployOSWizardPage() {
 
   const availableServers = useMemo(
     () => servers.filter((server) => (
-      serverIsDeployable(server) &&
+      serverIsReadyCandidate(server) &&
       (!integrationId || server.source.integrationId === integrationId)
     )),
     [integrationId, servers],
@@ -502,6 +519,11 @@ export function DeployOSWizardPage() {
 
   const toggleServer = (serverId: string) => {
     setTargetIssues([])
+    const server = servers.find((item) => item.id === serverId)
+    if (!server || !serverIsDeployable(server)) {
+      showToast({ tone: 'warning', title: 'Server cannot be selected', description: 'Unlock the Server before deployment.' })
+      return
+    }
     setNetworkInspection(null)
     setNetworkAssignments({})
     setSelected((current) => {
@@ -713,9 +735,9 @@ export function DeployOSWizardPage() {
                   <Tbody>{availableServers.map((server) => (
                     <Tr key={server.id}>
                       <Td className="sw-cell-center">
-                        <Checkbox id={`deploy-target-${server.id}`} aria-label={`Select ${serverDisplayName(server)}`} isChecked={selected.has(server.id)} onChange={() => toggleServer(server.id)} />
+                        <Checkbox id={`deploy-target-${server.id}`} aria-label={`Select ${serverDisplayName(server)}`} isChecked={selected.has(server.id)} isDisabled={server.provisioning?.locked ?? false} onChange={() => toggleServer(server.id)} />
                       </Td>
-                      <Td dataLabel="Server"><strong>{serverDisplayName(server)}</strong></Td>
+                      <Td dataLabel="Server"><Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}><strong>{serverDisplayName(server)}</strong><LockBadge locked={server.provisioning?.locked ?? false} /></Flex></Td>
                       <Td dataLabel="Address" className="sw-mono">{server.addresses[0] ?? '-'}</Td>
                       <Td dataLabel="Power">{server.provisioning?.powerState ?? '-'}</Td>
                       <Td dataLabel="State"><ProvisioningBadge axis={server.provisioning} /></Td>

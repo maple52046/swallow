@@ -4,10 +4,12 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput } from '@/domain/server/types'
+import { serverDisplayName } from '@/domain/server/list'
+import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
-import { SERVER_ACTION_GROUPS, actionLabel, type ServerMenuAction } from './serverActions'
+import { SERVER_ACTION_GROUPS, actionLabel, serverActionAvailability, type ServerMenuAction } from './serverActions'
+import { ServerLockDialog } from './ServerLockDialog'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
 import {
   rejectedServerActionOutcome,
@@ -23,7 +25,9 @@ import {
  * the shared typed-confirmation dialog and navigates back to the Server list only after the
  * backend has removed both the provider Machine and the Swallow projection.
  */
-export function ServerActionMenu({ serverId, serverName, capabilities, deployDisabledReason, onActed }: { serverId: string; serverName: string; capabilities: ProvisionerCapabilities | null; deployDisabledReason?: string; onActed: (action: ServerMenuAction, input: ReleaseServerInput | undefined, result: ProvisioningActionResult) => void }) {
+export function ServerActionMenu({ server, capabilities, deployDisabledReason, onActed }: { server: Server; capabilities: ProvisionerCapabilities | null; deployDisabledReason?: string; onActed: (action: ServerMenuAction, input: ReleaseServerInput | undefined, result: ProvisioningActionResult) => void }) {
+  const serverId = server.id
+  const serverName = serverDisplayName(server)
   const { servers } = useApp()
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -34,6 +38,7 @@ export function ServerActionMenu({ serverId, serverName, capabilities, deployDis
   const [releaseOpen, setReleaseOpen] = useState(false)
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
+  const [lockAction, setLockAction] = useState<'lock' | 'unlock' | null>(null)
 
   const run = async (action: ServerMenuAction, releaseInput?: ReleaseServerInput) => {
     setOpen(false)
@@ -128,15 +133,27 @@ export function ServerActionMenu({ serverId, serverName, capabilities, deployDis
           </DropdownItem>
           {groups.flatMap((group) => [
             <DropdownItem key={`${group.label}-label`} isDisabled>{group.label}</DropdownItem>,
-            ...group.actions.map((entry) => (
+            ...group.actions.map((entry) => {
+              const availability = serverActionAvailability(entry.action, [server])
+              return (
               <DropdownItem
                 key={entry.action}
                 isDanger={entry.destructive}
-                onClick={() => void run(entry.action)}
+                isDisabled={Boolean(availability.disabledReason)}
+                description={availability.disabledReason}
+                onClick={() => {
+                  if (entry.action === 'lock' || entry.action === 'unlock') {
+                    setOpen(false)
+                    setLockAction(entry.action)
+                  } else {
+                    void run(entry.action)
+                  }
+                }}
               >
                 {entry.label}
               </DropdownItem>
-            )),
+              )
+            }),
           ])}
           {capabilities?.power && (
             <DropdownItem onClick={() => void queryPower()}>Query power state</DropdownItem>
@@ -150,6 +167,20 @@ export function ServerActionMenu({ serverId, serverName, capabilities, deployDis
           supportsNetworkConfiguration={capabilities?.networkConfiguration ?? true}
           onClose={() => setReleaseOpen(false)}
           onRelease={(input) => run('release', input)}
+        />
+      )}
+      {lockAction && (
+        <ServerLockDialog
+          action={lockAction}
+          targets={serverActionAvailability(lockAction, [server]).eligible}
+          skipped={serverActionAvailability(lockAction, [server]).skipped}
+          busy={busy}
+          onClose={() => setLockAction(null)}
+          onConfirm={() => {
+            const action = lockAction
+            setLockAction(null)
+            void run(action)
+          }}
         />
       )}
       {lastActionResult && resultDialogOpen && (

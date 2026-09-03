@@ -8,6 +8,7 @@ import (
 
 	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
@@ -385,6 +386,7 @@ func (r *fakeIntegrationRepo) Delete(_ context.Context, id string) error {
 type fakeProvider struct {
 	mu                    sync.Mutex
 	machines              map[string]*provisioningdomain.Machine
+	machineErr            error
 	images                []*provisioningdomain.OSImage
 	listErr               error
 	imageErr              error
@@ -413,10 +415,11 @@ type fakeProvider struct {
 	// actionErr forces every capability action to fail, for testing error propagation.
 	actionErr error
 
-	deployRequests  []provisioningdomain.DeployRequest
-	releaseRequests []provisioningdomain.ReleaseRequest
-	releaseCalls    []string
-	deleteCalls     []string
+	deployRequests        []provisioningdomain.DeployRequest
+	networkConfigureCalls []string
+	releaseRequests       []provisioningdomain.ReleaseRequest
+	releaseCalls          []string
+	deleteCalls           []string
 	// actions records every capability action taken, as "op machineID", so a test can
 	// assert the provider was driven correctly.
 	actions []string
@@ -549,11 +552,23 @@ func (p *fakeProvider) OverrideFailedTesting(_ context.Context, machineID string
 }
 
 func (p *fakeProvider) Lock(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
-	return p.recordAction("lock", machineID)
+	machine, err := p.recordAction("lock", machineID)
+	if err != nil {
+		return nil, err
+	}
+	machine.Locked = true
+	p.machines[machineID].Locked = true
+	return machine, nil
 }
 
 func (p *fakeProvider) Unlock(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
-	return p.recordAction("unlock", machineID)
+	machine, err := p.recordAction("unlock", machineID)
+	if err != nil {
+		return nil, err
+	}
+	machine.Locked = false
+	p.machines[machineID].Locked = false
+	return machine, nil
 }
 
 func (p *fakeProvider) MarkBroken(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
@@ -633,6 +648,9 @@ func (p *fakeProvider) ListMachines(_ context.Context, _ provisioningdomain.Mach
 }
 
 func (p *fakeProvider) GetMachine(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	if p.machineErr != nil {
+		return nil, p.machineErr
+	}
 	machine, ok := p.machines[machineID]
 	if !ok {
 		return nil, provisioningdomain.ErrMachineNotFound
@@ -688,6 +706,9 @@ func (p *fakeProvider) ConfigureNetworkLink(
 	machineID string,
 	req provisioningdomain.NetworkLinkRequest,
 ) (*provisioningdomain.MachineNetwork, error) {
+	p.mu.Lock()
+	p.networkConfigureCalls = append(p.networkConfigureCalls, machineID)
+	p.mu.Unlock()
 	network, err := p.InspectNetwork(context.Background(), machineID)
 	if err != nil {
 		return nil, err
@@ -1077,4 +1098,19 @@ func (l *fakeUninstallLauncher) LaunchUninstall(
 		return "operation-uninstall-1", nil
 	}
 	return l.operationID, nil
+}
+
+type fakeActiveServerWorkReader struct {
+	work map[string]provisioningapp.ActiveServerWork
+	err  error
+}
+
+func (r *fakeActiveServerWorkReader) ActiveWork(
+	_ context.Context,
+	serverID string,
+) (provisioningapp.ActiveServerWork, error) {
+	if r.err != nil {
+		return provisioningapp.ActiveServerWork{}, r.err
+	}
+	return r.work[serverID], nil
 }

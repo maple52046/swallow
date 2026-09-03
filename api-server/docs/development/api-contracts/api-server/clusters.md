@@ -26,6 +26,7 @@ membership.
 - [Operation](../../../../../docs/development/glossaries/terms/operation.md)
 - [Node Role](../../../../../docs/development/glossaries/terms/node-role.md)
 - [Cluster Topology](../../../../../docs/development/glossaries/terms/cluster-topology.md)
+- [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
 
 ## Endpoints
 
@@ -140,8 +141,10 @@ matched a Server.
 }
 ```
 
-`type` is always `kubernetes`. The target Servers must exist, be `deployed`, and belong
-to one Site. A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
+`type` is always `kubernetes`. The target Servers must exist, be `deployed`, and belong to one Site. They must also be unlocked in a live provider read. The complete lock preflight finishes before Swallow creates either the
+Cluster or Operation; one locked target rejects the batch with `409 conflict`.
+
+A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
 defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
 runs workloads.
 
@@ -197,7 +200,8 @@ reads.
 Eligibility requires a Kubernetes Cluster with durable `deploy-kubernetes` provenance.
 The target set is always the complete `targetServerIds` snapshot from its latest
 deployment Operation, never current membership. All targets must still exist, be present,
-be unlocked, and have no overlapping active Operation. No single provisioning state is
+be unlocked, and have no overlapping active Operation. Lock is checked live before
+the uninstall Operation is created. No single provisioning state is
 required because a failed deployment can leave a mixed target set.
 
 A pending or running deployment/uninstall, an already successful uninstall, a missing,
@@ -227,7 +231,8 @@ for list requests; the API does not fan out one Operation query per Cluster.
 `DELETE /api/v1/clusters/{clusterId}` is record-only and always returns
 `{"success":true}` on success. It clears membership and a Swallow-owned credential
 Integration, then removes the Cluster record. It never runs Ansible, changes hosts, waits
-for Uninstall, restores exporters, or cancels accepted Operations. Pending/running
+for Uninstall, restores exporters, or cancels accepted Operations. It remains
+available while targets are locked because it does not mutate them. Pending/running
 Operations may finish after Delete; retrying a finished deploy/uninstall Operation whose
 Cluster no longer exists is refused.
 

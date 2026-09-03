@@ -39,6 +39,9 @@ func TestServerActions_DriveTheProvisioner(t *testing.T) {
 		t.Run(tc.path, func(t *testing.T) {
 			f := setupPlatform(t)
 			seedActionableServer(t, f)
+			if tc.path == "lock" {
+				f.provider.machines["machine-srv-1"].Status = provisioningdomain.MachineStatusDeployed
+			}
 
 			resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-1/"+tc.path, nil, f.adminAuth(t))
 			if resp.StatusCode != http.StatusAccepted {

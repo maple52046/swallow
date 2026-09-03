@@ -84,9 +84,8 @@ func TestPrometheusTargets_FiltersByTag(t *testing.T) {
 	}
 }
 
-// A locked machine is off-limits and unmonitored, so it must not appear as a scrape
-// target; otherwise it would be a permanently-down series making it look unhealthy.
-func TestPrometheusTargets_SkipsLockedServers(t *testing.T) {
+// Lock prevents mutation, not observation; existing exporters remain discoverable.
+func TestPrometheusTargets_IncludesLockedServers(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-open", "node-01", "10.0.1.10", nil)
 	f.seedServer("srv-locked", "node-02", "10.0.1.11", func(s *serverdomain.Server) {
@@ -95,11 +94,15 @@ func TestPrometheusTargets_SkipsLockedServers(t *testing.T) {
 
 	resp := doRequest(t, f.app, "GET", "/api/v1/discovery/prometheus", nil, discoveryAuth())
 	entries := parseArrayBody(t, resp)
-	if len(entries) != 1 {
-		t.Fatalf("expected only the unlocked server, got %d", len(entries))
+	if len(entries) != 2 {
+		t.Fatalf("expected locked and unlocked servers, got %d", len(entries))
 	}
-	if entries[0]["labels"].(map[string]any)["server_id"] != "srv-open" {
-		t.Errorf("locked server must be excluded, got %v", entries[0])
+	ids := map[any]bool{}
+	for _, entry := range entries {
+		ids[entry["labels"].(map[string]any)["server_id"]] = true
+	}
+	if !ids["srv-open"] || !ids["srv-locked"] {
+		t.Errorf("both Servers must remain discoverable, got %v", ids)
 	}
 }
 

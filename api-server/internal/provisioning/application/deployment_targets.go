@@ -137,12 +137,6 @@ func (s *DeploymentTargetPreflightService) validate(
 				Code:     "not_ready",
 				Message:  "The Server provisioning state is not ready.",
 			})
-		case server.Provisioning.Locked:
-			validated.issues = append(validated.issues, DeploymentTargetIssue{
-				ServerID: id,
-				Code:     "locked",
-				Message:  "Unlock the Server before deployment.",
-			})
 		}
 	}
 	if len(validated.issues) > 0 {
@@ -152,6 +146,57 @@ func (s *DeploymentTargetPreflightService) validate(
 	provider, err := s.providers.For(ctx, validated.integrationID)
 	if err != nil {
 		return nil, err
+	}
+
+	// A direct MAAS Lock can be newer than the cached projection, so preflight reads
+	// every target again with the same bounded concurrency used for readiness checks.
+	lockOutcomes := make([]targetReadinessOutcome, len(serverIDs))
+	lockJobs := make(chan int)
+	lockWorkers := deploymentReadinessWorkers
+	if len(serverIDs) < lockWorkers {
+		lockWorkers = len(serverIDs)
+	}
+	var lockGroup sync.WaitGroup
+	lockGroup.Add(lockWorkers)
+	for worker := 0; worker < lockWorkers; worker++ {
+		go func() {
+			defer lockGroup.Done()
+			for index := range lockJobs {
+				machine, machineErr := provider.GetMachine(
+					ctx, validated.servers[index].Source.ProviderMachineID)
+				if machineErr != nil {
+					lockOutcomes[index].issue, lockOutcomes[index].err =
+						deploymentReadinessIssue(serverIDs[index], machineErr)
+					continue
+				}
+				if machine.Locked {
+					lockOutcomes[index].issue = &DeploymentTargetIssue{
+						ServerID: serverIDs[index],
+						Code:     "locked",
+						Message: fmt.Sprintf(
+							"Server %q is locked. Unlock it before deployment.",
+							validated.servers[index].DisplayName(),
+						),
+					}
+				}
+			}
+		}()
+	}
+	for index := range serverIDs {
+		lockJobs <- index
+	}
+	close(lockJobs)
+	lockGroup.Wait()
+	for _, outcome := range lockOutcomes {
+		if outcome.err != nil {
+			return nil, outcome.err
+		}
+		if outcome.issue != nil {
+			validated.issues = append(validated.issues, *outcome.issue)
+		}
+	}
+	if len(validated.issues) > 0 {
+		return validated, nil
 	}
 	if provider.Capabilities().NetworkConfiguration || !provider.Capabilities().DeploymentReadiness {
 		return validated, nil

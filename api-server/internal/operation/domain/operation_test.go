@@ -2,20 +2,16 @@ package domain
 
 import "testing"
 
-// The exporter kinds are the ones swallow refuses to run against a locked machine, which
-// is what keeps an operator-locked host off-limits to automatic install/uninstall.
+// Every Operation kind changes its target host and must respect the provider-owned lock.
 func TestOperationKindRefusedWhenLocked(t *testing.T) {
-	refused := map[OperationKind]bool{
-		OperationKindInstallExporters:   true,
-		OperationKindUninstallExporters: true,
-		OperationKindInstallGPUDriver:   false,
-		OperationKindDeployKubernetes:   false,
-		OperationKindCustom:             false,
-	}
-	for kind, want := range refused {
-		if got := kind.RefusedWhenLocked(); got != want {
-			t.Errorf("%s RefusedWhenLocked() = %v, want %v", kind, got, want)
+	for _, kind := range ValidOperationKinds {
+		if !kind.RefusedWhenLocked() {
+			t.Errorf("%s should be refused while its target is locked", kind)
 		}
+	}
+
+	if OperationKind("unknown").RefusedWhenLocked() {
+		t.Error("an invalid operation kind must not be treated as executable")
 	}
 }
 

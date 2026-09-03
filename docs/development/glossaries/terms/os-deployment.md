@@ -17,7 +17,7 @@
   image to seven ready Servers; each Server later moves through `deploying` and
   `deployed` independently.
 - Related terms: OS Image, Deployment Template, Network Configuration, Server
-  Status, Operation, Installation.
+  Status, Server Lock, Operation, Installation.
 - Change note: Added to distinguish provider-owned OS work from Swallow-owned
   Operations and platform Installation; expanded when Swallow began owning the
   provider-neutral deployment network intent; standardized `Ephemeral` as the

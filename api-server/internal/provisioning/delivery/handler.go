@@ -332,6 +332,8 @@ func RespondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Provisioning task not found."))
 
 	case errors.Is(err, provisioningdomain.ErrProvisioningTaskConflict),
+		errors.Is(err, provisioningdomain.ErrServerMutationConflict),
+		errors.Is(err, serverdomain.ErrServerLocked),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
@@ -347,6 +349,10 @@ func RespondError(c *fiber.Ctx, err error) error {
 
 	case errors.Is(err, serverdomain.ErrServerNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Server not found."))
+
+	case errors.Is(err, serverdomain.ErrServerLockUnavailable):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
+			err.Error()))
 
 	case errors.Is(err, provisioningdomain.ErrMachineNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound,

@@ -59,6 +59,7 @@ type platformFixture struct {
 	provider     *fakeProvider
 	factory      *fakeProviderFactory
 	health       *testHealthResolver
+	activeWork   *fakeActiveServerWorkReader
 
 	clusterLifecycle  *fakeLifecycleReader
 	uninstallLauncher *fakeUninstallLauncher
@@ -80,6 +81,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	factory := newFakeProviderFactory()
 	factory.providers[testIntegrationID] = provider
 	health := &testHealthResolver{health: map[string]*serverdomain.HealthStatus{}}
+	activeWork := &fakeActiveServerWorkReader{work: map[string]provisioningapp.ActiveServerWork{}}
 
 	jwtSvc := jwt.NewService("test-secret", time.Hour)
 
@@ -108,7 +110,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewReconcileUseCase(integrations, servers, factory),
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
 		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
-		provisioningapp.NewMachineActionsUseCase(servers, factory),
+		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
@@ -223,6 +225,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provider:          provider,
 		factory:           factory,
 		health:            health,
+		activeWork:        activeWork,
 		monitoring:        monitoringFactory,
 		clusterRepo:       clusterRepo,
 		clusterReader:     readerFactory,

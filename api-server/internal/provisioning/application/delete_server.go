@@ -44,6 +44,10 @@ func (uc *DeleteServerUseCase) Execute(ctx context.Context, serverID string) err
 	if !ok {
 		return unsupported("machine removal")
 	}
+	if err := requireServerUnlocked(ctx, uc.servers, server, provider); err != nil &&
+		!errors.Is(err, provisioningdomain.ErrMachineNotFound) {
+		return err
+	}
 
 	err = remover.DeleteMachine(ctx, server.Source.ProviderMachineID)
 	if err != nil && !errors.Is(err, provisioningdomain.ErrMachineNotFound) {

@@ -102,19 +102,11 @@ const (
 	StatusIndeterminate Status = "indeterminate"
 )
 
-// RefusedWhenLocked reports whether Swallow must refuse this kind of operation against a
-// locked machine. Exporter changes and cluster uninstall are refused because they alter
-// software Swallow owns on the host; a locked machine is declared off-limits
-// ("unmanaged"). Other kinds retain their existing behavior, matching the provisioner
-// lock's narrower role in blocking provisioner state changes rather than every SSH
-// action.
+// RefusedWhenLocked reports whether an Operation changes a target host. Every valid
+// Operation executes automation against the host and is therefore refused while the
+// provider-owned Server lock is active.
 func (k OperationKind) RefusedWhenLocked() bool {
-	switch k {
-	case OperationKindUninstallKubernetes, OperationKindInstallExporters, OperationKindUninstallExporters:
-		return true
-	default:
-		return false
-	}
+	return k.Valid()
 }
 
 // Terminal reports whether a status will no longer change on its own, which is what stops

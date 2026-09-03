@@ -14,6 +14,11 @@ run concurrently. Logs are retained in local persistent job artifacts; a run's t
 events are derived from the runner's own record, so a long multi-phase operation can be
 followed beyond a single status word. Operation metadata remains in MongoDB.
 
+Every target must be unlocked when an Operation is accepted and again after a pending
+run is claimed but before its runner starts. A newly locked target makes the unstarted
+run fail with an actionable reason. A lock appearing after execution starts does not
+cancel or interrupt the run.
+
 A failed operation may be retried only by an operator. A retry is a new operation with the
 same kind, targets, and variables, linked to the original by `retryOfOperationId`. The
 original is kept. Rerunning is safe because the mapped playbook is idempotent, which is a

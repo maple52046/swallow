@@ -105,6 +105,7 @@ export interface FixtureOptions {
   staticNetworkServerIds?: string[]
   networkSubnetName?: string
   ephemeralServerIds?: string[]
+  lockedServerIds?: string[]
   secondReadyServerIntegrationId?: string
   failImageIntegrationIds?: string[]
   deploymentFailureIds?: string[]
@@ -149,6 +150,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       server.provisioning.ephemeral = true
     }
   }
+  for (const serverId of options.lockedServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.provisioning.locked = true
+  }
   if (options.secondReadyServerIntegrationId && fleet[1]) {
     fleet[1].source.integrationId = options.secondReadyServerIntegrationId
     fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId
@@ -172,8 +177,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const subnetName = options.networkSubnetName ?? 'lab-network'
     return [server.id, {
       serverId: server.id,
-      editable: server.provisioning.state === 'ready',
-      disabledReason: server.provisioning.state === 'ready' ? '' : 'Network configuration can only be changed while the Server is Ready.',
+      editable: server.provisioning.state === 'ready' && !server.provisioning.locked,
+      disabledReason: server.provisioning.locked
+        ? 'Unlock the Server before changing network configuration.'
+        : server.provisioning.state === 'ready' ? '' : 'Network configuration can only be changed while the Server is Ready.',
       suggestion: { mode: hasStaticBinding ? 'static' : 'dhcp', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
       network: {
         interfaces: [{
@@ -407,6 +414,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const body = request.postDataJSON() as { serverIds: string[] }
       const issues = body.serverIds.flatMap((serverId) => {
         const message = options.deploymentReadinessIssues?.[serverId]
+        const locked = fleet.find((server) => server.id === serverId)?.provisioning.locked
+        if (locked) return [{ serverId, code: "locked", message: "Unlock the Server before deployment." }]
         return message ? [{
           serverId,
           code: 'provider_not_ready',
@@ -606,6 +615,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null
         options.onServerReleaseRequest?.(serverId, body)
       }
+      const actionServer = fleet.find((item) => item.id === serverId)
+      if (actionServer && action === "lock") actionServer.provisioning.locked = true
+      if (actionServer && action === "unlock") actionServer.provisioning.locked = false
       if (options.serverActionFailureIds?.includes(serverId)) {
         return json(route, {
           error: {
@@ -645,7 +657,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, {
         serverId, state: action === "release" ? "releasing" : "deployed", providerState: "Accepted",
         powerState: "off", osSystem: "ubuntu", distroSeries: "jammy", ephemeral: false,
-        hweKernel: "", locked: false, commissioningStatus: "", testingStatus: "", observedAt: now,
+        hweKernel: "", locked: actionServer?.provisioning.locked ?? false, commissioningStatus: "", testingStatus: "", observedAt: now,
         ...(releaseBody?.unbindStaticIPs ? { taskId: `task-${serverId}` } : {}),
       }, 202)
     }

@@ -27,6 +27,8 @@ export type ServerSortKey =
 
 export type SortDirection = 'asc' | 'desc'
 
+export type ServerLockFilter = 'any' | 'locked' | 'unlocked'
+
 /**
  * The multi-dimension filter the panel builds. Each array is an OR within a dimension and
  * dimensions AND together, matching MAAS's filter semantics. `hasGpu` is a tri-state:
@@ -38,6 +40,7 @@ export interface ServerFilters {
   pools: readonly string[]
   tags: readonly string[]
   hasGpu: boolean | null
+  lockState: ServerLockFilter
 }
 
 /** The no-op filter: matches every server. */
@@ -47,6 +50,7 @@ export const EMPTY_SERVER_FILTERS: ServerFilters = {
   pools: [],
   tags: [],
   hasGpu: null,
+  lockState: 'any',
 }
 
 /** True when no dimension constrains the result. */
@@ -56,7 +60,8 @@ export function isEmptyFilters(filters: ServerFilters): boolean {
     filters.zones.length === 0 &&
     filters.pools.length === 0 &&
     filters.tags.length === 0 &&
-    filters.hasGpu === null
+    filters.hasGpu === null &&
+    filters.lockState === 'any'
   )
 }
 
@@ -113,6 +118,12 @@ export function matchesServerFilters(server: Server, filters: ServerFilters): bo
   if (filters.hasGpu !== null && server.gpus.length > 0 !== filters.hasGpu) {
     return false
   }
+  const locked = server.provisioning?.locked === true
+  if ((filters.lockState === 'locked' && !locked) ||
+    (filters.lockState === 'unlocked' && locked)) {
+    return false
+  }
+
   return true
 }
 

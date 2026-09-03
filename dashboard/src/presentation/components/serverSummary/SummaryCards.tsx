@@ -1,6 +1,6 @@
-import { Card, CardBody, CardTitle, DescriptionList, DescriptionListDescription, DescriptionListGroup, DescriptionListTerm, Flex, Label } from '@patternfly/react-core'
+import { Card, CardBody, CardTitle, DescriptionList, DescriptionListDescription, DescriptionListGroup, DescriptionListTerm, Flex } from '@patternfly/react-core'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
-import { ProvisioningBadge, HealthBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
+import { ProvisioningBadge, HealthBadge, LockBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
 import type { Server } from '@/domain/server/types'
 
 function Fields({ items }: { items: Array<{ label: string; value: string | null | undefined }> }) {
@@ -15,7 +15,7 @@ export function SummaryStatCard({ title, value, sub }: { title: string; value: s
 /** Independent machine lifecycle, membership, and liveness axes with provider qualifiers. */
 export function StatusCard({ server }: { server: Server }) {
   const axis = server.provisioning
-  return <Card><CardTitle>Power and provisioning</CardTitle><CardBody><Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={axis} /><MembershipBadge axis={server.membership} /><HealthBadge axis={server.health} />{axis?.locked && <Label color="orange">locked</Label>}</Flex>{axis && <Fields items={[{ label: 'Power', value: axis.powerState }, { label: 'Deployed OS', value: axis.distroSeries ? [axis.osSystem, axis.distroSeries].filter(Boolean).join(' ') : null }, { label: 'Kernel', value: axis.hweKernel }, { label: 'Commissioning', value: axis.commissioningStatus }, { label: 'Testing', value: axis.testingStatus }]} />}</CardBody></Card>
+  return <Card><CardTitle>Power and provisioning</CardTitle><CardBody><Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={axis} /><LockBadge locked={axis?.locked ?? false} /><MembershipBadge axis={server.membership} /><HealthBadge axis={server.health} /></Flex>{axis && <Fields items={[{ label: 'Power', value: axis.powerState }, { label: 'Deployed OS', value: axis.distroSeries ? [axis.osSystem, axis.distroSeries].filter(Boolean).join(' ') : null }, { label: 'Kernel', value: axis.hweKernel }, { label: 'Commissioning', value: axis.commissioningStatus }, { label: 'Testing', value: axis.testingStatus }]} />}</CardBody></Card>
 }
 
 /** Provider placement and inventory labels kept separate from Swallow-owned identity. */

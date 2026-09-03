@@ -125,6 +125,10 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("provisioning task repo init: %w", err)
 	}
+	operationRepo, err := operationinfra.NewMongoExecutionRepo(db, sealer)
+	if err != nil {
+		return fmt.Errorf("operation repo init: %w", err)
+	}
 
 	if err := bootstrap.EnsureAdminUser(
 		ctx, userRepo,
@@ -162,11 +166,15 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 
 	providerFactory := provisioninginfra.NewProviderFactory(integrationRepo)
+	serverProtection := providerServerMutationGuard{
+		servers: serverRepo, providers: providerFactory,
+	}
+	activeWork := activeServerWorkReader{operations: operationRepo, tasks: taskRepo}
 	integrationReader := provisioninginfra.NewIntegrationReader(integrationRepo, siteRepo)
 	templateService := provisioningapp.NewDeploymentTemplateService(
 		templateRepo, integrationReader, providerFactory)
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
-	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo)
+	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, serverProtection)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory)
@@ -184,7 +192,7 @@ func RunAPI(cfg config.APIConfig) error {
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
 		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
-		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory),
+		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
 	)
 
@@ -199,10 +207,6 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("playbook catalog: %w", err)
 	}
-	operationRepo, err := operationinfra.NewMongoExecutionRepo(db, sealer)
-	if err != nil {
-		return fmt.Errorf("operation repo init: %w", err)
-	}
 	lifecycleReader := clusterLifecycleReader{operations: operationRepo}
 	integrationCleaner := managedClusterIntegrationCleaner{integrations: integrationRepo}
 	clusterService := clusterapp.NewClusterService(
@@ -214,6 +218,7 @@ func RunAPI(cfg config.APIConfig) error {
 	operationService := operationapp.NewExecutionService(
 		operationRepo, serverRepo, automationRepo, catalog, runner,
 		clusterapp.NewPolicyChecker(clusterRepo, serverRepo),
+		serverProtection,
 	)
 	automationService := operationapp.NewAutomationConfigurationService(
 		automationRepo, siteRepo, catalog,
@@ -231,9 +236,11 @@ func RunAPI(cfg config.APIConfig) error {
 	clusterLauncher := clusterDeploymentLauncher{operations: operationService}
 	deployService := clusterapp.NewDeployService(
 		clusterService, clusterRepo, serverRepo, lifecycleReader, clusterLauncher,
+		serverProtection,
 	)
 	uninstallService := clusterapp.NewUninstallService(
 		clusterRepo, serverRepo, lifecycleReader, clusterLauncher,
+		serverProtection,
 	)
 	clusterHandler := clusterdelivery.NewClusterHandler(
 		clusterService, membershipSync, deployService, uninstallService)
@@ -257,6 +264,7 @@ func RunAPI(cfg config.APIConfig) error {
 			operations: operationService, servers: serverRepo,
 		},
 		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration,
+		serverProtection,
 	)
 
 	fiberApp := fiber.New(fiber.Config{

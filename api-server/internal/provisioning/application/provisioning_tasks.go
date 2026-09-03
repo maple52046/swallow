@@ -34,14 +34,20 @@ type ProvisioningTaskItem struct {
 type ProvisioningTaskService struct {
 	tasks   provisioningdomain.ProvisioningTaskRepository
 	servers serverdomain.ServerRepository
+	guard   serverdomain.MutationGuard
 }
 
 // NewProvisioningTaskService creates the query and retry boundary.
 func NewProvisioningTaskService(
 	tasks provisioningdomain.ProvisioningTaskRepository,
 	servers serverdomain.ServerRepository,
+	guard ...serverdomain.MutationGuard,
 ) *ProvisioningTaskService {
-	return &ProvisioningTaskService{tasks: tasks, servers: servers}
+	service := &ProvisioningTaskService{tasks: tasks, servers: servers}
+	if len(guard) > 0 {
+		service.guard = guard[0]
+	}
+	return service
 }
 
 // ListByServer returns newest task history after verifying the Server exists.
@@ -85,8 +91,17 @@ func (s *ProvisioningTaskService) Retry(
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.servers.FindByID(ctx, task.ServerID); err != nil {
+	server, err := s.servers.FindByID(ctx, task.ServerID)
+	if err != nil {
 		return nil, err
+	}
+	if s.guard != nil {
+		if err := s.guard.RequireUnlocked(ctx, []string{server.ID}); err != nil {
+			return nil, err
+		}
+	}
+	if s.guard == nil && server.Provisioning != nil && server.Provisioning.Locked {
+		return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
 	}
 	if task.Status != provisioningdomain.ProvisioningTaskFailed ||
 		task.Phase == provisioningdomain.ProvisioningTaskWaitingForRelease {
@@ -196,6 +211,13 @@ func (w *ProvisioningTaskWorker) process(
 	machine, err := provider.GetMachine(ctx, task.ProviderMachineID)
 	if err != nil {
 		return w.fail(ctx, task, provisioningTaskError(err), now)
+	}
+	updateProvisioningProjection(server, machine)
+	_ = w.servers.Upsert(ctx, server)
+	if machine.Locked {
+		task.Phase = provisioningdomain.ProvisioningTaskCleaningNetwork
+		return w.fail(ctx, task,
+			"Server is locked. Unlock it before retrying network cleanup.", now)
 	}
 	if machine.Status != provisioningdomain.MachineStatusReady {
 		if machine.Status == provisioningdomain.MachineStatusFailed {

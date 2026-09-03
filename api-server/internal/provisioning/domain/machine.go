@@ -201,6 +201,10 @@ var (
 	// ErrInvalidReleaseRequest marks release options whose combination cannot be
 	// interpreted safely, such as asking for secure erase without enabling erasure.
 	ErrInvalidReleaseRequest = errors.New("invalid release request")
+
+	// ErrServerMutationConflict means the requested state change conflicts with
+	// protection or already-active work on the Server.
+	ErrServerMutationConflict = errors.New("server mutation conflict")
 )
 
 // ProviderErrorKind classifies a provider failure so that the delivery layer can

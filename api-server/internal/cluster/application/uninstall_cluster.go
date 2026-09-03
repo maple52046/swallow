@@ -11,10 +11,11 @@ import (
 
 // UninstallService validates a cluster and starts its idempotent k0s removal operation.
 type UninstallService struct {
-	clusters  clusterdomain.ClusterRepository
-	servers   serverdomain.ServerRepository
-	lifecycle clusterdomain.LifecycleReader
-	launcher  clusterdomain.UninstallLauncher
+	clusters   clusterdomain.ClusterRepository
+	servers    serverdomain.ServerRepository
+	lifecycle  clusterdomain.LifecycleReader
+	launcher   clusterdomain.UninstallLauncher
+	protection serverdomain.MutationGuard
 }
 
 // NewUninstallService constructs the cluster uninstall use case.
@@ -23,10 +24,15 @@ func NewUninstallService(
 	servers serverdomain.ServerRepository,
 	lifecycle clusterdomain.LifecycleReader,
 	launcher clusterdomain.UninstallLauncher,
+	protection ...serverdomain.MutationGuard,
 ) *UninstallService {
-	return &UninstallService{
+	service := &UninstallService{
 		clusters: clusters, servers: servers, lifecycle: lifecycle, launcher: launcher,
 	}
+	if len(protection) > 0 {
+		service.protection = protection[0]
+	}
+	return service
 }
 
 // UninstallClusterInput identifies the cluster and requesting operator.
@@ -97,9 +103,14 @@ func (s *UninstallService) Uninstall(
 			return nil, fmt.Errorf("%w: deployment target %s is absent",
 				clusterdomain.ErrClusterUninstallConflict, server.DisplayName())
 		}
-		if server.Provisioning != nil && server.Provisioning.Locked {
-			return nil, fmt.Errorf("%w: deployment target %s is locked",
-				clusterdomain.ErrClusterUninstallConflict, server.DisplayName())
+		if s.protection == nil && server.Provisioning != nil && server.Provisioning.Locked {
+			return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
+		}
+	}
+
+	if s.protection != nil {
+		if err := s.protection.RequireUnlocked(ctx, targetIDs); err != nil {
+			return nil, err
 		}
 	}
 

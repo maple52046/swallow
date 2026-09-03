@@ -23,6 +23,7 @@ type ExecutionService struct {
 	configurations operationdomain.AutomationConfigurationRepository
 	catalog        operationdomain.PlaybookCatalog
 	runner         operationdomain.Runner
+	protection     serverdomain.MutationGuard
 	policy         PolicyChecker
 }
 
@@ -34,11 +35,16 @@ func NewExecutionService(
 	catalog operationdomain.PlaybookCatalog,
 	runner operationdomain.Runner,
 	policy PolicyChecker,
+	protection ...serverdomain.MutationGuard,
 ) *ExecutionService {
-	return &ExecutionService{
+	service := &ExecutionService{
 		operations: operations, servers: servers, configurations: configurations,
 		catalog: catalog, runner: runner, policy: policy,
 	}
+	if len(protection) > 0 {
+		service.protection = protection[0]
+	}
+	return service
 }
 
 // ExecutionOperationItem is the public operation representation.
@@ -97,6 +103,11 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	targets, siteID, err := s.resolveTargets(ctx, kind, input.TargetServerIDs)
 	if err != nil {
 		return nil, err
+	}
+	if s.protection != nil {
+		if err := s.protection.RequireUnlocked(ctx, input.TargetServerIDs); err != nil {
+			return nil, err
+		}
 	}
 	active, err := s.operations.FindActiveByServerIDs(ctx, input.TargetServerIDs)
 	if err != nil {
@@ -181,10 +192,9 @@ func (s *ExecutionService) resolveTargets(ctx context.Context, kind operationdom
 			return nil, "", fmt.Errorf("%w: %s requires %q",
 				operationdomain.ErrTargetStateInvalid, server.DisplayName(), required)
 		}
-		// A locked machine is off-limits to the exporter operations: swallow must not
-		// install or remove exporters on a machine an operator has locked.
-		if kind.RefusedWhenLocked() && server.Provisioning != nil && server.Provisioning.Locked {
-			return nil, "", fmt.Errorf("%w: %s is locked",
+		// Every Operation mutates its target host, regardless of which playbook carries it.
+		if s.protection == nil && kind.RefusedWhenLocked() && server.Provisioning != nil && server.Provisioning.Locked {
+			return nil, "", fmt.Errorf("%w: Server %q is locked. Unlock it before starting this Operation.",
 				operationdomain.ErrTargetLocked, server.DisplayName())
 		}
 		targets = append(targets, server)

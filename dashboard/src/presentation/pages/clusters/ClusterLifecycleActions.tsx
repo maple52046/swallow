@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   AlertVariant,
@@ -13,6 +13,7 @@ import {
   ModalFooter,
   ModalHeader,
   TextInput,
+  Tooltip,
 } from '@patternfly/react-core'
 import { RedoIcon } from '@patternfly/react-icons'
 import { useNavigate } from 'react-router-dom'
@@ -26,7 +27,7 @@ type ConfirmationAction = 'uninstall' | 'delete'
 
 interface ClusterLifecycleActionsProps {
   cluster: Cluster
-  targetCount?: number
+  targetServerIds?: readonly string[]
   onRepairStarted: () => void
 }
 
@@ -39,10 +40,10 @@ interface ClusterLifecycleActionsProps {
  */
 export function ClusterLifecycleActions({
   cluster,
-  targetCount,
+  targetServerIds,
   onRepairStarted,
 }: ClusterLifecycleActionsProps) {
-  const { clusters, operations } = useApp()
+  const { clusters, operations, servers } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
   const navigate = useNavigate()
@@ -54,7 +55,55 @@ export function ClusterLifecycleActions({
   const [repairOpen, setRepairOpen] = useState(false)
   const [repairError, setRepairError] = useState('')
   const [repairing, setRepairing] = useState(false)
-  const uninstallDisabledReason = clusterUninstallDisabledReason(cluster)
+  const [targetProtection, setTargetProtection] = useState<{
+    targetKey: string
+    lockedNames: string[]
+    error?: string
+  }>({ targetKey: '', lockedNames: [] })
+  const targetKey = useMemo(
+    () => [...(targetServerIds ?? [])].sort().join(','),
+    [targetServerIds],
+  )
+  const targetCount = targetServerIds?.length
+
+  useEffect(() => {
+    const ids = targetKey ? targetKey.split(',') : []
+    let cancelled = false
+    Promise.all(ids.map((id) => servers.getServer(id)))
+      .then((targets) => {
+        if (cancelled) return
+        setTargetProtection({
+          targetKey,
+          lockedNames: targets.flatMap((server) => (
+            server?.provisioning?.locked ? [server.hostname || server.id] : []
+          )),
+        })
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTargetProtection({
+            targetKey,
+            lockedNames: [],
+            error: 'Target protection could not be checked. Refresh and try again.',
+          })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [servers, targetKey, targetServerIds])
+
+  const lockedDisabledReason = targetProtection.targetKey !== targetKey
+    ? 'Checking target protection.'
+    : targetProtection.error
+      ? targetProtection.error
+      : targetProtection.lockedNames.length > 0
+        ? `${targetProtection.lockedNames.join(', ')} ${targetProtection.lockedNames.length === 1 ? 'is' : 'are'} locked. Unlock ${targetProtection.lockedNames.length === 1 ? 'it' : 'them'} before changing this Cluster.`
+        : undefined
+  const uninstallDisabledReason = clusterUninstallDisabledReason(cluster) ?? lockedDisabledReason
+  const repairDisabledReason = !cluster.lifecycleOperationId
+    ? 'The deployment Operation is unavailable.'
+    : lockedDisabledReason
 
   const openConfirmation = (next: ConfirmationAction) => {
     setMenuOpen(false)
@@ -130,16 +179,23 @@ export function ClusterLifecycleActions({
   return (
     <>
       {cluster.lifecycleState === 'deploy_failed' && (
-        <Button
-          icon={<RedoIcon />}
-          onClick={() => {
-            setRepairError('')
-            setRepairOpen(true)
-          }}
-          isDisabled={!cluster.lifecycleOperationId}
-        >
-          Repair deployment
-        </Button>
+        <Tooltip content={repairDisabledReason ?? 'Rerun the original deployment configuration'}>
+          <span>
+            <Button
+              icon={<RedoIcon />}
+              onClick={() => {
+                setRepairError('')
+                setRepairOpen(true)
+              }}
+              isDisabled={Boolean(repairDisabledReason)}
+              aria-label={repairDisabledReason
+                ? `Repair deployment: ${repairDisabledReason}`
+                : 'Repair deployment'}
+            >
+              Repair deployment
+            </Button>
+          </span>
+        </Tooltip>
       )}
       <Dropdown
         isOpen={menuOpen}
@@ -201,7 +257,7 @@ export function ClusterLifecycleActions({
           <Button
             onClick={() => void startRepair()}
             isLoading={repairing}
-            isDisabled={repairing || !cluster.lifecycleOperationId}
+            isDisabled={repairing || Boolean(repairDisabledReason)}
           >
             Repair deployment
           </Button>

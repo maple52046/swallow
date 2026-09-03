@@ -7,7 +7,7 @@
  * shows them all and lets the backend refuse per server — matching MAAS, where bulk menus
  * always appear and the server validates.
  */
-import type { ProvisionerCapabilities, ServerAction } from '@/domain/server/types'
+import type { ProvisionerCapabilities, Server, ServerAction } from '@/domain/server/types'
 
 /** A bulk/row action. `release` is included alongside the `ServerAction` union because it
  * is a lifecycle action offered in bulk but reached through a different repository method. */
@@ -81,5 +81,76 @@ export function actionLabel(action: ServerMenuAction): string {
     const found = group.actions.find((entry) => entry.action === action)
     if (found) return found.label
   }
+
   return action
+}
+
+const ACTIVE_PROVIDER_STATES = new Set(['commissioning', 'deploying', 'releasing', 'testing'])
+
+export interface ServerActionAvailability {
+  eligible: readonly Server[]
+  skipped: readonly Server[]
+  disabledReason?: string
+}
+
+/**
+ * One protection policy for list rows, bulk actions, and Server Detail.
+ *
+ * Lock and Unlock converge mixed selections by acting only on Servers that need the
+ * requested state. Every other action is atomic from the UI's perspective and remains
+ * disabled when any selected Server is protected.
+ */
+export function serverActionAvailability(
+  action: ServerMenuAction,
+  targets: readonly Server[],
+): ServerActionAvailability {
+  if (targets.length === 0) {
+    return { eligible: [], skipped: [], disabledReason: 'Select at least one Server.' }
+  }
+  if (action === 'lock') {
+    const unlocked = targets.filter((server) => !server.provisioning?.locked)
+    const active = unlocked.filter((server) => ACTIVE_PROVIDER_STATES.has(server.provisioning?.state ?? ''))
+    const eligible = unlocked.filter((server) => server.provisioning?.state === 'deployed')
+    if (active.length > 0) {
+      return {
+        eligible: [],
+        skipped: targets,
+        disabledReason: `${active[0].hostname ?? active[0].id} has active provider work. Wait for it to finish.`,
+      }
+    }
+    const unavailable = unlocked.filter((server) => server.provisioning?.state !== 'deployed')
+    if (unavailable.length > 0) {
+      const server = unavailable[0]
+      const name = server.hostname ?? server.id
+      const state = server.provisioning?.state ?? 'unknown'
+      return {
+        eligible: [],
+        skipped: targets,
+        disabledReason: `${name} is ${state}. Lock is available only when the Server is Deployed.`,
+      }
+    }
+    return {
+      eligible,
+      skipped: targets.filter((server) => server.provisioning?.locked),
+      disabledReason: eligible.length === 0 ? 'Every selected Server is already locked.' : undefined,
+    }
+  }
+  if (action === 'unlock') {
+    const eligible = targets.filter((server) => server.provisioning?.locked)
+    return {
+      eligible,
+      skipped: targets.filter((server) => !server.provisioning?.locked),
+      disabledReason: eligible.length === 0 ? 'Every selected Server is already unlocked.' : undefined,
+    }
+  }
+  const locked = targets.filter((server) => server.provisioning?.locked)
+  if (locked.length > 0) {
+    const name = locked[0].hostname ?? locked[0].id
+    return {
+      eligible: [],
+      skipped: locked,
+      disabledReason: `${name} is locked. Unlock it before starting this action.`,
+    }
+  }
+  return { eligible: [...targets], skipped: [] }
 }

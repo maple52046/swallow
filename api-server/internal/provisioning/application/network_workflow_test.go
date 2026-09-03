@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -88,6 +89,7 @@ type networkWorkflowProvider struct {
 	releaseResult     *provisioningdomain.Machine
 	releaseErr        error
 	unlinked          []string
+	locked            bool
 }
 
 func (p *networkWorkflowProvider) Name() string { return "test" }
@@ -110,6 +112,7 @@ func (p *networkWorkflowProvider) GetMachine(_ context.Context, machineID string
 		Status:      provisioningdomain.MachineStatusReady,
 		PowerState:  provisioningdomain.PowerStateOff,
 		IPAddresses: []string{"192.0.2.20"},
+		Locked:      p.locked,
 	}, nil
 }
 
@@ -654,5 +657,72 @@ func TestProvisioningTaskRetryRejectsUnacceptedRelease(t *testing.T) {
 	}
 	if tasks.current.Status != provisioningdomain.ProvisioningTaskFailed {
 		t.Fatalf("rejected retry changed task state: %#v", tasks.current)
+	}
+}
+
+type workflowMutationGuard struct{ err error }
+
+func (g workflowMutationGuard) RequireUnlocked(context.Context, []string) error { return g.err }
+
+func TestProvisioningTaskWorkerFailsBeforeCleanupWhenExternallyLocked(t *testing.T) {
+	server := workflowServer("a")
+	repo := &networkWorkflowServerRepo{servers: map[string]*serverdomain.Server{"a": server}}
+	network := workflowNetwork("machine-a", false)
+	network.Interfaces[0].Links[0].State = provisioningdomain.NetworkStateStatic
+	network.Interfaces[0].Links[0].ProviderMode = "STATIC"
+	network.Interfaces[0].Links[0].IPAddress = "192.0.2.30"
+	provider := &networkWorkflowProvider{
+		networks:          map[string]*provisioningdomain.MachineNetwork{"machine-a": network},
+		configureFailures: map[string]error{}, deployFailures: map[string]error{}, locked: true,
+	}
+	task := &provisioningdomain.ProvisioningTask{
+		ID: "task-a", Kind: provisioningdomain.ProvisioningTaskReleaseNetworkCleanup,
+		ServerID: "a", IntegrationID: "provider-a", ProviderMachineID: "machine-a",
+		Status: provisioningdomain.ProvisioningTaskRunning,
+		Phase:  provisioningdomain.ProvisioningTaskCleaningNetwork,
+		Snapshot: []provisioningdomain.StaticNetworkLinkSnapshot{{
+			InterfaceID: "nic-machine-a", LinkID: "link-machine-a",
+			SubnetID: "subnet-a", IPAddress: "192.0.2.30",
+		}},
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
+	worker := NewProvisioningTaskWorker(
+		tasks, repo, networkWorkflowFactory{provider: provider}, time.Second, time.Minute)
+
+	if err := worker.process(context.Background(), cloneProvisioningTask(task)); err != nil {
+		t.Fatalf("process locked cleanup: %v", err)
+	}
+	if len(provider.unlinked) != 0 {
+		t.Fatalf("locked cleanup changed network links: %v", provider.unlinked)
+	}
+	if tasks.current.Status != provisioningdomain.ProvisioningTaskFailed ||
+		!strings.Contains(tasks.current.Error, "Unlock") {
+		t.Fatalf("locked cleanup task = %#v, want actionable retryable failure", tasks.current)
+	}
+	if !repo.servers["a"].Provisioning.Locked {
+		t.Fatal("external lock was not projected onto the Server")
+	}
+}
+
+func TestProvisioningTaskRetryUsesLiveLockGuard(t *testing.T) {
+	repo := &networkWorkflowServerRepo{servers: map[string]*serverdomain.Server{
+		"a": workflowServer("a"),
+	}}
+	task := &provisioningdomain.ProvisioningTask{
+		ID: "task-a", Kind: provisioningdomain.ProvisioningTaskReleaseNetworkCleanup,
+		ServerID: "a", Status: provisioningdomain.ProvisioningTaskFailed,
+		Phase: provisioningdomain.ProvisioningTaskCleaningNetwork,
+	}
+	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
+	guardErr := &serverdomain.ServerLockedError{Name: "a"}
+	service := NewProvisioningTaskService(tasks, repo, workflowMutationGuard{err: guardErr})
+
+	_, err := service.Retry(context.Background(), task.ID)
+	if !errors.Is(err, serverdomain.ErrServerLocked) {
+		t.Fatalf("Retry() error = %v, want ErrServerLocked", err)
+	}
+	if tasks.current.Status != provisioningdomain.ProvisioningTaskFailed {
+		t.Fatalf("locked retry changed task state: %#v", tasks.current)
 	}
 }

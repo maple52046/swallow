@@ -1,4 +1,5 @@
 import { Flex, Label, Tooltip } from '@patternfly/react-core'
+import { LockIcon } from '@patternfly/react-icons'
 import type { HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
 
 const PROVISIONING_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red' | 'purple'> = {
@@ -31,6 +32,16 @@ export function ProvisioningBadge({ axis }: { axis: ProvisioningAxis | null }) {
         <Label color="orange">Ephemeral</Label>
       </Tooltip>
     </Flex>
+  )
+}
+
+/** Provider-owned mutation protection, deliberately separate from lifecycle state. */
+export function LockBadge({ locked }: { locked: boolean }) {
+  if (!locked) return null
+  return (
+    <Tooltip content="This Server is protected. Unlock it before making changes.">
+      <Label color="orange" icon={<LockIcon />}>Locked</Label>
+    </Tooltip>
   )
 }
 

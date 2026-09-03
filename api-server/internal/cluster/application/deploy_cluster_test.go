@@ -380,3 +380,35 @@ func TestDeployReservesTargetsUntilSuccessfulUninstall(t *testing.T) {
 		})
 	}
 }
+
+type recordingMutationGuard struct {
+	err       error
+	serverIDs []string
+}
+
+func (g *recordingMutationGuard) RequireUnlocked(_ context.Context, serverIDs []string) error {
+	g.serverIDs = append([]string(nil), serverIDs...)
+	return g.err
+}
+
+func TestDeployLiveLockGuardRunsBeforeClusterOrOperationCreation(t *testing.T) {
+	service, launcher, clusters := newDeployHarness(haServers()...)
+	guard := &recordingMutationGuard{
+		err: &serverdomain.ServerLockedError{Name: "lab-control-2"},
+	}
+	service.protection = guard
+
+	_, err := service.Deploy(context.Background(), validDeployInput())
+	if !errors.Is(err, serverdomain.ErrServerLocked) {
+		t.Fatalf("Deploy() error = %v, want ErrServerLocked", err)
+	}
+	if len(guard.serverIDs) != 4 {
+		t.Fatalf("guard targets = %v, want complete target set", guard.serverIDs)
+	}
+	if len(clusters.clusters) != 0 {
+		t.Fatalf("live lock conflict created %d Cluster records", len(clusters.clusters))
+	}
+	if launcher.launched != nil {
+		t.Fatal("live lock conflict reached the Operation launcher")
+	}
+}

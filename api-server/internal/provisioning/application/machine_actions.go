@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -17,13 +19,19 @@ import (
 type MachineActionsUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
+	work      ActiveServerWorkReader
 }
 
 func NewMachineActionsUseCase(
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
+	work ...ActiveServerWorkReader,
 ) *MachineActionsUseCase {
-	return &MachineActionsUseCase{servers: servers, providers: providers}
+	uc := &MachineActionsUseCase{servers: servers, providers: providers}
+	if len(work) > 0 {
+		uc.work = work[0]
+	}
+	return uc
 }
 
 // PowerStateItem reports a machine's live power state after a query. Separate from
@@ -49,6 +57,19 @@ func (uc *MachineActionsUseCase) resolve(
 	return server, provider, nil
 }
 
+func (uc *MachineActionsUseCase) resolveMutable(
+	ctx context.Context, serverID string,
+) (*serverdomain.Server, provisioningdomain.OSProvisioningProvider, error) {
+	server, provider, err := uc.resolve(ctx, serverID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := requireServerUnlocked(ctx, uc.servers, server, provider); err != nil {
+		return nil, nil, err
+	}
+	return server, provider, nil
+}
+
 // unsupported is the refusal returned when a provisioner does not offer a capability. It
 // is a rejection, not an internal error: the request was understood and declined.
 func unsupported(action string) error {
@@ -61,7 +82,7 @@ func unsupported(action string) error {
 // --- power ---
 
 func (uc *MachineActionsUseCase) PowerOn(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	server, provider, err := uc.resolve(ctx, serverID)
+	server, provider, err := uc.resolveMutable(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +98,7 @@ func (uc *MachineActionsUseCase) PowerOn(ctx context.Context, serverID string) (
 }
 
 func (uc *MachineActionsUseCase) PowerOff(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	server, provider, err := uc.resolve(ctx, serverID)
+	server, provider, err := uc.resolveMutable(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +159,7 @@ func (uc *MachineActionsUseCase) validate(
 	ctx context.Context, serverID string,
 	call func(provisioningdomain.HardwareValidator, string) (*provisioningdomain.Machine, error),
 ) (*ProvisioningStateItem, error) {
-	server, provider, err := uc.resolve(ctx, serverID)
+	server, provider, err := uc.resolveMutable(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,15 +177,76 @@ func (uc *MachineActionsUseCase) validate(
 // --- operator state ---
 
 func (uc *MachineActionsUseCase) Lock(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	return uc.operatorState(ctx, serverID, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
-		return c.Lock(ctx, id)
-	})
+	server, provider, err := uc.resolve(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	controller, ok := provider.(provisioningdomain.OperatorStateController)
+	if !ok {
+		return nil, unsupported("operator state changes")
+	}
+	machine, err := provider.GetMachine(ctx, server.Source.ProviderMachineID)
+	if err != nil {
+		return nil, &serverdomain.ServerLockUnavailableError{Name: server.DisplayName()}
+	}
+	updateProvisioningProjection(server, machine)
+	if err := uc.servers.Upsert(ctx, server); err != nil {
+		return nil, err
+	}
+	if machine.Locked {
+		return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
+	}
+	if providerStateBlocksLock(machine.Status) {
+		return nil, lockConflict(server,
+			fmt.Sprintf("is currently %s. Wait for the provider lifecycle action to finish before locking it.", machine.Status))
+	}
+	if machine.Status != provisioningdomain.MachineStatusDeployed {
+		return nil, lockConflict(server,
+			fmt.Sprintf("is %s. Lock is available only when the Server is deployed.", machine.Status))
+	}
+	if uc.work != nil {
+		work, workErr := uc.work.ActiveWork(ctx, server.ID)
+		if workErr != nil {
+			return nil, workErr
+		}
+		if len(work.OperationIDs) > 0 {
+			return nil, lockConflict(server,
+				"has active Operation(s) "+strings.Join(work.OperationIDs, ", ")+". Wait for them to finish before locking it.")
+		}
+		if len(work.TaskIDs) > 0 {
+			return nil, lockConflict(server,
+				"has active Provisioning Task(s) "+strings.Join(work.TaskIDs, ", ")+". Wait for them to finish before locking it.")
+		}
+	}
+	updated, err := controller.Lock(ctx, server.Source.ProviderMachineID)
+	if err != nil {
+		return nil, err
+	}
+	item := updateProvisioningProjection(server, updated)
+	if err := uc.servers.Upsert(ctx, server); err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (uc *MachineActionsUseCase) Unlock(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	return uc.operatorState(ctx, serverID, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
-		return c.Unlock(ctx, id)
-	})
+	server, provider, err := uc.resolve(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	controller, ok := provider.(provisioningdomain.OperatorStateController)
+	if !ok {
+		return nil, unsupported("operator state changes")
+	}
+	machine, err := controller.Unlock(ctx, server.Source.ProviderMachineID)
+	if err != nil {
+		return nil, err
+	}
+	item := updateProvisioningProjection(server, machine)
+	if err := uc.servers.Upsert(ctx, server); err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (uc *MachineActionsUseCase) MarkBroken(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
@@ -195,7 +277,7 @@ func (uc *MachineActionsUseCase) operatorState(
 	ctx context.Context, serverID string,
 	call func(provisioningdomain.OperatorStateController, string) (*provisioningdomain.Machine, error),
 ) (*ProvisioningStateItem, error) {
-	server, provider, err := uc.resolve(ctx, serverID)
+	server, provider, err := uc.resolveMutable(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
