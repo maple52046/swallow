@@ -10,14 +10,15 @@ import (
 // CapabilitiesItem is what a provisioner offers, so a client can present exactly the
 // actions that exist rather than buttons that always fail.
 type CapabilitiesItem struct {
-	EphemeralDeploy    bool `json:"ephemeralDeploy"`
-	Power              bool `json:"power"`
-	HardwareValidation bool `json:"hardwareValidation"`
-	OperatorState      bool `json:"operatorState"`
-	MachineDetail      bool `json:"machineDetail"`
-	HardwareInventory  bool `json:"hardwareInventory"`
-	MachineRemoval     bool `json:"machineRemoval"`
-	ReleaseOptions     bool `json:"releaseOptions"`
+	EphemeralDeploy      bool `json:"ephemeralDeploy"`
+	Power                bool `json:"power"`
+	HardwareValidation   bool `json:"hardwareValidation"`
+	OperatorState        bool `json:"operatorState"`
+	MachineDetail        bool `json:"machineDetail"`
+	HardwareInventory    bool `json:"hardwareInventory"`
+	MachineRemoval       bool `json:"machineRemoval"`
+	ReleaseOptions       bool `json:"releaseOptions"`
+	NetworkConfiguration bool `json:"networkConfiguration"`
 }
 
 // DetailFieldItem, DetailSectionItem, and DetailTableItem are the display-oriented shape
@@ -79,14 +80,15 @@ func (uc *GetProvisionerDetailUseCase) Execute(ctx context.Context, serverID str
 	caps := provider.Capabilities()
 	item := &ProvisionerDetailItem{
 		Capabilities: CapabilitiesItem{
-			EphemeralDeploy:    caps.EphemeralDeploy,
-			Power:              caps.Power,
-			HardwareValidation: caps.HardwareValidation,
-			OperatorState:      caps.OperatorState,
-			MachineDetail:      caps.MachineDetail,
-			HardwareInventory:  caps.HardwareInventory,
-			MachineRemoval:     caps.MachineRemoval,
-			ReleaseOptions:     caps.ReleaseOptions,
+			EphemeralDeploy:      caps.EphemeralDeploy,
+			Power:                caps.Power,
+			HardwareValidation:   caps.HardwareValidation,
+			OperatorState:        caps.OperatorState,
+			MachineDetail:        caps.MachineDetail,
+			HardwareInventory:    caps.HardwareInventory,
+			MachineRemoval:       caps.MachineRemoval,
+			ReleaseOptions:       caps.ReleaseOptions,
+			NetworkConfiguration: caps.NetworkConfiguration,
 		},
 		Sections: []DetailSectionItem{},
 		Tables:   []DetailTableItem{},

@@ -197,6 +197,14 @@ textarea {
   border: 0;
 }
 
+.sw-section-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--md);
+  padding: var(--pf-t--global--spacer--lg);
+}
+
 .sw-section-group {
   display: flex;
   min-width: 0;
@@ -251,6 +259,13 @@ textarea {
   color: var(--pf-t--global--text--color--subtle);
   line-height: var(--pf-t--global--font--line-height--body);
 }
+
+.sw-network-assignment-table { min-width: 960px; }
+.sw-network-assignment-table .sw-network-server-column { min-width: 150px; }
+.sw-network-assignment-table .sw-network-interface-column { min-width: 235px; }
+.sw-network-assignment-table .sw-network-subnet-column { min-width: 210px; }
+.sw-network-assignment-table .sw-network-address-column { min-width: 180px; }
+.sw-network-assignment-table .sw-network-current-mode-column { min-width: 205px; }
 
 .sw-operator-shell .sw-data-toolbar {
   --pf-v6-c-toolbar--PaddingBlockStart: var(--pf-t--global--spacer--md);
@@ -440,6 +455,13 @@ tbody .sw-sticky-selection { z-index: 2; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--pf-t--global--spacer--lg);
   max-width: 960px;
+}
+
+.sw-field-note {
+  display: block;
+  margin-block-start: var(--pf-t--global--spacer--sm);
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--body--sm);
 }
 
 .sw-network-context {

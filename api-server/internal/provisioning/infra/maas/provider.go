@@ -152,15 +152,16 @@ func (p *Provider) ValidateDeploymentTarget(ctx context.Context, machineID strin
 // rather than silently dropped.
 func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 	return provisioningdomain.ProviderCapabilities{
-		EphemeralDeploy:     true,
-		DeploymentReadiness: true,
-		Power:               true,
-		HardwareValidation:  true,
-		OperatorState:       true,
-		MachineDetail:       true,
-		HardwareInventory:   true,
-		MachineRemoval:      true,
-		ReleaseOptions:      true,
+		EphemeralDeploy:      true,
+		DeploymentReadiness:  true,
+		NetworkConfiguration: true,
+		Power:                true,
+		HardwareValidation:   true,
+		OperatorState:        true,
+		MachineDetail:        true,
+		HardwareInventory:    true,
+		MachineRemoval:       true,
+		ReleaseOptions:       true,
 	}
 }
 

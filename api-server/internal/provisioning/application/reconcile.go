@@ -317,7 +317,7 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 		PowerState:          string(machine.PowerState),
 		OSSystem:            machine.OSSystem,
 		DistroSeries:        machine.DistroSeries,
-		Ephemeral:           machine.Ephemeral,
+		Ephemeral:           projectedEphemeral(machine),
 		HWEKernel:           machine.HWEKernel,
 		Locked:              machine.Locked,
 		CommissioningStatus: machine.CommissioningStatus,

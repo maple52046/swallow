@@ -18,9 +18,10 @@ mode, and cloud-init for a named Swallow Integration.
 ## Decision
 
 Swallow owns an integration-scoped `DeploymentTemplate` as reusable deployment
-intent. It may contain an OS Image reference, ephemeral mode, and encrypted
-write-only cloud-init. It must not contain packages, scripts, playbooks, or an
-execution lifecycle.
+intent. It may contain an OS Image reference, ephemeral mode, provider-neutral
+DHCP-or-static network intent, and encrypted write-only cloud-init. It must not
+contain a provider NIC identity, target-specific static IP, packages, scripts,
+playbooks, or an execution lifecycle.
 
 A multi-Server deployment stores no durable Swallow job. Swallow validates the
 batch and submits the same resolved request to the owning provisioner; progress

@@ -14,6 +14,8 @@ import {
   SearchInput,
   TextArea,
   TextInput,
+  ToggleGroup,
+  ToggleGroupItem,
   ToolbarItem,
 } from '@patternfly/react-core'
 import { PlusCircleIcon } from '@patternfly/react-icons'
@@ -44,6 +46,9 @@ interface TemplateDraft {
   description: string
   imageId: string
   ephemeral: boolean
+  networkMode: 'dhcp' | 'static'
+  subnetId: string
+  defaultGateway: boolean
 }
 
 const EMPTY_DRAFT: TemplateDraft = {
@@ -52,6 +57,9 @@ const EMPTY_DRAFT: TemplateDraft = {
   description: '',
   imageId: '',
   ephemeral: false,
+  networkMode: 'dhcp',
+  subnetId: '',
+  defaultGateway: false,
 }
 
 /** CRUD workspace for Swallow-owned deployment intent and write-only cloud-init. */
@@ -163,6 +171,7 @@ export function DeploymentTemplatesPage() {
           description: draft.description.trim(),
           imageId: draft.imageId,
           ephemeral: draft.ephemeral,
+          network: { mode: draft.networkMode, subnetId: draft.subnetId.trim() || undefined, defaultGateway: draft.defaultGateway },
         })
         showToast({ tone: 'success', title: 'Deployment template updated' })
       } else {
@@ -172,6 +181,7 @@ export function DeploymentTemplatesPage() {
           description: draft.description.trim(),
           imageId: draft.imageId,
           ephemeral: draft.ephemeral,
+          network: { mode: draft.networkMode, subnetId: draft.subnetId.trim() || undefined, defaultGateway: draft.defaultGateway },
         })
         showToast({ tone: 'success', title: 'Deployment template created' })
       }
@@ -303,10 +313,22 @@ export function DeploymentTemplatesPage() {
                 onChange={(_event, checked) => setDraft((current) => ({ ...current, ephemeral: checked }))}
               />
             </FormGroup>
+            <FormGroup label="Network mode" isRequired fieldId="template-network-mode">
+              <ToggleGroup aria-label="Template network mode">
+                <ToggleGroupItem text="DHCP" buttonId="template-network-dhcp" isSelected={draft.networkMode === 'dhcp'} onChange={() => setDraft((current) => ({ ...current, networkMode: 'dhcp', defaultGateway: false }))} />
+                <ToggleGroupItem text="Static" buttonId="template-network-static" isSelected={draft.networkMode === 'static'} onChange={() => setDraft((current) => ({ ...current, networkMode: 'static' }))} />
+              </ToggleGroup>
+            </FormGroup>
+            {draft.networkMode === 'static' && <FormGroup label="Subnet ID" isRequired fieldId="template-subnet">
+              <TextInput id="template-subnet" value={draft.subnetId} onChange={(_event, value) => setDraft((current) => ({ ...current, subnetId: value }))} />
+            </FormGroup>}
+            {draft.networkMode === 'static' && <FormGroup fieldId="template-default-gateway">
+              <Checkbox id="template-default-gateway" label="Use as default gateway" isChecked={draft.defaultGateway} onChange={(_event, checked) => setDraft((current) => ({ ...current, defaultGateway: checked }))} />
+            </FormGroup>}
           </Form>
           {imageError && <Alert variant={AlertVariant.warning} title="Image catalog unavailable" isInline>{imageError} Image-changing actions are disabled.</Alert>}
           <div className="sw-form-actions">
-            <Button variant="primary" isLoading={saving} isDisabled={saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (Boolean(imageError) && !draft.id)} onClick={() => void submit()}>Save</Button>
+            <Button variant="primary" isLoading={saving} isDisabled={saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (draft.networkMode === 'static' && !draft.subnetId.trim()) || (Boolean(imageError) && !draft.id)} onClick={() => void submit()}>Save</Button>
             <Button variant="link" onClick={closeForm}>Cancel</Button>
           </div>
         </CardBody>
@@ -357,7 +379,7 @@ export function DeploymentTemplatesPage() {
         <Table aria-label="Deployment templates" variant="compact" className="sw-provisioning-table">
           <Thead><Tr>
             <Th>Name</Th><Th>Site</Th><Th>Integration</Th><Th>Image ID</Th>
-            <Th>Ephemeral</Th><Th>Cloud-init</Th><Th>Updated</Th><Th screenReaderText="Actions" />
+            <Th>Ephemeral</Th><Th>Network</Th><Th>Cloud-init</Th><Th>Updated</Th><Th screenReaderText="Actions" />
           </Tr></Thead>
           <Tbody>{filtered.map((template) => (
             <Tr key={template.id}>
@@ -366,6 +388,7 @@ export function DeploymentTemplatesPage() {
               <Td dataLabel="Integration">{integrationName(template.integrationId)}</Td>
               <Td dataLabel="Image ID" className="sw-mono">{template.imageId}</Td>
               <Td dataLabel="Ephemeral">{template.ephemeral ? 'Yes' : 'No'}</Td>
+              <Td dataLabel="Network">{template.network?.mode === 'static' ? `Static - ${template.network.subnetId || '-'}` : 'DHCP'}</Td>
               <Td dataLabel="Cloud-init">{template.hasUserData ? 'Configured' : '-'}</Td>
               <Td dataLabel="Updated">{formatDateTime(template.updatedAt)}</Td>
               <Td isActionCell>
@@ -378,6 +401,9 @@ export function DeploymentTemplatesPage() {
                       description: template.description,
                       imageId: template.imageId,
                       ephemeral: template.ephemeral,
+                      networkMode: template.network?.mode ?? 'dhcp',
+                      subnetId: template.network?.subnetId ?? '',
+                      defaultGateway: template.network?.defaultGateway ?? false,
                     })
                     setFormOpen(true)
                   }}>Edit</Button>

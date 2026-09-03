@@ -4,10 +4,12 @@ import { SyncAltIcon } from '@patternfly/react-icons'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { Link } from 'react-router-dom'
 import type { Operation } from '@/domain/operation/types'
+import type { ProvisioningTask } from '@/domain/provisioning/types'
 import type { ProviderEvents } from '@/domain/server/types'
 import { useApp } from '@/di/AppProvider'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
@@ -32,16 +34,20 @@ export function ServerActivityTab() {
   const { server } = useServerDetailContext()
   const { servers, operations } = useApp()
   const { scopedHref } = useSiteScope()
+  const { showToast } = useToast()
   const [provider, setProvider] = useState<LoadState<ProviderEvents>>({ status: 'loading' })
   const [related, setRelated] = useState<LoadState<Operation[]>>({ status: 'loading' })
+  const [tasks, setTasks] = useState<LoadState<ProvisioningTask[]>>({ status: 'loading' })
   const [sessionResults, setSessionResults] = useState<ServerActionRunResult[]>(
     () => listStoredServerActionResults(server.id),
   )
   const [selectedResult, setSelectedResult] = useState<ServerActionRunResult | null>(null)
+  const [retryingTaskId, setRetryingTaskId] = useState('')
   const [nonce, setNonce] = useState(0)
   const refresh = useCallback(() => {
     setProvider({ status: 'loading' })
     setRelated({ status: 'loading' })
+    setTasks({ status: 'loading' })
     setNonce((value) => value + 1)
   }, [])
 
@@ -61,9 +67,30 @@ export function ServerActivityTab() {
       (data) => { if (!cancelled) setRelated({ status: 'ready', data: data.items }) },
       (error: Error) => { if (!cancelled) setRelated({ status: 'error', message: error.message }) },
     )
+    servers.listProvisioningTasks(server.id).then(
+      (data) => { if (!cancelled) setTasks({ status: 'ready', data }) },
+      (error: Error) => { if (!cancelled) setTasks({ status: 'error', message: error.message }) },
+    )
 
     return () => { cancelled = true }
   }, [nonce, operations, server.id, servers])
+
+  const retryCleanup = async (taskId: string) => {
+    setRetryingTaskId(taskId)
+    try {
+      await servers.retryProvisioningTask(taskId)
+      showToast({ tone: 'success', title: 'Cleanup retry queued' })
+      refresh()
+    } catch (error) {
+      showToast({
+        tone: 'error',
+        title: 'Could not retry cleanup',
+        description: error instanceof Error ? error.message : 'Unknown error',
+      })
+    } finally {
+      setRetryingTaskId('')
+    }
+  }
 
   return (
     <div className="sw-activity-stack">
@@ -89,6 +116,32 @@ export function ServerActivityTab() {
                   <Td isActionCell><Button variant="link" isInline onClick={() => setSelectedResult(result)}>View details</Button></Td>
                 </Tr>
               })}</Tbody>
+            </Table>
+          </StickyTableFrame>
+        )}
+      </section>
+
+      <section className="sw-section">
+        <SectionHeader
+          title="Provisioning tasks"
+          description="Durable Swallow follow-up such as post-Release static IP cleanup. Retry resumes cleanup and never repeats Release."
+        />
+        {tasks.status === 'loading' && <div className="sw-section-empty">Loading provisioning tasks...</div>}
+        {tasks.status === 'error' && <div className="sw-activity-alert"><Alert variant={AlertVariant.warning} title="Provisioning tasks are unavailable" isInline>{tasks.message}</Alert></div>}
+        {tasks.status === 'ready' && tasks.data.length === 0 && <div className="sw-section-empty">No durable provisioning tasks for this Server.</div>}
+        {tasks.status === 'ready' && tasks.data.length > 0 && (
+          <StickyTableFrame>
+            <Table aria-label="Provisioning tasks" variant="compact">
+              <Thead><Tr><Th>Status</Th><Th>Task</Th><Th>Phase</Th><Th>Updated</Th><Th>Error</Th><Th>Request ID</Th><Th screenReaderText="Actions" /></Tr></Thead>
+              <Tbody>{tasks.data.map((task) => <Tr key={task.id}>
+                <Td dataLabel="Status"><StatusBadge status={task.status} /></Td>
+                <Td dataLabel="Task">Release network cleanup<small className="mono">{task.id}</small></Td>
+                <Td dataLabel="Phase">{task.phase.replaceAll('_', ' ')}</Td>
+                <Td dataLabel="Updated">{formatDateTime(task.updatedAt)}</Td>
+                <Td dataLabel="Error">{task.error || '-'}</Td>
+                <Td dataLabel="Request ID" className="mono">{task.requestId || '-'}</Td>
+                <Td isActionCell>{task.retryable && <Button variant="secondary" isLoading={retryingTaskId === task.id} isDisabled={Boolean(retryingTaskId)} onClick={() => void retryCleanup(task.id)}>Retry cleanup</Button>}</Td>
+              </Tr>)}</Tbody>
             </Table>
           </StickyTableFrame>
         )}

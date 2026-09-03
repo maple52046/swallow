@@ -13,6 +13,7 @@ export interface ServerActionOutcome extends ServerActionTarget {
   httpStatus?: number
   requestId?: string
   message?: string
+  taskId?: string
 }
 
 /** Complete result of one single- or multi-Server action run. */

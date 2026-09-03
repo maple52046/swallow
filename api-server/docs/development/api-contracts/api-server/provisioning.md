@@ -24,6 +24,9 @@ submit one OS deployment configuration to one or more eligible Servers.
 - Deployment Template
 - Server
 - Server Status
+- Network Configuration
+- IP Binding
+- Provisioning Task
 
 ## Authentication and Authorization
 
@@ -43,6 +46,9 @@ PUT    /api/v1/provisioning/templates/{id}/user-data
 DELETE /api/v1/provisioning/templates/{id}/user-data
 POST   /api/v1/provisioning/deployments/preflight
 POST   /api/v1/provisioning/deployments
+POST   /api/v1/provisioning/networks/inspect
+GET    /api/v1/provisioning/tasks/{id}
+POST   /api/v1/provisioning/tasks/{id}/retry
 ```
 
 The existing `POST /api/v1/servers/{id}/deploy` contract remains active and
@@ -65,6 +71,12 @@ It returns:
 ]
 ```
 
+The catalog contains only resources the provisioner accepts for OS deployment.
+For MAAS this includes synced operating systems and uploaded custom images, but
+excludes PXE and bootloader artifacts returned by the same boot-resources API.
+An uploaded image keeps its provider resource name as `id` and is returned with
+`osSystem: "custom"`.
+
 OS Images are provider-owned and are not persisted by Swallow. Missing
 `integrationId` is `400 validation_error`; an unknown integration is
 `404 not_found`; a provider failure is `503 provider_unavailable`.
@@ -82,6 +94,11 @@ A template response contains:
   "description": "Default disk deployment",
   "imageId": "ubuntu/jammy",
   "ephemeral": false,
+  "network": {
+    "mode": "dhcp",
+    "subnetId": "subnet-id",
+    "defaultGateway": false
+  },
   "hasUserData": true,
   "createdAt": "2026-08-28T10:00:00Z",
   "updatedAt": "2026-08-28T10:00:00Z"
@@ -89,13 +106,17 @@ A template response contains:
 ```
 
 `POST /templates` accepts `integrationId`, required `name`, optional
-`description`, required `imageId`, optional `ephemeral`, and optional
-write-only `userData`. It returns `201` and never echoes `userData`.
+`description`, required `imageId`, optional `ephemeral`, optional `network`,
+and optional write-only `userData`. `network.mode` is `dhcp` or `static`;
+missing network intent defaults to DHCP. `subnetId` names a live provider subnet
+and `defaultGateway` defaults to false. A default gateway can be requested only
+for Static intent. It returns `201` and never echoes `userData`.
 
 `PATCH /templates/{id}` accepts any subset of `name`, `description`,
-`imageId`, and `ephemeral`. It cannot change `integrationId` and never
-accepts `userData`. Image creation or replacement validates the live provider
-catalog before persistence.
+`imageId`, `ephemeral`, and `network`. It cannot change `integrationId` and
+never accepts `userData`. Image or network changes validate the live provider
+catalog before persistence. Templates never store a provider interface ID or a
+target-specific static IP. Historical records without `network` read as DHCP.
 
 `PUT /templates/{id}/user-data` requires a non-empty `userData` value and
 returns `204 No Content`. `DELETE` clears the sealed value and also returns
@@ -108,6 +129,76 @@ List filters are conjunctive. An unknown Site, Integration, or template is
 `400 validation_error`; duplicate names and deletion of an Integration still
 referenced by a template are `409 conflict`.
 
+## Network Inspection
+
+`POST /networks/inspect` accepts 1-100 unique `serverIds` and returns one typed
+live network observation per target. It is read-only and bounded independently
+from deployment preflight:
+
+```json
+{
+  "targets": [
+    {
+      "serverId": "server-1",
+      "editable": true,
+      "disabledReason": "",
+      "suggestion": {
+        "mode": "static",
+        "interfaceId": "23",
+        "subnetId": "11",
+        "ipAddress": "192.168.100.20",
+        "defaultGateway": true
+      },
+      "network": {
+        "interfaces": [
+        {
+          "id": "23",
+          "name": "eth0",
+          "macAddress": "52:54:00:50:cd:84",
+          "boot": true,
+          "physicalState": "unknown",
+          "configurationState": "provider_managed",
+          "rawProviderMode": "AUTO",
+          "links": [
+            {
+              "id": "91",
+              "configurationState": "provider_managed",
+              "rawProviderMode": "AUTO",
+              "subnetId": "11",
+              "subnetName": "management",
+              "cidr": "192.168.100.0/24",
+              "ipAddress": "",
+              "defaultGateway": true
+            }
+          ],
+          "availableSubnets": [
+            {
+              "id": "11",
+              "name": "management",
+              "cidr": "192.168.100.0/24",
+              "gatewayAddress": "192.168.100.1",
+              "managed": true
+            }
+          ]
+        }
+        ]
+      }
+    }
+  ],
+  "issues": []
+}
+```
+
+Configuration states are `dhcp`, `static`, `link_only`, `unconfigured`,
+`provider_managed`, or `unknown`. Provider-specific values are diagnostic and
+must not be sent back as writable intent. The boot interface is suggested by
+default. One explicit Static link on that NIC is preserved as the suggested
+deployment mode, subnet, IP address, and default-gateway intent. Multiple Static
+links remain ambiguous and require operator input. Without an explicit Static
+link, Swallow suggests DHCP and uses an existing linked subnet when unambiguous,
+or the sole compatible managed subnet. Multiple compatible subnets produce
+`network_selection_required` instead of a silent choice.
+
 ## Deployment Target Preflight
 
 `POST /deployments/preflight` accepts only the intended targets:
@@ -118,10 +209,10 @@ referenced by a template are `409 conflict`.
 }
 ```
 
-It performs the same local target checks and provider-owned deployment-readiness
+It performs the target identity, presence, Ready, unlocked, and same-Integration
 checks that `POST /deployments` repeats immediately before dispatch. The operation
-is read-only: it does not reserve a Server, choose or create provider network
-configuration, validate an image, or start a deployment.
+is read-only: it does not inspect or mutate network configuration, validate an
+image, reserve a Server, or start a deployment.
 
 A completed check returns `200`, including when one or more targets are not ready:
 
@@ -132,19 +223,16 @@ A completed check returns `200`, including when one or more targets are not read
   "issues": [
     {
       "serverId": "server-1",
-      "code": "provider_not_ready",
-      "message": "No MAAS interface is linked to a subnet. Configure the machine's Network in MAAS, then check deployment readiness again."
+      "code": "locked",
+      "message": "Unlock the Server before deployment."
     }
   ]
 }
 ```
 
-Issue codes are `integration_mismatch`, `absent`, `not_ready`,
-`provider_machine_missing`, or `provider_not_ready`. An empty or duplicate target
-list, or a list longer than 100, is `400 validation_error`; a Server unknown to
-Swallow is `404 not_found`; inability to inspect the provisioner is
-`503 provider_unavailable`. Provider-specific remediation remains in `message`
-because the provider owns the prerequisite.
+Issue codes are `integration_mismatch`, `absent`, `not_ready`, or `locked`. An
+empty or duplicate target list, or a list longer than 100, is
+`400 validation_error`; a Server unknown to Swallow is `404 not_found`.
 
 ## Multi-Server Deployment
 
@@ -161,6 +249,17 @@ because the provider owns the prerequisite.
   "userData": {
     "mode": "inherit",
     "value": ""
+  },
+  "network": {
+    "mode": "static",
+    "subnetId": "11",
+    "defaultGateway": true,
+    "assignments": [{
+      "serverId": "server-1",
+      "interfaceId": "23",
+      "subnetId": "11",
+      "ipAddress": "192.168.100.20"
+    }]
   }
 }
 ```
@@ -170,6 +269,13 @@ because the provider owns the prerequisite.
 defaults to `omit`. With a template, omitted settings use the template and
 omitted user data defaults to `inherit`.
 
+
+Missing `network` resolves to Swallow's DHCP default. `network.mode` accepts
+only `dhcp` or `static`; `AUTO` and keep-current are not valid intent. Each
+target resolves its boot NIC by default and can override `interfaceId` and
+`subnetId`. Static requires one valid, unique per-target `ipAddress`.
+`defaultGateway` is valid only for Static. Templates may supply mode, subnet,
+and gateway intent but never a NIC ID or static IP.
 `userData.mode` is one of:
 
 - `inherit`: use the template's sealed user data; valid only with a template.
@@ -177,14 +283,15 @@ omitted user data defaults to `inherit`.
 - `omit`: send no user data for this request.
 
 Before any provider write, every Server must exist, be present, have provisioning
-state `ready`, belong to the same Integration, and match the template
-Integration when one is used. The resolved image must exist in the current live
-catalog. Provider-owned target readiness is repeated even when a caller already
-used `/deployments/preflight`, preventing a stale browser result from bypassing a
-changed provider state. A preflight failure rejects the entire request without
+state `ready`, be unlocked, belong to the same Integration, and match the
+template Integration when one is used. The resolved image must exist in the
+current live catalog. Swallow inspects every target's live network capability,
+NICs, subnets, existing links, and Static address before the first write. A
+preflight failure rejects the entire request without writes.
 
-After preflight, writes run with at most four concurrent provider calls. Individual
-provider refusals do not roll back accepted deployments. Every dispatched batch
+After preflight, each target configures and verifies its network, then starts OS
+deployment. Target dispatch uses at most four workers. Individual provider
+refusals do not roll back accepted deployments or network changes. Every dispatched batch
 returns `202`:
 
 ```json
@@ -210,7 +317,8 @@ returns `202`:
     {
       "serverId": "server-2",
       "code": "provider_rejected",
-      "message": "Provider rejected deployment."
+      "message": "Provider rejected deployment.",
+      "stage": "deployment"
     }
   ]
 }
@@ -220,11 +328,46 @@ The response is an acceptance report, not a durable job. Deployment progress is
 read from each Server provisioning axis. Batch deployment provides no rollback.
 
 Preflight validation uses `400 validation_error` for malformed input,
+`failed[].stage` is `network_configuration` or `deployment`.
 `404 not_found` for missing resources, `409 conflict` for target state or
 Integration mismatch, and `503 provider_unavailable` when the provider cannot
 be reached before dispatch. Secret values never appear in responses or errors.
+Dispatched provider refusals preserve actionable provider validation detail in
+`failed[].message`; for example, a Static IP allocation conflict remains a
+`network_configuration` failure rather than being reported as a missing Server.
+
+## Provisioning Tasks
+
+`GET /tasks/{id}` and `GET /servers/{serverId}/provisioning-tasks` expose
+Swallow-owned provider coordination without returning the saved static-link
+snapshot:
+
+```json
+{
+  "id": "task-id",
+  "kind": "release_network_cleanup",
+  "serverId": "server-1",
+  "status": "failed",
+  "phase": "cleaning_network",
+  "attempt": 2,
+  "error": "MAAS refused to unlink the captured Static address.",
+  "requestId": "request-id",
+  "retryable": true,
+  "createdAt": "2026-09-02T01:00:00Z",
+  "updatedAt": "2026-09-02T01:05:00Z"
+}
+```
+
+Statuses are `pending`, `running`, `succeeded`, or `failed`. Phases are
+`waiting_for_release`, `waiting_for_ready`, `cleaning_network`, or `complete`.
+`retryable` is true only for a failed task after its Release was accepted.
+`POST /tasks/{id}/retry` accepts only that retryable state, returns `202`, and
+requeues cleanup without repeating Release. A task retained after the provider
+refused Release remains diagnostic and is not retryable. Unknown tasks are
+`404 not_found`; a task that is not retryable is `409 conflict`.
 
 ## Compatibility Notes
+
 
 All endpoints are additive under `/api/v1`. Existing Server projections,
 single-Server deployment, authorization, and provider action behavior are

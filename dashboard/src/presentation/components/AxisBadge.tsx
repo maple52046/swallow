@@ -15,7 +15,7 @@ function observedAtLabel(observedAt: string): string {
   return `Observed ${new Date(observedAt).toLocaleString()}`
 }
 
-/** Provisioner-owned lifecycle state, including the non-persistent in-memory qualifier. */
+/** Provisioner-owned lifecycle state, including its Ephemeral deployment qualifier. */
 export function ProvisioningBadge({ axis }: { axis: ProvisioningAxis | null }) {
   if (!axis) return <UnknownBadge tooltip="Provisioning state has never been observed" />
   const state = (
@@ -27,8 +27,8 @@ export function ProvisioningBadge({ axis }: { axis: ProvisioningAxis | null }) {
   return (
     <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'nowrap' }}>
       {state}
-      <Tooltip content="Running from memory; root filesystem changes are lost on reboot">
-        <Label color="orange">in memory</Label>
+      <Tooltip content="Ephemeral deployment; root filesystem changes are lost on reboot">
+        <Label color="orange">Ephemeral</Label>
       </Tooltip>
     </Flex>
   )

@@ -43,7 +43,7 @@ export function useServerBulkActions() {
         const outcomes = settled.map((outcome, index) => {
           const target = targets[index]
           return outcome.status === 'fulfilled'
-            ? { ...target, accepted: true }
+            ? { ...target, accepted: true, taskId: outcome.value.taskId }
             : rejectedServerActionOutcome(target, outcome.reason)
         })
         const result = serverActionRunResult(action, outcomes)

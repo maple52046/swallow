@@ -617,7 +617,8 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	  {"id": 1, "type": "Synced", "name": "ubuntu/jammy", "title": "Ubuntu 22.04 LTS", "architecture": "amd64/hwe-22.04"},
 	  {"id": 2, "type": "Synced", "name": "ubuntu/jammy", "title": "Ubuntu 22.04 LTS", "architecture": "amd64/ga-22.04"},
 	  {"id": 3, "type": "Synced", "name": "ubuntu/noble", "title": "", "architecture": "arm64/generic"},
-	  {"id": 4, "type": "Synced", "name": "grub-efi", "architecture": "amd64/generic"}
+	  {"id": 4, "type": "Synced", "name": "grub-efi-signed/uefi", "architecture": "amd64/generic"},
+	  {"id": 5, "type": "Uploaded", "name": "ubuntu-24.04-rocm", "title": "Ubuntu 24.04 ROCm", "architecture": "amd64/generic"}
 	]`)
 	provider := newTestProvider(t, fake)
 
@@ -627,9 +628,9 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	}
 
 	// The two jammy kernels collapse into one image, and the bootloader resource
-	// is dropped because it is not an OS/release pair.
-	if len(images) != 2 {
-		t.Fatalf("expected 2 images, got %d: %+v", len(images), images)
+	// is dropped while the Uploaded resource remains available as a custom image.
+	if len(images) != 3 {
+		t.Fatalf("expected 3 images, got %d: %+v", len(images), images)
 	}
 
 	jammy := images[0]
@@ -649,6 +650,21 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	noble := images[1]
 	if noble.Name != "ubuntu/noble" {
 		t.Errorf("expected the resource name as a fallback display name, got %q", noble.Name)
+	}
+
+	custom := images[2]
+	if custom.ID != "ubuntu-24.04-rocm" {
+		t.Errorf("custom ID: got %q, want the provider resource name", custom.ID)
+	}
+	if custom.Name != "Ubuntu 24.04 ROCm" {
+		t.Errorf("custom Name: got %q", custom.Name)
+	}
+	if custom.OSSystem != "custom" || custom.Release != "ubuntu-24.04-rocm" {
+		t.Errorf(
+			"custom OSSystem/Release: got %q/%q, want custom/ubuntu-24.04-rocm",
+			custom.OSSystem,
+			custom.Release,
+		)
 	}
 }
 

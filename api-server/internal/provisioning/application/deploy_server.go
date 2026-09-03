@@ -24,6 +24,7 @@ type ProvisioningStateItem struct {
 	HWEKernel           string `json:"hweKernel"`
 	Locked              bool   `json:"locked"`
 	CommissioningStatus string `json:"commissioningStatus"`
+	TaskID              string `json:"taskId,omitempty"`
 	TestingStatus       string `json:"testingStatus"`
 	ObservedAt          string `json:"observedAt"`
 }
@@ -79,8 +80,8 @@ func (uc *DeployServerUseCase) Execute(ctx context.Context, input DeployServerIn
 	if input.Ephemeral && !provider.Capabilities().EphemeralDeploy {
 		return nil, &provisioningdomain.ProviderError{
 			Kind: provisioningdomain.ProviderErrorRejected,
-			Detail: "This provisioner cannot deploy from memory, and deploying to disk " +
-				"instead would be the opposite of what was asked for.",
+			Detail: "This provisioner does not support ephemeral deployment, and " +
+				"silently deploying to disk would be the opposite of what was requested.",
 		}
 	}
 
@@ -112,9 +113,24 @@ func applyProvisioningResult(
 	server *serverdomain.Server,
 	machine *provisioningdomain.Machine,
 ) *ProvisioningStateItem {
+	server.Observed.Addresses = append([]string(nil), machine.IPAddresses...)
 	item := updateProvisioningProjection(server, machine)
 	_ = servers.Upsert(ctx, server)
 	return item
+}
+
+func projectedEphemeral(machine *provisioningdomain.Machine) bool {
+	if !machine.Ephemeral {
+		return false
+	}
+	switch machine.Status {
+	case provisioningdomain.MachineStatusDeploying,
+		provisioningdomain.MachineStatusDeployed,
+		provisioningdomain.MachineStatusReleasing:
+		return true
+	default:
+		return false
+	}
 }
 
 // updateProvisioningProjection applies a provider observation in memory. Callers choose
@@ -132,7 +148,7 @@ func updateProvisioningProjection(
 		PowerState:          string(machine.PowerState),
 		OSSystem:            machine.OSSystem,
 		DistroSeries:        machine.DistroSeries,
-		Ephemeral:           machine.Ephemeral,
+		Ephemeral:           projectedEphemeral(machine),
 		HWEKernel:           machine.HWEKernel,
 		Locked:              machine.Locked,
 		CommissioningStatus: machine.CommissioningStatus,

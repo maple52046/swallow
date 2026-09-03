@@ -121,6 +121,10 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("deployment template repo init: %w", err)
 	}
+	taskRepo, err := provisioninginfra.NewMongoProvisioningTaskRepo(db)
+	if err != nil {
+		return fmt.Errorf("provisioning task repo init: %w", err)
+	}
 
 	if err := bootstrap.EnsureAdminUser(
 		ctx, userRepo,
@@ -161,6 +165,10 @@ func RunAPI(cfg config.APIConfig) error {
 	integrationReader := provisioninginfra.NewIntegrationReader(integrationRepo, siteRepo)
 	templateService := provisioningapp.NewDeploymentTemplateService(
 		templateRepo, integrationReader, providerFactory)
+	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
+	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo)
+	taskWorker := provisioningapp.NewProvisioningTaskWorker(
+		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
@@ -168,7 +176,9 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory),
 		provisioningapp.NewDeploymentTargetPreflightService(serverRepo, providerFactory),
 		templateService,
-		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory),
+		networkService,
+		taskService,
+		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo),
 		provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewListOSImagesUseCase(providerFactory),
 		reconcileUC,
@@ -304,6 +314,7 @@ func RunAPI(cfg config.APIConfig) error {
 
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
+	go taskWorker.Run(ctx)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go dispatcher.Run(ctx)
@@ -411,6 +422,11 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// the mirrored projection the list and get return.
 	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)
 	servers.Get("/:id/events", deps.provisioning.ProviderEvents)
+	servers.Get("/:id/network", deps.provisioning.GetNetwork)
+	servers.Post("/:id/network/interfaces/:interfaceId/links", deps.provisioning.CreateNetworkLink)
+	servers.Put("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.ReplaceNetworkLink)
+	servers.Delete("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.DeleteNetworkLink)
+	servers.Get("/:id/provisioning-tasks", deps.provisioning.ListProvisioningTasks)
 	servers.Post("/:id/deploy", deps.provisioning.Deploy)
 	servers.Post("/:id/release", deps.provisioning.Release)
 	// Power, hardware validation, and operator state are the provisioner actions beyond
@@ -440,6 +456,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Delete("/templates/:id/user-data", deps.provisioning.ClearTemplateUserData)
 	provisioning.Post("/deployments/preflight", deps.provisioning.PreflightDeployServers)
 	provisioning.Post("/deployments", deps.provisioning.DeployServers)
+	provisioning.Post("/networks/inspect", deps.provisioning.InspectNetworks)
+	provisioning.Get("/tasks/:id", deps.provisioning.GetProvisioningTask)
+	provisioning.Post("/tasks/:id/retry", deps.provisioning.RetryProvisioningTask)
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 

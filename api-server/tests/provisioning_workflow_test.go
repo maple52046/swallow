@@ -229,7 +229,7 @@ func TestDeployServers_InlineAndTemplateModes(t *testing.T) {
 		}
 	})
 }
-func TestDeployServers_ProviderReadinessBlocksDispatch(t *testing.T) {
+func TestDeployServers_ProviderReadinessRunsAfterNetworkConfiguration(t *testing.T) {
 	f := setupPlatform(t)
 	seedProvisionerIntegration(t, f)
 	seedReadyServer(t, f, "srv-1")
@@ -245,34 +245,31 @@ func TestDeployServers_ProviderReadinessBlocksDispatch(t *testing.T) {
 		t.Fatalf("target preflight: expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
 	}
 	body := parseBody(t, resp)
-	if body["valid"] != false || body["integrationId"] != testIntegrationID {
+	if body["valid"] != true || body["integrationId"] != testIntegrationID {
 		t.Fatalf("unexpected target preflight result: %v", body)
 	}
 	issues := body["issues"].([]any)
-	if len(issues) != 1 {
-		t.Fatalf("target preflight issues: got %d, want 1", len(issues))
-	}
-	issue := issues[0].(map[string]any)
-	if issue["serverId"] != "srv-1" || issue["code"] != "provider_not_ready" {
-		t.Fatalf("unexpected target readiness issue: %v", issue)
-	}
-	if !strings.Contains(issue["message"].(string), "Network in MAAS") {
-		t.Errorf("target readiness message = %q, want actionable MAAS remediation", issue["message"])
+	if len(issues) != 0 {
+		t.Fatalf("read-only target preflight must defer provider network readiness: %v", issues)
 	}
 
 	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
 		"serverIds": []string{"srv-1"},
 		"settings":  map[string]any{"imageId": "ubuntu/jammy"},
 	}, f.adminAuth(t))
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("deployment readiness race check: expected 409, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("post-network readiness refusal: expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	failure := parseBody(t, resp)["failed"].([]any)[0].(map[string]any)
+	if failure["stage"] != "network_configuration" || !strings.Contains(failure["message"].(string), "Network in MAAS") {
+		t.Fatalf("unexpected readiness failure: %v", failure)
 	}
 	if len(f.provider.deployRequests) != 0 {
 		t.Fatalf("provider readiness failure must dispatch nothing, got %d calls", len(f.provider.deployRequests))
 	}
 }
-func TestDeploymentTargetPreflight_MapsProviderFailureAfterLocalValidation(t *testing.T) {
-	t.Run("provider unavailable", func(t *testing.T) {
+func TestDeploymentTargetPreflight_PerformsLocalValidationBeforeNetworkWorkflow(t *testing.T) {
+	t.Run("provider readiness is deferred", func(t *testing.T) {
 		f := setupPlatform(t)
 		seedProvisionerIntegration(t, f)
 		seedReadyServer(t, f, "srv-1")
@@ -284,8 +281,12 @@ func TestDeploymentTargetPreflight_MapsProviderFailureAfterLocalValidation(t *te
 		resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments/preflight", map[string]any{
 			"serverIds": []string{"srv-1"},
 		}, f.adminAuth(t))
-		if resp.StatusCode != http.StatusServiceUnavailable {
-			t.Fatalf("provider unavailable: expected 503, got %d: %s", resp.StatusCode, rawBody(t, resp))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("target preflight: expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+		}
+		body := parseBody(t, resp)
+		if body["valid"] != true || len(body["issues"].([]any)) != 0 {
+			t.Fatalf("provider readiness should be deferred: %v", body)
 		}
 	})
 

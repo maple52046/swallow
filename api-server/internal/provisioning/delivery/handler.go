@@ -20,6 +20,8 @@ type ProvisioningHandler struct {
 	deployments     *application.DeployServersUseCase
 	templates       *application.DeploymentTemplateService
 	targetPreflight *application.DeploymentTargetPreflightService
+	networks        *application.NetworkConfigurationService
+	tasks           *application.ProvisioningTaskService
 	release         *application.ReleaseServerUseCase
 	refresh         *application.RefreshServerUseCase
 	images          *application.ListOSImagesUseCase
@@ -35,6 +37,8 @@ func NewProvisioningHandler(
 	deployments *application.DeployServersUseCase,
 	targetPreflight *application.DeploymentTargetPreflightService,
 	templates *application.DeploymentTemplateService,
+	networks *application.NetworkConfigurationService,
+	tasks *application.ProvisioningTaskService,
 	release *application.ReleaseServerUseCase,
 	refresh *application.RefreshServerUseCase,
 	images *application.ListOSImagesUseCase,
@@ -50,6 +54,8 @@ func NewProvisioningHandler(
 		templates:       templates,
 		targetPreflight: targetPreflight,
 		release:         release,
+		networks:        networks,
+		tasks:           tasks,
 		refresh:         refresh,
 		images:          images,
 		reconcile:       reconcile,
@@ -60,9 +66,9 @@ func NewProvisioningHandler(
 	}
 }
 
-// RefreshServer reads the current provider state for one machine and advances only
-// its provisioning projection. It is used for bounded follow-up after asynchronous
-// actions such as Release; full inventory reconciliation remains separately owned.
+// RefreshServer reads the current provider state for one machine and advances its
+// provisioning projection and observed addresses. It is used for bounded follow-up
+// after asynchronous actions such as Release; full inventory reconciliation remains separate.
 func (h *ProvisioningHandler) RefreshServer(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
@@ -87,10 +93,11 @@ type deployRequest struct {
 }
 
 type releaseRequest struct {
-	Erase       bool   `json:"erase"`
-	SecureErase bool   `json:"secureErase"`
-	QuickErase  bool   `json:"quickErase"`
-	Comment     string `json:"comment"`
+	Erase           bool   `json:"erase"`
+	SecureErase     bool   `json:"secureErase"`
+	QuickErase      bool   `json:"quickErase"`
+	Comment         string `json:"comment"`
+	UnbindStaticIPs bool   `json:"unbindStaticIPs"`
 }
 
 // Deploy starts an OS deployment on a server. Responds 202: the provisioner has
@@ -139,11 +146,13 @@ func (h *ProvisioningHandler) Release(c *fiber.Ctx) error {
 	}
 
 	item, err := h.release.ExecuteWithOptions(c.Context(), application.ReleaseServerInput{
-		ServerID:    id,
-		Erase:       req.Erase,
-		SecureErase: req.SecureErase,
-		QuickErase:  req.QuickErase,
-		Comment:     req.Comment,
+		ServerID:        id,
+		Erase:           req.Erase,
+		SecureErase:     req.SecureErase,
+		UnbindStaticIPs: req.UnbindStaticIPs,
+		RequestID:       c.GetRespHeader(fiber.HeaderXRequestID),
+		QuickErase:      req.QuickErase,
+		Comment:         req.Comment,
 	})
 	if err != nil {
 		return RespondError(c, err)
@@ -319,9 +328,18 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
+	case errors.Is(err, provisioningdomain.ErrProvisioningTaskNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Provisioning task not found."))
+
+	case errors.Is(err, provisioningdomain.ErrProvisioningTaskConflict),
+		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict),
+		errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+
 	case errors.Is(err, provisioningdomain.ErrInvalidDeploymentTemplate),
 		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch),
-		errors.Is(err, provisioningdomain.ErrInvalidReleaseRequest):
+		errors.Is(err, provisioningdomain.ErrInvalidReleaseRequest),
+		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	case errors.Is(err, sitedomain.ErrSiteNotFound):

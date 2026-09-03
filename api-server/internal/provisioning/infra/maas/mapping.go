@@ -43,9 +43,11 @@ type machineJSON struct {
 	// Hardware identity. MAAS populates these from DMI during commissioning, so an
 	// uncommissioned machine reports none of them and older MAAS versions omit
 	// hardware_uuid entirely. All three are therefore optional.
-	HardwareUUID string            `json:"hardware_uuid"`
-	HardwareInfo *hardwareInfoJSON `json:"hardware_info"`
-	InterfaceSet []interfaceJSON   `json:"interface_set"`
+	HardwareUUID    string             `json:"hardware_uuid"`
+	HardwareInfo    *hardwareInfoJSON  `json:"hardware_info"`
+	InterfaceSet    []interfaceJSON    `json:"interface_set"`
+	BootInterface   *interfaceJSON     `json:"boot_interface"`
+	GatewayLinkIPv4 *interfaceLinkJSON `json:"gateway_link_ipv4"`
 }
 
 // namedJSON covers the MAAS objects swallow only needs a name from.
@@ -70,18 +72,38 @@ type hardwareInfoJSON struct {
 	ChassisType              string `json:"chassis_type"`
 }
 
-// interfaceJSON carries hardware identity plus provider-owned subnet links used only
-// for deployment readiness; Swallow does not persist or mutate this network state.
+// interfaceJSON is the MAAS network shape translated by network.go. IDs remain
+// opaque outside the adapter even though MAAS serializes them as integers.
 type interfaceJSON struct {
-	MACAddress string              `json:"mac_address"`
-	Links      []interfaceLinkJSON `json:"links"`
+	ID            int                 `json:"id"`
+	Name          string              `json:"name"`
+	Type          string              `json:"type"`
+	MACAddress    string              `json:"mac_address"`
+	Enabled       bool                `json:"enabled"`
+	LinkConnected *bool               `json:"link_connected"`
+	VLAN          *vlanJSON           `json:"vlan"`
+	Links         []interfaceLinkJSON `json:"links"`
 }
 
-// interfaceLinkJSON distinguishes an unlinked NIC from any MAAS link whose subnet
-// exists. Link mode is retained for future display without affecting readiness.
+// interfaceLinkJSON retains MAAS vocabulary only until the network adapter maps it.
 type interfaceLinkJSON struct {
-	Mode   string     `json:"mode"`
-	Subnet *namedJSON `json:"subnet"`
+	ID        int         `json:"id"`
+	Mode      string      `json:"mode"`
+	IPAddress string      `json:"ip_address"`
+	Subnet    *subnetJSON `json:"subnet"`
+}
+
+type vlanJSON struct {
+	ID int `json:"id"`
+}
+
+type subnetJSON struct {
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	CIDR      string    `json:"cidr"`
+	GatewayIP string    `json:"gateway_ip"`
+	Managed   bool      `json:"managed"`
+	VLAN      *vlanJSON `json:"vlan"`
 }
 
 type bootResourceJSON struct {
@@ -209,27 +231,54 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 	return machine
 }
 
+// isMAASBootloaderOSSystem identifies bootstrap artifacts returned by the MAAS
+// boot-resources endpoint alongside deployable operating systems. Passing one
+// of these names to machine deploy would offer firmware plumbing as an OS.
+func isMAASBootloaderOSSystem(osSystem string) bool {
+	switch osSystem {
+	case "bootloader", "grub-efi", "grub-efi-signed", "grub-ieee1275", "pxelinux":
+		return true
+	default:
+		return false
+	}
+}
+
 // toDomainOSImages converts MAAS boot resources into deployable images.
 //
 // MAAS reports one boot resource per name and architecture, where the architecture
 // carries a kernel flavour ("amd64/hwe-22.04"). swallow only needs the CPU
 // architecture, so entries collapse to one image per name and CPU architecture.
-// The resource name ("ubuntu/jammy") is kept as the image ID because that is the
-// value the deploy operation expects back as distro_series.
+// Synced images derive their OS and release from names such as "ubuntu/jammy".
+// Uploaded images are MAAS custom images: their opaque resource name remains the
+// distro_series while the adapter supplies the required "custom" osystem.
 func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImage {
 	images := make([]*provisioningdomain.OSImage, 0, len(resources))
 	seen := make(map[string]struct{}, len(resources))
 
 	for _, r := range resources {
-		osSystem, release, found := strings.Cut(r.Name, "/")
-		if !found || osSystem == "" || release == "" {
-			// Not an OS/release pair; nothing deployable can be built from it.
+		imageID := strings.TrimSpace(r.Name)
+		if imageID == "" {
+			continue
+		}
+
+		var osSystem, release string
+		if strings.EqualFold(r.Type, "Uploaded") {
+			osSystem = "custom"
+			release = strings.TrimPrefix(imageID, "custom/")
+		} else {
+			var found bool
+			osSystem, release, found = strings.Cut(imageID, "/")
+			if !found || osSystem == "" || release == "" || isMAASBootloaderOSSystem(osSystem) {
+				continue
+			}
+		}
+		if release == "" {
 			continue
 		}
 
 		arch, _, _ := strings.Cut(r.Architecture, "/")
 
-		key := r.Name + "|" + arch
+		key := imageID + "|" + arch
 		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
@@ -237,11 +286,11 @@ func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImag
 
 		name := r.Title
 		if name == "" {
-			name = r.Name
+			name = imageID
 		}
 
 		images = append(images, &provisioningdomain.OSImage{
-			ID:           r.Name,
+			ID:           imageID,
 			Name:         name,
 			OSSystem:     osSystem,
 			Release:      release,

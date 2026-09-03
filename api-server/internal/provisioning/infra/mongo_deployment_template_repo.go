@@ -21,6 +21,9 @@ type deploymentTemplateDoc struct {
 	Description    string    `bson:"description,omitempty"`
 	ImageID        string    `bson:"imageId"`
 	Ephemeral      bool      `bson:"ephemeral"`
+	NetworkMode    string    `bson:"networkMode,omitempty"`
+	SubnetID       string    `bson:"subnetId,omitempty"`
+	DefaultGateway bool      `bson:"defaultGateway,omitempty"`
 	SealedUserData string    `bson:"sealedUserData,omitempty"`
 	CreatedAt      time.Time `bson:"createdAt"`
 	UpdatedAt      time.Time `bson:"updatedAt"`
@@ -87,6 +90,9 @@ func newDeploymentTemplateDoc(
 		Description:    template.Description,
 		ImageID:        template.ImageID,
 		Ephemeral:      template.Ephemeral,
+		NetworkMode:    string(template.NetworkMode),
+		SubnetID:       template.SubnetID,
+		DefaultGateway: template.DefaultGateway,
 		CreatedAt:      template.CreatedAt,
 		UpdatedAt:      template.UpdatedAt,
 	}
@@ -160,6 +166,9 @@ func (r *MongoDeploymentTemplateRepo) Update(
 		"description":    template.Description,
 		"imageId":        template.ImageID,
 		"ephemeral":      template.Ephemeral,
+		"networkMode":    string(template.NetworkMode),
+		"subnetId":       template.SubnetID,
+		"defaultGateway": template.DefaultGateway,
 		"updatedAt":      template.UpdatedAt,
 	}})
 	if err = mapTemplateWriteError(err); err != nil {
@@ -252,15 +261,22 @@ func mapTemplateWriteError(err error) error {
 }
 
 func toDeploymentTemplate(doc *deploymentTemplateDoc) *provisioningdomain.DeploymentTemplate {
+	mode := provisioningdomain.DeploymentNetworkMode(doc.NetworkMode)
+	if mode == "" {
+		mode = provisioningdomain.DeploymentNetworkDHCP
+	}
 	return &provisioningdomain.DeploymentTemplate{
-		ID:            doc.ID,
-		IntegrationID: doc.IntegrationID,
-		Name:          doc.Name,
-		Description:   doc.Description,
-		ImageID:       doc.ImageID,
-		Ephemeral:     doc.Ephemeral,
-		HasUserData:   doc.SealedUserData != "",
-		CreatedAt:     doc.CreatedAt,
-		UpdatedAt:     doc.UpdatedAt,
+		ID:             doc.ID,
+		IntegrationID:  doc.IntegrationID,
+		Name:           doc.Name,
+		Description:    doc.Description,
+		ImageID:        doc.ImageID,
+		Ephemeral:      doc.Ephemeral,
+		NetworkMode:    mode,
+		SubnetID:       doc.SubnetID,
+		DefaultGateway: doc.DefaultGateway,
+		HasUserData:    doc.SealedUserData != "",
+		CreatedAt:      doc.CreatedAt,
+		UpdatedAt:      doc.UpdatedAt,
 	}
 }

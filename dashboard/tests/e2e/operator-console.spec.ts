@@ -9,6 +9,39 @@ async function chooseMenuItem(page: import('playwright/test').Page, name: string
   await page.getByRole('menuitem', { name, exact: true }).click()
 }
 
+async function chooseSingleSelectOption(page: import('playwright/test').Page, fieldLabel: string, optionLabel: string) {
+  await page.getByLabel(fieldLabel, { exact: true }).click()
+  await page.getByRole('option', { name: optionLabel, exact: true }).click()
+}
+
+/**
+ * Opens a DOM-rendered PatternFly Select and verifies its disabled placeholder
+ * is painted against a real menu surface before any pointer hover occurs.
+ */
+async function expectExpandedPlaceholderReadable(
+  page: import('playwright/test').Page,
+  fieldLabel: string,
+  placeholderLabel: string,
+) {
+  await page.getByLabel(fieldLabel, { exact: true }).click()
+  const placeholder = page.getByRole('option', { name: placeholderLabel, exact: true })
+  await expect(placeholder).toBeVisible()
+  await expect(placeholder).toBeDisabled()
+  const paint = await placeholder.evaluate((element) => {
+    const text = getComputedStyle(element).color
+    let background = 'rgba(0, 0, 0, 0)'
+    let current: Element | null = element
+    while (current && (background === 'rgba(0, 0, 0, 0)' || background === 'transparent')) {
+      background = getComputedStyle(current).backgroundColor
+      current = current.parentElement
+    }
+    return { text, background }
+  })
+  expect(paint.background).not.toBe('rgba(0, 0, 0, 0)')
+  expect(paint.background).not.toBe('transparent')
+  expect(paint.text).not.toBe(paint.background)
+}
+
 /** Reads computed styles because PatternFly gives header, body, check, and action cells different defaults. */
 async function expectTableCellsVerticallyCentered(page: import('playwright/test').Page, tableName: string) {
   const table = page.locator(`table[aria-label="${tableName}"]`)
@@ -109,28 +142,20 @@ test.describe('operator interactions', () => {
     await expect(page.locator('html')).not.toHaveClass(/pf-v6-theme-dark/)
   })
 
-  test('Deploy OS rounds its Wizard and keeps the Integration placeholder readable in dark mode', async ({ page }) => {
+  test('Deploy OS renders its expanded Integration placeholder in dark mode', async ({ page }) => {
     await page.goto('/provisioning/deploy?site=site-a')
     await visibleAppearance(page).click()
     await chooseMenuItem(page, 'Dark')
-
     const wizard = page.locator('.sw-deploy-wizard')
     await expect(wizard).toHaveCSS('border-radius', '6px')
     await expect(wizard).toHaveCSS('overflow', 'hidden')
-
     const integration = page.getByLabel('Provisioner integration')
-    const control = integration.locator('..')
-    await expect(integration).toHaveValue('')
-    await expect(integration.locator('option:checked')).toHaveText('Select an integration')
-    await expect(control).toHaveClass(/pf-m-placeholder/)
+    await expect(integration).toContainText('Select an integration')
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
-
-    const colors = await integration.evaluate((element) => {
-      const style = getComputedStyle(element)
-      return { text: style.color, background: style.backgroundColor }
-    })
-    expect(colors.text).not.toBe(colors.background)
-    expect(colors.text).not.toBe('rgba(0, 0, 0, 0)')
+    await expectExpandedPlaceholderReadable(page, 'Provisioner integration', 'Select an integration')
+    await expect(page.getByRole('option', { name: 'MAAS Taipei', exact: true })).toBeVisible()
+    await page.getByRole('option', { name: 'MAAS Taipei', exact: true }).click()
+    await expect(integration).toContainText('MAAS Taipei')
   })
 
   test('shared tables center cells and separators keep PatternFly spacing', async ({ page }) => {
@@ -464,6 +489,40 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('03:00.0')).toBeVisible()
   })
 
+  test('Server Network separates physical state from Swallow configuration actions', async ({ page }) => {
+    const requests: Array<{ method: string; linkId: string | null; body: Record<string, unknown> | null }> = []
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, {
+      readyServerCount: 1,
+      onNetworkLinkRequest: (method, _serverId, _interfaceId, linkId, body) => {
+        requests.push({ method, linkId, body })
+      },
+    })
+    await page.goto('/servers/srv-1/network?site=site-a')
+
+    const table = page.getByRole('grid', { name: 'Server network interfaces' })
+    const row = table.getByRole('row', { name: /eno1/ })
+    await expect(row).toContainText('Provider-managed (MAAS AUTO)')
+    await expect(row.getByRole('gridcell', { name: 'up' })).toBeVisible()
+    await row.getByRole('button', { name: 'Configure' }).click()
+
+    const editor = page.getByRole('dialog', { name: 'Configure eno1' })
+    await expect(editor.getByRole('button', { name: 'DHCP' })).toBeVisible()
+    await expect(editor.getByRole('button', { name: 'Static' })).toBeVisible()
+    await expect(editor.getByRole('button', { name: 'Link only' })).toBeVisible()
+    await expect(editor.getByText(/Keep current|AUTO/)).toHaveCount(0)
+    await editor.getByRole('button', { name: 'Static' }).click()
+    await editor.getByLabel('IPv4 address').fill('192.168.40.90')
+    await editor.getByRole('button', { name: 'Save configuration' }).click()
+    expect(requests[0]).toEqual({ method: 'PUT', linkId: 'link-srv-1', body: { mode: 'static', subnetId: 'subnet-a', ipAddress: '192.168.40.90', defaultGateway: true } })
+    await expect(row).toContainText('STATIC')
+
+    await row.getByRole('button', { name: 'Unbind' }).click()
+    await page.getByRole('dialog', { name: 'Unbind network link' }).getByRole('button', { name: 'Unbind' }).click()
+    expect(requests[1]).toEqual({ method: 'DELETE', linkId: 'link-srv-1', body: null })
+    await expect(row).toContainText('Unconfigured')
+  })
+
   test('provider-backed server deletion requires typed confirmation', async ({ page }) => {
     await page.goto('/servers/srv-1/summary?site=site-a')
     await page.getByRole('button', { name: 'Take action' }).click()
@@ -784,6 +843,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('1 failed', { exact: true })).toBeVisible()
     await expect(page.getByText('Machine reservation changed.')).toBeVisible()
     expect(deploymentRequest?.serverIds).toEqual(['srv-1', 'srv-2'])
+    expect(deploymentRequest?.network).toEqual({ mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false, assignments: [{ serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a' }, { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a' }] })
     expect(JSON.stringify(deploymentRequest)).toContain('#cloud-config')
     expect(await page.evaluate(() => JSON.stringify({
       local: { ...localStorage },
@@ -797,6 +857,71 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('1 of 100 selected')).toBeVisible()
     await expect(page.getByText('1 accepted', { exact: true })).toHaveCount(0)
     expect(await page.evaluate(() => sessionStorage.getItem('swallow.provisioning.last-result'))).toBeNull()
+  })
+
+  test('Deploy OS renders its expanded dark image placeholder and refreshes uploaded images', async ({ page }) => {
+    const catalogRequests: string[] = []
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, {
+      readyServerCount: 1,
+      onOSImageCatalogRequest: (integrationId) => catalogRequests.push(integrationId),
+    })
+    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1')
+    await visibleAppearance(page).click()
+    await chooseMenuItem(page, 'Dark')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.getByLabel('OS image')).toContainText('Select an image')
+    await expectExpandedPlaceholderReadable(page, 'OS image', 'Select an image')
+    await expect(page.getByRole('option', { name: 'Ubuntu 24.04 ROCm (amd64)', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByText('3 deployable images returned by the provider.')).toBeVisible()
+    await expect.poll(() => catalogRequests).toEqual(['maas-a'])
+
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    await expect.poll(() => catalogRequests).toEqual(['maas-a', 'maas-a'])
+
+    const networkSection = page.locator('section.sw-section').filter({ hasText: 'Network configuration' })
+    const sectionBox = await networkSection.boundingBox()
+    const dhcpBox = await page.getByRole('button', { name: 'DHCP' }).boundingBox()
+    expect(sectionBox).not.toBeNull()
+    expect(dhcpBox).not.toBeNull()
+    if (!sectionBox || !dhcpBox) throw new Error('Network configuration controls are not visible')
+    expect(dhcpBox.x - sectionBox.x).toBeGreaterThan(16)
+  })
+
+  test('Deploy OS preserves an existing Static binding as the network default', async ({ page }) => {
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, {
+      readyServerCount: 2,
+      staticNetworkServerIds: ['srv-1'],
+      networkSubnetName: '192.168.40.0/24',
+    })
+
+    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
+    await page.getByRole('button', { name: 'Next' }).click()
+
+    const staticMode = page.getByRole('button', { name: 'Static' })
+    const dhcpMode = page.getByRole('button', { name: 'DHCP' })
+    await expect(staticMode).toHaveAttribute('aria-pressed', 'true')
+    await expect(dhcpMode).toHaveAttribute('aria-pressed', 'false')
+    const subnet = page.getByLabel('Subnet for gpu-node-01')
+    await expect(subnet.locator('option:checked')).toHaveText('192.168.40.0/24')
+    await expect(subnet.locator('option:checked')).not.toContainText('(')
+    const currentModeHeading = page.getByRole('columnheader', { name: 'Current mode' })
+    await expect(currentModeHeading).toBeVisible()
+    expect(await currentModeHeading.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await expect(page.getByLabel('Use the selected subnet for the default route')).toBeChecked()
+    await expect(page.getByText('the provider makes this Static link the IPv4 default route', { exact: false })).toBeVisible()
+    await expect(page.getByLabel('Static IPv4 address for gpu-node-01')).toHaveValue('192.168.40.21')
+    await expect(page.getByLabel('Static IPv4 address for gpu-node-02')).toHaveValue('')
+
+    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 22.04 LTS (amd64)')
+    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
+
+    await dhcpMode.click()
+    await expect(dhcpMode).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByLabel('Static IPv4 address for gpu-node-01')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled()
   })
 
   test('cross-integration selection is blocked and Site changes clear provisioning drafts', async ({ page }) => {
@@ -818,6 +943,48 @@ test.describe('operator interactions', () => {
     await chooseMenuItem(page, 'Hsinchu Edge')
     await expect(page).toHaveURL('/provisioning/deploy?site=site-b')
     await expect(page.getByText('Provisioning draft cleared')).toBeVisible()
+  })
+
+  test('Static OS deployment requires and reviews a unique IPv4 address per target', async ({ page }) => {
+    let deploymentRequest: Record<string, unknown> | undefined
+    let refreshRequests = 0
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, {
+      readyServerCount: 2,
+      deploymentConvergesAfterRefreshes: 1,
+      onDeploymentRequest: (body) => { deploymentRequest = body },
+      onServerRefreshRequest: () => { refreshRequests += 1 },
+    })
+    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 22.04 LTS (amd64)')
+    await page.getByRole('button', { name: 'Static' }).click()
+
+    const next = page.getByRole('button', { name: 'Next' })
+    await expect(next).toBeDisabled()
+    await page.getByLabel('Static IPv4 address for gpu-node-01').fill('192.168.40.91')
+    await page.getByLabel('Static IPv4 address for gpu-node-02').fill('192.168.40.91')
+    await expect(next).toBeDisabled()
+    await page.getByLabel('Static IPv4 address for gpu-node-02').fill('192.168.40.92')
+    await expect(next).toBeEnabled()
+    await next.click()
+
+    const review = page.getByRole('grid', { name: 'Deployment review targets' })
+    await expect(review).toContainText('192.168.40.91')
+    await expect(review).toContainText('192.168.40.92')
+    await page.getByRole('button', { name: 'Deploy OS' }).click()
+    await expect(page).toHaveURL('/servers?site=site-a')
+    expect(deploymentRequest?.network).toEqual({
+      mode: 'static',
+      defaultGateway: false,
+      assignments: [
+        { serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a', ipAddress: '192.168.40.91' },
+        { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a', ipAddress: '192.168.40.92' },
+      ],
+    })
+    const deployedRow = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
+    await expect(deployedRow).toContainText('deployed')
+    expect(refreshRequests).toBeGreaterThan(0)
   })
 
   test('template CRUD remains write-only and OS Images preserves partial provider results', async ({ page }) => {

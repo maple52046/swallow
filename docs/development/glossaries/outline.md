@@ -34,6 +34,12 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   installation whose progress is observed on each Server provisioning axis.
 - [Deployment Template](terms/deployment-template.md): Reusable,
   integration-scoped Swallow-owned deployment intent without automation content.
+- [Network Configuration](terms/network-configuration.md): Typed NIC subnet-link
+  and addressing state plus the explicit intent Swallow can apply.
+- [IP Binding](terms/ip-binding.md): One explicit static address associated with
+  a Server NIC subnet link through its provisioner.
+- [Provisioning Task](terms/provisioning-task.md): Durable coordination for
+  provider-backed cleanup that spans asynchronous provisioning transitions.
 
 ## Pending Terms
 

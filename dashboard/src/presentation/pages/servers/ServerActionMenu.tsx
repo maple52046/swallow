@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import type { ProvisionerCapabilities, ReleaseServerInput } from '@/domain/server/types'
+import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput } from '@/domain/server/types'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { SERVER_ACTION_GROUPS, actionLabel, type ServerMenuAction } from './serverActions'
@@ -23,7 +23,7 @@ import {
  * the shared typed-confirmation dialog and navigates back to the Server list only after the
  * backend has removed both the provider Machine and the Swallow projection.
  */
-export function ServerActionMenu({ serverId, serverName, capabilities, deployDisabledReason, onActed }: { serverId: string; serverName: string; capabilities: ProvisionerCapabilities | null; deployDisabledReason?: string; onActed: (action: ServerMenuAction) => void }) {
+export function ServerActionMenu({ serverId, serverName, capabilities, deployDisabledReason, onActed }: { serverId: string; serverName: string; capabilities: ProvisionerCapabilities | null; deployDisabledReason?: string; onActed: (action: ServerMenuAction, input: ReleaseServerInput | undefined, result: ProvisioningActionResult) => void }) {
   const { servers } = useApp()
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -55,6 +55,7 @@ export function ServerActionMenu({ serverId, serverName, capabilities, deployDis
         serverId,
         serverName,
         accepted: true,
+        taskId: result.taskId,
         message: `Provisioner accepted the action and reported ${result.state}.`,
       }]))
       showToast({
@@ -63,7 +64,7 @@ export function ServerActionMenu({ serverId, serverName, capabilities, deployDis
         description: `${serverName} reports "${result.state}"; reconciliation will follow it.`,
       })
       setLastActionResult(null)
-      onActed(action)
+      onActed(action, releaseInput, result)
     } catch (error) {
       const actionResult = serverActionRunResult(action, [
         rejectedServerActionOutcome({ serverId, serverName }, error),
@@ -146,6 +147,7 @@ export function ServerActionMenu({ serverId, serverName, capabilities, deployDis
         <ServerReleaseDialog
           targets={[{ serverId, serverName }]}
           supportsReleaseOptions={capabilities?.releaseOptions ?? true}
+          supportsNetworkConfiguration={capabilities?.networkConfiguration ?? true}
           onClose={() => setReleaseOpen(false)}
           onRelease={(input) => run('release', input)}
         />

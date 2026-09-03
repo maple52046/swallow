@@ -24,17 +24,22 @@ import {
   Label,
   TextArea,
   TextInput,
+  ToggleGroup,
+  ToggleGroupItem,
   Title,
   Wizard,
   WizardFooter,
   WizardStep,
 } from '@patternfly/react-core'
+import { SyncAltIcon } from '@patternfly/react-icons'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type {
   DeploymentTemplate,
   DeploymentTargetIssue,
+  DeploymentNetworkMode,
+  NetworkInspectionResult,
   DeploymentUserDataMode,
   DeployServersResult,
   StoredDeploymentResult,
@@ -44,7 +49,9 @@ import type { Integration, OSImage } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SingleSelect } from '@/presentation/components/SingleSelect'
+import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { useToast } from '@/presentation/components/toast/toastContext'
@@ -102,6 +109,11 @@ function updateTargetParams(
 function serverIsDeployable(server: Server): boolean {
   return !server.absent && server.provisioning?.state === 'ready'
 }
+function validIPv4(value: string): boolean {
+  const octets = value.trim().split('.')
+  return octets.length === 4 && octets.every((octet) => /^(0|[1-9]\d{0,2})$/.test(octet) && Number(octet) <= 255)
+}
+
 
 function targetIssueName(issue: DeploymentTargetIssue, servers: Server[]): string {
   const server = servers.find((item) => item.id === issue.serverId)
@@ -115,6 +127,8 @@ function targetIssueName(issue: DeploymentTargetIssue, servers: Server[]): strin
  * Results step stores only non-secret acceptance data in sessionStorage. The Targets
  * step performs provider-owned readiness inspection before configuration, while final
  * deployment repeats backend preflight to protect against changed provider state.
+ * The image selector reads the chosen provisioner live on integration changes and
+ * explicit refresh, retaining no browser-owned catalog.
  */
 export function DeployOSWizardPage() {
   const { provisioning, sites: siteRepository, servers: serverRepository } = useApp()
@@ -130,6 +144,8 @@ export function DeployOSWizardPage() {
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
   const [images, setImages] = useState<OSImage[]>([])
   const [catalogError, setCatalogError] = useState('')
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0)
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [templateId, setTemplateId] = useState(searchParams.get('templateId') ?? '')
   const [customized, setCustomized] = useState(false)
@@ -142,6 +158,11 @@ export function DeployOSWizardPage() {
   const [submitting, setSubmitting] = useState(false)
   const [checkingTargets, setCheckingTargets] = useState(false)
   const [targetIssues, setTargetIssues] = useState<DeploymentTargetIssue[]>([])
+  const [networkInspection, setNetworkInspection] = useState<NetworkInspectionResult | null>(null)
+  const [networkMode, setNetworkMode] = useState<DeploymentNetworkMode>('dhcp')
+  const [networkSubnetId, setNetworkSubnetId] = useState('')
+  const [defaultGateway, setDefaultGateway] = useState(false)
+  const [networkAssignments, setNetworkAssignments] = useState<Record<string, { interfaceId: string; subnetId: string; ipAddress: string }>>({})
   const [result, setResult] = useState<StoredDeploymentResult | null>(() => readStoredResult(initialTargetIds))
   const [liveServers, setLiveServers] = useState<Record<string, Server>>({})
   const previousSite = useRef<{ initialized: boolean; value?: string }>({
@@ -174,15 +195,18 @@ export function DeployOSWizardPage() {
   }, [provisioning, showToast, siteId, siteRepository])
 
   // The image catalog is provider-owned live data. A changed integration cancels
-  // presentation updates from the previous provider request.
+  // presentation updates from the previous provider request; the nonce repeats the
+  // same read only when the operator explicitly requests current provider state.
   useEffect(() => {
     if (!integrationId) {
       setImages([])
       setCatalogError('')
+      setCatalogLoading(false)
       return
     }
     let cancelled = false
     setCatalogError('')
+    setCatalogLoading(true)
     provisioning.listOSImages(integrationId)
       .then((items) => {
         if (!cancelled) setImages(items)
@@ -193,10 +217,13 @@ export function DeployOSWizardPage() {
           setCatalogError(error.message)
         }
       })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false)
+      })
     return () => {
       cancelled = true
     }
-  }, [integrationId, provisioning])
+  }, [catalogRefreshNonce, integrationId, provisioning])
 
   useEffect(() => {
     if (siteScopeLoading) return
@@ -208,6 +235,11 @@ export function DeployOSWizardPage() {
     previousSite.current = { initialized: true, value: siteId }
     setSelected(new Set())
     setTargetIssues([])
+    setNetworkInspection(null)
+    setNetworkMode('dhcp')
+    setNetworkSubnetId('')
+    setDefaultGateway(false)
+    setNetworkAssignments({})
     setIntegrationId('')
     setTemplateId('')
     setCustomized(false)
@@ -221,7 +253,7 @@ export function DeployOSWizardPage() {
     try {
       sessionStorage.removeItem(RESULT_STORAGE_KEY)
     } catch {
-      // The workflow still resets in memory.
+      // The active workflow still resets without browser storage.
     }
     const next = new URLSearchParams(searchParams)
     ;['serverId', 'integrationId', 'templateId', 'imageId'].forEach((key) => next.delete(key))
@@ -289,6 +321,9 @@ export function DeployOSWizardPage() {
     setIntegrationId(template.integrationId)
     setImageId(template.imageId)
     setEphemeral(template.ephemeral)
+    setNetworkMode(template.network?.mode ?? 'dhcp')
+    setNetworkSubnetId(template.network?.subnetId ?? '')
+    setDefaultGateway(template.network?.defaultGateway ?? false)
     setUserDataMode('inherit')
     setCustomized(false)
   }, [showToast, templateId, templates])
@@ -303,6 +338,7 @@ export function DeployOSWizardPage() {
     const refresh = async () => {
       try {
         const entries = await Promise.all(result.accepted.map(async (accepted) => {
+          await serverRepository.refreshServer(accepted.serverId)
           const server = await serverRepository.getServer(accepted.serverId)
           return [accepted.serverId, server] as const
         }))
@@ -347,6 +383,24 @@ export function DeployOSWizardPage() {
   const selectedTemplate = templates.find((item) => item.id === templateId)
   const effectiveImageId = selectedTemplate && !customized ? selectedTemplate.imageId : imageId
   const effectiveEphemeral = selectedTemplate && !customized ? selectedTemplate.ephemeral : ephemeral
+  const effectiveNetworkMode = selectedTemplate && !customized ? selectedTemplate.network?.mode ?? 'dhcp' : networkMode
+  const effectiveNetworkSubnetId = selectedTemplate && !customized ? selectedTemplate.network?.subnetId ?? '' : networkSubnetId
+  const effectiveDefaultGateway = selectedTemplate && !customized ? selectedTemplate.network?.defaultGateway ?? false : defaultGateway
+  const assignedStaticIPs = selectedServers
+    .map((server) => networkAssignments[server.id]?.ipAddress.trim() ?? '')
+    .filter(Boolean)
+  const networkAssignmentsValid = Boolean(networkInspection) && selectedServers.every((server) => {
+    const assignment = networkAssignments[server.id]
+    const target = networkInspection?.targets.find((item) => item.serverId === server.id)
+    const iface = target?.network.interfaces.find((item) => item.id === assignment?.interfaceId)
+    if (!assignment?.interfaceId || !assignment.subnetId || !iface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)) return false
+    return effectiveNetworkMode !== 'static' || validIPv4(assignment.ipAddress)
+  }) && (effectiveNetworkMode !== 'static' || new Set(assignedStaticIPs).size === assignedStaticIPs.length)
+  const assignedSubnetIds = [...new Set(selectedServers
+    .map((server) => networkAssignments[server.id]?.subnetId)
+    .filter((value): value is string => Boolean(value)))]
+  const reusableSubnetId = effectiveNetworkSubnetId || (assignedSubnetIds.length === 1 ? assignedSubnetIds[0] : '')
+  const reusableNetworkValid = effectiveNetworkMode === 'dhcp' || Boolean(reusableSubnetId)
   const targetsValid = selected.size > 0 && selected.size <= MAX_TARGETS &&
     selectedServers.length === selected.size &&
     selectedServers.every((server) => (
@@ -356,7 +410,9 @@ export function DeployOSWizardPage() {
     integrationId &&
     effectiveImageId &&
     !catalogError &&
-    (userDataMode !== 'replace' || userData),
+    !catalogLoading &&
+    (userDataMode !== 'replace' || userData) &&
+    networkAssignmentsValid,
   )
   const inheritedSecretCannotBeSaved = Boolean(
     saveTemplate &&
@@ -366,6 +422,7 @@ export function DeployOSWizardPage() {
   )
   const reviewValid = targetsValid && configurationValid &&
     (!saveTemplate || Boolean(templateName.trim())) &&
+    (!saveTemplate || reusableNetworkValid) &&
     !inheritedSecretCannotBeSaved
 
   const checkTargets = async (onNext: () => void) => {
@@ -373,7 +430,10 @@ export function DeployOSWizardPage() {
     setCheckingTargets(true)
     setTargetIssues([])
     try {
-      const preflight = await provisioning.preflightDeploymentTargets([...selected])
+      const [preflight, inspection] = await Promise.all([
+        provisioning.preflightDeploymentTargets([...selected]),
+        provisioning.inspectDeploymentNetworks([...selected]),
+      ])
       if (!preflight.valid) {
         setTargetIssues(preflight.issues)
         showToast({
@@ -383,6 +443,30 @@ export function DeployOSWizardPage() {
         })
         return
       }
+      const usesLockedTemplateNetwork = Boolean(selectedTemplate && !customized)
+      const appliesInspectionDefaults = networkInspection === null && !usesLockedTemplateNetwork
+      const suggestedMode: DeploymentNetworkMode = inspection.targets.some(
+        (target) => target.suggestion.mode === 'static',
+      ) ? 'static' : 'dhcp'
+      if (appliesInspectionDefaults) {
+        setNetworkMode(suggestedMode)
+        setDefaultGateway(
+          suggestedMode === 'static' &&
+          inspection.targets.some((target) => target.suggestion.mode === 'static' && target.suggestion.defaultGateway),
+        )
+      }
+      setNetworkInspection(inspection)
+      const nextAssignments: Record<string, { interfaceId: string; subnetId: string; ipAddress: string }> = {}
+      for (const target of inspection.targets) {
+        const previous = networkAssignments[target.serverId]
+        nextAssignments[target.serverId] = {
+          interfaceId: target.suggestion.interfaceId,
+          subnetId: effectiveNetworkSubnetId || target.suggestion.subnetId,
+          ipAddress: previous?.ipAddress ??
+            (target.suggestion.mode === 'static' ? target.suggestion.ipAddress : ''),
+        }
+      }
+      setNetworkAssignments(nextAssignments)
       onNext()
     } catch (error) {
       showToast({
@@ -397,7 +481,14 @@ export function DeployOSWizardPage() {
 
   const selectIntegration = (nextIntegrationId: string) => {
     setIntegrationId(nextIntegrationId)
+    setImages([])
+    setCatalogError('')
+    setNetworkInspection(null)
+    setNetworkAssignments({})
     setSelected(new Set())
+    setNetworkMode('dhcp')
+    setNetworkSubnetId('')
+    setDefaultGateway(false)
     setTemplateId('')
     setTargetIssues([])
     setCustomized(false)
@@ -411,6 +502,8 @@ export function DeployOSWizardPage() {
 
   const toggleServer = (serverId: string) => {
     setTargetIssues([])
+    setNetworkInspection(null)
+    setNetworkAssignments({})
     setSelected((current) => {
       const next = new Set(current)
       if (next.has(serverId)) next.delete(serverId)
@@ -427,6 +520,9 @@ export function DeployOSWizardPage() {
     if (!id) {
       setImageId('')
       setEphemeral(false)
+      setNetworkMode('dhcp')
+      setNetworkSubnetId('')
+      setDefaultGateway(false)
       setUserDataMode('omit')
       const next = new URLSearchParams(searchParams)
       next.delete('templateId')
@@ -438,6 +534,9 @@ export function DeployOSWizardPage() {
     setIntegrationId(template.integrationId)
     setImageId(template.imageId)
     setEphemeral(template.ephemeral)
+    setNetworkMode(template.network?.mode ?? 'dhcp')
+    setNetworkSubnetId(template.network?.subnetId ?? '')
+    setDefaultGateway(template.network?.defaultGateway ?? false)
     setUserDataMode('inherit')
     const next = new URLSearchParams(searchParams)
     next.set('templateId', id)
@@ -455,6 +554,7 @@ export function DeployOSWizardPage() {
           name: templateName.trim(),
           imageId: effectiveImageId,
           ephemeral: effectiveEphemeral,
+          network: { mode: effectiveNetworkMode, subnetId: reusableSubnetId || undefined, defaultGateway: effectiveDefaultGateway },
           userData: userDataMode === 'replace' ? userData : undefined,
         })
         showToast({ tone: 'success', title: 'Deployment template saved' })
@@ -469,7 +569,33 @@ export function DeployOSWizardPage() {
           mode: selectedTemplate ? userDataMode : userDataMode === 'replace' ? 'replace' : 'omit',
           value: userDataMode === 'replace' ? userData : undefined,
         },
+        network: {
+          mode: effectiveNetworkMode,
+          subnetId: effectiveNetworkSubnetId || undefined,
+          defaultGateway: effectiveDefaultGateway,
+          assignments: selectedServers.map((server) => ({
+            serverId: server.id,
+            interfaceId: networkAssignments[server.id].interfaceId,
+            subnetId: networkAssignments[server.id].subnetId,
+            ipAddress: effectiveNetworkMode === 'static' ? networkAssignments[server.id].ipAddress.trim() : undefined,
+          })),
+        },
       })
+      setUserData('')
+      showToast({
+        tone: response.failed.length ? 'warning' : 'success',
+        title: response.failed.length ? 'Deployment partially accepted' : 'Deployment accepted',
+        description: `${response.accepted.length} accepted, ${response.failed.length} failed.`,
+      })
+      if (response.failed.length === 0) {
+        try {
+          sessionStorage.removeItem(RESULT_STORAGE_KEY)
+        } catch {
+          // Navigation does not depend on browser storage being available.
+        }
+        navigate(scopedHref('/servers'), { replace: true })
+        return
+      }
       const stored: StoredDeploymentResult = {
         ...response,
         serverIds: [...selected],
@@ -478,12 +604,6 @@ export function DeployOSWizardPage() {
       }
       storeResult(stored)
       setResult(stored)
-      setUserData('')
-      showToast({
-        tone: response.failed.length ? 'warning' : 'success',
-        title: response.failed.length ? 'Deployment partially accepted' : 'Deployment accepted',
-        description: `${response.accepted.length} accepted, ${response.failed.length} failed.`,
-      })
     } catch (error) {
       showToast({
         tone: 'error',
@@ -502,7 +622,7 @@ export function DeployOSWizardPage() {
     try {
       sessionStorage.removeItem(RESULT_STORAGE_KEY)
     } catch {
-      // The in-memory workflow still restarts when session storage is unavailable.
+      // The active workflow still restarts when session storage is unavailable.
     }
   }
 
@@ -560,10 +680,15 @@ export function DeployOSWizardPage() {
         <WizardStep name="Targets" id="os-targets" status={targetIssues.length ? 'warning' : targetsValid ? 'success' : 'default'}>
           <WizardSection title="Deployment targets">
             <FormGroup label="Provisioner integration" isRequired fieldId="deploy-integration">
-              <FormSelect id="deploy-integration" value={integrationId} onChange={(_event, value) => selectIntegration(value)}>
-                <FormSelectOption value="" label="Select an integration" isDisabled isPlaceholder />
-                {integrations.map((integration) => <FormSelectOption key={integration.id} value={integration.id} label={integration.name} />)}
-              </FormSelect>
+              <SingleSelect
+                id="deploy-integration"
+                ariaLabel="Provisioner integration"
+                value={integrationId}
+                placeholder="Select an integration"
+                options={integrations.map((integration) => ({ value: integration.id, label: integration.name }))}
+                isRequired
+                onChange={selectIntegration}
+              />
             </FormGroup>
             <div className="sw-target-summary">
               <strong>{selected.size} of {MAX_TARGETS} selected</strong>
@@ -618,17 +743,37 @@ export function DeployOSWizardPage() {
                   {customized ? 'Use template defaults' : 'Customize'}
                 </Button>
               </FormGroup>}
-              <FormGroup label="OS image" isRequired fieldId="deploy-image">
-                <FormSelect
+              <FormGroup
+                label="OS image"
+                isRequired
+                fieldId="deploy-image"
+                labelInfo={
+                  <Button
+                    variant="link"
+                    isInline
+                    icon={<SyncAltIcon />}
+                    isLoading={catalogLoading}
+                    isDisabled={!integrationId || catalogLoading}
+                    onClick={() => setCatalogRefreshNonce((value) => value + 1)}
+                  >
+                    Refresh
+                  </Button>
+                }
+              >
+                <SingleSelect
                   id="deploy-image"
+                  ariaLabel="OS image"
                   value={effectiveImageId}
-                  isDisabled={Boolean(selectedTemplate && !customized) || Boolean(catalogError)}
-                  onChange={(_event, value) => setImageId(value)}
-                >
-                  <FormSelectOption value="" label="Select an image" isDisabled />
-                  {effectiveImageId && !images.some((image) => image.id === effectiveImageId) && <FormSelectOption value={effectiveImageId} label={effectiveImageId} />}
-                  {images.map((image) => <FormSelectOption key={`${image.id}:${image.architecture}`} value={image.id} label={`${image.name} (${image.architecture})`} />)}
-                </FormSelect>
+                  placeholder={catalogLoading ? 'Loading images...' : images.length === 0 ? 'No deployable images available' : 'Select an image'}
+                  options={[
+                    ...(effectiveImageId && !images.some((image) => image.id === effectiveImageId) ? [{ value: effectiveImageId, label: effectiveImageId }] : []),
+                    ...images.map((image) => ({ value: image.id, label: `${image.name} (${image.architecture})` })),
+                  ]}
+                  isDisabled={Boolean(selectedTemplate && !customized) || Boolean(catalogError) || catalogLoading}
+                  isRequired
+                  onChange={setImageId}
+                />
+                {!catalogLoading && !catalogError && <small className="sw-field-note" aria-live="polite">{images.length} deployable image{images.length === 1 ? '' : 's'} returned by the provider.</small>}
               </FormGroup>
               <FormGroup fieldId="deploy-ephemeral">
                 <Checkbox id="deploy-ephemeral" label="Ephemeral deployment" isChecked={effectiveEphemeral} isDisabled={Boolean(selectedTemplate && !customized)} onChange={(_event, checked) => setEphemeral(checked)} />
@@ -644,6 +789,73 @@ export function DeployOSWizardPage() {
                 <TextArea id="deploy-user-data" value={userData} onChange={(_event, value) => setUserData(value)} rows={10} autoComplete="off" />
               </FormGroup>}
             </Form>
+            <section className="sw-section">
+              <SectionHeader
+                title="Network configuration"
+                description="Swallow applies an explicit DHCP or Static intent before deployment. Existing provider-managed modes are never reused implicitly."
+              />
+              <div className="sw-section-body">
+                <Form className="sw-form-grid">
+                  <FormGroup label="Addressing mode" isRequired fieldId="deploy-network-mode">
+                    <ToggleGroup aria-label="Deployment network mode">
+                      <ToggleGroupItem text="DHCP" buttonId="deploy-network-dhcp" isSelected={effectiveNetworkMode === 'dhcp'} isDisabled={Boolean(selectedTemplate && !customized)} onChange={() => { setNetworkMode('dhcp'); setDefaultGateway(false) }} />
+                      <ToggleGroupItem text="Static" buttonId="deploy-network-static" isSelected={effectiveNetworkMode === 'static'} isDisabled={Boolean(selectedTemplate && !customized)} onChange={() => setNetworkMode('static')} />
+                    </ToggleGroup>
+                  </FormGroup>
+                  {effectiveNetworkMode === 'static' && <FormGroup fieldId="deploy-network-default-gateway">
+                    <Checkbox
+                      id="deploy-network-default-gateway"
+                      label="Use the selected subnet for the default route"
+                      description="For each target, the provider makes this Static link the IPv4 default route using the gateway address configured on its selected subnet."
+                      isChecked={effectiveDefaultGateway}
+                      isDisabled={Boolean(selectedTemplate && !customized)}
+                      onChange={(_event, checked) => setDefaultGateway(checked)}
+                    />
+                  </FormGroup>}
+                </Form>
+                {!networkInspection && <Alert variant={AlertVariant.warning} title="Network inspection is required" isInline>Return to Targets and run the readiness check again.</Alert>}
+                {networkInspection && !networkAssignmentsValid && <Alert variant={AlertVariant.warning} title="Complete every network assignment" isInline>Select a NIC and subnet for each Server. Static mode also requires a unique IPv4 address per target.</Alert>}
+              </div>
+              {networkInspection && <StickyTableFrame>
+                <Table aria-label="Deployment network assignments" variant="compact" className="sw-network-assignment-table">
+                  <Thead><Tr>
+                    <Th className="sw-network-server-column">Server</Th>
+                    <Th className="sw-network-interface-column">Interface</Th>
+                    <Th className="sw-network-subnet-column">Subnet</Th>
+                    {effectiveNetworkMode === 'static' && <Th className="sw-network-address-column">Static IPv4 address</Th>}
+                    <Th className="sw-network-current-mode-column"><span title="Current provider mode">Current mode</span></Th>
+                  </Tr></Thead>
+                  <Tbody>{networkInspection.targets.map((target) => {
+                    const server = selectedServers.find((item) => item.id === target.serverId)
+                    const assignment = networkAssignments[target.serverId] ?? { interfaceId: '', subnetId: '', ipAddress: '' }
+                    const iface = target.network.interfaces.find((item) => item.id === assignment.interfaceId)
+                    const currentProviderMode = iface?.rawProviderMode === 'AUTO' ? 'Provider-managed (MAAS AUTO)' : iface?.rawProviderMode || '-'
+                    return <Tr key={target.serverId}>
+                      <Td dataLabel="Server" className="sw-network-server-column"><strong>{server ? serverDisplayName(server) : target.serverId}</strong></Td>
+                      <Td dataLabel="Interface" className="sw-network-interface-column">
+                        <FormSelect aria-label={`Interface for ${server ? serverDisplayName(server) : target.serverId}`} value={assignment.interfaceId} onChange={(_event, value) => {
+                          const nextInterface = target.network.interfaces.find((item) => item.id === value)
+                          const compatible = nextInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)
+                          const suggestedSubnet = compatible ? assignment.subnetId : nextInterface?.availableSubnets.length === 1 ? nextInterface.availableSubnets[0].id : ''
+                          setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, interfaceId: value, subnetId: suggestedSubnet } }))
+                        }}>
+                          <FormSelectOption value="" label="Select an interface" isDisabled isPlaceholder />
+                          {target.network.interfaces.map((item) => <FormSelectOption key={item.id} value={item.id} label={`${item.name} - ${item.macAddress}${item.boot ? ' (boot NIC)' : ''}`} />)}
+                        </FormSelect>
+                      </Td>
+                      <Td dataLabel="Subnet" className="sw-network-subnet-column">
+                        <FormSelect aria-label={`Subnet for ${server ? serverDisplayName(server) : target.serverId}`} value={assignment.subnetId} onChange={(_event, value) => setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, subnetId: value } }))}>
+                          <FormSelectOption value="" label="Select a subnet" isDisabled isPlaceholder />
+                          {iface?.availableSubnets.map((subnet) => <FormSelectOption key={subnet.id} value={subnet.id} label={formatSubnetOptionLabel(subnet)} />)}
+                        </FormSelect>
+                      </Td>
+                      {effectiveNetworkMode === 'static' && <Td dataLabel="Static IPv4 address" className="sw-network-address-column"><TextInput aria-label={`Static IPv4 address for ${server ? serverDisplayName(server) : target.serverId}`} value={assignment.ipAddress} onChange={(_event, value) => setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, ipAddress: value } }))} placeholder="192.0.2.10" /></Td>}
+                      <Td dataLabel="Current mode" className="sw-network-current-mode-column" title={currentProviderMode}>{currentProviderMode}</Td>
+                    </Tr>
+                  })}</Tbody>
+                </Table>
+              </StickyTableFrame>}
+            </section>
             {catalogError && <Alert variant={AlertVariant.warning} title="Image catalog unavailable" isInline>{catalogError}</Alert>}
             {selectedTemplate && !customized && <Alert variant={AlertVariant.info} title="Template settings are locked" isInline>Choose Customize to override the image or ephemeral setting.</Alert>}
           </WizardSection>
@@ -660,15 +872,20 @@ export function DeployOSWizardPage() {
                   <ReviewItem label="Image" value={effectiveImageId} />
                   <ReviewItem label="Ephemeral" value={effectiveEphemeral ? 'Yes' : 'No'} />
                   <ReviewItem label="Cloud-init" value={userDataMode === 'inherit' ? 'Inherit from template' : userDataMode === 'replace' ? 'Replace for this deployment' : 'Omit'} />
+                  <ReviewItem label="Network mode" value={effectiveNetworkMode === 'dhcp' ? 'DHCP' : 'Static'} />
+                  <ReviewItem label="Default gateway" value={effectiveDefaultGateway ? 'Selected links' : 'Provider routing'} />
                 </DescriptionList>
               </CardBody>
             </Card>
             <StickyTableFrame>
               <Table aria-label="Deployment review targets" variant="compact">
-                <Thead><Tr><Th>Server</Th><Th>Provider machine ID</Th><Th>Power</Th></Tr></Thead>
+                <Thead><Tr><Th>Server</Th><Th>Provider machine ID</Th><Th>Interface</Th><Th>Subnet</Th><Th>IP address</Th><Th>Power</Th></Tr></Thead>
                 <Tbody>{selectedServers.map((server) => <Tr key={server.id}>
                   <Td>{serverDisplayName(server)}</Td>
                   <Td className="sw-mono">{server.source.providerMachineId}</Td>
+                  <Td>{networkInspection?.targets.find((target) => target.serverId === server.id)?.network.interfaces.find((iface) => iface.id === networkAssignments[server.id]?.interfaceId)?.name || '-'}</Td>
+                  <Td>{networkInspection?.targets.find((target) => target.serverId === server.id)?.network.interfaces.flatMap((iface) => iface.availableSubnets).find((subnet) => subnet.id === networkAssignments[server.id]?.subnetId)?.cidr || '-'}</Td>
+                  <Td className="sw-mono">{effectiveNetworkMode === 'static' ? networkAssignments[server.id]?.ipAddress || '-' : 'DHCP'}</Td>
                   <Td>{server.provisioning?.powerState ?? '-'}</Td>
                 </Tr>)}</Tbody>
               </Table>
@@ -679,6 +896,7 @@ export function DeployOSWizardPage() {
                 <Checkbox id="save-deployment-template" label="Save as a deployment template" isChecked={saveTemplate} onChange={(_event, checked) => setSaveTemplate(checked)} />
                 {saveTemplate && <TextInput aria-label="New deployment template name" value={templateName} onChange={(_event, value) => setTemplateName(value)} placeholder="Template name" />}
                 {inheritedSecretCannotBeSaved && <Alert variant={AlertVariant.warning} title="Inherited cloud-init cannot be copied" isInline>Select Replace or Omit before saving a customized template.</Alert>}
+                {saveTemplate && !reusableNetworkValid && <Alert variant={AlertVariant.warning} title="Static templates require one shared subnet" isInline>Choose the same subnet for every target before saving this configuration as a template.</Alert>}
               </CardBody>
             </Card>}
             <Alert variant={AlertVariant.warning} title="Deployment starts immediately after preflight" isInline>Accepted provider requests cannot be rolled back as a batch.</Alert>
@@ -706,7 +924,7 @@ export function DeployOSWizardPage() {
                   })}</Tbody>
                 </Table>
               </StickyTableFrame>}
-              {result.failed.map((failure) => <Alert key={failure.serverId} variant={AlertVariant.danger} title={`${failure.serverId}: ${failure.code}`} isInline>{failure.message}</Alert>)}
+              {result.failed.map((failure) => <Alert key={failure.serverId} variant={AlertVariant.danger} title={`${failure.serverId}: ${failure.stage.replaceAll('_', ' ')}`} isInline>{failure.message}</Alert>)}
             </>}
           </WizardSection>
         </WizardStep>

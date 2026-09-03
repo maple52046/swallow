@@ -349,15 +349,18 @@ func TestReconcileEndpoint_RejectsNonProvisioner(t *testing.T) {
 
 // A targeted refresh reads the provider directly, so an accepted asynchronous action
 // can converge without waiting for the fleet-wide inventory interval.
-func TestRefreshServer_AdvancesOnlyProvisioningProjection(t *testing.T) {
+func TestRefreshServer_AdvancesLifecycleAndVolatileObservations(t *testing.T) {
 	f := setupPlatform(t)
 	server := f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(server *serverdomain.Server) {
 		server.Provisioning.State = "releasing"
 		server.Provisioning.ProviderState = "Releasing"
+		server.Provisioning.Ephemeral = true
 	})
 	machine := testMachine("machine-srv-1", "provider-renamed-node")
 	machine.Status = provisioningdomain.MachineStatusReady
 	machine.ProviderStatus = "Ready"
+	machine.Ephemeral = true
+	machine.IPAddresses = nil
 	f.provider.withMachine(machine)
 
 	resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-1/refresh", nil, f.adminAuth(t))
@@ -370,6 +373,12 @@ func TestRefreshServer_AdvancesOnlyProvisioningProjection(t *testing.T) {
 	}
 	if server.Provisioning.State != "ready" || server.Provisioning.ProviderState != "Ready" {
 		t.Fatalf("projection was not advanced: %+v", server.Provisioning)
+	}
+	if server.Provisioning.Ephemeral {
+		t.Fatal("a Ready Server must not retain a stale ephemeral deployment qualifier")
+	}
+	if len(server.Observed.Addresses) != 0 {
+		t.Fatalf("targeted refresh addresses: got %v, want none", server.Observed.Addresses)
 	}
 	if server.Observed.Hostname != "gpu-node-01" {
 		t.Fatalf("targeted refresh must not rewrite inventory identity, got %q", server.Observed.Hostname)

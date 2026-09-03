@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
+	"github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
@@ -68,5 +69,56 @@ func TestRespondErrorLogsCorrelatedClientSafeProviderDetail(t *testing.T) {
 	}
 	if bytes.Contains(output.Bytes(), []byte("sensitive upstream diagnostic")) {
 		t.Fatal("structured log exposed the wrapped upstream error")
+	}
+}
+
+func TestNetworkTargetResponseIncludesDeploymentSuggestion(t *testing.T) {
+	response := toNetworkTargetResponse(application.NetworkTarget{
+		ServerID: "server-1",
+		Suggestion: application.NetworkSuggestion{
+			Mode:           provisioningdomain.DeploymentNetworkStatic,
+			InterfaceID:    "interface-1",
+			SubnetID:       "subnet-1",
+			IPAddress:      "192.0.2.42",
+			DefaultGateway: true,
+		},
+	})
+
+	if response.Suggestion.Mode != "static" ||
+		response.Suggestion.InterfaceID != "interface-1" ||
+		response.Suggestion.SubnetID != "subnet-1" ||
+		response.Suggestion.IPAddress != "192.0.2.42" ||
+		!response.Suggestion.DefaultGateway {
+		t.Fatalf("unexpected network suggestion response: %#v", response.Suggestion)
+	}
+}
+
+func TestDeploymentNetworkInputPreservesStaticIntent(t *testing.T) {
+	input := deployServersInput(deployServersRequest{
+		Network: &deploymentNetworkRequest{
+			Mode: "static", SubnetID: "subnet-1", DefaultGateway: true,
+			Assignments: []deploymentNetworkAssignmentRequest{{
+				ServerID: "server-1", InterfaceID: "interface-1",
+				SubnetID: "subnet-1", IPAddress: "192.0.2.42",
+			}},
+		},
+	})
+
+	network := input.Network
+	if network == nil {
+		t.Fatal("network input was dropped at the HTTP boundary")
+	}
+	if network.Mode != "static" || network.SubnetID != "subnet-1" || !network.DefaultGateway {
+		t.Fatalf("network input = %#v", network)
+	}
+	if len(network.Assignments) != 1 {
+		t.Fatalf("assignments = %d, want 1", len(network.Assignments))
+	}
+	assignment := network.Assignments[0]
+	if assignment.ServerID != "server-1" ||
+		assignment.InterfaceID != "interface-1" ||
+		assignment.SubnetID != "subnet-1" ||
+		assignment.IPAddress != "192.0.2.42" {
+		t.Fatalf("assignment = %#v", assignment)
 	}
 }

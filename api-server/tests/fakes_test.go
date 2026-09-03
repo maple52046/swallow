@@ -434,15 +434,16 @@ func newFakeProvider() *fakeProvider {
 		// The full set, matching the MAAS adapter, so capability assertions succeed by
 		// default; a test that needs an incapable provisioner uses minimalProvider.
 		capabilities: provisioningdomain.ProviderCapabilities{
-			EphemeralDeploy:     true,
-			DeploymentReadiness: true,
-			Power:               true,
-			HardwareValidation:  true,
-			OperatorState:       true,
-			MachineDetail:       true,
-			HardwareInventory:   true,
-			MachineRemoval:      true,
-			ReleaseOptions:      true,
+			EphemeralDeploy:      true,
+			DeploymentReadiness:  true,
+			Power:                true,
+			HardwareValidation:   true,
+			OperatorState:        true,
+			MachineDetail:        true,
+			HardwareInventory:    true,
+			MachineRemoval:       true,
+			ReleaseOptions:       true,
+			NetworkConfiguration: true,
 		},
 	}
 }
@@ -637,6 +638,96 @@ func (p *fakeProvider) GetMachine(_ context.Context, machineID string) (*provisi
 		return nil, provisioningdomain.ErrMachineNotFound
 	}
 	return machine, nil
+}
+
+func (p *fakeProvider) ListNetworkSubnets(_ context.Context) ([]provisioningdomain.NetworkSubnet, error) {
+	return []provisioningdomain.NetworkSubnet{{
+		ID:             "subnet-1",
+		Name:           "management",
+		CIDR:           "192.0.2.0/24",
+		GatewayAddress: "192.0.2.1",
+		Managed:        true,
+	}}, nil
+}
+
+func (p *fakeProvider) InspectNetwork(_ context.Context, machineID string) (*provisioningdomain.MachineNetwork, error) {
+	if _, ok := p.machines[machineID]; !ok {
+		return nil, provisioningdomain.ErrMachineNotFound
+	}
+	return &provisioningdomain.MachineNetwork{
+		MachineID: machineID,
+		Interfaces: []provisioningdomain.NetworkInterface{{
+			ID:            "interface-1",
+			Name:          "eth0",
+			MACAddress:    "52:54:00:00:00:01",
+			Boot:          true,
+			PhysicalState: provisioningdomain.PhysicalLinkUp,
+			State:         provisioningdomain.NetworkStateProviderManaged,
+			ProviderMode:  "AUTO",
+			Links: []provisioningdomain.NetworkLink{{
+				ID:           "link-1",
+				State:        provisioningdomain.NetworkStateProviderManaged,
+				ProviderMode: "AUTO",
+				SubnetID:     "subnet-1",
+				SubnetName:   "management",
+				CIDR:         "192.0.2.0/24",
+			}},
+			AvailableSubnets: []provisioningdomain.NetworkSubnet{{
+				ID:             "subnet-1",
+				Name:           "management",
+				CIDR:           "192.0.2.0/24",
+				GatewayAddress: "192.0.2.1",
+				Managed:        true,
+			}},
+		}},
+	}, nil
+}
+
+func (p *fakeProvider) ConfigureNetworkLink(
+	_ context.Context,
+	machineID string,
+	req provisioningdomain.NetworkLinkRequest,
+) (*provisioningdomain.MachineNetwork, error) {
+	network, err := p.InspectNetwork(context.Background(), machineID)
+	if err != nil {
+		return nil, err
+	}
+	state := provisioningdomain.NetworkStateDHCP
+	providerMode := "DHCP"
+	if req.Mode == provisioningdomain.NetworkLinkStatic {
+		state = provisioningdomain.NetworkStateStatic
+		providerMode = "STATIC"
+	} else if req.Mode == provisioningdomain.NetworkLinkLinkOnly {
+		state = provisioningdomain.NetworkStateLinkOnly
+		providerMode = "LINK_UP"
+	}
+	network.Interfaces[0].State = state
+	network.Interfaces[0].ProviderMode = providerMode
+	network.Interfaces[0].Links = []provisioningdomain.NetworkLink{{
+		ID:             "link-1",
+		State:          state,
+		ProviderMode:   providerMode,
+		SubnetID:       req.SubnetID,
+		SubnetName:     "management",
+		CIDR:           "192.0.2.0/24",
+		IPAddress:      strings.TrimSpace(req.IPAddress),
+		DefaultGateway: req.DefaultGateway,
+	}}
+	return network, nil
+}
+
+func (p *fakeProvider) UnlinkNetwork(
+	_ context.Context,
+	machineID, _, _ string,
+) (*provisioningdomain.MachineNetwork, error) {
+	network, err := p.InspectNetwork(context.Background(), machineID)
+	if err != nil {
+		return nil, err
+	}
+	network.Interfaces[0].State = provisioningdomain.NetworkStateUnconfigured
+	network.Interfaces[0].ProviderMode = ""
+	network.Interfaces[0].Links = nil
+	return network, nil
 }
 
 func (p *fakeProvider) ValidateDeploymentTarget(_ context.Context, machineID string) error {

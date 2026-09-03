@@ -60,6 +60,8 @@ type ProviderCapabilities struct {
 	EphemeralDeploy bool
 	// DeploymentReadiness reports that DeploymentTargetValidator is implemented.
 	DeploymentReadiness bool
+	// NetworkConfiguration reports that NetworkConfigurationProvider is implemented.
+	NetworkConfiguration bool
 	// Power reports that PowerController is implemented.
 	Power bool
 	// HardwareValidation reports that HardwareValidator is implemented.

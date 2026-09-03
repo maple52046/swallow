@@ -40,7 +40,11 @@ export function ServerDetailPage() {
     if (serverIds[0]) await servers.refreshServer(serverIds[0])
     projectionReload()
   }, [projectionReload, servers])
-  const releasePolling = useReleaseProjectionPolling(projectionStates, refreshReleaseTarget)
+  const getProvisioningTask = useCallback(
+    (taskId: string) => servers.getProvisioningTask(taskId),
+    [servers],
+  )
+  const releasePolling = useReleaseProjectionPolling(projectionStates, refreshReleaseTarget, getProvisioningTask)
   if (state.status === 'loading') return <LoadingState />
   if (state.status === 'error') return <ErrorState message={state.message} />
   if (state.status === 'not-found') return <EmptyState title="Server not found" />
@@ -53,8 +57,8 @@ export function ServerDetailPage() {
       ? 'Server must be ready'
       : undefined
   return <div className="operator-page">
-    <PageHeader title={serverDisplayName(server)} breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]} subtitle={`Provider machine ${server.source.providerMachineId}, Site ${server.source.siteId}`} metadata={<Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={server.provisioning} /><HealthBadge axis={server.health} />{releasePolling.isPolling && <Label color="blue">Updating...</Label>}{server.absent && <Label color="grey">absent</Label>}</Flex>} actions={<ServerActionMenu serverId={server.id} serverName={serverDisplayName(server)} capabilities={detail?.capabilities ?? null} deployDisabledReason={deployDisabledReason} onActed={(action) => {
-      if (action === 'release') releasePolling.start([server.id])
+    <PageHeader title={serverDisplayName(server)} breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]} subtitle={`Provider machine ${server.source.providerMachineId}, Site ${server.source.siteId}`} metadata={<Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><ProvisioningBadge axis={server.provisioning} /><HealthBadge axis={server.health} />{releasePolling.isPolling && <Label color="blue">Updating...</Label>}{server.absent && <Label color="grey">absent</Label>}</Flex>} actions={<ServerActionMenu serverId={server.id} serverName={serverDisplayName(server)} capabilities={detail?.capabilities ?? null} deployDisabledReason={deployDisabledReason} onActed={(action, _input, result) => {
+      if (action === 'release') releasePolling.start([{ serverId: server.id, taskId: result.taskId }])
       else reload()
     }} />} />
     {server.absent && <Alert variant={AlertVariant.warning} title="Machine is absent from its provisioner" isInline>Swallow retains the projection because inventory absence is commonly transient.</Alert>}

@@ -57,6 +57,7 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
       secureErase: true,
       quickErase: true,
       comment: 'retire from test pool',
+      unbindStaticIPs: false,
     },
   })
   const updating = page.getByText('Updating released Servers...', { exact: true })
@@ -65,6 +66,33 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   await expect(row).toContainText(/releasing/i)
   await expect(row).toContainText(/ready/i, { timeout: 7_000 })
   await expect.poll(() => refreshes.filter((serverId) => serverId === 'srv-1').length).toBeGreaterThanOrEqual(2)
+  await expect(updating).toBeHidden({ timeout: 7_000 })
+})
+
+test('Server list waits for release cleanup and refreshes addresses and Ephemeral state', async ({ page }) => {
+  await installApiFixtures(page, {
+    staticNetworkServerIds: ['srv-1'],
+    ephemeralServerIds: ['srv-1'],
+    releaseConvergesAfterRefreshes: 1,
+  })
+  await page.goto('/servers?site=site-a')
+  const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
+  await expect(row).toContainText('192.168.40.21')
+  await expect(row).toContainText('Ephemeral')
+
+  await page.getByLabel('Select gpu-node-01').check()
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await chooseMenuItem(page, 'Release')
+  const confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
+  await confirmation.getByLabel('Remove static IP bindings after release').check()
+  await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
+
+  const updating = page.getByText('Updating released Servers...', { exact: true })
+  await expect(updating).toBeVisible()
+  await expect(row).toContainText('ready', { timeout: 7_000 })
+  await expect(row).not.toContainText('192.168.40.21', { timeout: 7_000 })
+  await expect(row).not.toContainText('Ephemeral')
+  await expect(row).not.toContainText('in memory')
   await expect(updating).toBeHidden({ timeout: 7_000 })
 })
 
@@ -78,6 +106,36 @@ test('Server detail follows Release until the projection becomes ready', async (
   await expect(page.getByText('Updating...', { exact: true })).toBeVisible()
   await expect(page.getByText('ready', { exact: true }).first()).toBeVisible({ timeout: 7_000 })
   await expect(page.getByText('Updating...', { exact: true })).toBeHidden()
+})
+
+test('Release static cleanup is opt-in, durable, and retries cleanup without another Release', async ({ page }) => {
+  const releases: Array<Record<string, unknown> | null> = []
+  await installApiFixtures(page, {
+    releaseCleanupFails: true,
+    onServerReleaseRequest: (_serverId, body) => releases.push(body),
+  })
+  await page.goto('/servers/srv-1/summary?site=site-a')
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await chooseMenuItem(page, 'Release')
+
+  const release = page.getByRole('dialog', { name: 'Release server', exact: true })
+  await expect(release.getByLabel('Remove static IP bindings after release')).not.toBeChecked()
+  await release.getByLabel('Remove static IP bindings after release').check()
+  await expect(release).toContainText('DHCP, provider-managed, Link only, and later changes are preserved.')
+  await release.getByRole('button', { name: 'Release server', exact: true }).click()
+  expect(releases).toEqual([{
+    erase: false,
+    secureErase: false,
+    quickErase: false,
+    unbindStaticIPs: true,
+  }])
+
+  await page.getByRole('tab', { name: 'Activity' }).click()
+  const tasks = page.getByRole('grid', { name: 'Provisioning tasks' })
+  await expect(tasks).toContainText('MAAS refused to unlink the captured Static address.')
+  await tasks.getByRole('button', { name: 'Retry cleanup' }).click()
+  await expect(tasks).toContainText('pending')
+  expect(releases).toHaveLength(1)
 })
 
 test('Server list keeps complete partial action diagnostics after the dialog closes', async ({ page }) => {

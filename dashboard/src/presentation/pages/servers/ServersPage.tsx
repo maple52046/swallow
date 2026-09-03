@@ -97,6 +97,8 @@ const EMPTY_SERVERS: Server[] = []
 const GROUP_KEY = 'swallow.servers.group-by'
 const COLUMNS_KEY = 'swallow.servers.hidden-columns'
 const PAGE_SIZE_KEY = 'swallow.servers.page-size'
+const DEPLOYMENT_POLL_INTERVAL_MS = 2_000
+const MAX_DEPLOYMENT_POLL_ATTEMPTS = 150
 
 function readPreference<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw === null ? fallback : JSON.parse(raw) as T } catch { return fallback }
@@ -200,7 +202,40 @@ export function ServersPage() {
     await refreshServerProjections(servers, serverIds)
     reload()
   }, [reload, servers])
-  const releasePolling = useReleaseProjectionPolling(projectionStates, refreshReleaseTargets)
+  const deployingTargetKey = useMemo(
+    () => workingSet
+      .filter((server) => server.provisioning?.state === 'deploying')
+      .map((server) => server.id)
+      .sort()
+      .join(','),
+    [workingSet],
+  )
+  useEffect(() => {
+    if (!deployingTargetKey) return
+    const targetIds = deployingTargetKey.split(',')
+    let cancelled = false
+    let attempts = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tick = async () => {
+      await refreshServerProjections(servers, targetIds)
+      if (cancelled) return
+      reload()
+      attempts += 1
+      if (attempts < MAX_DEPLOYMENT_POLL_ATTEMPTS) {
+        timer = setTimeout(() => void tick(), DEPLOYMENT_POLL_INTERVAL_MS)
+      }
+    }
+    void tick()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [deployingTargetKey, reload, servers])
+  const getProvisioningTask = useCallback(
+    (taskId: string) => servers.getProvisioningTask(taskId),
+    [servers],
+  )
+  const releasePolling = useReleaseProjectionPolling(projectionStates, refreshReleaseTargets, getProvisioningTask)
   const filtered = useMemo(() => workingSet.filter((server) => matchesServerFilters(server, filters)), [filters, workingSet])
   const sorted = useMemo(() => [...filtered].sort((a, b) => compareServers(a, b, sortKey, sortDir)), [filtered, sortDir, sortKey])
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
@@ -243,10 +278,10 @@ export function ServersPage() {
     setLastActionResult(result)
     setResultDialogOpen(failedServerActionOutcomes(result).length > 0)
     clearSelection()
-    const acceptedIds = result.outcomes
+    const acceptedTargets = result.outcomes
       .filter((outcome) => outcome.accepted)
-      .map((outcome) => outcome.serverId)
-    if (acceptedIds.length > 0) releasePolling.start(acceptedIds)
+      .map((outcome) => ({ serverId: outcome.serverId, taskId: outcome.taskId }))
+    if (acceptedTargets.length > 0) releasePolling.start(acceptedTargets)
   }, [bulk, clearSelection, releasePolling, releaseTargets])
   const visible = useCallback((key: string) => !hiddenColumns.has(key), [hiddenColumns])
   const columnSpan = 3 + OPTIONAL_COLUMNS.filter((column) => visible(column.key)).length

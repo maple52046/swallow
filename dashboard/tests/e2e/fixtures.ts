@@ -83,9 +83,10 @@ const integrations = [
 const osImages = [
   { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', release: 'jammy', architecture: 'amd64' },
   { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', release: 'noble', architecture: 'amd64' },
+  { id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', osSystem: 'custom', release: 'ubuntu-24.04-rocm', architecture: 'amd64' },
 ]
 const baseDeploymentTemplates = [
-  { id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, hasUserData: true, createdAt: now, updatedAt: now },
+  { id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true, createdAt: now, updatedAt: now },
 ]
 
 const alerts = [
@@ -101,15 +102,22 @@ export interface FixtureOptions {
   failMetricsBatchIndex?: number
   acknowledgeFails?: boolean
   readyServerCount?: number
+  staticNetworkServerIds?: string[]
+  networkSubnetName?: string
+  ephemeralServerIds?: string[]
   secondReadyServerIntegrationId?: string
   failImageIntegrationIds?: string[]
   deploymentFailureIds?: string[]
   serverActionFailureIds?: string[]
   deploymentReadinessIssues?: Record<string, string>
+  onOSImageCatalogRequest?: (integrationId: string) => void
   onDeploymentRequest?: (body: Record<string, unknown>) => void
   onServerReleaseRequest?: (serverId: string, body: Record<string, unknown> | null) => void
   onServerRefreshRequest?: (serverId: string) => void
   releaseConvergesAfterRefreshes?: number
+  deploymentConvergesAfterRefreshes?: number
+  releaseCleanupFails?: boolean
+  onNetworkLinkRequest?: (method: string, serverId: string, interfaceId: string, linkId: string | null, body: Record<string, unknown> | null) => void
   onMetricsRequest?: (serverIds: string[]) => void
   /** Removes Cluster membership and deployment target claims for wizard success paths. */
   freeClusterCandidates?: boolean
@@ -135,6 +143,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     fleet[index].provisioning.osSystem = ''
     fleet[index].provisioning.distroSeries = ''
   }
+  for (const serverId of options.ephemeralServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) {
+      server.provisioning.ephemeral = true
+    }
+  }
   if (options.secondReadyServerIntegrationId && fleet[1]) {
     fleet[1].source.integrationId = options.secondReadyServerIntegrationId
     fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId
@@ -149,6 +163,48 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   let metricBatchIndex = 0
   let activeMetricRequests = 0
   const releaseRefreshesRemaining = new Map<string, number>()
+  const deploymentRefreshesRemaining = new Map<string, number>()
+  const provisioningTasks: Array<Record<string, unknown>> = []
+  const networkTargets = new Map(fleet.map((server) => {
+    const interfaceId = `nic-${server.id}`
+    const linkId = `link-${server.id}`
+    const hasStaticBinding = options.staticNetworkServerIds?.includes(server.id) ?? false
+    const subnetName = options.networkSubnetName ?? 'lab-network'
+    return [server.id, {
+      serverId: server.id,
+      editable: server.provisioning.state === 'ready',
+      disabledReason: server.provisioning.state === 'ready' ? '' : 'Network configuration can only be changed while the Server is Ready.',
+      suggestion: { mode: hasStaticBinding ? 'static' : 'dhcp', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
+      network: {
+        interfaces: [{
+          id: interfaceId,
+          name: 'eno1',
+          macAddress: server.hardware.macAddresses[0] ?? '',
+          boot: true,
+          physicalState: 'up',
+          configurationState: hasStaticBinding ? 'static' : 'provider_managed',
+          rawProviderMode: hasStaticBinding ? 'STATIC' : 'AUTO',
+          links: [{
+            id: linkId,
+            configurationState: hasStaticBinding ? 'static' : 'provider_managed',
+            rawProviderMode: hasStaticBinding ? 'STATIC' : 'AUTO',
+            subnetId: 'subnet-a',
+            subnetName,
+            cidr: '192.168.40.0/24',
+            ipAddress: server.addresses[0] ?? '',
+            defaultGateway: true,
+          }],
+          availableSubnets: [{
+            id: 'subnet-a',
+            name: subnetName,
+            cidr: '192.168.40.0/24',
+            gatewayAddress: '192.168.40.1',
+            managed: true,
+          }],
+        }],
+      },
+    }] as const
+  }))
   const observeRelease = (serverId: string) => {
     const remaining = releaseRefreshesRemaining.get(serverId)
     if (remaining === undefined) return
@@ -162,9 +218,28 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       server.provisioning.providerState = 'Ready'
       server.provisioning.osSystem = ''
       server.provisioning.distroSeries = ''
+      server.provisioning.ephemeral = false
       releaseRefreshesRemaining.delete(serverId)
     } else {
       releaseRefreshesRemaining.set(serverId, remaining - 1)
+    }
+  }
+  const observeDeployment = (serverId: string) => {
+    const remaining = deploymentRefreshesRemaining.get(serverId)
+    if (remaining === undefined) return
+    const server = fleet.find((item) => item.id === serverId)
+    if (!server) {
+      deploymentRefreshesRemaining.delete(serverId)
+      return
+    }
+    if (remaining <= 1) {
+      server.provisioning.state = 'deployed'
+      server.provisioning.providerState = 'Deployed'
+      server.provisioning.osSystem = 'ubuntu'
+      server.provisioning.distroSeries = 'ubuntu/jammy'
+      deploymentRefreshesRemaining.delete(serverId)
+    } else {
+      deploymentRefreshesRemaining.set(serverId, remaining - 1)
     }
   }
   const clusterItems = clusters.map((cluster) => ({ ...cluster }))
@@ -273,6 +348,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
 
     if (path === '/api/v1/provisioning/images') {
       const integrationId = url.searchParams.get('integrationId') ?? ''
+      options.onOSImageCatalogRequest?.(integrationId)
       if (options.failImageIntegrationIds?.includes(integrationId)) {
         return json(route, { error: { code: 'provider_unavailable', message: 'Image provider is unavailable' } }, 503)
       }
@@ -295,6 +371,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         name: String(body.name),
         description: String(body.description ?? ''),
         imageId: String(body.imageId),
+        network: body.network ?? { mode: 'dhcp', defaultGateway: false },
         ephemeral: Boolean(body.ephemeral),
         hasUserData: Boolean(body.userData),
         createdAt: now,
@@ -343,6 +420,21 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       })
     }
 
+    if (path === '/api/v1/provisioning/networks/inspect' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { serverIds: string[] }
+      const targets = body.serverIds.flatMap((serverId) => {
+        const target = networkTargets.get(serverId)
+        return target ? [target] : []
+      })
+      return json(route, {
+        valid: targets.length === body.serverIds.length,
+        targets,
+        issues: body.serverIds
+          .filter((serverId) => !networkTargets.has(serverId))
+          .map((serverId) => ({ serverId, code: 'not_found', message: 'Server not found.' })),
+      })
+    }
+
     if (path === '/api/v1/provisioning/deployments' && request.method() === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       options.onDeploymentRequest?.(body)
@@ -354,6 +446,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           server.provisioning.state = 'deploying'
           server.provisioning.providerState = 'Deploying'
           server.provisioning.observedAt = now
+          if (options.deploymentConvergesAfterRefreshes !== undefined) {
+            deploymentRefreshesRemaining.set(serverId, Math.max(1, options.deploymentConvergesAfterRefreshes))
+          }
         }
         return {
           serverId,
@@ -377,6 +472,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           serverId,
           code: 'provider_rejected',
           message: 'Machine reservation changed.',
+          stage: 'deployment',
         })),
       }, 202)
     }
@@ -413,11 +509,85 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         }],
       })
     }
+    const serverTasksMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/provisioning-tasks$/)
+    if (serverTasksMatch && request.method() === 'GET') {
+      return json(route, provisioningTasks.filter((task) => task.serverId === serverTasksMatch[1]))
+    }
+    const taskMatch = path.match(/^\/api\/v1\/provisioning\/tasks\/([^/]+)$/)
+    if (taskMatch && request.method() === 'GET') {
+      const task = provisioningTasks.find((item) => item.id === taskMatch[1])
+      if (!task) return json(route, { error: { code: 'not_found', message: 'Provisioning task not found.' } }, 404)
+      const server = fleet.find((item) => item.id === task.serverId)
+      if (task.status === 'running' && server?.provisioning.state === 'ready') {
+        Object.assign(task, {
+          status: 'succeeded',
+          phase: 'complete',
+          error: '',
+          retryable: false,
+          updatedAt: now,
+        })
+        server.addresses = []
+        const target = networkTargets.get(server.id)
+        const iface = target?.network.interfaces[0]
+        if (iface) {
+          iface.links = iface.links.filter((link) => link.configurationState !== 'static')
+          iface.configurationState = iface.links[0]?.configurationState ?? 'unconfigured'
+          iface.rawProviderMode = iface.links[0]?.rawProviderMode ?? ''
+        }
+      }
+      return json(route, task)
+    }
+    const taskRetryMatch = path.match(/^\/api\/v1\/provisioning\/tasks\/([^/]+)\/retry$/)
+    if (taskRetryMatch && request.method() === 'POST') {
+      const task = provisioningTasks.find((item) => item.id === taskRetryMatch[1])
+      if (!task) return json(route, { error: { code: 'not_found', message: 'Provisioning task not found.' } }, 404)
+      Object.assign(task, { status: 'pending', phase: 'waiting_for_ready', error: '', retryable: false, updatedAt: now })
+      return json(route, task, 202)
+    }
+    const serverNetworkMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/network$/)
+    if (serverNetworkMatch && request.method() === 'GET') {
+      const target = networkTargets.get(serverNetworkMatch[1])
+      return target ? json(route, target) : json(route, { error: { code: 'not_found', message: 'Server not found.' } }, 404)
+    }
+    const networkLinkMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/network\/interfaces\/([^/]+)\/links(?:\/([^/]+))?$/)
+    if (networkLinkMatch) {
+      const [, serverId, interfaceId, linkId] = networkLinkMatch
+      const target = networkTargets.get(serverId)
+      if (!target) return json(route, { error: { code: 'not_found', message: 'Server not found.' } }, 404)
+      const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null
+      options.onNetworkLinkRequest?.(request.method(), serverId, interfaceId, linkId ?? null, body)
+      const iface = target.network.interfaces.find((item) => item.id === interfaceId)
+      if (!iface) return json(route, { error: { code: 'not_found', message: 'Interface not found.' } }, 404)
+      if (request.method() === 'DELETE') {
+        iface.links = iface.links.filter((link) => link.id !== linkId)
+        iface.configurationState = iface.links.length ? iface.links[0].configurationState : 'unconfigured'
+        iface.rawProviderMode = iface.links.length ? iface.links[0].rawProviderMode : ''
+        return json(route, target)
+      }
+      const mode = String(body?.mode ?? 'dhcp')
+      const configurationState = mode === 'link_only' ? 'link_only' : mode
+      const replacement = {
+        id: linkId ?? `link-${serverId}-${iface.links.length + 1}`,
+        configurationState,
+        rawProviderMode: mode === 'dhcp' ? 'DHCP' : mode === 'static' ? 'STATIC' : 'LINK_UP',
+        subnetId: String(body?.subnetId ?? ''),
+        subnetName: 'lab-network',
+        cidr: '192.168.40.0/24',
+        ipAddress: mode === 'static' ? String(body?.ipAddress ?? '') : '',
+        defaultGateway: Boolean(body?.defaultGateway),
+      }
+      if (linkId) iface.links = iface.links.map((link) => link.id === linkId ? replacement : link)
+      else iface.links = [...iface.links, replacement]
+      iface.configurationState = configurationState
+      iface.rawProviderMode = replacement.rawProviderMode
+      return json(route, target)
+    }
     const serverRefreshMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/refresh$/)
     if (serverRefreshMatch && request.method() === "POST") {
       const serverId = serverRefreshMatch[1]
       options.onServerRefreshRequest?.(serverId)
       observeRelease(serverId)
+      observeDeployment(serverId)
       const server = fleet.find((item) => item.id === serverId)
       if (!server) return json(route, { error: { code: "not_found", message: "Server not found" } }, 404)
       return json(route, {
@@ -452,14 +622,34 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           server.provisioning.providerState = "Releasing"
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
         }
+        const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null
+        if (body?.unbindStaticIPs) {
+          provisioningTasks.unshift({
+            id: `task-${serverId}`,
+            serverId,
+            integrationId: server?.source.integrationId ?? '',
+            kind: 'release_network_cleanup',
+            status: options.releaseCleanupFails ? 'failed' : 'running',
+            phase: options.releaseCleanupFails ? 'cleaning_network' : 'waiting_for_ready',
+            error: options.releaseCleanupFails ? 'MAAS refused to unlink the captured Static address.' : '',
+            requestId: `req-release-${serverId}`,
+            retryable: Boolean(options.releaseCleanupFails),
+            createdAt: now,
+            updatedAt: now,
+          })
+        }
       }
+      const releaseBody = action === 'release' && request.postData()
+        ? request.postDataJSON() as Record<string, unknown>
+        : null
       return json(route, {
         serverId, state: action === "release" ? "releasing" : "deployed", providerState: "Accepted",
         powerState: "off", osSystem: "ubuntu", distroSeries: "jammy", ephemeral: false,
         hweKernel: "", locked: false, commissioningStatus: "", testingStatus: "", observedAt: now,
+        ...(releaseBody?.unbindStaticIPs ? { taskId: `task-${serverId}` } : {}),
       }, 202)
     }
-    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }], tables: [{ title: 'Network', columns: ['Interface', 'MAC', 'Link'], rows: [['eno1', '02:00:00:00:00:01', '100 Gbps']] }, { title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
+    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true, networkConfiguration: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }], tables: [{ title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
     const serverMatch = path.match(/^\/api\/v1\/servers\/([^/]+)$/)
     if (serverMatch) {
       const index = fleet.findIndex((item) => item.id === serverMatch[1])

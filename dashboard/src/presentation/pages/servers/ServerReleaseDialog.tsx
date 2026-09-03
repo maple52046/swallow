@@ -19,6 +19,7 @@ import type { ServerActionTarget } from './serverActionResults'
 interface ServerReleaseDialogProps {
   targets: readonly ServerActionTarget[]
   supportsReleaseOptions?: boolean
+  supportsNetworkConfiguration?: boolean
   onClose: () => void
   onRelease: (input: ReleaseServerInput) => Promise<void>
 }
@@ -30,6 +31,7 @@ interface ServerReleaseDialogProps {
 export function ServerReleaseDialog({
   targets,
   supportsReleaseOptions = true,
+  supportsNetworkConfiguration = true,
   onClose,
   onRelease,
 }: ServerReleaseDialogProps) {
@@ -37,6 +39,7 @@ export function ServerReleaseDialog({
   const [secureErase, setSecureErase] = useState(false)
   const [quickErase, setQuickErase] = useState(false)
   const [comment, setComment] = useState('')
+  const [unbindStaticIPs, setUnbindStaticIPs] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -67,6 +70,7 @@ export function ServerReleaseDialog({
         secureErase: supportsReleaseOptions && erase && secureErase,
         quickErase: supportsReleaseOptions && erase && quickErase,
         comment: supportsReleaseOptions ? comment.trim() || undefined : undefined,
+        unbindStaticIPs: supportsNetworkConfiguration && unbindStaticIPs,
       })
       onClose()
     } catch (caught) {
@@ -166,6 +170,22 @@ export function ServerReleaseDialog({
               </Alert>
             </StackItem>
           )}
+          <StackItem>
+            <Checkbox
+              id="release-unbind-static-ips"
+              label="Remove static IP bindings after release"
+              isChecked={unbindStaticIPs}
+              isDisabled={!supportsNetworkConfiguration}
+              onChange={(_event, checked) => setUnbindStaticIPs(checked)}
+            />
+          </StackItem>
+          <StackItem>
+            <Alert variant={unbindStaticIPs ? AlertVariant.warning : AlertVariant.info} title={unbindStaticIPs ? "Static IP cleanup enabled" : "Network configuration will be retained"} isInline>
+              {unbindStaticIPs
+                ? "Swallow will wait for Ready, then remove only unchanged Static links captured before Release. DHCP, provider-managed, Link only, and later changes are preserved."
+                : "Release will leave all current network links in place."}
+            </Alert>
+          </StackItem>
         </Stack>
       </ModalBody>
       <ModalFooter>

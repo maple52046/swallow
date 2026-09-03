@@ -1,4 +1,5 @@
 import type { Paginated, ServerRepository } from '@/application/ports/ServerRepository'
+import type { NetworkLinkInput, NetworkTarget, ProvisioningTask } from '@/domain/provisioning/types'
 import type {
   DeployServerInput,
   ListServersFilters,
@@ -86,6 +87,37 @@ export class ApiServerRepository implements ServerRepository {
   async getProviderEvents(id: string, limit = 50): Promise<ProviderEvents> {
     const path = `/api/v1/servers/${encodeURIComponent(id)}/events?limit=${encodeURIComponent(String(limit))}`
     return apiRequest<ProviderEvents>(path)
+  }
+
+  async getNetwork(id: string): Promise<NetworkTarget> {
+    return apiRequest<NetworkTarget>('/api/v1/servers/' + encodeURIComponent(id) + '/network')
+  }
+
+  async createNetworkLink(id: string, interfaceId: string, input: NetworkLinkInput): Promise<NetworkTarget> {
+    const path = '/api/v1/servers/' + encodeURIComponent(id) + '/network/interfaces/' + encodeURIComponent(interfaceId) + '/links'
+    return apiRequest<NetworkTarget>(path, { method: 'POST', body: JSON.stringify(input) })
+  }
+
+  async replaceNetworkLink(id: string, interfaceId: string, linkId: string, input: NetworkLinkInput): Promise<NetworkTarget> {
+    const path = '/api/v1/servers/' + encodeURIComponent(id) + '/network/interfaces/' + encodeURIComponent(interfaceId) + '/links/' + encodeURIComponent(linkId)
+    return apiRequest<NetworkTarget>(path, { method: 'PUT', body: JSON.stringify(input) })
+  }
+
+  async deleteNetworkLink(id: string, interfaceId: string, linkId: string): Promise<NetworkTarget> {
+    const path = '/api/v1/servers/' + encodeURIComponent(id) + '/network/interfaces/' + encodeURIComponent(interfaceId) + '/links/' + encodeURIComponent(linkId)
+    return apiRequest<NetworkTarget>(path, { method: 'DELETE' })
+  }
+
+  async listProvisioningTasks(id: string): Promise<ProvisioningTask[]> {
+    return apiRequest<ProvisioningTask[]>('/api/v1/servers/' + encodeURIComponent(id) + '/provisioning-tasks')
+  }
+
+  async getProvisioningTask(taskId: string): Promise<ProvisioningTask> {
+    return apiRequest<ProvisioningTask>('/api/v1/provisioning/tasks/' + encodeURIComponent(taskId))
+  }
+
+  async retryProvisioningTask(taskId: string): Promise<ProvisioningTask> {
+    return apiRequest<ProvisioningTask>('/api/v1/provisioning/tasks/' + encodeURIComponent(taskId) + '/retry', { method: 'POST' })
   }
 
   async runServerAction(id: string, action: ServerAction): Promise<ProvisioningActionResult> {

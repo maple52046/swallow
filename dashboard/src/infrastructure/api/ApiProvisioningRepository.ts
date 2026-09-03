@@ -5,6 +5,7 @@ import type {
   DeploymentTargetPreflightResult,
   DeployServersInput,
   DeployServersResult,
+  NetworkInspectionResult,
   UpdateDeploymentTemplateInput,
 } from '@/domain/provisioning/types'
 import type { OSImage } from '@/domain/site/types'
@@ -78,6 +79,13 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
         body: JSON.stringify({ serverIds }),
       },
     )
+  }
+
+  async inspectDeploymentNetworks(serverIds: string[]): Promise<NetworkInspectionResult> {
+    return apiRequest<NetworkInspectionResult>('/api/v1/provisioning/networks/inspect', {
+      method: 'POST',
+      body: JSON.stringify({ serverIds }),
+    })
   }
 
   async deployServers(input: DeployServersInput): Promise<DeployServersResult> {

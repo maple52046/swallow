@@ -137,6 +137,12 @@ func (s *DeploymentTargetPreflightService) validate(
 				Code:     "not_ready",
 				Message:  "The Server provisioning state is not ready.",
 			})
+		case server.Provisioning.Locked:
+			validated.issues = append(validated.issues, DeploymentTargetIssue{
+				ServerID: id,
+				Code:     "locked",
+				Message:  "Unlock the Server before deployment.",
+			})
 		}
 	}
 	if len(validated.issues) > 0 {
@@ -147,7 +153,7 @@ func (s *DeploymentTargetPreflightService) validate(
 	if err != nil {
 		return nil, err
 	}
-	if !provider.Capabilities().DeploymentReadiness {
+	if provider.Capabilities().NetworkConfiguration || !provider.Capabilities().DeploymentReadiness {
 		return validated, nil
 	}
 	inspector, ok := provider.(provisioningdomain.DeploymentTargetValidator)

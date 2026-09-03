@@ -1,3 +1,4 @@
+import type { NetworkLinkInput, NetworkTarget, ProvisioningTask } from '@/domain/provisioning/types'
 import type {
   DeployServerInput,
   ListServersFilters,
@@ -28,7 +29,7 @@ export interface ServerRepository {
   getServer(id: string): Promise<Server | null>
   deployServer(id: string, input: DeployServerInput): Promise<ProvisioningActionResult>
   releaseServer(id: string, input?: ReleaseServerInput): Promise<ProvisioningActionResult>
-  /** Read one machine live and advance only its mirrored provisioning state. */
+  /** Read one machine live and advance its provisioning state and observed addresses. */
   refreshServer(id: string): Promise<ProvisioningActionResult>
   /** Permanently remove the backing provisioner Machine and then its Server projection. */
   deleteServer(id: string): Promise<void>
@@ -41,6 +42,17 @@ export interface ServerRepository {
 
   /** Read recent provider-owned machine history; this is not a Swallow audit log. */
   getProviderEvents(id: string, limit?: number): Promise<ProviderEvents>
+
+  /** Read and mutate one Server's structured live network configuration. */
+  getNetwork(id: string): Promise<NetworkTarget>
+  createNetworkLink(id: string, interfaceId: string, input: NetworkLinkInput): Promise<NetworkTarget>
+  replaceNetworkLink(id: string, interfaceId: string, linkId: string, input: NetworkLinkInput): Promise<NetworkTarget>
+  deleteNetworkLink(id: string, interfaceId: string, linkId: string): Promise<NetworkTarget>
+
+  /** Durable Swallow-owned provisioning follow-up shown in Activity. */
+  listProvisioningTasks(id: string): Promise<ProvisioningTask[]>
+  getProvisioningTask(taskId: string): Promise<ProvisioningTask>
+  retryProvisioningTask(taskId: string): Promise<ProvisioningTask>
 
   /**
    * Run a provisioner action beyond deploy and release. Refused by the backend when the

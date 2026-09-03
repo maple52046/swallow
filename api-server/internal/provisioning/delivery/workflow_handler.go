@@ -10,19 +10,21 @@ import (
 )
 
 type createDeploymentTemplateRequest struct {
-	IntegrationID string `json:"integrationId"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	ImageID       string `json:"imageId"`
-	Ephemeral     bool   `json:"ephemeral"`
-	UserData      string `json:"userData"`
+	IntegrationID string                            `json:"integrationId"`
+	Name          string                            `json:"name"`
+	Description   string                            `json:"description"`
+	ImageID       string                            `json:"imageId"`
+	Ephemeral     bool                              `json:"ephemeral"`
+	UserData      string                            `json:"userData"`
+	Network       *deploymentNetworkSettingsRequest `json:"network"`
 }
 
 type updateDeploymentTemplateRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	ImageID     *string `json:"imageId"`
-	Ephemeral   *bool   `json:"ephemeral"`
+	Name        *string                           `json:"name"`
+	Description *string                           `json:"description"`
+	ImageID     *string                           `json:"imageId"`
+	Ephemeral   *bool                             `json:"ephemeral"`
+	Network     *deploymentNetworkSettingsRequest `json:"network"`
 }
 
 type replaceTemplateUserDataRequest struct {
@@ -32,6 +34,26 @@ type replaceTemplateUserDataRequest struct {
 type deploymentSettingsRequest struct {
 	ImageID   *string `json:"imageId"`
 	Ephemeral *bool   `json:"ephemeral"`
+}
+
+type deploymentNetworkSettingsRequest struct {
+	Mode           string `json:"mode"`
+	SubnetID       string `json:"subnetId"`
+	DefaultGateway bool   `json:"defaultGateway"`
+}
+
+type deploymentNetworkAssignmentRequest struct {
+	ServerID    string `json:"serverId"`
+	InterfaceID string `json:"interfaceId"`
+	SubnetID    string `json:"subnetId"`
+	IPAddress   string `json:"ipAddress"`
+}
+
+type deploymentNetworkRequest struct {
+	Mode           string                               `json:"mode"`
+	SubnetID       string                               `json:"subnetId"`
+	DefaultGateway bool                                 `json:"defaultGateway"`
+	Assignments    []deploymentNetworkAssignmentRequest `json:"assignments"`
 }
 
 type deploymentUserDataRequest struct {
@@ -79,6 +101,7 @@ type deployServersRequest struct {
 	TemplateID string                    `json:"templateId"`
 	Settings   deploymentSettingsRequest `json:"settings"`
 	UserData   deploymentUserDataRequest `json:"userData"`
+	Network    *deploymentNetworkRequest `json:"network"`
 }
 
 // CreateTemplate stores reusable deployment intent after validating its live image.
@@ -97,6 +120,7 @@ func (h *ProvisioningHandler) CreateTemplate(c *fiber.Ctx) error {
 		ImageID:       req.ImageID,
 		Ephemeral:     req.Ephemeral,
 		UserData:      req.UserData,
+		Network:       deploymentTemplateNetworkInput(req.Network),
 	})
 	if err != nil {
 		return RespondError(c, err)
@@ -129,7 +153,8 @@ func (h *ProvisioningHandler) UpdateTemplate(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
 	item, err := h.templates.Update(c.Context(), c.Params("id"), application.UpdateDeploymentTemplateInput{
-		Name: req.Name, Description: req.Description, ImageID: req.ImageID, Ephemeral: req.Ephemeral,
+		Name: req.Name, Description: req.Description, ImageID: req.ImageID,
+		Ephemeral: req.Ephemeral, Network: deploymentTemplateNetworkInput(req.Network),
 	})
 	if err != nil {
 		return RespondError(c, err)
@@ -186,7 +211,14 @@ func (h *ProvisioningHandler) DeployServers(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	result, err := h.deployments.Execute(c.Context(), application.DeployServersInput{
+	result, err := h.deployments.Execute(c.Context(), deployServersInput(req))
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(result)
+}
+func deployServersInput(req deployServersRequest) application.DeployServersInput {
+	return application.DeployServersInput{
 		ServerIDs:  req.ServerIDs,
 		TemplateID: req.TemplateID,
 		Settings: application.DeploymentSettingsInput{
@@ -195,9 +227,36 @@ func (h *ProvisioningHandler) DeployServers(c *fiber.Ctx) error {
 		UserData: application.DeploymentUserDataInput{
 			Mode: req.UserData.Mode, Value: req.UserData.Value,
 		},
-	})
-	if err != nil {
-		return RespondError(c, err)
+		Network: deploymentNetworkInput(req.Network),
 	}
-	return c.Status(fiber.StatusAccepted).JSON(result)
+}
+
+func deploymentTemplateNetworkInput(
+	req *deploymentNetworkSettingsRequest,
+) *application.DeploymentNetworkSettingsInput {
+	if req == nil {
+		return nil
+	}
+	return &application.DeploymentNetworkSettingsInput{
+		Mode: req.Mode, SubnetID: req.SubnetID, DefaultGateway: req.DefaultGateway,
+	}
+}
+
+func deploymentNetworkInput(
+	req *deploymentNetworkRequest,
+) *application.DeploymentNetworkInput {
+	if req == nil {
+		return nil
+	}
+	assignments := make([]application.DeploymentNetworkAssignmentInput, len(req.Assignments))
+	for index, assignment := range req.Assignments {
+		assignments[index] = application.DeploymentNetworkAssignmentInput{
+			ServerID: assignment.ServerID, InterfaceID: assignment.InterfaceID,
+			SubnetID: assignment.SubnetID, IPAddress: assignment.IPAddress,
+		}
+	}
+	return &application.DeploymentNetworkInput{
+		Mode: req.Mode, SubnetID: req.SubnetID,
+		DefaultGateway: req.DefaultGateway, Assignments: assignments,
+	}
 }

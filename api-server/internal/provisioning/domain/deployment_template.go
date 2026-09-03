@@ -11,15 +11,18 @@ import (
 // User data is deliberately absent. Its presence is exposed as a boolean while the
 // plaintext can only be requested explicitly by the deployment use case.
 type DeploymentTemplate struct {
-	ID            string
-	IntegrationID string
-	Name          string
-	Description   string
-	ImageID       string
-	Ephemeral     bool
-	HasUserData   bool
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID             string
+	IntegrationID  string
+	Name           string
+	Description    string
+	ImageID        string
+	Ephemeral      bool
+	NetworkMode    DeploymentNetworkMode
+	SubnetID       string
+	DefaultGateway bool
+	HasUserData    bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // DeploymentTemplateFilter narrows a template listing. Zero values mean no constraint.

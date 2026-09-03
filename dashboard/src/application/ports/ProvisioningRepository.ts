@@ -5,6 +5,7 @@ import type {
   DeploymentTargetPreflightResult,
   DeployServersInput,
   DeployServersResult,
+  NetworkInspectionResult,
   UpdateDeploymentTemplateInput,
 } from '@/domain/provisioning/types'
 
@@ -24,6 +25,7 @@ export interface ProvisioningRepository {
   replaceTemplateUserData(id: string, userData: string): Promise<void>
   clearTemplateUserData(id: string): Promise<void>
   preflightDeploymentTargets(serverIds: string[]): Promise<DeploymentTargetPreflightResult>
+  inspectDeploymentNetworks(serverIds: string[]): Promise<NetworkInspectionResult>
   deployServers(input: DeployServersInput): Promise<DeployServersResult>
   listOSImages(integrationId: string): Promise<OSImage[]>
 }

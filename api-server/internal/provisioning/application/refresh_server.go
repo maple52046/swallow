@@ -8,9 +8,9 @@ import (
 )
 
 // RefreshServerUseCase reads one machine directly from its provisioner and advances
-// only the Server provisioning projection. It is intended for bounded tracking after
-// an accepted asynchronous lifecycle action, not as a replacement for inventory
-// reconciliation, which still owns identity, hardware, and absence detection.
+// the Server provisioning projection and observed addresses. It is intended for bounded
+// tracking after an accepted asynchronous lifecycle action, not as a replacement for
+// inventory reconciliation, which still owns identity, hardware, and absence detection.
 type RefreshServerUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
@@ -39,6 +39,7 @@ func (uc *RefreshServerUseCase) Execute(ctx context.Context, serverID string) (*
 		return nil, err
 	}
 
+	server.Observed.Addresses = append([]string(nil), machine.IPAddresses...)
 	item := updateProvisioningProjection(server, machine)
 	if err := uc.servers.Upsert(ctx, server); err != nil {
 		return nil, err

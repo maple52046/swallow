@@ -14,16 +14,32 @@ import (
 
 // DeploymentTemplateItem is safe template metadata returned by the API.
 type DeploymentTemplateItem struct {
-	ID            string `json:"id"`
-	SiteID        string `json:"siteId"`
-	IntegrationID string `json:"integrationId"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	ImageID       string `json:"imageId"`
-	Ephemeral     bool   `json:"ephemeral"`
-	HasUserData   bool   `json:"hasUserData"`
-	CreatedAt     string `json:"createdAt"`
-	UpdatedAt     string `json:"updatedAt"`
+	ID            string                        `json:"id"`
+	SiteID        string                        `json:"siteId"`
+	IntegrationID string                        `json:"integrationId"`
+	Name          string                        `json:"name"`
+	Description   string                        `json:"description"`
+	ImageID       string                        `json:"imageId"`
+	Ephemeral     bool                          `json:"ephemeral"`
+	Network       DeploymentNetworkSettingsItem `json:"network"`
+	HasUserData   bool                          `json:"hasUserData"`
+	CreatedAt     string                        `json:"createdAt"`
+	UpdatedAt     string                        `json:"updatedAt"`
+}
+
+// DeploymentNetworkSettingsItem is reusable intent without target NIC or IP data.
+type DeploymentNetworkSettingsItem struct {
+	Mode           string `json:"mode"`
+	SubnetID       string `json:"subnetId"`
+	DefaultGateway bool   `json:"defaultGateway"`
+}
+
+// DeploymentNetworkSettingsInput accepts Swallow DHCP/static template intent.
+// A nil input applies the backward-compatible DHCP default.
+type DeploymentNetworkSettingsInput struct {
+	Mode           string
+	SubnetID       string
+	DefaultGateway bool
 }
 
 // CreateDeploymentTemplateInput carries template intent and optional write-only user data.
@@ -34,6 +50,7 @@ type CreateDeploymentTemplateInput struct {
 	ImageID       string
 	Ephemeral     bool
 	UserData      string
+	Network       *DeploymentNetworkSettingsInput
 }
 
 // UpdateDeploymentTemplateInput changes non-secret template intent.
@@ -42,6 +59,7 @@ type UpdateDeploymentTemplateInput struct {
 	Description *string
 	ImageID     *string
 	Ephemeral   *bool
+	Network     *DeploymentNetworkSettingsInput
 }
 
 // DeploymentTemplateService owns template validation and lifecycle.
@@ -79,20 +97,28 @@ func (s *DeploymentTemplateService) Create(
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := validateDeployImage(ctx, s.providers, integration.ID, imageID); err != nil {
+	provider, _, err := validateDeployImage(ctx, s.providers, integration.ID, imageID)
+	if err != nil {
+		return nil, err
+	}
+	mode, subnetID, defaultGateway, err := validateTemplateNetwork(ctx, provider, input.Network)
+	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
 	template := &provisioningdomain.DeploymentTemplate{
-		ID:            uuid.NewString(),
-		IntegrationID: integration.ID,
-		Name:          name,
-		Description:   strings.TrimSpace(input.Description),
-		ImageID:       imageID,
-		Ephemeral:     input.Ephemeral,
-		HasUserData:   input.UserData != "",
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:             uuid.NewString(),
+		IntegrationID:  integration.ID,
+		Name:           name,
+		Description:    strings.TrimSpace(input.Description),
+		ImageID:        imageID,
+		Ephemeral:      input.Ephemeral,
+		NetworkMode:    mode,
+		SubnetID:       subnetID,
+		DefaultGateway: defaultGateway,
+		HasUserData:    input.UserData != "",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	if err := s.templates.Create(ctx, template, input.UserData); err != nil {
 		return nil, err
@@ -209,6 +235,19 @@ func (s *DeploymentTemplateService) Update(
 	if input.Ephemeral != nil {
 		template.Ephemeral = *input.Ephemeral
 	}
+	if input.Network != nil {
+		provider, err := s.providers.For(ctx, template.IntegrationID)
+		if err != nil {
+			return nil, err
+		}
+		mode, subnetID, defaultGateway, err := validateTemplateNetwork(ctx, provider, input.Network)
+		if err != nil {
+			return nil, err
+		}
+		template.NetworkMode = mode
+		template.SubnetID = subnetID
+		template.DefaultGateway = defaultGateway
+	}
 	template.UpdatedAt = time.Now().UTC()
 	if err := s.templates.Update(ctx, template); err != nil {
 		return nil, err
@@ -247,8 +286,13 @@ func deploymentTemplateItem(
 		ImageID:       template.ImageID,
 		Ephemeral:     template.Ephemeral,
 		HasUserData:   template.HasUserData,
-		CreatedAt:     wire.Time(template.CreatedAt),
-		UpdatedAt:     wire.Time(template.UpdatedAt),
+		Network: DeploymentNetworkSettingsItem{
+			Mode:           string(template.NetworkMode),
+			SubnetID:       template.SubnetID,
+			DefaultGateway: template.DefaultGateway,
+		},
+		CreatedAt: wire.Time(template.CreatedAt),
+		UpdatedAt: wire.Time(template.UpdatedAt),
 	}
 }
 
@@ -274,5 +318,65 @@ func validateDeployImage(
 		"%w: imageId %q is not available from the provisioner",
 		provisioningdomain.ErrInvalidDeploymentTemplate,
 		imageID,
+	)
+}
+
+// validateTemplateNetwork resolves the DHCP default and verifies provider-owned
+// subnet references without storing provider interface or target IP data.
+func validateTemplateNetwork(
+	ctx context.Context,
+	provider provisioningdomain.OSProvisioningProvider,
+	input *DeploymentNetworkSettingsInput,
+) (provisioningdomain.DeploymentNetworkMode, string, bool, error) {
+	mode := provisioningdomain.DeploymentNetworkDHCP
+	subnetID := ""
+	defaultGateway := false
+	if input != nil {
+		mode = provisioningdomain.DeploymentNetworkMode(strings.ToLower(strings.TrimSpace(input.Mode)))
+		if mode == "" {
+			mode = provisioningdomain.DeploymentNetworkDHCP
+		}
+		subnetID = strings.TrimSpace(input.SubnetID)
+		defaultGateway = input.DefaultGateway
+	}
+	if mode != provisioningdomain.DeploymentNetworkDHCP &&
+		mode != provisioningdomain.DeploymentNetworkStatic {
+		return "", "", false, fmt.Errorf(
+			"%w: network.mode must be dhcp or static",
+			provisioningdomain.ErrInvalidDeploymentTemplate,
+		)
+	}
+	if mode == provisioningdomain.DeploymentNetworkDHCP && defaultGateway {
+		return "", "", false, fmt.Errorf(
+			"%w: network.defaultGateway is supported only for static mode",
+			provisioningdomain.ErrInvalidDeploymentTemplate,
+		)
+	}
+	networkProvider, err := requireNetworkProvider(provider)
+	if err != nil {
+		return "", "", false, err
+	}
+	if mode == provisioningdomain.DeploymentNetworkStatic && subnetID == "" {
+		return "", "", false, fmt.Errorf(
+			"%w: network.subnetId is required for static mode",
+			provisioningdomain.ErrInvalidDeploymentTemplate,
+		)
+	}
+	if subnetID == "" {
+		return mode, "", defaultGateway, nil
+	}
+	subnets, err := networkProvider.ListNetworkSubnets(ctx)
+	if err != nil {
+		return "", "", false, err
+	}
+	for _, subnet := range subnets {
+		if subnet.ID == subnetID {
+			return mode, subnetID, defaultGateway, nil
+		}
+	}
+	return "", "", false, fmt.Errorf(
+		"%w: network.subnetId %q is not available from the provisioner",
+		provisioningdomain.ErrInvalidDeploymentTemplate,
+		subnetID,
 	)
 }

@@ -1,5 +1,15 @@
 import type { ProvisioningActionResult } from '@/domain/server/types'
 
+/** Swallow-owned writable deployment addressing modes. */
+export type DeploymentNetworkMode = 'dhcp' | 'static'
+
+/** Reusable network intent; target NICs and static addresses are deliberately excluded. */
+export interface DeploymentNetworkSettings {
+  mode: DeploymentNetworkMode
+  subnetId?: string
+  defaultGateway: boolean
+}
+
 /** Reusable, integration-owned deployment intent. Cloud-init is never readable. */
 export interface DeploymentTemplate {
   id: string
@@ -9,6 +19,7 @@ export interface DeploymentTemplate {
   description: string
   imageId: string
   ephemeral: boolean
+  network: DeploymentNetworkSettings
   hasUserData: boolean
   createdAt: string
   updatedAt: string
@@ -21,6 +32,7 @@ export interface CreateDeploymentTemplateInput {
   description?: string
   imageId: string
   ephemeral: boolean
+  network?: DeploymentNetworkSettings
   userData?: string
 }
 
@@ -30,18 +42,21 @@ export interface UpdateDeploymentTemplateInput {
   description?: string
   imageId?: string
   ephemeral?: boolean
+  network?: DeploymentNetworkSettings
 }
 
-/**
- * Cloud-init handling for one deployment request.
- * Inherited content stays behind the API boundary; only 'replace' carries a value.
- */
+/** Cloud-init handling for one deployment request. */
 export type DeploymentUserDataMode = 'inherit' | 'replace' | 'omit'
 
-/**
- * One batch deployment intent. Every Server must use the same provisioner Integration,
- * while settings may inherit from a template or be supplied inline.
- */
+/** Target-specific data that cannot be stored in a reusable template. */
+export interface DeploymentNetworkAssignment {
+  serverId: string
+  interfaceId: string
+  subnetId?: string
+  ipAddress?: string
+}
+
+/** One batch deployment intent for a single provisioner Integration. */
 export interface DeployServersInput {
   serverIds: string[]
   templateId?: string
@@ -53,36 +68,34 @@ export interface DeployServersInput {
     mode: DeploymentUserDataMode
     value?: string
   }
+  network?: DeploymentNetworkSettings & {
+    assignments: DeploymentNetworkAssignment[]
+  }
 }
 
 /** A post-preflight provider refusal; accepted peers are not rolled back. */
 export interface DeploymentFailure {
   serverId: string
+  stage: 'network_configuration' | 'deployment'
   code: string
   message: string
 }
 
-/**
- * One local-state or provider-owned prerequisite that currently blocks a target.
- * The message is safe operator guidance from the active API contract, never secret data.
- */
+/** One local-state or provider-owned prerequisite that currently blocks a target. */
 export interface DeploymentTargetIssue {
   serverId: string
   code: string
   message: string
 }
 
-/**
- * Side-effect-free readiness report. A false valid flag is a successful inspection whose
- * complete blocking reasons are carried in issues, rather than a transport failure.
- */
+/** Side-effect-free target readiness report. */
 export interface DeploymentTargetPreflightResult {
   valid: boolean
   integrationId: string
   issues: DeploymentTargetIssue[]
 }
 
-/** A dispatch summary, not a durable job. Progress is read from each Server projection. */
+/** A dispatch summary, not a durable job. */
 export interface DeployServersResult {
   requested: number
   accepted: ProvisioningActionResult[]
@@ -94,4 +107,94 @@ export interface StoredDeploymentResult extends DeployServersResult {
   serverIds: string[]
   integrationId: string
   savedAt: string
+}
+
+/** Provider-neutral observed configuration of one subnet link. */
+export type NetworkConfigurationState =
+  | 'dhcp'
+  | 'static'
+  | 'link_only'
+  | 'unconfigured'
+  | 'provider_managed'
+  | 'unknown'
+
+export type PhysicalLinkState = 'up' | 'down' | 'unknown'
+export type ManualNetworkMode = DeploymentNetworkMode | 'link_only'
+
+export interface NetworkSubnet {
+  id: string
+  name: string
+  cidr: string
+  gatewayAddress: string
+  managed: boolean
+}
+
+export interface NetworkLink {
+  id: string
+  configurationState: NetworkConfigurationState
+  rawProviderMode: string
+  subnetId: string
+  subnetName: string
+  cidr: string
+  ipAddress: string
+  defaultGateway: boolean
+}
+
+export interface NetworkInterface {
+  id: string
+  name: string
+  macAddress: string
+  boot: boolean
+  physicalState: PhysicalLinkState
+  configurationState: NetworkConfigurationState
+  rawProviderMode: string
+  links: NetworkLink[]
+  availableSubnets: NetworkSubnet[]
+}
+
+/** Swallow-owned deploy defaults derived from the selected NIC's live state. */
+export interface DeploymentNetworkSuggestion {
+  mode: DeploymentNetworkMode
+  interfaceId: string
+  subnetId: string
+  ipAddress: string
+  defaultGateway: boolean
+}
+
+export interface NetworkTarget {
+  serverId: string
+  editable: boolean
+  disabledReason: string
+  suggestion: DeploymentNetworkSuggestion
+  network: {
+    interfaces: NetworkInterface[]
+  }
+}
+
+export interface NetworkInspectionResult {
+  targets: NetworkTarget[]
+  issues: DeploymentTargetIssue[]
+}
+
+/** Explicit manual NIC mutation. AUTO and keep-current are intentionally absent. */
+export interface NetworkLinkInput {
+  mode: ManualNetworkMode
+  subnetId: string
+  ipAddress?: string
+  defaultGateway: boolean
+}
+
+/** Durable release follow-up shown in Server Activity. */
+export interface ProvisioningTask {
+  id: string
+  kind: 'release_network_cleanup'
+  serverId: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed'
+  phase: 'waiting_for_release' | 'waiting_for_ready' | 'cleaning_network' | 'complete'
+  attempt: number
+  error?: string
+  requestId?: string
+  retryable: boolean
+  createdAt: string
+  updatedAt: string
 }

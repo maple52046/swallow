@@ -432,6 +432,9 @@ func TestReconcile_SecondMachineClaimingTheSameServerInOnePassConflicts(t *testi
 func TestReconcile_ProjectsEphemeralityFromTheProvisioner(t *testing.T) {
 	f := setupReconcile(t)
 	machine := testMachine("abc123", "gpu-node-01")
+	machine.Status = provisioningdomain.MachineStatusDeployed
+	machine.ProviderStatus = "Deployed"
+	machine.PowerState = provisioningdomain.PowerStateOn
 	machine.Ephemeral = true
 	machine.HWEKernel = "ga-24.04"
 	f.provider.withMachine(machine)

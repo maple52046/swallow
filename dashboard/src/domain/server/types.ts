@@ -173,6 +173,7 @@ export interface ReleaseServerInput {
   secureErase: boolean
   quickErase: boolean
   comment?: string
+  unbindStaticIPs: boolean
 }
 
 /** The state a lifecycle action returned. A snapshot, not a completion report. */
@@ -189,6 +190,7 @@ export interface ProvisioningActionResult {
   commissioningStatus: string
   testingStatus: string
   observedAt: string
+  taskId?: string
 }
 
 /**
@@ -223,6 +225,7 @@ export interface ProvisionerCapabilities {
   hardwareInventory: boolean
   machineRemoval: boolean
   releaseOptions: boolean
+  networkConfiguration: boolean
 }
 
 /** A labelled value in a provisioner detail section. */

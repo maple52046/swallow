@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"sync"
 
@@ -28,17 +29,37 @@ type DeploymentUserDataInput struct {
 	Value string
 }
 
+// DeploymentNetworkAssignmentInput carries target-specific values that templates
+// deliberately cannot save. Empty InterfaceID selects the boot NIC.
+type DeploymentNetworkAssignmentInput struct {
+	ServerID    string
+	InterfaceID string
+	SubnetID    string
+	IPAddress   string
+}
+
+// DeploymentNetworkInput is Swallow's common DHCP/static deployment intent.
+type DeploymentNetworkInput struct {
+	Mode           string
+	SubnetID       string
+	DefaultGateway bool
+	Assignments    []DeploymentNetworkAssignmentInput
+}
+
 // DeployServersInput describes one atomic-preflight batch.
 type DeployServersInput struct {
 	ServerIDs  []string
 	TemplateID string
 	Settings   DeploymentSettingsInput
 	UserData   DeploymentUserDataInput
+	Network    *DeploymentNetworkInput
 }
 
-// DeploymentFailureItem reports a provider refusal after successful batch preflight.
+// DeploymentFailureItem reports which dispatch stage refused one target after
+// the all-target read-only preflight had succeeded.
 type DeploymentFailureItem struct {
 	ServerID string `json:"serverId"`
+	Stage    string `json:"stage"`
 	Code     string `json:"code"`
 	Message  string `json:"message"`
 }
@@ -70,17 +91,29 @@ func NewDeployServersUseCase(
 	}
 }
 
+type resolvedNetworkAssignment struct {
+	interfaceID string
+	linkID      string
+	subnetID    string
+	ipAddress   string
+}
+
 type resolvedDeployment struct {
-	servers   []*serverdomain.Server
-	provider  provisioningdomain.OSProvisioningProvider
-	image     *provisioningdomain.OSImage
-	ephemeral bool
-	userData  string
+	servers         []*serverdomain.Server
+	provider        provisioningdomain.OSProvisioningProvider
+	networkProvider provisioningdomain.NetworkConfigurationProvider
+	image           *provisioningdomain.OSImage
+	ephemeral       bool
+	userData        string
+	networkMode     provisioningdomain.DeploymentNetworkMode
+	defaultGateway  bool
+	assignments     []resolvedNetworkAssignment
 }
 
 type deploymentOutcome struct {
-	item *ProvisioningStateItem
-	err  error
+	item  *ProvisioningStateItem
+	stage string
+	err   error
 }
 
 // Execute performs every validation before making the first provider write.
@@ -106,6 +139,45 @@ func (uc *DeployServersUseCase) Execute(
 			defer workers.Done()
 			for index := range jobs {
 				server := resolved.servers[index]
+				assignment := resolved.assignments[index]
+				linkMode := provisioningdomain.NetworkLinkDHCP
+				if resolved.networkMode == provisioningdomain.DeploymentNetworkStatic {
+					linkMode = provisioningdomain.NetworkLinkStatic
+				}
+				_, configureErr := resolved.networkProvider.ConfigureNetworkLink(
+					ctx,
+					server.Source.ProviderMachineID,
+					provisioningdomain.NetworkLinkRequest{
+						InterfaceID:    assignment.interfaceID,
+						LinkID:         assignment.linkID,
+						Mode:           linkMode,
+						SubnetID:       assignment.subnetID,
+						IPAddress:      assignment.ipAddress,
+						DefaultGateway: resolved.defaultGateway,
+					},
+				)
+				if configureErr != nil {
+					outcomes[index] = deploymentOutcome{
+						stage: "network_configuration",
+						err:   configureErr,
+					}
+					continue
+				}
+
+				if resolved.provider.Capabilities().DeploymentReadiness {
+					if validator, ok := resolved.provider.(provisioningdomain.DeploymentTargetValidator); ok {
+						if readinessErr := validator.ValidateDeploymentTarget(
+							ctx, server.Source.ProviderMachineID,
+						); readinessErr != nil {
+							outcomes[index] = deploymentOutcome{
+								stage: "network_configuration",
+								err:   readinessErr,
+							}
+							continue
+						}
+					}
+				}
+
 				machine, deployErr := resolved.provider.Deploy(ctx, provisioningdomain.DeployRequest{
 					MachineID:    server.Source.ProviderMachineID,
 					OSSystem:     resolved.image.OSSystem,
@@ -114,7 +186,7 @@ func (uc *DeployServersUseCase) Execute(
 					Ephemeral:    resolved.ephemeral,
 				})
 				if deployErr != nil {
-					outcomes[index].err = deployErr
+					outcomes[index] = deploymentOutcome{stage: "deployment", err: deployErr}
 					continue
 				}
 				outcomes[index].item = applyProvisioningResult(ctx, uc.servers, server, machine)
@@ -140,6 +212,7 @@ func (uc *DeployServersUseCase) Execute(
 		code, message := deploymentFailure(outcome.err)
 		result.Failed = append(result.Failed, DeploymentFailureItem{
 			ServerID: resolved.servers[index].ID,
+			Stage:    outcome.stage,
 			Code:     code,
 			Message:  message,
 		})
@@ -164,11 +237,14 @@ func (uc *DeployServersUseCase) preflight(
 	imageID := ""
 	ephemeral := false
 	userData := ""
+	networkMode := provisioningdomain.DeploymentNetworkDHCP
+	subnetID := ""
+	defaultGateway := false
 	templateMode := input.TemplateID != ""
 	if templateMode {
-		template, err := uc.templates.FindByID(ctx, input.TemplateID)
-		if err != nil {
-			return nil, err
+		template, findErr := uc.templates.FindByID(ctx, input.TemplateID)
+		if findErr != nil {
+			return nil, findErr
 		}
 		if template.IntegrationID != integrationID {
 			return nil, fmt.Errorf(
@@ -178,6 +254,12 @@ func (uc *DeployServersUseCase) preflight(
 		}
 		imageID = template.ImageID
 		ephemeral = template.Ephemeral
+		networkMode = template.NetworkMode
+		if networkMode == "" {
+			networkMode = provisioningdomain.DeploymentNetworkDHCP
+		}
+		subnetID = template.SubnetID
+		defaultGateway = template.DefaultGateway
 		if input.Settings.ImageID != nil {
 			imageID = strings.TrimSpace(*input.Settings.ImageID)
 		}
@@ -193,6 +275,29 @@ func (uc *DeployServersUseCase) preflight(
 			ephemeral = *input.Settings.Ephemeral
 		}
 	}
+	if input.Network != nil {
+		networkMode = provisioningdomain.DeploymentNetworkMode(
+			strings.ToLower(strings.TrimSpace(input.Network.Mode)),
+		)
+		if networkMode == "" {
+			networkMode = provisioningdomain.DeploymentNetworkDHCP
+		}
+		subnetID = strings.TrimSpace(input.Network.SubnetID)
+		defaultGateway = input.Network.DefaultGateway
+	}
+	if networkMode != provisioningdomain.DeploymentNetworkDHCP &&
+		networkMode != provisioningdomain.DeploymentNetworkStatic {
+		return nil, fmt.Errorf(
+			"%w: network.mode must be dhcp or static",
+			provisioningdomain.ErrInvalidDeploymentBatch,
+		)
+	}
+	if networkMode == provisioningdomain.DeploymentNetworkDHCP && defaultGateway {
+		return nil, fmt.Errorf(
+			"%w: network.defaultGateway is supported only for static mode",
+			provisioningdomain.ErrInvalidDeploymentBatch,
+		)
+	}
 
 	mode := strings.ToLower(strings.TrimSpace(input.UserData.Mode))
 	if mode == "" {
@@ -207,11 +312,11 @@ func (uc *DeployServersUseCase) preflight(
 		if !templateMode {
 			return nil, fmt.Errorf("%w: userData inherit requires a template", provisioningdomain.ErrInvalidDeploymentBatch)
 		}
-		inherited, err := uc.templates.UserData(ctx, input.TemplateID)
-		if err != nil && !errors.Is(err, provisioningdomain.ErrDeploymentTemplateUserDataMissing) {
-			return nil, err
+		inherited, userDataErr := uc.templates.UserData(ctx, input.TemplateID)
+		if userDataErr != nil && !errors.Is(userDataErr, provisioningdomain.ErrDeploymentTemplateUserDataMissing) {
+			return nil, userDataErr
 		}
-		if err == nil {
+		if userDataErr == nil {
 			userData = inherited
 		}
 	case "replace":
@@ -241,9 +346,240 @@ func (uc *DeployServersUseCase) preflight(
 			provisioningdomain.ErrDeploymentBatchConflict,
 		)
 	}
+	networkProvider, err := requireNetworkProvider(provider)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", provisioningdomain.ErrDeploymentBatchConflict, err)
+	}
+	assignments, err := resolveNetworkAssignments(
+		ctx, networkProvider, servers, input.Network, networkMode, subnetID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &resolvedDeployment{
-		servers: servers, provider: provider, image: image, ephemeral: ephemeral, userData: userData,
+		servers:         servers,
+		provider:        provider,
+		networkProvider: networkProvider,
+		image:           image,
+		ephemeral:       ephemeral,
+		userData:        userData,
+		networkMode:     networkMode,
+		defaultGateway:  defaultGateway,
+		assignments:     assignments,
 	}, nil
+}
+
+func resolveNetworkAssignments(
+	ctx context.Context,
+	provider provisioningdomain.NetworkConfigurationProvider,
+	servers []*serverdomain.Server,
+	input *DeploymentNetworkInput,
+	mode provisioningdomain.DeploymentNetworkMode,
+	commonSubnetID string,
+) ([]resolvedNetworkAssignment, error) {
+	requested := make(map[string]DeploymentNetworkAssignmentInput, len(servers))
+	targets := make(map[string]struct{}, len(servers))
+	for _, server := range servers {
+		targets[server.ID] = struct{}{}
+	}
+	if input != nil {
+		for _, assignment := range input.Assignments {
+			if _, exists := targets[assignment.ServerID]; !exists {
+				return nil, fmt.Errorf(
+					"%w: network assignment references a Server outside the batch",
+					provisioningdomain.ErrInvalidDeploymentBatch,
+				)
+			}
+			if _, duplicate := requested[assignment.ServerID]; duplicate {
+				return nil, fmt.Errorf(
+					"%w: network assignments must be unique per Server",
+					provisioningdomain.ErrInvalidDeploymentBatch,
+				)
+			}
+			requested[assignment.ServerID] = assignment
+		}
+	}
+
+	networks, err := inspectDeploymentNetworks(ctx, provider, servers)
+	if err != nil {
+		return nil, err
+	}
+	resolved := make([]resolvedNetworkAssignment, len(servers))
+	staticIPs := make(map[string]struct{})
+	for index, server := range servers {
+		assignment := requested[server.ID]
+		iface, err := selectDeploymentInterface(networks[index], strings.TrimSpace(assignment.InterfaceID))
+		if err != nil {
+			return nil, deploymentNetworkConflict(server.ID, err)
+		}
+		targetSubnetID := strings.TrimSpace(assignment.SubnetID)
+		if targetSubnetID == "" {
+			targetSubnetID = strings.TrimSpace(commonSubnetID)
+		}
+		if targetSubnetID == "" {
+			targetSubnetID = suggestedSubnet(iface)
+		}
+		subnet, err := findInterfaceSubnet(iface, targetSubnetID)
+		if err != nil {
+			return nil, deploymentNetworkConflict(server.ID, err)
+		}
+
+		ipAddress := strings.TrimSpace(assignment.IPAddress)
+		if mode == provisioningdomain.DeploymentNetworkStatic {
+			address, parseErr := netip.ParseAddr(ipAddress)
+			if parseErr != nil || !address.Is4() {
+				return nil, deploymentNetworkConflict(server.ID, errors.New("enter a valid IPv4 address for Static mode"))
+			}
+			if subnet.CIDR != "" {
+				prefix, prefixErr := netip.ParsePrefix(subnet.CIDR)
+				if prefixErr == nil && !prefix.Contains(address) {
+					return nil, deploymentNetworkConflict(server.ID, errors.New("the static IP is outside the selected subnet"))
+				}
+			}
+			if _, duplicate := staticIPs[address.String()]; duplicate {
+				return nil, fmt.Errorf(
+					"%w: static IP addresses must be unique within a deployment batch",
+					provisioningdomain.ErrInvalidDeploymentBatch,
+				)
+			}
+			staticIPs[address.String()] = struct{}{}
+			ipAddress = address.String()
+		} else if ipAddress != "" {
+			return nil, fmt.Errorf(
+				"%w: ipAddress is valid only for static mode",
+				provisioningdomain.ErrInvalidDeploymentBatch,
+			)
+		}
+
+		linkID := ""
+		for _, link := range iface.Links {
+			if link.SubnetID != targetSubnetID {
+				continue
+			}
+			if linkID != "" {
+				return nil, deploymentNetworkConflict(
+					server.ID,
+					errors.New("multiple links use the selected subnet; choose and unbind one in Server Network"),
+				)
+			}
+			linkID = link.ID
+		}
+		resolved[index] = resolvedNetworkAssignment{
+			interfaceID: iface.ID,
+			linkID:      linkID,
+			subnetID:    targetSubnetID,
+			ipAddress:   ipAddress,
+		}
+	}
+	return resolved, nil
+}
+
+func inspectDeploymentNetworks(
+	ctx context.Context,
+	provider provisioningdomain.NetworkConfigurationProvider,
+	servers []*serverdomain.Server,
+) ([]*provisioningdomain.MachineNetwork, error) {
+	results := make([]*provisioningdomain.MachineNetwork, len(servers))
+	errs := make([]error, len(servers))
+	jobs := make(chan int)
+	workerCount := deploymentWorkers
+	if len(servers) < workerCount {
+		workerCount = len(servers)
+	}
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for worker := 0; worker < workerCount; worker++ {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				results[index], errs[index] = provider.InspectNetwork(
+					ctx, servers[index].Source.ProviderMachineID)
+			}
+		}()
+	}
+	for index := range servers {
+		jobs <- index
+	}
+	close(jobs)
+	workers.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
+}
+
+func selectDeploymentInterface(
+	network *provisioningdomain.MachineNetwork,
+	interfaceID string,
+) (*provisioningdomain.NetworkInterface, error) {
+	if interfaceID != "" {
+		for index := range network.Interfaces {
+			if network.Interfaces[index].ID == interfaceID {
+				return &network.Interfaces[index], nil
+			}
+		}
+		return nil, errors.New("the selected network interface is not available")
+	}
+	for index := range network.Interfaces {
+		if network.Interfaces[index].Boot {
+			return &network.Interfaces[index], nil
+		}
+	}
+	if len(network.Interfaces) == 1 {
+		return &network.Interfaces[0], nil
+	}
+	return nil, errors.New("select a network interface")
+}
+
+func suggestedSubnet(iface *provisioningdomain.NetworkInterface) string {
+	linked := make(map[string]struct{})
+	for _, link := range iface.Links {
+		if link.SubnetID != "" {
+			linked[link.SubnetID] = struct{}{}
+		}
+	}
+	if len(linked) == 1 {
+		for subnetID := range linked {
+			return subnetID
+		}
+	}
+	managed := ""
+	for _, subnet := range iface.AvailableSubnets {
+		if !subnet.Managed {
+			continue
+		}
+		if managed != "" {
+			return ""
+		}
+		managed = subnet.ID
+	}
+	return managed
+}
+
+func findInterfaceSubnet(
+	iface *provisioningdomain.NetworkInterface,
+	subnetID string,
+) (*provisioningdomain.NetworkSubnet, error) {
+	if subnetID == "" {
+		return nil, errors.New("select a compatible subnet")
+	}
+	for index := range iface.AvailableSubnets {
+		if iface.AvailableSubnets[index].ID == subnetID {
+			return &iface.AvailableSubnets[index], nil
+		}
+	}
+	return nil, errors.New("the selected subnet is not available on the interface")
+}
+
+func deploymentNetworkConflict(serverID string, err error) error {
+	return fmt.Errorf(
+		"%w: server %s: %s",
+		provisioningdomain.ErrDeploymentBatchConflict,
+		serverID,
+		err.Error(),
+	)
 }
 
 func deploymentFailure(err error) (string, string) {
