@@ -7,10 +7,10 @@ Backend control plane for the Swallow platform.
 swallow owns **intent, policy, and identity mapping**. It owns no facts about the
 physical or runtime world.
 
-Facts about hardware, operating systems, metrics, and cluster state are owned by external
+Facts about hardware, operating systems, metrics, and platform state are owned by external
 systems. Swallow owns automation intent and embedded execution. The unique value it keeps
 that nothing else can is the mapping between them: this server, at this site, provisioned
-by that MAAS, currently a worker in that Kubernetes cluster, emitting these metrics, last
+by that MAAS, currently a worker in that Kubernetes platform, emitting these metrics, last
 touched by this versioned operation.
 
 That correlation is the product. Everything else is someone else's job.
@@ -28,7 +28,7 @@ provisioner per site and they change without a redeploy.
 |------|---------|----------|
 | `provisioner` | Ubuntu MAAS | Machine inventory, OS deploy and release |
 | `metrics` | Prometheus-compatible store | Metric queries; Alertmanager for alerts |
-| `cluster` | Kubernetes API, Slurm (slurmrestd) | Live cluster state and membership |
+| `platform` | Kubernetes API, Slurm (slurmrestd) | Live platform state and membership |
 
 Registering a provisioner:
 
@@ -72,7 +72,7 @@ Status is **three independent axes**, each with its own owner and `observedAt`:
 | Axis | Owner |
 |------|-------|
 | `provisioning` | The provisioner |
-| `membership` | The cluster's own API |
+| `membership` | The platform's own API |
 | `health` | The metrics store, resolved at query time and never stored |
 
 An axis that has never been observed is `null`. That matters: "we do not know" must never
@@ -157,7 +157,7 @@ Ansible inventory diagnostics. It is not a second way into the operator API.
 
 ## Background loops
 
-- **Reconciler** — polls each enabled provisioner and each registered cluster.
+- **Reconciler** — polls each enabled provisioner and each registered platform.
 - **Inventory sweep** — refreshes expensive attached-hardware observations.
 - **Embedded dispatcher** — claims durable pending operations, renews site leases, and
   records a terminal or indeterminate result.

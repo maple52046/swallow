@@ -3,7 +3,7 @@
 # Unlike the per-site production config (deploy/third-party/prometheus), this talks to the
 # dev api-server over plain HTTP inside the compose network and authenticates with the
 # fixed dev machine token. It discovers exporters through swallow's http_sd so scraped
-# series carry server_id/site/cluster with no extra relabelling.
+# series carry server_id/site/platform with no extra relabelling.
 #
 # NOTE: Prometheus does not expand environment variables in this file, so the bearer token
 # below is the literal dev default (SWALLOW_API_MACHINE_TOKEN=dev-machine-token). If you

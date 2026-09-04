@@ -20,6 +20,56 @@ services:
       retries: 12
       start_period: 20s
 
+  temporal-postgresql:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    restart: unless-stopped
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      DBNAME: temporal_core
+      VISIBILITY_DBNAME: temporal_visibility
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgresql
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    ports:
+      - "${TEMPORAL_GRPC_PORT:-7233}:7233"
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    restart: unless-stopped
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+
   api-server:
     build:
       context: ../..
@@ -30,6 +80,8 @@ services:
     restart: unless-stopped
     depends_on:
       mongo:
+        condition: service_healthy
+      temporal:
         condition: service_healthy
     # This api-server runs on the default bridge network, where `localhost` means the
     # container itself. Map host.docker.internal to the host gateway so an integration
@@ -58,6 +110,9 @@ services:
       SWALLOW_API_INVENTORY_INTERVAL: "${SWALLOW_API_INVENTORY_INTERVAL:-15m}"
       SWALLOW_API_OPERATION_DISPATCH_INTERVAL: "${SWALLOW_API_OPERATION_DISPATCH_INTERVAL:-1s}"
       SWALLOW_API_OPERATION_LEASE_DURATION: "${SWALLOW_API_OPERATION_LEASE_DURATION:-90s}"
+      SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
+      SWALLOW_API_TEMPORAL_NAMESPACE: "default"
+      SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_RETENTION: "${SWALLOW_API_JOB_ARTIFACT_RETENTION:-720h}"
@@ -75,6 +130,80 @@ services:
       timeout: 5s
       retries: 12
       start_period: 90s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/dev/api-server.Dockerfile
+      args:
+        UID: ${DEV_UID:-1001}
+        GID: ${DEV_GID:-1001}
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      SWALLOW_API_ADDR: ":30051"
+      SWALLOW_API_MONGO_URI: "mongodb://mongo:27017"
+      SWALLOW_API_MONGO_DB: "${SWALLOW_API_MONGO_DB:-swallow}"
+      SWALLOW_API_JWT_SECRET: "${SWALLOW_API_JWT_SECRET:-dev-secret-change-me}"
+      SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME: "${SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME:-admin}"
+      SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD: "${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
+      SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
+      SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
+      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: "${SWALLOW_API_OPERATION_DISPATCH_INTERVAL:-1s}"
+      SWALLOW_API_OPERATION_LEASE_DURATION: "${SWALLOW_API_OPERATION_LEASE_DURATION:-90s}"
+      SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
+      SWALLOW_API_TEMPORAL_NAMESPACE: "default"
+      SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
+      SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
+      SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
+    volumes:
+      - ../../api-server:/app
+      - ./air-worker.toml:/etc/swallow/air.toml:ro
+      - job-artifacts:/var/lib/swallow/jobs
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/go/cache
+
+  ansible-executor:
+    build:
+      context: ../..
+      dockerfile: deploy/dev/api-server.Dockerfile
+      args:
+        UID: ${DEV_UID:-1001}
+        GID: ${DEV_GID:-1001}
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      SWALLOW_API_ADDR: ":30051"
+      SWALLOW_API_MONGO_URI: "mongodb://mongo:27017"
+      SWALLOW_API_MONGO_DB: "${SWALLOW_API_MONGO_DB:-swallow}"
+      SWALLOW_API_JWT_SECRET: "${SWALLOW_API_JWT_SECRET:-dev-secret-change-me}"
+      SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME: "${SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME:-admin}"
+      SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD: "${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
+      SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
+      SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
+      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: "${SWALLOW_API_OPERATION_DISPATCH_INTERVAL:-1s}"
+      SWALLOW_API_OPERATION_LEASE_DURATION: "${SWALLOW_API_OPERATION_LEASE_DURATION:-90s}"
+      SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
+      SWALLOW_API_TEMPORAL_NAMESPACE: "default"
+      SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
+      SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
+      SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
+    volumes:
+      - ../../api-server:/app
+      - ./air-ansible-executor.toml:/etc/swallow/air.toml:ro
+      - job-artifacts:/var/lib/swallow/jobs
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/go/cache
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.1.0}
@@ -131,3 +260,4 @@ volumes:
   go-build-cache:
   npm-cache:
   prometheus-data:
+  temporal-postgres-data:

@@ -25,11 +25,78 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
 
+  temporal-postgresql:
+    image: ${SWALLOW_TEMPORAL_POSTGRES_IMAGE:?set a digest-pinned SWALLOW_TEMPORAL_POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD_FILE: /run/secrets/temporal_db_password
+    secrets:
+      - temporal_db_password
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+    networks: [control]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt: [no-new-privileges:true]
+
+  temporal:
+    image: ${SWALLOW_TEMPORAL_SERVER_IMAGE:?set a digest-pinned SWALLOW_TEMPORAL_SERVER_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        export POSTGRES_PWD="$$(cat /run/secrets/temporal_db_password)"
+        exec /etc/temporal/entrypoint.sh autosetup
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      DBNAME: temporal_core
+      VISIBILITY_DBNAME: temporal_visibility
+      POSTGRES_USER: temporal
+      POSTGRES_SEEDS: temporal-postgresql
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    secrets:
+      - temporal_db_password
+    networks: [control]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    security_opt: [no-new-privileges:true]
+
+  temporal-ui:
+    image: ${SWALLOW_TEMPORAL_UI_IMAGE:?set a digest-pinned SWALLOW_TEMPORAL_UI_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}:8080"
+    networks: [control]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
   api-server:
     image: ${SWALLOW_API_IMAGE:?set a digest-pinned SWALLOW_API_IMAGE}
     restart: unless-stopped
     depends_on:
       mongo:
+        condition: service_healthy
+      temporal:
         condition: service_healthy
     environment:
       SWALLOW_API_ADDR: ":30051"
@@ -43,6 +110,9 @@ services:
       SWALLOW_API_MACHINE_TOKEN_FILE: /run/secrets/machine_token
       SWALLOW_API_OPERATION_DISPATCH_INTERVAL: 1s
       SWALLOW_API_OPERATION_LEASE_DURATION: 90s
+      SWALLOW_API_TEMPORAL_ADDRESS: temporal:7233
+      SWALLOW_API_TEMPORAL_NAMESPACE: default
+      SWALLOW_API_TEMPORAL_TASK_QUEUE: swallow-operations
       SWALLOW_API_JOB_ARTIFACT_RETENTION: 720h
     secrets:
       - mongo_uri
@@ -61,6 +131,87 @@ services:
       interval: 10s
       timeout: 3s
       retries: 12
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  worker:
+    image: ${SWALLOW_API_IMAGE:?set a digest-pinned SWALLOW_API_IMAGE}
+    command: ["worker"]
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      SWALLOW_API_ADDR: ":30051"
+      SWALLOW_API_RELEASE_VERSION: ${SWALLOW_RELEASE_VERSION:?set promoted SemVer}
+      SWALLOW_API_MONGO_URI_FILE: /run/secrets/mongo_uri
+      SWALLOW_API_MONGO_DB: swallow
+      SWALLOW_API_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME: admin
+      SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
+      SWALLOW_API_CREDENTIAL_KEY_FILE: /run/secrets/credential_key
+      SWALLOW_API_MACHINE_TOKEN_FILE: /run/secrets/machine_token
+      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: 1s
+      SWALLOW_API_OPERATION_LEASE_DURATION: 90s
+      SWALLOW_API_TEMPORAL_ADDRESS: temporal:7233
+      SWALLOW_API_TEMPORAL_NAMESPACE: default
+      SWALLOW_API_TEMPORAL_TASK_QUEUE: swallow-operations
+      SWALLOW_API_JOB_ARTIFACT_DIR: /var/lib/swallow/jobs
+    secrets:
+      - mongo_uri
+      - jwt_secret
+      - bootstrap_admin_password
+      - credential_key
+      - machine_token
+    volumes:
+      - job-artifacts:/var/lib/swallow/jobs:ro
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    networks: [control]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  ansible-executor:
+    image: ${SWALLOW_API_IMAGE:?set a digest-pinned SWALLOW_API_IMAGE}
+    command: ["ansible-executor"]
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      SWALLOW_API_ADDR: ":30051"
+      SWALLOW_API_RELEASE_VERSION: ${SWALLOW_RELEASE_VERSION:?set promoted SemVer}
+      SWALLOW_API_MONGO_URI_FILE: /run/secrets/mongo_uri
+      SWALLOW_API_MONGO_DB: swallow
+      SWALLOW_API_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME: admin
+      SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
+      SWALLOW_API_CREDENTIAL_KEY_FILE: /run/secrets/credential_key
+      SWALLOW_API_MACHINE_TOKEN_FILE: /run/secrets/machine_token
+      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: 1s
+      SWALLOW_API_OPERATION_LEASE_DURATION: 90s
+      SWALLOW_API_TEMPORAL_ADDRESS: temporal:7233
+      SWALLOW_API_TEMPORAL_NAMESPACE: default
+      SWALLOW_API_TEMPORAL_TASK_QUEUE: swallow-operations
+      SWALLOW_API_JOB_RUNTIME_DIR: /run/swallow/jobs
+      SWALLOW_API_JOB_ARTIFACT_DIR: /var/lib/swallow/jobs
+      SWALLOW_API_JOB_ARTIFACT_RETENTION: 720h
+    secrets:
+      - mongo_uri
+      - jwt_secret
+      - bootstrap_admin_password
+      - credential_key
+      - machine_token
+    volumes:
+      - job-artifacts:/var/lib/swallow/jobs
+    tmpfs:
+      - /run/swallow/jobs:uid=10001,gid=10001,mode=0700
+      - /tmp:uid=10001,gid=10001,mode=1777
+    networks: [control]
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -93,6 +244,7 @@ volumes:
   mongo-data:
   mongo-config:
   job-artifacts:
+  temporal-postgres-data:
 
 secrets:
   mongo_root_username:
@@ -101,6 +253,8 @@ secrets:
     file: ./secrets/mongo-root-password
   mongo_uri:
     file: ./secrets/mongo-uri
+  temporal_db_password:
+    file: ./secrets/temporal-db-password
   jwt_secret:
     file: ./secrets/jwt-secret
   bootstrap_admin_password:

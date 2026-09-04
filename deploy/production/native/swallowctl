@@ -42,7 +42,7 @@ run_migrate() {
   SWALLOW_API_MACHINE_TOKEN_FILE="${config_root}/secrets/machine-token" \
   SWALLOW_API_PLAYBOOK_MANIFEST="${install_root}/current/automation/manifest.json" \
   SWALLOW_API_PLAYBOOK_DIR="${install_root}/current/automation/playbooks" \
-    "${install_root}/current/bin/swallow" migrate
+    "${install_root}/current/bin/swallow" migrate "$@"
 }
 
 require_runtime_tools() {
@@ -83,7 +83,10 @@ active_operations() {
   local uri
   uri="$(<"${config_root}/secrets/mongo-uri")"
   mongosh "${uri}" --quiet --eval \
-    'db.getSiblingDB("swallow").operations.countDocuments({schemaVersion:2,terminal:false})'
+    'db.getSiblingDB("swallow").operations.countDocuments({$or:[
+      {schemaVersion:2,terminal:false},
+      {schemaVersion:3,status:{$nin:["succeeded","failed","partially_succeeded","canceled"]}}
+    ]})'
 }
 
 prune_backups() {
@@ -163,7 +166,7 @@ install_release() {
   systemctl daemon-reload
   systemctl enable --now mongod
   configure_mongodb
-  run_migrate
+  run_migrate "$@"
   systemctl enable --now nginx swallow-api swallow-backup.timer
 }
 
@@ -178,7 +181,7 @@ upgrade() {
     exit 1
   fi
   backup >/dev/null
-  install_release
+  install_release --backup-confirmed
   curl --fail --silent --show-error https://127.0.0.1/readyz --cacert "${config_root}/tls/tls.crt" >/dev/null
 }
 

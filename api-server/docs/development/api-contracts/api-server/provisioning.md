@@ -47,6 +47,8 @@ PUT    /api/v1/provisioning/templates/{id}/user-data
 DELETE /api/v1/provisioning/templates/{id}/user-data
 POST   /api/v1/provisioning/deployments/preflight
 POST   /api/v1/provisioning/deployments
+POST   /api/v1/provisioning/deployment-operations
+POST   /api/v1/provisioning/release-operations
 POST   /api/v1/provisioning/networks/inspect
 GET    /api/v1/provisioning/tasks/{id}
 POST   /api/v1/provisioning/tasks/{id}/retry
@@ -340,6 +342,57 @@ Dispatched provider refusals preserve actionable provider validation detail in
 `failed[].message`; for example, a Static IP allocation conflict remains a
 `network_configuration` failure rather than being reported as a missing Server.
 
+## Durable OS Operations
+
+`POST /deployment-operations` accepts the same request as `/deployments`, runs the same
+complete side-effect-free preflight, and persists one schema-v3 Operation:
+
+```json
+{ "operationId": "operation-id" }
+```
+
+It creates one `provision-os` MAAS Step per Server, with a maximum of four concurrent
+Steps. HTTP acceptance and the provider's `deployed` state are not Swallow completion.
+Each Step observes the requested image, refreshes the Server address projection, and
+requires the Site's configured SSH port (default 22) to become reachable. A missing
+provider address or unreachable SSH endpoint therefore fails the Step and the Operation;
+MAAS's `deployed` value remains available only as provider-owned lifecycle diagnostics.
+
+Retry observes before writing. If the expected image is now SSH-reachable, the Step
+succeeds without repeating provider work. If MAAS installed the image but reports no
+address, explicit Retry releases that unusable installation, waits for Ready, reapplies
+the frozen DHCP/static intent, and redeploys the same image and cloud-init. This
+destructive recovery is never automatic. If an address exists but SSH remains
+unreachable, Retry only observes so routing, firewall, image, or service remediation does
+not discard an installed OS. Lost provider responses enter observation first; Swallow
+does not immediately submit a second deployment. An unknown outcome becomes
+`requires_attention`. Cloud-init is removed from the intent snapshot and stored as an
+encrypted opaque Step reference.
+
+`POST /release-operations` accepts 1-100 Servers:
+
+```json
+{
+  "serverIds": ["server-1"],
+  "erase": false,
+  "secureErase": false,
+  "quickErase": false,
+  "comment": "Return machines to the ready pool",
+  "unbindStaticIPs": true
+}
+```
+
+It performs complete presence, deployed-state, Site, duplicate-target, active-work, and
+live lock validation before persistence, then creates one `release-os` MAAS Step per
+Server. A Step succeeds only after Ready is observed. When static cleanup is requested,
+the same Step also waits for its durable Provisioning Task; Step Retry after a cleanup
+failure retries cleanup only and never sends Release again. Provider cancellation is
+best-effort and confirmed prior effects are preserved.
+
+Both endpoints return `202` with an Operation reference and preserve the request ID as
+`requestCorrelation`. Progress, target-specific normalized errors, Cancel, and safe Retry
+are read and controlled through the [Operations](operations.md) contract.
+
 ## Provisioning Tasks
 
 `GET /tasks/{id}` and `GET /servers/{serverId}/provisioning-tasks` expose
@@ -374,7 +427,8 @@ refused Release remains diagnostic and is not retryable. Unknown tasks are
 
 ## Compatibility Notes
 
-
-All endpoints are additive under `/api/v1`. Existing Server projections,
-single-Server deployment, authorization, and provider action behavior are
-unchanged.
+`POST /provisioning/deployments`, `POST /servers/{id}/deploy`, and
+`POST /servers/{id}/release` preserve their existing wire behavior for one release and
+return `Deprecation: true` plus a successor `Link` header. Dashboard command flows use the
+durable Operation endpoints. Existing Server projections, authorization, and provider
+action behavior are unchanged.

@@ -22,3 +22,7 @@ secrets:
     file: ./secrets/tls.crt
   tls_private_key:
     file: ./secrets/tls.key
+  # Override the included production definition so the testing stack resolves the
+  # Temporal database password from its own secrets directory instead of production's.
+  temporal_db_password:
+    file: ./secrets/temporal-db-password

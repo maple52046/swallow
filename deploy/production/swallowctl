@@ -16,12 +16,12 @@ preflight() {
   docker compose version >/dev/null
   [[ "${SWALLOW_RELEASE_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] ||
     { printf 'SWALLOW_RELEASE_VERSION must be SemVer\n' >&2; exit 1; }
-  for variable in SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE; do
+  for variable in SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE SWALLOW_TEMPORAL_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE SWALLOW_TEMPORAL_UI_IMAGE; do
     value="${!variable:-}"
     [[ "${value}" =~ @sha256:[0-9a-f]{64}$ ]] ||
       { printf '%s must be an exact OCI digest reference\n' "${variable}" >&2; exit 1; }
   done
-  for secret in mongo-root-username mongo-root-password mongo-uri jwt-secret     bootstrap-admin-password credential-key machine-token tls.crt tls.key; do
+  for secret in mongo-root-username mongo-root-password mongo-uri temporal-db-password jwt-secret     bootstrap-admin-password credential-key machine-token tls.crt tls.key; do
     [[ -s "${script_dir}/secrets/${secret}" ]] ||
       { printf 'missing secret: %s\n' "${secret}" >&2; exit 1; }
   done
@@ -37,7 +37,10 @@ active_operations() {
   password="$(<"${script_dir}/secrets/mongo-root-password")"
   "${compose[@]}" exec -T mongo mongosh --quiet --username "${user}" --password "${password}" \
     --authenticationDatabase admin --eval \
-    'db.getSiblingDB("swallow").operations.countDocuments({schemaVersion:2,terminal:false})'
+    'db.getSiblingDB("swallow").operations.countDocuments({$or:[
+      {schemaVersion:2,terminal:false},
+      {schemaVersion:3,status:{$nin:["succeeded","failed","partially_succeeded","canceled"]}}
+    ]})'
 }
 
 prune_backups() {
@@ -90,7 +93,7 @@ upgrade() {
   backup >/dev/null
   preflight
   "${compose[@]}" up -d mongo
-  "${compose[@]}" run --rm --no-deps api-server migrate
+  "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
   "${compose[@]}" up -d
   doctor
 }

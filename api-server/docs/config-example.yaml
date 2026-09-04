@@ -1,7 +1,7 @@
 # swallow config example
 #
 # This file covers only how the process runs. What swallow talks to — provisioners,
-# metrics stores, clusters — is registered at runtime as
+# metrics stores, platforms — is registered at runtime as
 # integration records, because a fleet has many of each and they change without a
 # redeploy. Site automation is configured through the API and executed locally.
 #
@@ -47,7 +47,7 @@ api:
   machineToken: ""
 
   # How often each enabled provisioner is polled to refresh server projections, and
-  # each registered cluster to refresh membership.
+  # each registered platform to refresh membership.
   reconcileInterval: "60s"
 
   # How often the attached-hardware inventory (GPUs) is refreshed. Much longer than
@@ -56,9 +56,22 @@ api:
   # count for near-static data.
   inventoryInterval: "15m"
 
-  # Embedded dispatcher and lease heartbeat settings.
+  # Operation orchestration. The embedded dispatcher drains legacy schema-v2 work; new
+  # automation runs as durable schema-v3 Operations coordinated by Temporal. The same
+  # config serves three commands: `swallow api` (HTTP + reconcile), `swallow worker`
+  # (Temporal workflow/activity worker + start reconciler), and `swallow ansible-executor`
+  # (owns the ansible-runner subprocesses via the Mongo-backed execution queue).
   operationDispatchInterval: "1s"
   operationLeaseDuration: "90s"
+  # Per-Operation Step fan-out ceiling (provider, PXE, image-mirror, and history load).
+  operationMaxParallelism: 4
+
+  # Durable workflow service shared by the api, worker, and ansible-executor commands.
+  temporalAddress: "localhost:7233"
+  temporalNamespace: "default"
+  temporalTaskQueue: "swallow-operations"
+  # How often the API and worker reconcile persisted pending Operations into workflows.
+  temporalStartInterval: "1s"
 
   # Immutable release playbooks and mutable runner paths.
   ansibleRunnerCommand: "ansible-runner"

@@ -28,9 +28,14 @@ named volume 與 `dashboard/node_modules`，重啟即為秒級。
 | Service      | Host port      | 說明                                            |
 |--------------|----------------|-------------------------------------------------|
 | `dashboard`  | 5173           | Vite dev server，含 HMR                          |
-| `api-server` | 30051          | swallow HTTP API                                 |
-| `mongo`      | 27017          | MongoDB 8，資料存於 named volume `mongo-data`    |
-| `prometheus` | 9090           | 透過 swallow http_sd 抓 exporter，資料存於 `prometheus-data` |
+| `api-server` | 30051          | Swallow HTTP API                                 |
+| `mongo`      | 27017          | MongoDB 8，保存 domain state 與 query projections |
+| `temporal`   | 7233           | Durable Operation workflow server               |
+| `temporal-ui` | 8233          | 開發診斷 UI；Dashboard 仍是 operator 入口        |
+| `temporal-postgresql` | container | Temporal core 與 visibility databases        |
+| `worker`     | container      | 執行 versioned Operation workflows              |
+| `ansible-executor` | container | 執行具 idempotency key 的 Ansible attempts     |
+| `prometheus` | 9090           | 透過 Swallow http_sd 抓 exporter                 |
 
 預設帶入的 admin 帳號為 `admin` / `admin`，於 api-server 首次啟動時建立。
 
@@ -75,6 +80,9 @@ playbook mapping 與 write-only credential。
   不會弄髒 working tree。設定見 [`air.toml`](air.toml)。
 - **dashboard** — Vite HMR，`dashboard` 的變更立即反映在瀏覽器。
   `package-lock.json` 較 `node_modules` 新時，entrypoint 會自動重跑 `npm ci`。
+- **worker / ansible-executor** — 各自使用獨立 Air 設定監看 Go、manifest 與 playbook
+  變更。API 不在 process 內執行新的 durable Operations；必須同時保持這兩個服務與
+  Temporal 可用。
 
 api-server 的 Go 版本刻意固定在 `api-server/go.mod` 宣告的 1.25；
 air 因為需要較新的 compiler，改由獨立的 build stage 編譯後複製進來。
@@ -124,14 +132,15 @@ curl -s -X POST $API/integrations -H "Authorization: Bearer $TOKEN" \
 `lastSucceededAt` 會保持舊值而 `lastError` 有內容——這樣看得出資料有多舊。
 
 其他 external kind 同樣方式註冊：`metrics`/`prometheus`、
-`cluster`/`kubernetes`、`cluster`/`slurm`。Automation 使用 site-scoped API，
+`platform`/`kubernetes`、`platform`/`slurm`。Automation 使用 site-scoped API，
 不是 external integration。
 
 ## Prometheus 監控 demo
 
 compose 內含一個 `prometheus` 服務，透過 swallow 的 http_sd（`/api/v1/discovery/prometheus`）
 抓每台 server 的 node-exporter（:9100）與 AMD GPU server 的 rdc-exporter（:5000，tag `amd-gpu`），
-scrape 到的序列自帶 `server_id`/`site`/`cluster` 標籤。設定檔為 [`prometheus.yml`](prometheus.yml)。
+scrape 到的序列自帶 `server_id`、`site` 與 canonical `platform_id` 標籤；deprecated
+`cluster` 標籤保留一個版本供既有查詢遷移。設定檔為 [`prometheus.yml`](prometheus.yml)。
 
 一鍵種子（登入、建立 site、註冊指向 in-compose Prometheus 的 metrics 整合、設定 automation
 與 exporter playbook 對應、可選註冊 MAAS）：

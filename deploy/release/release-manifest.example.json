@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "commit": "COMMIT_SHA",
   "platforms": ["linux-amd64", "ubuntu-24.04-amd64"],
-  "schemaVersions": {"mongo": 2, "playbookManifest": 1},
+  "schemaVersions": {"mongo": 3, "playbookManifest": 1},
   "images": {
     "api": "ghcr.io/example/swallow-api@sha256:REPLACE",
     "dashboard": "ghcr.io/example/swallow-dashboard@sha256:REPLACE",
-    "mongo": "mongo@sha256:REPLACE"
+    "mongo": "mongo@sha256:REPLACE",
+    "temporalPostgres": "postgres@sha256:REPLACE",
+    "temporalServer": "temporalio/auto-setup@sha256:REPLACE",
+    "temporalUI": "temporalio/ui@sha256:REPLACE"
   },
   "compatibility": {
     "host": "ubuntu-24.04-amd64",
@@ -24,7 +27,7 @@
   },
   "upgrade": {
     "from": [2],
-    "to": 2,
+    "to": 3,
     "downgradeSupported": false
   }
 }

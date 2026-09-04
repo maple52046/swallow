@@ -14,6 +14,11 @@ env:
   API_IMAGE: ghcr.io/${{ github.repository_owner }}/swallow-api
   DASHBOARD_IMAGE: ghcr.io/${{ github.repository_owner }}/swallow-dashboard
   MONGO_IMAGE: ${{ vars.SWALLOW_MONGO_IMAGE }}
+  # Release-approved digests for the durable orchestration topology, consumed by
+  # deploy/release/assemble-candidate.sh when it writes the candidate manifest.
+  TEMPORAL_POSTGRES_IMAGE: ${{ vars.SWALLOW_TEMPORAL_POSTGRES_IMAGE }}
+  TEMPORAL_SERVER_IMAGE: ${{ vars.SWALLOW_TEMPORAL_SERVER_IMAGE }}
+  TEMPORAL_UI_IMAGE: ${{ vars.SWALLOW_TEMPORAL_UI_IMAGE }}
 
 jobs:
   verify:
@@ -24,6 +29,9 @@ jobs:
       SWALLOW_DASHBOARD_IMAGE: ghcr.io/example/dashboard@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
       SWALLOW_MONGO_IMAGE: ${{ vars.SWALLOW_MONGO_IMAGE }}
       PROMETHEUS_IMAGE: prom/prometheus@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+      SWALLOW_TEMPORAL_POSTGRES_IMAGE: postgres@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+      SWALLOW_TEMPORAL_SERVER_IMAGE: temporalio/auto-setup@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+      SWALLOW_TEMPORAL_UI_IMAGE: temporalio/ui@sha256:1111111111111111111111111111111111111111111111111111111111111111
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

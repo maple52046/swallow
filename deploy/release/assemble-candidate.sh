@@ -8,8 +8,11 @@ out="${root}/out/candidate"
 api_image="ghcr.io/${GITHUB_REPOSITORY_OWNER:?}/swallow-api@${API_DIGEST:?}"
 dashboard_image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/swallow-dashboard@${DASHBOARD_DIGEST:?}"
 mongo_image="${MONGO_IMAGE:?set MONGO_IMAGE to the release-approved MongoDB digest}"
+temporal_postgres_image="${TEMPORAL_POSTGRES_IMAGE:?set TEMPORAL_POSTGRES_IMAGE to the release-approved PostgreSQL digest}"
+temporal_server_image="${TEMPORAL_SERVER_IMAGE:?set TEMPORAL_SERVER_IMAGE to the release-approved Temporal Server digest}"
+temporal_ui_image="${TEMPORAL_UI_IMAGE:?set TEMPORAL_UI_IMAGE to the release-approved Temporal UI digest}"
 
-for image in "${api_image}" "${dashboard_image}" "${mongo_image}"; do
+for image in "${api_image}" "${dashboard_image}" "${mongo_image}" "${temporal_postgres_image}" "${temporal_server_image}" "${temporal_ui_image}"; do
   [[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]] ||
     { printf 'image is not digest pinned: %s\n' "${image}" >&2; exit 1; }
 done
@@ -22,6 +25,9 @@ mkdir -p "${out}/native/bin" "${out}/native/dashboard" "${out}/native/automation
 docker pull "${api_image}"
 docker pull "${dashboard_image}"
 docker pull "${mongo_image}"
+docker pull "${temporal_postgres_image}"
+docker pull "${temporal_server_image}"
+docker pull "${temporal_ui_image}"
 
 api_container=""
 dashboard_container=""
@@ -66,20 +72,21 @@ cp "${root}/deploy/third-party/offline-media-manifest.json" "${out}/"
 cp "${root}/api.spdx.json" "${root}/dashboard.spdx.json" "${out}/"
 
 docker save --output "${out}/swallow-oci-candidate.tar" \
-  "${api_image}" "${dashboard_image}" "${mongo_image}"
+  "${api_image}" "${dashboard_image}" "${mongo_image}" "${temporal_postgres_image}" "${temporal_server_image}" "${temporal_ui_image}"
 
 jq -n --arg version "${version}" --arg commit "${commit}" \
   --arg api "${api_image}" --arg dashboard "${dashboard_image}" --arg mongo "${mongo_image}" \
+  --arg temporalPostgres "${temporal_postgres_image}" --arg temporalServer "${temporal_server_image}" --arg temporalUI "${temporal_ui_image}"  \
   '{schemaVersion:1,version:$version,commit:$commit,
     platforms:["linux-amd64","ubuntu-24.04-amd64"],
-    schemaVersions:{mongo:2,playbookManifest:1},
-    images:{api:$api,dashboard:$dashboard,mongo:$mongo},
+    schemaVersions:{mongo:3,playbookManifest:1},
+    images:{api:$api,dashboard:$dashboard,mongo:$mongo,temporalPostgres:$temporalPostgres,temporalServer:$temporalServer,temporalUI:$temporalUI},
     compatibility:{host:"ubuntu-24.04-amd64",maas:"3.6",mongodb:"8.0",
       prometheus:"release-managed",dockerCE:"release-managed"},
     artifacts:{ociArchive:"swallow-oci-candidate.tar",
       nativeBundle:"swallow-native-candidate.tar.zst",
       thirdPartyMediaManifest:"offline-media-manifest.json"},
-    upgrade:{from:[2],to:2,downgradeSupported:false}}' >"${out}/release-manifest.json"
+    upgrade:{from:[2],to:3,downgradeSupported:false}}' >"${out}/release-manifest.json"
 
 (
   cd "${out}"

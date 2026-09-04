@@ -19,6 +19,16 @@ sudo ./swallowctl install
 sudo ./swallowctl doctor
 ```
 
+## Durable orchestration is Compose-only
+
+This native bundle installs and runs the API service (`swallow api`) with its embedded
+automation dispatcher. It does **not** install Temporal Server, PostgreSQL, the workflow
+worker (`swallow worker`), or the Ansible executor (`swallow ansible-executor`). Durable
+schema-v3 Operation orchestration therefore requires the Compose topology in
+[`../`](../compose.yaml); on native, use it only for environments that do not need durable
+multi-step Operations. Bundling the Temporal topology (or a documented single-process
+fallback) into the native installer is tracked as future work.
+
 `upgrade` refuses active operations unless `--force` is explicit and always takes a
 backup first. `uninstall` retains data and backups; only `uninstall --purge-data`
 removes them. The installer initializes authenticated localhost-only MongoDB, runs the
