@@ -3,6 +3,7 @@ import { OperatorLayout } from './presentation/app/layout/OperatorLayout'
 import { NotFoundPage } from './presentation/pages/NotFoundPage'
 import { LoginPage } from './presentation/pages/auth/LoginPage'
 import { ForbiddenPage } from './presentation/pages/errors/ForbiddenPage'
+import { UnexpectedErrorPage } from './presentation/pages/errors/UnexpectedErrorPage'
 import { OperatorOverviewPage } from './presentation/pages/overview/OperatorOverviewPage'
 import { MonitoringPage } from './presentation/pages/monitoring/MonitoringPage'
 import { ServersPage } from './presentation/pages/servers/ServersPage'
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <ProtectedRoute><OperatorLayout /></ProtectedRoute>,
+    errorElement: <UnexpectedErrorPage />,
     children: [
       { index: true, element: <OperatorOverviewPage /> },
       { path: 'monitoring', element: <MonitoringPage /> },
@@ -53,7 +55,6 @@ export const router = createBrowserRouter([
       { path: 'platforms', element: <PlatformsPage /> },
       { path: 'platforms/deploy', element: <DeployPlatformWizardPage /> },
       { path: 'platforms/:id', element: <PlatformDetailPage /> },
-      // Deprecated one-release aliases for former Cluster URLs.
       { path: 'clusters', element: <LegacyPlatformRedirect /> },
       { path: 'clusters/deploy', element: <LegacyPlatformRedirect deploy /> },
       { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },

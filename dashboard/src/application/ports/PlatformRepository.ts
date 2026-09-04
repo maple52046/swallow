@@ -15,7 +15,7 @@ export interface PlatformRepository {
   /** All platforms, optionally scoped to one site. Small and bounded, so not paginated. */
   listPlatforms(siteId?: string): Promise<Platform[]>
   getPlatform(id: string): Promise<Platform | null>
-  /** Deploy a new k0s cluster; resolves once the platform and its operation are accepted. */
+  /** Deploy a new k0s platform; resolves once the platform and its operation are accepted. */
   deployPlatform(input: DeployPlatformInput): Promise<DeployPlatformResult>
   /** Remove k0s from the original deployment targets and retain the record. */
   uninstallPlatform(id: string): Promise<DeployPlatformResult>

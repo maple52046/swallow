@@ -35,7 +35,7 @@ export function platformLifecycleStatus(state: PlatformLifecycleState): string {
 
 /** Disabled reason for the destructive host-side uninstall command. */
 export function platformUninstallDisabledReason(platform: Platform): string | undefined {
-  if (platform.type !== 'kubernetes') return 'Only Kubernetes clusters can be uninstalled.'
+  if (platform.type !== 'kubernetes') return 'Only Kubernetes platforms can be uninstalled.'
   if (platform.origin !== 'deployed') return 'Externally registered platforms can only be deleted.'
   switch (platform.lifecycleState) {
     case 'deploying':

@@ -23,13 +23,16 @@ export type DeployableState =
 /**
  * Loads the sites and the deployable servers for the deployment wizard.
  *
- * Only `deployed` servers are listed. Non-uninstalled deployment target snapshots and
+ * Servers in the requested preparation state are listed. Non-uninstalled deployment target snapshots and
  * observed membership are also loaded so occupied Servers remain visible with context but
  * cannot be assigned a role. Claim reads fail closed: without durable target history the
  * wizard must not offer a Server that may contain a partial platform. A stale-guard drops
  * out-of-order responses whenever Site scope changes.
  */
-export function useDeployableServers(siteId: string | undefined): DeployableState {
+export function useDeployableServers(
+  siteId: string | undefined,
+  provisioningState: 'deployed' | 'ready' = 'deployed',
+): DeployableState {
   const { sites, servers, platforms, operations } = useApp()
   const [state, setState] = useState<DeployableState>({ status: 'loading' })
 
@@ -42,7 +45,7 @@ export function useDeployableServers(siteId: string | undefined): DeployableStat
         return { servers: [], platforms: [], deploymentClaims: {} }
       }
       const [workingSet, sitePlatforms] = await Promise.all([
-        loadServerWorkingSet(servers, { siteId, provisioningState: 'deployed' }),
+        loadServerWorkingSet(servers, { siteId, provisioningState }),
         platforms.listPlatforms(siteId),
       ])
       const claimedPlatforms = sitePlatforms.filter((platform) => (
@@ -90,7 +93,7 @@ export function useDeployableServers(siteId: string | undefined): DeployableStat
     return () => {
       cancelled = true
     }
-  }, [sites, servers, platforms, operations, siteId])
+  }, [sites, servers, platforms, operations, siteId, provisioningState])
 
   return state
 }

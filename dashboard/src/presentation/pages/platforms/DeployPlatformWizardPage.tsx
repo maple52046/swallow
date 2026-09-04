@@ -1,7 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Alert,
   AlertVariant,
+  Button,
   Card,
   CardBody,
   CardTitle,
@@ -19,24 +20,31 @@ import {
   HelperTextItem,
   Label,
   LabelGroup,
+  TextArea,
   TextInput,
+  ToggleGroup,
+  ToggleGroupItem,
   Title,
   Wizard,
   WizardStep,
 } from '@patternfly/react-core'
+import { SyncAltIcon } from '@patternfly/react-icons'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate } from 'react-router-dom'
 import { LockBadge } from '@/presentation/components/AxisBadge'
 import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import type { Platform, GPUStackOwner, NodeRole, RoleAssignment } from '@/domain/platform/types'
+import type { DeploymentNetworkMode, DeploymentTemplate, NetworkInspectionResult } from '@/domain/provisioning/types'
+import type { Integration, OSImage } from '@/domain/site/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { SingleSelect } from '@/presentation/components/SingleSelect'
-import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useDeployableServers } from './useDeployableServers'
@@ -47,6 +55,7 @@ const DEFAULT_SERVICE_CIDR = '10.96.0.0/12'
 
 type RoleChoice = 'none' | NodeRole
 type TopologyChoice = 'standalone' | 'multi-node' | 'high-availability'
+type MachinePreparationChoice = 'existing_os' | 'provision_os'
 
 function validAddress(value: string): boolean {
   const parts = value.split('.')
@@ -138,7 +147,7 @@ function existingPlatformAssignment(
  */
 export function DeployPlatformWizardPage() {
   const navigate = useNavigate()
-  const { platforms } = useApp()
+  const { platforms, provisioning, sites } = useApp()
   const { siteId: scopedSiteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
@@ -153,8 +162,55 @@ export function DeployPlatformWizardPage() {
   const [roles, setRoles] = useState<Record<string, RoleChoice>>({})
   const [workloadControllers, setWorkloadControllers] = useState<Record<string, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [machinePreparation, setMachinePreparation] = useState<MachinePreparationChoice>('existing_os')
+  const [provisioners, setProvisioners] = useState<Integration[]>([])
+  const [integrationId, setIntegrationId] = useState('')
+  const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
+  const [templateId, setTemplateId] = useState('')
+  const [images, setImages] = useState<OSImage[]>([])
+  const [imageId, setImageId] = useState('')
+  const [ephemeral, setEphemeral] = useState(false)
+  const [cloudInit, setCloudInit] = useState('')
+  const [networkMode, setNetworkMode] = useState<DeploymentNetworkMode>('dhcp')
+  const [defaultGateway, setDefaultGateway] = useState(false)
+  const [networkInspection, setNetworkInspection] = useState<NetworkInspectionResult | null>(null)
+  const [networkAssignments, setNetworkAssignments] = useState<Record<string, { interfaceId: string; subnetId: string; ipAddress: string }>>({})
+  const [provisioningLoading, setProvisioningLoading] = useState(false)
+  const [provisioningError, setProvisioningError] = useState('')
   const effectiveSiteId = siteId ?? scopedSiteId
-  const state = useDeployableServers(effectiveSiteId)
+  const state = useDeployableServers(effectiveSiteId, machinePreparation === 'provision_os' ? 'ready' : 'deployed')
+
+  useEffect(() => {
+    if (machinePreparation !== 'provision_os' || !effectiveSiteId) return
+    let canceled = false
+    Promise.all([
+      sites.listIntegrations({ siteId: effectiveSiteId, kind: 'provisioner' }),
+      provisioning.listTemplates({ siteId: effectiveSiteId }),
+    ]).then(([nextProvisioners, nextTemplates]) => {
+      if (canceled) return
+      setProvisioners(nextProvisioners)
+      setTemplates(nextTemplates)
+      setIntegrationId((current) => current || (nextProvisioners.length === 1 ? nextProvisioners[0].id : ''))
+    }).catch((error: Error) => {
+      if (!canceled) setProvisioningError(error.message)
+    }).finally(() => {
+      if (!canceled) setProvisioningLoading(false)
+    })
+    return () => { canceled = true }
+  }, [effectiveSiteId, machinePreparation, provisioning, sites])
+
+  useEffect(() => {
+    if (machinePreparation !== 'provision_os' || !integrationId) return
+    let canceled = false
+    provisioning.listOSImages(integrationId).then((nextImages) => {
+      if (!canceled) setImages(nextImages)
+    }).catch((error: Error) => {
+      if (!canceled) setProvisioningError(error.message)
+    }).finally(() => {
+      if (!canceled) setProvisioningLoading(false)
+    })
+    return () => { canceled = true }
+  }, [integrationId, machinePreparation, provisioning])
 
   const assignments = useMemo<RoleAssignment[]>(() => Object.entries(roles)
     .filter(([, role]) => role !== 'none')
@@ -186,7 +242,7 @@ export function DeployPlatformWizardPage() {
     : topology === 'multi-node'
       ? assignments.length >= 2 && controllers === 1 && workers >= 1
       : controllers >= 3 && controllers % 2 === 1 && workloadCount >= 1
-  const machinesValid = topologyValid && !hasLockedAssignment
+  const machinesValid = topologyValid && !hasLockedAssignment && (machinePreparation === 'existing_os' || Boolean(integrationId))
   const networkingValid = validCIDR(podCidr.trim()) && validCIDR(serviceCidr.trim()) && (
     topology !== 'high-availability' || (
       validAddress(apiVip.trim()) && Number(apiVipPrefix) >= 1 && Number(apiVipPrefix) <= 32
@@ -207,6 +263,62 @@ export function DeployPlatformWizardPage() {
     ? serverPrimaryAddress(initialController)
     : null
 
+  const preparationTargetKey = selectedServers.map((server) => server.id).sort().join(',')
+  useEffect(() => {
+    if (machinePreparation !== 'provision_os' || !preparationTargetKey) return
+    let canceled = false
+    provisioning.inspectDeploymentNetworks(preparationTargetKey.split(',')).then((inspection) => {
+      if (canceled) return
+      setNetworkInspection(inspection)
+      const nextAssignments: Record<string, { interfaceId: string; subnetId: string; ipAddress: string }> = {}
+      let anyStatic = false
+      for (const target of inspection.targets) {
+        nextAssignments[target.serverId] = {
+          interfaceId: target.suggestion.interfaceId,
+          subnetId: target.suggestion.subnetId,
+          ipAddress: target.suggestion.ipAddress,
+        }
+        if (target.suggestion.mode === 'static') anyStatic = true
+      }
+      setNetworkAssignments(nextAssignments)
+      setNetworkMode(anyStatic ? 'static' : 'dhcp')
+      setDefaultGateway(inspection.targets.some((target) => target.suggestion.defaultGateway))
+    }).catch((error: Error) => {
+      if (!canceled) setProvisioningError(error.message)
+    }).finally(() => {
+      if (!canceled) setProvisioningLoading(false)
+    })
+    return () => { canceled = true }
+  }, [machinePreparation, preparationTargetKey, provisioning])
+
+  const selectedTemplate = templates.find((template) => template.id === templateId)
+  const effectiveImageId = selectedTemplate?.imageId ?? imageId
+  const effectiveEphemeral = selectedTemplate?.ephemeral ?? ephemeral
+  const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
+  const inspectedTargetKey = networkInspection?.targets.map((target) => target.serverId).sort().join(',') ?? ''
+  const networkAssignmentsValid = machinePreparation === 'existing_os' || (
+    networkInspection !== null && inspectedTargetKey === preparationTargetKey && selectedServers.every((server) => {
+      const assignment = networkAssignments[server.id]
+      const target = networkInspection.targets.find((item) => item.serverId === server.id)
+      const selectedInterface = target?.network.interfaces.find((item) => item.id === assignment?.interfaceId)
+      if (!assignment?.interfaceId || !assignment.subnetId || !selectedInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)) return false
+      return effectiveNetworkMode !== 'static' || validAddress(assignment.ipAddress)
+    })
+  )
+  const osConfigurationValid = machinePreparation === 'existing_os' || Boolean(
+    integrationId && effectiveImageId && networkAssignmentsValid && !provisioningError,
+  )
+
+  const selectTemplate = (nextTemplateId: string) => {
+    setTemplateId(nextTemplateId)
+    const template = templates.find((item) => item.id === nextTemplateId)
+    if (!template) return
+    setIntegrationId(template.integrationId)
+    setImageId(template.imageId)
+    setEphemeral(template.ephemeral)
+    setNetworkMode(template.network.mode)
+    setDefaultGateway(template.network.defaultGateway)
+  }
   const changeTopology = (next: TopologyChoice) => {
     setTopology(next)
     setRoles({})
@@ -241,7 +353,7 @@ export function DeployPlatformWizardPage() {
   }
 
   const deploy = async () => {
-    if (!effectiveSiteId || !basicsValid || !machinesValid || !networkingValid || submitting) return
+    if (!effectiveSiteId || !basicsValid || !machinesValid || !osConfigurationValid || !networkingValid || submitting) return
     setSubmitting(true)
     try {
       const result = await platforms.deployPlatform({
@@ -255,6 +367,31 @@ export function DeployPlatformWizardPage() {
         podCidr: podCidr.trim(),
         serviceCidr: serviceCidr.trim(),
         roleAssignments: assignments,
+        machinePreparation: machinePreparation === 'existing_os'
+          ? { mode: 'existing_os' }
+          : {
+            mode: 'provision_os',
+            templateId: templateId || undefined,
+            settings: templateId ? undefined : { imageId: effectiveImageId, ephemeral: effectiveEphemeral },
+            userData: templateId
+              ? { mode: 'inherit' }
+              : cloudInit.trim()
+                ? { mode: 'replace', value: cloudInit }
+                : { mode: 'omit' },
+            network: {
+              mode: effectiveNetworkMode,
+              subnetId: selectedTemplate?.network.subnetId,
+              defaultGateway: selectedTemplate?.network.defaultGateway ?? defaultGateway,
+              assignments: selectedServers.map((server) => ({
+                serverId: server.id,
+                interfaceId: networkAssignments[server.id]?.interfaceId ?? '',
+                subnetId: networkAssignments[server.id]?.subnetId,
+                ipAddress: effectiveNetworkMode === 'static'
+                  ? networkAssignments[server.id]?.ipAddress.trim()
+                  : undefined,
+              })),
+            },
+          },
       })
       showToast({
         title: 'Platform deployment started',
@@ -277,7 +414,7 @@ export function DeployPlatformWizardPage() {
       <PageHeader
         title="Deploy platform"
         breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }, { label: 'Deploy' }]}
-        subtitle="Build a standalone, non-HA multi-node, or highly available k0s cluster on deployed Servers."
+        subtitle="Build a standalone, non-HA multi-node, or highly available k0s platform with an existing or newly provisioned operating system."
       />
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} />}
@@ -315,6 +452,11 @@ export function DeployPlatformWizardPage() {
                       setRoles({})
                       setWorkloadControllers({})
                       setAPIVip('')
+                      setIntegrationId('')
+                      setTemplateId('')
+                      setImageId('')
+                      setNetworkInspection(null)
+                      setNetworkAssignments({})
                     }}
                   />
                 </FormGroup>
@@ -343,6 +485,51 @@ export function DeployPlatformWizardPage() {
                     onChange={(_event, value) => setK0sVersion(value)}
                   />
                 </FormGroup>
+                <FormGroup label="Machine preparation" isRequired fieldId="platform-machine-preparation">
+                  <ToggleGroup aria-label="Machine preparation">
+                    <ToggleGroupItem
+                      text="Use existing OS"
+                      buttonId="platform-existing-os"
+                      isSelected={machinePreparation === 'existing_os'}
+                      onChange={() => {
+                        setMachinePreparation('existing_os')
+                        setIntegrationId('')
+                        setTemplateId('')
+                        setRoles({})
+                        setWorkloadControllers({})
+                      }}
+                    />
+                    <ToggleGroupItem
+                      text="Provision OS first"
+                      buttonId="platform-provision-os"
+                      isSelected={machinePreparation === 'provision_os'}
+                      onChange={() => {
+                        setMachinePreparation('provision_os')
+                        setRoles({})
+                        setWorkloadControllers({})
+                      }}
+                    />
+                  </ToggleGroup>
+                </FormGroup>
+                {machinePreparation === 'provision_os' && (
+                  <FormGroup label="Provisioner integration" isRequired fieldId="platform-provisioner">
+                    <SingleSelect
+                      id="platform-provisioner"
+                      ariaLabel="Provisioner integration"
+                      value={integrationId}
+                      placeholder="Select an integration"
+                      options={provisioners.map((integration) => ({ value: integration.id, label: integration.name }))}
+                      isRequired
+                      onChange={(value) => {
+                        setIntegrationId(value)
+                        setTemplateId('')
+                        setImageId('')
+                        setRoles({})
+                        setWorkloadControllers({})
+                      }}
+                    />
+                  </FormGroup>
+                )}
               </Form>
             </WizardSection>
           </WizardStep>
@@ -396,8 +583,10 @@ export function DeployPlatformWizardPage() {
               )}
               {state.data.servers.length === 0 ? (
                 <EmptyState
-                  title="No deployed Servers"
-                  message="Deploy an OS in this Site before building a Platform."
+                  title={machinePreparation === 'provision_os' ? 'No ready Servers' : 'No deployed Servers'}
+                  message={machinePreparation === 'provision_os'
+                    ? 'This provisioner has no Ready Servers that can be prepared.'
+                    : 'Deploy an OS in this Site before building a Platform.'}
                 />
               ) : (
                 <StickyTableFrame>
@@ -413,7 +602,8 @@ export function DeployPlatformWizardPage() {
                           state.data.deploymentClaims,
                         )
                         const locked = server.provisioning?.locked ?? false
-                        const unavailable = Boolean(existing) || locked
+                        const wrongProvisioner = machinePreparation === 'provision_os' && Boolean(integrationId) && server.source.integrationId !== integrationId
+                        const unavailable = Boolean(existing) || locked || wrongProvisioner
                         const role = unavailable ? 'none' : roles[server.id] ?? 'none'
                         return (
                           <Tr key={server.id}>
@@ -429,15 +619,17 @@ export function DeployPlatformWizardPage() {
                                     {existing.platformName} ({existing.platformType}, {existing.detail})
                                   </span>
                                 </LabelGroup>
-                              ) : '-'}
+                              ) : wrongProvisioner ? <Label color="orange">Different provisioner</Label> : '-'}
                             </Td>
                             <Td dataLabel="Role">
                               <FormSelect
                                 aria-label={locked
                                   ? `Role for ${serverDisplayName(server)}, unavailable because the Server is locked`
-                                  : existing
-                                    ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
-                                  : `Role for ${serverDisplayName(server)}`}
+                                  : wrongProvisioner
+                                    ? `Role for ${serverDisplayName(server)}, unavailable because it belongs to another provisioner`
+                                    : existing
+                                      ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
+                                      : `Role for ${serverDisplayName(server)}`}
                                 value={role}
                                 isDisabled={unavailable}
                                 onChange={(_event, value) => changeRole(server.id, value as RoleChoice)}
@@ -475,6 +667,234 @@ export function DeployPlatformWizardPage() {
               )}
             </WizardSection>
           </WizardStep>
+
+          {machinePreparation === 'provision_os' && (
+            <WizardStep
+              name="Operating system"
+              id="deploy-operating-system"
+              status={osConfigurationValid ? 'success' : 'default'}
+              footer={{ isNextDisabled: !osConfigurationValid }}
+            >
+              <WizardSection title="Operating system configuration">
+                {provisioningError && (
+                  <Alert variant={AlertVariant.danger} title="Provisioning data is unavailable" isInline>
+                    {provisioningError}
+                  </Alert>
+                )}
+                <Form className="sw-form-grid">
+                  <FormGroup label="Configuration source" isRequired fieldId="platform-template">
+                    <FormSelect
+                      id="platform-template"
+                      value={templateId}
+                      onChange={(_event, value) => selectTemplate(value)}
+                    >
+                      <FormSelectOption value="" label="Custom configuration" />
+                      {templates
+                        .filter((template) => template.integrationId === integrationId)
+                        .map((template) => (
+                          <FormSelectOption key={template.id} value={template.id} label={template.name} />
+                        ))}
+                    </FormSelect>
+                  </FormGroup>
+                  <FormGroup label="OS image" isRequired fieldId="platform-os-image">
+                    <div className="sw-inline-control">
+                      <SingleSelect
+                        id="platform-os-image"
+                        ariaLabel="OS image"
+                        value={effectiveImageId}
+                        placeholder="Select an OS image"
+                        options={images.map((image) => ({
+                          value: image.id,
+                          label: `${image.name} - ${image.architecture}`,
+                          description: `${image.osSystem} ${image.release}`,
+                        }))}
+                        isRequired
+                        isDisabled={Boolean(selectedTemplate)}
+                        onChange={setImageId}
+                      />
+                      <Button
+                        variant="secondary"
+                        icon={<SyncAltIcon />}
+                        aria-label="Refresh OS images"
+                        isLoading={provisioningLoading}
+                        onClick={() => {
+                          if (!integrationId) return
+                          setProvisioningLoading(true)
+                          setProvisioningError('')
+                          provisioning.listOSImages(integrationId)
+                            .then(setImages)
+                            .catch((error: Error) => setProvisioningError(error.message))
+                            .finally(() => setProvisioningLoading(false))
+                        }}
+                      >
+                        Refresh
+                      </Button>
+                    </div>
+                  </FormGroup>
+                  <FormGroup fieldId="platform-ephemeral">
+                    <Checkbox
+                      id="platform-ephemeral"
+                      label="Run the operating system from memory"
+                      description="Disks remain untouched and operating-system changes are lost after reboot."
+                      isChecked={effectiveEphemeral}
+                      isDisabled={Boolean(selectedTemplate)}
+                      onChange={(_event, checked) => setEphemeral(checked)}
+                    />
+                  </FormGroup>
+                  {!selectedTemplate && (
+                    <FormGroup label="Cloud-init user data" fieldId="platform-user-data">
+                      <TextArea
+                        id="platform-user-data"
+                        value={cloudInit}
+                        onChange={(_event, value) => setCloudInit(value)}
+                        rows={7}
+                        autoComplete="off"
+                        placeholder="#cloud-config"
+                      />
+                    </FormGroup>
+                  )}
+                </Form>
+
+                <section className="sw-section">
+                  <SectionHeader
+                    title="Network configuration"
+                    description="Swallow configures each boot interface before the operating system deployment starts."
+                  />
+                  <div className="sw-section-body">
+                    <Form className="sw-form-grid">
+                      <FormGroup label="Addressing mode" isRequired fieldId="platform-network-mode">
+                        <ToggleGroup aria-label="Operating system addressing mode">
+                          <ToggleGroupItem
+                            text="DHCP"
+                            buttonId="platform-network-dhcp"
+                            isSelected={effectiveNetworkMode === 'dhcp'}
+                            isDisabled={Boolean(selectedTemplate)}
+                            onChange={() => {
+                              setNetworkMode('dhcp')
+                              setDefaultGateway(false)
+                            }}
+                          />
+                          <ToggleGroupItem
+                            text="Static"
+                            buttonId="platform-network-static"
+                            isSelected={effectiveNetworkMode === 'static'}
+                            isDisabled={Boolean(selectedTemplate)}
+                            onChange={() => setNetworkMode('static')}
+                          />
+                        </ToggleGroup>
+                      </FormGroup>
+                      {effectiveNetworkMode === 'static' && (
+                        <FormGroup fieldId="platform-default-gateway">
+                          <Checkbox
+                            id="platform-default-gateway"
+                            label="Use the selected subnet for the default route"
+                            description="The provider uses each selected subnet's configured gateway for this static link."
+                            isChecked={selectedTemplate?.network.defaultGateway ?? defaultGateway}
+                            isDisabled={Boolean(selectedTemplate)}
+                            onChange={(_event, checked) => setDefaultGateway(checked)}
+                          />
+                        </FormGroup>
+                      )}
+                    </Form>
+                    {!networkInspection && !provisioningLoading && (
+                      <Alert variant={AlertVariant.warning} title="Select machines to inspect their network interfaces" isInline />
+                    )}
+                    {networkInspection && !networkAssignmentsValid && (
+                      <Alert variant={AlertVariant.warning} title="Complete every network assignment" isInline>
+                        Select one compatible interface and subnet for every Server. Static mode also requires an IPv4 address per target.
+                      </Alert>
+                    )}
+                  </div>
+                  {networkInspection && (
+                    <StickyTableFrame>
+                      <Table aria-label="Platform operating system network assignments" variant="compact" className="sw-network-assignment-table">
+                        <Thead>
+                          <Tr>
+                            <Th>Server</Th>
+                            <Th>Interface</Th>
+                            <Th>Subnet</Th>
+                            {effectiveNetworkMode === 'static' && <Th>Static IPv4 address</Th>}
+                            <Th>Current mode</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {networkInspection.targets.map((target) => {
+                            const server = selectedServers.find((item) => item.id === target.serverId)
+                            const assignment = networkAssignments[target.serverId] ?? { interfaceId: '', subnetId: '', ipAddress: '' }
+                            const iface = target.network.interfaces.find((item) => item.id === assignment.interfaceId)
+                            const currentMode = iface?.rawProviderMode === 'AUTO'
+                              ? 'Provider-managed (MAAS AUTO)'
+                              : iface?.rawProviderMode || '-'
+                            return (
+                              <Tr key={target.serverId}>
+                                <Td dataLabel="Server"><strong>{server ? serverDisplayName(server) : target.serverId}</strong></Td>
+                                <Td dataLabel="Interface">
+                                  <FormSelect
+                                    aria-label={`Interface for ${server ? serverDisplayName(server) : target.serverId}`}
+                                    value={assignment.interfaceId}
+                                    onChange={(_event, value) => {
+                                      const nextInterface = target.network.interfaces.find((item) => item.id === value)
+                                      const subnetId = nextInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)
+                                        ? assignment.subnetId
+                                        : nextInterface?.availableSubnets.length === 1
+                                          ? nextInterface.availableSubnets[0].id
+                                          : ''
+                                      setNetworkAssignments((current) => ({
+                                        ...current,
+                                        [target.serverId]: { ...assignment, interfaceId: value, subnetId },
+                                      }))
+                                    }}
+                                  >
+                                    <FormSelectOption value="" label="Select an interface" isDisabled isPlaceholder />
+                                    {target.network.interfaces.map((item) => (
+                                      <FormSelectOption
+                                        key={item.id}
+                                        value={item.id}
+                                        label={`${item.name} - ${item.macAddress}${item.boot ? ' (boot NIC)' : ''}`}
+                                      />
+                                    ))}
+                                  </FormSelect>
+                                </Td>
+                                <Td dataLabel="Subnet">
+                                  <FormSelect
+                                    aria-label={`Subnet for ${server ? serverDisplayName(server) : target.serverId}`}
+                                    value={assignment.subnetId}
+                                    onChange={(_event, value) => setNetworkAssignments((current) => ({
+                                      ...current,
+                                      [target.serverId]: { ...assignment, subnetId: value },
+                                    }))}
+                                  >
+                                    <FormSelectOption value="" label="Select a subnet" isDisabled isPlaceholder />
+                                    {iface?.availableSubnets.map((subnet) => (
+                                      <FormSelectOption key={subnet.id} value={subnet.id} label={formatSubnetOptionLabel(subnet)} />
+                                    ))}
+                                  </FormSelect>
+                                </Td>
+                                {effectiveNetworkMode === 'static' && (
+                                  <Td dataLabel="Static IPv4 address">
+                                    <TextInput
+                                      aria-label={`Static IPv4 address for ${server ? serverDisplayName(server) : target.serverId}`}
+                                      value={assignment.ipAddress}
+                                      onChange={(_event, value) => setNetworkAssignments((current) => ({
+                                        ...current,
+                                        [target.serverId]: { ...assignment, ipAddress: value },
+                                      }))}
+                                      placeholder="192.0.2.10"
+                                    />
+                                  </Td>
+                                )}
+                                <Td dataLabel="Current mode" title={currentMode}>{currentMode}</Td>
+                              </Tr>
+                            )
+                          })}
+                        </Tbody>
+                      </Table>
+                    </StickyTableFrame>
+                  )}
+                </section>
+              </WizardSection>
+            </WizardStep>
+          )}
 
           <WizardStep
             name="Networking"
@@ -577,10 +997,10 @@ export function DeployPlatformWizardPage() {
           <WizardStep
             name="Review"
             id="deploy-review"
-            status={basicsValid && machinesValid && networkingValid ? 'success' : 'warning'}
+            status={basicsValid && machinesValid && osConfigurationValid && networkingValid ? 'success' : 'warning'}
             footer={{
               nextButtonText: 'Deploy platform',
-              isNextDisabled: submitting || !basicsValid || !machinesValid || !networkingValid,
+              isNextDisabled: submitting || !basicsValid || !machinesValid || !osConfigurationValid || !networkingValid,
               nextButtonProps: { isLoading: submitting },
             }}
           >
@@ -592,6 +1012,11 @@ export function DeployPlatformWizardPage() {
                     {[
                       ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
                       ['Topology', topologyPresentation(topology).label],
+                      ['Machine preparation', machinePreparation === 'provision_os' ? 'Provision OS first' : 'Use existing OS'],
+                      ...(machinePreparation === 'provision_os' ? [
+                        ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
+                        ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'DHCP'],
+                      ] : []),
                       ['k0s version', k0sVersion],
                       ['GPU stack owner', gpuStackOwner],
                       ['API endpoint', topology === 'high-availability'

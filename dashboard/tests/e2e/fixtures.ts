@@ -1,9 +1,10 @@
 import type { Page, Route } from 'playwright/test'
+import type { Server } from '@/domain/server/types'
 
 const now = '2026-08-27T03:00:00Z'
 
 /** Builds fleet fixtures; Server four deliberately models an unobserved inventory. */
-function makeServer(index: number) {
+function makeServer(index: number): Server {
   const ordinal = index + 1
   const named = ordinal <= 4
   const hasInventory = ordinal !== 4
@@ -18,6 +19,9 @@ function makeServer(index: number) {
     systemVendor: hasInventory ? 'Supermicro' : '', systemProduct: hasInventory ? 'AS-8125GS-TNHR' : '', providerZone: hasInventory ? index < 2 ? 'rack-a' : 'rack-b' : '',
     providerResourcePool: hasInventory ? named ? 'accelerators' : 'compute' : '', providerPod: '', tags: hasInventory ? named ? ['gpu', 'production'] : ['compute'] : [],
     hardware: { systemUuid: `uuid-${ordinal}`, serialNumber: `SN${String(ordinal).padStart(4, '0')}`, macAddresses: hasInventory ? [`02:00:00:00:${String(Math.floor(index / 250)).padStart(2, '0')}:${String((index % 250) + 1).padStart(2, '0')}`] : [] },
+    deployment: ordinal === 4
+      ? { state: 'failed', operationId: 'op-deploy-failed', stepId: 'provision-srv-4', attempt: 1, stage: 'ssh_readiness', statusReason: 'No provider address was observed after OS installation.', startedAt: now, finishedAt: now, updatedAt: now }
+      : { state: 'succeeded', operationId: `op-os-${ordinal}`, stepId: `provision-srv-${ordinal}`, attempt: 1, stage: '', statusReason: '', startedAt: now, finishedAt: now, updatedAt: now },
     provisioning: { state: 'deployed', providerState: 'deployed', powerState: 'on', osSystem: 'ubuntu', distroSeries: '24.04', ephemeral: false, hweKernel: 'ga-24.04', locked: false, commissioningStatus: 'passed', testingStatus: 'passed', integrationId: 'maas-a', observedAt: now },
     membership: ordinal <= 3 ? { platformId: 'platform-a', nodeName: `gpu-node-0${ordinal}`, role: 'control-plane', state: 'ready', observedAt: now } : null,
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
@@ -27,9 +31,47 @@ function makeServer(index: number) {
 
 const servers = Array.from({ length: 4 }, (_, index) => makeServer(index))
 const operations = [
-  { id: 'op-running', kind: 'deploy-kubernetes', intent: 'Deploy production k0s cluster', siteId: 'site-a', platformId: 'platform-a', targetServerIds: servers.slice(0, 3).map((server) => server.id), retryOfOperationId: null, execution: { runId: 'run-1024', playbook: 'deploy-k0s.yml', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null }, requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z', updatedAt: now },
+  { id: 'op-running', kind: 'deploy-kubernetes', intent: 'Deploy production k0s platform', siteId: 'site-a', platformId: 'platform-a', targetServerIds: servers.slice(0, 3).map((server) => server.id), retryOfOperationId: null, execution: { runId: 'run-1024', playbook: 'deploy-k0s.yml', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null }, requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z', updatedAt: now },
   { id: 'op-failed', kind: 'exporter.install', intent: 'Install GPU exporters', siteId: 'site-a', platformId: 'platform-a', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-1023', playbook: 'install-exporters.yml', status: 'failed', statusReason: 'Host unreachable', startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T01:09:00Z', updatedAt: '2026-08-27T01:12:00Z' },
-  { id: 'op-deploy-failed', kind: 'deploy-kubernetes', intent: 'Deploy edge-staging k0s cluster', siteId: 'site-a', platformId: 'platform-b', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-deploy-failed', playbook: 'deploy-kubernetes', status: 'failed', statusReason: 'Worker join failed', startedAt: '2026-08-27T00:30:00Z', finishedAt: '2026-08-27T00:35:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T00:29:00Z', updatedAt: '2026-08-27T00:35:00Z' },
+  {
+    id: 'op-deploy-failed', schemaVersion: 3, kind: 'deploy-kubernetes',
+    intent: 'Deploy edge-staging k0s platform', intentSnapshot: {},
+    definition: 'platform-deployment', definitionVersion: 1,
+    status: 'requires_attention', statusReason: 'A failed Step requires operator attention.',
+    startState: 'started', temporal: { workflowId: 'swallow-operation/op-deploy-failed', runId: 'run-deploy-failed' },
+    siteId: 'site-a', platformId: 'platform-b',
+    targetResources: [{ kind: 'platform', id: 'platform-b' }, { kind: 'server', id: 'srv-4' }],
+    targetServerIds: ['srv-4'], retryOfOperationId: null,
+    steps: [
+      {
+        id: 'provision-srv-4', kind: 'provision-os', name: 'Provision and verify operating system on srv-4',
+        executor: 'maas', dependsOn: null, targets: [{ kind: 'server', id: 'srv-4' }],
+        status: 'failed', attempt: 1, progress: 0,
+        error: {
+          code: 'deployment_address_unavailable',
+          message: 'MAAS installed the requested OS on gpu-node-04, but no provider address was observed. Swallow did not verify this deployment. Retry this Step to release and redeploy the Server with the same frozen network settings.',
+          retryable: true,
+          stage: 'ssh_readiness',
+        },
+        externalExecution: null, artifacts: null,
+        startedAt: '2026-08-27T00:30:00Z', finishedAt: '2026-08-27T00:34:00Z',
+      },
+      {
+        id: 'install-platform', kind: 'ansible-playbook', name: 'Install k0s Platform',
+        executor: 'ansible', dependsOn: ['provision-srv-4'], targets: [{ kind: 'server', id: 'srv-4' }],
+        status: 'pending', attempt: 1, progress: 0, error: null,
+        externalExecution: null, artifacts: [], startedAt: null, finishedAt: null,
+      },
+    ],
+    leases: [], requestCorrelation: 'req-op-deploy-failed',
+    execution: {
+      runId: 'run-deploy-failed', playbook: '', status: 'requires_attention',
+      statusReason: 'A failed Step requires operator attention.',
+      startedAt: '2026-08-27T00:30:00Z', finishedAt: null,
+    },
+    requestedBy: 'admin', requestedAt: '2026-08-27T00:29:00Z',
+    startedAt: '2026-08-27T00:30:00Z', finishedAt: null, updatedAt: '2026-08-27T00:35:00Z',
+  },
 ]
 const platforms = [
   {
@@ -118,6 +160,7 @@ export interface FixtureOptions {
   releaseConvergesAfterRefreshes?: number
   deploymentConvergesAfterRefreshes?: number
   releaseCleanupFails?: boolean
+  providerFailureRetryable?: boolean
   onNetworkLinkRequest?: (method: string, serverId: string, interfaceId: string, linkId: string | null, body: Record<string, unknown> | null) => void
   onMetricsRequest?: (serverIds: string[]) => void
   /** Removes Platform membership and deployment target claims for wizard success paths. */
@@ -143,6 +186,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     fleet[index].provisioning.providerState = 'Ready'
     fleet[index].provisioning.osSystem = ''
     fleet[index].provisioning.distroSeries = ''
+    fleet[index].deployment = null
   }
   for (const serverId of options.ephemeralServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
@@ -169,6 +213,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   let activeMetricRequests = 0
   const releaseRefreshesRemaining = new Map<string, number>()
   const deploymentRefreshesRemaining = new Map<string, number>()
+  const releaseCleanupRequested = new Set<string>()
   const provisioningTasks: Array<Record<string, unknown>> = []
   const networkTargets = new Map(fleet.map((server) => {
     const interfaceId = `nic-${server.id}`
@@ -226,6 +271,17 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       server.provisioning.osSystem = ''
       server.provisioning.distroSeries = ''
       server.provisioning.ephemeral = false
+      server.deployment = null
+      if (releaseCleanupRequested.has(serverId) && !options.releaseCleanupFails) {
+        server.addresses = []
+        const target = networkTargets.get(serverId)
+        const iface = target?.network.interfaces[0]
+        if (iface) {
+          iface.links = iface.links.filter((link) => link.configurationState !== 'static')
+          iface.configurationState = iface.links[0]?.configurationState ?? 'unconfigured'
+          iface.rawProviderMode = iface.links[0]?.rawProviderMode ?? ''
+        }
+      }
       releaseRefreshesRemaining.delete(serverId)
     } else {
       releaseRefreshesRemaining.set(serverId, remaining - 1)
@@ -244,6 +300,13 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       server.provisioning.providerState = 'Deployed'
       server.provisioning.osSystem = 'ubuntu'
       server.provisioning.distroSeries = 'ubuntu/jammy'
+      if (server.deployment) {
+        server.deployment.state = 'succeeded'
+        server.deployment.statusReason = ''
+        server.deployment.stage = ''
+        server.deployment.finishedAt = now
+        server.deployment.updatedAt = now
+      }
       deploymentRefreshesRemaining.delete(serverId)
     } else {
       deploymentRefreshesRemaining.set(serverId, remaining - 1)
@@ -251,6 +314,122 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }
   const platformItems = platforms.map((platform) => ({ ...platform }))
   const operationItems = operations.map((operation) => ({ ...operation }))
+  let operationSequence = 0
+  const createProvisioningOperation = (
+    kind: 'deploy-os' | 'release-os',
+    serverIds: string[],
+    request: Record<string, unknown>,
+  ) => {
+    operationSequence += 1
+    const id = `op-${kind}-${operationSequence}`
+    const failedIds = new Set(
+      kind === 'deploy-os'
+        ? options.deploymentFailureIds ?? []
+        : options.serverActionFailureIds ?? [],
+    )
+    const failedCount = serverIds.filter((serverId) => failedIds.has(serverId)).length
+    const steps = serverIds.map((serverId) => {
+      const failed = failedIds.has(serverId)
+      const retryable = failed && Boolean(options.providerFailureRetryable)
+      const succeeded = !failed && failedCount > 0
+      return {
+        id: `${kind === 'deploy-os' ? 'provision' : 'release'}-${serverId}`,
+        kind: kind === 'deploy-os' ? 'provision-os' : 'release-os',
+        name: `${kind === 'deploy-os' ? 'Provision operating system on' : 'Release'} ${serverId}`,
+        executor: 'maas',
+        dependsOn: [],
+        targets: [{ kind: 'server', id: serverId }],
+        status: failed ? retryable ? 'requires_attention' : 'failed' : succeeded ? 'succeeded' : 'waiting_external',
+        attempt: 1,
+        progress: 0,
+        waitingReason: failed || succeeded ? '' : 'Waiting for maas execution.',
+        error: failed ? {
+          code: retryable ? 'provider_unavailable' : 'provider_rejected',
+          message: retryable
+            ? 'MAAS is temporarily unavailable.'
+            : kind === 'deploy-os'
+              ? 'Machine reservation changed.'
+              : 'MAAS refused the request: Machine cannot be released while a hosted VM is running.',
+          retryable,
+          stage: kind === 'deploy-os' ? 'deployment' : 'release',
+        } : null,
+        externalExecution: failed ? { provider: 'maas', id: serverId, generation: 1 } : null,
+        artifacts: [],
+        startedAt: now,
+        finishedAt: failed || succeeded ? now : null,
+      }
+    })
+    if (kind === 'deploy-os') {
+      for (const serverId of serverIds) {
+        const server = fleet.find((candidate) => candidate.id === serverId)
+        const failed = failedIds.has(serverId)
+        if (!server) continue
+        server.deployment = {
+          state: failed
+            ? options.providerFailureRetryable ? 'requires_attention' : 'failed'
+            : 'deploying',
+          operationId: id,
+          stepId: `provision-${serverId}`,
+          attempt: 1,
+          stage: failed ? 'deployment' : '',
+          statusReason: failed
+            ? options.providerFailureRetryable ? 'MAAS is temporarily unavailable.' : 'Machine reservation changed.'
+            : '',
+          startedAt: now,
+          finishedAt: failed ? now : null,
+          updatedAt: now,
+        }
+      }
+    }
+    const retryableFailure = steps.some((step) => step.status === 'requires_attention')
+    const status = retryableFailure ? 'requires_attention' : failedCount === 0
+      ? 'waiting_external'
+      : failedCount === steps.length ? 'failed' : 'partially_succeeded'
+    const item = {
+      ...operations[0],
+      id,
+      schemaVersion: 3,
+      kind,
+      intent: kind === 'deploy-os'
+        ? `Deploy operating system to ${serverIds.length} Server(s)`
+        : `Release ${serverIds.length} Server(s)`,
+      intentSnapshot: { request },
+      definition: kind === 'deploy-os' ? 'os-deployment' : 'os-release',
+      definitionVersion: 1,
+      status,
+      statusReason: failedCount ? 'One or more provider Steps failed.' : 'Waiting for provider observation.',
+      startState: 'started',
+      temporal: { workflowId: `swallow-operation/${id}`, runId: `run-${id}` },
+      platformId: null,
+      targetResources: serverIds.map((serverId) => ({ kind: 'server', id: serverId })),
+      targetServerIds: serverIds,
+      steps,
+      leases: serverIds.map((serverId, index) => ({
+        resourceKey: `server:${serverId}`,
+        owner: `swallow-operation/${id}`,
+        fencingToken: index + 1,
+        expiresAt: now,
+        updatedAt: now,
+      })),
+      retryOfOperationId: null,
+      requestCorrelation: `req-${id}`,
+      execution: {
+        runId: `run-${id}`,
+        playbook: '',
+        status,
+        statusReason: failedCount ? 'One or more provider Steps failed.' : 'Waiting for provider observation.',
+        startedAt: now,
+        finishedAt: failedCount ? now : null,
+      },
+      requestedBy: 'admin',
+      requestedAt: now,
+      startedAt: now,
+      finishedAt: failedCount ? now : null,
+      updatedAt: now,
+    }
+    operationItems.unshift(item as unknown as (typeof operationItems)[number])
+    return id
+  }
   if (options.freePlatformCandidates) {
     for (const operation of operationItems) {
       if (operation.kind === 'deploy-kubernetes') {
@@ -444,6 +623,49 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       })
     }
 
+    if (path === '/api/v1/provisioning/deployment-operations' && request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      options.onDeploymentRequest?.(body)
+      const serverIds = body.serverIds as string[]
+      const operationId = createProvisioningOperation('deploy-os', serverIds, body)
+      return json(route, { operationId }, 202)
+    }
+
+    if (path === '/api/v1/provisioning/release-operations' && request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      const serverIds = body.serverIds as string[]
+      const releaseBody = { ...body }
+      delete releaseBody.serverIds
+      for (const serverId of serverIds) {
+        options.onServerReleaseRequest?.(serverId, releaseBody)
+        if (options.serverActionFailureIds?.includes(serverId)) continue
+        const server = fleet.find((item) => item.id === serverId)
+        if (server) {
+          server.provisioning.state = 'releasing'
+          server.provisioning.providerState = 'Releasing'
+          releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
+        }
+        if (body.unbindStaticIPs) {
+          releaseCleanupRequested.add(serverId)
+          provisioningTasks.unshift({
+            id: `task-${serverId}`,
+            serverId,
+            integrationId: server?.source.integrationId ?? '',
+            kind: 'release_network_cleanup',
+            status: options.releaseCleanupFails ? 'failed' : 'running',
+            phase: options.releaseCleanupFails ? 'cleaning_network' : 'waiting_for_ready',
+            error: options.releaseCleanupFails ? 'MAAS refused to unlink the captured Static address.' : '',
+            requestId: `req-release-${serverId}`,
+            retryable: Boolean(options.releaseCleanupFails),
+            createdAt: now,
+            updatedAt: now,
+          })
+        }
+      }
+      const operationId = createProvisioningOperation('release-os', serverIds, body)
+      return json(route, { operationId }, 202)
+    }
+
     if (path === '/api/v1/provisioning/deployments' && request.method() === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       options.onDeploymentRequest?.(body)
@@ -479,7 +701,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         accepted,
         failed: serverIds.filter((id) => failedIds.has(id)).map((serverId) => ({
           serverId,
-          code: 'provider_rejected',
+          code: retryable ? 'provider_unavailable' : 'provider_rejected',
           message: 'Machine reservation changed.',
           stage: 'deployment',
         })),
@@ -532,7 +754,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           status: 'succeeded',
           phase: 'complete',
           error: '',
-          retryable: false,
+          retryable,
           updatedAt: now,
         })
         server.addresses = []
@@ -768,8 +990,60 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (serverId) items = items.filter((item) => item.targetServerIds.includes(serverId))
       return json(route, { items, total: items.length, page: 1, pageSize: 30 })
     }
+    const timelineMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/timeline$/)
+    if (timelineMatch) {
+      return json(route, [{
+        id: `timeline-${timelineMatch[1]}`,
+        operationId: timelineMatch[1],
+        type: 'operation_requested',
+        message: 'Operation accepted and waiting for durable workflow start.',
+        createdAt: now,
+      }])
+    }
     if (path.endsWith('/events')) return json(route, { runId: 'run-1024', status: 'running', okCount: 4, changedCount: 2, failedCount: 1, events: [{ play: 'Prepare hosts', task: 'Gather facts', host: 'gpu-node-01', status: 'ok', changed: false, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Write configuration', host: 'gpu-node-02', status: 'changed', changed: true, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Start controller', host: 'gpu-node-04', status: 'failed', changed: false, startedAt: now, endedAt: now }] })
     if (path.endsWith('/logs')) return route.fulfill({ status: 200, contentType: 'text/plain', body: 'PLAY [Prepare hosts]\nTASK [Gather facts]\nok: [gpu-node-01]\nTASK [Write configuration]\nchanged: [gpu-node-02]\nTASK [Start controller]\nfatal: [gpu-node-04]: UNREACHABLE\n' })
+    if (path.endsWith('/artifacts')) return json(route, null)
+    const cancelMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/cancel$/)
+    if (cancelMatch && request.method() === 'POST') {
+      const operation = operationItems.find((item) => item.id === cancelMatch[1]) as unknown as Record<string, unknown> | undefined
+      if (!operation) return json(route, { error: { code: 'not_found', message: 'Operation not found' } }, 404)
+      operation.status = 'canceling'
+      operation.statusReason = 'Canceling active work.'
+      operation.execution = {
+        ...(operation.execution as Record<string, unknown>),
+        status: 'canceling',
+        statusReason: 'Canceling active work.',
+      }
+      return json(route, { operationId: cancelMatch[1] }, 202)
+    }
+    const stepRetryMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/steps\/([^/]+)\/retry$/)
+    if (stepRetryMatch && request.method() === 'POST') {
+      const operation = operationItems.find((item) => item.id === stepRetryMatch[1]) as unknown as Record<string, unknown> | undefined
+      const steps = operation?.steps as Array<Record<string, unknown>> | undefined
+      const step = steps?.find((item) => item.id === stepRetryMatch[2])
+      if (!operation || !step) return json(route, { error: { code: 'not_found', message: 'Operation Step not found' } }, 404)
+      step.attempt = Number(step.attempt) + 1
+      step.status = 'pending'
+      step.progress = 0
+      step.error = null
+      step.finishedAt = null
+      operation.status = 'running'
+      operation.statusReason = 'Retrying the selected Step.'
+      operation.execution = {
+        ...(operation.execution as Record<string, unknown>),
+        status: 'running',
+        statusReason: 'Retrying the selected Step.',
+      }
+      operation.updatedAt = now
+      if (operation.kind === 'deploy-kubernetes') {
+        const platform = platformItems.find((item) => item.id === operation.platformId)
+        if (platform) {
+          platform.lifecycleState = 'deploying'
+          platform.updatedAt = now
+        }
+      }
+      return json(route, { operationId: stepRetryMatch[1], stepId: stepRetryMatch[2] }, 202)
+    }
     const retryMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/retry$/)
     if (retryMatch && request.method() === 'POST') {
       const original = operationItems.find((item) => item.id === retryMatch[1])

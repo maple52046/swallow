@@ -2,14 +2,16 @@ import type {
   ListOperationsFilters,
   Operation,
   OperationEvents,
-} from '@/domain/operation/types'
+  OperationArtifact,
+  OperationTimelineEvent,
+} from "@/domain/operation/types";
 
 /** A page of results, matching the backend's pagination envelope. */
 export interface Paginated<T> {
-  items: T[]
-  total: number
-  page: number
-  pageSize: number
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 /**
@@ -19,12 +21,20 @@ export interface Paginated<T> {
  * operation rather than mutating the original.
  */
 export interface OperationRepository {
-  listOperations(filters?: ListOperationsFilters): Promise<Paginated<Operation>>
-  getOperation(id: string): Promise<Operation | null>
+  listOperations(
+    filters?: ListOperationsFilters,
+  ): Promise<Paginated<Operation>>;
+  getOperation(id: string): Promise<Operation | null>;
   /** Task-level progress from the runner's retained events; empty until a run starts. */
-  getEvents(id: string): Promise<OperationEvents>
+  getEvents(id: string): Promise<OperationEvents>;
   /** Retained runner output as plain text; empty for a pending run or one with no output. */
-  getLogs(id: string): Promise<string>
+  getLogs(id: string): Promise<string>;
   /** Create a new operation repeating a finished one, linked back to it. */
-  retryOperation(id: string): Promise<Operation>
+  retryOperation(id: string): Promise<Operation>;
+  getTimeline(id: string): Promise<OperationTimelineEvent[]>;
+  cancelOperation(id: string): Promise<void>;
+  retryStep(id: string, stepId: string): Promise<void>;
+  getStepLogs(id: string, stepId: string): Promise<string>;
+  getStepEvents(id: string, stepId: string): Promise<OperationEvents>;
+  getStepArtifacts(id: string, stepId: string): Promise<OperationArtifact[]>;
 }

@@ -4,6 +4,7 @@ import { SyncAltIcon } from '@patternfly/react-icons'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
 import { platformLifecycleLabel, platformLifecycleStatus } from '@/domain/platform/lifecycle'
 import type { Platform, KubernetesTopology } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
@@ -128,6 +129,7 @@ export function PlatformDetailPage() {
             </Button>
             <PlatformLifecycleActions
               platform={platform}
+              operation={lifecycleOperation}
               targetServerIds={targetServerIds}
               onRepairStarted={reload}
             />
@@ -136,6 +138,7 @@ export function PlatformDetailPage() {
       />
       <LifecycleNotice
         platform={platform}
+        operation={lifecycleOperation}
         onOpenOperation={(operationId) => navigate(scopedHref('/operations/' + operationId))}
       />
       {platform.sync.lastError && platform.lifecycleState !== 'uninstalled' && (
@@ -242,12 +245,15 @@ export function PlatformDetailPage() {
  */
 function LifecycleNotice({
   platform,
+  operation,
   onOpenOperation,
 }: {
   platform: Platform
+  operation?: Operation
   onOpenOperation: (operationId: string) => void
 }) {
   const operationId = platform.lifecycleOperationId
+  const failureMessage = deploymentFailureMessage(operation)
   const details = operationId ? (
     <Button
       variant="link"
@@ -268,8 +274,7 @@ function LifecycleNotice({
     case 'deploy_failed':
       return (
         <Alert variant={AlertVariant.danger} title="Platform deployment failed" isInline>
-          Hosts may contain partial k0s state. Review the automation details, then use
-          Repair deployment to rerun the original configuration. {details}
+          {failureMessage} {details}
         </Alert>
       )
     case 'uninstalling':
@@ -292,6 +297,29 @@ function LifecycleNotice({
       }
       return null
   }
+}
+
+/**
+ * Describes recovery from the durable Step that actually failed. A readiness failure
+ * before the Ansible Step cannot have left partial k0s state, while a started install
+ * Step still requires the more cautious warning.
+ */
+function deploymentFailureMessage(operation?: Operation): string {
+  if (!operation || !isOrchestrationOperation(operation)) {
+    return 'Review the automation details, then use Repair deployment to rerun the original configuration.'
+  }
+  const failedStep = operation.steps?.find((step) =>
+    step.status === 'failed' || step.status === 'requires_attention',
+  )
+  if (failedStep?.kind === 'wait-for-ssh') {
+    return `${failedStep.error?.message ?? 'SSH readiness verification failed.'} This older Operation can only recheck SSH; it cannot repair a missing provider address or redeploy the operating system. Correct the provider network state first, or release and redeploy the affected Server.`
+  }
+  const installStep = operation.steps?.find((step) => step.id === 'install-platform')
+  if (installStep && (installStep.status === 'pending' || installStep.status === 'skipped')) {
+    const reason = failedStep?.error?.message ?? 'Machine preparation did not complete.'
+    return `${reason} k0s installation did not start. Resolve the network or SSH readiness issue, then use Repair deployment to retry the failed Step.`
+  }
+  return 'Hosts may contain partial k0s state. Review the failed Step, then use Repair deployment to retry only unfinished work.'
 }
 
 /** Member rows whose terminology stays neutral for Slurm. */

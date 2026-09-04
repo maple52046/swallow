@@ -414,6 +414,7 @@ test.describe('operator interactions', () => {
     await page.goto('/servers?site=site-a')
     await page.getByLabel('Select all on this page').click()
     const table = page.getByRole('grid', { name: 'Servers' })
+    await expect(table.getByRole('columnheader', { name: 'Deployment' })).toBeVisible()
     await expect(table.getByRole('columnheader', { name: 'MAC address' })).toBeVisible()
     await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toBeVisible()
     await expect(table.getByRole('columnheader', { name: 'Pool', exact: true })).toBeVisible()
@@ -425,6 +426,7 @@ test.describe('operator interactions', () => {
     }
     await expect(table.getByRole('columnheader', { name: 'Hardware', exact: true })).toHaveCount(0)
     const firstRow = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
+    await expect(firstRow.locator('td[data-label="Deployment"]')).toHaveText('Deployed')
     const selectionCell = firstRow.locator('td[data-label="Selection"]')
     const powerCell = firstRow.locator('td[data-label="Power"]')
     await expect(selectionCell).toHaveCSS('text-align', 'center')
@@ -452,6 +454,7 @@ test.describe('operator interactions', () => {
     await vendorLogo.focus()
     await expect(page.getByRole('tooltip')).toHaveText('AMD MI300X')
     const missingRow = table.getByRole('row').filter({ hasText: 'gpu-node-04' }).first()
+    await expect(missingRow.locator('td[data-label="Deployment"]')).toHaveText('Failed')
     for (const label of ['Address', 'MAC address', 'Zone', 'Pool', 'Tags', 'Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product', 'GPUs']) {
       await expect(missingRow.locator(`td[data-label="${label}"]`)).toHaveText('-')
     }
@@ -503,6 +506,24 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('eno1')).toBeVisible()
     await page.getByRole('tab', { name: 'PCI devices' }).click()
     await expect(page.getByText('03:00.0')).toBeVisible()
+  })
+
+  test('Server headline reports failed verification while retaining provider OS detail', async ({ page }) => {
+    await page.goto('/servers?site=site-a')
+    const row = page.getByRole('row').filter({ hasText: 'gpu-node-04' })
+    await expect(row.getByText('Failed', { exact: true })).toBeVisible()
+    await expect(row.getByText('Deployment unverified', { exact: true })).toHaveCount(0)
+
+    await page.goto('/servers/srv-4/summary?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Operating system deployment failed' })).toBeVisible()
+    await expect(page.getByText('No provider address was observed after OS installation.')).toBeVisible()
+    const statusCard = page.locator('.pf-v6-c-card').filter({
+      has: page.getByText('Power and provisioning', { exact: true }),
+    })
+    await expect(statusCard.getByText('deployed', { exact: true })).toBeVisible()
+    await expect(statusCard.getByText('Power', { exact: true })).toBeVisible()
+    await expect(statusCard.getByText('Deployed OS', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'View operation' })).toBeVisible()
   })
 
   test('Server Network separates physical state from Swallow configuration actions', async ({ page }) => {
@@ -664,16 +685,26 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Platform actions' }).click()
     const uninstall = page.getByRole('menuitem', { name: /Uninstall platform/ })
     await expect(uninstall).toBeDisabled()
-    await expect(page.getByText('Only Kubernetes clusters can be uninstalled.')).toBeVisible()
+    await expect(page.getByText('Only Kubernetes platforms can be uninstalled.')).toBeVisible()
   })
 
   test('failed Platform repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
     await expect(page.getByText('Platform deployment failed')).toBeVisible()
+    await expect(page.getByText(/no provider address was observed/)).toBeVisible()
+    await expect(page.getByText(/k0s installation did not start/)).toBeVisible()
+
+    await page.getByRole('button', { name: 'View automation details' }).click()
+    await expect(page).toHaveURL('/operations/op-deploy-failed?site=site-a')
+    await expect(page.getByText('Dashboard could not render this page')).toHaveCount(0)
+    await page.getByRole('tab', { name: 'Artifacts' }).click()
+    await expect(page.getByText('No artifacts')).toBeVisible()
+    await page.goBack()
 
     await page.getByRole('button', { name: 'Repair deployment' }).click()
     const dialog = page.getByRole('dialog', { name: 'Repair platform deployment' })
-    await expect(dialog.getByText('Original configuration will be reused')).toBeVisible()
+    await expect(dialog.getByText('Provisioning recovery may redeploy failed Servers')).toBeVisible()
+    await expect(dialog.getByText(/no MAAS address is released, returned to Ready, and redeployed/)).toBeVisible()
     await expect(dialog.getByText(/1 original deployment target/)).toBeVisible()
     await expect(dialog.getByText(/same machines, roles, network settings/)).toBeVisible()
 
@@ -681,13 +712,25 @@ test.describe('operator interactions', () => {
 
     await expect(page).toHaveURL('/platforms/platform-b?site=site-a')
     await expect(page.getByText('Platform repair started')).toBeVisible()
+    await expect(page.getByText(/Provision and verify operating system on srv-4 will retry in Operation op-deploy-failed/)).toBeVisible()
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByText('Deployment failed')).toHaveCount(0)
     await expect(
       page.getByRole('grid', { name: 'Related operations' })
-        .getByRole('row', { name: /Deploy edge-staging k0s cluster/ })
+        .getByRole('row', { name: /Deploy edge-staging k0s platform/ })
         .first(),
     ).toContainText('running')
+  })
+
+  test('missing-address OS Step retry requires release and redeploy confirmation', async ({ page }) => {
+    await page.goto('/operations/op-deploy-failed?site=site-a')
+    const row = page.getByRole('row', { name: /Provision and verify operating system on srv-4/ })
+    await row.getByRole('button', { name: /Retry Provision and verify/ }).click()
+    const dialog = page.getByRole('dialog', { name: 'Retry failed OS deployment' })
+    await expect(dialog.getByText('This retry may redeploy the Server')).toBeVisible()
+    await expect(dialog.getByText(/same image, network settings, and protected cloud-init/)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toBeHidden()
   })
 
   test('typed Uninstall and Delete confirmations keep host and record actions separate', async ({ page }) => {
@@ -828,7 +871,7 @@ test.describe('operator interactions', () => {
     await expect(page).toHaveURL('/servers/srv-1/network?site=site-a')
   })
 
-  test('multi-node deploy preserves query targets, customizes template, and restores partial results', async ({ page }) => {
+  test('multi-node deploy preserves targets, customizes a template, and returns to Servers', async ({ page }) => {
     await page.unroute('**/api/v1/**')
     let deploymentRequest: Record<string, unknown> | undefined
     await installApiFixtures(page, {
@@ -855,9 +898,10 @@ test.describe('operator interactions', () => {
     await page.getByLabel('New deployment template name').fill('Scale-out baseline')
     await page.getByRole('button', { name: 'Deploy OS' }).click()
 
-    await expect(page.getByText('1 accepted', { exact: true })).toBeVisible()
-    await expect(page.getByText('1 failed', { exact: true })).toBeVisible()
-    await expect(page.getByText('Machine reservation changed.')).toBeVisible()
+    await expect(page).toHaveURL('/servers?site=site-a')
+    await expect(page.getByText('OS deployment started')).toBeVisible()
+    await expect(page.getByText(/Operation op-deploy-os-1 is running in the background/)).toBeVisible()
+    await expect(page.getByRole('grid', { name: 'Servers' })).toBeVisible()
     expect(deploymentRequest?.serverIds).toEqual(['srv-1', 'srv-2'])
     expect(deploymentRequest?.network).toEqual({ mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false, assignments: [{ serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a' }, { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a' }] })
     expect(JSON.stringify(deploymentRequest)).toContain('#cloud-config')
@@ -865,14 +909,6 @@ test.describe('operator interactions', () => {
       local: { ...localStorage },
       session: { ...sessionStorage },
     }))).not.toContain('#cloud-config')
-
-    await page.reload()
-    await expect(page.getByText('1 accepted', { exact: true })).toBeVisible()
-    await expect(page.getByText('1 failed', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Configure and try again' }).click()
-    await expect(page.getByText('1 of 100 selected')).toBeVisible()
-    await expect(page.getByText('1 accepted', { exact: true })).toHaveCount(0)
-    expect(await page.evaluate(() => sessionStorage.getItem('swallow.provisioning.last-result'))).toBeNull()
   })
 
   test('Deploy OS renders its expanded dark image placeholder and refreshes uploaded images', async ({ page }) => {
@@ -963,13 +999,11 @@ test.describe('operator interactions', () => {
 
   test('Static OS deployment requires and reviews a unique IPv4 address per target', async ({ page }) => {
     let deploymentRequest: Record<string, unknown> | undefined
-    let refreshRequests = 0
     await page.unroute('**/api/v1/**')
     await installApiFixtures(page, {
       readyServerCount: 2,
       deploymentConvergesAfterRefreshes: 1,
       onDeploymentRequest: (body) => { deploymentRequest = body },
-      onServerRefreshRequest: () => { refreshRequests += 1 },
     })
     await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
     await page.getByRole('button', { name: 'Next' }).click()
@@ -998,9 +1032,8 @@ test.describe('operator interactions', () => {
         { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a', ipAddress: '192.168.40.92' },
       ],
     })
-    const deployedRow = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
-    await expect(deployedRow).toContainText('deployed')
-    expect(refreshRequests).toBeGreaterThan(0)
+    await expect(page.getByText('OS deployment started')).toBeVisible()
+    await expect(page.getByRole('grid', { name: 'Servers' })).toBeVisible()
   })
 
   test('template CRUD remains write-only and OS Images preserves partial provider results', async ({ page }) => {

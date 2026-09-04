@@ -1,14 +1,6 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom'
 
-/**
- * LegacyPlatformRedirect redirects former Cluster deep links (/clusters,
- * /clusters/deploy, /clusters/:id) to their canonical Platform routes.
- *
- * The Cluster -> Platform rename keeps these routes working for one release so
- * existing bookmarks and links do not break. The current query string and hash are
- * preserved so site scope (?site=) and in-page anchors survive the redirect, and the
- * detail identity is carried across when present.
- */
+/** Redirects former Cluster URLs while preserving scope and detail identity. */
 export function LegacyPlatformRedirect({ deploy = false }: { deploy?: boolean }) {
   const location = useLocation()
   const { id } = useParams()

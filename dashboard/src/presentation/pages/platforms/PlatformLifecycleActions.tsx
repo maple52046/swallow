@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   Alert,
   AlertVariant,
@@ -18,15 +18,18 @@ import {
 import { RedoIcon } from '@patternfly/react-icons'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
 import { platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
 
 type ConfirmationAction = 'uninstall' | 'delete'
 
 interface PlatformLifecycleActionsProps {
   platform: Platform
+  operation?: Operation
   targetServerIds?: readonly string[]
   onRepairStarted: () => void
 }
@@ -34,16 +37,18 @@ interface PlatformLifecycleActionsProps {
 /**
  * Exposes Platform-scoped repair and the separate uninstall/delete lifecycle actions.
  *
- * Repair deliberately delegates to the durable Operation Retry contract so original
- * deployment inputs and secret variables are retained. The parent callback refreshes
- * Platform lifecycle state without redirecting operators into the automation debugger.
+ * Schema-v3 repair signals each retryable failed Step on the existing durable Operation,
+ * preserving successful provider effects and protected inputs. Legacy deployment history
+ * keeps the compatibility retry that creates a new Operation. The parent callback refreshes
+ * lifecycle state without redirecting operators into the automation debugger.
  */
 export function PlatformLifecycleActions({
   platform,
+  operation,
   targetServerIds,
   onRepairStarted,
 }: PlatformLifecycleActionsProps) {
-  const { platforms, operations, servers } = useApp()
+  const { platforms, operations } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
   const navigate = useNavigate()
@@ -55,45 +60,21 @@ export function PlatformLifecycleActions({
   const [repairOpen, setRepairOpen] = useState(false)
   const [repairError, setRepairError] = useState('')
   const [repairing, setRepairing] = useState(false)
-  const [targetProtection, setTargetProtection] = useState<{
-    targetKey: string
-    lockedNames: string[]
-    error?: string
-  }>({ targetKey: '', lockedNames: [] })
-  const targetKey = useMemo(
-    () => [...(targetServerIds ?? [])].sort().join(','),
-    [targetServerIds],
-  )
+  const targetProtection = useTargetLockProtection(targetServerIds)
   const targetCount = targetServerIds?.length
 
-  useEffect(() => {
-    const ids = targetKey ? targetKey.split(',') : []
-    let cancelled = false
-    Promise.all(ids.map((id) => servers.getServer(id)))
-      .then((targets) => {
-        if (cancelled) return
-        setTargetProtection({
-          targetKey,
-          lockedNames: targets.flatMap((server) => (
-            server?.provisioning?.locked ? [server.hostname || server.id] : []
-          )),
-        })
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setTargetProtection({
-            targetKey,
-            lockedNames: [],
-            error: 'Target protection could not be checked. Refresh and try again.',
-          })
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [servers, targetKey, targetServerIds])
+  const failedProvisioningRecovery = Boolean(
+    operation && isOrchestrationOperation(operation) && operation.steps?.some((step) =>
+      step.kind === 'provision-os' && (step.status === 'failed' || step.status === 'requires_attention'),
+    ),
+  )
+  const legacyReadinessOnly = Boolean(
+    operation && isOrchestrationOperation(operation) && operation.steps?.some((step) =>
+      step.kind === 'wait-for-ssh' && (step.status === 'failed' || step.status === 'requires_attention'),
+    ),
+  )
 
-  const lockedDisabledReason = targetProtection.targetKey !== targetKey
+  const lockedDisabledReason = targetProtection.checking
     ? 'Checking target protection.'
     : targetProtection.error
       ? targetProtection.error
@@ -103,6 +84,8 @@ export function PlatformLifecycleActions({
   const uninstallDisabledReason = platformUninstallDisabledReason(platform) ?? lockedDisabledReason
   const repairDisabledReason = !platform.lifecycleOperationId
     ? 'The deployment Operation is unavailable.'
+    : legacyReadinessOnly
+      ? 'This older readiness Step can only recheck SSH and cannot repair missing provider addresses. Release and redeploy the affected Servers.'
     : lockedDisabledReason
 
   const openConfirmation = (next: ConfirmationAction) => {
@@ -161,12 +144,33 @@ export function PlatformLifecycleActions({
     setRepairing(true)
     setRepairError('')
     try {
-      const created = await operations.retryOperation(platform.lifecycleOperationId)
+      const operation = await operations.getOperation(platform.lifecycleOperationId)
+      if (!operation) throw new Error('The deployment Operation no longer exists.')
+
+      let description: string
+      if (isOrchestrationOperation(operation)) {
+        const failedSteps = (operation.steps ?? []).filter((step) =>
+          (step.status === 'failed' || step.status === 'requires_attention') &&
+          step.error?.retryable,
+        )
+        if (failedSteps.length === 0) {
+          throw new Error('This Operation has no failed Step that can be repaired safely.')
+        }
+        for (const step of failedSteps) {
+          await operations.retryStep(operation.id, step.id)
+        }
+        description = failedSteps.length === 1
+          ? `${failedSteps[0].name} will retry in Operation ${operation.id}.`
+          : `${failedSteps.length} failed Steps will retry in Operation ${operation.id}.`
+      } else {
+        const created = await operations.retryOperation(operation.id)
+        description = `Operation ${created.id} is rerunning the original deployment configuration.`
+      }
       setRepairOpen(false)
       showToast({
         tone: 'success',
         title: 'Platform repair started',
-        description: `Operation ${created.id} is rerunning the original deployment configuration.`,
+        description,
       })
       onRepairStarted()
     } catch (caught) {
@@ -243,14 +247,21 @@ export function PlatformLifecycleActions({
               {repairError}
             </Alert>
           )}
-          <Alert variant={AlertVariant.info} title="Original configuration will be reused" isInline>
-            Repair creates a new Operation with the same machines, roles, network settings,
-            and protected credentials. The failed Operation and its logs remain available.
+          <Alert
+            variant={failedProvisioningRecovery ? AlertVariant.warning : AlertVariant.info}
+            title={failedProvisioningRecovery
+              ? 'Provisioning recovery may redeploy failed Servers'
+              : 'Original configuration will be reused'}
+            isInline
+          >
+            Repair reuses the same machines, roles, network settings, and protected credentials.
+            Existing attempts, events, and logs remain available for diagnosis.
+            {failedProvisioningRecovery && ' Swallow rechecks each failed target first. A target with no MAAS address is released, returned to Ready, and redeployed; an SSH-only failure is only rechecked.'}
           </Alert>
           <p><strong>Targets:</strong> {targetLabel}</p>
           <p>
-            Completed idempotent steps are checked again. Remaining deployment work resumes
-            from the hosts' current state.
+            Successful Steps are preserved. Only failed retryable work resumes from the hosts'
+            current state.
           </p>
         </ModalBody>
         <ModalFooter>

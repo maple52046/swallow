@@ -60,7 +60,11 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
       unbindStaticIPs: false,
     },
   })
-  const updating = page.getByText('Updating released Servers...', { exact: true })
+  await expect(page).toHaveURL(/\/operations\/op-release-os-/)
+  await expect(page.getByRole('grid', { name: 'Operation Steps' }).getByRole('row').filter({ hasText: 'Release srv-1' })).toContainText('waiting external')
+
+  await page.goto('/servers?site=site-a')
+  const updating = page.getByText('Updating active Servers...', { exact: true })
   await expect(updating).toBeVisible()
   const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
   await expect(row).toContainText(/releasing/i)
@@ -87,7 +91,9 @@ test('Server list waits for release cleanup and refreshes addresses and Ephemera
   await confirmation.getByLabel('Remove static IP bindings after release').check()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
-  const updating = page.getByText('Updating released Servers...', { exact: true })
+  await expect(page).toHaveURL(/\/operations\/op-release-os-/)
+  await page.goto('/servers?site=site-a')
+  const updating = page.getByText('Updating active Servers...', { exact: true })
   await expect(updating).toBeVisible()
   await expect(row).toContainText('ready', { timeout: 7_000 })
   await expect(row).not.toContainText('192.168.40.21', { timeout: 7_000 })
@@ -102,6 +108,9 @@ test('Server detail follows Release until the projection becomes ready', async (
   await page.getByRole('button', { name: 'Take action' }).click()
   await chooseMenuItem(page, 'Release')
   await confirmRelease(page, 1)
+
+  await expect(page).toHaveURL(/\/operations\/op-release-os-/)
+  await page.goto('/servers/srv-1/summary?site=site-a')
 
   await expect(page.getByText('Updating...', { exact: true })).toBeVisible()
   await expect(page.getByText('ready', { exact: true }).first()).toBeVisible({ timeout: 7_000 })
@@ -123,13 +132,15 @@ test('Release static cleanup is opt-in, durable, and retries cleanup without ano
   await release.getByLabel('Remove static IP bindings after release').check()
   await expect(release).toContainText('DHCP, provider-managed, Link only, and later changes are preserved.')
   await release.getByRole('button', { name: 'Release server', exact: true }).click()
-  expect(releases).toEqual([{
+  await expect(page).toHaveURL(/\/operations\/op-release-os-/)
+  await expect.poll(() => releases).toEqual([{
     erase: false,
     secureErase: false,
     quickErase: false,
     unbindStaticIPs: true,
   }])
 
+  await page.goto('/servers/srv-1/activity?site=site-a')
   await page.getByRole('tab', { name: 'Activity' }).click()
   const tasks = page.getByRole('grid', { name: 'Provisioning tasks' })
   await expect(tasks).toContainText('MAAS refused to unlink the captured Static address.')
@@ -138,7 +149,7 @@ test('Release static cleanup is opt-in, durable, and retries cleanup without ano
   expect(releases).toHaveLength(1)
 })
 
-test('Server list keeps complete partial action diagnostics after the dialog closes', async ({ page }) => {
+test('Release Operation keeps complete per-Step partial diagnostics', async ({ page }) => {
   await page.goto('/servers?site=site-a')
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByLabel('Select gpu-node-02').check()
@@ -146,30 +157,20 @@ test('Server list keeps complete partial action diagnostics after the dialog clo
   await chooseMenuItem(page, 'Release')
   await confirmRelease(page, 2)
 
-  const dialog = page.getByRole('dialog', { name: 'Release result' })
-  await expect(dialog).toBeVisible()
-  await expect(dialog).toContainText('1 accepted, 1 failed across 2 targets.')
-  const results = dialog.getByRole('grid', { name: 'Release target results' })
-  await expect(results.getByRole('row').filter({ hasText: 'gpu-node-01' })).toContainText('Accepted')
-  const failed = results.getByRole('row').filter({ hasText: 'gpu-node-02' })
-  await expect(failed).toContainText('Failed')
-  await expect(failed).toContainText('validation_error')
-  await expect(failed).toContainText('400')
-  await expect(failed).toContainText('req-release-srv-2')
+  await expect(page).toHaveURL(/\/operations\/op-release-os-/)
+  await expect(page.getByText('partially succeeded', { exact: true })).toBeVisible()
+  const results = page.getByRole('grid', { name: 'Operation Steps' })
+  await expect(results.getByRole('row').filter({ hasText: 'Release srv-1' })).toContainText('succeeded')
+  const failed = results.getByRole('row').filter({ hasText: 'Release srv-2' })
+  await expect(failed).toContainText('failed')
   await expect(failed).toContainText('Machine cannot be released while a hosted VM is running.')
+  await expect(page.locator('section.sw-operation-debugger')).toContainText('provider_rejected')
   await expect(page.getByText(/e\.g\./)).toHaveCount(0)
 
-  await dialog.getByRole('button', { name: 'Done' }).click()
-  const summary = page.locator('#swallow-main-content').getByRole('heading', { name: /Release partially accepted/ })
-  await expect(summary).toBeVisible()
-  await page.getByRole('button', { name: 'View details' }).click()
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Done' }).click()
-
   await page.goto('/servers/srv-2/activity?site=site-a')
-  const sessionActions = page.getByRole('grid', { name: 'Current browser session Server actions' })
-  await expect(sessionActions).toContainText('req-release-srv-2')
-  await expect(sessionActions).toContainText('Machine cannot be released while a hosted VM is running.')
+  const related = page.getByRole('grid', { name: 'Related Operations' })
+  await expect(related).toContainText('Release 2 Server(s)')
+  await expect(related).toContainText('partially succeeded')
 })
 
 test('Server detail failure exposes and reopens its correlated provider error', async ({ page }) => {
@@ -179,22 +180,37 @@ test('Server detail failure exposes and reopens its correlated provider error', 
   await chooseMenuItem(page, 'Release')
   await confirmRelease(page, 1)
 
-  const dialog = page.getByRole('dialog', { name: 'Release result' })
-  await expect(dialog).toContainText('0 accepted, 1 failed across 1 target.')
-  await expect(dialog).toContainText('req-release-srv-1')
-  await expect(dialog).toContainText('MAAS refused the request: Machine cannot be released while a hosted VM is running.')
+  await expect(page).toHaveURL(/\/operations\/op-release-os-/)
+  await expect(page.getByText(/req-op-release-os-/)).toBeVisible()
+  await expect(page.getByText('MAAS refused the request: Machine cannot be released while a hosted VM is running.').first()).toBeVisible()
 
-  await dialog.getByRole('button', { name: 'Done' }).click()
-  await page.getByRole('tab', { name: 'Activity' }).click()
-
-  const sessionActions = page.getByRole('grid', { name: 'Current browser session Server actions' })
-  await expect(sessionActions).toContainText('req-release-srv-1')
-  await sessionActions.getByRole('button', { name: 'View details' }).click()
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Done' }).click()
-
+  await page.goto('/servers/srv-1/activity?site=site-a')
   await expect(page.getByRole('grid', { name: 'Provider events' })).toContainText('Started releasing machine.')
   const related = page.getByRole('grid', { name: 'Related Operations' })
-  await expect(related).toContainText('Deploy production k0s cluster')
-  await expect(related).not.toContainText('Install GPU exporters')
+  await expect(related).toContainText('Release 1 Server(s)')
+  await expect(related).toContainText('failed')
+})
+
+test('Durable Operation retries one safe Step and accepts cancellation', async ({ page }) => {
+  await installApiFixtures(page, {
+    serverActionFailureIds: ['srv-1'],
+    providerFailureRetryable: true,
+  })
+  await page.goto('/servers/srv-1/summary?site=site-a')
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await chooseMenuItem(page, 'Release')
+  await confirmRelease(page, 1)
+
+  await expect(page.getByText('requires attention', { exact: true }).first()).toBeVisible()
+  await expect(page.locator('section.sw-operation-debugger')).toContainText('provider_unavailable')
+  await page.getByRole('button', { name: 'Retry Release srv-1' }).click()
+  const step = page.getByRole('grid', { name: 'Operation Steps' }).getByRole('row').filter({ hasText: 'Release srv-1' })
+  await expect(step).toContainText('pending')
+  await expect(step).toContainText('2')
+
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Cancel Operation' })
+  await expect(confirmation).toContainText('Completed side effects are preserved.')
+  await confirmation.getByRole('button', { name: 'Cancel Operation', exact: true }).click()
+  await expect(page.getByText('canceling', { exact: true })).toBeVisible()
 })

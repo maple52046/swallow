@@ -138,7 +138,7 @@ function sortValue(server: Server, key: ServerSortKey): string | number {
     case 'name':
       return serverDisplayName(server).toLowerCase()
     case 'provisioning':
-      return server.provisioning?.state ?? ''
+      return server.deployment?.state ?? (server.provisioning?.state === 'deployed' ? 'unverified' : 'not_deployed')
     case 'power':
       return server.provisioning?.powerState ?? ''
     case 'cores':

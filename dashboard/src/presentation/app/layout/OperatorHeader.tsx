@@ -77,6 +77,7 @@ export function OperatorHeader({ variant, expanded, onToggle, navigation }: Oper
         <Button
           variant="plain"
           isHamburger
+          isExpanded={expanded}
           onClick={onToggle}
           aria-label="Global navigation"
           aria-expanded={expanded}

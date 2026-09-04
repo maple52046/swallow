@@ -45,6 +45,27 @@ export type ProvisioningState =
   | 'retired'
   | 'unknown'
 
+export type DeploymentState =
+  | 'deploying'
+  | 'verifying'
+  | 'succeeded'
+  | 'failed'
+  | 'requires_attention'
+  | 'canceled'
+
+/** Swallow-owned result of the latest durable operating system deployment. */
+export interface DeploymentAxis {
+  state: DeploymentState
+  operationId: string
+  stepId: string
+  attempt: number
+  stage: string
+  statusReason: string
+  startedAt: string
+  finishedAt: string | null
+  updatedAt: string
+}
+
 export interface ProvisioningAxis {
   state: ProvisioningState
   providerState: string
@@ -119,13 +140,13 @@ export interface Server {
   hardware: ServerHardware
 
   /**
-   * Three independent axes with three different owners. Each is null until its
-   * owner has been observed at least once.
+   * Independent projections with different owners. Deployment is Swallow's durable
+   * workflow result; provisioning, membership, and health remain external observations.
    *
-   * Never collapse these into one badge: a server that is deployed, in no platform,
-   * and not reporting metrics is either a spare awaiting allocation or a broken
-   * host, and no rule can tell which.
+   * They remain separate because an OS can be installed while deployment verification
+   * has failed, or a verified Server can later stop reporting health.
    */
+  deployment: DeploymentAxis | null
   provisioning: ProvisioningAxis | null
   membership: MembershipAxis | null
   health: HealthAxis | null

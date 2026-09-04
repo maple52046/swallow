@@ -3,6 +3,7 @@ import { FormSelect, FormSelectOption, SearchInput, ToolbarItem } from '@pattern
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { ListOperationsFilters, OperationStatus } from '@/domain/operation/types'
+import { operationStatus } from '@/domain/operation/types'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -15,7 +16,10 @@ import { formatRelative } from '@/shared/utils/time'
 import { useOperations } from './useOperations'
 
 const PAGE_SIZE = 30
-const STATUSES = ['all', 'pending', 'running', 'succeeded', 'failed', 'canceled', 'indeterminate']
+const STATUSES = [
+  'all', 'pending', 'running', 'waiting_external', 'waiting_dependency', 'canceling',
+  'succeeded', 'partially_succeeded', 'failed', 'requires_attention', 'canceled', 'indeterminate',
+]
 
 /** AWX-style compact Operation list whose complete filtering state remains in the URL. */
 export function OperatorOperationsPage() {
@@ -48,7 +52,7 @@ export function OperatorOperationsPage() {
     {state.status === 'error' && <ErrorState message={state.message} />}
     {state.status === 'ready' && state.operations.length === 0 && <EmptyState title="No operations" message="Nothing matches the current URL filters." />}
     {state.status === 'ready' && state.operations.length > 0 && <>
-      <StickyTableFrame><Table aria-label="Operations" variant="compact" isStriped><Thead><Tr><Th>Status</Th><Th>Operation</Th><Th>Kind</Th><Th>Targets</Th><Th>Requested by</Th><Th>Age</Th></Tr></Thead><Tbody>{state.operations.map((operation) => <Tr key={operation.id} isClickable onRowClick={() => navigate(scopedHref(`/operations/${operation.id}`))}><Td dataLabel="Status"><StatusBadge status={operation.execution.status} /></Td><Td dataLabel="Operation"><strong>{operation.intent || operation.execution.playbook}</strong><small className="mono">{operation.id}</small></Td><Td dataLabel="Kind">{operation.kind}</Td><Td dataLabel="Targets">{operation.targetServerIds.length}</Td><Td dataLabel="Requested by">{operation.requestedBy || 'system'}</Td><Td dataLabel="Age">{formatRelative(operation.requestedAt)}</Td></Tr>)}</Tbody></Table></StickyTableFrame>
+      <StickyTableFrame><Table aria-label="Operations" variant="compact" isStriped><Thead><Tr><Th>Status</Th><Th>Operation</Th><Th>Kind</Th><Th>Targets</Th><Th>Requested by</Th><Th>Age</Th></Tr></Thead><Tbody>{state.operations.map((operation) => <Tr key={operation.id} isClickable onRowClick={() => navigate(scopedHref(`/operations/${operation.id}`))}><Td dataLabel="Status"><StatusBadge status={operationStatus(operation)} /></Td><Td dataLabel="Operation"><strong>{operation.intent || operation.execution.playbook}</strong><small className="mono">{operation.id}</small></Td><Td dataLabel="Kind">{operation.kind}</Td><Td dataLabel="Targets">{operation.targetServerIds.length}</Td><Td dataLabel="Requested by">{operation.requestedBy || 'system'}</Td><Td dataLabel="Age">{formatRelative(operation.requestedAt)}</Td></Tr>)}</Tbody></Table></StickyTableFrame>
       <div className="sw-pagination"><Pagination value={page} total={Math.max(1, Math.ceil(state.total / PAGE_SIZE))} onChange={(value) => setFilter('page', String(value))} /></div>
     </>}
   </div>
