@@ -53,6 +53,10 @@ export function DeploymentBadge({
     state = <Tooltip content="The OS is installed, but no Swallow deployment result exists. Check the OS and Network fields for the facts that are known."><Label color="grey">Unknown</Label></Tooltip>
   } else if (provider?.state === 'failed' || provider?.state === 'broken') {
     state = <Tooltip content={`Provider lifecycle: ${provider.providerState}`}><Label color="red">Failed</Label></Tooltip>
+  } else if (provider?.state === 'ready') {
+    // A released machine is back in the provider's available pool. Show it as "Ready"
+    // (the provider's own term) rather than "Not deployed", which reads like a fault.
+    state = <Tooltip content="The Server is in the provider's available pool, ready to be deployed."><Label color="blue">Ready</Label></Tooltip>
   } else {
     state = <Tooltip content="No operating system deployment is active or verified."><Label color="grey">Not deployed</Label></Tooltip>
   }
