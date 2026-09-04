@@ -492,11 +492,14 @@ export function ServersPage() {
   const confirmRelease = useCallback(
     async (input: ReleaseServerInput) => {
       if (!releaseTargets?.length) return;
-      const operation = await bulk.release(releaseTargets, input);
+      // Stay on the Server list after accepting the release; the toast confirms the durable
+      // Operation and reloading lets the list converge in place (releasing -> ready) rather
+      // than yanking the operator to the Operation page.
+      await bulk.release(releaseTargets, input);
       clearSelection();
-      navigate(scopedHref("/operations/" + operation.operationId));
+      reload();
     },
-    [bulk, clearSelection, navigate, releaseTargets, scopedHref],
+    [bulk, clearSelection, releaseTargets, reload],
   );
   const visible = useCallback(
     (key: string) => !hiddenColumns.has(key),

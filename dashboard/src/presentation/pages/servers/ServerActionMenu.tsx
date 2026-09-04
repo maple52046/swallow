@@ -52,7 +52,9 @@ export function ServerActionMenu({
   onActed: (
     action: ServerMenuAction,
     input: ReleaseServerInput | undefined,
-    result: ProvisioningActionResult,
+    // Optional: an accepted release creates a durable Operation rather than returning a
+    // synchronous provisioning result, so it reloads without one.
+    result?: ProvisioningActionResult,
   ) => void;
 }) {
   const serverId = server.id;
@@ -87,7 +89,7 @@ export function ServerActionMenu({
     setBusy(true);
     try {
       if (action === "release") {
-        const operation = await provisioning.createReleaseOperation({
+        await provisioning.createReleaseOperation({
           serverIds: [serverId],
           ...releaseInput,
         });
@@ -97,7 +99,9 @@ export function ServerActionMenu({
           description:
             "Swallow will observe the provider until the Server is ready.",
         });
-        navigate(scopedHref("/operations/" + operation.operationId));
+        // Stay on the Server detail page and reload so its projection converges in place,
+        // instead of navigating away to the Operation.
+        onActed(action, releaseInput);
         return;
       }
       const result = await servers.runServerAction(serverId, action);
