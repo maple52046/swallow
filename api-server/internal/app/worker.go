@@ -99,6 +99,9 @@ func RunWorker(cfg config.APIConfig) error {
 		refresh:     provisioningapp.NewRefreshServerUseCase(servers, providers),
 		servers:     servers, providers: providers, secrets: operationSecrets, tasks: tasks, poll: 5 * time.Second,
 		configurations: automationConfigurations,
+		// The executor re-checks the provider-owned Server Lock before every host
+		// mutation; an acceptance-time check alone can go stale in the durable queue.
+		protection: providerServerMutationGuard{servers: servers, providers: providers},
 	}
 	projectionCtx, cancelProjection := context.WithTimeout(ctx, 30*time.Second)
 	if err := reconcileLegacyDeploymentProjections(projectionCtx, operations, providerExecutor); err != nil {

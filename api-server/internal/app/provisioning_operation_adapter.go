@@ -32,6 +32,14 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	if len(input.ServerIDs) == 0 {
 		return nil, fmt.Errorf("%w: serverIds is required", provisioningdomain.ErrInvalidDeploymentBatch)
 	}
+	// Reject the deployment at acceptance if any target is locked. The executor
+	// re-checks the lock again before each host mutation; this early check fails fast
+	// and keeps a locked Server from ever entering a deploy Operation.
+	if l.protection != nil {
+		if err := l.protection.RequireUnlocked(ctx, input.ServerIDs); err != nil {
+			return nil, err
+		}
+	}
 	first, err := l.servers.FindByID(ctx, input.ServerIDs[0])
 	if err != nil {
 		return nil, err

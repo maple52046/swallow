@@ -27,6 +27,7 @@ type providerStepExecutor struct {
 	secrets        operationdomain.OperationSecretRepository
 	tasks          provisioningdomain.ProvisioningTaskRepository
 	configurations operationdomain.AutomationConfigurationRepository
+	protection     serverdomain.MutationGuard
 	poll           time.Duration
 	readinessWait  time.Duration
 	sshProbe       func(context.Context, string, int) error
@@ -156,6 +157,9 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 		if err == nil && state.State == string(provisioningdomain.MachineStatusDeploying) {
 			return e.observeDeploy(ctx, step, serverID, input, true)
 		}
+	}
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return *locked
 	}
 	result, err := e.deployments.Execute(ctx, input)
 	if err != nil {
@@ -315,6 +319,9 @@ func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Contex
 	if e.release == nil || e.deployments == nil {
 		return providerFailed("deployment_recovery_unavailable", "OS deployment recovery is unavailable.", false).withStage("deployment_recovery")
 	}
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return *locked
+	}
 	_, err := e.release.ExecuteWithOptions(ctx, provisioningapp.ReleaseServerInput{
 		ServerID:  serverID,
 		Comment:   fmt.Sprintf("Recover Swallow operation %s step %s attempt %d", step.OperationID, step.Step.ID, step.Step.Attempt),
@@ -326,6 +333,9 @@ func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Contex
 	released := e.observeRelease(ctx, serverID, step.OperationID, false, true)
 	if released.Status != operationdomain.StepSucceeded {
 		return released
+	}
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return *locked
 	}
 	result, err := e.deployments.Execute(ctx, input)
 	if err != nil {
@@ -367,6 +377,9 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 		if err == nil && state.State == string(provisioningdomain.MachineStatusReleasing) {
 			return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
 		}
+	}
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return *locked
 	}
 	_, err := e.release.ExecuteWithOptions(ctx, input)
 	if err != nil {
@@ -535,6 +548,23 @@ func (r providerResult) withStage(stage string) temporalworkflow.StepExecutionRe
 	return r.StepExecutionResult
 }
 
+// requireUnlocked re-checks the provider-owned Server Lock immediately before a host
+// mutation. An acceptance-time lock check can go stale while an Operation waits in a
+// durable queue, so every side-effecting provider call revalidates that the target is
+// unlocked. It fails closed: a lock read that cannot be confirmed blocks the mutation.
+// The Step pauses for operator attention (retryable) rather than failing terminally, so
+// the operator can unlock and retry the same Step.
+func (e providerStepExecutor) requireUnlocked(ctx context.Context, serverID string) *temporalworkflow.StepExecutionResult {
+	if e.protection == nil || serverID == "" {
+		return nil
+	}
+	if err := e.protection.RequireUnlocked(ctx, []string{serverID}); err != nil {
+		result := providerAttention("target_locked", err.Error(), "lock_precheck")
+		return &result
+	}
+	return nil
+}
+
 func normalizeProviderError(err error, stage string) temporalworkflow.StepExecutionResult {
 	var providerErr *provisioningdomain.ProviderError
 	if errors.As(err, &providerErr) {
@@ -547,5 +577,9 @@ func normalizeProviderError(err error, stage string) temporalworkflow.StepExecut
 			return providerFailed("provider_rejected", providerErr.Detail, false).withStage(stage)
 		}
 	}
-	return providerFailed("provider_error", err.Error(), true).withStage(stage)
+	// An unclassified error from a mutating provider call is an unknown outcome, not a
+	// safe retry: the request may have reached the provider and taken effect before the
+	// transport failed. Reconcile under operator attention instead of auto-retrying,
+	// which could duplicate a deploy or release side effect.
+	return providerAttention("provider_outcome_unknown", err.Error(), stage)
 }
