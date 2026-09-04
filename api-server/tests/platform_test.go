@@ -131,6 +131,39 @@ func TestSyncMembership_WritesMembershipAxis(t *testing.T) {
 	}
 }
 
+// The former Cluster routes remain available for one release as deprecated aliases of the
+// Platform routes: the same handler runs, the response carries the clusterId alias, and a
+// Deprecation header points clients at the canonical path.
+func TestLegacyClusterRouteIsADeprecatedPlatformAlias(t *testing.T) {
+	f := setupPlatform(t)
+	platform := seedPlatform(t, f, "platform-1", "prod-k8s", "provisioning")
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.platformReader.readers[platform.ID] = &fakePlatformReader{
+		members: []platformdomain.Member{
+			{Name: "gpu-node-01", Role: "worker", State: "ready", Addresses: []string{"10.0.1.10"}},
+		},
+	}
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/clusters/platform-1/sync", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("legacy /clusters alias: expected 200, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Deprecation") != "true" {
+		t.Errorf("legacy /clusters alias must set the Deprecation header")
+	}
+	if link := resp.Header.Get("Link"); !strings.Contains(link, "/api/v1/platforms") {
+		t.Errorf("legacy /clusters alias must link the successor path, got %q", link)
+	}
+	report := parseBody(t, resp)
+	if report["platformId"] != "platform-1" {
+		t.Errorf("platformId: got %v", report["platformId"])
+	}
+	// clusterId mirrors platformId for the one-release compatibility window.
+	if report["clusterId"] != "platform-1" {
+		t.Errorf("legacy clusterId alias: got %v", report["clusterId"])
+	}
+}
+
 func TestSyncMembership_MatchesByAddressWhenNameDiffers(t *testing.T) {
 	f := setupPlatform(t)
 	platform := seedPlatform(t, f, "platform-1", "prod-k8s", "provisioning")

@@ -101,7 +101,7 @@ The dashboard type modules that the original references pointed at covered:
 `Server`/`ServerStatus`/`AllocationState`/`OwnerType`, `Team`, `User`/`UserRole`/
 `UserStatus`, `Container`/`WorkloadStatus`, `Datacenter`/`Room`/`Rack`,
 `Alert`/`AlertSeverity`/`AlertStatus`/`AlertCategory`, `GPUDevice`/`GPUMetrics`/
-`GPUStatus`, `Plane`/`K8sCluster`/`SlurmCluster`, `ProvisioningImage`/
+`GPUStatus`, `Plane`/`K8sPlatform`/`SlurmPlatform`, `ProvisioningImage`/
 `ProvisioningProfile`/`ProvisioningJob`, and `SSHKey`/`Connection`. Most of these
 terms are still undefined in the platform glossary — see its Pending Terms
 section — and must be defined before the corresponding contract can go Active.
@@ -951,7 +951,7 @@ For `type: "slurm"`:
 ```json
 {
   "id": "plane-slurm-hpc",
-  "name": "HPC Slurm Cluster",
+  "name": "HPC Slurm Platform",
   "type": "slurm",
   "status": "connected",
   "...": "(base Plane fields)",
@@ -1170,8 +1170,8 @@ The API contract is designed so that API responses map directly to frontend norm
 | `GPUDeviceResponse` | `GPUDevice` | Direct mapping |
 | `GPUMetricsResponse` | `GPUMetrics` | Direct mapping |
 | `PlaneSummaryResponse` | `Plane` | Direct mapping |
-| `K8sPlaneDetailResponse` | `K8sCluster` | Direct mapping |
-| `SlurmPlaneDetailResponse` | `SlurmCluster` | Direct mapping |
+| `K8sPlaneDetailResponse` | `K8sPlatform` | Direct mapping |
+| `SlurmPlaneDetailResponse` | `SlurmPlatform` | Direct mapping |
 | `ProvisioningJobResponse` | `ProvisioningJob` | Direct mapping |
 
 ### Owner Field Note

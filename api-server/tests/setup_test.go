@@ -203,6 +203,24 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformGroup.Post("/:id/sync", platformHandler.SyncMembership)
 	platformGroup.Post("/:id/uninstall", platformHandler.Uninstall)
 
+	// Deprecated one-release /clusters alias mirrors the Platform routes with a
+	// Deprecation header, matching internal/app route registration.
+	legacyPlatformGroup := v1.Group("/clusters", admin...)
+	legacyPlatformGroup.Use(func(c *fiber.Ctx) error {
+		c.Set("Deprecation", "true")
+		c.Set("Link", "</api/v1/platforms>; rel=\"successor-version\"")
+		return c.Next()
+	})
+	legacyPlatformGroup.Post("/", platformHandler.Create)
+	legacyPlatformGroup.Get("/", platformHandler.List)
+	legacyPlatformGroup.Post("/deploy", platformHandler.Deploy)
+	legacyPlatformGroup.Post("/sync", platformHandler.SyncAllMembership)
+	legacyPlatformGroup.Get("/:id", platformHandler.Get)
+	legacyPlatformGroup.Patch("/:id", platformHandler.Update)
+	legacyPlatformGroup.Delete("/:id", platformHandler.Delete)
+	legacyPlatformGroup.Post("/:id/sync", platformHandler.SyncMembership)
+	legacyPlatformGroup.Post("/:id/uninstall", platformHandler.Uninstall)
+
 	monitoringGroup := v1.Group("/monitoring", admin...)
 	monitoringGroup.Get("/alerts", monitoringHandler.ListAlerts)
 	monitoringGroup.Post("/alerts/:fingerprint/acknowledge", monitoringHandler.Acknowledge)

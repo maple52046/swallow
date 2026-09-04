@@ -73,14 +73,14 @@ its labels already attached:
     "labels": {
       "server_id": "srv-abc123",
       "site": "site-id",
-      "cluster": "cluster-id"
+      "platform": "platform-id"
     }
   }
 ]
 ```
 
-- `server_id` and `site` are always present. `cluster` is present only when the server is
-  a known cluster member.
+- `server_id` and `site` are always present. `platform` is present only when the server is
+  a known platform member.
 - A server with no known address is omitted rather than emitted with an empty target,
   because a target with no address would create a permanently failing series attributed
   to that server.

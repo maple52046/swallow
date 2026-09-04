@@ -1,4 +1,4 @@
-# Clusters
+# Platforms
 
 ## Status
 
@@ -14,41 +14,41 @@ Active
 
 ## Purpose
 
-Register Kubernetes and Slurm clusters, read observed membership, deploy k0s, uninstall
+Register Kubernetes and Slurm platforms, read observed membership, deploy k0s, uninstall
 Swallow-deployed k0s, and delete Swallow records. Swallow owns registration, policy, and
-durable lifecycle intent. It does not own externally registered hosts or cluster
+durable lifecycle intent. It does not own externally registered hosts or platform
 membership.
 
 ## Related Glossary Terms
 
-- [Cluster](../../../../../docs/development/glossaries/terms/cluster.md)
-- [Cluster Lifecycle State](../../../../../docs/development/glossaries/terms/cluster-lifecycle-state.md)
+- [Platform](../../../../../docs/development/glossaries/terms/platform.md)
+- [Platform Lifecycle State](../../../../../docs/development/glossaries/terms/platform-lifecycle-state.md)
 - [Operation](../../../../../docs/development/glossaries/terms/operation.md)
 - [Node Role](../../../../../docs/development/glossaries/terms/node-role.md)
-- [Cluster Topology](../../../../../docs/development/glossaries/terms/cluster-topology.md)
+- [Platform Topology](../../../../../docs/development/glossaries/terms/platform-topology.md)
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
 
 ## Endpoints
 
 ```text
-POST   /api/v1/clusters/
-GET    /api/v1/clusters/
-POST   /api/v1/clusters/deploy
-GET    /api/v1/clusters/{clusterId}
-PATCH  /api/v1/clusters/{clusterId}
-DELETE /api/v1/clusters/{clusterId}
-POST   /api/v1/clusters/{clusterId}/uninstall
-POST   /api/v1/clusters/{clusterId}/sync
-POST   /api/v1/clusters/sync
+POST   /api/v1/platforms/
+GET    /api/v1/platforms/
+POST   /api/v1/platforms/deploy
+GET    /api/v1/platforms/{platformId}
+PATCH  /api/v1/platforms/{platformId}
+DELETE /api/v1/platforms/{platformId}
+POST   /api/v1/platforms/{platformId}/uninstall
+POST   /api/v1/platforms/{platformId}/sync
+POST   /api/v1/platforms/sync
 ```
 
 All endpoints require an admin JWT according to [conventions](conventions.md).
 
-## Cluster Resource
+## Platform Resource
 
 ```json
 {
-  "id": "cluster-id",
+  "id": "platform-id",
   "siteId": "site-id",
   "name": "lab-k0s",
   "type": "kubernetes",
@@ -88,26 +88,26 @@ clients must not infer them from `integrationId`, membership, or sync freshness.
 `deployment` is the non-secret topology intent recovered from the latest durable
 `deploy-kubernetes` Operation. It contains `topology` as `standalone`, `multi-node`, or `high-availability` and the
 original `roleAssignments`, including `runWorkloads`.
-It is `null` for registered Clusters and legacy deployment history that cannot be
+It is `null` for registered Platforms and legacy deployment history that cannot be
 projected completely. A control-plane assignment with `runWorkloads=true` retains the
 `control-plane` Node Role while also being workload-capable; clients must not treat the
 number of worker-only assignments as total workload capacity.
 
 `integrationId` is `null` before a deployment produces a credential and again after a
 successful uninstall removes the Swallow-owned credential Integration. A registered
-cluster may also have no Integration. `sync.matchedCount` is how many reported members
+platform may also have no Integration. `sync.matchedCount` is how many reported members
 matched a Server.
 
-## Register An Existing Cluster
+## Register An Existing Platform
 
-`POST /api/v1/clusters/` registers a cluster that already exists.
+`POST /api/v1/platforms/` registers a platform that already exists.
 
 ```json
 {
   "siteId": "site-id",
   "name": "lab-k0s",
   "type": "kubernetes",
-  "integrationId": "cluster-integration-id",
+  "integrationId": "platform-integration-id",
   "gpuStackOwner": "provisioning",
   "exporterOwner": "ansible"
 }
@@ -117,9 +117,9 @@ matched a Server.
 `exporterOwner` are optional; `exporterOwner` defaults to `ansible`. Success is
 `201 Created` returning the resource with `origin=registered`.
 
-## Deploy A New Cluster
+## Deploy A New Platform
 
-`POST /api/v1/clusters/deploy` creates a cluster and starts a
+`POST /api/v1/platforms/deploy` creates a platform and starts a
 `deploy-kubernetes` Operation that builds it with k0s.
 
 ```json
@@ -142,18 +142,18 @@ matched a Server.
 ```
 
 `type` is always `kubernetes`. The target Servers must exist, be `deployed`, and belong to one Site. They must also be unlocked in a live provider read. The complete lock preflight finishes before Swallow creates either the
-Cluster or Operation; one locked target rejects the batch with `409 conflict`.
+Platform or Operation; one locked target rejects the batch with `409 conflict`.
 
 A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
 defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
 runs workloads.
 
-A target is rejected while it is claimed by another Swallow-deployed Cluster whose
+A target is rejected while it is claimed by another Swallow-deployed Platform whose
 lifecycle is `deploying`, `deploy_failed`, `active`, `uninstalling`, or
 `uninstall_failed`. Claims use the durable deployment Operation's complete
 `targetServerIds` snapshot, so a partial failed deployment remains protected even before
-membership can be observed. A successful Uninstall transitions the Cluster to
-`uninstalled` and releases that claim. A target carrying any observed Cluster membership
+membership can be observed. A successful Uninstall transitions the Platform to
+`uninstalled` and releases that claim. A target carrying any observed Platform membership
 is also rejected. The current Server projection has one membership axis; allowing
 cross-platform co-residency requires a future platform-scoped multi-membership contract
 rather than overwriting the existing observation.
@@ -176,28 +176,28 @@ Success is `202 Accepted` after both records are persisted:
 
 ```json
 {
-  "clusterId": "cluster-id",
+  "platformId": "platform-id",
   "operationId": "operation-id"
 }
 ```
 
 Progress is read through [operations](operations.md). On success Swallow creates and marks
-ownership of a credential Integration, attaches it to the Cluster, and begins membership
+ownership of a credential Integration, attaches it to the Platform, and begins membership
 reads.
 
-## Uninstall A Deployed Cluster
+## Uninstall A Deployed Platform
 
-`POST /api/v1/clusters/{clusterId}/uninstall` starts an
-`uninstall-kubernetes` Operation and retains the Cluster record.
+`POST /api/v1/platforms/{platformId}/uninstall` starts an
+`uninstall-kubernetes` Operation and retains the Platform record.
 
 ```json
 {
-  "clusterId": "cluster-id",
+  "platformId": "platform-id",
   "operationId": "operation-id"
 }
 ```
 
-Eligibility requires a Kubernetes Cluster with durable `deploy-kubernetes` provenance.
+Eligibility requires a Kubernetes Platform with durable `deploy-kubernetes` provenance.
 The target set is always the complete `targetServerIds` snapshot from its latest
 deployment Operation, never current membership. All targets must still exist, be present,
 be unlocked, and have no overlapping active Operation. Lock is checked live before
@@ -205,7 +205,7 @@ the uninstall Operation is created. No single provisioning state is
 required because a failed deployment can leave a mixed target set.
 
 A pending or running deployment/uninstall, an already successful uninstall, a missing,
-absent, locked, or busy target, a registered Cluster, or a Slurm Cluster returns
+absent, locked, or busy target, a registered Platform, or a Slurm Platform returns
 `409 conflict`. Failed, canceled, or indeterminate uninstalls may be submitted again; the
 new Operation records `retryOfOperationId` pointing to the latest uninstall.
 
@@ -214,27 +214,27 @@ k0s state, units, join token, installer, and binary, and reloads systemd. It pre
 OS, user data, `conntrack`, unrelated packages, and power state, and does not reboot.
 
 On success Swallow clears membership, deletes only a credential Integration proven to be
-Swallow-owned, and clears the Cluster integration/sync projection. If Kubernetes owned
+Swallow-owned, and clears the Platform integration/sync projection. If Kubernetes owned
 exporters, Swallow separately queues `install-exporters` for targets that remain present,
 deployed, and unlocked. That Operation has its own failure lifecycle and does not roll back
 the uninstall.
 
 ## List, Get, Update, And Delete
 
-`GET /api/v1/clusters/` returns a plain array, optionally filtered by `siteId`.
-`GET /api/v1/clusters/{clusterId}` returns one. Lifecycle history is fetched in one batch
-for list requests; the API does not fan out one Operation query per Cluster.
+`GET /api/v1/platforms/` returns a plain array, optionally filtered by `siteId`.
+`GET /api/v1/platforms/{platformId}` returns one. Lifecycle history is fetched in one batch
+for list requests; the API does not fan out one Operation query per Platform.
 
-`PATCH /api/v1/clusters/{clusterId}` updates `name`, `integrationId`,
+`PATCH /api/v1/platforms/{platformId}` updates `name`, `integrationId`,
 `gpuStackOwner`, or `exporterOwner`; omitted fields do not change.
 
-`DELETE /api/v1/clusters/{clusterId}` is record-only and always returns
+`DELETE /api/v1/platforms/{platformId}` is record-only and always returns
 `{"success":true}` on success. It clears membership and a Swallow-owned credential
-Integration, then removes the Cluster record. It never runs Ansible, changes hosts, waits
+Integration, then removes the Platform record. It never runs Ansible, changes hosts, waits
 for Uninstall, restores exporters, or cancels accepted Operations. It remains
 available while targets are locked because it does not mutate them. Pending/running
 Operations may finish after Delete; retrying a finished deploy/uninstall Operation whose
-Cluster no longer exists is refused.
+Platform no longer exists is refused.
 
 Legacy records delete their linked Integration only when deployment provenance and the
 complete auto-generated Kubernetes Integration signature both match. Operator-owned
@@ -242,12 +242,12 @@ Integrations are never deleted.
 
 ## Sync Membership
 
-`POST /api/v1/clusters/{clusterId}/sync` reads membership now and returns:
+`POST /api/v1/platforms/{platformId}/sync` reads membership now and returns:
 
 ```json
 {
-  "clusterId": "cluster-id",
-  "clusterName": "lab-k0s",
+  "platformId": "platform-id",
+  "platformName": "lab-k0s",
   "members": 7,
   "matched": 7,
   "cleared": 0,
@@ -256,21 +256,31 @@ Integrations are never deleted.
 }
 ```
 
-`POST /api/v1/clusters/sync` syncs every registered cluster. One failing cluster does
+`POST /api/v1/platforms/sync` syncs every registered platform. One failing platform does
 not stop the rest. For Kubernetes, nodes are read from `/api/v1/nodes`; enabled k0s
 control-plane lease discovery also reads dedicated controllers from `k0s-ctrl-*` leases.
 
 ## Errors
 
-Unknown Cluster, Site, or Integration returns `not_found`. Duplicate names and uninstall
+Unknown Platform, Site, or Integration returns `not_found`. Duplicate names and uninstall
 eligibility/target conflicts return `conflict`. Invalid resource values or deployment
 topology return `validation_error`. Missing/disabled automation, missing automation
-credential, or unavailable release playbook returns `provider_unavailable`. Cluster API
+credential, or unavailable release playbook returns `provider_unavailable`. Platform API
 transport/auth failures return `provider_unavailable`; provider rejection returns
 `validation_error`.
 
 ## Compatibility Notes
 
+- The aggregate was renamed from Cluster to Platform. For one release the former surface
+  remains available as deprecated aliases:
+  - Route alias: every `/api/v1/clusters...` path mirrors the corresponding
+    `/api/v1/platforms...` path and is served by the same handler. Responses to the alias
+    carry a `Deprecation` header and a `Link` header pointing at the canonical path. New
+    clients must use `/api/v1/platforms`.
+  - Field alias: responses include `clusterId` alongside the canonical `platformId` with
+    the same value; requests accept either, and `platformId` wins when both are sent.
+  - The aliases are removed after the one-release deprecation window; see
+    [ADR-014](../../../../../docs/decisions/014-platform-resource-language.md).
 - Uninstall and lifecycle fields are additive. Existing paths and Delete response remain
   unchanged.
 - Delete remains non-destructive to hosts.

@@ -1,8 +1,8 @@
-# Cluster Topology
+# Kubernetes Topology
 
-- Bounded context: Cluster Management.
+- Bounded context: Platform Management.
 - Definition: The placement and availability shape of the control plane and workload
-  capacity in a Swallow-deployed Kubernetes Cluster.
+  capacity in a Swallow-deployed Kubernetes Platform.
 - Allowed meaning: One of the supported shapes below, inferred from Node Role assignments
   and whether a control-plane Server also runs workloads.
 - Disallowed meaning: Not a count of all observed members, a network topology, a Server
@@ -21,6 +21,6 @@
 - Examples: A single lab Server is `standalone`; one control-plane Server and six workers
   is `multi-node`; three dedicated control-plane Servers and four workers is
   `high-availability`.
-- Related terms: Cluster, Node Role, Server, Operation.
+- Related terms: Platform, Node Role, Server, Operation.
 - Change note: Added on 2026-08-30 when Kubernetes deployment was expanded beyond the
   original fixed high-availability shape.

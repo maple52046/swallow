@@ -19,12 +19,12 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server Status](terms/server-status.md): Not a single value but three independent status axes — `provisioning`, `membership`, and `health` — each owned by a different system and absent until observed.
 - [Server Lock](terms/server-lock.md): Provider-owned protection that blocks Server, provisioner, and host mutations without hiding the Server or stopping monitoring.
 - [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
-- [Cluster](terms/cluster.md): A registered or Swallow-deployed Kubernetes or Slurm
-  cluster; Uninstall changes original deployment targets while Delete removes only the record.
-- [Cluster Lifecycle State](terms/cluster-lifecycle-state.md): Backend operation-derived
+- [Platform](terms/platform.md): A registered or Swallow-deployed Kubernetes or Slurm
+  platform; Uninstall changes original deployment targets while Delete removes only the record.
+- [Platform Lifecycle State](terms/platform-lifecycle-state.md): Backend operation-derived
   state from registration through deployment and uninstall, independent of connectivity.
-- [Node Role](terms/node-role.md): The part a server plays in a cluster — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a cluster.
-- [Cluster Topology](terms/cluster-topology.md): The supported placement and availability
+- [Node Role](terms/node-role.md): The part a server plays in a platform — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a platform.
+- [Kubernetes Topology](terms/kubernetes-topology.md): The supported placement and availability
   shape of a Kubernetes deployment — standalone, non-HA multi-node, or high availability.
 
 ### OS Provisioning
@@ -71,7 +71,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Automation
 
-- [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for embedded Ansible execution.
+- [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for Swallow-owned Ansible execution.
 - [Operation](terms/operation.md): A durable operator intent and its locally owned execution lifecycle.
 
 ### Provisioning and Management Planes

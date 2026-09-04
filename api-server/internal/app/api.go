@@ -362,6 +362,30 @@ type routeDeps struct {
 	releaseVersion string
 }
 
+// registerPlatformRoutes mounts the Platform resource handlers on a router group so the
+// canonical /api/v1/platforms routes and the deprecated /api/v1/clusters alias share one
+// definition and cannot drift apart during the one-release compatibility window.
+func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler) {
+	routes.Post("/", handler.Create)
+	routes.Get("/", handler.List)
+	routes.Post("/deploy", handler.Deploy)
+	routes.Post("/sync", handler.SyncAllMembership)
+	routes.Get("/:id", handler.Get)
+	routes.Patch("/:id", handler.Update)
+	routes.Delete("/:id", handler.Delete)
+	routes.Post("/:id/uninstall", handler.Uninstall)
+	routes.Post("/:id/sync", handler.SyncMembership)
+}
+
+// markDeprecatedPlatformRoute flags a former Cluster URL without changing its response
+// body, giving clients one release to follow the canonical successor link before the
+// /api/v1/clusters alias is removed.
+func markDeprecatedPlatformRoute(c *fiber.Ctx) error {
+	c.Set("Deprecation", "true")
+	c.Set("Link", "</api/v1/platforms>; rel=\"successor-version\"")
+	return c.Next()
+}
+
 func registerRoutes(app *fiber.App, deps routeDeps) {
 	app.Get("/livez", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "alive", "version": deps.releaseVersion})
@@ -473,15 +497,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// swallow owns a platform's registration and its policy. Membership is read from the
 	// platform's own API, so there is no endpoint here to change it.
 	platforms := v1.Group("/platforms", admin...)
-	platforms.Post("/", deps.platforms.Create)
-	platforms.Get("/", deps.platforms.List)
-	platforms.Post("/deploy", deps.platforms.Deploy)
-	platforms.Post("/sync", deps.platforms.SyncAllMembership)
-	platforms.Get("/:id", deps.platforms.Get)
-	platforms.Patch("/:id", deps.platforms.Update)
-	platforms.Delete("/:id", deps.platforms.Delete)
-	platforms.Post("/:id/uninstall", deps.platforms.Uninstall)
-	platforms.Post("/:id/sync", deps.platforms.SyncMembership)
+	registerPlatformRoutes(platforms, deps.platforms)
+	// Deprecated one-release alias for the former Cluster resource. The same handlers
+	// serve /api/v1/clusters so existing clients keep working; a Deprecation header
+	// points them at the canonical /api/v1/platforms path.
+	legacyPlatforms := v1.Group("/clusters", admin...)
+	legacyPlatforms.Use(markDeprecatedPlatformRoute)
+	registerPlatformRoutes(legacyPlatforms, deps.platforms)
 
 	// Alerts and metrics are read straight from the monitoring stack: swallow stores
 	// neither, and acknowledging an alert creates a silence in Alertmanager.

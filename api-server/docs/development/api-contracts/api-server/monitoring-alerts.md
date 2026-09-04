@@ -25,7 +25,7 @@ POST /api/v1/monitoring/alerts/{fingerprint}/acknowledge?siteId=<optional>
 
 Both routes require an admin bearer token. Alert items contain `fingerprint`,
 `name`, `severity`, `state`, `summary`, `description`, `labels`,
-`startsAt`, and optional correlated `serverId`, `siteId`, and `clusterId`.
+`startsAt`, and optional correlated `serverId`, `siteId`, and `platformId`.
 
 Acknowledge accepts `matchers`, optional positive Go `duration`, and
 `comment`; success returns `{"silenceId": "string"}`. The caller identity is

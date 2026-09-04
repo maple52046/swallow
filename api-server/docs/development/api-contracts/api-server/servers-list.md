@@ -16,7 +16,7 @@ Active
 
 Lists the complete, secret-free Server projections with optional filtering and
 pagination. This inventory surface includes the independently observed
-provisioning, cluster-membership, and health axes.
+provisioning, platform-membership, and health axes.
 
 ## Related Glossary Terms
 
@@ -54,7 +54,8 @@ Bearer token required. See [`conventions.md`](conventions.md).
 | `siteId` | string | No | Return Servers observed through integrations at this Site. |
 | `integrationId` | string | No | Return Servers observed through this integration. |
 | `provisioningState` | string | No | Filter on the provisioning axis state. |
-| `clusterId` | string | No | Return Servers whose membership axis names this Cluster. |
+| `platformId` | string | No | Return Servers whose membership axis names this Platform. |
+| `clusterId` | string | No | Deprecated one-release alias for `platformId`; ignored when `platformId` is also present. |
 | `keyword` | string | No | Case-insensitive match on hostname, FQDN, address, serial number, or system UUID. |
 | `includeAbsent` | boolean | No | Include projections absent from the latest provider inventory; default `false`. |
 
@@ -88,7 +89,8 @@ query language. `includeAbsent=true` changes visibility only.
         "observedAt": "2026-05-02T15:00:00Z"
       },
       "membership": {
-        "clusterId": "cluster-id",
+        "platformId": "platform-id",
+        "clusterId": "platform-id",
         "role": "worker",
         "state": "ready",
         "observedAt": "2026-05-02T15:00:00Z"
@@ -129,6 +131,12 @@ only documented values.
 
 Adding an optional projection field is backward compatible. Adding a credential
 field is forbidden. The three state axes and `absent` remain independent.
+
+Following the Cluster to Platform rename, the `clusterId` query parameter and the
+membership `clusterId` response field are deprecated one-release aliases for
+`platformId`. When both are sent, `platformId` wins; the aliases are removed after the
+deprecation window (see
+[ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)).
 
 ## Implementation Notes
 

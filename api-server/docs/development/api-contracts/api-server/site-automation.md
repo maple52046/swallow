@@ -15,7 +15,7 @@ Active
 
 ## Purpose
 
-Manage the single embedded Ansible configuration for a site without modelling Ansible as
+Manage the Swallow-owned Ansible configuration for a site without modelling Ansible as
 an external integration. Secret material is write-only.
 
 ## Related Glossary Terms
@@ -60,11 +60,11 @@ owner. `install-exporters` is also the playbook the platform auto-runs when a se
 reaches the `deployed` provisioning state.
 
 The `deploy-k8s-exporters` / `remove-k8s-exporters` mappings are the Kubernetes side of
-exporter ownership: they apply or delete the exporter DaemonSets on a cluster (run on a
-control-plane target). Switching a cluster's `exporterOwner` to `k8s` uninstalls the
+exporter ownership: they apply or delete the exporter DaemonSets on a platform (run on a
+control-plane target). Switching a platform's `exporterOwner` to `k8s` uninstalls the
 members' Ansible exporters and deploys the DaemonSets; switching back removes them.
 
-`uninstall-kubernetes` is selected explicitly by the Cluster uninstall use case from the
+`uninstall-kubernetes` is selected explicitly by the Platform uninstall use case from the
 release manifest. It needs no Site mapping, so existing automation configurations remain
 valid.
 
@@ -104,5 +104,6 @@ invalid ports, missing required fields, and unregistered playbooks return
 
 ## Compatibility Notes
 
-This is a breaking replacement for the former external automation-integration model.
-Development and testing databases are recreated; no dual-schema migration is provided.
+The Site Automation Configuration wire contract is unchanged. New schema-v3 Operations
+consume it through the standalone Ansible executor; legacy schema-v2 Operations may still
+consume it through the compatibility dispatcher while that queue drains.

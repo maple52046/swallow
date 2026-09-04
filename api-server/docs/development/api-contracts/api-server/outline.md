@@ -22,14 +22,14 @@ Consumer: `dashboard`.
 | --- | --- | --- | --- |
 | [auth-login.md](auth-login.md) | Active | `POST /api/v1/auth/login` | Exchange username and password for an access token. |
 | [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity and role. |
-| [overview.md](overview.md) | Active | `GET /api/v1/overview` | Site-scoped inventory, integration, cluster, operation, and monitoring summary. |
+| [overview.md](overview.md) | Active | `GET /api/v1/overview` | Site-scoped inventory, integration, platform, operation, and monitoring summary. |
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List complete Server projections with filtering and pagination. |
 | [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server and run provider-backed machine actions. |
 | [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List live OS Images, manage Deployment Templates, and submit multi-Server OS Deployments. |
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
 | [operations.md](operations.md) | Active | `/api/v1/operations` | Create, observe, and retry Swallow-owned playbook executions, with logs and per-task events. |
-| [clusters.md](clusters.md) | Active | `/api/v1/clusters` | Register clusters, read membership, and deploy a k0s cluster onto provisioned servers. |
+| [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Register platforms, read membership, and deploy a k0s cluster onto provisioned servers. |
 | [server-metrics.md](server-metrics.md) | Active | `GET /api/v1/monitoring/metrics` | Read current metric values for servers from the metrics backend, and list the fixed metric-name set. |
 | [monitoring-alerts.md](monitoring-alerts.md) | Active | `/api/v1/monitoring/alerts` | List correlated alerts and create Alertmanager silences. |
 | [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus` | Prometheus `http_sd` target list with the metrics label contract; `tag` selects one server type. |
@@ -70,7 +70,7 @@ routes and no active contract:
 
 Note: some groups in `planned-surface.md` are no longer planned. Provisioning `Profile`
 and `Job` are retired (automation content belongs in a playbook; deployment progress is
-the provisioning axis). Server detail, clusters (Kubernetes/Slurm registration),
+the provisioning axis). Server detail, platforms (Kubernetes/Slurm registration),
 operations, and monitoring alerts are now implemented rather than planned — see the
 tables above and the platform's current API surface.
 
