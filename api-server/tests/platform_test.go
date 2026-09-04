@@ -382,7 +382,7 @@ func TestUninstallPlatform_AcceptsOriginalDeploymentTargets(t *testing.T) {
 		t.Fatalf("expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
 	}
 	body := parseBody(t, resp)
-	if body["clusterId"] != "platform-1" || body["operationId"] != "operation-uninstall-1" {
+	if body["platformId"] != "platform-1" || body["operationId"] != "operation-uninstall-1" {
 		t.Errorf("response = %v", body)
 	}
 	launch := f.uninstallLauncher.lastLaunch

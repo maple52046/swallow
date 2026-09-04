@@ -24,13 +24,14 @@ type HealthResolver interface {
 // Reader projects repository-owned records into overview-owned summaries. It never writes
 // or persists the derived view, and credentials are absent from every projection.
 type Reader struct {
-	sites        sitedomain.SiteRepository
-	integrations sitedomain.IntegrationRepository
-	servers      serverdomain.ServerRepository
-	health       HealthResolver
-	platforms    platformdomain.PlatformRepository
-	operations   operationdomain.ExecutionRepository
-	alerts       *monitoringapp.AlertService
+	sites          sitedomain.SiteRepository
+	integrations   sitedomain.IntegrationRepository
+	servers        serverdomain.ServerRepository
+	health         HealthResolver
+	platforms      platformdomain.PlatformRepository
+	operations     operationdomain.ExecutionRepository
+	orchestrations operationdomain.OrchestrationRepository
+	alerts         *monitoringapp.AlertService
 }
 
 // NewReader wires the existing context repositories into the overview read boundary.
@@ -42,11 +43,13 @@ func NewReader(
 	platforms platformdomain.PlatformRepository,
 	operations operationdomain.ExecutionRepository,
 	alerts *monitoringapp.AlertService,
+	orchestrations ...operationdomain.OrchestrationRepository,
 ) *Reader {
-	return &Reader{
-		sites: sites, integrations: integrations, servers: servers, health: health,
-		platforms: platforms, operations: operations, alerts: alerts,
+	reader := &Reader{sites: sites, integrations: integrations, servers: servers, health: health, platforms: platforms, operations: operations, alerts: alerts}
+	if len(orchestrations) > 0 {
+		reader.orchestrations = orchestrations[0]
 	}
+	return reader
 }
 
 // ListSites returns identities only; Site descriptions are not part of the overview.
@@ -155,6 +158,26 @@ func (r *Reader) ListOperations(ctx context.Context, siteID string) ([]overviewa
 			StartedAt: operation.Execution.StartedAt, FinishedAt: operation.Execution.FinishedAt,
 			RequestedBy: operation.RequestedBy, RequestedAt: operation.RequestedAt,
 			UpdatedAt: operation.UpdatedAt,
+		}
+	}
+	if r.orchestrations != nil {
+		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.OrchestrationFilter{SiteID: siteID})
+		if listErr != nil {
+			return nil, fmt.Errorf("list overview orchestration operations: %w", listErr)
+		}
+		for _, operation := range v3 {
+			summary, _ := operation.Intent["summary"].(string)
+			playbook, runID := "", operation.Temporal.RunID
+			if len(operation.Steps) == 1 {
+				playbook = operation.Steps[0].Kind
+				if operation.Steps[0].ExternalExecution != nil {
+					runID = operation.Steps[0].ExternalExecution.ID
+				}
+			}
+			items = append(items, overviewapp.Operation{ID: operation.ID, Kind: string(operation.Kind), Intent: summary, SiteID: operation.SiteID, PlatformID: operation.PlatformID,
+				TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RetryOfOperationID: operation.RetryOfOperationID, RunID: runID, Playbook: playbook,
+				Status: string(operation.Status), StatusReason: operation.StatusReason, StartedAt: operation.StartedAt, FinishedAt: operation.FinishedAt,
+				RequestedBy: operation.RequestedBy, RequestedAt: operation.RequestedAt, UpdatedAt: operation.UpdatedAt})
 		}
 	}
 	return items, nil

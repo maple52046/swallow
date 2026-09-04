@@ -3,6 +3,7 @@ package delivery
 import (
 	"errors"
 	"log"
+	"sort"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -18,45 +19,28 @@ import (
 
 // ExecutionHandler serves the embedded-execution operation API.
 type ExecutionHandler struct {
-	operations *application.ExecutionService
-	automation *application.AutomationConfigurationService
+	operations     *application.ExecutionService
+	orchestrations *application.OrchestrationService
+	automation     *application.AutomationConfigurationService
 }
 
 // NewExecutionHandler constructs the v2 operation handler.
-func NewExecutionHandler(operations *application.ExecutionService, automation *application.AutomationConfigurationService) *ExecutionHandler {
-	return &ExecutionHandler{operations: operations, automation: automation}
+func NewExecutionHandler(operations *application.ExecutionService, automation *application.AutomationConfigurationService, orchestrations ...*application.OrchestrationService) *ExecutionHandler {
+	handler := &ExecutionHandler{operations: operations, automation: automation}
+	if len(orchestrations) > 0 {
+		handler.orchestrations = orchestrations[0]
+	}
+	return handler
 }
 
 type createExecutionRequest struct {
-	Kind            string   `json:"kind"`
-	Intent          string   `json:"intent"`
-	TargetServerIDs []string `json:"targetServerIds"`
-	// PlatformID is canonical; ClusterID is the deprecated one-release alias. When
-	// both are present PlatformID wins; otherwise ClusterID is accepted.
-	PlatformID   string         `json:"platformId"`
-	ClusterID    string         `json:"clusterId"`
-	PlaybookName string         `json:"playbookName"`
-	ExtraVars    map[string]any `json:"extraVars"`
-}
-
-// platformIDQuery resolves the platform filter, preferring the canonical platformId
-// query key and falling back to the deprecated clusterId alias for one release.
-func platformIDQuery(c *fiber.Ctx) string {
-	if id := c.Query("platformId"); id != "" {
-		return id
-	}
-	return c.Query("clusterId")
-}
-
-// firstNonEmpty returns the first non-empty argument, used to prefer a canonical
-// field over its deprecated alias.
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
+	Kind            string         `json:"kind"`
+	Intent          string         `json:"intent"`
+	TargetServerIDs []string       `json:"targetServerIds"`
+	PlatformID      string         `json:"platformId"`
+	ClusterID       string         `json:"clusterId"`
+	PlaybookName    string         `json:"playbookName"`
+	ExtraVars       map[string]any `json:"extraVars"`
 }
 
 // Create persists an accepted operation as pending.
@@ -73,6 +57,7 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 		Kind: req.Kind, Intent: req.Intent, TargetServerIDs: req.TargetServerIDs,
 		PlatformID: firstNonEmpty(req.PlatformID, req.ClusterID), PlaybookName: req.PlaybookName,
 		ExtraVars: req.ExtraVars, RequestedBy: requestedBy,
+		RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
 	})
 	if err != nil {
 		return respondExecutionError(c, err)
@@ -81,25 +66,92 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 }
 
 // List returns operations.
+// platformIDQuery accepts the deprecated Operation filter without exposing it to the
+// application model. Canonical platformId wins when both aliases are present.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func platformIDQuery(c *fiber.Ctx) string {
+	if id := c.Query("platformId"); id != "" {
+		return id
+	}
+	return c.Query("clusterId")
+}
+
 func (h *ExecutionHandler) List(c *fiber.Ctx) error {
-	result, err := h.operations.List(c.Context(), application.ListOperationsInput{
-		SiteID: c.Query("siteId"), PlatformID: platformIDQuery(c),
-		ServerID: c.Query("serverId"), Kind: c.Query("kind"), Status: c.Query("status"),
-		Active: c.Query("active") == "true", Page: pagination.FromQuery(c),
-	})
+	input := application.ListOperationsInput{
+		SiteID: c.Query("siteId"), PlatformID: platformIDQuery(c), ServerID: c.Query("serverId"),
+		Kind: c.Query("kind"), Status: c.Query("status"), Active: c.Query("active") == "true", Page: pagination.FromQuery(c),
+	}
+	if h.orchestrations == nil {
+		result, err := h.operations.List(c.Context(), input)
+		if err != nil {
+			return respondExecutionError(c, err)
+		}
+		return c.JSON(result)
+	}
+	requestedPage := input.Page
+	input.Page = pagination.Page{Page: 1, PageSize: 0}
+	v3, v3Total, err := h.orchestrations.List(c.Context(), input)
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
-	return c.JSON(result)
+	v2, err := h.operations.List(c.Context(), input)
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	items := make([]any, 0, len(v3)+len(v2.Items))
+	for index := range v3 {
+		items = append(items, v3[index])
+	}
+	for index := range v2.Items {
+		items = append(items, v2.Items[index])
+	}
+	sort.SliceStable(items, func(i, j int) bool { return operationRequestedAt(items[i]) > operationRequestedAt(items[j]) })
+	start := requestedPage.Offset()
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + requestedPage.PageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	return c.JSON(pagination.NewResult(items[start:end], v3Total+v2.Total, requestedPage))
 }
 
 // Get returns one operation.
 func (h *ExecutionHandler) Get(c *fiber.Ctx) error {
+	if h.orchestrations != nil {
+		item, err := h.orchestrations.Get(c.Context(), c.Params("id"))
+		if err == nil {
+			return c.JSON(item)
+		}
+		if !application.IsNotV3(err) {
+			return respondExecutionError(c, err)
+		}
+	}
 	item, err := h.operations.Get(c.Context(), c.Params("id"))
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
 	return c.JSON(item)
+}
+
+func operationRequestedAt(item any) string {
+	switch value := item.(type) {
+	case application.OperationV3Item:
+		return value.RequestedAt
+	case application.ExecutionOperationItem:
+		return value.RequestedAt
+	default:
+		return ""
+	}
 }
 
 // Logs returns locally retained runner output.
@@ -121,8 +173,49 @@ func (h *ExecutionHandler) Events(c *fiber.Ctx) error {
 	return c.JSON(events)
 }
 
+// Timeline returns normalized durable events for an orchestration Operation.
+func (h *ExecutionHandler) Timeline(c *fiber.Ctx) error {
+	if h.orchestrations == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation timeline not found."))
+	}
+	events, err := h.orchestrations.Timeline(c.Context(), c.Params("id"))
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.JSON(events)
+}
+
+// Cancel asks Temporal to cancel work; Mongo status is updated only by the workflow.
+func (h *ExecutionHandler) Cancel(c *fiber.Ctx) error {
+	if h.orchestrations == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
+	}
+	if err := h.orchestrations.Cancel(c.Context(), c.Params("id")); err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"operationId": c.Params("id")})
+}
+
+// RetryStep signals a safe failed Step to increment its attempt in the same Operation.
+func (h *ExecutionHandler) RetryStep(c *fiber.Ctx) error {
+	if h.orchestrations == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
+	}
+	if err := h.orchestrations.RetryStep(c.Context(), c.Params("id"), c.Params("stepId")); err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"operationId": c.Params("id"), "stepId": c.Params("stepId")})
+}
+
 // Retry creates a new operation repeating a finished one.
 func (h *ExecutionHandler) Retry(c *fiber.Ctx) error {
+	if h.orchestrations != nil {
+		if _, err := h.orchestrations.Get(c.Context(), c.Params("id")); err == nil {
+			return apierror.Respond(c, apierror.New(apierror.CodeConflict, "Orchestrated Operations can only retry a failed, retryable Step."))
+		} else if !application.IsNotV3(err) {
+			return respondExecutionError(c, err)
+		}
+	}
 	requestedBy := ""
 	if claims := middleware.GetClaims(c); claims != nil {
 		requestedBy = claims.Username
@@ -212,10 +305,14 @@ func toAutomationResponse(configuration *operationdomain.AutomationConfiguration
 func respondExecutionError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, operationdomain.ErrOperationNotFound),
+		errors.Is(err, operationdomain.ErrOperationNotV3),
+		errors.Is(err, operationdomain.ErrStepNotFound),
 		errors.Is(err, operationdomain.ErrAutomationConfigNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
 	case errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrPolicyConflict),
+		errors.Is(err, operationdomain.ErrOperationControlConflict),
+		errors.Is(err, operationdomain.ErrStepRetryUnsafe),
 		errors.Is(err, operationdomain.ErrTargetLocked),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
@@ -239,4 +336,64 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 
 	log.Printf("operation: unhandled error: %v", err)
 	return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+}
+
+func (h *ExecutionHandler) orchestrationStep(c *fiber.Ctx) (*application.OperationV3Item, *operationdomain.OperationStep, error) {
+	if h.orchestrations == nil {
+		return nil, nil, operationdomain.ErrOperationNotV3
+	}
+	operation, err := h.orchestrations.Get(c.Context(), c.Params("id"))
+	if err != nil {
+		return nil, nil, err
+	}
+	for index := range operation.Steps {
+		if operation.Steps[index].ID == c.Params("stepId") {
+			return operation, &operation.Steps[index], nil
+		}
+	}
+	return nil, nil, operationdomain.ErrStepNotFound
+}
+
+// StepLogs returns retained stdout for one durable Ansible Step. Other executors have no log artifact.
+func (h *ExecutionHandler) StepLogs(c *fiber.Ctx) error {
+	_, step, err := h.orchestrationStep(c)
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	logs := ""
+	if step.Executor == operationdomain.StepExecutorAnsible && step.ExternalExecution != nil {
+		logs, err = h.operations.LogsForRun(c.Context(), step.ExternalExecution.ID)
+		if err != nil {
+			return respondExecutionError(c, err)
+		}
+	}
+	c.Set(fiber.HeaderContentType, fiber.MIMETextPlainCharsetUTF8)
+	return c.SendString(logs)
+}
+
+// StepEvents returns secret-safe task events for one durable Ansible Step.
+func (h *ExecutionHandler) StepEvents(c *fiber.Ctx) error {
+	_, step, err := h.orchestrationStep(c)
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	if step.Executor != operationdomain.StepExecutorAnsible || step.ExternalExecution == nil {
+		return c.JSON(&application.OperationEventsItem{
+			Status: string(step.Status), Events: []application.TaskEventItem{},
+		})
+	}
+	events, err := h.operations.EventsForRun(c.Context(), step.ExternalExecution.ID, string(step.Status))
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.JSON(events)
+}
+
+// StepArtifacts lists artifact metadata without exposing server-side paths.
+func (h *ExecutionHandler) StepArtifacts(c *fiber.Ctx) error {
+	_, step, err := h.orchestrationStep(c)
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.JSON(step.Artifacts)
 }

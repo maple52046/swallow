@@ -26,9 +26,8 @@ func NewServerHandler(
 	return &ServerHandler{list: list, get: get}
 }
 
-// platformIDQuery resolves the platform filter, preferring the canonical
-// platformId query key and falling back to the deprecated clusterId alias that
-// remains supported for one release.
+// platformIDQuery accepts the former clusterId filter for one release. Canonical input
+// wins when both are supplied, keeping compatibility outside the application layer.
 func platformIDQuery(c *fiber.Ctx) string {
 	if id := c.Query("platformId"); id != "" {
 		return id

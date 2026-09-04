@@ -20,6 +20,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"go.mongodb.org/mongo-driver/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/mongo/options"
+	temporalclient "go.temporal.io/sdk/client"
 
 	"github.com/maple52046/swallow/bootstrap"
 	"github.com/maple52046/swallow/config"
@@ -35,6 +36,7 @@ import (
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdelivery "github.com/maple52046/swallow/internal/operation/delivery"
 	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
+	temporalworkflow "github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	overviewapp "github.com/maple52046/swallow/internal/overview/application"
 	overviewdelivery "github.com/maple52046/swallow/internal/overview/delivery"
 	overviewinfra "github.com/maple52046/swallow/internal/overview/infra"
@@ -129,6 +131,21 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("operation repo init: %w", err)
 	}
+	orchestrationRepo, err := operationinfra.NewMongoOrchestrationRepo(db)
+	if err != nil {
+		return fmt.Errorf("orchestration repo init: %w", err)
+	}
+	operationSecretRepo, err := operationinfra.NewMongoOperationSecretRepo(db, sealer)
+	if err != nil {
+		return fmt.Errorf("operation secret repo init: %w", err)
+	}
+	temporalClient, err := temporalclient.NewLazyClient(temporalclient.Options{
+		HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace,
+	})
+	if err != nil {
+		return fmt.Errorf("temporal client: %w", err)
+	}
+	defer temporalClient.Close()
 
 	if err := bootstrap.EnsureAdminUser(
 		ctx, userRepo,
@@ -169,19 +186,20 @@ func RunAPI(cfg config.APIConfig) error {
 	serverProtection := providerServerMutationGuard{
 		servers: serverRepo, providers: providerFactory,
 	}
-	activeWork := activeServerWorkReader{operations: operationRepo, tasks: taskRepo}
+	activeWork := activeServerWorkReader{operations: operationRepo, orchestrations: orchestrationRepo, tasks: taskRepo}
 	integrationReader := provisioninginfra.NewIntegrationReader(integrationRepo, siteRepo)
 	templateService := provisioningapp.NewDeploymentTemplateService(
 		templateRepo, integrationReader, providerFactory)
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, serverProtection)
+	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
-		provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory),
+		deploymentsUC,
 		provisioningapp.NewDeploymentTargetPreflightService(serverRepo, providerFactory),
 		templateService,
 		networkService,
@@ -207,7 +225,7 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("playbook catalog: %w", err)
 	}
-	lifecycleReader := platformLifecycleReader{operations: operationRepo}
+	lifecycleReader := platformLifecycleReader{operations: operationRepo, orchestrations: orchestrationRepo}
 	integrationCleaner := managedPlatformIntegrationCleaner{integrations: integrationRepo}
 	platformService := platformapp.NewPlatformService(
 		platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
@@ -223,21 +241,35 @@ func RunAPI(cfg config.APIConfig) error {
 	automationService := operationapp.NewAutomationConfigurationService(
 		automationRepo, siteRepo, catalog,
 	)
-	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService)
+	orchestrationService := operationapp.NewOrchestrationService(
+		orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
+	)
+	orchestrationService.AttachLeaseReader(operationinfra.NewMongoResourceLeaseRepo(db))
+	operationService.AttachOrchestration(orchestrationService)
+	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
+		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo, protection: serverProtection,
+	})
+	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
+	orchestrationStarter := temporalworkflow.NewStarter(
+		temporalClient, orchestrationRepo, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
+	)
 
 	overviewReader := overviewinfra.NewReader(
 		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, operationRepo,
-		alertService,
+		alertService, orchestrationRepo,
 	)
 	overviewHandler := overviewdelivery.NewHandler(
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
 	// Platform lifecycle adapters keep durable operations outside the platform context.
-	platformLauncher := platformDeploymentLauncher{operations: operationService}
+	platformLauncher := platformDeploymentLauncher{
+		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC, servers: serverRepo,
+	}
 	deployService := platformapp.NewDeployService(
 		platformService, platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
 	)
+	deployService.AttachMachinePreparationValidator(platformMachinePreparationValidator{deployments: deploymentsUC})
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
@@ -251,7 +283,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// policy so the operation context stays free of platform types.
 	autoExporterDeploy := operationapp.NewAutoExporterDeployUseCase(
 		serverRepo, operationRepo, operationService,
-		exporterOwnerResolver{platforms: platformRepo},
+		exporterOwnerResolver{platforms: platformRepo}, orchestrationRepo,
 	)
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
@@ -326,6 +358,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go dispatcher.Run(ctx)
+	go orchestrationStarter.Run(ctx)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
 
 	serverErr := make(chan error, 1)
@@ -362,9 +395,8 @@ type routeDeps struct {
 	releaseVersion string
 }
 
-// registerPlatformRoutes mounts the Platform resource handlers on a router group so the
-// canonical /api/v1/platforms routes and the deprecated /api/v1/clusters alias share one
-// definition and cannot drift apart during the one-release compatibility window.
+// registerPlatformRoutes keeps the canonical and one-release compatibility routes on
+// the same handlers, so deprecated URLs cannot drift from Platform behavior.
 func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler) {
 	routes.Post("/", handler.Create)
 	routes.Get("/", handler.List)
@@ -377,13 +409,21 @@ func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.Platf
 	routes.Post("/:id/sync", handler.SyncMembership)
 }
 
-// markDeprecatedPlatformRoute flags a former Cluster URL without changing its response
-// body, giving clients one release to follow the canonical successor link before the
-// /api/v1/clusters alias is removed.
+// markDeprecatedPlatformRoute identifies the former Cluster resource without changing
+// its response body. Clients have one release to follow the canonical successor link.
 func markDeprecatedPlatformRoute(c *fiber.Ctx) error {
 	c.Set("Deprecation", "true")
 	c.Set("Link", "</api/v1/platforms>; rel=\"successor-version\"")
 	return c.Next()
+}
+
+// markDeprecatedProvisioningCommand preserves legacy wire behavior while pointing clients at durable Operations.
+func markDeprecatedProvisioningCommand(successor string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		c.Set("Deprecation", "true")
+		c.Set("Link", "<"+successor+">; rel=\"successor-version\"")
+		return c.Next()
+	}
 }
 
 func registerRoutes(app *fiber.App, deps routeDeps) {
@@ -398,7 +438,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 				"status": "not-ready", "reason": "mongodb",
 			})
 		}
-		return c.JSON(fiber.Map{"status": "ready", "schemaVersion": 2})
+		return c.JSON(fiber.Map{"status": "ready", "schemaVersion": migration.CurrentSchemaVersion})
 	}
 	app.Get("/readyz", ready)
 	app.Get("/healthz", ready)
@@ -459,8 +499,8 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Put("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.ReplaceNetworkLink)
 	servers.Delete("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.DeleteNetworkLink)
 	servers.Get("/:id/provisioning-tasks", deps.provisioning.ListProvisioningTasks)
-	servers.Post("/:id/deploy", deps.provisioning.Deploy)
-	servers.Post("/:id/release", deps.provisioning.Release)
+	servers.Post("/:id/deploy", markDeprecatedProvisioningCommand("/api/v1/provisioning/deployment-operations"), deps.provisioning.Deploy)
+	servers.Post("/:id/release", markDeprecatedProvisioningCommand("/api/v1/provisioning/release-operations"), deps.provisioning.Release)
 	// Power, hardware validation, and operator state are the provisioner actions beyond
 	// deploy and release. Each is refused by a provisioner that does not offer it.
 	servers.Post("/:id/power-on", deps.provisioning.PowerOn)
@@ -487,20 +527,19 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Put("/templates/:id/user-data", deps.provisioning.ReplaceTemplateUserData)
 	provisioning.Delete("/templates/:id/user-data", deps.provisioning.ClearTemplateUserData)
 	provisioning.Post("/deployments/preflight", deps.provisioning.PreflightDeployServers)
-	provisioning.Post("/deployments", deps.provisioning.DeployServers)
+	provisioning.Post("/deployments", markDeprecatedProvisioningCommand("/api/v1/provisioning/deployment-operations"), deps.provisioning.DeployServers)
+	provisioning.Post("/deployment-operations", deps.provisioning.CreateDeploymentOperation)
+	provisioning.Post("/release-operations", deps.provisioning.CreateReleaseOperation)
 	provisioning.Post("/networks/inspect", deps.provisioning.InspectNetworks)
 	provisioning.Get("/tasks/:id", deps.provisioning.GetProvisioningTask)
 	provisioning.Post("/tasks/:id/retry", deps.provisioning.RetryProvisioningTask)
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 
-	// swallow owns a platform's registration and its policy. Membership is read from the
-	// platform's own API, so there is no endpoint here to change it.
+	// Swallow owns Platform registration and policy; membership is observed from the
+	// runtime API. The former Cluster route is a delivery-only compatibility alias.
 	platforms := v1.Group("/platforms", admin...)
 	registerPlatformRoutes(platforms, deps.platforms)
-	// Deprecated one-release alias for the former Cluster resource. The same handlers
-	// serve /api/v1/clusters so existing clients keep working; a Deprecation header
-	// points them at the canonical /api/v1/platforms path.
 	legacyPlatforms := v1.Group("/clusters", admin...)
 	legacyPlatforms.Use(markDeprecatedPlatformRoute)
 	registerPlatformRoutes(legacyPlatforms, deps.platforms)
@@ -517,6 +556,12 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	operations.Post("/", deps.operations.Create)
 	operations.Get("/", deps.operations.List)
 	operations.Get("/:id", deps.operations.Get)
+	operations.Get("/:id/timeline", deps.operations.Timeline)
+	operations.Post("/:id/cancel", deps.operations.Cancel)
+	operations.Post("/:id/steps/:stepId/retry", deps.operations.RetryStep)
+	operations.Get("/:id/steps/:stepId/logs", deps.operations.StepLogs)
+	operations.Get("/:id/steps/:stepId/events", deps.operations.StepEvents)
+	operations.Get("/:id/steps/:stepId/artifacts", deps.operations.StepArtifacts)
 	operations.Get("/:id/logs", deps.operations.Logs)
 	operations.Get("/:id/events", deps.operations.Events)
 	operations.Post("/:id/retry", deps.operations.Retry)

@@ -174,6 +174,33 @@ type ProvisioningStatus struct {
 	ObservedAt          time.Time
 }
 
+// DeploymentState is Swallow's outcome for the most recent durable OS deployment.
+// It is separate from provider lifecycle: an image can be installed but unusable.
+type DeploymentState string
+
+const (
+	DeploymentDeploying         DeploymentState = "deploying"
+	DeploymentVerifying         DeploymentState = "verifying"
+	DeploymentSucceeded         DeploymentState = "succeeded"
+	DeploymentFailed            DeploymentState = "failed"
+	DeploymentRequiresAttention DeploymentState = "requires_attention"
+	DeploymentCanceled          DeploymentState = "canceled"
+)
+
+// DeploymentStatus materializes one durable provision-os Step on its Server.
+// StatusReason is normalized by Swallow and contains no credentials or secrets.
+type DeploymentStatus struct {
+	State        DeploymentState
+	OperationID  string
+	StepID       string
+	Attempt      int
+	Stage        string
+	StatusReason string
+	StartedAt    time.Time
+	FinishedAt   *time.Time
+	UpdatedAt    time.Time
+}
+
 // MembershipStatus is the axis owned by a platform's own API.
 //
 // swallow never writes this to express intent. Intent lives in an operation; this is the
@@ -212,8 +239,11 @@ type Server struct {
 	Hardware Hardware
 	Observed Observed
 
-	// The three status axes. Each is nil until its owner has been observed at least
-	// once: absent means "not known", which is not the same as any value it could take.
+	// Deployment is Swallow's verified result. Provider reconciliation preserves it.
+	Deployment *DeploymentStatus
+
+	// The three externally owned status axes. Each is nil until its owner has been
+	// observed: absent means "not known", not a default state.
 	Provisioning *ProvisioningStatus
 	Membership   *MembershipStatus
 	Health       *HealthStatus

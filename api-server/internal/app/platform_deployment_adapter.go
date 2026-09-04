@@ -2,12 +2,16 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+
+	"github.com/google/uuid"
 
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
@@ -19,22 +23,177 @@ const (
 	platformNameVar             = "swallow_platform_name"
 )
 
-// platformDeploymentLauncher adapts platform lifecycle intent onto operation execution.
+// platformDeploymentLauncher composes optional MAAS preparation and k0s automation into
+// one durable Operation while retaining the legacy launcher for unavailable Temporal.
 type platformDeploymentLauncher struct {
-	operations *operationapp.ExecutionService
+	operations     *operationapp.ExecutionService
+	orchestrations *operationapp.OrchestrationService
+	deployments    *provisioningapp.DeployServersUseCase
+	servers        serverdomain.ServerRepository
 }
 
 func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
-	item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
-		Kind: deployKubernetesKind, Intent: "Deploy k0s cluster " + launch.Platform.Name,
+	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
+	if l.orchestrations == nil {
+		if provisionFirst {
+			return "", fmt.Errorf("durable Platform provisioning is unavailable")
+		}
+		item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
+			Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
+			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
+			TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
+			RequestedBy: launch.RequestedBy,
+		})
+		if err != nil {
+			return "", err
+		}
+		return item.ID, nil
+	}
+
+	operationID := uuid.NewString()
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+		Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
 		RequestedBy: launch.RequestedBy,
+	}, operationID, provisionFirst)
+	if err != nil {
+		return "", err
+	}
+
+	steps := make([]operationdomain.OperationStep, 0, len(launch.TargetServerIDs)+3)
+	dependencies := make([]string, 0, len(launch.TargetServerIDs))
+	secretStepIDs := make([]string, 0, len(launch.TargetServerIDs))
+	preparation := launch.MachinePreparation
+	preparation.UserData = ""
+	var frozenProvisioning *provisioningapp.DeployServersInput
+	userData := ""
+	if provisionFirst {
+		if l.deployments == nil {
+			return "", fmt.Errorf("durable Platform provisioning is unavailable")
+		}
+		batch, resolvedUserData, resolveErr := l.deployments.ResolveOperationInput(
+			ctx,
+			platformProvisioningInput(launch.MachinePreparation, launch.TargetServerIDs),
+		)
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		frozenProvisioning = &batch
+		userData = resolvedUserData
+		for _, serverID := range launch.TargetServerIDs {
+			stepID := "provision-" + serverID
+			targetRequest := batch
+			targetRequest.ServerIDs = []string{serverID}
+			if batch.Network != nil {
+				network := *batch.Network
+				network.Assignments = nil
+				for _, assignment := range batch.Network.Assignments {
+					if assignment.ServerID == serverID {
+						network.Assignments = []provisioningapp.DeploymentNetworkAssignmentInput{assignment}
+					}
+				}
+				targetRequest.Network = &network
+			}
+			steps = append(steps, operationdomain.OperationStep{
+				ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
+				Executor:   operationdomain.StepExecutorMAAS,
+				Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+				Parameters: map[string]any{"request": structToMap(targetRequest)},
+			})
+			dependencies = append(dependencies, stepID)
+			secretStepIDs = append(secretStepIDs, stepID)
+		}
+	}
+	installDependencies := dependencies
+	if !provisionFirst {
+		steps = append(steps, operationdomain.OperationStep{
+			ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
+			Executor: operationdomain.StepExecutorInternal, Targets: prepared.Targets,
+		})
+		installDependencies = []string{"wait-for-ssh"}
+	}
+	steps = append(steps, operationdomain.OperationStep{
+		ID: "install-platform", Kind: "ansible-playbook", Name: "Install k0s Platform",
+		Executor: operationdomain.StepExecutorAnsible, DependsOn: installDependencies,
+		Targets:    prepared.Targets,
+		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+	})
+	steps = append(steps, operationdomain.OperationStep{
+		ID: "validate-platform", Kind: "validate-platform-health", Name: "Validate Platform health",
+		Executor: operationdomain.StepExecutorInternal, DependsOn: []string{"install-platform"},
+		Targets: prepared.Targets,
+	})
+	stepSecrets := map[string]map[string]any{}
+	if len(launch.SecretVars) > 0 {
+		stepSecrets["install-platform"] = launch.SecretVars
+	}
+	sharedSecrets := map[string]any{}
+	if provisionFirst && frozenProvisioning.UserData.Mode == "replace" && userData != "" {
+		sharedSecrets["userData"] = userData
+	}
+	intentSnapshot := map[string]any{
+		"machinePreparation": structToMap(preparation), "extraVars": prepared.ExtraVars,
+	}
+	if frozenProvisioning != nil {
+		intentSnapshot["resolvedProvisioning"] = structToMap(*frozenProvisioning)
+	}
+	created, err := l.orchestrations.Create(ctx, operationapp.CreateOrchestrationInput{
+		ID: operationID, Kind: operationdomain.OperationKindDeployKubernetes,
+		IntentSummary:  "Deploy k0s Platform " + launch.Platform.Name,
+		IntentSnapshot: intentSnapshot,
+		Definition:     "platform-deployment", DefinitionVersion: 1,
+		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
+		TargetServerIDs: launch.TargetServerIDs,
+		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
+		SecretStepIDs: secretStepIDs, SecretValues: sharedSecrets,
+		StepSecretValues: stepSecrets,
 	})
 	if err != nil {
 		return "", err
 	}
-	return item.ID, nil
+	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
+	return created.ID, nil
+}
+
+// platformMachinePreparationValidator translates the Platform-owned intent to the active
+// provisioning contract and performs its full side-effect-free preflight.
+type platformMachinePreparationValidator struct {
+	deployments *provisioningapp.DeployServersUseCase
+}
+
+func (v platformMachinePreparationValidator) Validate(ctx context.Context, _ string, serverIDs []string, preparation platformdomain.MachinePreparation) error {
+	return v.deployments.Validate(ctx, platformProvisioningInput(preparation, serverIDs))
+}
+
+func platformProvisioningInput(preparation platformdomain.MachinePreparation, serverIDs []string) provisioningapp.DeployServersInput {
+	input := provisioningapp.DeployServersInput{
+		ServerIDs: append([]string(nil), serverIDs...), TemplateID: preparation.TemplateID,
+		Settings: provisioningapp.DeploymentSettingsInput{ImageID: optionalStringPointer(preparation.ImageID), Ephemeral: preparation.Ephemeral},
+		UserData: provisioningapp.DeploymentUserDataInput{Mode: preparation.UserDataMode, Value: preparation.UserData},
+	}
+	if preparation.NetworkMode != "" {
+		input.Network = &provisioningapp.DeploymentNetworkInput{
+			Mode: preparation.NetworkMode, SubnetID: preparation.SubnetID,
+			DefaultGateway: preparation.DefaultGateway,
+			Assignments:    make([]provisioningapp.DeploymentNetworkAssignmentInput, len(preparation.Assignments)),
+		}
+		for index, assignment := range preparation.Assignments {
+			input.Network.Assignments[index] = provisioningapp.DeploymentNetworkAssignmentInput{
+				ServerID: assignment.ServerID, InterfaceID: assignment.InterfaceID,
+				SubnetID: assignment.SubnetID, IPAddress: assignment.IPAddress,
+			}
+		}
+	}
+	return input
+}
+
+func optionalStringPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (l platformDeploymentLauncher) LaunchUninstall(
@@ -42,7 +201,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	launch platformdomain.UninstallLaunch,
 ) (string, error) {
 	item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
-		Kind: uninstallKubernetesKind, Intent: "Uninstall k0s cluster " + launch.Platform.Name,
+		Kind: uninstallKubernetesKind, Intent: "Uninstall k0s platform " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		PlaybookName: uninstallKubernetesPlaybook,
 		TrustedVars: map[string]any{
@@ -108,6 +267,10 @@ func (o platformDeploymentObserver) completeUninstall(
 			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
 		return
 	}
+	o.restoreExporters(ctx, operation)
+}
+
+func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operation *operationdomain.ExecutionOperation) {
 	restore, _ := operation.ExtraVars[restoreExportersVar].(bool)
 	if !restore {
 		return
@@ -165,4 +328,35 @@ func stringField(data map[string]any, key string) string {
 		return value
 	}
 	return ""
+}
+
+// AnsibleStepSucceeded adapts a v3 queue result to the same Platform completion policy
+// used by historical v2 executions.
+func (o platformDeploymentObserver) AnsibleStepSucceeded(
+	ctx context.Context,
+	execution *operationdomain.AnsibleExecution,
+	result operationdomain.RunnerResult,
+) error {
+	if execution.PlatformID == "" {
+		return nil
+	}
+	operation := &operationdomain.ExecutionOperation{
+		ID: execution.OperationID, Kind: execution.Kind, SiteID: execution.SiteID,
+		PlatformID: execution.PlatformID, TargetServerIDs: execution.TargetServerIDs,
+		ExtraVars: execution.ExtraVars,
+	}
+	switch execution.Kind {
+	case operationdomain.OperationKindDeployKubernetes:
+		credential := platformCredentialFromResult(result)
+		if credential == nil {
+			return fmt.Errorf("deployment returned no Kubernetes credential")
+		}
+		return o.credentials.Record(ctx, execution.PlatformID, *credential)
+	case operationdomain.OperationKindUninstallKubernetes:
+		if err := o.platforms.CompleteUninstall(ctx, execution.PlatformID); err != nil {
+			return err
+		}
+		o.restoreExporters(ctx, operation)
+	}
+	return nil
 }

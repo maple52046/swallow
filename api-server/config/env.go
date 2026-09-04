@@ -75,6 +75,20 @@ func applyEnv(cfg *Config) {
 			cfg.API.OperationLeaseDuration = d
 		}
 	}
+	if v := os.Getenv("SWALLOW_API_TEMPORAL_ADDRESS"); v != "" {
+		cfg.API.TemporalAddress = v
+	}
+	if v := os.Getenv("SWALLOW_API_TEMPORAL_NAMESPACE"); v != "" {
+		cfg.API.TemporalNamespace = v
+	}
+	if v := os.Getenv("SWALLOW_API_TEMPORAL_TASK_QUEUE"); v != "" {
+		cfg.API.TemporalTaskQueue = v
+	}
+	if v := os.Getenv("SWALLOW_API_TEMPORAL_START_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.TemporalStartInterval = d
+		}
+	}
 	if v := os.Getenv("SWALLOW_API_ANSIBLE_RUNNER_COMMAND"); v != "" {
 		cfg.API.AnsibleRunnerCommand = v
 	}

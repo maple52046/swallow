@@ -30,10 +30,11 @@ type ExporterOwnerResolver interface {
 // credential is skipped without error, because "not wired up yet" is a normal early state
 // rather than a failure.
 type AutoExporterDeployUseCase struct {
-	servers    serverdomain.ServerRepository
-	operations operationdomain.ExecutionRepository
-	executor   *ExecutionService
-	owners     ExporterOwnerResolver
+	servers        serverdomain.ServerRepository
+	operations     operationdomain.ExecutionRepository
+	executor       *ExecutionService
+	orchestrations operationdomain.OrchestrationRepository
+	owners         ExporterOwnerResolver
 }
 
 // NewAutoExporterDeployUseCase wires the auto-install loop's dependencies.
@@ -42,10 +43,13 @@ func NewAutoExporterDeployUseCase(
 	operations operationdomain.ExecutionRepository,
 	executor *ExecutionService,
 	owners ExporterOwnerResolver,
+	orchestrations ...operationdomain.OrchestrationRepository,
 ) *AutoExporterDeployUseCase {
-	return &AutoExporterDeployUseCase{
-		servers: servers, operations: operations, executor: executor, owners: owners,
+	useCase := &AutoExporterDeployUseCase{servers: servers, operations: operations, executor: executor, owners: owners}
+	if len(orchestrations) > 0 {
+		useCase.orchestrations = orchestrations[0]
 	}
+	return useCase
 }
 
 // Run scans deployed servers and installs exporters where they are missing and owned by
@@ -113,7 +117,18 @@ func (uc *AutoExporterDeployUseCase) hasInstallOperation(ctx context.Context, se
 	if err != nil {
 		return false, err
 	}
-	return existing.Total > 0, nil
+	if existing.Total > 0 {
+		return true, nil
+	}
+	if uc.orchestrations != nil {
+		v3, total, listErr := uc.orchestrations.List(ctx, operationdomain.OrchestrationFilter{ServerID: serverID, Kind: operationdomain.OperationKindInstallExporters, Limit: 1})
+		_ = v3
+		if listErr != nil {
+			return false, listErr
+		}
+		return total > 0, nil
+	}
+	return false, nil
 }
 
 // platformExporterOwnerAnsible mirrors the platform domain's ansible owner value without

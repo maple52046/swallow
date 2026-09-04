@@ -144,6 +144,9 @@ func (uc *ReleaseServerUseCase) ExecuteWithOptions(
 	}
 
 	item := applyProvisioningResult(ctx, uc.servers, server, machine)
+	if clearErr := uc.servers.SetDeployment(ctx, server.ID, nil); clearErr != nil {
+		slog.Error("clear Server deployment projection after accepted release", "serverId", server.ID, "error", clearErr)
+	}
 	if task != nil {
 		item.TaskID = task.ID
 		now := time.Now().UTC()

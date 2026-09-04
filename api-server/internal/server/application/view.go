@@ -33,6 +33,7 @@ type ServerItem struct {
 
 	Hardware ServerHardwareItem `json:"hardware"`
 
+	Deployment   *DeploymentAxisItem   `json:"deployment"`
 	Provisioning *ProvisioningAxisItem `json:"provisioning"`
 	Membership   *MembershipAxisItem   `json:"membership"`
 	Health       *HealthAxisItem       `json:"health"`
@@ -62,6 +63,18 @@ type ServerGPUItem struct {
 	Count  int    `json:"count"`
 }
 
+type DeploymentAxisItem struct {
+	State        string  `json:"state"`
+	OperationID  string  `json:"operationId"`
+	StepID       string  `json:"stepId"`
+	Attempt      int     `json:"attempt"`
+	Stage        string  `json:"stage"`
+	StatusReason string  `json:"statusReason"`
+	StartedAt    string  `json:"startedAt"`
+	FinishedAt   *string `json:"finishedAt"`
+	UpdatedAt    string  `json:"updatedAt"`
+}
+
 type ProvisioningAxisItem struct {
 	State         string `json:"state"`
 	ProviderState string `json:"providerState"`
@@ -80,9 +93,6 @@ type ProvisioningAxisItem struct {
 	ObservedAt          string `json:"observedAt"`
 }
 
-// MembershipAxisItem is the platform-membership projection of a Server. PlatformID
-// is canonical; ClusterID mirrors it as the deprecated one-release alias so existing
-// clients keep working during the Cluster -> Platform migration.
 type MembershipAxisItem struct {
 	PlatformID string `json:"platformId"`
 	ClusterID  string `json:"clusterId"`
@@ -138,6 +148,24 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 			Model:  gpu.Model,
 			Count:  gpu.Count,
 		})
+	}
+
+	if d := s.Deployment; d != nil {
+		var finishedAt *string
+		if d.FinishedAt != nil {
+			finishedAt = wire.TimePtr(*d.FinishedAt)
+		}
+		item.Deployment = &DeploymentAxisItem{
+			State:        string(d.State),
+			OperationID:  d.OperationID,
+			StepID:       d.StepID,
+			Attempt:      d.Attempt,
+			Stage:        d.Stage,
+			StatusReason: d.StatusReason,
+			StartedAt:    wire.Time(d.StartedAt),
+			FinishedAt:   finishedAt,
+			UpdatedAt:    wire.Time(d.UpdatedAt),
+		}
 	}
 
 	if p := s.Provisioning; p != nil {

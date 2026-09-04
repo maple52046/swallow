@@ -25,6 +25,7 @@ type ExecutionService struct {
 	runner         operationdomain.Runner
 	protection     serverdomain.MutationGuard
 	policy         PolicyChecker
+	durable        *OrchestrationService
 }
 
 // NewExecutionService constructs the embedded-execution use case.
@@ -47,22 +48,26 @@ func NewExecutionService(
 	return service
 }
 
+// AttachOrchestration moves newly accepted automation to Operation v3 while the
+// compatibility dispatcher drains persisted v2 work.
+func (s *ExecutionService) AttachOrchestration(durable *OrchestrationService) { s.durable = durable }
+
 // ExecutionOperationItem is the public operation representation.
 type ExecutionOperationItem struct {
-	ID     string `json:"id"`
-	Kind   string `json:"kind"`
-	Intent string `json:"intent"`
-	SiteID string `json:"siteId"`
-	// PlatformID is canonical; ClusterID mirrors it as the deprecated one-release
-	// alias so existing clients keep working during the Cluster -> Platform migration.
-	PlatformID         *string       `json:"platformId"`
-	ClusterID          *string       `json:"clusterId"`
-	TargetServerIDs    []string      `json:"targetServerIds"`
-	RetryOfOperationID *string       `json:"retryOfOperationId"`
-	Execution          ExecutionItem `json:"execution"`
-	RequestedBy        string        `json:"requestedBy"`
-	RequestedAt        string        `json:"requestedAt"`
-	UpdatedAt          string        `json:"updatedAt"`
+	SchemaVersion      int                             `json:"schemaVersion"`
+	Steps              []operationdomain.OperationStep `json:"steps"`
+	ID                 string                          `json:"id"`
+	Kind               string                          `json:"kind"`
+	Intent             string                          `json:"intent"`
+	SiteID             string                          `json:"siteId"`
+	PlatformID         *string                         `json:"platformId"`
+	ClusterID          *string                         `json:"clusterId"`
+	TargetServerIDs    []string                        `json:"targetServerIds"`
+	RetryOfOperationID *string                         `json:"retryOfOperationId"`
+	Execution          ExecutionItem                   `json:"execution"`
+	RequestedBy        string                          `json:"requestedBy"`
+	RequestedAt        string                          `json:"requestedAt"`
+	UpdatedAt          string                          `json:"updatedAt"`
 }
 
 // ExecutionItem contains no controller-specific fields.
@@ -92,6 +97,7 @@ type CreateExecutionInput struct {
 	SecretVars         map[string]any
 	RetryOfOperationID string
 	RequestedBy        string
+	RequestCorrelation string
 }
 
 // Create validates intent and persists pending state before dispatch.
@@ -169,6 +175,30 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 		RunID: uuid.NewString(), Playbook: playbook, Status: operationdomain.StatusPending,
 	}
 	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars)
+	if s.durable != nil {
+		stepTargets := make([]operationdomain.ResourceReference, 0, len(operation.TargetServerIDs))
+		for _, serverID := range operation.TargetServerIDs {
+			stepTargets = append(stepTargets, operationdomain.ResourceReference{Kind: "server", ID: serverID})
+		}
+		targetResources := append([]operationdomain.ResourceReference(nil), stepTargets...)
+		if operation.PlatformID != "" {
+			targetResources = append(targetResources, operationdomain.ResourceReference{Kind: "platform", ID: operation.PlatformID})
+		}
+		created, err := s.durable.Create(ctx, CreateOrchestrationInput{
+			Kind: operation.Kind, IntentSummary: operation.Intent, Definition: "ansible-operation", DefinitionVersion: 1,
+			SiteID: operation.SiteID, PlatformID: operation.PlatformID, TargetServerIDs: operation.TargetServerIDs,
+			TargetResources: targetResources, RequestedBy: operation.RequestedBy,
+			RequestCorrelation: input.RequestCorrelation, RetryOfOperationID: operation.RetryOfOperationID,
+			IntentSnapshot: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars},
+			Steps: []operationdomain.OperationStep{{ID: "ansible", Kind: "ansible-playbook", Name: "Run " + operation.Execution.Playbook,
+				Executor: operationdomain.StepExecutorAnsible, Targets: stepTargets, Parameters: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars}}},
+			SecretStepID: "ansible", SecretValues: operation.SecretVars,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return legacyCompatibleV3(created), nil
+	}
 	if err := s.operations.Create(ctx, operation); err != nil {
 		return nil, err
 	}
@@ -389,8 +419,19 @@ func (s *ExecutionService) Events(ctx context.Context, id string) (*OperationEve
 	return item, nil
 }
 
+func legacyCompatibleV3(operation *OperationV3Item) *ExecutionOperationItem {
+	return &ExecutionOperationItem{
+		SchemaVersion: operation.SchemaVersion, Steps: operation.Steps,
+		ID: operation.ID, Kind: operation.Kind, Intent: operation.Intent, SiteID: operation.SiteID,
+		PlatformID: operation.PlatformID, ClusterID: operation.ClusterID, TargetServerIDs: operation.TargetServerIDs,
+		RetryOfOperationID: operation.RetryOfOperationID, RequestedBy: operation.RequestedBy,
+		RequestedAt: operation.RequestedAt, UpdatedAt: operation.UpdatedAt, Execution: operation.Execution,
+	}
+}
+
 func toExecutionOperationItem(operation *operationdomain.ExecutionOperation) ExecutionOperationItem {
 	return ExecutionOperationItem{
+		SchemaVersion: 2, Steps: []operationdomain.OperationStep{legacySyntheticStep(operation)},
 		ID: operation.ID, Kind: string(operation.Kind), Intent: operation.Intent,
 		SiteID: operation.SiteID, PlatformID: wire.String(operation.PlatformID),
 		ClusterID:          wire.String(operation.PlatformID),
@@ -460,4 +501,143 @@ func (s *AutomationConfigurationService) ReplaceCredential(ctx context.Context, 
 		return fmt.Errorf("%w: sshPrivateKey is required", ErrInvalidOperation)
 	}
 	return s.configurations.ReplaceCredential(ctx, siteID, credential)
+}
+
+// LogsForRun reads retained output for a durable Ansible Step by its external run ID.
+func (s *ExecutionService) LogsForRun(ctx context.Context, runID string) (string, error) {
+	return s.runner.Logs(ctx, runID)
+}
+
+// EventsForRun projects retained Ansible task events for a durable Step.
+func (s *ExecutionService) EventsForRun(ctx context.Context, runID, status string) (*OperationEventsItem, error) {
+	events, err := s.runner.Events(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	item := &OperationEventsItem{RunID: runID, Status: status, Events: make([]TaskEventItem, 0, len(events))}
+	for _, event := range events {
+		switch event.Status {
+		case "ok":
+			item.OKCount++
+		case "failed", "unreachable":
+			item.FailedCount++
+		}
+		if event.Changed {
+			item.ChangedCount++
+		}
+		item.Events = append(item.Events, TaskEventItem{
+			Play: event.Play, Task: event.Task, Host: event.Host,
+			Status: event.Status, Changed: event.Changed,
+			StartedAt: optionalTime(event.StartedAt), EndedAt: optionalTime(event.EndedAt),
+		})
+	}
+	return item, nil
+}
+
+// PreparedAnsibleStep is validated automation intent ready to join a larger Operation.
+type PreparedAnsibleStep struct {
+	SiteID    string
+	Playbook  string
+	ExtraVars map[string]any
+	Targets   []operationdomain.ResourceReference
+}
+
+// PrepareAnsibleStep applies the same catalog, credential, policy, and lock checks as
+// Create while letting a preceding provision-os Step satisfy the final deployed state.
+func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateExecutionInput, operationID string, provisionFirst bool) (*PreparedAnsibleStep, error) {
+	kind := operationdomain.OperationKind(strings.TrimSpace(input.Kind))
+	if !kind.Valid() || len(input.TargetServerIDs) == 0 {
+		return nil, fmt.Errorf("%w: valid kind and targetServerIds are required", ErrInvalidOperation)
+	}
+	targets := make([]*serverdomain.Server, 0, len(input.TargetServerIDs))
+	siteID := ""
+	for _, id := range input.TargetServerIDs {
+		server, err := s.servers.FindByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if siteID == "" {
+			siteID = server.Source.SiteID
+		}
+		if server.Source.SiteID != siteID {
+			return nil, fmt.Errorf("%w: targets must belong to one site", ErrInvalidOperation)
+		}
+		if !provisionFirst {
+			required := kind.RequiredProvisioningState()
+			if required != "" && (server.Provisioning == nil || server.Provisioning.State != required) {
+				return nil, fmt.Errorf("%w: %s requires %q", operationdomain.ErrTargetStateInvalid, server.DisplayName(), required)
+			}
+		}
+		targets = append(targets, server)
+	}
+	if s.protection != nil {
+		if err := s.protection.RequireUnlocked(ctx, input.TargetServerIDs); err != nil {
+			return nil, err
+		}
+	}
+	if s.policy != nil {
+		if err := s.policy.CheckOperation(ctx, kind, input.PlatformID, input.TargetServerIDs); err != nil {
+			return nil, err
+		}
+	}
+	configuration, err := s.configurations.FindBySiteID(ctx, siteID)
+	if err != nil {
+		return nil, err
+	}
+	if !configuration.Enabled {
+		return nil, operationdomain.ErrAutomationDisabled
+	}
+	if !configuration.HasCredential {
+		return nil, operationdomain.ErrAutomationCredentialMissing
+	}
+	playbook := strings.TrimSpace(input.PlaybookName)
+	if playbook == "" {
+		playbook = configuration.PlaybookMappings[kind]
+	}
+	if playbook == "" {
+		return nil, fmt.Errorf("%w: no playbook mapping for %s", ErrInvalidOperation, kind)
+	}
+	if _, err := s.catalog.Resolve(playbook); err != nil {
+		return nil, err
+	}
+	operation := &operationdomain.ExecutionOperation{
+		ID: operationID, Kind: kind, SiteID: siteID, PlatformID: input.PlatformID,
+		TargetServerIDs: append([]string(nil), input.TargetServerIDs...),
+	}
+	stepTargets := make([]operationdomain.ResourceReference, 0, len(targets))
+	for _, target := range targets {
+		stepTargets = append(stepTargets, operationdomain.ResourceReference{Kind: "server", ID: target.ID})
+	}
+	return &PreparedAnsibleStep{
+		SiteID: siteID, Playbook: playbook,
+		ExtraVars: buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars),
+		Targets:   stepTargets,
+	}, nil
+}
+
+func legacySyntheticStep(operation *operationdomain.ExecutionOperation) operationdomain.OperationStep {
+	status := operationdomain.StepStatus(operation.Execution.Status)
+	var normalized *operationdomain.NormalizedError
+	if operation.Execution.Status == operationdomain.StatusIndeterminate {
+		status = operationdomain.StepRequiresAttention
+		normalized = &operationdomain.NormalizedError{
+			Code: "legacy_outcome_indeterminate", Message: operation.Execution.StatusReason,
+			Retryable: false,
+		}
+	} else if operation.Execution.Status == operationdomain.StatusFailed {
+		normalized = &operationdomain.NormalizedError{
+			Code: "legacy_ansible_failed", Message: operation.Execution.StatusReason,
+			Retryable: false,
+		}
+	}
+	targets := make([]operationdomain.ResourceReference, len(operation.TargetServerIDs))
+	for index, serverID := range operation.TargetServerIDs {
+		targets[index] = operationdomain.ResourceReference{Kind: "server", ID: serverID}
+	}
+	return operationdomain.OperationStep{
+		ID: "ansible", Kind: "ansible-playbook", Name: "Run " + operation.Execution.Playbook,
+		Executor: operationdomain.StepExecutorAnsible, Targets: targets, Status: status,
+		Attempt: 1, Error: normalized, StartedAt: operation.Execution.StartedAt,
+		FinishedAt: operation.Execution.FinishedAt, Artifacts: []operationdomain.ArtifactMetadata{},
+	}
 }

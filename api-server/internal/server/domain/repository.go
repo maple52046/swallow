@@ -78,6 +78,10 @@ type ServerRepository interface {
 	// projection in hand.
 	SetGPUs(ctx context.Context, id string, gpus []GPU) error
 
+	// SetDeployment replaces the Swallow-owned deployment result, or clears it after
+	// release. Provider inventory Upsert must preserve this field.
+	SetDeployment(ctx context.Context, id string, deployment *DeploymentStatus) error
+
 	// CountByIntegration reports how many servers were projected from an
 	// integration, so that deleting one that still has servers can be refused.
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)

@@ -3,6 +3,8 @@ package delivery
 import (
 	"strings"
 
+	"github.com/maple52046/swallow/internal/shared/middleware"
+
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/maple52046/swallow/internal/provisioning/application"
@@ -259,4 +261,62 @@ func deploymentNetworkInput(
 		Mode: req.Mode, SubnetID: req.SubnetID,
 		DefaultGateway: req.DefaultGateway, Assignments: assignments,
 	}
+}
+
+// CreateDeploymentOperation validates the full batch and persists one durable Operation.
+func (h *ProvisioningHandler) CreateDeploymentOperation(c *fiber.Ctx) error {
+	if h.durable == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "Durable provisioning is unavailable."))
+	}
+	var req deployServersRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	requestedBy := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		requestedBy = claims.Username
+	}
+	result, err := h.durable.LaunchDeployment(c.Context(), deployServersInput(req), requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(result)
+}
+
+type releaseOperationsRequest struct {
+	ServerIDs       []string `json:"serverIds"`
+	Erase           bool     `json:"erase"`
+	SecureErase     bool     `json:"secureErase"`
+	QuickErase      bool     `json:"quickErase"`
+	Comment         string   `json:"comment"`
+	UnbindStaticIPs bool     `json:"unbindStaticIPs"`
+}
+
+// CreateReleaseOperation accepts a bounded batch of provider-neutral release intents.
+func (h *ProvisioningHandler) CreateReleaseOperation(c *fiber.Ctx) error {
+	if h.durable == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "Durable provisioning is unavailable."))
+	}
+	var req releaseOperationsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if len(req.ServerIDs) == 0 || len(req.ServerIDs) > 100 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "serverIds must contain between 1 and 100 Servers."))
+	}
+	inputs := make([]application.ReleaseServerInput, len(req.ServerIDs))
+	for index, serverID := range req.ServerIDs {
+		inputs[index] = application.ReleaseServerInput{ServerID: serverID, Erase: req.Erase,
+			SecureErase: req.SecureErase, QuickErase: req.QuickErase, Comment: req.Comment,
+			UnbindStaticIPs: req.UnbindStaticIPs, RequestID: c.GetRespHeader(fiber.HeaderXRequestID)}
+	}
+	requestedBy := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		requestedBy = claims.Username
+	}
+	result, err := h.durable.LaunchRelease(c.Context(), inputs, requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(result)
 }

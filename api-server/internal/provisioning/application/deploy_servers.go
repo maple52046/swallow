@@ -48,6 +48,7 @@ type DeploymentNetworkInput struct {
 
 // DeployServersInput describes one atomic-preflight batch.
 type DeployServersInput struct {
+	Comment    string
 	ServerIDs  []string
 	TemplateID string
 	Settings   DeploymentSettingsInput
@@ -183,6 +184,7 @@ func (uc *DeployServersUseCase) Execute(
 					OSSystem:     resolved.image.OSSystem,
 					DistroSeries: resolved.image.ID,
 					UserData:     resolved.userData,
+					Comment:      input.Comment,
 					Ephemeral:    resolved.ephemeral,
 				})
 				if deployErr != nil {
@@ -594,4 +596,43 @@ func deploymentFailure(err error) (string, string) {
 		return "provider_rejected", "The provisioner no longer has this machine."
 	}
 	return "provider_error", "The provisioner could not accept this deployment."
+}
+
+// Validate performs the complete deployment preflight without changing provider or
+// repository state. Durable workflows call it before persisting an Operation.
+func (uc *DeployServersUseCase) Validate(ctx context.Context, input DeployServersInput) error {
+	_, err := uc.preflight(ctx, input)
+	return err
+}
+
+// ResolveOperationInput performs full preflight and freezes provider-neutral deployment
+// intent for a durable Operation. Template user data is returned separately so callers can
+// seal it before persistence; the returned request never depends on a mutable Template.
+func (uc *DeployServersUseCase) ResolveOperationInput(ctx context.Context, input DeployServersInput) (DeployServersInput, string, error) {
+	resolved, err := uc.preflight(ctx, input)
+	if err != nil {
+		return DeployServersInput{}, "", err
+	}
+	imageID := resolved.image.ID
+	ephemeral := resolved.ephemeral
+	frozen := DeployServersInput{
+		Comment:   input.Comment,
+		ServerIDs: append([]string(nil), input.ServerIDs...),
+		Settings:  DeploymentSettingsInput{ImageID: &imageID, Ephemeral: &ephemeral},
+		UserData:  DeploymentUserDataInput{Mode: "omit"},
+		Network: &DeploymentNetworkInput{
+			Mode: string(resolved.networkMode), DefaultGateway: resolved.defaultGateway,
+			Assignments: make([]DeploymentNetworkAssignmentInput, len(resolved.assignments)),
+		},
+	}
+	for index, assignment := range resolved.assignments {
+		frozen.Network.Assignments[index] = DeploymentNetworkAssignmentInput{
+			ServerID: resolved.servers[index].ID, InterfaceID: assignment.interfaceID,
+			SubnetID: assignment.subnetID, IPAddress: assignment.ipAddress,
+		}
+	}
+	if resolved.userData != "" {
+		frozen.UserData.Mode = "replace"
+	}
+	return frozen, resolved.userData, nil
 }

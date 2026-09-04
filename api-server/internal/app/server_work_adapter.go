@@ -11,8 +11,9 @@ import (
 // activeServerWorkReader lets provisioning reject Lock without depending on operation
 // repository types. It reports only identifiers needed for an actionable conflict.
 type activeServerWorkReader struct {
-	operations operationdomain.ExecutionRepository
-	tasks      provisioningdomain.ProvisioningTaskRepository
+	operations     operationdomain.ExecutionRepository
+	orchestrations operationdomain.OrchestrationRepository
+	tasks          provisioningdomain.ProvisioningTaskRepository
 }
 
 func (r activeServerWorkReader) ActiveWork(
@@ -26,6 +27,15 @@ func (r activeServerWorkReader) ActiveWork(
 	}
 	for _, operation := range operations {
 		work.OperationIDs = append(work.OperationIDs, operation.ID)
+	}
+	if r.orchestrations != nil {
+		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.OrchestrationFilter{ServerID: serverID, ActiveOnly: true})
+		if listErr != nil {
+			return work, listErr
+		}
+		for _, operation := range v3 {
+			work.OperationIDs = append(work.OperationIDs, operation.ID)
+		}
 	}
 	tasks, err := r.tasks.ListByServer(ctx, serverID)
 	if err != nil {

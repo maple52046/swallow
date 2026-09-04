@@ -23,7 +23,7 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 		{
 			path: filepath.Join("roles", "k0s_config", "templates", "k0s.yaml.j2"),
 			required: []string{
-				"swallow_k0s_api_address | default(swallow_k0s_api_vip)",
+				"swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true)",
 				"swallow_k0s_high_availability | default(true)",
 				"{% if k0s_ha %}",
 			},
@@ -34,7 +34,7 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 		},
 		{
 			path:     filepath.Join("roles", "k0s_cluster_credential", "tasks", "main.yml"),
-			required: []string{"swallow_k0s_api_address | default(swallow_k0s_api_vip)"},
+			required: []string{"swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true)"},
 		},
 		{
 			path:     filepath.Join("roles", "k0s_verify", "tasks", "main.yml"),

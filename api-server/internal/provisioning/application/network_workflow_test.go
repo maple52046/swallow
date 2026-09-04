@@ -60,6 +60,17 @@ func (r *networkWorkflowServerRepo) SetGPUs(context.Context, string, []serverdom
 	return nil
 }
 
+func (r *networkWorkflowServerRepo) SetDeployment(_ context.Context, id string, deployment *serverdomain.DeploymentStatus) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	server, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	server.Deployment = deployment
+	return nil
+}
+
 func (r *networkWorkflowServerRepo) CountByIntegration(context.Context, string) (int, error) {
 	return 0, nil
 }
@@ -74,6 +85,57 @@ type networkWorkflowFactory struct {
 
 func (f networkWorkflowFactory) For(context.Context, string) (provisioningdomain.OSProvisioningProvider, error) {
 	return f.provider, nil
+}
+
+type networkWorkflowTemplateRepo struct {
+	template *provisioningdomain.DeploymentTemplate
+	userData string
+}
+
+func (r *networkWorkflowTemplateRepo) Create(context.Context, *provisioningdomain.DeploymentTemplate, string) error {
+	return nil
+}
+
+func (r *networkWorkflowTemplateRepo) FindByID(_ context.Context, id string) (*provisioningdomain.DeploymentTemplate, error) {
+	if r.template == nil || r.template.ID != id {
+		return nil, provisioningdomain.ErrDeploymentTemplateNotFound
+	}
+	copy := *r.template
+	return &copy, nil
+}
+
+func (r *networkWorkflowTemplateRepo) List(context.Context, provisioningdomain.DeploymentTemplateFilter) ([]*provisioningdomain.DeploymentTemplate, error) {
+	return nil, nil
+}
+
+func (r *networkWorkflowTemplateRepo) Update(context.Context, *provisioningdomain.DeploymentTemplate) error {
+	return nil
+}
+
+func (r *networkWorkflowTemplateRepo) Delete(context.Context, string) error { return nil }
+
+func (r *networkWorkflowTemplateRepo) ReplaceUserData(_ context.Context, _ string, userData string) error {
+	r.userData = userData
+	return nil
+}
+
+func (r *networkWorkflowTemplateRepo) ClearUserData(context.Context, string) error {
+	r.userData = ""
+	return nil
+}
+
+func (r *networkWorkflowTemplateRepo) UserData(_ context.Context, id string) (string, error) {
+	if r.template == nil || r.template.ID != id {
+		return "", provisioningdomain.ErrDeploymentTemplateNotFound
+	}
+	if r.userData == "" {
+		return "", provisioningdomain.ErrDeploymentTemplateUserDataMissing
+	}
+	return r.userData, nil
+}
+
+func (r *networkWorkflowTemplateRepo) CountByIntegration(context.Context, string) (int, error) {
+	return 0, nil
 }
 
 type networkWorkflowProvider struct {
@@ -406,6 +468,46 @@ func TestDeployServersDefaultsToDHCPAndReportsFailureStage(t *testing.T) {
 		if req.Mode != provisioningdomain.NetworkLinkDHCP || req.SubnetID != "subnet-a" {
 			t.Fatalf("expected explicit DHCP on subnet-a, got %#v", req)
 		}
+	}
+}
+
+func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
+	base, provider := setupNetworkWorkflow(1)
+	templates := &networkWorkflowTemplateRepo{
+		template: &provisioningdomain.DeploymentTemplate{
+			ID: "template-a", IntegrationID: "provider-a", ImageID: "ubuntu/noble",
+			NetworkMode: provisioningdomain.DeploymentNetworkDHCP, HasUserData: true,
+		},
+		userData: "#cloud-config\nhostname: frozen",
+	}
+	uc := NewDeployServersUseCase(base.servers, templates, base.providers)
+
+	frozen, secret, err := uc.ResolveOperationInput(context.Background(), DeployServersInput{
+		ServerIDs: []string{"a"}, TemplateID: "template-a",
+		UserData: DeploymentUserDataInput{Mode: "inherit"},
+	})
+	if err != nil {
+		t.Fatalf("resolve operation input: %v", err)
+	}
+	if frozen.TemplateID != "" || frozen.Settings.ImageID == nil || *frozen.Settings.ImageID != "ubuntu/noble" {
+		t.Fatalf("template dependency was not frozen: %#v", frozen)
+	}
+	if frozen.UserData.Mode != "replace" || frozen.UserData.Value != "" || secret != templates.userData {
+		t.Fatalf("secret was not separated from durable intent: input=%#v secret=%q", frozen.UserData, secret)
+	}
+	if frozen.Network == nil || frozen.Network.Mode != "dhcp" || len(frozen.Network.Assignments) != 1 ||
+		frozen.Network.Assignments[0].InterfaceID != "nic-machine-a" ||
+		frozen.Network.Assignments[0].SubnetID != "subnet-a" {
+		t.Fatalf("network intent was not frozen: %#v", frozen.Network)
+	}
+
+	templates.template.ImageID = "ubuntu/jammy"
+	templates.userData = "changed"
+	if *frozen.Settings.ImageID != "ubuntu/noble" || secret != "#cloud-config\nhostname: frozen" {
+		t.Fatal("resolved Operation intent changed with its source template")
+	}
+	if len(provider.configureRequests) != 0 || len(provider.deployRequests) != 0 {
+		t.Fatal("resolving durable intent performed provider writes")
 	}
 }
 

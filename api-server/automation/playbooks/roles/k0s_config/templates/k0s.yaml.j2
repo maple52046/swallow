@@ -1,4 +1,4 @@
-{% set k0s_api_address = swallow_k0s_api_address | default(swallow_k0s_api_vip) %}
+{% set k0s_api_address = swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true) %}
 {% set k0s_ha = swallow_k0s_high_availability | default(true) | bool %}
 apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig

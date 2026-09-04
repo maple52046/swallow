@@ -21,6 +21,8 @@ func init() {
 
 	rootCmd.AddCommand(apiCmd)
 	rootCmd.AddCommand(migrateCmd)
+	rootCmd.AddCommand(workerCmd)
+	rootCmd.AddCommand(ansibleExecutorCmd)
 }
 
 // logStartup prints non-sensitive effective config values at startup so that the

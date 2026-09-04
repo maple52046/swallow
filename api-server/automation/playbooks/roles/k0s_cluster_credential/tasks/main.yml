@@ -35,7 +35,7 @@
   ansible.builtin.copy:
     dest: "{{ swallow_result_path }}"
     content: >-
-      {{ {'apiEndpoint': 'https://' ~ (swallow_k0s_api_address | default(swallow_k0s_api_vip)) ~ ':6443',
+      {{ {'apiEndpoint': 'https://' ~ (swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true)) ~ ':6443',
           'token': k0s_reader_token} | to_json }}
     mode: "0600"
   delegate_to: localhost

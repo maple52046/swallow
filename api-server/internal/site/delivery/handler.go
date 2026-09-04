@@ -114,9 +114,15 @@ func (h *SiteHandler) CreateIntegration(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
 	}
 
+	kind := req.Kind
+	if kind == "cluster" {
+		kind = "platform"
+		c.Set("Deprecation", "true")
+	}
+
 	item, err := h.integrations.Create(c.Context(), application.CreateIntegrationInput{
 		SiteID:       req.SiteID,
-		Kind:         req.Kind,
+		Kind:         kind,
 		ProviderKind: req.ProviderKind,
 		Name:         req.Name,
 		Endpoint:     req.Endpoint,
@@ -131,7 +137,12 @@ func (h *SiteHandler) CreateIntegration(c *fiber.Ctx) error {
 }
 
 func (h *SiteHandler) ListIntegrations(c *fiber.Ctx) error {
-	items, err := h.integrations.List(c.Context(), c.Query("siteId"), c.Query("kind"))
+	kind := c.Query("kind")
+	if kind == "cluster" {
+		kind = "platform"
+		c.Set("Deprecation", "true")
+	}
+	items, err := h.integrations.List(c.Context(), c.Query("siteId"), kind)
 	if err != nil {
 		return respondError(c, err)
 	}

@@ -31,6 +31,7 @@ type serverDoc struct {
 	// the same way membership is left untouched.
 	GPUs []gpuDoc `bson:"gpus,omitempty"`
 
+	Deployment   *deploymentDoc   `bson:"deployment,omitempty"`
 	Provisioning *provisioningDoc `bson:"provisioning,omitempty"`
 	Membership   *membershipDoc   `bson:"membership,omitempty"`
 
@@ -73,6 +74,18 @@ type gpuDoc struct {
 	Vendor string `bson:"vendor"`
 	Model  string `bson:"model"`
 	Count  int    `bson:"count"`
+}
+
+type deploymentDoc struct {
+	State        string     `bson:"state"`
+	OperationID  string     `bson:"operationId"`
+	StepID       string     `bson:"stepId"`
+	Attempt      int        `bson:"attempt"`
+	Stage        string     `bson:"stage,omitempty"`
+	StatusReason string     `bson:"statusReason,omitempty"`
+	StartedAt    time.Time  `bson:"startedAt"`
+	FinishedAt   *time.Time `bson:"finishedAt,omitempty"`
+	UpdatedAt    time.Time  `bson:"updatedAt"`
 }
 
 type provisioningDoc struct {
@@ -419,6 +432,34 @@ func (r *MongoServerRepo) SetGPUs(ctx context.Context, id string, gpus []serverd
 	return nil
 }
 
+// SetDeployment writes the Swallow-owned result independently from provider inventory.
+func (r *MongoServerRepo) SetDeployment(ctx context.Context, id string, deployment *serverdomain.DeploymentStatus) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if deployment == nil {
+		update["$unset"] = bson.M{"deployment": ""}
+	} else {
+		update["$set"].(bson.M)["deployment"] = deploymentDoc{
+			State:        string(deployment.State),
+			OperationID:  deployment.OperationID,
+			StepID:       deployment.StepID,
+			Attempt:      deployment.Attempt,
+			Stage:        deployment.Stage,
+			StatusReason: deployment.StatusReason,
+			StartedAt:    deployment.StartedAt,
+			FinishedAt:   deployment.FinishedAt,
+			UpdatedAt:    deployment.UpdatedAt,
+		}
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return nil
+}
+
 func (r *MongoServerRepo) CountByIntegration(ctx context.Context, integrationID string) (int, error) {
 	count, err := r.col.CountDocuments(ctx, bson.M{"source.integrationId": integrationID})
 	return int(count), err
@@ -471,6 +512,20 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 		LastSeenAt: s.LastSeenAt,
 		CreatedAt:  s.CreatedAt,
 		UpdatedAt:  s.UpdatedAt,
+	}
+
+	if d := s.Deployment; d != nil {
+		doc.Deployment = &deploymentDoc{
+			State:        string(d.State),
+			OperationID:  d.OperationID,
+			StepID:       d.StepID,
+			Attempt:      d.Attempt,
+			Stage:        d.Stage,
+			StatusReason: d.StatusReason,
+			StartedAt:    d.StartedAt,
+			FinishedAt:   d.FinishedAt,
+			UpdatedAt:    d.UpdatedAt,
+		}
 	}
 
 	if p := s.Provisioning; p != nil {
@@ -546,6 +601,20 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			Model:  gpu.Model,
 			Count:  gpu.Count,
 		})
+	}
+
+	if d := doc.Deployment; d != nil {
+		s.Deployment = &serverdomain.DeploymentStatus{
+			State:        serverdomain.DeploymentState(d.State),
+			OperationID:  d.OperationID,
+			StepID:       d.StepID,
+			Attempt:      d.Attempt,
+			Stage:        d.Stage,
+			StatusReason: d.StatusReason,
+			StartedAt:    d.StartedAt,
+			FinishedAt:   d.FinishedAt,
+			UpdatedAt:    d.UpdatedAt,
+		}
 	}
 
 	if p := doc.Provisioning; p != nil {

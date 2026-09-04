@@ -10,7 +10,8 @@ import (
 
 // platformLifecycleReader adapts durable operation history to the platform lifecycle port.
 type platformLifecycleReader struct {
-	operations operationdomain.ExecutionRepository
+	operations     operationdomain.ExecutionRepository
+	orchestrations operationdomain.OrchestrationRepository
 }
 
 func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string) (map[string]platformdomain.LifecycleSnapshot, error) {
@@ -56,6 +57,34 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			}
 		}
 		snapshots[operation.PlatformID] = snapshot
+	}
+
+	if r.orchestrations != nil {
+		v3, _, err := r.orchestrations.List(ctx, operationdomain.OrchestrationFilter{PlatformIDs: platformIDs})
+		if err != nil {
+			return nil, err
+		}
+		expectedIDs := map[string]bool{}
+		for _, id := range platformIDs {
+			expectedIDs[id] = true
+		}
+		for _, operation := range v3 {
+			if !expectedIDs[operation.PlatformID] || (operation.Kind != operationdomain.OperationKindDeployKubernetes && operation.Kind != operationdomain.OperationKindUninstallKubernetes) {
+				continue
+			}
+			snapshot := snapshots[operation.PlatformID]
+			projected := &platformdomain.LifecycleOperation{ID: operation.ID, Status: lifecycleStatus(operation.Status),
+				TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RequestedAt: operation.RequestedAt}
+			if operation.Kind == operationdomain.OperationKindDeployKubernetes {
+				projected.Intent = deploymentIntentV3(operation)
+				if snapshot.Deployment == nil || snapshot.Deployment.RequestedAt.Before(projected.RequestedAt) {
+					snapshot.Deployment = projected
+				}
+			} else if snapshot.Uninstall == nil || snapshot.Uninstall.RequestedAt.Before(projected.RequestedAt) {
+				snapshot.Uninstall = projected
+			}
+			snapshots[operation.PlatformID] = snapshot
+		}
 	}
 
 	for id, snapshot := range snapshots {
@@ -171,4 +200,28 @@ func deriveLifecycle(snapshot platformdomain.LifecycleSnapshot) platformdomain.L
 		snapshot.State = platformdomain.PlatformLifecycleDeployFailed
 	}
 	return snapshot
+}
+
+func lifecycleStatus(status operationdomain.OrchestrationStatus) string {
+	switch status {
+	case operationdomain.OrchestrationPending, operationdomain.OrchestrationWaitingDependency:
+		return string(operationdomain.StatusPending)
+	case operationdomain.OrchestrationRunning, operationdomain.OrchestrationWaitingExternal, operationdomain.OrchestrationCanceling:
+		return string(operationdomain.StatusRunning)
+	case operationdomain.OrchestrationSucceeded:
+		return string(operationdomain.StatusSucceeded)
+	case operationdomain.OrchestrationCanceled:
+		return string(operationdomain.StatusCanceled)
+	default:
+		return string(operationdomain.StatusFailed)
+	}
+}
+
+func deploymentIntentV3(operation *operationdomain.OperationV3) *platformdomain.LifecycleDeployment {
+	extraVars, _ := operation.Intent["extraVars"].(map[string]any)
+	legacy := &operationdomain.ExecutionOperation{
+		TargetServerIDs: operation.TargetServerIDs,
+		ExtraVars:       extraVars,
+	}
+	return deploymentIntent(legacy)
 }

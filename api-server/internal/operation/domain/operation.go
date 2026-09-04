@@ -1,10 +1,7 @@
-// Package domain defines the operation kernel: what an operation is for (its kind), the
-// state of the run carrying it out (its status), and the invariants swallow enforces
-// before accepting one.
-//
-// swallow owns operation execution itself through an embedded Ansible runner; the durable
-// intent and the locally owned run live in execution.go. See
-// docs/decisions/006-embedded-ansible-execution.md.
+// Package domain defines the Operation kernel: operator intent, durable workflow state,
+// executor progress, and the invariants Swallow enforces before accepting mutating work.
+// Operation v3 is orchestrated by Temporal; historical v2 Ansible runs remain readable
+// through the permanent compatibility projection.
 package domain
 
 import (
@@ -17,6 +14,8 @@ type OperationKind string
 
 const (
 	OperationKindInstallGPUDriver OperationKind = "install-gpu-driver"
+	OperationKindDeployOS         OperationKind = "deploy-os"
+	OperationKindReleaseOS        OperationKind = "release-os"
 	OperationKindDeployKubernetes OperationKind = "deploy-kubernetes"
 	// OperationKindUninstallKubernetes removes the k0s installation created by a
 	// deploy-kubernetes operation while preserving the host operating system.
@@ -34,7 +33,7 @@ const (
 	// still be cleaned.
 	OperationKindUninstallExporters OperationKind = "uninstall-exporters"
 	// OperationKindDeployK8sExporters applies the exporter DaemonSets (node-exporter and
-	// the RDC exporter) plus the AMD GPU device-plugin to a Kubernetes cluster, run on a
+	// the RDC exporter) plus the AMD GPU device-plugin to a Kubernetes platform, run on a
 	// control-plane target. The DaemonSets use hostNetwork on the same fixed ports, so
 	// swallow's http_sd scrape and server_id join are unchanged.
 	OperationKindDeployK8sExporters OperationKind = "deploy-k8s-exporters"
@@ -47,6 +46,8 @@ const (
 )
 
 var ValidOperationKinds = []OperationKind{
+	OperationKindDeployOS,
+	OperationKindReleaseOS,
 	OperationKindInstallGPUDriver,
 	OperationKindDeployKubernetes,
 	OperationKindUninstallKubernetes,
@@ -89,7 +90,7 @@ type Status string
 
 const (
 	// StatusPending is the persisted-but-not-yet-dispatched state. Every accepted
-	// operation is pending before the embedded dispatcher claims it.
+	// operation is pending before its compatible executor claims it.
 	StatusPending Status = "pending"
 	StatusRunning Status = "running"
 	// StatusSucceeded and the failure states are terminal.

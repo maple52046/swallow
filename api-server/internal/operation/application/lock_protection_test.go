@@ -68,8 +68,11 @@ func (lockTestServerRepo) SetMembership(context.Context, string, *serverdomain.M
 	return nil
 }
 func (lockTestServerRepo) SetGPUs(context.Context, string, []serverdomain.GPU) error { return nil }
-func (lockTestServerRepo) CountByIntegration(context.Context, string) (int, error)   { return 0, nil }
-func (lockTestServerRepo) Delete(context.Context, string) error                      { return nil }
+func (lockTestServerRepo) SetDeployment(context.Context, string, *serverdomain.DeploymentStatus) error {
+	return nil
+}
+func (lockTestServerRepo) CountByIntegration(context.Context, string) (int, error) { return 0, nil }
+func (lockTestServerRepo) Delete(context.Context, string) error                    { return nil }
 
 type lockTestConfigurationRepo struct{ reads int }
 

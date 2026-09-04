@@ -30,6 +30,7 @@ type ProvisioningHandler struct {
 	events          *application.GetProviderEventsUseCase
 	actions         *application.MachineActionsUseCase
 	deleteServer    *application.DeleteServerUseCase
+	durable         application.DurableOperationLauncher
 }
 
 func NewProvisioningHandler(
@@ -47,8 +48,9 @@ func NewProvisioningHandler(
 	events *application.GetProviderEventsUseCase,
 	actions *application.MachineActionsUseCase,
 	deleteServer *application.DeleteServerUseCase,
+	durable ...application.DurableOperationLauncher,
 ) *ProvisioningHandler {
-	return &ProvisioningHandler{
+	handler := &ProvisioningHandler{
 		deploy:          deploy,
 		deployments:     deployments,
 		templates:       templates,
@@ -64,6 +66,10 @@ func NewProvisioningHandler(
 		actions:         actions,
 		deleteServer:    deleteServer,
 	}
+	if len(durable) > 0 {
+		handler.durable = durable[0]
+	}
+	return handler
 }
 
 // RefreshServer reads the current provider state for one machine and advances its
@@ -426,4 +432,10 @@ func (h *ProvisioningHandler) ProviderEvents(c *fiber.Ctx) error {
 		return RespondError(c, err)
 	}
 	return c.JSON(item)
+}
+
+// AttachDurableOperations completes composition after the Operation context has been
+// constructed. Legacy tests and deployments may omit it while compatibility endpoints live.
+func (h *ProvisioningHandler) AttachDurableOperations(launcher application.DurableOperationLauncher) {
+	h.durable = launcher
 }

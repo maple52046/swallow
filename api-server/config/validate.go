@@ -37,6 +37,12 @@ func Validate(cfg *Config) error {
 	if cfg.API.OperationLeaseDuration < 3*cfg.API.OperationDispatchInterval {
 		return fmt.Errorf("api.operationLeaseDuration must be at least 3x operationDispatchInterval")
 	}
+	if cfg.API.TemporalAddress == "" || cfg.API.TemporalNamespace == "" || cfg.API.TemporalTaskQueue == "" {
+		return fmt.Errorf("api.temporalAddress, api.temporalNamespace, and api.temporalTaskQueue are required")
+	}
+	if cfg.API.TemporalStartInterval <= 0 {
+		return fmt.Errorf("api.temporalStartInterval must be > 0")
+	}
 	if cfg.API.AnsibleRunnerCommand == "" {
 		return fmt.Errorf("api.ansibleRunnerCommand is required")
 	}

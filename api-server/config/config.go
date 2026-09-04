@@ -3,7 +3,7 @@
 // centralized here; application code receives a fully assembled Config object.
 //
 // Configuration covers only how this process runs. What it talks to — provisioners,
-// automation controllers, metrics stores, platforms — is registered at runtime as
+// automation controllers, metrics stores, clusters — is registered at runtime as
 // integration records, because a fleet has many of each and they change without a
 // redeploy. See docs/decisions/001-system-ownership-boundaries.md.
 package config
@@ -51,6 +51,11 @@ type APIConfig struct {
 	OperationDispatchInterval time.Duration `yaml:"operationDispatchInterval"`
 	// OperationLeaseDuration is renewed while ansible-runner is alive.
 	OperationLeaseDuration time.Duration `yaml:"operationLeaseDuration"`
+	// TemporalAddress and Namespace locate the durable workflow service shared by API and worker.
+	TemporalAddress       string        `yaml:"temporalAddress"`
+	TemporalNamespace     string        `yaml:"temporalNamespace"`
+	TemporalTaskQueue     string        `yaml:"temporalTaskQueue"`
+	TemporalStartInterval time.Duration `yaml:"temporalStartInterval"`
 	// AnsibleRunnerCommand is the pinned runner binary from the Execution Environment.
 	AnsibleRunnerCommand string `yaml:"ansibleRunnerCommand"`
 	// PlaybookManifest and PlaybookDir identify the immutable release bundle.

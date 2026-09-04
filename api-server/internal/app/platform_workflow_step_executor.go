@@ -1,0 +1,208 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
+	platformapp "github.com/maple52046/swallow/internal/platform/application"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+)
+
+// platformWorkflowStepExecutor implements Swallow-owned readiness and health phases.
+// It exposes only normalized outcomes to Temporal; provider and socket details remain in
+// the adapters that own them.
+type platformWorkflowStepExecutor struct {
+	servers        serverdomain.ServerRepository
+	configurations operationdomain.AutomationConfigurationRepository
+	membership     *platformapp.MembershipSyncUseCase
+	poll           time.Duration
+}
+
+func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	switch input.Step.Kind {
+	case "noop":
+		return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+	case "wait-for-ssh":
+		return e.waitForSSH(ctx, input)
+	case "validate-platform-health":
+		return e.validatePlatform(ctx, input.PlatformID, input.Step)
+	default:
+		return internalStepFailed("unsupported_internal_step", "The internal Step kind is not supported.", false)
+	}
+}
+
+func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	port := 22
+	if e.configurations != nil {
+		configuration, err := e.configurations.FindBySiteID(ctx, input.SiteID)
+		if err != nil {
+			return internalStepFailed("ssh_configuration_unavailable", err.Error(), true)
+		}
+		if configuration.SSHPort > 0 {
+			port = configuration.SSHPort
+		}
+	}
+	poll := e.pollInterval()
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	deadline := time.NewTimer(20 * time.Minute)
+	defer deadline.Stop()
+
+	for {
+		missingAddresses, unreachable, err := e.unreachableTargets(ctx, input.Step, port)
+		if err != nil {
+			return internalStepFailed("ssh_readiness_unavailable", err.Error(), true)
+		}
+		if len(missingAddresses) == 0 && len(unreachable) == 0 {
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+		}
+		select {
+		case <-ctx.Done():
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepCanceled}
+		case <-deadline.C:
+			failure := internalStepFailed("ssh_readiness_timeout", sshReadinessTimeoutMessage(missingAddresses, unreachable, port), true)
+			failure.Error.Stage = "ssh_readiness"
+			return failure
+		case <-ticker.C:
+		}
+	}
+}
+
+// unreachableTargets probes the latest Server projections and keeps absent provider
+// addresses separate from failed TCP probes. Calls are bounded to eight concurrent dials;
+// repository failures abort the observation instead of being misreported as host failures.
+func (e platformWorkflowStepExecutor) unreachableTargets(ctx context.Context, step operationdomain.OperationStep, port int) ([]string, []string, error) {
+	type probe struct {
+		name           string
+		reachable      bool
+		missingAddress bool
+		err            error
+	}
+	results := make(chan probe, len(step.Targets))
+	semaphore := make(chan struct{}, 8)
+	var wait sync.WaitGroup
+	for _, target := range step.Targets {
+		if target.Kind != "server" {
+			continue
+		}
+		server, err := e.servers.FindByID(ctx, target.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		name := server.DisplayName()
+		address := server.PrimaryAddress()
+		if address == "" {
+			results <- probe{name: name, missingAddress: true}
+			continue
+		}
+		if server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed" {
+			results <- probe{name: name}
+			continue
+		}
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				results <- probe{name: name, err: ctx.Err()}
+				return
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			connection, dialErr := (&net.Dialer{}).DialContext(probeCtx, "tcp", net.JoinHostPort(address, fmt.Sprintf("%d", port)))
+			if connection != nil {
+				_ = connection.Close()
+			}
+			results <- probe{name: name, reachable: dialErr == nil}
+		}()
+	}
+	wait.Wait()
+	close(results)
+	missingAddresses := []string{}
+	unreachable := []string{}
+	for result := range results {
+		if result.err != nil && ctx.Err() != nil {
+			return nil, nil, result.err
+		}
+		if result.missingAddress {
+			missingAddresses = append(missingAddresses, result.name)
+		} else if !result.reachable {
+			unreachable = append(unreachable, result.name)
+		}
+	}
+	sort.Strings(missingAddresses)
+	sort.Strings(unreachable)
+	return missingAddresses, unreachable, nil
+}
+
+// sshReadinessTimeoutMessage separates missing provider observations from a closed or
+// unreachable SSH port so operators know whether to inspect DHCP/addressing or the host.
+func sshReadinessTimeoutMessage(missingAddresses, unreachable []string, port int) string {
+	parts := make([]string, 0, 2)
+	if len(missingAddresses) > 0 {
+		parts = append(parts, fmt.Sprintf("No provider address was observed after OS deployment for: %s.", strings.Join(missingAddresses, ", ")))
+	}
+	if len(unreachable) > 0 {
+		parts = append(parts, fmt.Sprintf("SSH port %d did not become reachable for: %s.", port, strings.Join(unreachable, ", ")))
+	}
+	return strings.Join(parts, " ")
+}
+
+func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, platformID string, step operationdomain.OperationStep) temporalworkflow.StepExecutionResult {
+	if strings.TrimSpace(platformID) == "" || e.membership == nil {
+		return internalStepFailed("platform_validation_unavailable", "Platform health validation is unavailable.", false)
+	}
+	expected := 0
+	for _, target := range step.Targets {
+		if target.Kind == "server" {
+			expected++
+		}
+	}
+	ticker := time.NewTicker(e.pollInterval())
+	defer ticker.Stop()
+	deadline := time.NewTimer(10 * time.Minute)
+	defer deadline.Stop()
+	lastReason := "The Platform API has not reported membership yet."
+	for {
+		report, err := e.membership.Execute(ctx, platformID)
+		if err == nil && report.Error == nil && report.Matched >= expected {
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+		}
+		if err != nil {
+			lastReason = err.Error()
+		} else if report.Error != nil {
+			lastReason = *report.Error
+		} else {
+			lastReason = fmt.Sprintf("Platform membership matched %d of %d target Servers.", report.Matched, expected)
+		}
+		select {
+		case <-ctx.Done():
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepCanceled}
+		case <-deadline.C:
+			return internalStepFailed("platform_health_timeout", lastReason, true)
+		case <-ticker.C:
+		}
+	}
+}
+
+func (e platformWorkflowStepExecutor) pollInterval() time.Duration {
+	if e.poll <= 0 {
+		return 5 * time.Second
+	}
+	return e.poll
+}
+
+func internalStepFailed(code, message string, retryable bool) temporalworkflow.StepExecutionResult {
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.StepFailed, Error: &operationdomain.NormalizedError{
+		Code: code, Message: message, Retryable: retryable,
+	}}
+}

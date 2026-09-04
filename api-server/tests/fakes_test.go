@@ -211,6 +211,15 @@ func (r *fakeServerRepo) SetMembership(_ context.Context, id string, membership 
 	return nil
 }
 
+func (r *fakeServerRepo) SetDeployment(_ context.Context, id string, deployment *serverdomain.DeploymentStatus) error {
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Deployment = deployment
+	return nil
+}
+
 func (r *fakeServerRepo) CountByIntegration(_ context.Context, integrationID string) (int, error) {
 	count := 0
 	for _, s := range r.servers {

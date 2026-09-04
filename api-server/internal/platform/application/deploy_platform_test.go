@@ -119,6 +119,9 @@ func (r *deployFakeServerRepo) SetMembership(context.Context, string, *serverdom
 func (r *deployFakeServerRepo) SetGPUs(context.Context, string, []serverdomain.GPU) error {
 	return nil
 }
+func (r *deployFakeServerRepo) SetDeployment(context.Context, string, *serverdomain.DeploymentStatus) error {
+	return nil
+}
 func (r *deployFakeServerRepo) CountByIntegration(context.Context, string) (int, error) {
 	return 0, nil
 }
