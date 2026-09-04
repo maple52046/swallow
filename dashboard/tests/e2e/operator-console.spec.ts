@@ -158,8 +158,8 @@ test.describe('operator interactions', () => {
     await expect(integration).toContainText('MAAS Taipei')
   })
 
-  test('Deploy Cluster renders its expanded Site placeholder in dark mode', async ({ page }) => {
-    await page.goto('/clusters/deploy')
+  test('Deploy Platform renders its expanded Site placeholder in dark mode', async ({ page }) => {
+    await page.goto('/platforms/deploy')
     await visibleAppearance(page).click()
     await chooseMenuItem(page, 'Dark')
 
@@ -171,7 +171,7 @@ test.describe('operator interactions', () => {
     await page.getByRole('option', { name: 'Taipei Lab', exact: true }).click()
 
     await expect(page.getByLabel('Site', { exact: true })).toContainText('Taipei Lab')
-    await expect(page.getByLabel('Cluster name')).toBeVisible()
+    await expect(page.getByLabel('Platform name')).toBeVisible()
   })
 
   test('shared tables center cells and separators keep PatternFly spacing', async ({ page }) => {
@@ -183,8 +183,8 @@ test.describe('operator interactions', () => {
     await page.goto('/servers?site=site-a')
     await expectTableCellsVerticallyCentered(page, 'Servers')
 
-    await page.goto('/clusters?site=site-a')
-    await expectTableCellsVerticallyCentered(page, 'Clusters')
+    await page.goto('/platforms?site=site-a')
+    await expectTableCellsVerticallyCentered(page, 'Platforms')
 
     await page.goto('/monitoring?site=site-a')
     await expectTableCellsVerticallyCentered(page, 'Monitoring alerts')
@@ -207,9 +207,9 @@ test.describe('operator interactions', () => {
     await expectMediumBlockSpacing(metadataRow)
     await expect(page.locator('.sw-operation-debugger .sw-tab-content:visible')).toHaveCSS('padding-top', '24px')
 
-    await installApiFixtures(page, { freeClusterCandidates: true })
-    await page.goto('/clusters/deploy?site=site-a')
-    await page.getByLabel('Cluster name').fill('alignment-audit')
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.getByLabel('Platform name').fill('alignment-audit')
     await page.getByRole('button', { name: 'Next' }).click()
     for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
       await page.getByLabel(`Role for ${server}`).selectOption('control-plane')
@@ -555,9 +555,9 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('grid', { name: 'Servers' }).getByText('gpu-node-01', { exact: true })).toHaveCount(0)
   })
 
-  test('Cluster wizard explains and excludes Servers already claimed by Clusters', async ({ page }) => {
-    await page.goto('/clusters/deploy?site=site-a')
-    await page.getByLabel('Cluster name').fill('protected-targets')
+  test('Platform wizard explains and excludes Servers already claimed by Platforms', async ({ page }) => {
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.getByLabel('Platform name').fill('protected-targets')
     await page.getByRole('button', { name: 'Next' }).click()
 
     await expect(page.getByText('Some Servers are already assigned')).toBeVisible()
@@ -579,12 +579,12 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 
-  test('PatternFly wizard selects machines before networking and keeps Cluster context', async ({ page }) => {
-    await installApiFixtures(page, { freeClusterCandidates: true })
-    await page.goto('/clusters/deploy?site=site-a')
+  test('PatternFly wizard selects machines before networking and keeps Platform context', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await page.goto('/platforms/deploy?site=site-a')
     const next = page.getByRole('button', { name: 'Next' })
     await expect(next).toBeDisabled()
-    await page.getByLabel('Cluster name').fill('compute-k0s')
+    await page.getByLabel('Platform name').fill('compute-k0s')
     await next.click()
     await expect(page.getByRole('heading', { name: 'Topology and machines' })).toBeVisible()
     for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
@@ -599,25 +599,25 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Back' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveValue('192.168.40.200')
     await next.click()
-    await page.getByRole('button', { name: 'Deploy cluster' }).click()
-    await expect(page).toHaveURL('/clusters/cluster-new?site=site-a')
-    await expect(page.getByText('Cluster deployment is running')).toBeVisible()
+    await page.getByRole('button', { name: 'Deploy platform' }).click()
+    await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+    await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByRole('button', { name: 'View automation details' })).toBeVisible()
   })
 
-  test('Cluster wizard supports standalone and non-HA multi-node without a VIP', async ({ page }) => {
-    await installApiFixtures(page, { freeClusterCandidates: true })
-    await page.goto('/clusters/deploy?site=site-a')
-    await page.getByLabel('Cluster name').fill('edge-k0s')
+  test('Platform wizard supports standalone and non-HA multi-node without a VIP', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.getByLabel('Platform name').fill('edge-k0s')
     await page.getByRole('button', { name: 'Next' }).click()
-    await page.locator('#cluster-topology').selectOption('standalone')
+    await page.locator('#platform-topology').selectOption('standalone')
     await page.getByLabel('Role for gpu-node-01').selectOption('control-plane')
     await page.getByRole('button', { name: 'Next' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
     await expect(page.getByText(/192\.168\.40\.21:6443/)).toBeVisible()
 
     await page.getByRole('button', { name: 'Back' }).click()
-    await page.locator('#cluster-topology').selectOption('multi-node')
+    await page.locator('#platform-topology').selectOption('multi-node')
     await page.getByLabel('Role for gpu-node-01').selectOption('control-plane')
     await page.getByLabel('Role for gpu-node-02').selectOption('worker')
     await page.getByRole('button', { name: 'Next' }).click()
@@ -626,7 +626,7 @@ test.describe('operator interactions', () => {
   })
 
   test('Headlamp language is type-aware and Slurm stays neutral', async ({ page }) => {
-    await page.goto('/clusters/cluster-a?site=site-a')
+    await page.goto('/platforms/platform-a?site=site-a')
     const kubernetesStats = page.locator('.sw-stat-strip')
     await expect(kubernetesStats.getByText('Topology', { exact: true })).toBeVisible()
     await expect(kubernetesStats.getByText('High availability', { exact: true })).toBeVisible()
@@ -634,17 +634,17 @@ test.describe('operator interactions', () => {
     await expect(kubernetesStats.getByText('Workload-capable', { exact: true })).toBeVisible()
     await expect(kubernetesStats.getByText('1 also runs workloads', { exact: true })).toBeVisible()
     await expect(
-      page.getByRole('grid', { name: 'Cluster members' }).getByRole('row', { name: /gpu-node-01/ }),
+      page.getByRole('grid', { name: 'Platform members' }).getByRole('row', { name: /gpu-node-01/ }),
     ).toContainText('Runs workloads')
     await expect(page.getByText(/Kubernetes membership/)).toBeVisible()
-    await page.goto('/clusters/cluster-slurm?site=site-a')
+    await page.goto('/platforms/platform-slurm?site=site-a')
     await expect(page.getByText('Managers')).toBeVisible()
     await expect(page.getByText('Compute members')).toBeVisible()
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
-  test('standalone Cluster summary shows one control-plane is workload-capable', async ({ page }) => {
-    await page.goto('/clusters/cluster-b?site=site-a')
+  test('standalone Platform summary shows one control-plane is workload-capable', async ({ page }) => {
+    await page.goto('/platforms/platform-b?site=site-a')
     const stats = page.locator('.sw-stat-strip')
     await expect(stats.locator('.sw-stat').filter({ hasText: 'Topology' })).toContainText('Standalone')
     await expect(stats.locator('.sw-stat').filter({ hasText: 'Control-plane' }))
@@ -653,35 +653,35 @@ test.describe('operator interactions', () => {
       .toContainText('1')
   })
 
-  test('Cluster list uses backend lifecycle labels and keeps Slurm uninstall disabled', async ({ page }) => {
-    await page.goto('/clusters?site=site-a')
-    const table = page.getByRole('grid', { name: 'Clusters' })
+  test('Platform list uses backend lifecycle labels and keeps Slurm uninstall disabled', async ({ page }) => {
+    await page.goto('/platforms?site=site-a')
+    const table = page.getByRole('grid', { name: 'Platforms' })
     await expect(table.getByRole('row', { name: /production-k0s/ })).toContainText('Active')
     await expect(table.getByRole('row', { name: /edge-staging/ })).toContainText('Deployment failed')
     await expect(table.getByRole('row', { name: /research-slurm/ })).toContainText('Registered')
 
-    await page.goto('/clusters/cluster-slurm?site=site-a')
-    await page.getByRole('button', { name: 'Cluster actions' }).click()
-    const uninstall = page.getByRole('menuitem', { name: /Uninstall cluster/ })
+    await page.goto('/platforms/platform-slurm?site=site-a')
+    await page.getByRole('button', { name: 'Platform actions' }).click()
+    const uninstall = page.getByRole('menuitem', { name: /Uninstall platform/ })
     await expect(uninstall).toBeDisabled()
     await expect(page.getByText('Only Kubernetes clusters can be uninstalled.')).toBeVisible()
   })
 
-  test('failed Cluster repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
-    await page.goto('/clusters/cluster-b?site=site-a')
-    await expect(page.getByText('Cluster deployment failed')).toBeVisible()
+  test('failed Platform repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
+    await page.goto('/platforms/platform-b?site=site-a')
+    await expect(page.getByText('Platform deployment failed')).toBeVisible()
 
     await page.getByRole('button', { name: 'Repair deployment' }).click()
-    const dialog = page.getByRole('dialog', { name: 'Repair cluster deployment' })
+    const dialog = page.getByRole('dialog', { name: 'Repair platform deployment' })
     await expect(dialog.getByText('Original configuration will be reused')).toBeVisible()
     await expect(dialog.getByText(/1 original deployment target/)).toBeVisible()
     await expect(dialog.getByText(/same machines, roles, network settings/)).toBeVisible()
 
     await dialog.getByRole('button', { name: 'Repair deployment' }).click()
 
-    await expect(page).toHaveURL('/clusters/cluster-b?site=site-a')
-    await expect(page.getByText('Cluster repair started')).toBeVisible()
-    await expect(page.getByText('Cluster deployment is running')).toBeVisible()
+    await expect(page).toHaveURL('/platforms/platform-b?site=site-a')
+    await expect(page.getByText('Platform repair started')).toBeVisible()
+    await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByText('Deployment failed')).toHaveCount(0)
     await expect(
       page.getByRole('grid', { name: 'Related operations' })
@@ -692,34 +692,34 @@ test.describe('operator interactions', () => {
 
   test('typed Uninstall and Delete confirmations keep host and record actions separate', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/clusters/cluster-a?site=site-a')
-    await page.getByRole('button', { name: 'Cluster actions' }).click()
-    await page.getByRole('menuitem', { name: 'Uninstall cluster', exact: true }).click()
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'Platform actions' }).click()
+    await page.getByRole('menuitem', { name: 'Uninstall platform', exact: true }).click()
 
-    const dialog = page.getByRole('dialog', { name: 'Uninstall cluster' })
-    const confirmation = dialog.getByLabel('Cluster name confirmation')
+    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+    const confirmation = dialog.getByLabel('Platform name confirmation')
     await expect(confirmation).toBeFocused()
     await expect(dialog.locator('p').filter({ hasText: 'Targets: 3 original deployment targets' })).toBeVisible()
     await expect(dialog.getByText(/operating system, user data, and shared packages/)).toBeVisible()
-    const uninstall = dialog.getByRole('button', { name: 'Uninstall cluster' })
+    const uninstall = dialog.getByRole('button', { name: 'Uninstall platform' })
     await expect(uninstall).toBeDisabled()
     await confirmation.fill('wrong-name')
     await expect(uninstall).toBeDisabled()
     await confirmation.fill('production-k0s')
     await uninstall.click()
     await expect(page).toHaveURL('/operations/op-uninstall?site=site-a')
-    await expect(page.getByText('Cluster uninstall accepted')).toBeVisible()
+    await expect(page.getByText('Platform uninstall accepted')).toBeVisible()
 
-    await page.goto('/clusters/cluster-a?site=site-a')
-    await page.getByRole('button', { name: 'Cluster actions' }).click()
-    await page.getByRole('menuitem', { name: 'Delete cluster', exact: true }).click()
-    const deleteDialog = page.getByRole('dialog', { name: 'Delete cluster' })
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'Platform actions' }).click()
+    await page.getByRole('menuitem', { name: 'Delete platform', exact: true }).click()
+    const deleteDialog = page.getByRole('dialog', { name: 'Delete platform' })
     await expect(deleteDialog.getByText('Hosts will not be uninstalled')).toBeVisible()
     await expect(deleteDialog.getByText(/Accepted operations will also continue/)).toBeVisible()
-    await deleteDialog.getByLabel('Cluster name confirmation').fill('production-k0s')
-    await deleteDialog.getByRole('button', { name: 'Delete cluster' }).click()
-    await expect(page).toHaveURL('/clusters?site=site-a')
-    await expect(page.getByText('Cluster deleted')).toBeVisible()
+    await deleteDialog.getByLabel('Platform name confirmation').fill('production-k0s')
+    await deleteDialog.getByRole('button', { name: 'Delete platform' }).click()
+    await expect(page).toHaveURL('/platforms?site=site-a')
+    await expect(page.getByText('Platform deleted')).toBeVisible()
     await expect(page.getByRole('row', { name: /production-k0s/ })).toHaveCount(0)
   })
 

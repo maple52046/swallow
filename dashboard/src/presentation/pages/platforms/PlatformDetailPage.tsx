@@ -4,8 +4,8 @@ import { SyncAltIcon } from '@patternfly/react-icons'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import { clusterLifecycleLabel, clusterLifecycleStatus } from '@/domain/cluster/lifecycle'
-import type { Cluster, KubernetesTopology } from '@/domain/cluster/types'
+import { platformLifecycleLabel, platformLifecycleStatus } from '@/domain/platform/lifecycle'
+import type { Platform, KubernetesTopology } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -16,8 +16,8 @@ import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
-import { ClusterLifecycleActions } from './ClusterLifecycleActions'
-import { useClusterDetail } from './useClusterDetail'
+import { PlatformLifecycleActions } from './PlatformLifecycleActions'
+import { usePlatformDetail } from './usePlatformDetail'
 
 /** Operator label for a deployment topology value. */
 function topologyLabel(topology: KubernetesTopology): string {
@@ -32,25 +32,25 @@ function topologyLabel(topology: KubernetesTopology): string {
 }
 
 /**
- * Cluster drill-down combining readiness, lifecycle progress, members, and related work.
+ * Platform drill-down combining readiness, lifecycle progress, members, and related work.
  *
  * Active deployment/uninstall state is polled by the detail hook, while raw automation
  * output remains a secondary drill-down. Slurm never inherits Kubernetes terminology.
  */
-export function ClusterDetailPage() {
+export function PlatformDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { scopedHref } = useSiteScope()
-  const { clusters } = useApp()
+  const { platforms } = useApp()
   const { showToast } = useToast()
-  const state = useClusterDetail(id)
+  const state = usePlatformDetail(id)
   const [syncing, setSyncing] = useState(false)
 
   const sync = useCallback(async () => {
     if (!id) return
     setSyncing(true)
     try {
-      const report = await clusters.syncCluster(id)
+      const report = await platforms.syncPlatform(id)
       showToast({
         tone: report.error ? 'error' : 'success',
         title: report.error ? 'Sync failed' : 'Membership synced',
@@ -66,52 +66,52 @@ export function ClusterDetailPage() {
     } finally {
       setSyncing(false)
     }
-  }, [clusters, id, showToast, state])
+  }, [platforms, id, showToast, state])
 
   if (state.status === 'loading') {
-    return <><PageHeader title="Cluster" /><LoadingState rows={6} /></>
+    return <><PageHeader title="Platform" /><LoadingState rows={6} /></>
   }
   if (state.status === 'not-found') {
-    return <><PageHeader title="Cluster" /><EmptyState title="Cluster not found" message="This cluster no longer exists." /></>
+    return <><PageHeader title="Platform" /><EmptyState title="Platform not found" message="This platform no longer exists." /></>
   }
   if (state.status === 'error') {
-    return <><PageHeader title="Cluster" /><ErrorState message={state.message} /></>
+    return <><PageHeader title="Platform" /><ErrorState message={state.message} /></>
   }
 
-  const { cluster, members, operations, reload } = state.data
+  const { platform, members, operations, reload } = state.data
   const controllers = members.filter((server) => server.membership?.role === 'control-plane')
   const workers = members.filter((server) => server.membership?.role !== 'control-plane')
-  const isKubernetes = cluster.type === 'kubernetes'
-  const intendedControllers = cluster.deployment?.roleAssignments.filter(
+  const isKubernetes = platform.type === 'kubernetes'
+  const intendedControllers = platform.deployment?.roleAssignments.filter(
     (assignment) => assignment.role === 'control-plane',
   ) ?? []
-  const intendedWorkers = cluster.deployment?.roleAssignments.filter(
+  const intendedWorkers = platform.deployment?.roleAssignments.filter(
     (assignment) => assignment.role === 'worker',
   ) ?? []
-  const workloadCapable = cluster.deployment?.roleAssignments.filter(
+  const workloadCapable = platform.deployment?.roleAssignments.filter(
     (assignment) => assignment.role === 'worker' || assignment.runWorkloads,
   ) ?? []
   const workloadControllers = intendedControllers.filter((assignment) => assignment.runWorkloads)
   const lifecycleOperation = operations.find(
-    (operation) => operation.id === cluster.lifecycleOperationId,
+    (operation) => operation.id === platform.lifecycleOperationId,
   ) ?? operations.find((operation) => operation.kind === 'deploy-kubernetes')
   const targetServerIds = lifecycleOperation?.targetServerIds
 
   return (
     <div className="operator-page">
       <PageHeader
-        title={cluster.name}
-        subtitle={`${cluster.type} cluster, GPU stack owned by ${cluster.gpuStackOwner}, exporters managed by ${cluster.exporterOwner}`}
+        title={platform.name}
+        subtitle={`${platform.type} platform, GPU stack owned by ${platform.gpuStackOwner}, exporters managed by ${platform.exporterOwner}`}
         breadcrumbs={[
-          { label: 'Clusters', href: scopedHref('/clusters') },
-          { label: cluster.name },
+          { label: 'Platforms', href: scopedHref('/platforms') },
+          { label: platform.name },
         ]}
         metadata={
           <Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}>
-            <Label color={isKubernetes ? 'blue' : 'grey'}>{cluster.type}</Label>
+            <Label color={isKubernetes ? 'blue' : 'grey'}>{platform.type}</Label>
             <StatusBadge
-              status={clusterLifecycleStatus(cluster.lifecycleState)}
-              label={clusterLifecycleLabel(cluster.lifecycleState)}
+              status={platformLifecycleStatus(platform.lifecycleState)}
+              label={platformLifecycleLabel(platform.lifecycleState)}
             />
           </Flex>
         }
@@ -122,12 +122,12 @@ export function ClusterDetailPage() {
               icon={<SyncAltIcon />}
               onClick={() => void sync()}
               isLoading={syncing}
-              isDisabled={syncing || !cluster.integrationId}
+              isDisabled={syncing || !platform.integrationId}
             >
               Sync now
             </Button>
-            <ClusterLifecycleActions
-              cluster={cluster}
+            <PlatformLifecycleActions
+              platform={platform}
               targetServerIds={targetServerIds}
               onRepairStarted={reload}
             />
@@ -135,21 +135,21 @@ export function ClusterDetailPage() {
         }
       />
       <LifecycleNotice
-        cluster={cluster}
+        platform={platform}
         onOpenOperation={(operationId) => navigate(scopedHref('/operations/' + operationId))}
       />
-      {cluster.sync.lastError && cluster.lifecycleState !== 'uninstalled' && (
+      {platform.sync.lastError && platform.lifecycleState !== 'uninstalled' && (
         <Alert variant={AlertVariant.danger} title="Membership sync is failing" isInline>
-          {cluster.sync.lastError}. The member list may be stale; last success{' '}
-          {formatRelative(cluster.sync.lastSucceededAt ?? undefined)}.
+          {platform.sync.lastError}. The member list may be stale; last success{' '}
+          {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
         </Alert>
       )}
       <StatStrip
         items={[
-          { label: 'Lifecycle', value: clusterLifecycleLabel(cluster.lifecycleState) },
-          ...(isKubernetes && cluster.deployment
+          { label: 'Lifecycle', value: platformLifecycleLabel(platform.lifecycleState) },
+          ...(isKubernetes && platform.deployment
             ? [
-                { label: 'Topology', value: topologyLabel(cluster.deployment.topology) },
+                { label: 'Topology', value: topologyLabel(platform.deployment.topology) },
                 {
                   label: 'Control-plane',
                   value: intendedControllers.length,
@@ -175,14 +175,14 @@ export function ClusterDetailPage() {
               ]),
           {
             label: 'Matched members',
-            value: cluster.sync.matchedCount,
-            detail: `${cluster.sync.memberCount} reported`,
-            tone: cluster.sync.matchedCount < cluster.sync.memberCount ? 'warning' : 'neutral',
+            value: platform.sync.matchedCount,
+            detail: `${platform.sync.memberCount} reported`,
+            tone: platform.sync.matchedCount < platform.sync.memberCount ? 'warning' : 'neutral',
           },
           {
             label: 'Last synced',
-            value: cluster.sync.lastSucceededAt
-              ? formatRelative(cluster.sync.lastSucceededAt)
+            value: platform.sync.lastSucceededAt
+              ? formatRelative(platform.sync.lastSucceededAt)
               : 'No data',
           },
         ]}
@@ -193,24 +193,24 @@ export function ClusterDetailPage() {
           description={
             isKubernetes
               ? 'Kubernetes membership correlated to Server projections.'
-              : 'Cluster membership correlated to Server projections.'
+              : 'Platform membership correlated to Server projections.'
           }
         />
         <MemberTable
           members={members}
           isKubernetes={isKubernetes}
-          deployment={cluster.deployment}
+          deployment={platform.deployment}
           onSelect={(server) => navigate(scopedHref(`/servers/${server.id}`))}
         />
       </section>
       <section className="sw-section">
         <SectionHeader
           title="Related operations"
-          description="Deployment, uninstall, and retry history for this Cluster."
+          description="Deployment, uninstall, and retry history for this Platform."
           actions={<Button variant="link" icon={<SyncAltIcon />} onClick={reload}>Refresh</Button>}
         />
         {operations.length === 0 ? (
-          <EmptyState title="No operations" message="No automation has run against this cluster." />
+          <EmptyState title="No operations" message="No automation has run against this platform." />
         ) : (
           <StickyTableFrame>
             <Table aria-label="Related operations" variant="compact">
@@ -238,16 +238,16 @@ export function ClusterDetailPage() {
 }
 
 /**
- * Explains lifecycle in Cluster language and keeps raw automation detail a secondary action.
+ * Explains lifecycle in Platform language and keeps raw automation detail a secondary action.
  */
 function LifecycleNotice({
-  cluster,
+  platform,
   onOpenOperation,
 }: {
-  cluster: Cluster
+  platform: Platform
   onOpenOperation: (operationId: string) => void
 }) {
-  const operationId = cluster.lifecycleOperationId
+  const operationId = platform.lifecycleOperationId
   const details = operationId ? (
     <Button
       variant="link"
@@ -258,37 +258,37 @@ function LifecycleNotice({
     </Button>
   ) : null
 
-  switch (cluster.lifecycleState) {
+  switch (platform.lifecycleState) {
     case 'deploying':
       return (
-        <Alert variant={AlertVariant.info} title="Cluster deployment is running" isInline>
-          Swallow is configuring {cluster.name}. Lifecycle and membership update here automatically. {details}
+        <Alert variant={AlertVariant.info} title="Platform deployment is running" isInline>
+          Swallow is configuring {platform.name}. Lifecycle and membership update here automatically. {details}
         </Alert>
       )
     case 'deploy_failed':
       return (
-        <Alert variant={AlertVariant.danger} title="Cluster deployment failed" isInline>
+        <Alert variant={AlertVariant.danger} title="Platform deployment failed" isInline>
           Hosts may contain partial k0s state. Review the automation details, then use
           Repair deployment to rerun the original configuration. {details}
         </Alert>
       )
     case 'uninstalling':
       return (
-        <Alert variant={AlertVariant.warning} title="Cluster uninstall is running" isInline>
+        <Alert variant={AlertVariant.warning} title="Platform uninstall is running" isInline>
           The Swallow record remains available while original deployment targets are cleaned. {details}
         </Alert>
       )
     case 'uninstall_failed':
       return (
-        <Alert variant={AlertVariant.danger} title="Cluster uninstall failed" isInline>
+        <Alert variant={AlertVariant.danger} title="Platform uninstall failed" isInline>
           Hosts may be in mixed states. Inspect the automation output before retrying. {details}
         </Alert>
       )
     case 'uninstalled':
-      return <Alert variant={AlertVariant.info} title="Cluster is uninstalled" isInline>k0s was removed from the original targets. This record remains until you delete it.</Alert>
+      return <Alert variant={AlertVariant.info} title="Platform is uninstalled" isInline>k0s was removed from the original targets. This record remains until you delete it.</Alert>
     default:
-      if (!cluster.integrationId) {
-        return <Alert variant={AlertVariant.info} title="Cluster is not reachable" isInline>No cluster integration is attached, so membership cannot be read.</Alert>
+      if (!platform.integrationId) {
+        return <Alert variant={AlertVariant.info} title="Platform is not reachable" isInline>No platform integration is attached, so membership cannot be read.</Alert>
       }
       return null
   }
@@ -303,15 +303,15 @@ function MemberTable({
 }: {
   members: Server[]
   isKubernetes: boolean
-  deployment: Cluster['deployment']
+  deployment: Platform['deployment']
   onSelect: (server: Server) => void
 }) {
   if (members.length === 0) {
-    return <EmptyState title="No members" message="No Server currently reports membership in this cluster." />
+    return <EmptyState title="No members" message="No Server currently reports membership in this platform." />
   }
   return (
     <StickyTableFrame>
-      <Table aria-label="Cluster members" variant="compact">
+      <Table aria-label="Platform members" variant="compact">
         <Thead>
           <Tr><Th>{isKubernetes ? 'Node' : 'Member'}</Th><Th>Role</Th><Th>State</Th><Th>Address</Th></Tr>
         </Thead>

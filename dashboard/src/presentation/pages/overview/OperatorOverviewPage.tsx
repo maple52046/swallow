@@ -25,8 +25,8 @@ function attentionItems(data: Overview): AttentionItem[] {
     href: alert.serverId ? `/servers/${alert.serverId}/monitoring` : '/monitoring',
   }))
   data.integrations.items.filter((item) => item.lastError).forEach((item) => items.push({ key: `integration-${item.id}`, priority: 2, kind: 'integration', title: `${item.name} is failing`, detail: item.lastError ?? 'The last refresh failed.' }))
-  if (data.clusters.unreachable) items.push({ key: 'cluster-unreachable', priority: 2, kind: 'cluster', title: `${data.clusters.unreachable} clusters unreachable`, detail: 'Membership cannot currently be read.', href: '/clusters' })
-  if (data.clusters.unmatchedMembers) items.push({ key: 'cluster-unmatched', priority: 3, kind: 'membership', title: `${data.clusters.unmatchedMembers} unmatched members`, detail: 'Reported nodes do not correlate to current Servers.', href: '/clusters' })
+  if (data.platforms.unreachable) items.push({ key: 'platform-unreachable', priority: 2, kind: 'platform', title: `${data.platforms.unreachable} platforms unreachable`, detail: 'Membership cannot currently be read.', href: '/platforms' })
+  if (data.platforms.unmatchedMembers) items.push({ key: 'platform-unmatched', priority: 3, kind: 'membership', title: `${data.platforms.unmatchedMembers} unmatched members`, detail: 'Reported nodes do not correlate to current Servers.', href: '/platforms' })
   if (data.inventory.health.down) items.push({ key: 'servers-down', priority: 1, kind: 'health', title: `${data.inventory.health.down} servers down`, detail: 'Metrics report these hosts as unavailable.', href: '/servers' })
   if (data.operations.failedLast24Hours) items.push({ key: 'operations-failed', priority: 2, kind: 'operation', title: `${data.operations.failedLast24Hours} failed operations in 24h`, detail: 'Review retained events and stdout before retrying.', href: '/operations?status=failed' })
   return items.sort((left, right) => left.priority - right.priority).slice(0, 10)
@@ -53,7 +53,7 @@ export function OperatorOverviewPage() {
       <StatStrip items={[
         { label: 'Servers', value: data.inventory.servers, detail: `${data.inventory.absent} absent` },
         { label: 'Health up', value: data.inventory.health.up, detail: `${data.inventory.health.down} down, ${data.inventory.health.unknown} unknown`, tone: data.inventory.health.down ? 'critical' : 'success' },
-        { label: 'Deployed', value: data.inventory.deployed, detail: `${data.inventory.clustered} clustered` },
+        { label: 'Deployed', value: data.inventory.deployed, detail: `${data.inventory.platformed} platformed` },
         { label: 'GPU devices', value: data.inventory.gpuDevices, detail: `Across ${data.inventory.sites} sites` },
         { label: 'Active operations', value: data.operations.active, detail: `${data.operations.failedLast24Hours} failed in 24h`, tone: data.operations.failedLast24Hours ? 'warning' : 'neutral' },
         { label: 'Firing alerts', value: data.monitoring.firing.critical + data.monitoring.firing.warning, detail: `${data.monitoring.firing.critical} critical`, tone: data.monitoring.firing.critical ? 'critical' : 'neutral' },

@@ -19,7 +19,7 @@ function makeServer(index: number) {
     providerResourcePool: hasInventory ? named ? 'accelerators' : 'compute' : '', providerPod: '', tags: hasInventory ? named ? ['gpu', 'production'] : ['compute'] : [],
     hardware: { systemUuid: `uuid-${ordinal}`, serialNumber: `SN${String(ordinal).padStart(4, '0')}`, macAddresses: hasInventory ? [`02:00:00:00:${String(Math.floor(index / 250)).padStart(2, '0')}:${String((index % 250) + 1).padStart(2, '0')}`] : [] },
     provisioning: { state: 'deployed', providerState: 'deployed', powerState: 'on', osSystem: 'ubuntu', distroSeries: '24.04', ephemeral: false, hweKernel: 'ga-24.04', locked: false, commissioningStatus: 'passed', testingStatus: 'passed', integrationId: 'maas-a', observedAt: now },
-    membership: ordinal <= 3 ? { clusterId: 'cluster-a', nodeName: `gpu-node-0${ordinal}`, role: 'control-plane', state: 'ready', observedAt: now } : null,
+    membership: ordinal <= 3 ? { platformId: 'platform-a', nodeName: `gpu-node-0${ordinal}`, role: 'control-plane', state: 'ready', observedAt: now } : null,
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
     absent: false, lastSeenAt: now, createdAt: '2026-08-01T00:00:00Z', updatedAt: now,
   }
@@ -27,13 +27,13 @@ function makeServer(index: number) {
 
 const servers = Array.from({ length: 4 }, (_, index) => makeServer(index))
 const operations = [
-  { id: 'op-running', kind: 'deploy-kubernetes', intent: 'Deploy production k0s cluster', siteId: 'site-a', clusterId: 'cluster-a', targetServerIds: servers.slice(0, 3).map((server) => server.id), retryOfOperationId: null, execution: { runId: 'run-1024', playbook: 'deploy-k0s.yml', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null }, requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z', updatedAt: now },
-  { id: 'op-failed', kind: 'exporter.install', intent: 'Install GPU exporters', siteId: 'site-a', clusterId: 'cluster-a', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-1023', playbook: 'install-exporters.yml', status: 'failed', statusReason: 'Host unreachable', startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T01:09:00Z', updatedAt: '2026-08-27T01:12:00Z' },
-  { id: 'op-deploy-failed', kind: 'deploy-kubernetes', intent: 'Deploy edge-staging k0s cluster', siteId: 'site-a', clusterId: 'cluster-b', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-deploy-failed', playbook: 'deploy-kubernetes', status: 'failed', statusReason: 'Worker join failed', startedAt: '2026-08-27T00:30:00Z', finishedAt: '2026-08-27T00:35:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T00:29:00Z', updatedAt: '2026-08-27T00:35:00Z' },
+  { id: 'op-running', kind: 'deploy-kubernetes', intent: 'Deploy production k0s cluster', siteId: 'site-a', platformId: 'platform-a', targetServerIds: servers.slice(0, 3).map((server) => server.id), retryOfOperationId: null, execution: { runId: 'run-1024', playbook: 'deploy-k0s.yml', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null }, requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z', updatedAt: now },
+  { id: 'op-failed', kind: 'exporter.install', intent: 'Install GPU exporters', siteId: 'site-a', platformId: 'platform-a', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-1023', playbook: 'install-exporters.yml', status: 'failed', statusReason: 'Host unreachable', startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T01:09:00Z', updatedAt: '2026-08-27T01:12:00Z' },
+  { id: 'op-deploy-failed', kind: 'deploy-kubernetes', intent: 'Deploy edge-staging k0s cluster', siteId: 'site-a', platformId: 'platform-b', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-deploy-failed', playbook: 'deploy-kubernetes', status: 'failed', statusReason: 'Worker join failed', startedAt: '2026-08-27T00:30:00Z', finishedAt: '2026-08-27T00:35:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T00:29:00Z', updatedAt: '2026-08-27T00:35:00Z' },
 ]
-const clusters = [
+const platforms = [
   {
-    id: 'cluster-a', siteId: 'site-a', name: 'production-k0s', type: 'kubernetes',
+    id: 'platform-a', siteId: 'site-a', name: 'production-k0s', type: 'kubernetes',
     integrationId: 'k8s-a', origin: 'deployed', lifecycleState: 'active',
     lifecycleOperationId: 'op-running',
     deployment: {
@@ -49,7 +49,7 @@ const clusters = [
     createdAt: '2026-08-10T00:00:00Z', updatedAt: now,
   },
   {
-    id: 'cluster-b', siteId: 'site-a', name: 'edge-staging', type: 'kubernetes',
+    id: 'platform-b', siteId: 'site-a', name: 'edge-staging', type: 'kubernetes',
     integrationId: null, origin: 'deployed', lifecycleState: 'deploy_failed',
     lifecycleOperationId: 'op-deploy-failed',
     deployment: {
@@ -63,7 +63,7 @@ const clusters = [
     createdAt: '2026-08-20T00:00:00Z', updatedAt: now,
   },
   {
-    id: 'cluster-slurm', siteId: 'site-a', name: 'research-slurm', type: 'slurm',
+    id: 'platform-slurm', siteId: 'site-a', name: 'research-slurm', type: 'slurm',
     integrationId: 'slurm-a', origin: 'registered', lifecycleState: 'registered',
     lifecycleOperationId: null, deployment: null,
     gpuStackOwner: 'provisioning', exporterOwner: 'ansible',
@@ -90,9 +90,9 @@ const baseDeploymentTemplates = [
 ]
 
 const alerts = [
-  { fingerprint: 'alert-1', name: 'NodeDown', severity: 'critical', state: 'firing', summary: 'gpu-node-04 stopped reporting', description: 'No scrape data for five minutes', labels: { alertname: 'NodeDown', server_id: 'srv-4' }, startsAt: '2026-08-27T02:50:00Z', serverId: 'srv-4', siteId: 'site-a', clusterId: 'cluster-a' },
-  { fingerprint: 'alert-2', name: 'GpuTemperatureHigh', severity: 'warning', state: 'firing', summary: 'GPU temperature exceeds threshold', description: '', labels: { alertname: 'GpuTemperatureHigh', server_id: 'srv-2' }, startsAt: '2026-08-27T02:45:00Z', serverId: 'srv-2', siteId: 'site-a', clusterId: 'cluster-a' },
-  { fingerprint: 'alert-3', name: 'ExporterMissing', severity: 'warning', state: 'suppressed', summary: 'Exporter rollout pending', description: '', labels: { alertname: 'ExporterMissing', server_id: 'srv-3' }, startsAt: '2026-08-27T01:45:00Z', serverId: 'srv-3', siteId: 'site-a', clusterId: 'cluster-a' },
+  { fingerprint: 'alert-1', name: 'NodeDown', severity: 'critical', state: 'firing', summary: 'gpu-node-04 stopped reporting', description: 'No scrape data for five minutes', labels: { alertname: 'NodeDown', server_id: 'srv-4' }, startsAt: '2026-08-27T02:50:00Z', serverId: 'srv-4', siteId: 'site-a', platformId: 'platform-a' },
+  { fingerprint: 'alert-2', name: 'GpuTemperatureHigh', severity: 'warning', state: 'firing', summary: 'GPU temperature exceeds threshold', description: '', labels: { alertname: 'GpuTemperatureHigh', server_id: 'srv-2' }, startsAt: '2026-08-27T02:45:00Z', serverId: 'srv-2', siteId: 'site-a', platformId: 'platform-a' },
+  { fingerprint: 'alert-3', name: 'ExporterMissing', severity: 'warning', state: 'suppressed', summary: 'Exporter rollout pending', description: '', labels: { alertname: 'ExporterMissing', server_id: 'srv-3' }, startsAt: '2026-08-27T01:45:00Z', serverId: 'srv-3', siteId: 'site-a', platformId: 'platform-a' },
 ]
 
 /** Controls for large-fleet, concurrency, and failure-path browser fixtures. */
@@ -120,8 +120,8 @@ export interface FixtureOptions {
   releaseCleanupFails?: boolean
   onNetworkLinkRequest?: (method: string, serverId: string, interfaceId: string, linkId: string | null, body: Record<string, unknown> | null) => void
   onMetricsRequest?: (serverIds: string[]) => void
-  /** Removes Cluster membership and deployment target claims for wizard success paths. */
-  freeClusterCandidates?: boolean
+  /** Removes Platform membership and deployment target claims for wizard success paths. */
+  freePlatformCandidates?: boolean
   onMetricsActive?: (active: number) => void
 }
 
@@ -133,7 +133,7 @@ function json(route: Route, body: unknown, status = 200) {
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
   await page.unroute('**/api/v1/**')
   const fleet = Array.from({ length: options.fleetSize ?? 4 }, (_, index) => makeServer(index))
-  if (options.freeClusterCandidates) {
+  if (options.freePlatformCandidates) {
     for (const server of fleet) {
       server.membership = null
     }
@@ -249,9 +249,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       deploymentRefreshesRemaining.set(serverId, remaining - 1)
     }
   }
-  const clusterItems = clusters.map((cluster) => ({ ...cluster }))
+  const platformItems = platforms.map((platform) => ({ ...platform }))
   const operationItems = operations.map((operation) => ({ ...operation }))
-  if (options.freeClusterCandidates) {
+  if (options.freePlatformCandidates) {
     for (const operation of operationItems) {
       if (operation.kind === 'deploy-kubernetes') {
         operation.targetServerIds = []
@@ -490,18 +490,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const siteId = url.searchParams.get('siteId')
       return json(route, {
         generatedAt: now, scope: { siteId },
-        inventory: { sites: siteId ? 1 : 2, servers: 4, absent: 0, deployed: 4, clustered: 4, gpuDevices: 24, health: { up: 3, down: 1, unknown: 0 } },
+        inventory: { sites: siteId ? 1 : 2, servers: 4, absent: 0, deployed: 4, platformed: 4, gpuDevices: 24, health: { up: 3, down: 1, unknown: 0 } },
         integrations: { total: integrationItems.length, failing: 1, items: integrationItems.map((item) => ({ id: item.id, siteId: item.siteId, name: item.name, kind: item.kind, providerKind: item.providerKind, enabled: item.enabled, lastSucceededAt: item.sync.lastSucceededAt, lastError: item.sync.lastError })) },
-        clusters: { total: 2, unreachable: 1, unmatchedMembers: 1 }, operations: { active: 1, failedLast24Hours: 1, recent: operations },
+        platforms: { total: 2, unreachable: 1, unmatchedMembers: 1 }, operations: { active: 1, failedLast24Hours: 1, recent: operations },
         monitoring: { available: true, error: null, firing: { critical: 1, warning: 1, items: alerts.filter((alert) => alert.state === 'firing') } },
       })
     }
 
     if (path === '/api/v1/servers') {
       let items = [...fleet]
-      const siteId = url.searchParams.get('siteId'); const clusterId = url.searchParams.get('clusterId'); const provisioningState = url.searchParams.get('provisioningState'); const keyword = url.searchParams.get('keyword')?.toLowerCase()
+      const siteId = url.searchParams.get('siteId'); const platformId = url.searchParams.get('platformId'); const provisioningState = url.searchParams.get('provisioningState'); const keyword = url.searchParams.get('keyword')?.toLowerCase()
       if (siteId) items = items.filter((item) => item.source.siteId === siteId)
-      if (clusterId) items = items.filter((item) => item.membership?.clusterId === clusterId)
+      if (platformId) items = items.filter((item) => item.membership?.platformId === platformId)
       if (provisioningState) items = items.filter((item) => item.provisioning?.state === provisioningState)
       if (keyword) items = items.filter((item) => [item.hostname, item.fqdn, item.id, ...item.addresses].some((value) => value?.toLowerCase().includes(keyword)))
       const pageNumber = Number(url.searchParams.get('page') ?? 1); const pageSize = Number(url.searchParams.get('pageSize') ?? 100); const start = (pageNumber - 1) * pageSize
@@ -692,7 +692,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, { items: ids.map((serverId, index) => ({ serverId, metrics: { cpuUsagePercent: 30 + (index % 20), memoryUsedPercent: 60 + (index % 10), ...(Number(serverId.split('-')[1]) <= 4 ? { gpuUtilizationPercent: 88.1, gpuTemperatureCelsius: 71.3 } : {}) } })), grafana: 'https://grafana.example' })
     }
 
-    if (path === '/api/v1/clusters/deploy' && request.method() === 'POST') {
+    if (path === '/api/v1/platforms/deploy' && request.method() === 'POST') {
       const body = request.postDataJSON() as {
         name: string
         gpuStackOwner: string
@@ -711,16 +711,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           : body.roleAssignments.length === 1
             ? 'standalone'
             : 'multi-node'
-      const operationId = 'op-cluster-new'
+      const operationId = 'op-platform-new'
       operationItems.unshift({
         ...operations[0],
         id: operationId,
         intent: 'Deploy ' + body.name,
-        clusterId: 'cluster-new',
+        platformId: 'platform-new',
         targetServerIds: body.roleAssignments.map((assignment) => assignment.serverId),
       })
-      clusterItems.push({
-        id: 'cluster-new',
+      platformItems.push({
+        id: 'platform-new',
         siteId: 'site-a',
         name: body.name,
         type: 'kubernetes',
@@ -735,36 +735,36 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         createdAt: now,
         updatedAt: now,
       })
-      return json(route, { clusterId: 'cluster-new', operationId }, 202)
+      return json(route, { platformId: 'platform-new', operationId }, 202)
     }
-    if (path === '/api/v1/clusters') {
+    if (path === '/api/v1/platforms') {
       const siteId = url.searchParams.get('siteId')
-      return json(route, clusterItems.filter((item) => !siteId || item.siteId === siteId))
+      return json(route, platformItems.filter((item) => !siteId || item.siteId === siteId))
     }
-    const uninstallMatch = path.match(/^\/api\/v1\/clusters\/([^/]+)\/uninstall$/)
+    const uninstallMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/uninstall$/)
     if (uninstallMatch && request.method() === 'POST') {
-      return json(route, { clusterId: uninstallMatch[1], operationId: 'op-uninstall' }, 202)
+      return json(route, { platformId: uninstallMatch[1], operationId: 'op-uninstall' }, 202)
     }
-    const clusterMatch = path.match(/^\/api\/v1\/clusters\/([^/]+)$/)
-    if (clusterMatch && request.method() === 'DELETE') {
-      const index = clusterItems.findIndex((cluster) => cluster.id === clusterMatch[1])
-      if (index < 0) return json(route, { error: { code: 'not_found', message: 'Cluster not found' } }, 404)
-      clusterItems.splice(index, 1)
+    const platformMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)$/)
+    if (platformMatch && request.method() === 'DELETE') {
+      const index = platformItems.findIndex((platform) => platform.id === platformMatch[1])
+      if (index < 0) return json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
+      platformItems.splice(index, 1)
       return json(route, { success: true })
     }
-    if (clusterMatch) {
-      const cluster = clusterItems.find((item) => item.id === clusterMatch[1])
-      return cluster
-        ? json(route, cluster)
-        : json(route, { error: { code: 'not_found', message: 'Cluster not found' } }, 404)
+    if (platformMatch) {
+      const platform = platformItems.find((item) => item.id === platformMatch[1])
+      return platform
+        ? json(route, platform)
+        : json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
     }
     if (path === '/api/v1/operations') {
       let items = [...operationItems]
       const status = url.searchParams.get('status')
-      const clusterId = url.searchParams.get('clusterId')
+      const platformId = url.searchParams.get('platformId')
       const serverId = url.searchParams.get('serverId')
       if (status) items = items.filter((item) => item.execution.status === status)
-      if (clusterId) items = items.filter((item) => item.clusterId === clusterId)
+      if (platformId) items = items.filter((item) => item.platformId === platformId)
       if (serverId) items = items.filter((item) => item.targetServerIds.includes(serverId))
       return json(route, { items, total: items.length, page: 1, pageSize: 30 })
     }
@@ -794,11 +794,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       operationItems.unshift(retry)
       if (isDeploymentRepair) {
-        const cluster = clusterItems.find((item) => item.id === original.clusterId)
-        if (cluster) {
-          cluster.lifecycleState = 'deploying'
-          cluster.lifecycleOperationId = retry.id
-          cluster.updatedAt = now
+        const platform = platformItems.find((item) => item.id === original.platformId)
+        if (platform) {
+          platform.lifecycleState = 'deploying'
+          platform.lifecycleOperationId = retry.id
+          platform.updatedAt = now
         }
       }
       return json(route, retry, 202)

@@ -71,10 +71,10 @@ export interface ProvisioningAxis {
   observedAt: string
 }
 
-/** Cluster membership, owned by the cluster's own API. Never written by swallow. */
+/** Platform membership, owned by the platform's own API. Never written by swallow. */
 export interface MembershipAxis {
-  clusterId: string
-  /** The cluster's name for this machine. */
+  platformId: string
+  /** The platform's name for this machine. */
   nodeName: string
   role: string
   state: string
@@ -122,7 +122,7 @@ export interface Server {
    * Three independent axes with three different owners. Each is null until its
    * owner has been observed at least once.
    *
-   * Never collapse these into one badge: a server that is deployed, in no cluster,
+   * Never collapse these into one badge: a server that is deployed, in no platform,
    * and not reporting metrics is either a spare awaiting allocation or a broken
    * host, and no rule can tell which.
    */
@@ -145,7 +145,7 @@ export interface ListServersFilters {
   siteId?: string
   integrationId?: string
   provisioningState?: string
-  clusterId?: string
+  platformId?: string
   keyword?: string
   includeAbsent?: boolean
   page?: number

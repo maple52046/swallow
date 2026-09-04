@@ -1,44 +1,44 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
-import type { Cluster } from '@/domain/cluster/types'
+import type { Platform } from '@/domain/platform/types'
 import type { Operation } from '@/domain/operation/types'
 import type { Server } from '@/domain/server/types'
 
 const LIFECYCLE_POLL_INTERVAL_MS = 5000
 
-/** Combined Cluster page projection; members and Operations may degrade to empty independently. */
-export interface ClusterDetailData {
-  cluster: Cluster
-  /** Servers the cluster's own API reports as members, read through the membership axis. */
+/** Combined Platform page projection; members and Operations may degrade to empty independently. */
+export interface PlatformDetailData {
+  platform: Platform
+  /** Servers the platform's own API reports as members, read through the membership axis. */
   members: Server[]
-  /** Operations concerning this cluster, most recent first. */
+  /** Operations concerning this platform, most recent first. */
   operations: Operation[]
   reload: () => void
 }
 
-/** Explicit loading, missing, failure, and usable states for the Cluster route. */
-export type ClusterDetailState =
+/** Explicit loading, missing, failure, and usable states for the Platform route. */
+export type PlatformDetailState =
   | { status: 'loading' }
   | { status: 'not-found' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; data: ClusterDetailData }
+  | { status: 'ready'; data: PlatformDetailData }
 
 /** Only accepted automation states continue polling without an operator action. */
-function lifecycleCanChangeWithoutInput(cluster: Cluster): boolean {
-  return cluster.lifecycleState === 'deploying' || cluster.lifecycleState === 'uninstalling'
+function lifecycleCanChangeWithoutInput(platform: Platform): boolean {
+  return platform.lifecycleState === 'deploying' || platform.lifecycleState === 'uninstalling'
 }
 
 /**
- * Loads one Cluster with members and related Operations, polling active lifecycle work.
+ * Loads one Platform with members and related Operations, polling active lifecycle work.
  *
  * Membership and Operation reads degrade independently to empty collections so a provider
- * outage cannot hide the durable Cluster record. While deploy or uninstall is active, the
+ * outage cannot hide the durable Platform record. While deploy or uninstall is active, the
  * full projection is refreshed every five seconds and the timer is always cleared when the
  * route unmounts or lifecycle reaches a terminal state.
  */
-export function useClusterDetail(id: string | undefined): ClusterDetailState {
-  const { clusters, servers, operations } = useApp()
-  const [state, setState] = useState<ClusterDetailState>(
+export function usePlatformDetail(id: string | undefined): PlatformDetailState {
+  const { platforms, servers, operations } = useApp()
+  const [state, setState] = useState<PlatformDetailState>(
     id ? { status: 'loading' } : { status: 'not-found' },
   )
   const [nonce, setNonce] = useState(0)
@@ -51,27 +51,27 @@ export function useClusterDetail(id: string | undefined): ClusterDetailState {
 
     const load = () => {
       Promise.all([
-        clusters.getCluster(id),
-        servers.listServers({ clusterId: id, includeAbsent: true, pageSize: 200 }).then(
+        platforms.getPlatform(id),
+        servers.listServers({ platformId: id, includeAbsent: true, pageSize: 200 }).then(
           (page) => page.items,
           () => [] as Server[],
         ),
-        operations.listOperations({ clusterId: id, pageSize: 50 }).then(
+        operations.listOperations({ platformId: id, pageSize: 50 }).then(
           (page) => page.items,
           () => [] as Operation[],
         ),
       ])
-        .then(([cluster, members, relatedOperations]) => {
+        .then(([platform, members, relatedOperations]) => {
           if (cancelled) return
-          if (cluster === null) {
+          if (platform === null) {
             setState({ status: 'not-found' })
             return
           }
           setState({
             status: 'ready',
-            data: { cluster, members, operations: relatedOperations, reload },
+            data: { platform, members, operations: relatedOperations, reload },
           })
-          if (lifecycleCanChangeWithoutInput(cluster)) {
+          if (lifecycleCanChangeWithoutInput(platform)) {
             timer = setTimeout(load, LIFECYCLE_POLL_INTERVAL_MS)
           }
         })
@@ -86,7 +86,7 @@ export function useClusterDetail(id: string | undefined): ClusterDetailState {
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [clusters, servers, operations, id, nonce, reload])
+  }, [platforms, servers, operations, id, nonce, reload])
 
   return state
 }

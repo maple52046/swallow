@@ -2,8 +2,8 @@ import { Button, Label } from '@patternfly/react-core'
 import { PlusIcon } from '@patternfly/react-icons'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate } from 'react-router-dom'
-import { clusterLifecycleLabel, clusterLifecycleStatus } from '@/domain/cluster/lifecycle'
-import type { Cluster } from '@/domain/cluster/types'
+import { platformLifecycleLabel, platformLifecycleStatus } from '@/domain/platform/lifecycle'
+import type { Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
@@ -12,75 +12,75 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
-import { useClusters } from './useClusters'
+import { usePlatforms } from './usePlatforms'
 
-function issueScore(cluster: Cluster): number {
+function issueScore(platform: Platform): number {
   const lifecycleIssue =
-    cluster.lifecycleState === 'deploy_failed' || cluster.lifecycleState === 'uninstall_failed'
+    platform.lifecycleState === 'deploy_failed' || platform.lifecycleState === 'uninstall_failed'
       ? 6
-      : cluster.lifecycleState === 'deploying' || cluster.lifecycleState === 'uninstalling'
+      : platform.lifecycleState === 'deploying' || platform.lifecycleState === 'uninstalling'
         ? 2
         : 0
   const reachabilityIssue =
-    cluster.lifecycleState !== 'uninstalled' && !cluster.integrationId ? 2 : 0
-  return lifecycleIssue + reachabilityIssue + (cluster.sync.lastError ? 2 : 0)
-    + Math.max(0, cluster.sync.memberCount - cluster.sync.matchedCount)
+    platform.lifecycleState !== 'uninstalled' && !platform.integrationId ? 2 : 0
+  return lifecycleIssue + reachabilityIssue + (platform.sync.lastError ? 2 : 0)
+    + Math.max(0, platform.sync.memberCount - platform.sync.matchedCount)
 }
 
-function needsAttention(cluster: Cluster): boolean {
-  return issueScore(cluster) >= 4
+function needsAttention(platform: Platform): boolean {
+  return issueScore(platform) >= 4
 }
 
-/** Multi-cluster inventory ordered by operation lifecycle and membership issues. */
-export function ClustersPage() {
+/** Multi-platform inventory ordered by operation lifecycle and membership issues. */
+export function PlatformsPage() {
   const navigate = useNavigate()
   const { siteId, scopedHref } = useSiteScope()
-  const { state } = useClusters(siteId)
-  const clusters = state.status === 'ready'
-    ? [...state.clusters].sort(
+  const { state } = usePlatforms(siteId)
+  const platforms = state.status === 'ready'
+    ? [...state.platforms].sort(
       (a, b) => issueScore(b) - issueScore(a) || a.name.localeCompare(b.name),
     )
     : []
-  const attention = clusters.filter(needsAttention).length
-  const uninstalling = clusters.filter(
-    (cluster) => cluster.lifecycleState === 'uninstalling',
+  const attention = platforms.filter(needsAttention).length
+  const uninstalling = platforms.filter(
+    (platform) => platform.lifecycleState === 'uninstalling',
   ).length
-  const unmatched = clusters.reduce(
-    (sum, cluster) => sum + Math.max(0, cluster.sync.memberCount - cluster.sync.matchedCount),
+  const unmatched = platforms.reduce(
+    (sum, platform) => sum + Math.max(0, platform.sync.memberCount - platform.sync.matchedCount),
     0,
   )
 
   return (
     <div className="operator-page">
       <PageHeader
-        title="Clusters"
-        subtitle="Multi-cluster lifecycle, readiness, membership, and automation context."
+        title="Platforms"
+        subtitle="Multi-platform lifecycle, readiness, membership, and automation context."
         actions={
           <Button
             icon={<PlusIcon />}
-            onClick={() => navigate(scopedHref('/clusters/deploy'))}
+            onClick={() => navigate(scopedHref('/platforms/deploy'))}
           >
-            Deploy cluster
+            Deploy platform
           </Button>
         }
       />
       {state.status === 'loading' && <LoadingState rows={4} />}
       {state.status === 'error' && <ErrorState message={state.message} />}
-      {state.status === 'ready' && clusters.length === 0 && (
+      {state.status === 'ready' && platforms.length === 0 && (
         <EmptyState
-          title="No clusters"
+          title="No platforms"
           message="Deploy a k0s cluster onto deployed Servers to get started."
           action={{
-            label: 'Deploy cluster',
-            onClick: () => navigate(scopedHref('/clusters/deploy')),
+            label: 'Deploy platform',
+            onClick: () => navigate(scopedHref('/platforms/deploy')),
           }}
         />
       )}
-      {clusters.length > 0 && (
+      {platforms.length > 0 && (
         <>
           <StatStrip
             items={[
-              { label: 'Clusters', value: clusters.length },
+              { label: 'Platforms', value: platforms.length },
               { label: 'Needs attention', value: attention, tone: attention ? 'warning' : 'neutral' },
               { label: 'Uninstalling', value: uninstalling },
               {
@@ -91,7 +91,7 @@ export function ClustersPage() {
             ]}
           />
           <StickyTableFrame>
-            <Table aria-label="Clusters" variant="compact" isStriped>
+            <Table aria-label="Platforms" variant="compact" isStriped>
               <Thead>
                 <Tr>
                   <Th>Name</Th>
@@ -103,54 +103,54 @@ export function ClustersPage() {
                 </Tr>
               </Thead>
               <Tbody>
-                {clusters.map((cluster) => {
+                {platforms.map((platform) => {
                   const unmanaged = Math.max(
                     0,
-                    cluster.sync.memberCount - cluster.sync.matchedCount,
+                    platform.sync.memberCount - platform.sync.matchedCount,
                   )
                   return (
                     <Tr
-                      key={cluster.id}
+                      key={platform.id}
                       isClickable
-                      onRowClick={() => navigate(scopedHref(`/clusters/${cluster.id}`))}
+                      onRowClick={() => navigate(scopedHref(`/platforms/${platform.id}`))}
                     >
                       <Td dataLabel="Name">
-                        <strong>{cluster.name}</strong>
-                        <small>{cluster.origin === 'deployed' ? 'Swallow deployed' : 'Registered'}</small>
+                        <strong>{platform.name}</strong>
+                        <small>{platform.origin === 'deployed' ? 'Swallow deployed' : 'Registered'}</small>
                       </Td>
                       <Td dataLabel="Type">
-                        <Label color={cluster.type === 'kubernetes' ? 'blue' : 'grey'}>
-                          {cluster.type}
+                        <Label color={platform.type === 'kubernetes' ? 'blue' : 'grey'}>
+                          {platform.type}
                         </Label>
                       </Td>
                       <Td dataLabel="Lifecycle">
                         <StatusBadge
-                          status={clusterLifecycleStatus(cluster.lifecycleState)}
-                          label={clusterLifecycleLabel(cluster.lifecycleState)}
+                          status={platformLifecycleStatus(platform.lifecycleState)}
+                          label={platformLifecycleLabel(platform.lifecycleState)}
                         />
                       </Td>
                       <Td dataLabel="Connectivity">
-                        {cluster.lifecycleState === 'uninstalled' ? (
+                        {platform.lifecycleState === 'uninstalled' ? (
                           '-'
-                        ) : !cluster.integrationId ? (
+                        ) : !platform.integrationId ? (
                           <StatusBadge status="pending" label="Not reachable" />
-                        ) : cluster.sync.lastError ? (
+                        ) : platform.sync.lastError ? (
                           <StatusBadge status="failed" label="Sync failing" />
                         ) : (
                           <StatusBadge status="ready" label="Connected" />
                         )}
                       </Td>
                       <Td dataLabel="Members">
-                        {cluster.integrationId ? (
+                        {platform.integrationId ? (
                           <>
-                            {cluster.sync.matchedCount}/{cluster.sync.memberCount}
+                            {platform.sync.matchedCount}/{platform.sync.memberCount}
                             {unmanaged > 0 && <Label color="orange">{unmanaged} unmatched</Label>}
                           </>
                         ) : '-'}
                       </Td>
                       <Td dataLabel="Membership freshness">
-                        {cluster.sync.lastSucceededAt
-                          ? formatRelative(cluster.sync.lastSucceededAt)
+                        {platform.sync.lastSucceededAt
+                          ? formatRelative(platform.sync.lastSucceededAt)
                           : '-'}
                       </Td>
                     </Tr>

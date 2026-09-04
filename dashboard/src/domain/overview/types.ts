@@ -24,7 +24,7 @@ export interface OverviewAlert {
   startsAt: string | null
   serverId: string | null
   siteId: string | null
-  clusterId: string | null
+  platformId: string | null
 }
 
 /** Provider-owned aggregate read model for the operator landing screen. */
@@ -36,7 +36,7 @@ export interface Overview {
     servers: number
     absent: number
     deployed: number
-    clustered: number
+    platformed: number
     gpuDevices: number
     health: { up: number; down: number; unknown: number }
   }
@@ -45,7 +45,7 @@ export interface Overview {
     failing: number
     items: OverviewIntegration[]
   }
-  clusters: {
+  platforms: {
     total: number
     unreachable: number
     unmatchedMembers: number

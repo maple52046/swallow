@@ -64,7 +64,7 @@ export function LoginPage() {
         <Content component="p" className="sw-login-subtitle">Operator console</Content>
       </LoginMainHeader>
       <LoginMainBody>
-        <Content component="p" className="sw-login-intro">Manage infrastructure, clusters, and automation.</Content>
+        <Content component="p" className="sw-login-intro">Manage infrastructure, platforms, and automation.</Content>
         {error && <Alert variant={AlertVariant.danger} title={error} isInline className="sw-login-error" />}
         <Form onSubmit={(event) => void submit(event)}>
           <FormGroup label="Username" isRequired fieldId="sw-login-username"><TextInput id="sw-login-username" value={username} onChange={(_event, value) => setUsername(value)} autoComplete="username" isRequired /></FormGroup>

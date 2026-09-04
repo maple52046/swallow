@@ -27,7 +27,7 @@ const SiteScopeContext = createContext<SiteScopeValue | null>(null)
 
 function detailListPath(pathname: string): string | null {
   if (/^\/servers\/[^/]+/.test(pathname)) return '/servers'
-  if (/^\/clusters\/[^/]+/.test(pathname) && pathname !== '/clusters/deploy') return '/clusters'
+  if (/^\/platforms\/[^/]+/.test(pathname) && pathname !== '/platforms/deploy') return '/platforms'
   if (/^\/operations\/[^/]+/.test(pathname)) return '/operations'
   return null
 }

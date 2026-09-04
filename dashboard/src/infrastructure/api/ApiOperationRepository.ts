@@ -15,7 +15,7 @@ export class ApiOperationRepository implements OperationRepository {
   async listOperations(filters?: ListOperationsFilters): Promise<Paginated<Operation>> {
     const query = new URLSearchParams()
     if (filters?.siteId) query.set('siteId', filters.siteId)
-    if (filters?.clusterId) query.set('clusterId', filters.clusterId)
+    if (filters?.platformId) query.set('platformId', filters.platformId)
     if (filters?.serverId) query.set('serverId', filters.serverId)
     if (filters?.kind) query.set('kind', filters.kind)
     if (filters?.status) query.set('status', filters.status)

@@ -28,8 +28,8 @@ import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate } from 'react-router-dom'
 import { LockBadge } from '@/presentation/components/AxisBadge'
 import { useApp } from '@/di/AppProvider'
-import { clusterLifecycleLabel } from '@/domain/cluster/lifecycle'
-import type { Cluster, GPUStackOwner, NodeRole, RoleAssignment } from '@/domain/cluster/types'
+import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
+import type { Platform, GPUStackOwner, NodeRole, RoleAssignment } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -68,12 +68,12 @@ function topologyPresentation(topology: TopologyChoice) {
     case 'standalone':
       return {
         label: 'Standalone',
-        guidance: 'One Server runs the control plane and workloads. There is no control-plane failover, but the cluster can be expanded later.',
+        guidance: 'One Server runs the control plane and workloads. There is no control-plane failover, but the platform can be expanded later.',
       }
     case 'multi-node':
       return {
         label: 'Multi-node (non-HA)',
-        guidance: 'One Server runs the control plane and one or more workers run workloads. A control-plane outage stops cluster management.',
+        guidance: 'One Server runs the control plane and one or more workers run workloads. A control-plane outage stops platform management.',
       }
     case 'high-availability':
       return {
@@ -91,9 +91,9 @@ function selectedNetworkGuidance(addresses: string[]): string {
   return `Observed addresses include ${octets.slice(0, 3).join('.')}.x. Confirm routing, DHCP ranges, and address reservations with the network owner.`
 }
 
-interface ExistingClusterAssignment {
-  clusterName: string
-  clusterType: string
+interface ExistingPlatformAssignment {
+  platformName: string
+  platformType: string
   detail: string
 }
 
@@ -102,43 +102,43 @@ interface ExistingClusterAssignment {
  * explanation. Durable claims take precedence because they also cover partial deployments
  * whose membership has not become observable yet.
  */
-function existingClusterAssignment(
+function existingPlatformAssignment(
   server: Server,
-  clusters: Cluster[],
-  deploymentClaims: Record<string, Cluster>,
-): ExistingClusterAssignment | null {
+  platforms: Platform[],
+  deploymentClaims: Record<string, Platform>,
+): ExistingPlatformAssignment | null {
   const claim = deploymentClaims[server.id]
   if (claim) {
-    const role = server.membership?.clusterId === claim.id
+    const role = server.membership?.platformId === claim.id
       ? server.membership.role
       : null
     return {
-      clusterName: claim.name,
-      clusterType: claim.type,
+      platformName: claim.name,
+      platformType: claim.type,
       detail: role
-        ? `${role} · ${clusterLifecycleLabel(claim.lifecycleState)}`
-        : clusterLifecycleLabel(claim.lifecycleState),
+        ? `${role} · ${platformLifecycleLabel(claim.lifecycleState)}`
+        : platformLifecycleLabel(claim.lifecycleState),
     }
   }
   if (!server.membership) return null
-  const cluster = clusters.find((candidate) => candidate.id === server.membership?.clusterId)
+  const platform = platforms.find((candidate) => candidate.id === server.membership?.platformId)
   return {
-    clusterName: cluster?.name ?? server.membership.clusterId,
-    clusterType: cluster?.type ?? 'unknown',
+    platformName: platform?.name ?? server.membership.platformId,
+    platformType: platform?.type ?? 'unknown',
     detail: server.membership.role,
   }
 }
 
 /**
- * PatternFly cluster deployment workflow.
+ * PatternFly platform deployment workflow.
  *
  * Machine selection intentionally precedes networking: the selected topology and observed
  * addresses decide whether a VIP exists and give the operator concrete allocation context.
- * Accepted work stays on the Cluster page; Operations remains a troubleshooting drill-down.
+ * Accepted work stays on the Platform page; Operations remains a troubleshooting drill-down.
  */
-export function DeployClusterWizardPage() {
+export function DeployPlatformWizardPage() {
   const navigate = useNavigate()
-  const { clusters } = useApp()
+  const { platforms } = useApp()
   const { siteId: scopedSiteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
@@ -176,9 +176,9 @@ export function DeployClusterWizardPage() {
   const hasLockedServers = state.status === 'ready'
     && state.data.servers.some((server) => server.provisioning?.locked)
   const hasAssignedServers = state.status === 'ready'
-    && state.data.servers.some((server) => Boolean(existingClusterAssignment(
+    && state.data.servers.some((server) => Boolean(existingPlatformAssignment(
       server,
-      state.data.clusters,
+      state.data.platforms,
       state.data.deploymentClaims,
     )))
   const topologyValid = topology === 'standalone'
@@ -244,7 +244,7 @@ export function DeployClusterWizardPage() {
     if (!effectiveSiteId || !basicsValid || !machinesValid || !networkingValid || submitting) return
     setSubmitting(true)
     try {
-      const result = await clusters.deployCluster({
+      const result = await platforms.deployPlatform({
         siteId: effectiveSiteId,
         name: name.trim(),
         gpuStackOwner,
@@ -257,11 +257,11 @@ export function DeployClusterWizardPage() {
         roleAssignments: assignments,
       })
       showToast({
-        title: 'Cluster deployment started',
-        description: 'Lifecycle and membership will update on the Cluster page. Detailed automation output remains available when troubleshooting.',
+        title: 'Platform deployment started',
+        description: 'Lifecycle and membership will update on the Platform page. Detailed automation output remains available when troubleshooting.',
         tone: 'success',
       })
-      navigate(scopedHref(`/clusters/${result.clusterId}`))
+      navigate(scopedHref(`/platforms/${result.platformId}`))
     } catch (error) {
       showToast({
         title: 'Deployment failed',
@@ -275,20 +275,20 @@ export function DeployClusterWizardPage() {
   return (
     <div className="operator-page">
       <PageHeader
-        title="Deploy cluster"
-        breadcrumbs={[{ label: 'Clusters', href: scopedHref('/clusters') }, { label: 'Deploy' }]}
+        title="Deploy platform"
+        breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }, { label: 'Deploy' }]}
         subtitle="Build a standalone, non-HA multi-node, or highly available k0s cluster on deployed Servers."
       />
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} />}
       {state.status === 'ready' && (
         <Wizard
-          aria-label="Deploy cluster"
+          aria-label="Deploy platform"
           className="sw-deploy-wizard"
           height="min(700px, calc(100vh - 220px))"
           isVisitRequired
           shouldFocusContent
-          onClose={() => navigate(scopedHref('/clusters'))}
+          onClose={() => navigate(scopedHref('/platforms'))}
           onSave={() => void deploy()}
         >
           <WizardStep
@@ -297,11 +297,11 @@ export function DeployClusterWizardPage() {
             status={basicsValid ? 'success' : 'default'}
             footer={{ isNextDisabled: !basicsValid }}
           >
-            <WizardSection title="Cluster identity">
+            <WizardSection title="Platform identity">
               <Form className="sw-form-grid">
-                <FormGroup label="Site" isRequired fieldId="cluster-site">
+                <FormGroup label="Site" isRequired fieldId="platform-site">
                   <SingleSelect
-                    id="cluster-site"
+                    id="platform-site"
                     ariaLabel="Site"
                     value={effectiveSiteId ?? ''}
                     placeholder="Select a Site"
@@ -318,17 +318,17 @@ export function DeployClusterWizardPage() {
                     }}
                   />
                 </FormGroup>
-                <FormGroup label="Cluster name" isRequired fieldId="cluster-name">
+                <FormGroup label="Platform name" isRequired fieldId="platform-name">
                   <TextInput
-                    id="cluster-name"
+                    id="platform-name"
                     value={name}
                     onChange={(_event, value) => setName(value)}
                     placeholder="lab-k0s"
                   />
                 </FormGroup>
-                <FormGroup label="GPU stack owner" isRequired fieldId="cluster-gpu-owner">
+                <FormGroup label="GPU stack owner" isRequired fieldId="platform-gpu-owner">
                   <FormSelect
-                    id="cluster-gpu-owner"
+                    id="platform-gpu-owner"
                     value={gpuStackOwner}
                     onChange={(_event, value) => setGPUStackOwner(value as GPUStackOwner)}
                   >
@@ -336,9 +336,9 @@ export function DeployClusterWizardPage() {
                     <FormSelectOption value="gpu-operator" label="GPU Operator" />
                   </FormSelect>
                 </FormGroup>
-                <FormGroup label="k0s version" isRequired fieldId="cluster-version">
+                <FormGroup label="k0s version" isRequired fieldId="platform-version">
                   <TextInput
-                    id="cluster-version"
+                    id="platform-version"
                     value={k0sVersion}
                     onChange={(_event, value) => setK0sVersion(value)}
                   />
@@ -354,9 +354,9 @@ export function DeployClusterWizardPage() {
             footer={{ isNextDisabled: !machinesValid }}
           >
             <WizardSection title="Topology and machines">
-              <FormGroup label="Topology" isRequired fieldId="cluster-topology">
+              <FormGroup label="Topology" isRequired fieldId="platform-topology">
                 <FormSelect
-                  id="cluster-topology"
+                  id="platform-topology"
                   value={topology}
                   onChange={(_event, value) => changeTopology(value as TopologyChoice)}
                 >
@@ -389,15 +389,15 @@ export function DeployClusterWizardPage() {
                 >
                   {hasLockedServers
                     ? hasAssignedServers
-                      ? 'Assigned and Locked Servers remain visible for context. Unlock protected Servers or remove an existing Cluster assignment before selecting a role.'
+                      ? 'Assigned and Locked Servers remain visible for context. Unlock protected Servers or remove an existing Platform assignment before selecting a role.'
                       : 'Locked Servers remain visible for context. Unlock protected Servers before selecting a role.'
-                    : 'Assigned Servers remain visible for context. Remove the existing Cluster assignment before selecting a role.'}
+                    : 'Assigned Servers remain visible for context. Remove the existing Platform assignment before selecting a role.'}
                 </Alert>
               )}
               {state.data.servers.length === 0 ? (
                 <EmptyState
                   title="No deployed Servers"
-                  message="Deploy an OS in this Site before building a Cluster."
+                  message="Deploy an OS in this Site before building a Platform."
                 />
               ) : (
                 <StickyTableFrame>
@@ -407,9 +407,9 @@ export function DeployClusterWizardPage() {
                     </Thead>
                     <Tbody>
                       {state.data.servers.map((server) => {
-                        const existing = existingClusterAssignment(
+                        const existing = existingPlatformAssignment(
                           server,
-                          state.data.clusters,
+                          state.data.platforms,
                           state.data.deploymentClaims,
                         )
                         const locked = server.provisioning?.locked ?? false
@@ -426,7 +426,7 @@ export function DeployClusterWizardPage() {
                                 <LabelGroup>
                                   <Label color="red">In use</Label>
                                   <span>
-                                    {existing.clusterName} ({existing.clusterType}, {existing.detail})
+                                    {existing.platformName} ({existing.platformType}, {existing.detail})
                                   </span>
                                 </LabelGroup>
                               ) : '-'}
@@ -436,7 +436,7 @@ export function DeployClusterWizardPage() {
                                 aria-label={locked
                                   ? `Role for ${serverDisplayName(server)}, unavailable because the Server is locked`
                                   : existing
-                                    ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.clusterName}`
+                                    ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
                                   : `Role for ${serverDisplayName(server)}`}
                                 value={role}
                                 isDisabled={unavailable}
@@ -455,7 +455,7 @@ export function DeployClusterWizardPage() {
                             <Td dataLabel="Runs workloads">
                               {role === 'control-plane' ? (
                                 <Checkbox
-                                  id={`cluster-workload-${server.id}`}
+                                  id={`platform-workload-${server.id}`}
                                   aria-label={`Run workloads on ${serverDisplayName(server)}`}
                                   isChecked={topology === 'standalone' || Boolean(workloadControllers[server.id])}
                                   isDisabled={topology === 'standalone'}
@@ -482,7 +482,7 @@ export function DeployClusterWizardPage() {
             status={networkingValid ? 'success' : 'default'}
             footer={{ isNextDisabled: !networkingValid }}
           >
-            <WizardSection title="Cluster network">
+            <WizardSection title="Platform network">
               <section className="sw-network-context" aria-labelledby="selected-machine-addresses">
                 <Title headingLevel="h3" size="md" id="selected-machine-addresses">
                   Selected machine addresses
@@ -512,9 +512,9 @@ export function DeployClusterWizardPage() {
               <Form className="sw-form-grid">
                 {topology === 'high-availability' && (
                   <>
-                    <FormGroup label="API virtual IP" isRequired fieldId="cluster-api-vip">
+                    <FormGroup label="API virtual IP" isRequired fieldId="platform-api-vip">
                       <TextInput
-                        id="cluster-api-vip"
+                        id="platform-api-vip"
                         value={apiVip}
                         onChange={(_event, value) => setAPIVip(value)}
                         placeholder="192.168.40.200"
@@ -528,9 +528,9 @@ export function DeployClusterWizardPage() {
                         </HelperText>
                       </FormHelperText>
                     </FormGroup>
-                    <FormGroup label="VIP prefix length" isRequired fieldId="cluster-api-prefix">
+                    <FormGroup label="VIP prefix length" isRequired fieldId="platform-api-prefix">
                       <TextInput
-                        id="cluster-api-prefix"
+                        id="platform-api-prefix"
                         type="number"
                         value={apiVipPrefix}
                         onChange={(_event, value) => setAPIVipPrefix(value)}
@@ -540,9 +540,9 @@ export function DeployClusterWizardPage() {
                     </FormGroup>
                   </>
                 )}
-                <FormGroup label="Pod CIDR" isRequired fieldId="cluster-pod-cidr">
+                <FormGroup label="Pod CIDR" isRequired fieldId="platform-pod-cidr">
                   <TextInput
-                    id="cluster-pod-cidr"
+                    id="platform-pod-cidr"
                     value={podCidr}
                     onChange={(_event, value) => setPodCidr(value)}
                     validated={!podCidr || validCIDR(podCidr) ? 'default' : 'error'}
@@ -555,9 +555,9 @@ export function DeployClusterWizardPage() {
                     </HelperText>
                   </FormHelperText>
                 </FormGroup>
-                <FormGroup label="Service CIDR" isRequired fieldId="cluster-service-cidr">
+                <FormGroup label="Service CIDR" isRequired fieldId="platform-service-cidr">
                   <TextInput
-                    id="cluster-service-cidr"
+                    id="platform-service-cidr"
                     value={serviceCidr}
                     onChange={(_event, value) => setServiceCidr(value)}
                     validated={!serviceCidr || validCIDR(serviceCidr) ? 'default' : 'error'}
@@ -579,7 +579,7 @@ export function DeployClusterWizardPage() {
             id="deploy-review"
             status={basicsValid && machinesValid && networkingValid ? 'success' : 'warning'}
             footer={{
-              nextButtonText: 'Deploy cluster',
+              nextButtonText: 'Deploy platform',
               isNextDisabled: submitting || !basicsValid || !machinesValid || !networkingValid,
               nextButtonProps: { isLoading: submitting },
             }}
@@ -610,8 +610,8 @@ export function DeployClusterWizardPage() {
                   </DescriptionList>
                 </CardBody>
               </Card>
-              <Alert variant={AlertVariant.info} title="Submitting creates a Cluster and starts its deployment" isInline>
-                You will continue on the Cluster page. Open detailed Operation output only when you need automation-level troubleshooting.
+              <Alert variant={AlertVariant.info} title="Submitting creates a Platform and starts its deployment" isInline>
+                You will continue on the Platform page. Open detailed Operation output only when you need automation-level troubleshooting.
               </Alert>
             </WizardSection>
           </WizardStep>

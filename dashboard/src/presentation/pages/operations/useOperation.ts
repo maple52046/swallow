@@ -7,7 +7,7 @@ import {
 } from '@/domain/operation/types'
 
 /**
- * How often a running operation is re-read. An HA cluster deployment runs for minutes
+ * How often a running operation is re-read. An HA platform deployment runs for minutes
  * across several phases, so a few seconds between reads keeps progress live without
  * hammering the API; polling stops as soon as the run reaches a terminal state.
  */

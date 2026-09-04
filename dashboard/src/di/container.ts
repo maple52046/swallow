@@ -1,7 +1,7 @@
 import { ApiAuthRepository } from '@/infrastructure/api/ApiAuthRepository'
 import { ApiServerRepository } from '@/infrastructure/api/ApiServerRepository'
 import { ApiSiteRepository } from '@/infrastructure/api/ApiSiteRepository'
-import { ApiClusterRepository } from '@/infrastructure/api/ApiClusterRepository'
+import { ApiPlatformRepository } from '@/infrastructure/api/ApiPlatformRepository'
 import { ApiOperationRepository } from '@/infrastructure/api/ApiOperationRepository'
 import { ApiMonitoringRepository } from '@/infrastructure/api/ApiMonitoringRepository'
 import { ApiOverviewRepository } from '@/infrastructure/api/ApiOverviewRepository'
@@ -9,7 +9,7 @@ import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningR
 import type { AuthRepository } from '@/application/ports/AuthRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { SiteRepository } from '@/application/ports/SiteRepository'
-import type { ClusterRepository } from '@/application/ports/ClusterRepository'
+import type { PlatformRepository } from '@/application/ports/PlatformRepository'
 import type { OperationRepository } from '@/application/ports/OperationRepository'
 import type { MonitoringRepository } from '@/application/ports/MonitoringRepository'
 import type { OverviewRepository } from '@/application/ports/OverviewRepository'
@@ -22,7 +22,7 @@ export interface AppContainer {
   provisioning: ProvisioningRepository
   servers: ServerRepository
   sites: SiteRepository
-  clusters: ClusterRepository
+  platforms: PlatformRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
 }
@@ -35,7 +35,7 @@ export function createContainer(): AppContainer {
     provisioning: new ApiProvisioningRepository(),
     servers: new ApiServerRepository(),
     sites: new ApiSiteRepository(),
-    clusters: new ApiClusterRepository(),
+    platforms: new ApiPlatformRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
   }

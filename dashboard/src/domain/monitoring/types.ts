@@ -17,7 +17,7 @@ export interface MonitoringAlert {
   startsAt: string | null
   serverId: string | null
   siteId: string | null
-  clusterId: string | null
+  platformId: string | null
 }
 
 /** Server-side alert filters supported by the active API contract. */

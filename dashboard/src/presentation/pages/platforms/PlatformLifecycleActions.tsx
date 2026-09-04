@@ -18,32 +18,32 @@ import {
 import { RedoIcon } from '@patternfly/react-icons'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import { clusterUninstallDisabledReason } from '@/domain/cluster/lifecycle'
-import type { Cluster } from '@/domain/cluster/types'
+import { platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
+import type { Platform } from '@/domain/platform/types'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 
 type ConfirmationAction = 'uninstall' | 'delete'
 
-interface ClusterLifecycleActionsProps {
-  cluster: Cluster
+interface PlatformLifecycleActionsProps {
+  platform: Platform
   targetServerIds?: readonly string[]
   onRepairStarted: () => void
 }
 
 /**
- * Exposes Cluster-scoped repair and the separate uninstall/delete lifecycle actions.
+ * Exposes Platform-scoped repair and the separate uninstall/delete lifecycle actions.
  *
  * Repair deliberately delegates to the durable Operation Retry contract so original
  * deployment inputs and secret variables are retained. The parent callback refreshes
- * Cluster lifecycle state without redirecting operators into the automation debugger.
+ * Platform lifecycle state without redirecting operators into the automation debugger.
  */
-export function ClusterLifecycleActions({
-  cluster,
+export function PlatformLifecycleActions({
+  platform,
   targetServerIds,
   onRepairStarted,
-}: ClusterLifecycleActionsProps) {
-  const { clusters, operations, servers } = useApp()
+}: PlatformLifecycleActionsProps) {
+  const { platforms, operations, servers } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
   const navigate = useNavigate()
@@ -98,10 +98,10 @@ export function ClusterLifecycleActions({
     : targetProtection.error
       ? targetProtection.error
       : targetProtection.lockedNames.length > 0
-        ? `${targetProtection.lockedNames.join(', ')} ${targetProtection.lockedNames.length === 1 ? 'is' : 'are'} locked. Unlock ${targetProtection.lockedNames.length === 1 ? 'it' : 'them'} before changing this Cluster.`
+        ? `${targetProtection.lockedNames.join(', ')} ${targetProtection.lockedNames.length === 1 ? 'is' : 'are'} locked. Unlock ${targetProtection.lockedNames.length === 1 ? 'it' : 'them'} before changing this Platform.`
         : undefined
-  const uninstallDisabledReason = clusterUninstallDisabledReason(cluster) ?? lockedDisabledReason
-  const repairDisabledReason = !cluster.lifecycleOperationId
+  const uninstallDisabledReason = platformUninstallDisabledReason(platform) ?? lockedDisabledReason
+  const repairDisabledReason = !platform.lifecycleOperationId
     ? 'The deployment Operation is unavailable.'
     : lockedDisabledReason
 
@@ -120,15 +120,15 @@ export function ClusterLifecycleActions({
   }
 
   const submit = async () => {
-    if (!action || confirmation !== cluster.name || submitting) return
+    if (!action || confirmation !== platform.name || submitting) return
     setSubmitting(true)
     setError('')
     try {
       if (action === 'uninstall') {
-        const accepted = await clusters.uninstallCluster(cluster.id)
+        const accepted = await platforms.uninstallPlatform(platform.id)
         showToast({
           tone: 'success',
-          title: 'Cluster uninstall accepted',
+          title: 'Platform uninstall accepted',
           description: targetCount === undefined
             ? 'The original deployment targets will be cleaned.'
             : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'} will be cleaned.`,
@@ -137,15 +137,15 @@ export function ClusterLifecycleActions({
         return
       }
 
-      await clusters.deleteCluster(cluster.id)
+      await platforms.deletePlatform(platform.id)
       showToast({
         tone: 'success',
-        title: 'Cluster deleted',
+        title: 'Platform deleted',
         description: 'The Swallow record and owned projections were removed. Hosts were not changed.',
       })
-      navigate(scopedHref('/clusters'), { replace: true })
+      navigate(scopedHref('/platforms'), { replace: true })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The cluster action failed.')
+      setError(caught instanceof Error ? caught.message : 'The platform action failed.')
     } finally {
       setSubmitting(false)
     }
@@ -157,20 +157,20 @@ export function ClusterLifecycleActions({
     : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
 
   const startRepair = async () => {
-    if (!cluster.lifecycleOperationId || repairing) return
+    if (!platform.lifecycleOperationId || repairing) return
     setRepairing(true)
     setRepairError('')
     try {
-      const created = await operations.retryOperation(cluster.lifecycleOperationId)
+      const created = await operations.retryOperation(platform.lifecycleOperationId)
       setRepairOpen(false)
       showToast({
         tone: 'success',
-        title: 'Cluster repair started',
+        title: 'Platform repair started',
         description: `Operation ${created.id} is rerunning the original deployment configuration.`,
       })
       onRepairStarted()
     } catch (caught) {
-      setRepairError(caught instanceof Error ? caught.message : 'Could not start cluster repair.')
+      setRepairError(caught instanceof Error ? caught.message : 'Could not start platform repair.')
     } finally {
       setRepairing(false)
     }
@@ -178,7 +178,7 @@ export function ClusterLifecycleActions({
 
   return (
     <>
-      {cluster.lifecycleState === 'deploy_failed' && (
+      {platform.lifecycleState === 'deploy_failed' && (
         <Tooltip content={repairDisabledReason ?? 'Rerun the original deployment configuration'}>
           <span>
             <Button
@@ -206,7 +206,7 @@ export function ClusterLifecycleActions({
             isExpanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
           >
-            Cluster actions
+            Platform actions
           </MenuToggle>
         )}
       >
@@ -216,10 +216,10 @@ export function ClusterLifecycleActions({
             description={uninstallDisabledReason}
             onClick={() => openConfirmation('uninstall')}
           >
-            Uninstall cluster
+            Uninstall platform
           </DropdownItem>
           <DropdownItem isDanger onClick={() => openConfirmation('delete')}>
-            Delete cluster
+            Delete platform
           </DropdownItem>
         </DropdownList>
       </Dropdown>
@@ -230,11 +230,11 @@ export function ClusterLifecycleActions({
           if (!repairing) setRepairOpen(false)
         }}
         variant="small"
-        aria-labelledby="cluster-repair-title"
+        aria-labelledby="platform-repair-title"
       >
         <ModalHeader
-          title="Repair cluster deployment"
-          labelId="cluster-repair-title"
+          title="Repair platform deployment"
+          labelId="platform-repair-title"
           description="Rerun the original deployment safely against its existing partial state."
         />
         <ModalBody>
@@ -275,11 +275,11 @@ export function ClusterLifecycleActions({
         isOpen={action !== null}
         onClose={close}
         variant="small"
-        aria-labelledby="cluster-lifecycle-confirmation-title"
+        aria-labelledby="platform-lifecycle-confirmation-title"
       >
         <ModalHeader
-          title={isUninstall ? 'Uninstall cluster' : 'Delete cluster'}
-          labelId="cluster-lifecycle-confirmation-title"
+          title={isUninstall ? 'Uninstall platform' : 'Delete platform'}
+          labelId="platform-lifecycle-confirmation-title"
           description={
             isUninstall
               ? `This removes k0s from ${targetLabel} and keeps the Swallow record.`
@@ -303,21 +303,21 @@ export function ClusterLifecycleActions({
             </>
           ) : (
             <Alert variant={AlertVariant.warning} title="Hosts will not be uninstalled" isInline>
-              Any cluster still running on the hosts will continue to run. Accepted operations
+              Any platform still running on the hosts will continue to run. Accepted operations
               will also continue after this record is deleted.
             </Alert>
           )}
           <FormGroup
-            label={`Type "${cluster.name}" to confirm`}
+            label={`Type "${platform.name}" to confirm`}
             isRequired
-            fieldId="cluster-lifecycle-confirmation"
+            fieldId="platform-lifecycle-confirmation"
           >
             <TextInput
-              id="cluster-lifecycle-confirmation"
+              id="platform-lifecycle-confirmation"
               value={confirmation}
               onChange={(_event, value) => setConfirmation(value)}
               autoFocus
-              aria-label="Cluster name confirmation"
+              aria-label="Platform name confirmation"
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void submit()
               }}
@@ -329,9 +329,9 @@ export function ClusterLifecycleActions({
             variant="danger"
             onClick={() => void submit()}
             isLoading={submitting}
-            isDisabled={confirmation !== cluster.name || submitting}
+            isDisabled={confirmation !== platform.name || submitting}
           >
-            {isUninstall ? 'Uninstall cluster' : 'Delete cluster'}
+            {isUninstall ? 'Uninstall platform' : 'Delete platform'}
           </Button>
           <Button variant="link" onClick={close} isDisabled={submitting}>
             Cancel

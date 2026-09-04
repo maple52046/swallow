@@ -16,7 +16,7 @@ const NAVIGATION = [
   { label: 'Overview', path: '/', icon: <TachometerAltIcon /> },
   { label: 'Servers', path: '/servers', icon: <ServerIcon /> },
   { label: 'Provisioning', path: '/provisioning/deploy', icon: <CloudUploadAltIcon /> },
-  { label: 'Clusters', path: '/clusters', icon: <CubesIcon /> },
+  { label: 'Platforms', path: '/platforms', icon: <CubesIcon /> },
   { label: 'Operations', path: '/operations', icon: <TasksIcon /> },
   { label: 'Monitoring', path: '/monitoring', icon: <ChartLineIcon /> },
   { label: 'Infrastructure', path: '/infrastructure/sites', icon: <InfrastructureIcon /> },

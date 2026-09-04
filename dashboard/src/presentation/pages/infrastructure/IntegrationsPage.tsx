@@ -32,7 +32,7 @@ type IntegrationsState =
 const KIND_LABELS: Record<IntegrationKind, string> = {
   provisioner: 'Provisioner',
   metrics: 'Metrics',
-  cluster: 'Cluster',
+  platform: 'Platform',
 }
 
 /**
@@ -137,7 +137,7 @@ export function IntegrationsPage() {
             <FormSelectOption value="" label="All roles" />
             <FormSelectOption value="provisioner" label="Provisioner" />
             <FormSelectOption value="metrics" label="Metrics" />
-            <FormSelectOption value="cluster" label="Cluster" />
+            <FormSelectOption value="platform" label="Platform" />
           </FormSelect>
         </ToolbarItem>
       </DataToolbar>

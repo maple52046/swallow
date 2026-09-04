@@ -38,7 +38,7 @@ export function ServerLockDialog({
         titleIconVariant={locking ? 'warning' : 'info'}
         labelId="server-lock-title"
         description={locking
-          ? 'Lock protects the Machine from provisioning, power, network, cluster, automation, and removal changes.'
+          ? 'Lock protects the Machine from provisioning, power, network, platform, automation, and removal changes.'
           : 'Unlock removes protection only. It does not resume, retry, or create any work.'}
       />
       <ModalBody>

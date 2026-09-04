@@ -14,7 +14,7 @@ export interface Paginated<T> {
 
 /**
  * Reads operations, their task-level progress, and their logs, and retries a finished one.
- * Operations are created by the actions that need them (a cluster deployment, for example),
+ * Operations are created by the actions that need them (a platform deployment, for example),
  * so there is no generic create here; retry is the one write, and it always makes a new
  * operation rather than mutating the original.
  */

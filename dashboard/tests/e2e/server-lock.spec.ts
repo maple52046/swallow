@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 test('locked Servers are visible, filterable, and mixed Lock converges with skipped targets', async ({ page }) => {
   await installApiFixtures(page, {
     lockedServerIds: ['srv-1'],
-    freeClusterCandidates: true,
+    freePlatformCandidates: true,
   })
   await page.goto('/servers?site=site-a')
 
@@ -57,10 +57,10 @@ test('Unlock is the only mutation offered for a protected Server', async ({ page
   await expect(page.getByText('Locked', { exact: true })).toHaveCount(0)
 })
 
-test('locked candidates remain visible but cannot enter OS or Cluster deployment', async ({ page }) => {
+test('locked candidates remain visible but cannot enter OS or Platform deployment', async ({ page }) => {
   await installApiFixtures(page, {
     lockedServerIds: ['srv-1'],
-    freeClusterCandidates: true,
+    freePlatformCandidates: true,
     readyServerCount: 4,
   })
   await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
@@ -72,12 +72,12 @@ test('locked candidates remain visible but cannot enter OS or Cluster deployment
 
   await installApiFixtures(page, {
     lockedServerIds: ['srv-1'],
-    freeClusterCandidates: true,
+    freePlatformCandidates: true,
   })
-  await page.goto('/clusters/deploy?site=site-a')
+  await page.goto('/platforms/deploy?site=site-a')
   await page.getByLabel('Site', { exact: true }).click()
   await page.getByRole('option', { name: 'Taipei Lab', exact: true }).click()
-  await page.getByLabel('Cluster name').fill('locked-candidate-check')
+  await page.getByLabel('Platform name').fill('locked-candidate-check')
   await page.getByRole('button', { name: 'Next' }).click()
   const lockedRow = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
   await expect(lockedRow).toContainText('Locked')
@@ -85,20 +85,20 @@ test('locked candidates remain visible but cannot enter OS or Cluster deployment
   await expect(page.getByLabel('Role for gpu-node-01')).toBeDisabled()
   await expect(page.getByLabel('Role for gpu-node-02')).toBeEnabled()
 })
-test('locked targets disable Cluster repair, uninstall, and Operation retry', async ({ page }) => {
+test('locked targets disable Platform repair, uninstall, and Operation retry', async ({ page }) => {
   await installApiFixtures(page, { lockedServerIds: ['srv-4'] })
 
-  await page.goto('/clusters/cluster-b?site=site-a')
+  await page.goto('/platforms/platform-b?site=site-a')
   const repair = page.getByRole('button', {
     name: /Repair deployment: gpu-node-04 is locked/,
   })
   await expect(repair).toBeDisabled()
 
-  await page.getByRole('button', { name: 'Cluster actions' }).click()
-  const uninstall = page.getByRole('menuitem', { name: /Uninstall cluster/ })
+  await page.getByRole('button', { name: 'Platform actions' }).click()
+  const uninstall = page.getByRole('menuitem', { name: /Uninstall platform/ })
   await expect(uninstall).toBeDisabled()
-  await expect(uninstall).toContainText('Unlock it before changing this Cluster.')
-  await expect(page.getByRole('menuitem', { name: 'Delete cluster' })).toBeEnabled()
+  await expect(uninstall).toContainText('Unlock it before changing this Platform.')
+  await expect(page.getByRole('menuitem', { name: 'Delete platform' })).toBeEnabled()
 
   await page.goto('/operations/op-deploy-failed?site=site-a')
   await expect(page.getByRole('button', {

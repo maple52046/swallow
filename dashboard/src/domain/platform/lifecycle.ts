@@ -1,6 +1,6 @@
-import type { Cluster, ClusterLifecycleState } from './types'
+import type { Platform, PlatformLifecycleState } from './types'
 
-const LABELS: Record<ClusterLifecycleState, string> = {
+const LABELS: Record<PlatformLifecycleState, string> = {
   registered: 'Registered',
   deploying: 'Deploying',
   deploy_failed: 'Deployment failed',
@@ -11,12 +11,12 @@ const LABELS: Record<ClusterLifecycleState, string> = {
 }
 
 /** Operator-facing lifecycle label supplied by the backend read model. */
-export function clusterLifecycleLabel(state: ClusterLifecycleState): string {
+export function platformLifecycleLabel(state: PlatformLifecycleState): string {
   return LABELS[state]
 }
 
 /** Shared semantic status family for lifecycle labels. */
-export function clusterLifecycleStatus(state: ClusterLifecycleState): string {
+export function platformLifecycleStatus(state: PlatformLifecycleState): string {
   switch (state) {
     case 'active':
       return 'active'
@@ -34,18 +34,18 @@ export function clusterLifecycleStatus(state: ClusterLifecycleState): string {
 }
 
 /** Disabled reason for the destructive host-side uninstall command. */
-export function clusterUninstallDisabledReason(cluster: Cluster): string | undefined {
-  if (cluster.type !== 'kubernetes') return 'Only Kubernetes clusters can be uninstalled.'
-  if (cluster.origin !== 'deployed') return 'Externally registered clusters can only be deleted.'
-  switch (cluster.lifecycleState) {
+export function platformUninstallDisabledReason(platform: Platform): string | undefined {
+  if (platform.type !== 'kubernetes') return 'Only Kubernetes clusters can be uninstalled.'
+  if (platform.origin !== 'deployed') return 'Externally registered platforms can only be deleted.'
+  switch (platform.lifecycleState) {
     case 'deploying':
       return 'Deployment is still running.'
     case 'uninstalling':
       return 'Uninstall is already running.'
     case 'uninstalled':
-      return 'This cluster is already uninstalled.'
+      return 'This platform is already uninstalled.'
     case 'registered':
-      return 'This cluster has no Swallow deployment history.'
+      return 'This platform has no Swallow deployment history.'
     default:
       return undefined
   }

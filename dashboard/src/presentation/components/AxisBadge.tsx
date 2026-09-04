@@ -45,9 +45,9 @@ export function LockBadge({ locked }: { locked: boolean }) {
   )
 }
 
-/** Cluster-owned membership state; null means no cluster currently claims this Server. */
+/** Platform-owned membership state; null means no platform currently claims this Server. */
 export function MembershipBadge({ axis }: { axis: MembershipAxis | null }) {
-  if (!axis) return <UnknownBadge tooltip="No cluster reports this Server as a member" />
+  if (!axis) return <UnknownBadge tooltip="No platform reports this Server as a member" />
   const role = axis.role ? ` - ${axis.role}` : ''
   return (
     <Tooltip content={`${axis.nodeName}${role} - ${observedAtLabel(axis.observedAt)}`}>

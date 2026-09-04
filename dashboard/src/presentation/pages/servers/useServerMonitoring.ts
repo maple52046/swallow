@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
-import type { Cluster } from '@/domain/cluster/types'
+import type { Platform } from '@/domain/platform/types'
 import {
   isGpuServer,
   resolveExporterOwner,
@@ -32,13 +32,13 @@ export interface ServerMonitoring {
  * values.
  *
  * The owner is resolved the same way the backend does — locked hosts are `unmanaged`, a
- * cluster member follows its cluster policy, everything else is `ansible` — fetching the
- * one cluster only when the server is a member and unlocked. Metrics failure (for example
+ * platform member follows its platform policy, everything else is `ansible` — fetching the
+ * one platform only when the server is a member and unlocked. Metrics failure (for example
  * no metrics backend registered) degrades to `metricsError` with empty values rather than
  * failing, so the UI can show "no data" instead of an error.
  */
 export function useServerMonitoring(server: Server): ServerMonitoring {
-  const { monitoring, clusters } = useApp()
+  const { monitoring, platforms } = useApp()
   const gpu = isGpuServer(server)
   const [state, setState] = useState<ServerMonitoring>({
     owner: 'ansible',
@@ -54,11 +54,11 @@ export function useServerMonitoring(server: Server): ServerMonitoring {
 
     const resolveOwner = async (): Promise<EffectiveExporterOwner> => {
       if (server.provisioning?.locked) return 'unmanaged'
-      const clusterId = server.membership?.clusterId
-      if (!clusterId) return 'ansible'
-      const cluster = await clusters.getCluster(clusterId).catch(() => null)
-      const byId = new Map<string, Cluster>()
-      if (cluster) byId.set(cluster.id, cluster)
+      const platformId = server.membership?.platformId
+      if (!platformId) return 'ansible'
+      const platform = await platforms.getPlatform(platformId).catch(() => null)
+      const byId = new Map<string, Platform>()
+      if (platform) byId.set(platform.id, platform)
       return resolveExporterOwner(server, byId)
     }
 
@@ -86,7 +86,7 @@ export function useServerMonitoring(server: Server): ServerMonitoring {
     return () => {
       cancelled = true
     }
-  }, [server, monitoring, clusters, gpu])
+  }, [server, monitoring, platforms, gpu])
 
   return state
 }

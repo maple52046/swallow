@@ -31,7 +31,7 @@ interface IntegrationDialogProps {
 const PROVIDERS: Record<IntegrationKind, Array<{ value: string; label: string }>> = {
   provisioner: [{ value: 'maas', label: 'MAAS' }],
   metrics: [{ value: 'prometheus', label: 'Prometheus' }],
-  cluster: [
+  platform: [
     { value: 'kubernetes', label: 'Kubernetes' },
     { value: 'slurm', label: 'Slurm' },
   ],
@@ -154,7 +154,7 @@ export function IntegrationDialog({
               >
                 <FormSelectOption value="provisioner" label="Provisioner" />
                 <FormSelectOption value="metrics" label="Metrics" />
-                <FormSelectOption value="cluster" label="Cluster" />
+                <FormSelectOption value="platform" label="Platform" />
               </FormSelect>
             </FormGroup>
             <FormGroup label="Provider" isRequired fieldId="integration-provider">

@@ -27,13 +27,13 @@ export function useOperations(filters: ListOperationsFilters): {
 
   // Filters are spread into the dependency list by value so a new object identity with the
   // same contents does not refetch.
-  const { siteId, clusterId, serverId, kind, status, active, page, pageSize } = filters
+  const { siteId, platformId, serverId, kind, status, active, page, pageSize } = filters
 
   useEffect(() => {
     let cancelled = false
 
     operations
-      .listOperations({ siteId, clusterId, serverId, kind, status, active, page, pageSize })
+      .listOperations({ siteId, platformId, serverId, kind, status, active, page, pageSize })
       .then((result) => {
         if (cancelled) return
         setState({ status: 'ready', operations: result.items, total: result.total })
@@ -45,7 +45,7 @@ export function useOperations(filters: ListOperationsFilters): {
     return () => {
       cancelled = true
     }
-  }, [operations, siteId, clusterId, serverId, kind, status, active, page, pageSize, nonce])
+  }, [operations, siteId, platformId, serverId, kind, status, active, page, pageSize, nonce])
 
   return { state, reload }
 }

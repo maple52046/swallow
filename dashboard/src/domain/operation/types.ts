@@ -30,7 +30,7 @@ export interface Operation {
   kind: string
   intent: string
   siteId: string
-  clusterId: string | null
+  platformId: string | null
   targetServerIds: string[]
   /** The operation this one retried, or null when requested directly. */
   retryOfOperationId: string | null
@@ -63,7 +63,7 @@ export interface OperationEvents {
 
 export interface ListOperationsFilters {
   siteId?: string
-  clusterId?: string
+  platformId?: string
   serverId?: string
   kind?: string
   status?: OperationStatus

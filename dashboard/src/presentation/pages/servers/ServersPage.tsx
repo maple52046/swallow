@@ -90,7 +90,7 @@ const OPTIONAL_COLUMNS: ColumnToggle[] = [
   { key: 'address', label: 'Address' }, { key: 'mac', label: 'MAC address' },
   { key: 'zone', label: 'Zone' }, { key: 'pool', label: 'Pool' },
   { key: 'tags', label: 'Tags' }, ...HARDWARE_COLUMNS,
-  { key: 'gpus', label: 'GPUs' }, { key: 'cluster', label: 'Cluster' },
+  { key: 'gpus', label: 'GPUs' }, { key: 'platform', label: 'Platform' },
   { key: 'health', label: 'Health' },
 ]
 const DEFAULT_PAGE_SIZE = 50
@@ -378,7 +378,7 @@ export function ServersPage() {
         {visible('status') && <Th><SortableHeader label="Provisioning" active={sortKey === 'provisioning'} direction={sortDir} onClick={() => sort('provisioning')} /></Th>}
         {visible('address') && <Th>Address</Th>}{visible('mac') && <Th>MAC address</Th>}{visible('zone') && <Th>Zone</Th>}{visible('pool') && <Th>Pool</Th>}{visible('tags') && <Th className="sw-column-tags">Tags</Th>}
         {visible('architecture') && <Th className="sw-hardware-column sw-column-architecture">Architecture</Th>}{visible('cpuCores') && <Th className="sw-hardware-column sw-column-cpu-cores">CPU cores</Th>}{visible('cpuModel') && <Th className="sw-hardware-column sw-column-cpu-model">CPU model</Th>}{visible('memory') && <Th className="sw-hardware-column sw-column-memory">Memory</Th>}{visible('storage') && <Th className="sw-hardware-column sw-column-storage">Storage</Th>}{visible('systemVendor') && <Th className="sw-hardware-column sw-column-system-vendor">System vendor</Th>}{visible('systemProduct') && <Th className="sw-hardware-column sw-column-system-product">System product</Th>}
-        {visible('gpus') && <Th>GPUs</Th>}{visible('cluster') && <Th>Cluster</Th>}{visible('health') && <Th>Health</Th>}<Th className="sw-sticky-actions" screenReaderText="Actions" />
+        {visible('gpus') && <Th>GPUs</Th>}{visible('platform') && <Th>Platform</Th>}{visible('health') && <Th>Health</Th>}<Th className="sw-sticky-actions" screenReaderText="Actions" />
       </Tr></Thead><Tbody>{renderGroups(pageItems, groupBy).map((group) => <GroupRows key={group.key || 'all'} group={group} grouped={groupBy !== 'none'} columnSpan={columnSpan} collapsed={collapsedGroups.has(group.key)} onCollapse={() => setCollapsedGroups((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next })} selected={selected} onToggleOne={toggleOne} onToggleGroup={setMany} onNavigate={(id) => navigate(scopedHref(`/servers/${id}`))} onAction={(action, id) => void runAction(action, [id])} visible={visible} />)}</Tbody></Table></StickyTableFrame>
       <div className="sw-pagination"><Pagination total={totalPages} value={safePage} onChange={setPage} /></div>
     </>}
@@ -487,7 +487,7 @@ function ServerRow({ server, checked, onToggle, onNavigate, onAction, visible }:
     {visible('systemVendor') && <Td dataLabel="System vendor" className="sw-hardware-column sw-column-system-vendor">{textOrDash(server.systemVendor)}</Td>}
     {visible('systemProduct') && <Td dataLabel="System product" className="sw-hardware-column sw-column-system-product">{textOrDash(server.systemProduct)}</Td>}
     {visible('gpus') && <Td dataLabel="GPUs"><GpuInventory server={server} /></Td>}
-    {visible('cluster') && <Td dataLabel="Cluster">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Td>}
+    {visible('platform') && <Td dataLabel="Platform">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Td>}
     {visible('health') && <Td dataLabel="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</Td>}
     <Td isActionCell className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}><ActionDropdown label="" icon={<EllipsisVIcon />} targets={[server]} onAction={onAction} /></Td>
   </Tr>

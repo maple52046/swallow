@@ -11,9 +11,10 @@ import { ServerSummaryTab } from './presentation/pages/servers/ServerSummaryTab'
 import { ServerMonitoringTab } from './presentation/pages/servers/ServerMonitoringTab'
 import { ServerActivityTab } from './presentation/pages/servers/ServerActivityTab'
 import { ServerNetworkTab, ServerStorageTab, ServerPciTab } from './presentation/pages/servers/ServerDetailTableTab'
-import { ClustersPage } from './presentation/pages/clusters/ClustersPage'
-import { ClusterDetailPage } from './presentation/pages/clusters/ClusterDetailPage'
-import { DeployClusterWizardPage } from './presentation/pages/clusters/DeployClusterWizardPage'
+import { PlatformsPage } from './presentation/pages/platforms/PlatformsPage'
+import { PlatformDetailPage } from './presentation/pages/platforms/PlatformDetailPage'
+import { DeployPlatformWizardPage } from './presentation/pages/platforms/DeployPlatformWizardPage'
+import { LegacyPlatformRedirect } from './presentation/pages/platforms/LegacyPlatformRedirect'
 import { OperatorOperationsPage } from './presentation/pages/operations/OperatorOperationsPage'
 import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
@@ -49,9 +50,13 @@ export const router = createBrowserRouter([
           { path: 'pci', element: <ServerPciTab /> },
         ],
       },
-      { path: 'clusters', element: <ClustersPage /> },
-      { path: 'clusters/deploy', element: <DeployClusterWizardPage /> },
-      { path: 'clusters/:id', element: <ClusterDetailPage /> },
+      { path: 'platforms', element: <PlatformsPage /> },
+      { path: 'platforms/deploy', element: <DeployPlatformWizardPage /> },
+      { path: 'platforms/:id', element: <PlatformDetailPage /> },
+      // Deprecated one-release aliases for former Cluster URLs.
+      { path: 'clusters', element: <LegacyPlatformRedirect /> },
+      { path: 'clusters/deploy', element: <LegacyPlatformRedirect deploy /> },
+      { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },
       { path: 'operations', element: <OperatorOperationsPage /> },
       { path: 'operations/:id', element: <OperatorOperationDetailPage /> },
       { path: 'provisioning', element: <ProvisioningRedirect /> },

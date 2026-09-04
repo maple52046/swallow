@@ -25,7 +25,7 @@ export class ApiServerRepository implements ServerRepository {
     if (filters?.siteId) query.set('siteId', filters.siteId)
     if (filters?.integrationId) query.set('integrationId', filters.integrationId)
     if (filters?.provisioningState) query.set('provisioningState', filters.provisioningState)
-    if (filters?.clusterId) query.set('clusterId', filters.clusterId)
+    if (filters?.platformId) query.set('platformId', filters.platformId)
     if (filters?.keyword) query.set('keyword', filters.keyword)
     if (filters?.includeAbsent) query.set('includeAbsent', 'true')
     if (filters?.page) query.set('page', String(filters.page))
