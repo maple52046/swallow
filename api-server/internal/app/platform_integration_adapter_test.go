@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
-	clusterinfra "github.com/maple52046/swallow/internal/cluster/infra"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
@@ -65,14 +65,14 @@ func (r *integrationCleanerRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func TestManagedClusterIntegrationCleanerDeletesExplicitOwnedIntegration(t *testing.T) {
+func TestManagedPlatformIntegrationCleanerDeletesExplicitOwnedIntegration(t *testing.T) {
 	repo := &integrationCleanerRepo{integrations: map[string]*sitedomain.Integration{}}
-	cleaner := managedClusterIntegrationCleaner{integrations: repo}
-	cluster := &clusterdomain.Cluster{
-		ID: "cluster-1", OwnedIntegrationID: "owned-integration",
+	cleaner := managedPlatformIntegrationCleaner{integrations: repo}
+	platform := &platformdomain.Platform{
+		ID: "platform-1", OwnedIntegrationID: "owned-integration",
 	}
 
-	if err := cleaner.DeleteForCluster(context.Background(), cluster, false); err != nil {
+	if err := cleaner.DeleteForPlatform(context.Background(), platform, false); err != nil {
 		t.Fatalf("delete owned integration: %v", err)
 	}
 	if len(repo.deleted) != 1 || repo.deleted[0] != "owned-integration" {
@@ -80,30 +80,30 @@ func TestManagedClusterIntegrationCleanerDeletesExplicitOwnedIntegration(t *test
 	}
 }
 
-func TestManagedClusterIntegrationCleanerRequiresCompleteLegacySignature(t *testing.T) {
+func TestManagedPlatformIntegrationCleanerRequiresCompleteLegacySignature(t *testing.T) {
 	matching := &sitedomain.Integration{
 		ID: "legacy-owned", SiteID: "site-1",
-		Kind:         sitedomain.IntegrationKindCluster,
+		Kind:         sitedomain.IntegrationKindPlatform,
 		ProviderKind: sitedomain.ProviderKindKubernetes,
 		Name:         "lab (deployed)",
 		Settings: map[string]string{
-			clusterinfra.SettingControllerLeaseDiscovery: "true",
+			platforminfra.SettingControllerLeaseDiscovery: "true",
 		},
 	}
 	operatorOwned := &sitedomain.Integration{
 		ID: "operator-owned", SiteID: "site-1",
-		Kind:         sitedomain.IntegrationKindCluster,
+		Kind:         sitedomain.IntegrationKindPlatform,
 		ProviderKind: sitedomain.ProviderKindKubernetes,
 		Name:         "operator registration",
 		Settings: map[string]string{
-			clusterinfra.SettingControllerLeaseDiscovery: "true",
+			platforminfra.SettingControllerLeaseDiscovery: "true",
 		},
 	}
 	repo := &integrationCleanerRepo{integrations: map[string]*sitedomain.Integration{
 		matching.ID:      matching,
 		operatorOwned.ID: operatorOwned,
 	}}
-	cleaner := managedClusterIntegrationCleaner{integrations: repo}
+	cleaner := managedPlatformIntegrationCleaner{integrations: repo}
 
 	for _, test := range []struct {
 		name          string
@@ -117,13 +117,13 @@ func TestManagedClusterIntegrationCleanerRequiresCompleteLegacySignature(t *test
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo.deleted = nil
-			cluster := &clusterdomain.Cluster{
-				ID: "cluster-1", SiteID: "site-1", Name: "lab",
+			platform := &platformdomain.Platform{
+				ID: "platform-1", SiteID: "site-1", Name: "lab",
 				IntegrationID: test.integrationID,
 			}
-			if err := cleaner.DeleteForCluster(
+			if err := cleaner.DeleteForPlatform(
 				context.Background(),
-				cluster,
+				platform,
 				test.allowLegacy,
 			); err != nil {
 				t.Fatalf("clean integration: %v", err)

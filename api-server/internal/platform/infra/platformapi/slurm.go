@@ -1,4 +1,4 @@
-package clusterapi
+package platformapi
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 )
 
 // DefaultSlurmAPIVersion is slurmrestd's path version. It is configurable because
@@ -58,7 +58,7 @@ type slurmNodeListJSON struct {
 	} `json:"nodes"`
 }
 
-func (r *SlurmReader) ListMembers(ctx context.Context) ([]clusterdomain.Member, error) {
+func (r *SlurmReader) ListMembers(ctx context.Context) ([]platformdomain.Member, error) {
 	endpoint := fmt.Sprintf("%s/slurm/%s/nodes", r.baseURL, r.apiVersion)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -74,9 +74,9 @@ func (r *SlurmReader) ListMembers(ctx context.Context) ([]clusterdomain.Member, 
 		return nil, translateError(err, "Slurm")
 	}
 
-	members := make([]clusterdomain.Member, 0, len(out.Nodes))
+	members := make([]platformdomain.Member, 0, len(out.Nodes))
 	for _, node := range out.Nodes {
-		member := clusterdomain.Member{
+		member := platformdomain.Member{
 			Name:  node.Name,
 			Role:  strings.Join(node.Partitions, ","),
 			State: slurmState(node.State),

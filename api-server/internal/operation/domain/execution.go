@@ -24,7 +24,7 @@ type ExecutionOperation struct {
 	Kind            OperationKind
 	Intent          string
 	SiteID          string
-	ClusterID       string
+	PlatformID      string
 	TargetServerIDs []string
 	ExtraVars       map[string]any
 	// SecretVars are extra vars that must not persist in plain text, such as a VRRP
@@ -70,16 +70,16 @@ var (
 
 // ExecutionListFilter narrows execution-operation listings.
 type ExecutionListFilter struct {
-	SiteID     string
-	ClusterID  string
-	ClusterIDs []string
-	ServerID   string
-	Kind       OperationKind
-	Kinds      []OperationKind
-	Status     Status
-	ActiveOnly bool
-	Offset     int
-	Limit      int
+	SiteID      string
+	PlatformID  string
+	PlatformIDs []string
+	ServerID    string
+	Kind        OperationKind
+	Kinds       []OperationKind
+	Status      Status
+	ActiveOnly  bool
+	Offset      int
+	Limit       int
 }
 
 // ExecutionListResult is a page of execution operations.
@@ -139,8 +139,8 @@ type RunnerInput struct {
 
 // RunnerResult is what a run produced beyond success or failure.
 //
-// Data is whatever the playbook deliberately wrote to the run's result file — a cluster
-// deployment returns its cluster credential this way. It is read before the run's private
+// Data is whatever the playbook deliberately wrote to the run's result file — a platform
+// deployment returns its platform credential this way. It is read before the run's private
 // directory is removed, so a secret in it never reaches stdout or a retained artifact. It
 // is nil when the playbook wrote nothing.
 type RunnerResult struct {

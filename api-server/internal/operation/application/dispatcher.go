@@ -19,7 +19,7 @@ type InventorySource interface {
 
 // CompletionObserver is notified when an operation finishes successfully, with whatever
 // the run captured. It lets another context react to an operation whose intent it owns —
-// recording the credential a cluster deployment produced, for instance — without the
+// recording the credential a platform deployment produced, for instance — without the
 // operation context depending on that context. A failure to react is the observer's to
 // log; it does not change the operation's own outcome, which the run already decided.
 type CompletionObserver interface {
@@ -223,7 +223,7 @@ func (d *Dispatcher) execute(ctx context.Context, operation *operationdomain.Exe
 
 // notifySuccess lets an observer react to a successful operation. Its failure is logged
 // and does not change the operation's outcome: the run already succeeded, and a follow-on
-// such as recording a cluster credential can be recovered by retrying the operation.
+// such as recording a platform credential can be recovered by retrying the operation.
 func (d *Dispatcher) notifySuccess(operation *operationdomain.ExecutionOperation, result operationdomain.RunnerResult) {
 	if d.observer == nil {
 		return

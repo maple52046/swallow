@@ -6,86 +6,86 @@ import (
 	"testing"
 	"time"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
-// The deploy validation is the load-bearing part of cluster deployment: a topology or
-// network mistake produces a cluster that cannot form, so it is checked before anything is
+// The deploy validation is the load-bearing part of platform deployment: a topology or
+// network mistake produces a platform that cannot form, so it is checked before anything is
 // created. These tests exercise it against in-memory fakes.
 
-type deployFakeClusterRepo struct {
-	clusters          map[string]*clusterdomain.Cluster
-	syncClusterID     string
+type deployFakePlatformRepo struct {
+	platforms         map[string]*platformdomain.Platform
+	syncPlatformID    string
 	syncIntegrationID string
-	syncState         clusterdomain.SyncState
+	syncState         platformdomain.SyncState
 }
 
-func (r *deployFakeClusterRepo) Create(_ context.Context, cluster *clusterdomain.Cluster) error {
-	for _, existing := range r.clusters {
-		if existing.SiteID == cluster.SiteID && existing.Name == cluster.Name {
-			return clusterdomain.ErrClusterNameTaken
+func (r *deployFakePlatformRepo) Create(_ context.Context, platform *platformdomain.Platform) error {
+	for _, existing := range r.platforms {
+		if existing.SiteID == platform.SiteID && existing.Name == platform.Name {
+			return platformdomain.ErrPlatformNameTaken
 		}
 	}
-	r.clusters[cluster.ID] = cluster
+	r.platforms[platform.ID] = platform
 	return nil
 }
-func (r *deployFakeClusterRepo) FindByID(_ context.Context, id string) (*clusterdomain.Cluster, error) {
-	if c, ok := r.clusters[id]; ok {
+func (r *deployFakePlatformRepo) FindByID(_ context.Context, id string) (*platformdomain.Platform, error) {
+	if c, ok := r.platforms[id]; ok {
 		return c, nil
 	}
-	return nil, clusterdomain.ErrClusterNotFound
+	return nil, platformdomain.ErrPlatformNotFound
 }
-func (r *deployFakeClusterRepo) List(_ context.Context, siteID string) ([]*clusterdomain.Cluster, error) {
-	clusters := make([]*clusterdomain.Cluster, 0, len(r.clusters))
-	for _, cluster := range r.clusters {
-		if siteID == "" || cluster.SiteID == siteID {
-			clusters = append(clusters, cluster)
+func (r *deployFakePlatformRepo) List(_ context.Context, siteID string) ([]*platformdomain.Platform, error) {
+	platforms := make([]*platformdomain.Platform, 0, len(r.platforms))
+	for _, platform := range r.platforms {
+		if siteID == "" || platform.SiteID == siteID {
+			platforms = append(platforms, platform)
 		}
 	}
-	return clusters, nil
+	return platforms, nil
 }
-func (r *deployFakeClusterRepo) Update(_ context.Context, cluster *clusterdomain.Cluster) error {
-	r.clusters[cluster.ID] = cluster
+func (r *deployFakePlatformRepo) Update(_ context.Context, platform *platformdomain.Platform) error {
+	r.platforms[platform.ID] = platform
 	return nil
 }
-func (r *deployFakeClusterRepo) UpdateSyncState(
-	_ context.Context, id, integrationID string, state clusterdomain.SyncState,
+func (r *deployFakePlatformRepo) UpdateSyncState(
+	_ context.Context, id, integrationID string, state platformdomain.SyncState,
 ) error {
-	cluster, ok := r.clusters[id]
-	if !ok || cluster.IntegrationID != integrationID {
-		return clusterdomain.ErrClusterNotFound
+	platform, ok := r.platforms[id]
+	if !ok || platform.IntegrationID != integrationID {
+		return platformdomain.ErrPlatformNotFound
 	}
-	cluster.Sync = state
-	r.syncClusterID = id
+	platform.Sync = state
+	r.syncPlatformID = id
 	r.syncIntegrationID = integrationID
 	r.syncState = state
 	return nil
 }
-func (r *deployFakeClusterRepo) Delete(_ context.Context, id string) error {
-	delete(r.clusters, id)
+func (r *deployFakePlatformRepo) Delete(_ context.Context, id string) error {
+	delete(r.platforms, id)
 	return nil
 }
 
 type deployFakeLifecycleReader struct {
-	snapshots map[string]clusterdomain.LifecycleSnapshot
+	snapshots map[string]platformdomain.LifecycleSnapshot
 }
 
 func (r *deployFakeLifecycleReader) Read(
 	_ context.Context,
-	clusterIDs []string,
-) (map[string]clusterdomain.LifecycleSnapshot, error) {
-	result := make(map[string]clusterdomain.LifecycleSnapshot, len(clusterIDs))
-	for _, clusterID := range clusterIDs {
-		snapshot, ok := r.snapshots[clusterID]
+	platformIDs []string,
+) (map[string]platformdomain.LifecycleSnapshot, error) {
+	result := make(map[string]platformdomain.LifecycleSnapshot, len(platformIDs))
+	for _, platformID := range platformIDs {
+		snapshot, ok := r.snapshots[platformID]
 		if !ok {
-			snapshot = clusterdomain.LifecycleSnapshot{
-				Origin: clusterdomain.ClusterOriginRegistered,
-				State:  clusterdomain.ClusterLifecycleRegistered,
+			snapshot = platformdomain.LifecycleSnapshot{
+				Origin: platformdomain.PlatformOriginRegistered,
+				State:  platformdomain.PlatformLifecycleRegistered,
 			}
 		}
-		result[clusterID] = snapshot
+		result[platformID] = snapshot
 	}
 	return result, nil
 }
@@ -138,10 +138,10 @@ func (r *deployFakeSiteRepo) Update(context.Context, *sitedomain.Site) error   {
 func (r *deployFakeSiteRepo) Delete(context.Context, string) error             { return nil }
 
 type recordingLauncher struct {
-	launched *clusterdomain.DeploymentLaunch
+	launched *platformdomain.DeploymentLaunch
 }
 
-func (l *recordingLauncher) Launch(_ context.Context, launch clusterdomain.DeploymentLaunch) (string, error) {
+func (l *recordingLauncher) Launch(_ context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
 	l.launched = &launch
 	return "operation-1", nil
 }
@@ -157,34 +157,34 @@ func deployedServer(id, hostname, siteID string, addresses ...string) *serverdom
 	}
 }
 
-func newDeployHarness(servers ...*serverdomain.Server) (*DeployService, *recordingLauncher, *deployFakeClusterRepo) {
+func newDeployHarness(servers ...*serverdomain.Server) (*DeployService, *recordingLauncher, *deployFakePlatformRepo) {
 	return newDeployHarnessWithLifecycle(
-		&deployFakeLifecycleReader{snapshots: map[string]clusterdomain.LifecycleSnapshot{}},
+		&deployFakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{}},
 		servers...,
 	)
 }
 
 func newDeployHarnessWithLifecycle(
-	lifecycle clusterdomain.LifecycleReader,
+	lifecycle platformdomain.LifecycleReader,
 	servers ...*serverdomain.Server,
-) (*DeployService, *recordingLauncher, *deployFakeClusterRepo) {
-	clusterRepo := &deployFakeClusterRepo{clusters: map[string]*clusterdomain.Cluster{}}
+) (*DeployService, *recordingLauncher, *deployFakePlatformRepo) {
+	platformRepo := &deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}}
 	serverRepo := &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}}
 	for _, s := range servers {
 		serverRepo.servers[s.ID] = s
 	}
 	siteRepo := &deployFakeSiteRepo{ids: map[string]bool{"site-1": true}}
-	clusterService := NewClusterService(clusterRepo, siteRepo, serverRepo, nil, nil)
+	platformService := NewPlatformService(platformRepo, siteRepo, serverRepo, nil, nil)
 	launcher := &recordingLauncher{}
-	return NewDeployService(clusterService, clusterRepo, serverRepo, lifecycle, launcher), launcher, clusterRepo
+	return NewDeployService(platformService, platformRepo, serverRepo, lifecycle, launcher), launcher, platformRepo
 }
 
-func threeControllersFourWorkers() []clusterdomain.RoleAssignment {
-	return []clusterdomain.RoleAssignment{
-		{ServerID: "c1", Role: clusterdomain.NodeRoleControlPlane},
-		{ServerID: "c2", Role: clusterdomain.NodeRoleControlPlane},
-		{ServerID: "c3", Role: clusterdomain.NodeRoleControlPlane},
-		{ServerID: "w1", Role: clusterdomain.NodeRoleWorker},
+func threeControllersFourWorkers() []platformdomain.RoleAssignment {
+	return []platformdomain.RoleAssignment{
+		{ServerID: "c1", Role: platformdomain.NodeRoleControlPlane},
+		{ServerID: "c2", Role: platformdomain.NodeRoleControlPlane},
+		{ServerID: "c3", Role: platformdomain.NodeRoleControlPlane},
+		{ServerID: "w1", Role: platformdomain.NodeRoleWorker},
 	}
 }
 
@@ -197,12 +197,12 @@ func haServers() []*serverdomain.Server {
 	}
 }
 
-func validDeployInput() DeployClusterInput {
-	return DeployClusterInput{
+func validDeployInput() DeployPlatformInput {
+	return DeployPlatformInput{
 		SiteID:        "site-1",
 		Name:          "lab-k0s",
 		GPUStackOwner: "provisioning",
-		Spec: clusterdomain.DeploymentSpec{
+		Spec: platformdomain.DeploymentSpec{
 			K0sVersion:      "v1.36.3+k0s.2",
 			APIVIP:          "192.168.100.200",
 			RoleAssignments: threeControllersFourWorkers(),
@@ -212,7 +212,7 @@ func validDeployInput() DeployClusterInput {
 }
 
 func TestDeploySucceedsAndBuildsTrustedVars(t *testing.T) {
-	service, launcher, clusters := newDeployHarness(haServers()...)
+	service, launcher, platforms := newDeployHarness(haServers()...)
 
 	result, err := service.Deploy(context.Background(), validDeployInput())
 	if err != nil {
@@ -221,8 +221,8 @@ func TestDeploySucceedsAndBuildsTrustedVars(t *testing.T) {
 	if result.OperationID != "operation-1" {
 		t.Errorf("expected operation id from launcher, got %q", result.OperationID)
 	}
-	if _, ok := clusters.clusters[result.ClusterID]; !ok {
-		t.Errorf("cluster was not created")
+	if _, ok := platforms.platforms[result.PlatformID]; !ok {
+		t.Errorf("platform was not created")
 	}
 	if launcher.launched == nil {
 		t.Fatal("launcher was not called")
@@ -251,20 +251,20 @@ func TestDeploySucceedsAndBuildsTrustedVars(t *testing.T) {
 }
 
 func TestDeployRejectsEvenControllerCount(t *testing.T) {
-	service, _, clusters := newDeployHarness(haServers()...)
+	service, _, platforms := newDeployHarness(haServers()...)
 	input := validDeployInput()
-	input.Spec.RoleAssignments = []clusterdomain.RoleAssignment{
-		{ServerID: "c1", Role: clusterdomain.NodeRoleControlPlane},
-		{ServerID: "c2", Role: clusterdomain.NodeRoleControlPlane},
-		{ServerID: "w1", Role: clusterdomain.NodeRoleWorker},
+	input.Spec.RoleAssignments = []platformdomain.RoleAssignment{
+		{ServerID: "c1", Role: platformdomain.NodeRoleControlPlane},
+		{ServerID: "c2", Role: platformdomain.NodeRoleControlPlane},
+		{ServerID: "w1", Role: platformdomain.NodeRoleWorker},
 	}
 
 	_, err := service.Deploy(context.Background(), input)
-	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("expected invalid deployment, got %v", err)
 	}
-	if len(clusters.clusters) != 0 {
-		t.Errorf("no cluster should be created on validation failure, got %d", len(clusters.clusters))
+	if len(platforms.platforms) != 0 {
+		t.Errorf("no platform should be created on validation failure, got %d", len(platforms.platforms))
 	}
 }
 
@@ -275,7 +275,7 @@ func TestDeployRejectsPodCIDRCoveringNode(t *testing.T) {
 	input.Spec.PodCIDR = "192.168.0.0/16"
 
 	_, err := service.Deploy(context.Background(), input)
-	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("expected invalid deployment for overlapping podCidr, got %v", err)
 	}
 }
@@ -286,7 +286,7 @@ func TestDeployRejectsVIPThatIsANodeAddress(t *testing.T) {
 	input.Spec.APIVIP = "192.168.100.2" // c1's address
 
 	_, err := service.Deploy(context.Background(), input)
-	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("expected invalid deployment for VIP colliding with a node, got %v", err)
 	}
 }
@@ -297,7 +297,7 @@ func TestDeployRejectsUndeployedTarget(t *testing.T) {
 	service, _, _ := newDeployHarness(servers...)
 
 	_, err := service.Deploy(context.Background(), validDeployInput())
-	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("expected invalid deployment for undeployed target, got %v", err)
 	}
 }
@@ -305,19 +305,19 @@ func TestDeployRejectsUndeployedTarget(t *testing.T) {
 func TestDeployRejectsTargetWithObservedMembership(t *testing.T) {
 	servers := haServers()
 	servers[0].Membership = &serverdomain.MembershipStatus{
-		ClusterID: "registered-k8s",
-		NodeName:  "lab-control-1",
-		Role:      "control-plane",
-		State:     "ready",
+		PlatformID: "registered-k8s",
+		NodeName:   "lab-control-1",
+		Role:       "control-plane",
+		State:      "ready",
 	}
-	service, launcher, clusters := newDeployHarness(servers...)
-	clusters.clusters["registered-k8s"] = &clusterdomain.Cluster{
+	service, launcher, platforms := newDeployHarness(servers...)
+	platforms.platforms["registered-k8s"] = &platformdomain.Platform{
 		ID: "registered-k8s", SiteID: "site-1", Name: "existing-k8s",
-		Type: clusterdomain.ClusterTypeKubernetes,
+		Type: platformdomain.PlatformTypeKubernetes,
 	}
 
 	_, err := service.Deploy(context.Background(), validDeployInput())
-	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment", err)
 	}
 	if launcher.launched != nil {
@@ -328,29 +328,29 @@ func TestDeployRejectsTargetWithObservedMembership(t *testing.T) {
 func TestDeployReservesTargetsUntilSuccessfulUninstall(t *testing.T) {
 	tests := []struct {
 		name       string
-		state      clusterdomain.ClusterLifecycleState
+		state      platformdomain.PlatformLifecycleState
 		wantReject bool
 	}{
-		{name: "deploying", state: clusterdomain.ClusterLifecycleDeploying, wantReject: true},
-		{name: "deployment failed", state: clusterdomain.ClusterLifecycleDeployFailed, wantReject: true},
-		{name: "active", state: clusterdomain.ClusterLifecycleActive, wantReject: true},
-		{name: "uninstalling", state: clusterdomain.ClusterLifecycleUninstalling, wantReject: true},
-		{name: "uninstall failed", state: clusterdomain.ClusterLifecycleUninstallFailed, wantReject: true},
-		{name: "uninstalled", state: clusterdomain.ClusterLifecycleUninstalled, wantReject: false},
+		{name: "deploying", state: platformdomain.PlatformLifecycleDeploying, wantReject: true},
+		{name: "deployment failed", state: platformdomain.PlatformLifecycleDeployFailed, wantReject: true},
+		{name: "active", state: platformdomain.PlatformLifecycleActive, wantReject: true},
+		{name: "uninstalling", state: platformdomain.PlatformLifecycleUninstalling, wantReject: true},
+		{name: "uninstall failed", state: platformdomain.PlatformLifecycleUninstallFailed, wantReject: true},
+		{name: "uninstalled", state: platformdomain.PlatformLifecycleUninstalled, wantReject: false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			existing := &clusterdomain.Cluster{
-				ID: "existing-cluster", SiteID: "site-1", Name: "existing-k8s",
-				Type: clusterdomain.ClusterTypeKubernetes,
+			existing := &platformdomain.Platform{
+				ID: "existing-platform", SiteID: "site-1", Name: "existing-k8s",
+				Type: platformdomain.PlatformTypeKubernetes,
 			}
 			lifecycle := &deployFakeLifecycleReader{
-				snapshots: map[string]clusterdomain.LifecycleSnapshot{
+				snapshots: map[string]platformdomain.LifecycleSnapshot{
 					existing.ID: {
-						Origin: clusterdomain.ClusterOriginDeployed,
+						Origin: platformdomain.PlatformOriginDeployed,
 						State:  test.state,
-						Deployment: &clusterdomain.LifecycleOperation{
+						Deployment: &platformdomain.LifecycleOperation{
 							ID:              "existing-deployment",
 							Status:          "failed",
 							TargetServerIDs: []string{"c1"},
@@ -358,12 +358,12 @@ func TestDeployReservesTargetsUntilSuccessfulUninstall(t *testing.T) {
 					},
 				},
 			}
-			service, launcher, clusters := newDeployHarnessWithLifecycle(lifecycle, haServers()...)
-			clusters.clusters[existing.ID] = existing
+			service, launcher, platforms := newDeployHarnessWithLifecycle(lifecycle, haServers()...)
+			platforms.platforms[existing.ID] = existing
 
 			_, err := service.Deploy(context.Background(), validDeployInput())
 			if test.wantReject {
-				if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+				if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 					t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment", err)
 				}
 				if launcher.launched != nil {
@@ -391,8 +391,8 @@ func (g *recordingMutationGuard) RequireUnlocked(_ context.Context, serverIDs []
 	return g.err
 }
 
-func TestDeployLiveLockGuardRunsBeforeClusterOrOperationCreation(t *testing.T) {
-	service, launcher, clusters := newDeployHarness(haServers()...)
+func TestDeployLiveLockGuardRunsBeforePlatformOrOperationCreation(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(haServers()...)
 	guard := &recordingMutationGuard{
 		err: &serverdomain.ServerLockedError{Name: "lab-control-2"},
 	}
@@ -405,8 +405,8 @@ func TestDeployLiveLockGuardRunsBeforeClusterOrOperationCreation(t *testing.T) {
 	if len(guard.serverIDs) != 4 {
 		t.Fatalf("guard targets = %v, want complete target set", guard.serverIDs)
 	}
-	if len(clusters.clusters) != 0 {
-		t.Fatalf("live lock conflict created %d Cluster records", len(clusters.clusters))
+	if len(platforms.platforms) != 0 {
+		t.Fatalf("live lock conflict created %d Platform records", len(platforms.platforms))
 	}
 	if launcher.launched != nil {
 		t.Fatal("live lock conflict reached the Operation launcher")

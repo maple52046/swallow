@@ -2,7 +2,7 @@
 //
 // swallow stores no metrics and no alerts. It queries the metrics store and reads alerts
 // from Alertmanager, and its only contribution is correlation: turning a label set back
-// into the server, site, and cluster it belongs to.
+// into the server, site, and platform it belongs to.
 //
 // See docs/decisions/003-metrics-label-contract.md.
 package domain
@@ -18,9 +18,12 @@ import (
 const (
 	LabelServerID = "server_id"
 	LabelSite     = "site"
-	LabelCluster  = "cluster"
-	// LabelKubernetesNode is what in-cluster metrics carry instead of a server_id,
-	// because swallow does not own a cluster's scrape configuration.
+	LabelPlatform = "platform_id"
+	// LabelPlatformLegacy and LabelClusterLegacy are one-release read aliases.
+	LabelPlatformLegacy = "platform"
+	LabelClusterLegacy  = "cluster"
+	// LabelKubernetesNode is what in-platform metrics carry instead of a server_id,
+	// because swallow does not own a platform's scrape configuration.
 	LabelKubernetesNode = "node"
 )
 
@@ -32,7 +35,7 @@ type Sample struct {
 }
 
 // ServerID returns the server this sample belongs to, or "" when it carries no
-// server_id — which is the case for metrics produced inside a cluster.
+// server_id — which is the case for metrics produced inside a platform.
 func (s Sample) ServerID() string {
 	return s.Labels[LabelServerID]
 }
@@ -74,9 +77,9 @@ type Alert struct {
 
 	// Correlation, resolved by swallow from the label set. Empty when the alert's labels
 	// do not identify one.
-	ServerID  string
-	SiteID    string
-	ClusterID string
+	ServerID   string
+	SiteID     string
+	PlatformID string
 }
 
 // SilenceRequest suppresses an alert. Silencing is how an alert is acknowledged: the

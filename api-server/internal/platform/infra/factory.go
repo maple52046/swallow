@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
-	"github.com/maple52046/swallow/internal/cluster/infra/clusterapi"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	"github.com/maple52046/swallow/internal/platform/infra/platformapi"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
 const defaultTimeout = 30 * time.Second
 
-// Setting keys an operator may set on a cluster integration.
+// Setting keys an operator may set on a platform integration.
 const (
 	SettingTimeout            = "timeout"
 	SettingInsecureSkipVerify = "insecureSkipVerify"
@@ -21,11 +21,11 @@ const (
 	SettingSlurmAPIVersion = "slurmApiVersion"
 	// SettingControllerLeaseDiscovery makes the Kubernetes reader also report dedicated
 	// k0s controllers from their kube-node-lease leases. Off by default because the lease
-	// naming is a k0s implementation detail; a cluster swallow itself deploys turns it on.
+	// naming is a k0s implementation detail; a platform swallow itself deploys turns it on.
 	SettingControllerLeaseDiscovery = "controllerLeaseDiscovery"
 )
 
-// ReaderFactory builds cluster readers from a cluster's integration.
+// ReaderFactory builds platform readers from a platform's integration.
 //
 // Not cached, unlike the provisioning and automation factories: membership is read once
 // per interval rather than continuously, so there is no connection reuse to protect and
@@ -38,17 +38,17 @@ func NewReaderFactory(integrations sitedomain.IntegrationRepository) *ReaderFact
 	return &ReaderFactory{integrations: integrations}
 }
 
-func (f *ReaderFactory) For(ctx context.Context, cluster *clusterdomain.Cluster) (clusterdomain.ClusterReader, error) {
-	if cluster.IntegrationID == "" {
-		return nil, clusterdomain.ErrNoClusterIntegration
+func (f *ReaderFactory) For(ctx context.Context, platform *platformdomain.Platform) (platformdomain.PlatformReader, error) {
+	if platform.IntegrationID == "" {
+		return nil, platformdomain.ErrNoPlatformIntegration
 	}
 
-	integration, err := f.integrations.FindByID(ctx, cluster.IntegrationID)
+	integration, err := f.integrations.FindByID(ctx, platform.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
-	if integration.Kind != sitedomain.IntegrationKindCluster {
-		return nil, fmt.Errorf("integration %q is registered as %q, not a cluster API",
+	if integration.Kind != sitedomain.IntegrationKindPlatform {
+		return nil, fmt.Errorf("integration %q is registered as %q, not a platform API",
 			integration.Name, integration.Kind)
 	}
 
@@ -65,21 +65,21 @@ func (f *ReaderFactory) For(ctx context.Context, cluster *clusterdomain.Cluster)
 	}
 	insecure := integration.SettingBool(SettingInsecureSkipVerify)
 
-	switch cluster.Type {
-	case clusterdomain.ClusterTypeKubernetes:
+	switch platform.Type {
+	case platformdomain.PlatformTypeKubernetes:
 		controllerLeases := integration.SettingBool(SettingControllerLeaseDiscovery)
-		return clusterapi.NewKubernetesReader(integration.Endpoint, token, timeout, insecure, controllerLeases)
+		return platformapi.NewKubernetesReader(integration.Endpoint, token, timeout, insecure, controllerLeases)
 
-	case clusterdomain.ClusterTypeSlurm:
-		return clusterapi.NewSlurmReader(
+	case platformdomain.PlatformTypeSlurm:
+		return platformapi.NewSlurmReader(
 			integration.Endpoint,
 			token,
-			integration.Setting(SettingSlurmAPIVersion, clusterapi.DefaultSlurmAPIVersion),
+			integration.Setting(SettingSlurmAPIVersion, platformapi.DefaultSlurmAPIVersion),
 			timeout,
 			insecure,
 		)
 
 	default:
-		return nil, fmt.Errorf("%w: %q", clusterdomain.ErrUnsupportedClusterType, cluster.Type)
+		return nil, fmt.Errorf("%w: %q", platformdomain.ErrUnsupportedPlatformType, platform.Type)
 	}
 }

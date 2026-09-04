@@ -26,9 +26,6 @@ import (
 	authapp "github.com/maple52046/swallow/internal/auth/application"
 	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
 	authinfra "github.com/maple52046/swallow/internal/auth/infra"
-	clusterapp "github.com/maple52046/swallow/internal/cluster/application"
-	clusterdelivery "github.com/maple52046/swallow/internal/cluster/delivery"
-	clusterinfra "github.com/maple52046/swallow/internal/cluster/infra"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
 	"github.com/maple52046/swallow/internal/migration"
@@ -41,6 +38,9 @@ import (
 	overviewapp "github.com/maple52046/swallow/internal/overview/application"
 	overviewdelivery "github.com/maple52046/swallow/internal/overview/delivery"
 	overviewinfra "github.com/maple52046/swallow/internal/overview/infra"
+	platformapp "github.com/maple52046/swallow/internal/platform/application"
+	platformdelivery "github.com/maple52046/swallow/internal/platform/delivery"
+	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
@@ -196,28 +196,28 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
 	)
 
-	clusterRepo, err := clusterinfra.NewMongoClusterRepo(db)
+	platformRepo, err := platforminfra.NewMongoPlatformRepo(db)
 	if err != nil {
-		return fmt.Errorf("cluster repo init: %w", err)
+		return fmt.Errorf("platform repo init: %w", err)
 	}
-	membershipSync := clusterapp.NewMembershipSyncUseCase(
-		clusterRepo, serverRepo, clusterinfra.NewReaderFactory(integrationRepo))
+	membershipSync := platformapp.NewMembershipSyncUseCase(
+		platformRepo, serverRepo, platforminfra.NewReaderFactory(integrationRepo))
 
 	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
 		return fmt.Errorf("playbook catalog: %w", err)
 	}
-	lifecycleReader := clusterLifecycleReader{operations: operationRepo}
-	integrationCleaner := managedClusterIntegrationCleaner{integrations: integrationRepo}
-	clusterService := clusterapp.NewClusterService(
-		clusterRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
+	lifecycleReader := platformLifecycleReader{operations: operationRepo}
+	integrationCleaner := managedPlatformIntegrationCleaner{integrations: integrationRepo}
+	platformService := platformapp.NewPlatformService(
+		platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
 	)
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	operationService := operationapp.NewExecutionService(
 		operationRepo, serverRepo, automationRepo, catalog, runner,
-		clusterapp.NewPolicyChecker(clusterRepo, serverRepo),
+		platformapp.NewPolicyChecker(platformRepo, serverRepo),
 		serverProtection,
 	)
 	automationService := operationapp.NewAutomationConfigurationService(
@@ -226,32 +226,32 @@ func RunAPI(cfg config.APIConfig) error {
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService)
 
 	overviewReader := overviewinfra.NewReader(
-		siteRepo, integrationRepo, serverRepo, healthResolver, clusterRepo, operationRepo,
+		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, operationRepo,
 		alertService,
 	)
 	overviewHandler := overviewdelivery.NewHandler(
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
-	// Cluster lifecycle adapters keep durable operations outside the cluster context.
-	clusterLauncher := clusterDeploymentLauncher{operations: operationService}
-	deployService := clusterapp.NewDeployService(
-		clusterService, clusterRepo, serverRepo, lifecycleReader, clusterLauncher,
+	// Platform lifecycle adapters keep durable operations outside the platform context.
+	platformLauncher := platformDeploymentLauncher{operations: operationService}
+	deployService := platformapp.NewDeployService(
+		platformService, platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
 	)
-	uninstallService := clusterapp.NewUninstallService(
-		clusterRepo, serverRepo, lifecycleReader, clusterLauncher,
+	uninstallService := platformapp.NewUninstallService(
+		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
 	)
-	clusterHandler := clusterdelivery.NewClusterHandler(
-		clusterService, membershipSync, deployService, uninstallService)
-	deploymentCredentials := clusterapp.NewDeploymentCredentialService(clusterRepo, integrationRepo, membershipSync)
+	platformHandler := platformdelivery.NewPlatformHandler(
+		platformService, membershipSync, deployService, uninstallService)
+	deploymentCredentials := platformapp.NewDeploymentCredentialService(platformRepo, integrationRepo, membershipSync)
 
 	// Auto-install exporters when a server reaches the deployed state and its effective
-	// exporter owner is ansible. The resolver bridges the provisioning lock and cluster
-	// policy so the operation context stays free of cluster types.
+	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
+	// policy so the operation context stays free of platform types.
 	autoExporterDeploy := operationapp.NewAutoExporterDeployUseCase(
 		serverRepo, operationRepo, operationService,
-		exporterOwnerResolver{clusters: clusterRepo},
+		exporterOwnerResolver{platforms: platformRepo},
 	)
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
@@ -259,8 +259,8 @@ func RunAPI(cfg config.APIConfig) error {
 	dispatcher := operationapp.NewDispatcher(
 		operationRepo, operationinfra.NewMongoSiteLeaseRepo(db), automationRepo,
 		catalog, runner, executionInventoryAdapter{discovery: discoveryUseCase},
-		clusterDeploymentObserver{
-			credentials: deploymentCredentials, clusters: clusterService,
+		platformDeploymentObserver{
+			credentials: deploymentCredentials, platforms: platformService,
 			operations: operationService, servers: serverRepo,
 		},
 		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration,
@@ -309,7 +309,7 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioning:   provisioningHandler,
 		operations:     operationHandler,
 		monitoring:     monitoringHandler,
-		clusters:       clusterHandler,
+		platforms:      platformHandler,
 		discovery:      discoveryHandler,
 		releaseVersion: releaseVersion,
 		readiness: func(ctx context.Context) error {
@@ -356,7 +356,7 @@ type routeDeps struct {
 	provisioning   *provisioningdelivery.ProvisioningHandler
 	operations     *operationdelivery.ExecutionHandler
 	monitoring     *monitoringdelivery.MonitoringHandler
-	clusters       *clusterdelivery.ClusterHandler
+	platforms      *platformdelivery.PlatformHandler
 	discovery      *discoverydelivery.DiscoveryHandler
 	readiness      func(context.Context) error
 	releaseVersion string
@@ -470,18 +470,18 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 
-	// swallow owns a cluster's registration and its policy. Membership is read from the
-	// cluster's own API, so there is no endpoint here to change it.
-	clusters := v1.Group("/clusters", admin...)
-	clusters.Post("/", deps.clusters.Create)
-	clusters.Get("/", deps.clusters.List)
-	clusters.Post("/deploy", deps.clusters.Deploy)
-	clusters.Post("/sync", deps.clusters.SyncAllMembership)
-	clusters.Get("/:id", deps.clusters.Get)
-	clusters.Patch("/:id", deps.clusters.Update)
-	clusters.Delete("/:id", deps.clusters.Delete)
-	clusters.Post("/:id/uninstall", deps.clusters.Uninstall)
-	clusters.Post("/:id/sync", deps.clusters.SyncMembership)
+	// swallow owns a platform's registration and its policy. Membership is read from the
+	// platform's own API, so there is no endpoint here to change it.
+	platforms := v1.Group("/platforms", admin...)
+	platforms.Post("/", deps.platforms.Create)
+	platforms.Get("/", deps.platforms.List)
+	platforms.Post("/deploy", deps.platforms.Deploy)
+	platforms.Post("/sync", deps.platforms.SyncAllMembership)
+	platforms.Get("/:id", deps.platforms.Get)
+	platforms.Patch("/:id", deps.platforms.Update)
+	platforms.Delete("/:id", deps.platforms.Delete)
+	platforms.Post("/:id/uninstall", deps.platforms.Uninstall)
+	platforms.Post("/:id/sync", deps.platforms.SyncMembership)
 
 	// Alerts and metrics are read straight from the monitoring stack: swallow stores
 	// neither, and acknowledging an alert creates a silence in Alertmanager.

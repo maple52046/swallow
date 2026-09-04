@@ -36,8 +36,8 @@ func (routeSource) ListServers(context.Context, string) ([]overviewapp.Server, e
 	return []overviewapp.Server{}, nil
 }
 
-func (routeSource) ListClusters(context.Context, string) ([]overviewapp.Cluster, error) {
-	return []overviewapp.Cluster{}, nil
+func (routeSource) ListPlatforms(context.Context, string) ([]overviewapp.Platform, error) {
+	return []overviewapp.Platform{}, nil
 }
 
 func (routeSource) ListOperations(context.Context, string) ([]overviewapp.Operation, error) {

@@ -28,12 +28,35 @@ func NewExecutionHandler(operations *application.ExecutionService, automation *a
 }
 
 type createExecutionRequest struct {
-	Kind            string         `json:"kind"`
-	Intent          string         `json:"intent"`
-	TargetServerIDs []string       `json:"targetServerIds"`
-	ClusterID       string         `json:"clusterId"`
-	PlaybookName    string         `json:"playbookName"`
-	ExtraVars       map[string]any `json:"extraVars"`
+	Kind            string   `json:"kind"`
+	Intent          string   `json:"intent"`
+	TargetServerIDs []string `json:"targetServerIds"`
+	// PlatformID is canonical; ClusterID is the deprecated one-release alias. When
+	// both are present PlatformID wins; otherwise ClusterID is accepted.
+	PlatformID   string         `json:"platformId"`
+	ClusterID    string         `json:"clusterId"`
+	PlaybookName string         `json:"playbookName"`
+	ExtraVars    map[string]any `json:"extraVars"`
+}
+
+// platformIDQuery resolves the platform filter, preferring the canonical platformId
+// query key and falling back to the deprecated clusterId alias for one release.
+func platformIDQuery(c *fiber.Ctx) string {
+	if id := c.Query("platformId"); id != "" {
+		return id
+	}
+	return c.Query("clusterId")
+}
+
+// firstNonEmpty returns the first non-empty argument, used to prefer a canonical
+// field over its deprecated alias.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // Create persists an accepted operation as pending.
@@ -48,7 +71,7 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 	}
 	item, err := h.operations.Create(c.Context(), application.CreateExecutionInput{
 		Kind: req.Kind, Intent: req.Intent, TargetServerIDs: req.TargetServerIDs,
-		ClusterID: req.ClusterID, PlaybookName: req.PlaybookName,
+		PlatformID: firstNonEmpty(req.PlatformID, req.ClusterID), PlaybookName: req.PlaybookName,
 		ExtraVars: req.ExtraVars, RequestedBy: requestedBy,
 	})
 	if err != nil {
@@ -60,7 +83,7 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 // List returns operations.
 func (h *ExecutionHandler) List(c *fiber.Ctx) error {
 	result, err := h.operations.List(c.Context(), application.ListOperationsInput{
-		SiteID: c.Query("siteId"), ClusterID: c.Query("clusterId"),
+		SiteID: c.Query("siteId"), PlatformID: platformIDQuery(c),
 		ServerID: c.Query("serverId"), Kind: c.Query("kind"), Status: c.Query("status"),
 		Active: c.Query("active") == "true", Page: pagination.FromQuery(c),
 	})

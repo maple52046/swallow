@@ -30,7 +30,7 @@ type executionOperationDoc struct {
 	Kind            string         `bson:"kind"`
 	Intent          string         `bson:"intent,omitempty"`
 	SiteID          string         `bson:"siteId"`
-	ClusterID       string         `bson:"clusterId,omitempty"`
+	PlatformID      string         `bson:"platformId,omitempty"`
 	TargetServerIDs []string       `bson:"targetServerIds"`
 	ExtraVars       map[string]any `bson:"extraVars,omitempty"`
 	// SealedSecretVars is an AES-GCM sealed JSON object of run-time secret vars, so a
@@ -63,9 +63,9 @@ func NewMongoExecutionRepo(db *mongo.Database, sealer *secret.Sealer) (*MongoExe
 			Options: options.Index().SetName("execution_active_targets")},
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "execution.status", Value: 1}, {Key: "requestedAt", Value: 1}},
 			Options: options.Index().SetName("execution_dispatch")},
-		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "clusterId", Value: 1},
+		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "platformId", Value: 1},
 			{Key: "kind", Value: 1}, {Key: "requestedAt", Value: -1}},
-			Options: options.Index().SetName("execution_cluster_lifecycle")},
+			Options: options.Index().SetName("execution_platform_lifecycle")},
 	})
 	if err != nil {
 		return nil, err
@@ -137,10 +137,10 @@ func (r *MongoExecutionRepo) List(ctx context.Context, filter operationdomain.Ex
 	if filter.SiteID != "" {
 		query["siteId"] = filter.SiteID
 	}
-	if filter.ClusterID != "" {
-		query["clusterId"] = filter.ClusterID
-	} else if len(filter.ClusterIDs) > 0 {
-		query["clusterId"] = bson.M{"$in": filter.ClusterIDs}
+	if filter.PlatformID != "" {
+		query["platformId"] = filter.PlatformID
+	} else if len(filter.PlatformIDs) > 0 {
+		query["platformId"] = bson.M{"$in": filter.PlatformIDs}
 	}
 	if filter.ServerID != "" {
 		query["targetServerIds"] = filter.ServerID
@@ -262,7 +262,7 @@ func (r *MongoExecutionRepo) MarkExpiredIndeterminate(ctx context.Context, now t
 func toExecutionDoc(operation *operationdomain.ExecutionOperation) executionOperationDoc {
 	return executionOperationDoc{
 		ID: operation.ID, SchemaVersion: 2, Kind: string(operation.Kind), Intent: operation.Intent,
-		SiteID: operation.SiteID, ClusterID: operation.ClusterID, TargetServerIDs: operation.TargetServerIDs,
+		SiteID: operation.SiteID, PlatformID: operation.PlatformID, TargetServerIDs: operation.TargetServerIDs,
 		ExtraVars: operation.ExtraVars, RetryOfOperationID: operation.RetryOfOperationID,
 		Execution: toExecutionSubdoc(operation.Execution),
 		Terminal:  operation.Execution.Status.Terminal(), RequestedBy: operation.RequestedBy,
@@ -282,7 +282,7 @@ func toExecutionSubdoc(execution operationdomain.Execution) executionDoc {
 func fromExecutionDoc(doc *executionOperationDoc) *operationdomain.ExecutionOperation {
 	return &operationdomain.ExecutionOperation{
 		ID: doc.ID, Kind: operationdomain.OperationKind(doc.Kind), Intent: doc.Intent,
-		SiteID: doc.SiteID, ClusterID: doc.ClusterID, TargetServerIDs: doc.TargetServerIDs,
+		SiteID: doc.SiteID, PlatformID: doc.PlatformID, TargetServerIDs: doc.TargetServerIDs,
 		ExtraVars: doc.ExtraVars, RetryOfOperationID: doc.RetryOfOperationID,
 		Execution: operationdomain.Execution{
 			RunID: doc.Execution.RunID, Playbook: doc.Execution.Playbook,

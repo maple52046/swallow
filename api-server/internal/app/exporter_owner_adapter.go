@@ -4,38 +4,38 @@ import (
 	"context"
 	"errors"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // exporterOwnerResolver resolves a server's effective exporter owner from its lock state
-// and cluster policy, satisfying the operation context's ExporterOwnerResolver port.
+// and platform policy, satisfying the operation context's ExporterOwnerResolver port.
 //
 // It lives in the app wiring layer because it bridges two contexts — the server's
-// provisioning lock and a cluster's exporterOwner policy — without either context
+// provisioning lock and a platform's exporterOwner policy — without either context
 // depending on the other. The resolution order matters: a locked machine is off-limits
-// regardless of any cluster it belongs to.
+// regardless of any platform it belongs to.
 type exporterOwnerResolver struct {
-	clusters clusterdomain.ClusterRepository
+	platforms platformdomain.PlatformRepository
 }
 
-// EffectiveExporterOwner returns "unmanaged" for a locked machine, the cluster's policy
-// for a cluster member, and "ansible" otherwise. A membership pointing at a cluster that
+// EffectiveExporterOwner returns "unmanaged" for a locked machine, the platform's policy
+// for a platform member, and "ansible" otherwise. A membership pointing at a platform that
 // no longer exists falls back to ansible rather than erroring, matching how the policy
 // checker treats a stale membership.
 func (r exporterOwnerResolver) EffectiveExporterOwner(ctx context.Context, server *serverdomain.Server) (string, error) {
 	if server.Provisioning != nil && server.Provisioning.Locked {
-		return string(clusterdomain.ExporterOwnerUnmanaged), nil
+		return string(platformdomain.ExporterOwnerUnmanaged), nil
 	}
-	if server.Membership != nil && server.Membership.ClusterID != "" {
-		cluster, err := r.clusters.FindByID(ctx, server.Membership.ClusterID)
-		if errors.Is(err, clusterdomain.ErrClusterNotFound) {
-			return string(clusterdomain.ExporterOwnerAnsible), nil
+	if server.Membership != nil && server.Membership.PlatformID != "" {
+		platform, err := r.platforms.FindByID(ctx, server.Membership.PlatformID)
+		if errors.Is(err, platformdomain.ErrPlatformNotFound) {
+			return string(platformdomain.ExporterOwnerAnsible), nil
 		}
 		if err != nil {
 			return "", err
 		}
-		return string(cluster.ExporterOwner), nil
+		return string(platform.ExporterOwner), nil
 	}
-	return string(clusterdomain.ExporterOwnerAnsible), nil
+	return string(platformdomain.ExporterOwnerAnsible), nil
 }

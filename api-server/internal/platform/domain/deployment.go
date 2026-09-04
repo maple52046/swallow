@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-// NodeRole is the part a server plays in a cluster: running the control plane or running
+// NodeRole is the part a server plays in a platform: running the control plane or running
 // workloads. It is the same vocabulary the membership axis reports, used here to assign a
 // role when deploying. The k0s word "controller" is a playbook-side translation and never
 // appears in the domain.
@@ -32,7 +32,7 @@ type RoleAssignment struct {
 }
 
 // KubernetesTopology names the supported control-plane and workload placement shape.
-// It is derived from role assignments rather than persisted on the Cluster record.
+// It is derived from role assignments rather than persisted on the Platform record.
 type KubernetesTopology string
 
 const (
@@ -41,7 +41,7 @@ const (
 	KubernetesTopologyHighAvailability KubernetesTopology = "high-availability"
 )
 
-// DeploymentSpec is the desired shape of a cluster to build. The CIDRs and version are
+// DeploymentSpec is the desired shape of a platform to build. The CIDRs and version are
 // defaulted by the deploy use case. API VIP fields are required only when role assignments
 // infer a highly available control plane.
 type DeploymentSpec struct {
@@ -114,19 +114,21 @@ func (s DeploymentSpec) serverIDsWithRole(role NodeRole) []string {
 }
 
 // DeploymentLaunch is a fully validated request to start the operation that builds a
-// cluster. The trusted and secret vars are assembled by the deploy use case, which owns
+// platform. The trusted and secret vars are assembled by the deploy use case, which owns
 // the translation from a DeploymentSpec to the playbook's variables; the launcher only
 // forwards them to the operation context.
 type DeploymentLaunch struct {
-	Cluster         *Cluster
-	TargetServerIDs []string
-	TrustedVars     map[string]any
-	SecretVars      map[string]any
-	RequestedBy     string
+	Platform           *Platform
+	TargetServerIDs    []string
+	TrustedVars        map[string]any
+	SecretVars         map[string]any
+	RequestedBy        string
+	RequestCorrelation string
+	MachinePreparation MachinePreparation
 }
 
-// DeploymentLauncher starts the embedded operation that builds a cluster and returns its
-// operation id. It is a port so the cluster context does not depend on the operation
+// DeploymentLauncher starts the durable Operation that builds a Platform and returns its
+// operation id. It is a port so the platform context does not depend on the operation
 // context; the composition root supplies an adapter over the operation service.
 type DeploymentLauncher interface {
 	Launch(ctx context.Context, launch DeploymentLaunch) (operationID string, err error)
@@ -134,5 +136,47 @@ type DeploymentLauncher interface {
 
 var (
 	// ErrInvalidDeployment covers topology and network validation failures.
-	ErrInvalidDeployment = errors.New("invalid cluster deployment")
+	ErrInvalidDeployment = errors.New("invalid platform deployment")
 )
+
+// MachinePreparationMode controls whether Platform deployment uses an existing OS or
+// provisions all target Servers inside the same Operation first.
+type MachinePreparationMode string
+
+const (
+	MachinePreparationExistingOS  MachinePreparationMode = "existing_os"
+	MachinePreparationProvisionOS MachinePreparationMode = "provision_os"
+)
+
+func (m MachinePreparationMode) Valid() bool {
+	return m == MachinePreparationExistingOS || m == MachinePreparationProvisionOS
+}
+
+// MachineNetworkAssignment is target-specific network intent for OS provisioning.
+type MachineNetworkAssignment struct {
+	ServerID    string
+	InterfaceID string
+	SubnetID    string
+	IPAddress   string
+}
+
+// MachinePreparation is the provider-neutral OS intent embedded in a Platform request.
+// UserData is write-only and must be sealed by the launcher before persistence.
+type MachinePreparation struct {
+	Mode           MachinePreparationMode
+	TemplateID     string
+	ImageID        string
+	Ephemeral      *bool
+	UserDataMode   string
+	UserData       string
+	NetworkMode    string
+	SubnetID       string
+	DefaultGateway bool
+	Assignments    []MachineNetworkAssignment
+}
+
+// MachinePreparationValidator performs provisioner-owned image/network preflight before
+// a Platform record or Operation is created.
+type MachinePreparationValidator interface {
+	Validate(ctx context.Context, siteID string, serverIDs []string, preparation MachinePreparation) error
+}

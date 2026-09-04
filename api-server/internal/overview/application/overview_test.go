@@ -17,7 +17,7 @@ type fakeSource struct {
 	sites        []Site
 	integrations []Integration
 	servers      []Server
-	clusters     []Cluster
+	platforms    []Platform
 	operations   []Operation
 	alerts       []Alert
 	alertErr     error
@@ -42,9 +42,9 @@ func (s *fakeSource) ListServers(_ context.Context, siteID string) ([]Server, er
 	return s.servers, nil
 }
 
-func (s *fakeSource) ListClusters(_ context.Context, siteID string) ([]Cluster, error) {
+func (s *fakeSource) ListPlatforms(_ context.Context, siteID string) ([]Platform, error) {
 	s.siteIDs = append(s.siteIDs, siteID)
-	return s.clusters, nil
+	return s.platforms, nil
 }
 
 func (s *fakeSource) ListOperations(_ context.Context, siteID string) ([]Operation, error) {
@@ -66,13 +66,13 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 			{ID: "integration-b", LastError: "sync failed"},
 		},
 		servers: []Server{
-			{ProvisioningState: "deployed", ClusterID: "cluster-a", GPUDevices: 8, HealthState: "up"},
+			{ProvisioningState: "deployed", PlatformID: "platform-a", GPUDevices: 8, HealthState: "up"},
 			{Absent: true, ProvisioningState: "ready", HealthState: "down"},
 			{ProvisioningState: "deployed"},
 		},
-		clusters: []Cluster{
+		platforms: []Platform{
 			{MemberCount: 5, MatchedCount: 3},
-			{IntegrationID: "integration-cluster", MemberCount: 2, MatchedCount: 2},
+			{IntegrationID: "integration-platform", MemberCount: 2, MatchedCount: 2},
 		},
 	}
 	for i := 0; i < 10; i++ {
@@ -108,7 +108,7 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 
 	if result.Inventory.Sites != 2 || result.Inventory.Servers != 3 ||
 		result.Inventory.Absent != 1 || result.Inventory.Deployed != 2 ||
-		result.Inventory.Clustered != 1 || result.Inventory.GPUDevices != 8 {
+		result.Inventory.Platformed != 1 || result.Inventory.GPUDevices != 8 {
 		t.Errorf("Execute() inventory = %+v, want complete platform counts", result.Inventory)
 	}
 	if result.Inventory.Health != (HealthSummary{Up: 1, Down: 1, Unknown: 1}) {
@@ -117,8 +117,8 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 	if result.Integrations.Total != 2 || result.Integrations.Failing != 1 {
 		t.Errorf("Execute() integrations = %+v, want total=2 failing=1", result.Integrations)
 	}
-	if result.Clusters != (ClusterSummary{Total: 2, Unreachable: 1, UnmatchedMembers: 2}) {
-		t.Errorf("Execute() clusters = %+v, want total=2 unreachable=1 unmatched=2", result.Clusters)
+	if result.Platforms != (PlatformSummary{Total: 2, Unreachable: 1, UnmatchedMembers: 2}) {
+		t.Errorf("Execute() platforms = %+v, want total=2 unreachable=1 unmatched=2", result.Platforms)
 	}
 	if result.Operations.Active != 1 || result.Operations.FailedLast24Hours != 2 ||
 		len(result.Operations.Recent) != recentOperationLimit {

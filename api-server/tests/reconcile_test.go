@@ -104,7 +104,7 @@ func TestReconcile_CreatesServerFromMachine(t *testing.T) {
 		// The other two axes have never been observed and must stay absent rather
 		// than being defaulted to something.
 		if server.Membership != nil {
-			t.Error("membership axis must be nil until a cluster reports it")
+			t.Error("membership axis must be nil until a platform reports it")
 		}
 		if server.Health != nil {
 			t.Error("health axis must never be set by the reconciler")
@@ -529,7 +529,7 @@ func TestReconcile_PreservesMembershipAcrossPasses(t *testing.T) {
 		serverID = id
 	}
 	membership := &serverdomain.MembershipStatus{
-		ClusterID: "cluster-1", NodeName: "gpu-node-01", Role: "worker",
+		PlatformID: "platform-1", NodeName: "gpu-node-01", Role: "worker",
 		State: "ready", ObservedAt: time.Now().UTC(),
 	}
 	if err := f.servers.SetMembership(context.Background(), serverID, membership); err != nil {

@@ -131,7 +131,7 @@ var (
 	// ErrTargetLocked means a target machine is locked and this kind of operation must
 	// not change it. It protects machines an operator has deliberately taken off-limits.
 	ErrTargetLocked = errors.New("a target is locked and must not be changed")
-	// ErrPolicyConflict means the operation contradicts a cluster policy, e.g.
-	// installing GPU drivers on nodes whose cluster delegates that to the GPU operator.
-	ErrPolicyConflict = errors.New("operation conflicts with cluster policy")
+	// ErrPolicyConflict means the operation contradicts a platform policy, e.g.
+	// installing GPU drivers on nodes whose platform delegates that to the GPU operator.
+	ErrPolicyConflict = errors.New("operation conflicts with platform policy")
 )

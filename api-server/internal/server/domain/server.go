@@ -174,13 +174,13 @@ type ProvisioningStatus struct {
 	ObservedAt          time.Time
 }
 
-// MembershipStatus is the axis owned by a cluster's own API.
+// MembershipStatus is the axis owned by a platform's own API.
 //
 // swallow never writes this to express intent. Intent lives in an operation; this is the
-// cluster's answer, and when the two disagree the cluster is right.
+// platform's answer, and when the two disagree the platform is right.
 type MembershipStatus struct {
-	ClusterID string
-	// NodeName is the cluster's own name for this machine, which is how in-cluster
+	PlatformID string
+	// NodeName is the platform's own name for this machine, which is how in-platform
 	// metrics are joined back to a server.
 	NodeName   string
 	Role       string

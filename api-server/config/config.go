@@ -3,7 +3,7 @@
 // centralized here; application code receives a fully assembled Config object.
 //
 // Configuration covers only how this process runs. What it talks to — provisioners,
-// automation controllers, metrics stores, clusters — is registered at runtime as
+// automation controllers, metrics stores, platforms — is registered at runtime as
 // integration records, because a fleet has many of each and they change without a
 // redeploy. See docs/decisions/001-system-ownership-boundaries.md.
 package config

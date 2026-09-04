@@ -18,7 +18,7 @@ func TestPrometheusTargets_CarryTheLabelContract(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
 		s.Membership = &serverdomain.MembershipStatus{
-			ClusterID: "cluster-1", NodeName: "gpu-node-01", Role: "worker",
+			PlatformID: "platform-1", NodeName: "gpu-node-01", Role: "worker",
 			ObservedAt: time.Now().UTC(),
 		}
 	})
@@ -45,8 +45,11 @@ func TestPrometheusTargets_CarryTheLabelContract(t *testing.T) {
 	if labels["site"] != testSiteID {
 		t.Errorf("site: got %v", labels["site"])
 	}
-	if labels["cluster"] != "cluster-1" {
-		t.Errorf("cluster: got %v", labels["cluster"])
+	if labels["platform_id"] != "platform-1" {
+		t.Errorf("platform_id: got %v", labels["platform_id"])
+	}
+	if labels["cluster"] != "platform-1" {
+		t.Errorf("legacy cluster: got %v", labels["cluster"])
 	}
 }
 
@@ -160,7 +163,7 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 		s.Observed.GPUs = []serverdomain.GPU{{Vendor: "NVIDIA", Model: "A100", Count: 8}}
 		s.Observed.Tags = []string{"amd-gpu"}
 		s.Membership = &serverdomain.MembershipStatus{
-			ClusterID: "cluster-1", NodeName: "gpu-node-01", Role: "worker",
+			PlatformID: "platform-1", NodeName: "gpu-node-01", Role: "worker",
 			ObservedAt: time.Now().UTC(),
 		}
 	})
@@ -183,13 +186,13 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 	if vars["server_id"] != "srv-1" {
 		t.Errorf("server_id must be a host var so a playbook can report back in swallow ids: %v", vars["server_id"])
 	}
-	if vars["cluster_role"] != "worker" {
-		t.Errorf("cluster_role: got %v", vars["cluster_role"])
+	if vars["platform_role"] != "worker" {
+		t.Errorf("platform_role: got %v", vars["platform_role"])
 	}
 
 	// Groups automation needs to branch on. tag_amd_gpu is what the install-exporters
 	// playbook uses to run the RDC exporter play on AMD GPU servers only.
-	for _, group := range []string{"site_site_1", "provisioning_deployed", "cluster_cluster_1", "role_worker", "gpu_nvidia", "tag_amd_gpu"} {
+	for _, group := range []string{"site_site_1", "provisioning_deployed", "platform_platform_1", "role_worker", "gpu_nvidia", "tag_amd_gpu"} {
 		entry, ok := inventory[group].(map[string]any)
 		if !ok {
 			t.Errorf("expected group %q, got groups %v", group, groupNames(inventory))

@@ -17,8 +17,8 @@ type ListFilter struct {
 	// Excluded by default: an absent machine is usually not what a caller wants to
 	// act on, but it must stay findable.
 	IncludeAbsent bool
-	// ClusterID filters on the membership axis.
-	ClusterID string
+	// PlatformID filters on the membership axis.
+	PlatformID string
 	// Tag restricts the result to servers whose provisioner tags include this exact
 	// value. It exists so a Prometheus scrape job can target one server type — the RDC
 	// exporter job asks for "amd-gpu" — without the discovery endpoint hard-coding what

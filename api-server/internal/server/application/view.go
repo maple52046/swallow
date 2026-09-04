@@ -80,7 +80,11 @@ type ProvisioningAxisItem struct {
 	ObservedAt          string `json:"observedAt"`
 }
 
+// MembershipAxisItem is the platform-membership projection of a Server. PlatformID
+// is canonical; ClusterID mirrors it as the deprecated one-release alias so existing
+// clients keep working during the Cluster -> Platform migration.
 type MembershipAxisItem struct {
+	PlatformID string `json:"platformId"`
 	ClusterID  string `json:"clusterId"`
 	NodeName   string `json:"nodeName"`
 	Role       string `json:"role"`
@@ -155,7 +159,8 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 
 	if m := s.Membership; m != nil {
 		item.Membership = &MembershipAxisItem{
-			ClusterID:  m.ClusterID,
+			PlatformID: m.PlatformID,
+			ClusterID:  m.PlatformID,
 			NodeName:   m.NodeName,
 			Role:       m.Role,
 			State:      m.State,

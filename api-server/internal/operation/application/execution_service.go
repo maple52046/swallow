@@ -49,10 +49,13 @@ func NewExecutionService(
 
 // ExecutionOperationItem is the public operation representation.
 type ExecutionOperationItem struct {
-	ID                 string        `json:"id"`
-	Kind               string        `json:"kind"`
-	Intent             string        `json:"intent"`
-	SiteID             string        `json:"siteId"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Intent string `json:"intent"`
+	SiteID string `json:"siteId"`
+	// PlatformID is canonical; ClusterID mirrors it as the deprecated one-release
+	// alias so existing clients keep working during the Cluster -> Platform migration.
+	PlatformID         *string       `json:"platformId"`
 	ClusterID          *string       `json:"clusterId"`
 	TargetServerIDs    []string      `json:"targetServerIds"`
 	RetryOfOperationID *string       `json:"retryOfOperationId"`
@@ -77,12 +80,12 @@ type CreateExecutionInput struct {
 	Kind            string
 	Intent          string
 	TargetServerIDs []string
-	ClusterID       string
+	PlatformID      string
 	PlaybookName    string
 	ExtraVars       map[string]any
 	// TrustedVars are extra vars the caller is a trusted server-side use case, so they
 	// bypass the swallow_ prefix filter that operator-supplied ExtraVars are subject to.
-	// A cluster deployment uses this to assign node roles the client cannot forge.
+	// A platform deployment uses this to assign node roles the client cannot forge.
 	TrustedVars map[string]any
 	// SecretVars are sealed at rest and materialised only for the run, for values such as
 	// a VRRP password that must not persist in plain text.
@@ -123,7 +126,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 			operationdomain.ErrTargetsBusy, strings.Join(ids, ", "))
 	}
 	if s.policy != nil {
-		if err := s.policy.CheckOperation(ctx, kind, input.ClusterID, input.TargetServerIDs); err != nil {
+		if err := s.policy.CheckOperation(ctx, kind, input.PlatformID, input.TargetServerIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -156,7 +159,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	now := time.Now().UTC()
 	operation := &operationdomain.ExecutionOperation{
 		ID: uuid.NewString(), Kind: kind, Intent: strings.TrimSpace(input.Intent),
-		SiteID: siteID, ClusterID: input.ClusterID,
+		SiteID: siteID, PlatformID: input.PlatformID,
 		TargetServerIDs:    append([]string(nil), input.TargetServerIDs...),
 		SecretVars:         input.SecretVars,
 		RetryOfOperationID: input.RetryOfOperationID,
@@ -211,7 +214,7 @@ var standardExtraVarKeys = map[string]bool{
 	"swallow_operation_kind":   true,
 	"swallow_site_id":          true,
 	"swallow_server_ids":       true,
-	"swallow_cluster_id":       true,
+	"swallow_platform_id":      true,
 	"swallow_server_hostnames": true,
 }
 
@@ -226,8 +229,8 @@ func buildExecutionExtraVars(operation *operationdomain.ExecutionOperation, targ
 		"swallow_site_id":        operation.SiteID,
 		"swallow_server_ids":     operation.TargetServerIDs,
 	}
-	if operation.ClusterID != "" {
-		vars["swallow_cluster_id"] = operation.ClusterID
+	if operation.PlatformID != "" {
+		vars["swallow_platform_id"] = operation.PlatformID
 	}
 	hostnames := make([]string, 0, len(targets))
 	for _, target := range targets {
@@ -254,7 +257,7 @@ func buildExecutionExtraVars(operation *operationdomain.ExecutionOperation, targ
 func (s *ExecutionService) List(ctx context.Context, input ListOperationsInput) (pagination.Result[ExecutionOperationItem], error) {
 	var empty pagination.Result[ExecutionOperationItem]
 	result, err := s.operations.List(ctx, operationdomain.ExecutionListFilter{
-		SiteID: input.SiteID, ClusterID: input.ClusterID, ServerID: input.ServerID,
+		SiteID: input.SiteID, PlatformID: input.PlatformID, ServerID: input.ServerID,
 		Kind: operationdomain.OperationKind(input.Kind), Status: operationdomain.Status(input.Status),
 		ActiveOnly: input.Active, Offset: input.Page.Offset(), Limit: input.Page.PageSize,
 	})
@@ -290,8 +293,8 @@ func (s *ExecutionService) Logs(ctx context.Context, id string) (string, error) 
 // Retry creates a new operation repeating a finished one, linked back to it.
 //
 // The original is left untouched, so its logs and events remain. The new operation copies
-// the kind, targets, cluster, playbook, and both the carried extra vars and sealed secret
-// vars, so a cluster deployment retry keeps the same VRRP password and role assignment
+// the kind, targets, platform, playbook, and both the carried extra vars and sealed secret
+// vars, so a platform deployment retry keeps the same VRRP password and role assignment
 // that the already-installed nodes were built with.
 func (s *ExecutionService) Retry(ctx context.Context, id, requestedBy string) (*ExecutionOperationItem, error) {
 	original, err := s.operations.FindByID(ctx, id)
@@ -321,7 +324,7 @@ func (s *ExecutionService) Retry(ctx context.Context, id, requestedBy string) (*
 		Kind:               string(original.Kind),
 		Intent:             original.Intent,
 		TargetServerIDs:    original.TargetServerIDs,
-		ClusterID:          original.ClusterID,
+		PlatformID:         original.PlatformID,
 		PlaybookName:       original.Execution.Playbook,
 		TrustedVars:        carried,
 		SecretVars:         secretVars,
@@ -389,7 +392,8 @@ func (s *ExecutionService) Events(ctx context.Context, id string) (*OperationEve
 func toExecutionOperationItem(operation *operationdomain.ExecutionOperation) ExecutionOperationItem {
 	return ExecutionOperationItem{
 		ID: operation.ID, Kind: string(operation.Kind), Intent: operation.Intent,
-		SiteID: operation.SiteID, ClusterID: wire.String(operation.ClusterID),
+		SiteID: operation.SiteID, PlatformID: wire.String(operation.PlatformID),
+		ClusterID:          wire.String(operation.PlatformID),
 		TargetServerIDs:    wire.Strings(operation.TargetServerIDs),
 		RetryOfOperationID: wire.String(operation.RetryOfOperationID),
 		Execution: ExecutionItem{

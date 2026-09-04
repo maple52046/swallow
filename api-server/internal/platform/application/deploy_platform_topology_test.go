@@ -5,18 +5,18 @@ import (
 	"errors"
 	"testing"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 )
 
-func standaloneDeployInput() DeployClusterInput {
-	return DeployClusterInput{
+func standaloneDeployInput() DeployPlatformInput {
+	return DeployPlatformInput{
 		SiteID:        "site-1",
 		Name:          "edge-k0s",
 		GPUStackOwner: "provisioning",
-		Spec: clusterdomain.DeploymentSpec{
+		Spec: platformdomain.DeploymentSpec{
 			K0sVersion: "v1.36.3+k0s.2",
-			RoleAssignments: []clusterdomain.RoleAssignment{
-				{ServerID: "c1", Role: clusterdomain.NodeRoleControlPlane, RunWorkloads: true},
+			RoleAssignments: []platformdomain.RoleAssignment{
+				{ServerID: "c1", Role: platformdomain.NodeRoleControlPlane, RunWorkloads: true},
 			},
 		},
 		RequestedBy: "admin",
@@ -60,10 +60,10 @@ func TestDeployNonHAMultiNodeUsesOneControlPlane(t *testing.T) {
 		deployedServer("w2", "worker-2", "site-1", "192.168.40.12"),
 	)
 	input := standaloneDeployInput()
-	input.Spec.RoleAssignments = []clusterdomain.RoleAssignment{
-		{ServerID: "c1", Role: clusterdomain.NodeRoleControlPlane},
-		{ServerID: "w1", Role: clusterdomain.NodeRoleWorker},
-		{ServerID: "w2", Role: clusterdomain.NodeRoleWorker},
+	input.Spec.RoleAssignments = []platformdomain.RoleAssignment{
+		{ServerID: "c1", Role: platformdomain.NodeRoleControlPlane},
+		{ServerID: "w1", Role: platformdomain.NodeRoleWorker},
+		{ServerID: "w2", Role: platformdomain.NodeRoleWorker},
 	}
 
 	if _, err := service.Deploy(context.Background(), input); err != nil {
@@ -80,11 +80,11 @@ func TestDeployNonHAMultiNodeUsesOneControlPlane(t *testing.T) {
 func TestDeployRejectsUnsupportedFlexibleTopology(t *testing.T) {
 	cases := []struct {
 		name  string
-		input func() DeployClusterInput
+		input func() DeployPlatformInput
 	}{
 		{
 			name: "single dedicated control plane has no workload capacity",
-			input: func() DeployClusterInput {
+			input: func() DeployPlatformInput {
 				input := standaloneDeployInput()
 				input.Spec.RoleAssignments[0].RunWorkloads = false
 				return input
@@ -92,18 +92,18 @@ func TestDeployRejectsUnsupportedFlexibleTopology(t *testing.T) {
 		},
 		{
 			name: "worker cannot set runWorkloads",
-			input: func() DeployClusterInput {
+			input: func() DeployPlatformInput {
 				input := standaloneDeployInput()
-				input.Spec.RoleAssignments = []clusterdomain.RoleAssignment{
-					{ServerID: "c1", Role: clusterdomain.NodeRoleControlPlane},
-					{ServerID: "w1", Role: clusterdomain.NodeRoleWorker, RunWorkloads: true},
+				input.Spec.RoleAssignments = []platformdomain.RoleAssignment{
+					{ServerID: "c1", Role: platformdomain.NodeRoleControlPlane},
+					{ServerID: "w1", Role: platformdomain.NodeRoleWorker, RunWorkloads: true},
 				}
 				return input
 			},
 		},
 		{
 			name: "non-HA cannot claim a VIP",
-			input: func() DeployClusterInput {
+			input: func() DeployPlatformInput {
 				input := standaloneDeployInput()
 				input.Spec.APIVIP = "192.168.40.200"
 				return input
@@ -118,7 +118,7 @@ func TestDeployRejectsUnsupportedFlexibleTopology(t *testing.T) {
 				deployedServer("w1", "worker-1", "site-1", "192.168.40.11"),
 			)
 			_, err := service.Deploy(context.Background(), tc.input())
-			if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+			if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 				t.Fatalf("error = %v, want invalid deployment", err)
 			}
 		})
@@ -131,7 +131,7 @@ func TestDeployRejectsHAMissingVIP(t *testing.T) {
 	input.Spec.APIVIP = ""
 
 	_, err := service.Deploy(context.Background(), input)
-	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("error = %v, want invalid deployment", err)
 	}
 }
@@ -140,7 +140,7 @@ func TestDeployRejectsAddresslessNonHAControlPlane(t *testing.T) {
 	service, _, _ := newDeployHarness(deployedServer("c1", "edge-1", "site-1"))
 
 	_, err := service.Deploy(context.Background(), standaloneDeployInput())
-	if !errors.Is(err, clusterdomain.ErrInvalidDeployment) {
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("error = %v, want invalid deployment", err)
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	clusterapp "github.com/maple52046/swallow/internal/cluster/application"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
+	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 )
 
@@ -115,11 +115,11 @@ func sweepInventoryOnce(ctx context.Context, sweep *provisioningapp.InventorySwe
 	}
 }
 
-// runMembershipSync reads every registered cluster's membership on an interval.
+// runMembershipSync reads every registered platform's membership on an interval.
 //
 // Separate from the provisioner reconciler because they read different systems and fail
-// independently: an unreachable cluster API must not stall the inventory projection.
-func runMembershipSync(ctx context.Context, membership *clusterapp.MembershipSyncUseCase, interval time.Duration) {
+// independently: an unreachable platform API must not stall the inventory projection.
+func runMembershipSync(ctx context.Context, membership *platformapp.MembershipSyncUseCase, interval time.Duration) {
 	syncMembershipOnce(ctx, membership)
 
 	ticker := time.NewTicker(interval)
@@ -161,28 +161,28 @@ func runAutoExporterDeploy(ctx context.Context, autoDeploy *operationapp.AutoExp
 	}
 }
 
-func syncMembershipOnce(ctx context.Context, membership *clusterapp.MembershipSyncUseCase) {
+func syncMembershipOnce(ctx context.Context, membership *platformapp.MembershipSyncUseCase) {
 	reports, err := membership.ExecuteAll(ctx)
 	if err != nil {
-		log.Printf("membership sync: cannot list clusters: %v", err)
+		log.Printf("membership sync: cannot list platforms: %v", err)
 		return
 	}
 
 	for _, report := range reports {
 		if report.Error != nil {
-			log.Printf("membership sync: %s failed: %s", report.ClusterName, *report.Error)
+			log.Printf("membership sync: %s failed: %s", report.PlatformName, *report.Error)
 			continue
 		}
-		// Unmatched members mean the cluster contains machines swallow does not manage,
+		// Unmatched members mean the platform contains machines swallow does not manage,
 		// which is worth surfacing rather than quietly ignoring.
 		if len(report.Unmatched) > 0 {
 			log.Printf("membership sync: %s: %d members, %d matched, %d cleared, unmatched: %v",
-				report.ClusterName, report.Members, report.Matched, report.Cleared, report.Unmatched)
+				report.PlatformName, report.Members, report.Matched, report.Cleared, report.Unmatched)
 			continue
 		}
 		if report.Matched > 0 || report.Cleared > 0 {
 			log.Printf("membership sync: %s: %d members, %d matched, %d cleared",
-				report.ClusterName, report.Members, report.Matched, report.Cleared)
+				report.PlatformName, report.Members, report.Matched, report.Cleared)
 		}
 	}
 }

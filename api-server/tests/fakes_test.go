@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -98,8 +98,8 @@ func (r *fakeServerRepo) List(_ context.Context, filter serverdomain.ListFilter)
 				continue
 			}
 		}
-		if filter.ClusterID != "" {
-			if s.Membership == nil || s.Membership.ClusterID != filter.ClusterID {
+		if filter.PlatformID != "" {
+			if s.Membership == nil || s.Membership.PlatformID != filter.PlatformID {
 				continue
 			}
 		}
@@ -164,7 +164,7 @@ func (r *fakeServerRepo) Upsert(_ context.Context, server *serverdomain.Server) 
 	defer r.mu.Unlock()
 	existing, ok := r.servers[server.ID]
 	if ok {
-		// Membership is owned by the cluster context and must survive a reconcile,
+		// Membership is owned by the platform context and must survive a reconcile,
 		// exactly as the Mongo implementation leaves it untouched.
 		server.Membership = existing.Membership
 		// GPUs are written by the inventory sweep on their own cadence, so a reconcile
@@ -826,84 +826,84 @@ func (p *fakeProvider) ReleaseWithOptions(ctx context.Context, req provisioningd
 	return p.Release(ctx, req.MachineID)
 }
 
-// --- clusters ---
+// --- platforms ---
 
-type fakeClusterRepo struct {
-	clusters map[string]*clusterdomain.Cluster
+type fakePlatformRepo struct {
+	platforms map[string]*platformdomain.Platform
 }
 
-func newFakeClusterRepo() *fakeClusterRepo {
-	return &fakeClusterRepo{clusters: make(map[string]*clusterdomain.Cluster)}
+func newFakePlatformRepo() *fakePlatformRepo {
+	return &fakePlatformRepo{platforms: make(map[string]*platformdomain.Platform)}
 }
 
-func (r *fakeClusterRepo) Create(_ context.Context, cluster *clusterdomain.Cluster) error {
-	for _, existing := range r.clusters {
-		if existing.SiteID == cluster.SiteID && existing.Name == cluster.Name {
-			return clusterdomain.ErrClusterNameTaken
+func (r *fakePlatformRepo) Create(_ context.Context, platform *platformdomain.Platform) error {
+	for _, existing := range r.platforms {
+		if existing.SiteID == platform.SiteID && existing.Name == platform.Name {
+			return platformdomain.ErrPlatformNameTaken
 		}
 	}
-	r.clusters[cluster.ID] = cluster
+	r.platforms[platform.ID] = platform
 	return nil
 }
 
-func (r *fakeClusterRepo) FindByID(_ context.Context, id string) (*clusterdomain.Cluster, error) {
-	cluster, ok := r.clusters[id]
+func (r *fakePlatformRepo) FindByID(_ context.Context, id string) (*platformdomain.Platform, error) {
+	platform, ok := r.platforms[id]
 	if !ok {
-		return nil, clusterdomain.ErrClusterNotFound
+		return nil, platformdomain.ErrPlatformNotFound
 	}
-	return cluster, nil
+	return platform, nil
 }
 
-func (r *fakeClusterRepo) List(_ context.Context, siteID string) ([]*clusterdomain.Cluster, error) {
-	var matches []*clusterdomain.Cluster
-	for _, cluster := range r.clusters {
-		if siteID != "" && cluster.SiteID != siteID {
+func (r *fakePlatformRepo) List(_ context.Context, siteID string) ([]*platformdomain.Platform, error) {
+	var matches []*platformdomain.Platform
+	for _, platform := range r.platforms {
+		if siteID != "" && platform.SiteID != siteID {
 			continue
 		}
-		matches = append(matches, cluster)
+		matches = append(matches, platform)
 	}
 	return matches, nil
 }
 
-func (r *fakeClusterRepo) Update(_ context.Context, cluster *clusterdomain.Cluster) error {
-	if _, ok := r.clusters[cluster.ID]; !ok {
-		return clusterdomain.ErrClusterNotFound
+func (r *fakePlatformRepo) Update(_ context.Context, platform *platformdomain.Platform) error {
+	if _, ok := r.platforms[platform.ID]; !ok {
+		return platformdomain.ErrPlatformNotFound
 	}
-	r.clusters[cluster.ID] = cluster
+	r.platforms[platform.ID] = platform
 	return nil
 }
 
-func (r *fakeClusterRepo) UpdateSyncState(
-	_ context.Context, id, integrationID string, state clusterdomain.SyncState,
+func (r *fakePlatformRepo) UpdateSyncState(
+	_ context.Context, id, integrationID string, state platformdomain.SyncState,
 ) error {
-	cluster, ok := r.clusters[id]
+	platform, ok := r.platforms[id]
 	if !ok {
-		return clusterdomain.ErrClusterNotFound
+		return platformdomain.ErrPlatformNotFound
 	}
-	if cluster.IntegrationID != integrationID {
-		return clusterdomain.ErrClusterNotFound
+	if platform.IntegrationID != integrationID {
+		return platformdomain.ErrPlatformNotFound
 	}
-	cluster.Sync = state
+	platform.Sync = state
 	return nil
 }
 
-func (r *fakeClusterRepo) Delete(_ context.Context, id string) error {
-	if _, ok := r.clusters[id]; !ok {
-		return clusterdomain.ErrClusterNotFound
+func (r *fakePlatformRepo) Delete(_ context.Context, id string) error {
+	if _, ok := r.platforms[id]; !ok {
+		return platformdomain.ErrPlatformNotFound
 	}
-	delete(r.clusters, id)
+	delete(r.platforms, id)
 	return nil
 }
 
 // fakeDeploymentLauncher records the last launch and returns a fixed operation id, so
-// cluster deployment HTTP tests can assert acceptance without an operation backend.
+// platform deployment HTTP tests can assert acceptance without an operation backend.
 type fakeDeploymentLauncher struct {
-	lastLaunch  *clusterdomain.DeploymentLaunch
+	lastLaunch  *platformdomain.DeploymentLaunch
 	operationID string
 	err         error
 }
 
-func (l *fakeDeploymentLauncher) Launch(_ context.Context, launch clusterdomain.DeploymentLaunch) (string, error) {
+func (l *fakeDeploymentLauncher) Launch(_ context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
 	if l.err != nil {
 		return "", l.err
 	}
@@ -915,12 +915,12 @@ func (l *fakeDeploymentLauncher) Launch(_ context.Context, launch clusterdomain.
 	return l.operationID, nil
 }
 
-type fakeClusterReader struct {
-	members []clusterdomain.Member
+type fakePlatformReader struct {
+	members []platformdomain.Member
 	err     error
 }
 
-func (r *fakeClusterReader) ListMembers(_ context.Context) ([]clusterdomain.Member, error) {
+func (r *fakePlatformReader) ListMembers(_ context.Context) ([]platformdomain.Member, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -928,21 +928,21 @@ func (r *fakeClusterReader) ListMembers(_ context.Context) ([]clusterdomain.Memb
 }
 
 type fakeReaderFactory struct {
-	readers map[string]*fakeClusterReader
+	readers map[string]*fakePlatformReader
 	err     error
 }
 
 func newFakeReaderFactory() *fakeReaderFactory {
-	return &fakeReaderFactory{readers: make(map[string]*fakeClusterReader)}
+	return &fakeReaderFactory{readers: make(map[string]*fakePlatformReader)}
 }
 
-func (f *fakeReaderFactory) For(_ context.Context, cluster *clusterdomain.Cluster) (clusterdomain.ClusterReader, error) {
+func (f *fakeReaderFactory) For(_ context.Context, platform *platformdomain.Platform) (platformdomain.PlatformReader, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	reader, ok := f.readers[cluster.ID]
+	reader, ok := f.readers[platform.ID]
 	if !ok {
-		return nil, clusterdomain.ErrNoClusterIntegration
+		return nil, platformdomain.ErrNoPlatformIntegration
 	}
 	return reader, nil
 }
@@ -1052,27 +1052,27 @@ func (f *fakeProviderFactory) For(_ context.Context, integrationID string) (prov
 	return provider, nil
 }
 
-// fakeLifecycleReader supplies the operation-derived cluster projection to HTTP tests.
+// fakeLifecycleReader supplies the operation-derived platform projection to HTTP tests.
 type fakeLifecycleReader struct {
-	snapshots map[string]clusterdomain.LifecycleSnapshot
+	snapshots map[string]platformdomain.LifecycleSnapshot
 }
 
 func newFakeLifecycleReader() *fakeLifecycleReader {
-	return &fakeLifecycleReader{snapshots: make(map[string]clusterdomain.LifecycleSnapshot)}
+	return &fakeLifecycleReader{snapshots: make(map[string]platformdomain.LifecycleSnapshot)}
 }
 
 func (r *fakeLifecycleReader) Read(
 	_ context.Context,
-	clusterIDs []string,
-) (map[string]clusterdomain.LifecycleSnapshot, error) {
-	result := make(map[string]clusterdomain.LifecycleSnapshot, len(clusterIDs))
-	for _, id := range clusterIDs {
+	platformIDs []string,
+) (map[string]platformdomain.LifecycleSnapshot, error) {
+	result := make(map[string]platformdomain.LifecycleSnapshot, len(platformIDs))
+	for _, id := range platformIDs {
 		if snapshot, ok := r.snapshots[id]; ok {
 			result[id] = snapshot
 		} else {
-			result[id] = clusterdomain.LifecycleSnapshot{
-				Origin: clusterdomain.ClusterOriginRegistered,
-				State:  clusterdomain.ClusterLifecycleRegistered,
+			result[id] = platformdomain.LifecycleSnapshot{
+				Origin: platformdomain.PlatformOriginRegistered,
+				State:  platformdomain.PlatformLifecycleRegistered,
 			}
 		}
 	}
@@ -1080,14 +1080,14 @@ func (r *fakeLifecycleReader) Read(
 }
 
 type fakeUninstallLauncher struct {
-	lastLaunch  *clusterdomain.UninstallLaunch
+	lastLaunch  *platformdomain.UninstallLaunch
 	operationID string
 	err         error
 }
 
 func (l *fakeUninstallLauncher) LaunchUninstall(
 	_ context.Context,
-	launch clusterdomain.UninstallLaunch,
+	launch platformdomain.UninstallLaunch,
 ) (string, error) {
 	if l.err != nil {
 		return "", l.err

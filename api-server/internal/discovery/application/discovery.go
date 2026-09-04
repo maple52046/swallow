@@ -89,8 +89,9 @@ func (uc *DiscoveryUseCase) PrometheusTargets(ctx context.Context, input Discove
 			"server_id": server.ID,
 			"site":      server.Source.SiteID,
 		}
-		if m := server.Membership; m != nil && m.ClusterID != "" {
-			labels["cluster"] = m.ClusterID
+		if m := server.Membership; m != nil && m.PlatformID != "" {
+			labels["platform_id"] = m.PlatformID
+			labels["cluster"] = m.PlatformID
 		}
 
 		targets = append(targets, PrometheusTarget{
@@ -145,11 +146,11 @@ func (uc *DiscoveryUseCase) AnsibleInventory(ctx context.Context, input Discover
 		}
 
 		if m := server.Membership; m != nil {
-			vars["cluster_id"] = m.ClusterID
-			vars["cluster_role"] = m.Role
-			vars["cluster_node_name"] = m.NodeName
-			if m.ClusterID != "" {
-				addGroup(groups, "cluster_"+groupToken(m.ClusterID), server.ID)
+			vars["platform_id"] = m.PlatformID
+			vars["platform_role"] = m.Role
+			vars["platform_node_name"] = m.NodeName
+			if m.PlatformID != "" {
+				addGroup(groups, "platform_"+groupToken(m.PlatformID), server.ID)
 			}
 			if m.Role != "" {
 				addGroup(groups, "role_"+groupToken(m.Role), server.ID)

@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
 	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	overviewapp "github.com/maple52046/swallow/internal/overview/application"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
@@ -28,7 +28,7 @@ type Reader struct {
 	integrations sitedomain.IntegrationRepository
 	servers      serverdomain.ServerRepository
 	health       HealthResolver
-	clusters     clusterdomain.ClusterRepository
+	platforms    platformdomain.PlatformRepository
 	operations   operationdomain.ExecutionRepository
 	alerts       *monitoringapp.AlertService
 }
@@ -39,13 +39,13 @@ func NewReader(
 	integrations sitedomain.IntegrationRepository,
 	servers serverdomain.ServerRepository,
 	health HealthResolver,
-	clusters clusterdomain.ClusterRepository,
+	platforms platformdomain.PlatformRepository,
 	operations operationdomain.ExecutionRepository,
 	alerts *monitoringapp.AlertService,
 ) *Reader {
 	return &Reader{
 		sites: sites, integrations: integrations, servers: servers, health: health,
-		clusters: clusters, operations: operations, alerts: alerts,
+		platforms: platforms, operations: operations, alerts: alerts,
 	}
 }
 
@@ -106,7 +106,7 @@ func (r *Reader) ListServers(ctx context.Context, siteID string) ([]overviewapp.
 			item.ProvisioningState = server.Provisioning.State
 		}
 		if server.Membership != nil {
-			item.ClusterID = server.Membership.ClusterID
+			item.PlatformID = server.Membership.PlatformID
 		}
 		for _, gpu := range server.Observed.GPUs {
 			item.GPUDevices += gpu.Count
@@ -119,18 +119,18 @@ func (r *Reader) ListServers(ctx context.Context, siteID string) ([]overviewapp.
 	return items, nil
 }
 
-// ListClusters returns reachability and the correlation gap from each cluster's last sync.
-func (r *Reader) ListClusters(ctx context.Context, siteID string) ([]overviewapp.Cluster, error) {
-	clusters, err := r.clusters.List(ctx, siteID)
+// ListPlatforms returns reachability and the correlation gap from each platform's last sync.
+func (r *Reader) ListPlatforms(ctx context.Context, siteID string) ([]overviewapp.Platform, error) {
+	platforms, err := r.platforms.List(ctx, siteID)
 	if err != nil {
-		return nil, fmt.Errorf("list overview clusters: %w", err)
+		return nil, fmt.Errorf("list overview platforms: %w", err)
 	}
-	items := make([]overviewapp.Cluster, len(clusters))
-	for i, cluster := range clusters {
-		items[i] = overviewapp.Cluster{
-			IntegrationID: cluster.IntegrationID,
-			MemberCount:   cluster.Sync.MemberCount,
-			MatchedCount:  cluster.Sync.MatchedCount,
+	items := make([]overviewapp.Platform, len(platforms))
+	for i, platform := range platforms {
+		items[i] = overviewapp.Platform{
+			IntegrationID: platform.IntegrationID,
+			MemberCount:   platform.Sync.MemberCount,
+			MatchedCount:  platform.Sync.MatchedCount,
 		}
 	}
 	return items, nil
@@ -147,7 +147,7 @@ func (r *Reader) ListOperations(ctx context.Context, siteID string) ([]overviewa
 	for i, operation := range result.Operations {
 		items[i] = overviewapp.Operation{
 			ID: operation.ID, Kind: string(operation.Kind), Intent: operation.Intent,
-			SiteID: operation.SiteID, ClusterID: operation.ClusterID,
+			SiteID: operation.SiteID, PlatformID: operation.PlatformID,
 			TargetServerIDs:    append([]string(nil), operation.TargetServerIDs...),
 			RetryOfOperationID: operation.RetryOfOperationID,
 			RunID:              operation.Execution.RunID, Playbook: operation.Execution.Playbook,
@@ -180,7 +180,7 @@ func (r *Reader) ListFiringAlerts(ctx context.Context, siteID string) ([]overvie
 			State: alert.State, Summary: alert.Summary, Description: alert.Description,
 			Labels: alert.Labels, StartsAt: parseTime(alert.StartsAt),
 			ServerID: stringValue(alert.ServerID), SiteID: stringValue(alert.SiteID),
-			ClusterID: stringValue(alert.ClusterID),
+			PlatformID: stringValue(alert.PlatformID),
 		}
 	}
 	return items, nil

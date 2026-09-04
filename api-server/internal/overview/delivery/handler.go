@@ -41,7 +41,8 @@ type response struct {
 	Scope        scopeResponse        `json:"scope"`
 	Inventory    inventoryResponse    `json:"inventory"`
 	Integrations integrationsResponse `json:"integrations"`
-	Clusters     clustersResponse     `json:"clusters"`
+	Platforms    platformsResponse    `json:"platforms"`
+	Clusters     platformsResponse    `json:"clusters"`
 	Operations   operationsResponse   `json:"operations"`
 	Monitoring   monitoringResponse   `json:"monitoring"`
 }
@@ -55,6 +56,7 @@ type inventoryResponse struct {
 	Servers    int            `json:"servers"`
 	Absent     int            `json:"absent"`
 	Deployed   int            `json:"deployed"`
+	Platformed int            `json:"platformed"`
 	Clustered  int            `json:"clustered"`
 	GPUDevices int            `json:"gpuDevices"`
 	Health     healthResponse `json:"health"`
@@ -83,7 +85,7 @@ type integrationResponse struct {
 	LastError       *string `json:"lastError"`
 }
 
-type clustersResponse struct {
+type platformsResponse struct {
 	Total            int `json:"total"`
 	Unreachable      int `json:"unreachable"`
 	UnmatchedMembers int `json:"unmatchedMembers"`
@@ -100,6 +102,7 @@ type operationResponse struct {
 	Kind            string            `json:"kind"`
 	Intent          string            `json:"intent"`
 	SiteID          string            `json:"siteId"`
+	PlatformID      *string           `json:"platformId"`
 	ClusterID       *string           `json:"clusterId"`
 	TargetServerIDs []string          `json:"targetServerIds"`
 	RetryOfID       *string           `json:"retryOfOperationId"`
@@ -146,6 +149,7 @@ type alertResponse struct {
 	StartsAt    *string           `json:"startsAt"`
 	ServerID    *string           `json:"serverId"`
 	SiteID      *string           `json:"siteId"`
+	PlatformID  *string           `json:"platformId"`
 	ClusterID   *string           `json:"clusterId"`
 }
 
@@ -162,7 +166,8 @@ func toResponse(result overviewapp.Result) response {
 	for i, item := range result.Operations.Recent {
 		operations[i] = operationResponse{
 			ID: item.ID, Kind: item.Kind, Intent: item.Intent, SiteID: item.SiteID,
-			ClusterID:       optionalString(item.ClusterID),
+			PlatformID:      optionalString(item.PlatformID),
+			ClusterID:       optionalString(item.PlatformID),
 			TargetServerIDs: append([]string(nil), item.TargetServerIDs...),
 			RetryOfID:       optionalString(item.RetryOfOperationID),
 			Execution: executionResponse{
@@ -181,7 +186,7 @@ func toResponse(result overviewapp.Result) response {
 			State: item.State, Summary: item.Summary, Description: item.Description,
 			Labels: item.Labels, StartsAt: timeString(item.StartsAt),
 			ServerID: optionalString(item.ServerID), SiteID: optionalString(item.SiteID),
-			ClusterID: optionalString(item.ClusterID),
+			PlatformID: optionalString(item.PlatformID), ClusterID: optionalString(item.PlatformID),
 		}
 	}
 	var monitoringError *embeddedError
@@ -197,7 +202,7 @@ func toResponse(result overviewapp.Result) response {
 		Inventory: inventoryResponse{
 			Sites: result.Inventory.Sites, Servers: result.Inventory.Servers,
 			Absent: result.Inventory.Absent, Deployed: result.Inventory.Deployed,
-			Clustered: result.Inventory.Clustered, GPUDevices: result.Inventory.GPUDevices,
+			Platformed: result.Inventory.Platformed, Clustered: result.Inventory.Platformed, GPUDevices: result.Inventory.GPUDevices,
 			Health: healthResponse{
 				Up: result.Inventory.Health.Up, Down: result.Inventory.Health.Down,
 				Unknown: result.Inventory.Health.Unknown,
@@ -207,9 +212,13 @@ func toResponse(result overviewapp.Result) response {
 			Total: result.Integrations.Total, Failing: result.Integrations.Failing,
 			Items: integrations,
 		},
-		Clusters: clustersResponse{
-			Total: result.Clusters.Total, Unreachable: result.Clusters.Unreachable,
-			UnmatchedMembers: result.Clusters.UnmatchedMembers,
+		Platforms: platformsResponse{
+			Total: result.Platforms.Total, Unreachable: result.Platforms.Unreachable,
+			UnmatchedMembers: result.Platforms.UnmatchedMembers,
+		},
+		Clusters: platformsResponse{
+			Total: result.Platforms.Total, Unreachable: result.Platforms.Unreachable,
+			UnmatchedMembers: result.Platforms.UnmatchedMembers,
 		},
 		Operations: operationsResponse{
 			Active:            result.Operations.Active,

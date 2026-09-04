@@ -18,24 +18,24 @@ import (
 // wrap it with a specific reason.
 var ErrInvalidOperation = errors.New("invalid operation")
 
-// PolicyChecker refuses operations that contradict a cluster policy.
+// PolicyChecker refuses operations that contradict a platform policy.
 //
-// It is a port so the operation context does not depend on the cluster context: the check
-// (for example, that a GPU driver install does not fight a cluster's GPU operator) is
-// implemented in the cluster context and injected here.
+// It is a port so the operation context does not depend on the platform context: the check
+// (for example, that a GPU driver install does not fight a platform's GPU operator) is
+// implemented in the platform context and injected here.
 type PolicyChecker interface {
-	CheckOperation(ctx context.Context, kind operationdomain.OperationKind, clusterID string, targetServerIDs []string) error
+	CheckOperation(ctx context.Context, kind operationdomain.OperationKind, platformID string, targetServerIDs []string) error
 }
 
 // ListOperationsInput narrows an operation listing. Empty fields mean no constraint.
 type ListOperationsInput struct {
-	SiteID    string
-	ClusterID string
-	ServerID  string
-	Kind      string
-	Status    string
-	Active    bool
-	Page      pagination.Page
+	SiteID     string
+	PlatformID string
+	ServerID   string
+	Kind       string
+	Status     string
+	Active     bool
+	Page       pagination.Page
 }
 
 // optionalTime formats a nullable timestamp for a response, returning nil when unset so the

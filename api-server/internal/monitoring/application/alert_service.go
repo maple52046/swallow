@@ -26,9 +26,10 @@ type AlertItem struct {
 	Labels      map[string]string `json:"labels"`
 	StartsAt    *string           `json:"startsAt"`
 
-	ServerID  *string `json:"serverId"`
-	SiteID    *string `json:"siteId"`
-	ClusterID *string `json:"clusterId"`
+	ServerID   *string `json:"serverId"`
+	SiteID     *string `json:"siteId"`
+	PlatformID *string `json:"platformId"`
+	ClusterID  *string `json:"clusterId"`
 }
 
 type AlertService struct {
@@ -144,7 +145,8 @@ func toAlertItem(alert *monitoringdomain.Alert) AlertItem {
 		StartsAt:    wire.TimePtr(alert.StartsAt),
 		ServerID:    wire.String(alert.ServerID),
 		SiteID:      wire.String(alert.SiteID),
-		ClusterID:   wire.String(alert.ClusterID),
+		PlatformID:  wire.String(alert.PlatformID),
+		ClusterID:   wire.String(alert.PlatformID),
 	}
 }
 

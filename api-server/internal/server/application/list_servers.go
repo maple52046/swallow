@@ -11,7 +11,7 @@ type ListServersInput struct {
 	SiteID            string
 	IntegrationID     string
 	ProvisioningState string
-	ClusterID         string
+	PlatformID        string
 	Keyword           string
 	IncludeAbsent     bool
 	Page              pagination.Page
@@ -45,7 +45,7 @@ func (uc *ListServersUseCase) Execute(ctx context.Context, input ListServersInpu
 		SiteID:            input.SiteID,
 		IntegrationID:     input.IntegrationID,
 		ProvisioningState: input.ProvisioningState,
-		ClusterID:         input.ClusterID,
+		PlatformID:        input.PlatformID,
 		Keyword:           input.Keyword,
 		IncludeAbsent:     input.IncludeAbsent,
 		Offset:            input.Page.Offset(),

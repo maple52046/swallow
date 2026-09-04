@@ -62,7 +62,7 @@ func toAlert(raw alertJSON) *monitoringdomain.Alert {
 		Labels:      raw.Labels,
 		ServerID:    raw.Labels[monitoringdomain.LabelServerID],
 		SiteID:      raw.Labels[monitoringdomain.LabelSite],
-		ClusterID:   raw.Labels[monitoringdomain.LabelCluster],
+		PlatformID:  firstLabel(raw.Labels, monitoringdomain.LabelPlatform, monitoringdomain.LabelPlatformLegacy, monitoringdomain.LabelClusterLegacy),
 	}
 
 	if parsed, err := time.Parse(time.RFC3339, raw.StartsAt); err == nil {
@@ -124,4 +124,13 @@ func (a *AlertSource) Silence(ctx context.Context, req monitoringdomain.SilenceR
 		return "", translateError(err)
 	}
 	return out.SilenceID, nil
+}
+
+func firstLabel(labels map[string]string, names ...string) string {
+	for _, name := range names {
+		if value := labels[name]; value != "" {
+			return value
+		}
+	}
+	return ""
 }

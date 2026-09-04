@@ -26,12 +26,22 @@ func NewServerHandler(
 	return &ServerHandler{list: list, get: get}
 }
 
+// platformIDQuery resolves the platform filter, preferring the canonical
+// platformId query key and falling back to the deprecated clusterId alias that
+// remains supported for one release.
+func platformIDQuery(c *fiber.Ctx) string {
+	if id := c.Query("platformId"); id != "" {
+		return id
+	}
+	return c.Query("clusterId")
+}
+
 func (h *ServerHandler) List(c *fiber.Ctx) error {
 	result, err := h.list.Execute(c.Context(), application.ListServersInput{
 		SiteID:            c.Query("siteId"),
 		IntegrationID:     c.Query("integrationId"),
 		ProvisioningState: c.Query("provisioningState"),
-		ClusterID:         c.Query("clusterId"),
+		PlatformID:        platformIDQuery(c),
 		Keyword:           c.Query("keyword"),
 		IncludeAbsent:     c.Query("includeAbsent") == "true",
 		Page:              pagination.FromQuery(c),

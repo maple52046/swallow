@@ -1,9 +1,9 @@
-// Package clusterapi reads live state from cluster APIs.
+// Package platformapi reads live state from platform APIs.
 //
 // Both readers speak plain REST rather than pulling in a vendored client library: swallow
-// reads one collection from each cluster and never writes, so a full client would be a
+// reads one collection from each platform and never writes, so a full client would be a
 // large dependency for a single GET.
-package clusterapi
+package platformapi
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 )
 
 const maxErrorBodyBytes = 512
@@ -93,7 +93,7 @@ type nodeListJSON struct {
 	} `json:"items"`
 }
 
-func (r *KubernetesReader) ListMembers(ctx context.Context) ([]clusterdomain.Member, error) {
+func (r *KubernetesReader) ListMembers(ctx context.Context) ([]platformdomain.Member, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+"/api/v1/nodes", nil)
 	if err != nil {
 		return nil, fmt.Errorf("build kubernetes request: %w", err)
@@ -106,10 +106,10 @@ func (r *KubernetesReader) ListMembers(ctx context.Context) ([]clusterdomain.Mem
 		return nil, translateError(err, "Kubernetes")
 	}
 
-	members := make([]clusterdomain.Member, 0, len(out.Items))
+	members := make([]platformdomain.Member, 0, len(out.Items))
 	seen := map[string]bool{}
 	for _, item := range out.Items {
-		member := clusterdomain.Member{
+		member := platformdomain.Member{
 			Name: item.Metadata.Name,
 			Role: "worker",
 		}
@@ -174,7 +174,7 @@ type leaseListJSON struct {
 // Dedicated controllers are installed without --enable-worker and so never register as
 // Kubernetes nodes; the lease each one renews is the only place the API exposes them.
 // Leases carry no addresses, so a controller can only be matched to a server by name.
-func (r *KubernetesReader) controllerMembers(ctx context.Context) ([]clusterdomain.Member, error) {
+func (r *KubernetesReader) controllerMembers(ctx context.Context) ([]platformdomain.Member, error) {
 	endpoint := r.baseURL + "/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -189,13 +189,13 @@ func (r *KubernetesReader) controllerMembers(ctx context.Context) ([]clusterdoma
 	}
 
 	now := time.Now()
-	members := make([]clusterdomain.Member, 0)
+	members := make([]platformdomain.Member, 0)
 	for _, item := range out.Items {
 		name, ok := strings.CutPrefix(item.Metadata.Name, controllerLeasePrefix)
 		if !ok || name == "" {
 			continue
 		}
-		members = append(members, clusterdomain.Member{
+		members = append(members, platformdomain.Member{
 			Name:  name,
 			Role:  "control-plane",
 			State: leaseState(item.Spec.RenewTime, item.Spec.LeaseDurationSeconds, now),
@@ -231,18 +231,18 @@ func leaseState(renewTime string, leaseDurationSeconds *int, now time.Time) stri
 func normalizeBaseURL(rawURL string) (string, error) {
 	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
 	if trimmed == "" {
-		return "", errors.New("cluster api url is empty")
+		return "", errors.New("platform api url is empty")
 	}
 
 	u, err := url.Parse(trimmed)
 	if err != nil {
-		return "", fmt.Errorf("invalid cluster api url: %w", err)
+		return "", fmt.Errorf("invalid platform api url: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("invalid cluster api url: scheme must be http or https, got %q", u.Scheme)
+		return "", fmt.Errorf("invalid platform api url: scheme must be http or https, got %q", u.Scheme)
 	}
 	if u.Host == "" {
-		return "", errors.New("invalid cluster api url: missing host")
+		return "", errors.New("invalid platform api url: missing host")
 	}
 	return trimmed, nil
 }
@@ -260,7 +260,7 @@ func doJSON(client *http.Client, req *http.Request, out any) error {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("decode cluster api response: %w", err)
+		return fmt.Errorf("decode platform api response: %w", err)
 	}
 	return nil
 }
@@ -272,9 +272,9 @@ type apiError struct {
 
 func (e *apiError) Error() string {
 	if e.Body == "" {
-		return fmt.Sprintf("cluster api returned HTTP %d", e.StatusCode)
+		return fmt.Sprintf("platform api returned HTTP %d", e.StatusCode)
 	}
-	return fmt.Sprintf("cluster api returned HTTP %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("platform api returned HTTP %d: %s", e.StatusCode, e.Body)
 }
 
 type transportError struct {
@@ -287,8 +287,8 @@ func (e *transportError) Unwrap() error { return e.err }
 func translateError(err error, system string) error {
 	var transportErr *transportError
 	if errors.As(err, &transportErr) {
-		return &clusterdomain.ReaderError{
-			Kind:   clusterdomain.ReaderErrorUnavailable,
+		return &platformdomain.ReaderError{
+			Kind:   platformdomain.ReaderErrorUnavailable,
 			Detail: fmt.Sprintf("Could not reach the %s API.", system),
 			Err:    err,
 		}
@@ -301,20 +301,20 @@ func translateError(err error, system string) error {
 
 	switch {
 	case apiErr.StatusCode == http.StatusUnauthorized, apiErr.StatusCode == http.StatusForbidden:
-		return &clusterdomain.ReaderError{
-			Kind:   clusterdomain.ReaderErrorAuth,
+		return &platformdomain.ReaderError{
+			Kind:   platformdomain.ReaderErrorAuth,
 			Detail: fmt.Sprintf("The %s API rejected the credential swallow is configured with.", system),
 			Err:    err,
 		}
 	case apiErr.StatusCode >= http.StatusInternalServerError:
-		return &clusterdomain.ReaderError{
-			Kind:   clusterdomain.ReaderErrorUnavailable,
+		return &platformdomain.ReaderError{
+			Kind:   platformdomain.ReaderErrorUnavailable,
 			Detail: fmt.Sprintf("The %s API reported an internal error (HTTP %d).", system, apiErr.StatusCode),
 			Err:    err,
 		}
 	default:
-		return &clusterdomain.ReaderError{
-			Kind:   clusterdomain.ReaderErrorRejected,
+		return &platformdomain.ReaderError{
+			Kind:   platformdomain.ReaderErrorRejected,
 			Detail: apiErr.Error(),
 			Err:    err,
 		}

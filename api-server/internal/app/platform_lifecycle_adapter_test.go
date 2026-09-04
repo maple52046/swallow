@@ -65,19 +65,19 @@ func (r *lifecycleExecutionRepo) SecretVars(context.Context, string) (map[string
 	return nil, nil
 }
 
-func TestClusterLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
+func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	deployedAt := time.Now().UTC().Add(-time.Hour)
 	uninstalledAt := deployedAt.Add(time.Minute)
 	repo := &lifecycleExecutionRepo{items: []*operationdomain.ExecutionOperation{
 		{
-			ID: "uninstall-1", ClusterID: "cluster-deployed",
+			ID: "uninstall-1", PlatformID: "platform-deployed",
 			Kind:            operationdomain.OperationKindUninstallKubernetes,
 			TargetServerIDs: []string{"server-1"},
 			Execution:       operationdomain.Execution{Status: operationdomain.StatusFailed},
 			RequestedAt:     uninstalledAt,
 		},
 		{
-			ID: "deploy-1", ClusterID: "cluster-deployed",
+			ID: "deploy-1", PlatformID: "platform-deployed",
 			Kind:            operationdomain.OperationKindDeployKubernetes,
 			TargetServerIDs: []string{"server-1", "server-2"},
 			ExtraVars: map[string]any{
@@ -90,19 +90,19 @@ func TestClusterLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 			RequestedAt: deployedAt,
 		},
 	}}
-	reader := clusterLifecycleReader{operations: repo}
+	reader := platformLifecycleReader{operations: repo}
 
 	result, err := reader.Read(
 		context.Background(),
-		[]string{"cluster-deployed", "cluster-registered"},
+		[]string{"platform-deployed", "platform-registered"},
 	)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if len(repo.filter.ClusterIDs) != 2 || len(repo.filter.Kinds) != 2 {
+	if len(repo.filter.PlatformIDs) != 2 || len(repo.filter.Kinds) != 2 {
 		t.Fatalf("batch filter = %+v", repo.filter)
 	}
-	deployed := result["cluster-deployed"]
+	deployed := result["platform-deployed"]
 	if deployed.Origin != "deployed" || deployed.State != "uninstall_failed" ||
 		deployed.OperationID != "uninstall-1" {
 		t.Errorf("deployed lifecycle = %+v", deployed)
@@ -118,7 +118,7 @@ func TestClusterLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	if len(assignments) != 2 || !assignments[0].RunWorkloads || assignments[1].RunWorkloads {
 		t.Errorf("deployment role assignments = %+v", assignments)
 	}
-	registered := result["cluster-registered"]
+	registered := result["platform-registered"]
 	if registered.Origin != "registered" || registered.State != "registered" {
 		t.Errorf("registered lifecycle = %+v", registered)
 	}

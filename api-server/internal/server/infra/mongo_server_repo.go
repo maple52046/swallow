@@ -91,7 +91,7 @@ type provisioningDoc struct {
 }
 
 type membershipDoc struct {
-	ClusterID  string    `bson:"clusterId"`
+	PlatformID string    `bson:"platformId"`
 	NodeName   string    `bson:"nodeName"`
 	Role       string    `bson:"role,omitempty"`
 	State      string    `bson:"state,omitempty"`
@@ -157,8 +157,8 @@ func NewMongoServerRepo(db *mongo.Database) (*MongoServerRepo, error) {
 			Options: options.Index().SetName("hostname"),
 		},
 		{
-			Keys:    bson.D{{Key: "membership.clusterId", Value: 1}},
-			Options: options.Index().SetSparse(true).SetName("membership_cluster"),
+			Keys:    bson.D{{Key: "membership.platformId", Value: 1}},
+			Options: options.Index().SetSparse(true).SetName("membership_platform"),
 		},
 	}
 
@@ -278,8 +278,8 @@ func (r *MongoServerRepo) List(ctx context.Context, filter serverdomain.ListFilt
 	if filter.ProvisioningState != "" {
 		query["provisioning.state"] = filter.ProvisioningState
 	}
-	if filter.ClusterID != "" {
-		query["membership.clusterId"] = filter.ClusterID
+	if filter.PlatformID != "" {
+		query["membership.platformId"] = filter.PlatformID
 	}
 	if filter.Tag != "" {
 		// Exact membership in the mirrored tag array; MongoDB matches an array field
@@ -348,7 +348,7 @@ func (r *MongoServerRepo) Upsert(ctx context.Context, server *serverdomain.Serve
 				"lastSeenAt":   doc.LastSeenAt,
 				"updatedAt":    doc.UpdatedAt,
 			},
-			// Membership is not written here: it is owned by the cluster context and
+			// Membership is not written here: it is owned by the platform context and
 			// would be erased on every reconcile pass if this replaced the document.
 			"$setOnInsert": bson.M{"createdAt": doc.CreatedAt},
 		},
@@ -378,7 +378,7 @@ func (r *MongoServerRepo) SetMembership(ctx context.Context, id string, membersh
 		update["$unset"] = bson.M{"membership": ""}
 	} else {
 		update["$set"].(bson.M)["membership"] = membershipDoc{
-			ClusterID:  membership.ClusterID,
+			PlatformID: membership.PlatformID,
 			NodeName:   membership.NodeName,
 			Role:       membership.Role,
 			State:      membership.State,
@@ -567,7 +567,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 
 	if m := doc.Membership; m != nil {
 		s.Membership = &serverdomain.MembershipStatus{
-			ClusterID:  m.ClusterID,
+			PlatformID: m.PlatformID,
 			NodeName:   m.NodeName,
 			Role:       m.Role,
 			State:      m.State,

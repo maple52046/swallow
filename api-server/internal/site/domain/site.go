@@ -35,8 +35,8 @@ const (
 	IntegrationKindAutomation IntegrationKind = "automation"
 	// IntegrationKindMetrics answers metric queries.
 	IntegrationKindMetrics IntegrationKind = "metrics"
-	// IntegrationKindCluster reports live cluster state and membership.
-	IntegrationKindCluster IntegrationKind = "cluster"
+	// IntegrationKindPlatform reports live platform state and membership.
+	IntegrationKindPlatform IntegrationKind = "platform"
 )
 
 // ValidIntegrationKinds lists every kind, for validation and for telling an operator
@@ -44,7 +44,7 @@ const (
 var ValidIntegrationKinds = []IntegrationKind{
 	IntegrationKindProvisioner,
 	IntegrationKindMetrics,
-	IntegrationKindCluster,
+	IntegrationKindPlatform,
 }
 
 func (k IntegrationKind) Valid() bool {
@@ -73,7 +73,7 @@ const (
 var providerKindsByIntegrationKind = map[IntegrationKind][]string{
 	IntegrationKindProvisioner: {ProviderKindMAAS},
 	IntegrationKindMetrics:     {ProviderKindPrometheus},
-	IntegrationKindCluster:     {ProviderKindKubernetes, ProviderKindSlurm},
+	IntegrationKindPlatform:    {ProviderKindKubernetes, ProviderKindSlurm},
 }
 
 // ProviderKindsFor returns the provider kinds valid for an integration kind.

@@ -45,7 +45,7 @@ type Source interface {
 	ListSites(ctx context.Context) ([]Site, error)
 	ListIntegrations(ctx context.Context, siteID string) ([]Integration, error)
 	ListServers(ctx context.Context, siteID string) ([]Server, error)
-	ListClusters(ctx context.Context, siteID string) ([]Cluster, error)
+	ListPlatforms(ctx context.Context, siteID string) ([]Platform, error)
 	ListOperations(ctx context.Context, siteID string) ([]Operation, error)
 	ListFiringAlerts(ctx context.Context, siteID string) ([]Alert, error)
 }
@@ -71,13 +71,13 @@ type Integration struct {
 type Server struct {
 	Absent            bool
 	ProvisioningState string
-	ClusterID         string
+	PlatformID        string
 	GPUDevices        int
 	HealthState       string
 }
 
-// Cluster carries reachability and membership-correlation gaps.
-type Cluster struct {
+// Platform carries reachability and membership-correlation gaps.
+type Platform struct {
 	IntegrationID string
 	MemberCount   int
 	MatchedCount  int
@@ -89,7 +89,7 @@ type Operation struct {
 	Kind               string
 	Intent             string
 	SiteID             string
-	ClusterID          string
+	PlatformID         string
 	TargetServerIDs    []string
 	RetryOfOperationID string
 	RunID              string
@@ -115,7 +115,7 @@ type Alert struct {
 	StartsAt    *time.Time
 	ServerID    string
 	SiteID      string
-	ClusterID   string
+	PlatformID  string
 }
 
 // InventorySummary separates the independent health axis from lifecycle counts.
@@ -124,7 +124,7 @@ type InventorySummary struct {
 	Servers    int
 	Absent     int
 	Deployed   int
-	Clustered  int
+	Platformed int
 	GPUDevices int
 	Health     HealthSummary
 }
@@ -143,8 +143,8 @@ type IntegrationSummary struct {
 	Items   []Integration
 }
 
-// ClusterSummary reports registration reachability and the human-actionable join gap.
-type ClusterSummary struct {
+// PlatformSummary reports registration reachability and the human-actionable join gap.
+type PlatformSummary struct {
 	Total            int
 	Unreachable      int
 	UnmatchedMembers int
@@ -185,7 +185,7 @@ type Result struct {
 	SiteID       string
 	Inventory    InventorySummary
 	Integrations IntegrationSummary
-	Clusters     ClusterSummary
+	Platforms    PlatformSummary
 	Operations   OperationSummary
 	Monitoring   MonitoringSummary
 }
@@ -224,7 +224,7 @@ func (s *Service) Execute(ctx context.Context, siteID string) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	clusters, err := s.source.ListClusters(ctx, siteID)
+	platforms, err := s.source.ListPlatforms(ctx, siteID)
 	if err != nil {
 		return result, err
 	}
@@ -238,7 +238,7 @@ func (s *Service) Execute(ctx context.Context, siteID string) (Result, error) {
 		SiteID:       siteID,
 		Inventory:    summarizeInventory(sites, servers, siteID),
 		Integrations: summarizeIntegrations(integrations),
-		Clusters:     summarizeClusters(clusters),
+		Platforms:    summarizePlatforms(platforms),
 		Operations:   summarizeOperations(operations, generatedAt),
 		Monitoring:   MonitoringSummary{Available: true, Firing: FiringSummary{Items: []Alert{}}},
 	}
@@ -284,8 +284,8 @@ func summarizeInventory(sites []Site, servers []Server, siteID string) Inventory
 		if server.ProvisioningState == "deployed" {
 			summary.Deployed++
 		}
-		if server.ClusterID != "" {
-			summary.Clustered++
+		if server.PlatformID != "" {
+			summary.Platformed++
 		}
 		summary.GPUDevices += server.GPUDevices
 		switch strings.ToLower(server.HealthState) {
@@ -310,14 +310,14 @@ func summarizeIntegrations(integrations []Integration) IntegrationSummary {
 	return summary
 }
 
-func summarizeClusters(clusters []Cluster) ClusterSummary {
-	summary := ClusterSummary{Total: len(clusters)}
-	for _, cluster := range clusters {
-		if cluster.IntegrationID == "" {
+func summarizePlatforms(platforms []Platform) PlatformSummary {
+	summary := PlatformSummary{Total: len(platforms)}
+	for _, platform := range platforms {
+		if platform.IntegrationID == "" {
 			summary.Unreachable++
 		}
-		if cluster.MemberCount > cluster.MatchedCount {
-			summary.UnmatchedMembers += cluster.MemberCount - cluster.MatchedCount
+		if platform.MemberCount > platform.MatchedCount {
+			summary.UnmatchedMembers += platform.MemberCount - platform.MatchedCount
 		}
 	}
 	return summary

@@ -4,10 +4,10 @@ import (
 	"context"
 	"log/slog"
 
-	clusterapp "github.com/maple52046/swallow/internal/cluster/application"
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	platformapp "github.com/maple52046/swallow/internal/platform/application"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
@@ -16,18 +16,18 @@ const (
 	uninstallKubernetesKind     = "uninstall-kubernetes"
 	uninstallKubernetesPlaybook = "uninstall-kubernetes"
 	restoreExportersVar         = "swallow_restore_ansible_exporters"
-	clusterNameVar              = "swallow_cluster_name"
+	platformNameVar             = "swallow_platform_name"
 )
 
-// clusterDeploymentLauncher adapts cluster lifecycle intent onto operation execution.
-type clusterDeploymentLauncher struct {
+// platformDeploymentLauncher adapts platform lifecycle intent onto operation execution.
+type platformDeploymentLauncher struct {
 	operations *operationapp.ExecutionService
 }
 
-func (l clusterDeploymentLauncher) Launch(ctx context.Context, launch clusterdomain.DeploymentLaunch) (string, error) {
+func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
 	item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
-		Kind: deployKubernetesKind, Intent: "Deploy k0s cluster " + launch.Cluster.Name,
-		TargetServerIDs: launch.TargetServerIDs, ClusterID: launch.Cluster.ID,
+		Kind: deployKubernetesKind, Intent: "Deploy k0s cluster " + launch.Platform.Name,
+		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
 		RequestedBy: launch.RequestedBy,
 	})
@@ -37,17 +37,17 @@ func (l clusterDeploymentLauncher) Launch(ctx context.Context, launch clusterdom
 	return item.ID, nil
 }
 
-func (l clusterDeploymentLauncher) LaunchUninstall(
+func (l platformDeploymentLauncher) LaunchUninstall(
 	ctx context.Context,
-	launch clusterdomain.UninstallLaunch,
+	launch platformdomain.UninstallLaunch,
 ) (string, error) {
 	item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
-		Kind: uninstallKubernetesKind, Intent: "Uninstall k0s cluster " + launch.Cluster.Name,
-		TargetServerIDs: launch.TargetServerIDs, ClusterID: launch.Cluster.ID,
+		Kind: uninstallKubernetesKind, Intent: "Uninstall k0s cluster " + launch.Platform.Name,
+		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		PlaybookName: uninstallKubernetesPlaybook,
 		TrustedVars: map[string]any{
 			restoreExportersVar: launch.RestoreExporters,
-			clusterNameVar:      launch.Cluster.Name,
+			platformNameVar:     launch.Platform.Name,
 		},
 		RetryOfOperationID: launch.RetryOfOperationID,
 		RequestedBy:        launch.RequestedBy,
@@ -58,20 +58,20 @@ func (l clusterDeploymentLauncher) LaunchUninstall(
 	return item.ID, nil
 }
 
-// clusterDeploymentObserver translates successful cluster operations into projections.
-type clusterDeploymentObserver struct {
-	credentials *clusterapp.DeploymentCredentialService
-	clusters    *clusterapp.ClusterService
+// platformDeploymentObserver translates successful platform operations into projections.
+type platformDeploymentObserver struct {
+	credentials *platformapp.DeploymentCredentialService
+	platforms   *platformapp.PlatformService
 	operations  *operationapp.ExecutionService
 	servers     serverdomain.ServerRepository
 }
 
-func (o clusterDeploymentObserver) OperationSucceeded(
+func (o platformDeploymentObserver) OperationSucceeded(
 	ctx context.Context,
 	operation *operationdomain.ExecutionOperation,
 	result operationdomain.RunnerResult,
 ) {
-	if operation.ClusterID == "" {
+	if operation.PlatformID == "" {
 		return
 	}
 	switch operation.Kind {
@@ -82,30 +82,30 @@ func (o clusterDeploymentObserver) OperationSucceeded(
 	}
 }
 
-func (o clusterDeploymentObserver) completeDeployment(
+func (o platformDeploymentObserver) completeDeployment(
 	ctx context.Context,
 	operation *operationdomain.ExecutionOperation,
 	result operationdomain.RunnerResult,
 ) {
-	credential := clusterCredentialFromResult(result)
+	credential := platformCredentialFromResult(result)
 	if credential == nil {
-		slog.Error("cluster deployment succeeded but returned no credential",
-			"operationId", operation.ID, "clusterId", operation.ClusterID)
+		slog.Error("platform deployment succeeded but returned no credential",
+			"operationId", operation.ID, "platformId", operation.PlatformID)
 		return
 	}
-	if err := o.credentials.Record(ctx, operation.ClusterID, *credential); err != nil {
-		slog.Error("record cluster deployment credential",
-			"operationId", operation.ID, "clusterId", operation.ClusterID, "error", err)
+	if err := o.credentials.Record(ctx, operation.PlatformID, *credential); err != nil {
+		slog.Error("record platform deployment credential",
+			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
 	}
 }
 
-func (o clusterDeploymentObserver) completeUninstall(
+func (o platformDeploymentObserver) completeUninstall(
 	ctx context.Context,
 	operation *operationdomain.ExecutionOperation,
 ) {
-	if err := o.clusters.CompleteUninstall(ctx, operation.ClusterID); err != nil {
-		slog.Error("complete cluster uninstall projections",
-			"operationId", operation.ID, "clusterId", operation.ClusterID, "error", err)
+	if err := o.platforms.CompleteUninstall(ctx, operation.PlatformID); err != nil {
+		slog.Error("complete platform uninstall projections",
+			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
 		return
 	}
 	restore, _ := operation.ExtraVars[restoreExportersVar].(bool)
@@ -133,19 +133,19 @@ func (o clusterDeploymentObserver) completeUninstall(
 
 	if _, err := o.operations.Create(ctx, operationapp.CreateExecutionInput{
 		Kind: string(operationdomain.OperationKindInstallExporters),
-		Intent: "Restore host exporters after uninstalling cluster " +
-			stringField(operation.ExtraVars, clusterNameVar),
+		Intent: "Restore host exporters after uninstalling platform " +
+			stringField(operation.ExtraVars, platformNameVar),
 		TargetServerIDs: targetIDs,
-		ClusterID:       operation.ClusterID,
+		PlatformID:      operation.PlatformID,
 		RequestedBy:     "system",
 	}); err != nil {
-		slog.Error("queue exporter restoration after cluster uninstall",
-			"operationId", operation.ID, "clusterId", operation.ClusterID, "error", err)
+		slog.Error("queue exporter restoration after platform uninstall",
+			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
 	}
 }
 
-// clusterCredentialFromResult reads the credential written by a deployment playbook.
-func clusterCredentialFromResult(result operationdomain.RunnerResult) *clusterapp.DeploymentCredential {
+// platformCredentialFromResult reads the credential written by a deployment playbook.
+func platformCredentialFromResult(result operationdomain.RunnerResult) *platformapp.DeploymentCredential {
 	if result.Data == nil {
 		return nil
 	}
@@ -154,7 +154,7 @@ func clusterCredentialFromResult(result operationdomain.RunnerResult) *clusterap
 	if endpoint == "" || token == "" {
 		return nil
 	}
-	return &clusterapp.DeploymentCredential{
+	return &platformapp.DeploymentCredential{
 		APIEndpoint: endpoint, Token: token,
 		CACertificate: stringField(result.Data, "caCertificate"),
 	}

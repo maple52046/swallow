@@ -1,4 +1,4 @@
-package clusterapi
+package platformapi
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// nodeListBody and leaseListBody mirror the shapes observed on a live k0s HA cluster:
+// nodeListBody and leaseListBody mirror the shapes observed on a live k0s HA platform:
 // dedicated controllers do not appear as nodes, and are visible only as k0s-ctrl-* leases
 // whose name suffix is the controller's hostname.
 const nodeListBody = `{

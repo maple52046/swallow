@@ -11,12 +11,12 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	clusterapp "github.com/maple52046/swallow/internal/cluster/application"
-	clusterdelivery "github.com/maple52046/swallow/internal/cluster/delivery"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
+	platformapp "github.com/maple52046/swallow/internal/platform/application"
+	platformdelivery "github.com/maple52046/swallow/internal/platform/delivery"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
@@ -61,11 +61,11 @@ type platformFixture struct {
 	health       *testHealthResolver
 	activeWork   *fakeActiveServerWorkReader
 
-	clusterLifecycle  *fakeLifecycleReader
+	platformLifecycle *fakeLifecycleReader
 	uninstallLauncher *fakeUninstallLauncher
 	monitoring        *fakeMonitoringFactory
-	clusterRepo       *fakeClusterRepo
-	clusterReader     *fakeReaderFactory
+	platformRepo      *fakePlatformRepo
+	platformReader    *fakeReaderFactory
 }
 
 // setupPlatform wires the routes exactly as internal/app does, so that route shape and
@@ -123,18 +123,18 @@ func setupPlatform(t *testing.T) *platformFixture {
 		monitoringapp.NewServerMetricsService(monitoringFactory),
 	)
 
-	clusterRepo := newFakeClusterRepo()
+	platformRepo := newFakePlatformRepo()
 	readerFactory := newFakeReaderFactory()
 	lifecycle := newFakeLifecycleReader()
 	uninstallLauncher := &fakeUninstallLauncher{}
-	membershipSync := clusterapp.NewMembershipSyncUseCase(clusterRepo, servers, readerFactory)
-	clusterService := clusterapp.NewClusterService(clusterRepo, sites, servers, lifecycle, nil)
-	deployService := clusterapp.NewDeployService(
-		clusterService, clusterRepo, servers, lifecycle, &fakeDeploymentLauncher{})
-	uninstallService := clusterapp.NewUninstallService(
-		clusterRepo, servers, lifecycle, uninstallLauncher)
-	clusterHandler := clusterdelivery.NewClusterHandler(
-		clusterService, membershipSync, deployService, uninstallService)
+	membershipSync := platformapp.NewMembershipSyncUseCase(platformRepo, servers, readerFactory)
+	platformService := platformapp.NewPlatformService(platformRepo, sites, servers, lifecycle, nil)
+	deployService := platformapp.NewDeployService(
+		platformService, platformRepo, servers, lifecycle, &fakeDeploymentLauncher{})
+	uninstallService := platformapp.NewUninstallService(
+		platformRepo, servers, lifecycle, uninstallLauncher)
+	platformHandler := platformdelivery.NewPlatformHandler(
+		platformService, membershipSync, deployService, uninstallService)
 
 	app := fiber.New()
 	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
@@ -192,16 +192,16 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup.Post("/reconcile", provisioningHandler.ReconcileAll)
 	provisioningGroup.Post("/integrations/:id/reconcile", provisioningHandler.Reconcile)
 
-	clusterGroup := v1.Group("/clusters", admin...)
-	clusterGroup.Post("/", clusterHandler.Create)
-	clusterGroup.Get("/", clusterHandler.List)
-	clusterGroup.Post("/deploy", clusterHandler.Deploy)
-	clusterGroup.Post("/sync", clusterHandler.SyncAllMembership)
-	clusterGroup.Get("/:id", clusterHandler.Get)
-	clusterGroup.Patch("/:id", clusterHandler.Update)
-	clusterGroup.Delete("/:id", clusterHandler.Delete)
-	clusterGroup.Post("/:id/sync", clusterHandler.SyncMembership)
-	clusterGroup.Post("/:id/uninstall", clusterHandler.Uninstall)
+	platformGroup := v1.Group("/platforms", admin...)
+	platformGroup.Post("/", platformHandler.Create)
+	platformGroup.Get("/", platformHandler.List)
+	platformGroup.Post("/deploy", platformHandler.Deploy)
+	platformGroup.Post("/sync", platformHandler.SyncAllMembership)
+	platformGroup.Get("/:id", platformHandler.Get)
+	platformGroup.Patch("/:id", platformHandler.Update)
+	platformGroup.Delete("/:id", platformHandler.Delete)
+	platformGroup.Post("/:id/sync", platformHandler.SyncMembership)
+	platformGroup.Post("/:id/uninstall", platformHandler.Uninstall)
 
 	monitoringGroup := v1.Group("/monitoring", admin...)
 	monitoringGroup.Get("/alerts", monitoringHandler.ListAlerts)
@@ -227,9 +227,9 @@ func setupPlatform(t *testing.T) *platformFixture {
 		health:            health,
 		activeWork:        activeWork,
 		monitoring:        monitoringFactory,
-		clusterRepo:       clusterRepo,
-		clusterReader:     readerFactory,
-		clusterLifecycle:  lifecycle,
+		platformRepo:      platformRepo,
+		platformReader:    readerFactory,
+		platformLifecycle: lifecycle,
 		uninstallLauncher: uninstallLauncher,
 	}
 }

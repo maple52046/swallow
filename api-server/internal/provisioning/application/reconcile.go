@@ -282,7 +282,7 @@ func (uc *ReconcileUseCase) create(
 
 // apply copies a machine's observed state onto a server projection.
 //
-// It never touches the membership axis, which belongs to the cluster context, nor
+// It never touches the membership axis, which belongs to the platform context, nor
 // CreatedAt, which belongs to whoever created the record.
 func apply(server *serverdomain.Server, source serverdomain.Source, machine *provisioningdomain.Machine, integrationID string) {
 	now := time.Now().UTC()

@@ -4,26 +4,26 @@ import (
 	"context"
 	"encoding/json"
 
-	clusterdomain "github.com/maple52046/swallow/internal/cluster/domain"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 )
 
-// clusterLifecycleReader adapts durable operation history to the cluster lifecycle port.
-type clusterLifecycleReader struct {
+// platformLifecycleReader adapts durable operation history to the platform lifecycle port.
+type platformLifecycleReader struct {
 	operations operationdomain.ExecutionRepository
 }
 
-func (r clusterLifecycleReader) Read(ctx context.Context, clusterIDs []string) (map[string]clusterdomain.LifecycleSnapshot, error) {
-	snapshots := make(map[string]clusterdomain.LifecycleSnapshot, len(clusterIDs))
-	for _, id := range clusterIDs {
+func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string) (map[string]platformdomain.LifecycleSnapshot, error) {
+	snapshots := make(map[string]platformdomain.LifecycleSnapshot, len(platformIDs))
+	for _, id := range platformIDs {
 		snapshots[id] = registeredLifecycle()
 	}
-	if len(clusterIDs) == 0 {
+	if len(platformIDs) == 0 {
 		return snapshots, nil
 	}
 
 	result, err := r.operations.List(ctx, operationdomain.ExecutionListFilter{
-		ClusterIDs: clusterIDs,
+		PlatformIDs: platformIDs,
 		Kinds: []operationdomain.OperationKind{
 			operationdomain.OperationKindDeployKubernetes,
 			operationdomain.OperationKindUninstallKubernetes,
@@ -34,11 +34,11 @@ func (r clusterLifecycleReader) Read(ctx context.Context, clusterIDs []string) (
 	}
 
 	for _, operation := range result.Operations {
-		snapshot, expected := snapshots[operation.ClusterID]
+		snapshot, expected := snapshots[operation.PlatformID]
 		if !expected {
 			continue
 		}
-		projected := &clusterdomain.LifecycleOperation{
+		projected := &platformdomain.LifecycleOperation{
 			ID:              operation.ID,
 			Status:          string(operation.Execution.Status),
 			TargetServerIDs: append([]string(nil), operation.TargetServerIDs...),
@@ -55,7 +55,7 @@ func (r clusterLifecycleReader) Read(ctx context.Context, clusterIDs []string) (
 				snapshot.Uninstall = projected
 			}
 		}
-		snapshots[operation.ClusterID] = snapshot
+		snapshots[operation.PlatformID] = snapshot
 	}
 
 	for id, snapshot := range snapshots {
@@ -64,10 +64,10 @@ func (r clusterLifecycleReader) Read(ctx context.Context, clusterIDs []string) (
 	return snapshots, nil
 }
 
-// deploymentIntent narrows persisted runner variables back into Cluster vocabulary. The
+// deploymentIntent narrows persisted runner variables back into Platform vocabulary. The
 // general extra-vars map stays private to Operations; malformed historical values produce
 // no deployment projection instead of a plausible but incorrect topology.
-func deploymentIntent(operation *operationdomain.ExecutionOperation) *clusterdomain.LifecycleDeployment {
+func deploymentIntent(operation *operationdomain.ExecutionOperation) *platformdomain.LifecycleDeployment {
 	roles := decodeStringMap(operation.ExtraVars["swallow_k0s_roles"])
 	if len(roles) == 0 || len(operation.TargetServerIDs) == 0 {
 		return nil
@@ -75,23 +75,23 @@ func deploymentIntent(operation *operationdomain.ExecutionOperation) *clusterdom
 	workloadControllers := stringSet(decodeStringSlice(
 		operation.ExtraVars["swallow_k0s_workload_controller_ids"],
 	))
-	assignments := make([]clusterdomain.RoleAssignment, 0, len(operation.TargetServerIDs))
+	assignments := make([]platformdomain.RoleAssignment, 0, len(operation.TargetServerIDs))
 	for _, serverID := range operation.TargetServerIDs {
-		role := clusterdomain.NodeRole(roles[serverID])
+		role := platformdomain.NodeRole(roles[serverID])
 		if !role.Valid() {
 			return nil
 		}
-		assignments = append(assignments, clusterdomain.RoleAssignment{
+		assignments = append(assignments, platformdomain.RoleAssignment{
 			ServerID: serverID, Role: role,
-			RunWorkloads: role == clusterdomain.NodeRoleControlPlane && workloadControllers[serverID],
+			RunWorkloads: role == platformdomain.NodeRoleControlPlane && workloadControllers[serverID],
 		})
 	}
-	spec := clusterdomain.DeploymentSpec{RoleAssignments: assignments}
+	spec := platformdomain.DeploymentSpec{RoleAssignments: assignments}
 	topology := spec.Topology()
 	if topology == "" {
 		return nil
 	}
-	return &clusterdomain.LifecycleDeployment{
+	return &platformdomain.LifecycleDeployment{
 		Topology: topology, RoleAssignments: assignments,
 	}
 }
@@ -128,18 +128,18 @@ func stringSet(values []string) map[string]bool {
 	return result
 }
 
-func registeredLifecycle() clusterdomain.LifecycleSnapshot {
-	return clusterdomain.LifecycleSnapshot{
-		Origin: clusterdomain.ClusterOriginRegistered,
-		State:  clusterdomain.ClusterLifecycleRegistered,
+func registeredLifecycle() platformdomain.LifecycleSnapshot {
+	return platformdomain.LifecycleSnapshot{
+		Origin: platformdomain.PlatformOriginRegistered,
+		State:  platformdomain.PlatformLifecycleRegistered,
 	}
 }
 
-func deriveLifecycle(snapshot clusterdomain.LifecycleSnapshot) clusterdomain.LifecycleSnapshot {
+func deriveLifecycle(snapshot platformdomain.LifecycleSnapshot) platformdomain.LifecycleSnapshot {
 	if snapshot.Deployment == nil {
 		return registeredLifecycle()
 	}
-	snapshot.Origin = clusterdomain.ClusterOriginDeployed
+	snapshot.Origin = platformdomain.PlatformOriginDeployed
 
 	latest := snapshot.Deployment
 	isUninstall := false
@@ -153,22 +153,22 @@ func deriveLifecycle(snapshot clusterdomain.LifecycleSnapshot) clusterdomain.Lif
 	if isUninstall {
 		switch status {
 		case operationdomain.StatusPending, operationdomain.StatusRunning:
-			snapshot.State = clusterdomain.ClusterLifecycleUninstalling
+			snapshot.State = platformdomain.PlatformLifecycleUninstalling
 		case operationdomain.StatusSucceeded:
-			snapshot.State = clusterdomain.ClusterLifecycleUninstalled
+			snapshot.State = platformdomain.PlatformLifecycleUninstalled
 		default:
-			snapshot.State = clusterdomain.ClusterLifecycleUninstallFailed
+			snapshot.State = platformdomain.PlatformLifecycleUninstallFailed
 		}
 		return snapshot
 	}
 
 	switch status {
 	case operationdomain.StatusPending, operationdomain.StatusRunning:
-		snapshot.State = clusterdomain.ClusterLifecycleDeploying
+		snapshot.State = platformdomain.PlatformLifecycleDeploying
 	case operationdomain.StatusSucceeded:
-		snapshot.State = clusterdomain.ClusterLifecycleActive
+		snapshot.State = platformdomain.PlatformLifecycleActive
 	default:
-		snapshot.State = clusterdomain.ClusterLifecycleDeployFailed
+		snapshot.State = platformdomain.PlatformLifecycleDeployFailed
 	}
 	return snapshot
 }

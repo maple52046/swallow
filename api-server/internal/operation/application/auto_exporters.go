@@ -15,8 +15,8 @@ const autoExporterInstallPlaybook = "install-exporters"
 
 // ExporterOwnerResolver reports the effective exporter owner of a server, so the
 // auto-deploy use case does not need to know how ownership is decided (locked machine,
-// cluster policy, or the ansible default). It returns one of "ansible", "k8s", or
-// "unmanaged". Implemented outside the operation context to keep cluster policy there.
+// platform policy, or the ansible default). It returns one of "ansible", "k8s", or
+// "unmanaged". Implemented outside the operation context to keep platform policy there.
 type ExporterOwnerResolver interface {
 	EffectiveExporterOwner(ctx context.Context, server *serverdomain.Server) (string, error)
 }
@@ -69,7 +69,7 @@ func (uc *AutoExporterDeployUseCase) Run(ctx context.Context) error {
 		}
 		// Only ansible-owned hosts are auto-installed. A locked machine resolves to
 		// unmanaged and a k8s-owned host to k8s, and both must be left untouched.
-		if owner != string(clusterExporterOwnerAnsible) {
+		if owner != string(platformExporterOwnerAnsible) {
 			continue
 		}
 
@@ -116,7 +116,7 @@ func (uc *AutoExporterDeployUseCase) hasInstallOperation(ctx context.Context, se
 	return existing.Total > 0, nil
 }
 
-// clusterExporterOwnerAnsible mirrors the cluster domain's ansible owner value without
-// importing the cluster package, keeping the operation context free of cluster types. The
+// platformExporterOwnerAnsible mirrors the platform domain's ansible owner value without
+// importing the platform package, keeping the operation context free of platform types. The
 // resolver returns the same string.
-const clusterExporterOwnerAnsible = "ansible"
+const platformExporterOwnerAnsible = "ansible"
