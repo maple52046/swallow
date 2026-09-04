@@ -262,13 +262,39 @@ func (h *PlatformHandler) Update(c *fiber.Ctx) error {
 }
 
 // Uninstall starts removal of a Swallow-deployed k0s platform from its original targets.
+// uninstallPlatformRequest is the optional uninstall body. An absent body keeps the
+// default of removing k0s only; releaseServers additionally returns each member server to
+// the provider, with releaseOptions mirroring the standalone Release action.
+type uninstallPlatformRequest struct {
+	ReleaseServers bool `json:"releaseServers"`
+	ReleaseOptions struct {
+		Erase           bool `json:"erase"`
+		SecureErase     bool `json:"secureErase"`
+		QuickErase      bool `json:"quickErase"`
+		UnbindStaticIPs bool `json:"unbindStaticIps"`
+	} `json:"releaseOptions"`
+}
+
 func (h *PlatformHandler) Uninstall(c *fiber.Ctx) error {
 	requestedBy := ""
 	if claims := middleware.GetClaims(c); claims != nil {
 		requestedBy = claims.Username
 	}
+	var req uninstallPlatformRequest
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+		}
+	}
 	result, err := h.uninstall.Uninstall(c.Context(), application.UninstallPlatformInput{
 		PlatformID: c.Params("id"), RequestedBy: requestedBy,
+		ReleaseServers: req.ReleaseServers,
+		ReleaseOptions: platformdomain.ServerReleaseOptions{
+			Erase:           req.ReleaseOptions.Erase,
+			SecureErase:     req.ReleaseOptions.SecureErase,
+			QuickErase:      req.ReleaseOptions.QuickErase,
+			UnbindStaticIPs: req.ReleaseOptions.UnbindStaticIPs,
+		},
 	})
 	if err != nil {
 		return respondError(c, err)

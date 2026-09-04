@@ -190,6 +190,29 @@ reads.
 `POST /api/v1/platforms/{platformId}/uninstall` starts an
 `uninstall-kubernetes` Operation and retains the Platform record.
 
+The request body is optional. An absent or empty body removes k0s only. To also return
+the member servers to the provider in the same Operation, send:
+
+```json
+{
+  "releaseServers": true,
+  "releaseOptions": {
+    "erase": false,
+    "secureErase": false,
+    "quickErase": false,
+    "unbindStaticIps": false
+  }
+}
+```
+
+When `releaseServers` is true the Operation runs the k0s uninstall step first and then a
+`release-os` step per member server that depends on it, so a failed uninstall never
+releases a host. `releaseOptions` mirrors the standalone Release action (disk erase and
+static-IP unbinding) and is ignored when `releaseServers` is false. Releasing wipes the
+operating system, so Swallow does not restore host exporters for released servers. A
+release requires the durable orchestration topology; if it is unavailable the request is
+rejected. The accepted response is unchanged:
+
 ```json
 {
   "platformId": "platform-id",

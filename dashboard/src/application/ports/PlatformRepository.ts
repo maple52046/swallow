@@ -3,6 +3,7 @@ import type {
   DeployPlatformInput,
   DeployPlatformResult,
   MembershipReport,
+  UninstallPlatformOptions,
 } from '@/domain/platform/types'
 
 /**
@@ -17,8 +18,12 @@ export interface PlatformRepository {
   getPlatform(id: string): Promise<Platform | null>
   /** Deploy a new k0s platform; resolves once the platform and its operation are accepted. */
   deployPlatform(input: DeployPlatformInput): Promise<DeployPlatformResult>
-  /** Remove k0s from the original deployment targets and retain the record. */
-  uninstallPlatform(id: string): Promise<DeployPlatformResult>
+  /**
+   * Remove k0s from the original deployment targets and retain the record. When
+   * `options.releaseServers` is set, the same durable operation also releases each member
+   * server back to the provider using `options.releaseOptions`.
+   */
+  uninstallPlatform(id: string, options?: UninstallPlatformOptions): Promise<DeployPlatformResult>
   /** Delete only the Swallow record and owned projections; hosts are untouched. */
   deletePlatform(id: string): Promise<void>
   /** Read the platform's membership now instead of waiting for the background interval. */

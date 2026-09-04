@@ -395,6 +395,45 @@ func TestUninstallPlatform_AcceptsOriginalDeploymentTargets(t *testing.T) {
 	}
 }
 
+// The optional uninstall body opts into releasing member servers; the choice and its
+// disk-erase / static-IP options reach the launcher, and exporter restoration is disabled
+// because released hosts are wiped.
+func TestUninstallPlatform_ReleaseServersForwardsOptions(t *testing.T) {
+	f := setupPlatform(t)
+	platform := seedPlatform(t, f, "platform-1", "prod-k8s", "provisioning")
+	platform.ExporterOwner = platformdomain.ExporterOwnerK8s
+	f.seedServer("srv-1", "node-1", "10.0.1.10", nil)
+	f.seedServer("srv-2", "node-2", "10.0.1.11", nil)
+	now := time.Now().UTC()
+	f.platformLifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
+		Origin:      platformdomain.PlatformOriginDeployed,
+		State:       platformdomain.PlatformLifecycleActive,
+		OperationID: "deploy-1",
+		Deployment: &platformdomain.LifecycleOperation{
+			ID: "deploy-1", Status: "succeeded",
+			TargetServerIDs: []string{"srv-1", "srv-2"}, RequestedAt: now,
+		},
+	}
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/platforms/platform-1/uninstall", map[string]any{
+		"releaseServers": true,
+		"releaseOptions": map[string]any{"erase": true, "secureErase": true, "unbindStaticIps": true},
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	launch := f.uninstallLauncher.lastLaunch
+	if launch == nil || !launch.ReleaseServers {
+		t.Fatalf("launch did not carry ReleaseServers: %+v", launch)
+	}
+	if !launch.ReleaseOptions.Erase || !launch.ReleaseOptions.SecureErase || !launch.ReleaseOptions.UnbindStaticIPs {
+		t.Errorf("release options not forwarded: %+v", launch.ReleaseOptions)
+	}
+	if launch.RestoreExporters {
+		t.Error("releasing servers must disable host exporter restoration")
+	}
+}
+
 func TestUninstallPlatform_RejectsRegisteredAndNonAdminRequests(t *testing.T) {
 	f := setupPlatform(t)
 	seedPlatform(t, f, "platform-1", "external-k8s", "provisioning")

@@ -196,25 +196,90 @@ func optionalStringPointer(value string) *string {
 	return &value
 }
 
+// uninstallPlatformStepID is the durable uninstall step that every optional release step
+// depends on, so k0s is always removed before any host is released.
+const uninstallPlatformStepID = "uninstall-platform"
+
 func (l platformDeploymentLauncher) LaunchUninstall(
 	ctx context.Context,
 	launch platformdomain.UninstallLaunch,
 ) (string, error) {
-	item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
+	trustedVars := map[string]any{
+		restoreExportersVar: launch.RestoreExporters,
+		platformNameVar:     launch.Platform.Name,
+	}
+	if l.orchestrations == nil {
+		// Server release is a multi-step durable operation; without Temporal we can only
+		// run the legacy single-step uninstall, so reject a release request rather than
+		// silently dropping it.
+		if launch.ReleaseServers {
+			return "", fmt.Errorf("durable Platform uninstall is unavailable; releasing servers requires it")
+		}
+		item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
+			Kind: uninstallKubernetesKind, Intent: "Uninstall k0s platform " + launch.Platform.Name,
+			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
+			PlaybookName:       uninstallKubernetesPlaybook,
+			TrustedVars:        trustedVars,
+			RetryOfOperationID: launch.RetryOfOperationID,
+			RequestedBy:        launch.RequestedBy,
+		})
+		if err != nil {
+			return "", err
+		}
+		return item.ID, nil
+	}
+
+	operationID := uuid.NewString()
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
 		Kind: uninstallKubernetesKind, Intent: "Uninstall k0s platform " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
-		PlaybookName: uninstallKubernetesPlaybook,
-		TrustedVars: map[string]any{
-			restoreExportersVar: launch.RestoreExporters,
-			platformNameVar:     launch.Platform.Name,
-		},
-		RetryOfOperationID: launch.RetryOfOperationID,
-		RequestedBy:        launch.RequestedBy,
+		PlaybookName: uninstallKubernetesPlaybook, TrustedVars: trustedVars,
+		RequestedBy: launch.RequestedBy,
+	}, operationID, false)
+	if err != nil {
+		return "", err
+	}
+
+	steps := make([]operationdomain.OperationStep, 0, len(launch.TargetServerIDs)+1)
+	steps = append(steps, operationdomain.OperationStep{
+		ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: "Uninstall k0s Platform",
+		Executor: operationdomain.StepExecutorAnsible, Targets: prepared.Targets,
+		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+	})
+	if launch.ReleaseServers {
+		for _, serverID := range launch.TargetServerIDs {
+			releaseInput := provisioningapp.ReleaseServerInput{
+				ServerID:        serverID,
+				Erase:           launch.ReleaseOptions.Erase,
+				SecureErase:     launch.ReleaseOptions.SecureErase,
+				QuickErase:      launch.ReleaseOptions.QuickErase,
+				UnbindStaticIPs: launch.ReleaseOptions.UnbindStaticIPs,
+				Comment:         "Release after uninstalling platform " + launch.Platform.Name,
+				RequestID:       operationID,
+			}
+			steps = append(steps, operationdomain.OperationStep{
+				ID: "release-" + serverID, Kind: "release-os", Name: "Release " + serverID,
+				Executor: operationdomain.StepExecutorMAAS, DependsOn: []string{uninstallPlatformStepID},
+				Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+				Parameters: map[string]any{"request": structToMap(releaseInput)},
+			})
+		}
+	}
+
+	created, err := l.orchestrations.Create(ctx, operationapp.CreateOrchestrationInput{
+		ID: operationID, Kind: operationdomain.OperationKindUninstallKubernetes,
+		IntentSummary:  "Uninstall k0s Platform " + launch.Platform.Name,
+		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "releaseServers": launch.ReleaseServers},
+		Definition:     "platform-uninstall", DefinitionVersion: 1,
+		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
+		TargetServerIDs: launch.TargetServerIDs,
+		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		Steps:           steps, RetryOfOperationID: launch.RetryOfOperationID, RequestedBy: launch.RequestedBy,
 	})
 	if err != nil {
 		return "", err
 	}
-	return item.ID, nil
+	return created.ID, nil
 }
 
 // platformDeploymentObserver translates successful platform operations into projections.

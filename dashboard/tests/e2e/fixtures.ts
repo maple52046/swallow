@@ -157,6 +157,7 @@ export interface FixtureOptions {
   onDeploymentRequest?: (body: Record<string, unknown>) => void
   onServerReleaseRequest?: (serverId: string, body: Record<string, unknown> | null) => void
   onServerRefreshRequest?: (serverId: string) => void
+  onPlatformUninstallRequest?: (platformId: string, body: Record<string, unknown> | null) => void
   releaseConvergesAfterRefreshes?: number
   deploymentConvergesAfterRefreshes?: number
   releaseCleanupFails?: boolean
@@ -965,6 +966,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     const uninstallMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/uninstall$/)
     if (uninstallMatch && request.method() === 'POST') {
+      options.onPlatformUninstallRequest?.(
+        uninstallMatch[1],
+        (request.postDataJSON() as Record<string, unknown> | null) ?? null,
+      )
       return json(route, { platformId: uninstallMatch[1], operationId: 'op-uninstall' }, 202)
     }
     const platformMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)$/)

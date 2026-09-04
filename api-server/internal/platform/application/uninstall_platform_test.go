@@ -161,6 +161,37 @@ func TestUninstallUsesDeploymentTargetSnapshot(t *testing.T) {
 	}
 }
 
+func TestUninstallReleaseServersForwardsOptionsAndSkipsExporterRestore(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+
+	_, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+		PlatformID: "platform-1", RequestedBy: "admin",
+		ReleaseServers: true,
+		ReleaseOptions: platformdomain.ServerReleaseOptions{
+			Erase: true, SecureErase: true, UnbindStaticIPs: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if launcher.launch == nil {
+		t.Fatal("launcher was not called")
+	}
+	if !launcher.launch.ReleaseServers {
+		t.Error("ReleaseServers must be propagated to the launch")
+	}
+	if launcher.launch.ReleaseOptions.Erase != true ||
+		launcher.launch.ReleaseOptions.SecureErase != true ||
+		launcher.launch.ReleaseOptions.UnbindStaticIPs != true {
+		t.Errorf("release options not forwarded: %+v", launcher.launch.ReleaseOptions)
+	}
+	// The k8s exporter owner would normally request exporter restoration, but releasing
+	// wipes the hosts, so restoration must be turned off.
+	if launcher.launch.RestoreExporters {
+		t.Error("releasing servers must disable host exporter restoration")
+	}
+}
+
 func TestUninstallRetriesFailedOperationWithLineage(t *testing.T) {
 	service, launcher, _, _ := newUninstallHarness(
 		platformdomain.PlatformLifecycleUninstallFailed,

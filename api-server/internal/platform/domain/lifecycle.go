@@ -62,11 +62,28 @@ type ManagedIntegrationCleaner interface {
 	DeleteForPlatform(ctx context.Context, platform *Platform, allowLegacySignature bool) error
 }
 
+// ServerReleaseOptions carries the provider-neutral release choices applied to each
+// member server when an uninstall also releases them. They mirror the standalone Release
+// action so an operator gets the same disk-erase and static-IP handling.
+type ServerReleaseOptions struct {
+	Erase           bool
+	SecureErase     bool
+	QuickErase      bool
+	UnbindStaticIPs bool
+}
+
 // UninstallLaunch is the validated intent handed to the operation context.
+//
+// When ReleaseServers is true the operation additionally releases every target server
+// back to the provider after k0s removal; ReleaseOptions then applies to each release.
+// RestoreExporters and ReleaseServers are mutually exclusive: a released host is wiped, so
+// there is nothing to restore exporters onto.
 type UninstallLaunch struct {
 	Platform           *Platform
 	TargetServerIDs    []string
 	RestoreExporters   bool
+	ReleaseServers     bool
+	ReleaseOptions     ServerReleaseOptions
 	RetryOfOperationID string
 	RequestedBy        string
 }

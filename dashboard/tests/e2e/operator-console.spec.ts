@@ -766,6 +766,38 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('row', { name: /production-k0s/ })).toHaveCount(0)
   })
 
+  test('Uninstall can also release servers with erase and unbind options', async ({ page }) => {
+    const uninstalls: Array<{ platformId: string; body: Record<string, unknown> | null }> = []
+    await installApiFixtures(page, {
+      onPlatformUninstallRequest: (platformId, body) => uninstalls.push({ platformId, body }),
+    })
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'Platform actions' }).click()
+    await page.getByRole('menuitem', { name: 'Uninstall platform', exact: true }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+    // Options are hidden until the operator opts into releasing servers.
+    await expect(dialog.getByLabel('Erase disks before release')).toHaveCount(0)
+    await dialog.getByLabel('Also release servers back to the provider').check()
+    await expect(dialog.getByText(/Servers will be wiped and returned to the provider/)).toBeVisible()
+    await dialog.getByLabel('Erase disks before release').check()
+    await dialog.getByLabel('Use secure erase when supported').check()
+    await dialog.getByLabel('Remove static IP bindings after release').check()
+    await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
+    await dialog.getByRole('button', { name: 'Uninstall platform' }).click()
+
+    await expect(page).toHaveURL('/operations/op-uninstall?site=site-a')
+    await expect(page.getByText('Platform uninstall accepted')).toBeVisible()
+    await expect.poll(() => uninstalls.length).toBe(1)
+    expect(uninstalls[0]).toEqual({
+      platformId: 'platform-a',
+      body: {
+        releaseServers: true,
+        releaseOptions: { erase: true, secureErase: true, quickErase: false, unbindStaticIps: true },
+      },
+    })
+  })
+
 
   test('AWX stdout is first and supports search, navigation, copy, download, events, and retry', async ({ page }) => {
     await page.goto('/operations?site=site-a')

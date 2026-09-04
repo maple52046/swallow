@@ -4,6 +4,7 @@ import type {
   DeployPlatformInput,
   DeployPlatformResult,
   MembershipReport,
+  UninstallPlatformOptions,
 } from '@/domain/platform/types'
 import { ApiRequestError, apiRequest } from './client'
 
@@ -35,10 +36,14 @@ export class ApiPlatformRepository implements PlatformRepository {
       body: JSON.stringify(input),
     })
   }
-  async uninstallPlatform(id: string): Promise<DeployPlatformResult> {
+  async uninstallPlatform(
+    id: string,
+    options?: UninstallPlatformOptions,
+  ): Promise<DeployPlatformResult> {
+    // An absent body keeps the k0s-only uninstall; a body opts into releasing members.
     return apiRequest<DeployPlatformResult>(
       `/api/v1/platforms/${encodeURIComponent(id)}/uninstall`,
-      { method: 'POST' },
+      options ? { method: 'POST', body: JSON.stringify(options) } : { method: 'POST' },
     )
   }
 

@@ -3,6 +3,7 @@ import {
   Alert,
   AlertVariant,
   Button,
+  Checkbox,
   Dropdown,
   DropdownItem,
   DropdownList,
@@ -20,7 +21,12 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
 import { platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
-import type { Platform } from '@/domain/platform/types'
+import type { Platform, UninstallPlatformOptions } from '@/domain/platform/types'
+import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
+import {
+  emptyReleaseOptions,
+  type ReleaseOptionsValue,
+} from '@/presentation/components/releaseOptions'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
@@ -57,6 +63,9 @@ export function PlatformLifecycleActions({
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Uninstall-scoped choice to also release member servers back to the provider.
+  const [releaseServers, setReleaseServers] = useState(false)
+  const [releaseOptions, setReleaseOptions] = useState<ReleaseOptionsValue>(emptyReleaseOptions)
   const [repairOpen, setRepairOpen] = useState(false)
   const [repairError, setRepairError] = useState('')
   const [repairing, setRepairing] = useState(false)
@@ -93,6 +102,8 @@ export function PlatformLifecycleActions({
     setAction(next)
     setConfirmation('')
     setError('')
+    setReleaseServers(false)
+    setReleaseOptions(emptyReleaseOptions)
   }
 
   const close = () => {
@@ -100,6 +111,8 @@ export function PlatformLifecycleActions({
     setAction(null)
     setConfirmation('')
     setError('')
+    setReleaseServers(false)
+    setReleaseOptions(emptyReleaseOptions)
   }
 
   const submit = async () => {
@@ -108,13 +121,28 @@ export function PlatformLifecycleActions({
     setError('')
     try {
       if (action === 'uninstall') {
-        const accepted = await platforms.uninstallPlatform(platform.id)
+        // Gate every erase/unbind choice on releaseServers so an unchecked release can
+        // never submit stray options; also mirror the standalone Release rule that the
+        // erase modes only apply when erase itself is on.
+        const options: UninstallPlatformOptions = {
+          releaseServers,
+          releaseOptions: {
+            erase: releaseServers && releaseOptions.erase,
+            secureErase: releaseServers && releaseOptions.erase && releaseOptions.secureErase,
+            quickErase: releaseServers && releaseOptions.erase && releaseOptions.quickErase,
+            unbindStaticIps: releaseServers && releaseOptions.unbindStaticIPs,
+          },
+        }
+        const accepted = await platforms.uninstallPlatform(platform.id, options)
+        const cleaned = targetCount === undefined
+          ? 'the original deployment targets'
+          : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
         showToast({
           tone: 'success',
           title: 'Platform uninstall accepted',
-          description: targetCount === undefined
-            ? 'The original deployment targets will be cleaned.'
-            : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'} will be cleaned.`,
+          description: releaseServers
+            ? `k0s will be removed and ${cleaned} released to the provider.`
+            : `${cleaned} will be cleaned.`,
         })
         navigate(scopedHref(`/operations/${accepted.operationId}`))
         return
@@ -308,9 +336,37 @@ export function PlatformLifecycleActions({
               <p>
                 k0s services, state, configuration, join tokens, temporary installer, and
                 binary will be removed. The operating system, user data, and shared packages
-                remain installed. Hosts are not rebooted.
+                remain installed unless you also release the servers. Hosts are not rebooted.
               </p>
               <p><strong>Targets:</strong> {targetLabel}</p>
+              <Checkbox
+                id="uninstall-release-servers"
+                label="Also release servers back to the provider"
+                isChecked={releaseServers}
+                onChange={(_event, checked) => {
+                  setReleaseServers(checked)
+                  if (!checked) setReleaseOptions(emptyReleaseOptions)
+                }}
+              />
+              {releaseServers && (
+                <>
+                  <Alert
+                    variant={AlertVariant.danger}
+                    title="Servers will be wiped and returned to the provider"
+                    isInline
+                  >
+                    After k0s is removed, each target server is released to the provider in the
+                    same operation. This removes its deployed operating system; the servers
+                    leave this platform and return to the available pool, and host exporters
+                    are not restored.
+                  </Alert>
+                  <ReleaseOptionsFields
+                    idPrefix="uninstall-release"
+                    value={releaseOptions}
+                    onChange={setReleaseOptions}
+                  />
+                </>
+              )}
             </>
           ) : (
             <Alert variant={AlertVariant.warning} title="Hosts will not be uninstalled" isInline>

@@ -36,9 +36,14 @@ func NewUninstallService(
 }
 
 // UninstallPlatformInput identifies the platform and requesting operator.
+//
+// When ReleaseServers is true the uninstall also releases every member server back to the
+// provider; ReleaseOptions then controls disk erasure and static-IP handling per server.
 type UninstallPlatformInput struct {
-	PlatformID  string
-	RequestedBy string
+	PlatformID     string
+	RequestedBy    string
+	ReleaseServers bool
+	ReleaseOptions platformdomain.ServerReleaseOptions
 }
 
 // UninstallPlatformResult is the accepted uninstall operation.
@@ -114,9 +119,14 @@ func (s *UninstallService) Uninstall(
 		}
 	}
 
+	// Releasing a host wipes it, so exporter restoration is meaningless there; the two are
+	// mutually exclusive. Only restore exporters when the hosts are kept.
+	restoreExporters := platform.ExporterOwner == platformdomain.ExporterOwnerK8s && !input.ReleaseServers
 	operationID, err := s.launcher.LaunchUninstall(ctx, platformdomain.UninstallLaunch{
 		Platform: platform, TargetServerIDs: targetIDs,
-		RestoreExporters:   platform.ExporterOwner == platformdomain.ExporterOwnerK8s,
+		RestoreExporters:   restoreExporters,
+		ReleaseServers:     input.ReleaseServers,
+		ReleaseOptions:     input.ReleaseOptions,
 		RetryOfOperationID: retryOf, RequestedBy: input.RequestedBy,
 	})
 	if err != nil {

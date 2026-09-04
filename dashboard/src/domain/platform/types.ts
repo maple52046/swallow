@@ -8,6 +8,21 @@
  */
 
 export type PlatformType = "kubernetes" | "slurm";
+
+/**
+ * Options for uninstalling a platform. releaseServers additionally returns each member
+ * server to the provider after k0s removal; releaseOptions then mirrors the standalone
+ * Release action. The field names match the api-server uninstall request contract.
+ */
+export interface UninstallPlatformOptions {
+  releaseServers: boolean;
+  releaseOptions: {
+    erase: boolean;
+    secureErase: boolean;
+    quickErase: boolean;
+    unbindStaticIps: boolean;
+  };
+}
 /** Whether Swallow registered the platform or deployed it through a durable operation. */
 export type PlatformOrigin = "registered" | "deployed";
 
