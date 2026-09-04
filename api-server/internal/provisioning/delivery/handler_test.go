@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
@@ -69,6 +73,66 @@ func TestRespondErrorLogsCorrelatedClientSafeProviderDetail(t *testing.T) {
 	}
 	if bytes.Contains(output.Bytes(), []byte("sensitive upstream diagnostic")) {
 		t.Fatal("structured log exposed the wrapped upstream error")
+	}
+}
+
+// TestRespondErrorTranslatesDelegatedOperationErrors pins the durable deploy/release
+// contract: failures surfaced by the delegated operation OrchestrationService must reach
+// the client with their own actionable classification and message, never the opaque
+// Internal error. fallback that hid "the Server is busy" from operators.
+func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
+	cases := []struct {
+		name                string
+		err                 error
+		wantStatus          int
+		wantCode            apierror.Code
+		wantMessageContains string
+	}{
+		{
+			name:                "active durable work is a busy conflict",
+			err:                 fmt.Errorf("%w: Server server-1 already has active durable work", operationdomain.ErrTargetsBusy),
+			wantStatus:          http.StatusConflict,
+			wantCode:            apierror.CodeConflict,
+			wantMessageContains: "already has active durable work",
+		},
+		{
+			name:                "invalid operation intent is a validation error",
+			err:                 fmt.Errorf("%w: at least one Step is required", operationapp.ErrInvalidOperation),
+			wantStatus:          http.StatusBadRequest,
+			wantCode:            apierror.CodeValidation,
+			wantMessageContains: "at least one Step is required",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := fiber.New()
+			app.Use(requestid.New())
+			app.Post("/durable", func(c *fiber.Ctx) error { return RespondError(c, tc.err) })
+
+			resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/durable", nil))
+			if err != nil {
+				t.Fatalf("request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status: got %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+			var response apierror.ErrorResponse
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response.Error.Code != tc.wantCode {
+				t.Fatalf("code: got %q, want %q", response.Error.Code, tc.wantCode)
+			}
+			if response.Error.Message == "Internal error." {
+				t.Fatal("delegated operation error leaked as the opaque Internal error. fallback")
+			}
+			if !strings.Contains(response.Error.Message, tc.wantMessageContains) {
+				t.Fatalf("message %q does not contain %q", response.Error.Message, tc.wantMessageContains)
+			}
+		})
 	}
 }
 

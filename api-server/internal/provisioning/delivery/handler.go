@@ -8,6 +8,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -374,6 +376,22 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, sitedomain.ErrCredentialNotSet):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
 			"This integration has no credential configured."))
+
+	// The durable deploy/release handlers delegate acceptance to the operation
+	// OrchestrationService, so its client-safe failures reach this mapper. Translate
+	// them with the same classification the operation delivery mapper uses instead of
+	// letting them fall through to the opaque Internal error. fallback: a busy or
+	// locked target is a 409 conflict, and a rejected operation request is a 400.
+	// Genuinely internal failures (repository writes) still keep the 500 fallback.
+	case errors.Is(err, operationdomain.ErrTargetsBusy),
+		errors.Is(err, operationdomain.ErrTargetLocked),
+		errors.Is(err, operationdomain.ErrPolicyConflict),
+		errors.Is(err, operationdomain.ErrOperationControlConflict):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+
+	case errors.Is(err, operationapp.ErrInvalidOperation),
+		errors.Is(err, operationdomain.ErrTargetStateInvalid):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 	}
 
 	var provErr *provisioningdomain.ProviderError

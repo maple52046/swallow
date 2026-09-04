@@ -118,7 +118,12 @@ func (s *OrchestrationService) Create(ctx context.Context, input CreateOrchestra
 			return nil, err
 		}
 		if total > 0 {
-			return nil, fmt.Errorf("%w: Server %s already has active durable work", ErrInvalidOperation, serverID)
+			// A target already inside an unfinished Operation is a conflict, not a
+			// malformed request: it is exactly operationdomain.ErrTargetsBusy, which
+			// every delivery mapper renders as 409 with this message. Classifying it
+			// as ErrInvalidOperation would leak it as an opaque 4xx/5xx that hides the
+			// actionable "the Server is busy" reason from operators.
+			return nil, fmt.Errorf("%w: Server %s already has active durable work", operationdomain.ErrTargetsBusy, serverID)
 		}
 	}
 

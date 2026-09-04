@@ -393,6 +393,13 @@ Both endpoints return `202` with an Operation reference and preserve the request
 `requestCorrelation`. Progress, target-specific normalized errors, Cancel, and safe Retry
 are read and controlled through the [Operations](operations.md) contract.
 
+Acceptance-time rejection is reported with the shared error envelope, never as an opaque
+`500 internal_error`: malformed input (missing or out-of-range `serverIds`, an
+undeployed target, a duplicate target, or a cross-Site batch) is `400 validation_error`;
+a Server unknown to Swallow is `404 not_found`; a target already inside an unfinished
+Operation or a locked target is `409 conflict`; and a build without durable provisioning
+wired up is `503 provider_unavailable`.
+
 ## Provisioning Tasks
 
 `GET /tasks/{id}` and `GET /servers/{serverId}/provisioning-tasks` expose
