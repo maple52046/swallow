@@ -51,6 +51,10 @@ type APIConfig struct {
 	OperationDispatchInterval time.Duration `yaml:"operationDispatchInterval"`
 	// OperationLeaseDuration is renewed while ansible-runner is alive.
 	OperationLeaseDuration time.Duration `yaml:"operationLeaseDuration"`
+	// OperationMaxParallelism bounds how many Steps a durable Operation runs at once,
+	// protecting the provider, PXE, image mirror, and Temporal history from unbounded
+	// fan-out. It is a per-Operation ceiling, not a global worker limit.
+	OperationMaxParallelism int `yaml:"operationMaxParallelism"`
 	// TemporalAddress and Namespace locate the durable workflow service shared by API and worker.
 	TemporalAddress       string        `yaml:"temporalAddress"`
 	TemporalNamespace     string        `yaml:"temporalNamespace"`

@@ -35,6 +35,12 @@ const (
 	ActivityExecuteStep   = "swallow.operation.execute-step"
 )
 
+// operationWorkflowVersion is the current logic version recorded via workflow.GetVersion.
+// Histories written before versioning was introduced replay as workflow.DefaultVersion;
+// future incompatible changes must add a branch keyed on a higher value here rather than
+// editing existing decision paths, so completed and in-flight histories stay replayable.
+const operationWorkflowVersion = 1
+
 // WorkflowInput is a secret-free immutable snapshot. Workflows carry opaque references,
 // never credential, cloud-init, or automation secret values.
 type WorkflowInput struct {
@@ -239,6 +245,10 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	if input.DefinitionVersion != 1 {
 		return temporal.NewNonRetryableApplicationError("unsupported workflow definition version", "unsupported_definition", nil)
 	}
+	// Versioning checkpoint. Discarded today because there is only one logic version;
+	// it exists so a future incompatible change can branch here without breaking the
+	// replay of histories recorded before that change.
+	_ = workflow.GetVersion(ctx, "operation-workflow", workflow.DefaultVersion, operationWorkflowVersion)
 	if input.LeaseDuration <= 0 {
 		input.LeaseDuration = 90 * time.Second
 	}
@@ -364,8 +374,18 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 					if temporal.IsCanceledError(err) || ctx.Err() != nil {
 						steps[index].Status = operationdomain.StepCanceled
 					} else {
-						steps[index].Status = operationdomain.StepRequiresAttention
-						steps[index].Error = &operationdomain.NormalizedError{Code: "activity_failure", Message: err.Error(), Retryable: true}
+						// A non-retryable activity failure (for example a lost lease
+						// fencing token) is terminal: marking it retryable would let the
+						// operator retry into the same guaranteed failure and never
+						// converge. Only genuinely uncertain infrastructure failures pause
+						// for operator attention.
+						code, message, retryable := normalizeActivityError(err)
+						status := operationdomain.StepRequiresAttention
+						if !retryable {
+							status = operationdomain.StepFailed
+						}
+						steps[index].Status = status
+						steps[index].Error = &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}
 					}
 				} else {
 					steps[index].Status = result.Status
@@ -444,6 +464,37 @@ func firstFailure(steps []operationdomain.OperationStep) string {
 	return "An Operation Step failed."
 }
 
+// normalizeActivityError maps a raw Temporal activity error onto a normalized code,
+// a bounded operator-facing message, and a retryability decision.
+//
+// It deliberately does not propagate the raw error text into workflow history: an
+// activity error can carry provider dumps, SSH details, or file paths, and Temporal
+// persists activity inputs and results. Executor-produced results already carry a
+// normalized Error; this helper only covers Temporal-level failures (heartbeat
+// timeout, non-retryable application errors). A non-retryable application error such as
+// lease_fenced is reported as terminal so the workflow does not offer an unsafe retry.
+func normalizeActivityError(err error) (code string, message string, retryable bool) {
+	code, retryable = "activity_failure", true
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		if appErr.Type() != "" {
+			code = appErr.Type()
+		}
+		if appErr.NonRetryable() {
+			retryable = false
+		}
+	}
+	switch code {
+	case "lease_fenced":
+		message = "A resource lease was lost before the step could run safely."
+	case "executor_unavailable":
+		message = "No executor is configured for this step."
+	default:
+		message = "The step activity failed before returning a normalized result."
+	}
+	return code, message, retryable
+}
+
 func finishCanceled(ctx workflow.Context, operationID string, steps []operationdomain.OperationStep) error {
 	disconnected, _ := workflow.NewDisconnectedContext(ctx)
 	disconnected = workflow.WithActivityOptions(disconnected, workflow.ActivityOptions{
@@ -455,8 +506,13 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 		OperationID: operationID, Status: operationdomain.OrchestrationCanceling,
 		Reason: "Canceling active work.",
 	}).Get(disconnected, nil)
+	// Reflect every non-terminal step as canceled, not just the ones that never
+	// started. A step left running or waiting-external in the projection after the
+	// workflow has stopped would misreport the Operation as still working.
 	for index := range steps {
-		if steps[index].Status == operationdomain.StepPending || steps[index].Status == operationdomain.StepWaitingDependency {
+		switch steps[index].Status {
+		case operationdomain.StepPending, operationdomain.StepWaitingDependency,
+			operationdomain.StepWaitingExternal, operationdomain.StepRunning:
 			steps[index].Status = operationdomain.StepCanceled
 			steps[index].FinishedAt = &finished
 			_ = workflow.ExecuteActivity(disconnected, ActivityUpdateStep, StepUpdate{OperationID: operationID, Step: steps[index]}).Get(disconnected, nil)
@@ -485,21 +541,38 @@ func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.O
 }
 
 // Starter closes the Mongo-persisted/Temporal-start gap with a stable Workflow ID.
+//
+// It is safe to run in more than one process at once (API and worker): the stable
+// Workflow ID plus WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE make a duplicate start a
+// no-op that is reconciled by marking the persisted record started. leaseDuration and
+// maxParallelism come from configuration so operators can tune them without a code
+// change; both fall back to safe defaults.
 type Starter struct {
-	client     client.Client
-	operations operationdomain.OrchestrationRepository
-	taskQueue  string
-	interval   time.Duration
+	client         client.Client
+	operations     operationdomain.OrchestrationRepository
+	taskQueue      string
+	interval       time.Duration
+	leaseDuration  time.Duration
+	maxParallelism int
 }
 
-func NewStarter(temporalClient client.Client, operations operationdomain.OrchestrationRepository, taskQueue string, interval time.Duration) *Starter {
+func NewStarter(temporalClient client.Client, operations operationdomain.OrchestrationRepository, taskQueue string, interval, leaseDuration time.Duration, maxParallelism int) *Starter {
 	if taskQueue == "" {
 		taskQueue = TaskQueue
 	}
 	if interval <= 0 {
 		interval = time.Second
 	}
-	return &Starter{client: temporalClient, operations: operations, taskQueue: taskQueue, interval: interval}
+	if leaseDuration <= 0 {
+		leaseDuration = 90 * time.Second
+	}
+	if maxParallelism <= 0 {
+		maxParallelism = 4
+	}
+	return &Starter{
+		client: temporalClient, operations: operations, taskQueue: taskQueue,
+		interval: interval, leaseDuration: leaseDuration, maxParallelism: maxParallelism,
+	}
 }
 
 func (s *Starter) Run(ctx context.Context) {
@@ -524,8 +597,8 @@ func (s *Starter) StartPending(ctx context.Context) {
 		input := WorkflowInput{
 			OperationID: operation.ID, Kind: operation.Kind, PlatformID: operation.PlatformID, SiteID: operation.SiteID, Definition: operation.Definition,
 			DefinitionVersion: operation.DefinitionVersion, Steps: operation.Steps,
-			ResourceKeys: resourceKeys(operation.TargetResources), LeaseDuration: 90 * time.Second,
-			MaxParallelism: 4,
+			ResourceKeys: resourceKeys(operation.TargetResources), LeaseDuration: s.leaseDuration,
+			MaxParallelism: s.maxParallelism,
 		}
 		run, startErr := s.client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 			ID: operation.Temporal.WorkflowID, TaskQueue: s.taskQueue,

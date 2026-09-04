@@ -252,6 +252,7 @@ func RunAPI(cfg config.APIConfig) error {
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 	orchestrationStarter := temporalworkflow.NewStarter(
 		temporalClient, orchestrationRepo, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
+		cfg.OperationLeaseDuration, cfg.OperationMaxParallelism,
 	)
 
 	overviewReader := overviewinfra.NewReader(

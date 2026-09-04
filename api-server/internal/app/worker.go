@@ -142,6 +142,15 @@ func RunWorker(cfg config.APIConfig) error {
 	if err := temporalWorker.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
+	// Run the start reconciler here as well as in the API process. A deployment that
+	// runs the worker without the API would otherwise never turn a persisted
+	// startState=pending Operation into a Temporal workflow. Duplicate starts are safe:
+	// the stable Workflow ID rejects duplicates and the record is reconciled as started.
+	starter := temporalworkflow.NewStarter(
+		temporalClient, operations, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
+		cfg.OperationLeaseDuration, cfg.OperationMaxParallelism,
+	)
+	go starter.Run(ctx)
 	slog.Info("Temporal worker started", "address", cfg.TemporalAddress,
 		"namespace", cfg.TemporalNamespace, "taskQueue", cfg.TemporalTaskQueue)
 	<-ctx.Done()

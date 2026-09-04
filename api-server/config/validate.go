@@ -37,6 +37,9 @@ func Validate(cfg *Config) error {
 	if cfg.API.OperationLeaseDuration < 3*cfg.API.OperationDispatchInterval {
 		return fmt.Errorf("api.operationLeaseDuration must be at least 3x operationDispatchInterval")
 	}
+	if cfg.API.OperationMaxParallelism <= 0 {
+		return fmt.Errorf("api.operationMaxParallelism must be positive")
+	}
 	if cfg.API.TemporalAddress == "" || cfg.API.TemporalNamespace == "" || cfg.API.TemporalTaskQueue == "" {
 		return fmt.Errorf("api.temporalAddress, api.temporalNamespace, and api.temporalTaskQueue are required")
 	}

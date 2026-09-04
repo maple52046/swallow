@@ -75,6 +75,11 @@ func applyEnv(cfg *Config) {
 			cfg.API.OperationLeaseDuration = d
 		}
 	}
+	if v := os.Getenv("SWALLOW_API_OPERATION_MAX_PARALLELISM"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.API.OperationMaxParallelism = n
+		}
+	}
 	if v := os.Getenv("SWALLOW_API_TEMPORAL_ADDRESS"); v != "" {
 		cfg.API.TemporalAddress = v
 	}

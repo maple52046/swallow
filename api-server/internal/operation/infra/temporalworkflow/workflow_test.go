@@ -12,10 +12,31 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
+
+// normalizeActivityError must keep raw activity error text out of workflow history and
+// must report a non-retryable application error (for example a lost lease) as terminal so
+// the workflow never offers a retry that is guaranteed to fail again.
+func TestNormalizeActivityErrorMapsRetryabilityAndRedactsText(t *testing.T) {
+	fenced := temporal.NewNonRetryableApplicationError(
+		"ssh to 10.0.0.5 failed: secret at /run/creds/id_rsa", "lease_fenced", nil)
+	code, message, retryable := normalizeActivityError(fenced)
+	if code != "lease_fenced" || retryable {
+		t.Errorf("lease_fenced must be non-retryable: code=%q retryable=%v", code, retryable)
+	}
+	if strings.Contains(message, "10.0.0.5") || strings.Contains(message, "/run/creds") {
+		t.Errorf("raw error detail must not reach history: %q", message)
+	}
+
+	code, _, retryable = normalizeActivityError(errors.New("boom: /etc/shadow"))
+	if code != "activity_failure" || !retryable {
+		t.Errorf("generic infra failure should be retryable activity_failure: code=%q retryable=%v", code, retryable)
+	}
+}
 
 func TestOperationWorkflowV1RunsDependenciesInOrder(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite

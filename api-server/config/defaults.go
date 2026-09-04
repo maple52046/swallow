@@ -21,6 +21,7 @@ func DefaultConfig() Config {
 			InventoryInterval:         15 * time.Minute,
 			OperationDispatchInterval: time.Second,
 			OperationLeaseDuration:    90 * time.Second,
+			OperationMaxParallelism:   4,
 			TemporalAddress:           "localhost:7233",
 			TemporalNamespace:         "default",
 			TemporalTaskQueue:         "swallow-operations",
