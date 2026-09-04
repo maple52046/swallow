@@ -390,7 +390,7 @@ func toOperationV3Item(operation *operationdomain.OperationV3) OperationV3Item {
 	}
 	return OperationV3Item{
 		ID: operation.ID, SchemaVersion: 3, Kind: string(operation.Kind), Intent: summary,
-		IntentSnapshot: cloneMap(operation.Intent), Definition: operation.Definition,
+		IntentSnapshot: redactSensitiveMap(cloneMap(operation.Intent)), Definition: operation.Definition,
 		DefinitionVersion: operation.DefinitionVersion, Status: string(operation.Status),
 		StatusReason: optionalString(operation.StatusReason), StartState: operation.StartState,
 		Temporal: operation.Temporal, SiteID: operation.SiteID,
@@ -413,11 +413,55 @@ func publicSteps(source []operationdomain.OperationStep) []operationdomain.Opera
 	steps := append([]operationdomain.OperationStep(nil), source...)
 	for index := range steps {
 		steps[index].SecretRefs = nil
+		// Step Parameters hold the frozen internal request and extraVars, which can carry
+		// operator-supplied plaintext (cloud-init, credentials). They are an executor
+		// input, not part of the public Step contract, so they never cross the API.
+		steps[index].Parameters = nil
 		steps[index].DependsOn = append([]string{}, steps[index].DependsOn...)
 		steps[index].Targets = append([]operationdomain.ResourceReference{}, steps[index].Targets...)
 		steps[index].Artifacts = append([]operationdomain.ArtifactMetadata{}, steps[index].Artifacts...)
 	}
 	return steps
+}
+
+// sensitiveKeys are dropped from operator-facing intent snapshots at any nesting depth.
+// Secrets are sealed and referenced opaquely elsewhere; these keys can still hold
+// operator-supplied plaintext that must never appear in an API response or (via the
+// intent snapshot) in workflow history.
+var sensitiveKeys = map[string]bool{
+	"extravars": true, "userdata": true, "secret": true, "secrets": true,
+	"password": true, "token": true, "credential": true, "credentials": true,
+	"privatekey": true, "sudopassword": true,
+}
+
+// redactSensitiveMap returns a deep copy of value with sensitive keys removed at any depth.
+func redactSensitiveMap(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	result := make(map[string]any, len(value))
+	for key, item := range value {
+		if sensitiveKeys[strings.ToLower(key)] {
+			continue
+		}
+		result[key] = redactSensitiveValue(item)
+	}
+	return result
+}
+
+func redactSensitiveValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return redactSensitiveMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			out[index] = redactSensitiveValue(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func optionalString(value string) *string {

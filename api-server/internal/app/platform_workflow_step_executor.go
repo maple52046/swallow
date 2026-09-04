@@ -161,12 +161,6 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 	if strings.TrimSpace(platformID) == "" || e.membership == nil {
 		return internalStepFailed("platform_validation_unavailable", "Platform health validation is unavailable.", false)
 	}
-	expected := 0
-	for _, target := range step.Targets {
-		if target.Kind == "server" {
-			expected++
-		}
-	}
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
 	deadline := time.NewTimer(10 * time.Minute)
@@ -174,15 +168,24 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 	lastReason := "The Platform API has not reported membership yet."
 	for {
 		report, err := e.membership.Execute(ctx, platformID)
-		if err == nil && report.Error == nil && report.Matched >= expected {
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
-		}
 		if err != nil {
 			lastReason = err.Error()
 		} else if report.Error != nil {
 			lastReason = *report.Error
 		} else {
-			lastReason = fmt.Sprintf("Platform membership matched %d of %d target Servers.", report.Matched, expected)
+			// Validate the Operation's own target Servers, not a global matched count.
+			// A platform can carry unrelated members, and a global count can reach the
+			// expected total while a specific target never joined; that would falsely
+			// report this deployment healthy.
+			joined, missing, checkErr := e.targetsJoined(ctx, platformID, step)
+			if checkErr != nil {
+				lastReason = checkErr.Error()
+			} else if len(missing) == 0 {
+				return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+			} else {
+				lastReason = fmt.Sprintf("Platform membership is missing %d of %d target Servers: %s.",
+					len(missing), joined+len(missing), strings.Join(missing, ", "))
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -192,6 +195,30 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 		case <-ticker.C:
 		}
 	}
+}
+
+// targetsJoined reports how many of the Operation's target Servers now carry a membership
+// projection naming this Platform, and which are still missing. It reads each target's own
+// projection (written by the membership sync) rather than trusting an aggregate count.
+func (e platformWorkflowStepExecutor) targetsJoined(ctx context.Context, platformID string, step operationdomain.OperationStep) (int, []string, error) {
+	joined := 0
+	missing := []string{}
+	for _, target := range step.Targets {
+		if target.Kind != "server" {
+			continue
+		}
+		server, err := e.servers.FindByID(ctx, target.ID)
+		if err != nil {
+			return 0, nil, err
+		}
+		if server.Membership != nil && server.Membership.PlatformID == platformID {
+			joined++
+		} else {
+			missing = append(missing, server.DisplayName())
+		}
+	}
+	sort.Strings(missing)
+	return joined, missing, nil
 }
 
 func (e platformWorkflowStepExecutor) pollInterval() time.Duration {

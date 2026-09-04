@@ -156,6 +156,9 @@ func operationRequestedAt(item any) string {
 
 // Logs returns locally retained runner output.
 func (h *ExecutionHandler) Logs(c *fiber.Ctx) error {
+	if resp := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose logs per Step; use the Step logs endpoint."); resp != nil {
+		return resp
+	}
 	logs, err := h.operations.Logs(c.Context(), c.Params("id"))
 	if err != nil {
 		return respondExecutionError(c, err)
@@ -166,11 +169,31 @@ func (h *ExecutionHandler) Logs(c *fiber.Ctx) error {
 
 // Events returns a run's task-level progress.
 func (h *ExecutionHandler) Events(c *fiber.Ctx) error {
+	if resp := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose events per Step; use the Step events endpoint."); resp != nil {
+		return resp
+	}
 	events, err := h.operations.Events(c.Context(), c.Params("id"))
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
 	return c.JSON(events)
+}
+
+// rejectOrchestratedLegacy returns a response when the operation-level legacy endpoint is
+// called for a schema-v3 orchestration Operation, which exposes logs and events per Step
+// instead. It returns nil for v2 operations so they keep their operation-level behavior,
+// and surfaces any non-"not v3" lookup error. This prevents a v3 Operation from silently
+// hitting the empty legacy run path.
+func (h *ExecutionHandler) rejectOrchestratedLegacy(c *fiber.Ctx, message string) error {
+	if h.orchestrations == nil {
+		return nil
+	}
+	if _, err := h.orchestrations.Get(c.Context(), c.Params("id")); err == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, message))
+	} else if !application.IsNotV3(err) {
+		return respondExecutionError(c, err)
+	}
+	return nil
 }
 
 // Timeline returns normalized durable events for an orchestration Operation.

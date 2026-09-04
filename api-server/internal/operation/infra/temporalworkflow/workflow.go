@@ -9,7 +9,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/activity"
@@ -151,8 +150,11 @@ func (a *Activities) UpdateState(ctx context.Context, input StateUpdate) error {
 		return err
 	}
 	message := "Operation status changed to " + string(input.Status) + "."
+	// Deterministic ID per operation status so a retried projection activity upserts the
+	// same event instead of appending a duplicate. Repeated visits to the same status
+	// (for example running between batches) intentionally collapse to one timeline entry.
 	return a.operations.AppendEvent(ctx, operationdomain.TimelineEvent{
-		ID: uuid.NewString(), OperationID: input.OperationID, Type: "operation_status",
+		ID: input.OperationID + "/state/" + string(input.Status), OperationID: input.OperationID, Type: "operation_status",
 		Message: message, Details: map[string]any{"status": string(input.Status), "reason": input.Reason},
 		CreatedAt: time.Now().UTC(),
 	})
@@ -167,8 +169,11 @@ func (a *Activities) UpdateStep(ctx context.Context, input StepUpdate) error {
 			return err
 		}
 	}
+	// Deterministic ID per (step, status, attempt): a step reaches a given status at most
+	// once per attempt, so a retried projection activity upserts rather than duplicates.
+	eventID := fmt.Sprintf("%s/step/%s/%s/%d", input.OperationID, input.Step.ID, input.Step.Status, input.Step.Attempt)
 	return a.operations.AppendEvent(ctx, operationdomain.TimelineEvent{
-		ID: uuid.NewString(), OperationID: input.OperationID, StepID: input.Step.ID,
+		ID: eventID, OperationID: input.OperationID, StepID: input.Step.ID,
 		Type: "step_status", Message: input.Step.Name + " changed to " + string(input.Step.Status) + ".",
 		Details:   map[string]any{"status": string(input.Step.Status), "attempt": input.Step.Attempt},
 		CreatedAt: time.Now().UTC(),

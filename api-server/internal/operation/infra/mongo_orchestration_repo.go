@@ -176,8 +176,12 @@ func (r *MongoOrchestrationRepo) UpdateStep(ctx context.Context, operationID str
 	return nil
 }
 
+// AppendEvent records a timeline event idempotently. Projection activities can be retried
+// (they run with unlimited attempts), so an event whose ID is deterministic for its
+// transition is upserted by _id: a retry re-writes the same document instead of appending a
+// duplicate. Callers must supply a stable ID for a given logical transition.
 func (r *MongoOrchestrationRepo) AppendEvent(ctx context.Context, event operationdomain.TimelineEvent) error {
-	_, err := r.events.InsertOne(ctx, event)
+	_, err := r.events.ReplaceOne(ctx, bson.M{"_id": event.ID}, event, options.Replace().SetUpsert(true))
 	return err
 }
 
