@@ -313,7 +313,10 @@ export function PlatformLifecycleActions({
       <Modal
         isOpen={action !== null}
         onClose={close}
-        variant="small"
+        // Grow wider once the release options expand the dialog so it uses horizontal
+        // space instead of a tall narrow column. PatternFly keeps a medium modal
+        // near-full-width on phones, so this only widens on larger screens.
+        variant={releaseServers ? 'medium' : 'small'}
         aria-labelledby="platform-lifecycle-confirmation-title"
       >
         <ModalHeader

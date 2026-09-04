@@ -74,7 +74,14 @@ export function ServerReleaseDialog({
   }
 
   return (
-    <Modal isOpen onClose={close} variant="small" aria-labelledby="server-release-title">
+    <Modal
+      isOpen
+      onClose={close}
+      // Widen on desktop when the erase/comment options are shown so the content uses
+      // horizontal space; PatternFly keeps a medium modal near-full-width on phones.
+      variant={supportsReleaseOptions ? 'medium' : 'small'}
+      aria-labelledby="server-release-title"
+    >
       <ModalHeader
         title={title}
         labelId="server-release-title"
