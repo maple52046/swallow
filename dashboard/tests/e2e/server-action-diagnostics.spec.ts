@@ -73,6 +73,38 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   await expect(updating).toBeHidden({ timeout: 7_000 })
 })
 
+test('Release detects running operations and cancels them before releasing', async ({ page }) => {
+  const releases: Array<{ serverId: string; body: Record<string, unknown> | null }> = []
+  const cancels: string[] = []
+  await installApiFixtures(page, {
+    cancelMarksTerminal: true,
+    onServerReleaseRequest: (serverId, body) => releases.push({ serverId, body }),
+  })
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname
+    const match = path.match(/^\/api\/v1\/operations\/([^/]+)\/cancel$/)
+    if (match && request.method() === 'POST') cancels.push(match[1])
+  })
+
+  await page.goto('/servers?site=site-a')
+  await page.getByLabel('Select gpu-node-01').check()
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await chooseMenuItem(page, 'Release')
+
+  const confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
+  await expect(confirmation).toContainText('This server has a running operation')
+  await expect(confirmation).toContainText('Deploy production k0s platform')
+
+  // Leaving the box unchecked would release straight away; opting in must cancel the
+  // blocking Operation first and only then submit the release.
+  await confirmation.getByLabel('Cancel running operations before releasing').check()
+  await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/operations\/op-release-os-/)
+  expect(cancels).toContain('op-running')
+  await expect.poll(() => releases.map((entry) => entry.serverId)).toContain('srv-1')
+})
+
 test('Server list waits for release cleanup and refreshes addresses and Ephemeral state', async ({ page }) => {
   await installApiFixtures(page, {
     staticNetworkServerIds: ['srv-1'],

@@ -3,11 +3,15 @@ import {
   Alert,
   AlertVariant,
   Button,
+  Checkbox,
   FormGroup,
+  List,
+  ListItem,
   Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
+  Spinner,
   Stack,
   StackItem,
   TextArea,
@@ -18,6 +22,7 @@ import {
   emptyReleaseOptions,
   type ReleaseOptionsValue,
 } from '@/presentation/components/releaseOptions'
+import { useServerActiveOperations } from './useServerActiveOperations'
 import type { ServerActionTarget } from './serverActionResults'
 
 interface ServerReleaseDialogProps {
@@ -28,9 +33,18 @@ interface ServerReleaseDialogProps {
   onRelease: (input: ReleaseServerInput) => Promise<void>
 }
 
+/** Submit progress so the primary button and body can explain the current phase. */
+type ReleasePhase = 'idle' | 'canceling' | 'releasing'
+
 /**
  * Confirms a single or multi-Server release and makes MAAS disk-erasure semantics
  * explicit before any provider request is sent.
+ *
+ * A release is rejected while a target still has running durable Operations, so the dialog
+ * detects that work on open and, when the operator opts in, cancels it and waits for the
+ * targets to clear before releasing. The opt-in keeps the default path unchanged: leaving
+ * the box unchecked releases exactly as before and surfaces the backend's conflict message
+ * if the Server really is busy.
  */
 export function ServerReleaseDialog({
   targets,
@@ -42,12 +56,18 @@ export function ServerReleaseDialog({
   const [options, setOptions] = useState<ReleaseOptionsValue>(emptyReleaseOptions)
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [phase, setPhase] = useState<ReleasePhase>('idle')
+  const [cancelRunning, setCancelRunning] = useState(false)
   const [error, setError] = useState('')
+
+  const { activeOperations, cancelAll } =
+    useServerActiveOperations(targets.map((target) => target.serverId))
 
   const multiple = targets.length > 1
   const title = multiple ? `Release ${targets.length} servers` : 'Release server'
   const shownNames = targets.slice(0, 5).map((target) => target.serverName)
   const remaining = targets.length - shownNames.length
+  const hasActiveOperations = activeOperations.length > 0
 
   const close = () => {
     if (!submitting) onClose()
@@ -58,6 +78,11 @@ export function ServerReleaseDialog({
     setSubmitting(true)
     setError('')
     try {
+      if (cancelRunning && hasActiveOperations) {
+        setPhase('canceling')
+        await cancelAll()
+      }
+      setPhase('releasing')
       await onRelease({
         erase: supportsReleaseOptions && options.erase,
         secureErase: supportsReleaseOptions && options.erase && options.secureErase,
@@ -70,6 +95,7 @@ export function ServerReleaseDialog({
       setError(caught instanceof Error ? caught.message : 'Could not release the selected Server.')
     } finally {
       setSubmitting(false)
+      setPhase('idle')
     }
   }
 
@@ -99,6 +125,50 @@ export function ServerReleaseDialog({
           <StackItem>
             <strong>Targets:</strong> {shownNames.join(', ')}{remaining > 0 ? ` and ${remaining} more` : ''}
           </StackItem>
+          {hasActiveOperations && (
+            <StackItem>
+              <Alert
+                variant={AlertVariant.warning}
+                isInline
+                title={
+                  activeOperations.length === 1
+                    ? 'This server has a running operation'
+                    : `This server has ${activeOperations.length} running operations`
+                }
+              >
+                <Stack hasGutter>
+                  <StackItem>
+                    A release is rejected while durable work is still running. Cancel the
+                    running operations first, or wait for them to finish.
+                  </StackItem>
+                  <StackItem>
+                    <List aria-label="Running operations blocking release">
+                      {activeOperations.map((operation) => (
+                        <ListItem key={operation.id}>
+                          {operation.intent} — {operation.status}
+                        </ListItem>
+                      ))}
+                    </List>
+                  </StackItem>
+                  <StackItem>
+                    <Checkbox
+                      id="release-cancel-running"
+                      label="Cancel running operations before releasing"
+                      isChecked={cancelRunning}
+                      isDisabled={submitting}
+                      onChange={(_event, checked) => setCancelRunning(checked)}
+                    />
+                  </StackItem>
+                </Stack>
+              </Alert>
+            </StackItem>
+          )}
+          {phase === 'canceling' && (
+            <StackItem>
+              <Spinner size="md" aria-hidden />{' '}
+              Canceling running operations. This can take a moment...
+            </StackItem>
+          )}
           <StackItem>
             <ReleaseOptionsFields
               idPrefix="release"

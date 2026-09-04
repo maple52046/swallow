@@ -161,6 +161,12 @@ export interface FixtureOptions {
   releaseConvergesAfterRefreshes?: number
   deploymentConvergesAfterRefreshes?: number
   releaseCleanupFails?: boolean
+  /**
+   * Makes a cancel request drive the Operation to the terminal `canceled` status instead of
+   * the default non-terminal `canceling`, so a poll that waits for a Server to clear its
+   * active work converges. Off by default to preserve the `canceling`-visible assertion.
+   */
+  cancelMarksTerminal?: boolean
   providerFailureRetryable?: boolean
   onNetworkLinkRequest?: (method: string, serverId: string, interfaceId: string, linkId: string | null, body: Record<string, unknown> | null) => void
   onMetricsRequest?: (serverIds: string[]) => void
@@ -1012,12 +1018,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (cancelMatch && request.method() === 'POST') {
       const operation = operationItems.find((item) => item.id === cancelMatch[1]) as unknown as Record<string, unknown> | undefined
       if (!operation) return json(route, { error: { code: 'not_found', message: 'Operation not found' } }, 404)
-      operation.status = 'canceling'
-      operation.statusReason = 'Canceling active work.'
+      const cancelStatus = options.cancelMarksTerminal ? 'canceled' : 'canceling'
+      const cancelReason = options.cancelMarksTerminal ? 'Canceled by operator.' : 'Canceling active work.'
+      operation.status = cancelStatus
+      operation.statusReason = cancelReason
+      if (options.cancelMarksTerminal) operation.finishedAt = now
       operation.execution = {
         ...(operation.execution as Record<string, unknown>),
-        status: 'canceling',
-        statusReason: 'Canceling active work.',
+        status: cancelStatus,
+        statusReason: cancelReason,
+        ...(options.cancelMarksTerminal ? { finishedAt: now } : {}),
       }
       return json(route, { operationId: cancelMatch[1] }, 202)
     }
