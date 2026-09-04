@@ -62,7 +62,7 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 	execution, err := e.executions.CreateOrGet(ctx, &operationdomain.AnsibleExecution{
 		ID: uuid.NewString(), IdempotencyKey: fmt.Sprintf("%s/%s/%d", input.OperationID, input.Step.ID, input.Step.Attempt),
 		OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, StepID: input.Step.ID, Attempt: input.Step.Attempt,
-		SiteID: input.SiteID, TargetServerIDs: targets, Playbook: playbook,
+		SiteID: input.SiteID, TargetServerIDs: targets, ResourceLeases: input.Leases, Playbook: playbook,
 		ExtraVars: extraVars, Inventory: inventory, Configuration: &operationdomain.AutomationInputSnapshot{
 			SSHUser: configuration.SSHUser, SSHPort: configuration.SSHPort, KnownHosts: configuration.KnownHosts,
 		}, SecretRefs: input.Step.SecretRefs, RunID: uuid.NewString(),

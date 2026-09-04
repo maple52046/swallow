@@ -98,12 +98,13 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachOrchestration(durable)
 	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
+	leases := operationinfra.NewMongoResourceLeaseRepo(db)
 	queue := operationapp.NewAnsibleQueueWorker(
 		executions, configurations, catalog, runner,
-		executionInventoryAdapter{discovery: discovery}, protection, completion,
-		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration, 4, operationSecrets,
+		executionInventoryAdapter{discovery: discovery}, protection, leases, completion,
+		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration, cfg.OperationMaxParallelism, operationSecrets,
 	)
-	slog.Info("Ansible executor started", "parallelism", 4, "artifactDir", cfg.JobArtifactDir)
+	slog.Info("Ansible executor started", "parallelism", cfg.OperationMaxParallelism, "artifactDir", cfg.JobArtifactDir)
 	queue.Run(ctx)
 	return nil
 }

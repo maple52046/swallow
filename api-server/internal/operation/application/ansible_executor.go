@@ -27,6 +27,7 @@ type AnsibleQueueWorker struct {
 	runner         operationdomain.Runner
 	inventory      InventorySource
 	protection     serverdomain.MutationGuard
+	leases         operationdomain.ResourceLeaseRepository
 	observer       StepCompletionObserver
 	secrets        operationdomain.OperationSecretRepository
 	interval       time.Duration
@@ -44,6 +45,7 @@ func NewAnsibleQueueWorker(
 	runner operationdomain.Runner,
 	inventory InventorySource,
 	protection serverdomain.MutationGuard,
+	leases operationdomain.ResourceLeaseRepository,
 	observer StepCompletionObserver,
 	interval, leaseDuration time.Duration,
 	parallelism int,
@@ -60,7 +62,7 @@ func NewAnsibleQueueWorker(
 	}
 	worker := &AnsibleQueueWorker{
 		executions: executions, configurations: configurations, catalog: catalog,
-		runner: runner, inventory: inventory, protection: protection, observer: observer,
+		runner: runner, inventory: inventory, protection: protection, leases: leases, observer: observer,
 		interval: interval, leaseDuration: leaseDuration, parallelism: parallelism,
 		owner: uuid.NewString(), semaphore: make(chan struct{}, parallelism),
 	}
@@ -130,6 +132,14 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 			finish(operationdomain.AnsibleFailed, err)
 			return
 		}
+	}
+	// The provider-owned Server Lock and the Swallow resource lease are independent
+	// protections; both must hold before this executor mutates a host. A lost fencing
+	// token means the owning workflow no longer has exclusivity, so refuse to start and
+	// require operator attention rather than run against an un-owned resource.
+	if err := w.validateLeases(ctx, execution); err != nil {
+		finish(operationdomain.AnsibleRequiresAttention, err)
+		return
 	}
 	var err error
 	var configuration *operationdomain.AutomationConfiguration
@@ -237,8 +247,22 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 				cancel()
 				continue
 			}
-			if err := w.executions.Renew(ctx, execution.ID, w.owner, time.Now().UTC().Add(w.leaseDuration)); err != nil {
+			// Re-check fencing on every renew tick: if the workflow's resource lease was
+			// taken over while this runner was executing, stop and require attention
+			// instead of continuing to mutate a host we no longer exclusively own.
+			if err := w.validateLeases(ctx, execution); err != nil {
 				cancel()
+				finish(operationdomain.AnsibleRequiresAttention, err)
+				return
+			}
+			if err := w.executions.Renew(ctx, execution.ID, w.owner, time.Now().UTC().Add(w.leaseDuration)); err != nil {
+				// A failed renew means this executor may have lost ownership (a fencing
+				// conflict) or the store is unreachable. Either way the runner outcome is
+				// now unknown, so stop the subprocess and hand the execution to an operator
+				// rather than silently leaving it "running" until the lease expires. If
+				// another executor already owns it, Finish is a no-op under the owner guard.
+				cancel()
+				finish(operationdomain.AnsibleRequiresAttention, fmt.Errorf("renew execution lease: %w", err))
 				return
 			}
 		case <-ctx.Done():
@@ -246,4 +270,19 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 			return
 		}
 	}
+}
+
+// validateLeases confirms every workflow-held resource lease frozen onto the execution is
+// still current. It is a no-op when no lease repository or leases are present (legacy v2
+// executions carry none), so it never blocks the compatibility drain path.
+func (w *AnsibleQueueWorker) validateLeases(ctx context.Context, execution *operationdomain.AnsibleExecution) error {
+	if w.leases == nil {
+		return nil
+	}
+	for _, lease := range execution.ResourceLeases {
+		if err := w.leases.Validate(ctx, lease); err != nil {
+			return fmt.Errorf("resource lease %s is no longer current: %w", lease.ResourceKey, err)
+		}
+	}
+	return nil
 }

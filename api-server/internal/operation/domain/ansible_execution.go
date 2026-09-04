@@ -36,15 +36,19 @@ type AutomationInputSnapshot struct {
 
 // AnsibleExecution is an idempotent command consumed by exactly one executor process.
 type AnsibleExecution struct {
-	ID              string                   `bson:"_id" json:"id"`
-	IdempotencyKey  string                   `bson:"idempotencyKey" json:"idempotencyKey"`
-	OperationID     string                   `bson:"operationId" json:"operationId"`
-	Kind            OperationKind            `bson:"kind" json:"kind"`
-	PlatformID      string                   `bson:"platformId,omitempty" json:"platformId,omitempty"`
-	StepID          string                   `bson:"stepId" json:"stepId"`
-	Attempt         int                      `bson:"attempt" json:"attempt"`
-	SiteID          string                   `bson:"siteId" json:"siteId"`
-	TargetServerIDs []string                 `bson:"targetServerIds" json:"targetServerIds"`
+	ID              string        `bson:"_id" json:"id"`
+	IdempotencyKey  string        `bson:"idempotencyKey" json:"idempotencyKey"`
+	OperationID     string        `bson:"operationId" json:"operationId"`
+	Kind            OperationKind `bson:"kind" json:"kind"`
+	PlatformID      string        `bson:"platformId,omitempty" json:"platformId,omitempty"`
+	StepID          string        `bson:"stepId" json:"stepId"`
+	Attempt         int           `bson:"attempt" json:"attempt"`
+	SiteID          string        `bson:"siteId" json:"siteId"`
+	TargetServerIDs []string      `bson:"targetServerIds" json:"targetServerIds"`
+	// ResourceLeases are the workflow-held Swallow resource leases frozen at enqueue.
+	// The standalone executor revalidates their fencing tokens before and during host
+	// mutation so it cannot keep running after the owning workflow has lost exclusivity.
+	ResourceLeases  []ResourceLease          `bson:"resourceLeases,omitempty" json:"-"`
 	Playbook        string                   `bson:"playbook" json:"playbook"`
 	ExtraVars       map[string]any           `bson:"extraVars,omitempty" json:"-"`
 	Inventory       map[string]any           `bson:"inventory,omitempty" json:"-"`
