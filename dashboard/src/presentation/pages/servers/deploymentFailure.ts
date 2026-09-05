@@ -30,13 +30,35 @@ const DEPLOYMENT_FAILURE_SUMMARIES: Record<string, string> = {
 }
 
 /**
- * Returns a short root-cause line for a failed or attention-needing deployment axis, keyed
- * on its stable `code`. Falls back to the raw reason, then a generic line, so an unmapped
- * code still says something useful while the detail stays available separately.
+ * Coarser fallback keyed on the failed Step's `stage`, used when the precise `code` is
+ * absent — notably for deployments that failed before the code was recorded. Less specific
+ * than the code map (a readiness failure could be "no address" or "SSH down"), but still far
+ * more readable than the verbose reason.
+ */
+const DEPLOYMENT_FAILURE_SUMMARIES_BY_STAGE: Record<string, string> = {
+  ssh_readiness:
+    'The server did not become reachable after OS installation (no network address or SSH).',
+  deployment: 'The provisioner reported that OS deployment failed.',
+  deployment_preflight: 'The deployment was rejected before it could start.',
+  deployment_projection: 'Swallow could not record the deployment state.',
+  network_cleanup: 'Static network cleanup after release did not complete.',
+  lock_precheck: 'The server is locked, so the operation could not proceed.',
+}
+
+/**
+ * Returns a short root-cause line for a failed or attention-needing deployment axis. Prefers
+ * the precise stable `code`, then the coarser `stage` (so deployments that predate the code
+ * still get a concise line), then the raw reason, then a generic line — always leaving the
+ * verbose detail to be shown separately.
  */
 export function deploymentFailureSummary(axis: DeploymentAxis): string {
-  const mapped = DEPLOYMENT_FAILURE_SUMMARIES[axis.code]
-  if (mapped) return mapped
+  const byCode = DEPLOYMENT_FAILURE_SUMMARIES[axis.code]
+  if (byCode) return byCode
+  const stageKey = axis.stage.startsWith('deployment_recovery')
+    ? 'deployment'
+    : axis.stage
+  const byStage = DEPLOYMENT_FAILURE_SUMMARIES_BY_STAGE[stageKey]
+  if (byStage) return byStage
   const reason = axis.statusReason.trim()
   if (reason) return reason
   return 'Swallow could not verify this deployment.'
