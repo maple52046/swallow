@@ -68,6 +68,12 @@ waiting for the fleet inventory interval. It is not a full inventory reconciliat
 does not create Servers, mark missing machines absent, or rewrite identity and hardware
 fields.
 
+Full inventory reconciliation additionally clears a Server's terminal deployment outcome
+(`succeeded`, `failed`, or `canceled`) once the machine is observed back in the provider's
+`ready` pool, so an available Server never keeps a stale deployment result from a canceled
+or abandoned run. An active (`deploying`/`verifying`) or operator-pending
+(`requires_attention`) deployment is left untouched.
+
 `DELETE /servers/{id}` is provider-first and synchronous. It resolves the Server's
 provisioner, deletes the backing Machine, and only then removes the Swallow projection.
 If the provisioner reports that the Machine is already missing, Swallow removes the stale

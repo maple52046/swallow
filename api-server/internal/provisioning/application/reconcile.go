@@ -181,7 +181,10 @@ func (uc *ReconcileUseCase) project(
 	if err == nil {
 		apply(existing, source, machine, integration.ID)
 		claimed[existing.ID] = machine.ID
-		return outcomeUpdated, nil, uc.servers.Upsert(ctx, existing)
+		if err := uc.servers.Upsert(ctx, existing); err != nil {
+			return 0, nil, err
+		}
+		return outcomeUpdated, nil, uc.clearStaleDeployment(ctx, existing, machine)
 	}
 	if !errors.Is(err, serverdomain.ErrServerNotFound) {
 		return 0, nil, err
@@ -221,7 +224,10 @@ func (uc *ReconcileUseCase) project(
 		}
 		apply(candidate, source, machine, integration.ID)
 		claimed[candidate.ID] = machine.ID
-		return outcomeRelinked, nil, uc.servers.Upsert(ctx, candidate)
+		if err := uc.servers.Upsert(ctx, candidate); err != nil {
+			return 0, nil, err
+		}
+		return outcomeRelinked, nil, uc.clearStaleDeployment(ctx, candidate, machine)
 
 	default:
 		ids := make([]string, 0, len(candidates))
@@ -278,6 +284,46 @@ func (uc *ReconcileUseCase) create(
 	apply(server, source, machine, integrationID)
 	claimed[server.ID] = machine.ID
 	return outcomeCreated, nil, uc.servers.Upsert(ctx, server)
+}
+
+// clearStaleDeployment recovers a Server whose deployment record no longer reflects
+// reality. When a machine is observed back in the provider's Ready pool, any finished
+// deployment outcome (succeeded, failed, or canceled) is stale: the machine has no
+// installed OS. Such a record only lingers when a run was canceled or ended without the
+// release-os step that normally clears it, and it otherwise sticks a "Failed" badge on an
+// available machine and confuses recovery. Reconcile clears it so the Server returns to a
+// clean, deployable state without any manual data fix. It is a no-op for an active
+// deployment (deploying/verifying) or an operator-pending one (requires_attention), so it
+// never races an in-flight Operation.
+func (uc *ReconcileUseCase) clearStaleDeployment(
+	ctx context.Context,
+	server *serverdomain.Server,
+	machine *provisioningdomain.Machine,
+) error {
+	if !staleDeploymentOnReady(machine, server.Deployment) {
+		return nil
+	}
+	if err := uc.servers.SetDeployment(ctx, server.ID, nil); err != nil {
+		return err
+	}
+	server.Deployment = nil
+	return nil
+}
+
+// staleDeploymentOnReady reports whether a deployment record is a finished outcome that a
+// machine now back in the provider's Ready pool has outlived.
+func staleDeploymentOnReady(machine *provisioningdomain.Machine, deployment *serverdomain.DeploymentStatus) bool {
+	if machine == nil || deployment == nil || machine.Status != provisioningdomain.MachineStatusReady {
+		return false
+	}
+	switch deployment.State {
+	case serverdomain.DeploymentSucceeded,
+		serverdomain.DeploymentFailed,
+		serverdomain.DeploymentCanceled:
+		return true
+	default:
+		return false
+	}
 }
 
 // apply copies a machine's observed state onto a server projection.
