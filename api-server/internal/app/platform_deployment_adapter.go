@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -13,6 +14,7 @@ import (
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/pagination"
 )
 
 const (
@@ -155,6 +157,43 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 	}
 	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
 	return created.ID, nil
+}
+
+// platformOperationCanceler implements platformdomain.PlatformOperationCanceler by finding
+// the platform's active durable Operations and canceling each one, which releases their
+// resource leases so deleting the platform frees its member servers.
+type platformOperationCanceler struct {
+	orchestrations *operationapp.OrchestrationService
+}
+
+// activeOperationsPageSize bounds one platform's active Operation listing. A platform never
+// runs anywhere near this many concurrent durable Operations, so a single page is complete.
+const activeOperationsPageSize = 100
+
+func (c platformOperationCanceler) CancelActiveForPlatform(ctx context.Context, platformID string) error {
+	if c.orchestrations == nil {
+		return nil
+	}
+	items, _, err := c.orchestrations.List(ctx, operationapp.ListOperationsInput{
+		PlatformID: platformID,
+		Active:     true,
+		Page:       pagination.Page{Page: 1, PageSize: activeOperationsPageSize},
+	})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := c.orchestrations.Cancel(ctx, item.ID); err != nil {
+			// A run that reached a terminal state between listing and canceling is already
+			// in the desired end state; tolerate that control conflict and continue so one
+			// finished Operation cannot block deleting the platform.
+			if errors.Is(err, operationdomain.ErrOperationControlConflict) {
+				continue
+			}
+			return fmt.Errorf("cancel platform operation %s: %w", item.ID, err)
+		}
+	}
+	return nil
 }
 
 // platformMachinePreparationValidator translates the Platform-owned intent to the active

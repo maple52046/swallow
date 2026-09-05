@@ -251,13 +251,16 @@ for list requests; the API does not fan out one Operation query per Platform.
 `PATCH /api/v1/platforms/{platformId}` updates `name`, `integrationId`,
 `gpuStackOwner`, or `exporterOwner`; omitted fields do not change.
 
-`DELETE /api/v1/platforms/{platformId}` is record-only and always returns
-`{"success":true}` on success. It clears membership and a Swallow-owned credential
-Integration, then removes the Platform record. It never runs Ansible, changes hosts, waits
-for Uninstall, restores exporters, or cancels accepted Operations. It remains
-available while targets are locked because it does not mutate them. Pending/running
-Operations may finish after Delete; retrying a finished deploy/uninstall Operation whose
-Platform no longer exists is refused.
+`DELETE /api/v1/platforms/{platformId}` returns `{"success":true}` on success. It first
+cancels the Platform's in-flight durable Operations so their resource leases are released
+and the member servers are freed, then clears membership and a Swallow-owned credential
+Integration, and finally removes the Platform record. Cancellation only stops durable work
+and frees leases; Delete still never runs Ansible, changes hosts, waits for Uninstall, or
+restores exporters, and it remains available while targets are locked because it does not
+mutate them. If cancellation cannot be performed the Delete is refused and the record is
+kept, so a Platform is never removed while its Operations keep holding its servers. A
+finished Operation observed after cancellation is left as-is; retrying a finished
+deploy/uninstall Operation whose Platform no longer exists is refused.
 
 Legacy records delete their linked Integration only when deployment provenance and the
 complete auto-generated Kubernetes Integration signature both match. Operator-owned

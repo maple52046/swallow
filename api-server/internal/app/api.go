@@ -246,6 +246,9 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	orchestrationService.AttachLeaseReader(operationinfra.NewMongoResourceLeaseRepo(db))
 	operationService.AttachOrchestration(orchestrationService)
+	// Deleting a platform cancels its in-flight durable operations so their leases are
+	// released and the member servers are freed rather than left blocked by orphaned work.
+	platformService.AttachOperationCanceler(platformOperationCanceler{orchestrations: orchestrationService})
 	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
 		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo, protection: serverProtection,
 	})

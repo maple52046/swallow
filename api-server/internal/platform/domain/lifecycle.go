@@ -93,6 +93,15 @@ type UninstallLauncher interface {
 	LaunchUninstall(ctx context.Context, launch UninstallLaunch) (string, error)
 }
 
+// PlatformOperationCanceler cancels a platform's in-flight durable operations so that
+// deleting the platform frees its member servers instead of leaving orphaned work that
+// keeps holding their resource leases. It is a port: the platform context requests the
+// cancellation, and the operation context implements it. Cancellation is best understood
+// as "make these operations terminal"; a run that has already finished is not an error.
+type PlatformOperationCanceler interface {
+	CancelActiveForPlatform(ctx context.Context, platformID string) error
+}
+
 var (
 	ErrPlatformNotDeployManaged   = errors.New("platform was not deployed by Swallow")
 	ErrPlatformAlreadyUninstalled = errors.New("platform is already uninstalled")

@@ -310,6 +310,71 @@ func TestDeleteRemovesRecordMembershipAndOwnedIntegrationOnly(t *testing.T) {
 	}
 }
 
+// recordingPlatformOperationCanceler captures the platform whose operations Delete asked to
+// cancel and can inject a failure to prove the delete aborts instead of orphaning work.
+type recordingPlatformOperationCanceler struct {
+	platformID string
+	called     bool
+	err        error
+}
+
+func (c *recordingPlatformOperationCanceler) CancelActiveForPlatform(_ context.Context, platformID string) error {
+	c.called = true
+	c.platformID = platformID
+	return c.err
+}
+
+func newDeleteHarness() (*deployFakePlatformRepo, *lifecycleServerRepo, fakeLifecycleReader, *platformdomain.Platform) {
+	platform := &platformdomain.Platform{
+		ID: "platform-1", SiteID: "site-1", Name: "lab",
+		Type: platformdomain.PlatformTypeKubernetes,
+	}
+	platforms := &deployFakePlatformRepo{
+		platforms: map[string]*platformdomain.Platform{platform.ID: platform},
+	}
+	servers := &lifecycleServerRepo{
+		deployFakeServerRepo: &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}},
+		memberships:          map[string][]string{},
+	}
+	lifecycle := fakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{
+		platform.ID: deployedLifecycle(platformdomain.PlatformLifecycleUninstalling),
+	}}
+	return platforms, servers, lifecycle, platform
+}
+
+func TestDeleteCancelsInFlightOperationsBeforeRemovingTheRecord(t *testing.T) {
+	platforms, servers, lifecycle, platform := newDeleteHarness()
+	canceler := &recordingPlatformOperationCanceler{}
+	service := NewPlatformService(platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
+	service.AttachOperationCanceler(canceler)
+
+	if err := service.Delete(context.Background(), platform.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !canceler.called || canceler.platformID != platform.ID {
+		t.Errorf("canceler called=%v platform=%q, want true and %q", canceler.called, canceler.platformID, platform.ID)
+	}
+	if _, ok := platforms.platforms[platform.ID]; ok {
+		t.Error("platform record remains after delete")
+	}
+}
+
+func TestDeleteAbortsWhenOperationCancellationFails(t *testing.T) {
+	platforms, servers, lifecycle, platform := newDeleteHarness()
+	canceler := &recordingPlatformOperationCanceler{err: errors.New("temporal unavailable")}
+	service := NewPlatformService(platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
+	service.AttachOperationCanceler(canceler)
+
+	if err := service.Delete(context.Background(), platform.ID); err == nil {
+		t.Fatal("expected delete to abort when operation cancellation fails")
+	}
+	// The record must survive so the operator can retry once cancellation is possible; a
+	// deleted platform with still-running operations is exactly the orphaned state to avoid.
+	if _, ok := platforms.platforms[platform.ID]; !ok {
+		t.Error("platform record deleted despite cancellation failure")
+	}
+}
+
 func TestCompleteUninstallKeepsRecordAndClearsOwnedProjections(t *testing.T) {
 	platform := &platformdomain.Platform{
 		ID: "platform-1", SiteID: "site-1", Name: "lab",

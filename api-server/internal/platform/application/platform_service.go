@@ -24,6 +24,9 @@ type PlatformService struct {
 	servers      serverdomain.ServerRepository
 	lifecycle    platformdomain.LifecycleReader
 	integrations platformdomain.ManagedIntegrationCleaner
+	// canceler is optional. When wired, Delete cancels the platform's in-flight durable
+	// operations first so their resource leases are released instead of orphaned.
+	canceler platformdomain.PlatformOperationCanceler
 }
 
 // NewPlatformService constructs the platform application service.
@@ -38,6 +41,13 @@ func NewPlatformService(
 		platforms: platforms, sites: sites, servers: servers,
 		lifecycle: lifecycle, integrations: integrations,
 	}
+}
+
+// AttachOperationCanceler wires in-flight operation cancellation after construction, keeping
+// the operation context out of the platform service's constructor dependencies. It is
+// composed at the API wiring root, where the orchestration service already exists.
+func (s *PlatformService) AttachOperationCanceler(canceler platformdomain.PlatformOperationCanceler) {
+	s.canceler = canceler
 }
 
 // PlatformItem is the public platform projection.
@@ -229,7 +239,9 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 	return &item, nil
 }
 
-// Delete removes the record and projections without touching hosts or accepted operations.
+// Delete removes the record and projections. It first cancels the platform's in-flight
+// durable operations so their resource leases are released and the member servers are freed;
+// leaving them would orphan work that blocks any later deploy or release on those hosts.
 func (s *PlatformService) Delete(ctx context.Context, id string) error {
 	platform, err := s.platforms.FindByID(ctx, id)
 	if err != nil {
@@ -238,6 +250,11 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 	lifecycle, err := s.readLifecycle(ctx, id)
 	if err != nil {
 		return err
+	}
+	if s.canceler != nil {
+		if err := s.canceler.CancelActiveForPlatform(ctx, id); err != nil {
+			return err
+		}
 	}
 	if err := s.clearMemberships(ctx, id); err != nil {
 		return err
