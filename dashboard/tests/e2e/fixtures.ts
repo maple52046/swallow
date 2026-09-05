@@ -162,6 +162,13 @@ export interface FixtureOptions {
   deploymentConvergesAfterRefreshes?: number
   releaseCleanupFails?: boolean
   /**
+   * Leaves a released Server in its "deployed" axis at accept time instead of flipping it to
+   * "releasing" synchronously, modelling the real durable release that dispatches
+   * asynchronously. Subsequent refreshes still converge it, so it exercises the list's
+   * follow-after-release polling rather than the active-axis polling.
+   */
+  deferReleaseProjection?: boolean
+  /**
    * Makes a cancel request drive the Operation to the terminal `canceled` status instead of
    * the default non-terminal `canceling`, so a poll that waits for a Server to clear its
    * active work converges. Off by default to preserve the `canceling`-visible assertion.
@@ -648,8 +655,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         if (options.serverActionFailureIds?.includes(serverId)) continue
         const server = fleet.find((item) => item.id === serverId)
         if (server) {
-          server.provisioning.state = 'releasing'
-          server.provisioning.providerState = 'Releasing'
+          if (!options.deferReleaseProjection) {
+            server.provisioning.state = 'releasing'
+            server.provisioning.providerState = 'Releasing'
+          }
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
         }
         if (body.unbindStaticIPs) {

@@ -146,6 +146,9 @@ const COLUMNS_KEY = "swallow.servers.hidden-columns";
 const PAGE_SIZE_KEY = "swallow.servers.page-size";
 const DEPLOYMENT_POLL_INTERVAL_MS = 2_000;
 const MAX_DEPLOYMENT_POLL_ATTEMPTS = 150;
+// How long to keep polling a just-released Server that is not yet in an active provisioning
+// axis, so the list reflects the release once the durable Operation dispatches.
+const RELEASE_FOLLOW_WINDOW_MS = 180_000;
 
 function readPreference<T>(key: string, fallback: T): T {
   try {
@@ -328,6 +331,12 @@ export function ServersPage() {
     [coarseKeyword, includeAbsent, siteId],
   );
   const { state, reload } = useServerWorkingSet(query);
+  // Servers whose release we just accepted. A durable release Operation runs
+  // asynchronously, so the Server is not yet in an active provisioning axis and the
+  // active-projection poll below will not pick it up. Follow these Servers for a bounded
+  // window so the list reflects the release (deployed -> releasing -> ready) in place,
+  // without the operator manually refreshing.
+  const [followedServerIds, setFollowedServerIds] = useState<readonly string[]>([]);
   useEffect(() => {
     let cancelled = false;
     sites
@@ -356,9 +365,20 @@ export function ServersPage() {
         .join(","),
     [workingSet],
   );
+  // The set of Servers to poll: those already in an active axis, plus recently released
+  // Servers we are following until the durable Operation moves them into one. Deduped so a
+  // Server that becomes active while followed is polled once, not twice.
+  const pollTargetKey = useMemo(() => {
+    const active = activeProjectionTargetKey
+      ? activeProjectionTargetKey.split(",")
+      : [];
+    return Array.from(new Set([...active, ...followedServerIds]))
+      .sort()
+      .join(",");
+  }, [activeProjectionTargetKey, followedServerIds]);
   useEffect(() => {
-    if (!activeProjectionTargetKey) return;
-    const targetIds = activeProjectionTargetKey.split(",");
+    if (!pollTargetKey) return;
+    const targetIds = pollTargetKey.split(",");
     let cancelled = false;
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -376,7 +396,19 @@ export function ServersPage() {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [activeProjectionTargetKey, reload, servers]);
+  }, [pollTargetKey, reload, servers]);
+  // Stop following released Servers after a bounded window. A followed Server keeps being
+  // polled (above) even while it is not in an active axis; once the window elapses it drops
+  // out of the poll set whether or not it ever transitioned (e.g. a release that never
+  // dispatched), so the list does not poll forever.
+  useEffect(() => {
+    if (followedServerIds.length === 0) return;
+    const handle = setTimeout(
+      () => setFollowedServerIds([]),
+      RELEASE_FOLLOW_WINDOW_MS,
+    );
+    return () => clearTimeout(handle);
+  }, [followedServerIds]);
   const filtered = useMemo(
     () => workingSet.filter((server) => matchesServerFilters(server, filters)),
     [filters, workingSet],
@@ -492,11 +524,14 @@ export function ServersPage() {
   const confirmRelease = useCallback(
     async (input: ReleaseServerInput) => {
       if (!releaseTargets?.length) return;
+      const releasedIds = releaseTargets.map((target) => target.serverId);
       // Stay on the Server list after accepting the release; the toast confirms the durable
-      // Operation and reloading lets the list converge in place (releasing -> ready) rather
-      // than yanking the operator to the Operation page.
+      // Operation. Follow the released Servers so the list converges in place
+      // (deployed -> releasing -> ready) rather than yanking the operator to the Operation
+      // page or leaving a stale row until the next manual refresh.
       await bulk.release(releaseTargets, input);
       clearSelection();
+      setFollowedServerIds(releasedIds);
       reload();
     },
     [bulk, clearSelection, releaseTargets, reload],

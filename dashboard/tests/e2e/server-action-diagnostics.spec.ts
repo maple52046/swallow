@@ -134,6 +134,29 @@ test('Server list waits for release cleanup and refreshes addresses and Ephemera
   await expect(page.getByText('Updating active Servers...', { exact: true })).toBeHidden({ timeout: 7_000 })
 })
 
+test('Server list follows a released server that starts deployed until it converges', async ({ page }) => {
+  // Model the real durable release: the Server is not flipped to "releasing" at accept time,
+  // so it is not in an active provisioning axis. The list must still follow it to ready.
+  await installApiFixtures(page, {
+    deferReleaseProjection: true,
+    releaseConvergesAfterRefreshes: 2,
+  })
+  await page.goto('/servers?site=site-a')
+  const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
+  await expect(row.locator('td[data-label="Deployment"]')).toContainText('Deployed')
+
+  await page.getByLabel('Select gpu-node-01').check()
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await chooseMenuItem(page, 'Release')
+  const confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
+  await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/servers(\?|$)/)
+  // The Server stayed "deployed" at accept time, so only the follow-after-release polling
+  // can drive the row to its released state.
+  await expect(row.locator('td[data-label="Deployment"]')).toContainText('Ready', { timeout: 10_000 })
+})
+
 test('Server detail follows Release until the projection becomes ready', async ({ page }) => {
   await installApiFixtures(page, { releaseConvergesAfterRefreshes: 2 })
   await page.goto('/servers/srv-1/summary?site=site-a')
