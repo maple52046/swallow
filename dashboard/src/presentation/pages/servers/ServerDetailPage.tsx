@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Alert, AlertVariant, Button, Flex, Label, Tab, Tabs, TabTitleText } from '@patternfly/react-core'
+import { Alert, AlertVariant, Flex, Label, Tab, Tabs, TabTitleText } from '@patternfly/react-core'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -10,6 +10,7 @@ import { useApp } from '@/di/AppProvider'
 import { DeploymentBadge, HealthBadge, LockBadge } from '@/presentation/components/AxisBadge'
 import { serverDisplayName } from '@/domain/server/list'
 import { ServerActionMenu } from './ServerActionMenu'
+import { DeploymentFailureAlert } from './DeploymentFailureAlert'
 import { useServerDetail } from './useServerDetail'
 
 const TABS = [{ value: 'summary', label: 'Summary' }, { value: 'activity', label: 'Activity' }, { value: 'monitoring', label: 'Monitoring' }, { value: 'network', label: 'Network' }, { value: 'storage', label: 'Storage' }, { value: 'pci', label: 'PCI devices' }]
@@ -111,16 +112,10 @@ export function ServerDetailPage() {
     <PageHeader title={serverDisplayName(server)} breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]} subtitle={`Provider machine ${server.source.providerMachineId}, Site ${server.source.siteId}`} metadata={<Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}><DeploymentBadge axis={server.deployment} provider={server.provisioning} /><LockBadge locked={server.provisioning?.locked ?? false} /><HealthBadge axis={server.health} />{activeProjection && <Label color="blue">Updating...</Label>}{server.absent && <Label color="grey">absent</Label>}</Flex>} actions={<ServerActionMenu server={server} capabilities={detail?.capabilities ?? null} deployDisabledReason={deployDisabledReason} onActed={(action) => { reload(); if (action === 'release') { releaseHandedOffRef.current = false; setReleaseFollow({ id: server.id, token: Date.now() }) } }} />} />
     {server.absent && <Alert variant={AlertVariant.warning} title="Machine is absent from its provisioner" isInline>Swallow retains the projection because inventory absence is commonly transient.</Alert>}
     {server.deployment && ['failed', 'requires_attention'].includes(server.deployment.state) && (
-      <Alert
-        variant={server.deployment.state === 'failed' ? AlertVariant.danger : AlertVariant.warning}
-        title={server.deployment.state === 'failed' ? 'Operating system deployment failed' : 'Operating system deployment requires attention'}
-        isInline
-      >
-        {server.deployment.statusReason || 'Swallow could not verify this deployment.'}{' '}
-        <Button variant="link" isInline onClick={() => navigate(scopedHref(`/operations/${server.deployment?.operationId}`))}>
-          View operation
-        </Button>
-      </Alert>
+      <DeploymentFailureAlert
+        deployment={server.deployment}
+        onViewOperation={() => navigate(scopedHref(`/operations/${server.deployment?.operationId}`))}
+      />
     )}
     <div className="sw-detail-tabs"><Tabs activeKey={current} onSelect={(_event, key) => navigate(scopedHref(`/servers/${server.id}/${String(key)}`))} aria-label="Server details">{TABS.map((tab) => <Tab key={tab.value} eventKey={tab.value} title={<TabTitleText>{tab.label}</TabTitleText>} />)}</Tabs></div>
     <Outlet context={state.data} />

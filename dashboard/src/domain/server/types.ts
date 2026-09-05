@@ -59,6 +59,12 @@ export interface DeploymentAxis {
   operationId: string
   stepId: string
   attempt: number
+  /**
+   * Stable, machine-branchable error code of the failed Step (e.g.
+   * `deployment_address_unavailable`). Lets the UI render a concise root cause without
+   * parsing `statusReason`. Empty for a non-failed deployment.
+   */
+  code: string
   stage: string
   statusReason: string
   startedAt: string

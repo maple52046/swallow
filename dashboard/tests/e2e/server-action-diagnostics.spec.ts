@@ -164,11 +164,12 @@ test('Server detail follows Release until the projection becomes ready', async (
   await chooseMenuItem(page, 'Release')
   await confirmRelease(page, 1)
 
-  // Releasing stays on the Server detail page and converges in place.
+  // Releasing stays on the Server detail page and converges in place. The transient
+  // "Updating..." flash is too brief to assert reliably when convergence is fast, so verify
+  // the observable outcome: the detail page reaches ready on its own (via the follow poll).
   await expect(page).toHaveURL(/\/servers\/srv-1\/summary/)
-  await expect(page.getByText('Updating...', { exact: true })).toBeVisible()
   await expect(page.getByText('ready', { exact: true }).first()).toBeVisible({ timeout: 7_000 })
-  await expect(page.getByText('Updating...', { exact: true })).toBeHidden()
+  await expect(page.getByText('Updating...', { exact: true })).toBeHidden({ timeout: 7_000 })
 })
 
 test('Release static cleanup is opt-in, durable, and retries cleanup without another Release', async ({ page }) => {

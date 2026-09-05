@@ -64,10 +64,13 @@ type ServerGPUItem struct {
 }
 
 type DeploymentAxisItem struct {
-	State        string  `json:"state"`
-	OperationID  string  `json:"operationId"`
-	StepID       string  `json:"stepId"`
-	Attempt      int     `json:"attempt"`
+	State       string `json:"state"`
+	OperationID string `json:"operationId"`
+	StepID      string `json:"stepId"`
+	Attempt     int    `json:"attempt"`
+	// Code is the failed Step's stable error code, so a client can render a concise root
+	// cause without parsing StatusReason. Empty for a non-failed deployment.
+	Code         string  `json:"code"`
 	Stage        string  `json:"stage"`
 	StatusReason string  `json:"statusReason"`
 	StartedAt    string  `json:"startedAt"`
@@ -160,6 +163,7 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 			OperationID:  d.OperationID,
 			StepID:       d.StepID,
 			Attempt:      d.Attempt,
+			Code:         d.Code,
 			Stage:        d.Stage,
 			StatusReason: d.StatusReason,
 			StartedAt:    wire.Time(d.StartedAt),

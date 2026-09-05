@@ -516,6 +516,11 @@ test.describe('operator interactions', () => {
 
     await page.goto('/servers/srv-4/summary?site=site-a')
     await expect(page.getByRole('heading', { name: 'Operating system deployment failed' })).toBeVisible()
+    // The concise, code-keyed root cause is shown; the verbose executor reason is tucked
+    // behind "Show details" instead of dominating the page.
+    await expect(page.getByText('The server did not obtain a network address (DHCP) after the OS was installed.')).toBeVisible()
+    await expect(page.getByText('No provider address was observed after OS installation.')).not.toBeVisible()
+    await page.getByRole('button', { name: 'Show details' }).click()
     await expect(page.getByText('No provider address was observed after OS installation.')).toBeVisible()
     const statusCard = page.locator('.pf-v6-c-card').filter({
       has: page.getByText('Power and provisioning', { exact: true }),

@@ -74,6 +74,11 @@ Full inventory reconciliation additionally clears a Server's terminal deployment
 or abandoned run. An active (`deploying`/`verifying`) or operator-pending
 (`requires_attention`) deployment is left untouched.
 
+A failed or attention-needing deployment axis carries the failed Step's stable error
+`code` (for example `deployment_address_unavailable`) alongside the verbose `statusReason`,
+so a client can render a concise root cause without parsing the message. `code` is empty
+for a non-failed deployment.
+
 `DELETE /servers/{id}` is provider-first and synchronous. It resolves the Server's
 provisioner, deletes the backing Machine, and only then removes the Swallow projection.
 If the provisioner reports that the Machine is already missing, Swallow removes the stale

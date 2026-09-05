@@ -20,8 +20,8 @@ function makeServer(index: number): Server {
     providerResourcePool: hasInventory ? named ? 'accelerators' : 'compute' : '', providerPod: '', tags: hasInventory ? named ? ['gpu', 'production'] : ['compute'] : [],
     hardware: { systemUuid: `uuid-${ordinal}`, serialNumber: `SN${String(ordinal).padStart(4, '0')}`, macAddresses: hasInventory ? [`02:00:00:00:${String(Math.floor(index / 250)).padStart(2, '0')}:${String((index % 250) + 1).padStart(2, '0')}`] : [] },
     deployment: ordinal === 4
-      ? { state: 'failed', operationId: 'op-deploy-failed', stepId: 'provision-srv-4', attempt: 1, stage: 'ssh_readiness', statusReason: 'No provider address was observed after OS installation.', startedAt: now, finishedAt: now, updatedAt: now }
-      : { state: 'succeeded', operationId: `op-os-${ordinal}`, stepId: `provision-srv-${ordinal}`, attempt: 1, stage: '', statusReason: '', startedAt: now, finishedAt: now, updatedAt: now },
+      ? { state: 'failed', operationId: 'op-deploy-failed', stepId: 'provision-srv-4', attempt: 1, code: 'deployment_address_unavailable', stage: 'ssh_readiness', statusReason: 'No provider address was observed after OS installation.', startedAt: now, finishedAt: now, updatedAt: now }
+      : { state: 'succeeded', operationId: `op-os-${ordinal}`, stepId: `provision-srv-${ordinal}`, attempt: 1, code: '', stage: '', statusReason: '', startedAt: now, finishedAt: now, updatedAt: now },
     provisioning: { state: 'deployed', providerState: 'deployed', powerState: 'on', osSystem: 'ubuntu', distroSeries: '24.04', ephemeral: false, hweKernel: 'ga-24.04', locked: false, commissioningStatus: 'passed', testingStatus: 'passed', integrationId: 'maas-a', observedAt: now },
     membership: ordinal <= 3 ? { platformId: 'platform-a', nodeName: `gpu-node-0${ordinal}`, role: 'control-plane', state: 'ready', observedAt: now } : null,
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
@@ -385,6 +385,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           operationId: id,
           stepId: `provision-${serverId}`,
           attempt: 1,
+          code: failed
+            ? options.providerFailureRetryable ? 'provider_unavailable' : 'provider_rejected'
+            : '',
           stage: failed ? 'deployment' : '',
           statusReason: failed
             ? options.providerFailureRetryable ? 'MAAS is temporarily unavailable.' : 'Machine reservation changed.'

@@ -93,8 +93,9 @@ func (e providerStepExecutor) setDeployment(ctx context.Context, input temporalw
 	if current := server.Deployment; current != nil && current.OperationID == input.OperationID && current.StepID == input.Step.ID && current.Attempt == input.Step.Attempt {
 		startedAt = current.StartedAt
 	}
-	stage, reason := "", ""
+	code, stage, reason := "", "", ""
 	if failure != nil {
+		code = failure.Code
 		stage = failure.Stage
 		reason = failure.Message
 	}
@@ -107,6 +108,7 @@ func (e providerStepExecutor) setDeployment(ctx context.Context, input temporalw
 		OperationID:  input.OperationID,
 		StepID:       input.Step.ID,
 		Attempt:      input.Step.Attempt,
+		Code:         code,
 		Stage:        stage,
 		StatusReason: reason,
 		StartedAt:    startedAt,

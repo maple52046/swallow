@@ -81,6 +81,7 @@ type deploymentDoc struct {
 	OperationID  string     `bson:"operationId"`
 	StepID       string     `bson:"stepId"`
 	Attempt      int        `bson:"attempt"`
+	Code         string     `bson:"code,omitempty"`
 	Stage        string     `bson:"stage,omitempty"`
 	StatusReason string     `bson:"statusReason,omitempty"`
 	StartedAt    time.Time  `bson:"startedAt"`
@@ -443,6 +444,7 @@ func (r *MongoServerRepo) SetDeployment(ctx context.Context, id string, deployme
 			OperationID:  deployment.OperationID,
 			StepID:       deployment.StepID,
 			Attempt:      deployment.Attempt,
+			Code:         deployment.Code,
 			Stage:        deployment.Stage,
 			StatusReason: deployment.StatusReason,
 			StartedAt:    deployment.StartedAt,
@@ -520,6 +522,7 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 			OperationID:  d.OperationID,
 			StepID:       d.StepID,
 			Attempt:      d.Attempt,
+			Code:         d.Code,
 			Stage:        d.Stage,
 			StatusReason: d.StatusReason,
 			StartedAt:    d.StartedAt,
@@ -609,6 +612,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			OperationID:  d.OperationID,
 			StepID:       d.StepID,
 			Attempt:      d.Attempt,
+			Code:         d.Code,
 			Stage:        d.Stage,
 			StatusReason: d.StatusReason,
 			StartedAt:    d.StartedAt,

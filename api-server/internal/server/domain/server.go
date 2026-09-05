@@ -190,10 +190,14 @@ const (
 // DeploymentStatus materializes one durable provision-os Step on its Server.
 // StatusReason is normalized by Swallow and contains no credentials or secrets.
 type DeploymentStatus struct {
-	State        DeploymentState
-	OperationID  string
-	StepID       string
-	Attempt      int
+	State       DeploymentState
+	OperationID string
+	StepID      string
+	Attempt     int
+	// Code is the failed Step's stable, machine-branchable error code (for example
+	// "deployment_address_unavailable"). It lets a client render a concise root cause
+	// without parsing the verbose StatusReason. Empty for a non-failed deployment.
+	Code         string
 	Stage        string
 	StatusReason string
 	StartedAt    time.Time
