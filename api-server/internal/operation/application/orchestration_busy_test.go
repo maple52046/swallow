@@ -8,16 +8,16 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
-// busyOrchestrationRepo reports every target as already inside an unfinished Operation.
+// busyWorkflowRepo reports every target as already inside an unfinished Operation.
 // Only List is exercised: Create returns at the active-work guard before any other
 // repository method is reached, so the embedded nil interface is never dereferenced.
-type busyOrchestrationRepo struct {
-	operationdomain.OrchestrationRepository
+type busyWorkflowRepo struct {
+	operationdomain.WorkflowRepository
 }
 
-func (busyOrchestrationRepo) List(
-	context.Context, operationdomain.OrchestrationFilter,
-) ([]*operationdomain.OperationV3, int, error) {
+func (busyWorkflowRepo) List(
+	context.Context, operationdomain.WorkflowFilter,
+) ([]*operationdomain.Workflow, int, error) {
 	return nil, 1, nil
 }
 
@@ -27,15 +27,15 @@ func (busyOrchestrationRepo) List(
 // ErrInvalidOperation, which the provisioning delivery mapper would otherwise leak as an
 // opaque Internal error.
 func TestCreateClassifiesActiveDurableWorkAsBusyConflict(t *testing.T) {
-	service := NewOrchestrationService(busyOrchestrationRepo{}, nil)
+	service := NewWorkflowService(busyWorkflowRepo{}, nil)
 
-	_, err := service.Create(context.Background(), CreateOrchestrationInput{
-		Kind:              operationdomain.OperationKindReleaseOS,
+	_, err := service.Create(context.Background(), CreateWorkflowInput{
+		Kind:              operationdomain.WorkflowKindReleaseOS,
 		Definition:        "os-release",
 		DefinitionVersion: 1,
 		SiteID:            "site-1",
 		TargetServerIDs:   []string{"server-1"},
-		Steps: []operationdomain.OperationStep{{
+		Steps: []operationdomain.Task{{
 			ID: "release-server-1", Kind: "release-os", Name: "Release server-1",
 		}},
 	})

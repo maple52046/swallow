@@ -54,7 +54,7 @@ export function OperatorOperationDetailPage() {
           "A new Operation was created with the same intent and targets.",
         tone: "success",
       });
-      navigate(scopedHref(`/operations/${created.id}`));
+      navigate(scopedHref(`/workflows/${created.id}`));
     } catch (error) {
       showToast({
         title: "Retry failed",
@@ -127,7 +127,7 @@ export function OperatorOperationDetailPage() {
                 isInline
                 onClick={() =>
                   navigate(
-                    scopedHref(`/operations/${operation.retryOfOperationId}`),
+                    scopedHref(`/workflows/${operation.retryOfOperationId}`),
                   )
                 }
               >
@@ -152,7 +152,7 @@ export function OperatorOperationDetailPage() {
       <PageHeader
         title={operation.intent || operation.execution.playbook}
         breadcrumbs={[
-          { label: "Operations", href: scopedHref("/operations") },
+          { label: "Workflows", href: scopedHref("/workflows") },
           { label: operation.id },
         ]}
         subtitle={`${operation.kind} - ${operation.execution.playbook}`}

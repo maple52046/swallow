@@ -66,13 +66,13 @@ func TestUpdateOperationWorkflowV1ReplayFixture(t *testing.T) {
 		ID: workflowID, TaskQueue: taskQueue,
 		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}, WorkflowNameV1, WorkflowInput{
-		OperationID: "fixture-operation-v1", Kind: operationdomain.OperationKindCustom,
+		OperationID: "fixture-operation-v1", Kind: operationdomain.WorkflowKindCustom,
 		SiteID: "fixture-site", Definition: "fixture.noop", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:fixture"},
-		Steps: []operationdomain.OperationStep{{
+		Steps: []operationdomain.Task{{
 			ID: "noop", Kind: "noop", Name: "No external side effect",
-			Executor: operationdomain.StepExecutorInternal,
-			Status:   operationdomain.StepPending, Attempt: 1,
+			Executor: operationdomain.RunnerKindInternal,
+			Status:   operationdomain.TaskPending, Attempt: 1,
 		}},
 	})
 	if err != nil {
@@ -120,6 +120,6 @@ func registerFixtureActivities(temporalWorker worker.Worker) {
 	temporalWorker.RegisterActivityWithOptions(func(context.Context, StepUpdate) error { return nil },
 		activity.RegisterOptions{Name: ActivityUpdateStep})
 	temporalWorker.RegisterActivityWithOptions(func(context.Context, StepExecutionInput) (StepExecutionResult, error) {
-		return StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}, nil
+		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}, nil
 	}, activity.RegisterOptions{Name: ActivityExecuteStep})
 }

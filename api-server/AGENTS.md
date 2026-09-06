@@ -55,7 +55,7 @@ must not describe the task as complete unless this pass has been performed.
 
 ## API Work
 
-Swallow contains the platform's only API-owning component. When the task reads,
+This component is swallow's only API-owning component. When the task reads,
 creates, modifies, deprecates, deletes, consumes, or validates API behavior,
 read and maintain:
 
@@ -74,7 +74,7 @@ truth, and implementation must not define API behavior that is absent from it.
 
 ## Component Boundary
 
-This directory is the `api-server` platform component: the Data Center API
+This directory is the `api-server` component: the Data Center API
 Service — an HTTP REST API plus the background reconcile / poll loops that own
 intent, policy, and identity mapping.
 
@@ -86,11 +86,11 @@ root's `docs/decisions/001-system-ownership-boundaries.md`.)
 
 ## Domain Language
 
-Names in code must match the platform ubiquitous language. This component's domain
-terminology is owned by the platform glossary at the repository root
+Names in code must match swallow's ubiquitous language. This component's domain
+terminology is owned by swallow's glossary at the repository root
 (`docs/development/glossaries/`), not by this component. When a task introduces or
 changes a domain term, entity, status value, or data model concept, confirm the
-term against the platform glossary first; if the term is missing or ambiguous,
+term against swallow's glossary first; if the term is missing or ambiguous,
 resolve it there before implementing.
 
 ## Plans

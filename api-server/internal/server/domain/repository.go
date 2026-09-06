@@ -60,12 +60,14 @@ type ServerRepository interface {
 	Upsert(ctx context.Context, server *Server) error
 
 	// MarkAbsent flags every server of one integration not touched by the reconcile
-	// pass that started at seenBefore.
+	// pass that started at seenBefore, and returns the IDs that transitioned to absent.
 	//
 	// A sweep by timestamp rather than a list of present IDs: a fleet's inventory can
 	// be thousands of machines, and passing them all back as an exclusion set on
-	// every pass scales badly for no benefit.
-	MarkAbsent(ctx context.Context, integrationID string, seenBefore time.Time) (int, error)
+	// every pass scales badly for no benefit. The returned IDs are only those newly
+	// flipped to absent (not those already absent), so a live consumer can drop exactly
+	// the rows that just disappeared; callers that only need the count use len().
+	MarkAbsent(ctx context.Context, integrationID string, seenBefore time.Time) ([]string, error)
 
 	// SetMembership replaces the membership axis, or clears it when membership is nil.
 	SetMembership(ctx context.Context, id string, membership *MembershipStatus) error

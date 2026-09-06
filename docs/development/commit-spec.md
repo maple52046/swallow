@@ -32,7 +32,7 @@ machine-readable history and maps cleanly onto SemVer.
 ## Scope
 
 An optional noun in parentheses describing the affected area. In this repository
-the natural scopes are the platform component or the shared document category:
+the natural scopes are the component or the shared document category:
 
 - Platform component: `api-server`, `dashboard`.
 - Shared documents / areas: `glossary`, `contracts`, `docs`, `standards`, `deploy`.

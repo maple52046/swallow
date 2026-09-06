@@ -204,7 +204,7 @@ func NewService(source Source, clock Clock) *Service {
 
 // Execute builds a site-scoped snapshot. Monitoring-provider failure is returned inside
 // Result; every other source failure aborts so partial durable inventory is never mistaken
-// for a complete platform view.
+// for a complete swallow-wide view.
 func (s *Service) Execute(ctx context.Context, siteID string) (Result, error) {
 	var result Result
 	generatedAt := s.clock.Now().UTC()

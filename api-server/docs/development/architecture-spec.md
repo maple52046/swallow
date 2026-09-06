@@ -19,12 +19,9 @@
 
 ## Component Boundary
 
-本 source project 同時承載兩個 platform component：
+`api-server` 是 swallow monorepo 中的一個 component：Data Center API Service，提供 swallow 的 HTTP REST API 與背景 reconcile / poll 迴圈。
 
-- `api-server` — Data Center API Service，提供 HTTP REST API 與 agent 用的 gRPC service。
-- `agent` — 節點端 runtime，負責身分解析、環境探測與對 `api-server` 的 outbound stream。
-
-共用 source project **不等於** 共用 component 邊界。修改程式碼或契約前，必須先辨識受影響的 component，並在該 component 的責任範圍內工作。`api-server` 是 API provider 並擁有 API contract；`agent` 是 consumer。
+同一個 monorepo **不等於** 共用 component 邊界。修改程式碼或契約前，必須先辨識受影響的 component，並在該 component 的責任範圍內工作。`api-server` 是 API provider 並擁有 API contract；`dashboard` 是下游 consumer。（早期的節點端 `agent` component 已依 [ADR 001](../../../docs/decisions/001-system-ownership-boundaries.md) 退場。）
 
 ## Dependency Rule
 
@@ -247,7 +244,7 @@ Config 只有一個方向：`config` package 從 file、env、flag、default 組
 
 AI agent 新增或修改本 project 程式碼時必須遵守以下規則：
 
-- 修改前先判斷受影響的 platform component（`api-server` 或 `agent`），再判斷目標程式碼屬於 entity、use case、interface adapter 或 framework/driver。
+- 修改前先確認工作屬於 `api-server` component，再判斷目標程式碼屬於 entity、use case、interface adapter 或 framework/driver。
 - 新增 import 時檢查依賴方向；內層不得 import 外層。
 - 新增跨層資料傳遞時，確認資料格式由內層定義或對內層友善。
 - 新增外部工具、framework、SDK、DB 或 transport 整合時，只能放在外層，並透過 port/interface 連接內層。

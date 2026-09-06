@@ -1,5 +1,7 @@
 # 002 — Server Identity and the Three Status Axes
 
+- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated)
+
 ## Decision
 
 **A server has three layers of identity, and its status is three independent axes.**
@@ -212,4 +214,4 @@ redesign than before it. The existing naming rule was right.
 
 - [001 — System Ownership Boundaries](001-system-ownership-boundaries.md)
 - [003 — Metrics Label Contract](003-metrics-label-contract.md)
-- [`docs/glossaries/provisioning.md`](../glossaries/provisioning.md)
+- [Glossary: Server term](../development/glossaries/terms/server.md)

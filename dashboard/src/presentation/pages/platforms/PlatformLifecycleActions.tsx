@@ -144,7 +144,7 @@ export function PlatformLifecycleActions({
             ? `k0s will be removed and ${cleaned} released to the provider.`
             : `${cleaned} will be cleaned.`,
         })
-        navigate(scopedHref(`/operations/${accepted.operationId}`))
+        navigate(scopedHref(`/workflows/${accepted.operationId}`))
         return
       }
 

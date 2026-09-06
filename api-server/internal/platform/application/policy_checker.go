@@ -31,16 +31,16 @@ func NewPolicyChecker(
 // something that platform owns.
 func (c *PolicyChecker) CheckOperation(
 	ctx context.Context,
-	kind operationdomain.OperationKind,
+	kind operationdomain.WorkflowKind,
 	platformID string,
 	serverIDs []string,
 ) error {
-	if kind == operationdomain.OperationKindUninstallKubernetes && platformID == "" {
+	if kind == operationdomain.WorkflowKindUninstallKubernetes && platformID == "" {
 		return fmt.Errorf("%w: uninstall-kubernetes requires a platformId",
 			operationdomain.ErrPolicyConflict)
 	}
-	if (kind == operationdomain.OperationKindDeployKubernetes ||
-		kind == operationdomain.OperationKindUninstallKubernetes) && platformID != "" {
+	if (kind == operationdomain.WorkflowKindDeployKubernetes ||
+		kind == operationdomain.WorkflowKindUninstallKubernetes) && platformID != "" {
 		if _, err := c.platforms.FindByID(ctx, platformID); err != nil {
 			if errors.Is(err, platformdomain.ErrPlatformNotFound) {
 				return fmt.Errorf("%w: platform %s no longer exists",
@@ -52,7 +52,7 @@ func (c *PolicyChecker) CheckOperation(
 
 	// Only driver installation is contested today. Deploying a platform or configuring
 	// Slurm does not touch anything a GPU operator manages.
-	if kind != operationdomain.OperationKindInstallGPUDriver {
+	if kind != operationdomain.WorkflowKindInstallGPUDriver {
 		return nil
 	}
 

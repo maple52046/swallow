@@ -2,7 +2,7 @@
 // defines rather than observes.
 //
 // No external system knows the set of sites, and none knows which other systems swallow
-// should talk to. Everything else in the platform is a projection of, or a reference
+// should talk to. Everything else in swallow is a projection of, or a reference
 // into, one of the integrations registered here.
 package domain
 

@@ -1,6 +1,6 @@
 # swallow
 
-Backend control plane for the Swallow platform.
+Backend control plane for swallow.
 
 ## What this service is
 
@@ -16,7 +16,7 @@ touched by this versioned operation.
 That correlation is the product. Everything else is someone else's job.
 
 Read [`docs/decisions/001-system-ownership-boundaries.md`](../../docs/decisions/001-system-ownership-boundaries.md)
-in the platform repository before adding anything that stores state. Most feature ideas
+in the swallow repository before adding anything that stores state. Most feature ideas
 for this service are already ruled out there, because something else owns the facts.
 
 ## Integrations
@@ -172,5 +172,5 @@ go build -o bin/swallow ./cmd/swallow
 
 - [`docs/apis.md`](docs/apis.md) — implemented endpoints.
 - [`docs/config-example.yaml`](docs/config-example.yaml) — annotated config.
-- [`docs/decisions/`](../../docs/decisions) in the platform repository — the binding
+- [`docs/decisions/`](../../docs/decisions) in the swallow repository — the binding
   decisions this service implements, including what was rejected and why.

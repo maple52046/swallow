@@ -52,7 +52,7 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 		return result
 	case "release-os":
 		result := e.releaseServer(ctx, input)
-		if result.Status == operationdomain.StepSucceeded {
+		if result.Status == operationdomain.TaskSucceeded {
 			serverID := firstTargetServer(input.Step)
 			if serverID != "" {
 				if err := e.servers.SetDeployment(ctx, serverID, nil); err != nil {
@@ -69,13 +69,13 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 func (e providerStepExecutor) finishDeployment(ctx context.Context, input temporalworkflow.StepExecutionInput, serverID string, result temporalworkflow.StepExecutionResult) error {
 	state := serverdomain.DeploymentDeploying
 	switch result.Status {
-	case operationdomain.StepSucceeded:
+	case operationdomain.TaskSucceeded:
 		state = serverdomain.DeploymentSucceeded
-	case operationdomain.StepFailed:
+	case operationdomain.TaskFailed:
 		state = serverdomain.DeploymentFailed
-	case operationdomain.StepRequiresAttention:
+	case operationdomain.TaskRequiresAttention:
 		state = serverdomain.DeploymentRequiresAttention
-	case operationdomain.StepCanceled:
+	case operationdomain.TaskCanceled:
 		state = serverdomain.DeploymentCanceled
 	default:
 		return nil
@@ -222,7 +222,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 		select {
 		case <-ctx.Done():
 			e.abort(serverID)
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepCanceled}
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
 			if !readinessDeadline.IsZero() {
 				return deploymentReadinessFailed(lastReadiness)
@@ -333,7 +333,7 @@ func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Contex
 		return normalizeProviderError(err, "deployment_recovery_release")
 	}
 	released := e.observeRelease(ctx, serverID, step.OperationID, false, true)
-	if released.Status != operationdomain.StepSucceeded {
+	if released.Status != operationdomain.TaskSucceeded {
 		return released
 	}
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
@@ -416,7 +416,7 @@ func (e providerStepExecutor) observeRelease(ctx context.Context, serverID, oper
 		select {
 		case <-ctx.Done():
 			e.abort(serverID)
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepCanceled}
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
 			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "release")
 		case <-ticker.C:
@@ -460,7 +460,7 @@ func (e providerStepExecutor) observeReleaseCleanup(ctx context.Context, serverI
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepCanceled}
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-ticker.C:
 		}
 	}
@@ -504,7 +504,7 @@ func decodeStepRequest(parameters map[string]any, target any) error {
 	return nil
 }
 
-func firstTargetServer(step operationdomain.OperationStep) string {
+func firstTargetServer(step operationdomain.Task) string {
 	for _, target := range step.Targets {
 		if target.Kind == "server" {
 			return target.ID
@@ -527,19 +527,19 @@ type providerResult struct {
 }
 
 func providerSucceeded() temporalworkflow.StepExecutionResult {
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 }
 
 func providerFailed(code, message string, retryable bool) providerResult {
 	if strings.TrimSpace(message) == "" {
 		message = "The provider Step failed."
 	}
-	return providerResult{temporalworkflow.StepExecutionResult{Status: operationdomain.StepFailed,
+	return providerResult{temporalworkflow.StepExecutionResult{Status: operationdomain.TaskFailed,
 		Error: &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}}}
 }
 
 func providerAttention(code, message, stage string) temporalworkflow.StepExecutionResult {
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.StepRequiresAttention,
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskRequiresAttention,
 		Error: &operationdomain.NormalizedError{Code: code, Message: message, Retryable: true, Stage: stage}}
 }
 

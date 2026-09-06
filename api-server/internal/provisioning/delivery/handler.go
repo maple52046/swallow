@@ -378,7 +378,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 			"This integration has no credential configured."))
 
 	// The durable deploy/release handlers delegate acceptance to the operation
-	// OrchestrationService, so its client-safe failures reach this mapper. Translate
+	// WorkflowService, so its client-safe failures reach this mapper. Translate
 	// them with the same classification the operation delivery mapper uses instead of
 	// letting them fall through to the opaque Internal error. fallback: a busy or
 	// locked target is a 409 conflict, and a rejected operation request is a 400.
@@ -386,7 +386,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrTargetLocked),
 		errors.Is(err, operationdomain.ErrPolicyConflict),
-		errors.Is(err, operationdomain.ErrOperationControlConflict):
+		errors.Is(err, operationdomain.ErrWorkflowControlConflict):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
 	case errors.Is(err, operationapp.ErrInvalidOperation),

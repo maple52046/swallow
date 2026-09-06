@@ -115,10 +115,16 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("integration repo init: %w", err)
 	}
-	serverRepo, err := serverinfra.NewMongoServerRepo(db)
+	mongoServerRepo, err := serverinfra.NewMongoServerRepo(db)
 	if err != nil {
 		return fmt.Errorf("server repo init: %w", err)
 	}
+	// One in-process broker fans Server changes out to SSE subscribers. Wrapping the sole
+	// persistence adapter here makes every write in this process (reconcile, refresh,
+	// delete) publish; cross-process writes from the worker (deployment/membership) surface
+	// through the reconcile pump within its interval, deduplicated by the broker.
+	serverEventBroker := serverinfra.NewServerEventBroker()
+	serverRepo := serverinfra.NewEventingServerRepository(mongoServerRepo, serverEventBroker)
 	templateRepo, err := provisioninginfra.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("deployment template repo init: %w", err)
@@ -131,7 +137,7 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("operation repo init: %w", err)
 	}
-	orchestrationRepo, err := operationinfra.NewMongoOrchestrationRepo(db)
+	orchestrationRepo, err := operationinfra.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return fmt.Errorf("orchestration repo init: %w", err)
 	}
@@ -181,6 +187,9 @@ func RunAPI(cfg config.APIConfig) error {
 		serverapp.NewListServersUseCase(serverRepo, healthResolver),
 		serverapp.NewGetServerUseCase(serverRepo, healthResolver),
 	)
+	// The SSE stream pushes Server projection changes so the dashboard patches rows live
+	// instead of re-reading the whole list.
+	serverStreamHandler := serverdelivery.NewServerStreamHandler(serverEventBroker)
 
 	providerFactory := provisioninginfra.NewProviderFactory(integrationRepo)
 	serverProtection := providerServerMutationGuard{
@@ -241,11 +250,11 @@ func RunAPI(cfg config.APIConfig) error {
 	automationService := operationapp.NewAutomationConfigurationService(
 		automationRepo, siteRepo, catalog,
 	)
-	orchestrationService := operationapp.NewOrchestrationService(
+	orchestrationService := operationapp.NewWorkflowService(
 		orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
 	)
 	orchestrationService.AttachLeaseReader(operationinfra.NewMongoResourceLeaseRepo(db))
-	operationService.AttachOrchestration(orchestrationService)
+	operationService.AttachWorkflow(orchestrationService)
 	// Deleting a platform cancels its in-flight durable operations so their leases are
 	// released and the member servers are freed rather than left blocked by orphaned work.
 	platformService.AttachOperationCanceler(platformOperationCanceler{orchestrations: orchestrationService})
@@ -280,7 +289,6 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	platformHandler := platformdelivery.NewPlatformHandler(
 		platformService, membershipSync, deployService, uninstallService)
-	deploymentCredentials := platformapp.NewDeploymentCredentialService(platformRepo, integrationRepo, membershipSync)
 
 	// Auto-install exporters when a server reaches the deployed state and its effective
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
@@ -292,16 +300,9 @@ func RunAPI(cfg config.APIConfig) error {
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase)
-	dispatcher := operationapp.NewDispatcher(
-		operationRepo, operationinfra.NewMongoSiteLeaseRepo(db), automationRepo,
-		catalog, runner, executionInventoryAdapter{discovery: discoveryUseCase},
-		platformDeploymentObserver{
-			credentials: deploymentCredentials, platforms: platformService,
-			operations: operationService, servers: serverRepo,
-		},
-		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration,
-		serverProtection,
-	)
+	// The v2 embedded dispatcher and Mongo site lease were removed (ADR 016/017): Temporal
+	// is the sole execution engine, and per-resource fencing leases replace the site lease.
+	// Historical schema-v2 records remain readable through ExecutionService.
 
 	fiberApp := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -342,6 +343,7 @@ func RunAPI(cfg config.APIConfig) error {
 		overview:       overviewHandler,
 		sites:          siteHandler,
 		servers:        serverHandler,
+		serverStream:   serverStreamHandler,
 		provisioning:   provisioningHandler,
 		operations:     operationHandler,
 		monitoring:     monitoringHandler,
@@ -361,7 +363,6 @@ func RunAPI(cfg config.APIConfig) error {
 	go taskWorker.Run(ctx)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
-	go dispatcher.Run(ctx)
 	go orchestrationStarter.Run(ctx)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
 
@@ -390,6 +391,7 @@ type routeDeps struct {
 	overview       *overviewdelivery.Handler
 	sites          *sitedelivery.SiteHandler
 	servers        *serverdelivery.ServerHandler
+	serverStream   *serverdelivery.ServerStreamHandler
 	provisioning   *provisioningdelivery.ProvisioningHandler
 	operations     *operationdelivery.ExecutionHandler
 	monitoring     *monitoringdelivery.MonitoringHandler
@@ -489,6 +491,16 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// Servers cannot be created directly: reconciliation projects provisioner inventory.
 	// Explicit deletion is provider-backed so the next pass cannot recreate the record.
 	// Lifecycle actions are addressed by server because that is the identifier callers hold.
+	// Live Server change stream (SSE). Registered before the "/servers" group so its static
+	// path is unambiguous next to "/servers/:id", and with its own middleware order because a
+	// browser EventSource cannot send an Authorization header: the access token arrives in a
+	// query parameter, which BearerTokenFromQuery promotes to a Bearer header before Auth.
+	v1.Get("/servers/stream",
+		middleware.BearerTokenFromQuery("access_token"),
+		middleware.Auth(deps.jwtSvc),
+		middleware.AdminOnly(),
+		deps.serverStream.Stream)
+
 	servers := v1.Group("/servers", admin...)
 	servers.Get("/", deps.servers.List)
 	servers.Get("/:id", deps.servers.Get)
@@ -556,7 +568,27 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	monitoring.Get("/metrics", deps.monitoring.ServerMetrics)
 	monitoring.Get("/metrics/names", deps.monitoring.MetricNames)
 
+	// Canonical Workflow surface (ADR 017). A Workflow is a DAG of Tasks.
+	workflows := v1.Group("/workflows", admin...)
+	workflows.Post("/", deps.operations.Create)
+	workflows.Get("/", deps.operations.List)
+	workflows.Get("/:id", deps.operations.Get)
+	workflows.Get("/:id/timeline", deps.operations.Timeline)
+	workflows.Post("/:id/cancel", deps.operations.Cancel)
+	workflows.Post("/:id/tasks/:taskId/retry", deps.operations.RetryStep)
+	workflows.Get("/:id/tasks/:taskId/logs", deps.operations.StepLogs)
+	workflows.Get("/:id/tasks/:taskId/events", deps.operations.StepEvents)
+	workflows.Get("/:id/tasks/:taskId/artifacts", deps.operations.StepArtifacts)
+
+	// Deprecated /operations alias for one release (ADR 017). Same handlers; the
+	// Deprecation header points clients at the canonical /workflows surface. The v2
+	// operation-level logs/events/retry remain only on this legacy path.
 	operations := v1.Group("/operations", admin...)
+	operations.Use(func(c *fiber.Ctx) error {
+		c.Set("Deprecation", "true")
+		c.Set("Link", `</api/v1/workflows>; rel="successor-version"`)
+		return c.Next()
+	})
 	operations.Post("/", deps.operations.Create)
 	operations.Get("/", deps.operations.List)
 	operations.Get("/:id", deps.operations.Get)

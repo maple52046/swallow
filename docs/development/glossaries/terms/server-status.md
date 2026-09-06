@@ -1,6 +1,6 @@
 # Server Status
 
-- Bounded context: Platform-wide, authoritative for `api-server` and `dashboard`.
+- Bounded context: swallow-wide, authoritative for `api-server` and `dashboard`.
 - Definition: A server has **no single status**. Its condition is **three independent axes**, each owned by a different external system, each carrying its own `observedAt`, and each absent until its owner has been observed at least once.
 - Allowed meaning: The three axes are:
 

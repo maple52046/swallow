@@ -10,14 +10,14 @@ import (
 )
 
 type legacyProjectionOperationRepo struct {
-	operationdomain.OrchestrationRepository
-	operations []*operationdomain.OperationV3
+	operationdomain.WorkflowRepository
+	operations []*operationdomain.Workflow
 }
 
 func (r *legacyProjectionOperationRepo) List(
 	context.Context,
-	operationdomain.OrchestrationFilter,
-) ([]*operationdomain.OperationV3, int, error) {
+	operationdomain.WorkflowFilter,
+) ([]*operationdomain.Workflow, int, error) {
 	return r.operations, len(r.operations), nil
 }
 
@@ -32,9 +32,9 @@ func TestServerDeploymentObserverKeepsProviderFactSeparateFromVerifiedFailure(t 
 	observer := serverDeploymentStepObserver{
 		servers: &deploymentProjectionTestRepo{server: server},
 	}
-	err := observer.ObserveStep(context.Background(), "operation-id", operationdomain.OperationStep{
+	err := observer.ObserveStep(context.Background(), "operation-id", operationdomain.Task{
 		ID: "provision-server", Kind: "provision-os", Attempt: 1,
-		Status:  operationdomain.StepFailed,
+		Status:  operationdomain.TaskFailed,
 		Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
 		Error: &operationdomain.NormalizedError{
 			Code: "deployment_ssh_unreachable", Message: "SSH could not be reached.",
@@ -64,8 +64,8 @@ func TestServerDeploymentObserverClearsResultAfterSuccessfulRelease(t *testing.T
 	observer := serverDeploymentStepObserver{
 		servers: &deploymentProjectionTestRepo{server: server},
 	}
-	err := observer.ObserveStep(context.Background(), "release-operation", operationdomain.OperationStep{
-		ID: "release-server", Kind: "release-os", Status: operationdomain.StepSucceeded,
+	err := observer.ObserveStep(context.Background(), "release-operation", operationdomain.Task{
+		ID: "release-server", Kind: "release-os", Status: operationdomain.TaskSucceeded,
 		Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
 	})
 	if err != nil {
@@ -86,19 +86,19 @@ func TestLegacyPlatformReadinessFailureProjectsPerServerDeploymentFailure(t *tes
 		},
 	}
 	serverRepo := &deploymentProjectionTestRepo{server: server}
-	operations := &legacyProjectionOperationRepo{operations: []*operationdomain.OperationV3{{
-		ID: "operation-id", Kind: operationdomain.OperationKindDeployKubernetes,
+	operations := &legacyProjectionOperationRepo{operations: []*operationdomain.Workflow{{
+		ID: "operation-id", Kind: operationdomain.WorkflowKindDeployKubernetes,
 		SiteID: "site-id", RequestedAt: now,
-		Steps: []operationdomain.OperationStep{
+		Steps: []operationdomain.Task{
 			{
 				ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
-				Status:    operationdomain.StepSucceeded,
+				Status:    operationdomain.TaskSucceeded,
 				Targets:   []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
 				StartedAt: &now, FinishedAt: &now,
 			},
 			{
 				ID: "wait-for-ssh", Kind: "wait-for-ssh", Attempt: 1,
-				Status:  operationdomain.StepFailed,
+				Status:  operationdomain.TaskFailed,
 				Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
 				Error: &operationdomain.NormalizedError{
 					Code: "ssh_readiness_timeout", Stage: "ssh_readiness",

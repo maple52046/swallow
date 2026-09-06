@@ -383,9 +383,11 @@ export function ServersPage() {
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
+      // Nudge the backend to re-observe each active Server live; the resulting projection
+      // write is delivered back through the SSE stream and patched into the list by
+      // useServerWorkingSet, so this no longer refetches the whole list.
       await refreshServerProjections(servers, targetIds);
       if (cancelled) return;
-      reload();
       attempts += 1;
       if (attempts < MAX_DEPLOYMENT_POLL_ATTEMPTS) {
         timer = setTimeout(() => void tick(), DEPLOYMENT_POLL_INTERVAL_MS);
@@ -396,7 +398,7 @@ export function ServersPage() {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [pollTargetKey, reload, servers]);
+  }, [pollTargetKey, servers]);
   // Stop following released Servers after a bounded window. A followed Server keeps being
   // polled (above) even while it is not in an active axis; once the window elapses it drops
   // out of the poll set whether or not it ever transitioned (e.g. a release that never

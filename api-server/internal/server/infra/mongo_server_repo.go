@@ -371,19 +371,37 @@ func (r *MongoServerRepo) Upsert(ctx context.Context, server *serverdomain.Serve
 	return err
 }
 
-func (r *MongoServerRepo) MarkAbsent(ctx context.Context, integrationID string, seenBefore time.Time) (int, error) {
-	result, err := r.col.UpdateMany(ctx,
-		bson.M{
-			"source.integrationId": integrationID,
-			"lastSeenAt":           bson.M{"$lt": seenBefore},
-			"absent":               false,
-		},
-		bson.M{"$set": bson.M{"absent": true, "updatedAt": time.Now().UTC()}},
-	)
-	if err != nil {
-		return 0, err
+func (r *MongoServerRepo) MarkAbsent(ctx context.Context, integrationID string, seenBefore time.Time) ([]string, error) {
+	filter := bson.M{
+		"source.integrationId": integrationID,
+		"lastSeenAt":           bson.M{"$lt": seenBefore},
+		"absent":               false,
 	}
-	return int(result.ModifiedCount), nil
+	// Collect the IDs about to flip before the write, so a live consumer can drop exactly
+	// the rows that just disappeared. The _id projection keeps this cheap even on a large
+	// fleet, matching MarkAbsent's timestamp-sweep intent.
+	cursor, err := r.col.Find(ctx, filter, options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var idDocs []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &idDocs); err != nil {
+		return nil, err
+	}
+	if len(idDocs) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(idDocs))
+	for _, doc := range idDocs {
+		ids = append(ids, doc.ID)
+	}
+	if _, err := r.col.UpdateMany(ctx, filter,
+		bson.M{"$set": bson.M{"absent": true, "updatedAt": time.Now().UTC()}}); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func (r *MongoServerRepo) SetMembership(ctx context.Context, id string, membership *serverdomain.MembershipStatus) error {

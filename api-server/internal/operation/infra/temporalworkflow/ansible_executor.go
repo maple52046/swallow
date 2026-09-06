@@ -83,22 +83,22 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 		activity.RecordHeartbeat(ctx, execution.Status)
 		switch execution.Status {
 		case operationdomain.AnsibleSucceeded:
-			return StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID)}
+			return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID)}
 		case operationdomain.AnsibleFailed:
 			result := failedStep("ansible_failed", execution.StatusReason, true)
 			result.ExternalExecution = reference
 			result.Artifacts = e.artifacts(execution.RunID)
 			return result
 		case operationdomain.AnsibleCanceled:
-			return StepExecutionResult{Status: operationdomain.StepCanceled, ExternalExecution: reference}
+			return StepExecutionResult{Status: operationdomain.TaskCanceled, ExternalExecution: reference}
 		case operationdomain.AnsibleRequiresAttention:
-			return StepExecutionResult{Status: operationdomain.StepRequiresAttention, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID),
+			return StepExecutionResult{Status: operationdomain.TaskRequiresAttention, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID),
 				Error: &operationdomain.NormalizedError{Code: "executor_outcome_unknown", Message: execution.StatusReason, Retryable: true}}
 		}
 		select {
 		case <-ctx.Done():
 			_ = e.executions.RequestCancel(context.Background(), execution.ID)
-			return StepExecutionResult{Status: operationdomain.StepCanceled, ExternalExecution: reference}
+			return StepExecutionResult{Status: operationdomain.TaskCanceled, ExternalExecution: reference}
 		case <-ticker.C:
 		}
 	}
@@ -108,7 +108,7 @@ func failedStep(code, message string, retryable bool) StepExecutionResult {
 	if message == "" {
 		message = "The Ansible Step failed."
 	}
-	return StepExecutionResult{Status: operationdomain.StepFailed,
+	return StepExecutionResult{Status: operationdomain.TaskFailed,
 		Error: &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}}
 }
 

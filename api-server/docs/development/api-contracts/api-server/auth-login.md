@@ -20,7 +20,7 @@ token it returns.
 
 ## Related Glossary Terms
 
-- `User` (pending definition in the platform glossary)
+- `User` (pending definition in swallow's glossary)
 
 ## Endpoint / RPC
 

@@ -10,7 +10,7 @@ import (
 // carry the frozen request and extraVars) so no operator-supplied plaintext crosses the
 // HTTP boundary, while still normalizing nil collections to arrays.
 func TestPublicStepsStripsSecretsAndParameters(t *testing.T) {
-	public := publicSteps([]operationdomain.OperationStep{{
+	public := publicSteps([]operationdomain.Task{{
 		ID:         "s1",
 		SecretRefs: map[string]string{"userData": "opaque-ref"},
 		Parameters: map[string]any{"extraVars": map[string]any{"password": "hunter2"}, "playbook": "deploy.yml"},

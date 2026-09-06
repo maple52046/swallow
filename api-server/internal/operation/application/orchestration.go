@@ -13,18 +13,18 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
-// OrchestrationController sends control requests to the durable workflow engine. It does
+// WorkflowController sends control requests to the durable workflow engine. It does
 // not update Mongo state directly; the workflow remains the only status writer.
-type OrchestrationController interface {
-	Cancel(ctx context.Context, operation *operationdomain.OperationV3) error
-	RetryStep(ctx context.Context, operation *operationdomain.OperationV3, stepID string) error
+type WorkflowController interface {
+	Cancel(ctx context.Context, operation *operationdomain.Workflow) error
+	RetryStep(ctx context.Context, operation *operationdomain.Workflow, stepID string) error
 }
 
-// CreateOrchestrationInput is trusted server-side intent. Secret values are represented by
+// CreateWorkflowInput is trusted server-side intent. Secret values are represented by
 // opaque references before they enter this boundary.
-type CreateOrchestrationInput struct {
+type CreateWorkflowInput struct {
 	ID                 string
-	Kind               operationdomain.OperationKind
+	Kind               operationdomain.WorkflowKind
 	IntentSummary      string
 	IntentSnapshot     map[string]any
 	Definition         string
@@ -33,7 +33,7 @@ type CreateOrchestrationInput struct {
 	PlatformID         string
 	TargetServerIDs    []string
 	TargetResources    []operationdomain.ResourceReference
-	Steps              []operationdomain.OperationStep
+	Steps              []operationdomain.Task
 	RetryOfOperationID string
 	RequestedBy        string
 	RequestCorrelation string
@@ -43,9 +43,9 @@ type CreateOrchestrationInput struct {
 	StepSecretValues   map[string]map[string]any
 }
 
-// OperationV3Item is the public orchestration projection. Execution remains as a
+// WorkflowItem is the public orchestration projection. Execution remains as a
 // compatibility summary for clients written against Operation v2.
-type OperationV3Item struct {
+type WorkflowItem struct {
 	ID                 string                              `json:"id"`
 	SchemaVersion      int                                 `json:"schemaVersion"`
 	Kind               string                              `json:"kind"`
@@ -62,7 +62,7 @@ type OperationV3Item struct {
 	ClusterID          *string                             `json:"clusterId"`
 	TargetResources    []operationdomain.ResourceReference `json:"targetResources"`
 	TargetServerIDs    []string                            `json:"targetServerIds"`
-	Steps              []operationdomain.OperationStep     `json:"steps"`
+	Steps              []operationdomain.Task     `json:"steps"`
 	Leases             []operationdomain.ResourceLease     `json:"leases"`
 	RetryOfOperationID *string                             `json:"retryOfOperationId"`
 	RequestedBy        string                              `json:"requestedBy"`
@@ -74,16 +74,16 @@ type OperationV3Item struct {
 	Execution          ExecutionItem                       `json:"execution"`
 }
 
-// OrchestrationService accepts durable workflows and exposes their query projection.
-type OrchestrationService struct {
-	operations operationdomain.OrchestrationRepository
-	controller OrchestrationController
+// WorkflowService accepts durable workflows and exposes their query projection.
+type WorkflowService struct {
+	operations operationdomain.WorkflowRepository
+	controller WorkflowController
 	secrets    operationdomain.OperationSecretRepository
 	leases     operationdomain.ResourceLeaseReader
 }
 
-func NewOrchestrationService(operations operationdomain.OrchestrationRepository, controller OrchestrationController, secrets ...operationdomain.OperationSecretRepository) *OrchestrationService {
-	service := &OrchestrationService{operations: operations, controller: controller}
+func NewWorkflowService(operations operationdomain.WorkflowRepository, controller WorkflowController, secrets ...operationdomain.OperationSecretRepository) *WorkflowService {
+	service := &WorkflowService{operations: operations, controller: controller}
 	if len(secrets) > 0 {
 		service.secrets = secrets[0]
 	}
@@ -91,12 +91,12 @@ func NewOrchestrationService(operations operationdomain.OrchestrationRepository,
 }
 
 // AttachLeaseReader adds active fencing diagnostics without coupling command creation to Mongo.
-func (s *OrchestrationService) AttachLeaseReader(reader operationdomain.ResourceLeaseReader) {
+func (s *WorkflowService) AttachLeaseReader(reader operationdomain.ResourceLeaseReader) {
 	s.leases = reader
 }
 
 // Create persists pending intent before the starter attempts to contact Temporal.
-func (s *OrchestrationService) Create(ctx context.Context, input CreateOrchestrationInput) (*OperationV3Item, error) {
+func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput) (*WorkflowItem, error) {
 	if !input.Kind.Valid() {
 		return nil, fmt.Errorf("%w: invalid kind %q", ErrInvalidOperation, input.Kind)
 	}
@@ -113,7 +113,7 @@ func (s *OrchestrationService) Create(ctx context.Context, input CreateOrchestra
 		return nil, err
 	}
 	for _, serverID := range input.TargetServerIDs {
-		_, total, err := s.operations.List(ctx, operationdomain.OrchestrationFilter{ServerID: serverID, ActiveOnly: true, Limit: 1})
+		_, total, err := s.operations.List(ctx, operationdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -134,9 +134,9 @@ func (s *OrchestrationService) Create(ctx context.Context, input CreateOrchestra
 	} else if _, err := uuid.Parse(id); err != nil {
 		return nil, fmt.Errorf("%w: id must be a UUID", ErrInvalidOperation)
 	}
-	steps := append([]operationdomain.OperationStep(nil), input.Steps...)
+	steps := append([]operationdomain.Task(nil), input.Steps...)
 	for index := range steps {
-		steps[index].Status = operationdomain.StepPending
+		steps[index].Status = operationdomain.TaskPending
 		steps[index].Attempt = 1
 		if steps[index].Artifacts == nil {
 			steps[index].Artifacts = []operationdomain.ArtifactMetadata{}
@@ -215,11 +215,11 @@ func (s *OrchestrationService) Create(ctx context.Context, input CreateOrchestra
 		resources = append(resources, operationdomain.ResourceReference{Kind: "server", ID: serverID})
 	}
 	resources = uniqueResources(resources)
-	operation := &operationdomain.OperationV3{
+	operation := &operationdomain.Workflow{
 		ID: id, SchemaVersion: 3, Kind: input.Kind,
 		Intent: cloneMap(input.IntentSnapshot), Definition: input.Definition,
 		DefinitionVersion: input.DefinitionVersion,
-		Status:            operationdomain.OrchestrationPending,
+		Status:            operationdomain.WorkflowPending,
 		StartState:        "pending",
 		Temporal:          operationdomain.TemporalReference{WorkflowID: "swallow-operation/" + id},
 		SiteID:            input.SiteID, PlatformID: input.PlatformID,
@@ -239,11 +239,11 @@ func (s *OrchestrationService) Create(ctx context.Context, input CreateOrchestra
 		ID: uuid.NewString(), OperationID: operation.ID, Type: "operation_requested",
 		Message: "Operation accepted and waiting for durable workflow start.", CreatedAt: now,
 	})
-	item := toOperationV3Item(operation)
+	item := toWorkflowItem(operation)
 	return &item, nil
 }
 
-func validateSteps(steps []operationdomain.OperationStep) error {
+func validateSteps(steps []operationdomain.Task) error {
 	ids := make(map[string]bool, len(steps))
 	for _, step := range steps {
 		if strings.TrimSpace(step.ID) == "" || strings.TrimSpace(step.Kind) == "" || strings.TrimSpace(step.Name) == "" {
@@ -262,7 +262,7 @@ func validateSteps(steps []operationdomain.OperationStep) error {
 		}
 	}
 	visiting, visited := map[string]bool{}, map[string]bool{}
-	byID := map[string]operationdomain.OperationStep{}
+	byID := map[string]operationdomain.Task{}
 	for _, step := range steps {
 		byID[step.ID] = step
 	}
@@ -315,12 +315,12 @@ func uniqueResources(resources []operationdomain.ResourceReference) []operationd
 	return result
 }
 
-func (s *OrchestrationService) Get(ctx context.Context, id string) (*OperationV3Item, error) {
+func (s *WorkflowService) Get(ctx context.Context, id string) (*WorkflowItem, error) {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	item := toOperationV3Item(operation)
+	item := toWorkflowItem(operation)
 	if s.leases != nil {
 		leases, leaseErr := s.leases.FindByOwner(ctx, operation.Temporal.WorkflowID)
 		if leaseErr != nil {
@@ -332,41 +332,41 @@ func (s *OrchestrationService) Get(ctx context.Context, id string) (*OperationV3
 }
 
 // List returns v3 Operations using the canonical orchestration status axis.
-func (s *OrchestrationService) List(ctx context.Context, input ListOperationsInput) ([]OperationV3Item, int, error) {
-	items, total, err := s.operations.List(ctx, operationdomain.OrchestrationFilter{
+func (s *WorkflowService) List(ctx context.Context, input ListOperationsInput) ([]WorkflowItem, int, error) {
+	items, total, err := s.operations.List(ctx, operationdomain.WorkflowFilter{
 		SiteID: input.SiteID, PlatformID: input.PlatformID, ServerID: input.ServerID,
-		Kind: operationdomain.OperationKind(input.Kind), Status: operationdomain.OrchestrationStatus(input.Status),
+		Kind: operationdomain.WorkflowKind(input.Kind), Status: operationdomain.WorkflowStatus(input.Status),
 		ActiveOnly: input.Active, Offset: input.Page.Offset(), Limit: input.Page.PageSize,
 	})
 	if err != nil {
 		return nil, 0, err
 	}
-	result := make([]OperationV3Item, len(items))
+	result := make([]WorkflowItem, len(items))
 	for index, item := range items {
-		result[index] = toOperationV3Item(item)
+		result[index] = toWorkflowItem(item)
 	}
 	return result, total, nil
 }
 
-func (s *OrchestrationService) Timeline(ctx context.Context, id string) ([]operationdomain.TimelineEvent, error) {
+func (s *WorkflowService) Timeline(ctx context.Context, id string) ([]operationdomain.TimelineEvent, error) {
 	if _, err := s.operations.FindByID(ctx, id); err != nil {
 		return nil, err
 	}
 	return s.operations.Timeline(ctx, id)
 }
 
-func (s *OrchestrationService) Cancel(ctx context.Context, id string) error {
+func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
 		return err
 	}
 	if operation.Status.Terminal() {
-		return fmt.Errorf("%w: a finished Operation cannot be canceled", operationdomain.ErrOperationControlConflict)
+		return fmt.Errorf("%w: a finished Operation cannot be canceled", operationdomain.ErrWorkflowControlConflict)
 	}
 	return s.controller.Cancel(ctx, operation)
 }
 
-func (s *OrchestrationService) RetryStep(ctx context.Context, id, stepID string) error {
+func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) error {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
 		return err
@@ -375,15 +375,15 @@ func (s *OrchestrationService) RetryStep(ctx context.Context, id, stepID string)
 		if step.ID != stepID {
 			continue
 		}
-		if (step.Status != operationdomain.StepFailed && step.Status != operationdomain.StepRequiresAttention) || step.Error == nil || !step.Error.Retryable {
-			return operationdomain.ErrStepRetryUnsafe
+		if (step.Status != operationdomain.TaskFailed && step.Status != operationdomain.TaskRequiresAttention) || step.Error == nil || !step.Error.Retryable {
+			return operationdomain.ErrTaskRetryUnsafe
 		}
 		return s.controller.RetryStep(ctx, operation, stepID)
 	}
-	return operationdomain.ErrStepNotFound
+	return operationdomain.ErrTaskNotFound
 }
 
-func toOperationV3Item(operation *operationdomain.OperationV3) OperationV3Item {
+func toWorkflowItem(operation *operationdomain.Workflow) WorkflowItem {
 	summary, _ := operation.Intent["summary"].(string)
 	playbook := ""
 	runID := operation.Temporal.RunID
@@ -393,7 +393,7 @@ func toOperationV3Item(operation *operationdomain.OperationV3) OperationV3Item {
 			runID = operation.Steps[0].ExternalExecution.ID
 		}
 	}
-	return OperationV3Item{
+	return WorkflowItem{
 		ID: operation.ID, SchemaVersion: 3, Kind: string(operation.Kind), Intent: summary,
 		IntentSnapshot: redactSensitiveMap(cloneMap(operation.Intent)), Definition: operation.Definition,
 		DefinitionVersion: operation.DefinitionVersion, Status: string(operation.Status),
@@ -414,8 +414,8 @@ func toOperationV3Item(operation *operationdomain.OperationV3) OperationV3Item {
 // publicSteps strips opaque secret references and normalizes nil collections before
 // crossing the HTTP boundary. Historical schema-v3 records may contain BSON null slices,
 // but the published JSON contract promises arrays so consumers can iterate safely.
-func publicSteps(source []operationdomain.OperationStep) []operationdomain.OperationStep {
-	steps := append([]operationdomain.OperationStep(nil), source...)
+func publicSteps(source []operationdomain.Task) []operationdomain.Task {
+	steps := append([]operationdomain.Task(nil), source...)
 	for index := range steps {
 		steps[index].SecretRefs = nil
 		// Step Parameters hold the frozen internal request and extraVars, which can carry
@@ -496,4 +496,4 @@ func cloneMap(source map[string]any) map[string]any {
 }
 
 // IsNotV3 allows delivery to fall back to the permanent v2 compatibility reader.
-func IsNotV3(err error) bool { return errors.Is(err, operationdomain.ErrOperationNotV3) }
+func IsNotV3(err error) bool { return errors.Is(err, operationdomain.ErrWorkflowNotV3) }

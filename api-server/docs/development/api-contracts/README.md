@@ -88,8 +88,8 @@ provider-owned contract.
 
 ## Domain Language
 
-Field names, enum values, and resource names in a contract must match the
-platform ubiquitous language owned by the platform glossary at the repository
+Field names, enum values, and resource names in a contract must match
+swallow's ubiquitous language owned by swallow's glossary at the repository
 root (`docs/development/glossaries/`). A contract must
 not introduce a domain term or status value that the glossary does not define. If
 a needed term is missing or ambiguous, resolve it in the glossary first, then

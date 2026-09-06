@@ -28,7 +28,7 @@ func (r *deploymentProjectionTestRepo) SetDeployment(_ context.Context, _ string
 func TestProviderStepRejectsDeploymentWithoutFrozenImage(t *testing.T) {
 	result := (providerStepExecutor{}).Execute(context.Background(), temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
-		Step: operationdomain.OperationStep{
+		Step: operationdomain.Task{
 			ID: "provision-server", Kind: "provision-os", Attempt: 1,
 			Parameters: map[string]any{"request": map[string]any{
 				"serverIds": []string{"server-id"},
@@ -37,7 +37,7 @@ func TestProviderStepRejectsDeploymentWithoutFrozenImage(t *testing.T) {
 		},
 	})
 
-	if result.Status != operationdomain.StepFailed || result.Error == nil {
+	if result.Status != operationdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want failed Step with normalized error", result)
 	}
 	if result.Error.Code != "intent_snapshot_incomplete" || result.Error.Retryable {
@@ -48,7 +48,7 @@ func TestProviderStepRejectsDeploymentWithoutFrozenImage(t *testing.T) {
 func TestDeploymentReadinessFailureWithoutAddressOffersRedeployRecovery(t *testing.T) {
 	result := deploymentReadinessFailed(deploymentReadiness{serverName: "lab-control-1", port: 22})
 
-	if result.Status != operationdomain.StepFailed || result.Error == nil {
+	if result.Status != operationdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want failed Step", result)
 	}
 	if result.Error.Code != "deployment_address_unavailable" || !result.Error.Retryable {
@@ -64,7 +64,7 @@ func TestDeploymentReadinessFailureWithAddressDoesNotOfferRedeploy(t *testing.T)
 		serverName: "lab-control-2", addresses: []string{"192.168.100.57"}, port: 2222,
 	})
 
-	if result.Status != operationdomain.StepFailed || result.Error == nil {
+	if result.Status != operationdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want failed Step", result)
 	}
 	if result.Error.Code != "deployment_ssh_unreachable" || !result.Error.Retryable {
@@ -80,7 +80,7 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 	executor := providerStepExecutor{servers: &deploymentProjectionTestRepo{server: server}}
 	result := executor.Execute(context.Background(), temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
-		Step: operationdomain.OperationStep{
+		Step: operationdomain.Task{
 			ID:      "provision-server",
 			Kind:    "provision-os",
 			Attempt: 2,
@@ -92,7 +92,7 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 		},
 	})
 
-	if result.Status != operationdomain.StepFailed {
+	if result.Status != operationdomain.TaskFailed {
 		t.Fatalf("result status = %s, want failed", result.Status)
 	}
 	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentFailed {
@@ -118,7 +118,7 @@ func TestProviderStepReadinessTimeout(t *testing.T) {
 func TestInitialDeploymentProjectionClosesWorkerStartGap(t *testing.T) {
 	server := &serverdomain.Server{ID: "server-id"}
 	repository := &deploymentProjectionTestRepo{server: server}
-	materializeInitialDeployments(context.Background(), repository, "operation-id", []operationdomain.OperationStep{
+	materializeInitialDeployments(context.Background(), repository, "operation-id", []operationdomain.Task{
 		{ID: "provision-server", Kind: "provision-os", Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}}},
 		{ID: "install-platform", Kind: "ansible-playbook"},
 	})

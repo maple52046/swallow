@@ -1,7 +1,15 @@
 # 006. Embedded Ansible execution
 
-- Status: Accepted
+- Status: Accepted; execution engine superseded in part by [ADR 016](016-temporal-operation-orchestration.md)
 - Date: 2026-08-25
+
+> **Superseded in part by [ADR 016](016-temporal-operation-orchestration.md):** the embedded
+> dispatcher, the Mongo **site lease** (one run per site), and the "separate worker service:
+> deferred" stance are replaced by a Temporal-orchestrated multi-step workflow with
+> per-resource lease fencing. The `ansible-runner` mechanism here survives as the `ansible`
+> step executor. Still in force: release-owned playbook manifest, rejection of arbitrary
+> paths, encrypted run-only credentials, mandatory SSH host-key verification, and the
+> `indeterminate` outcome principle.
 
 ## Context
 

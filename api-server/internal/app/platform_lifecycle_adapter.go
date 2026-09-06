@@ -11,7 +11,7 @@ import (
 // platformLifecycleReader adapts durable operation history to the platform lifecycle port.
 type platformLifecycleReader struct {
 	operations     operationdomain.ExecutionRepository
-	orchestrations operationdomain.OrchestrationRepository
+	orchestrations operationdomain.WorkflowRepository
 }
 
 func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string) (map[string]platformdomain.LifecycleSnapshot, error) {
@@ -25,9 +25,9 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 
 	result, err := r.operations.List(ctx, operationdomain.ExecutionListFilter{
 		PlatformIDs: platformIDs,
-		Kinds: []operationdomain.OperationKind{
-			operationdomain.OperationKindDeployKubernetes,
-			operationdomain.OperationKindUninstallKubernetes,
+		Kinds: []operationdomain.WorkflowKind{
+			operationdomain.WorkflowKindDeployKubernetes,
+			operationdomain.WorkflowKindUninstallKubernetes,
 		},
 	})
 	if err != nil {
@@ -46,12 +46,12 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			RequestedAt:     operation.RequestedAt,
 		}
 		switch operation.Kind {
-		case operationdomain.OperationKindDeployKubernetes:
+		case operationdomain.WorkflowKindDeployKubernetes:
 			projected.Intent = deploymentIntent(operation)
 			if snapshot.Deployment == nil {
 				snapshot.Deployment = projected
 			}
-		case operationdomain.OperationKindUninstallKubernetes:
+		case operationdomain.WorkflowKindUninstallKubernetes:
 			if snapshot.Uninstall == nil {
 				snapshot.Uninstall = projected
 			}
@@ -60,7 +60,7 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 	}
 
 	if r.orchestrations != nil {
-		v3, _, err := r.orchestrations.List(ctx, operationdomain.OrchestrationFilter{PlatformIDs: platformIDs})
+		v3, _, err := r.orchestrations.List(ctx, operationdomain.WorkflowFilter{PlatformIDs: platformIDs})
 		if err != nil {
 			return nil, err
 		}
@@ -69,13 +69,13 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			expectedIDs[id] = true
 		}
 		for _, operation := range v3 {
-			if !expectedIDs[operation.PlatformID] || (operation.Kind != operationdomain.OperationKindDeployKubernetes && operation.Kind != operationdomain.OperationKindUninstallKubernetes) {
+			if !expectedIDs[operation.PlatformID] || (operation.Kind != operationdomain.WorkflowKindDeployKubernetes && operation.Kind != operationdomain.WorkflowKindUninstallKubernetes) {
 				continue
 			}
 			snapshot := snapshots[operation.PlatformID]
 			projected := &platformdomain.LifecycleOperation{ID: operation.ID, Status: lifecycleStatus(operation.Status),
 				TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RequestedAt: operation.RequestedAt}
-			if operation.Kind == operationdomain.OperationKindDeployKubernetes {
+			if operation.Kind == operationdomain.WorkflowKindDeployKubernetes {
 				projected.Intent = deploymentIntentV3(operation)
 				if snapshot.Deployment == nil || snapshot.Deployment.RequestedAt.Before(projected.RequestedAt) {
 					snapshot.Deployment = projected
@@ -202,22 +202,22 @@ func deriveLifecycle(snapshot platformdomain.LifecycleSnapshot) platformdomain.L
 	return snapshot
 }
 
-func lifecycleStatus(status operationdomain.OrchestrationStatus) string {
+func lifecycleStatus(status operationdomain.WorkflowStatus) string {
 	switch status {
-	case operationdomain.OrchestrationPending, operationdomain.OrchestrationWaitingDependency:
+	case operationdomain.WorkflowPending, operationdomain.WorkflowWaitingDependency:
 		return string(operationdomain.StatusPending)
-	case operationdomain.OrchestrationRunning, operationdomain.OrchestrationWaitingExternal, operationdomain.OrchestrationCanceling:
+	case operationdomain.WorkflowRunning, operationdomain.WorkflowWaitingExternal, operationdomain.WorkflowCanceling:
 		return string(operationdomain.StatusRunning)
-	case operationdomain.OrchestrationSucceeded:
+	case operationdomain.WorkflowSucceeded:
 		return string(operationdomain.StatusSucceeded)
-	case operationdomain.OrchestrationCanceled:
+	case operationdomain.WorkflowCanceled:
 		return string(operationdomain.StatusCanceled)
 	default:
 		return string(operationdomain.StatusFailed)
 	}
 }
 
-func deploymentIntentV3(operation *operationdomain.OperationV3) *platformdomain.LifecycleDeployment {
+func deploymentIntentV3(operation *operationdomain.Workflow) *platformdomain.LifecycleDeployment {
 	extraVars, _ := operation.Intent["extraVars"].(map[string]any)
 	legacy := &operationdomain.ExecutionOperation{
 		TargetServerIDs: operation.TargetServerIDs,

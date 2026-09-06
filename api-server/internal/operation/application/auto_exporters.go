@@ -33,7 +33,7 @@ type AutoExporterDeployUseCase struct {
 	servers        serverdomain.ServerRepository
 	operations     operationdomain.ExecutionRepository
 	executor       *ExecutionService
-	orchestrations operationdomain.OrchestrationRepository
+	orchestrations operationdomain.WorkflowRepository
 	owners         ExporterOwnerResolver
 }
 
@@ -43,7 +43,7 @@ func NewAutoExporterDeployUseCase(
 	operations operationdomain.ExecutionRepository,
 	executor *ExecutionService,
 	owners ExporterOwnerResolver,
-	orchestrations ...operationdomain.OrchestrationRepository,
+	orchestrations ...operationdomain.WorkflowRepository,
 ) *AutoExporterDeployUseCase {
 	useCase := &AutoExporterDeployUseCase{servers: servers, operations: operations, executor: executor, owners: owners}
 	if len(orchestrations) > 0 {
@@ -87,7 +87,7 @@ func (uc *AutoExporterDeployUseCase) Run(ctx context.Context) error {
 		}
 
 		_, err = uc.executor.Create(ctx, CreateExecutionInput{
-			Kind:            string(operationdomain.OperationKindInstallExporters),
+			Kind:            string(operationdomain.WorkflowKindInstallExporters),
 			Intent:          "Automatic exporter install after OS deployment",
 			TargetServerIDs: []string{server.ID},
 			PlaybookName:    autoExporterInstallPlaybook,
@@ -111,7 +111,7 @@ func (uc *AutoExporterDeployUseCase) Run(ctx context.Context) error {
 func (uc *AutoExporterDeployUseCase) hasInstallOperation(ctx context.Context, serverID string) (bool, error) {
 	existing, err := uc.operations.List(ctx, operationdomain.ExecutionListFilter{
 		ServerID: serverID,
-		Kind:     operationdomain.OperationKindInstallExporters,
+		Kind:     operationdomain.WorkflowKindInstallExporters,
 		Limit:    1,
 	})
 	if err != nil {
@@ -121,7 +121,7 @@ func (uc *AutoExporterDeployUseCase) hasInstallOperation(ctx context.Context, se
 		return true, nil
 	}
 	if uc.orchestrations != nil {
-		v3, total, listErr := uc.orchestrations.List(ctx, operationdomain.OrchestrationFilter{ServerID: serverID, Kind: operationdomain.OperationKindInstallExporters, Limit: 1})
+		v3, total, listErr := uc.orchestrations.List(ctx, operationdomain.WorkflowFilter{ServerID: serverID, Kind: operationdomain.WorkflowKindInstallExporters, Limit: 1})
 		_ = v3
 		if listErr != nil {
 			return false, listErr

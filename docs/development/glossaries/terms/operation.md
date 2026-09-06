@@ -1,25 +1,11 @@
 # Operation
 
-An **Operation** is a durable record of an operator's intent to run one versioned
-playbook against a target set frozen at creation time. Swallow owns both the intent and
-the execution lifecycle.
-
-An operation's execution status is exactly one of `pending`, `running`, `succeeded`,
-`failed`, `canceled`, or `indeterminate`. `indeterminate` means the API or host
-stopped while a run held a lease and its outcome cannot be proven. Such a run is never
-retried automatically.
-
-Operations targeting one site execute one at a time. Operations for different sites may
-run concurrently. Logs are retained in local persistent job artifacts; a run's task-level
-events are derived from the runner's own record, so a long multi-phase operation can be
-followed beyond a single status word. Operation metadata remains in MongoDB.
-
-Every target must be unlocked when an Operation is accepted and again after a pending
-run is claimed but before its runner starts. A newly locked target makes the unstarted
-run fail with an actionable reason. A lock appearing after execution starts does not
-cancel or interrupt the run.
-
-A failed operation may be retried only by an operator. A retry is a new operation with the
-same kind, targets, and variables, linked to the original by `retryOfOperationId`. The
-original is kept. Rerunning is safe because the mapped playbook is idempotent, which is a
-property of the playbook rather than of swallow.
+- Bounded context: Automation (swallow-owned intent and execution).
+- Definition: Deprecated name for a [Workflow](workflow.md). Retained only because the current code (`OperationV3`) and HTTP API (`/operations`) still use "Operation" until the rename in [decision 017](../../../decisions/017-workflow-job-task-runner-model.md) completes.
+- Allowed meaning: Use only when referring to the current `/operations` API surface, the `OperationV3` code type, or historical schema-v2 records. All new domain modeling, documentation, and design use Workflow.
+- Disallowed meaning: Do not treat "Operation" as canonical in new glossary or design work; it is a migration alias, not the model's word.
+- Synonyms: Workflow (canonical).
+- Deprecated terms: This whole term is the deprecated alias; the canonical definition lives in [`workflow.md`](workflow.md).
+- Examples: "The `/operations` endpoint is the current wire name for a Workflow." / "`OperationV3` in code is a Workflow."
+- Related terms: Workflow, Task.
+- Change note: Demoted 2026-09-05 ([decision 017](../../../decisions/017-workflow-job-task-runner-model.md)) from canonical to a deprecated alias for Workflow, so the active operations API contract link keeps resolving during the rename window. Its former v3 definition now lives in `workflow.md`.

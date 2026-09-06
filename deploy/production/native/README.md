@@ -19,15 +19,24 @@ sudo ./swallowctl install
 sudo ./swallowctl doctor
 ```
 
-## Durable orchestration is Compose-only
+## Durable orchestration requires Temporal (no embedded fallback)
 
-This native bundle installs and runs the API service (`swallow api`) with its embedded
-automation dispatcher. It does **not** install Temporal Server, PostgreSQL, the workflow
-worker (`swallow worker`), or the Ansible executor (`swallow ansible-executor`). Durable
-schema-v3 Operation orchestration therefore requires the Compose topology in
-[`../`](../compose.yaml); on native, use it only for environments that do not need durable
-multi-step Operations. Bundling the Temporal topology (or a documented single-process
-fallback) into the native installer is tracked as future work.
+swallow's sole execution engine is Temporal ([ADR 016](../../../docs/decisions/016-temporal-operation-orchestration.md),
+[ADR 017](../../../docs/decisions/017-workflow-job-task-runner-model.md)). The former
+embedded automation dispatcher was removed, so `swallow api` has **no** in-process fallback:
+a Workflow cannot execute without the orchestration topology.
+
+A native installation must therefore run the full topology alongside `swallow api`: Temporal
+Server, its PostgreSQL datastore, the workflow worker (`swallow worker`), and the Ansible
+executor (`swallow ansible-executor`). For air-gapped installs the release bundle already
+carries the Temporal Server, UI, and PostgreSQL images with checksums (see
+[`../../release/`](../../release) and `release-manifest`); the native installer provisions
+them as additional systemd-managed services from that offline media.
+
+Until the native Temporal systemd packaging lands, use the Compose topology in
+[`../`](../compose.yaml), which runs Temporal, the worker, and the ansible-executor. A native
+install without Temporal cannot execute any Workflow. Packaging Temporal + PostgreSQL as
+native systemd units from the release media is the remaining deploy work for air-gapped sites.
 
 `upgrade` refuses active operations unless `--force` is explicit and always takes a
 backup first. `uninstall` retains data and backups; only `uninstall --purge-data`

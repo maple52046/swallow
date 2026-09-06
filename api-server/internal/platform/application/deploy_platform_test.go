@@ -110,8 +110,8 @@ func (r *deployFakeServerRepo) List(context.Context, serverdomain.ListFilter) (s
 	return serverdomain.ListResult{}, nil
 }
 func (r *deployFakeServerRepo) Upsert(context.Context, *serverdomain.Server) error { return nil }
-func (r *deployFakeServerRepo) MarkAbsent(context.Context, string, time.Time) (int, error) {
-	return 0, nil
+func (r *deployFakeServerRepo) MarkAbsent(context.Context, string, time.Time) ([]string, error) {
+	return nil, nil
 }
 func (r *deployFakeServerRepo) SetMembership(context.Context, string, *serverdomain.MembershipStatus) error {
 	return nil
@@ -299,9 +299,76 @@ func TestDeployRejectsUndeployedTarget(t *testing.T) {
 	servers[3].Provisioning.State = "ready" // worker not yet deployed
 	service, _, _ := newDeployHarness(servers...)
 
+	// Default mode is existing_os, which still requires every target already deployed.
 	_, err := service.Deploy(context.Background(), validDeployInput())
 	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("expected invalid deployment for undeployed target, got %v", err)
+	}
+}
+
+// stubMachinePrep records which servers were preflighted for OS provisioning.
+type stubMachinePrep struct {
+	ids []string
+	err error
+}
+
+func (s *stubMachinePrep) Validate(_ context.Context, _ string, serverIDs []string, _ platformdomain.MachinePreparation) error {
+	s.ids = append([]string(nil), serverIDs...)
+	return s.err
+}
+
+func provisionOSInput() DeployPlatformInput {
+	in := validDeployInput()
+	in.MachinePreparation = platformdomain.MachinePreparation{
+		Mode:        platformdomain.MachinePreparationProvisionOS,
+		ImageID:     "ubuntu/noble",
+		NetworkMode: "dhcp",
+	}
+	return in
+}
+
+// TestDeployProvisionOSAcceptsMixedReadyAndDeployed is the ADR 017 convergence check: a
+// provision_os deploy may mix already-deployed servers with servers that still need an OS,
+// and only the ready ones are preflighted for provisioning.
+func TestDeployProvisionOSAcceptsMixedReadyAndDeployed(t *testing.T) {
+	servers := haServers()          // c1,c2,c3,w1 all deployed
+	servers[1].Provisioning.State = "ready" // c2 needs an OS
+	servers[3].Provisioning.State = "ready" // w1 needs an OS
+	service, launcher, platforms := newDeployHarness(servers...)
+	prep := &stubMachinePrep{}
+	service.AttachMachinePreparationValidator(prep)
+
+	result, err := service.Deploy(context.Background(), provisionOSInput())
+	if err != nil {
+		t.Fatalf("mixed provision_os deploy should be accepted, got %v", err)
+	}
+	if launcher.launched == nil {
+		t.Fatal("launcher was not called for a valid mixed deploy")
+	}
+	if _, ok := platforms.platforms[result.PlatformID]; !ok {
+		t.Error("platform was not created")
+	}
+	if len(prep.ids) != 2 {
+		t.Fatalf("only the two ready servers should be preflighted, got %v", prep.ids)
+	}
+	for _, id := range prep.ids {
+		if id != "c2" && id != "w1" {
+			t.Errorf("unexpected server preflighted for OS provisioning: %s", id)
+		}
+	}
+}
+
+// TestDeployProvisionOSRejectsUnconvergeableState confirms a target that is neither ready
+// nor deployed (for example broken) is still rejected under provision_os.
+func TestDeployProvisionOSRejectsUnconvergeableState(t *testing.T) {
+	servers := haServers()
+	servers[3].Provisioning.State = "broken"
+	service, _, _ := newDeployHarness(servers...)
+	service.AttachMachinePreparationValidator(&stubMachinePrep{})
+
+	_, err := service.Deploy(context.Background(), provisionOSInput())
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Fatalf("expected rejection for an unconvergeable target, got %v", err)
 	}
 }
 

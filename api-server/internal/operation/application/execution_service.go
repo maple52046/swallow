@@ -25,7 +25,7 @@ type ExecutionService struct {
 	runner         operationdomain.Runner
 	protection     serverdomain.MutationGuard
 	policy         PolicyChecker
-	durable        *OrchestrationService
+	durable        *WorkflowService
 }
 
 // NewExecutionService constructs the embedded-execution use case.
@@ -48,14 +48,14 @@ func NewExecutionService(
 	return service
 }
 
-// AttachOrchestration moves newly accepted automation to Operation v3 while the
+// AttachWorkflow moves newly accepted automation to Operation v3 while the
 // compatibility dispatcher drains persisted v2 work.
-func (s *ExecutionService) AttachOrchestration(durable *OrchestrationService) { s.durable = durable }
+func (s *ExecutionService) AttachWorkflow(durable *WorkflowService) { s.durable = durable }
 
 // ExecutionOperationItem is the public operation representation.
 type ExecutionOperationItem struct {
 	SchemaVersion      int                             `json:"schemaVersion"`
-	Steps              []operationdomain.OperationStep `json:"steps"`
+	Steps              []operationdomain.Task `json:"steps"`
 	ID                 string                          `json:"id"`
 	Kind               string                          `json:"kind"`
 	Intent             string                          `json:"intent"`
@@ -102,9 +102,9 @@ type CreateExecutionInput struct {
 
 // Create validates intent and persists pending state before dispatch.
 func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInput) (*ExecutionOperationItem, error) {
-	kind := operationdomain.OperationKind(strings.TrimSpace(input.Kind))
+	kind := operationdomain.WorkflowKind(strings.TrimSpace(input.Kind))
 	if !kind.Valid() {
-		return nil, fmt.Errorf("%w: kind must be one of %v", ErrInvalidOperation, operationdomain.ValidOperationKinds)
+		return nil, fmt.Errorf("%w: kind must be one of %v", ErrInvalidOperation, operationdomain.ValidWorkflowKinds)
 	}
 	if len(input.TargetServerIDs) == 0 {
 		return nil, fmt.Errorf("%w: targetServerIds is required", ErrInvalidOperation)
@@ -148,7 +148,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	}
 
 	playbook := strings.TrimSpace(input.PlaybookName)
-	if kind == operationdomain.OperationKindCustom {
+	if kind == operationdomain.WorkflowKindCustom {
 		if playbook == "" {
 			return nil, fmt.Errorf("%w: playbookName is required for the custom kind", ErrInvalidOperation)
 		}
@@ -175,38 +175,37 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 		RunID: uuid.NewString(), Playbook: playbook, Status: operationdomain.StatusPending,
 	}
 	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars)
-	if s.durable != nil {
-		stepTargets := make([]operationdomain.ResourceReference, 0, len(operation.TargetServerIDs))
-		for _, serverID := range operation.TargetServerIDs {
-			stepTargets = append(stepTargets, operationdomain.ResourceReference{Kind: "server", ID: serverID})
-		}
-		targetResources := append([]operationdomain.ResourceReference(nil), stepTargets...)
-		if operation.PlatformID != "" {
-			targetResources = append(targetResources, operationdomain.ResourceReference{Kind: "platform", ID: operation.PlatformID})
-		}
-		created, err := s.durable.Create(ctx, CreateOrchestrationInput{
-			Kind: operation.Kind, IntentSummary: operation.Intent, Definition: "ansible-operation", DefinitionVersion: 1,
-			SiteID: operation.SiteID, PlatformID: operation.PlatformID, TargetServerIDs: operation.TargetServerIDs,
-			TargetResources: targetResources, RequestedBy: operation.RequestedBy,
-			RequestCorrelation: input.RequestCorrelation, RetryOfOperationID: operation.RetryOfOperationID,
-			IntentSnapshot: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars},
-			Steps: []operationdomain.OperationStep{{ID: "ansible", Kind: "ansible-playbook", Name: "Run " + operation.Execution.Playbook,
-				Executor: operationdomain.StepExecutorAnsible, Targets: stepTargets, Parameters: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars}}},
-			SecretStepID: "ansible", SecretValues: operation.SecretVars,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return legacyCompatibleV3(created), nil
+	// Temporal orchestration is the sole execution engine (ADR 016/017). Every accepted
+	// custom Workflow is created as a single-Task durable v3 Workflow; the v2 embedded
+	// dispatcher write path was removed.
+	if s.durable == nil {
+		return nil, fmt.Errorf("%w: durable Workflow orchestration is unavailable", ErrInvalidOperation)
 	}
-	if err := s.operations.Create(ctx, operation); err != nil {
+	stepTargets := make([]operationdomain.ResourceReference, 0, len(operation.TargetServerIDs))
+	for _, serverID := range operation.TargetServerIDs {
+		stepTargets = append(stepTargets, operationdomain.ResourceReference{Kind: "server", ID: serverID})
+	}
+	targetResources := append([]operationdomain.ResourceReference(nil), stepTargets...)
+	if operation.PlatformID != "" {
+		targetResources = append(targetResources, operationdomain.ResourceReference{Kind: "platform", ID: operation.PlatformID})
+	}
+	created, err := s.durable.Create(ctx, CreateWorkflowInput{
+		Kind: operation.Kind, IntentSummary: operation.Intent, Definition: "ansible-operation", DefinitionVersion: 1,
+		SiteID: operation.SiteID, PlatformID: operation.PlatformID, TargetServerIDs: operation.TargetServerIDs,
+		TargetResources: targetResources, RequestedBy: operation.RequestedBy,
+		RequestCorrelation: input.RequestCorrelation, RetryOfOperationID: operation.RetryOfOperationID,
+		IntentSnapshot: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars},
+		Steps: []operationdomain.Task{{ID: "ansible", Kind: "ansible-playbook", Name: "Run " + operation.Execution.Playbook,
+			Executor: operationdomain.RunnerKindAnsible, Targets: stepTargets, Parameters: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars}}},
+		SecretStepID: "ansible", SecretValues: operation.SecretVars,
+	})
+	if err != nil {
 		return nil, err
 	}
-	item := toExecutionOperationItem(operation)
-	return &item, nil
+	return legacyCompatibleV3(created), nil
 }
 
-func (s *ExecutionService) resolveTargets(ctx context.Context, kind operationdomain.OperationKind, ids []string) ([]*serverdomain.Server, string, error) {
+func (s *ExecutionService) resolveTargets(ctx context.Context, kind operationdomain.WorkflowKind, ids []string) ([]*serverdomain.Server, string, error) {
 	required := kind.RequiredProvisioningState()
 	targets := make([]*serverdomain.Server, 0, len(ids))
 	siteID := ""
@@ -288,7 +287,7 @@ func (s *ExecutionService) List(ctx context.Context, input ListOperationsInput) 
 	var empty pagination.Result[ExecutionOperationItem]
 	result, err := s.operations.List(ctx, operationdomain.ExecutionListFilter{
 		SiteID: input.SiteID, PlatformID: input.PlatformID, ServerID: input.ServerID,
-		Kind: operationdomain.OperationKind(input.Kind), Status: operationdomain.Status(input.Status),
+		Kind: operationdomain.WorkflowKind(input.Kind), Status: operationdomain.Status(input.Status),
 		ActiveOnly: input.Active, Offset: input.Page.Offset(), Limit: input.Page.PageSize,
 	})
 	if err != nil {
@@ -419,7 +418,7 @@ func (s *ExecutionService) Events(ctx context.Context, id string) (*OperationEve
 	return item, nil
 }
 
-func legacyCompatibleV3(operation *OperationV3Item) *ExecutionOperationItem {
+func legacyCompatibleV3(operation *WorkflowItem) *ExecutionOperationItem {
 	return &ExecutionOperationItem{
 		SchemaVersion: operation.SchemaVersion, Steps: operation.Steps,
 		ID: operation.ID, Kind: operation.Kind, Intent: operation.Intent, SiteID: operation.SiteID,
@@ -431,7 +430,7 @@ func legacyCompatibleV3(operation *OperationV3Item) *ExecutionOperationItem {
 
 func toExecutionOperationItem(operation *operationdomain.ExecutionOperation) ExecutionOperationItem {
 	return ExecutionOperationItem{
-		SchemaVersion: 2, Steps: []operationdomain.OperationStep{legacySyntheticStep(operation)},
+		SchemaVersion: 2, Steps: []operationdomain.Task{legacySyntheticStep(operation)},
 		ID: operation.ID, Kind: string(operation.Kind), Intent: operation.Intent,
 		SiteID: operation.SiteID, PlatformID: wire.String(operation.PlatformID),
 		ClusterID:          wire.String(operation.PlatformID),
@@ -482,7 +481,7 @@ func (s *AutomationConfigurationService) Put(ctx context.Context, configuration 
 		return nil, fmt.Errorf("%w: enabled automation requires sshUser and knownHosts", ErrInvalidOperation)
 	}
 	for kind, playbook := range configuration.PlaybookMappings {
-		if !kind.Valid() || kind == operationdomain.OperationKindCustom {
+		if !kind.Valid() || kind == operationdomain.WorkflowKindCustom {
 			return nil, fmt.Errorf("%w: invalid mapped operation kind %q", ErrInvalidOperation, kind)
 		}
 		if _, err := s.catalog.Resolve(playbook); err != nil {
@@ -545,7 +544,7 @@ type PreparedAnsibleStep struct {
 // PrepareAnsibleStep applies the same catalog, credential, policy, and lock checks as
 // Create while letting a preceding provision-os Step satisfy the final deployed state.
 func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateExecutionInput, operationID string, provisionFirst bool) (*PreparedAnsibleStep, error) {
-	kind := operationdomain.OperationKind(strings.TrimSpace(input.Kind))
+	kind := operationdomain.WorkflowKind(strings.TrimSpace(input.Kind))
 	if !kind.Valid() || len(input.TargetServerIDs) == 0 {
 		return nil, fmt.Errorf("%w: valid kind and targetServerIds are required", ErrInvalidOperation)
 	}
@@ -615,11 +614,11 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 	}, nil
 }
 
-func legacySyntheticStep(operation *operationdomain.ExecutionOperation) operationdomain.OperationStep {
-	status := operationdomain.StepStatus(operation.Execution.Status)
+func legacySyntheticStep(operation *operationdomain.ExecutionOperation) operationdomain.Task {
+	status := operationdomain.TaskStatus(operation.Execution.Status)
 	var normalized *operationdomain.NormalizedError
 	if operation.Execution.Status == operationdomain.StatusIndeterminate {
-		status = operationdomain.StepRequiresAttention
+		status = operationdomain.TaskRequiresAttention
 		normalized = &operationdomain.NormalizedError{
 			Code: "legacy_outcome_indeterminate", Message: operation.Execution.StatusReason,
 			Retryable: false,
@@ -634,9 +633,9 @@ func legacySyntheticStep(operation *operationdomain.ExecutionOperation) operatio
 	for index, serverID := range operation.TargetServerIDs {
 		targets[index] = operationdomain.ResourceReference{Kind: "server", ID: serverID}
 	}
-	return operationdomain.OperationStep{
+	return operationdomain.Task{
 		ID: "ansible", Kind: "ansible-playbook", Name: "Run " + operation.Execution.Playbook,
-		Executor: operationdomain.StepExecutorAnsible, Targets: targets, Status: status,
+		Executor: operationdomain.RunnerKindAnsible, Targets: targets, Status: status,
 		Attempt: 1, Error: normalized, StartedAt: operation.Execution.StartedAt,
 		FinishedAt: operation.Execution.FinishedAt, Artifacts: []operationdomain.ArtifactMetadata{},
 	}

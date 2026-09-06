@@ -39,7 +39,7 @@ type AnsibleExecution struct {
 	ID              string        `bson:"_id" json:"id"`
 	IdempotencyKey  string        `bson:"idempotencyKey" json:"idempotencyKey"`
 	OperationID     string        `bson:"operationId" json:"operationId"`
-	Kind            OperationKind `bson:"kind" json:"kind"`
+	Kind            WorkflowKind `bson:"kind" json:"kind"`
 	PlatformID      string        `bson:"platformId,omitempty" json:"platformId,omitempty"`
 	StepID          string        `bson:"stepId" json:"stepId"`
 	Attempt         int           `bson:"attempt" json:"attempt"`

@@ -184,7 +184,7 @@ export function ServerActivityTab() {
               <Thead><Tr><Th>Status</Th><Th>Operation</Th><Th>Kind</Th><Th>Requested</Th><Th>Requested by</Th></Tr></Thead>
               <Tbody>{related.data.map((operation) => <Tr key={operation.id}>
                 <Td dataLabel="Status"><StatusBadge status={operation.execution.status} /></Td>
-                <Td dataLabel="Operation"><Link to={scopedHref(`/operations/${operation.id}`)}>{operation.intent || operation.execution.playbook}</Link><small className="mono">{operation.id}</small></Td>
+                <Td dataLabel="Operation"><Link to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent || operation.execution.playbook}</Link><small className="mono">{operation.id}</small></Td>
                 <Td dataLabel="Kind">{operation.kind}</Td>
                 <Td dataLabel="Requested">{formatDateTime(operation.requestedAt)}</Td>
                 <Td dataLabel="Requested by">{operation.requestedBy || 'system'}</Td>

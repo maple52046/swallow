@@ -6,54 +6,54 @@ import (
 	"time"
 )
 
-// OrchestrationStatus is the operator-visible state of a durable multi-step workflow.
-type OrchestrationStatus string
+// WorkflowStatus is the operator-visible state of a durable multi-step workflow.
+type WorkflowStatus string
 
 const (
-	OrchestrationPending            OrchestrationStatus = "pending"
-	OrchestrationRunning            OrchestrationStatus = "running"
-	OrchestrationWaitingExternal    OrchestrationStatus = "waiting_external"
-	OrchestrationWaitingDependency  OrchestrationStatus = "waiting_dependency"
-	OrchestrationCanceling          OrchestrationStatus = "canceling"
-	OrchestrationSucceeded          OrchestrationStatus = "succeeded"
-	OrchestrationFailed             OrchestrationStatus = "failed"
-	OrchestrationPartiallySucceeded OrchestrationStatus = "partially_succeeded"
-	OrchestrationCanceled           OrchestrationStatus = "canceled"
-	OrchestrationRequiresAttention  OrchestrationStatus = "requires_attention"
+	WorkflowPending            WorkflowStatus = "pending"
+	WorkflowRunning            WorkflowStatus = "running"
+	WorkflowWaitingExternal    WorkflowStatus = "waiting_external"
+	WorkflowWaitingDependency  WorkflowStatus = "waiting_dependency"
+	WorkflowCanceling          WorkflowStatus = "canceling"
+	WorkflowSucceeded          WorkflowStatus = "succeeded"
+	WorkflowFailed             WorkflowStatus = "failed"
+	WorkflowPartiallySucceeded WorkflowStatus = "partially_succeeded"
+	WorkflowCanceled           WorkflowStatus = "canceled"
+	WorkflowRequiresAttention  WorkflowStatus = "requires_attention"
 )
 
 // Terminal reports whether an Operation can no longer advance without a new command.
-func (s OrchestrationStatus) Terminal() bool {
+func (s WorkflowStatus) Terminal() bool {
 	switch s {
-	case OrchestrationSucceeded, OrchestrationFailed, OrchestrationPartiallySucceeded, OrchestrationCanceled:
+	case WorkflowSucceeded, WorkflowFailed, WorkflowPartiallySucceeded, WorkflowCanceled:
 		return true
 	default:
 		return false
 	}
 }
 
-// StepStatus is the state of one public Operation Step.
-type StepStatus string
+// TaskStatus is the state of one public Operation Step.
+type TaskStatus string
 
 const (
-	StepPending           StepStatus = "pending"
-	StepRunning           StepStatus = "running"
-	StepWaitingExternal   StepStatus = "waiting_external"
-	StepWaitingDependency StepStatus = "waiting_dependency"
-	StepSucceeded         StepStatus = "succeeded"
-	StepFailed            StepStatus = "failed"
-	StepCanceled          StepStatus = "canceled"
-	StepSkipped           StepStatus = "skipped"
-	StepRequiresAttention StepStatus = "requires_attention"
+	TaskPending           TaskStatus = "pending"
+	TaskRunning           TaskStatus = "running"
+	TaskWaitingExternal   TaskStatus = "waiting_external"
+	TaskWaitingDependency TaskStatus = "waiting_dependency"
+	TaskSucceeded         TaskStatus = "succeeded"
+	TaskFailed            TaskStatus = "failed"
+	TaskCanceled          TaskStatus = "canceled"
+	TaskSkipped           TaskStatus = "skipped"
+	TaskRequiresAttention TaskStatus = "requires_attention"
 )
 
-// StepExecutor identifies the typed lifecycle adapter carrying out a Step.
-type StepExecutor string
+// RunnerKind identifies the typed lifecycle adapter carrying out a Step.
+type RunnerKind string
 
 const (
-	StepExecutorInternal StepExecutor = "internal"
-	StepExecutorAnsible  StepExecutor = "ansible"
-	StepExecutorMAAS     StepExecutor = "maas"
+	RunnerKindInternal RunnerKind = "internal"
+	RunnerKindAnsible  RunnerKind = "ansible"
+	RunnerKindProvisioner     RunnerKind = "maas"
 )
 
 // ResourceReference identifies a target without embedding another context's model.
@@ -89,17 +89,21 @@ type ArtifactMetadata struct {
 	CreatedAt   time.Time `json:"createdAt" bson:"createdAt"`
 }
 
-// OperationStep is one durable, observable phase of an Operation.
-type OperationStep struct {
-	ID                string                      `json:"id" bson:"id"`
-	Kind              string                      `json:"kind" bson:"kind"`
-	Name              string                      `json:"name" bson:"name"`
-	Executor          StepExecutor                `json:"executor" bson:"executor"`
+// Task is one durable, observable phase of an Operation.
+type Task struct {
+	ID   string `json:"id" bson:"id"`
+	Kind string `json:"kind" bson:"kind"`
+	Name string `json:"name" bson:"name"`
+	// Job groups Tasks into a reusable, convergent unit (ADR 017). When set, the
+	// Workflow runs each Job as a Temporal child workflow; empty means the Task runs in
+	// the flat, single-workflow path. Cross-Job dependencies order the child workflows.
+	Job               string                      `json:"job,omitempty" bson:"job,omitempty"`
+	Executor          RunnerKind                `json:"executor" bson:"runner"`
 	DependsOn         []string                    `json:"dependsOn" bson:"dependsOn"`
 	Targets           []ResourceReference         `json:"targets" bson:"targets"`
 	Parameters        map[string]any              `json:"parameters,omitempty" bson:"parameters,omitempty"`
 	SecretRefs        map[string]string           `json:"secretRefs,omitempty" bson:"secretRefs,omitempty"`
-	Status            StepStatus                  `json:"status" bson:"status"`
+	Status            TaskStatus                  `json:"status" bson:"status"`
 	Attempt           int                         `json:"attempt" bson:"attempt"`
 	Progress          int                         `json:"progress" bson:"progress"`
 	WaitingReason     string                      `json:"waitingReason,omitempty" bson:"waitingReason,omitempty"`
@@ -116,16 +120,16 @@ type TemporalReference struct {
 	RunID      string `json:"runId,omitempty" bson:"runId,omitempty"`
 }
 
-// OperationV3 stores durable intent and its query projection. Secret values are never
+// Workflow stores durable intent and its query projection. Secret values are never
 // part of this aggregate; intent may carry opaque secret references only.
-type OperationV3 struct {
+type Workflow struct {
 	ID                 string              `json:"id" bson:"_id"`
 	SchemaVersion      int                 `json:"schemaVersion" bson:"schemaVersion"`
-	Kind               OperationKind       `json:"kind" bson:"kind"`
+	Kind               WorkflowKind       `json:"kind" bson:"kind"`
 	Intent             map[string]any      `json:"intent" bson:"intent"`
 	Definition         string              `json:"definition" bson:"definition"`
 	DefinitionVersion  int                 `json:"definitionVersion" bson:"definitionVersion"`
-	Status             OrchestrationStatus `json:"status" bson:"status"`
+	Status             WorkflowStatus `json:"status" bson:"status"`
 	StatusReason       string              `json:"statusReason,omitempty" bson:"statusReason,omitempty"`
 	StartState         string              `json:"startState" bson:"startState"`
 	Temporal           TemporalReference   `json:"temporal" bson:"temporal"`
@@ -133,7 +137,7 @@ type OperationV3 struct {
 	PlatformID         string              `json:"platformId,omitempty" bson:"platformId,omitempty"`
 	TargetResources    []ResourceReference `json:"targetResources" bson:"targetResources"`
 	TargetServerIDs    []string            `json:"targetServerIds" bson:"targetServerIds"`
-	Steps              []OperationStep     `json:"steps" bson:"steps"`
+	Steps              []Task     `json:"steps" bson:"tasks"`
 	RetryOfOperationID string              `json:"retryOfOperationId,omitempty" bson:"retryOfOperationId,omitempty"`
 	RequestedBy        string              `json:"requestedBy" bson:"requestedBy"`
 	RequestCorrelation string              `json:"requestCorrelation,omitempty" bson:"requestCorrelation,omitempty"`
@@ -146,7 +150,7 @@ type OperationV3 struct {
 // TimelineEvent is an immutable normalized Operation event.
 type TimelineEvent struct {
 	ID          string         `json:"id" bson:"id"`
-	OperationID string         `json:"operationId" bson:"operationId"`
+	OperationID string         `json:"operationId" bson:"workflowId"`
 	StepID      string         `json:"stepId,omitempty" bson:"stepId,omitempty"`
 	Type        string         `json:"type" bson:"type"`
 	Message     string         `json:"message" bson:"message"`
@@ -155,33 +159,33 @@ type TimelineEvent struct {
 }
 
 var (
-	ErrStepNotFound             = errors.New("operation step not found")
-	ErrStepRetryUnsafe          = errors.New("operation step cannot be retried safely")
-	ErrOperationNotV3           = errors.New("operation is not an orchestration operation")
-	ErrOperationControlConflict = errors.New("operation cannot accept this control in its current state")
+	ErrTaskNotFound             = errors.New("operation step not found")
+	ErrTaskRetryUnsafe          = errors.New("operation step cannot be retried safely")
+	ErrWorkflowNotV3           = errors.New("operation is not an orchestration operation")
+	ErrWorkflowControlConflict = errors.New("operation cannot accept this control in its current state")
 	ErrLeaseConflict            = errors.New("one or more resources are already leased")
 	ErrLeaseFenced              = errors.New("resource lease fencing token is no longer current")
 )
 
-// OrchestrationFilter narrows v3 Operation listings.
-type OrchestrationFilter struct {
+// WorkflowFilter narrows v3 Operation listings.
+type WorkflowFilter struct {
 	SiteID, PlatformID, ServerID string
 	PlatformIDs                  []string
-	Kind                         OperationKind
-	Status                       OrchestrationStatus
+	Kind                         WorkflowKind
+	Status                       WorkflowStatus
 	ActiveOnly                   bool
 	Offset, Limit                int
 }
 
-// OrchestrationRepository stores v3 intent and its rebuildable query projection.
-type OrchestrationRepository interface {
-	Create(ctx context.Context, operation *OperationV3) error
-	FindByID(ctx context.Context, id string) (*OperationV3, error)
-	List(ctx context.Context, filter OrchestrationFilter) ([]*OperationV3, int, error)
-	ListPendingStart(ctx context.Context, limit int) ([]*OperationV3, error)
+// WorkflowRepository stores v3 intent and its rebuildable query projection.
+type WorkflowRepository interface {
+	Create(ctx context.Context, operation *Workflow) error
+	FindByID(ctx context.Context, id string) (*Workflow, error)
+	List(ctx context.Context, filter WorkflowFilter) ([]*Workflow, int, error)
+	ListPendingStart(ctx context.Context, limit int) ([]*Workflow, error)
 	MarkWorkflowStarted(ctx context.Context, id, runID string) error
-	UpdateState(ctx context.Context, id string, status OrchestrationStatus, reason string, startedAt, finishedAt *time.Time) error
-	UpdateStep(ctx context.Context, operationID string, step OperationStep) error
+	UpdateState(ctx context.Context, id string, status WorkflowStatus, reason string, startedAt, finishedAt *time.Time) error
+	UpdateStep(ctx context.Context, operationID string, step Task) error
 	AppendEvent(ctx context.Context, event TimelineEvent) error
 	Timeline(ctx context.Context, operationID string) ([]TimelineEvent, error)
 }

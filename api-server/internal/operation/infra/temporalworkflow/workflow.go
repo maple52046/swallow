@@ -44,12 +44,12 @@ const operationWorkflowVersion = 1
 // never credential, cloud-init, or automation secret values.
 type WorkflowInput struct {
 	OperationID       string
-	Kind              operationdomain.OperationKind
+	Kind              operationdomain.WorkflowKind
 	PlatformID        string
 	SiteID            string
 	Definition        string
 	DefinitionVersion int
-	Steps             []operationdomain.OperationStep
+	Steps             []operationdomain.Task
 	ResourceKeys      []string
 	LeaseDuration     time.Duration
 	MaxParallelism    int
@@ -63,7 +63,7 @@ type RetryStepCommand struct {
 // StateUpdate is written by an activity so workflows never access Mongo directly.
 type StateUpdate struct {
 	OperationID string
-	Status      operationdomain.OrchestrationStatus
+	Status      operationdomain.WorkflowStatus
 	Reason      string
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
@@ -72,7 +72,7 @@ type StateUpdate struct {
 // StepUpdate is one projection write.
 type StepUpdate struct {
 	OperationID string
-	Step        operationdomain.OperationStep
+	Step        operationdomain.Task
 }
 
 // LeaseRequest asks the persistence adapter for all resources atomically from the
@@ -92,17 +92,17 @@ type LeaseRenewal struct {
 // StepExecutionInput is passed to exactly one typed lifecycle adapter.
 type StepExecutionInput struct {
 	OperationID   string
-	Kind          operationdomain.OperationKind
+	Kind          operationdomain.WorkflowKind
 	PlatformID    string
 	SiteID        string
-	Step          operationdomain.OperationStep
+	Step          operationdomain.Task
 	Leases        []operationdomain.ResourceLease
 	LeaseDuration time.Duration
 }
 
 // StepExecutionResult is normalized before it reaches workflow history.
 type StepExecutionResult struct {
-	Status            operationdomain.StepStatus
+	Status            operationdomain.TaskStatus
 	Progress          int
 	WaitingReason     string
 	Error             *operationdomain.NormalizedError
@@ -118,18 +118,18 @@ type StepLifecycleExecutor interface {
 
 // StepProjectionObserver materializes public read models from durable Step transitions.
 type StepProjectionObserver interface {
-	ObserveStep(ctx context.Context, operationID string, step operationdomain.OperationStep) error
+	ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error
 }
 
 // Activities contains only narrow repositories and typed executors.
 type Activities struct {
-	operations operationdomain.OrchestrationRepository
+	operations operationdomain.WorkflowRepository
 	leases     operationdomain.ResourceLeaseRepository
-	executors  map[operationdomain.StepExecutor]StepLifecycleExecutor
+	executors  map[operationdomain.RunnerKind]StepLifecycleExecutor
 	observers  []StepProjectionObserver
 }
 
-func NewActivities(operations operationdomain.OrchestrationRepository, leases operationdomain.ResourceLeaseRepository, executors map[operationdomain.StepExecutor]StepLifecycleExecutor, observers ...StepProjectionObserver) *Activities {
+func NewActivities(operations operationdomain.WorkflowRepository, leases operationdomain.ResourceLeaseRepository, executors map[operationdomain.RunnerKind]StepLifecycleExecutor, observers ...StepProjectionObserver) *Activities {
 	return &Activities{operations: operations, leases: leases, executors: executors, observers: observers}
 }
 
@@ -189,12 +189,12 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 	}
 	executor := a.executors[input.Step.Executor]
 	if executor == nil {
-		return StepExecutionResult{Status: operationdomain.StepFailed, Error: &operationdomain.NormalizedError{
+		return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
 			Code: "executor_unavailable", Message: fmt.Sprintf("No %s executor is configured.", input.Step.Executor), Retryable: false,
 		}}, nil
 	}
 	waiting := input.Step
-	waiting.Status = operationdomain.StepWaitingExternal
+	waiting.Status = operationdomain.TaskWaitingExternal
 	waiting.WaitingReason = "Waiting for " + string(input.Step.Executor) + " execution."
 	_ = a.UpdateStep(ctx, StepUpdate{OperationID: input.OperationID, Step: waiting})
 	executionCtx, cancel := context.WithCancel(ctx)
@@ -232,7 +232,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 	}
 finished:
 	if result.Status == "" {
-		result.Status = operationdomain.StepSucceeded
+		result.Status = operationdomain.TaskSucceeded
 	}
 	return result, nil
 }
@@ -241,7 +241,7 @@ finished:
 type NoopExecutor struct{}
 
 func (NoopExecutor) Execute(_ context.Context, _ StepExecutionInput) StepExecutionResult {
-	return StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+	return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 }
 
 // OperationWorkflowV1 executes dependency layers in stable input order and pauses on a
@@ -267,7 +267,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	projectionCtx := workflow.WithActivityOptions(ctx, projectionOptions)
 	now := workflow.Now(ctx).UTC()
 	_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-		OperationID: input.OperationID, Status: operationdomain.OrchestrationWaitingDependency,
+		OperationID: input.OperationID, Status: operationdomain.WorkflowWaitingDependency,
 		Reason: "Waiting for resource leases.", StartedAt: &now,
 	}).Get(projectionCtx, nil)
 
@@ -295,11 +295,18 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	}()
 
 	_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-		OperationID: input.OperationID, Status: operationdomain.OrchestrationRunning,
+		OperationID: input.OperationID, Status: operationdomain.WorkflowRunning,
 		StartedAt: &now,
 	}).Get(projectionCtx, nil)
 
-	steps := append([]operationdomain.OperationStep(nil), input.Steps...)
+	// Jobs path (ADR 017): when Tasks are grouped into Jobs, run each Job as a Temporal
+	// child workflow in cross-Job dependency order. The proven flat path below runs
+	// unchanged when no Task declares a Job, so existing histories replay identically.
+	if hasJobs(input.Steps) {
+		return runJobbedWorkflow(ctx, input, leases, projectionCtx)
+	}
+
+	steps := append([]operationdomain.Task(nil), input.Steps...)
 	retryChannel := workflow.GetSignalChannel(ctx, RetryStepSignal)
 	for {
 		if ctx.Err() != nil {
@@ -310,22 +317,22 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 			if allSucceeded(steps) {
 				finished := workflow.Now(ctx).UTC()
 				return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-					OperationID: input.OperationID, Status: operationdomain.OrchestrationSucceeded, FinishedAt: &finished,
+					OperationID: input.OperationID, Status: operationdomain.WorkflowSucceeded, FinishedAt: &finished,
 				}).Get(projectionCtx, nil)
 			}
 			failedIndex := retryableFailure(steps)
 			if failedIndex < 0 {
 				finished := workflow.Now(ctx).UTC()
-				status := operationdomain.OrchestrationFailed
+				status := operationdomain.WorkflowFailed
 				if anySucceeded(steps) {
-					status = operationdomain.OrchestrationPartiallySucceeded
+					status = operationdomain.WorkflowPartiallySucceeded
 				}
 				return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
 					OperationID: input.OperationID, Status: status, Reason: firstFailure(steps), FinishedAt: &finished,
 				}).Get(projectionCtx, nil)
 			}
 			_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-				OperationID: input.OperationID, Status: operationdomain.OrchestrationRequiresAttention,
+				OperationID: input.OperationID, Status: operationdomain.WorkflowRequiresAttention,
 				Reason: "A failed Step requires operator attention.",
 			}).Get(projectionCtx, nil)
 			command, err := awaitRetryStep(ctx, retryChannel, leases, input.LeaseDuration)
@@ -333,9 +340,9 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				return finishCanceled(ctx, input.OperationID, steps)
 			}
 			for index := range steps {
-				if steps[index].ID == command.StepID && (steps[index].Status == operationdomain.StepFailed || steps[index].Status == operationdomain.StepRequiresAttention) && steps[index].Error != nil && steps[index].Error.Retryable {
+				if steps[index].ID == command.StepID && (steps[index].Status == operationdomain.TaskFailed || steps[index].Status == operationdomain.TaskRequiresAttention) && steps[index].Error != nil && steps[index].Error.Retryable {
 					steps[index].Attempt++
-					steps[index].Status = operationdomain.StepPending
+					steps[index].Status = operationdomain.TaskPending
 					steps[index].Error = nil
 					steps[index].FinishedAt = nil
 					steps[index].Progress = 0
@@ -346,7 +353,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 		}
 
 		_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-			OperationID: input.OperationID, Status: operationdomain.OrchestrationWaitingExternal,
+			OperationID: input.OperationID, Status: operationdomain.WorkflowWaitingExternal,
 			Reason: "Waiting for an external executor or provider.",
 		}).Get(projectionCtx, nil)
 		for start := 0; start < len(ready); start += input.MaxParallelism {
@@ -358,7 +365,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 			futures := make([]workflow.Future, len(batch))
 			for pos, index := range batch {
 				started := workflow.Now(ctx).UTC()
-				steps[index].Status = operationdomain.StepRunning
+				steps[index].Status = operationdomain.TaskRunning
 				steps[index].StartedAt = &started
 				steps[index].WaitingReason = ""
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
@@ -377,7 +384,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				steps[index].FinishedAt = &finished
 				if err != nil {
 					if temporal.IsCanceledError(err) || ctx.Err() != nil {
-						steps[index].Status = operationdomain.StepCanceled
+						steps[index].Status = operationdomain.TaskCanceled
 					} else {
 						// A non-retryable activity failure (for example a lost lease
 						// fencing token) is terminal: marking it retryable would let the
@@ -385,9 +392,9 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 						// converge. Only genuinely uncertain infrastructure failures pause
 						// for operator attention.
 						code, message, retryable := normalizeActivityError(err)
-						status := operationdomain.StepRequiresAttention
+						status := operationdomain.TaskRequiresAttention
 						if !retryable {
-							status = operationdomain.StepFailed
+							status = operationdomain.TaskFailed
 						}
 						steps[index].Status = status
 						steps[index].Error = &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}
@@ -403,22 +410,303 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
 			}
 			_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-				OperationID: input.OperationID, Status: operationdomain.OrchestrationRunning,
+				OperationID: input.OperationID, Status: operationdomain.WorkflowRunning,
 			}).Get(projectionCtx, nil)
 		}
 	}
 }
 
-func readySteps(steps []operationdomain.OperationStep) []int {
+// JobWorkflowName registers the reusable Job child workflow. It is a new name so existing
+// OperationWorkflowV1 histories (which never call a child workflow) stay replay-safe.
+const JobWorkflowName = "swallow.job.v1"
+
+// JobWorkflowInput runs one Job (a reusable group of Tasks) inside a parent Operation. The
+// parent owns and renews the resource leases; the child validates them before each Task, so
+// only one workflow tree ever mutates a Server or Platform at a time.
+type JobWorkflowInput struct {
+	OperationID    string
+	Kind           operationdomain.WorkflowKind
+	PlatformID     string
+	SiteID         string
+	JobName        string
+	Tasks          []operationdomain.Task
+	Leases         []operationdomain.ResourceLease
+	LeaseDuration  time.Duration
+	MaxParallelism int
+}
+
+// JobResult is the normalized outcome a Job child workflow returns to its parent. Failure is
+// returned as a value (not an error) so the parent can decide whether to pause for retry.
+type JobResult struct {
+	Succeeded bool
+	Retryable bool
+	Reason    string
+}
+
+// hasJobs reports whether any Task is assigned to a Job, which selects the child-workflow
+// orchestration path.
+func hasJobs(tasks []operationdomain.Task) bool {
+	for _, task := range tasks {
+		if task.Job != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// runJobbedWorkflow orchestrates a Workflow whose Tasks are grouped into Jobs. Each Job runs
+// as a child workflow in cross-Job dependency order; a retryable Job failure pauses the
+// Operation and, on an operator retry, re-runs the (idempotent) Job.
+func runJobbedWorkflow(ctx workflow.Context, input WorkflowInput, leases []operationdomain.ResourceLease, projectionCtx workflow.Context) error {
+	// Partition Tasks into Jobs, preserving first-appearance order for determinism.
+	order := []string{}
+	byJob := map[string][]operationdomain.Task{}
+	taskJob := map[string]string{}
+	for _, task := range input.Steps {
+		if _, ok := byJob[task.Job]; !ok {
+			order = append(order, task.Job)
+		}
+		byJob[task.Job] = append(byJob[task.Job], task)
+		taskJob[task.ID] = task.Job
+	}
+	// Derive Job-level dependencies from cross-Job Task dependencies, appended in a
+	// deterministic order (no map iteration drives control flow).
+	jobDeps := map[string][]string{}
+	seen := map[string]map[string]bool{}
+	for _, task := range input.Steps {
+		for _, dep := range task.DependsOn {
+			depJob := taskJob[dep]
+			if depJob == "" || depJob == task.Job {
+				continue
+			}
+			if seen[task.Job] == nil {
+				seen[task.Job] = map[string]bool{}
+			}
+			if !seen[task.Job][depJob] {
+				seen[task.Job][depJob] = true
+				jobDeps[task.Job] = append(jobDeps[task.Job], depJob)
+			}
+		}
+	}
+
+	retryChannel := workflow.GetSignalChannel(ctx, RetryStepSignal)
+	done := map[string]bool{}
+	anySucceeded := false
+	remaining := append([]string(nil), order...)
+	for len(remaining) > 0 {
+		progressed := false
+		for i := 0; i < len(remaining); i++ {
+			job := remaining[i]
+			ready := true
+			for _, dep := range jobDeps[job] {
+				if !done[dep] {
+					ready = false
+					break
+				}
+			}
+			if !ready {
+				continue
+			}
+			result := runJobChild(ctx, input, leases, projectionCtx, retryChannel, job, byJob[job])
+			if result.Succeeded {
+				anySucceeded = true
+				done[job] = true
+				remaining = append(remaining[:i], remaining[i+1:]...)
+				progressed = true
+				break
+			}
+			if ctx.Err() != nil {
+				return finishCanceled(ctx, input.OperationID, input.Steps)
+			}
+			finished := workflow.Now(ctx).UTC()
+			status := operationdomain.WorkflowFailed
+			if anySucceeded {
+				status = operationdomain.WorkflowPartiallySucceeded
+			}
+			return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
+				OperationID: input.OperationID, Status: status, Reason: result.Reason, FinishedAt: &finished,
+			}).Get(projectionCtx, nil)
+		}
+		if !progressed {
+			finished := workflow.Now(ctx).UTC()
+			return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
+				OperationID: input.OperationID, Status: operationdomain.WorkflowFailed,
+				Reason: "Job dependencies could not be satisfied.", FinishedAt: &finished,
+			}).Get(projectionCtx, nil)
+		}
+	}
+	finished := workflow.Now(ctx).UTC()
+	return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
+		OperationID: input.OperationID, Status: operationdomain.WorkflowSucceeded, FinishedAt: &finished,
+	}).Get(projectionCtx, nil)
+}
+
+// runJobChild runs one Job as a child workflow, pausing the Operation for operator retry on
+// a retryable failure and then re-running the idempotent Job.
+func runJobChild(ctx workflow.Context, input WorkflowInput, leases []operationdomain.ResourceLease, projectionCtx workflow.Context, retryChannel workflow.ReceiveChannel, job string, tasks []operationdomain.Task) JobResult {
+	attempt := 0
+	for {
+		attempt++
+		_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
+			OperationID: input.OperationID, Status: operationdomain.WorkflowRunning,
+			Reason: "Running job " + job + ".",
+		}).Get(projectionCtx, nil)
+		childID := fmt.Sprintf("%s/job/%s/%d", workflow.GetInfo(ctx).WorkflowExecution.ID, job, attempt)
+		childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: childID})
+		var result JobResult
+		err := workflow.ExecuteChildWorkflow(childCtx, JobWorkflowName, JobWorkflowInput{
+			OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
+			JobName: job, Tasks: tasks, Leases: leases, LeaseDuration: input.LeaseDuration, MaxParallelism: input.MaxParallelism,
+		}).Get(ctx, &result)
+		if err != nil {
+			if temporal.IsCanceledError(err) || ctx.Err() != nil {
+				return JobResult{Succeeded: false, Retryable: false, Reason: "canceled"}
+			}
+			_, message, retryable := normalizeActivityError(err)
+			result = JobResult{Succeeded: false, Retryable: retryable, Reason: message}
+		}
+		if result.Succeeded || !result.Retryable {
+			return result
+		}
+		_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
+			OperationID: input.OperationID, Status: operationdomain.WorkflowRequiresAttention,
+			Reason: "Job " + job + " requires operator attention.",
+		}).Get(projectionCtx, nil)
+		if _, waitErr := awaitRetryStep(ctx, retryChannel, leases, input.LeaseDuration); waitErr != nil {
+			return JobResult{Succeeded: false, Retryable: false, Reason: "canceled"}
+		}
+		// Loop: re-run the Job as a fresh child. Idempotent ("ensure") Tasks skip work that
+		// already converged, so a retry only redoes what still needs doing.
+	}
+}
+
+// JobWorkflowV1 executes one Job's Tasks in intra-Job dependency order, updating each Task's
+// projection. It reports failure as a JobResult value so the parent Operation owns retry and
+// final status. Cross-Job dependencies are treated as already satisfied by parent ordering.
+func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, error) {
+	if input.LeaseDuration <= 0 {
+		input.LeaseDuration = 90 * time.Second
+	}
+	if input.MaxParallelism <= 0 {
+		input.MaxParallelism = 4
+	}
+	projectionOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy:         &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: 10 * time.Second, MaximumAttempts: 0},
+	}
+	projectionCtx := workflow.WithActivityOptions(ctx, projectionOptions)
+	tasks := append([]operationdomain.Task(nil), input.Tasks...)
+	known := map[string]bool{}
+	for _, task := range tasks {
+		known[task.ID] = true
+	}
+	for {
+		if ctx.Err() != nil {
+			return JobResult{Succeeded: false, Retryable: false, Reason: "canceled"}, nil
+		}
+		ready := readyJobTasks(tasks, known)
+		if len(ready) == 0 {
+			if allSucceeded(tasks) {
+				return JobResult{Succeeded: true}, nil
+			}
+			for _, task := range tasks {
+				if task.Error != nil {
+					return JobResult{Succeeded: false, Retryable: task.Error.Retryable, Reason: task.Error.Message}, nil
+				}
+			}
+			return JobResult{Succeeded: false, Retryable: false, Reason: "job did not converge"}, nil
+		}
+		for start := 0; start < len(ready); start += input.MaxParallelism {
+			end := start + input.MaxParallelism
+			if end > len(ready) {
+				end = len(ready)
+			}
+			batch := ready[start:end]
+			futures := make([]workflow.Future, len(batch))
+			for pos, index := range batch {
+				started := workflow.Now(ctx).UTC()
+				tasks[index].Status = operationdomain.TaskRunning
+				tasks[index].StartedAt = &started
+				tasks[index].WaitingReason = ""
+				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: tasks[index]}).Get(projectionCtx, nil)
+				executionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+					StartToCloseTimeout: 7 * 24 * time.Hour, HeartbeatTimeout: 30 * time.Second,
+					RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1},
+				})
+				futures[pos] = workflow.ExecuteActivity(executionCtx, ActivityExecuteStep, StepExecutionInput{
+					OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID, Step: tasks[index], Leases: input.Leases, LeaseDuration: input.LeaseDuration,
+				})
+			}
+			for pos, index := range batch {
+				var result StepExecutionResult
+				err := futures[pos].Get(ctx, &result)
+				finished := workflow.Now(ctx).UTC()
+				tasks[index].FinishedAt = &finished
+				if err != nil {
+					if temporal.IsCanceledError(err) || ctx.Err() != nil {
+						tasks[index].Status = operationdomain.TaskCanceled
+					} else {
+						code, message, retryable := normalizeActivityError(err)
+						status := operationdomain.TaskRequiresAttention
+						if !retryable {
+							status = operationdomain.TaskFailed
+						}
+						tasks[index].Status = status
+						tasks[index].Error = &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}
+					}
+				} else {
+					tasks[index].Status = result.Status
+					tasks[index].Progress = result.Progress
+					tasks[index].WaitingReason = result.WaitingReason
+					tasks[index].Error = result.Error
+					tasks[index].ExternalExecution = result.ExternalExecution
+					tasks[index].Artifacts = result.Artifacts
+				}
+				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: tasks[index]}).Get(projectionCtx, nil)
+			}
+		}
+	}
+}
+
+// readyJobTasks returns runnable Task indices within one Job. A dependency on a Task outside
+// this Job's set is treated as satisfied, because the parent runs dependency Jobs first.
+func readyJobTasks(tasks []operationdomain.Task, known map[string]bool) []int {
+	succeeded := map[string]bool{}
+	for _, task := range tasks {
+		if task.Status == operationdomain.TaskSucceeded || task.Status == operationdomain.TaskSkipped {
+			succeeded[task.ID] = true
+		}
+	}
+	ready := []int{}
+	for index, task := range tasks {
+		if task.Status != operationdomain.TaskPending && task.Status != operationdomain.TaskWaitingDependency {
+			continue
+		}
+		all := true
+		for _, dep := range task.DependsOn {
+			if known[dep] && !succeeded[dep] {
+				all = false
+				break
+			}
+		}
+		if all {
+			ready = append(ready, index)
+		}
+	}
+	sort.Ints(ready)
+	return ready
+}
+
+func readySteps(steps []operationdomain.Task) []int {
 	succeeded := map[string]bool{}
 	for _, step := range steps {
-		if step.Status == operationdomain.StepSucceeded || step.Status == operationdomain.StepSkipped {
+		if step.Status == operationdomain.TaskSucceeded || step.Status == operationdomain.TaskSkipped {
 			succeeded[step.ID] = true
 		}
 	}
 	ready := []int{}
 	for index, step := range steps {
-		if step.Status != operationdomain.StepPending && step.Status != operationdomain.StepWaitingDependency {
+		if step.Status != operationdomain.TaskPending && step.Status != operationdomain.TaskWaitingDependency {
 			continue
 		}
 		all := true
@@ -433,34 +721,34 @@ func readySteps(steps []operationdomain.OperationStep) []int {
 	return ready
 }
 
-func allSucceeded(steps []operationdomain.OperationStep) bool {
+func allSucceeded(steps []operationdomain.Task) bool {
 	for _, step := range steps {
-		if step.Status != operationdomain.StepSucceeded && step.Status != operationdomain.StepSkipped {
+		if step.Status != operationdomain.TaskSucceeded && step.Status != operationdomain.TaskSkipped {
 			return false
 		}
 	}
 	return true
 }
 
-func anySucceeded(steps []operationdomain.OperationStep) bool {
+func anySucceeded(steps []operationdomain.Task) bool {
 	for _, step := range steps {
-		if step.Status == operationdomain.StepSucceeded {
+		if step.Status == operationdomain.TaskSucceeded {
 			return true
 		}
 	}
 	return false
 }
 
-func retryableFailure(steps []operationdomain.OperationStep) int {
+func retryableFailure(steps []operationdomain.Task) int {
 	for index, step := range steps {
-		if (step.Status == operationdomain.StepFailed || step.Status == operationdomain.StepRequiresAttention) && step.Error != nil && step.Error.Retryable {
+		if (step.Status == operationdomain.TaskFailed || step.Status == operationdomain.TaskRequiresAttention) && step.Error != nil && step.Error.Retryable {
 			return index
 		}
 	}
 	return -1
 }
 
-func firstFailure(steps []operationdomain.OperationStep) string {
+func firstFailure(steps []operationdomain.Task) string {
 	for _, step := range steps {
 		if step.Error != nil {
 			return step.Error.Message
@@ -500,7 +788,7 @@ func normalizeActivityError(err error) (code string, message string, retryable b
 	return code, message, retryable
 }
 
-func finishCanceled(ctx workflow.Context, operationID string, steps []operationdomain.OperationStep) error {
+func finishCanceled(ctx workflow.Context, operationID string, steps []operationdomain.Task) error {
 	disconnected, _ := workflow.NewDisconnectedContext(ctx)
 	disconnected = workflow.WithActivityOptions(disconnected, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -508,7 +796,7 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 	})
 	finished := workflow.Now(disconnected).UTC()
 	_ = workflow.ExecuteActivity(disconnected, ActivityUpdateState, StateUpdate{
-		OperationID: operationID, Status: operationdomain.OrchestrationCanceling,
+		OperationID: operationID, Status: operationdomain.WorkflowCanceling,
 		Reason: "Canceling active work.",
 	}).Get(disconnected, nil)
 	// Reflect every non-terminal step as canceled, not just the ones that never
@@ -516,15 +804,15 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 	// workflow has stopped would misreport the Operation as still working.
 	for index := range steps {
 		switch steps[index].Status {
-		case operationdomain.StepPending, operationdomain.StepWaitingDependency,
-			operationdomain.StepWaitingExternal, operationdomain.StepRunning:
-			steps[index].Status = operationdomain.StepCanceled
+		case operationdomain.TaskPending, operationdomain.TaskWaitingDependency,
+			operationdomain.TaskWaitingExternal, operationdomain.TaskRunning:
+			steps[index].Status = operationdomain.TaskCanceled
 			steps[index].FinishedAt = &finished
 			_ = workflow.ExecuteActivity(disconnected, ActivityUpdateStep, StepUpdate{OperationID: operationID, Step: steps[index]}).Get(disconnected, nil)
 		}
 	}
 	_ = workflow.ExecuteActivity(disconnected, ActivityUpdateState, StateUpdate{
-		OperationID: operationID, Status: operationdomain.OrchestrationCanceled,
+		OperationID: operationID, Status: operationdomain.WorkflowCanceled,
 		Reason: "Canceled by operator.", FinishedAt: &finished,
 	}).Get(disconnected, nil)
 	return nil
@@ -537,11 +825,11 @@ func NewController(temporalClient client.Client) *Controller {
 	return &Controller{client: temporalClient}
 }
 
-func (c *Controller) Cancel(ctx context.Context, operation *operationdomain.OperationV3) error {
+func (c *Controller) Cancel(ctx context.Context, operation *operationdomain.Workflow) error {
 	return c.client.CancelWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID)
 }
 
-func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.OperationV3, stepID string) error {
+func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.Workflow, stepID string) error {
 	return c.client.SignalWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID, RetryStepSignal, RetryStepCommand{StepID: stepID})
 }
 
@@ -554,14 +842,14 @@ func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.O
 // change; both fall back to safe defaults.
 type Starter struct {
 	client         client.Client
-	operations     operationdomain.OrchestrationRepository
+	operations     operationdomain.WorkflowRepository
 	taskQueue      string
 	interval       time.Duration
 	leaseDuration  time.Duration
 	maxParallelism int
 }
 
-func NewStarter(temporalClient client.Client, operations operationdomain.OrchestrationRepository, taskQueue string, interval, leaseDuration time.Duration, maxParallelism int) *Starter {
+func NewStarter(temporalClient client.Client, operations operationdomain.WorkflowRepository, taskQueue string, interval, leaseDuration time.Duration, maxParallelism int) *Starter {
 	if taskQueue == "" {
 		taskQueue = TaskQueue
 	}
@@ -629,7 +917,7 @@ func resourceKeys(resources []operationdomain.ResourceReference) []string {
 	return keys
 }
 
-var _ operationapp.OrchestrationController = (*Controller)(nil)
+var _ operationapp.WorkflowController = (*Controller)(nil)
 
 // awaitRetryStep keeps resource leases fenced while an Operation requires operator input.
 func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, leases []operationdomain.ResourceLease, leaseDuration time.Duration) (RetryStepCommand, error) {

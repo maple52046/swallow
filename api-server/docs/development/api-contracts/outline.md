@@ -1,7 +1,7 @@
 # Swallow API Contract Outline
 
-This file is the project-wide outline for API contracts owned by platform
-components in this source project. Use it after [README.md](README.md) to locate
+This file is the project-wide outline for API contracts owned by components
+in the swallow monorepo. Use it after [README.md](README.md) to locate
 the provider component's API contract outline.
 
 ## Component Outlines

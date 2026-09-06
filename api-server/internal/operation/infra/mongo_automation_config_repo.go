@@ -46,9 +46,9 @@ func (r *MongoAutomationConfigurationRepo) FindBySiteID(ctx context.Context, sit
 	if err != nil {
 		return nil, err
 	}
-	mappings := make(map[operationdomain.OperationKind]string, len(doc.PlaybookMappings))
+	mappings := make(map[operationdomain.WorkflowKind]string, len(doc.PlaybookMappings))
 	for kind, playbook := range doc.PlaybookMappings {
-		mappings[operationdomain.OperationKind(kind)] = playbook
+		mappings[operationdomain.WorkflowKind(kind)] = playbook
 	}
 	return &operationdomain.AutomationConfiguration{
 		SiteID: doc.SiteID, Enabled: doc.Enabled, SSHUser: doc.SSHUser, SSHPort: doc.SSHPort,

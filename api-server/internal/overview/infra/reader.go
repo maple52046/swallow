@@ -30,7 +30,7 @@ type Reader struct {
 	health         HealthResolver
 	platforms      platformdomain.PlatformRepository
 	operations     operationdomain.ExecutionRepository
-	orchestrations operationdomain.OrchestrationRepository
+	orchestrations operationdomain.WorkflowRepository
 	alerts         *monitoringapp.AlertService
 }
 
@@ -43,7 +43,7 @@ func NewReader(
 	platforms platformdomain.PlatformRepository,
 	operations operationdomain.ExecutionRepository,
 	alerts *monitoringapp.AlertService,
-	orchestrations ...operationdomain.OrchestrationRepository,
+	orchestrations ...operationdomain.WorkflowRepository,
 ) *Reader {
 	reader := &Reader{sites: sites, integrations: integrations, servers: servers, health: health, platforms: platforms, operations: operations, alerts: alerts}
 	if len(orchestrations) > 0 {
@@ -161,7 +161,7 @@ func (r *Reader) ListOperations(ctx context.Context, siteID string) ([]overviewa
 		}
 	}
 	if r.orchestrations != nil {
-		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.OrchestrationFilter{SiteID: siteID})
+		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.WorkflowFilter{SiteID: siteID})
 		if listErr != nil {
 			return nil, fmt.Errorf("list overview orchestration operations: %w", listErr)
 		}

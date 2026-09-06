@@ -2,7 +2,7 @@
  * A server is a projection of a machine in a provisioner's inventory. The backend
  * produces them by reconciliation, which is why there is no create input here.
  *
- * See docs/glossaries/server.md and docs/decisions/002-server-identity.md.
+ * See docs/development/glossaries/terms/server.md and docs/decisions/002-server-identity.md.
  */
 
 /** Where a server came from. The external key the backend reconciles on. */

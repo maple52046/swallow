@@ -18,7 +18,7 @@ import (
 // durableProvisioningLauncher performs full preflight before saving a v3 Operation.
 type durableProvisioningLauncher struct {
 	deployments *provisioningapp.DeployServersUseCase
-	operations  *operationapp.OrchestrationService
+	operations  *operationapp.WorkflowService
 	servers     serverdomain.ServerRepository
 	protection  serverdomain.MutationGuard
 }
@@ -44,7 +44,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	if err != nil {
 		return nil, err
 	}
-	steps := make([]operationdomain.OperationStep, len(input.ServerIDs))
+	steps := make([]operationdomain.Task, len(input.ServerIDs))
 	secretStepIDs := make([]string, 0, len(input.ServerIDs))
 	for index, serverID := range input.ServerIDs {
 		targetInput := input
@@ -60,9 +60,9 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 			targetInput.Network = &network
 		}
 		stepID := "provision-" + serverID
-		steps[index] = operationdomain.OperationStep{
+		steps[index] = operationdomain.Task{
 			ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
-			Executor:   operationdomain.StepExecutorMAAS,
+			Executor:   operationdomain.RunnerKindProvisioner,
 			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(targetInput)},
 		}
@@ -72,8 +72,8 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	if input.UserData.Mode == "replace" && secretValue != "" {
 		secretValues["userData"] = secretValue
 	}
-	created, err := l.operations.Create(ctx, operationapp.CreateOrchestrationInput{
-		Kind: operationdomain.OperationKindDeployOS, IntentSummary: fmt.Sprintf("Deploy operating system to %d Server(s)", len(input.ServerIDs)),
+	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
+		Kind: operationdomain.WorkflowKindDeployOS, IntentSummary: fmt.Sprintf("Deploy operating system to %d Server(s)", len(input.ServerIDs)),
 		IntentSnapshot: map[string]any{"request": structToMap(input)}, Definition: "os-deployment", DefinitionVersion: 1,
 		SiteID: first.Source.SiteID, TargetServerIDs: input.ServerIDs, Steps: steps,
 		RequestedBy: requestedBy, RequestCorrelation: requestID,
@@ -88,7 +88,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 
 // materializeInitialDeployments closes the API-to-worker visibility gap so returning
 // to Servers immediately starts polling the accepted durable deployment.
-func materializeInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []operationdomain.OperationStep) {
+func materializeInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []operationdomain.Task) {
 	if servers == nil {
 		return
 	}
@@ -120,7 +120,7 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 	}
 	seen := map[string]bool{}
 	siteID := ""
-	steps := make([]operationdomain.OperationStep, len(inputs))
+	steps := make([]operationdomain.Task, len(inputs))
 	targetIDs := make([]string, len(inputs))
 	for index, input := range inputs {
 		if seen[input.ServerID] {
@@ -140,9 +140,9 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			return nil, fmt.Errorf("%w: Server %s is not deployed", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())
 		}
 		targetIDs[index] = input.ServerID
-		steps[index] = operationdomain.OperationStep{
+		steps[index] = operationdomain.Task{
 			ID: "release-" + input.ServerID, Kind: "release-os", Name: "Release " + server.DisplayName(),
-			Executor:   operationdomain.StepExecutorMAAS,
+			Executor:   operationdomain.RunnerKindProvisioner,
 			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
 			Parameters: map[string]any{"request": structToMap(input)},
 		}
@@ -152,8 +152,8 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			return nil, err
 		}
 	}
-	created, err := l.operations.Create(ctx, operationapp.CreateOrchestrationInput{
-		Kind: operationdomain.OperationKindReleaseOS, IntentSummary: fmt.Sprintf("Release %d Server(s)", len(inputs)),
+	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
+		Kind: operationdomain.WorkflowKindReleaseOS, IntentSummary: fmt.Sprintf("Release %d Server(s)", len(inputs)),
 		IntentSnapshot: map[string]any{"requests": structsToMaps(inputs)}, Definition: "os-release", DefinitionVersion: 1,
 		SiteID: siteID, TargetServerIDs: targetIDs, Steps: steps, RequestedBy: requestedBy, RequestCorrelation: requestID,
 	})

@@ -18,6 +18,7 @@ import { DeployPlatformWizardPage } from './presentation/pages/platforms/DeployP
 import { LegacyPlatformRedirect } from './presentation/pages/platforms/LegacyPlatformRedirect'
 import { OperatorOperationsPage } from './presentation/pages/operations/OperatorOperationsPage'
 import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
+import { LegacyWorkflowRedirect } from './presentation/pages/operations/LegacyWorkflowRedirect'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 import { DeployOSWizardPage } from './presentation/pages/provisioning/DeployOSWizardPage'
 import { DeploymentTemplatesPage } from './presentation/pages/provisioning/DeploymentTemplatesPage'
@@ -58,8 +59,10 @@ export const router = createBrowserRouter([
       { path: 'clusters', element: <LegacyPlatformRedirect /> },
       { path: 'clusters/deploy', element: <LegacyPlatformRedirect deploy /> },
       { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },
-      { path: 'operations', element: <OperatorOperationsPage /> },
-      { path: 'operations/:id', element: <OperatorOperationDetailPage /> },
+      { path: 'workflows', element: <OperatorOperationsPage /> },
+      { path: 'workflows/:id', element: <OperatorOperationDetailPage /> },
+      { path: 'operations', element: <LegacyWorkflowRedirect /> },
+      { path: 'operations/:id', element: <LegacyWorkflowRedirect /> },
       { path: 'provisioning', element: <ProvisioningRedirect /> },
       { path: 'provisioning/deploy', element: <DeployOSWizardPage /> },
       { path: 'provisioning/templates', element: <DeploymentTemplatesPage /> },

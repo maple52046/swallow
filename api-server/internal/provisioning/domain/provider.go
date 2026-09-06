@@ -148,7 +148,7 @@ type MachineDetailInspector interface {
 
 // MachineEventReader reads the operational history retained by a provisioner for one
 // machine. Events remain provider-owned and are proxied live; swallow does not claim
-// that this is a complete audit record of every platform action.
+// that this is a complete audit record of every swallow action.
 type MachineEventReader interface {
 	ListMachineEvents(ctx context.Context, machineID string, limit int) ([]MachineEvent, error)
 }

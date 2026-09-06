@@ -12,7 +12,11 @@ function resolveApiBaseUrl(): string {
   return ''
 }
 
-const API_BASE_URL = resolveApiBaseUrl()
+/**
+ * The resolved API origin, shared by fetch-based adapters and the SSE adapter. Empty means
+ * same-origin (the dev proxy and production Nginx both serve /api on the dashboard origin).
+ */
+export const API_BASE_URL = resolveApiBaseUrl()
 
 const TOKEN_KEY = 'access_token'
 

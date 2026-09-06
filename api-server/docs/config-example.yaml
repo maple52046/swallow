@@ -48,7 +48,7 @@ api:
 
   # How often each enabled provisioner is polled to refresh server projections, and
   # each registered platform to refresh membership.
-  reconcileInterval: "60s"
+  reconcileInterval: "30s"
 
   # How often the attached-hardware inventory (GPUs) is refreshed. Much longer than
   # reconcileInterval because attached devices cost a call per machine and change only at

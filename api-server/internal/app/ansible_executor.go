@@ -65,7 +65,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	orchestrations, err := operationinfra.NewMongoOrchestrationRepo(db)
+	orchestrations, err := operationinfra.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return err
 	}
@@ -94,9 +94,9 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	lifecycles := platformLifecycleReader{operations: legacyOperations, orchestrations: orchestrations}
 	platformService := platformapp.NewPlatformService(platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
 	credentials := platformapp.NewDeploymentCredentialService(platforms, integrations, membership)
-	durable := operationapp.NewOrchestrationService(orchestrations, nil, operationSecrets)
+	durable := operationapp.NewWorkflowService(orchestrations, nil, operationSecrets)
 	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, platformapp.NewPolicyChecker(platforms, servers), protection)
-	operationService.AttachOrchestration(durable)
+	operationService.AttachWorkflow(durable)
 	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
 	leases := operationinfra.NewMongoResourceLeaseRepo(db)
 	queue := operationapp.NewAnsibleQueueWorker(

@@ -139,7 +139,7 @@ export function PlatformDetailPage() {
       <LifecycleNotice
         platform={platform}
         operation={lifecycleOperation}
-        onOpenOperation={(operationId) => navigate(scopedHref('/operations/' + operationId))}
+        onOpenOperation={(operationId) => navigate(scopedHref('/workflows/' + operationId))}
       />
       {platform.sync.lastError && platform.lifecycleState !== 'uninstalled' && (
         <Alert variant={AlertVariant.danger} title="Membership sync is failing" isInline>
@@ -223,7 +223,7 @@ export function PlatformDetailPage() {
                   <Tr
                     key={operation.id}
                     isClickable
-                    onRowClick={() => navigate(scopedHref(`/operations/${operation.id}`))}
+                    onRowClick={() => navigate(scopedHref(`/workflows/${operation.id}`))}
                   >
                     <Td dataLabel="Intent">{operation.intent || operation.execution.playbook}</Td>
                     <Td dataLabel="Kind">{operation.kind}</Td>

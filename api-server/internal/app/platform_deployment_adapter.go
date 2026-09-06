@@ -25,11 +25,20 @@ const (
 	platformNameVar             = "swallow_platform_name"
 )
 
+// Deploy Jobs (ADR 017): the k0s deployment is composed of two reusable, convergent Jobs.
+// `ensure-os` brings every target Server to a booted, SSH-reachable OS (provisioner Tasks
+// plus the readiness gate); `configure-k0s` installs and validates the Platform on top. The
+// Workflow runs each Job as a Temporal child workflow in cross-Job dependency order.
+const (
+	jobEnsureOS     = "ensure-os"
+	jobConfigureK0s = "configure-k0s"
+)
+
 // platformDeploymentLauncher composes optional MAAS preparation and k0s automation into
 // one durable Operation while retaining the legacy launcher for unavailable Temporal.
 type platformDeploymentLauncher struct {
 	operations     *operationapp.ExecutionService
-	orchestrations *operationapp.OrchestrationService
+	orchestrations *operationapp.WorkflowService
 	deployments    *provisioningapp.DeployServersUseCase
 	servers        serverdomain.ServerRepository
 }
@@ -63,7 +72,7 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 		return "", err
 	}
 
-	steps := make([]operationdomain.OperationStep, 0, len(launch.TargetServerIDs)+3)
+	steps := make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+3)
 	dependencies := make([]string, 0, len(launch.TargetServerIDs))
 	secretStepIDs := make([]string, 0, len(launch.TargetServerIDs))
 	preparation := launch.MachinePreparation
@@ -74,56 +83,86 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 		if l.deployments == nil {
 			return "", fmt.Errorf("durable Platform provisioning is unavailable")
 		}
-		batch, resolvedUserData, resolveErr := l.deployments.ResolveOperationInput(
-			ctx,
-			platformProvisioningInput(launch.MachinePreparation, launch.TargetServerIDs),
-		)
-		if resolveErr != nil {
-			return "", resolveErr
-		}
-		frozenProvisioning = &batch
-		userData = resolvedUserData
+		// Convergent deploy (ADR 017): provision only targets that still need an OS. A
+		// target already `deployed` in the same batch is used as-is and only gets an SSH
+		// readiness gate. This lets one deploy mix ready and deployed servers.
+		readyIDs := make([]string, 0, len(launch.TargetServerIDs))
+		deployedTargets := make([]operationdomain.ResourceReference, 0, len(launch.TargetServerIDs))
 		for _, serverID := range launch.TargetServerIDs {
-			stepID := "provision-" + serverID
-			targetRequest := batch
-			targetRequest.ServerIDs = []string{serverID}
-			if batch.Network != nil {
-				network := *batch.Network
-				network.Assignments = nil
-				for _, assignment := range batch.Network.Assignments {
-					if assignment.ServerID == serverID {
-						network.Assignments = []provisioningapp.DeploymentNetworkAssignmentInput{assignment}
-					}
-				}
-				targetRequest.Network = &network
+			server, err := l.servers.FindByID(ctx, serverID)
+			if err != nil {
+				return "", err
 			}
-			steps = append(steps, operationdomain.OperationStep{
-				ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
-				Executor:   operationdomain.StepExecutorMAAS,
-				Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
-				Parameters: map[string]any{"request": structToMap(targetRequest)},
+			if server.Provisioning != nil && server.Provisioning.State == "deployed" {
+				deployedTargets = append(deployedTargets, operationdomain.ResourceReference{Kind: "server", ID: serverID})
+				continue
+			}
+			readyIDs = append(readyIDs, serverID)
+		}
+		if len(readyIDs) > 0 {
+			batch, resolvedUserData, resolveErr := l.deployments.ResolveOperationInput(
+				ctx,
+				platformProvisioningInput(launch.MachinePreparation, readyIDs),
+			)
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			frozenProvisioning = &batch
+			userData = resolvedUserData
+			for _, serverID := range readyIDs {
+				stepID := "provision-" + serverID
+				targetRequest := batch
+				targetRequest.ServerIDs = []string{serverID}
+				if batch.Network != nil {
+					network := *batch.Network
+					network.Assignments = nil
+					for _, assignment := range batch.Network.Assignments {
+						if assignment.ServerID == serverID {
+							network.Assignments = []provisioningapp.DeploymentNetworkAssignmentInput{assignment}
+						}
+					}
+					targetRequest.Network = &network
+				}
+				steps = append(steps, operationdomain.Task{
+					ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
+					Job:        jobEnsureOS,
+					Executor:   operationdomain.RunnerKindProvisioner,
+					Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+					Parameters: map[string]any{"request": structToMap(targetRequest)},
+				})
+				dependencies = append(dependencies, stepID)
+				secretStepIDs = append(secretStepIDs, stepID)
+			}
+		}
+		if len(deployedTargets) > 0 {
+			steps = append(steps, operationdomain.Task{
+				ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
+				Job:      jobEnsureOS,
+				Executor: operationdomain.RunnerKindInternal, Targets: deployedTargets,
 			})
-			dependencies = append(dependencies, stepID)
-			secretStepIDs = append(secretStepIDs, stepID)
+			dependencies = append(dependencies, "wait-for-ssh")
 		}
 	}
 	installDependencies := dependencies
 	if !provisionFirst {
-		steps = append(steps, operationdomain.OperationStep{
+		steps = append(steps, operationdomain.Task{
 			ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
-			Executor: operationdomain.StepExecutorInternal, Targets: prepared.Targets,
+			Job:      jobEnsureOS,
+			Executor: operationdomain.RunnerKindInternal, Targets: prepared.Targets,
 		})
 		installDependencies = []string{"wait-for-ssh"}
 	}
-	steps = append(steps, operationdomain.OperationStep{
+	steps = append(steps, operationdomain.Task{
 		ID: "install-platform", Kind: "ansible-playbook", Name: "Install k0s Platform",
-		Executor: operationdomain.StepExecutorAnsible, DependsOn: installDependencies,
+		Job:      jobConfigureK0s,
+		Executor: operationdomain.RunnerKindAnsible, DependsOn: installDependencies,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	})
-	steps = append(steps, operationdomain.OperationStep{
+	steps = append(steps, operationdomain.Task{
 		ID: "validate-platform", Kind: "validate-platform-health", Name: "Validate Platform health",
-		Executor: operationdomain.StepExecutorInternal, DependsOn: []string{"install-platform"},
+		Job:      jobConfigureK0s,
+		Executor: operationdomain.RunnerKindInternal, DependsOn: []string{"install-platform"},
 		Targets: prepared.Targets,
 	})
 	stepSecrets := map[string]map[string]any{}
@@ -131,7 +170,7 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 		stepSecrets["install-platform"] = launch.SecretVars
 	}
 	sharedSecrets := map[string]any{}
-	if provisionFirst && frozenProvisioning.UserData.Mode == "replace" && userData != "" {
+	if provisionFirst && frozenProvisioning != nil && frozenProvisioning.UserData.Mode == "replace" && userData != "" {
 		sharedSecrets["userData"] = userData
 	}
 	intentSnapshot := map[string]any{
@@ -140,8 +179,8 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 	if frozenProvisioning != nil {
 		intentSnapshot["resolvedProvisioning"] = structToMap(*frozenProvisioning)
 	}
-	created, err := l.orchestrations.Create(ctx, operationapp.CreateOrchestrationInput{
-		ID: operationID, Kind: operationdomain.OperationKindDeployKubernetes,
+	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
+		ID: operationID, Kind: operationdomain.WorkflowKindDeployKubernetes,
 		IntentSummary:  "Deploy k0s Platform " + launch.Platform.Name,
 		IntentSnapshot: intentSnapshot,
 		Definition:     "platform-deployment", DefinitionVersion: 1,
@@ -163,7 +202,7 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 // the platform's active durable Operations and canceling each one, which releases their
 // resource leases so deleting the platform frees its member servers.
 type platformOperationCanceler struct {
-	orchestrations *operationapp.OrchestrationService
+	orchestrations *operationapp.WorkflowService
 }
 
 // activeOperationsPageSize bounds one platform's active Operation listing. A platform never
@@ -187,7 +226,7 @@ func (c platformOperationCanceler) CancelActiveForPlatform(ctx context.Context, 
 			// A run that reached a terminal state between listing and canceling is already
 			// in the desired end state; tolerate that control conflict and continue so one
 			// finished Operation cannot block deleting the platform.
-			if errors.Is(err, operationdomain.ErrOperationControlConflict) {
+			if errors.Is(err, operationdomain.ErrWorkflowControlConflict) {
 				continue
 			}
 			return fmt.Errorf("cancel platform operation %s: %w", item.ID, err)
@@ -279,10 +318,10 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		return "", err
 	}
 
-	steps := make([]operationdomain.OperationStep, 0, len(launch.TargetServerIDs)+1)
-	steps = append(steps, operationdomain.OperationStep{
+	steps := make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+1)
+	steps = append(steps, operationdomain.Task{
 		ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: "Uninstall k0s Platform",
-		Executor: operationdomain.StepExecutorAnsible, Targets: prepared.Targets,
+		Executor: operationdomain.RunnerKindAnsible, Targets: prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	})
 	if launch.ReleaseServers {
@@ -296,17 +335,17 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 				Comment:         "Release after uninstalling platform " + launch.Platform.Name,
 				RequestID:       operationID,
 			}
-			steps = append(steps, operationdomain.OperationStep{
+			steps = append(steps, operationdomain.Task{
 				ID: "release-" + serverID, Kind: "release-os", Name: "Release " + serverID,
-				Executor: operationdomain.StepExecutorMAAS, DependsOn: []string{uninstallPlatformStepID},
+				Executor: operationdomain.RunnerKindProvisioner, DependsOn: []string{uninstallPlatformStepID},
 				Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
 				Parameters: map[string]any{"request": structToMap(releaseInput)},
 			})
 		}
 	}
 
-	created, err := l.orchestrations.Create(ctx, operationapp.CreateOrchestrationInput{
-		ID: operationID, Kind: operationdomain.OperationKindUninstallKubernetes,
+	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
+		ID: operationID, Kind: operationdomain.WorkflowKindUninstallKubernetes,
 		IntentSummary:  "Uninstall k0s Platform " + launch.Platform.Name,
 		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "releaseServers": launch.ReleaseServers},
 		Definition:     "platform-uninstall", DefinitionVersion: 1,
@@ -338,9 +377,9 @@ func (o platformDeploymentObserver) OperationSucceeded(
 		return
 	}
 	switch operation.Kind {
-	case operationdomain.OperationKindDeployKubernetes:
+	case operationdomain.WorkflowKindDeployKubernetes:
 		o.completeDeployment(ctx, operation, result)
-	case operationdomain.OperationKindUninstallKubernetes:
+	case operationdomain.WorkflowKindUninstallKubernetes:
 		o.completeUninstall(ctx, operation)
 	}
 }
@@ -399,7 +438,7 @@ func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operat
 	}
 
 	if _, err := o.operations.Create(ctx, operationapp.CreateExecutionInput{
-		Kind: string(operationdomain.OperationKindInstallExporters),
+		Kind: string(operationdomain.WorkflowKindInstallExporters),
 		Intent: "Restore host exporters after uninstalling platform " +
 			stringField(operation.ExtraVars, platformNameVar),
 		TargetServerIDs: targetIDs,
@@ -450,13 +489,13 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 		ExtraVars: execution.ExtraVars,
 	}
 	switch execution.Kind {
-	case operationdomain.OperationKindDeployKubernetes:
+	case operationdomain.WorkflowKindDeployKubernetes:
 		credential := platformCredentialFromResult(result)
 		if credential == nil {
 			return fmt.Errorf("deployment returned no Kubernetes credential")
 		}
 		return o.credentials.Record(ctx, execution.PlatformID, *credential)
-	case operationdomain.OperationKindUninstallKubernetes:
+	case operationdomain.WorkflowKindUninstallKubernetes:
 		if err := o.platforms.CompleteUninstall(ctx, execution.PlatformID); err != nil {
 			return err
 		}

@@ -51,7 +51,7 @@ Dashboard 程式碼必須優先滿足以下目標，順序不可顛倒：
 - 跨層或跨 feature 的 import 使用 `@/*` 別名；同目錄內才用相對 `./`。**不得**出現 `../../../`。
 - Side-effect import 只可用於 CSS 或明確需要註冊 side effect 的模組，且非直覺者必須加註說明。
 - 不使用 `namespace`、`import x = require(...)`、`/// <reference>`。
-- 檔名依模組角色決定，而非單一全域規則：模組產物是一個 class/interface 時用 `PascalCase.ts`（`ServerRepository.ts`、`ListHostsUseCase.ts`）；工具與 client 模組用 `camelCase.ts`（`serverApi.ts`、`modelLabelUtils.ts`）；domain 型別模組用 `types.ts`；含 JSX 才用 `.tsx`。
+- 檔名依模組角色決定，而非單一全域規則：模組產物是一個 class/interface 時用 `PascalCase.ts`（`ServerRepository.ts`、`ListServersUseCase.ts`）；工具與 client 模組用 `camelCase.ts`（`serverApi.ts`、`modelLabelUtils.ts`）；domain 型別模組用 `types.ts`；含 JSX 才用 `.tsx`。
 
 ## 命名
 
@@ -62,11 +62,11 @@ Dashboard 程式碼必須優先滿足以下目標，順序不可顛倒：
 - Hook 必須以 `use` 開頭，且名稱描述其取得的狀態或封裝的行為，例如 `useServerList`。
 - Event handler prop 命名 `on<Event>`，實作命名 `handle<Event>`。
 - Boolean 讀起來像判斷式（`isLoading`、`canAssign`、`hasAlerts`），不用只有兩種狀態的 `flag`/`status`。
-- Acronym 視為單字處理，例如 `serverId`、`apiClient`。例外：平台 glossary 與 API contract 已以大寫呈現的術語（`GPU`、`IPMI`、`SSH`、`BMC`）沿用原寫法，例如 `ListGPUDevicesUseCase`；同一模組內保持一致。
+- Acronym 視為單字處理，例如 `serverId`、`apiClient`。例外：swallow glossary 與 API contract 已以大寫呈現的術語（`GPU`、`IPMI`、`SSH`、`BMC`）沿用原寫法，例如 `ListGPUDevicesUseCase`；同一模組內保持一致。
 - 名稱描述內容與用途，不描述型別或來源：用 `servers` 而非 `serverList`；只有當 scope 內同時存在兩種形式時才加限定詞（`ageString` vs `age`）。
 - 不使用 Hungarian notation、`opt_` 前綴或含糊縮寫。
 - 不使用 `_` 作為 prefix/suffix。唯一例外：callback 簽名強制保留但用不到的參數，可用 `_` 前綴滿足 `noUnusedParameters`；能移除參數或調整簽名時優先那樣做。
-- 命名必須符合平台 glossary 的 ubiquitous language。
+- 命名必須符合 swallow glossary 的 ubiquitous language。
 
 ## TypeScript 規範
 
@@ -108,7 +108,7 @@ Dashboard 程式碼必須優先滿足以下目標，順序不可顛倒：
 
 ## 元件共用與組合（DRY）
 
-Dashboard 遵守 platform architecture spec 的「共用實作 / Reuse-first」原則。UI 是最容易散落重複的地方，因此以下規則為強制要求（屬 coding-style completion gate 的一部分）：
+Dashboard 遵守 swallow root architecture spec 的「共用實作 / Reuse-first」原則。UI 是最容易散落重複的地方，因此以下規則為強制要求（屬 coding-style completion gate 的一部分）：
 
 - 一個共用功能的呈現 = 單一共用、可組合的 component。多個頁面需要同一功能時，必須組合（compose）同一個共用 component，不得各自複製一份卡片/區塊的組合。
 - 頁面之間的差異透過 props / slot / render callback 注入，例如按鈕的 disabled 條件、handler、是否顯示某欄位、可選的 action。差異不是複製整塊 JSX 的理由。
@@ -189,7 +189,7 @@ Top-level export 與重要 internal boundary 的 JSDoc 必須能回答與該 sym
  * ServerStatusBadge renders a Server's operational status in inventory tables
  * and on the server detail page.
  *
- * `status` is the domain value from the platform glossary, not a display label:
+ * `status` is the domain value from swallow's glossary, not a display label:
  * `maintain` is rendered as "Maintenance" here, but the domain value must be
  * what flows through filters, API payloads, and persistence. Status is never
  * conveyed by colour alone — the badge always carries text.

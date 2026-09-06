@@ -32,9 +32,9 @@ machine-readable history and maps cleanly onto SemVer.
 ## Scope
 
 An optional noun in parentheses describing the affected area. Prefer the
-platform component or the feature slice:
+component or the feature slice:
 
-- Platform component: `api-server`, `agent`.
+- Component: `api-server`.
 - Feature slice or package: `server`, `auth`, `config`, `shared`, `proto`, `app`.
 - Documents: `docs`, `contracts`.
 
@@ -56,7 +56,7 @@ consumer must be updated, even if the Go code compiles.
 ```
 feat(server): support keyword filtering on the server list
 
-fix(agent): stop leaking the stream goroutine on reconnect
+fix(server): stop leaking the reconcile goroutine on shutdown
 
 refactor(auth): move token issuing behind a port
 

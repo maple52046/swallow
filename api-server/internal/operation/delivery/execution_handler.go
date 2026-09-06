@@ -20,12 +20,12 @@ import (
 // ExecutionHandler serves the embedded-execution operation API.
 type ExecutionHandler struct {
 	operations     *application.ExecutionService
-	orchestrations *application.OrchestrationService
+	orchestrations *application.WorkflowService
 	automation     *application.AutomationConfigurationService
 }
 
 // NewExecutionHandler constructs the v2 operation handler.
-func NewExecutionHandler(operations *application.ExecutionService, automation *application.AutomationConfigurationService, orchestrations ...*application.OrchestrationService) *ExecutionHandler {
+func NewExecutionHandler(operations *application.ExecutionService, automation *application.AutomationConfigurationService, orchestrations ...*application.WorkflowService) *ExecutionHandler {
 	handler := &ExecutionHandler{operations: operations, automation: automation}
 	if len(orchestrations) > 0 {
 		handler.orchestrations = orchestrations[0]
@@ -82,6 +82,16 @@ func platformIDQuery(c *fiber.Ctx) string {
 		return id
 	}
 	return c.Query("clusterId")
+}
+
+// taskParam returns the Task identifier from either the canonical `taskId` route param
+// (`/workflows/:id/tasks/:taskId`) or the deprecated `stepId` alias
+// (`/operations/:id/steps/:stepId`), so both route trees share one handler.
+func taskParam(c *fiber.Ctx) string {
+	if id := c.Params("taskId"); id != "" {
+		return id
+	}
+	return c.Params("stepId")
 }
 
 func (h *ExecutionHandler) List(c *fiber.Ctx) error {
@@ -145,7 +155,7 @@ func (h *ExecutionHandler) Get(c *fiber.Ctx) error {
 
 func operationRequestedAt(item any) string {
 	switch value := item.(type) {
-	case application.OperationV3Item:
+	case application.WorkflowItem:
 		return value.RequestedAt
 	case application.ExecutionOperationItem:
 		return value.RequestedAt
@@ -224,10 +234,10 @@ func (h *ExecutionHandler) RetryStep(c *fiber.Ctx) error {
 	if h.orchestrations == nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
 	}
-	if err := h.orchestrations.RetryStep(c.Context(), c.Params("id"), c.Params("stepId")); err != nil {
+	if err := h.orchestrations.RetryStep(c.Context(), c.Params("id"), taskParam(c)); err != nil {
 		return respondExecutionError(c, err)
 	}
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"operationId": c.Params("id"), "stepId": c.Params("stepId")})
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"workflowId": c.Params("id"), "operationId": c.Params("id"), "taskId": taskParam(c), "stepId": taskParam(c)})
 }
 
 // Retry creates a new operation repeating a finished one.
@@ -285,9 +295,9 @@ func (h *ExecutionHandler) PutAutomation(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	mappings := make(map[operationdomain.OperationKind]string, len(req.PlaybookMappings))
+	mappings := make(map[operationdomain.WorkflowKind]string, len(req.PlaybookMappings))
 	for kind, playbook := range req.PlaybookMappings {
-		mappings[operationdomain.OperationKind(kind)] = playbook
+		mappings[operationdomain.WorkflowKind(kind)] = playbook
 	}
 	configuration, err := h.automation.Put(c.Context(), &operationdomain.AutomationConfiguration{
 		SiteID: c.Params("id"), Enabled: req.Enabled, SSHUser: req.SSHUser,
@@ -327,15 +337,15 @@ func toAutomationResponse(configuration *operationdomain.AutomationConfiguration
 
 func respondExecutionError(c *fiber.Ctx, err error) error {
 	switch {
-	case errors.Is(err, operationdomain.ErrOperationNotFound),
-		errors.Is(err, operationdomain.ErrOperationNotV3),
-		errors.Is(err, operationdomain.ErrStepNotFound),
+	case errors.Is(err, operationdomain.ErrWorkflowNotFound),
+		errors.Is(err, operationdomain.ErrWorkflowNotV3),
+		errors.Is(err, operationdomain.ErrTaskNotFound),
 		errors.Is(err, operationdomain.ErrAutomationConfigNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
 	case errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrPolicyConflict),
-		errors.Is(err, operationdomain.ErrOperationControlConflict),
-		errors.Is(err, operationdomain.ErrStepRetryUnsafe),
+		errors.Is(err, operationdomain.ErrWorkflowControlConflict),
+		errors.Is(err, operationdomain.ErrTaskRetryUnsafe),
 		errors.Is(err, operationdomain.ErrTargetLocked),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
@@ -361,20 +371,20 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 	return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
 }
 
-func (h *ExecutionHandler) orchestrationStep(c *fiber.Ctx) (*application.OperationV3Item, *operationdomain.OperationStep, error) {
+func (h *ExecutionHandler) orchestrationStep(c *fiber.Ctx) (*application.WorkflowItem, *operationdomain.Task, error) {
 	if h.orchestrations == nil {
-		return nil, nil, operationdomain.ErrOperationNotV3
+		return nil, nil, operationdomain.ErrWorkflowNotV3
 	}
 	operation, err := h.orchestrations.Get(c.Context(), c.Params("id"))
 	if err != nil {
 		return nil, nil, err
 	}
 	for index := range operation.Steps {
-		if operation.Steps[index].ID == c.Params("stepId") {
+		if operation.Steps[index].ID == taskParam(c) {
 			return operation, &operation.Steps[index], nil
 		}
 	}
-	return nil, nil, operationdomain.ErrStepNotFound
+	return nil, nil, operationdomain.ErrTaskNotFound
 }
 
 // StepLogs returns retained stdout for one durable Ansible Step. Other executors have no log artifact.
@@ -384,7 +394,7 @@ func (h *ExecutionHandler) StepLogs(c *fiber.Ctx) error {
 		return respondExecutionError(c, err)
 	}
 	logs := ""
-	if step.Executor == operationdomain.StepExecutorAnsible && step.ExternalExecution != nil {
+	if step.Executor == operationdomain.RunnerKindAnsible && step.ExternalExecution != nil {
 		logs, err = h.operations.LogsForRun(c.Context(), step.ExternalExecution.ID)
 		if err != nil {
 			return respondExecutionError(c, err)
@@ -400,7 +410,7 @@ func (h *ExecutionHandler) StepEvents(c *fiber.Ctx) error {
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
-	if step.Executor != operationdomain.StepExecutorAnsible || step.ExternalExecution == nil {
+	if step.Executor != operationdomain.RunnerKindAnsible || step.ExternalExecution == nil {
 		return c.JSON(&application.OperationEventsItem{
 			Status: string(step.Status), Events: []application.TaskEventItem{},
 		})

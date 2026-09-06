@@ -1,0 +1,11 @@
+# Workflow
+
+- Bounded context: Automation (swallow-owned intent and execution).
+- Definition: An operator's intent expressed as a desired end-state for a set of resources (Servers and/or a Platform), executed durably by swallow as a convergent composition of Jobs and Tasks. swallow owns both the intent and the execution lifecycle.
+- Allowed meaning: The canonical top-level unit of the workflow model ([decision 017](../../../decisions/017-workflow-job-task-runner-model.md)), orchestrated by Temporal ([decision 016](../../../decisions/016-temporal-operation-orchestration.md)). A Workflow declares a desired end-state and converges each target independently, so its targets may start in different states (for example, some Servers already have an OS and some do not). It is composed of Jobs (reusable convergent units) and Tasks (atomic units run by Runners); frozen targets, per-resource fencing leases, timeline, cancellation, and per-Task retry are as defined for the durable model. A `kind` selects the Workflow definition.
+- Disallowed meaning: Not a Platform, not an OS Deployment, not a scheduler, not automation content. Not an imperative fixed pipeline — a Workflow is desired-state and convergent, not "run these steps once regardless of current state".
+- Synonyms: None.
+- Deprecated terms: `Operation` — the current code and HTTP API name for this concept, retained as a migration alias until the rename in [decision 017](../../../decisions/017-workflow-job-task-runner-model.md) completes.
+- Examples: "Deploying a k0s Platform onto 7 Servers is one Workflow; 3 Servers already have an OS, so its `ensure-os` Job installs one only on the other 4." / "A Workflow is cancelled as a whole; a single failed Task inside it can be retried."
+- Related terms: Job, Task, Runner, Platform, Server, Site.
+- Change note: Added 2026-09-05 ([decision 017](../../../decisions/017-workflow-job-task-runner-model.md)) as the canonical name for the durable multi-step model previously called Operation ([decision 016](../../../decisions/016-temporal-operation-orchestration.md)). Convergent (desired-state) and boundary principles are decision 017; the Temporal engine is decision 016.

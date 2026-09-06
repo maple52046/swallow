@@ -57,7 +57,7 @@ Domain model 可以包含：
 - Domain type、value object、entity-like data structure。
 - 狀態值集（例如 `ServerStatus`）與其允許的轉換。
 - 不依賴 UI、browser 或外部 API 即可執行的規則。
-- 與平台 glossary 對齊的 ubiquitous language。
+- 與 swallow glossary 對齊的 ubiquitous language。
 
 Domain model 不得包含：
 

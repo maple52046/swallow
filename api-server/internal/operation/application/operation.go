@@ -24,7 +24,7 @@ var ErrInvalidOperation = errors.New("invalid operation")
 // (for example, that a GPU driver install does not fight a platform's GPU operator) is
 // implemented in the platform context and injected here.
 type PolicyChecker interface {
-	CheckOperation(ctx context.Context, kind operationdomain.OperationKind, platformID string, targetServerIDs []string) error
+	CheckOperation(ctx context.Context, kind operationdomain.WorkflowKind, platformID string, targetServerIDs []string) error
 }
 
 // ListOperationsInput narrows an operation listing. Empty fields mean no constraint.

@@ -7,9 +7,9 @@ import (
 )
 
 func TestOperationStepJSONCarriesOpaqueSecretReferencesForWorkflowExecution(t *testing.T) {
-	encoded, err := json.Marshal(OperationStep{
+	encoded, err := json.Marshal(Task{
 		ID: "step-1", Kind: "provision-os", Name: "Provision OS",
-		Executor: StepExecutorMAAS, SecretRefs: map[string]string{"userData": "secret-reference"},
+		Executor: RunnerKindProvisioner, SecretRefs: map[string]string{"userData": "secret-reference"},
 	})
 	if err != nil {
 		t.Fatalf("marshal Step: %v", err)

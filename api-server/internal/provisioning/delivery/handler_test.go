@@ -77,7 +77,7 @@ func TestRespondErrorLogsCorrelatedClientSafeProviderDetail(t *testing.T) {
 }
 
 // TestRespondErrorTranslatesDelegatedOperationErrors pins the durable deploy/release
-// contract: failures surfaced by the delegated operation OrchestrationService must reach
+// contract: failures surfaced by the delegated operation WorkflowService must reach
 // the client with their own actionable classification and message, never the opaque
 // Internal error. fallback that hid "the Server is busy" from operators.
 func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {

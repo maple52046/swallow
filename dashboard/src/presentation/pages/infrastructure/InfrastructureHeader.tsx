@@ -5,7 +5,7 @@ import { InfrastructureTabs } from './InfrastructureTabs'
 /**
  * Shared hierarchy header for both registry resources.
  * The copy names the ownership direction once so Site and Integration columns elsewhere
- * can remain concise without hiding the platform model.
+ * can remain concise without hiding the swallow model.
  */
 export function InfrastructureHeader({ actions }: { actions?: ReactNode }) {
   return (

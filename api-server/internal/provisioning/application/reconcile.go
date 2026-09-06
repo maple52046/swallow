@@ -145,11 +145,11 @@ func (uc *ReconcileUseCase) reconcile(ctx context.Context, integration *sitedoma
 
 	// Sweep by timestamp: anything this pass did not touch is no longer reported by
 	// the provisioner. Absent, not deleted — absence is usually transient.
-	absent, err := uc.servers.MarkAbsent(ctx, integration.ID, startedAt)
+	absentIDs, err := uc.servers.MarkAbsent(ctx, integration.ID, startedAt)
 	if err != nil {
 		return uc.recordSyncFailure(ctx, integration, report, startedAt, err)
 	}
-	report.MarkedAbsent = absent
+	report.MarkedAbsent = len(absentIDs)
 
 	uc.recordSyncSuccess(ctx, integration, startedAt)
 	return report

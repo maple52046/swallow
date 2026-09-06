@@ -56,19 +56,24 @@
 | [`001-system-ownership-boundaries.md`](001-system-ownership-boundaries.md) | 哪個系統擁有哪些事實，以及 swallow 因此不得儲存或重建什麼 |
 | [`002-server-identity.md`](002-server-identity.md) | server 如何跨站點與重裝維持身分，以及狀態為何是三個獨立軸而非單一值 |
 | [`003-metrics-label-contract.md`](003-metrics-label-contract.md) | monitoring 拓撲，以及把 metrics 接回 server 的標籤集 |
-| [`005-monorepo-consolidation.md`](005-monorepo-consolidation.md) | 平台從 gdcm submodule superproject 收斂為單一 swallow monorepo，並完成品牌改名 |
+| [`005-monorepo-consolidation.md`](005-monorepo-consolidation.md) | swallow 從 gdcm submodule superproject 收斂為單一 swallow monorepo，並完成品牌改名 |
 | [`006-embedded-ansible-execution.md`](006-embedded-ansible-execution.md) | Swallow 如何以 Mongo lease 與 pinned runner 擁有 Ansible operation 執行 |
-| [`007-cluster-deployment-ownership.md`](007-cluster-deployment-ownership.md) | Swallow 擁有「建立叢集」的意圖：k0s HA 拓樸、專職 controller 為何不是 k8s node、部署後如何取得叢集憑證 |
-
+| [`007-cluster-deployment-ownership.md`](007-cluster-deployment-ownership.md) | Swallow 擁有「建立 Kubernetes Platform」的意圖：k0s HA 拓樸、專職 controller 為何不是 k8s node、部署後如何取得叢集憑證 |
+| [`008-operator-overview-read-model.md`](008-operator-overview-read-model.md) | operator overview 是一個唯讀聚合視圖（read model），彙整跨 context 的營運現況 |
 | [`009-deployment-template-ownership.md`](009-deployment-template-ownership.md) | Deployment Template 只擁有可重用的 OS deployment intent，不擁有 image、automation content 或 execution lifecycle |
-| [`010-cluster-lifecycle-actions.md`](010-cluster-lifecycle-actions.md) | Cluster Uninstall changes original k0s targets while Delete removes only Swallow records and owned projections |
+| [`010-cluster-lifecycle-actions.md`](010-cluster-lifecycle-actions.md) | Platform Uninstall changes original k0s targets while Delete removes only Swallow records and owned projections |
 | [`011-flexible-k0s-topologies.md`](011-flexible-k0s-topologies.md) | k0s deployment supports standalone, non-HA multi-node, and HA shapes without changing Node Role vocabulary |
 | [`012-provider-network-configuration.md`](012-provider-network-configuration.md) | Swallow owns DHCP/static deployment intent while provider adapters translate and verify NIC configuration |
 | [`013-server-lock-protection.md`](013-server-lock-protection.md) | Provider-owned Server Lock is the common guard for every provider and host mutation while reads and monitoring remain available |
+| [`014-platform-resource-language.md`](014-platform-resource-language.md) | Platform 是跨 context 的 canonical 受管 runtime 聚合，取代 Cluster；cluster 一詞只保留給外部技術 |
+| [`015-platform-term-disambiguation.md`](015-platform-term-disambiguation.md) | swallow 是系統本身的唯一稱呼；capital-P Platform 專指受管 runtime 聚合，「平台」不再指 swallow |
+| [`016-temporal-operation-orchestration.md`](016-temporal-operation-orchestration.md) | Operation v3 改為 Temporal 編排的多步驟 workflow（DAG、typed executor、per-resource fencing lease），supersede ADR 006 的執行引擎與 site lease |
+| [`017-workflow-job-task-runner-model.md`](017-workflow-job-task-runner-model.md) | 定義 Workflow/Job/Task/Runner 詞彙、收斂式（ensure）執行、workflow↔ansible 界線規則、inventory 為 platform playbook 的 published language；refine ADR 016 詞彙 |
 `001`–`003` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
-Consequences / Rejected alternatives，沒有 Status 與 Date）。它們與本文件的格式對齊
-尚未處理。`005` 起採用本文件定義的格式。（原 `004` 記錄的 AWX 執行模型已由 `006` 取代並移除。）
+Consequences / Rejected alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄
+`Date`，依「不得杜撰歷史理由」原則保留為 unrecorded 而非捏造。其論述結構刻意維持原樣。
+`005` 起採用本文件定義的格式。（原 `004` 記錄的 AWX 執行模型已由 `006` 取代並移除。）
 
-平台另有若干值得記錄的決策（例如 API contract 由 provider component 擁有），但這些理由
+swallow 另有若干值得記錄的決策（例如 API contract 由 provider component 擁有），但這些理由
 目前只存在於結構契約與實作中，尚未經確認。新增這些 ADR 時，請與知道當時脈絡的人確認，
 或明確標注「（inferred）」。

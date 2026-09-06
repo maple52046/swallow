@@ -8,59 +8,59 @@ import (
 	"errors"
 )
 
-// OperationKind is what an operation is for. Each kind maps to a release-manifest playbook,
+// WorkflowKind is what an operation is for. Each kind maps to a release-manifest playbook,
 // resolved through the site's automation configuration.
-type OperationKind string
+type WorkflowKind string
 
 const (
-	OperationKindInstallGPUDriver OperationKind = "install-gpu-driver"
-	OperationKindDeployOS         OperationKind = "deploy-os"
-	OperationKindReleaseOS        OperationKind = "release-os"
-	OperationKindDeployKubernetes OperationKind = "deploy-kubernetes"
-	// OperationKindUninstallKubernetes removes the k0s installation created by a
+	WorkflowKindInstallGPUDriver WorkflowKind = "install-gpu-driver"
+	WorkflowKindDeployOS         WorkflowKind = "deploy-os"
+	WorkflowKindReleaseOS        WorkflowKind = "release-os"
+	WorkflowKindDeployKubernetes WorkflowKind = "deploy-kubernetes"
+	// WorkflowKindUninstallKubernetes removes the k0s installation created by a
 	// deploy-kubernetes operation while preserving the host operating system.
-	OperationKindUninstallKubernetes OperationKind = "uninstall-kubernetes"
+	WorkflowKindUninstallKubernetes WorkflowKind = "uninstall-kubernetes"
 
-	OperationKindConfigureSlurm OperationKind = "configure-slurm"
-	// OperationKindInstallExporters installs a host's Prometheus exporters as
+	WorkflowKindConfigureSlurm WorkflowKind = "configure-slurm"
+	// WorkflowKindInstallExporters installs a host's Prometheus exporters as
 	// containers: node-exporter on every target and the RDC exporter on AMD GPU
 	// targets. It is the Ansible half of exporter ownership and is what OS deployment
 	// auto-triggers.
-	OperationKindInstallExporters OperationKind = "install-exporters"
-	// OperationKindUninstallExporters removes the Ansible-installed exporters, so a
+	WorkflowKindInstallExporters WorkflowKind = "install-exporters"
+	// WorkflowKindUninstallExporters removes the Ansible-installed exporters, so a
 	// host can be handed over to a Kubernetes DaemonSet owner or cleaned up on retire.
 	// It requires no particular provisioning state so a machine leaving service can
 	// still be cleaned.
-	OperationKindUninstallExporters OperationKind = "uninstall-exporters"
-	// OperationKindDeployK8sExporters applies the exporter DaemonSets (node-exporter and
+	WorkflowKindUninstallExporters WorkflowKind = "uninstall-exporters"
+	// WorkflowKindDeployK8sExporters applies the exporter DaemonSets (node-exporter and
 	// the RDC exporter) plus the AMD GPU device-plugin to a Kubernetes platform, run on a
 	// control-plane target. The DaemonSets use hostNetwork on the same fixed ports, so
 	// swallow's http_sd scrape and server_id join are unchanged.
-	OperationKindDeployK8sExporters OperationKind = "deploy-k8s-exporters"
-	// OperationKindRemoveK8sExporters deletes those DaemonSets, freeing the fixed ports so
+	WorkflowKindDeployK8sExporters WorkflowKind = "deploy-k8s-exporters"
+	// WorkflowKindRemoveK8sExporters deletes those DaemonSets, freeing the fixed ports so
 	// the host can return to an Ansible-installed exporter.
-	OperationKindRemoveK8sExporters OperationKind = "remove-k8s-exporters"
-	// OperationKindCustom runs a named playbook with no swallow-side expectations
+	WorkflowKindRemoveK8sExporters WorkflowKind = "remove-k8s-exporters"
+	// WorkflowKindCustom runs a named playbook with no swallow-side expectations
 	// about what it does, which is the escape hatch for anything not yet modelled.
-	OperationKindCustom OperationKind = "custom"
+	WorkflowKindCustom WorkflowKind = "custom"
 )
 
-var ValidOperationKinds = []OperationKind{
-	OperationKindDeployOS,
-	OperationKindReleaseOS,
-	OperationKindInstallGPUDriver,
-	OperationKindDeployKubernetes,
-	OperationKindUninstallKubernetes,
-	OperationKindConfigureSlurm,
-	OperationKindInstallExporters,
-	OperationKindUninstallExporters,
-	OperationKindDeployK8sExporters,
-	OperationKindRemoveK8sExporters,
-	OperationKindCustom,
+var ValidWorkflowKinds = []WorkflowKind{
+	WorkflowKindDeployOS,
+	WorkflowKindReleaseOS,
+	WorkflowKindInstallGPUDriver,
+	WorkflowKindDeployKubernetes,
+	WorkflowKindUninstallKubernetes,
+	WorkflowKindConfigureSlurm,
+	WorkflowKindInstallExporters,
+	WorkflowKindUninstallExporters,
+	WorkflowKindDeployK8sExporters,
+	WorkflowKindRemoveK8sExporters,
+	WorkflowKindCustom,
 }
 
-func (k OperationKind) Valid() bool {
-	for _, valid := range ValidOperationKinds {
+func (k WorkflowKind) Valid() bool {
+	for _, valid := range ValidWorkflowKinds {
 		if k == valid {
 			return true
 		}
@@ -73,10 +73,10 @@ func (k OperationKind) Valid() bool {
 //
 // Running post-install automation against a machine that is mid-deployment fails slowly
 // and confusingly; refusing up front is faster and says why.
-func (k OperationKind) RequiredProvisioningState() string {
+func (k WorkflowKind) RequiredProvisioningState() string {
 	switch k {
-	case OperationKindInstallGPUDriver, OperationKindDeployKubernetes, OperationKindConfigureSlurm,
-		OperationKindInstallExporters, OperationKindDeployK8sExporters:
+	case WorkflowKindInstallGPUDriver, WorkflowKindDeployKubernetes, WorkflowKindConfigureSlurm,
+		WorkflowKindInstallExporters, WorkflowKindDeployK8sExporters:
 		return "deployed"
 	default:
 		// Uninstalling exporters intentionally has no state requirement: a machine
@@ -106,7 +106,7 @@ const (
 // RefusedWhenLocked reports whether an Operation changes a target host. Every valid
 // Operation executes automation against the host and is therefore refused while the
 // provider-owned Server lock is active.
-func (k OperationKind) RefusedWhenLocked() bool {
+func (k WorkflowKind) RefusedWhenLocked() bool {
 	return k.Valid()
 }
 
@@ -122,7 +122,7 @@ func (s Status) Terminal() bool {
 }
 
 var (
-	ErrOperationNotFound = errors.New("operation not found")
+	ErrWorkflowNotFound = errors.New("operation not found")
 	// ErrTargetsBusy means a target is already in another operation that has not
 	// finished. Two runs against one host would interleave.
 	ErrTargetsBusy = errors.New("a target is already in an unfinished operation")

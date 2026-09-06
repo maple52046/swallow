@@ -193,6 +193,10 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 	}
 
 	targets := make([]*serverdomain.Server, 0, len(spec.RoleAssignments))
+	// readyServerIDs are the targets that still need an OS. In provision_os mode a deploy
+	// may mix these with already-deployed servers (ADR 017 convergence); only the ready
+	// ones are provisioned and preflighted.
+	readyServerIDs := make([]string, 0, len(spec.RoleAssignments))
 	seenServer := map[string]bool{}
 	controllers := 0
 	for _, assignment := range spec.RoleAssignments {
@@ -220,13 +224,28 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 			return invalid, fmt.Errorf("%w: server %s is absent from its provisioner",
 				platformdomain.ErrInvalidDeployment, server.DisplayName())
 		}
-		requiredState := "deployed"
-		if preparation.Mode == platformdomain.MachinePreparationProvisionOS {
-			requiredState = "ready"
+		state := ""
+		if server.Provisioning != nil {
+			state = server.Provisioning.State
 		}
-		if server.Provisioning == nil || server.Provisioning.State != requiredState {
-			return invalid, fmt.Errorf("%w: server %s must be %s for machine preparation mode %s",
-				platformdomain.ErrInvalidDeployment, server.DisplayName(), requiredState, preparation.Mode)
+		switch preparation.Mode {
+		case platformdomain.MachinePreparationProvisionOS:
+			// Convergent deploy (ADR 017): a provision_os batch may mix already-deployed
+			// servers (used as-is) with `ready` servers (provisioned to `deployed` first).
+			// Any other state is rejected because swallow only converges from these two.
+			if state != "ready" && state != "deployed" {
+				return invalid, fmt.Errorf("%w: server %s must be ready or deployed for machine preparation mode %s",
+					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
+			}
+			if state == "ready" {
+				readyServerIDs = append(readyServerIDs, server.ID)
+			}
+		default:
+			// existing_os requires every target to already carry an OS.
+			if state != "deployed" {
+				return invalid, fmt.Errorf("%w: server %s must be deployed for machine preparation mode %s",
+					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
+			}
 		}
 		if s.protection == nil && server.Provisioning.Locked {
 			return invalid, &serverdomain.ServerLockedError{Name: server.DisplayName()}
@@ -264,11 +283,13 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 			return invalid, err
 		}
 	}
-	if preparation.Mode == platformdomain.MachinePreparationProvisionOS {
+	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && len(readyServerIDs) > 0 {
+		// Only servers that actually need an OS are preflighted; already-deployed targets
+		// in the same batch are skipped so a mixed deploy is not rejected for them.
 		if s.machinePreparation == nil {
 			return invalid, fmt.Errorf("%w: OS provisioning is unavailable", platformdomain.ErrInvalidDeployment)
 		}
-		if err := s.machinePreparation.Validate(ctx, input.SiteID, serverIDs(targets), preparation); err != nil {
+		if err := s.machinePreparation.Validate(ctx, input.SiteID, readyServerIDs, preparation); err != nil {
 			return invalid, err
 		}
 	}

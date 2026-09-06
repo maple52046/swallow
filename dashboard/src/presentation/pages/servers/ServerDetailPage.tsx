@@ -114,7 +114,7 @@ export function ServerDetailPage() {
     {server.deployment && ['failed', 'requires_attention'].includes(server.deployment.state) && (
       <DeploymentFailureAlert
         deployment={server.deployment}
-        onViewOperation={() => navigate(scopedHref(`/operations/${server.deployment?.operationId}`))}
+        onViewOperation={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
       />
     )}
     <div className="sw-detail-tabs"><Tabs activeKey={current} onSelect={(_event, key) => navigate(scopedHref(`/servers/${server.id}/${String(key)}`))} aria-label="Server details">{TABS.map((tab) => <Tab key={tab.value} eventKey={tab.value} title={<TabTitleText>{tab.label}</TabTitleText>} />)}</Tabs></div>

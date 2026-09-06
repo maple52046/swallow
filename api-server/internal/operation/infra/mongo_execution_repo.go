@@ -99,7 +99,7 @@ func (r *MongoExecutionRepo) SecretVars(ctx context.Context, id string) (map[str
 	err := r.col.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 2},
 		options.FindOne().SetProjection(bson.M{"sealedSecretVars": 1})).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
-		return nil, operationdomain.ErrOperationNotFound
+		return nil, operationdomain.ErrWorkflowNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func (r *MongoExecutionRepo) FindByID(ctx context.Context, id string) (*operatio
 	var doc executionOperationDoc
 	err := r.col.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 2}).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
-		return nil, operationdomain.ErrOperationNotFound
+		return nil, operationdomain.ErrWorkflowNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ func toExecutionSubdoc(execution operationdomain.Execution) executionDoc {
 
 func fromExecutionDoc(doc *executionOperationDoc) *operationdomain.ExecutionOperation {
 	return &operationdomain.ExecutionOperation{
-		ID: doc.ID, Kind: operationdomain.OperationKind(doc.Kind), Intent: doc.Intent,
+		ID: doc.ID, Kind: operationdomain.WorkflowKind(doc.Kind), Intent: doc.Intent,
 		SiteID: doc.SiteID, PlatformID: doc.PlatformID, TargetServerIDs: doc.TargetServerIDs,
 		ExtraVars: doc.ExtraVars, RetryOfOperationID: doc.RetryOfOperationID,
 		Execution: operationdomain.Execution{

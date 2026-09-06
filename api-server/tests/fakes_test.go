@@ -188,15 +188,15 @@ func (r *fakeServerRepo) SetGPUs(_ context.Context, id string, gpus []serverdoma
 	return nil
 }
 
-func (r *fakeServerRepo) MarkAbsent(_ context.Context, integrationID string, seenBefore time.Time) (int, error) {
-	marked := 0
+func (r *fakeServerRepo) MarkAbsent(_ context.Context, integrationID string, seenBefore time.Time) ([]string, error) {
+	var marked []string
 	for _, s := range r.servers {
 		if s.Source.IntegrationID != integrationID || s.Absent {
 			continue
 		}
 		if s.LastSeenAt.Before(seenBefore) {
 			s.Absent = true
-			marked++
+			marked = append(marked, s.ID)
 		}
 	}
 	return marked, nil

@@ -22,14 +22,14 @@ endpoints that are **not yet implemented and have no active contract**.
   listed in [`outline.md`](outline.md) are implementation-ready.
 - To implement any endpoint described here: extract it into its own contract file
   using [`../template.md`](../template.md), reconcile every term and enum value
-  against the platform glossary, register it in [`outline.md`](outline.md) as
+  against swallow's glossary, register it in [`outline.md`](outline.md) as
   Active, and remove it from the planned list there.
 - Where this document and an Active contract disagree, the Active contract wins.
   The five implemented endpoints (auth login, auth me, servers create, servers
   list, servers delete) already have Active contracts; treat their sections here
   as historical design notes only.
 
-> Original version marker: 2026-03-27. Migrated from the platform root
+> Original version marker: 2026-03-27. Migrated from the swallow repository root
 > (`docs/api-contracts/README.md`) into the provider component that owns it.
 
 ---
@@ -86,7 +86,7 @@ The following are **excluded** from this contract. They belong to deprecated pat
 
 | Document | Role |
 |----------|------|
-| Platform glossary (repository root `docs/development/glossaries/`) | Canonical domain language. Authoritative for every term and enum value below. |
+| swallow glossary (repository root `docs/development/glossaries/`) | Canonical domain language. Authoritative for every term and enum value below. |
 | [`conventions.md`](conventions.md) | The Active shared HTTP conventions: base path, auth, error envelope, timestamps, pagination. Supersedes the convention sections in this document. |
 | [`outline.md`](outline.md) | Which contracts are Active versus Planned. |
 
@@ -94,7 +94,7 @@ The original version of this document referenced the dashboard's
 `src/domain/*/types.ts` modules as type sources. Those are **consumer-side**
 types and are not authoritative for a provider-owned contract: they belong to the
 dashboard's own domain layer. When extracting an endpoint from this document into
-a real contract, take the domain language from the platform glossary, not from
+a real contract, take the domain language from swallow's glossary, not from
 either side's code.
 
 The dashboard type modules that the original references pointed at covered:
@@ -103,7 +103,7 @@ The dashboard type modules that the original references pointed at covered:
 `Alert`/`AlertSeverity`/`AlertStatus`/`AlertCategory`, `GPUDevice`/`GPUMetrics`/
 `GPUStatus`, `Plane`/`K8sPlatform`/`SlurmPlatform`, `ProvisioningImage`/
 `ProvisioningProfile`/`ProvisioningJob`, and `SSHKey`/`Connection`. Most of these
-terms are still undefined in the platform glossary — see its Pending Terms
+terms are still undefined in swallow's glossary — see its Pending Terms
 section — and must be defined before the corresponding contract can go Active.
 
 ---
@@ -384,7 +384,7 @@ Both `hostname` and `ip` are required. `hostname` and `ip` must each be unique a
 | Param | Type | Description |
 |-------|------|-------------|
 | `status` | `ServerStatus` | Filter by operational status (`live`, `warning`, `error`, `maintain`, `offline`, `unknown`) |
-| `allocation` | `"free" \| "assigned"` | Filter by allocation state |
+| `allocation` | `"free" \| "team" \| "user"` | Filter by allocation state |
 | `datacenterId` | `string` | Filter by datacenter |
 | `gpuType` | `string` | Filter by GPU type string |
 | `search` | `string` | Full-text search on hostname/ip |

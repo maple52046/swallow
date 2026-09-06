@@ -37,7 +37,7 @@ An admin JWT is required according to [conventions](conventions.md).
 
 | Param | Type | Required | Meaning |
 | --- | --- | ---: | --- |
-| `siteId` | string | No | Scope every section to one Site. Omit for the platform-wide view. |
+| `siteId` | string | No | Scope every section to one Site. Omit for the swallow-wide view. |
 
 An unknown `siteId` returns `not_found` rather than an empty overview.
 

@@ -28,7 +28,7 @@ type platformWorkflowStepExecutor struct {
 func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	switch input.Step.Kind {
 	case "noop":
-		return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+		return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 	case "wait-for-ssh":
 		return e.waitForSSH(ctx, input)
 	case "validate-platform-health":
@@ -61,11 +61,11 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 			return internalStepFailed("ssh_readiness_unavailable", err.Error(), true)
 		}
 		if len(missingAddresses) == 0 && len(unreachable) == 0 {
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepCanceled}
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
 			failure := internalStepFailed("ssh_readiness_timeout", sshReadinessTimeoutMessage(missingAddresses, unreachable, port), true)
 			failure.Error.Stage = "ssh_readiness"
@@ -78,7 +78,7 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 // unreachableTargets probes the latest Server projections and keeps absent provider
 // addresses separate from failed TCP probes. Calls are bounded to eight concurrent dials;
 // repository failures abort the observation instead of being misreported as host failures.
-func (e platformWorkflowStepExecutor) unreachableTargets(ctx context.Context, step operationdomain.OperationStep, port int) ([]string, []string, error) {
+func (e platformWorkflowStepExecutor) unreachableTargets(ctx context.Context, step operationdomain.Task, port int) ([]string, []string, error) {
 	type probe struct {
 		name           string
 		reachable      bool
@@ -157,7 +157,7 @@ func sshReadinessTimeoutMessage(missingAddresses, unreachable []string, port int
 	return strings.Join(parts, " ")
 }
 
-func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, platformID string, step operationdomain.OperationStep) temporalworkflow.StepExecutionResult {
+func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, platformID string, step operationdomain.Task) temporalworkflow.StepExecutionResult {
 	if strings.TrimSpace(platformID) == "" || e.membership == nil {
 		return internalStepFailed("platform_validation_unavailable", "Platform health validation is unavailable.", false)
 	}
@@ -181,7 +181,7 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 			if checkErr != nil {
 				lastReason = checkErr.Error()
 			} else if len(missing) == 0 {
-				return temporalworkflow.StepExecutionResult{Status: operationdomain.StepSucceeded, Progress: 100}
+				return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 			} else {
 				lastReason = fmt.Sprintf("Platform membership is missing %d of %d target Servers: %s.",
 					len(missing), joined+len(missing), strings.Join(missing, ", "))
@@ -189,7 +189,7 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.StepCanceled}
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
 			return internalStepFailed("platform_health_timeout", lastReason, true)
 		case <-ticker.C:
@@ -200,7 +200,7 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 // targetsJoined reports how many of the Operation's target Servers now carry a membership
 // projection naming this Platform, and which are still missing. It reads each target's own
 // projection (written by the membership sync) rather than trusting an aggregate count.
-func (e platformWorkflowStepExecutor) targetsJoined(ctx context.Context, platformID string, step operationdomain.OperationStep) (int, []string, error) {
+func (e platformWorkflowStepExecutor) targetsJoined(ctx context.Context, platformID string, step operationdomain.Task) (int, []string, error) {
 	joined := 0
 	missing := []string{}
 	for _, target := range step.Targets {
@@ -229,7 +229,7 @@ func (e platformWorkflowStepExecutor) pollInterval() time.Duration {
 }
 
 func internalStepFailed(code, message string, retryable bool) temporalworkflow.StepExecutionResult {
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.StepFailed, Error: &operationdomain.NormalizedError{
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
 		Code: code, Message: message, Retryable: retryable,
 	}}
 }

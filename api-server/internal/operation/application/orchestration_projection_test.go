@@ -9,14 +9,14 @@ import (
 )
 
 func TestOperationProjectionDoesNotExposeSecretReferences(t *testing.T) {
-	operation := &operationdomain.OperationV3{
+	operation := &operationdomain.Workflow{
 		Intent: map[string]any{"summary": "Deploy OS"},
-		Steps: []operationdomain.OperationStep{{
+		Steps: []operationdomain.Task{{
 			ID: "provision-a", Kind: "provision-os", Name: "Provision OS",
 			SecretRefs: map[string]string{"userData": "opaque-reference"},
 		}},
 	}
-	item := toOperationV3Item(operation)
+	item := toWorkflowItem(operation)
 	if item.Steps[0].DependsOn == nil || item.Steps[0].Targets == nil || item.Steps[0].Artifacts == nil {
 		t.Fatal("public Operation must encode empty Step collections as arrays")
 	}

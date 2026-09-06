@@ -183,7 +183,7 @@ export function DurableOperationDetail({
       <PageHeader
         title={operation.intent || operation.kind}
         breadcrumbs={[
-          { label: "Operations", href: scopedHref("/operations") },
+          { label: "Workflows", href: scopedHref("/workflows") },
           { label: operation.id },
         ]}
         subtitle={`${operation.kind} - ${operation.definition ?? "durable workflow"}`}

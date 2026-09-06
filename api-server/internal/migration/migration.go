@@ -32,7 +32,14 @@ import (
 // collection becomes `platforms`, the `clusterId` reference fields become
 // `platformId`, and the `cluster` integration kind becomes `platform`. Document IDs
 // are preserved.
-const CurrentSchemaVersion = 3
+//
+// v4 renames the durable Operation persistence to Workflow (ADR 017): schema-v3 operation
+// documents move from the shared `operations` collection into a dedicated `workflows`
+// collection with `steps`->`tasks` and each task's `executor`->`runner`, and the
+// `operation_events` / `operation_secrets` collections become `workflow_events` /
+// `workflow_secrets` with their `operationId` reference becoming `workflowId`. Schema-v2
+// documents stay in `operations` and remain readable for one release.
+const CurrentSchemaVersion = 4
 
 type metadata struct {
 	ID        string    `bson:"_id"`
@@ -128,6 +135,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v2 to v3: %w", err)
 			}
 			state.Version = 3
+		case 3:
+			if err := migrateV3ToV4(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v3 to v4: %w", err)
+			}
+			state.Version = 4
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}
@@ -383,6 +395,132 @@ func renamePlatformIndexes(ctx context.Context, db *mongo.Database) error {
 			{Key: "kind", Value: 1}, {Key: "requestedAt", Value: -1}},
 		Options: options.Index().SetName("execution_platform_lifecycle"),
 	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// migrateV3ToV4 renames the durable Operation persistence to Workflow (ADR 017). It is
+// idempotent: schema-v3 documents are upserted into `workflows` by _id and only removed
+// from `operations` after they are safely copied, so an interrupted run resumes cleanly.
+// Schema-v2 documents are left in `operations` for read compatibility.
+func migrateV3ToV4(ctx context.Context, db *mongo.Database) error {
+	source := db.Collection("operations")
+	workflows := db.Collection("workflows")
+
+	cursor, err := source.Find(ctx, bson.M{"schemaVersion": 3})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+	var movedIDs []any
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
+			return err
+		}
+		if steps, ok := doc["steps"]; ok {
+			doc["tasks"] = renameTaskExecutorField(steps)
+			delete(doc, "steps")
+		}
+		doc["schemaVersion"] = 4
+		id, ok := doc["_id"]
+		if !ok {
+			return fmt.Errorf("v3 operation document has no _id and cannot be migrated safely")
+		}
+		if _, err := workflows.ReplaceOne(ctx, bson.M{"_id": id}, doc, options.Replace().SetUpsert(true)); err != nil {
+			return err
+		}
+		movedIDs = append(movedIDs, id)
+	}
+	if err := cursor.Err(); err != nil {
+		return err
+	}
+	if len(movedIDs) > 0 {
+		if _, err := source.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": movedIDs}, "schemaVersion": 3}); err != nil {
+			return err
+		}
+	}
+	remaining, err := source.CountDocuments(ctx, bson.M{"schemaVersion": 3})
+	if err != nil {
+		return err
+	}
+	if remaining != 0 {
+		return fmt.Errorf("schema-v3 operation documents remain in operations after move: %d", remaining)
+	}
+
+	if err := renameReferenceCollection(ctx, db, "operation_events", "workflow_events", "operationId", "workflowId"); err != nil {
+		return err
+	}
+	if err := renameReferenceCollection(ctx, db, "operation_secrets", "workflow_secrets", "operationId", "workflowId"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// renameTaskExecutorField converts a stored steps array into a tasks array, renaming each
+// entry's `executor` field to `runner` while preserving its value.
+func renameTaskExecutorField(steps any) any {
+	arr, ok := steps.(bson.A)
+	if !ok {
+		return steps
+	}
+	out := make(bson.A, 0, len(arr))
+	for _, item := range arr {
+		task, ok := item.(bson.M)
+		if !ok {
+			if d, okD := item.(bson.D); okD {
+				task = d.Map()
+			} else {
+				out = append(out, item)
+				continue
+			}
+		}
+		if executor, ok := task["executor"]; ok {
+			task["runner"] = executor
+			delete(task, "executor")
+		}
+		out = append(out, task)
+	}
+	return out
+}
+
+// renameReferenceCollection renames a collection and then renames one reference field in
+// the destination. It reuses the admin renameCollection with the copy-verify-drop fallback
+// used by the Platform migration, and tolerates a missing source (nothing to rename).
+func renameReferenceCollection(ctx context.Context, db *mongo.Database, srcName, dstName, legacyField, newField string) error {
+	names, err := db.ListCollectionNames(ctx, bson.D{})
+	if err != nil {
+		return err
+	}
+	hasSrc, hasDst := contains(names, srcName), contains(names, dstName)
+	switch {
+	case hasSrc && !hasDst:
+		from := db.Name() + "." + srcName
+		to := db.Name() + "." + dstName
+		renameErr := db.Client().Database("admin").RunCommand(ctx, bson.D{
+			{Key: "renameCollection", Value: from},
+			{Key: "to", Value: to},
+			{Key: "dropTarget", Value: false},
+		}).Err()
+		if renameErr != nil {
+			if !isRenameUnsupported(renameErr) {
+				return renameErr
+			}
+			if err := copyVerifyDrop(ctx, db, srcName, dstName); err != nil {
+				return err
+			}
+		}
+	case hasSrc && hasDst:
+		// Leftover from an interrupted run: merge the source into the destination by _id.
+		if err := copyVerifyDrop(ctx, db, srcName, dstName); err != nil {
+			return err
+		}
+	}
+	if _, err := db.Collection(dstName).UpdateMany(ctx,
+		bson.M{legacyField: bson.M{"$exists": true}},
+		bson.M{"$rename": bson.M{legacyField: newField}},
+	); err != nil {
 		return err
 	}
 	return nil

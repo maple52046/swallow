@@ -1,6 +1,12 @@
 # 001 — System Ownership Boundaries
 
+- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated)
+
 > Automation ownership in this decision is amended by [ADR 006](006-embedded-ansible-execution.md).
+>
+> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md); where it
+> says *Cluster* as the swallow aggregate (including "Platforms as records" below), the canonical
+> term is now **Platform**. See [ADR 015](015-platform-term-disambiguation.md).
 
 ## Decision
 
@@ -94,7 +100,7 @@ data model.
 | Sites | No external system knows the set of sites; it is the frame everything else hangs off |
 | Integrations: endpoints and credentials per site | This is swallow's own configuration. Credentials may be delegated to a secret store, but the registry of what exists is swallow's |
 | Identity mapping | The join between a provisioner machine ID, a metrics label set, and a cluster's own node name exists nowhere else. This is swallow's central value |
-| Clusters as records: which cluster exists, at which site, with which policy | The cluster's own API knows its members but not its intended shape or its governing policy |
+| Platforms as records: which Platform exists, at which site, with which policy | The Platform's own API knows its members but not its intended shape or its governing policy |
 | Policy, e.g. `gpuStackOwner` | Pure intent. Two subsystems both want to install GPU drivers; only an operator decision resolves it |
 | Operations: intent, target set, lease, execution state, and artifact reference | No external controller owns this cross-system intent or its execution record |
 | Tenancy: teams, users, server allocation | Allocation is a platform-level policy question, not a fact any provisioner or cluster holds |
@@ -212,4 +218,4 @@ new to deploy.
 - [002 — Server Identity](002-server-identity.md)
 - [003 — Metrics Label Contract](003-metrics-label-contract.md)
 - [006 — Embedded Ansible execution](006-embedded-ansible-execution.md)
-- [`docs/glossaries/provisioning.md`](../glossaries/provisioning.md)
+- [Glossary: OS Provisioning terms](../development/glossaries/outline.md)

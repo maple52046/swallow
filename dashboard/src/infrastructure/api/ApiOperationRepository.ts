@@ -55,7 +55,7 @@ export class ApiOperationRepository implements OperationRepository {
 
     const suffix = query.toString() ? `?${query.toString()}` : "";
     const page = await apiRequest<Paginated<Operation>>(
-      `/api/v1/operations${suffix}`,
+      `/api/v1/workflows${suffix}`,
     );
     return { ...page, items: (page.items ?? []).map(normalizeOperation) };
   }
@@ -63,7 +63,7 @@ export class ApiOperationRepository implements OperationRepository {
   async getOperation(id: string): Promise<Operation | null> {
     try {
       const operation = await apiRequest<Operation>(
-        `/api/v1/operations/${encodeURIComponent(id)}`,
+        `/api/v1/workflows/${encodeURIComponent(id)}`,
       );
       return normalizeOperation(operation);
     } catch (error) {
@@ -98,33 +98,33 @@ export class ApiOperationRepository implements OperationRepository {
 
   async getTimeline(id: string): Promise<OperationTimelineEvent[]> {
     const events = await apiRequest<OperationTimelineEvent[] | null>(
-      `/api/v1/operations/${encodeURIComponent(id)}/timeline`,
+      `/api/v1/workflows/${encodeURIComponent(id)}/timeline`,
     );
     return events ?? [];
   }
 
   async cancelOperation(id: string): Promise<void> {
-    await apiRequest(`/api/v1/operations/${encodeURIComponent(id)}/cancel`, {
+    await apiRequest(`/api/v1/workflows/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
     });
   }
 
   async retryStep(id: string, stepId: string): Promise<void> {
     await apiRequest(
-      `/api/v1/operations/${encodeURIComponent(id)}/steps/${encodeURIComponent(stepId)}/retry`,
+      `/api/v1/workflows/${encodeURIComponent(id)}/tasks/${encodeURIComponent(stepId)}/retry`,
       { method: "POST" },
     );
   }
 
   async getStepLogs(id: string, stepId: string): Promise<string> {
     return apiRequestText(
-      `/api/v1/operations/${encodeURIComponent(id)}/steps/${encodeURIComponent(stepId)}/logs`,
+      `/api/v1/workflows/${encodeURIComponent(id)}/tasks/${encodeURIComponent(stepId)}/logs`,
     );
   }
 
   async getStepEvents(id: string, stepId: string): Promise<OperationEvents> {
     return apiRequest<OperationEvents>(
-      `/api/v1/operations/${encodeURIComponent(id)}/steps/${encodeURIComponent(stepId)}/events`,
+      `/api/v1/workflows/${encodeURIComponent(id)}/tasks/${encodeURIComponent(stepId)}/events`,
     );
   }
 
@@ -133,7 +133,7 @@ export class ApiOperationRepository implements OperationRepository {
     stepId: string,
   ): Promise<OperationArtifact[]> {
     const artifacts = await apiRequest<OperationArtifact[] | null>(
-      `/api/v1/operations/${encodeURIComponent(id)}/steps/${encodeURIComponent(stepId)}/artifacts`,
+      `/api/v1/workflows/${encodeURIComponent(id)}/tasks/${encodeURIComponent(stepId)}/artifacts`,
     );
     return artifacts ?? [];
   }

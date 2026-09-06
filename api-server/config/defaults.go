@@ -17,7 +17,7 @@ func DefaultConfig() Config {
 			JWTExpiryHours:            24,
 			BootstrapAdminUsername:    "admin",
 			BootstrapAdminPassword:    "admin",
-			ReconcileInterval:         60 * time.Second,
+			ReconcileInterval:         30 * time.Second,
 			InventoryInterval:         15 * time.Minute,
 			OperationDispatchInterval: time.Second,
 			OperationLeaseDuration:    90 * time.Second,

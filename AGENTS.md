@@ -7,10 +7,10 @@ This file is the entry point for AI agents working in this repository.
 Always read this root `AGENTS.md` first for repository work.
 
 After this file, choose the minimum required documents for the task. Do not skip
-the root codebase structure document; it explains how platform components map to
+the root codebase structure document; it explains how components map to
 top-level directories.
 
-This repository is the swallow platform monorepo. Every component lives in its
+This repository is the swallow monorepo. Every component lives in its
 own top-level directory (`api-server/`, `dashboard/`); the repository root also
 owns the shared model — the ubiquitous language and the contracts between
 contexts — under `docs/`.
@@ -19,7 +19,7 @@ contexts — under `docs/`.
 
 Before planning, editing, reviewing, or explaining repository work, read:
 
-1. `docs/development/codebase-structure.md` — understand the repository structure, the platform components, and how each component maps to its top-level directory.
+1. `docs/development/codebase-structure.md` — understand the repository structure, the components, and how each component maps to its top-level directory.
 
 ## Development Work
 
@@ -37,7 +37,7 @@ If the task creates, modifies, consumes, or validates APIs, also read:
 ## Component Work
 
 After completing the required root reading for the task, identify the affected
-platform component, then read that component's local `AGENTS.md`:
+component, then read that component's local `AGENTS.md`:
 
 - `api-server/AGENTS.md` — the Go backend / Data Center API Service.
 - `dashboard/AGENTS.md` — the React + TypeScript frontend.

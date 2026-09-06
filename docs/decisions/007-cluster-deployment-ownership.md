@@ -3,6 +3,11 @@
 - Status: Accepted
 - Date: 2026-08-26
 
+> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md).
+> Where it names the swallow aggregate or public resource *Cluster*, the canonical term is
+> now **Platform**; *cluster* stays valid only for the external technology (Kubernetes/k0s).
+> See [ADR 015](015-platform-term-disambiguation.md).
+
 Topology note: ADR 011 amends the fixed high-availability topology in this decision while
 retaining its ownership, trusted role assignment, credential, membership, and retry
 boundaries.

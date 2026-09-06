@@ -21,7 +21,7 @@ type Execution struct {
 // ExecutionOperation is durable intent plus the embedded Ansible run that executes it.
 type ExecutionOperation struct {
 	ID              string
-	Kind            OperationKind
+	Kind            WorkflowKind
 	Intent          string
 	SiteID          string
 	PlatformID      string
@@ -48,7 +48,7 @@ type AutomationConfiguration struct {
 	SSHUser          string
 	SSHPort          int
 	KnownHosts       string
-	PlaybookMappings map[OperationKind]string
+	PlaybookMappings map[WorkflowKind]string
 	HasCredential    bool
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -74,8 +74,8 @@ type ExecutionListFilter struct {
 	PlatformID  string
 	PlatformIDs []string
 	ServerID    string
-	Kind        OperationKind
-	Kinds       []OperationKind
+	Kind        WorkflowKind
+	Kinds       []WorkflowKind
 	Status      Status
 	ActiveOnly  bool
 	Offset      int
@@ -103,13 +103,6 @@ type ExecutionRepository interface {
 	SecretVars(ctx context.Context, id string) (map[string]any, error)
 }
 
-// SiteLeaseRepository makes the one-active-run-per-site rule atomic.
-type SiteLeaseRepository interface {
-	Acquire(ctx context.Context, siteID, owner string, expiresAt time.Time) (bool, error)
-	Renew(ctx context.Context, siteID, owner string, expiresAt time.Time) error
-	Release(ctx context.Context, siteID, owner string) error
-	ReleaseExpired(ctx context.Context, now time.Time) error
-}
 
 // AutomationConfigurationRepository stores site settings and sealed credentials.
 type AutomationConfigurationRepository interface {

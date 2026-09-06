@@ -1,6 +1,6 @@
 /**
  * Sites and integrations are the only part of the world swallow defines rather than
- * observes. See docs/glossaries/site.md.
+ * observes. See docs/development/glossaries/terms/site.md.
  */
 
 export interface Site {

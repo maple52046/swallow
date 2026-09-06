@@ -48,8 +48,8 @@ func (r *networkWorkflowServerRepo) Upsert(_ context.Context, server *serverdoma
 	return nil
 }
 
-func (r *networkWorkflowServerRepo) MarkAbsent(context.Context, string, time.Time) (int, error) {
-	return 0, nil
+func (r *networkWorkflowServerRepo) MarkAbsent(context.Context, string, time.Time) ([]string, error) {
+	return nil, nil
 }
 
 func (r *networkWorkflowServerRepo) SetMembership(context.Context, string, *serverdomain.MembershipStatus) error {

@@ -56,7 +56,7 @@ known-hosts content; host-key verification cannot be disabled.
 The `install-exporters` / `uninstall-exporters` mappings are what let swallow install the
 Prometheus exporter containers (node-exporter on every host, the RDC exporter on
 `amd-gpu` hosts) and remove them again when a host is handed to a Kubernetes exporter
-owner. `install-exporters` is also the playbook the platform auto-runs when a server
+owner. `install-exporters` is also the playbook swallow auto-runs when a server
 reaches the `deployed` provisioning state.
 
 The `deploy-k8s-exporters` / `remove-k8s-exporters` mappings are the Kubernetes side of

@@ -19,13 +19,13 @@ type serverDeploymentStepObserver struct {
 	servers serverdomain.ServerRepository
 }
 
-func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operationID string, step operationdomain.OperationStep) error {
+func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error {
 	serverID := firstTargetServer(step)
 	if serverID == "" {
 		return nil
 	}
 	if step.Kind == "release-os" {
-		if step.Status == operationdomain.StepSucceeded {
+		if step.Status == operationdomain.TaskSucceeded {
 			return o.servers.SetDeployment(ctx, serverID, nil)
 		}
 		return nil
@@ -70,18 +70,18 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 	})
 }
 
-func deploymentStateFromStep(status operationdomain.StepStatus) (serverdomain.DeploymentState, bool, bool) {
+func deploymentStateFromStep(status operationdomain.TaskStatus) (serverdomain.DeploymentState, bool, bool) {
 	switch status {
-	case operationdomain.StepPending, operationdomain.StepRunning,
-		operationdomain.StepWaitingExternal, operationdomain.StepWaitingDependency:
+	case operationdomain.TaskPending, operationdomain.TaskRunning,
+		operationdomain.TaskWaitingExternal, operationdomain.TaskWaitingDependency:
 		return serverdomain.DeploymentDeploying, false, true
-	case operationdomain.StepSucceeded:
+	case operationdomain.TaskSucceeded:
 		return serverdomain.DeploymentSucceeded, true, true
-	case operationdomain.StepFailed:
+	case operationdomain.TaskFailed:
 		return serverdomain.DeploymentFailed, true, true
-	case operationdomain.StepRequiresAttention:
+	case operationdomain.TaskRequiresAttention:
 		return serverdomain.DeploymentRequiresAttention, true, true
-	case operationdomain.StepCanceled, operationdomain.StepSkipped:
+	case operationdomain.TaskCanceled, operationdomain.TaskSkipped:
 		return serverdomain.DeploymentCanceled, true, true
 	default:
 		return "", false, false
@@ -89,9 +89,9 @@ func deploymentStateFromStep(status operationdomain.StepStatus) (serverdomain.De
 }
 
 type legacyDeploymentProjectionCandidate struct {
-	operation *operationdomain.OperationV3
-	provision operationdomain.OperationStep
-	wait      operationdomain.OperationStep
+	operation *operationdomain.Workflow
+	provision operationdomain.Task
+	wait      operationdomain.Task
 }
 
 // reconcileLegacyDeploymentProjections repairs the Server read model for Platform
@@ -102,7 +102,7 @@ type legacyDeploymentProjectionCandidate struct {
 // parsing historical error text. The provider is not mutated.
 func reconcileLegacyDeploymentProjections(
 	ctx context.Context,
-	operations operationdomain.OrchestrationRepository,
+	operations operationdomain.WorkflowRepository,
 	executor providerStepExecutor,
 ) error {
 	if operations == nil || executor.servers == nil {
@@ -111,8 +111,8 @@ func reconcileLegacyDeploymentProjections(
 	candidates := []legacyDeploymentProjectionCandidate{}
 	claimed := map[string]bool{}
 	for offset := 0; ; offset += 100 {
-		items, total, err := operations.List(ctx, operationdomain.OrchestrationFilter{
-			Kind: operationdomain.OperationKindDeployKubernetes, Offset: offset, Limit: 100,
+		items, total, err := operations.List(ctx, operationdomain.WorkflowFilter{
+			Kind: operationdomain.WorkflowKindDeployKubernetes, Offset: offset, Limit: 100,
 		})
 		if err != nil {
 			return fmt.Errorf("list legacy deployment operations: %w", err)
@@ -184,13 +184,13 @@ func reconcileLegacyDeploymentProjections(
 	return joined
 }
 
-func legacyWaitForSSHStep(steps []operationdomain.OperationStep) (operationdomain.OperationStep, bool) {
+func legacyWaitForSSHStep(steps []operationdomain.Task) (operationdomain.Task, bool) {
 	for _, step := range steps {
 		if step.Kind == "wait-for-ssh" {
 			return step, true
 		}
 	}
-	return operationdomain.OperationStep{}, false
+	return operationdomain.Task{}, false
 }
 
 func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candidate legacyDeploymentProjectionCandidate) error {
@@ -203,7 +203,7 @@ func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candi
 	if server.Deployment != nil {
 		return nil
 	}
-	if candidate.provision.Status != operationdomain.StepSucceeded {
+	if candidate.provision.Status != operationdomain.TaskSucceeded {
 		return (serverDeploymentStepObserver{servers: e.servers}).ObserveStep(
 			ctx, candidate.operation.ID, candidate.provision,
 		)
@@ -213,9 +213,9 @@ func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candi
 	stage, reason := "", ""
 	finishedAt := candidate.wait.FinishedAt
 	switch candidate.wait.Status {
-	case operationdomain.StepSucceeded:
+	case operationdomain.TaskSucceeded:
 		state = serverdomain.DeploymentSucceeded
-	case operationdomain.StepFailed:
+	case operationdomain.TaskFailed:
 		readiness, inspectErr := e.inspectDeploymentReadiness(ctx, serverID, candidate.operation.SiteID)
 		if inspectErr != nil {
 			state = serverdomain.DeploymentRequiresAttention
@@ -231,13 +231,13 @@ func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candi
 		state = serverdomain.DeploymentFailed
 		stage = failure.Error.Stage
 		reason = failure.Error.Message
-	case operationdomain.StepRequiresAttention:
+	case operationdomain.TaskRequiresAttention:
 		state = serverdomain.DeploymentRequiresAttention
 		if candidate.wait.Error != nil {
 			stage = candidate.wait.Error.Stage
 			reason = candidate.wait.Error.Message
 		}
-	case operationdomain.StepCanceled, operationdomain.StepSkipped:
+	case operationdomain.TaskCanceled, operationdomain.TaskSkipped:
 		state = serverdomain.DeploymentCanceled
 	}
 

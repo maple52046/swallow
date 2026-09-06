@@ -6,7 +6,7 @@ Configuration. It consumes server identity and policy through application ports.
 ```text
 site identity ──> operation automation configuration
 server projection ──> discovery inventory ──> operation runner
-cluster policy ──> operation guard
+Platform policy ──> operation guard
 operation dispatcher ──> ansible-runner ──> managed hosts
 ```
 

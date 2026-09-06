@@ -13,17 +13,17 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
-// MongoOrchestrationRepo stores v3 Operation intent and its Temporal-owned projection.
-type MongoOrchestrationRepo struct {
+// MongoWorkflowRepo stores v3 Operation intent and its Temporal-owned projection.
+type MongoWorkflowRepo struct {
 	operations *mongo.Collection
 	events     *mongo.Collection
 }
 
-// NewMongoOrchestrationRepo creates indexes used by starter reconciliation and queries.
-func NewMongoOrchestrationRepo(db *mongo.Database) (*MongoOrchestrationRepo, error) {
-	repo := &MongoOrchestrationRepo{
-		operations: db.Collection("operations"),
-		events:     db.Collection("operation_events"),
+// NewMongoWorkflowRepo creates indexes used by starter reconciliation and queries.
+func NewMongoWorkflowRepo(db *mongo.Database) (*MongoWorkflowRepo, error) {
+	repo := &MongoWorkflowRepo{
+		operations: db.Collection("workflows"),
+		events:     db.Collection("workflow_events"),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -39,7 +39,7 @@ func NewMongoOrchestrationRepo(db *mongo.Database) (*MongoOrchestrationRepo, err
 		return nil, err
 	}
 	_, err = repo.events.Indexes().CreateMany(ctx, []mongo.IndexModel{
-		{Keys: bson.D{{Key: "operationId", Value: 1}, {Key: "createdAt", Value: 1}, {Key: "_id", Value: 1}}, Options: options.Index().SetName("operation_timeline")},
+		{Keys: bson.D{{Key: "workflowId", Value: 1}, {Key: "createdAt", Value: 1}, {Key: "_id", Value: 1}}, Options: options.Index().SetName("operation_timeline")},
 	})
 	if err != nil {
 		return nil, err
@@ -47,23 +47,23 @@ func NewMongoOrchestrationRepo(db *mongo.Database) (*MongoOrchestrationRepo, err
 	return repo, nil
 }
 
-func (r *MongoOrchestrationRepo) Create(ctx context.Context, operation *operationdomain.OperationV3) error {
-	operation.SchemaVersion = 3
+func (r *MongoWorkflowRepo) Create(ctx context.Context, operation *operationdomain.Workflow) error {
+	operation.SchemaVersion = 4
 	_, err := r.operations.InsertOne(ctx, operation)
 	return err
 }
 
-func (r *MongoOrchestrationRepo) FindByID(ctx context.Context, id string) (*operationdomain.OperationV3, error) {
-	var operation operationdomain.OperationV3
-	err := r.operations.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 3}).Decode(&operation)
+func (r *MongoWorkflowRepo) FindByID(ctx context.Context, id string) (*operationdomain.Workflow, error) {
+	var operation operationdomain.Workflow
+	err := r.operations.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 4}).Decode(&operation)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, operationdomain.ErrOperationNotV3
+		return nil, operationdomain.ErrWorkflowNotV3
 	}
 	return &operation, err
 }
 
-func (r *MongoOrchestrationRepo) List(ctx context.Context, filter operationdomain.OrchestrationFilter) ([]*operationdomain.OperationV3, int, error) {
-	query := bson.M{"schemaVersion": 3}
+func (r *MongoWorkflowRepo) List(ctx context.Context, filter operationdomain.WorkflowFilter) ([]*operationdomain.Workflow, int, error) {
+	query := bson.M{"schemaVersion": 4}
 	if filter.SiteID != "" {
 		query["siteId"] = filter.SiteID
 	}
@@ -83,8 +83,8 @@ func (r *MongoOrchestrationRepo) List(ctx context.Context, filter operationdomai
 	}
 	if filter.ActiveOnly {
 		query["status"] = bson.M{"$nin": []string{
-			string(operationdomain.OrchestrationSucceeded), string(operationdomain.OrchestrationFailed),
-			string(operationdomain.OrchestrationPartiallySucceeded), string(operationdomain.OrchestrationCanceled),
+			string(operationdomain.WorkflowSucceeded), string(operationdomain.WorkflowFailed),
+			string(operationdomain.WorkflowPartiallySucceeded), string(operationdomain.WorkflowCanceled),
 		}}
 	}
 	total, err := r.operations.CountDocuments(ctx, query)
@@ -100,36 +100,36 @@ func (r *MongoOrchestrationRepo) List(ctx context.Context, filter operationdomai
 		return nil, 0, err
 	}
 	defer cursor.Close(ctx)
-	var operations []*operationdomain.OperationV3
+	var operations []*operationdomain.Workflow
 	if err := cursor.All(ctx, &operations); err != nil {
 		return nil, 0, err
 	}
 	return operations, int(total), nil
 }
 
-func (r *MongoOrchestrationRepo) ListPendingStart(ctx context.Context, limit int) ([]*operationdomain.OperationV3, error) {
+func (r *MongoWorkflowRepo) ListPendingStart(ctx context.Context, limit int) ([]*operationdomain.Workflow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	cursor, err := r.operations.Find(ctx,
-		bson.M{"schemaVersion": 3, "startState": "pending"},
+		bson.M{"schemaVersion": 4, "startState": "pending"},
 		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
-	var operations []*operationdomain.OperationV3
+	var operations []*operationdomain.Workflow
 	if err := cursor.All(ctx, &operations); err != nil {
 		return nil, err
 	}
 	return operations, nil
 }
 
-func (r *MongoOrchestrationRepo) MarkWorkflowStarted(ctx context.Context, id, runID string) error {
+func (r *MongoWorkflowRepo) MarkWorkflowStarted(ctx context.Context, id, runID string) error {
 	now := time.Now().UTC()
 	result, err := r.operations.UpdateOne(ctx,
-		bson.M{"_id": id, "schemaVersion": 3, "startState": "pending"},
+		bson.M{"_id": id, "schemaVersion": 4, "startState": "pending"},
 		bson.M{"$set": bson.M{"startState": "started", "temporal.runId": runID, "updatedAt": now}},
 	)
 	if err != nil {
@@ -137,14 +137,14 @@ func (r *MongoOrchestrationRepo) MarkWorkflowStarted(ctx context.Context, id, ru
 	}
 	if result.MatchedCount == 0 {
 		var doc bson.M
-		if err := r.operations.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 3}).Decode(&doc); err != nil {
+		if err := r.operations.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 4}).Decode(&doc); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *MongoOrchestrationRepo) UpdateState(ctx context.Context, id string, status operationdomain.OrchestrationStatus, reason string, startedAt, finishedAt *time.Time) error {
+func (r *MongoWorkflowRepo) UpdateState(ctx context.Context, id string, status operationdomain.WorkflowStatus, reason string, startedAt, finishedAt *time.Time) error {
 	set := bson.M{"status": string(status), "statusReason": reason, "updatedAt": time.Now().UTC()}
 	if startedAt != nil {
 		set["startedAt"] = startedAt
@@ -152,26 +152,26 @@ func (r *MongoOrchestrationRepo) UpdateState(ctx context.Context, id string, sta
 	if finishedAt != nil {
 		set["finishedAt"] = finishedAt
 	}
-	result, err := r.operations.UpdateOne(ctx, bson.M{"_id": id, "schemaVersion": 3}, bson.M{"$set": set})
+	result, err := r.operations.UpdateOne(ctx, bson.M{"_id": id, "schemaVersion": 4}, bson.M{"$set": set})
 	if err != nil {
 		return err
 	}
 	if result.MatchedCount == 0 {
-		return operationdomain.ErrOperationNotFound
+		return operationdomain.ErrWorkflowNotFound
 	}
 	return nil
 }
 
-func (r *MongoOrchestrationRepo) UpdateStep(ctx context.Context, operationID string, step operationdomain.OperationStep) error {
+func (r *MongoWorkflowRepo) UpdateStep(ctx context.Context, operationID string, step operationdomain.Task) error {
 	result, err := r.operations.UpdateOne(ctx,
-		bson.M{"_id": operationID, "schemaVersion": 3, "steps.id": step.ID},
-		bson.M{"$set": bson.M{"steps.$": step, "updatedAt": time.Now().UTC()}},
+		bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": step.ID},
+		bson.M{"$set": bson.M{"tasks.$": step, "updatedAt": time.Now().UTC()}},
 	)
 	if err != nil {
 		return err
 	}
 	if result.MatchedCount == 0 {
-		return operationdomain.ErrStepNotFound
+		return operationdomain.ErrTaskNotFound
 	}
 	return nil
 }
@@ -180,13 +180,13 @@ func (r *MongoOrchestrationRepo) UpdateStep(ctx context.Context, operationID str
 // (they run with unlimited attempts), so an event whose ID is deterministic for its
 // transition is upserted by _id: a retry re-writes the same document instead of appending a
 // duplicate. Callers must supply a stable ID for a given logical transition.
-func (r *MongoOrchestrationRepo) AppendEvent(ctx context.Context, event operationdomain.TimelineEvent) error {
+func (r *MongoWorkflowRepo) AppendEvent(ctx context.Context, event operationdomain.TimelineEvent) error {
 	_, err := r.events.ReplaceOne(ctx, bson.M{"_id": event.ID}, event, options.Replace().SetUpsert(true))
 	return err
 }
 
-func (r *MongoOrchestrationRepo) Timeline(ctx context.Context, operationID string) ([]operationdomain.TimelineEvent, error) {
-	cursor, err := r.events.Find(ctx, bson.M{"operationId": operationID}, options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}, {Key: "_id", Value: 1}}))
+func (r *MongoWorkflowRepo) Timeline(ctx context.Context, operationID string) ([]operationdomain.TimelineEvent, error) {
+	cursor, err := r.events.Find(ctx, bson.M{"workflowId": operationID}, options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}, {Key: "_id", Value: 1}}))
 	if err != nil {
 		return nil, err
 	}

@@ -56,7 +56,7 @@ func RunWorker(cfg config.APIConfig) error {
 	if err := migration.Check(connectCtx, db); err != nil {
 		return fmt.Errorf("database schema: %w", err)
 	}
-	operations, err := operationinfra.NewMongoOrchestrationRepo(db)
+	operations, err := operationinfra.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return fmt.Errorf("orchestration repo: %w", err)
 	}
@@ -118,16 +118,19 @@ func RunWorker(cfg config.APIConfig) error {
 	}
 	defer temporalClient.Close()
 
-	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.StepExecutor]temporalworkflow.StepLifecycleExecutor{
-		operationdomain.StepExecutorInternal: platformWorkflowStepExecutor{
+	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
+		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership, poll: 5 * time.Second,
 		},
-		operationdomain.StepExecutorAnsible: temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, cfg.JobArtifactDir, 2*time.Second),
-		operationdomain.StepExecutorMAAS:    providerExecutor,
+		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, cfg.JobArtifactDir, 2*time.Second),
+		operationdomain.RunnerKindProvisioner: providerExecutor,
 	}, serverDeploymentStepObserver{servers: servers})
 	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{})
 	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.OperationWorkflowV1,
 		workflowregister.RegisterOptions{Name: temporalworkflow.WorkflowNameV1})
+	// Reusable Job child workflow (ADR 017): the parent Operation runs each Job through it.
+	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.JobWorkflowV1,
+		workflowregister.RegisterOptions{Name: temporalworkflow.JobWorkflowName})
 	temporalWorker.RegisterActivityWithOptions(activities.AcquireLeases,
 		activity.RegisterOptions{Name: temporalworkflow.ActivityAcquireLeases})
 	temporalWorker.RegisterActivityWithOptions(activities.RenewLeases,

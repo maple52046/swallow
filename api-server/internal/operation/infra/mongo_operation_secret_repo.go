@@ -17,7 +17,7 @@ import (
 
 type operationSecretDoc struct {
 	ID          string    `bson:"_id"`
-	OperationID string    `bson:"operationId"`
+	OperationID string    `bson:"workflowId"`
 	Name        string    `bson:"name"`
 	SealedValue string    `bson:"sealedValue"`
 	CreatedAt   time.Time `bson:"createdAt"`
@@ -30,11 +30,11 @@ type MongoOperationSecretRepo struct {
 }
 
 func NewMongoOperationSecretRepo(db *mongo.Database, sealer *secret.Sealer) (*MongoOperationSecretRepo, error) {
-	repo := &MongoOperationSecretRepo{col: db.Collection("operation_secrets"), sealer: sealer}
+	repo := &MongoOperationSecretRepo{col: db.Collection("workflow_secrets"), sealer: sealer}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := repo.col.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "operationId", Value: 1}, {Key: "name", Value: 1}},
+		Keys:    bson.D{{Key: "workflowId", Value: 1}, {Key: "name", Value: 1}},
 		Options: options.Index().SetName("operation_secret_name").SetUnique(true),
 	})
 	return repo, err
@@ -53,7 +53,7 @@ func (r *MongoOperationSecretRepo) Store(ctx context.Context, operationID, name 
 	_, err = r.col.InsertOne(ctx, doc)
 	if mongo.IsDuplicateKeyError(err) {
 		var existing operationSecretDoc
-		if findErr := r.col.FindOne(ctx, bson.M{"operationId": operationID, "name": name}).Decode(&existing); findErr != nil {
+		if findErr := r.col.FindOne(ctx, bson.M{"workflowId": operationID, "name": name}).Decode(&existing); findErr != nil {
 			return "", findErr
 		}
 		return existing.ID, nil
@@ -65,7 +65,7 @@ func (r *MongoOperationSecretRepo) Resolve(ctx context.Context, reference string
 	var doc operationSecretDoc
 	err := r.col.FindOne(ctx, bson.M{"_id": reference}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, operationdomain.ErrOperationNotFound
+		return nil, operationdomain.ErrWorkflowNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -82,6 +82,6 @@ func (r *MongoOperationSecretRepo) Resolve(ctx context.Context, reference string
 }
 
 func (r *MongoOperationSecretRepo) DeleteForOperation(ctx context.Context, operationID string) error {
-	_, err := r.col.DeleteMany(ctx, bson.M{"operationId": operationID})
+	_, err := r.col.DeleteMany(ctx, bson.M{"workflowId": operationID})
 	return err
 }

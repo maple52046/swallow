@@ -1,5 +1,12 @@
 # 003 — Monitoring Topology and the Metrics Label Contract
 
+- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated)
+
+> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md). The
+> `cluster` / `clusterId` label here is the external Kubernetes cluster; for the swallow
+> aggregate the canonical term is now **Platform**, and `clusterId` is a compatibility alias
+> for `platformId` per ADR 014.
+
 ## Decision
 
 **One scraper per host, one Prometheus per site, one central store, and one label

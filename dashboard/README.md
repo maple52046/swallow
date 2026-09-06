@@ -10,12 +10,12 @@ Only screens backed by a real endpoint:
 | Route | Shows |
 |-------|-------|
 | `/login` | Authentication |
-| `/` | Fleet health, attention items, integrations, clusters, and recent operations |
+| `/` | Fleet health, attention items, integrations, platforms, and recent operations |
 | `/servers` | NetBox-style inventory filters and saved views with MAAS-style actions |
 | `/servers/:id/*` | Cockpit-style machine summary, monitoring, network, storage, and PCI views |
-| `/clusters` | Multi-cluster readiness and membership issues |
-| `/clusters/:id` | Cluster members, roles, issues, and related operations |
-| `/clusters/deploy` | Validated four-step cluster deployment wizard |
+| `/platforms` | Multi-platform readiness and membership issues (legacy `/clusters` redirects here) |
+| `/platforms/:id` | Platform members, roles, issues, and related operations |
+| `/platforms/deploy` | Validated four-step platform deployment wizard |
 | `/operations` | Compact jobs list with URL-owned filters |
 | `/operations/:id` | Stdout-first job detail, events, search, download, and retry |
 | `/monitoring` | Current alerts, acknowledgement, fleet health, metrics, and Grafana link |
@@ -37,7 +37,7 @@ provisioner being unreachable does not make its servers unhealthy, and a server 
 metrics is not down.
 
 For the same reason there is no combined status badge. A server that is deployed, in no
-cluster, and not reporting metrics is either a spare awaiting allocation or a broken host,
+cluster, and not reporting metrics is either a spare awaiting allocation or a broken server,
 and no rule can tell which.
 
 **Show staleness.** The backend caches provisioner inventory and mirrors external state.
@@ -68,7 +68,7 @@ it has logic of its own.
 
 ## Development
 
-The dashboard runs as part of the platform dev stack rather than on its own, so that it
+The dashboard runs as part of the swallow dev stack rather than on its own, so that it
 has an API to talk to:
 
 ```bash
@@ -94,9 +94,10 @@ npm run lint
 ## Contract
 
 Request and response shapes are defined in
-[`docs/api-contracts/README.md`](../../docs/api-contracts/README.md), and section 14 of
-that document lists what changed from the previous model. The concepts behind the shapes
-are in [`docs/glossaries/`](../../docs/glossaries), and the reasoning is in
+[`docs/development/api-contracts.md`](../../docs/development/api-contracts.md), and the
+provider component's contract lists what changed from the previous model. The concepts
+behind the shapes are in
+[`docs/development/glossaries/`](../../docs/development/glossaries), and the reasoning is in
 [`docs/decisions/`](../../docs/decisions).
 
 Read the decisions before adding a screen that stores or derives state. Several obvious

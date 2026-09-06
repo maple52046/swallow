@@ -12,7 +12,7 @@ import (
 // repository types. It reports only identifiers needed for an actionable conflict.
 type activeServerWorkReader struct {
 	operations     operationdomain.ExecutionRepository
-	orchestrations operationdomain.OrchestrationRepository
+	orchestrations operationdomain.WorkflowRepository
 	tasks          provisioningdomain.ProvisioningTaskRepository
 }
 
@@ -29,7 +29,7 @@ func (r activeServerWorkReader) ActiveWork(
 		work.OperationIDs = append(work.OperationIDs, operation.ID)
 	}
 	if r.orchestrations != nil {
-		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.OrchestrationFilter{ServerID: serverID, ActiveOnly: true})
+		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true})
 		if listErr != nil {
 			return work, listErr
 		}

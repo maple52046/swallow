@@ -39,8 +39,12 @@ type AnsibleInventory map[string]any
 
 // AnsibleGroup is one group's membership.
 type AnsibleGroup struct {
-	Hosts    []string `json:"hosts,omitempty"`
-	Children []string `json:"children,omitempty"`
+	// bson omitempty matters as much as json: this inventory is frozen into Mongo for a
+	// durable Ansible Task, and without it a nil Children/Hosts slice is stored as BSON
+	// null. Ansible's script inventory plugin then fails with "'NoneType' object is not
+	// iterable", leaving a deploy with no hosts to target.
+	Hosts    []string `json:"hosts,omitempty" bson:"hosts,omitempty"`
+	Children []string `json:"children,omitempty" bson:"children,omitempty"`
 }
 
 type DiscoveryInput struct {

@@ -21,7 +21,7 @@ func (r *lifecycleExecutionRepo) FindByID(
 	context.Context,
 	string,
 ) (*operationdomain.ExecutionOperation, error) {
-	return nil, operationdomain.ErrOperationNotFound
+	return nil, operationdomain.ErrWorkflowNotFound
 }
 
 func (r *lifecycleExecutionRepo) List(
@@ -71,14 +71,14 @@ func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	repo := &lifecycleExecutionRepo{items: []*operationdomain.ExecutionOperation{
 		{
 			ID: "uninstall-1", PlatformID: "platform-deployed",
-			Kind:            operationdomain.OperationKindUninstallKubernetes,
+			Kind:            operationdomain.WorkflowKindUninstallKubernetes,
 			TargetServerIDs: []string{"server-1"},
 			Execution:       operationdomain.Execution{Status: operationdomain.StatusFailed},
 			RequestedAt:     uninstalledAt,
 		},
 		{
 			ID: "deploy-1", PlatformID: "platform-deployed",
-			Kind:            operationdomain.OperationKindDeployKubernetes,
+			Kind:            operationdomain.WorkflowKindDeployKubernetes,
 			TargetServerIDs: []string{"server-1", "server-2"},
 			ExtraVars: map[string]any{
 				"swallow_k0s_roles": map[string]any{

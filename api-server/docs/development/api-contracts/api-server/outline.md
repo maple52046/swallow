@@ -25,10 +25,12 @@ Consumer: `dashboard`.
 | [overview.md](overview.md) | Active | `GET /api/v1/overview` | Site-scoped inventory, integration, platform, operation, and monitoring summary. |
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List complete Server projections with filtering and pagination. |
+| [servers-stream.md](servers-stream.md) | Active | `GET /api/v1/servers/stream` | Live Server projection changes as Server-Sent Events, so the list is patched per row instead of re-read. |
 | [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server and run provider-backed machine actions. |
 | [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List live OS Images, manage Deployment Templates, and submit multi-Server OS Deployments. |
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
-| [operations.md](operations.md) | Active | `/api/v1/operations` | Create, observe, and retry Swallow-owned playbook executions, with logs and per-task events. |
+| [workflows.md](workflows.md) | Active | `/api/v1/workflows` | Create, observe, and retry Swallow-owned Workflows (DAG of Tasks), with timeline, logs, and per-Task events. |
+| [operations.md](operations.md) | Deprecated | `/api/v1/operations` | One-release compatibility alias of `workflows.md`; served by the same handlers with a `Deprecation` header. |
 | [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Register platforms, read membership, and deploy a k0s cluster onto provisioned servers. |
 | [server-metrics.md](server-metrics.md) | Active | `GET /api/v1/monitoring/metrics` | Read current metric values for servers from the metrics backend, and list the fixed metric-name set. |
 | [monitoring-alerts.md](monitoring-alerts.md) | Active | `/api/v1/monitoring/alerts` | List correlated alerts and create Alertmanager silences. |
@@ -38,7 +40,7 @@ There is **no** `POST /api/v1/servers/`: Servers are produced by reconciling pro
 inventory rather than registered by a caller. `DELETE /api/v1/servers/{id}` is the explicit
 exception for removal and is provider-backed: it deletes the backing Machine before the
 projection, so a later reconcile cannot recreate the Server. See
-[decision 002](../../../../../docs/decisions/002-server-identity.md) and the platform
+[decision 002](../../../../../docs/decisions/002-server-identity.md) and swallow's
 glossary term for Server.
 
 Server detail, machine actions, Sites, Integrations, and monitoring alerts are
@@ -72,11 +74,11 @@ Note: some groups in `planned-surface.md` are no longer planned. Provisioning `P
 and `Job` are retired (automation content belongs in a playbook; deployment progress is
 the provisioning axis). Server detail, platforms (Kubernetes/Slurm registration),
 operations, and monitoring alerts are now implemented rather than planned — see the
-tables above and the platform's current API surface.
+tables above and swallow's current API surface.
 
 To implement any of them: extract that endpoint from `planned-surface.md` into
 its own contract file using [../template.md](../template.md), reconcile it with
-the platform glossary, add it to the tables above as Active, and remove it from
+swallow's glossary, add it to the tables above as Active, and remove it from
 this list.
 
 ## Maintenance

@@ -1,7 +1,7 @@
 /**
  * Local storage helpers for UI preferences only.
  *
- * Nothing about the platform is stored client-side. This exists for things like the
+ * Nothing about swallow is stored client-side. This exists for things like the
  * colour scheme, where the browser is the right owner.
  */
 

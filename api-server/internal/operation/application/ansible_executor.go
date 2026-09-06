@@ -13,6 +13,12 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
+// InventorySource produces the same serverId-keyed inventory projection as the public
+// dynamic-inventory endpoint, so an Ansible Task runs against swallow's own identifiers.
+type InventorySource interface {
+	Inventory(ctx context.Context, siteID string) (map[string]any, error)
+}
+
 // StepCompletionObserver records domain projections produced by successful Ansible
 // Steps. The executor remains unaware of Platform internals.
 type StepCompletionObserver interface {

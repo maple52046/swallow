@@ -3,6 +3,11 @@
 - Status: Accepted
 - Date: 2026-08-30
 
+> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md).
+> Where it names the swallow aggregate or public resource *Cluster*, the canonical term is
+> now **Platform**; *cluster* stays valid only for the external technology (Kubernetes/k0s).
+> See [ADR 015](015-platform-term-disambiguation.md).
+
 ## Context
 
 ADR 007 introduced a deliberately narrow first deployment path: three dedicated k0s

@@ -73,5 +73,5 @@ docs(development): add the Clean Architecture spec and coding style
 - Type and description are required; everything else is optional.
 - Keep the description concise and in the imperative ("add", not "added").
 - One logical change per commit where practical.
-- A commit that changes a domain term or status value must be consistent with the
-  platform glossary; do not rename a domain concept in this project alone.
+- A commit that changes a domain term or status value must be consistent with
+  swallow's glossary; do not rename a domain concept in this project alone.

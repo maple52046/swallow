@@ -115,5 +115,5 @@ array, and must say so in their own contract.
   a field, changing a field's type, or changing an `error.code` mapping is
   breaking and requires a `BREAKING CHANGE` commit plus a consumer migration
   note.
-- Enum values in payloads are domain language. They come from the platform
+- Enum values in payloads are domain language. They come from swallow's
   glossary, and adding a value is a model change, not just an API change.

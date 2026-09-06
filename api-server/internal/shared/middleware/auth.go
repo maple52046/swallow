@@ -29,6 +29,23 @@ func Auth(jwtSvc *jwt.Service) fiber.Handler {
 	}
 }
 
+// BearerTokenFromQuery lets a browser EventSource authenticate a streaming endpoint.
+// EventSource cannot set an Authorization header, so the stream accepts the access token in
+// the named query parameter and this middleware promotes it to the standard Bearer header
+// before Auth runs. It never overrides a real header (normal callers are unaffected) and it
+// never validates the token: Auth remains the single verifier, so an invalid query token
+// still fails there with the same unauthorized response.
+func BearerTokenFromQuery(param string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if c.Get("Authorization") == "" {
+			if token := c.Query(param); token != "" {
+				c.Request().Header.Set("Authorization", "Bearer "+token)
+			}
+		}
+		return c.Next()
+	}
+}
+
 func AdminOnly() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		claims, ok := c.Locals(string(claimsKey)).(*jwt.Claims)

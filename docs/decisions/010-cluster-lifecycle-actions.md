@@ -3,6 +3,11 @@
 - Status: Accepted
 - Date: 2026-08-29
 
+> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md).
+> Where it names the swallow aggregate or public resource *Cluster*, the canonical term is
+> now **Platform**; *cluster* stays valid only for the external technology (Kubernetes/k0s).
+> See [ADR 015](015-platform-term-disambiguation.md).
+
 ## Context
 
 A Cluster record previously supported deployment and record deletion, but no host-side

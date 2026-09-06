@@ -20,7 +20,7 @@ role-gated surfaces to render.
 
 ## Related Glossary Terms
 
-- `User` (pending definition in the platform glossary)
+- `User` (pending definition in swallow's glossary)
 
 ## Endpoint / RPC
 
@@ -81,7 +81,7 @@ The `404` case is deliberate: a structurally valid token for a deleted user is
 not an authentication failure, and consumers should clear the session rather than
 retry. Collapsing it into `401` would hide the distinction.
 
-Adding a role value is a change to the platform glossary first, then to this
+Adding a role value is a change to swallow's glossary first, then to this
 contract, then to every consumer that branches on role.
 
 ## Implementation Notes
