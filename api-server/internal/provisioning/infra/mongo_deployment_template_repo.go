@@ -261,9 +261,11 @@ func mapTemplateWriteError(err error) error {
 }
 
 func toDeploymentTemplate(doc *deploymentTemplateDoc) *provisioningdomain.DeploymentTemplate {
-	mode := provisioningdomain.DeploymentNetworkMode(doc.NetworkMode)
-	if mode == "" {
-		mode = provisioningdomain.DeploymentNetworkDHCP
+	// Fold an empty or the deprecated "dhcp" value from an older stored template into the
+	// canonical Automatic mode, so read-back never resurfaces the deprecated alias.
+	mode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(doc.NetworkMode)
+	if !ok {
+		mode = provisioningdomain.DeploymentNetworkMode(doc.NetworkMode)
 	}
 	return &provisioningdomain.DeploymentTemplate{
 		ID:             doc.ID,

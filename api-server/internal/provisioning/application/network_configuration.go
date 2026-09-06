@@ -323,7 +323,7 @@ func networkDisabledReason(server *serverdomain.Server) string {
 }
 
 func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestion {
-	suggestion := NetworkSuggestion{Mode: provisioningdomain.DeploymentNetworkDHCP}
+	suggestion := NetworkSuggestion{Mode: provisioningdomain.DeploymentNetworkAutomatic}
 	var selected *provisioningdomain.NetworkInterface
 	for index := range network.Interfaces {
 		if network.Interfaces[index].Boot {

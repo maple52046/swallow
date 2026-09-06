@@ -5,7 +5,9 @@
   install one OS Image on the provider machine projected by that Server.
 - Allowed meaning: Provider-backed intent addressed by Swallow `serverId`, with
   progress observed through the Server provisioning axis. One request may submit
-  the same image, ephemeral, cloud-init, and DHCP-or-static network intent for
+  the same image, ephemeral, cloud-init, and automatic-or-static network intent
+  (automatic is realized by provider auto-assign — see
+  [ADR 018](../../../decisions/018-automatic-addressing-provider-auto-assign.md)) for
   several Servers managed by one Integration. `Ephemeral` is the canonical
   operator-facing name when the deployed OS runs from memory and leaves disks untouched.
 - Disallowed meaning: Installing the Swallow control plane, running post-install

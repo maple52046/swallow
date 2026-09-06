@@ -1,7 +1,12 @@
 import type { ProvisioningActionResult } from "@/domain/server/types";
 
-/** Swallow-owned writable deployment addressing modes. */
-export type DeploymentNetworkMode = "dhcp" | "static";
+/**
+ * Swallow-owned writable deployment addressing intent. `automatic` asks the provisioner to
+ * assign an address (realized by provider auto-assign, a stable recorded IP — see ADR 018),
+ * `static` uses a caller-chosen address. The backend still accepts the deprecated `dhcp`
+ * alias for one release, but the dashboard always sends the canonical values.
+ */
+export type DeploymentNetworkMode = "automatic" | "static";
 
 /** Reusable network intent; target NICs and static addresses are deliberately excluded. */
 export interface DeploymentNetworkSettings {
@@ -134,7 +139,12 @@ export type NetworkConfigurationState =
   | "unknown";
 
 export type PhysicalLinkState = "up" | "down" | "unknown";
-export type ManualNetworkMode = DeploymentNetworkMode | "link_only";
+/**
+ * Manual per-NIC configuration modes. Independent from the deployment intent: manual NIC
+ * setup still exposes raw `dhcp` alongside `static` and `link_only`, and does not offer
+ * automatic/provider-managed assignment.
+ */
+export type ManualNetworkMode = "dhcp" | "static" | "link_only";
 
 export interface NetworkSubnet {
   id: string;

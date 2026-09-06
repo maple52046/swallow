@@ -109,7 +109,8 @@ export interface PlatformMachinePreparation {
   settings?: { imageId?: string; ephemeral?: boolean };
   userData?: { mode: "inherit" | "replace" | "omit"; value?: string };
   network?: {
-    mode: "dhcp" | "static";
+    // Deployment addressing intent; "automatic" is realized by provider auto-assign.
+    mode: "automatic" | "static";
     subnetId?: string;
     defaultGateway: boolean;
     assignments: Array<{

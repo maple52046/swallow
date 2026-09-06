@@ -1,7 +1,15 @@
 # 012. Swallow owns provisioning network intent
 
-- Status: Accepted
+- Status: Accepted (mode choice refined by [ADR 018](018-automatic-addressing-provider-auto-assign.md))
 - Date: 2026-09-02
+
+> Refinement (2026-09-06): this ADR's decision to expose **DHCP** as the automatic deployment
+> mode and to translate it to the provider's raw DHCP — rejecting MAAS `AUTO` — is superseded
+> by [ADR 018](018-automatic-addressing-provider-auto-assign.md). The automatic intent is now
+> named `automatic` and is realized by provider **auto-assign** (MAAS `AUTO`), which is stable
+> and always provider-known; `dhcp` is a deprecated one-release alias. Everything else in this
+> ADR (swallow owns the intent, MAAS vocabulary stays in the adapter, no force option, verify
+> after mutation, Static mode, release cleanup as a Provisioning Task) still holds.
 
 ## Context
 

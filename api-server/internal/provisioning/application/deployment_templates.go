@@ -321,32 +321,31 @@ func validateDeployImage(
 	)
 }
 
-// validateTemplateNetwork resolves the DHCP default and verifies provider-owned
-// subnet references without storing provider interface or target IP data.
+// validateTemplateNetwork resolves the automatic-addressing default and verifies
+// provider-owned subnet references without storing provider interface or target IP data.
 func validateTemplateNetwork(
 	ctx context.Context,
 	provider provisioningdomain.OSProvisioningProvider,
 	input *DeploymentNetworkSettingsInput,
 ) (provisioningdomain.DeploymentNetworkMode, string, bool, error) {
-	mode := provisioningdomain.DeploymentNetworkDHCP
+	rawMode := ""
 	subnetID := ""
 	defaultGateway := false
 	if input != nil {
-		mode = provisioningdomain.DeploymentNetworkMode(strings.ToLower(strings.TrimSpace(input.Mode)))
-		if mode == "" {
-			mode = provisioningdomain.DeploymentNetworkDHCP
-		}
+		rawMode = strings.ToLower(strings.TrimSpace(input.Mode))
 		subnetID = strings.TrimSpace(input.SubnetID)
 		defaultGateway = input.DefaultGateway
 	}
-	if mode != provisioningdomain.DeploymentNetworkDHCP &&
-		mode != provisioningdomain.DeploymentNetworkStatic {
+	// Empty and the deprecated "dhcp" alias normalize to Automatic; the stored template
+	// therefore never persists the deprecated value.
+	mode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(rawMode)
+	if !ok {
 		return "", "", false, fmt.Errorf(
-			"%w: network.mode must be dhcp or static",
+			"%w: network.mode must be automatic or static",
 			provisioningdomain.ErrInvalidDeploymentTemplate,
 		)
 	}
-	if mode == provisioningdomain.DeploymentNetworkDHCP && defaultGateway {
+	if mode != provisioningdomain.DeploymentNetworkStatic && defaultGateway {
 		return "", "", false, fmt.Errorf(
 			"%w: network.defaultGateway is supported only for static mode",
 			provisioningdomain.ErrInvalidDeploymentTemplate,

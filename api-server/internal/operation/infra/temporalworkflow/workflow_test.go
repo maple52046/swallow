@@ -118,6 +118,68 @@ func TestOperationWorkflowV1RunsJobsAsChildWorkflows(t *testing.T) {
 	}
 }
 
+// A retryable failure inside a Job must actually re-run on operator retry. The retried Job
+// re-runs its Tasks under a bumped attempt so the executor cannot return the prior attempt's
+// cached outcome. Regression test: the job path previously replayed the cached failure
+// forever because the Task attempt (and thus the executor idempotency key) never changed.
+func TestOperationWorkflowV1RetriesFailedJobWithBumpedAttempt(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflowWithOptions(JobWorkflowV1, workflow.RegisterOptions{Name: JobWorkflowName})
+	var mu sync.Mutex
+	installAttempts := []int{}
+	states := []operationdomain.WorkflowStatus{}
+	registerWorkflowActivityMocks(env, func(input StepExecutionInput) StepExecutionResult {
+		if input.Step.ID == "install" {
+			mu.Lock()
+			installAttempts = append(installAttempts, input.Step.Attempt)
+			first := len(installAttempts) == 1
+			mu.Unlock()
+			if first {
+				return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+					Code: "transient", Message: "host key not yet learned", Retryable: true,
+				}}
+			}
+		}
+		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	}, func(input StateUpdate) {
+		mu.Lock()
+		states = append(states, input.Status)
+		mu.Unlock()
+	})
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(RetryStepSignal, RetryStepCommand{StepID: "install"})
+	}, 2*time.Second)
+
+	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
+		OperationID: "operation-job-retry", Kind: operationdomain.WorkflowKindDeployKubernetes,
+		SiteID: "site-a", Definition: "platform-deployment", DefinitionVersion: 1,
+		LeaseDuration: time.Minute, MaxParallelism: 2, ResourceKeys: []string{"server:a"},
+		Steps: []operationdomain.Task{
+			{ID: "provision", Job: "ensure-os", Kind: "provision-os", Name: "Ensure OS", Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1},
+			{ID: "install", Job: "configure-k0s", Kind: "ansible-playbook", Name: "Install k0s", Executor: operationdomain.RunnerKindAnsible, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
+		},
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("jobbed retry workflow failed: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(installAttempts) != 2 {
+		t.Fatalf("install executed %d times, want 2 (initial + retry): %v", len(installAttempts), installAttempts)
+	}
+	if installAttempts[0] != 1 || installAttempts[1] != 2 {
+		t.Fatalf("install attempts = %v, want [1 2]: retry must bump the attempt / idempotency key", installAttempts)
+	}
+	seenAttention := false
+	for _, state := range states {
+		seenAttention = seenAttention || state == operationdomain.WorkflowRequiresAttention
+	}
+	if !seenAttention || states[len(states)-1] != operationdomain.WorkflowSucceeded {
+		t.Fatalf("states = %v, want requires_attention then succeeded", states)
+	}
+}
+
 func TestOperationWorkflowV1RetriesFailedStepInSameOperation(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()

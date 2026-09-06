@@ -181,6 +181,13 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 	if !preparation.Mode.Valid() {
 		return validatedDeployment{}, fmt.Errorf("%w: machinePreparation.mode must be existing_os or provision_os", platformdomain.ErrInvalidDeployment)
 	}
+	// An ephemeral deployment runs the OS from memory and leaves the disks untouched, so it
+	// cannot host a persistent Kubernetes cluster: etcd/containerd have no durable storage
+	// and the in-memory image lacks kernel modules (e.g. nf_tables) k0s needs. Reject it up
+	// front rather than let a provision_os deploy fail deep inside the k0s install.
+	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && preparation.Ephemeral != nil && *preparation.Ephemeral {
+		return validatedDeployment{}, fmt.Errorf("%w: ephemeral deployment runs the OS from memory and cannot host a Kubernetes cluster; set machinePreparation.settings.ephemeral to false", platformdomain.ErrInvalidDeployment)
+	}
 	var invalid validatedDeployment
 
 	if len(spec.RoleAssignments) == 0 {

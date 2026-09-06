@@ -148,7 +148,7 @@ export function DeployOSWizardPage() {
   const [targetIssues, setTargetIssues] = useState<DeploymentTargetIssue[]>([]);
   const [networkInspection, setNetworkInspection] =
     useState<NetworkInspectionResult | null>(null);
-  const [networkMode, setNetworkMode] = useState<DeploymentNetworkMode>("dhcp");
+  const [networkMode, setNetworkMode] = useState<DeploymentNetworkMode>("automatic");
   const [networkSubnetId, setNetworkSubnetId] = useState("");
   const [defaultGateway, setDefaultGateway] = useState(false);
   const [networkAssignments, setNetworkAssignments] = useState<
@@ -234,7 +234,7 @@ export function DeployOSWizardPage() {
     setSelected(new Set());
     setTargetIssues([]);
     setNetworkInspection(null);
-    setNetworkMode("dhcp");
+    setNetworkMode("automatic");
     setNetworkSubnetId("");
     setDefaultGateway(false);
     setNetworkAssignments({});
@@ -342,7 +342,7 @@ export function DeployOSWizardPage() {
     setIntegrationId(template.integrationId);
     setImageId(template.imageId);
     setEphemeral(template.ephemeral);
-    setNetworkMode(template.network?.mode ?? "dhcp");
+    setNetworkMode(template.network?.mode ?? "automatic");
     setNetworkSubnetId(template.network?.subnetId ?? "");
     setDefaultGateway(template.network?.defaultGateway ?? false);
     setUserDataMode("inherit");
@@ -366,7 +366,7 @@ export function DeployOSWizardPage() {
     selectedTemplate && !customized ? selectedTemplate.ephemeral : ephemeral;
   const effectiveNetworkMode =
     selectedTemplate && !customized
-      ? (selectedTemplate.network?.mode ?? "dhcp")
+      ? (selectedTemplate.network?.mode ?? "automatic")
       : networkMode;
   const effectiveNetworkSubnetId =
     selectedTemplate && !customized
@@ -414,7 +414,7 @@ export function DeployOSWizardPage() {
     effectiveNetworkSubnetId ||
     (assignedSubnetIds.length === 1 ? assignedSubnetIds[0] : "");
   const reusableNetworkValid =
-    effectiveNetworkMode === "dhcp" || Boolean(reusableSubnetId);
+    effectiveNetworkMode === "automatic" || Boolean(reusableSubnetId);
   const targetsValid =
     selected.size > 0 &&
     selected.size <= MAX_TARGETS &&
@@ -472,7 +472,7 @@ export function DeployOSWizardPage() {
         (target) => target.suggestion.mode === "static",
       )
         ? "static"
-        : "dhcp";
+        : "automatic";
       if (appliesInspectionDefaults) {
         setNetworkMode(suggestedMode);
         setDefaultGateway(
@@ -521,7 +521,7 @@ export function DeployOSWizardPage() {
     setNetworkInspection(null);
     setNetworkAssignments({});
     setSelected(new Set());
-    setNetworkMode("dhcp");
+    setNetworkMode("automatic");
     setNetworkSubnetId("");
     setDefaultGateway(false);
     setTemplateId("");
@@ -568,7 +568,7 @@ export function DeployOSWizardPage() {
     if (!id) {
       setImageId("");
       setEphemeral(false);
-      setNetworkMode("dhcp");
+      setNetworkMode("automatic");
       setNetworkSubnetId("");
       setDefaultGateway(false);
       setUserDataMode("omit");
@@ -582,7 +582,7 @@ export function DeployOSWizardPage() {
     setIntegrationId(template.integrationId);
     setImageId(template.imageId);
     setEphemeral(template.ephemeral);
-    setNetworkMode(template.network?.mode ?? "dhcp");
+    setNetworkMode(template.network?.mode ?? "automatic");
     setNetworkSubnetId(template.network?.subnetId ?? "");
     setDefaultGateway(template.network?.defaultGateway ?? false);
     setUserDataMode("inherit");
@@ -1024,7 +1024,7 @@ export function DeployOSWizardPage() {
               <section className="sw-section">
                 <SectionHeader
                   title="Network configuration"
-                  description="Swallow applies an explicit DHCP or Static intent before deployment. Existing provider-managed modes are never reused implicitly."
+                  description="Swallow applies an explicit Automatic or Static intent before deployment. Automatic uses provider auto-assign (a stable, recorded address); existing provider-managed modes are never reused implicitly."
                 />
                 <div className="sw-section-body">
                   <Form className="sw-form-grid">
@@ -1035,12 +1035,12 @@ export function DeployOSWizardPage() {
                     >
                       <ToggleGroup aria-label="Deployment network mode">
                         <ToggleGroupItem
-                          text="DHCP"
-                          buttonId="deploy-network-dhcp"
-                          isSelected={effectiveNetworkMode === "dhcp"}
+                          text="Automatic"
+                          buttonId="deploy-network-automatic"
+                          isSelected={effectiveNetworkMode === "automatic"}
                           isDisabled={Boolean(selectedTemplate && !customized)}
                           onChange={() => {
-                            setNetworkMode("dhcp");
+                            setNetworkMode("automatic");
                             setDefaultGateway(false);
                           }}
                         />
@@ -1323,7 +1323,7 @@ export function DeployOSWizardPage() {
                     <ReviewItem
                       label="Network mode"
                       value={
-                        effectiveNetworkMode === "dhcp" ? "DHCP" : "Static"
+                        effectiveNetworkMode === "automatic" ? "Automatic" : "Static"
                       }
                     />
                     <ReviewItem
@@ -1380,7 +1380,7 @@ export function DeployOSWizardPage() {
                         <Td className="sw-mono">
                           {effectiveNetworkMode === "static"
                             ? networkAssignments[server.id]?.ipAddress || "-"
-                            : "DHCP"}
+                            : "Automatic"}
                         </Td>
                         <Td>{server.provisioning?.powerState ?? "-"}</Td>
                       </Tr>

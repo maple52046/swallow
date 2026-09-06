@@ -98,7 +98,7 @@ A template response contains:
   "imageId": "ubuntu/jammy",
   "ephemeral": false,
   "network": {
-    "mode": "dhcp",
+    "mode": "automatic",
     "subnetId": "subnet-id",
     "defaultGateway": false
   },
@@ -110,16 +110,19 @@ A template response contains:
 
 `POST /templates` accepts `integrationId`, required `name`, optional
 `description`, required `imageId`, optional `ephemeral`, optional `network`,
-and optional write-only `userData`. `network.mode` is `dhcp` or `static`;
-missing network intent defaults to DHCP. `subnetId` names a live provider subnet
-and `defaultGateway` defaults to false. A default gateway can be requested only
-for Static intent. It returns `201` and never echoes `userData`.
+and optional write-only `userData`. `network.mode` is `automatic` or `static`;
+missing network intent defaults to Automatic. `dhcp` is accepted as a deprecated
+one-release alias of `automatic` and is normalized on write. Automatic addressing is
+realized by provider auto-assign (a stable, provider-recorded address), not raw DHCP
+(see [ADR 018](../../../../../docs/decisions/018-automatic-addressing-provider-auto-assign.md)).
+`subnetId` names a live provider subnet and `defaultGateway` defaults to false. A default
+gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
 
 `PATCH /templates/{id}` accepts any subset of `name`, `description`,
 `imageId`, `ephemeral`, and `network`. It cannot change `integrationId` and
 never accepts `userData`. Image or network changes validate the live provider
 catalog before persistence. Templates never store a provider interface ID or a
-target-specific static IP. Historical records without `network` read as DHCP.
+target-specific static IP. Historical records without `network` read as Automatic.
 
 `PUT /templates/{id}/user-data` requires a non-empty `userData` value and
 returns `204 No Content`. `DELETE` clears the sealed value and also returns
@@ -198,7 +201,7 @@ must not be sent back as writable intent. The boot interface is suggested by
 default. One explicit Static link on that NIC is preserved as the suggested
 deployment mode, subnet, IP address, and default-gateway intent. Multiple Static
 links remain ambiguous and require operator input. Without an explicit Static
-link, Swallow suggests DHCP and uses an existing linked subnet when unambiguous,
+link, Swallow suggests Automatic and uses an existing linked subnet when unambiguous,
 or the sole compatible managed subnet. Multiple compatible subnets produce
 `network_selection_required` instead of a silent choice.
 
@@ -275,8 +278,10 @@ defaults to `omit`. With a template, omitted settings use the template and
 omitted user data defaults to `inherit`.
 
 
-Missing `network` resolves to Swallow's DHCP default. `network.mode` accepts
-only `dhcp` or `static`; `AUTO` and keep-current are not valid intent. Each
+Missing `network` resolves to Swallow's Automatic default. `network.mode` accepts
+`automatic` or `static` (the deprecated `dhcp` alias still maps to `automatic`);
+keep-current is not valid intent. Automatic is realized by the provider's auto-assign
+capability, so the deployed address is stable and always provider-recorded. Each
 target resolves its boot NIC by default and can override `interfaceId` and
 `subnetId`. Static requires one valid, unique per-target `ipAddress`.
 `defaultGateway` is valid only for Static. Templates may supply mode, subnet,
@@ -361,7 +366,7 @@ MAAS's `deployed` value remains available only as provider-owned lifecycle diagn
 Retry observes before writing. If the expected image is now SSH-reachable, the Step
 succeeds without repeating provider work. If MAAS installed the image but reports no
 address, explicit Retry releases that unusable installation, waits for Ready, reapplies
-the frozen DHCP/static intent, and redeploys the same image and cloud-init. This
+the frozen automatic/static intent, and redeploys the same image and cloud-init. This
 destructive recovery is never automatic. If an address exists but SSH remains
 unreachable, Retry only observes so routing, firewall, image, or service remediation does
 not discard an installed OS. Lost provider responses enter observation first; Swallow

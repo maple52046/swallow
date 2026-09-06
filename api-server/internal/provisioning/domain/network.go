@@ -6,14 +6,40 @@ import (
 )
 
 // DeploymentNetworkMode is Swallow's writable OS deployment addressing intent.
+//
+// The intent is provider-neutral: "let the provisioner assign an address" versus "use a
+// caller-chosen address". How the provider realizes automatic addressing is an adapter
+// concern — the MAAS adapter fulfils it with MAAS "auto-assign" (a provider-managed static
+// IP recorded by MAAS), which is stable and always known to the provider, rather than raw
+// DHCP whose address is only known while a live lease is observed. See ADR 018.
 type DeploymentNetworkMode string
 
 const (
-	// DeploymentNetworkDHCP explicitly requests dynamic addressing.
-	DeploymentNetworkDHCP DeploymentNetworkMode = "dhcp"
+	// DeploymentNetworkAutomatic asks the provisioner to assign an address automatically.
+	// It is the default and canonical value.
+	DeploymentNetworkAutomatic DeploymentNetworkMode = "automatic"
 	// DeploymentNetworkStatic requires a target-specific IP address.
 	DeploymentNetworkStatic DeploymentNetworkMode = "static"
+	// DeploymentNetworkDHCP is a deprecated one-release alias of DeploymentNetworkAutomatic,
+	// kept so existing callers keep working; NormalizeDeploymentNetworkMode folds it into
+	// Automatic. It named the provider protocol rather than the swallow intent (see ADR 018).
+	DeploymentNetworkDHCP DeploymentNetworkMode = "dhcp"
 )
+
+// NormalizeDeploymentNetworkMode resolves a raw, possibly-empty or deprecated mode string to
+// a canonical DeploymentNetworkMode. Empty and the deprecated "dhcp" alias both become
+// Automatic; "static" stays Static; anything else returns ok=false so the caller can reject
+// it with its own bounded error.
+func NormalizeDeploymentNetworkMode(raw string) (DeploymentNetworkMode, bool) {
+	switch DeploymentNetworkMode(raw) {
+	case "", DeploymentNetworkAutomatic, DeploymentNetworkDHCP:
+		return DeploymentNetworkAutomatic, true
+	case DeploymentNetworkStatic:
+		return DeploymentNetworkStatic, true
+	default:
+		return "", false
+	}
+}
 
 // NetworkConfigurationState describes an observed NIC subnet-link configuration.
 // ProviderManaged is intentionally read-only: it represents a legacy provider mode
@@ -79,14 +105,20 @@ type MachineNetwork struct {
 	Interfaces []NetworkInterface
 }
 
-// NetworkLinkMode describes an explicit NIC-level mutation. LinkOnly is available
-// for manual configuration but never as an OS deployment mode.
+// NetworkLinkMode describes an explicit NIC-level link mutation the adapter must perform.
+// LinkOnly is available for manual configuration but never as an OS deployment mode; Auto is
+// how Swallow's Automatic deployment intent is realized (provider auto-assign) and is not
+// currently offered as a manual NIC mode.
 type NetworkLinkMode string
 
 const (
 	NetworkLinkDHCP     NetworkLinkMode = "dhcp"
 	NetworkLinkStatic   NetworkLinkMode = "static"
 	NetworkLinkLinkOnly NetworkLinkMode = "link_only"
+	// NetworkLinkAuto requests provider auto-assign: the provider allocates and records a
+	// stable address (MAAS "AUTO"), which the deployed OS receives as a fixed netplan
+	// address. Realizes DeploymentNetworkAutomatic.
+	NetworkLinkAuto NetworkLinkMode = "auto"
 )
 
 // NetworkLinkRequest addresses one interface and optionally one existing link.

@@ -196,8 +196,12 @@ func maasNetworkMode(req provisioningdomain.NetworkLinkRequest) (string, error) 
 		return "STATIC", nil
 	case provisioningdomain.NetworkLinkLinkOnly:
 		return "LINK_UP", nil
+	case provisioningdomain.NetworkLinkAuto:
+		// MAAS "AUTO" allocates a static IP from the subnet's reserved space and records
+		// it, so the deployed address is stable and always known to MAAS.
+		return "AUTO", nil
 	default:
-		return "", fmt.Errorf("%w: mode must be dhcp, static, or link_only", provisioningdomain.ErrInvalidNetworkConfiguration)
+		return "", fmt.Errorf("%w: mode must be automatic, dhcp, static, or link_only", provisioningdomain.ErrInvalidNetworkConfiguration)
 	}
 }
 
@@ -247,6 +251,10 @@ func networkLinkMatches(link *provisioningdomain.NetworkLink, req provisioningdo
 			link.IPAddress == strings.TrimSpace(req.IPAddress)
 	case provisioningdomain.NetworkLinkLinkOnly:
 		return link.State == provisioningdomain.NetworkStateLinkOnly
+	case provisioningdomain.NetworkLinkAuto:
+		// A MAAS AUTO link is observed as provider-managed; the specific IP is chosen by
+		// MAAS, so an existing auto link on the same subnet already satisfies the request.
+		return link.State == provisioningdomain.NetworkStateProviderManaged
 	default:
 		return false
 	}

@@ -141,7 +141,9 @@ func (uc *DeployServersUseCase) Execute(
 			for index := range jobs {
 				server := resolved.servers[index]
 				assignment := resolved.assignments[index]
-				linkMode := provisioningdomain.NetworkLinkDHCP
+				// Automatic addressing is realized by provider auto-assign (a recorded,
+				// stable IP), not raw DHCP; static keeps the caller-chosen address.
+				linkMode := provisioningdomain.NetworkLinkAuto
 				if resolved.networkMode == provisioningdomain.DeploymentNetworkStatic {
 					linkMode = provisioningdomain.NetworkLinkStatic
 				}
@@ -239,7 +241,7 @@ func (uc *DeployServersUseCase) preflight(
 	imageID := ""
 	ephemeral := false
 	userData := ""
-	networkMode := provisioningdomain.DeploymentNetworkDHCP
+	networkMode := provisioningdomain.DeploymentNetworkAutomatic
 	subnetID := ""
 	defaultGateway := false
 	templateMode := input.TemplateID != ""
@@ -257,9 +259,6 @@ func (uc *DeployServersUseCase) preflight(
 		imageID = template.ImageID
 		ephemeral = template.Ephemeral
 		networkMode = template.NetworkMode
-		if networkMode == "" {
-			networkMode = provisioningdomain.DeploymentNetworkDHCP
-		}
 		subnetID = template.SubnetID
 		defaultGateway = template.DefaultGateway
 		if input.Settings.ImageID != nil {
@@ -281,20 +280,20 @@ func (uc *DeployServersUseCase) preflight(
 		networkMode = provisioningdomain.DeploymentNetworkMode(
 			strings.ToLower(strings.TrimSpace(input.Network.Mode)),
 		)
-		if networkMode == "" {
-			networkMode = provisioningdomain.DeploymentNetworkDHCP
-		}
 		subnetID = strings.TrimSpace(input.Network.SubnetID)
 		defaultGateway = input.Network.DefaultGateway
 	}
-	if networkMode != provisioningdomain.DeploymentNetworkDHCP &&
-		networkMode != provisioningdomain.DeploymentNetworkStatic {
+	// Normalize folds an empty value and the deprecated "dhcp" alias into Automatic, so
+	// downstream code and the provider adapter only ever see automatic or static.
+	normalizedMode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(string(networkMode))
+	if !ok {
 		return nil, fmt.Errorf(
-			"%w: network.mode must be dhcp or static",
+			"%w: network.mode must be automatic or static",
 			provisioningdomain.ErrInvalidDeploymentBatch,
 		)
 	}
-	if networkMode == provisioningdomain.DeploymentNetworkDHCP && defaultGateway {
+	networkMode = normalizedMode
+	if networkMode != provisioningdomain.DeploymentNetworkStatic && defaultGateway {
 		return nil, fmt.Errorf(
 			"%w: network.defaultGateway is supported only for static mode",
 			provisioningdomain.ErrInvalidDeploymentBatch,

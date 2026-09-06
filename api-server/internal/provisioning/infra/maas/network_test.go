@@ -109,6 +109,60 @@ func TestConfigureNetworkLinkReplacesOnlySelectedLinkWithoutForce(t *testing.T) 
 	}
 }
 
+// Swallow's Automatic addressing intent (NetworkLinkAuto) must be translated to MAAS "AUTO"
+// (provider auto-assign), not raw DHCP, and must send neither an IP address nor a force flag.
+func TestConfigureNetworkLinkAutoTranslatesToMaasAuto(t *testing.T) {
+	fake := newFakeMAAS(t)
+	reads := 0
+	fake.mux.HandleFunc("GET "+apiPrefix+"/machines/{id}/{$}", func(w http.ResponseWriter, _ *http.Request) {
+		reads++
+		w.Header().Set("Content-Type", "application/json")
+		if reads == 1 {
+			// Before: the interface has no link yet.
+			_, _ = w.Write([]byte(networkMachineJSON("", "", 0)))
+			return
+		}
+		// After: MAAS reports an auto (provider-managed) link on the requested subnet.
+		_, _ = w.Write([]byte(networkMachineJSON("AUTO", "10.20.0.30", 93)))
+	})
+	fake.respond("GET "+apiPrefix+"/subnets/{$}", http.StatusOK, networkSubnetsJSON)
+	var linkForm map[string]string
+	operations := make([]string, 0, 1)
+	fake.mux.HandleFunc("POST "+apiPrefix+"/nodes/{machine}/interfaces/{interface}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		operations = append(operations, r.URL.Query().Get("op"))
+		_ = r.ParseMultipartForm(1 << 20)
+		form := map[string]string{}
+		if r.MultipartForm != nil {
+			for key, values := range r.MultipartForm.Value {
+				if len(values) > 0 {
+					form[key] = values[0]
+				}
+			}
+		}
+		linkForm = form
+		w.WriteHeader(http.StatusOK)
+	})
+
+	_, err := newTestProvider(t, fake).ConfigureNetworkLink(context.Background(), "abc123", provisioningdomain.NetworkLinkRequest{
+		InterfaceID: "42", Mode: provisioningdomain.NetworkLinkAuto, SubnetID: "7",
+	})
+	if err != nil {
+		t.Fatalf("ConfigureNetworkLink: %v", err)
+	}
+	if len(operations) != 1 || operations[0] != "link_subnet" {
+		t.Fatalf("operations = %v, want a single link_subnet", operations)
+	}
+	if linkForm["mode"] != "AUTO" || linkForm["subnet"] != "7" {
+		t.Fatalf("link form = %+v, want mode=AUTO subnet=7", linkForm)
+	}
+	if _, exists := linkForm["ip_address"]; exists {
+		t.Fatalf("auto mode must not send an ip_address: %+v", linkForm)
+	}
+	if _, exists := linkForm["force"]; exists {
+		t.Fatalf("force must never be sent: %+v", linkForm)
+	}
+}
+
 func TestConfigureNetworkLinkRejectsInvalidStaticBeforeUnlink(t *testing.T) {
 	fake := newFakeMAAS(t)
 	fake.onGetMachine(http.StatusOK, networkMachineJSON("STATIC", "10.20.0.30", 91))

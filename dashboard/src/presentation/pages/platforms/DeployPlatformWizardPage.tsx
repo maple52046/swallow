@@ -171,7 +171,7 @@ export function DeployPlatformWizardPage() {
   const [imageId, setImageId] = useState('')
   const [ephemeral, setEphemeral] = useState(false)
   const [cloudInit, setCloudInit] = useState('')
-  const [networkMode, setNetworkMode] = useState<DeploymentNetworkMode>('dhcp')
+  const [networkMode, setNetworkMode] = useState<DeploymentNetworkMode>('automatic')
   const [defaultGateway, setDefaultGateway] = useState(false)
   const [networkInspection, setNetworkInspection] = useState<NetworkInspectionResult | null>(null)
   const [networkAssignments, setNetworkAssignments] = useState<Record<string, { interfaceId: string; subnetId: string; ipAddress: string }>>({})
@@ -281,7 +281,7 @@ export function DeployPlatformWizardPage() {
         if (target.suggestion.mode === 'static') anyStatic = true
       }
       setNetworkAssignments(nextAssignments)
-      setNetworkMode(anyStatic ? 'static' : 'dhcp')
+      setNetworkMode(anyStatic ? 'static' : 'automatic')
       setDefaultGateway(inspection.targets.some((target) => target.suggestion.defaultGateway))
     }).catch((error: Error) => {
       if (!canceled) setProvisioningError(error.message)
@@ -765,12 +765,12 @@ export function DeployPlatformWizardPage() {
                       <FormGroup label="Addressing mode" isRequired fieldId="platform-network-mode">
                         <ToggleGroup aria-label="Operating system addressing mode">
                           <ToggleGroupItem
-                            text="DHCP"
-                            buttonId="platform-network-dhcp"
-                            isSelected={effectiveNetworkMode === 'dhcp'}
+                            text="Automatic"
+                            buttonId="platform-network-automatic"
+                            isSelected={effectiveNetworkMode === 'automatic'}
                             isDisabled={Boolean(selectedTemplate)}
                             onChange={() => {
-                              setNetworkMode('dhcp')
+                              setNetworkMode('automatic')
                               setDefaultGateway(false)
                             }}
                           />
@@ -1015,7 +1015,7 @@ export function DeployPlatformWizardPage() {
                       ['Machine preparation', machinePreparation === 'provision_os' ? 'Provision OS first' : 'Use existing OS'],
                       ...(machinePreparation === 'provision_os' ? [
                         ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
-                        ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'DHCP'],
+                        ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
                       ] : []),
                       ['k0s version', k0sVersion],
                       ['GPU stack owner', gpuStackOwner],

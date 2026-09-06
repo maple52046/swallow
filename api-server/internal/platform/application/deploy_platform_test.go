@@ -372,6 +372,27 @@ func TestDeployProvisionOSRejectsUnconvergeableState(t *testing.T) {
 	}
 }
 
+// A provision_os Kubernetes deploy must reject an ephemeral (run-from-RAM) OS: it leaves the
+// disks untouched and its in-memory image lacks kernel modules k0s needs, so it can never
+// host a cluster. The rejection is up front, not a deep k0s-install failure.
+func TestDeployProvisionOSRejectsEphemeral(t *testing.T) {
+	servers := haServers()
+	servers[1].Provisioning.State = "ready"
+	service, launcher, _ := newDeployHarness(servers...)
+	service.AttachMachinePreparationValidator(&stubMachinePrep{})
+	input := provisionOSInput()
+	ephemeral := true
+	input.MachinePreparation.Ephemeral = &ephemeral
+
+	_, err := service.Deploy(context.Background(), input)
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Fatalf("expected ephemeral provision_os to be rejected, got %v", err)
+	}
+	if launcher.launched != nil {
+		t.Fatal("no deployment should be launched for an ephemeral Kubernetes deploy")
+	}
+}
+
 func TestDeployRejectsTargetWithObservedMembership(t *testing.T) {
 	servers := haServers()
 	servers[0].Membership = &serverdomain.MembershipStatus{

@@ -424,13 +424,18 @@ const JobWorkflowName = "swallow.job.v1"
 // parent owns and renews the resource leases; the child validates them before each Task, so
 // only one workflow tree ever mutates a Server or Platform at a time.
 type JobWorkflowInput struct {
-	OperationID    string
-	Kind           operationdomain.WorkflowKind
-	PlatformID     string
-	SiteID         string
-	JobName        string
-	Tasks          []operationdomain.Task
-	Leases         []operationdomain.ResourceLease
+	OperationID string
+	Kind        operationdomain.WorkflowKind
+	PlatformID  string
+	SiteID      string
+	JobName     string
+	Tasks       []operationdomain.Task
+	Leases      []operationdomain.ResourceLease
+	// Attempt is the 1-based Job run number. It offsets each Task's execution attempt so a
+	// retried Job re-runs its Tasks under a fresh idempotency key
+	// (Operation/Task/attempt) instead of an executor returning the prior attempt's cached
+	// outcome. Without this, a retryable failure could never actually be retried.
+	Attempt        int
 	LeaseDuration  time.Duration
 	MaxParallelism int
 }
@@ -556,7 +561,7 @@ func runJobChild(ctx workflow.Context, input WorkflowInput, leases []operationdo
 		var result JobResult
 		err := workflow.ExecuteChildWorkflow(childCtx, JobWorkflowName, JobWorkflowInput{
 			OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
-			JobName: job, Tasks: tasks, Leases: leases, LeaseDuration: input.LeaseDuration, MaxParallelism: input.MaxParallelism,
+			JobName: job, Tasks: tasks, Attempt: attempt, Leases: leases, LeaseDuration: input.LeaseDuration, MaxParallelism: input.MaxParallelism,
 		}).Get(ctx, &result)
 		if err != nil {
 			if temporal.IsCanceledError(err) || ctx.Err() != nil {
@@ -596,6 +601,15 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 	}
 	projectionCtx := workflow.WithActivityOptions(ctx, projectionOptions)
 	tasks := append([]operationdomain.Task(nil), input.Tasks...)
+	// Offset every Task's attempt by the Job run number so a retried Job re-runs under a
+	// fresh executor idempotency key rather than replaying the prior attempt's cached
+	// outcome. The first run (Attempt 1) keeps the Task's original attempt; each retry bumps
+	// it. Re-running already-converged idempotent Tasks under the new key is safe by design.
+	if input.Attempt > 1 {
+		for index := range tasks {
+			tasks[index].Attempt += input.Attempt - 1
+		}
+	}
 	known := map[string]bool{}
 	for _, task := range tasks {
 		known[task.ID] = true

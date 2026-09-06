@@ -382,17 +382,17 @@ func workflowNetwork(machineID string, ambiguous bool) *provisioningdomain.Machi
 	}
 }
 
-func TestSuggestNetworkUsesStaticBindingOrDHCPFallback(t *testing.T) {
+func TestSuggestNetworkUsesStaticBindingOrAutomaticFallback(t *testing.T) {
 	tests := []struct {
 		name    string
 		network *provisioningdomain.MachineNetwork
 		want    NetworkSuggestion
 	}{
 		{
-			name:    "provider managed defaults to DHCP",
+			name:    "provider managed defaults to automatic",
 			network: workflowNetwork("machine-a", false),
 			want: NetworkSuggestion{
-				Mode:        provisioningdomain.DeploymentNetworkDHCP,
+				Mode:        provisioningdomain.DeploymentNetworkAutomatic,
 				InterfaceID: "nic-machine-a",
 				SubnetID:    "subnet-a",
 			},
@@ -444,7 +444,7 @@ func setupNetworkWorkflow(count int) (*DeployServersUseCase, *networkWorkflowPro
 	return NewDeployServersUseCase(repo, nil, networkWorkflowFactory{provider: provider}), provider
 }
 
-func TestDeployServersDefaultsToDHCPAndReportsFailureStage(t *testing.T) {
+func TestDeployServersDefaultsToAutomaticAndReportsFailureStage(t *testing.T) {
 	uc, provider := setupNetworkWorkflow(2)
 	provider.deployFailures["machine-b"] = &provisioningdomain.ProviderError{
 		Kind: provisioningdomain.ProviderErrorRejected, Detail: "reservation changed",
@@ -465,8 +465,8 @@ func TestDeployServersDefaultsToDHCPAndReportsFailureStage(t *testing.T) {
 		t.Fatalf("unexpected failure: %#v", result.Failed[0])
 	}
 	for _, req := range provider.configureRequests {
-		if req.Mode != provisioningdomain.NetworkLinkDHCP || req.SubnetID != "subnet-a" {
-			t.Fatalf("expected explicit DHCP on subnet-a, got %#v", req)
+		if req.Mode != provisioningdomain.NetworkLinkAuto || req.SubnetID != "subnet-a" {
+			t.Fatalf("expected provider auto-assign on subnet-a, got %#v", req)
 		}
 	}
 }
@@ -495,7 +495,7 @@ func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 	if frozen.UserData.Mode != "replace" || frozen.UserData.Value != "" || secret != templates.userData {
 		t.Fatalf("secret was not separated from durable intent: input=%#v secret=%q", frozen.UserData, secret)
 	}
-	if frozen.Network == nil || frozen.Network.Mode != "dhcp" || len(frozen.Network.Assignments) != 1 ||
+	if frozen.Network == nil || frozen.Network.Mode != "automatic" || len(frozen.Network.Assignments) != 1 ||
 		frozen.Network.Assignments[0].InterfaceID != "nic-machine-a" ||
 		frozen.Network.Assignments[0].SubnetID != "subnet-a" {
 		t.Fatalf("network intent was not frozen: %#v", frozen.Network)

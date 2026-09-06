@@ -46,7 +46,7 @@ interface TemplateDraft {
   description: string
   imageId: string
   ephemeral: boolean
-  networkMode: 'dhcp' | 'static'
+  networkMode: 'automatic' | 'static'
   subnetId: string
   defaultGateway: boolean
 }
@@ -57,7 +57,7 @@ const EMPTY_DRAFT: TemplateDraft = {
   description: '',
   imageId: '',
   ephemeral: false,
-  networkMode: 'dhcp',
+  networkMode: 'automatic',
   subnetId: '',
   defaultGateway: false,
 }
@@ -315,7 +315,7 @@ export function DeploymentTemplatesPage() {
             </FormGroup>
             <FormGroup label="Network mode" isRequired fieldId="template-network-mode">
               <ToggleGroup aria-label="Template network mode">
-                <ToggleGroupItem text="DHCP" buttonId="template-network-dhcp" isSelected={draft.networkMode === 'dhcp'} onChange={() => setDraft((current) => ({ ...current, networkMode: 'dhcp', defaultGateway: false }))} />
+                <ToggleGroupItem text="Automatic" buttonId="template-network-automatic" isSelected={draft.networkMode === 'automatic'} onChange={() => setDraft((current) => ({ ...current, networkMode: 'automatic', defaultGateway: false }))} />
                 <ToggleGroupItem text="Static" buttonId="template-network-static" isSelected={draft.networkMode === 'static'} onChange={() => setDraft((current) => ({ ...current, networkMode: 'static' }))} />
               </ToggleGroup>
             </FormGroup>
@@ -388,7 +388,7 @@ export function DeploymentTemplatesPage() {
               <Td dataLabel="Integration">{integrationName(template.integrationId)}</Td>
               <Td dataLabel="Image ID" className="sw-mono">{template.imageId}</Td>
               <Td dataLabel="Ephemeral">{template.ephemeral ? 'Yes' : 'No'}</Td>
-              <Td dataLabel="Network">{template.network?.mode === 'static' ? `Static - ${template.network.subnetId || '-'}` : 'DHCP'}</Td>
+              <Td dataLabel="Network">{template.network?.mode === 'static' ? `Static - ${template.network.subnetId || '-'}` : 'Automatic'}</Td>
               <Td dataLabel="Cloud-init">{template.hasUserData ? 'Configured' : '-'}</Td>
               <Td dataLabel="Updated">{formatDateTime(template.updatedAt)}</Td>
               <Td isActionCell>
@@ -401,7 +401,7 @@ export function DeploymentTemplatesPage() {
                       description: template.description,
                       imageId: template.imageId,
                       ephemeral: template.ephemeral,
-                      networkMode: template.network?.mode ?? 'dhcp',
+                      networkMode: template.network?.mode ?? 'automatic',
                       subnetId: template.network?.subnetId ?? '',
                       defaultGateway: template.network?.defaultGateway ?? false,
                     })
