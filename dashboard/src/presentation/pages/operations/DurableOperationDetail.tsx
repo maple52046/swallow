@@ -20,6 +20,14 @@ import {
   Tooltip,
 } from "@patternfly/react-core";
 import { BanIcon, RedoIcon, SyncAltIcon } from "@patternfly/react-icons";
+import {
+  Ban,
+  Check,
+  CircleDot,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useApp } from "@/di/AppProvider";
 import {
@@ -215,6 +223,11 @@ export function DurableOperationDetail({
       />
 
       <section className="sw-section">
+        <SectionHeader title="Operation details" />
+        <KeyValueGrid items={details} />
+      </section>
+
+      <section className="sw-section">
         <SectionHeader
           title="Operation Steps"
           description="Each provider or executor phase is persisted and retried independently."
@@ -388,11 +401,9 @@ export function DurableOperationDetail({
           title="Timeline"
           description="Normalized workflow events retained independently from provider diagnostics."
         />
-        <OperationTimeline operation={operation} />
-      </section>
-      <section className="sw-section">
-        <SectionHeader title="Operation details" />
-        <KeyValueGrid items={details} />
+        <div className="sw-section-body">
+          <OperationTimeline operation={operation} />
+        </div>
       </section>
 
       <Modal
@@ -615,6 +626,31 @@ function StepDetails({ step }: { step: OperationStep }) {
   );
 }
 
+type TimelineTone = "success" | "danger" | "warning" | "info" | "neutral";
+
+/**
+ * Maps a normalized workflow event type to a timeline marker tone and glyph. Matching is by
+ * keyword so a new or unknown event type still resolves to a sensible neutral marker rather
+ * than rendering nothing. The tone drives the marker colour in CSS (`data-tone`).
+ */
+function timelineEventTone(type: string): { tone: TimelineTone; Icon: LucideIcon } {
+  const value = type.toLowerCase();
+  if (/(succeed|complete|active|ready)/.test(value)) return { tone: "success", Icon: Check };
+  if (/(fail|error)/.test(value)) return { tone: "danger", Icon: X };
+  if (/cancel/.test(value)) return { tone: "neutral", Icon: Ban };
+  if (/(attention|warn)/.test(value)) return { tone: "warning", Icon: TriangleAlert };
+  if (/(start|running|request|accept|queue|retry|resume|dispatch)/.test(value)) {
+    return { tone: "info", Icon: CircleDot };
+  }
+  return { tone: "neutral", Icon: CircleDot };
+}
+
+/** Renders an event type token such as `operation_requested` as "Operation requested". */
+function humanizeEventType(type: string): string {
+  const spaced = type.replace(/[_-]+/g, " ").trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : type;
+}
+
 function OperationTimeline({ operation }: { operation: Operation }) {
   const { operations } = useApp();
   const [events, setEvents] = useState<OperationTimelineEvent[]>([]);
@@ -636,20 +672,29 @@ function OperationTimeline({ operation }: { operation: Operation }) {
   );
   if (events.length === 0) return <EmptyState title="No timeline events" />;
   return (
-    <ol className="sw-operation-event-timeline">
-      {events.map((event) => (
-        <li key={event.id}>
-          <time>{formatDateTime(event.createdAt)}</time>
-          <div>
-            <strong>
-              {event.stepId
-                ? (stepNames.get(event.stepId) ?? event.stepId)
-                : event.type}
-            </strong>
-            <span>{event.message}</span>
-          </div>
-        </li>
-      ))}
+    <ol className="sw-timeline">
+      {events.map((event) => {
+        const { tone, Icon } = timelineEventTone(event.type);
+        const title = event.stepId
+          ? (stepNames.get(event.stepId) ?? event.stepId)
+          : humanizeEventType(event.type);
+        return (
+          <li key={event.id} className="sw-timeline__item" data-tone={tone}>
+            <span className="sw-timeline__marker" aria-hidden="true">
+              <Icon />
+            </span>
+            <div className="sw-timeline__content">
+              <strong className="sw-timeline__title">{title}</strong>
+              <time className="sw-timeline__time" dateTime={event.createdAt}>
+                {formatDateTime(event.createdAt)}
+              </time>
+              {event.message && (
+                <span className="sw-timeline__message">{event.message}</span>
+              )}
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }

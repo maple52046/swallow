@@ -141,6 +141,7 @@ Slurm, storage, and future platform kinds, and it is why the ansible boundary is
 
 ## Related
 
+- [Platform Deployment design](../development/platform-deployment.md) — elaborates this model into the deployment design, the inventory / trusted-vars / manifest integration contract, and a how-to-add-a-platform guide.
 - [ADR 016](016-temporal-operation-orchestration.md) — Temporal orchestration (engine; vocabulary refined here).
 - [ADR 006](006-embedded-ansible-execution.md) — playbook provenance and credential rules still in force.
 - [ADR 001](001-system-ownership-boundaries.md) — integrate, don't reinvent.

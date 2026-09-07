@@ -1003,6 +1003,15 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ? json(route, platform)
         : json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
     }
+    // The dashboard reads a single Operation as a Workflow (ADR 017 rename). Serve it by id so
+    // deployment claim resolution can read a Platform's target history.
+    const workflowByIdMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)$/)
+    if (workflowByIdMatch && request.method() === 'GET') {
+      const operation = operationItems.find((item) => item.id === workflowByIdMatch[1])
+      return operation
+        ? json(route, operation)
+        : json(route, { error: { code: 'not_found', message: 'Workflow not found' } }, 404)
+    }
     if (path === '/api/v1/operations') {
       let items = [...operationItems]
       const status = url.searchParams.get('status')

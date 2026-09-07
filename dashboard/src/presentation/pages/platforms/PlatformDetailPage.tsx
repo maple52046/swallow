@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Alert, AlertVariant, Button, Flex, Label } from '@patternfly/react-core'
 import { SyncAltIcon } from '@patternfly/react-icons'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
+import { Table, Tbody, Td, Th, Thead, Tr, type ThProps } from '@patternfly/react-table'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
@@ -14,6 +14,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionHeader, StatStrip, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { CopyButton } from '@/presentation/components/CopyButton'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
@@ -334,6 +335,43 @@ function MemberTable({
   deployment: Platform['deployment']
   onSelect: (server: Server) => void
 }) {
+  const [activeSortIndex, setActiveSortIndex] = useState(0)
+  const [activeSortDirection, setActiveSortDirection] = useState<'asc' | 'desc'>('asc')
+
+  // One accessor per sortable column, in the same order as the headers below. Values are
+  // strings so the numeric-aware locale compare orders hostnames and IPv4 octets naturally
+  // (node-2 before node-10, .2 before .10).
+  const sortValue = (server: Server, columnIndex: number): string => {
+    switch (columnIndex) {
+      case 0:
+        return (server.membership?.nodeName || serverDisplayName(server)).toLowerCase()
+      case 1:
+        return server.membership?.role ?? ''
+      case 2:
+        return server.membership?.state ?? ''
+      case 3:
+        return serverPrimaryAddress(server) ?? ''
+      default:
+        return ''
+    }
+  }
+  const sortedMembers = useMemo(() => {
+    const ordered = [...members].sort((a, b) =>
+      sortValue(a, activeSortIndex).localeCompare(sortValue(b, activeSortIndex), undefined, {
+        numeric: true,
+      }),
+    )
+    return activeSortDirection === 'asc' ? ordered : ordered.reverse()
+  }, [members, activeSortIndex, activeSortDirection])
+  const sortParams = (columnIndex: number): ThProps['sort'] => ({
+    sortBy: { index: activeSortIndex, direction: activeSortDirection },
+    onSort: (_event, index, direction) => {
+      setActiveSortIndex(index)
+      setActiveSortDirection(direction)
+    },
+    columnIndex,
+  })
+
   if (members.length === 0) {
     return <EmptyState title="No members" message="No Server currently reports membership in this platform." />
   }
@@ -341,19 +379,32 @@ function MemberTable({
     <StickyTableFrame>
       <Table aria-label="Platform members" variant="compact">
         <Thead>
-          <Tr><Th>{isKubernetes ? 'Node' : 'Member'}</Th><Th>Role</Th><Th>State</Th><Th>Address</Th></Tr>
+          <Tr>
+            <Th sort={sortParams(0)}>{isKubernetes ? 'Node' : 'Member'}</Th>
+            <Th sort={sortParams(1)}>Role</Th>
+            <Th sort={sortParams(2)}>State</Th>
+            <Th sort={sortParams(3)}>Address</Th>
+          </Tr>
         </Thead>
         <Tbody>
-          {members.map((server) => {
+          {sortedMembers.map((server) => {
             const assignment = deployment?.roleAssignments.find(
               (candidate) => candidate.serverId === server.id,
             )
             const controllerRunsWorkloads = assignment?.role === 'control-plane' &&
               assignment.runWorkloads
+            const nodeName = server.membership?.nodeName || serverDisplayName(server)
+            const address = serverPrimaryAddress(server)
             return (
               <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
                 <Td dataLabel={isKubernetes ? 'Node' : 'Member'}>
-                  <strong>{server.membership?.nodeName || serverDisplayName(server)}</strong>
+                  <span className="sw-cell-inline">
+                    <strong>{nodeName}</strong>
+                    <CopyButton
+                      value={nodeName}
+                      label={isKubernetes ? 'Copy node name' : 'Copy member name'}
+                    />
+                  </span>
                 </Td>
                 <Td dataLabel="Role">
                   <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
@@ -370,7 +421,12 @@ function MemberTable({
                     label={server.membership?.state || 'unknown'}
                   />
                 </Td>
-                <Td dataLabel="Address" className="mono">{serverPrimaryAddress(server) ?? '-'}</Td>
+                <Td dataLabel="Address" className="mono">
+                  <span className="sw-cell-inline">
+                    {address ?? '-'}
+                    <CopyButton value={address ?? ''} label="Copy address" />
+                  </span>
+                </Td>
               </Tr>
             )
           })}

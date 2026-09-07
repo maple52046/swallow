@@ -7,7 +7,7 @@ import {
   ModalFooter,
   ModalHeader,
 } from '@patternfly/react-core'
-import { LockIcon, UnlockAltIcon } from '@patternfly/react-icons'
+import { Lock, Unlock } from 'lucide-react'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/list'
 
@@ -66,7 +66,7 @@ export function ServerLockDialog({
       <ModalFooter>
         <Button
           variant={locking ? 'warning' : 'primary'}
-          icon={locking ? <LockIcon /> : <UnlockAltIcon />}
+          icon={locking ? <Lock /> : <Unlock />}
           isLoading={busy}
           isDisabled={busy || targets.length === 0}
           onClick={onConfirm}

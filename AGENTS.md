@@ -34,6 +34,12 @@ If the task creates, modifies, consumes, or validates APIs, also read:
 
 1. `docs/development/api-contracts.md` — understand the API contract workflow and which component owns the contract.
 
+If the task involves platform deployment orchestration, the Workflow/Job/Task/Runner
+model, or integrating a new platform type (for example Slurm), also read:
+
+1. `docs/development/platform-deployment.md` — the platform deployment design, the
+   inventory / trusted-vars / manifest integration contract, and how to add a platform.
+
 ## Component Work
 
 After completing the required root reading for the task, identify the affected

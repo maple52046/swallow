@@ -35,6 +35,7 @@ import {
   SortAmountDownIcon,
   SortAmountUpIcon,
 } from "@patternfly/react-icons";
+import { Lock } from "lucide-react";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "@/di/AppProvider";
@@ -72,9 +73,9 @@ import { Pagination } from "@/presentation/components/Pagination";
 import {
   DeploymentBadge,
   HealthBadge,
-  LockBadge,
   MembershipBadge,
 } from "@/presentation/components/AxisBadge";
+import { CopyButton } from "@/presentation/components/CopyButton";
 import { useSiteScope } from "@/presentation/contexts/SiteScopeContext";
 import {
   SERVER_ACTION_GROUPS,
@@ -890,7 +891,7 @@ export function ServersPage() {
                     </Th>
                   )}
                   {visible("cpuCores") && (
-                    <Th className="sw-hardware-column sw-column-cpu-cores">
+                    <Th className="sw-hardware-column sw-column-cpu-cores sw-cell-center">
                       CPU cores
                     </Th>
                   )}
@@ -1377,8 +1378,15 @@ function ServerRow({
       </Td>
       <Td dataLabel="Machine" className="sw-sticky-name">
         <span className="sw-machine-name">
+          {(server.provisioning?.locked ?? false) && (
+            <Tooltip content="This Server is protected. Unlock it before making changes.">
+              <span className="sw-lock-indicator" role="img" aria-label="Locked">
+                <Lock />
+              </span>
+            </Tooltip>
+          )}
           <strong>{serverDisplayName(server)}</strong>
-          <LockBadge locked={server.provisioning?.locked ?? false} />
+          <CopyButton value={serverDisplayName(server)} label="Copy hostname" />
           {server.absent && <Label color="grey">absent</Label>}
         </span>
       </Td>
@@ -1394,12 +1402,24 @@ function ServerRow({
       )}
       {visible("address") && (
         <Td dataLabel="Address" className="mono">
-          {textOrDash(serverPrimaryAddress(server))}
+          <span className="sw-copyable">
+            {textOrDash(serverPrimaryAddress(server))}
+            <CopyButton
+              value={serverPrimaryAddress(server) ?? ""}
+              label="Copy IP address"
+            />
+          </span>
         </Td>
       )}
       {visible("mac") && (
         <Td dataLabel="MAC address" className="mono">
-          {textOrDash(serverMacAddress(server))}
+          <span className="sw-copyable">
+            {textOrDash(serverMacAddress(server))}
+            <CopyButton
+              value={serverMacAddress(server) ?? ""}
+              label="Copy MAC address"
+            />
+          </span>
         </Td>
       )}
       {visible("zone") && (
@@ -1434,7 +1454,7 @@ function ServerRow({
       {visible("cpuCores") && (
         <Td
           dataLabel="CPU cores"
-          className="sw-hardware-column sw-column-cpu-cores"
+          className="sw-hardware-column sw-column-cpu-cores sw-cell-center"
         >
           {quantityOrDash(server.cpuCores)}
         </Td>

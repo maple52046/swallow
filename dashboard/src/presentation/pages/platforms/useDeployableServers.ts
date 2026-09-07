@@ -23,15 +23,20 @@ export type DeployableState =
 /**
  * Loads the sites and the deployable servers for the deployment wizard.
  *
- * Servers in the requested preparation state are listed. Non-uninstalled deployment target snapshots and
- * observed membership are also loaded so occupied Servers remain visible with context but
- * cannot be assigned a role. Claim reads fail closed: without durable target history the
- * wizard must not offer a Server that may contain a partial platform. A stale-guard drops
- * out-of-order responses whenever Site scope changes.
+ * Servers in any of the requested preparation states are listed and merged (deduped by id),
+ * so a convergent deploy can mix pool-ready Servers (provisioned first) with already-deployed
+ * ones (reused as-is). Non-uninstalled deployment target snapshots and observed membership are
+ * also loaded so occupied Servers remain visible with context but cannot be assigned a role.
+ * Claim reads fail closed: without durable target history the wizard must not offer a Server
+ * that may contain a partial platform. A stale-guard drops out-of-order responses whenever
+ * Site scope changes.
+ *
+ * `provisioningStates` must be a stable reference (e.g. a module constant) because it keys the
+ * load effect; an inline array literal would refetch on every render.
  */
 export function useDeployableServers(
   siteId: string | undefined,
-  provisioningState: 'deployed' | 'ready' = 'deployed',
+  provisioningStates: readonly string[] = ['deployed'],
 ): DeployableState {
   const { sites, servers, platforms, operations } = useApp()
   const [state, setState] = useState<DeployableState>({ status: 'loading' })
@@ -44,10 +49,23 @@ export function useDeployableServers(
       if (!siteId) {
         return { servers: [], platforms: [], deploymentClaims: {} }
       }
-      const [workingSet, sitePlatforms] = await Promise.all([
-        loadServerWorkingSet(servers, { siteId, provisioningState }),
+      const [workingSets, sitePlatforms] = await Promise.all([
+        Promise.all(
+          provisioningStates.map((provisioningState) =>
+            loadServerWorkingSet(servers, { siteId, provisioningState }),
+          ),
+        ),
         platforms.listPlatforms(siteId),
       ])
+      // Merge the per-state working sets, deduping by id so a Server that changed state
+      // between the parallel reads is listed once. Locked Servers are protected from mutation
+      // and can never be a deployment target, so they are excluded from the candidate list
+      // entirely rather than shown as an unusable row.
+      const byId = new Map<string, Server>()
+      for (const workingSet of workingSets) {
+        for (const server of workingSet.servers) byId.set(server.id, server)
+      }
+      const mergedServers = [...byId.values()].filter((server) => !server.provisioning?.locked)
       const claimedPlatforms = sitePlatforms.filter((platform) => (
         platform.origin === 'deployed' &&
         platform.lifecycleState !== 'uninstalled' &&
@@ -75,7 +93,7 @@ export function useDeployableServers(
         }
       }
       return {
-        servers: workingSet.servers,
+        servers: mergedServers,
         platforms: sitePlatforms,
         deploymentClaims,
       }
@@ -93,7 +111,7 @@ export function useDeployableServers(
     return () => {
       cancelled = true
     }
-  }, [sites, servers, platforms, operations, siteId, provisioningState])
+  }, [sites, servers, platforms, operations, siteId, provisioningStates])
 
   return state
 }

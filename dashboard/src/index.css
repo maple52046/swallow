@@ -92,6 +92,14 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+/* Lucide icons default to 24px; scale them to the current font size so they line up with
+   PatternFly's 1em icons inside buttons, labels, and inline text. currentColor already
+   flows through Lucide's stroke, so colour is controlled by the surrounding element. */
+svg.lucide {
+  width: 1em;
+  height: 1em;
+}
+
 .sw-page-header {
   display: flex;
   min-width: 0;
@@ -375,7 +383,107 @@ thead .sw-sticky-selection { z-index: 5; background: var(--pf-t--global--backgro
 tbody .sw-sticky-selection { z-index: 2; }
 .sw-cell-center { text-align: center; vertical-align: middle; }
 .sw-cell-center .pf-v6-c-check { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
+/* Inline cell content (chip + text) centred on one baseline instead of a chip/plain-text
+   baseline mismatch; wraps within a narrow column. */
+.sw-cell-inline { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); flex-wrap: wrap; min-width: 0; }
+/* Rows mix a tall form control (role select) with short cells; centre every body cell so their
+   values line up vertically instead of PatternFly's default top alignment. */
+.sw-deploy-machines-table tbody td { vertical-align: middle; }
 .sw-machine-name { display: flex; min-width: 0; align-items: center; gap: var(--pf-t--global--spacer--xs); white-space: nowrap; }
+/* Inline status glyphs (lock = protected, memory-stick = ephemeral): shape + aria-label carry
+   the meaning; the warning tint is only a supplementary hint. */
+.sw-lock-indicator, .sw-ephemeral-indicator { display: inline-flex; align-items: center; flex: none; color: var(--pf-t--global--icon--color--status--warning--default, currentColor); }
+/* Inline "value + copy" wrapper used in mono identifier cells (address, MAC). */
+.sw-copyable { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); min-width: 0; }
+/* Render the inline copy control as an explicit centred square: equal block/inline size with
+   zero padding keeps the hover/focus splash square and centred on the glyph (PatternFly's
+   default padding otherwise leaves a wide rectangle with an off-centre icon in dense cells). */
+.sw-copy-button.pf-v6-c-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  block-size: 1.5em;
+  inline-size: 1.5em;
+  /* PatternFly's base button sets `min-width: var(--pf-v6-c-button--MinWidth)`, which was
+     clamping this icon button to ~37px wide (a rectangle) despite inline-size. Clear it so the
+     button stays a 1.5em square. */
+  min-inline-size: 0;
+  min-block-size: 0;
+  color: var(--pf-t--global--icon--color--subtle, currentColor);
+}
+.sw-copy-button.pf-v6-c-button:hover { color: var(--pf-t--global--icon--color--regular, currentColor); }
+/* PatternFly's icon slot is a `display: grid` box sized for text alignment, which parks the
+   fixed-size glyph at its top-left. Make it a content-sized, centred flex box (no text-spacing
+   margin, no min-width, line-height 1) so the icon sits dead-centre both axes. */
+.sw-copy-button.pf-v6-c-button .pf-v6-c-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  min-width: 0;
+  line-height: 1;
+}
+.sw-copy-button.pf-v6-c-button svg { display: block; block-size: 0.85em; inline-size: 0.85em; }
+/* Square icon button for form-adjacent actions: clear PatternFly's min-width clamp and keep the
+   box square (aspect-ratio) with the glyph centred on both axes (its icon slot is a grid that
+   otherwise parks a fixed-size glyph at the top-left). */
+.sw-icon-button.pf-v6-c-button { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 0; aspect-ratio: 1; }
+.sw-icon-button.pf-v6-c-button .pf-v6-c-button__icon { display: inline-flex; align-items: center; justify-content: center; margin: 0; min-width: 0; line-height: 1; }
+/* Workflow event timeline — a faithful port of Chakra UI's Timeline "solid" recipe at the
+   default size (md), rebuilt with PatternFly tokens so there is no second UI framework and it
+   themes with the app (incl. dark mode). Values mirror Chakra's recipe exactly: indicator
+   sizes.5 (1.25rem); a 1px separator centred on the indicator running full height; a bg-coloured
+   2px outline on the disc that masks the separator behind it (Chakra's signature gap); item gap
+   1rem; content flex column gap 0.5rem; title textStyle sm / medium; muted xs descriptions. The
+   one deliberate deviation is a status glyph inside the disc, since conveying status by colour
+   alone is not accessible. data-tone resolves to --sw-tone. */
+.sw-timeline { list-style: none; margin: 0; padding: 0; --sw-timeline-indicator: 1.25rem; --sw-timeline-thickness: 1px; }
+.sw-timeline__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--sw-timeline-indicator) 1fr;
+  column-gap: var(--pf-t--global--spacer--md);
+  padding-block-end: var(--pf-t--global--spacer--md);
+  --sw-tone: var(--pf-t--global--icon--color--regular, var(--pf-t--global--text--color--subtle));
+}
+.sw-timeline__item[data-tone="success"] { --sw-tone: var(--pf-t--global--icon--color--status--success--default); }
+.sw-timeline__item[data-tone="danger"] { --sw-tone: var(--pf-t--global--icon--color--status--danger--default); }
+.sw-timeline__item[data-tone="warning"] { --sw-tone: var(--pf-t--global--icon--color--status--warning--default); }
+.sw-timeline__item[data-tone="info"] { --sw-tone: var(--pf-t--global--icon--color--status--info--default); }
+.sw-timeline__item:last-child { padding-block-end: 0; }
+/* Separator: 1px line at the indicator centre, full height, behind the disc (Chakra). */
+.sw-timeline__item:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(var(--sw-timeline-indicator) / 2);
+  inline-size: var(--sw-timeline-thickness);
+  transform: translateX(calc(-1 * var(--sw-timeline-thickness) / 2));
+  background: var(--pf-t--global--border--color--default);
+  z-index: 0;
+}
+/* Indicator: solid tonal disc + contrast glyph, with a bg outline that masks the separator
+   where it meets the disc (Chakra `outline: 2px solid {colors.bg}`). */
+.sw-timeline__marker {
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  inline-size: var(--sw-timeline-indicator);
+  block-size: var(--sw-timeline-indicator);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--sw-tone);
+  color: var(--pf-t--global--icon--color--on-brand);
+  outline: 2px solid var(--pf-t--global--background--color--primary--default);
+}
+.sw-timeline__marker svg { inline-size: 0.75rem; block-size: 0.75rem; }
+.sw-timeline__content { grid-column: 2; min-inline-size: 0; display: flex; flex-direction: column; gap: var(--pf-t--global--spacer--sm); }
+.sw-timeline__title { font-weight: 500; font-size: 0.875rem; }
+.sw-timeline__time { color: var(--pf-t--global--text--color--subtle); font-size: 0.75rem; }
+.sw-timeline__message { color: var(--pf-t--global--text--color--subtle); font-size: 0.75rem; }
 .sw-tag-list { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); flex-wrap: wrap; }
 .sw-server-table .sw-column-tags { min-width: 150px; }
 .sw-server-table .sw-hardware-column { white-space: nowrap; }

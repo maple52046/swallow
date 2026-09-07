@@ -1,5 +1,5 @@
 import { Flex, Label, Tooltip } from '@patternfly/react-core'
-import { LockIcon } from '@patternfly/react-icons'
+import { Lock, MemoryStick } from 'lucide-react'
 import type { DeploymentAxis, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
 
 const PROVISIONING_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red' | 'purple'> = {
@@ -14,6 +14,21 @@ function UnknownBadge({ tooltip }: { tooltip: string }) {
 
 function observedAtLabel(observedAt: string): string {
   return `Observed ${new Date(observedAt).toLocaleString()}`
+}
+
+/**
+ * Marks an ephemeral (run-from-RAM) deployment with a memory-stick glyph shown beside the
+ * state badge. The meaning is carried by the tooltip and `aria-label`, not colour alone, so it
+ * stays accessible; the warning tint is only a supplementary cue.
+ */
+function EphemeralIndicator() {
+  return (
+    <Tooltip content="Ephemeral deployment; root filesystem changes are lost on reboot">
+      <span className="sw-ephemeral-indicator" role="img" aria-label="Ephemeral deployment">
+        <MemoryStick />
+      </span>
+    </Tooltip>
+  )
 }
 
 const DEPLOYMENT_PRESENTATION = {
@@ -63,11 +78,9 @@ export function DeploymentBadge({
 
   if (!provider?.ephemeral) return state
   return (
-    <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'nowrap' }}>
+    <Flex gap={{ default: 'gapXs' }} alignItems={{ default: 'alignItemsCenter' }} flexWrap={{ default: 'nowrap' }}>
       {state}
-      <Tooltip content="Ephemeral deployment; root filesystem changes are lost on reboot">
-        <Label color="orange">Ephemeral</Label>
-      </Tooltip>
+      <EphemeralIndicator />
     </Flex>
   )
 }
@@ -129,11 +142,9 @@ export function ProvisioningBadge({ axis }: { axis: ProvisioningAxis | null }) {
   )
   if (!axis.ephemeral) return state
   return (
-    <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'nowrap' }}>
+    <Flex gap={{ default: 'gapXs' }} alignItems={{ default: 'alignItemsCenter' }} flexWrap={{ default: 'nowrap' }}>
       {state}
-      <Tooltip content="Ephemeral deployment; root filesystem changes are lost on reboot">
-        <Label color="orange">Ephemeral</Label>
-      </Tooltip>
+      <EphemeralIndicator />
     </Flex>
   )
 }
@@ -143,7 +154,7 @@ export function LockBadge({ locked }: { locked: boolean }) {
   if (!locked) return null
   return (
     <Tooltip content="This Server is protected. Unlock it before making changes.">
-      <Label color="orange" icon={<LockIcon />}>Locked</Label>
+      <Label color="orange" icon={<Lock />}>Locked</Label>
     </Tooltip>
   )
 }

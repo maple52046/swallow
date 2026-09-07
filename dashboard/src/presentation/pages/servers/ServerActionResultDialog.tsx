@@ -9,7 +9,7 @@ import {
   ModalFooter,
   ModalHeader,
 } from '@patternfly/react-core'
-import { CopyIcon } from '@patternfly/react-icons'
+import { Copy } from 'lucide-react'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { actionLabel } from './serverActions'
@@ -130,7 +130,7 @@ export function ServerActionResultDialog({
       <ModalFooter>
         <Button
           variant="secondary"
-          icon={<CopyIcon />}
+          icon={<Copy />}
           onClick={() => void copy()}
         >
           {copyState === 'copied' ? 'Copied' : 'Copy details'}

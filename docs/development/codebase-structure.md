@@ -88,6 +88,7 @@ flowchart LR
   - [`architecture-spec.md`](architecture-spec.md) — Strategic DDD architecture constitution。
   - [`codebase-structure.md`](codebase-structure.md) — 本檔，結構契約。
   - [`api-contracts.md`](api-contracts.md) — API contract 的 provider-first discovery workflow。
+  - [`platform-deployment.md`](platform-deployment.md) — platform deployment 的設計、開發與整合規範（Workflow/Job/Task/Runner；新增 platform = 交一支 playbook）。
   - [`commit-spec.md`](commit-spec.md) — commit message 規範。
   - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義平台的 ubiquitous language。
   - `context-maps/` — 跨 context 的 context map（依需要建立）。

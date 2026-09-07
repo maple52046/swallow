@@ -18,6 +18,8 @@ import {
   FormSelectOption,
   HelperText,
   HelperTextItem,
+  InputGroup,
+  InputGroupItem,
   Label,
   LabelGroup,
   TextArea,
@@ -28,15 +30,14 @@ import {
   Wizard,
   WizardStep,
 } from '@patternfly/react-core'
-import { SyncAltIcon } from '@patternfly/react-icons'
+import { RefreshCcw } from 'lucide-react'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate } from 'react-router-dom'
-import { LockBadge } from '@/presentation/components/AxisBadge'
 import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import type { Platform, GPUStackOwner, NodeRole, RoleAssignment } from '@/domain/platform/types'
 import type { DeploymentNetworkMode, DeploymentTemplate, NetworkInspectionResult } from '@/domain/provisioning/types'
-import type { Integration, OSImage } from '@/domain/site/types'
+import type { OSImage } from '@/domain/site/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -55,7 +56,13 @@ const DEFAULT_SERVICE_CIDR = '10.96.0.0/12'
 
 type RoleChoice = 'none' | NodeRole
 type TopologyChoice = 'standalone' | 'multi-node' | 'high-availability'
-type MachinePreparationChoice = 'existing_os' | 'provision_os'
+
+// A platform deploy converges over both pool-ready and already-deployed Servers (ADR 017):
+// ready Servers are provisioned to an OS first, deployed Servers are reused as-is. The wizard
+// therefore offers both and derives the machine-preparation mode from the selection instead of
+// asking the operator to pick it up front. Kept module-level so its reference is stable for the
+// candidate-loading effect.
+const CANDIDATE_PROVISIONING_STATES = ['ready', 'deployed'] as const
 
 function validAddress(value: string): boolean {
   const parts = value.split('.')
@@ -147,7 +154,7 @@ function existingPlatformAssignment(
  */
 export function DeployPlatformWizardPage() {
   const navigate = useNavigate()
-  const { platforms, provisioning, sites } = useApp()
+  const { platforms, provisioning } = useApp()
   const { siteId: scopedSiteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
@@ -162,9 +169,6 @@ export function DeployPlatformWizardPage() {
   const [roles, setRoles] = useState<Record<string, RoleChoice>>({})
   const [workloadControllers, setWorkloadControllers] = useState<Record<string, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
-  const [machinePreparation, setMachinePreparation] = useState<MachinePreparationChoice>('existing_os')
-  const [provisioners, setProvisioners] = useState<Integration[]>([])
-  const [integrationId, setIntegrationId] = useState('')
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
   const [templateId, setTemplateId] = useState('')
   const [images, setImages] = useState<OSImage[]>([])
@@ -178,39 +182,17 @@ export function DeployPlatformWizardPage() {
   const [provisioningLoading, setProvisioningLoading] = useState(false)
   const [provisioningError, setProvisioningError] = useState('')
   const effectiveSiteId = siteId ?? scopedSiteId
-  const state = useDeployableServers(effectiveSiteId, machinePreparation === 'provision_os' ? 'ready' : 'deployed')
+  const state = useDeployableServers(effectiveSiteId, CANDIDATE_PROVISIONING_STATES)
 
+  // Deployment templates are per-Site; the OS step filters them to the derived provisioner.
   useEffect(() => {
-    if (machinePreparation !== 'provision_os' || !effectiveSiteId) return
+    if (!effectiveSiteId) return
     let canceled = false
-    Promise.all([
-      sites.listIntegrations({ siteId: effectiveSiteId, kind: 'provisioner' }),
-      provisioning.listTemplates({ siteId: effectiveSiteId }),
-    ]).then(([nextProvisioners, nextTemplates]) => {
-      if (canceled) return
-      setProvisioners(nextProvisioners)
-      setTemplates(nextTemplates)
-      setIntegrationId((current) => current || (nextProvisioners.length === 1 ? nextProvisioners[0].id : ''))
-    }).catch((error: Error) => {
-      if (!canceled) setProvisioningError(error.message)
-    }).finally(() => {
-      if (!canceled) setProvisioningLoading(false)
-    })
+    provisioning.listTemplates({ siteId: effectiveSiteId })
+      .then((nextTemplates) => { if (!canceled) setTemplates(nextTemplates) })
+      .catch((error: Error) => { if (!canceled) setProvisioningError(error.message) })
     return () => { canceled = true }
-  }, [effectiveSiteId, machinePreparation, provisioning, sites])
-
-  useEffect(() => {
-    if (machinePreparation !== 'provision_os' || !integrationId) return
-    let canceled = false
-    provisioning.listOSImages(integrationId).then((nextImages) => {
-      if (!canceled) setImages(nextImages)
-    }).catch((error: Error) => {
-      if (!canceled) setProvisioningError(error.message)
-    }).finally(() => {
-      if (!canceled) setProvisioningLoading(false)
-    })
-    return () => { canceled = true }
-  }, [integrationId, machinePreparation, provisioning])
+  }, [effectiveSiteId, provisioning])
 
   const assignments = useMemo<RoleAssignment[]>(() => Object.entries(roles)
     .filter(([, role]) => role !== 'none')
@@ -227,10 +209,8 @@ export function DeployPlatformWizardPage() {
     (item) => item.role === 'control-plane' && item.runWorkloads,
   ).length
   const basicsValid = Boolean(effectiveSiteId && name.trim() && k0sVersion.trim())
-  const hasLockedAssignment = state.status === 'ready' && assignments.some((assignment) =>
-    state.data.servers.find((server) => server.id === assignment.serverId)?.provisioning?.locked)
-  const hasLockedServers = state.status === 'ready'
-    && state.data.servers.some((server) => server.provisioning?.locked)
+  // Locked Servers are excluded from the candidate list (see useDeployableServers), so the only
+  // "unavailable" reason left to surface is an existing Platform assignment.
   const hasAssignedServers = state.status === 'ready'
     && state.data.servers.some((server) => Boolean(existingPlatformAssignment(
       server,
@@ -242,7 +222,6 @@ export function DeployPlatformWizardPage() {
     : topology === 'multi-node'
       ? assignments.length >= 2 && controllers === 1 && workers >= 1
       : controllers >= 3 && controllers % 2 === 1 && workloadCount >= 1
-  const machinesValid = topologyValid && !hasLockedAssignment && (machinePreparation === 'existing_os' || Boolean(integrationId))
   const networkingValid = validCIDR(podCidr.trim()) && validCIDR(serviceCidr.trim()) && (
     topology !== 'high-availability' || (
       validAddress(apiVip.trim()) && Number(apiVipPrefix) >= 1 && Number(apiVipPrefix) <= 32
@@ -263,9 +242,45 @@ export function DeployPlatformWizardPage() {
     ? serverPrimaryAddress(initialController)
     : null
 
-  const preparationTargetKey = selectedServers.map((server) => server.id).sort().join(',')
+  // Convergent selection (ADR 017): a Server already `deployed` is reused as-is; anything else
+  // (pool-ready) is provisioned first. The machine-preparation mode is derived from this rather
+  // than chosen, so `deploy-kubernetes` may mix both in one wizard.
+  const deployedSelectedServers = selectedServers.filter(
+    (server) => server.provisioning?.state === 'deployed',
+  )
+  const readySelectedServers = selectedServers.filter(
+    (server) => server.provisioning?.state !== 'deployed',
+  )
+  const needsProvisioning = readySelectedServers.length > 0
+  // The provisioner is derived from the ready Servers rather than picked: they are provisioned
+  // with one OS image, so they must share a single provisioner. `integrationId` is empty when
+  // nothing needs provisioning or when the ready Servers disagree, which fails validation below.
+  const readyProvisionerIds = [...new Set(readySelectedServers.map((server) => server.source.integrationId))]
+  const provisionerConflict = readyProvisionerIds.length > 1
+  const integrationId = readyProvisionerIds.length === 1 ? readyProvisionerIds[0] : ''
+  // A convergent deploy is valid once the topology holds and — when any Server needs an OS —
+  // those ready Servers share one resolvable provisioner.
+  const machinesValid = topologyValid
+    && (!needsProvisioning || (!provisionerConflict && Boolean(integrationId)))
+
+  // OS images are per-provisioner; (re)load them whenever the derived provisioner changes.
   useEffect(() => {
-    if (machinePreparation !== 'provision_os' || !preparationTargetKey) return
+    if (!integrationId) return
+    let canceled = false
+    provisioning.listOSImages(integrationId).then((nextImages) => {
+      if (!canceled) setImages(nextImages)
+    }).catch((error: Error) => {
+      if (!canceled) setProvisioningError(error.message)
+    }).finally(() => {
+      if (!canceled) setProvisioningLoading(false)
+    })
+    return () => { canceled = true }
+  }, [integrationId, provisioning])
+
+  // Only the pool-ready Servers need OS + network preparation; deployed Servers are reused.
+  const preparationTargetKey = readySelectedServers.map((server) => server.id).sort().join(',')
+  useEffect(() => {
+    if (!needsProvisioning || !preparationTargetKey) return
     let canceled = false
     provisioning.inspectDeploymentNetworks(preparationTargetKey.split(',')).then((inspection) => {
       if (canceled) return
@@ -289,15 +304,19 @@ export function DeployPlatformWizardPage() {
       if (!canceled) setProvisioningLoading(false)
     })
     return () => { canceled = true }
-  }, [machinePreparation, preparationTargetKey, provisioning])
+  }, [needsProvisioning, preparationTargetKey, provisioning])
 
-  const selectedTemplate = templates.find((template) => template.id === templateId)
+  // Ignore a template left selected from a previously derived provisioner so it can never leak
+  // another provisioner's image/network into this deploy.
+  const selectedTemplate = templates.find(
+    (template) => template.id === templateId && template.integrationId === integrationId,
+  )
   const effectiveImageId = selectedTemplate?.imageId ?? imageId
   const effectiveEphemeral = selectedTemplate?.ephemeral ?? ephemeral
   const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
   const inspectedTargetKey = networkInspection?.targets.map((target) => target.serverId).sort().join(',') ?? ''
-  const networkAssignmentsValid = machinePreparation === 'existing_os' || (
-    networkInspection !== null && inspectedTargetKey === preparationTargetKey && selectedServers.every((server) => {
+  const networkAssignmentsValid = !needsProvisioning || (
+    networkInspection !== null && inspectedTargetKey === preparationTargetKey && readySelectedServers.every((server) => {
       const assignment = networkAssignments[server.id]
       const target = networkInspection.targets.find((item) => item.serverId === server.id)
       const selectedInterface = target?.network.interfaces.find((item) => item.id === assignment?.interfaceId)
@@ -305,7 +324,7 @@ export function DeployPlatformWizardPage() {
       return effectiveNetworkMode !== 'static' || validAddress(assignment.ipAddress)
     })
   )
-  const osConfigurationValid = machinePreparation === 'existing_os' || Boolean(
+  const osConfigurationValid = !needsProvisioning || Boolean(
     integrationId && effectiveImageId && networkAssignmentsValid && !provisioningError,
   )
 
@@ -313,7 +332,6 @@ export function DeployPlatformWizardPage() {
     setTemplateId(nextTemplateId)
     const template = templates.find((item) => item.id === nextTemplateId)
     if (!template) return
-    setIntegrationId(template.integrationId)
     setImageId(template.imageId)
     setEphemeral(template.ephemeral)
     setNetworkMode(template.network.mode)
@@ -367,7 +385,10 @@ export function DeployPlatformWizardPage() {
         podCidr: podCidr.trim(),
         serviceCidr: serviceCidr.trim(),
         roleAssignments: assignments,
-        machinePreparation: machinePreparation === 'existing_os'
+        // The mode is derived from the selection, not chosen: reuse existing-OS Servers when
+        // nothing needs provisioning, otherwise converge — provision the ready Servers and
+        // reuse the deployed ones. Only ready Servers carry OS + network preparation.
+        machinePreparation: !needsProvisioning
           ? { mode: 'existing_os' }
           : {
             mode: 'provision_os',
@@ -382,7 +403,7 @@ export function DeployPlatformWizardPage() {
               mode: effectiveNetworkMode,
               subnetId: selectedTemplate?.network.subnetId,
               defaultGateway: selectedTemplate?.network.defaultGateway ?? defaultGateway,
-              assignments: selectedServers.map((server) => ({
+              assignments: readySelectedServers.map((server) => ({
                 serverId: server.id,
                 interfaceId: networkAssignments[server.id]?.interfaceId ?? '',
                 subnetId: networkAssignments[server.id]?.subnetId,
@@ -452,7 +473,6 @@ export function DeployPlatformWizardPage() {
                       setRoles({})
                       setWorkloadControllers({})
                       setAPIVip('')
-                      setIntegrationId('')
                       setTemplateId('')
                       setImageId('')
                       setNetworkInspection(null)
@@ -485,51 +505,6 @@ export function DeployPlatformWizardPage() {
                     onChange={(_event, value) => setK0sVersion(value)}
                   />
                 </FormGroup>
-                <FormGroup label="Machine preparation" isRequired fieldId="platform-machine-preparation">
-                  <ToggleGroup aria-label="Machine preparation">
-                    <ToggleGroupItem
-                      text="Use existing OS"
-                      buttonId="platform-existing-os"
-                      isSelected={machinePreparation === 'existing_os'}
-                      onChange={() => {
-                        setMachinePreparation('existing_os')
-                        setIntegrationId('')
-                        setTemplateId('')
-                        setRoles({})
-                        setWorkloadControllers({})
-                      }}
-                    />
-                    <ToggleGroupItem
-                      text="Provision OS first"
-                      buttonId="platform-provision-os"
-                      isSelected={machinePreparation === 'provision_os'}
-                      onChange={() => {
-                        setMachinePreparation('provision_os')
-                        setRoles({})
-                        setWorkloadControllers({})
-                      }}
-                    />
-                  </ToggleGroup>
-                </FormGroup>
-                {machinePreparation === 'provision_os' && (
-                  <FormGroup label="Provisioner integration" isRequired fieldId="platform-provisioner">
-                    <SingleSelect
-                      id="platform-provisioner"
-                      ariaLabel="Provisioner integration"
-                      value={integrationId}
-                      placeholder="Select an integration"
-                      options={provisioners.map((integration) => ({ value: integration.id, label: integration.name }))}
-                      isRequired
-                      onChange={(value) => {
-                        setIntegrationId(value)
-                        setTemplateId('')
-                        setImageId('')
-                        setRoles({})
-                        setWorkloadControllers({})
-                      }}
-                    />
-                  </FormGroup>
-                )}
               </Form>
             </WizardSection>
           </WizardStep>
@@ -564,35 +539,30 @@ export function DeployPlatformWizardPage() {
                 <Label color={workloadCount > 0 ? 'green' : 'orange'}>{workloadCount} workload-capable</Label>
                 <Label color={assignments.length > 0 ? 'blue' : 'grey'}>{assignments.length} selected</Label>
               </LabelGroup>
-              {(hasLockedServers || hasAssignedServers) && (
+              {hasAssignedServers && (
                 <Alert
                   variant={AlertVariant.warning}
-                  title={hasLockedServers
-                    ? hasAssignedServers
-                      ? 'Some Servers are assigned or locked'
-                      : 'Some Servers are locked'
-                    : 'Some Servers are already assigned'}
+                  title="Some Servers are already assigned"
                   isInline
                 >
-                  {hasLockedServers
-                    ? hasAssignedServers
-                      ? 'Assigned and Locked Servers remain visible for context. Unlock protected Servers or remove an existing Platform assignment before selecting a role.'
-                      : 'Locked Servers remain visible for context. Unlock protected Servers before selecting a role.'
-                    : 'Assigned Servers remain visible for context. Remove the existing Platform assignment before selecting a role.'}
+                  Assigned Servers remain visible for context. Remove the existing Platform assignment before selecting a role.
+                </Alert>
+              )}
+              {provisionerConflict && (
+                <Alert variant={AlertVariant.warning} title="Ready Servers span multiple provisioners" isInline>
+                  Servers that still need an OS must share one provisioner so a single OS image applies. Deselect ready Servers from other provisioners, or include only already-deployed Servers from them.
                 </Alert>
               )}
               {state.data.servers.length === 0 ? (
                 <EmptyState
-                  title={machinePreparation === 'provision_os' ? 'No ready Servers' : 'No deployed Servers'}
-                  message={machinePreparation === 'provision_os'
-                    ? 'This provisioner has no Ready Servers that can be prepared.'
-                    : 'Deploy an OS in this Site before building a Platform.'}
+                  title="No deployable Servers"
+                  message="This Site has no Ready or Deployed Servers to build a Platform from."
                 />
               ) : (
                 <StickyTableFrame>
-                  <Table aria-label="Deployable Servers" variant="compact">
+                  <Table aria-label="Deployable Servers" variant="compact" className="sw-deploy-machines-table">
                     <Thead>
-                      <Tr><Th>Server</Th><Th>Address</Th><Th>Current assignment</Th><Th>Role</Th><Th>Runs workloads</Th></Tr>
+                      <Tr><Th>Server</Th><Th>Address</Th><Th>OS state</Th><Th>Current assignment</Th><Th>Role</Th><Th>Runs workloads</Th></Tr>
                     </Thead>
                     <Tbody>
                       {state.data.servers.map((server) => {
@@ -601,35 +571,37 @@ export function DeployPlatformWizardPage() {
                           state.data.platforms,
                           state.data.deploymentClaims,
                         )
-                        const locked = server.provisioning?.locked ?? false
-                        const wrongProvisioner = machinePreparation === 'provision_os' && Boolean(integrationId) && server.source.integrationId !== integrationId
-                        const unavailable = Boolean(existing) || locked || wrongProvisioner
+                        const deployed = server.provisioning?.state === 'deployed'
+                        const unavailable = Boolean(existing)
                         const role = unavailable ? 'none' : roles[server.id] ?? 'none'
                         return (
                           <Tr key={server.id}>
-                            <Td dataLabel="Server"><span className="sw-machine-name"><strong>{serverDisplayName(server)}</strong><LockBadge locked={locked} /></span></Td>
+                            <Td dataLabel="Server"><strong>{serverDisplayName(server)}</strong></Td>
                             <Td dataLabel="Address" className="sw-mono">
                               {serverPrimaryAddress(server) ?? '-'}
                             </Td>
+                            <Td dataLabel="OS state">
+                              {deployed
+                                ? <Label color="green">Deployed</Label>
+                                : role !== 'none'
+                                  ? <Label color="blue">Will provision</Label>
+                                  : <Label color="blue">Ready</Label>}
+                            </Td>
                             <Td dataLabel="Current assignment">
                               {existing ? (
-                                <LabelGroup>
+                                <span className="sw-cell-inline">
                                   <Label color="red">In use</Label>
                                   <span>
                                     {existing.platformName} ({existing.platformType}, {existing.detail})
                                   </span>
-                                </LabelGroup>
-                              ) : wrongProvisioner ? <Label color="orange">Different provisioner</Label> : '-'}
+                                </span>
+                              ) : '-'}
                             </Td>
                             <Td dataLabel="Role">
                               <FormSelect
-                                aria-label={locked
-                                  ? `Role for ${serverDisplayName(server)}, unavailable because the Server is locked`
-                                  : wrongProvisioner
-                                    ? `Role for ${serverDisplayName(server)}, unavailable because it belongs to another provisioner`
-                                    : existing
-                                      ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
-                                      : `Role for ${serverDisplayName(server)}`}
+                                aria-label={existing
+                                  ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
+                                  : `Role for ${serverDisplayName(server)}`}
                                 value={role}
                                 isDisabled={unavailable}
                                 onChange={(_event, value) => changeRole(server.id, value as RoleChoice)}
@@ -668,7 +640,7 @@ export function DeployPlatformWizardPage() {
             </WizardSection>
           </WizardStep>
 
-          {machinePreparation === 'provision_os' && (
+          {needsProvisioning && (
             <WizardStep
               name="Operating system"
               id="deploy-operating-system"
@@ -676,6 +648,15 @@ export function DeployPlatformWizardPage() {
               footer={{ isNextDisabled: !osConfigurationValid }}
             >
               <WizardSection title="Operating system configuration">
+                <Alert
+                  variant={AlertVariant.info}
+                  title={`Preparing ${readySelectedServers.length} Server${readySelectedServers.length === 1 ? '' : 's'} that still need an operating system`}
+                  isInline
+                >
+                  {deployedSelectedServers.length > 0
+                    ? `${deployedSelectedServers.length} already-deployed Server${deployedSelectedServers.length === 1 ? '' : 's'} in this deployment are used as-is and skip these settings.`
+                    : 'These settings apply to every selected Server.'}
+                </Alert>
                 {provisioningError && (
                   <Alert variant={AlertVariant.danger} title="Provisioning data is unavailable" isInline>
                     {provisioningError}
@@ -697,39 +678,42 @@ export function DeployPlatformWizardPage() {
                     </FormSelect>
                   </FormGroup>
                   <FormGroup label="OS image" isRequired fieldId="platform-os-image">
-                    <div className="sw-inline-control">
-                      <SingleSelect
-                        id="platform-os-image"
-                        ariaLabel="OS image"
-                        value={effectiveImageId}
-                        placeholder="Select an OS image"
-                        options={images.map((image) => ({
-                          value: image.id,
-                          label: `${image.name} - ${image.architecture}`,
-                          description: `${image.osSystem} ${image.release}`,
-                        }))}
-                        isRequired
-                        isDisabled={Boolean(selectedTemplate)}
-                        onChange={setImageId}
-                      />
-                      <Button
-                        variant="secondary"
-                        icon={<SyncAltIcon />}
-                        aria-label="Refresh OS images"
-                        isLoading={provisioningLoading}
-                        onClick={() => {
-                          if (!integrationId) return
-                          setProvisioningLoading(true)
-                          setProvisioningError('')
-                          provisioning.listOSImages(integrationId)
-                            .then(setImages)
-                            .catch((error: Error) => setProvisioningError(error.message))
-                            .finally(() => setProvisioningLoading(false))
-                        }}
-                      >
-                        Refresh
-                      </Button>
-                    </div>
+                    <InputGroup>
+                      <InputGroupItem isFill>
+                        <SingleSelect
+                          id="platform-os-image"
+                          ariaLabel="OS image"
+                          value={effectiveImageId}
+                          placeholder="Select an OS image"
+                          options={images.map((image) => ({
+                            value: image.id,
+                            label: `${image.name} - ${image.architecture}`,
+                            description: `${image.osSystem} ${image.release}`,
+                          }))}
+                          isRequired
+                          isDisabled={Boolean(selectedTemplate)}
+                          onChange={setImageId}
+                        />
+                      </InputGroupItem>
+                      <InputGroupItem>
+                        <Button
+                          variant="plain"
+                          className="sw-icon-button"
+                          icon={<RefreshCcw />}
+                          aria-label="Refresh OS images"
+                          isLoading={provisioningLoading}
+                          onClick={() => {
+                            if (!integrationId) return
+                            setProvisioningLoading(true)
+                            setProvisioningError('')
+                            provisioning.listOSImages(integrationId)
+                              .then(setImages)
+                              .catch((error: Error) => setProvisioningError(error.message))
+                              .finally(() => setProvisioningLoading(false))
+                          }}
+                        />
+                      </InputGroupItem>
+                    </InputGroup>
                   </FormGroup>
                   <FormGroup fieldId="platform-ephemeral">
                     <Checkbox
@@ -1012,8 +996,10 @@ export function DeployPlatformWizardPage() {
                     {[
                       ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
                       ['Topology', topologyPresentation(topology).label],
-                      ['Machine preparation', machinePreparation === 'provision_os' ? 'Provision OS first' : 'Use existing OS'],
-                      ...(machinePreparation === 'provision_os' ? [
+                      ['Machine preparation', needsProvisioning
+                        ? `Provision ${readySelectedServers.length}, ${deployedSelectedServers.length} already deployed`
+                        : 'Use existing OS'],
+                      ...(needsProvisioning ? [
                         ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
                         ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
                       ] : []),

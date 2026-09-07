@@ -7,7 +7,8 @@ import {
   ToolbarContent,
   ToolbarItem,
 } from "@patternfly/react-core";
-import { CopyIcon, DownloadIcon, SyncAltIcon } from "@patternfly/react-icons";
+import { DownloadIcon, SyncAltIcon } from "@patternfly/react-icons";
+import { Copy } from "lucide-react";
 import { LogViewer, LogViewerSearch } from "@patternfly/react-log-viewer";
 import { useApp } from "@/di/AppProvider";
 import { useAppearance } from "@/presentation/app/theme/appearanceContext";
@@ -96,7 +97,7 @@ export function OperationLogWorkspace({
         <ToolbarItem align={{ default: "alignEnd" }}>
           <Button
             variant="plain"
-            icon={<CopyIcon />}
+            icon={<Copy />}
             aria-label="Copy stdout"
             onClick={() => void copy()}
           />
