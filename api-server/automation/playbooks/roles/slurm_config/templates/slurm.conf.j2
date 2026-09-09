@@ -1,0 +1,42 @@
+# Managed by Swallow (deploy-slurm). Do not edit by hand; changes are overwritten on redeploy.
+ClusterName={{ swallow_slurm_cluster_name }}
+SlurmUser=slurm
+{% for cid in swallow_slurm_controller_ids %}
+SlurmctldHost={{ hostvars[cid].slurm_node_name }}({{ hostvars[cid].ansible_host }})
+{% endfor %}
+
+# Authentication: MUNGE for daemon-to-daemon, JWT so slurmrestd can accept bearer tokens.
+AuthType=auth/munge
+AuthAltTypes=auth/jwt
+AuthAltParameters=jwt_key={{ slurm_jwt_key_path }}
+
+# Configless: compute nodes fetch this file from a controller via --conf-server.
+SlurmctldParameters=enable_configless
+
+StateSaveLocation={{ slurm_state_save_location }}
+SlurmdSpoolDir=/var/spool/slurmd
+ReturnToService=2
+
+# Scheduling and resource selection (cgroup v2 core+memory containment).
+SchedulerType=sched/backfill
+SelectType=select/cons_tres
+SelectTypeParameters=CR_Core_Memory
+ProctrackType=proctrack/cgroup
+TaskPlugin=task/cgroup,task/affinity
+PrologFlags=Contain
+MpiDefault=none
+
+SlurmctldTimeout=120
+SlurmdTimeout=300
+
+# Logging
+SlurmctldLogFile={{ slurm_log_dir }}/slurmctld.log
+SlurmdLogFile={{ slurm_log_dir }}/slurmd.log
+
+# Compute nodes. The NodeName line is exactly what slurmd -C detected on each host, with the
+# connection address pinned via NodeAddr so the controller reaches nodes without DNS.
+{% for nid in swallow_slurm_compute_ids %}
+{{ hostvars[nid].slurm_node_line }} NodeAddr={{ hostvars[nid].ansible_host }} State=UNKNOWN
+{% endfor %}
+
+PartitionName=main Nodes=ALL Default=YES MaxTime=INFINITE State=UP

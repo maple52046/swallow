@@ -32,6 +32,10 @@ func NewMongoWorkflowRepo(db *mongo.Database) (*MongoWorkflowRepo, error) {
 		// different names, so retain the compatibility index name until v2 is retired.
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "requestedAt", Value: -1}}, Options: options.Index().SetName("execution_requested_at")},
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "startState", Value: 1}, {Key: "requestedAt", Value: 1}}, Options: options.Index().SetName("operation_v3_starter")},
+		// Backs the lost-execution reconciler sweep, which selects started records still in a
+		// forward-progress status. Keeping status in the key lets the sweep skip the many
+		// started-and-terminal history records instead of scanning them every interval.
+		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "startState", Value: 1}, {Key: "status", Value: 1}}, Options: options.Index().SetName("operation_v3_recovery")},
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "status", Value: 1}, {Key: "targetServerIds", Value: 1}}, Options: options.Index().SetName("operation_v3_active_targets")},
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "platformId", Value: 1}, {Key: "requestedAt", Value: -1}}, Options: options.Index().SetName("operation_v3_platform")},
 	})
@@ -113,6 +117,39 @@ func (r *MongoWorkflowRepo) ListPendingStart(ctx context.Context, limit int) ([]
 	}
 	cursor, err := r.operations.Find(ctx,
 		bson.M{"schemaVersion": 4, "startState": "pending"},
+		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var operations []*operationdomain.Workflow
+	if err := cursor.All(ctx, &operations); err != nil {
+		return nil, err
+	}
+	return operations, nil
+}
+
+// ListNonTerminalStarted returns started Operations still in a forward-progress status so the
+// lost-execution reconciler can check each against Temporal. It excludes requires_attention
+// (already surfaced as repairable) and canceling (a deliberate teardown), and only ever reads
+// started records, so an unstarted pending record awaiting the starter is never mistaken for a
+// lost execution.
+func (r *MongoWorkflowRepo) ListNonTerminalStarted(ctx context.Context, limit int) ([]*operationdomain.Workflow, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	cursor, err := r.operations.Find(ctx,
+		bson.M{
+			"schemaVersion": 4,
+			"startState":    "started",
+			"status": bson.M{"$in": []string{
+				string(operationdomain.WorkflowPending),
+				string(operationdomain.WorkflowWaitingDependency),
+				string(operationdomain.WorkflowRunning),
+				string(operationdomain.WorkflowWaitingExternal),
+			}},
+		},
 		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
 	)
 	if err != nil {

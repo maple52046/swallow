@@ -266,6 +266,74 @@ func TestOperationWorkflowV1CancellationMarksPendingSteps(t *testing.T) {
 	}
 }
 
+// TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting guards the recovery-critical
+// property that a transient lease-renewal failure while an Operation is parked in
+// requires_attention must not cancel it. Renewal is made to always fail during the wait; a retry
+// signal arrives only after the wait has already attempted (and failed) at least one renewal.
+// The old behavior returned an error on the first failure and canceled the Operation before the
+// signal, which turned a host restart into a stuck deployment. The workflow must instead keep
+// waiting, accept the retry, and succeed with no cancellation.
+func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	attempts := 0
+	states := []operationdomain.WorkflowStatus{}
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
+		return []operationdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
+	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
+	// Renewal fails for the entire wait, standing in for a host restart or database blip.
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRenewal) error {
+		return errors.New("lease store unavailable")
+	}, activity.RegisterOptions{Name: ActivityRenewLeases})
+	env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+		activity.RegisterOptions{Name: ActivityReleaseLeases})
+	env.RegisterActivityWithOptions(func(_ context.Context, _ StepUpdate) error { return nil },
+		activity.RegisterOptions{Name: ActivityUpdateStep})
+	env.RegisterActivityWithOptions(func(_ context.Context, input StateUpdate) error {
+		states = append(states, input.Status)
+		return nil
+	}, activity.RegisterOptions{Name: ActivityUpdateState})
+	env.RegisterActivityWithOptions(func(_ context.Context, input StepExecutionInput) (StepExecutionResult, error) {
+		attempts++
+		if attempts == 1 {
+			return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+				Code: "transient", Message: "try again", Retryable: true,
+			}}, nil
+		}
+		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}, nil
+	}, activity.RegisterOptions{Name: ActivityExecuteStep})
+
+	// The wait renews every LeaseDuration/3 = 20s. Delaying the signal to 40s guarantees at
+	// least one renewal was attempted and failed while parked before the retry arrives.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(RetryStepSignal, RetryStepCommand{StepID: "step-a"})
+	}, 40*time.Second)
+
+	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
+		OperationID: "operation-renew-fail", Kind: operationdomain.WorkflowKindCustom,
+		SiteID: "site-a", Definition: "test", DefinitionVersion: 1,
+		LeaseDuration: time.Minute, ResourceKeys: []string{"server:a"},
+		Steps: []operationdomain.Task{{
+			ID: "step-a", Kind: "noop", Name: "Step A", Executor: operationdomain.RunnerKindInternal,
+			Status: operationdomain.TaskPending, Attempt: 1,
+		}},
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow failed despite a transient renewal failure while waiting: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("execute attempts = %d, want 2 (fail then retry succeed)", attempts)
+	}
+	for _, state := range states {
+		if state == operationdomain.WorkflowCanceled || state == operationdomain.WorkflowCanceling {
+			t.Fatalf("states = %v, want no cancellation from a transient renewal failure", states)
+		}
+	}
+	if states[len(states)-1] != operationdomain.WorkflowSucceeded {
+		t.Fatalf("final state = %v, want succeeded", states[len(states)-1])
+	}
+}
+
 func registerWorkflowActivityMocks(
 	env *testsuite.TestWorkflowEnvironment,
 	execute func(StepExecutionInput) StepExecutionResult,

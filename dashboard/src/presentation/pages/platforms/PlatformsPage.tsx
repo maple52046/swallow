@@ -69,7 +69,7 @@ export function PlatformsPage() {
       {state.status === 'ready' && platforms.length === 0 && (
         <EmptyState
           title="No platforms"
-          message="Deploy a k0s platform onto deployed Servers to get started."
+          message="Deploy a Kubernetes or Slurm platform onto your Servers to get started."
           action={{
             label: 'Deploy platform',
             onClick: () => navigate(scopedHref('/platforms/deploy')),

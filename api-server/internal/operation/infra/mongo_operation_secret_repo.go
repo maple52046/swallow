@@ -81,6 +81,37 @@ func (r *MongoOperationSecretRepo) Resolve(ctx context.Context, reference string
 	return value, nil
 }
 
+// CloneForOperation copies every sealed secret of sourceOperationID into new documents owned
+// by targetOperationID and returns a source-reference to clone-reference map for the caller to
+// rewrite Step SecretRefs. The sealed ciphertext is copied verbatim, so the value is never
+// opened here; each clone gets a fresh document id (the reference) and the target owner, which
+// keeps the (workflowId, name) uniqueness intact and makes the clones independent of the
+// source's lifetime. A source with no secrets returns an empty, non-nil map.
+func (r *MongoOperationSecretRepo) CloneForOperation(ctx context.Context, sourceOperationID, targetOperationID string) (map[string]string, error) {
+	cursor, err := r.col.Find(ctx, bson.M{"workflowId": sourceOperationID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var sources []operationSecretDoc
+	if err := cursor.All(ctx, &sources); err != nil {
+		return nil, err
+	}
+	references := make(map[string]string, len(sources))
+	now := time.Now().UTC()
+	for _, source := range sources {
+		clone := operationSecretDoc{
+			ID: uuid.NewString(), OperationID: targetOperationID,
+			Name: source.Name, SealedValue: source.SealedValue, CreatedAt: now,
+		}
+		if _, err := r.col.InsertOne(ctx, clone); err != nil {
+			return nil, err
+		}
+		references[source.ID] = clone.ID
+	}
+	return references, nil
+}
+
 func (r *MongoOperationSecretRepo) DeleteForOperation(ctx context.Context, operationID string) error {
 	_, err := r.col.DeleteMany(ctx, bson.M{"workflowId": operationID})
 	return err

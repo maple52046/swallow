@@ -1,0 +1,76 @@
+---
+# Mint the Slurm JWT that Swallow reads membership with, detect the slurmrestd endpoint
+# version, and return both through the run's private result file. Every task touching the token
+# is no_log. The token is minted for the SlurmUser (slurm) so the reader can list nodes; it is
+# long-lived because it is stored as the platform integration credential.
+
+- name: Skip credential when slurmrestd is unavailable
+  # No slurmrestd means no reader endpoint, so there is nothing to record. The deploy still
+  # succeeds; Swallow simply records no integration and membership stays empty until the image
+  # includes slurm-smd-slurmrestd.
+  ansible.builtin.debug:
+    msg: "slurmrestd is not available; skipping Slurm reader credential. Membership will not populate until slurm-smd-slurmrestd is installed."
+  when: not (slurm_have_slurmrestd | default(false) | bool)
+
+- name: Mint a Slurm JWT for the Swallow reader
+  ansible.builtin.command:
+    cmd: scontrol token username=slurm lifespan=31536000
+  become: true
+  register: slurm_token_raw
+  changed_when: false
+  no_log: true
+  when: slurm_have_slurmrestd | default(false) | bool
+
+- name: Extract the reader token
+  ansible.builtin.set_fact:
+    slurm_reader_token: "{{ slurm_token_raw.stdout | regex_replace('(?s).*SLURM_JWT=(\\S+).*', '\\1') | trim }}"
+  no_log: true
+  when: slurm_have_slurmrestd | default(false) | bool
+
+- name: Determine the slurmrestd endpoint versions to try
+  # A pinned version wins; otherwise probe the versions Slurm 26.x typically serves, newest
+  # first, and record whichever answers so the reader queries the right endpoint.
+  ansible.builtin.set_fact:
+    slurm_api_candidates: >-
+      {{ [swallow_slurm_api_version]
+         if (swallow_slurm_api_version is defined and (swallow_slurm_api_version | string | length) > 0)
+         else ['v0.0.43', 'v0.0.42', 'v0.0.41', 'v0.0.40'] }}
+  when: slurm_have_slurmrestd | default(false) | bool
+
+- name: Probe slurmrestd endpoint versions
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ slurmrestd_port }}/slurm/{{ item }}/ping"
+    method: GET
+    headers:
+      X-SLURM-USER-TOKEN: "{{ slurm_reader_token }}"
+    status_code: [200]
+  register: slurm_api_probe
+  failed_when: false
+  changed_when: false
+  no_log: true
+  loop: "{{ slurm_api_candidates }}"
+  when: slurm_have_slurmrestd | default(false) | bool
+
+- name: Select the working slurmrestd endpoint version
+  ansible.builtin.set_fact:
+    slurm_api_version: >-
+      {{ (slurm_api_probe.results | selectattr('status', 'equalto', 200) | map(attribute='item') | list | first)
+         | default(slurm_api_candidates | first, true) }}
+  when: slurm_have_slurmrestd | default(false) | bool
+
+- name: Write the deployment result for Swallow
+  # Written to the run's private result path (localhost), mirroring the k0s credential role.
+  # Swallow records this as the platform's slurmrestd reader integration. Skipped when slurmrestd
+  # is absent, so the deploy succeeds without a reader credential.
+  ansible.builtin.copy:
+    dest: "{{ swallow_result_path }}"
+    content: >-
+      {{ {'slurmrestdEndpoint': 'http://' ~ ansible_host ~ ':' ~ slurmrestd_port,
+          'token': slurm_reader_token,
+          'apiVersion': slurm_api_version} | to_json }}
+    mode: "0600"
+  delegate_to: localhost
+  no_log: true
+  when:
+    - slurm_have_slurmrestd | default(false) | bool
+    - swallow_result_path is defined and swallow_result_path | length > 0

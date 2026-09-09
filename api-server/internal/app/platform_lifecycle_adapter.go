@@ -27,7 +27,9 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 		PlatformIDs: platformIDs,
 		Kinds: []operationdomain.WorkflowKind{
 			operationdomain.WorkflowKindDeployKubernetes,
+			operationdomain.WorkflowKindConfigureSlurm,
 			operationdomain.WorkflowKindUninstallKubernetes,
+			operationdomain.WorkflowKindUninstallSlurm,
 		},
 	})
 	if err != nil {
@@ -46,12 +48,15 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			RequestedAt:     operation.RequestedAt,
 		}
 		switch operation.Kind {
-		case operationdomain.WorkflowKindDeployKubernetes:
+		case operationdomain.WorkflowKindDeployKubernetes, operationdomain.WorkflowKindConfigureSlurm:
+			// A Slurm deployment claims its targets and drives the deploying/active/failed
+			// projection the same way k0s does; only the k0s-shaped topology Intent is left
+			// nil, since deploymentIntent reads k0s role vars that Slurm does not set.
 			projected.Intent = deploymentIntent(operation)
 			if snapshot.Deployment == nil {
 				snapshot.Deployment = projected
 			}
-		case operationdomain.WorkflowKindUninstallKubernetes:
+		case operationdomain.WorkflowKindUninstallKubernetes, operationdomain.WorkflowKindUninstallSlurm:
 			if snapshot.Uninstall == nil {
 				snapshot.Uninstall = projected
 			}
@@ -69,14 +74,27 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			expectedIDs[id] = true
 		}
 		for _, operation := range v3 {
-			if !expectedIDs[operation.PlatformID] || (operation.Kind != operationdomain.WorkflowKindDeployKubernetes && operation.Kind != operationdomain.WorkflowKindUninstallKubernetes) {
+			isDeploy := operation.Kind == operationdomain.WorkflowKindDeployKubernetes ||
+				operation.Kind == operationdomain.WorkflowKindConfigureSlurm
+			isUninstall := operation.Kind == operationdomain.WorkflowKindUninstallKubernetes ||
+				operation.Kind == operationdomain.WorkflowKindUninstallSlurm
+			if !expectedIDs[operation.PlatformID] || (!isDeploy && !isUninstall) {
 				continue
 			}
 			snapshot := snapshots[operation.PlatformID]
 			projected := &platformdomain.LifecycleOperation{ID: operation.ID, Status: lifecycleStatus(operation.Status),
 				TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RequestedAt: operation.RequestedAt}
-			if operation.Kind == operationdomain.WorkflowKindDeployKubernetes {
-				projected.Intent = deploymentIntentV3(operation)
+			if isDeploy {
+				// Project the deployment intent per platform type: k0s from its role vars,
+				// Slurm from its recorded controller/compute id lists. Slurm needs its own
+				// projection because slurmrestd only reports compute (slurmd) nodes as members,
+				// so without the recorded controller ids the manager nodes would be invisible to
+				// the read model.
+				if operation.Kind == operationdomain.WorkflowKindConfigureSlurm {
+					projected.Intent = deploymentIntentSlurm(operation)
+				} else {
+					projected.Intent = deploymentIntentV3(operation)
+				}
 				if snapshot.Deployment == nil || snapshot.Deployment.RequestedAt.Before(projected.RequestedAt) {
 					snapshot.Deployment = projected
 				}
@@ -224,4 +242,57 @@ func deploymentIntentV3(operation *operationdomain.Workflow) *platformdomain.Lif
 		ExtraVars:       extraVars,
 	}
 	return deploymentIntent(legacy)
+}
+
+// deploymentIntentSlurm projects a Slurm deployment's per-daemon node roles from the durable
+// Operation's recorded controller/compute id lists into the shared LifecycleDeployment shape.
+// It exists because slurmrestd only reports compute (slurmd) nodes as members, so a
+// controller-only node is otherwise invisible to the read model; this is the intent recorded at
+// deploy time, not a live cluster read. Slurm daemons are not mutually exclusive, so a node that
+// runs both slurmctld and slurmd is a control-plane assignment that also runs workloads (its
+// slurmd compute). Returns nil when the recorded intent is incomplete, so a malformed history
+// yields no projection instead of a guessed topology.
+func deploymentIntentSlurm(operation *operationdomain.Workflow) *platformdomain.LifecycleDeployment {
+	extraVars, _ := operation.Intent["extraVars"].(map[string]any)
+	// Trusted-var names owned by the Slurm deploy use case (buildSlurmVars). Referenced as
+	// literals here, like the k0s role vars above, because they are the deployment's published
+	// contract into the operation intent, not this package's private constants.
+	controllerIDs := decodeStringSlice(extraVars["swallow_slurm_controller_ids"])
+	computeIDs := decodeStringSlice(extraVars["swallow_slurm_compute_ids"])
+	if len(controllerIDs) == 0 || len(operation.TargetServerIDs) == 0 {
+		return nil
+	}
+	controllers := stringSet(controllerIDs)
+	compute := stringSet(computeIDs)
+	assignments := make([]platformdomain.RoleAssignment, 0, len(operation.TargetServerIDs))
+	for _, serverID := range operation.TargetServerIDs {
+		isController := controllers[serverID]
+		isCompute := compute[serverID]
+		if !isController && !isCompute {
+			continue
+		}
+		role := platformdomain.NodeRoleWorker
+		runWorkloads := false
+		if isController {
+			// A Slurm controller maps to the manager (control-plane) role; if it also runs the
+			// compute daemon it additionally runs workloads, exactly like a k0s control-plane
+			// node that schedules pods.
+			role = platformdomain.NodeRoleControlPlane
+			runWorkloads = isCompute
+		}
+		assignments = append(assignments, platformdomain.RoleAssignment{
+			ServerID: serverID, Role: role, RunWorkloads: runWorkloads,
+		})
+	}
+	if len(assignments) == 0 {
+		return nil
+	}
+	// More than one controller is a highly available control plane; a single controller is a
+	// standalone manager. Slurm has no "multi-node non-HA" manager tier, so those are the only
+	// two shapes the read model reports.
+	topology := platformdomain.KubernetesTopologyStandalone
+	if len(controllerIDs) > 1 {
+		topology = platformdomain.KubernetesTopologyHighAvailability
+	}
+	return &platformdomain.LifecycleDeployment{Topology: topology, RoleAssignments: assignments}
 }

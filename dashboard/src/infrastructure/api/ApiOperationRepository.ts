@@ -96,6 +96,19 @@ export class ApiOperationRepository implements OperationRepository {
     return normalizeOperation(operation);
   }
 
+  async rerunOperation(id: string): Promise<Operation> {
+    // The rerun response is a freshly created Operation projection, so normalize it like every
+    // other payload: a null steps collection must not re-enter the UI and misroute the new
+    // durable Operation to the legacy detail page.
+    const operation = await apiRequest<Operation>(
+      `/api/v1/workflows/${encodeURIComponent(id)}/rerun`,
+      {
+        method: "POST",
+      },
+    );
+    return normalizeOperation(operation);
+  }
+
   async getTimeline(id: string): Promise<OperationTimelineEvent[]> {
     const events = await apiRequest<OperationTimelineEvent[] | null>(
       `/api/v1/workflows/${encodeURIComponent(id)}/timeline`,

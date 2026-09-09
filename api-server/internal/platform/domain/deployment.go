@@ -113,6 +113,90 @@ func (s DeploymentSpec) serverIDsWithRole(role NodeRole) []string {
 	return ids
 }
 
+// SlurmNodeAssignment assigns Slurm daemons to one Server. Unlike Kubernetes, the roles are
+// not mutually exclusive: Controller runs the slurmctld management daemon and Compute runs
+// the slurmd job daemon, and a Server may run both — a controller commonly also contributes
+// compute. A Server with neither daemon has no place in the cluster and is rejected by the
+// deploy use case.
+type SlurmNodeAssignment struct {
+	ServerID   string
+	Controller bool
+	Compute    bool
+}
+
+// SlurmDeploymentSpec is the desired shape of a Slurm platform to build.
+//
+// Node roles are per-daemon flags (see SlurmNodeAssignment) rather than the single mutually
+// exclusive NodeRole used by Kubernetes. ClusterName defaults to the platform name when
+// empty. StateSaveLocation is the slurmctld state directory: a single-controller deployment
+// uses a controller-local default supplied by the playbook, while a highly available
+// deployment (more than one controller) requires an operator-provided shared path so a
+// backup slurmctld can take over — hence the deploy use case validates it rather than
+// defaulting it. APIVersion pins the slurmrestd endpoint version recorded in the credential
+// when known; empty lets the reader fall back to its default.
+type SlurmDeploymentSpec struct {
+	ClusterName       string
+	NodeAssignments   []SlurmNodeAssignment
+	APIVersion        string
+	StateSaveLocation string
+}
+
+// ControllerServerIDs returns the slurmctld hosts in request order. The first entry is the
+// primary controller: it heads the SlurmctldHost priority list, mints the shared MUNGE key,
+// hosts slurmrestd, and writes the deployment credential. HA failover follows this order.
+func (s SlurmDeploymentSpec) ControllerServerIDs() []string {
+	ids := make([]string, 0, len(s.NodeAssignments))
+	for _, assignment := range s.NodeAssignments {
+		if assignment.Controller {
+			ids = append(ids, assignment.ServerID)
+		}
+	}
+	return ids
+}
+
+// ComputeServerIDs returns the slurmd hosts in request order.
+func (s SlurmDeploymentSpec) ComputeServerIDs() []string {
+	ids := make([]string, 0, len(s.NodeAssignments))
+	for _, assignment := range s.NodeAssignments {
+		if assignment.Compute {
+			ids = append(ids, assignment.ServerID)
+		}
+	}
+	return ids
+}
+
+// PrimaryControllerID returns the first controller, or "" when none is assigned. Validation
+// guarantees at least one controller, so a non-empty result is expected after validation.
+func (s SlurmDeploymentSpec) PrimaryControllerID() string {
+	controllers := s.ControllerServerIDs()
+	if len(controllers) == 0 {
+		return ""
+	}
+	return controllers[0]
+}
+
+// ServerIDs returns every assigned Server (running either daemon) deduplicated in request
+// order. This is the set of deployment targets, since a Server may appear once as both a
+// controller and a compute node.
+func (s SlurmDeploymentSpec) ServerIDs() []string {
+	seen := make(map[string]bool, len(s.NodeAssignments))
+	ids := make([]string, 0, len(s.NodeAssignments))
+	for _, assignment := range s.NodeAssignments {
+		if assignment.ServerID == "" || seen[assignment.ServerID] {
+			continue
+		}
+		seen[assignment.ServerID] = true
+		ids = append(ids, assignment.ServerID)
+	}
+	return ids
+}
+
+// HighlyAvailable reports whether more than one controller is assigned. HA requires a shared
+// StateSaveLocation so a backup slurmctld can recover controller state on takeover.
+func (s SlurmDeploymentSpec) HighlyAvailable() bool {
+	return len(s.ControllerServerIDs()) > 1
+}
+
 // DeploymentLaunch is a fully validated request to start the operation that builds a
 // platform. The trusted and secret vars are assembled by the deploy use case, which owns
 // the translation from a DeploymentSpec to the playbook's variables; the launcher only

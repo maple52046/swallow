@@ -1,0 +1,8 @@
+---
+- name: Restart munge
+  # Restart when the shared key changed so the running daemon uses the new key before Slurm
+  # daemons authenticate with it.
+  ansible.builtin.systemd:
+    name: munge
+    state: restarted
+  become: true

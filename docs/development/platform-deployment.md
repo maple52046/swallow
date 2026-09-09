@@ -231,6 +231,20 @@ operator 維護 `knownHosts`。
 - 可重試的失敗會讓 Workflow 停在 `requires_attention`，由 **operator 觸發**單一 Task 重試（不自動
   重試）；Job 重試會**遞增該 Job 內 Task 的 attempt**，使 Runner 以新的 idempotency key 真正重跑，
   而非回傳前次快取結果。
+- **等待期撐過中斷**：Workflow 停在 `requires_attention` 等 operator 輸入時，續租 lease 的失敗
+  （主機重開機、資料庫短暫中斷）**不會**結束該 Operation；它會記 log 後繼續等待，唯一離開條件是
+  收到 Task 重試或真正的 operator 取消。等待期間沒有 host 變更，且 Task 重試前會重新 validate/
+  acquire lease，故暫時沒有有效 lease 也不會造成重複執行。
+- **execution 遺失的回復（不刪 Platform）**：Temporal Workflow ID 固定且 reject-duplicate，Starter
+  只會啟動 `startState=pending` 的紀錄，因此終態或 execution 已消失的 Operation 無法就地重啟。回復
+  路徑是 **rerun**（`POST /workflows/{id}/rerun`）：以新的 Operation（新 WorkflowID、`RetryOfOperationId`
+  指回原 Operation）重跑同一意圖，clone 舊 Steps 並**保留已成功/略過的 Step**（不重炸已部署節點，
+  只重跑未完成的工作）、把封存 secrets 複製到新 Operation。平台 lifecycle 以 `requestedAt` 最新的
+  deploy Operation 為準，新 Operation 自然接管，原 Operation 留作診斷；全程不需刪 Platform。
+- **lost-execution reconciler**：週期性 sweep 會偵測「Mongo 仍非終態、但 Temporal execution 已關閉/
+  消失」的 Operation，將其標為 `requires_attention`（lifecycle 顯示 `deploy_failed` 可 repair）。它
+  只標記、不自動 rerun；rerun 一律是明確的 operator 動作。dashboard 的 Repair 會先試單一 Task 重試，
+  遇 409（execution 已消失）或無可重試 Step 時改走 rerun。
 - **Kubernetes deploy 禁止 ephemeral OS**：ephemeral（跑在 RAM、磁碟不動）無法承載持久叢集，於
   `DeployService.validate` 直接擋下。
 
@@ -255,7 +269,7 @@ operator 維護 `knownHosts`。
 
 ---
 
-## 6. 如何新增一個 platform（以 Slurm 為例）
+## 6. 如何新增一個 platform（k0s 為 reference，Slurm 為第二個已實作範例）
 
 ### 6.1 先判斷整合層級（誠實的現況）
 
@@ -271,6 +285,10 @@ trusted vars 與 deploy 定義仍由 Go 組裝**（k0s 即如此）。因此依�
   deploy 前的 validate。這是 extension point 目前的成熟度；把「Go 骨架完全 data-driven、讓純
   playbook 就能新增 platform」列為後續工作（見
   [reliability/orchestration plan](../plans/20260906_2027_platform_orchestration_and_deploy_reliability.md)）。
+
+**Slurm 已依 (B) 實作**（[decision 019](../decisions/019-slurm-platform-deployment.md)）：新增了
+`SlurmDeploymentSpec`、`configure-slurm` 的 launcher 分支與 `buildSlurmVars`、type-aware 的
+deploy handler 與憑證記錄，並重用 `ensure-os`。具體對照見 §6.3。
 
 ### 6.2 步驟
 
@@ -288,6 +306,53 @@ trusted vars 與 deploy 定義仍由 Go 組裝**（k0s 即如此）。因此依�
 7. **credential（如需）**：以 `swallow_result_path` 寫 `result.json`。
 8. **測試**：比照 k0s 的 topology 測試（斷言 playbook 引用了必要的 trusted-var 表達式），並在 lab
    以真機驗證端到端（切勿動 `tainan-` 實體機、勿刪 MAAS 資料）。
+
+### 6.3 Slurm reference（已實作現況）
+
+Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-slurm-platform-deployment.md)），
+落地方式如下，可與 §6.2 對照：
+
+- **角色模型 = per-daemon 旗標**：不用 k0s 的互斥 `NodeRole`。deploy 請求帶
+  `slurm.nodeAssignments[]` 的 `{ serverId, controller, compute }`（一台可兩者皆是）。至少一台
+  `slurmctld`（controller）與一台 `slurmd`（compute），兩者皆未勾的節點會被拒絕。
+- **Job**：重用 `ensure-os`（用 operator 的 Slurm image 佈 OS 或重用已 `deployed` 者），新增
+  `configure-slurm` Job 只含 `install-platform`（ansible）。**無 `validate-platform-health`**——
+  deployed integration 要等 install 步驟成功後才存在，故驗證放在 playbook 內（`slurm_verify`），
+  成員由背景 membership sync 補上。
+- **trusted vars**（`swallow_slurm_*`，client 不可偽造）：`cluster_name`、`platform_name`、
+  `controller_ids`（有序，第一個為 primary）、`compute_ids`、`primary_controller_id`、
+  `high_availability`、選用的 `state_save_location`、`api_version`。由
+  [`deploy_platform.go`](../../api-server/internal/platform/application/deploy_platform.go) 的
+  `buildSlurmVars` 組裝。
+- **套件來源**：Slurm 官方建議自編 deb/rpm 且 swallow 尚無 local repo，故 `slurm-smd` 套件由
+  **MAAS image 內建**；playbook 只 `dpkg-query` 驗證、不重編/不從 distro 裝 slurm。其他支援
+  軟體（MUNGE、未來 accounting 的 MariaDB）仍可 `apt install`。
+- **manifest 與 playbook 名**：`deploy-slurm` 註冊於 `manifest.json`；launcher **硬編** playbook
+  名（比照 `uninstall-kubernetes`），因此**不需**站台 `playbookMappings["configure-slurm"]`。
+- **credential（membership，選用）**：Slurm 無 kubeconfig。primary controller 起 `slurmrestd`
+  （TCP + `auth/jwt`），`scontrol token` 產生 JWT，`slurm_cluster_credential` role 以
+  `swallow_result_path` 寫 `result.json`（`slurmrestdEndpoint`/`token`/`apiVersion`）。後端記為
+  `ProviderKindSlurm` 的 platform integration（`DeploymentCredentialService.RecordSlurm`），
+  `SlurmReader` 即可讀成員。**`slurmrestd`（`slurm-smd-slurmrestd`）為選用**：它只負責 swallow
+  的 membership 讀取，叢集本體（slurmctld + slurmd）不依賴它。若 image 未含此套件，
+  `slurm_slurmrestd` 與 `slurm_cluster_credential` 會**優雅跳過**、不寫 credential，deploy 仍
+  成功（platform 為 active、無 integration、members=0）；要讓 membership 顯示，image 需納入
+  `slurm-smd-slurmrestd`。對應地，後端把「Slurm 無 credential」視為**非致命**（k0s 的 kubeconfig
+  則為必要）。
+- **單 controller 首版 + HA 掛勾**：一台 controller 免 shared storage；多台為 HA，需 operator
+  提供 shared `StateSaveLocation`（validate 檢查，非預設）。
+- **不套 ephemeral 防呆**：k0s 禁止 ephemeral OS，Slurm 首版不沿用（k8s 的 ephemeral 問題另議）。
+- **uninstall**：`uninstall-slurm`（[uninstall-slurm.yml](../../api-server/automation/playbooks/uninstall-slurm.yml)）
+  比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge、移除 Swallow 佈的
+  設定/金鑰/controller state（保留 OS 與 image 套件），可選擇同時 release 成員機。已在 lab
+  以 5 節點驗證(rc=0、platform → uninstalled)。
+- **非目標（後續）**：SlurmDBD/accounting、GRES/GPU 排程、HA shared filesystem 供給、login/submit
+  角色。
+
+Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/deploy-slurm.yml) 與
+`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、
+`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
+`slurm_cluster_credential`）。
 
 ---
 
@@ -319,6 +384,7 @@ trusted vars 與 deploy 定義仍由 Go 組裝**（k0s 即如此）。因此依�
 | 依賴鎖 | `requirements.txt`、`requirements.yml` |
 | Playbooks | `playbooks/*.yml`（`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、exporters…） |
 | k0s roles（reference 範本） | `playbooks/roles/k0s_*`（`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`） |
+| Slurm playbook 與 roles | `playbooks/deploy-slurm.yml`、`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`） |
 
 映像：production 於 build 時 `COPY api-server/automation → /opt/swallow/automation`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

@@ -1,0 +1,10 @@
+---
+- name: Restart slurmctld
+  # Notified by slurm_config when slurm.conf, cgroup.conf, or the JWT key changed, so the
+  # controller picks up the new configuration. Defined here but shared across the controller
+  # play's roles, since handlers are play-wide.
+  ansible.builtin.systemd:
+    name: slurmctld
+    state: restarted
+    daemon_reload: true
+  become: true

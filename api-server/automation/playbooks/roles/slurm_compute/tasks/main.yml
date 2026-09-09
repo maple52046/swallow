@@ -1,0 +1,56 @@
+---
+# Configure and start slurmd on a compute node. A compute-only node is configless: it keeps no
+# local slurm.conf and points slurmd at the controllers with --conf-server, fetching config at
+# startup. A node that is also a controller uses the local slurm.conf that slurm_config wrote.
+
+- name: Ensure slurmd runtime directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0755"
+  become: true
+  loop:
+    - /var/spool/slurmd
+    - "{{ slurm_log_dir }}"
+
+- name: Compute the ordered configless conf-server list
+  # Compute nodes try controllers in SlurmctldHost order; addresses (not hostnames) keep the
+  # fetch working without site DNS.
+  ansible.builtin.set_fact:
+    slurm_conf_servers: >-
+      {{ swallow_slurm_controller_ids
+         | map('extract', hostvars, 'ansible_host')
+         | map('regex_replace', '^(.*)$', '\1:6817')
+         | join(',') }}
+
+- name: Remove any local slurm.conf on a configless compute-only node
+  # Configless requires no authoritative local slurm.conf; an image may ship a sample, so
+  # remove it. A controller+compute node keeps its local config and is skipped.
+  ansible.builtin.file:
+    path: "{{ slurm_conf_dir }}/slurm.conf"
+    state: absent
+  become: true
+  when: not (slurm_is_controller | bool)
+
+- name: Point slurmd at the controllers for configless startup
+  ansible.builtin.copy:
+    dest: /etc/default/slurmd
+    content: |
+      # Managed by Swallow (deploy-slurm): configless slurmd.
+      SLURMD_OPTIONS="--conf-server {{ slurm_conf_servers }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: not (slurm_is_controller | bool)
+  notify: Restart slurmd
+
+- name: Enable and start slurmd
+  ansible.builtin.systemd:
+    name: slurmd
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true

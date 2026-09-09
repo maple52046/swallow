@@ -240,6 +240,27 @@ func (h *ExecutionHandler) RetryStep(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"workflowId": c.Params("id"), "operationId": c.Params("id"), "taskId": taskParam(c), "stepId": taskParam(c)})
 }
 
+// Rerun recovers an orchestration Operation that can no longer advance by launching a new
+// durable Operation for the same intent on the same Platform, linked back to the original. It
+// is the schema-v3 counterpart to Retry: Retry re-runs a finished legacy operation, while Rerun
+// re-runs a failed, canceled, or execution-lost orchestration Operation without deleting its
+// Platform. It returns 202 with the new Operation projection; conflicts (a still-running or
+// already-succeeded Operation) and validation problems are mapped by respondExecutionError.
+func (h *ExecutionHandler) Rerun(c *fiber.Ctx) error {
+	if h.orchestrations == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
+	}
+	requestedBy := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		requestedBy = claims.Username
+	}
+	item, err := h.orchestrations.Rerun(c.Context(), c.Params("id"), requestedBy)
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(item)
+}
+
 // Retry creates a new operation repeating a finished one.
 func (h *ExecutionHandler) Retry(c *fiber.Ctx) error {
 	if h.orchestrations != nil {

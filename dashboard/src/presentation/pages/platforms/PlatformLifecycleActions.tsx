@@ -33,6 +33,22 @@ import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProte
 
 type ConfirmationAction = 'uninstall' | 'delete'
 
+/**
+ * Whether a repair error is an HTTP 409 conflict. For a Step retry this means the durable
+ * workflow execution is gone and can no longer accept the signal, which is the cue to recover
+ * by rerunning instead. Duck-typed on the API error's status so this presentation code stays
+ * decoupled from the infrastructure error class (the layering rule forbids importing
+ * `@/infrastructure/**` here).
+ */
+function isConflict(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    (error as { status?: unknown }).status === 409
+  )
+}
+
 interface PlatformLifecycleActionsProps {
   platform: Platform
   operation?: Operation
@@ -141,7 +157,7 @@ export function PlatformLifecycleActions({
           tone: 'success',
           title: 'Platform uninstall accepted',
           description: releaseServers
-            ? `k0s will be removed and ${cleaned} released to the provider.`
+            ? `${platformSoftware} will be removed and ${cleaned} released to the provider.`
             : `${cleaned} will be cleaned.`,
         })
         navigate(scopedHref(`/workflows/${accepted.operationId}`))
@@ -163,6 +179,8 @@ export function PlatformLifecycleActions({
   }
 
   const isUninstall = action === 'uninstall'
+  // The host-side software removed by uninstall depends on the platform type.
+  const platformSoftware = platform.type === 'slurm' ? 'Slurm' : 'k0s'
   const targetLabel = targetCount === undefined
     ? 'the original deployment targets'
     : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
@@ -181,15 +199,33 @@ export function PlatformLifecycleActions({
           (step.status === 'failed' || step.status === 'requires_attention') &&
           step.error?.retryable,
         )
-        if (failedSteps.length === 0) {
-          throw new Error('This Operation has no failed Step that can be repaired safely.')
+        if (failedSteps.length > 0) {
+          try {
+            // Preferred path while the durable workflow is still alive: signal each retryable
+            // failed Step so successful provider effects and protected inputs are preserved and
+            // the attempt increments in the same Operation.
+            for (const step of failedSteps) {
+              await operations.retryStep(operation.id, step.id)
+            }
+            description = failedSteps.length === 1
+              ? `${failedSteps[0].name} will retry in Operation ${operation.id}.`
+              : `${failedSteps.length} failed Steps will retry in Operation ${operation.id}.`
+          } catch (retryError) {
+            // A conflict means the workflow execution is gone (a host restart or execution
+            // timeout ended it), so it can no longer accept a Step retry. Recover by rerunning
+            // the deployment as a new Operation on the same Platform instead of forcing the
+            // operator to delete and redeploy. Any other error is a real failure to surface.
+            if (!isConflict(retryError)) throw retryError
+            const created = await operations.rerunOperation(operation.id)
+            description = `Operation ${created.id} is rerunning the deployment on the same platform.`
+          }
+        } else {
+          // No live retryable Step (for example the execution was lost mid-run and left its
+          // Steps non-terminal). Rerun the deployment on the same Platform, preserving the
+          // Steps that already succeeded.
+          const created = await operations.rerunOperation(operation.id)
+          description = `Operation ${created.id} is rerunning the deployment on the same platform.`
         }
-        for (const step of failedSteps) {
-          await operations.retryStep(operation.id, step.id)
-        }
-        description = failedSteps.length === 1
-          ? `${failedSteps[0].name} will retry in Operation ${operation.id}.`
-          : `${failedSteps.length} failed Steps will retry in Operation ${operation.id}.`
       } else {
         const created = await operations.retryOperation(operation.id)
         description = `Operation ${created.id} is rerunning the original deployment configuration.`
@@ -324,7 +360,7 @@ export function PlatformLifecycleActions({
           labelId="platform-lifecycle-confirmation-title"
           description={
             isUninstall
-              ? `This removes k0s from ${targetLabel} and keeps the Swallow record.`
+              ? `This removes ${platformSoftware} from ${targetLabel} and keeps the Swallow record.`
               : 'This removes only the Swallow record and owned projections.'
           }
         />
@@ -337,9 +373,9 @@ export function PlatformLifecycleActions({
           {isUninstall ? (
             <>
               <p>
-                k0s services, state, configuration, join tokens, temporary installer, and
-                binary will be removed. The operating system, user data, and shared packages
-                remain installed unless you also release the servers. Hosts are not rebooted.
+                {platform.type === 'slurm'
+                  ? 'Slurm services (slurmctld, slurmd, slurmrestd), configuration, the MUNGE and JWT keys, and controller state will be removed. The operating system and the image-supplied Slurm packages remain installed unless you also release the servers. Hosts are not rebooted.'
+                  : 'k0s services, state, configuration, join tokens, temporary installer, and binary will be removed. The operating system, user data, and shared packages remain installed unless you also release the servers. Hosts are not rebooted.'}
               </p>
               <p><strong>Targets:</strong> {targetLabel}</p>
               <Checkbox

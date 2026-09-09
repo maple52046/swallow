@@ -1,0 +1,51 @@
+---
+# Remove the Slurm configuration and daemons Swallow deployed while preserving the host OS and
+# the image-supplied slurm-smd packages. Every task tolerates a node that was only partly
+# configured or already cleaned by an earlier attempt, so the playbook is safe to rerun and
+# runs uniformly on every target regardless of the daemon roles it had.
+
+- name: Uninstall Slurm from the original deployment targets
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Stop and disable Slurm and MUNGE daemons
+      # Order matters on shutdown: stop the REST and node daemons before the controller, and
+      # MUNGE last. Missing units are tolerated (a node may never have run a given daemon).
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      loop:
+        - slurmrestd
+        - slurmd
+        - slurmctld
+        - munge
+
+    - name: Remove the Swallow slurmrestd systemd drop-in
+      ansible.builtin.file:
+        path: /etc/systemd/system/slurmrestd.service.d/override.conf
+        state: absent
+
+    - name: Reload systemd after removing the drop-in
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Remove Swallow-managed Slurm configuration, keys, and state
+      # slurm.conf/cgroup.conf and the JWT key are Swallow-rendered; the default controller
+      # StateSaveLocation and slurmd spool are Swallow-created runtime state. The MUNGE key is
+      # removed so a later redeploy mints a fresh shared key. Image-supplied packages are left
+      # installed. A non-default (HA) StateSaveLocation on shared storage is intentionally not
+      # touched here.
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/slurm/slurm.conf
+        - /etc/slurm/cgroup.conf
+        - /etc/slurm/jwt_hs256.key
+        - /etc/default/slurmd
+        - /var/spool/slurmctld
+        - /var/spool/slurmd
+        - /etc/munge/munge.key

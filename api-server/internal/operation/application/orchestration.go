@@ -62,7 +62,7 @@ type WorkflowItem struct {
 	ClusterID          *string                             `json:"clusterId"`
 	TargetResources    []operationdomain.ResourceReference `json:"targetResources"`
 	TargetServerIDs    []string                            `json:"targetServerIds"`
-	Steps              []operationdomain.Task     `json:"steps"`
+	Steps              []operationdomain.Task              `json:"steps"`
 	Leases             []operationdomain.ResourceLease     `json:"leases"`
 	RetryOfOperationID *string                             `json:"retryOfOperationId"`
 	RequestedBy        string                              `json:"requestedBy"`
@@ -136,8 +136,17 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 	}
 	steps := append([]operationdomain.Task(nil), input.Steps...)
 	for index := range steps {
-		steps[index].Status = operationdomain.TaskPending
-		steps[index].Attempt = 1
+		// A recovery rerun (see Rerun) clones an Operation's Steps and carries the
+		// already-succeeded (or skipped) ones so their side effects are not repeated: the
+		// fresh execution treats them as satisfied dependencies and re-drives only the rest.
+		// Reset every other Step to a clean first attempt. A normal launch supplies Steps with
+		// no status, so both branches leave it at a pending first attempt, unchanged.
+		if steps[index].Status != operationdomain.TaskSucceeded && steps[index].Status != operationdomain.TaskSkipped {
+			steps[index].Status = operationdomain.TaskPending
+			steps[index].Attempt = 1
+		} else if steps[index].Attempt < 1 {
+			steps[index].Attempt = 1
+		}
 		if steps[index].Artifacts == nil {
 			steps[index].Artifacts = []operationdomain.ArtifactMetadata{}
 		}
@@ -381,6 +390,157 @@ func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) erro
 		return s.controller.RetryStep(ctx, operation, stepID)
 	}
 	return operationdomain.ErrTaskNotFound
+}
+
+// Rerun recovers a durable Operation that can no longer make progress by launching a fresh
+// Temporal execution for the same intent, on the same Platform, without deleting it. It is the
+// recovery path for an Operation whose execution was lost (a host restart or execution timeout
+// leaves it non-terminal but with no live workflow) or that finished failed, partially
+// succeeded, or canceled: a new attempt cannot reuse the original because the Temporal Workflow
+// ID is stable and rejects a duplicate start, and a lost execution can no longer accept a Step
+// retry signal.
+//
+// The new Operation clones the original's Steps, preserving already-succeeded and skipped ones
+// so their side effects are not repeated and only the incomplete work is re-driven, and
+// re-seals the original's secrets under the new Operation (via CloneForOperation) so its Steps
+// resolve them. It is linked to the original through RetryOfOperationID, and because it carries
+// a later requestedAt the platform lifecycle projection follows it while the original stays in
+// history for diagnosis.
+//
+// Rerun refuses an Operation that already succeeded and one that is still actively advancing
+// (pending, running, waiting, or canceling); both are ErrWorkflowControlConflict, the first
+// because there is nothing to recover and the second because the caller should retry a failed
+// Step or cancel first. A non-terminal but recoverable Operation (requires_attention) is driven
+// terminal first — best-effort canceling any still-live parked execution and forcing the
+// projection canceled — so the replacement can claim the same targets instead of being rejected
+// as busy. Secret storage is required; without it Rerun returns ErrInvalidOperation.
+func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*WorkflowItem, error) {
+	old, err := s.operations.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case old.Status == operationdomain.WorkflowSucceeded:
+		return nil, fmt.Errorf("%w: a succeeded Operation has nothing to rerun", operationdomain.ErrWorkflowControlConflict)
+	case !old.Status.Terminal() && old.Status != operationdomain.WorkflowRequiresAttention:
+		return nil, fmt.Errorf("%w: the Operation is still running; retry a failed Step or cancel it first", operationdomain.ErrWorkflowControlConflict)
+	}
+	if s.secrets == nil {
+		return nil, fmt.Errorf("%w: secret storage is unavailable", ErrInvalidOperation)
+	}
+
+	// Free the original's hold on its targets before creating the replacement. A
+	// requires_attention Operation is non-terminal, so Create would reject the new one with
+	// ErrTargetsBusy until the original finishes. Best-effort cancel stops a still-live parked
+	// execution; a lost execution surfaces a control conflict we tolerate. Then force the
+	// projection terminal so the targets are free for the same-request Create below.
+	now := time.Now().UTC()
+	if !old.Status.Terminal() {
+		if cancelErr := s.controller.Cancel(ctx, old); cancelErr != nil && !errors.Is(cancelErr, operationdomain.ErrWorkflowControlConflict) {
+			return nil, cancelErr
+		}
+		if err := s.finalizeSuperseded(ctx, old, now); err != nil {
+			return nil, err
+		}
+	}
+
+	newID := uuid.NewString()
+	references, err := s.secrets.CloneForOperation(ctx, old.ID, newID)
+	if err != nil {
+		return nil, fmt.Errorf("clone operation secrets: %w", err)
+	}
+	item, err := s.Create(ctx, CreateWorkflowInput{
+		ID: newID, Kind: old.Kind,
+		IntentSummary:  rerunSummary(old),
+		IntentSnapshot: cloneMap(old.Intent),
+		Definition:     old.Definition, DefinitionVersion: old.DefinitionVersion,
+		SiteID: old.SiteID, PlatformID: old.PlatformID,
+		TargetServerIDs:    append([]string(nil), old.TargetServerIDs...),
+		TargetResources:    append([]operationdomain.ResourceReference(nil), old.TargetResources...),
+		Steps:              cloneStepsForRerun(old.Steps, references),
+		RetryOfOperationID: old.ID,
+		RequestedBy:        requestedBy,
+	})
+	if err != nil {
+		// Roll back the just-cloned secrets so a rejected rerun (for example a target that
+		// became busy again) leaves no sealed values keyed to an Operation that was never
+		// created.
+		_ = s.secrets.DeleteForOperation(ctx, newID)
+		return nil, err
+	}
+	return item, nil
+}
+
+// finalizeSuperseded drives a non-terminal Operation to canceled so a rerun can immediately
+// claim the same targets. It mirrors the workflow's own cancel projection: the Operation
+// becomes canceled and every non-terminal Step becomes canceled, so a superseded Operation
+// stops reporting active Steps. The rerun links back to it through RetryOfOperationID.
+func (s *WorkflowService) finalizeSuperseded(ctx context.Context, operation *operationdomain.Workflow, at time.Time) error {
+	if err := s.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowCanceled, "Superseded by a rerun.", nil, &at); err != nil {
+		return err
+	}
+	for _, step := range operation.Steps {
+		switch step.Status {
+		case operationdomain.TaskPending, operationdomain.TaskWaitingDependency,
+			operationdomain.TaskWaitingExternal, operationdomain.TaskRunning,
+			operationdomain.TaskRequiresAttention:
+			step.Status = operationdomain.TaskCanceled
+			step.FinishedAt = &at
+			if err := s.operations.UpdateStep(ctx, operation.ID, step); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// cloneStepsForRerun copies an Operation's Steps for a fresh execution. Succeeded and skipped
+// Steps are preserved so their side effects are not repeated (the workflow's ready/complete
+// scan treats them as satisfied dependencies), and every other Step is reset to a clean pending
+// attempt with its error, timing, and external-execution correlation cleared so only the
+// incomplete work runs again. Secret references are remapped through references (source ->
+// clone) so the new Operation resolves its own sealed copies; a reference missing from the map
+// is kept as-is.
+func cloneStepsForRerun(source []operationdomain.Task, references map[string]string) []operationdomain.Task {
+	steps := make([]operationdomain.Task, len(source))
+	for index, step := range source {
+		clone := step
+		clone.DependsOn = append([]string(nil), step.DependsOn...)
+		clone.Targets = append([]operationdomain.ResourceReference(nil), step.Targets...)
+		clone.Artifacts = append([]operationdomain.ArtifactMetadata(nil), step.Artifacts...)
+		if len(step.SecretRefs) > 0 {
+			remapped := make(map[string]string, len(step.SecretRefs))
+			for name, reference := range step.SecretRefs {
+				if mapped, ok := references[reference]; ok {
+					remapped[name] = mapped
+				} else {
+					remapped[name] = reference
+				}
+			}
+			clone.SecretRefs = remapped
+		}
+		if step.Status != operationdomain.TaskSucceeded && step.Status != operationdomain.TaskSkipped {
+			clone.Status = operationdomain.TaskPending
+			clone.Attempt = 0
+			clone.Progress = 0
+			clone.WaitingReason = ""
+			clone.Error = nil
+			clone.StartedAt = nil
+			clone.FinishedAt = nil
+			clone.ExternalExecution = nil
+		}
+		steps[index] = clone
+	}
+	return steps
+}
+
+// rerunSummary keeps the original operator-facing summary so the recovery Operation reads as
+// the same intent. It falls back to a generated line only when the original summary is missing.
+func rerunSummary(old *operationdomain.Workflow) string {
+	if summary, ok := old.Intent["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+		return summary
+	}
+	return "Rerun of operation " + old.ID
 }
 
 func toWorkflowItem(operation *operationdomain.Workflow) WorkflowItem {

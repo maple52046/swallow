@@ -31,6 +31,14 @@ export interface OperationRepository {
   getLogs(id: string): Promise<string>;
   /** Create a new operation repeating a finished one, linked back to it. */
   retryOperation(id: string): Promise<Operation>;
+  /**
+   * Recover a durable orchestration Operation that can no longer advance by launching a new
+   * Operation for the same intent on the same Platform, linked back to the original. Unlike
+   * retryStep, which signals a still-live workflow, rerun works when the original finished
+   * (failed/canceled) or its execution was lost, so it is the recovery path that does not
+   * require deleting the Platform. Resolves to the new Operation.
+   */
+  rerunOperation(id: string): Promise<Operation>;
   getTimeline(id: string): Promise<OperationTimelineEvent[]>;
   cancelOperation(id: string): Promise<void>;
   retryStep(id: string, stepId: string): Promise<void>;

@@ -96,7 +96,9 @@ export function PlatformDetailPage() {
   const workloadControllers = intendedControllers.filter((assignment) => assignment.runWorkloads)
   const lifecycleOperation = operations.find(
     (operation) => operation.id === platform.lifecycleOperationId,
-  ) ?? operations.find((operation) => operation.kind === 'deploy-kubernetes')
+  ) ?? operations.find(
+    (operation) => operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm',
+  )
   const targetServerIds = lifecycleOperation?.targetServerIds
 
   return (
@@ -151,28 +153,46 @@ export function PlatformDetailPage() {
       <StatStrip
         items={[
           { label: 'Lifecycle', value: platformLifecycleLabel(platform.lifecycleState) },
-          ...(isKubernetes && platform.deployment
-            ? [
-                { label: 'Topology', value: topologyLabel(platform.deployment.topology) },
-                {
-                  label: 'Control-plane',
-                  value: intendedControllers.length,
-                  detail: workloadControllers.length > 0
-                    ? workloadControllers.length + (workloadControllers.length === 1
-                        ? ' also runs workloads'
-                        : ' also run workloads')
-                    : 'Dedicated control-plane',
-                },
-                {
-                  label: 'Workload-capable',
-                  value: workloadCapable.length,
-                  detail: intendedWorkers.length === 0
-                    ? 'No worker-only nodes'
-                    : intendedWorkers.length + (intendedWorkers.length === 1
-                        ? ' worker-only node'
-                        : ' worker-only nodes'),
-                },
-              ]
+          // Counts come from the recorded deployment intent when available so a manager node
+          // that a platform's own API never reports as a member (Slurm controllers are not
+          // slurmd scheduler nodes) is still counted. Registered platforms with no deployment
+          // intent fall back to the live membership axis.
+          ...(platform.deployment
+            ? isKubernetes
+              ? [
+                  { label: 'Topology', value: topologyLabel(platform.deployment.topology) },
+                  {
+                    label: 'Control-plane',
+                    value: intendedControllers.length,
+                    detail: workloadControllers.length > 0
+                      ? workloadControllers.length + (workloadControllers.length === 1
+                          ? ' also runs workloads'
+                          : ' also run workloads')
+                      : 'Dedicated control-plane',
+                  },
+                  {
+                    label: 'Workload-capable',
+                    value: workloadCapable.length,
+                    detail: intendedWorkers.length === 0
+                      ? 'No worker-only nodes'
+                      : intendedWorkers.length + (intendedWorkers.length === 1
+                          ? ' worker-only node'
+                          : ' worker-only nodes'),
+                  },
+                ]
+              : [
+                  { label: 'Topology', value: topologyLabel(platform.deployment.topology) },
+                  {
+                    label: 'Managers',
+                    value: intendedControllers.length,
+                    detail: workloadControllers.length > 0
+                      ? workloadControllers.length + (workloadControllers.length === 1
+                          ? ' also runs compute'
+                          : ' also run compute')
+                      : 'Dedicated controllers',
+                  },
+                  { label: 'Compute members', value: workloadCapable.length },
+                ]
             : [
                 { label: isKubernetes ? 'Control-plane' : 'Managers', value: controllers.length },
                 { label: isKubernetes ? 'Worker nodes' : 'Compute members', value: workers.length },
@@ -291,7 +311,7 @@ function LifecycleNotice({
         </Alert>
       )
     case 'uninstalled':
-      return <Alert variant={AlertVariant.info} title="Platform is uninstalled" isInline>k0s was removed from the original targets. This record remains until you delete it.</Alert>
+      return <Alert variant={AlertVariant.info} title="Platform is uninstalled" isInline>The platform was removed from the original targets. This record remains until you delete it.</Alert>
     default:
       if (!platform.integrationId) {
         return <Alert variant={AlertVariant.info} title="Platform is not reachable" isInline>No platform integration is attached, so membership cannot be read.</Alert>
@@ -318,9 +338,9 @@ function deploymentFailureMessage(operation?: Operation): string {
   const installStep = operation.steps?.find((step) => step.id === 'install-platform')
   if (installStep && (installStep.status === 'pending' || installStep.status === 'skipped')) {
     const reason = failedStep?.error?.message ?? 'Machine preparation did not complete.'
-    return `${reason} k0s installation did not start. Resolve the network or SSH readiness issue, then use Repair deployment to retry the failed Step.`
+    return `${reason} Platform installation did not start. Resolve the network or SSH readiness issue, then use Repair deployment to retry the failed Step.`
   }
-  return 'Hosts may contain partial k0s state. Review the failed Step, then use Repair deployment to retry only unfinished work.'
+  return 'Hosts may contain partial platform state. Review the failed Step, then use Repair deployment to retry only unfinished work.'
 }
 
 /** Member rows whose terminology stays neutral for Slurm. */
@@ -395,6 +415,17 @@ function MemberTable({
               assignment.runWorkloads
             const nodeName = server.membership?.nodeName || serverDisplayName(server)
             const address = serverPrimaryAddress(server)
+            // A Slurm controller is not a scheduler member, so it has no membership role/state.
+            // Fall back to the recorded assignment for its role and to the Server's own health
+            // for its state, so managers still render as rows instead of being hidden.
+            const isManager = server.membership?.role === 'control-plane' ||
+              assignment?.role === 'control-plane'
+            const roleLabel = server.membership?.role
+              ?? (assignment?.role === 'control-plane'
+                    ? (isKubernetes ? 'control-plane' : 'controller')
+                    : assignment?.role === 'worker'
+                      ? (isKubernetes ? 'worker' : 'compute')
+                      : 'unknown')
             return (
               <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
                 <Td dataLabel={isKubernetes ? 'Node' : 'Member'}>
@@ -409,17 +440,28 @@ function MemberTable({
                 <Td dataLabel="Role">
                   <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
                     <StatusBadge
-                      status={server.membership?.role === 'control-plane' ? 'info' : 'neutral'}
-                      label={server.membership?.role || 'unknown'}
+                      status={isManager ? 'info' : 'neutral'}
+                      label={roleLabel}
                     />
-                    {controllerRunsWorkloads && <Label color="green">Runs workloads</Label>}
+                    {controllerRunsWorkloads && (
+                      <Label color="green">{isKubernetes ? 'Runs workloads' : 'Also compute'}</Label>
+                    )}
                   </Flex>
                 </Td>
                 <Td dataLabel="State">
-                  <StatusBadge
-                    status={server.membership?.state === 'ready' ? 'succeeded' : 'warning'}
-                    label={server.membership?.state || 'unknown'}
-                  />
+                  {server.membership?.state ? (
+                    <StatusBadge
+                      status={server.membership.state === 'ready' ? 'succeeded' : 'warning'}
+                      label={server.membership.state}
+                    />
+                  ) : (
+                    // No scheduler membership (a controller-only node): reflect the Server's own
+                    // observed health so the row still carries a meaningful state.
+                    <StatusBadge
+                      status={server.health?.state === 'up' ? 'succeeded' : 'warning'}
+                      label={server.health?.state ?? 'unknown'}
+                    />
+                  )}
                 </Td>
                 <Td dataLabel="Address" className="mono">
                   <span className="sw-cell-inline">

@@ -21,8 +21,19 @@ const (
 	deployKubernetesKind        = "deploy-kubernetes"
 	uninstallKubernetesKind     = "uninstall-kubernetes"
 	uninstallKubernetesPlaybook = "uninstall-kubernetes"
-	restoreExportersVar         = "swallow_restore_ansible_exporters"
-	platformNameVar             = "swallow_platform_name"
+	// configureSlurmKind is the workflow kind for a Slurm platform deployment, and
+	// deploySlurmPlaybook is the manifest playbook it runs. The playbook name is hardcoded
+	// on the launcher (like uninstall-kubernetes) so a Slurm deploy needs no site
+	// playbookMappings entry.
+	configureSlurmKind  = "configure-slurm"
+	deploySlurmPlaybook = "deploy-slurm"
+	// uninstallSlurmKind / uninstallSlurmPlaybook mirror the k0s uninstall: a hardcoded
+	// playbook name (no site playbookMappings entry) that removes the Slurm configuration and
+	// daemons while leaving the host OS and image-supplied packages intact.
+	uninstallSlurmKind     = "uninstall-slurm"
+	uninstallSlurmPlaybook = "uninstall-slurm"
+	restoreExportersVar    = "swallow_restore_ansible_exporters"
+	platformNameVar        = "swallow_platform_name"
 )
 
 // Deploy Jobs (ADR 017): the k0s deployment is composed of two reusable, convergent Jobs.
@@ -30,8 +41,9 @@ const (
 // plus the readiness gate); `configure-k0s` installs and validates the Platform on top. The
 // Workflow runs each Job as a Temporal child workflow in cross-Job dependency order.
 const (
-	jobEnsureOS     = "ensure-os"
-	jobConfigureK0s = "configure-k0s"
+	jobEnsureOS       = "ensure-os"
+	jobConfigureK0s   = "configure-k0s"
+	jobConfigureSlurm = "configure-slurm"
 )
 
 // platformDeploymentLauncher composes optional MAAS preparation and k0s automation into
@@ -43,7 +55,18 @@ type platformDeploymentLauncher struct {
 	servers        serverdomain.ServerRepository
 }
 
+// Launch builds the durable Operation that deploys a Platform. It dispatches on the platform
+// type: k0s (Kubernetes) and Slurm share the ensure-os Job (OS provisioning plus the SSH
+// readiness gate) and differ only in the configure Job's playbook, workflow kind, and
+// post-install validation.
 func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
+	if launch.Platform != nil && launch.Platform.Type == platformdomain.PlatformTypeSlurm {
+		return l.launchSlurm(ctx, launch)
+	}
+	return l.launchKubernetes(ctx, launch)
+}
+
+func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 	if l.orchestrations == nil {
 		if provisionFirst {
@@ -72,130 +95,224 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 		return "", err
 	}
 
-	steps := make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+3)
-	dependencies := make([]string, 0, len(launch.TargetServerIDs))
-	secretStepIDs := make([]string, 0, len(launch.TargetServerIDs))
-	preparation := launch.MachinePreparation
-	preparation.UserData = ""
-	var frozenProvisioning *provisioningapp.DeployServersInput
-	userData := ""
-	if provisionFirst {
-		if l.deployments == nil {
-			return "", fmt.Errorf("durable Platform provisioning is unavailable")
-		}
-		// Convergent deploy (ADR 017): provision only targets that still need an OS. A
-		// target already `deployed` in the same batch is used as-is and only gets an SSH
-		// readiness gate. This lets one deploy mix ready and deployed servers.
-		readyIDs := make([]string, 0, len(launch.TargetServerIDs))
-		deployedTargets := make([]operationdomain.ResourceReference, 0, len(launch.TargetServerIDs))
-		for _, serverID := range launch.TargetServerIDs {
-			server, err := l.servers.FindByID(ctx, serverID)
-			if err != nil {
-				return "", err
-			}
-			if server.Provisioning != nil && server.Provisioning.State == "deployed" {
-				deployedTargets = append(deployedTargets, operationdomain.ResourceReference{Kind: "server", ID: serverID})
-				continue
-			}
-			readyIDs = append(readyIDs, serverID)
-		}
-		if len(readyIDs) > 0 {
-			batch, resolvedUserData, resolveErr := l.deployments.ResolveOperationInput(
-				ctx,
-				platformProvisioningInput(launch.MachinePreparation, readyIDs),
-			)
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			frozenProvisioning = &batch
-			userData = resolvedUserData
-			for _, serverID := range readyIDs {
-				stepID := "provision-" + serverID
-				targetRequest := batch
-				targetRequest.ServerIDs = []string{serverID}
-				if batch.Network != nil {
-					network := *batch.Network
-					network.Assignments = nil
-					for _, assignment := range batch.Network.Assignments {
-						if assignment.ServerID == serverID {
-							network.Assignments = []provisioningapp.DeploymentNetworkAssignmentInput{assignment}
-						}
-					}
-					targetRequest.Network = &network
-				}
-				steps = append(steps, operationdomain.Task{
-					ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
-					Job:        jobEnsureOS,
-					Executor:   operationdomain.RunnerKindProvisioner,
-					Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
-					Parameters: map[string]any{"request": structToMap(targetRequest)},
-				})
-				dependencies = append(dependencies, stepID)
-				secretStepIDs = append(secretStepIDs, stepID)
-			}
-		}
-		if len(deployedTargets) > 0 {
-			steps = append(steps, operationdomain.Task{
-				ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
-				Job:      jobEnsureOS,
-				Executor: operationdomain.RunnerKindInternal, Targets: deployedTargets,
-			})
-			dependencies = append(dependencies, "wait-for-ssh")
-		}
+	ensure, err := l.buildEnsureOS(ctx, launch, provisionFirst, prepared.Targets)
+	if err != nil {
+		return "", err
 	}
-	installDependencies := dependencies
-	if !provisionFirst {
-		steps = append(steps, operationdomain.Task{
-			ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
-			Job:      jobEnsureOS,
-			Executor: operationdomain.RunnerKindInternal, Targets: prepared.Targets,
-		})
-		installDependencies = []string{"wait-for-ssh"}
-	}
+	steps := ensure.steps
 	steps = append(steps, operationdomain.Task{
-		ID: "install-platform", Kind: "ansible-playbook", Name: "Install k0s Platform",
+		ID: installPlatformStepID, Kind: "ansible-playbook", Name: "Install k0s Platform",
 		Job:      jobConfigureK0s,
-		Executor: operationdomain.RunnerKindAnsible, DependsOn: installDependencies,
+		Executor: operationdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	})
 	steps = append(steps, operationdomain.Task{
 		ID: "validate-platform", Kind: "validate-platform-health", Name: "Validate Platform health",
 		Job:      jobConfigureK0s,
-		Executor: operationdomain.RunnerKindInternal, DependsOn: []string{"install-platform"},
+		Executor: operationdomain.RunnerKindInternal, DependsOn: []string{installPlatformStepID},
 		Targets: prepared.Targets,
 	})
+
+	created, err := l.createDeploymentWorkflow(ctx, operationID, operationdomain.WorkflowKindDeployKubernetes,
+		"Deploy k0s Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
+	if err != nil {
+		return "", err
+	}
+	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
+	return created.ID, nil
+}
+
+// launchSlurm builds the durable Slurm deployment Operation. It reuses the ensure-os Job to
+// bring targets to a booted, SSH-reachable OS (with the operator's Slurm image in provision_os
+// mode) and then runs the hardcoded deploy-slurm playbook. Unlike k0s it adds no internal
+// validate-platform-health Task: the deployed reader integration only exists once the
+// install step's result is recorded, so cluster validation lives in the playbook itself and
+// membership is filled in by the background sync. Durable orchestration is required; there is
+// no legacy single-step Slurm path.
+func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
+	if l.orchestrations == nil {
+		return "", fmt.Errorf("durable Slurm deployment is unavailable")
+	}
+	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
+
+	operationID := uuid.NewString()
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+		Kind: configureSlurmKind, PlaybookName: deploySlurmPlaybook,
+		Intent:          "Deploy Slurm platform " + launch.Platform.Name,
+		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
+		TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
+		RequestedBy: launch.RequestedBy,
+	}, operationID, provisionFirst)
+	if err != nil {
+		return "", err
+	}
+
+	ensure, err := l.buildEnsureOS(ctx, launch, provisionFirst, prepared.Targets)
+	if err != nil {
+		return "", err
+	}
+	steps := ensure.steps
+	steps = append(steps, operationdomain.Task{
+		ID: installPlatformStepID, Kind: "ansible-playbook", Name: "Install Slurm Platform",
+		Job:      jobConfigureSlurm,
+		Executor: operationdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
+		Targets:    prepared.Targets,
+		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+	})
+
+	created, err := l.createDeploymentWorkflow(ctx, operationID, operationdomain.WorkflowKindConfigureSlurm,
+		"Deploy Slurm Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
+	if err != nil {
+		return "", err
+	}
+	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
+	return created.ID, nil
+}
+
+// ensureOSPlan is the ensure-os Job's Tasks plus what the caller needs to finish the
+// Workflow: the install step's dependency ids, which Task ids carry per-step provisioning
+// secrets, and the frozen provisioning snapshot recorded in the operation intent.
+type ensureOSPlan struct {
+	steps         []operationdomain.Task
+	installDeps   []string
+	secretStepIDs []string
+	frozen        *provisioningapp.DeployServersInput
+	userData      string
+}
+
+// buildEnsureOS constructs the ensure-os Job shared by every platform deployment. In
+// provision_os mode it provisions only targets that still need an OS (ADR 017 convergence):
+// a target already `deployed` in the same batch is reused as-is and only gets the SSH
+// readiness gate, so one deploy can mix ready and deployed servers. In existing_os mode it
+// adds a single readiness gate over the prepared targets. preparedTargets is the ansible
+// step's resolved target set, used for the existing_os gate.
+func (l platformDeploymentLauncher) buildEnsureOS(
+	ctx context.Context,
+	launch platformdomain.DeploymentLaunch,
+	provisionFirst bool,
+	preparedTargets []operationdomain.ResourceReference,
+) (ensureOSPlan, error) {
+	plan := ensureOSPlan{
+		steps:         make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+2),
+		secretStepIDs: make([]string, 0, len(launch.TargetServerIDs)),
+	}
+	if !provisionFirst {
+		plan.steps = append(plan.steps, operationdomain.Task{
+			ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
+			Job:      jobEnsureOS,
+			Executor: operationdomain.RunnerKindInternal, Targets: preparedTargets,
+		})
+		plan.installDeps = []string{"wait-for-ssh"}
+		return plan, nil
+	}
+
+	if l.deployments == nil {
+		return ensureOSPlan{}, fmt.Errorf("durable Platform provisioning is unavailable")
+	}
+	dependencies := make([]string, 0, len(launch.TargetServerIDs))
+	readyIDs := make([]string, 0, len(launch.TargetServerIDs))
+	deployedTargets := make([]operationdomain.ResourceReference, 0, len(launch.TargetServerIDs))
+	for _, serverID := range launch.TargetServerIDs {
+		server, err := l.servers.FindByID(ctx, serverID)
+		if err != nil {
+			return ensureOSPlan{}, err
+		}
+		if server.Provisioning != nil && server.Provisioning.State == "deployed" {
+			deployedTargets = append(deployedTargets, operationdomain.ResourceReference{Kind: "server", ID: serverID})
+			continue
+		}
+		readyIDs = append(readyIDs, serverID)
+	}
+	if len(readyIDs) > 0 {
+		batch, resolvedUserData, resolveErr := l.deployments.ResolveOperationInput(
+			ctx,
+			platformProvisioningInput(launch.MachinePreparation, readyIDs),
+		)
+		if resolveErr != nil {
+			return ensureOSPlan{}, resolveErr
+		}
+		plan.frozen = &batch
+		plan.userData = resolvedUserData
+		for _, serverID := range readyIDs {
+			stepID := "provision-" + serverID
+			targetRequest := batch
+			targetRequest.ServerIDs = []string{serverID}
+			if batch.Network != nil {
+				network := *batch.Network
+				network.Assignments = nil
+				for _, assignment := range batch.Network.Assignments {
+					if assignment.ServerID == serverID {
+						network.Assignments = []provisioningapp.DeploymentNetworkAssignmentInput{assignment}
+					}
+				}
+				targetRequest.Network = &network
+			}
+			plan.steps = append(plan.steps, operationdomain.Task{
+				ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
+				Job:        jobEnsureOS,
+				Executor:   operationdomain.RunnerKindProvisioner,
+				Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+				Parameters: map[string]any{"request": structToMap(targetRequest)},
+			})
+			dependencies = append(dependencies, stepID)
+			plan.secretStepIDs = append(plan.secretStepIDs, stepID)
+		}
+	}
+	if len(deployedTargets) > 0 {
+		plan.steps = append(plan.steps, operationdomain.Task{
+			ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
+			Job:      jobEnsureOS,
+			Executor: operationdomain.RunnerKindInternal, Targets: deployedTargets,
+		})
+		dependencies = append(dependencies, "wait-for-ssh")
+	}
+	plan.installDeps = dependencies
+	return plan, nil
+}
+
+// createDeploymentWorkflow persists the deployment Workflow shared by k0s and Slurm. It seals
+// the install step's platform secrets and, in provision_os mode with replace cloud-init, the
+// resolved user data, and records the machine-preparation and frozen provisioning snapshots in
+// the operation intent so a retry replays the same inputs.
+func (l platformDeploymentLauncher) createDeploymentWorkflow(
+	ctx context.Context,
+	operationID string,
+	kind operationdomain.WorkflowKind,
+	summary string,
+	launch platformdomain.DeploymentLaunch,
+	prepared *operationapp.PreparedAnsibleStep,
+	steps []operationdomain.Task,
+	ensure ensureOSPlan,
+) (*operationapp.WorkflowItem, error) {
+	preparation := launch.MachinePreparation
+	preparation.UserData = ""
 	stepSecrets := map[string]map[string]any{}
 	if len(launch.SecretVars) > 0 {
-		stepSecrets["install-platform"] = launch.SecretVars
+		stepSecrets[installPlatformStepID] = launch.SecretVars
 	}
 	sharedSecrets := map[string]any{}
-	if provisionFirst && frozenProvisioning != nil && frozenProvisioning.UserData.Mode == "replace" && userData != "" {
-		sharedSecrets["userData"] = userData
+	if ensure.frozen != nil && ensure.frozen.UserData.Mode == "replace" && ensure.userData != "" {
+		sharedSecrets["userData"] = ensure.userData
 	}
 	intentSnapshot := map[string]any{
 		"machinePreparation": structToMap(preparation), "extraVars": prepared.ExtraVars,
 	}
-	if frozenProvisioning != nil {
-		intentSnapshot["resolvedProvisioning"] = structToMap(*frozenProvisioning)
+	if ensure.frozen != nil {
+		intentSnapshot["resolvedProvisioning"] = structToMap(*ensure.frozen)
 	}
-	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
-		ID: operationID, Kind: operationdomain.WorkflowKindDeployKubernetes,
-		IntentSummary:  "Deploy k0s Platform " + launch.Platform.Name,
+	return l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
+		ID: operationID, Kind: kind,
+		IntentSummary:  summary,
 		IntentSnapshot: intentSnapshot,
 		Definition:     "platform-deployment", DefinitionVersion: 1,
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
 		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
-		SecretStepIDs: secretStepIDs, SecretValues: sharedSecrets,
+		SecretStepIDs: ensure.secretStepIDs, SecretValues: sharedSecrets,
 		StepSecretValues: stepSecrets,
 	})
-	if err != nil {
-		return "", err
-	}
-	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
-	return created.ID, nil
 }
 
 // platformOperationCanceler implements platformdomain.PlatformOperationCanceler by finding
@@ -274,6 +391,11 @@ func optionalStringPointer(value string) *string {
 	return &value
 }
 
+// installPlatformStepID is the ansible Task that installs the platform (k0s or Slurm) on top
+// of the ensure-os Job. Its result carries the deployment credential, and it is the step that
+// carries platform secrets, so both launchers and the completion observer refer to it by this id.
+const installPlatformStepID = "install-platform"
+
 // uninstallPlatformStepID is the durable uninstall step that every optional release step
 // depends on, so k0s is always removed before any host is released.
 const uninstallPlatformStepID = "uninstall-platform"
@@ -282,6 +404,23 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	ctx context.Context,
 	launch platformdomain.UninstallLaunch,
 ) (string, error) {
+	// Uninstall reuses one flow for both platform types and differs only in the workflow kind,
+	// the hardcoded playbook, and operator-facing labels.
+	uninstallKind := uninstallKubernetesKind
+	uninstallPlaybook := uninstallKubernetesPlaybook
+	workflowKind := operationdomain.WorkflowKindUninstallKubernetes
+	stepName := "Uninstall k0s Platform"
+	intent := "Uninstall k0s platform " + launch.Platform.Name
+	summary := "Uninstall k0s Platform " + launch.Platform.Name
+	if launch.Platform.Type == platformdomain.PlatformTypeSlurm {
+		uninstallKind = uninstallSlurmKind
+		uninstallPlaybook = uninstallSlurmPlaybook
+		workflowKind = operationdomain.WorkflowKindUninstallSlurm
+		stepName = "Uninstall Slurm Platform"
+		intent = "Uninstall Slurm platform " + launch.Platform.Name
+		summary = "Uninstall Slurm Platform " + launch.Platform.Name
+	}
+
 	trustedVars := map[string]any{
 		restoreExportersVar: launch.RestoreExporters,
 		platformNameVar:     launch.Platform.Name,
@@ -294,9 +433,9 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 			return "", fmt.Errorf("durable Platform uninstall is unavailable; releasing servers requires it")
 		}
 		item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
-			Kind: uninstallKubernetesKind, Intent: "Uninstall k0s platform " + launch.Platform.Name,
+			Kind: uninstallKind, Intent: intent,
 			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
-			PlaybookName:       uninstallKubernetesPlaybook,
+			PlaybookName:       uninstallPlaybook,
 			TrustedVars:        trustedVars,
 			RetryOfOperationID: launch.RetryOfOperationID,
 			RequestedBy:        launch.RequestedBy,
@@ -309,9 +448,9 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 
 	operationID := uuid.NewString()
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
-		Kind: uninstallKubernetesKind, Intent: "Uninstall k0s platform " + launch.Platform.Name,
+		Kind: uninstallKind, Intent: intent,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
-		PlaybookName: uninstallKubernetesPlaybook, TrustedVars: trustedVars,
+		PlaybookName: uninstallPlaybook, TrustedVars: trustedVars,
 		RequestedBy: launch.RequestedBy,
 	}, operationID, false)
 	if err != nil {
@@ -320,7 +459,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 
 	steps := make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+1)
 	steps = append(steps, operationdomain.Task{
-		ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: "Uninstall k0s Platform",
+		ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: stepName,
 		Executor: operationdomain.RunnerKindAnsible, Targets: prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	})
@@ -345,8 +484,8 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	}
 
 	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
-		ID: operationID, Kind: operationdomain.WorkflowKindUninstallKubernetes,
-		IntentSummary:  "Uninstall k0s Platform " + launch.Platform.Name,
+		ID: operationID, Kind: workflowKind,
+		IntentSummary:  summary,
 		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "releaseServers": launch.ReleaseServers},
 		Definition:     "platform-uninstall", DefinitionVersion: 1,
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
@@ -379,7 +518,9 @@ func (o platformDeploymentObserver) OperationSucceeded(
 	switch operation.Kind {
 	case operationdomain.WorkflowKindDeployKubernetes:
 		o.completeDeployment(ctx, operation, result)
-	case operationdomain.WorkflowKindUninstallKubernetes:
+	case operationdomain.WorkflowKindConfigureSlurm:
+		o.completeSlurmDeployment(ctx, operation, result)
+	case operationdomain.WorkflowKindUninstallKubernetes, operationdomain.WorkflowKindUninstallSlurm:
 		o.completeUninstall(ctx, operation)
 	}
 }
@@ -397,6 +538,30 @@ func (o platformDeploymentObserver) completeDeployment(
 	}
 	if err := o.credentials.Record(ctx, operation.PlatformID, *credential); err != nil {
 		slog.Error("record platform deployment credential",
+			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
+	}
+}
+
+// completeSlurmDeployment records the slurmrestd reader credential a successful Slurm
+// deployment wrote to its result file, turning the platform into one swallow can read
+// membership from. A missing credential is logged rather than fatal here because the
+// operation has already succeeded; the per-step AnsibleStepSucceeded hook is the path that
+// fails the run when no credential is produced.
+func (o platformDeploymentObserver) completeSlurmDeployment(
+	ctx context.Context,
+	operation *operationdomain.ExecutionOperation,
+	result operationdomain.RunnerResult,
+) {
+	credential := slurmCredentialFromResult(result)
+	if credential == nil {
+		// Not an error: a Slurm cluster works without slurmrestd; membership simply cannot be
+		// read until the image includes slurm-smd-slurmrestd. See AnsibleStepSucceeded.
+		slog.Warn("slurm deployment produced no reader credential; membership will not populate until slurmrestd is available",
+			"operationId", operation.ID, "platformId", operation.PlatformID)
+		return
+	}
+	if err := o.credentials.RecordSlurm(ctx, operation.PlatformID, *credential); err != nil {
+		slog.Error("record slurm deployment credential",
 			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
 	}
 }
@@ -466,6 +631,25 @@ func platformCredentialFromResult(result operationdomain.RunnerResult) *platform
 	}
 }
 
+// slurmCredentialFromResult reads the slurmrestd reader credential a Slurm deployment
+// playbook wrote to its result file: the slurmrestd base URL, a Slurm JWT, and the endpoint
+// version the controller exposes. Endpoint and token are required; apiVersion is optional and
+// lets the reader fall back to its default when absent.
+func slurmCredentialFromResult(result operationdomain.RunnerResult) *platformapp.SlurmDeploymentCredential {
+	if result.Data == nil {
+		return nil
+	}
+	endpoint := stringField(result.Data, "slurmrestdEndpoint")
+	token := stringField(result.Data, "token")
+	if endpoint == "" || token == "" {
+		return nil
+	}
+	return &platformapp.SlurmDeploymentCredential{
+		Endpoint: endpoint, Token: token,
+		APIVersion: stringField(result.Data, "apiVersion"),
+	}
+}
+
 func stringField(data map[string]any, key string) string {
 	if value, ok := data[key].(string); ok {
 		return value
@@ -495,7 +679,19 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 			return fmt.Errorf("deployment returned no Kubernetes credential")
 		}
 		return o.credentials.Record(ctx, execution.PlatformID, *credential)
-	case operationdomain.WorkflowKindUninstallKubernetes:
+	case operationdomain.WorkflowKindConfigureSlurm:
+		credential := slurmCredentialFromResult(result)
+		if credential == nil {
+			// A Slurm cluster (slurmctld + slurmd) is fully functional without slurmrestd, which
+			// only powers membership reads. Its absence is not a deploy failure: the platform is
+			// deployed with no reader integration, and membership stays empty until the image
+			// includes slurm-smd-slurmrestd. Do not fail the operation over it.
+			slog.Warn("slurm deployment produced no reader credential; membership will not populate until slurmrestd is available",
+				"operationId", execution.OperationID, "platformId", execution.PlatformID)
+			return nil
+		}
+		return o.credentials.RecordSlurm(ctx, execution.PlatformID, *credential)
+	case operationdomain.WorkflowKindUninstallKubernetes, operationdomain.WorkflowKindUninstallSlurm:
 		if err := o.platforms.CompleteUninstall(ctx, execution.PlatformID); err != nil {
 			return err
 		}

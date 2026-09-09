@@ -11,6 +11,7 @@ import {
 } from '@patternfly/react-core'
 import { Copy } from 'lucide-react'
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
+import { copyText } from '@/presentation/utils/clipboard'
 import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { actionLabel } from './serverActions'
 import {
@@ -56,12 +57,9 @@ export function ServerActionResultDialog({
   const action = actionLabel(result.action)
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(formatResult(result))
-      setCopyState('copied')
-    } catch {
-      setCopyState('failed')
-    }
+    // copyText falls back to a legacy copy on insecure origins (LAN HTTP) where the async
+    // Clipboard API is unavailable, so this works regardless of how the dashboard is served.
+    setCopyState((await copyText(formatResult(result))) ? 'copied' : 'failed')
   }
 
   return (

@@ -36,6 +36,7 @@ POST /api/v1/workflows/
 GET  /api/v1/workflows/
 GET  /api/v1/workflows/{workflowId}
 POST /api/v1/workflows/{workflowId}/cancel
+POST /api/v1/workflows/{workflowId}/rerun
 GET  /api/v1/workflows/{workflowId}/timeline
 POST /api/v1/workflows/{workflowId}/tasks/{taskId}/retry
 GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/logs
@@ -56,6 +57,7 @@ POST /api/v1/operations/                                   -> /workflows/
 GET  /api/v1/operations/                                   -> /workflows/
 GET  /api/v1/operations/{id}                               -> /workflows/{id}
 POST /api/v1/operations/{id}/cancel                        -> /workflows/{id}/cancel
+POST /api/v1/operations/{id}/rerun                         -> /workflows/{id}/rerun
 GET  /api/v1/operations/{id}/timeline                      -> /workflows/{id}/timeline
 POST /api/v1/operations/{id}/steps/{stepId}/retry          -> /workflows/{id}/tasks/{taskId}/retry
 GET  /api/v1/operations/{id}/steps/{stepId}/logs           -> /workflows/{id}/tasks/{taskId}/logs
@@ -173,13 +175,35 @@ when the provider cannot stop it. Confirmed prior effects are preserved.
 Task attempt in the same Workflow; successful dependencies are not repeated. A provider or
 Ansible idempotency identity includes Workflow, Task, target, and attempt.
 
+## Rerun (recovery)
+
+`POST /{id}/rerun` recovers a Workflow that can no longer advance in place. The stable
+Workflow ID rejects a duplicate start and the starter only launches `startState=pending`
+records, so a Workflow that finished `failed`, `partially_succeeded`, or `canceled`, or one
+whose Temporal execution was lost (a host restart or execution timeout left it non-terminal
+with no live execution), cannot be restarted or retried by Task. Rerun instead launches a new
+Workflow for the same intent, on the same Platform, and returns `202` with the new Workflow
+projection. The new Workflow's `retryOfOperationId` points at the original, it carries a later
+`requestedAt` so the platform lifecycle follows it, and the original stays in history. Already
+`succeeded` and `skipped` Tasks are preserved so their side effects are not repeated; only the
+incomplete Tasks run again. A Workflow that already `succeeded` or is still actively advancing
+(`pending`, `running`, `waiting_external`, `waiting_dependency`, `canceling`) is rejected with
+`conflict`; those cases use Task retry or cancel instead. The lost-execution reconciler
+independently marks a Workflow whose execution vanished as `requires_attention` so it surfaces
+as repairable rather than stuck.
+
 ## Durability And Protection
 
 The stable Temporal Workflow ID is `swallow-operation/<workflowId>` (the Temporal name is
 history-tied and retained). The starter retries records with `startState=pending`, and
 duplicate starts are rejected by Temporal. Resource mutations acquire sorted `server:<id>`
 and `platform:<id>` leases, each with a monotonically increasing fencing token, renewed
-while waiting and verified before side effects.
+while waiting and verified before side effects. A lease-renewal failure while a Workflow is
+parked in `requires_attention` does not end it: the Workflow keeps waiting (it exits only on a
+Task retry or an operator cancel), so a transient outage cannot cancel work that only needs to
+be resumed. A background reconciler marks a started Workflow whose Temporal execution is gone
+while its status is still non-terminal as `requires_attention`, and `POST /{id}/rerun` recovers
+it without deleting the Platform (see Rerun).
 
 ## Schema-v2 Compatibility
 

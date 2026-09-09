@@ -1,0 +1,85 @@
+---
+# Establish MUNGE authentication: install MUNGE, mint one shared key on the primary
+# controller, distribute that same key to every node, and start munge before any Slurm daemon.
+# The whole cluster must share one identical key; a per-node key would make every cross-node
+# credential fail. Every task that touches the key is no_log.
+
+- name: Ensure MUNGE is installed
+  # MUNGE is not part of slurm-smd and is a normal distribution package, so installing it here
+  # is allowed even though Slurm itself comes from the image.
+  ansible.builtin.apt:
+    name: munge
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Create the MUNGE key on the primary controller if absent
+  # 1024 random bytes is the conventional MUNGE key size. creates makes this a one-time mint,
+  # so reruns keep the existing key and stay idempotent (a regenerated key would break the
+  # cluster).
+  ansible.builtin.command:
+    cmd: dd if=/dev/urandom of=/etc/munge/munge.key bs=1024 count=1
+    creates: /etc/munge/munge.key
+  become: true
+  no_log: true
+  run_once: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+
+- name: Fix the primary MUNGE key ownership and mode
+  ansible.builtin.file:
+    path: /etc/munge/munge.key
+    owner: munge
+    group: munge
+    mode: "0400"
+  become: true
+  run_once: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+
+- name: Read the authoritative MUNGE key checksum from the primary
+  ansible.builtin.stat:
+    path: /etc/munge/munge.key
+  become: true
+  run_once: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+  register: slurm_primary_munge
+
+- name: Read the authoritative MUNGE key from the primary
+  # slurp returns the key base64-encoded; the encoded string travels as safe text and is
+  # decoded back to the original bytes on each node, which avoids corrupting binary content.
+  ansible.builtin.slurp:
+    src: /etc/munge/munge.key
+  become: true
+  run_once: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+  register: slurm_munge_key
+  no_log: true
+
+- name: Read the local MUNGE key checksum
+  ansible.builtin.stat:
+    path: /etc/munge/munge.key
+  become: true
+  register: slurm_local_munge
+
+- name: Install the shared MUNGE key on this node
+  # Written only when the local key differs from the primary's, so a converged node reports no
+  # change. base64 -d reconstructs the exact bytes from the encoded string.
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      printf '%s' '{{ slurm_munge_key.content }}' | base64 -d > /etc/munge/munge.key &&
+      chown munge:munge /etc/munge/munge.key &&
+      chmod 0400 /etc/munge/munge.key
+    executable: /bin/bash
+  become: true
+  no_log: true
+  when: (slurm_local_munge.stat.checksum | default('')) != (slurm_primary_munge.stat.checksum | default('__none__'))
+  notify: Restart munge
+
+- name: Enable and start munge
+  ansible.builtin.systemd:
+    name: munge
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true

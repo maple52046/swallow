@@ -1,0 +1,103 @@
+---
+# Configure a controller: create Slurm's directories and JWT signing key, then render the
+# authoritative slurm.conf and cgroup.conf. Runs on controllers only (compute nodes are
+# configless and fetch slurm.conf from a controller). Config changes notify a slurmctld
+# restart so a rerun that changes nothing does not bounce the daemon.
+
+- name: Ensure the Slurm configuration directory exists
+  ansible.builtin.file:
+    path: "{{ slurm_conf_dir }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0755"
+  become: true
+
+- name: Ensure Slurm runtime directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ slurm_log_dir }}"
+    - "{{ slurm_state_save_location }}"
+    - /var/spool/slurmd
+
+- name: Create the JWT signing key on the primary controller if absent
+  # The HS256 key authenticates slurmrestd JWTs. creates makes it a one-time mint so reruns
+  # keep the key stable; every controller must share the same key, so it is generated on the
+  # primary and copied to any other controller below.
+  ansible.builtin.command:
+    cmd: dd if=/dev/urandom of={{ slurm_jwt_key_path }} bs=32 count=1
+    creates: "{{ slurm_jwt_key_path }}"
+  become: true
+  no_log: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+
+- name: Fix the JWT key ownership and mode on the primary
+  ansible.builtin.file:
+    path: "{{ slurm_jwt_key_path }}"
+    owner: slurm
+    group: slurm
+    mode: "0600"
+  become: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+
+- name: Read the authoritative JWT key checksum from the primary
+  ansible.builtin.stat:
+    path: "{{ slurm_jwt_key_path }}"
+  become: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+  register: slurm_primary_jwt
+
+- name: Read the authoritative JWT key from the primary
+  ansible.builtin.slurp:
+    src: "{{ slurm_jwt_key_path }}"
+  become: true
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+  register: slurm_jwt_key
+  no_log: true
+
+- name: Read the local JWT key checksum
+  ansible.builtin.stat:
+    path: "{{ slurm_jwt_key_path }}"
+  become: true
+  register: slurm_local_jwt
+
+- name: Install the shared JWT key on this controller
+  # Only written when it differs from the primary's, so a converged controller reports no
+  # change. base64 -d reconstructs the exact key bytes from the encoded string.
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      printf '%s' '{{ slurm_jwt_key.content }}' | base64 -d > {{ slurm_jwt_key_path }} &&
+      chown slurm:slurm {{ slurm_jwt_key_path }} &&
+      chmod 0600 {{ slurm_jwt_key_path }}
+    executable: /bin/bash
+  become: true
+  no_log: true
+  when: (slurm_local_jwt.stat.checksum | default('')) != (slurm_primary_jwt.stat.checksum | default('__none__'))
+  notify: Restart slurmctld
+
+- name: Render cgroup.conf
+  ansible.builtin.template:
+    src: cgroup.conf.j2
+    dest: "{{ slurm_conf_dir }}/cgroup.conf"
+    owner: slurm
+    group: slurm
+    mode: "0644"
+  become: true
+  notify: Restart slurmctld
+
+- name: Render slurm.conf
+  ansible.builtin.template:
+    src: slurm.conf.j2
+    dest: "{{ slurm_conf_dir }}/slurm.conf"
+    owner: slurm
+    group: slurm
+    mode: "0644"
+  become: true
+  notify: Restart slurmctld

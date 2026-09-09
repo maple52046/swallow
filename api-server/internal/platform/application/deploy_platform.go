@@ -42,6 +42,21 @@ const (
 	varK0sVRRPAuthPass = "swallow_k0s_vrrp_auth_pass"
 )
 
+// Trusted extra-var names the deploy operation passes to the Slurm playbook. Like the k0s
+// vars they use the swallow_ prefix so a client cannot forge them. Node roles are expressed
+// as ordered id lists (per-daemon), not a single role map, because a Server may run both
+// slurmctld and slurmd.
+const (
+	varSlurmClusterName       = "swallow_slurm_cluster_name"
+	varSlurmPlatformName      = "swallow_slurm_platform_name"
+	varSlurmControllerIDs     = "swallow_slurm_controller_ids"
+	varSlurmComputeIDs        = "swallow_slurm_compute_ids"
+	varSlurmPrimaryController = "swallow_slurm_primary_controller_id"
+	varSlurmHighAvailability  = "swallow_slurm_high_availability"
+	varSlurmStateSaveLocation = "swallow_slurm_state_save_location"
+	varSlurmAPIVersion        = "swallow_slurm_api_version"
+)
+
 // DeployService owns the intent to build a platform: it validates the topology, creates the
 // platform with no integration yet, and delegates execution to the operation context.
 type DeployService struct {
@@ -76,11 +91,18 @@ func NewDeployService(
 }
 
 // DeployPlatformInput is accepted by POST /platforms/deploy.
+//
+// Type selects which platform is built and therefore which spec is read: Spec for
+// PlatformTypeKubernetes (k0s) and SlurmSpec for PlatformTypeSlurm. An empty Type defaults
+// to Kubernetes so existing callers that predate the type field keep working. The other
+// spec is ignored for the type that is not selected.
 type DeployPlatformInput struct {
 	SiteID             string
 	Name               string
+	Type               platformdomain.PlatformType
 	GPUStackOwner      string
 	Spec               platformdomain.DeploymentSpec
+	SlurmSpec          platformdomain.SlurmDeploymentSpec
 	RequestedBy        string
 	RequestCorrelation string
 	MachinePreparation platformdomain.MachinePreparation
@@ -94,9 +116,12 @@ type DeployPlatformResult struct {
 }
 
 // validatedDeployment keeps provider observations out of the domain DeploymentSpec while
-// carrying the resolved API address from preflight into trusted playbook variables.
+// carrying the resolved API address from preflight into trusted playbook variables. slurmSpec
+// carries the normalized Slurm intent (defaults applied) when the deployment is a Slurm one;
+// spec/apiAddress are the Kubernetes equivalents.
 type validatedDeployment struct {
 	spec               platformdomain.DeploymentSpec
+	slurmSpec          platformdomain.SlurmDeploymentSpec
 	targets            []*serverdomain.Server
 	apiAddress         string
 	machinePreparation platformdomain.MachinePreparation
@@ -119,7 +144,25 @@ func (s *DeployService) AttachMachinePreparationValidator(validator platformdoma
 	s.machinePreparation = validator
 }
 
+// Deploy dispatches on the requested platform type. An empty type defaults to Kubernetes so
+// callers that predate the type field are unaffected; an unknown type is a domain error the
+// delivery layer turns into a 400.
 func (s *DeployService) Deploy(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
+	platformType := input.Type
+	if platformType == "" {
+		platformType = platformdomain.PlatformTypeKubernetes
+	}
+	switch platformType {
+	case platformdomain.PlatformTypeKubernetes:
+		return s.deployKubernetes(ctx, input)
+	case platformdomain.PlatformTypeSlurm:
+		return s.deploySlurm(ctx, input)
+	default:
+		return nil, fmt.Errorf("%w: %q", platformdomain.ErrUnsupportedPlatformType, platformType)
+	}
+}
+
+func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
 	validated, err := s.validate(ctx, input)
 	if err != nil {
 		return nil, err
@@ -167,6 +210,195 @@ func (s *DeployService) Deploy(ctx context.Context, input DeployPlatformInput) (
 	}
 
 	return &DeployPlatformResult{PlatformID: platform.ID, OperationID: operationID}, nil
+}
+
+// deploySlurm validates the Slurm topology, registers the platform, and launches the build
+// operation. Like deployKubernetes it deletes the platform if the launch is refused so a
+// rejected request leaves no orphan record. Slurm needs no launch-time secret: the playbook
+// mints the shared MUNGE key and the slurmrestd JWT on the primary controller itself, and the
+// resulting reader credential is recorded from the run's result file.
+func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
+	validated, err := s.validateSlurm(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	gpuStackOwner := strings.TrimSpace(input.GPUStackOwner)
+	if gpuStackOwner == "" {
+		// Slurm has no in-platform GPU operator, so drivers come from the OS image or
+		// provisioning. Default the owner rather than forcing a Kubernetes-shaped choice.
+		gpuStackOwner = string(platformdomain.GPUStackOwnerProvisioning)
+	}
+
+	created, err := s.platformService.Create(ctx, CreatePlatformInput{
+		SiteID:        input.SiteID,
+		Name:          input.Name,
+		Type:          string(platformdomain.PlatformTypeSlurm),
+		GPUStackOwner: gpuStackOwner,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	platform, err := s.platforms.FindByID(ctx, created.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	launch := platformdomain.DeploymentLaunch{
+		Platform:           platform,
+		TargetServerIDs:    validated.slurmSpec.ServerIDs(),
+		TrustedVars:        buildSlurmVars(platform, validated.slurmSpec),
+		RequestedBy:        input.RequestedBy,
+		RequestCorrelation: input.RequestCorrelation,
+		MachinePreparation: validated.machinePreparation,
+	}
+	operationID, err := s.launcher.Launch(ctx, launch)
+	if err != nil {
+		// The operation was refused, so nothing is building this platform; remove it.
+		_ = s.platforms.Delete(ctx, platform.ID)
+		return nil, err
+	}
+	return &DeployPlatformResult{PlatformID: platform.ID, OperationID: operationID}, nil
+}
+
+// validateSlurm resolves and checks the Slurm topology and targets before any record exists.
+// It returns a normalized SlurmDeploymentSpec (ClusterName defaulted, values trimmed) and the
+// resolved machine-preparation mode. It reuses the same per-target site/absent/state/lock/
+// claim/membership checks as the Kubernetes path, but deliberately applies no ephemeral guard:
+// a Slurm deployment may run from an ephemeral OS in this first cut.
+func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformInput) (validatedDeployment, error) {
+	var invalid validatedDeployment
+	spec := input.SlurmSpec
+	preparation := input.MachinePreparation
+	if preparation.Mode == "" {
+		preparation.Mode = platformdomain.MachinePreparationExistingOS
+	}
+	if !preparation.Mode.Valid() {
+		return invalid, fmt.Errorf("%w: machinePreparation.mode must be existing_os or provision_os", platformdomain.ErrInvalidDeployment)
+	}
+	if len(spec.NodeAssignments) == 0 {
+		return invalid, fmt.Errorf("%w: at least one node assignment is required", platformdomain.ErrInvalidDeployment)
+	}
+
+	availability, err := s.targetAvailability(ctx, input.SiteID)
+	if err != nil {
+		return invalid, err
+	}
+
+	targets := make([]*serverdomain.Server, 0, len(spec.NodeAssignments))
+	// readyServerIDs are the targets that still need an OS in provision_os mode; only they
+	// are provisioned and preflighted, so a batch may mix ready and already-deployed servers.
+	readyServerIDs := make([]string, 0, len(spec.NodeAssignments))
+	seenServer := map[string]bool{}
+	controllers := 0
+	computes := 0
+	for _, assignment := range spec.NodeAssignments {
+		if !assignment.Controller && !assignment.Compute {
+			return invalid, fmt.Errorf("%w: server %s must run slurmctld (controller) or slurmd (compute)",
+				platformdomain.ErrInvalidDeployment, assignment.ServerID)
+		}
+		if seenServer[assignment.ServerID] {
+			return invalid, fmt.Errorf("%w: server %s is assigned more than once",
+				platformdomain.ErrInvalidDeployment, assignment.ServerID)
+		}
+		seenServer[assignment.ServerID] = true
+
+		server, err := s.servers.FindByID(ctx, assignment.ServerID)
+		if err != nil {
+			return invalid, err
+		}
+		if server.Source.SiteID != input.SiteID {
+			return invalid, fmt.Errorf("%w: server %s is not at site %s",
+				platformdomain.ErrInvalidDeployment, server.DisplayName(), input.SiteID)
+		}
+		if server.Absent {
+			return invalid, fmt.Errorf("%w: server %s is absent from its provisioner",
+				platformdomain.ErrInvalidDeployment, server.DisplayName())
+		}
+		state := ""
+		if server.Provisioning != nil {
+			state = server.Provisioning.State
+		}
+		switch preparation.Mode {
+		case platformdomain.MachinePreparationProvisionOS:
+			if state != "ready" && state != "deployed" {
+				return invalid, fmt.Errorf("%w: server %s must be ready or deployed for machine preparation mode %s",
+					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
+			}
+			if state == "ready" {
+				readyServerIDs = append(readyServerIDs, server.ID)
+			}
+		default:
+			if state != "deployed" {
+				return invalid, fmt.Errorf("%w: server %s must be deployed for machine preparation mode %s",
+					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
+			}
+		}
+		if s.protection == nil && server.Provisioning != nil && server.Provisioning.Locked {
+			return invalid, &serverdomain.ServerLockedError{Name: server.DisplayName()}
+		}
+		if claimedBy := availability.claims[server.ID]; claimedBy != nil {
+			return invalid, fmt.Errorf(
+				"%w: server %s is already claimed by %s Platform %s",
+				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy.Type, claimedBy.Name,
+			)
+		}
+		if server.Membership != nil {
+			platformName := server.Membership.PlatformID
+			platformType := "unknown"
+			if existing := availability.platformsByID[server.Membership.PlatformID]; existing != nil {
+				platformName = existing.Name
+				platformType = string(existing.Type)
+			}
+			return invalid, fmt.Errorf(
+				"%w: server %s already reports membership in %s Platform %s as %s",
+				platformdomain.ErrInvalidDeployment,
+				server.DisplayName(), platformType, platformName, server.Membership.Role,
+			)
+		}
+		if assignment.Controller {
+			controllers++
+		}
+		if assignment.Compute {
+			computes++
+		}
+		targets = append(targets, server)
+	}
+
+	if s.protection != nil {
+		if err := s.protection.RequireUnlocked(ctx, serverIDs(targets)); err != nil {
+			return invalid, err
+		}
+	}
+	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && len(readyServerIDs) > 0 {
+		if s.machinePreparation == nil {
+			return invalid, fmt.Errorf("%w: OS provisioning is unavailable", platformdomain.ErrInvalidDeployment)
+		}
+		if err := s.machinePreparation.Validate(ctx, input.SiteID, readyServerIDs, preparation); err != nil {
+			return invalid, err
+		}
+	}
+
+	if controllers == 0 {
+		return invalid, fmt.Errorf("%w: at least one server must run slurmctld (controller)", platformdomain.ErrInvalidDeployment)
+	}
+	if computes == 0 {
+		return invalid, fmt.Errorf("%w: at least one server must run slurmd (compute)", platformdomain.ErrInvalidDeployment)
+	}
+
+	spec.ClusterName = strings.TrimSpace(spec.ClusterName)
+	spec.APIVersion = strings.TrimSpace(spec.APIVersion)
+	spec.StateSaveLocation = strings.TrimSpace(spec.StateSaveLocation)
+	// HA hook: a backup slurmctld can only recover controller state from a shared directory,
+	// which swallow does not provision, so a multi-controller deployment must be told where it
+	// is. A single controller uses the playbook's local default.
+	if spec.HighlyAvailable() && spec.StateSaveLocation == "" {
+		return invalid, fmt.Errorf("%w: stateSaveLocation is required for a highly available (multi-controller) Slurm deployment so a backup controller can recover state",
+			platformdomain.ErrInvalidDeployment)
+	}
+
+	return validatedDeployment{slurmSpec: spec, targets: targets, machinePreparation: preparation}, nil
 }
 
 // validate resolves and checks topology, targets, and networks before any record exists.
@@ -470,6 +702,55 @@ func buildDeploymentVars(platform *platformdomain.Platform, spec platformdomain.
 		varK0sWorkloadControllerIDs: workloadControllers,
 		varK0sInitialController:     controllers[0],
 	}
+}
+
+// buildSlurmVars translates validated Slurm intent into the trusted variables read by the
+// deploy-slurm playbook. Node roles are ordered id lists keyed by serverId (matching dynamic
+// inventory), with the first controller as the primary. ClusterName falls back to a sanitized
+// platform name. Optional vars are omitted when empty so the playbook can apply its own
+// defaults (for example a controller-local StateSaveLocation for a single controller).
+func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.SlurmDeploymentSpec) map[string]any {
+	vars := map[string]any{
+		varSlurmClusterName:       slurmClusterName(spec.ClusterName, platform.Name),
+		varSlurmPlatformName:      platform.Name,
+		varSlurmControllerIDs:     spec.ControllerServerIDs(),
+		varSlurmComputeIDs:        spec.ComputeServerIDs(),
+		varSlurmPrimaryController: spec.PrimaryControllerID(),
+		varSlurmHighAvailability:  spec.HighlyAvailable(),
+	}
+	if spec.StateSaveLocation != "" {
+		vars[varSlurmStateSaveLocation] = spec.StateSaveLocation
+	}
+	if spec.APIVersion != "" {
+		vars[varSlurmAPIVersion] = spec.APIVersion
+	}
+	return vars
+}
+
+// slurmClusterName produces a Slurm ClusterName from the requested value, falling back to the
+// platform name. Slurm stores ClusterName lower-cased and dislikes whitespace and separators,
+// so the result is lower-cased with any character outside [a-z0-9_-] replaced by '-'. An empty
+// result (for example an all-symbol name) becomes "slurm" so slurm.conf always has a value.
+func slurmClusterName(requested, fallback string) string {
+	name := strings.TrimSpace(requested)
+	if name == "" {
+		name = strings.TrimSpace(fallback)
+	}
+	name = strings.ToLower(name)
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	sanitized := strings.Trim(b.String(), "-")
+	if sanitized == "" {
+		return "slurm"
+	}
+	return sanitized
 }
 
 func serverIDs(servers []*serverdomain.Server) []string {

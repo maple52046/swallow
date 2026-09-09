@@ -1,0 +1,9 @@
+---
+- name: Restart slurmd
+  # Notified when the configless conf-server list changes so slurmd re-fetches configuration
+  # from the current controllers.
+  ansible.builtin.systemd:
+    name: slurmd
+    state: restarted
+    daemon_reload: true
+  become: true

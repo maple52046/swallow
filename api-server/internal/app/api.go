@@ -266,6 +266,13 @@ func RunAPI(cfg config.APIConfig) error {
 		temporalClient, orchestrationRepo, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
 		cfg.OperationLeaseDuration, cfg.OperationMaxParallelism,
 	)
+	// Surface durable Operations whose Temporal execution was lost (a host restart or
+	// execution timeout) as repairable instead of leaving them stuck in a forward-progress
+	// status. It only marks state; the operator triggers the actual rerun. Reusing the
+	// provisioning reconcile interval keeps recovery latency in line with other sweeps.
+	orchestrationReconciler := temporalworkflow.NewReconciler(
+		temporalClient, orchestrationRepo, cfg.ReconcileInterval,
+	)
 
 	overviewReader := overviewinfra.NewReader(
 		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, operationRepo,
@@ -364,6 +371,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go orchestrationStarter.Run(ctx)
+	go orchestrationReconciler.Run(ctx)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
 
 	serverErr := make(chan error, 1)
@@ -575,6 +583,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	workflows.Get("/:id", deps.operations.Get)
 	workflows.Get("/:id/timeline", deps.operations.Timeline)
 	workflows.Post("/:id/cancel", deps.operations.Cancel)
+	workflows.Post("/:id/rerun", deps.operations.Rerun)
 	workflows.Post("/:id/tasks/:taskId/retry", deps.operations.RetryStep)
 	workflows.Get("/:id/tasks/:taskId/logs", deps.operations.StepLogs)
 	workflows.Get("/:id/tasks/:taskId/events", deps.operations.StepEvents)
@@ -594,6 +603,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	operations.Get("/:id", deps.operations.Get)
 	operations.Get("/:id/timeline", deps.operations.Timeline)
 	operations.Post("/:id/cancel", deps.operations.Cancel)
+	operations.Post("/:id/rerun", deps.operations.Rerun)
 	operations.Post("/:id/steps/:stepId/retry", deps.operations.RetryStep)
 	operations.Get("/:id/steps/:stepId/logs", deps.operations.StepLogs)
 	operations.Get("/:id/steps/:stepId/events", deps.operations.StepEvents)

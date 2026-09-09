@@ -631,6 +631,33 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('button', { name: 'View automation details' })).toBeVisible()
   })
 
+  test('Platform wizard deploys a Slurm platform with per-daemon node roles', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.locator('#platform-type').selectOption('slurm')
+    await page.getByLabel('Platform name').fill('research-slurm-2')
+    // Slurm swaps the k0s version field for a cluster name.
+    await expect(page.getByLabel('k0s version')).toHaveCount(0)
+    await expect(page.getByLabel('Cluster name')).toBeVisible()
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Nodes and daemons' })).toBeVisible()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).check()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).check()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).check()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-03' }).check()
+    await expect(page.getByText('1 controller', { exact: true })).toBeVisible()
+    await next.click()
+
+    // Slurm has no platform networking step, so Machines is followed by Review.
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(page.getByText('Controllers')).toBeVisible()
+    await page.getByRole('button', { name: 'Deploy platform' }).click()
+    await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+    await expect(page.getByText('Platform deployment is running')).toBeVisible()
+  })
+
   test('Platform wizard supports standalone and non-HA multi-node without a VIP', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true })
     await page.goto('/platforms/deploy?site=site-a')
@@ -669,6 +696,24 @@ test.describe('operator interactions', () => {
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
+  test('deployed Slurm platform counts managers and lists controllers from the deploy intent', async ({ page }) => {
+    // slurmrestd reports only compute (slurmd) nodes, so managers and controller rows come from
+    // the recorded deployment intent, not the live membership axis.
+    await installApiFixtures(page, { slurmDeployed: true })
+    await page.goto('/platforms/platform-slurm-ha?site=site-a')
+    const stats = page.locator('.sw-stat-strip')
+    await expect(stats.locator('.sw-stat').filter({ hasText: 'Managers' })).toContainText('2')
+    await expect(stats.locator('.sw-stat').filter({ hasText: 'Compute members' })).toContainText('2')
+
+    const table = page.getByRole('grid', { name: 'Platform members' })
+    // Controllers are not scheduler members, yet they must still appear, labelled as controllers.
+    await expect(table.getByRole('row', { name: /slurm-ctl-01/ })).toContainText('controller')
+    await expect(table.getByRole('row', { name: /slurm-ctl-02/ })).toContainText('controller')
+    // Compute nodes continue to come from the membership axis.
+    await expect(table.getByRole('row', { name: /slurm-cpt-01/ })).toBeVisible()
+    await expect(table.getByRole('row', { name: /slurm-cpt-02/ })).toBeVisible()
+  })
+
   test('standalone Platform summary shows one control-plane is workload-capable', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
     const stats = page.locator('.sw-stat-strip')
@@ -679,7 +724,7 @@ test.describe('operator interactions', () => {
       .toContainText('1')
   })
 
-  test('Platform list uses backend lifecycle labels and keeps Slurm uninstall disabled', async ({ page }) => {
+  test('Platform list uses backend lifecycle labels and keeps registered-platform uninstall disabled', async ({ page }) => {
     await page.goto('/platforms?site=site-a')
     const table = page.getByRole('grid', { name: 'Platforms' })
     await expect(table.getByRole('row', { name: /production-k0s/ })).toContainText('Active')
@@ -690,17 +735,19 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Platform actions' }).click()
     const uninstall = page.getByRole('menuitem', { name: /Uninstall platform/ })
     await expect(uninstall).toBeDisabled()
-    await expect(page.getByText('Only Kubernetes platforms can be uninstalled.')).toBeVisible()
+    // research-slurm is externally registered (not Swallow-deployed), so uninstall is delete-only.
+    // Slurm platforms Swallow deploys are now uninstallable; the block is the origin, not the type.
+    await expect(page.getByText('Externally registered platforms can only be deleted.')).toBeVisible()
   })
 
   test('failed Platform repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
     await expect(page.getByText('Platform deployment failed')).toBeVisible()
     await expect(page.getByText(/no provider address was observed/)).toBeVisible()
-    await expect(page.getByText(/k0s installation did not start/)).toBeVisible()
+    await expect(page.getByText(/Platform installation did not start/)).toBeVisible()
 
     await page.getByRole('button', { name: 'View automation details' }).click()
-    await expect(page).toHaveURL('/operations/op-deploy-failed?site=site-a')
+    await expect(page).toHaveURL('/workflows/op-deploy-failed?site=site-a')
     await expect(page.getByText('Dashboard could not render this page')).toHaveCount(0)
     await page.getByRole('tab', { name: 'Artifacts' }).click()
     await expect(page.getByText('No artifacts')).toBeVisible()
@@ -725,6 +772,24 @@ test.describe('operator interactions', () => {
         .getByRole('row', { name: /Deploy edge-staging k0s platform/ })
         .first(),
     ).toContainText('running')
+  })
+
+  test('failed Platform repair recovers via rerun when the workflow execution was lost', async ({ page }) => {
+    // The durable execution is gone (a host restart), so signalling the failed Step returns a
+    // conflict. Repair must fall back to a rerun on the same Platform instead of dead-ending, and
+    // it must not require deleting the Platform.
+    await installApiFixtures(page, { deployExecutionLost: true })
+    await page.goto('/platforms/platform-b?site=site-a')
+    await expect(page.getByText('Platform deployment failed')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Repair deployment' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Repair platform deployment' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Repair deployment' }).click()
+
+    await expect(page.getByText('Platform repair started')).toBeVisible()
+    await expect(page.getByText(/Operation op-rerun is rerunning the deployment on the same platform/)).toBeVisible()
+    await expect(page.getByText('Platform deployment is running')).toBeVisible()
   })
 
   test('missing-address OS Step retry requires release and redeploy confirmation', async ({ page }) => {

@@ -51,9 +51,9 @@ const (
 type RunnerKind string
 
 const (
-	RunnerKindInternal RunnerKind = "internal"
-	RunnerKindAnsible  RunnerKind = "ansible"
-	RunnerKindProvisioner     RunnerKind = "maas"
+	RunnerKindInternal    RunnerKind = "internal"
+	RunnerKindAnsible     RunnerKind = "ansible"
+	RunnerKindProvisioner RunnerKind = "maas"
 )
 
 // ResourceReference identifies a target without embedding another context's model.
@@ -98,7 +98,7 @@ type Task struct {
 	// Workflow runs each Job as a Temporal child workflow; empty means the Task runs in
 	// the flat, single-workflow path. Cross-Job dependencies order the child workflows.
 	Job               string                      `json:"job,omitempty" bson:"job,omitempty"`
-	Executor          RunnerKind                `json:"executor" bson:"runner"`
+	Executor          RunnerKind                  `json:"executor" bson:"runner"`
 	DependsOn         []string                    `json:"dependsOn" bson:"dependsOn"`
 	Targets           []ResourceReference         `json:"targets" bson:"targets"`
 	Parameters        map[string]any              `json:"parameters,omitempty" bson:"parameters,omitempty"`
@@ -125,11 +125,11 @@ type TemporalReference struct {
 type Workflow struct {
 	ID                 string              `json:"id" bson:"_id"`
 	SchemaVersion      int                 `json:"schemaVersion" bson:"schemaVersion"`
-	Kind               WorkflowKind       `json:"kind" bson:"kind"`
+	Kind               WorkflowKind        `json:"kind" bson:"kind"`
 	Intent             map[string]any      `json:"intent" bson:"intent"`
 	Definition         string              `json:"definition" bson:"definition"`
 	DefinitionVersion  int                 `json:"definitionVersion" bson:"definitionVersion"`
-	Status             WorkflowStatus `json:"status" bson:"status"`
+	Status             WorkflowStatus      `json:"status" bson:"status"`
 	StatusReason       string              `json:"statusReason,omitempty" bson:"statusReason,omitempty"`
 	StartState         string              `json:"startState" bson:"startState"`
 	Temporal           TemporalReference   `json:"temporal" bson:"temporal"`
@@ -137,7 +137,7 @@ type Workflow struct {
 	PlatformID         string              `json:"platformId,omitempty" bson:"platformId,omitempty"`
 	TargetResources    []ResourceReference `json:"targetResources" bson:"targetResources"`
 	TargetServerIDs    []string            `json:"targetServerIds" bson:"targetServerIds"`
-	Steps              []Task     `json:"steps" bson:"tasks"`
+	Steps              []Task              `json:"steps" bson:"tasks"`
 	RetryOfOperationID string              `json:"retryOfOperationId,omitempty" bson:"retryOfOperationId,omitempty"`
 	RequestedBy        string              `json:"requestedBy" bson:"requestedBy"`
 	RequestCorrelation string              `json:"requestCorrelation,omitempty" bson:"requestCorrelation,omitempty"`
@@ -159,12 +159,12 @@ type TimelineEvent struct {
 }
 
 var (
-	ErrTaskNotFound             = errors.New("operation step not found")
-	ErrTaskRetryUnsafe          = errors.New("operation step cannot be retried safely")
+	ErrTaskNotFound            = errors.New("operation step not found")
+	ErrTaskRetryUnsafe         = errors.New("operation step cannot be retried safely")
 	ErrWorkflowNotV3           = errors.New("operation is not an orchestration operation")
 	ErrWorkflowControlConflict = errors.New("operation cannot accept this control in its current state")
-	ErrLeaseConflict            = errors.New("one or more resources are already leased")
-	ErrLeaseFenced              = errors.New("resource lease fencing token is no longer current")
+	ErrLeaseConflict           = errors.New("one or more resources are already leased")
+	ErrLeaseFenced             = errors.New("resource lease fencing token is no longer current")
 )
 
 // WorkflowFilter narrows v3 Operation listings.
@@ -183,6 +183,13 @@ type WorkflowRepository interface {
 	FindByID(ctx context.Context, id string) (*Workflow, error)
 	List(ctx context.Context, filter WorkflowFilter) ([]*Workflow, int, error)
 	ListPendingStart(ctx context.Context, limit int) ([]*Workflow, error)
+	// ListNonTerminalStarted returns started, still-advancing Operations (status pending,
+	// waiting_dependency, running, or waiting_external) so the lost-execution reconciler can
+	// verify each one against Temporal. It deliberately excludes requires_attention and
+	// canceling records: the former is already surfaced as repairable, and the latter is a
+	// deliberate teardown. Ordering is by requestedAt ascending and the result is bounded by
+	// limit; a non-positive limit falls back to a safe default.
+	ListNonTerminalStarted(ctx context.Context, limit int) ([]*Workflow, error)
 	MarkWorkflowStarted(ctx context.Context, id, runID string) error
 	UpdateState(ctx context.Context, id string, status WorkflowStatus, reason string, startedAt, finishedAt *time.Time) error
 	UpdateStep(ctx context.Context, operationID string, step Task) error
@@ -217,5 +224,13 @@ type ResourceLeaseReader interface {
 type OperationSecretRepository interface {
 	Store(ctx context.Context, operationID, name string, value any) (string, error)
 	Resolve(ctx context.Context, reference string) (any, error)
+	// CloneForOperation copies every sealed secret owned by sourceOperationID to a new set
+	// owned by targetOperationID and returns a mapping from each source reference to its
+	// clone. It exists so a recovery rerun (a new Operation cloning a failed one) can carry
+	// the original's secrets without decrypting them in the application layer or coupling the
+	// two Operations' lifetimes: the clones are independent documents keyed to the new
+	// Operation, so deleting the original never invalidates the rerun. An empty source yields
+	// an empty map and no error.
+	CloneForOperation(ctx context.Context, sourceOperationID, targetOperationID string) (map[string]string, error)
 	DeleteForOperation(ctx context.Context, operationID string) error
 }

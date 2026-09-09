@@ -14,6 +14,14 @@
       "path": "uninstall-kubernetes.yml"
     },
     {
+      "name": "deploy-slurm",
+      "path": "deploy-slurm.yml"
+    },
+    {
+      "name": "uninstall-slurm",
+      "path": "uninstall-slurm.yml"
+    },
+    {
       "name": "install-exporters",
       "path": "install-exporters.yml"
     },

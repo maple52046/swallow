@@ -243,13 +243,6 @@ func TestUninstallRejectsUnsafeTargetsAndStates(t *testing.T) {
 			name: "already uninstalled", state: platformdomain.PlatformLifecycleUninstalled,
 			want: platformdomain.ErrPlatformAlreadyUninstalled,
 		},
-		{
-			name: "slurm", state: platformdomain.PlatformLifecycleActive,
-			mutate: func(_ *deployFakeServerRepo, platform *platformdomain.Platform) {
-				platform.Type = platformdomain.PlatformTypeSlurm
-			},
-			want: platformdomain.ErrPlatformNotDeployManaged,
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -267,6 +260,23 @@ func TestUninstallRejectsUnsafeTargetsAndStates(t *testing.T) {
 				t.Fatal("unsafe request reached launcher")
 			}
 		})
+	}
+}
+
+// A Slurm platform deployed by Swallow can be uninstalled just like a Kubernetes one; the
+// launcher then selects the Slurm uninstall path from the platform type it receives.
+func TestUninstallAcceptsSlurmPlatform(t *testing.T) {
+	service, launcher, _, platform := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+	platform.Type = platformdomain.PlatformTypeSlurm
+
+	if _, err := service.Uninstall(context.Background(), UninstallPlatformInput{PlatformID: platform.ID}); err != nil {
+		t.Fatalf("slurm uninstall should be accepted, got %v", err)
+	}
+	if launcher.launch == nil {
+		t.Fatal("slurm uninstall did not reach the launcher")
+	}
+	if launcher.launch.Platform.Type != platformdomain.PlatformTypeSlurm {
+		t.Errorf("launch platform type = %v, want slurm", launcher.launch.Platform.Type)
 	}
 }
 

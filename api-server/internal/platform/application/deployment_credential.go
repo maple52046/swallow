@@ -93,3 +93,63 @@ func (s *DeploymentCredentialService) Record(ctx context.Context, platformID str
 	_, _ = s.membership.Execute(ctx, platform.ID)
 	return nil
 }
+
+// SlurmDeploymentCredential is what a successful Slurm deployment produced: the slurmrestd
+// base URL, a JWT to read it with, and the slurmrestd API version the controller exposes.
+type SlurmDeploymentCredential struct {
+	Endpoint   string
+	Token      string
+	APIVersion string
+}
+
+// RecordSlurm attaches a freshly deployed Slurm platform's read credential and syncs its
+// membership. Unlike the Kubernetes path it registers a ProviderKindSlurm integration whose
+// endpoint is slurmrestd and whose token is a Slurm JWT, and it pins the slurmrestd API
+// version when the run reported one so the reader queries the matching endpoint version.
+// insecureSkipVerify is set because slurmrestd is commonly reached over plain HTTP or a
+// self-signed endpoint inside the site, and membership is read-only. A first membership read
+// is triggered so members appear without waiting for the interval; its failure is not fatal
+// because the integration is stored and the background sync retries.
+func (s *DeploymentCredentialService) RecordSlurm(ctx context.Context, platformID string, credential SlurmDeploymentCredential) error {
+	if strings.TrimSpace(credential.Endpoint) == "" || strings.TrimSpace(credential.Token) == "" {
+		return fmt.Errorf("slurm deployment returned no usable credential")
+	}
+	platform, err := s.platforms.FindByID(ctx, platformID)
+	if err != nil {
+		return err
+	}
+
+	settings := map[string]string{
+		platforminfra.SettingInsecureSkipVerify: "true",
+	}
+	if version := strings.TrimSpace(credential.APIVersion); version != "" {
+		settings[platforminfra.SettingSlurmAPIVersion] = version
+	}
+
+	now := time.Now().UTC()
+	integration := &sitedomain.Integration{
+		ID:           uuid.NewString(),
+		SiteID:       platform.SiteID,
+		Kind:         sitedomain.IntegrationKindPlatform,
+		ProviderKind: sitedomain.ProviderKindSlurm,
+		Name:         platform.Name + " (deployed)",
+		Endpoint:     credential.Endpoint,
+		Enabled:      true,
+		Settings:     settings,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := s.integrations.Create(ctx, integration, credential.Token); err != nil {
+		return err
+	}
+
+	platform.IntegrationID = integration.ID
+	platform.OwnedIntegrationID = integration.ID
+	platform.UpdatedAt = now
+	if err := s.platforms.Update(ctx, platform); err != nil {
+		return err
+	}
+
+	_, _ = s.membership.Execute(ctx, platform.ID)
+	return nil
+}

@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Button, Tooltip } from "@patternfly/react-core";
 import { Check, Copy } from "lucide-react";
+import { copyText } from "@/presentation/utils/clipboard";
 
 interface CopyButtonProps {
   /** The exact text placed on the clipboard (e.g. a hostname, MAC, or IP address). */
@@ -54,15 +55,12 @@ export function CopyButton({ value, label, className }: CopyButtonProps) {
   const copy = useCallback(
     async (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
-      try {
-        await navigator.clipboard.writeText(value);
-        setCopied(true);
-        if (resetTimer.current) clearTimeout(resetTimer.current);
-        resetTimer.current = setTimeout(() => setCopied(false), 1500);
-      } catch {
-        // Clipboard access can be blocked (permissions or a non-secure origin); copying is
-        // only a convenience here, so fail silently instead of surfacing an error.
-      }
+      // copyText handles insecure origins (LAN HTTP) via a fallback; only confirm on success.
+      const ok = await copyText(value);
+      if (!ok) return;
+      setCopied(true);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setCopied(false), 2000);
     },
     [value],
   );
@@ -74,7 +72,9 @@ export function CopyButton({ value, label, className }: CopyButtonProps) {
         variant="plain"
         className={["sw-copy-button", className].filter(Boolean).join(" ")}
         aria-label={label}
-        icon={copied ? <Check /> : <Copy />}
+        // On success the icon becomes a green check for ~2s (status by icon + colour + tooltip),
+        // then reverts to the copy glyph.
+        icon={copied ? <Check className="sw-copy-button__check" /> : <Copy />}
         onClick={copy}
       />
     </Tooltip>

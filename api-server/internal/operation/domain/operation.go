@@ -22,6 +22,9 @@ const (
 	WorkflowKindUninstallKubernetes WorkflowKind = "uninstall-kubernetes"
 
 	WorkflowKindConfigureSlurm WorkflowKind = "configure-slurm"
+	// WorkflowKindUninstallSlurm removes the Slurm configuration and daemons Swallow
+	// deployed while preserving the host operating system and the image-supplied packages.
+	WorkflowKindUninstallSlurm WorkflowKind = "uninstall-slurm"
 	// WorkflowKindInstallExporters installs a host's Prometheus exporters as
 	// containers: node-exporter on every target and the RDC exporter on AMD GPU
 	// targets. It is the Ansible half of exporter ownership and is what OS deployment
@@ -52,6 +55,7 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindDeployKubernetes,
 	WorkflowKindUninstallKubernetes,
 	WorkflowKindConfigureSlurm,
+	WorkflowKindUninstallSlurm,
 	WorkflowKindInstallExporters,
 	WorkflowKindUninstallExporters,
 	WorkflowKindDeployK8sExporters,

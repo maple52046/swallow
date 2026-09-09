@@ -14,8 +14,8 @@ Active
 
 ## Purpose
 
-Register Kubernetes and Slurm platforms, read observed membership, deploy k0s, uninstall
-Swallow-deployed k0s, and delete Swallow records. Swallow owns registration, policy, and
+Register Kubernetes and Slurm platforms, read observed membership, deploy Kubernetes (k0s) and
+Slurm platforms, uninstall Swallow-deployed platforms, and delete Swallow records. Swallow owns registration, policy, and
 durable lifecycle intent. It does not own externally registered hosts or platform
 membership.
 
@@ -119,8 +119,10 @@ matched a Server.
 
 ## Deploy A New Platform
 
-`POST /api/v1/platforms/deploy` creates a platform and starts a
-`deploy-kubernetes` Operation that builds it with k0s.
+`POST /api/v1/platforms/deploy` creates a platform and starts the Operation that builds
+it. `type` selects the platform: `kubernetes` (the default when omitted) starts a
+`deploy-kubernetes` Operation that builds k0s; `slurm` starts a `configure-slurm`
+Operation (see [Slurm](#slurm) below).
 
 ```json
 {
@@ -141,8 +143,29 @@ matched a Server.
 }
 ```
 
-`type` is always `kubernetes`. The target Servers must exist, be `deployed`, and belong to one Site. They must also be unlocked in a live provider read. The complete lock preflight finishes before Swallow creates either the
-Platform or Operation; one locked target rejects the batch with `409 conflict`.
+This body deploys `type: "kubernetes"`. The target Servers must exist and belong to one
+Site. They must also be unlocked in a live provider read. The complete lock preflight
+finishes before Swallow creates either the Platform or Operation; one locked target rejects
+the batch with `409 conflict`.
+
+By default the targets must already be `deployed`. To provision the operating system inside
+the same Operation, include an optional `machinePreparation` object (shared by both platform
+types):
+
+```json
+{
+  "machinePreparation": {
+    "mode": "provision_os",
+    "settings": { "imageId": "os-image-id", "ephemeral": false },
+    "network": { "mode": "automatic" }
+  }
+}
+```
+
+`mode` is `existing_os` (default) or `provision_os`. In `provision_os` a target that is
+already `deployed` is reused as-is while a `ready` target is provisioned first, so one
+deploy may mix both. A Kubernetes deployment rejects `provision_os` with an ephemeral OS; a
+Slurm deployment does not.
 
 A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
 defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
@@ -184,6 +207,55 @@ Success is `202 Accepted` after both records are persisted:
 Progress is read through [operations](operations.md). On success Swallow creates and marks
 ownership of a credential Integration, attaches it to the Platform, and begins membership
 reads.
+
+### Slurm
+
+Set `type: "slurm"` and provide a `slurm` object in place of the Kubernetes fields. Node
+roles are per-daemon flags because a Server may run the controller daemon (`slurmctld`),
+the compute daemon (`slurmd`), or both.
+
+```json
+{
+  "siteId": "site-id",
+  "name": "lab-slurm",
+  "type": "slurm",
+  "gpuStackOwner": "provisioning",
+  "slurm": {
+    "clusterName": "lab",
+    "apiVersion": "v0.0.42",
+    "stateSaveLocation": "",
+    "nodeAssignments": [
+      { "serverId": "server-a", "controller": true, "compute": true },
+      { "serverId": "server-b", "controller": false, "compute": true },
+      { "serverId": "server-c", "controller": false, "compute": true }
+    ]
+  },
+  "machinePreparation": {
+    "mode": "provision_os",
+    "settings": { "imageId": "slurm-os-image-id" }
+  }
+}
+```
+
+At least one Server must run `slurmctld` and at least one must run `slurmd`; a Server that
+runs neither is rejected, as is a Server assigned more than once. `gpuStackOwner` defaults
+to `provisioning` when omitted (Slurm has no in-platform GPU operator). In the `slurm`
+object every field except `nodeAssignments` is optional: `clusterName` defaults to a
+sanitized platform name; `apiVersion` pins the `slurmrestd` endpoint version recorded in the
+credential; `stateSaveLocation` is required only for a highly available deployment (more
+than one controller), because a backup controller needs a shared state directory Swallow
+does not provision. The first controller in `nodeAssignments` is the primary: it mints the
+shared MUNGE key, hosts `slurmrestd`, and produces the reader credential.
+
+The same target claim, lock, membership, and Site rules as Kubernetes apply. Success is the
+same `202 Accepted` shape. When the target image includes `slurm-smd-slurmrestd`, Swallow
+records a `slurm` platform Integration pointing at `slurmrestd` on success and begins
+membership reads; if the image omits it, the cluster still deploys successfully but the
+platform has no integration and no members until the image includes it (unlike Kubernetes,
+whose credential is required). A Slurm platform can be uninstalled like Kubernetes (see
+[Uninstall A Deployed Platform](#uninstall-a-deployed-platform)); it starts an `uninstall-slurm`
+Operation that removes the Slurm configuration and daemons while keeping the host OS and
+image-supplied packages, and can optionally release the member servers.
 
 ## Uninstall A Deployed Platform
 

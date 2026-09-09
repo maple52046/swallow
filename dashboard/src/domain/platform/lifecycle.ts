@@ -35,7 +35,8 @@ export function platformLifecycleStatus(state: PlatformLifecycleState): string {
 
 /** Disabled reason for the destructive host-side uninstall command. */
 export function platformUninstallDisabledReason(platform: Platform): string | undefined {
-  if (platform.type !== 'kubernetes') return 'Only Kubernetes platforms can be uninstalled.'
+  // Both Kubernetes and Slurm platforms deployed by Swallow can be uninstalled; only
+  // externally registered platforms (no deployment history) are delete-only.
   if (platform.origin !== 'deployed') return 'Externally registered platforms can only be deleted.'
   switch (platform.lifecycleState) {
     case 'deploying':

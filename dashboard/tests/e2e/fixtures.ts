@@ -175,11 +175,24 @@ export interface FixtureOptions {
    */
   cancelMarksTerminal?: boolean
   providerFailureRetryable?: boolean
+  /**
+   * Makes the canonical Task-retry endpoint answer `409 conflict`, modelling a durable Workflow
+   * whose Temporal execution was lost (a host restart or execution timeout) so a Step retry can
+   * no longer be delivered. It drives the platform Repair action into its rerun recovery path.
+   */
+  deployExecutionLost?: boolean
   onNetworkLinkRequest?: (method: string, serverId: string, interfaceId: string, linkId: string | null, body: Record<string, unknown> | null) => void
   onMetricsRequest?: (serverIds: string[]) => void
   /** Removes Platform membership and deployment target claims for wizard success paths. */
   freePlatformCandidates?: boolean
   onMetricsActive?: (active: number) => void
+  /**
+   * Adds a Swallow-deployed HA Slurm platform (`platform-slurm-ha`) with two controller-only
+   * nodes and two compute nodes. The controllers report no membership (slurmrestd lists only
+   * slurmd scheduler nodes), so this exercises the deployment-intent projection that surfaces
+   * managers and the controller merge in the member list. Opt-in so other tests are unaffected.
+   */
+  slurmDeployed?: boolean
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -327,6 +340,46 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
   }
   const platformItems = platforms.map((platform) => ({ ...platform }))
+  if (options.slurmDeployed) {
+    // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
+    // nodes do. getServer reads from the fleet, so the controllers must live here for the
+    // detail page's controller merge to resolve them.
+    const makeSlurmNode = (id: string, hostname: string, octet: number, member: boolean): Server => ({
+      ...makeServer(0),
+      id,
+      source: { siteId: 'site-a', integrationId: 'maas-a', providerMachineId: id },
+      hostname,
+      fqdn: `${hostname}.lab.example`,
+      addresses: [`192.168.60.${octet}`],
+      membership: member
+        ? { platformId: 'platform-slurm-ha', nodeName: hostname, role: 'debug', state: 'idle', observedAt: now }
+        : null,
+      health: { state: 'up', observedAt: now },
+    })
+    fleet.push(
+      makeSlurmNode('slurm-ctl-1', 'slurm-ctl-01', 11, false),
+      makeSlurmNode('slurm-ctl-2', 'slurm-ctl-02', 12, false),
+      makeSlurmNode('slurm-cpt-1', 'slurm-cpt-01', 21, true),
+      makeSlurmNode('slurm-cpt-2', 'slurm-cpt-02', 22, true),
+    )
+    platformItems.push({
+      id: 'platform-slurm-ha', siteId: 'site-a', name: 'lab-slurm-ha', type: 'slurm',
+      integrationId: 'slurm-ha', origin: 'deployed', lifecycleState: 'active',
+      lifecycleOperationId: 'op-slurm-ha-deploy',
+      deployment: {
+        topology: 'high-availability',
+        roleAssignments: [
+          { serverId: 'slurm-ctl-1', role: 'control-plane', runWorkloads: false },
+          { serverId: 'slurm-ctl-2', role: 'control-plane', runWorkloads: false },
+          { serverId: 'slurm-cpt-1', role: 'worker', runWorkloads: false },
+          { serverId: 'slurm-cpt-2', role: 'worker', runWorkloads: false },
+        ],
+      },
+      gpuStackOwner: 'provisioning', exporterOwner: 'ansible',
+      sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 2, matchedCount: 2 },
+      createdAt: now, updatedAt: now,
+    })
+  }
   const operationItems = operations.map((operation) => ({ ...operation }))
   let operationSequence = 0
   const createProvisioningOperation = (
@@ -936,29 +989,63 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/platforms/deploy' && request.method() === 'POST') {
       const body = request.postDataJSON() as {
         name: string
-        gpuStackOwner: string
-        roleAssignments: Array<{
+        type?: 'kubernetes' | 'slurm'
+        gpuStackOwner?: string
+        roleAssignments?: Array<{
           serverId: string
           role: 'control-plane' | 'worker'
           runWorkloads?: boolean
         }>
+        slurm?: {
+          nodeAssignments: Array<{ serverId: string; controller: boolean; compute: boolean }>
+        }
       }
-      const controllerCount = body.roleAssignments.filter(
+      const operationId = 'op-platform-new'
+      if (body.type === 'slurm') {
+        // Slurm deploy uses per-daemon node assignments and starts a configure-slurm Operation.
+        const targetServerIds = (body.slurm?.nodeAssignments ?? []).map((node) => node.serverId)
+        operationItems.unshift({
+          ...operations[0],
+          id: operationId,
+          kind: 'configure-slurm',
+          intent: 'Deploy ' + body.name,
+          platformId: 'platform-new',
+          targetServerIds,
+        })
+        platformItems.push({
+          id: 'platform-new',
+          siteId: 'site-a',
+          name: body.name,
+          type: 'slurm',
+          integrationId: null,
+          origin: 'deployed',
+          lifecycleState: 'deploying',
+          lifecycleOperationId: operationId,
+          deployment: null,
+          gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
+          exporterOwner: 'ansible',
+          sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
+          createdAt: now,
+          updatedAt: now,
+        })
+        return json(route, { platformId: 'platform-new', operationId }, 202)
+      }
+      const roleAssignments = body.roleAssignments ?? []
+      const controllerCount = roleAssignments.filter(
         (assignment) => assignment.role === 'control-plane',
       ).length
       const topology: 'standalone' | 'multi-node' | 'high-availability' =
         controllerCount >= 3
           ? 'high-availability'
-          : body.roleAssignments.length === 1
+          : roleAssignments.length === 1
             ? 'standalone'
             : 'multi-node'
-      const operationId = 'op-platform-new'
       operationItems.unshift({
         ...operations[0],
         id: operationId,
         intent: 'Deploy ' + body.name,
         platformId: 'platform-new',
-        targetServerIds: body.roleAssignments.map((assignment) => assignment.serverId),
+        targetServerIds: roleAssignments.map((assignment) => assignment.serverId),
       })
       platformItems.push({
         id: 'platform-new',
@@ -969,8 +1056,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         origin: 'deployed',
         lifecycleState: 'deploying',
         lifecycleOperationId: operationId,
-        deployment: { topology, roleAssignments: body.roleAssignments },
-        gpuStackOwner: body.gpuStackOwner,
+        deployment: { topology, roleAssignments },
+        gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
         exporterOwner: 'ansible',
         sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
         createdAt: now,
@@ -1005,12 +1092,78 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     // The dashboard reads a single Operation as a Workflow (ADR 017 rename). Serve it by id so
     // deployment claim resolution can read a Platform's target history.
+    // The dashboard lists Operations through the canonical /workflows surface (ADR 017 rename),
+    // so the detail and operations pages depend on this list; without it they render empty.
+    if (path === '/api/v1/workflows' && request.method() === 'GET') {
+      let items = [...operationItems]
+      const status = url.searchParams.get('status')
+      const platformId = url.searchParams.get('platformId')
+      const serverId = url.searchParams.get('serverId')
+      if (status) items = items.filter((item) => (item.status ?? item.execution.status) === status)
+      if (platformId) items = items.filter((item) => item.platformId === platformId)
+      if (serverId) items = items.filter((item) => item.targetServerIds.includes(serverId))
+      return json(route, { items, total: items.length, page: 1, pageSize: 30 })
+    }
     const workflowByIdMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)$/)
     if (workflowByIdMatch && request.method() === 'GET') {
       const operation = operationItems.find((item) => item.id === workflowByIdMatch[1])
       return operation
         ? json(route, operation)
         : json(route, { error: { code: 'not_found', message: 'Workflow not found' } }, 404)
+    }
+    // Canonical Task-retry (ADR 017 rename of /operations/{id}/steps/{stepId}/retry). When
+    // deployExecutionLost is set it answers 409 to model a lost Workflow execution, which drives
+    // the Repair action into its rerun fallback.
+    const workflowTaskRetryMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)\/tasks\/([^/]+)\/retry$/)
+    if (workflowTaskRetryMatch && request.method() === 'POST') {
+      if (options.deployExecutionLost) {
+        return json(route, { error: { code: 'conflict', message: 'The operation\'s workflow execution is no longer running, so this Step cannot be retried.' } }, 409)
+      }
+      const operation = operationItems.find((item) => item.id === workflowTaskRetryMatch[1]) as unknown as Record<string, unknown> | undefined
+      const steps = operation?.steps as Array<Record<string, unknown>> | undefined
+      const step = steps?.find((item) => item.id === workflowTaskRetryMatch[2])
+      if (!operation || !step) return json(route, { error: { code: 'not_found', message: 'Operation Step not found' } }, 404)
+      step.attempt = Number(step.attempt) + 1
+      step.status = 'pending'
+      step.progress = 0
+      step.error = null
+      step.finishedAt = null
+      operation.status = 'running'
+      operation.execution = { ...(operation.execution as Record<string, unknown>), status: 'running' }
+      operation.updatedAt = now
+      if (operation.kind === 'deploy-kubernetes') {
+        const platform = platformItems.find((item) => item.id === operation.platformId)
+        if (platform) {
+          platform.lifecycleState = 'deploying'
+          platform.updatedAt = now
+        }
+      }
+      return json(route, { workflowId: workflowTaskRetryMatch[1], taskId: workflowTaskRetryMatch[2] }, 202)
+    }
+    // Rerun recovery: launch a new Operation for the same intent on the same Platform, linked to
+    // the original, and hand the platform lifecycle to it (mirrors the backend Rerun contract).
+    const rerunMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)\/rerun$/)
+    if (rerunMatch && request.method() === 'POST') {
+      const original = operationItems.find((item) => item.id === rerunMatch[1])
+      if (!original) return json(route, { error: { code: 'not_found', message: 'Operation not found' } }, 404)
+      const rerun = {
+        ...original,
+        id: 'op-rerun',
+        retryOfOperationId: original.id,
+        status: 'pending',
+        statusReason: null,
+        execution: { ...original.execution, runId: 'run-rerun', status: 'pending', statusReason: null, startedAt: now, finishedAt: null },
+        requestedAt: now,
+        updatedAt: now,
+      }
+      operationItems.unshift(rerun)
+      const platform = platformItems.find((item) => item.id === original.platformId)
+      if (platform) {
+        platform.lifecycleState = 'deploying'
+        platform.lifecycleOperationId = rerun.id
+        platform.updatedAt = now
+      }
+      return json(route, rerun, 202)
     }
     if (path === '/api/v1/operations') {
       let items = [...operationItems]

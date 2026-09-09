@@ -1,10 +1,36 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
+import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { Platform } from '@/domain/platform/types'
 import type { Operation } from '@/domain/operation/types'
 import type { Server } from '@/domain/server/types'
 
 const LIFECYCLE_POLL_INTERVAL_MS = 5000
+
+/**
+ * Merges a Slurm deployment's controller (manager) nodes into the membership-scoped member
+ * list. slurmrestd reports only compute (slurmd) nodes, so the platform-scoped Server list omits
+ * controller-only nodes; without this the Members table and manager count would be missing them.
+ * Controllers are looked up by the deployment intent's control-plane assignment ids and appended
+ * only when not already present (a k0s control-plane node is already a member, so this is a
+ * no-op there). A failed lookup is skipped so one unreadable Server cannot blank the page.
+ */
+async function withDeploymentControllers(
+  platform: Platform,
+  members: Server[],
+  servers: ServerRepository,
+): Promise<Server[]> {
+  const present = new Set(members.map((server) => server.id))
+  const missingControllerIds = (platform.deployment?.roleAssignments ?? [])
+    .filter((assignment) => assignment.role === 'control-plane' && !present.has(assignment.serverId))
+    .map((assignment) => assignment.serverId)
+  if (missingControllerIds.length === 0) return members
+  const fetched = await Promise.all(
+    missingControllerIds.map((id) => servers.getServer(id).catch(() => null)),
+  )
+  const controllers = fetched.filter((server): server is Server => server !== null)
+  return controllers.length === 0 ? members : [...members, ...controllers]
+}
 
 /** Combined Platform page projection; members and Operations may degrade to empty independently. */
 export interface PlatformDetailData {
@@ -61,15 +87,19 @@ export function usePlatformDetail(id: string | undefined): PlatformDetailState {
           () => [] as Operation[],
         ),
       ])
-        .then(([platform, members, relatedOperations]) => {
+        .then(async ([platform, members, relatedOperations]) => {
           if (cancelled) return
           if (platform === null) {
             setState({ status: 'not-found' })
             return
           }
+          // Slurm controllers are not scheduler members, so merge them in from the deployment
+          // intent before publishing state; k0s is unaffected.
+          const mergedMembers = await withDeploymentControllers(platform, members, servers)
+          if (cancelled) return
           setState({
             status: 'ready',
-            data: { platform, members, operations: relatedOperations, reload },
+            data: { platform, members: mergedMembers, operations: relatedOperations, reload },
           })
           if (lifecycleCanChangeWithoutInput(platform)) {
             timer = setTimeout(load, LIFECYCLE_POLL_INTERVAL_MS)

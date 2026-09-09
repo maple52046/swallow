@@ -1,0 +1,8 @@
+---
+- name: Restart slurmrestd
+  # Notified when the listen/auth drop-in changes so slurmrestd re-binds with the new options.
+  ansible.builtin.systemd:
+    name: slurmrestd
+    state: restarted
+    daemon_reload: true
+  become: true

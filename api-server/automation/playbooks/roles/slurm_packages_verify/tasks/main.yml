@@ -1,0 +1,57 @@
+---
+# Verify the SchedMD Slurm packages are already present from the operator's image. Slurm is
+# not installed here: SchedMD recommends operator-built deb/rpm and Swallow has no local repo
+# yet, so the packages are baked into the MAAS image. Other supporting software (for example
+# MUNGE, or MariaDB for future accounting) may still be apt-installed by later roles; only
+# the slurm-smd packages are required to pre-exist.
+
+- name: Query the installed slurm-smd package version
+  ansible.builtin.command:
+    cmd: dpkg-query -W -f=${Version} slurm-smd
+  register: slurm_pkg_smd
+  changed_when: false
+  failed_when: false
+
+- name: Require slurm-smd on every node
+  ansible.builtin.assert:
+    that:
+      - slurm_pkg_smd.rc == 0
+      - slurm_pkg_smd.stdout | trim | length > 0
+    fail_msg: >-
+      slurm-smd is not installed on {{ inventory_hostname }}. This playbook expects the Slurm
+      packages to be present from the OS image; deploy with an image that bakes in the SchedMD
+      slurm-smd packages.
+    quiet: true
+
+- name: Determine which slurm-smd daemon packages this host needs
+  # Controllers need slurm-smd-slurmctld and compute nodes need slurm-smd-slurmd. slurm-smd-slurmrestd
+  # is intentionally NOT required: it powers only Swallow's membership reads, and a working cluster
+  # (slurmctld + slurmd) does not depend on it, so a missing REST package must not fail the deploy.
+  # The slurm_slurmrestd role detects it and degrades gracefully when absent.
+  ansible.builtin.set_fact:
+    slurm_required_daemon_packages: >-
+      {{
+        (['slurm-smd-slurmctld'] if slurm_is_controller | bool else [])
+        + (['slurm-smd-slurmd'] if slurm_is_compute | bool else [])
+      }}
+
+- name: Query the role-specific slurm-smd daemon packages
+  ansible.builtin.command:
+    cmd: "dpkg-query -W -f=${Version} {{ item }}"
+  register: slurm_pkg_daemons
+  changed_when: false
+  failed_when: false
+  loop: "{{ slurm_required_daemon_packages }}"
+
+- name: Require the role-specific daemon packages
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout | trim | length > 0
+    fail_msg: >-
+      {{ item.item }} is not installed on {{ inventory_hostname }} but is required for this
+      host's Slurm role. Use an image that includes it.
+    quiet: true
+  loop: "{{ slurm_pkg_daemons.results }}"
+  loop_control:
+    label: "{{ item.item }}"

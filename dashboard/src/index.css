@@ -425,6 +425,9 @@ tbody .sw-sticky-selection { z-index: 2; }
   line-height: 1;
 }
 .sw-copy-button.pf-v6-c-button svg { display: block; block-size: 0.85em; inline-size: 0.85em; }
+/* Copied confirmation: the Lucide check turns success green (Lucide strokes with currentColor,
+   so setting the SVG's colour is enough). Status is conveyed by icon + colour + tooltip. */
+.sw-copy-button.pf-v6-c-button svg.sw-copy-button__check { color: var(--pf-t--global--icon--color--status--success--default); }
 /* Square icon button for form-adjacent actions: clear PatternFly's min-width clamp and keep the
    box square (aspect-ratio) with the glyph centred on both axes (its icon slot is a grid that
    otherwise parks a fixed-size glyph at the top-left). */

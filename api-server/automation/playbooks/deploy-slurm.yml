@@ -1,0 +1,98 @@
+---
+# Deploy Slurm onto already-provisioned Servers. Topology is supplied only through trusted
+# variables (see docs/development/platform-deployment.md): per-daemon controller/compute id
+# lists, an ordered controller list whose first entry is the primary, plus optional HA state
+# directory and slurmrestd API version. The Slurm packages are expected to be present from the
+# operator's image (SchedMD slurm-smd), so this playbook only configures and starts the
+# cluster and returns a slurmrestd reader credential. It is idempotent: a converged cluster
+# reruns with no changes.
+#
+# Addresses, not DNS: every host is keyed by serverId (inventory_hostname); slurm.conf uses
+# the connection address (ansible_host) via SlurmctldHost host(ip) and NodeAddr, so the
+# cluster forms without depending on site DNS.
+
+- name: Classify Slurm nodes by assigned daemon
+  hosts: all
+  gather_facts: true
+  # pre_tasks, not tasks: a play runs roles BEFORE tasks, so the role phase (slurm_preflight,
+  # slurm_packages_verify) must see these facts and groups already set. Putting them in tasks
+  # would leave slurm_is_controller undefined when the roles run.
+  pre_tasks:
+    - name: Resolve this host's Slurm roles and shared paths
+      ansible.builtin.set_fact:
+        slurm_is_controller: "{{ inventory_hostname in swallow_slurm_controller_ids }}"
+        slurm_is_compute: "{{ inventory_hostname in swallow_slurm_compute_ids }}"
+        slurm_is_primary: "{{ inventory_hostname == swallow_slurm_primary_controller_id }}"
+        # Slurm names a node by its hostname, which is what appears in sinfo and the node
+        # registration, not the serverId that keys the inventory.
+        slurm_node_name: "{{ ansible_hostname }}"
+        slurm_state_save_location: "{{ swallow_slurm_state_save_location | default('/var/spool/slurmctld', true) }}"
+        slurm_conf_dir: /etc/slurm
+        slurm_log_dir: /var/log/slurm
+        slurm_jwt_key_path: /etc/slurm/jwt_hs256.key
+        slurmrestd_port: 6820
+
+    - name: Fail on a host with no Slurm daemon
+      ansible.builtin.fail:
+        msg: "server {{ inventory_hostname }} is neither a controller nor a compute node"
+      when: not (slurm_is_controller | bool) and not (slurm_is_compute | bool)
+
+    - name: Group controllers
+      ansible.builtin.group_by:
+        key: "slurm_{{ 'controller' if slurm_is_controller | bool else 'noncontroller' }}"
+
+    - name: Group compute nodes
+      ansible.builtin.group_by:
+        key: "slurm_{{ 'compute' if slurm_is_compute | bool else 'noncompute' }}"
+
+    - name: Group the primary controller
+      ansible.builtin.group_by:
+        key: "slurm_{{ 'primary' if slurm_is_primary | bool else 'secondary' }}"
+  roles:
+    - role: slurm_preflight
+    - role: slurm_packages_verify
+
+- name: Establish MUNGE authentication across the cluster
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: slurm_munge
+
+- name: Detect compute node hardware for the controller configuration
+  hosts: slurm_compute
+  gather_facts: false
+  tasks:
+    - name: Read the slurmd-detected node line
+      # slurmd -C prints the CPU/socket/core/memory Slurm actually detects on this host; using
+      # it verbatim avoids a NodeName that disagrees with hardware and drops the node to INVAL.
+      ansible.builtin.command:
+        cmd: /usr/sbin/slurmd -C
+      register: slurm_node_detect
+      changed_when: false
+      become: true
+    - name: Remember this node's detected NodeName line
+      ansible.builtin.set_fact:
+        slurm_node_line: "{{ slurm_node_detect.stdout_lines | select('match', '^NodeName=') | first }}"
+
+- name: Configure controllers and start slurmctld
+  hosts: slurm_controller
+  gather_facts: false
+  # Controllers start in order so the primary (SlurmctldHost first) leads before any backup.
+  serial: 1
+  roles:
+    - role: slurm_config
+    - role: slurm_controller
+
+- name: Configure compute nodes and start slurmd
+  hosts: slurm_compute
+  gather_facts: false
+  roles:
+    - role: slurm_compute
+
+- name: Expose slurmrestd, verify the cluster, and record the Swallow credential
+  hosts: slurm_primary
+  gather_facts: false
+  roles:
+    - role: slurm_slurmrestd
+    - role: slurm_verify
+    - role: slurm_cluster_credential

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
@@ -840,11 +841,44 @@ func NewController(temporalClient client.Client) *Controller {
 }
 
 func (c *Controller) Cancel(ctx context.Context, operation *operationdomain.Workflow) error {
-	return c.client.CancelWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID)
+	err := c.client.CancelWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID)
+	if isWorkflowExecutionGone(err) {
+		// The persisted Operation is still non-terminal, but its Temporal execution has already
+		// ended (e.g. a host reboot or an execution timeout terminated it). It cannot be
+		// canceled; surface a control conflict so callers such as the platform-delete cancel
+		// sweep tolerate it instead of failing with an internal error.
+		return fmt.Errorf("%w: the operation's workflow execution is no longer running", operationdomain.ErrWorkflowControlConflict)
+	}
+	return err
 }
 
 func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.Workflow, stepID string) error {
-	return c.client.SignalWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID, RetryStepSignal, RetryStepCommand{StepID: stepID})
+	err := c.client.SignalWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID, RetryStepSignal, RetryStepCommand{StepID: stepID})
+	if isWorkflowExecutionGone(err) {
+		// Same desync as Cancel: the Step shows retryable but the workflow execution is gone, so
+		// the retry signal cannot be delivered. Report a control conflict (mapped to 409) rather
+		// than a raw Temporal error (500). The operator must start a new deployment/repair.
+		return fmt.Errorf("%w: the operation's workflow execution is no longer running, so this Step cannot be retried", operationdomain.ErrWorkflowControlConflict)
+	}
+	return err
+}
+
+// isWorkflowExecutionGone reports whether a Temporal control (cancel/signal) failed because the
+// target workflow execution is no longer running — completed, terminated, timed out, or absent.
+// Temporal returns NotFound for these; the message match is a defensive fallback across SDK
+// versions ("workflow execution already completed").
+func isWorkflowExecutionGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	var notFound *serviceerror.NotFound
+	if errors.As(err, &notFound) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already completed") ||
+		strings.Contains(message, "execution not found") ||
+		strings.Contains(message, "workflow not found")
 }
 
 // Starter closes the Mongo-persisted/Temporal-start gap with a stable Workflow ID.
@@ -931,6 +965,86 @@ func resourceKeys(resources []operationdomain.ResourceReference) []string {
 	return keys
 }
 
+// Reconciler surfaces durable Operations whose Temporal execution was lost. The starter only
+// ever launches startState=pending records and never re-launches a started one, and a stable
+// Workflow ID with reject-duplicate means a lost execution cannot be revived under the same
+// Operation. Without this sweep an Operation whose execution ended without writing a terminal
+// projection (a host restart, an execution timeout, a terminated or purged history) would keep
+// reporting a forward-progress status forever, so the platform lifecycle would show a stuck
+// "deploying" state with no way forward.
+//
+// The sweep only marks such an Operation requires_attention with an operator-facing reason so
+// the lifecycle renders it as repairable; recovery itself (a rerun that launches a fresh
+// execution) is an explicit operator action, never automatic here. It is safe to run in more
+// than one process because each write is an idempotent status update.
+type Reconciler struct {
+	client     client.Client
+	operations operationdomain.WorkflowRepository
+	interval   time.Duration
+}
+
+// NewReconciler builds the lost-execution sweeper. A non-positive interval falls back to a safe
+// default so a misconfigured interval cannot spin.
+func NewReconciler(temporalClient client.Client, operations operationdomain.WorkflowRepository, interval time.Duration) *Reconciler {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	return &Reconciler{client: temporalClient, operations: operations, interval: interval}
+}
+
+// Run sweeps on a fixed interval until ctx is canceled; it owns no other lifecycle. It never
+// returns an error: a failed sweep is skipped and retried on the next tick, so a transient
+// Temporal or database outage cannot stop the loop.
+func (r *Reconciler) Run(ctx context.Context) {
+	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
+	for {
+		r.SweepLostExecutions(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// SweepLostExecutions marks every started, forward-progress Operation whose Temporal execution
+// is no longer running as requires_attention. It describes each candidate's execution: one that
+// is absent or already closed while Mongo is still non-terminal is treated as lost, while a
+// still-running execution is left untouched so an Operation legitimately parked for operator
+// input (its execution alive) is never disturbed. A transient describe error skips that record
+// for this pass.
+func (r *Reconciler) SweepLostExecutions(ctx context.Context) {
+	operations, err := r.operations.ListNonTerminalStarted(ctx, 100)
+	if err != nil {
+		return
+	}
+	for _, operation := range operations {
+		lost, describeErr := r.executionLost(ctx, operation)
+		if describeErr != nil || !lost {
+			continue
+		}
+		_ = r.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowRequiresAttention,
+			"The workflow execution was lost (a host restart or execution timeout). Repair to resume.", nil, nil)
+	}
+}
+
+// executionLost reports whether an Operation's Temporal execution is no longer running. A
+// NotFound describe (the execution was terminated or its history was purged) is lost; any closed
+// execution status is lost; a running execution is not. A transient describe error is returned
+// so the caller skips the record and retries on the next sweep rather than mislabeling a live
+// Operation.
+func (r *Reconciler) executionLost(ctx context.Context, operation *operationdomain.Workflow) (bool, error) {
+	description, err := r.client.DescribeWorkflowExecution(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID)
+	if isWorkflowExecutionGone(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return description.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING, nil
+}
+
 var _ operationapp.WorkflowController = (*Controller)(nil)
 
 // awaitRetryStep keeps resource leases fenced while an Operation requires operator input.
@@ -965,7 +1079,24 @@ func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, 
 		if err := workflow.ExecuteActivity(renewCtx, ActivityRenewLeases, LeaseRenewal{
 			Leases: leases, Duration: leaseDuration,
 		}).Get(renewCtx, nil); err != nil {
-			return RetryStepCommand{}, err
+			// A renewal failure while parked for operator input must not end the Operation.
+			// Returning here (as this once did) turned a transient outage — a host restart, a
+			// brief database blip during the wait — into a permanently canceled Operation that
+			// could only be recovered by redeploying the Platform. Log and keep waiting: the
+			// next tick renews again, and a lease that merely expired without being taken by
+			// another owner is re-extended. The only exits stay a retry signal and a real
+			// operator cancel (ctx). This is safe because no host mutation happens while parked,
+			// and a Step retry re-validates and re-acquires leases before any side effect, so
+			// waiting without a currently valid lease cannot cause a double execution. Recovery
+			// of an execution that is genuinely gone is handled out of band by the rerun path.
+			//
+			// Replay safety: this only changes the branch taken after a future renewal-failure
+			// event. Any history that already recorded a renewal failure ran the old return path
+			// to completion and is no longer open, so no open history replays differently.
+			workflow.GetLogger(ctx).Warn(
+				"resource lease renewal failed while awaiting operator input; continuing to wait",
+				"error", err)
+			continue
 		}
 	}
 }

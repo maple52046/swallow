@@ -35,12 +35,14 @@ func (c *PolicyChecker) CheckOperation(
 	platformID string,
 	serverIDs []string,
 ) error {
-	if kind == operationdomain.WorkflowKindUninstallKubernetes && platformID == "" {
-		return fmt.Errorf("%w: uninstall-kubernetes requires a platformId",
-			operationdomain.ErrPolicyConflict)
+	if (kind == operationdomain.WorkflowKindUninstallKubernetes ||
+		kind == operationdomain.WorkflowKindUninstallSlurm) && platformID == "" {
+		return fmt.Errorf("%w: %s requires a platformId",
+			operationdomain.ErrPolicyConflict, kind)
 	}
 	if (kind == operationdomain.WorkflowKindDeployKubernetes ||
-		kind == operationdomain.WorkflowKindUninstallKubernetes) && platformID != "" {
+		kind == operationdomain.WorkflowKindUninstallKubernetes ||
+		kind == operationdomain.WorkflowKindUninstallSlurm) && platformID != "" {
 		if _, err := c.platforms.FindByID(ctx, platformID); err != nil {
 			if errors.Is(err, platformdomain.ErrPlatformNotFound) {
 				return fmt.Errorf("%w: platform %s no longer exists",

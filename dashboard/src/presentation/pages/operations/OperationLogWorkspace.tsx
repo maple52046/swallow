@@ -11,6 +11,7 @@ import { DownloadIcon, SyncAltIcon } from "@patternfly/react-icons";
 import { Copy } from "lucide-react";
 import { LogViewer, LogViewerSearch } from "@patternfly/react-log-viewer";
 import { useApp } from "@/di/AppProvider";
+import { copyText } from "@/presentation/utils/clipboard";
 import { useAppearance } from "@/presentation/app/theme/appearanceContext";
 import { EmptyState } from "@/presentation/components/EmptyState";
 import { ErrorState } from "@/presentation/components/ErrorState";
@@ -67,16 +68,18 @@ export function OperationLogWorkspace({
   }
 
   const copy = async () => {
-    setCopyFeedback({ title: "Stdout copied", variant: AlertVariant.success });
-    try {
-      await navigator.clipboard.writeText(state.text);
-    } catch {
-      setCopyFeedback({
-        title:
-          "Could not copy stdout. Clipboard access is unavailable in this browser.",
-        variant: AlertVariant.danger,
-      });
-    }
+    // copyText falls back to a legacy copy on insecure origins (LAN HTTP); report the real
+    // outcome instead of assuming success up front.
+    const ok = await copyText(state.text);
+    setCopyFeedback(
+      ok
+        ? { title: "Stdout copied", variant: AlertVariant.success }
+        : {
+            title:
+              "Could not copy stdout. Clipboard access is unavailable in this browser.",
+            variant: AlertVariant.danger,
+          },
+    );
   };
   const download = () => {
     const url = URL.createObjectURL(

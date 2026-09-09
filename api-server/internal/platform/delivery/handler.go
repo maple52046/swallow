@@ -158,17 +158,60 @@ func machinePreparationFromRequest(request machinePreparationRequest) platformdo
 	return preparation
 }
 
+// slurmSpecFromRequest maps the optional Slurm deploy body into domain intent. A nil request
+// yields a zero spec, which the application rejects for a slurm deployment (no node
+// assignments) while remaining harmless for a kubernetes one.
+func slurmSpecFromRequest(request *slurmDeployRequest) platformdomain.SlurmDeploymentSpec {
+	if request == nil {
+		return platformdomain.SlurmDeploymentSpec{}
+	}
+	assignments := make([]platformdomain.SlurmNodeAssignment, len(request.NodeAssignments))
+	for index, assignment := range request.NodeAssignments {
+		assignments[index] = platformdomain.SlurmNodeAssignment{
+			ServerID: assignment.ServerID, Controller: assignment.Controller, Compute: assignment.Compute,
+		}
+	}
+	return platformdomain.SlurmDeploymentSpec{
+		ClusterName:       request.ClusterName,
+		APIVersion:        request.APIVersion,
+		StateSaveLocation: request.StateSaveLocation,
+		NodeAssignments:   assignments,
+	}
+}
+
 type deployPlatformRequest struct {
-	SiteID             string                    `json:"siteId"`
-	Name               string                    `json:"name"`
-	GPUStackOwner      string                    `json:"gpuStackOwner"`
+	SiteID        string `json:"siteId"`
+	Name          string `json:"name"`
+	GPUStackOwner string `json:"gpuStackOwner"`
+	// Type selects the platform to build: "kubernetes" (default when omitted) or "slurm".
+	// The Kubernetes fields below are read for kubernetes; Slurm is read for slurm.
+	Type               string                    `json:"type"`
 	K0sVersion         string                    `json:"k0sVersion"`
 	PodCIDR            string                    `json:"podCidr"`
 	ServiceCIDR        string                    `json:"serviceCidr"`
 	APIVIP             string                    `json:"apiVip"`
 	APIVIPPrefix       int                       `json:"apiVipPrefix"`
 	RoleAssignments    []roleAssignmentRequest   `json:"roleAssignments"`
+	Slurm              *slurmDeployRequest       `json:"slurm"`
 	MachinePreparation machinePreparationRequest `json:"machinePreparation"`
+}
+
+// slurmDeployRequest is the Slurm-specific deploy body. Node roles are per-daemon flags
+// because a Server may run slurmctld, slurmd, or both. Empty optional fields let the
+// application default them (clusterName from the platform name; a controller-local
+// stateSaveLocation for a single controller).
+type slurmDeployRequest struct {
+	ClusterName       string               `json:"clusterName"`
+	APIVersion        string               `json:"apiVersion"`
+	StateSaveLocation string               `json:"stateSaveLocation"`
+	NodeAssignments   []slurmNodeAssignReq `json:"nodeAssignments"`
+}
+
+// slurmNodeAssignReq assigns Slurm daemons to one Server; an omitted flag is false.
+type slurmNodeAssignReq struct {
+	ServerID   string `json:"serverId"`
+	Controller bool   `json:"controller"`
+	Compute    bool   `json:"compute"`
 }
 
 // Deploy maps transport data into deployment intent; topology and network rules stay in
@@ -199,6 +242,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 	result, err := h.deploy.Deploy(c.Context(), application.DeployPlatformInput{
 		SiteID:        req.SiteID,
 		Name:          req.Name,
+		Type:          platformdomain.PlatformType(req.Type),
 		GPUStackOwner: req.GPUStackOwner,
 		Spec: platformdomain.DeploymentSpec{
 			K0sVersion:      req.K0sVersion,
@@ -208,6 +252,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 			APIVIPPrefix:    req.APIVIPPrefix,
 			RoleAssignments: assignments,
 		},
+		SlurmSpec:   slurmSpecFromRequest(req.Slurm),
 		RequestedBy: requestedBy, RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
 		MachinePreparation: machinePreparationFromRequest(req.MachinePreparation),
 	})

@@ -1,0 +1,41 @@
+---
+# Preflight the host before configuring Slurm. Facts are already gathered by the classify
+# play; here we assert the environment Slurm needs and fail early with an actionable message
+# rather than deep inside slurmctld/slurmd startup.
+
+- name: Require a systemd host
+  ansible.builtin.assert:
+    that:
+      - ansible_service_mgr == 'systemd'
+    fail_msg: "Slurm deployment requires systemd (found {{ ansible_service_mgr }})"
+    quiet: true
+
+- name: Detect the cgroup hierarchy
+  # Unified cgroup v2 mounts a cgroup2 filesystem at /sys/fs/cgroup; the config role enables
+  # cgroup v2 enforcement, so a host still on v1 must be surfaced now.
+  ansible.builtin.command:
+    cmd: stat -fc %T /sys/fs/cgroup
+  register: slurm_cgroup_type
+  changed_when: false
+
+- name: Require unified cgroup v2
+  ansible.builtin.assert:
+    that:
+      - slurm_cgroup_type.stdout | trim == 'cgroup2fs'
+    fail_msg: "Slurm deployment requires unified cgroup v2 (/sys/fs/cgroup is {{ slurm_cgroup_type.stdout | trim }})"
+    quiet: true
+
+- name: Check that the system clock is synchronized
+  # MUNGE rejects credentials across hosts whose clocks disagree, so an unsynced clock is a
+  # common, confusing failure. This is a warning, not a hard failure: some images sync through
+  # mechanisms timedatectl does not report.
+  ansible.builtin.command:
+    cmd: timedatectl show -p NTPSynchronized --value
+  register: slurm_clock_sync
+  changed_when: false
+  failed_when: false
+
+- name: Warn when the clock is not reported as synchronized
+  ansible.builtin.debug:
+    msg: "Clock on {{ inventory_hostname }} is not reported as NTP-synchronized; MUNGE requires synchronized clocks across the cluster."
+  when: slurm_clock_sync.stdout | default('') | trim != 'yes'

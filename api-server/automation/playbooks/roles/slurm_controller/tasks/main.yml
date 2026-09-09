@@ -1,0 +1,21 @@
+---
+# Start slurmctld on a controller and wait for it to accept RPCs. MUNGE, the JWT key, and
+# slurm.conf are already in place from earlier plays/roles, so this only owns the daemon.
+
+- name: Enable and start slurmctld
+  ansible.builtin.systemd:
+    name: slurmctld
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Wait for the controller to answer scontrol ping
+  ansible.builtin.command:
+    cmd: scontrol ping
+  become: true
+  register: slurm_ctld_ping
+  until: slurm_ctld_ping.rc == 0
+  retries: 24
+  delay: 5
+  changed_when: false

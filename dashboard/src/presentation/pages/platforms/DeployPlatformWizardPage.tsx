@@ -35,7 +35,7 @@ import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
-import type { Platform, GPUStackOwner, NodeRole, RoleAssignment } from '@/domain/platform/types'
+import type { Platform, GPUStackOwner, NodeRole, PlatformType, PlatformMachinePreparation, RoleAssignment } from '@/domain/platform/types'
 import type { DeploymentNetworkMode, DeploymentTemplate, NetworkInspectionResult } from '@/domain/provisioning/types'
 import type { OSImage } from '@/domain/site/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
@@ -159,8 +159,14 @@ export function DeployPlatformWizardPage() {
   const { showToast } = useToast()
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
   const [name, setName] = useState('')
+  const [platformType, setPlatformType] = useState<PlatformType>('kubernetes')
   const [gpuStackOwner, setGPUStackOwner] = useState<GPUStackOwner>('provisioning')
   const [k0sVersion, setK0sVersion] = useState(DEFAULT_K0S_VERSION)
+  // Slurm intent. Node roles are per-daemon (a Server may run slurmctld, slurmd, or both).
+  const [clusterName, setClusterName] = useState('')
+  const [slurmApiVersion, setSlurmApiVersion] = useState('')
+  const [slurmStateSaveLocation, setSlurmStateSaveLocation] = useState('')
+  const [slurmDaemons, setSlurmDaemons] = useState<Record<string, { controller: boolean; compute: boolean }>>({})
   const [topology, setTopology] = useState<TopologyChoice>('high-availability')
   const [apiVip, setAPIVip] = useState('')
   const [apiVipPrefix, setAPIVipPrefix] = useState('24')
@@ -194,6 +200,7 @@ export function DeployPlatformWizardPage() {
     return () => { canceled = true }
   }, [effectiveSiteId, provisioning])
 
+  const isSlurm = platformType === 'slurm'
   const assignments = useMemo<RoleAssignment[]>(() => Object.entries(roles)
     .filter(([, role]) => role !== 'none')
     .map(([serverId, role]) => ({
@@ -208,7 +215,21 @@ export function DeployPlatformWizardPage() {
   const workloadCount = workers + assignments.filter(
     (item) => item.role === 'control-plane' && item.runWorkloads,
   ).length
-  const basicsValid = Boolean(effectiveSiteId && name.trim() && k0sVersion.trim())
+  // Slurm per-daemon selection: a Server may run slurmctld, slurmd, or both. More than one
+  // controller is HA and needs a shared StateSaveLocation the operator supplies.
+  const slurmSelectedIds = Object.entries(slurmDaemons)
+    .filter(([, daemons]) => daemons.controller || daemons.compute)
+    .map(([serverId]) => serverId)
+  const slurmControllerIds = Object.entries(slurmDaemons)
+    .filter(([, daemons]) => daemons.controller)
+    .map(([serverId]) => serverId)
+  const slurmComputeIds = Object.entries(slurmDaemons)
+    .filter(([, daemons]) => daemons.compute)
+    .map(([serverId]) => serverId)
+  const slurmHighlyAvailable = slurmControllerIds.length > 1
+  const slurmTopologyValid = slurmControllerIds.length >= 1 && slurmComputeIds.length >= 1
+    && (!slurmHighlyAvailable || Boolean(slurmStateSaveLocation.trim()))
+  const basicsValid = Boolean(effectiveSiteId && name.trim() && (isSlurm || k0sVersion.trim()))
   // Locked Servers are excluded from the candidate list (see useDeployableServers), so the only
   // "unavailable" reason left to surface is an existing Platform assignment.
   const hasAssignedServers = state.status === 'ready'
@@ -228,9 +249,13 @@ export function DeployPlatformWizardPage() {
     )
   )
 
+  // Kubernetes selection comes from role assignments; Slurm from the per-daemon checkboxes.
+  // Both funnel into one selected-server set so the OS provisioning step, provisioner
+  // derivation, and candidate table stay shared across platform types.
+  const selectedServerIds = isSlurm ? slurmSelectedIds : assignments.map((assignment) => assignment.serverId)
   const selectedServers = state.status === 'ready'
-    ? assignments.flatMap((assignment) => {
-      const server = state.data.servers.find((candidate) => candidate.id === assignment.serverId)
+    ? selectedServerIds.flatMap((serverId) => {
+      const server = state.data.servers.find((candidate) => candidate.id === serverId)
       return server ? [server] : []
     })
     : []
@@ -259,9 +284,13 @@ export function DeployPlatformWizardPage() {
   const provisionerConflict = readyProvisionerIds.length > 1
   const integrationId = readyProvisionerIds.length === 1 ? readyProvisionerIds[0] : ''
   // A convergent deploy is valid once the topology holds and — when any Server needs an OS —
-  // those ready Servers share one resolvable provisioner.
-  const machinesValid = topologyValid
+  // those ready Servers share one resolvable provisioner. Slurm uses its per-daemon topology
+  // rule; the shared provisioner requirement is identical.
+  const machinesValid = (isSlurm ? slurmTopologyValid : topologyValid)
     && (!needsProvisioning || (!provisionerConflict && Boolean(integrationId)))
+  // Slurm has no platform-level network step (no Pod/Service CIDR or API VIP); its networking
+  // is only the OS provisioning network handled in the Operating system step.
+  const platformNetworkingValid = isSlurm ? true : networkingValid
 
   // OS images are per-provisioner; (re)load them whenever the derived provisioner changes.
   useEffect(() => {
@@ -344,6 +373,35 @@ export function DeployPlatformWizardPage() {
     setAPIVip('')
   }
 
+  // Switching platform type clears every selection so a k0s topology never leaks into a Slurm
+  // deploy or vice versa. Slurm forces the provisioning GPU owner (it has no GPU operator).
+  const changeType = (next: PlatformType) => {
+    setPlatformType(next)
+    setRoles({})
+    setWorkloadControllers({})
+    setAPIVip('')
+    setSlurmDaemons({})
+    setSlurmStateSaveLocation('')
+    setTemplateId('')
+    setImageId('')
+    setNetworkInspection(null)
+    setNetworkAssignments({})
+    if (next === 'slurm') setGPUStackOwner('provisioning')
+  }
+
+  // Toggle one Slurm daemon on a node. A node keeps whichever daemons are checked; a node with
+  // neither is simply not part of the cluster.
+  const toggleSlurmDaemon = (serverId: string, daemon: 'controller' | 'compute', checked: boolean) => {
+    const server = state.status === 'ready'
+      ? state.data.servers.find((candidate) => candidate.id === serverId)
+      : undefined
+    if (server?.provisioning?.locked) return
+    setSlurmDaemons((current) => {
+      const existing = current[serverId] ?? { controller: false, compute: false }
+      return { ...current, [serverId]: { ...existing, [daemon]: checked } }
+    })
+  }
+
   const changeRole = (serverId: string, next: RoleChoice) => {
     const server = state.status === 'ready'
       ? state.data.servers.find((candidate) => candidate.id === serverId)
@@ -371,49 +429,69 @@ export function DeployPlatformWizardPage() {
   }
 
   const deploy = async () => {
-    if (!effectiveSiteId || !basicsValid || !machinesValid || !osConfigurationValid || !networkingValid || submitting) return
+    if (!effectiveSiteId || !basicsValid || !machinesValid || !osConfigurationValid || !platformNetworkingValid || submitting) return
     setSubmitting(true)
+    // The mode is derived from the selection, not chosen: reuse existing-OS Servers when
+    // nothing needs provisioning, otherwise converge — provision the ready Servers and reuse the
+    // deployed ones. Only ready Servers carry OS + network preparation. Shared by both types.
+    const machinePreparation: PlatformMachinePreparation = !needsProvisioning
+      ? { mode: 'existing_os' }
+      : {
+        mode: 'provision_os',
+        templateId: templateId || undefined,
+        settings: templateId ? undefined : { imageId: effectiveImageId, ephemeral: effectiveEphemeral },
+        userData: templateId
+          ? { mode: 'inherit' }
+          : cloudInit.trim()
+            ? { mode: 'replace', value: cloudInit }
+            : { mode: 'omit' },
+        network: {
+          mode: effectiveNetworkMode,
+          subnetId: selectedTemplate?.network.subnetId,
+          defaultGateway: selectedTemplate?.network.defaultGateway ?? defaultGateway,
+          assignments: readySelectedServers.map((server) => ({
+            serverId: server.id,
+            interfaceId: networkAssignments[server.id]?.interfaceId ?? '',
+            subnetId: networkAssignments[server.id]?.subnetId,
+            ipAddress: effectiveNetworkMode === 'static'
+              ? networkAssignments[server.id]?.ipAddress.trim()
+              : undefined,
+          })),
+        },
+      }
     try {
-      const result = await platforms.deployPlatform({
-        siteId: effectiveSiteId,
-        name: name.trim(),
-        gpuStackOwner,
-        k0sVersion: k0sVersion.trim(),
-        ...(topology === 'high-availability'
-          ? { apiVip: apiVip.trim(), apiVipPrefix: Number(apiVipPrefix) }
-          : {}),
-        podCidr: podCidr.trim(),
-        serviceCidr: serviceCidr.trim(),
-        roleAssignments: assignments,
-        // The mode is derived from the selection, not chosen: reuse existing-OS Servers when
-        // nothing needs provisioning, otherwise converge — provision the ready Servers and
-        // reuse the deployed ones. Only ready Servers carry OS + network preparation.
-        machinePreparation: !needsProvisioning
-          ? { mode: 'existing_os' }
-          : {
-            mode: 'provision_os',
-            templateId: templateId || undefined,
-            settings: templateId ? undefined : { imageId: effectiveImageId, ephemeral: effectiveEphemeral },
-            userData: templateId
-              ? { mode: 'inherit' }
-              : cloudInit.trim()
-                ? { mode: 'replace', value: cloudInit }
-                : { mode: 'omit' },
-            network: {
-              mode: effectiveNetworkMode,
-              subnetId: selectedTemplate?.network.subnetId,
-              defaultGateway: selectedTemplate?.network.defaultGateway ?? defaultGateway,
-              assignments: readySelectedServers.map((server) => ({
-                serverId: server.id,
-                interfaceId: networkAssignments[server.id]?.interfaceId ?? '',
-                subnetId: networkAssignments[server.id]?.subnetId,
-                ipAddress: effectiveNetworkMode === 'static'
-                  ? networkAssignments[server.id]?.ipAddress.trim()
-                  : undefined,
-              })),
-            },
+      const result = await platforms.deployPlatform(isSlurm
+        ? {
+          siteId: effectiveSiteId,
+          name: name.trim(),
+          type: 'slurm',
+          gpuStackOwner: 'provisioning',
+          slurm: {
+            clusterName: clusterName.trim() || undefined,
+            apiVersion: slurmApiVersion.trim() || undefined,
+            stateSaveLocation: slurmStateSaveLocation.trim() || undefined,
+            nodeAssignments: slurmSelectedIds.map((serverId) => ({
+              serverId,
+              controller: Boolean(slurmDaemons[serverId]?.controller),
+              compute: Boolean(slurmDaemons[serverId]?.compute),
+            })),
           },
-      })
+          machinePreparation,
+        }
+        : {
+          siteId: effectiveSiteId,
+          name: name.trim(),
+          type: 'kubernetes',
+          gpuStackOwner,
+          k0sVersion: k0sVersion.trim(),
+          ...(topology === 'high-availability'
+            ? { apiVip: apiVip.trim(), apiVipPrefix: Number(apiVipPrefix) }
+            : {}),
+          podCidr: podCidr.trim(),
+          serviceCidr: serviceCidr.trim(),
+          roleAssignments: assignments,
+          machinePreparation,
+        })
       showToast({
         title: 'Platform deployment started',
         description: 'Lifecycle and membership will update on the Platform page. Detailed automation output remains available when troubleshooting.',
@@ -435,7 +513,7 @@ export function DeployPlatformWizardPage() {
       <PageHeader
         title="Deploy platform"
         breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }, { label: 'Deploy' }]}
-        subtitle="Build a standalone, non-HA multi-node, or highly available k0s platform with an existing or newly provisioned operating system."
+        subtitle="Build a Kubernetes (k0s) or Slurm platform on Ready or already-deployed Servers, with an existing or newly provisioned operating system."
       />
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} />}
@@ -457,6 +535,16 @@ export function DeployPlatformWizardPage() {
           >
             <WizardSection title="Platform identity">
               <Form className="sw-form-grid">
+                <FormGroup label="Platform type" isRequired fieldId="platform-type">
+                  <FormSelect
+                    id="platform-type"
+                    value={platformType}
+                    onChange={(_event, value) => changeType(value as PlatformType)}
+                  >
+                    <FormSelectOption value="kubernetes" label="Kubernetes" />
+                    <FormSelectOption value="slurm" label="Slurm" />
+                  </FormSelect>
+                </FormGroup>
                 <FormGroup label="Site" isRequired fieldId="platform-site">
                   <SingleSelect
                     id="platform-site"
@@ -473,6 +561,7 @@ export function DeployPlatformWizardPage() {
                       setRoles({})
                       setWorkloadControllers({})
                       setAPIVip('')
+                      setSlurmDaemons({})
                       setTemplateId('')
                       setImageId('')
                       setNetworkInspection(null)
@@ -485,26 +574,60 @@ export function DeployPlatformWizardPage() {
                     id="platform-name"
                     value={name}
                     onChange={(_event, value) => setName(value)}
-                    placeholder="lab-k0s"
+                    placeholder={isSlurm ? 'lab-slurm' : 'lab-k0s'}
                   />
                 </FormGroup>
-                <FormGroup label="GPU stack owner" isRequired fieldId="platform-gpu-owner">
-                  <FormSelect
-                    id="platform-gpu-owner"
-                    value={gpuStackOwner}
-                    onChange={(_event, value) => setGPUStackOwner(value as GPUStackOwner)}
-                  >
-                    <FormSelectOption value="provisioning" label="Provisioning" />
-                    <FormSelectOption value="gpu-operator" label="GPU Operator" />
-                  </FormSelect>
-                </FormGroup>
-                <FormGroup label="k0s version" isRequired fieldId="platform-version">
-                  <TextInput
-                    id="platform-version"
-                    value={k0sVersion}
-                    onChange={(_event, value) => setK0sVersion(value)}
-                  />
-                </FormGroup>
+                {!isSlurm && (
+                  <FormGroup label="GPU stack owner" isRequired fieldId="platform-gpu-owner">
+                    <FormSelect
+                      id="platform-gpu-owner"
+                      value={gpuStackOwner}
+                      onChange={(_event, value) => setGPUStackOwner(value as GPUStackOwner)}
+                    >
+                      <FormSelectOption value="provisioning" label="Provisioning" />
+                      <FormSelectOption value="gpu-operator" label="GPU Operator" />
+                    </FormSelect>
+                  </FormGroup>
+                )}
+                {!isSlurm && (
+                  <FormGroup label="k0s version" isRequired fieldId="platform-version">
+                    <TextInput
+                      id="platform-version"
+                      value={k0sVersion}
+                      onChange={(_event, value) => setK0sVersion(value)}
+                    />
+                  </FormGroup>
+                )}
+                {isSlurm && (
+                  <FormGroup label="Cluster name" fieldId="platform-slurm-cluster">
+                    <TextInput
+                      id="platform-slurm-cluster"
+                      value={clusterName}
+                      onChange={(_event, value) => setClusterName(value)}
+                      placeholder={name.trim() || 'lab-slurm'}
+                    />
+                    <FormHelperText>
+                      <HelperText>
+                        <HelperTextItem>Slurm ClusterName; defaults to a sanitized platform name.</HelperTextItem>
+                      </HelperText>
+                    </FormHelperText>
+                  </FormGroup>
+                )}
+                {isSlurm && (
+                  <FormGroup label="slurmrestd API version" fieldId="platform-slurm-apiversion">
+                    <TextInput
+                      id="platform-slurm-apiversion"
+                      value={slurmApiVersion}
+                      onChange={(_event, value) => setSlurmApiVersion(value)}
+                      placeholder="auto-detect (e.g. v0.0.42)"
+                    />
+                    <FormHelperText>
+                      <HelperText>
+                        <HelperTextItem>Optional. Leave blank to let the deployment detect the endpoint version.</HelperTextItem>
+                      </HelperText>
+                    </FormHelperText>
+                  </FormGroup>
+                )}
               </Form>
             </WizardSection>
           </WizardStep>
@@ -515,30 +638,64 @@ export function DeployPlatformWizardPage() {
             status={machinesValid ? 'success' : 'default'}
             footer={{ isNextDisabled: !machinesValid }}
           >
-            <WizardSection title="Topology and machines">
-              <FormGroup label="Topology" isRequired fieldId="platform-topology">
-                <FormSelect
-                  id="platform-topology"
-                  value={topology}
-                  onChange={(_event, value) => changeTopology(value as TopologyChoice)}
-                >
-                  <FormSelectOption value="standalone" label="Standalone (single Server)" />
-                  <FormSelectOption value="multi-node" label="Multi-node (non-HA)" />
-                  <FormSelectOption value="high-availability" label="High availability" />
-                </FormSelect>
-              </FormGroup>
-              <Alert
-                variant={topology === 'high-availability' ? AlertVariant.info : AlertVariant.warning}
-                title={topologyPresentation(topology).label}
-                isInline
-              >
-                {topologyPresentation(topology).guidance}
-              </Alert>
-              <LabelGroup aria-label="Topology status">
-                <Label color={controllers > 0 ? 'green' : 'orange'}>{controllers} control-plane</Label>
-                <Label color={workloadCount > 0 ? 'green' : 'orange'}>{workloadCount} workload-capable</Label>
-                <Label color={assignments.length > 0 ? 'blue' : 'grey'}>{assignments.length} selected</Label>
-              </LabelGroup>
+            <WizardSection title={isSlurm ? 'Nodes and daemons' : 'Topology and machines'}>
+              {!isSlurm && (
+                <>
+                  <FormGroup label="Topology" isRequired fieldId="platform-topology">
+                    <FormSelect
+                      id="platform-topology"
+                      value={topology}
+                      onChange={(_event, value) => changeTopology(value as TopologyChoice)}
+                    >
+                      <FormSelectOption value="standalone" label="Standalone (single Server)" />
+                      <FormSelectOption value="multi-node" label="Multi-node (non-HA)" />
+                      <FormSelectOption value="high-availability" label="High availability" />
+                    </FormSelect>
+                  </FormGroup>
+                  <Alert
+                    variant={topology === 'high-availability' ? AlertVariant.info : AlertVariant.warning}
+                    title={topologyPresentation(topology).label}
+                    isInline
+                  >
+                    {topologyPresentation(topology).guidance}
+                  </Alert>
+                  <LabelGroup aria-label="Topology status">
+                    <Label color={controllers > 0 ? 'green' : 'orange'}>{controllers} control-plane</Label>
+                    <Label color={workloadCount > 0 ? 'green' : 'orange'}>{workloadCount} workload-capable</Label>
+                    <Label color={assignments.length > 0 ? 'blue' : 'grey'}>{assignments.length} selected</Label>
+                  </LabelGroup>
+                </>
+              )}
+              {isSlurm && (
+                <>
+                  <Alert variant={AlertVariant.info} title="Assign Slurm daemons per node" isInline>
+                    A node may run the controller daemon (slurmctld), the compute daemon (slurmd), or both. At least one controller and one compute node are required.
+                  </Alert>
+                  <LabelGroup aria-label="Slurm status">
+                    <Label color={slurmControllerIds.length > 0 ? 'green' : 'orange'}>{slurmControllerIds.length} controller</Label>
+                    <Label color={slurmComputeIds.length > 0 ? 'green' : 'orange'}>{slurmComputeIds.length} compute</Label>
+                    <Label color={slurmSelectedIds.length > 0 ? 'blue' : 'grey'}>{slurmSelectedIds.length} selected</Label>
+                  </LabelGroup>
+                  {slurmHighlyAvailable && (
+                    <FormGroup label="Shared state directory (StateSaveLocation)" isRequired fieldId="slurm-state-save">
+                      <TextInput
+                        id="slurm-state-save"
+                        value={slurmStateSaveLocation}
+                        onChange={(_event, value) => setSlurmStateSaveLocation(value)}
+                        placeholder="/mnt/slurm-state"
+                        validated={slurmStateSaveLocation.trim() ? 'default' : 'error'}
+                      />
+                      <FormHelperText>
+                        <HelperText>
+                          <HelperTextItem variant={slurmStateSaveLocation.trim() ? 'default' : 'error'}>
+                            Multiple controllers need a shared, mounted directory so a backup controller can recover state.
+                          </HelperTextItem>
+                        </HelperText>
+                      </FormHelperText>
+                    </FormGroup>
+                  )}
+                </>
+              )}
               {hasAssignedServers && (
                 <Alert
                   variant={AlertVariant.warning}
@@ -562,7 +719,12 @@ export function DeployPlatformWizardPage() {
                 <StickyTableFrame>
                   <Table aria-label="Deployable Servers" variant="compact" className="sw-deploy-machines-table">
                     <Thead>
-                      <Tr><Th>Server</Th><Th>Address</Th><Th>OS state</Th><Th>Current assignment</Th><Th>Role</Th><Th>Runs workloads</Th></Tr>
+                      <Tr>
+                        <Th>Server</Th><Th>Address</Th><Th>OS state</Th><Th>Current assignment</Th>
+                        {isSlurm
+                          ? <><Th>Controller</Th><Th>Compute</Th></>
+                          : <><Th>Role</Th><Th>Runs workloads</Th></>}
+                      </Tr>
                     </Thead>
                     <Tbody>
                       {state.data.servers.map((server) => {
@@ -574,6 +736,8 @@ export function DeployPlatformWizardPage() {
                         const deployed = server.provisioning?.state === 'deployed'
                         const unavailable = Boolean(existing)
                         const role = unavailable ? 'none' : roles[server.id] ?? 'none'
+                        const daemons = slurmDaemons[server.id] ?? { controller: false, compute: false }
+                        const willProvision = isSlurm ? (daemons.controller || daemons.compute) : role !== 'none'
                         return (
                           <Tr key={server.id}>
                             <Td dataLabel="Server"><strong>{serverDisplayName(server)}</strong></Td>
@@ -583,7 +747,7 @@ export function DeployPlatformWizardPage() {
                             <Td dataLabel="OS state">
                               {deployed
                                 ? <Label color="green">Deployed</Label>
-                                : role !== 'none'
+                                : willProvision
                                   ? <Label color="blue">Will provision</Label>
                                   : <Label color="blue">Ready</Label>}
                             </Td>
@@ -597,39 +761,68 @@ export function DeployPlatformWizardPage() {
                                 </span>
                               ) : '-'}
                             </Td>
-                            <Td dataLabel="Role">
-                              <FormSelect
-                                aria-label={existing
-                                  ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
-                                  : `Role for ${serverDisplayName(server)}`}
-                                value={role}
-                                isDisabled={unavailable}
-                                onChange={(_event, value) => changeRole(server.id, value as RoleChoice)}
-                              >
-                                <FormSelectOption value="none" label="Not included" />
-                                <FormSelectOption
-                                  value="control-plane"
-                                  label={topology === 'standalone' ? 'Standalone node' : 'Control-plane'}
-                                />
-                                {topology !== 'standalone' && (
-                                  <FormSelectOption value="worker" label="Worker" />
-                                )}
-                              </FormSelect>
-                            </Td>
-                            <Td dataLabel="Runs workloads">
-                              {role === 'control-plane' ? (
-                                <Checkbox
-                                  id={`platform-workload-${server.id}`}
-                                  aria-label={`Run workloads on ${serverDisplayName(server)}`}
-                                  isChecked={topology === 'standalone' || Boolean(workloadControllers[server.id])}
-                                  isDisabled={topology === 'standalone'}
-                                  onChange={(_event, checked) => setWorkloadControllers((current) => ({
-                                    ...current,
-                                    [server.id]: checked,
-                                  }))}
-                                />
-                              ) : role === 'worker' ? <Label color="green">Yes</Label> : '-'}
-                            </Td>
+                            {isSlurm ? (
+                              <>
+                                <Td dataLabel="Controller">
+                                  <Checkbox
+                                    id={`slurm-controller-${server.id}`}
+                                    aria-label={existing
+                                      ? `slurmctld on ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
+                                      : `Run slurmctld on ${serverDisplayName(server)}`}
+                                    isChecked={daemons.controller}
+                                    isDisabled={unavailable}
+                                    onChange={(_event, checked) => toggleSlurmDaemon(server.id, 'controller', checked)}
+                                  />
+                                </Td>
+                                <Td dataLabel="Compute">
+                                  <Checkbox
+                                    id={`slurm-compute-${server.id}`}
+                                    aria-label={existing
+                                      ? `slurmd on ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
+                                      : `Run slurmd on ${serverDisplayName(server)}`}
+                                    isChecked={daemons.compute}
+                                    isDisabled={unavailable}
+                                    onChange={(_event, checked) => toggleSlurmDaemon(server.id, 'compute', checked)}
+                                  />
+                                </Td>
+                              </>
+                            ) : (
+                              <>
+                                <Td dataLabel="Role">
+                                  <FormSelect
+                                    aria-label={existing
+                                      ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
+                                      : `Role for ${serverDisplayName(server)}`}
+                                    value={role}
+                                    isDisabled={unavailable}
+                                    onChange={(_event, value) => changeRole(server.id, value as RoleChoice)}
+                                  >
+                                    <FormSelectOption value="none" label="Not included" />
+                                    <FormSelectOption
+                                      value="control-plane"
+                                      label={topology === 'standalone' ? 'Standalone node' : 'Control-plane'}
+                                    />
+                                    {topology !== 'standalone' && (
+                                      <FormSelectOption value="worker" label="Worker" />
+                                    )}
+                                  </FormSelect>
+                                </Td>
+                                <Td dataLabel="Runs workloads">
+                                  {role === 'control-plane' ? (
+                                    <Checkbox
+                                      id={`platform-workload-${server.id}`}
+                                      aria-label={`Run workloads on ${serverDisplayName(server)}`}
+                                      isChecked={topology === 'standalone' || Boolean(workloadControllers[server.id])}
+                                      isDisabled={topology === 'standalone'}
+                                      onChange={(_event, checked) => setWorkloadControllers((current) => ({
+                                        ...current,
+                                        [server.id]: checked,
+                                      }))}
+                                    />
+                                  ) : role === 'worker' ? <Label color="green">Yes</Label> : '-'}
+                                </Td>
+                              </>
+                            )}
                           </Tr>
                         )
                       })}
@@ -880,6 +1073,7 @@ export function DeployPlatformWizardPage() {
             </WizardStep>
           )}
 
+          {!isSlurm && (
           <WizardStep
             name="Networking"
             id="deploy-networking"
@@ -977,14 +1171,15 @@ export function DeployPlatformWizardPage() {
               </Form>
             </WizardSection>
           </WizardStep>
+          )}
 
           <WizardStep
             name="Review"
             id="deploy-review"
-            status={basicsValid && machinesValid && osConfigurationValid && networkingValid ? 'success' : 'warning'}
+            status={basicsValid && machinesValid && osConfigurationValid && platformNetworkingValid ? 'success' : 'warning'}
             footer={{
               nextButtonText: 'Deploy platform',
-              isNextDisabled: submitting || !basicsValid || !machinesValid || !osConfigurationValid || !networkingValid,
+              isNextDisabled: submitting || !basicsValid || !machinesValid || !osConfigurationValid || !platformNetworkingValid,
               nextButtonProps: { isLoading: submitting },
             }}
           >
@@ -993,26 +1188,45 @@ export function DeployPlatformWizardPage() {
                 <CardTitle>{name}</CardTitle>
                 <CardBody>
                   <DescriptionList isHorizontal isCompact>
-                    {[
-                      ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
-                      ['Topology', topologyPresentation(topology).label],
-                      ['Machine preparation', needsProvisioning
-                        ? `Provision ${readySelectedServers.length}, ${deployedSelectedServers.length} already deployed`
-                        : 'Use existing OS'],
-                      ...(needsProvisioning ? [
-                        ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
-                        ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
-                      ] : []),
-                      ['k0s version', k0sVersion],
-                      ['GPU stack owner', gpuStackOwner],
-                      ['API endpoint', topology === 'high-availability'
-                        ? `${apiVip}/${apiVipPrefix} (virtual IP)`
-                        : `${initialControllerAddress ?? '-'}:6443 (direct)`],
-                      ['Pod CIDR', podCidr],
-                      ['Service CIDR', serviceCidr],
-                      ['Machines', `${assignments.length} selected`],
-                      ['Roles', `${controllers} control-plane, ${workloadCount} workload-capable`],
-                    ].map(([label, value]) => (
+                    {(isSlurm
+                      ? [
+                        ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
+                        ['Platform type', 'Slurm'],
+                        ['Cluster name', clusterName.trim() || name.trim()],
+                        ['Machine preparation', needsProvisioning
+                          ? `Provision ${readySelectedServers.length}, ${deployedSelectedServers.length} already deployed`
+                          : 'Use existing OS'],
+                        ...(needsProvisioning ? [
+                          ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
+                          ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
+                        ] : []),
+                        ['Controllers', String(slurmControllerIds.length)],
+                        ['Compute nodes', String(slurmComputeIds.length)],
+                        ...(slurmHighlyAvailable ? [['Shared state directory', slurmStateSaveLocation.trim()]] : []),
+                        ...(slurmApiVersion.trim() ? [['slurmrestd API version', slurmApiVersion.trim()]] : []),
+                      ]
+                      : [
+                        ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
+                        ['Platform type', 'Kubernetes'],
+                        ['Topology', topologyPresentation(topology).label],
+                        ['Machine preparation', needsProvisioning
+                          ? `Provision ${readySelectedServers.length}, ${deployedSelectedServers.length} already deployed`
+                          : 'Use existing OS'],
+                        ...(needsProvisioning ? [
+                          ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
+                          ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
+                        ] : []),
+                        ['k0s version', k0sVersion],
+                        ['GPU stack owner', gpuStackOwner],
+                        ['API endpoint', topology === 'high-availability'
+                          ? `${apiVip}/${apiVipPrefix} (virtual IP)`
+                          : `${initialControllerAddress ?? '-'}:6443 (direct)`],
+                        ['Pod CIDR', podCidr],
+                        ['Service CIDR', serviceCidr],
+                        ['Machines', `${assignments.length} selected`],
+                        ['Roles', `${controllers} control-plane, ${workloadCount} workload-capable`],
+                      ]
+                    ).map(([label, value]) => (
                       <DescriptionListGroup key={label}>
                         <DescriptionListTerm>{label}</DescriptionListTerm>
                         <DescriptionListDescription>{value}</DescriptionListDescription>

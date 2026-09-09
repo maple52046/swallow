@@ -61,8 +61,8 @@ func (s *UninstallService) Uninstall(
 	if err != nil {
 		return nil, err
 	}
-	if platform.Type != platformdomain.PlatformTypeKubernetes {
-		return nil, fmt.Errorf("%w: only Kubernetes platforms deployed by Swallow can be uninstalled",
+	if platform.Type != platformdomain.PlatformTypeKubernetes && platform.Type != platformdomain.PlatformTypeSlurm {
+		return nil, fmt.Errorf("%w: only Kubernetes and Slurm platforms deployed by Swallow can be uninstalled",
 			platformdomain.ErrPlatformNotDeployManaged)
 	}
 	if s.lifecycle == nil {

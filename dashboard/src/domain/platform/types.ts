@@ -122,16 +122,48 @@ export interface PlatformMachinePreparation {
   };
 }
 
+/**
+ * One Slurm deployment target's per-daemon roles. Unlike Kubernetes these are not mutually
+ * exclusive: a Server may run the controller daemon (slurmctld), the compute daemon (slurmd),
+ * or both. A Server running neither is not part of the cluster.
+ */
+export interface SlurmNodeAssignment {
+  serverId: string;
+  controller: boolean;
+  compute: boolean;
+}
+
+/**
+ * A request to deploy a Slurm platform. `clusterName` defaults to a sanitized platform name.
+ * `apiVersion` pins the slurmrestd endpoint version recorded in the credential.
+ * `stateSaveLocation` is required by the backend only for a highly available (multi-controller)
+ * deployment, where a backup controller needs a shared state directory.
+ */
+export interface SlurmDeploymentSpec {
+  clusterName?: string;
+  apiVersion?: string;
+  stateSaveLocation?: string;
+  nodeAssignments: SlurmNodeAssignment[];
+}
+
+/**
+ * A request to deploy a platform onto Ready or already-deployed servers. `type` selects the
+ * platform: "kubernetes" (default) reads the k0s fields; "slurm" reads `slurm`. Optional CIDRs
+ * fall back to backend defaults. `apiVip` is required only when role assignments infer a highly
+ * available control plane; one-control-plane deployments use that Server's observed address.
+ */
 export interface DeployPlatformInput {
   siteId: string;
   name: string;
+  type?: PlatformType;
   gpuStackOwner: GPUStackOwner;
-  k0sVersion: string;
+  k0sVersion?: string;
   podCidr?: string;
   serviceCidr?: string;
   apiVip?: string;
   apiVipPrefix?: number;
-  roleAssignments: RoleAssignment[];
+  roleAssignments?: RoleAssignment[];
+  slurm?: SlurmDeploymentSpec;
   machinePreparation?: PlatformMachinePreparation;
 }
 

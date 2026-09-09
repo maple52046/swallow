@@ -99,7 +99,9 @@ func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if len(repo.filter.PlatformIDs) != 2 || len(repo.filter.Kinds) != 2 {
+	// The lifecycle reader queries deploy-kubernetes, configure-slurm, uninstall-kubernetes, and
+	// uninstall-slurm so Slurm deploy and uninstall drive the same lifecycle projection as k0s.
+	if len(repo.filter.PlatformIDs) != 2 || len(repo.filter.Kinds) != 4 {
 		t.Fatalf("batch filter = %+v", repo.filter)
 	}
 	deployed := result["platform-deployed"]

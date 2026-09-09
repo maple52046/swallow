@@ -1,0 +1,43 @@
+---
+# Verify the cluster actually formed, not merely that services are active. scontrol ping and
+# node registration are required; a real srun is best-effort because a node can still be
+# registering immediately after slurmd start, and deployment success should not hinge on that
+# transient window (the membership sync confirms readiness afterwards).
+
+- name: Confirm the controller is up
+  ansible.builtin.command:
+    cmd: scontrol ping
+  become: true
+  register: slurm_verify_ping
+  until: slurm_verify_ping.rc == 0
+  retries: 12
+  delay: 5
+  changed_when: false
+
+- name: Wait for every compute node to register in a schedulable state
+  ansible.builtin.command:
+    cmd: sinfo --noheader --Node --format=%T
+  become: true
+  register: slurm_verify_sinfo
+  until:
+    - slurm_verify_sinfo.rc == 0
+    - slurm_verify_sinfo.stdout_lines | length >= (swallow_slurm_compute_ids | length)
+    - slurm_verify_sinfo.stdout_lines | reject('match', '^(idle|mixed|allocated)') | list | length == 0
+  retries: 24
+  delay: 5
+  changed_when: false
+
+- name: Run a smoke-test job across the compute nodes
+  ansible.builtin.command:
+    cmd: srun --nodes={{ swallow_slurm_compute_ids | length }} --ntasks={{ swallow_slurm_compute_ids | length }} --ntasks-per-node=1 hostname -s
+  become: true
+  register: slurm_verify_srun
+  changed_when: false
+  failed_when: false
+
+- name: Warn if the smoke-test job did not run cleanly
+  ansible.builtin.debug:
+    msg: >-
+      Slurm smoke-test srun did not complete cleanly (rc={{ slurm_verify_srun.rc }}). The
+      cluster is deployed and nodes are registered; check scheduling with sinfo/squeue.
+  when: slurm_verify_srun.rc != 0

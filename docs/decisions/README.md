@@ -70,6 +70,8 @@
 | [`016-temporal-operation-orchestration.md`](016-temporal-operation-orchestration.md) | Operation v3 改為 Temporal 編排的多步驟 workflow（DAG、typed executor、per-resource fencing lease），supersede ADR 006 的執行引擎與 site lease |
 | [`017-workflow-job-task-runner-model.md`](017-workflow-job-task-runner-model.md) | 定義 Workflow/Job/Task/Runner 詞彙、收斂式（ensure）執行、workflow↔ansible 界線規則、inventory 為 platform playbook 的 published language；refine ADR 016 詞彙 |
 | [`018-automatic-addressing-provider-auto-assign.md`](018-automatic-addressing-provider-auto-assign.md) | 部署自動定址意圖 `automatic` 由 provider auto-assign（MAAS `AUTO`）實現而非 raw DHCP，位址穩定且 provider 一定記錄；`dhcp` 降為一 release deprecated alias；refine ADR 012 的模式選擇 |
+| [`019-slurm-platform-deployment.md`](019-slurm-platform-deployment.md) | Slurm platform 部署：per-daemon 角色（slurmctld/slurmd）、套件由 image 提供、slurmrestd+JWT 憑證、重用 ensure-os + 新增 configure-slurm Job、單 controller 首版且保留 HA 掛勾、不套 k0s 的 ephemeral 防呆 |
+| [`020-durable-operation-recovery.md`](020-durable-operation-recovery.md) | Durable Operation 失敗回復：以新 Operation + `RetryOfOperationId` 重跑（保留成功 Step、複製封存 secrets）不刪 Platform、`requires_attention` 等待期撐過中斷、lost-execution reconciler 只標記不自動修 |
 `001`–`003` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
 Consequences / Rejected alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄
 `Date`，依「不得杜撰歷史理由」原則保留為 unrecorded 而非捏造。其論述結構刻意維持原樣。
