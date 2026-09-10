@@ -51,6 +51,7 @@ import { PageHeader } from "@/presentation/components/PageHeader";
 import {
   LockBadge,
   ProvisioningBadge,
+  PowerBadge,
 } from "@/presentation/components/AxisBadge";
 import { useToast } from "@/presentation/components/toast/toastContext";
 import { useSiteScope } from "@/presentation/contexts/SiteScopeContext";
@@ -856,7 +857,7 @@ export function DeployOSWizardPage() {
                             {server.addresses[0] ?? "-"}
                           </Td>
                           <Td dataLabel="Power">
-                            {server.provisioning?.powerState ?? "-"}
+                            <PowerBadge powerState={server.provisioning?.powerState ?? null} />
                           </Td>
                           <Td dataLabel="State">
                             <ProvisioningBadge axis={server.provisioning} />
@@ -1382,7 +1383,7 @@ export function DeployOSWizardPage() {
                             ? networkAssignments[server.id]?.ipAddress || "-"
                             : "Automatic"}
                         </Td>
-                        <Td>{server.provisioning?.powerState ?? "-"}</Td>
+                        <Td><PowerBadge powerState={server.provisioning?.powerState ?? null} /></Td>
                       </Tr>
                     ))}
                   </Tbody>

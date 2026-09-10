@@ -74,7 +74,9 @@ import {
   DeploymentBadge,
   HealthBadge,
   MembershipBadge,
+  PowerBadge,
 } from "@/presentation/components/AxisBadge";
+import { powerStateLabel } from "@/presentation/components/axisBadgeUtils";
 import { CopyButton } from "@/presentation/components/CopyButton";
 import { useSiteScope } from "@/presentation/contexts/SiteScopeContext";
 import {
@@ -87,6 +89,7 @@ import {
 import { ServerLockDialog } from "./ServerLockDialog";
 import { ServerDeleteDialog } from "./ServerDeleteDialog";
 import { ServerReleaseDialog } from "./ServerReleaseDialog";
+import { ServerPowerDialog } from "./ServerPowerDialog";
 import { useServerWorkingSet } from "./useServerWorkingSet";
 import { useServerBulkActions } from "./useServerBulkActions";
 import { ServerActionResultDialog } from "./ServerActionResultDialog";
@@ -95,11 +98,8 @@ import {
   type ServerActionRunResult,
   type ServerActionTarget,
 } from "./serverActionResults";
-import {
-  ServerSavedViews,
-  type SavedServerViewState,
-  type ServerDensity,
-} from "./ServerSavedViews";
+/** Table row density for the server list; controls compact vs comfortable row spacing. */
+type ServerDensity = "compact" | "comfortable";
 
 interface ColumnToggle {
   key: string;
@@ -274,51 +274,6 @@ export function ServersPage() {
     targets: readonly Server[];
     skipped: readonly Server[];
   } | null>(null);
-
-  const savedViewState = useMemo<SavedServerViewState>(
-    () => ({
-      filters,
-      keyword: searchInput,
-      includeAbsent,
-      groupBy,
-      sortKey,
-      sortDirection: sortDir,
-      hiddenColumns: [...hiddenColumns],
-      density,
-      pageSize,
-    }),
-    [
-      density,
-      filters,
-      groupBy,
-      hiddenColumns,
-      includeAbsent,
-      pageSize,
-      searchInput,
-      sortDir,
-      sortKey,
-    ],
-  );
-  const applySavedView = useCallback((view: SavedServerViewState) => {
-    const normalizedFilters = {
-      ...EMPTY_SERVER_FILTERS,
-      ...view.filters,
-      lockState: view.filters.lockState ?? "any",
-    };
-    setFilters(normalizedFilters);
-    setSearchInput(view.keyword);
-    setCoarseKeyword(view.keyword);
-    setIncludeAbsent(view.includeAbsent);
-    setGroupBy(view.groupBy);
-    setSortKey(view.sortKey);
-    setSortDir(view.sortDirection);
-    setHiddenColumns(new Set(normalizeHiddenColumns(view.hiddenColumns)));
-    setDensity(view.density);
-    setPageSize(view.pageSize);
-    setSelected(new Set());
-    setCollapsedGroups(new Set());
-    setPage(1);
-  }, []);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -606,9 +561,6 @@ export function ServersPage() {
           activeProjectionTargetKey ? (
             <Label color="blue">Updating active Servers...</Label>
           ) : undefined
-        }
-        actions={
-          <ServerSavedViews current={savedViewState} onApply={applySavedView} />
         }
       />
       {staleProvisioners.map((item) => (
@@ -1362,7 +1314,11 @@ function ServerRow({
   onAction: (action: ServerMenuAction) => void;
   visible: (key: string) => boolean;
 }) {
+  // The power cell doubles as a shortcut to power actions; the dialog lives on the row so each
+  // row owns its own open state without lifting it into the (already large) page component.
+  const [powerDialogOpen, setPowerDialogOpen] = useState(false);
   return (
+    <>
     <Tr isClickable onRowClick={onNavigate}>
       <Td
         dataLabel="Selection"
@@ -1391,8 +1347,29 @@ function ServerRow({
         </span>
       </Td>
       {visible("power") && (
-        <Td dataLabel="Power" className="sw-cell-center sw-power-cell">
-          {server.provisioning ? server.provisioning.powerState : "-"}
+        <Td
+          dataLabel="Power"
+          className="sw-cell-center sw-power-cell"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {server.provisioning ? (
+            <Tooltip
+              content={`Power actions (${powerStateLabel(
+                server.provisioning.powerState,
+              )})`}
+            >
+              <Button
+                variant="plain"
+                className="sw-power-button"
+                aria-label={`Power actions for ${serverDisplayName(server)}`}
+                onClick={() => setPowerDialogOpen(true)}
+              >
+                <PowerBadge powerState={server.provisioning.powerState} decorative />
+              </Button>
+            </Tooltip>
+          ) : (
+            <PowerBadge powerState={null} />
+          )}
         </Td>
       )}
       {visible("status") && (
@@ -1528,6 +1505,17 @@ function ServerRow({
         />
       </Td>
     </Tr>
+    {powerDialogOpen && (
+      <ServerPowerDialog
+        server={server}
+        onClose={() => setPowerDialogOpen(false)}
+        onSelect={(action) => {
+          setPowerDialogOpen(false);
+          onAction(action);
+        }}
+      />
+    )}
+    </>
   );
 }
 

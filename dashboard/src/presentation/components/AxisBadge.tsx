@@ -1,6 +1,26 @@
 import { Flex, Label, Tooltip } from '@patternfly/react-core'
 import { Lock, MemoryStick } from 'lucide-react'
-import type { DeploymentAxis, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
+import type { DeploymentAxis, DeploymentState, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
+import { POWER_PRESENTATION } from './axisBadgeUtils'
+
+/**
+ * CSS class (defined in `src/index.css`) that overlays animated diagonal stripes on a status
+ * Label to signal a step that is still running. Applied only to the in-progress branches of
+ * {@link DeploymentBadge}; the stripes are a supplementary motion cue, while the Label text
+ * and its Tooltip stay the authoritative state, and the motion is stilled under
+ * `prefers-reduced-motion`.
+ */
+const IN_PROGRESS_LABEL_CLASS = 'sw-label-progress'
+
+/**
+ * Deployment axis states that mean work is still in flight, as opposed to a terminal outcome
+ * such as `succeeded`, `failed`, `requires_attention`, or `canceled`. Used to decide whether
+ * the deployment Label shows the in-progress stripe animation.
+ */
+const IN_PROGRESS_DEPLOYMENT_STATES: ReadonlySet<DeploymentState> = new Set([
+  'deploying',
+  'verifying',
+])
 
 const PROVISIONING_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red' | 'purple'> = {
   deployed: 'green', ready: 'blue', allocated: 'blue', deploying: 'orange', releasing: 'orange',
@@ -49,21 +69,25 @@ export function DeploymentBadge({
   provider: ProvisioningAxis | null
 }) {
   let state
+  // The releasing / commissioning / testing / deploying provider states and the in-progress
+  // deployment axis states are all "work still running", so each carries the stripe animation;
+  // every terminal branch below (deployed, failed, ready, not deployed…) stays static.
   if (provider?.state === 'releasing') {
-    state = <Tooltip content="The provider is returning this Server to its available pool."><Label color="orange">Releasing</Label></Tooltip>
+    state = <Tooltip content="The provider is returning this Server to its available pool."><Label color="orange" className={IN_PROGRESS_LABEL_CLASS}>Releasing</Label></Tooltip>
   } else if (provider?.state === 'commissioning') {
-    state = <Tooltip content="The provider is commissioning this Server."><Label color="blue">Commissioning</Label></Tooltip>
+    state = <Tooltip content="The provider is commissioning this Server."><Label color="blue" className={IN_PROGRESS_LABEL_CLASS}>Commissioning</Label></Tooltip>
   } else if (provider?.state === 'testing') {
-    state = <Tooltip content="The provider is testing this Server."><Label color="blue">Testing</Label></Tooltip>
+    state = <Tooltip content="The provider is testing this Server."><Label color="blue" className={IN_PROGRESS_LABEL_CLASS}>Testing</Label></Tooltip>
   } else if (axis) {
     const presentation = DEPLOYMENT_PRESENTATION[axis.state]
     const detail = axis.statusReason ||
       (axis.state === 'succeeded'
         ? 'Swallow verified the installed image, provider address, and SSH endpoint.'
         : `Operation ${axis.operationId}, attempt ${axis.attempt}`)
-    state = <Tooltip content={detail}><Label color={presentation.color}>{presentation.label}</Label></Tooltip>
+    const stripes = IN_PROGRESS_DEPLOYMENT_STATES.has(axis.state) ? IN_PROGRESS_LABEL_CLASS : undefined
+    state = <Tooltip content={detail}><Label color={presentation.color} className={stripes}>{presentation.label}</Label></Tooltip>
   } else if (provider?.state === 'deploying') {
-    state = <Tooltip content="The provider is installing an operating system; no verified Swallow result exists yet."><Label color="blue">Deploying</Label></Tooltip>
+    state = <Tooltip content="The provider is installing an operating system; no verified Swallow result exists yet."><Label color="blue" className={IN_PROGRESS_LABEL_CLASS}>Deploying</Label></Tooltip>
   } else if (provider?.state === 'deployed') {
     state = <Tooltip content="The OS is installed, but no Swallow deployment result exists. Check the OS and Network fields for the facts that are known."><Label color="grey">Unknown</Label></Tooltip>
   } else if (provider?.state === 'failed' || provider?.state === 'broken') {
@@ -146,6 +170,50 @@ export function ProvisioningBadge({ axis }: { axis: ProvisioningAxis | null }) {
       {state}
       <EphemeralIndicator />
     </Flex>
+  )
+}
+
+/**
+ * Provisioner-owned power state shown as a compact icon in dense Server tables (server list
+ * and the deploy wizard), replacing the raw `on`/`off` text so fleet power is scannable at a
+ * glance.
+ *
+ * Pass `powerState` as `null` when no provisioning projection exists — that renders a neutral
+ * dash rather than implying a real "off". Accessibility: by default the icon shape, its
+ * Tooltip, and its `aria-label` convey the state, and the green/red tint is only a
+ * supplementary cue. Set `decorative` when the badge is nested inside an interactive control
+ * (such as a power-action button) that already owns the accessible name and tooltip; the icon
+ * is then rendered `aria-hidden` with no Tooltip to avoid duplicate announcements.
+ */
+export function PowerBadge({
+  powerState,
+  decorative = false,
+}: {
+  powerState: ProvisioningAxis['powerState'] | null
+  decorative?: boolean
+}) {
+  // No provisioning projection means the provisioner reported no power fact at all; a neutral
+  // dash reads as "no data" instead of a misleading powered-off icon.
+  if (powerState === null) {
+    return <span className="sw-power-indicator" aria-hidden>-</span>
+  }
+  const { Icon, label, modifier } = POWER_PRESENTATION[powerState]
+  const className = modifier ? `sw-power-indicator ${modifier}` : 'sw-power-indicator'
+  // Decorative mode: the surrounding control carries the label/tooltip, so keep the icon out
+  // of the accessibility tree and skip the redundant Tooltip.
+  if (decorative) {
+    return (
+      <span className={className} aria-hidden>
+        <Icon size={16} />
+      </span>
+    )
+  }
+  return (
+    <Tooltip content={label}>
+      <span className={className} role="img" aria-label={label}>
+        <Icon size={16} aria-hidden />
+      </span>
+    </Tooltip>
   )
 }
 
