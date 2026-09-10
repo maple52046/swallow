@@ -1,43 +1,34 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Alert, AlertVariant, Button, Flex, Label } from '@patternfly/react-core'
 import { SyncAltIcon } from '@patternfly/react-icons'
-import { Table, Tbody, Td, Th, Thead, Tr, type ThProps } from '@patternfly/react-table'
+import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
 import { platformLifecycleLabel, platformLifecycleStatus } from '@/domain/platform/lifecycle'
-import type { Platform, KubernetesTopology } from '@/domain/platform/types'
-import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
+import type { Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SectionHeader, StatStrip, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
-import { CopyButton } from '@/presentation/components/CopyButton'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
+import { KubernetesPlatformView } from './KubernetesPlatformView'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
+import { SlurmPlatformView } from './SlurmPlatformView'
 import { usePlatformDetail } from './usePlatformDetail'
 
-/** Operator label for a deployment topology value. */
-function topologyLabel(topology: KubernetesTopology): string {
-  switch (topology) {
-    case 'standalone':
-      return 'Standalone'
-    case 'multi-node':
-      return 'Multi-node (non-HA)'
-    case 'high-availability':
-      return 'High availability'
-  }
-}
-
 /**
- * Platform drill-down combining readiness, lifecycle progress, members, and related work.
+ * Platform drill-down shell.
  *
- * Active deployment/uninstall state is polled by the detail hook, while raw automation
- * output remains a secondary drill-down. Slurm never inherits Kubernetes terminology.
+ * Slurm and Kubernetes are structurally different, so this page is a shared shell (header,
+ * lifecycle notice, sync, lifecycle actions, related operations) around a per-type body view:
+ * KubernetesPlatformView or SlurmPlatformView. Type-specific summaries, member/node tables,
+ * and any Slurm-native live reads live in those views, not here, so neither type inherits the
+ * other's vocabulary or state model.
  */
 export function PlatformDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -81,25 +72,14 @@ export function PlatformDetailPage() {
   }
 
   const { platform, members, operations, reload } = state.data
-  const controllers = members.filter((server) => server.membership?.role === 'control-plane')
-  const workers = members.filter((server) => server.membership?.role !== 'control-plane')
   const isKubernetes = platform.type === 'kubernetes'
-  const intendedControllers = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'control-plane',
-  ) ?? []
-  const intendedWorkers = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'worker',
-  ) ?? []
-  const workloadCapable = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'worker' || assignment.runWorkloads,
-  ) ?? []
-  const workloadControllers = intendedControllers.filter((assignment) => assignment.runWorkloads)
   const lifecycleOperation = operations.find(
     (operation) => operation.id === platform.lifecycleOperationId,
   ) ?? operations.find(
     (operation) => operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm',
   )
   const targetServerIds = lifecycleOperation?.targetServerIds
+  const openServer = (serverId: string) => navigate(scopedHref(`/servers/${serverId}`))
 
   return (
     <div className="operator-page">
@@ -150,83 +130,13 @@ export function PlatformDetailPage() {
           {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
         </Alert>
       )}
-      <StatStrip
-        items={[
-          { label: 'Lifecycle', value: platformLifecycleLabel(platform.lifecycleState) },
-          // Counts come from the recorded deployment intent when available so a manager node
-          // that a platform's own API never reports as a member (Slurm controllers are not
-          // slurmd scheduler nodes) is still counted. Registered platforms with no deployment
-          // intent fall back to the live membership axis.
-          ...(platform.deployment
-            ? isKubernetes
-              ? [
-                  { label: 'Topology', value: topologyLabel(platform.deployment.topology) },
-                  {
-                    label: 'Control-plane',
-                    value: intendedControllers.length,
-                    detail: workloadControllers.length > 0
-                      ? workloadControllers.length + (workloadControllers.length === 1
-                          ? ' also runs workloads'
-                          : ' also run workloads')
-                      : 'Dedicated control-plane',
-                  },
-                  {
-                    label: 'Workload-capable',
-                    value: workloadCapable.length,
-                    detail: intendedWorkers.length === 0
-                      ? 'No worker-only nodes'
-                      : intendedWorkers.length + (intendedWorkers.length === 1
-                          ? ' worker-only node'
-                          : ' worker-only nodes'),
-                  },
-                ]
-              : [
-                  { label: 'Topology', value: topologyLabel(platform.deployment.topology) },
-                  {
-                    label: 'Managers',
-                    value: intendedControllers.length,
-                    detail: workloadControllers.length > 0
-                      ? workloadControllers.length + (workloadControllers.length === 1
-                          ? ' also runs compute'
-                          : ' also run compute')
-                      : 'Dedicated controllers',
-                  },
-                  { label: 'Compute members', value: workloadCapable.length },
-                ]
-            : [
-                { label: isKubernetes ? 'Control-plane' : 'Managers', value: controllers.length },
-                { label: isKubernetes ? 'Worker nodes' : 'Compute members', value: workers.length },
-              ]),
-          {
-            label: 'Matched members',
-            value: platform.sync.matchedCount,
-            detail: `${platform.sync.memberCount} reported`,
-            tone: platform.sync.matchedCount < platform.sync.memberCount ? 'warning' : 'neutral',
-          },
-          {
-            label: 'Last synced',
-            value: platform.sync.lastSucceededAt
-              ? formatRelative(platform.sync.lastSucceededAt)
-              : 'No data',
-          },
-        ]}
-      />
-      <section className="sw-section">
-        <SectionHeader
-          title="Members"
-          description={
-            isKubernetes
-              ? 'Kubernetes membership correlated to Server projections.'
-              : 'Platform membership correlated to Server projections.'
-          }
-        />
-        <MemberTable
-          members={members}
-          isKubernetes={isKubernetes}
-          deployment={platform.deployment}
-          onSelect={(server) => navigate(scopedHref(`/servers/${server.id}`))}
-        />
-      </section>
+
+      {isKubernetes ? (
+        <KubernetesPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
+      ) : (
+        <SlurmPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
+      )}
+
       <section className="sw-section">
         <SectionHeader
           title="Related operations"
@@ -263,6 +173,8 @@ export function PlatformDetailPage() {
 
 /**
  * Explains lifecycle in Platform language and keeps raw automation detail a secondary action.
+ * Shared by both platform types; it reads only lifecycle state and the failed Step, neither of
+ * which is type-specific.
  */
 function LifecycleNotice({
   platform,
@@ -295,7 +207,8 @@ function LifecycleNotice({
     case 'deploy_failed':
       return (
         <Alert variant={AlertVariant.danger} title="Platform deployment failed" isInline>
-          {failureMessage} {details}
+          {/* pre-wrap keeps the executor's per-host failure lines legible; see sw-error-detail. */}
+          <span className="sw-error-detail">{failureMessage}</span> {details}
         </Alert>
       )
     case 'uninstalling':
@@ -321,9 +234,10 @@ function LifecycleNotice({
 }
 
 /**
- * Describes recovery from the durable Step that actually failed. A readiness failure
- * before the Ansible Step cannot have left partial k0s state, while a started install
- * Step still requires the more cautious warning.
+ * Describes recovery from the durable Step that actually failed. A readiness failure before the
+ * Ansible Step cannot have left partial platform state, while a started install Step still
+ * requires the more cautious warning. Platform-type neutral: it names the install-platform Step
+ * shared by both deployment kinds.
  */
 function deploymentFailureMessage(operation?: Operation): string {
   if (!operation || !isOrchestrationOperation(operation)) {
@@ -340,140 +254,10 @@ function deploymentFailureMessage(operation?: Operation): string {
     const reason = failedStep?.error?.message ?? 'Machine preparation did not complete.'
     return `${reason} Platform installation did not start. Resolve the network or SSH readiness issue, then use Repair deployment to retry the failed Step.`
   }
-  return 'Hosts may contain partial platform state. Review the failed Step, then use Repair deployment to retry only unfinished work.'
-}
-
-/** Member rows whose terminology stays neutral for Slurm. */
-function MemberTable({
-  members,
-  isKubernetes,
-  deployment,
-  onSelect,
-}: {
-  members: Server[]
-  isKubernetes: boolean
-  deployment: Platform['deployment']
-  onSelect: (server: Server) => void
-}) {
-  const [activeSortIndex, setActiveSortIndex] = useState(0)
-  const [activeSortDirection, setActiveSortDirection] = useState<'asc' | 'desc'>('asc')
-
-  // One accessor per sortable column, in the same order as the headers below. Values are
-  // strings so the numeric-aware locale compare orders hostnames and IPv4 octets naturally
-  // (node-2 before node-10, .2 before .10).
-  const sortValue = (server: Server, columnIndex: number): string => {
-    switch (columnIndex) {
-      case 0:
-        return (server.membership?.nodeName || serverDisplayName(server)).toLowerCase()
-      case 1:
-        return server.membership?.role ?? ''
-      case 2:
-        return server.membership?.state ?? ''
-      case 3:
-        return serverPrimaryAddress(server) ?? ''
-      default:
-        return ''
-    }
-  }
-  const sortedMembers = useMemo(() => {
-    const ordered = [...members].sort((a, b) =>
-      sortValue(a, activeSortIndex).localeCompare(sortValue(b, activeSortIndex), undefined, {
-        numeric: true,
-      }),
-    )
-    return activeSortDirection === 'asc' ? ordered : ordered.reverse()
-  }, [members, activeSortIndex, activeSortDirection])
-  const sortParams = (columnIndex: number): ThProps['sort'] => ({
-    sortBy: { index: activeSortIndex, direction: activeSortDirection },
-    onSort: (_event, index, direction) => {
-      setActiveSortIndex(index)
-      setActiveSortDirection(direction)
-    },
-    columnIndex,
-  })
-
-  if (members.length === 0) {
-    return <EmptyState title="No members" message="No Server currently reports membership in this platform." />
-  }
-  return (
-    <StickyTableFrame>
-      <Table aria-label="Platform members" variant="compact">
-        <Thead>
-          <Tr>
-            <Th sort={sortParams(0)}>{isKubernetes ? 'Node' : 'Member'}</Th>
-            <Th sort={sortParams(1)}>Role</Th>
-            <Th sort={sortParams(2)}>State</Th>
-            <Th sort={sortParams(3)}>Address</Th>
-          </Tr>
-        </Thead>
-        <Tbody>
-          {sortedMembers.map((server) => {
-            const assignment = deployment?.roleAssignments.find(
-              (candidate) => candidate.serverId === server.id,
-            )
-            const controllerRunsWorkloads = assignment?.role === 'control-plane' &&
-              assignment.runWorkloads
-            const nodeName = server.membership?.nodeName || serverDisplayName(server)
-            const address = serverPrimaryAddress(server)
-            // A Slurm controller is not a scheduler member, so it has no membership role/state.
-            // Fall back to the recorded assignment for its role and to the Server's own health
-            // for its state, so managers still render as rows instead of being hidden.
-            const isManager = server.membership?.role === 'control-plane' ||
-              assignment?.role === 'control-plane'
-            const roleLabel = server.membership?.role
-              ?? (assignment?.role === 'control-plane'
-                    ? (isKubernetes ? 'control-plane' : 'controller')
-                    : assignment?.role === 'worker'
-                      ? (isKubernetes ? 'worker' : 'compute')
-                      : 'unknown')
-            return (
-              <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
-                <Td dataLabel={isKubernetes ? 'Node' : 'Member'}>
-                  <span className="sw-cell-inline">
-                    <strong>{nodeName}</strong>
-                    <CopyButton
-                      value={nodeName}
-                      label={isKubernetes ? 'Copy node name' : 'Copy member name'}
-                    />
-                  </span>
-                </Td>
-                <Td dataLabel="Role">
-                  <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
-                    <StatusBadge
-                      status={isManager ? 'info' : 'neutral'}
-                      label={roleLabel}
-                    />
-                    {controllerRunsWorkloads && (
-                      <Label color="green">{isKubernetes ? 'Runs workloads' : 'Also compute'}</Label>
-                    )}
-                  </Flex>
-                </Td>
-                <Td dataLabel="State">
-                  {server.membership?.state ? (
-                    <StatusBadge
-                      status={server.membership.state === 'ready' ? 'succeeded' : 'warning'}
-                      label={server.membership.state}
-                    />
-                  ) : (
-                    // No scheduler membership (a controller-only node): reflect the Server's own
-                    // observed health so the row still carries a meaningful state.
-                    <StatusBadge
-                      status={server.health?.state === 'up' ? 'succeeded' : 'warning'}
-                      label={server.health?.state ?? 'unknown'}
-                    />
-                  )}
-                </Td>
-                <Td dataLabel="Address" className="mono">
-                  <span className="sw-cell-inline">
-                    {address ?? '-'}
-                    <CopyButton value={address ?? ''} label="Copy address" />
-                  </span>
-                </Td>
-              </Tr>
-            )
-          })}
-        </Tbody>
-      </Table>
-    </StickyTableFrame>
-  )
+  // A failed install-platform Step is the common Ansible failure. Lead with the executor's
+  // enriched error (failing task, host, stderr/stdout tail) so the operator sees the cause on
+  // the Platform page itself; the automation-details link and Stdout tab hold the full log.
+  const reason = failedStep?.error?.message?.trim()
+  const guidance = 'Hosts may contain partial platform state. Review the failed Step, then use Repair deployment to retry only unfinished work.'
+  return reason ? `${reason}\n${guidance}` : guidance
 }

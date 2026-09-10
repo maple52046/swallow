@@ -425,6 +425,25 @@ func (h *ExecutionHandler) StepLogs(c *fiber.Ctx) error {
 	return c.SendString(logs)
 }
 
+// StepStderr returns the error-only report (failed and unreachable tasks with their
+// stderr/stdout) for one durable Ansible Step. Non-Ansible Steps, or Steps that never ran,
+// have no report and return an empty body.
+func (h *ExecutionHandler) StepStderr(c *fiber.Ctx) error {
+	_, step, err := h.orchestrationStep(c)
+	if err != nil {
+		return respondExecutionError(c, err)
+	}
+	report := ""
+	if step.Executor == operationdomain.RunnerKindAnsible && step.ExternalExecution != nil {
+		report, err = h.operations.StderrForRun(c.Context(), step.ExternalExecution.ID)
+		if err != nil {
+			return respondExecutionError(c, err)
+		}
+	}
+	c.Set(fiber.HeaderContentType, fiber.MIMETextPlainCharsetUTF8)
+	return c.SendString(report)
+}
+
 // StepEvents returns secret-safe task events for one durable Ansible Step.
 func (h *ExecutionHandler) StepEvents(c *fiber.Ctx) error {
 	_, step, err := h.orchestrationStep(c)

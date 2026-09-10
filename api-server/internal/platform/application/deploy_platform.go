@@ -47,14 +47,17 @@ const (
 // as ordered id lists (per-daemon), not a single role map, because a Server may run both
 // slurmctld and slurmd.
 const (
-	varSlurmClusterName       = "swallow_slurm_cluster_name"
-	varSlurmPlatformName      = "swallow_slurm_platform_name"
-	varSlurmControllerIDs     = "swallow_slurm_controller_ids"
-	varSlurmComputeIDs        = "swallow_slurm_compute_ids"
-	varSlurmPrimaryController = "swallow_slurm_primary_controller_id"
-	varSlurmHighAvailability  = "swallow_slurm_high_availability"
-	varSlurmStateSaveLocation = "swallow_slurm_state_save_location"
-	varSlurmAPIVersion        = "swallow_slurm_api_version"
+	varSlurmClusterName         = "swallow_slurm_cluster_name"
+	varSlurmPlatformName        = "swallow_slurm_platform_name"
+	varSlurmControllerIDs       = "swallow_slurm_controller_ids"
+	varSlurmComputeIDs          = "swallow_slurm_compute_ids"
+	varSlurmPrimaryController   = "swallow_slurm_primary_controller_id"
+	varSlurmHighAvailability    = "swallow_slurm_high_availability"
+	varSlurmStateSaveLocation   = "swallow_slurm_state_save_location"
+	varSlurmControllerStateMode = "swallow_slurm_controller_state_mode"
+	varSlurmStateServer         = "swallow_slurm_state_server_id"
+	varSlurmStateExport         = "swallow_slurm_state_export"
+	varSlurmAPIVersion          = "swallow_slurm_api_version"
 )
 
 // DeployService owns the intent to build a platform: it validates the topology, creates the
@@ -390,13 +393,11 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	spec.ClusterName = strings.TrimSpace(spec.ClusterName)
 	spec.APIVersion = strings.TrimSpace(spec.APIVersion)
 	spec.StateSaveLocation = strings.TrimSpace(spec.StateSaveLocation)
-	// HA hook: a backup slurmctld can only recover controller state from a shared directory,
-	// which swallow does not provision, so a multi-controller deployment must be told where it
-	// is. A single controller uses the playbook's local default.
-	if spec.HighlyAvailable() && spec.StateSaveLocation == "" {
-		return invalid, fmt.Errorf("%w: stateSaveLocation is required for a highly available (multi-controller) Slurm deployment so a backup controller can recover state",
-			platformdomain.ErrInvalidDeployment)
-	}
+	// A highly available (multi-controller) deploy needs one shared StateSaveLocation that
+	// every backup slurmctld can recover from. swallow provisions this automatically (a managed
+	// NFS export on a selected state server, mounted on every controller by the playbook), so
+	// stateSaveLocation is no longer required from the operator; when supplied it overrides the
+	// state directory path. See buildSlurmVars for the state-server selection.
 
 	return validatedDeployment{slurmSpec: spec, targets: targets, machinePreparation: preparation}, nil
 }
@@ -707,8 +708,14 @@ func buildDeploymentVars(platform *platformdomain.Platform, spec platformdomain.
 // buildSlurmVars translates validated Slurm intent into the trusted variables read by the
 // deploy-slurm playbook. Node roles are ordered id lists keyed by serverId (matching dynamic
 // inventory), with the first controller as the primary. ClusterName falls back to a sanitized
-// platform name. Optional vars are omitted when empty so the playbook can apply its own
-// defaults (for example a controller-local StateSaveLocation for a single controller).
+// platform name.
+//
+// For an HA (multi-controller) deploy swallow provisions the shared StateSaveLocation itself:
+// it sets controller-state mode to "shared" and names a state server (see slurmStateServerID)
+// that the playbook turns into a managed NFS export mounted on every controller. A single
+// controller stays "local" with a controller-local StateSaveLocation. Optional vars are
+// omitted when empty so the playbook applies its own defaults; an operator-supplied
+// stateSaveLocation, when present, overrides the state directory path in either mode.
 func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.SlurmDeploymentSpec) map[string]any {
 	vars := map[string]any{
 		varSlurmClusterName:       slurmClusterName(spec.ClusterName, platform.Name),
@@ -718,6 +725,13 @@ func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.Slurm
 		varSlurmPrimaryController: spec.PrimaryControllerID(),
 		varSlurmHighAvailability:  spec.HighlyAvailable(),
 	}
+	if spec.HighlyAvailable() {
+		vars[varSlurmControllerStateMode] = "shared"
+		vars[varSlurmStateServer] = slurmStateServerID(spec)
+		vars[varSlurmStateExport] = "/srv/slurm-state"
+	} else {
+		vars[varSlurmControllerStateMode] = "local"
+	}
 	if spec.StateSaveLocation != "" {
 		vars[varSlurmStateSaveLocation] = spec.StateSaveLocation
 	}
@@ -725,6 +739,26 @@ func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.Slurm
 		vars[varSlurmAPIVersion] = spec.APIVersion
 	}
 	return vars
+}
+
+// slurmStateServerID selects the host that exports the shared controller StateSaveLocation for
+// an HA cluster. It prefers a compute-only node (compute and not a controller) so controller
+// state lives off the controllers — a controller-host loss then does not also lose state, and
+// no controller runs a kernel NFS loopback mount. When every node is also a controller it
+// falls back to the primary controller. The chosen host is a single storage failure domain
+// (a documented lab limitation, not storage HA). Assumes at least one controller exists, which
+// deploy validation guarantees.
+func slurmStateServerID(spec platformdomain.SlurmDeploymentSpec) string {
+	controllers := make(map[string]bool, len(spec.NodeAssignments))
+	for _, id := range spec.ControllerServerIDs() {
+		controllers[id] = true
+	}
+	for _, id := range spec.ComputeServerIDs() {
+		if !controllers[id] {
+			return id
+		}
+	}
+	return spec.PrimaryControllerID()
 }
 
 // slurmClusterName produces a Slurm ClusterName from the requested value, falling back to the

@@ -1,21 +1,47 @@
 ---
 # Start slurmctld on a controller and wait for it to accept RPCs. MUNGE, the JWT key, and
 # slurm.conf are already in place from earlier plays/roles, so this only owns the daemon.
-
-- name: Enable and start slurmctld
-  ansible.builtin.systemd:
-    name: slurmctld
-    state: started
-    enabled: true
-    daemon_reload: true
+#
+# The block/rescue exists purely for observability. When slurmctld starts but never answers
+# scontrol ping (it crashed on a bad slurm.conf, an unshared HA StateSaveLocation, a MUNGE
+# key mismatch, ...), the bare command failure only reports "return code 1" and the cluster
+# view "all SlurmctldHost DOWN" — never why the daemon died. The rescue attaches slurmctld's
+# own recent log to the failure, so the actual reason reaches the operation's error message
+# and the dashboard instead of being discarded on the host and forcing a manual SSH.
+- name: Start slurmctld and confirm it answers scontrol ping
   become: true
+  block:
+    - name: Enable and start slurmctld
+      ansible.builtin.systemd:
+        name: slurmctld
+        state: started
+        enabled: true
+        daemon_reload: true
 
-- name: Wait for the controller to answer scontrol ping
-  ansible.builtin.command:
-    cmd: scontrol ping
-  become: true
-  register: slurm_ctld_ping
-  until: slurm_ctld_ping.rc == 0
-  retries: 24
-  delay: 5
-  changed_when: false
+    - name: Wait for the controller to answer scontrol ping
+      ansible.builtin.command:
+        cmd: scontrol ping
+      register: slurm_ctld_ping
+      until: slurm_ctld_ping.rc == 0
+      retries: 24
+      delay: 5
+      changed_when: false
+  rescue:
+    - name: Capture the recent slurmctld journal for diagnostics
+      # failed_when: false so a missing unit or journald quirk never masks the real ping
+      # failure; this only enriches the report, it must not become a new failure gate.
+      ansible.builtin.command:
+        cmd: journalctl -u slurmctld --no-pager --lines=20
+      register: slurm_ctld_journal
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with the slurmctld startup diagnostics
+      # This message is captured by Swallow as the Step's normalized error, so it names the
+      # daemon and host that failed and quotes the newest journal lines, where slurmctld
+      # records the fatal reason. The last lines lead because that is where the fault is.
+      ansible.builtin.fail:
+        msg: >-
+          slurmctld did not answer scontrol ping on {{ slurm_node_name | default(inventory_hostname) }};
+          every SlurmctldHost is reported DOWN. slurmctld journal tail:
+          {{ (slurm_ctld_journal.stdout_lines | default([]))[-8:] | join(' | ') | default('(journal unavailable)', true) }}

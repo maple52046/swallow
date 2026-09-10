@@ -352,9 +352,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       fqdn: `${hostname}.lab.example`,
       addresses: [`192.168.60.${octet}`],
       membership: member
-        ? { platformId: 'platform-slurm-ha', nodeName: hostname, role: 'debug', state: 'idle', observedAt: now }
+        ? { platformId: 'platform-slurm-ha', nodeName: hostname, role: 'main', state: 'idle', observedAt: now }
         : null,
-      health: { state: 'up', observedAt: now },
+      // The cluster has no exporter coverage, so the health axis reads "down" for every node.
+      // Controllers must not surface that monitoring "down" as their operational state.
+      health: { state: 'down', observedAt: now },
     })
     fleet.push(
       makeSlurmNode('slurm-ctl-1', 'slurm-ctl-01', 11, false),
@@ -1068,6 +1070,25 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/platforms') {
       const siteId = url.searchParams.get('siteId')
       return json(route, platformItems.filter((item) => !siteId || item.siteId === siteId))
+    }
+    // Live Slurm cluster read. Returns a Slurm-native cluster only for the deployed HA fixture;
+    // any other platform answers 422 so the Slurm view exercises its degrade path.
+    const slurmClusterMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/slurm$/)
+    if (slurmClusterMatch && request.method() === 'GET') {
+      if (options.slurmDeployed && slurmClusterMatch[1] === 'platform-slurm-ha') {
+        return json(route, {
+          controllers: [
+            { hostname: 'slurm-ctl-01', primary: true, status: 'up' },
+            { hostname: 'slurm-ctl-02', primary: false, status: 'up' },
+          ],
+          partitions: [{ name: 'main', state: 'up', nodeSpec: 'slurm-cpt-0[1-2]', totalNodes: 2 }],
+          nodes: [
+            { name: 'slurm-cpt-01', state: 'idle', cpus: 64, realMemoryMiB: 524288, gres: 'gpu:8', partitions: ['main'], address: '192.168.60.21' },
+            { name: 'slurm-cpt-02', state: 'allocated', cpus: 64, realMemoryMiB: 524288, gres: 'gpu:8', partitions: ['main'], address: '192.168.60.22' },
+          ],
+        })
+      }
+      return json(route, { error: { code: 'validation_error', message: 'no live Slurm state' } }, 422)
     }
     const uninstallMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/uninstall$/)
     if (uninstallMatch && request.method() === 'POST') {

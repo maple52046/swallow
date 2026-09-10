@@ -71,6 +71,13 @@ func TestDeploySlurmSucceedsAndBuildsTrustedVars(t *testing.T) {
 	if vars[varSlurmHighAvailability] != false {
 		t.Errorf("high availability = %v, want false for one controller", vars[varSlurmHighAvailability])
 	}
+	// A single controller keeps state local and needs no state server.
+	if vars[varSlurmControllerStateMode] != "local" {
+		t.Errorf("controller state mode = %v, want local for one controller", vars[varSlurmControllerStateMode])
+	}
+	if _, ok := vars[varSlurmStateServer]; ok {
+		t.Errorf("single-controller deploy must not name a state server, got %v", vars[varSlurmStateServer])
+	}
 	// ClusterName defaults to a sanitized platform name: "Lab Slurm" -> "lab-slurm".
 	if vars[varSlurmClusterName] != "lab-slurm" {
 		t.Errorf("cluster name = %v, want lab-slurm", vars[varSlurmClusterName])
@@ -126,37 +133,68 @@ func TestDeploySlurmRejectsNodeWithoutDaemon(t *testing.T) {
 }
 
 // A multi-controller (HA) Slurm deployment needs a shared StateSaveLocation so a backup
-// controller can recover state; Swallow does not provision that shared storage, so the deploy
-// must be told where it is.
-func TestDeploySlurmHighAvailabilityRequiresStateSaveLocation(t *testing.T) {
-	haAssignments := []platformdomain.SlurmNodeAssignment{
+// controller can recover state. Swallow now provisions it: the deploy must succeed without an
+// operator-supplied path, mark the controller state shared, and select an off-controller state
+// server (a compute-only node) to export it.
+func TestDeploySlurmHighAvailabilityProvisionsSharedState(t *testing.T) {
+	service, launcher, _ := newDeployHarness(slurmServers()...)
+	input := validSlurmInput()
+	// s1,s2 are controller+compute; s3 is compute-only, so it is the preferred state server.
+	input.SlurmSpec.NodeAssignments = []platformdomain.SlurmNodeAssignment{
 		{ServerID: "s1", Controller: true, Compute: true},
 		{ServerID: "s2", Controller: true, Compute: true},
 		{ServerID: "s3", Compute: true},
 	}
 
-	service, launcher, _ := newDeployHarness(slurmServers()...)
-	missing := validSlurmInput()
-	missing.SlurmSpec.NodeAssignments = haAssignments
-	if _, err := service.Deploy(context.Background(), missing); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
-		t.Fatalf("HA without stateSaveLocation should be rejected, got %v", err)
-	}
-	if launcher.launched != nil {
-		t.Fatal("no HA deploy should launch without a shared state location")
-	}
-
-	service, launcher, _ = newDeployHarness(slurmServers()...)
-	provided := validSlurmInput()
-	provided.SlurmSpec.NodeAssignments = haAssignments
-	provided.SlurmSpec.StateSaveLocation = "/mnt/slurm-state"
-	if _, err := service.Deploy(context.Background(), provided); err != nil {
-		t.Fatalf("HA with a shared state location should be accepted, got %v", err)
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("HA deploy should succeed without an operator state location, got %v", err)
 	}
 	if launcher.launched == nil {
-		t.Fatal("HA deploy with a shared state location should launch")
+		t.Fatal("HA deploy should launch")
 	}
-	if launcher.launched.TrustedVars[varSlurmStateSaveLocation] != "/mnt/slurm-state" {
-		t.Errorf("state save location var = %v, want /mnt/slurm-state", launcher.launched.TrustedVars[varSlurmStateSaveLocation])
+	vars := launcher.launched.TrustedVars
+	if vars[varSlurmHighAvailability] != true {
+		t.Errorf("high availability = %v, want true for multiple controllers", vars[varSlurmHighAvailability])
+	}
+	if vars[varSlurmControllerStateMode] != "shared" {
+		t.Errorf("controller state mode = %v, want shared for HA", vars[varSlurmControllerStateMode])
+	}
+	if vars[varSlurmStateServer] != "s3" {
+		t.Errorf("state server = %v, want the compute-only node s3", vars[varSlurmStateServer])
+	}
+	if vars[varSlurmStateExport] != "/srv/slurm-state" {
+		t.Errorf("state export = %v, want /srv/slurm-state", vars[varSlurmStateExport])
+	}
+	// No operator path was supplied, so the playbook applies its own shared default.
+	if _, ok := vars[varSlurmStateSaveLocation]; ok {
+		t.Errorf("state save location should be unset when the operator supplied none, got %v", vars[varSlurmStateSaveLocation])
+	}
+}
+
+// When every node is also a controller there is no off-controller host, so the state server
+// falls back to the primary controller, and an operator-supplied path overrides the default.
+func TestDeploySlurmHighAvailabilityFallsBackToPrimaryStateServer(t *testing.T) {
+	service, launcher, _ := newDeployHarness(slurmServers()...)
+	input := validSlurmInput()
+	input.SlurmSpec.NodeAssignments = []platformdomain.SlurmNodeAssignment{
+		{ServerID: "s1", Controller: true, Compute: true},
+		{ServerID: "s2", Controller: true, Compute: true},
+		{ServerID: "s3", Controller: true, Compute: true},
+	}
+	input.SlurmSpec.StateSaveLocation = "/mnt/slurm-state"
+
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("all-controller HA deploy should succeed, got %v", err)
+	}
+	if launcher.launched == nil {
+		t.Fatal("HA deploy should launch")
+	}
+	vars := launcher.launched.TrustedVars
+	if vars[varSlurmStateServer] != "s1" {
+		t.Errorf("state server = %v, want the primary controller s1 as fallback", vars[varSlurmStateServer])
+	}
+	if vars[varSlurmStateSaveLocation] != "/mnt/slurm-state" {
+		t.Errorf("state save location var = %v, want the operator override /mnt/slurm-state", vars[varSlurmStateSaveLocation])
 	}
 }
 

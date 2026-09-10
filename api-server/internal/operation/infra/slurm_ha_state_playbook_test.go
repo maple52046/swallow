@@ -1,0 +1,98 @@
+package infra
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// The Slurm HA path depends on the deploy-slurm playbook provisioning a shared StateSaveLocation
+// itself: a managed NFS export on a selected state server, mounted on every controller with a
+// fail-closed mount guard before slurmctld starts. These assertions pin the trusted-var
+// expressions and role wiring so a refactor cannot silently drop the shared-state mechanism and
+// reintroduce the "every slurmctld DOWN, heartbeat file missing" HA failure.
+func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "automation", "playbooks")
+	cases := []struct {
+		path     string
+		required []string
+	}{
+		{
+			path: "deploy-slurm.yml",
+			required: []string{
+				"swallow_slurm_state_server_id",
+				"swallow_slurm_high_availability",
+				"slurm_controller_state_mode",
+				"slurm_state_source",
+				"hosts: slurm_state_server",
+				"role: slurm_state_server",
+				"role: slurm_controller_state",
+			},
+		},
+		{
+			path: filepath.Join("roles", "slurm_controller_state", "tasks", "main.yml"),
+			required: []string{
+				"slurm_controller_state_mode == 'shared'",
+				"slurm_controller_state_mode == 'local'",
+				"RequiresMountsFor={{ slurm_state_save_location }}",
+				"ConditionPathIsMountPoint={{ slurm_state_save_location }}",
+				"argv: [mountpoint, -q, \"{{ slurm_state_save_location }}\"]",
+			},
+		},
+		{
+			path: filepath.Join("roles", "slurm_state_server", "tasks", "main.yml"),
+			required: []string{
+				"nfs-kernel-server",
+				"groups['slurm_controller']",
+				"root_squash",
+			},
+		},
+		{
+			// slurm_config must not recreate/chown the state dir: slurm_controller_state owns it
+			// (a root_squash NFS mount in HA), so this documented invariant is pinned here.
+			path:     filepath.Join("roles", "slurm_config", "tasks", "main.yml"),
+			required: []string{"StateSaveLocation is intentionally absent"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(root, tc.path))
+			if err != nil {
+				t.Fatalf("read playbook artifact: %v", err)
+			}
+			content := string(raw)
+			for _, required := range tc.required {
+				if !strings.Contains(content, required) {
+					t.Errorf("%s missing %q", tc.path, required)
+				}
+			}
+		})
+	}
+
+	// The shared state must be exported and mounted before slurmctld starts, so the play order
+	// is load-bearing: state server, then controller state, then the controller-config play.
+	deploy, err := os.ReadFile(filepath.Join(root, "deploy-slurm.yml"))
+	if err != nil {
+		t.Fatalf("read deploy-slurm.yml: %v", err)
+	}
+	content := string(deploy)
+	stateServerPlay := strings.Index(content, "hosts: slurm_state_server")
+	controllerStatePlay := strings.Index(content, "role: slurm_controller_state")
+	// The primary controller must be configured and started before the backups so it becomes
+	// active and writes the shared heartbeat first; a backup started first hangs the deploy.
+	primaryConfigPlay := strings.Index(content, "Configure the primary controller and start slurmctld first")
+	backupConfigPlay := strings.Index(content, "Configure and start the backup controllers")
+	if stateServerPlay == -1 || controllerStatePlay == -1 || primaryConfigPlay == -1 || backupConfigPlay == -1 {
+		t.Fatal("deploy-slurm.yml must define the state-server, controller-state, primary-config, and backup-config plays")
+	}
+	if !(stateServerPlay < controllerStatePlay && controllerStatePlay < primaryConfigPlay && primaryConfigPlay < backupConfigPlay) {
+		t.Errorf("play order must be state server -> controller state -> primary config -> backup config, got %d, %d, %d, %d",
+			stateServerPlay, controllerStatePlay, primaryConfigPlay, backupConfigPlay)
+	}
+	// The backup play must exclude the primary so it is not reconfigured/restarted out of order.
+	if !strings.Contains(content, "hosts: slurm_controller:!slurm_primary") {
+		t.Error("the backup controller play must target slurm_controller:!slurm_primary")
+	}
+}

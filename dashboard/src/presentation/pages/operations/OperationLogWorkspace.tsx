@@ -23,13 +23,20 @@ type LogsState =
   | { status: "ready"; text: string };
 type CopyFeedback = { title: string; variant: AlertVariant } | null;
 
-/** PatternFly retained-stdout workspace for a legacy run or one durable Step. */
+/**
+ * PatternFly retained-output workspace for a legacy run or one durable Step. `variant` selects
+ * which stream to show: "stdout" is the full runner output; "stderr" is the focused error-only
+ * report (failed/unreachable tasks and their stderr/stdout), so a failing Step's cause is
+ * readable without scrolling the whole play. The stderr stream is per-Step only.
+ */
 export function OperationLogWorkspace({
   operationId,
   stepId,
+  variant = "stdout",
 }: {
   operationId: string;
   stepId?: string;
+  variant?: "stdout" | "stderr";
 }) {
   const { operations } = useApp();
   const { resolved } = useAppearance();
@@ -37,12 +44,16 @@ export function OperationLogWorkspace({
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(null);
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((value) => value + 1), []);
+  const noun = variant === "stderr" ? "stderr" : "stdout";
 
   useEffect(() => {
     let cancelled = false;
-    const request = stepId
-      ? operations.getStepLogs(operationId, stepId)
-      : operations.getLogs(operationId);
+    const request =
+      variant === "stderr" && stepId
+        ? operations.getStepStderr(operationId, stepId)
+        : stepId
+          ? operations.getStepLogs(operationId, stepId)
+          : operations.getLogs(operationId);
     request
       .then((text) => {
         if (!cancelled) setState({ status: "ready", text });
@@ -53,13 +64,18 @@ export function OperationLogWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [nonce, operationId, operations, stepId]);
+  }, [nonce, operationId, operations, stepId, variant]);
 
   if (state.status === "loading") return <LoadingState rows={5} />;
   if (state.status === "error")
     return <ErrorState message={state.message} onRetry={reload} />;
   if (!state.text.trim()) {
-    return (
+    return variant === "stderr" ? (
+      <EmptyState
+        title="No errors"
+        message="This Step recorded no failed or unreachable tasks."
+      />
+    ) : (
       <EmptyState
         title="No stdout yet"
         message="Output appears after the executor starts producing stdout."
@@ -73,10 +89,9 @@ export function OperationLogWorkspace({
     const ok = await copyText(state.text);
     setCopyFeedback(
       ok
-        ? { title: "Stdout copied", variant: AlertVariant.success }
+        ? { title: `${noun} copied`, variant: AlertVariant.success }
         : {
-            title:
-              "Could not copy stdout. Clipboard access is unavailable in this browser.",
+            title: `Could not copy ${noun}. Clipboard access is unavailable in this browser.`,
             variant: AlertVariant.danger,
           },
     );
@@ -87,7 +102,7 @@ export function OperationLogWorkspace({
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `swallow-operation-${operationId}${stepId ? `-${stepId}` : ""}.log`;
+    anchor.download = `swallow-operation-${operationId}${stepId ? `-${stepId}` : ""}-${noun}.log`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -95,13 +110,13 @@ export function OperationLogWorkspace({
     <Toolbar>
       <ToolbarContent>
         <ToolbarItem variant="label">
-          <LogViewerSearch placeholder="Search stdout" minSearchChars={1} />
+          <LogViewerSearch placeholder={`Search ${noun}`} minSearchChars={1} />
         </ToolbarItem>
         <ToolbarItem align={{ default: "alignEnd" }}>
           <Button
             variant="plain"
             icon={<Copy />}
-            aria-label="Copy stdout"
+            aria-label={`Copy ${noun}`}
             onClick={() => void copy()}
           />
         </ToolbarItem>
@@ -109,7 +124,7 @@ export function OperationLogWorkspace({
           <Button
             variant="plain"
             icon={<DownloadIcon />}
-            aria-label="Download stdout"
+            aria-label={`Download ${noun}`}
             onClick={download}
           />
         </ToolbarItem>
@@ -117,7 +132,7 @@ export function OperationLogWorkspace({
           <Button
             variant="plain"
             icon={<SyncAltIcon />}
-            aria-label="Refresh stdout"
+            aria-label={`Refresh ${noun}`}
             onClick={reload}
           />
         </ToolbarItem>
@@ -139,7 +154,7 @@ export function OperationLogWorkspace({
         height={520}
         theme={resolved}
         toolbar={toolbar}
-        aria-label="Operation stdout"
+        aria-label={`Operation ${noun}`}
       />
     </>
   );

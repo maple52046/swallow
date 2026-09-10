@@ -396,9 +396,14 @@ func optionalStringPointer(value string) *string {
 // carries platform secrets, so both launchers and the completion observer refer to it by this id.
 const installPlatformStepID = "install-platform"
 
-// uninstallPlatformStepID is the durable uninstall step that every optional release step
-// depends on, so k0s is always removed before any host is released.
+// uninstallPlatformStepID is the durable ansible uninstall step used when the servers are kept
+// (platform software removed, hosts preserved).
 const uninstallPlatformStepID = "uninstall-platform"
+
+// completeUninstallStepID is the internal finalize step used when the uninstall also releases
+// the servers: releasing wipes the OS, so the platform-software uninstall is skipped and this
+// step performs the Platform projection cleanup that AnsibleStepSucceeded would otherwise do.
+const completeUninstallStepID = "complete-uninstall"
 
 func (l platformDeploymentLauncher) LaunchUninstall(
 	ctx context.Context,
@@ -457,31 +462,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		return "", err
 	}
 
-	steps := make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+1)
-	steps = append(steps, operationdomain.Task{
-		ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: stepName,
-		Executor: operationdomain.RunnerKindAnsible, Targets: prepared.Targets,
-		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
-	})
-	if launch.ReleaseServers {
-		for _, serverID := range launch.TargetServerIDs {
-			releaseInput := provisioningapp.ReleaseServerInput{
-				ServerID:        serverID,
-				Erase:           launch.ReleaseOptions.Erase,
-				SecureErase:     launch.ReleaseOptions.SecureErase,
-				QuickErase:      launch.ReleaseOptions.QuickErase,
-				UnbindStaticIPs: launch.ReleaseOptions.UnbindStaticIPs,
-				Comment:         "Release after uninstalling platform " + launch.Platform.Name,
-				RequestID:       operationID,
-			}
-			steps = append(steps, operationdomain.Task{
-				ID: "release-" + serverID, Kind: "release-os", Name: "Release " + serverID,
-				Executor: operationdomain.RunnerKindProvisioner, DependsOn: []string{uninstallPlatformStepID},
-				Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
-				Parameters: map[string]any{"request": structToMap(releaseInput)},
-			})
-		}
-	}
+	steps := uninstallSteps(launch, prepared, operationID, stepName)
 
 	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
 		ID: operationID, Kind: workflowKind,
@@ -497,6 +478,61 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		return "", err
 	}
 	return created.ID, nil
+}
+
+// uninstallSteps composes the durable uninstall Tasks.
+//
+// When the servers are kept, it is the single ansible uninstall step (whose AnsibleStepSucceeded
+// hook clears projections and restores exporters). When the servers are released, it skips that
+// step entirely - releasing wipes the OS, so removing the platform software first is redundant
+// and can fail on a half-gone node - and instead releases every member in parallel, then runs an
+// internal complete-uninstall finalize step that depends on all releases and performs the
+// projection cleanup the omitted ansible hook would have done. This release shortcut is only for
+// a whole-platform uninstall; a future scale-in keeps the per-node uninstall.
+func uninstallSteps(
+	launch platformdomain.UninstallLaunch,
+	prepared *operationapp.PreparedAnsibleStep,
+	operationID, stepName string,
+) []operationdomain.Task {
+	if !launch.ReleaseServers {
+		return []operationdomain.Task{{
+			ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: stepName,
+			Executor: operationdomain.RunnerKindAnsible, Targets: prepared.Targets,
+			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+		}}
+	}
+
+	steps := make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+1)
+	releaseDeps := make([]string, 0, len(launch.TargetServerIDs))
+	for _, serverID := range launch.TargetServerIDs {
+		releaseInput := provisioningapp.ReleaseServerInput{
+			ServerID:        serverID,
+			Erase:           launch.ReleaseOptions.Erase,
+			SecureErase:     launch.ReleaseOptions.SecureErase,
+			QuickErase:      launch.ReleaseOptions.QuickErase,
+			UnbindStaticIPs: launch.ReleaseOptions.UnbindStaticIPs,
+			Comment:         "Release while uninstalling platform " + launch.Platform.Name,
+			RequestID:       operationID,
+		}
+		stepID := "release-" + serverID
+		steps = append(steps, operationdomain.Task{
+			ID: stepID, Kind: "release-os", Name: "Release " + serverID,
+			Executor:   operationdomain.RunnerKindProvisioner,
+			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+			Parameters: map[string]any{"request": structToMap(releaseInput)},
+		})
+		releaseDeps = append(releaseDeps, stepID)
+	}
+	// Internal finalize step: v3 Platform completion is otherwise tied to the ansible step
+	// (AnsibleStepSucceeded), which this path omits, so this clears the Platform's membership,
+	// owned credential Integration, and sync projection once every release succeeds. Exporter
+	// restoration stays off (a released host is wiped).
+	steps = append(steps, operationdomain.Task{
+		ID: completeUninstallStepID, Kind: "complete-uninstall", Name: "Finalize platform uninstall",
+		Executor: operationdomain.RunnerKindInternal, DependsOn: releaseDeps,
+		Targets: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+	})
+	return steps
 }
 
 // platformDeploymentObserver translates successful platform operations into projections.

@@ -40,6 +40,7 @@ POST /api/v1/workflows/{workflowId}/rerun
 GET  /api/v1/workflows/{workflowId}/timeline
 POST /api/v1/workflows/{workflowId}/tasks/{taskId}/retry
 GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/logs
+GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/stderr
 GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/events
 GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/artifacts
 ```
@@ -61,6 +62,7 @@ POST /api/v1/operations/{id}/rerun                         -> /workflows/{id}/re
 GET  /api/v1/operations/{id}/timeline                      -> /workflows/{id}/timeline
 POST /api/v1/operations/{id}/steps/{stepId}/retry          -> /workflows/{id}/tasks/{taskId}/retry
 GET  /api/v1/operations/{id}/steps/{stepId}/logs           -> /workflows/{id}/tasks/{taskId}/logs
+GET  /api/v1/operations/{id}/steps/{stepId}/stderr         -> /workflows/{id}/tasks/{taskId}/stderr
 GET  /api/v1/operations/{id}/steps/{stepId}/events         -> /workflows/{id}/tasks/{taskId}/events
 GET  /api/v1/operations/{id}/steps/{stepId}/artifacts      -> /workflows/{id}/tasks/{taskId}/artifacts
 
@@ -156,7 +158,11 @@ history and sort by `requestedAt` descending.
 
 `GET /timeline` returns normalized immutable events ordered by `createdAt` and ID, naming
 Workflow and Task state transitions with no secret material. Task logs are UTF-8
-`text/plain`; a non-Ansible Task or one without output returns an empty body. Task events
+`text/plain`; a non-Ansible Task or one without output returns an empty body. `GET
+/tasks/{taskId}/stderr` returns an error-only UTF-8 `text/plain` report for an Ansible Task —
+one block per failed or unreachable task (task, host, message, return code, and its captured
+stderr/stdout) — and an empty body when the Task recorded no failure or is not an Ansible
+Task; it is the focused counterpart to `logs` (the full runner output). Task events
 return the retained runner task-event projection for Ansible and an empty list for other
 Runners. Task artifacts return metadata only. `dependsOn`, `targets`, `artifacts`, and
 timeline results are JSON arrays and never `null`.

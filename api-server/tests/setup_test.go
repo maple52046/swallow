@@ -133,8 +133,9 @@ func setupPlatform(t *testing.T) *platformFixture {
 		platformService, platformRepo, servers, lifecycle, &fakeDeploymentLauncher{})
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, servers, lifecycle, uninstallLauncher)
+	slurmClusterRead := platformapp.NewGetSlurmClusterUseCase(platformRepo, readerFactory)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService)
+		platformService, membershipSync, deployService, uninstallService, slurmClusterRead)
 
 	app := fiber.New()
 	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}

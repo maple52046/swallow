@@ -4,6 +4,7 @@ import type {
   DeployPlatformInput,
   DeployPlatformResult,
   MembershipReport,
+  SlurmCluster,
   UninstallPlatformOptions,
 } from '@/domain/platform/types'
 import { ApiRequestError, apiRequest } from './client'
@@ -58,5 +59,31 @@ export class ApiPlatformRepository implements PlatformRepository {
     return apiRequest<MembershipReport>(`/api/v1/platforms/${encodeURIComponent(id)}/sync`, {
       method: 'POST',
     })
+  }
+
+  async getSlurmCluster(id: string): Promise<SlurmCluster | null> {
+    try {
+      const cluster = await apiRequest<SlurmCluster>(
+        `/api/v1/platforms/${encodeURIComponent(id)}/slurm`,
+      )
+      // Normalize nullable collections so the view can iterate without guards.
+      return {
+        controllers: cluster.controllers ?? [],
+        partitions: cluster.partitions ?? [],
+        nodes: (cluster.nodes ?? []).map((node) => ({
+          ...node,
+          partitions: node.partitions ?? [],
+        })),
+      }
+    } catch (error) {
+      // Any handled API response (non-Slurm platform, no slurmrestd integration yet,
+      // slurmrestd unreachable or rejecting) means there is no live view; degrade to null so
+      // the Slurm view falls back to deployment intent plus membership. Only an unexpected,
+      // non-API failure propagates.
+      if (error instanceof ApiRequestError) {
+        return null
+      }
+      throw error
+    }
   }
 }

@@ -339,20 +339,45 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   成功（platform 為 active、無 integration、members=0）；要讓 membership 顯示，image 需納入
   `slurm-smd-slurmrestd`。對應地，後端把「Slurm 無 credential」視為**非致命**（k0s 的 kubeconfig
   則為必要）。
-- **單 controller 首版 + HA 掛勾**：一台 controller 免 shared storage；多台為 HA，需 operator
-  提供 shared `StateSaveLocation`（validate 檢查，非預設）。
+- **HA shared state 由 swallow 供給**：一台 controller 免 shared storage（controller-local
+  `StateSaveLocation`）；多台為 HA 時 swallow **自動佈署** shared `StateSaveLocation`——deploy use
+  case 選一台 state server（優先非 controller 的 compute-only 節點，全為 controller 時退回
+  primary），playbook 以 `slurm_state_server`（managed NFS export，限定 controllers、`root_squash`）
+  匯出，並由 `slurm_controller_state` 在每台 controller 掛載、加上 systemd mount guard
+  （`RequiresMountsFor` + `ConditionPathIsMountPoint`，未掛載即拒絕啟動 slurmctld，避免 state 靜默
+  寫入 local disk）後才啟動 slurmctld。`stateSaveLocation` 由必填改為**選用覆寫**（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
+  該 state server 為單一 storage failure domain（lab 等級，非 storage HA）；production 的外部/
+  pre-mounted 共享儲存為後續延伸（role 已保留 mode 掛勾）。
 - **不套 ephemeral 防呆**：k0s 禁止 ephemeral OS，Slurm 首版不沿用（k8s 的 ephemeral 問題另議）。
 - **uninstall**：`uninstall-slurm`（[uninstall-slurm.yml](../../api-server/automation/playbooks/uninstall-slurm.yml)）
   比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge、移除 Swallow 佈的
   設定/金鑰/controller state（保留 OS 與 image 套件），可選擇同時 release 成員機。已在 lab
   以 5 節點驗證(rc=0、platform → uninstalled)。
-- **非目標（後續）**：SlurmDBD/accounting、GRES/GPU 排程、HA shared filesystem 供給、login/submit
-  角色。
+- **非目標（後續）**：SlurmDBD/accounting、GRES/GPU 排程、production 等級/外部 HA shared
+  filesystem（目前為 lab 等級 managed NFS，見上）、login/submit 角色。
 
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/deploy-slurm.yml) 與
 `playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
 `slurm_cluster_credential`）。
+
+### 6.4 讀取與管理視圖（type-specific，ADR 021）
+
+Platform 的**管理/讀取**面不再用 k0s 形狀的統一 UI:平台詳情頁是共用外殼 + 各 type 專屬視圖
+(Kubernetes/Slurm)。三個讀取來源刻意分離,不得混為一談:
+
+- **deployment intent**(operation history 投影)= 當初要求的拓樸/角色;
+- **membership sync**(`ListMembers`)= 寫入 `Server.membership` 軸(Slurm 只含 compute/slurmd);
+- **Slurm-native live read**(新增,on-demand,只讀)= `GET /api/v1/platforms/{id}/slurm`,經
+  `SlurmClusterReader.GetClusterState` 讀 slurmrestd `/ping`(controllers 依 SlurmctldHost 順序 +
+  `up|down|unknown` RPC 狀態)、`/partitions`、`/nodes`(排程狀態 + cpu/mem/GRES)。它**不**寫
+  membership 軸或 sync 計數,也不跑在 reconcile interval 上;slurmrestd 不可用時前端 degrade 回
+  intent + membership。
+
+**health(監控)為獨立軸**:節點/成員的 State 欄只呈現 scheduler 狀態(Slurm node state;k8s
+`Ready`)與 controller ping 狀態,不借用 host power 或監控 health;monitoring 整合後再以獨立欄位
+呈現 health。詳見 [ADR 021](../decisions/021-platform-type-specific-management.md) 與 platforms
+API 契約的 "Read Slurm Cluster State"。
 
 ---
 

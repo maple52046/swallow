@@ -128,11 +128,12 @@ type SlurmNodeAssignment struct {
 //
 // Node roles are per-daemon flags (see SlurmNodeAssignment) rather than the single mutually
 // exclusive NodeRole used by Kubernetes. ClusterName defaults to the platform name when
-// empty. StateSaveLocation is the slurmctld state directory: a single-controller deployment
-// uses a controller-local default supplied by the playbook, while a highly available
-// deployment (more than one controller) requires an operator-provided shared path so a
-// backup slurmctld can take over — hence the deploy use case validates it rather than
-// defaulting it. APIVersion pins the slurmrestd endpoint version recorded in the credential
+// empty. StateSaveLocation is the slurmctld state directory and is optional: a single
+// controller uses a controller-local default from the playbook, and a highly available
+// (multi-controller) deployment gets a swallow-provisioned shared directory — the deploy use
+// case selects a state server and the playbook exports it over NFS and mounts it on every
+// controller (see buildSlurmVars). When set, StateSaveLocation overrides that directory path
+// in either mode. APIVersion pins the slurmrestd endpoint version recorded in the credential
 // when known; empty lets the reader fall back to its default.
 type SlurmDeploymentSpec struct {
 	ClusterName       string

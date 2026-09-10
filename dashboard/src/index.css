@@ -487,6 +487,13 @@ tbody .sw-sticky-selection { z-index: 2; }
 .sw-timeline__title { font-weight: 500; font-size: 0.875rem; }
 .sw-timeline__time { color: var(--pf-t--global--text--color--subtle); font-size: 0.75rem; }
 .sw-timeline__message { color: var(--pf-t--global--text--color--subtle); font-size: 0.75rem; }
+/* Preserve the newlines the backend puts between per-host failure lines so a multi-target
+   Ansible failure stays legible, and wrap long serverIds/paths instead of overflowing. */
+.sw-error-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The Steps table Reason cell is a compact summary only: show the first line, truncated,
+   with the full message on hover. The complete detail lives in the Step's error Alert and
+   the Stdout tab, so a long failure message never stretches or wraps the table row. */
+.sw-reason-cell { display: inline-block; max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .sw-tag-list { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); flex-wrap: wrap; }
 .sw-server-table .sw-column-tags { min-width: 150px; }
 .sw-server-table .sw-hardware-column { white-space: nowrap; }

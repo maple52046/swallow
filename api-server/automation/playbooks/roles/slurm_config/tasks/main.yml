@@ -14,6 +14,9 @@
   become: true
 
 - name: Ensure Slurm runtime directories exist
+  # StateSaveLocation is intentionally absent: the slurm_controller_state role owns it (a local
+  # dir, or the shared NFS mount in HA), so this role must not recreate or chown it — chowning a
+  # root_squash NFS mount would fail, and it would race the mount guard.
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -23,7 +26,6 @@
   become: true
   loop:
     - "{{ slurm_log_dir }}"
-    - "{{ slurm_state_save_location }}"
     - /var/spool/slurmd
 
 - name: Create the JWT signing key on the primary controller if absent

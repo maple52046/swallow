@@ -40,6 +40,7 @@ DELETE /api/v1/platforms/{platformId}
 POST   /api/v1/platforms/{platformId}/uninstall
 POST   /api/v1/platforms/{platformId}/sync
 POST   /api/v1/platforms/sync
+GET    /api/v1/platforms/{platformId}/slurm
 ```
 
 All endpoints require an admin JWT according to [conventions](conventions.md).
@@ -242,10 +243,14 @@ runs neither is rejected, as is a Server assigned more than once. `gpuStackOwner
 to `provisioning` when omitted (Slurm has no in-platform GPU operator). In the `slurm`
 object every field except `nodeAssignments` is optional: `clusterName` defaults to a
 sanitized platform name; `apiVersion` pins the `slurmrestd` endpoint version recorded in the
-credential; `stateSaveLocation` is required only for a highly available deployment (more
-than one controller), because a backup controller needs a shared state directory Swallow
-does not provision. The first controller in `nodeAssignments` is the primary: it mints the
-shared MUNGE key, hosts `slurmrestd`, and produces the reader credential.
+credential; `stateSaveLocation` is an optional override of the `slurmctld` state directory.
+A highly available deployment (more than one controller) needs a shared state directory, and
+Swallow now provisions it automatically — it selects a state server (an off-controller node
+when one exists, otherwise the primary controller), exports it over NFS, and mounts it on
+every controller before `slurmctld` starts — so `stateSaveLocation` is no longer required for
+HA; when supplied it overrides the directory path. The first controller in `nodeAssignments`
+is the primary: it mints the shared MUNGE key, hosts `slurmrestd`, and produces the reader
+credential.
 
 The same target claim, lock, membership, and Site rules as Kubernetes apply. Success is the
 same `202 Accepted` shape. When the target image includes `slurm-smd-slurmrestd`, Swallow
@@ -277,13 +282,16 @@ the member servers to the provider in the same Operation, send:
 }
 ```
 
-When `releaseServers` is true the Operation runs the k0s uninstall step first and then a
-`release-os` step per member server that depends on it, so a failed uninstall never
-releases a host. `releaseOptions` mirrors the standalone Release action (disk erase and
+When `releaseServers` is true, Swallow releases each member server directly instead of
+uninstalling the platform software first: releasing wipes the operating system, so the
+software removal would be redundant. The Operation runs a `release-os` step per member (in
+parallel) and then an internal finalize step that clears the Platform projections once every
+release succeeds. `releaseOptions` mirrors the standalone Release action (disk erase and
 static-IP unbinding) and is ignored when `releaseServers` is false. Releasing wipes the
-operating system, so Swallow does not restore host exporters for released servers. A
-release requires the durable orchestration topology; if it is unavailable the request is
-rejected. The accepted response is unchanged:
+operating system, so Swallow does not restore host exporters for released servers. This
+shortcut applies only to a whole-platform uninstall. A release requires the durable
+orchestration topology; if it is unavailable the request is rejected. The accepted response is
+unchanged:
 
 ```json
 {
@@ -304,9 +312,10 @@ absent, locked, or busy target, a registered Platform, or a Slurm Platform retur
 `409 conflict`. Failed, canceled, or indeterminate uninstalls may be submitted again; the
 new Operation records `retryOfOperationId` pointing to the latest uninstall.
 
-The release-owned playbook stops k0s services, runs `k0s reset`, removes Swallow-created
-k0s state, units, join token, installer, and binary, and reloads systemd. It preserves the
-OS, user data, `conntrack`, unrelated packages, and power state, and does not reboot.
+When servers are kept, the release-owned playbook stops k0s services, runs `k0s reset`,
+removes Swallow-created k0s state, units, join token, installer, and binary, and reloads
+systemd. It preserves the OS, user data, `conntrack`, unrelated packages, and power state, and
+does not reboot. When servers are released, this uninstall playbook is skipped entirely.
 
 On success Swallow clears membership, deletes only a credential Integration proven to be
 Swallow-owned, and clears the Platform integration/sync projection. If Kubernetes owned
@@ -357,6 +366,50 @@ Integrations are never deleted.
 `POST /api/v1/platforms/sync` syncs every registered platform. One failing platform does
 not stop the rest. For Kubernetes, nodes are read from `/api/v1/nodes`; enabled k0s
 control-plane lease discovery also reads dedicated controllers from `k0s-ctrl-*` leases.
+
+## Read Slurm Cluster State
+
+`GET /api/v1/platforms/{platformId}/slurm` reads a Slurm platform's live cluster state on
+demand from `slurmrestd`. It is Slurm-native and deliberately separate from the generic
+member list (`GET /api/v1/servers?platformId=`, the membership axis, which carries only
+`slurmd` scheduler nodes) and from the `deployment` intent projection. It performs no writes
+and does not touch the membership axis or sync counters. It carries no monitoring health;
+node/controller state here is Slurm scheduler/RPC state only.
+
+```json
+{
+  "controllers": [
+    { "hostname": "control-1", "primary": true, "status": "up" },
+    { "hostname": "control-2", "primary": false, "status": "up" }
+  ],
+  "partitions": [
+    { "name": "main", "state": "up", "nodeSpec": "compute[1-4]", "totalNodes": 4 }
+  ],
+  "nodes": [
+    {
+      "name": "compute-1",
+      "state": "idle",
+      "cpus": 8,
+      "realMemoryMiB": 16000,
+      "gres": "gpu:8",
+      "partitions": ["main"],
+      "address": "192.168.100.10"
+    }
+  ]
+}
+```
+
+`controllers` lists each `slurmctld` in SlurmctldHost failover order from `slurmrestd`
+`ping`; `primary` marks the active controller and `status` is `up | down | unknown` (RPC
+liveness). `partitions` and `nodes` come from `slurmrestd` `partitions` and `nodes`; node
+`state` is the collapsed Slurm scheduler state (`idle | allocated | mixed | down | drain |
+...`). Collections are always arrays.
+
+This endpoint is Slurm-only: a Kubernetes platform, or a Slurm platform whose `slurmrestd`
+integration is not recorded yet (`slurm-smd-slurmrestd` absent from the image, so
+`integrationId` is `null`), returns `validation_error`, and the dashboard degrades to the
+deployment intent plus membership. `slurmrestd` transport/auth failures return
+`provider_unavailable`.
 
 ## Errors
 

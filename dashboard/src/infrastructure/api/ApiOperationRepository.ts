@@ -135,6 +135,12 @@ export class ApiOperationRepository implements OperationRepository {
     );
   }
 
+  async getStepStderr(id: string, stepId: string): Promise<string> {
+    return apiRequestText(
+      `/api/v1/workflows/${encodeURIComponent(id)}/tasks/${encodeURIComponent(stepId)}/stderr`,
+    );
+  }
+
   async getStepEvents(id: string, stepId: string): Promise<OperationEvents> {
     return apiRequest<OperationEvents>(
       `/api/v1/workflows/${encodeURIComponent(id)}/tasks/${encodeURIComponent(stepId)}/events`,

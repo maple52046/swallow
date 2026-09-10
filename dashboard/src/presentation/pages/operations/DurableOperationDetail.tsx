@@ -84,7 +84,11 @@ export function DurableOperationDetail({
       ),
     ) ?? steps[0];
   const [selectedStepId, setSelectedStepId] = useState(preferredStep?.id ?? "");
-  const [tab, setTab] = useState<string | number>("stdout");
+  // A failed Step opens on its Stderr (the error-only report) so the cause is visible without a
+  // click; healthy Steps open on Stdout.
+  const [tab, setTab] = useState<string | number>(
+    preferredStep?.error ? "stderr" : "stdout",
+  );
   const [cancelOpen, setCancelOpen] = useState(false);
   const [retryCandidate, setRetryCandidate] = useState<OperationStep | null>(null);
   const [controlling, setControlling] = useState(false);
@@ -268,7 +272,7 @@ export function DurableOperationDetail({
                         isInline
                         onClick={() => {
                           setSelectedStepId(step.id);
-                          setTab("stdout");
+                          setTab(step.error ? "stderr" : "stdout");
                         }}
                       >
                         {step.name}
@@ -289,7 +293,16 @@ export function DurableOperationDetail({
                       {formatDuration(step.startedAt, step.finishedAt)}
                     </Td>
                     <Td dataLabel="Reason">
-                      {step.error?.message ?? step.waitingReason ?? "-"}
+                      {step.error?.message ? (
+                        <span
+                          className="sw-reason-cell"
+                          title={step.error.message}
+                        >
+                          {firstLine(step.error.message)}
+                        </span>
+                      ) : (
+                        (step.waitingReason ?? "-")
+                      )}
                     </Td>
                     <Td isActionCell>
                       {retryable && (
@@ -347,9 +360,11 @@ export function DurableOperationDetail({
               title={selectedStep.error.code}
               isInline
             >
-              {selectedStep.error.message}
+              {/* Keep the alert a one-line headline; the full failure output (per failed task,
+                  with stderr/stdout) lives in the Stderr tab below, not crammed in here. */}
+              {firstLine(selectedStep.error.message)}
               {selectedStep.error.stage
-                ? ` Stage: ${selectedStep.error.stage}.`
+                ? ` (stage: ${selectedStep.error.stage})`
                 : ""}
             </Alert>
           )}
@@ -368,6 +383,15 @@ export function DurableOperationDetail({
                 <OperationLogWorkspace
                   operationId={operation.id}
                   stepId={selectedStep.id}
+                />
+              </div>
+            </Tab>
+            <Tab eventKey="stderr" title={<TabTitleText>Stderr</TabTitleText>}>
+              <div className="sw-tab-content">
+                <OperationLogWorkspace
+                  operationId={operation.id}
+                  stepId={selectedStep.id}
+                  variant="stderr"
                 />
               </div>
             </Tab>
@@ -485,6 +509,16 @@ export function DurableOperationDetail({
       </Modal>
     </div>
   );
+}
+
+/**
+ * First line of a possibly multi-line message, for a compact single-line cell. The executor
+ * emits one failure line per host separated by newlines; the table shows the first with the
+ * full text on hover, while the Alert and Stdout tab carry the rest.
+ */
+function firstLine(message: string): string {
+  const line = message.split("\n", 1)[0]?.trim() ?? "";
+  return line || message.trim();
 }
 
 function formatTargets(step: OperationStep): string {

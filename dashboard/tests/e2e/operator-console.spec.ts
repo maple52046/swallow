@@ -691,27 +691,40 @@ test.describe('operator interactions', () => {
     ).toContainText('Runs workloads')
     await expect(page.getByText(/Kubernetes membership/)).toBeVisible()
     await page.goto('/platforms/platform-slurm?site=site-a')
-    await expect(page.getByText('Managers')).toBeVisible()
-    await expect(page.getByText('Compute members')).toBeVisible()
+    const slurmStats = page.locator('.sw-stat-strip')
+    await expect(slurmStats.getByText('Managers')).toBeVisible()
+    await expect(slurmStats.getByText('Compute nodes')).toBeVisible()
+    // A registered Slurm platform has no live slurmrestd read, so the Slurm view degrades and
+    // never borrows Kubernetes vocabulary.
+    await expect(page.getByText('Live Slurm state is unavailable')).toBeVisible()
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
-  test('deployed Slurm platform counts managers and lists controllers from the deploy intent', async ({ page }) => {
-    // slurmrestd reports only compute (slurmd) nodes, so managers and controller rows come from
-    // the recorded deployment intent, not the live membership axis.
+  test('deployed Slurm platform shows the Slurm-native cluster view (controllers, partitions, node states)', async ({ page }) => {
+    // The Slurm view reads live cluster state from slurmrestd: controllers via ping, partitions,
+    // and compute node scheduler state - each in its own section, not the k0s member table.
     await installApiFixtures(page, { slurmDeployed: true })
     await page.goto('/platforms/platform-slurm-ha?site=site-a')
+
     const stats = page.locator('.sw-stat-strip')
     await expect(stats.locator('.sw-stat').filter({ hasText: 'Managers' })).toContainText('2')
-    await expect(stats.locator('.sw-stat').filter({ hasText: 'Compute members' })).toContainText('2')
+    await expect(stats.locator('.sw-stat').filter({ hasText: 'Compute nodes' })).toContainText('2')
 
-    const table = page.getByRole('grid', { name: 'Platform members' })
-    // Controllers are not scheduler members, yet they must still appear, labelled as controllers.
-    await expect(table.getByRole('row', { name: /slurm-ctl-01/ })).toContainText('controller')
-    await expect(table.getByRole('row', { name: /slurm-ctl-02/ })).toContainText('controller')
-    // Compute nodes continue to come from the membership axis.
-    await expect(table.getByRole('row', { name: /slurm-cpt-01/ })).toBeVisible()
-    await expect(table.getByRole('row', { name: /slurm-cpt-02/ })).toBeVisible()
+    // Controllers come from slurmrestd ping with a real up/down status, in failover order.
+    const controllers = page.getByRole('grid', { name: 'Slurm controllers' })
+    const primaryRow = controllers.getByRole('row', { name: /slurm-ctl-01/ })
+    await expect(primaryRow).toContainText('primary')
+    await expect(primaryRow).toContainText('up')
+    await expect(controllers.getByRole('row', { name: /slurm-ctl-02/ })).toContainText('backup')
+
+    // Partitions are a first-class Slurm concept, shown in their own section.
+    await expect(page.getByRole('grid', { name: 'Slurm partitions' }).getByRole('row', { name: /main/ })).toBeVisible()
+
+    // Compute nodes show the real Slurm scheduler state; health/power is never conflated in.
+    const nodes = page.getByRole('grid', { name: 'Slurm compute nodes' })
+    await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).toContainText('idle')
+    await expect(nodes.getByRole('row', { name: /slurm-cpt-02/ })).toContainText('allocated')
+    await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).not.toContainText('host on')
   })
 
   test('standalone Platform summary shows one control-plane is workload-capable', async ({ page }) => {

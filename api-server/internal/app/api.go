@@ -227,8 +227,12 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("platform repo init: %w", err)
 	}
+	platformReaderFactory := platforminfra.NewReaderFactory(integrationRepo)
 	membershipSync := platformapp.NewMembershipSyncUseCase(
-		platformRepo, serverRepo, platforminfra.NewReaderFactory(integrationRepo))
+		platformRepo, serverRepo, platformReaderFactory)
+	// On-demand Slurm cluster read: reuses the same reader factory but never writes the
+	// membership axis or sync counters. It powers the Slurm-specific management view.
+	slurmClusterRead := platformapp.NewGetSlurmClusterUseCase(platformRepo, platformReaderFactory)
 
 	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
@@ -295,7 +299,7 @@ func RunAPI(cfg config.APIConfig) error {
 		serverProtection,
 	)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService)
+		platformService, membershipSync, deployService, uninstallService, slurmClusterRead)
 
 	// Auto-install exporters when a server reaches the deployed state and its effective
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
@@ -421,6 +425,7 @@ func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.Platf
 	routes.Delete("/:id", handler.Delete)
 	routes.Post("/:id/uninstall", handler.Uninstall)
 	routes.Post("/:id/sync", handler.SyncMembership)
+	routes.Get("/:id/slurm", handler.GetSlurmCluster)
 }
 
 // markDeprecatedPlatformRoute identifies the former Cluster resource without changing
@@ -586,6 +591,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	workflows.Post("/:id/rerun", deps.operations.Rerun)
 	workflows.Post("/:id/tasks/:taskId/retry", deps.operations.RetryStep)
 	workflows.Get("/:id/tasks/:taskId/logs", deps.operations.StepLogs)
+	workflows.Get("/:id/tasks/:taskId/stderr", deps.operations.StepStderr)
 	workflows.Get("/:id/tasks/:taskId/events", deps.operations.StepEvents)
 	workflows.Get("/:id/tasks/:taskId/artifacts", deps.operations.StepArtifacts)
 
@@ -606,6 +612,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	operations.Post("/:id/rerun", deps.operations.Rerun)
 	operations.Post("/:id/steps/:stepId/retry", deps.operations.RetryStep)
 	operations.Get("/:id/steps/:stepId/logs", deps.operations.StepLogs)
+	operations.Get("/:id/steps/:stepId/stderr", deps.operations.StepStderr)
 	operations.Get("/:id/steps/:stepId/events", deps.operations.StepEvents)
 	operations.Get("/:id/steps/:stepId/artifacts", deps.operations.StepArtifacts)
 	operations.Get("/:id/logs", deps.operations.Logs)

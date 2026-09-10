@@ -25,6 +25,20 @@
     fail_msg: "Slurm deployment requires unified cgroup v2 (/sys/fs/cgroup is {{ slurm_cgroup_type.stdout | trim }})"
     quiet: true
 
+- name: Verify HA shared-state inputs on controllers
+  # A multi-controller cluster only works when every controller shares one StateSaveLocation.
+  # swallow resolves the NFS source from the selected state server, so assert it is present
+  # before the controller-state role tries to mount an empty source and fails deep in startup.
+  ansible.builtin.assert:
+    that:
+      - slurm_state_source | default('') | length > 0
+      - slurm_state_fstype | default('') | length > 0
+    fail_msg: "HA controller {{ inventory_hostname }} has no shared StateSaveLocation source; a state server must be selected for a multi-controller deployment"
+    quiet: true
+  when:
+    - slurm_is_controller | bool
+    - slurm_controller_state_mode == 'shared'
+
 - name: Check that the system clock is synchronized
   # MUNGE rejects credentials across hosts whose clocks disagree, so an unsynced clock is a
   # common, confusing failure. This is a warning, not a hard failure: some images sync through

@@ -3,6 +3,7 @@ import type {
   DeployPlatformInput,
   DeployPlatformResult,
   MembershipReport,
+  SlurmCluster,
   UninstallPlatformOptions,
 } from '@/domain/platform/types'
 
@@ -31,4 +32,12 @@ export interface PlatformRepository {
   deletePlatform(id: string): Promise<void>
   /** Read the platform's membership now instead of waiting for the background interval. */
   syncPlatform(id: string): Promise<MembershipReport>
+  /**
+   * Read a Slurm platform's live cluster state (controllers, partitions, compute node
+   * scheduler state) on demand. Resolves to null when there is no live view to show - a
+   * non-Slurm platform, a Slurm platform whose slurmrestd integration is not recorded yet,
+   * or slurmrestd being unreachable - so the Slurm view degrades to deployment intent plus
+   * membership instead of surfacing an error.
+   */
+  getSlurmCluster(id: string): Promise<SlurmCluster | null>
 }

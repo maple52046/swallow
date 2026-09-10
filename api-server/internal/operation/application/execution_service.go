@@ -507,6 +507,13 @@ func (s *ExecutionService) LogsForRun(ctx context.Context, runID string) (string
 	return s.runner.Logs(ctx, runID)
 }
 
+// StderrForRun returns the error-only report (failed and unreachable tasks) for a durable
+// Ansible Step by its external run ID, powering the Step's Stderr view. It is empty when the
+// run recorded no failure.
+func (s *ExecutionService) StderrForRun(ctx context.Context, runID string) (string, error) {
+	return s.runner.Stderr(ctx, runID)
+}
+
 // EventsForRun projects retained Ansible task events for a durable Step.
 func (s *ExecutionService) EventsForRun(ctx context.Context, runID, status string) (*OperationEventsItem, error) {
 	events, err := s.runner.Events(ctx, runID)

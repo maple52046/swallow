@@ -1,0 +1,66 @@
+---
+# Provision a managed single-server NFS export used as the shared slurmctld
+# StateSaveLocation for an HA (multi-controller) cluster. This is the lab-grade shared-state
+# provider: all SchedMD HA docs require every SlurmctldHost to read/write one StateSaveLocation,
+# and swallow supplies it here instead of asking the operator to build storage by hand. The
+# export host is a single failure domain (documented lab limitation, not storage HA); it is
+# selected off-controller when possible so a controller-host failure does not also lose state.
+#
+# builtin-only on purpose: the executor image ships no galaxy collections and playbooks must
+# stay air-gap-friendly, so the export is managed with apt/copy/systemd/command, not a
+# third-party NFS module. The slurm user is uniform across nodes (one image), so the export is
+# owned by slurm and every controller writes it under the same uid.
+
+- name: Ensure the NFS server package is present
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  become: true
+
+- name: Create the controller-state export directory
+  ansible.builtin.file:
+    path: "{{ slurm_state_export }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0750"
+  become: true
+
+- name: Ensure the NFS exports drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/exports.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Restrict the state export to the controllers
+  # One line: the export path followed by each controller's connection address with rw,sync
+  # and root_squash. Listing only controller addresses keeps the export closed to the rest of
+  # the fabric; root_squash means a remote root cannot own files, while the shared slurm uid
+  # (same image) still reads/writes normally.
+  ansible.builtin.copy:
+    dest: /etc/exports.d/slurm-state.exports
+    content: >-
+      {{ slurm_state_export }}{% for host in groups['slurm_controller'] %} {{ hostvars[host].ansible_host }}(rw,sync,no_subtree_check,root_squash){% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload NFS exports
+
+- name: Enable and start the NFS server
+  ansible.builtin.systemd_service:
+    name: nfs-server
+    enabled: true
+    state: started
+  become: true
+
+- name: Apply export changes before the controllers mount
+  # Flush now so exportfs has run before the later controller-state play mounts the share;
+  # a controller mounting an unexported path would fail the deploy.
+  ansible.builtin.meta: flush_handlers

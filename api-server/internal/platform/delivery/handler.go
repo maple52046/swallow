@@ -17,10 +17,11 @@ import (
 )
 
 type PlatformHandler struct {
-	platforms  *application.PlatformService
-	uninstall  *application.UninstallService
-	membership *application.MembershipSyncUseCase
-	deploy     *application.DeployService
+	platforms    *application.PlatformService
+	uninstall    *application.UninstallService
+	membership   *application.MembershipSyncUseCase
+	deploy       *application.DeployService
+	slurmCluster *application.GetSlurmClusterUseCase
 }
 
 func NewPlatformHandler(
@@ -28,9 +29,11 @@ func NewPlatformHandler(
 	membership *application.MembershipSyncUseCase,
 	deploy *application.DeployService,
 	uninstall *application.UninstallService,
+	slurmCluster *application.GetSlurmClusterUseCase,
 ) *PlatformHandler {
 	return &PlatformHandler{
-		platforms: platforms, membership: membership, deploy: deploy, uninstall: uninstall,
+		platforms: platforms, membership: membership, deploy: deploy,
+		uninstall: uninstall, slurmCluster: slurmCluster,
 	}
 }
 
@@ -366,6 +369,84 @@ func (h *PlatformHandler) SyncMembership(c *fiber.Ctx) error {
 		return respondError(c, err)
 	}
 	return c.JSON(membershipResponse(*report))
+}
+
+// slurmClusterResponse is the wire shape of a Slurm platform's live cluster state. It is
+// Slurm-native on purpose (controllers, partitions, node scheduler state) and separate from
+// the generic member list and the deployment intent; it carries no monitoring health.
+type slurmClusterResponse struct {
+	Controllers []slurmControllerResponse `json:"controllers"`
+	Partitions  []slurmPartitionResponse  `json:"partitions"`
+	Nodes       []slurmNodeResponse       `json:"nodes"`
+}
+
+type slurmControllerResponse struct {
+	Hostname string `json:"hostname"`
+	Primary  bool   `json:"primary"`
+	Status   string `json:"status"`
+}
+
+type slurmPartitionResponse struct {
+	Name       string `json:"name"`
+	State      string `json:"state"`
+	NodeSpec   string `json:"nodeSpec"`
+	TotalNodes int    `json:"totalNodes"`
+}
+
+type slurmNodeResponse struct {
+	Name          string   `json:"name"`
+	State         string   `json:"state"`
+	Cpus          int      `json:"cpus"`
+	RealMemoryMiB int64    `json:"realMemoryMiB"`
+	Gres          string   `json:"gres"`
+	Partitions    []string `json:"partitions"`
+	Address       string   `json:"address"`
+}
+
+func slurmClusterBody(state *platformdomain.SlurmClusterState) slurmClusterResponse {
+	body := slurmClusterResponse{
+		Controllers: make([]slurmControllerResponse, 0, len(state.Controllers)),
+		Partitions:  make([]slurmPartitionResponse, 0, len(state.Partitions)),
+		Nodes:       make([]slurmNodeResponse, 0, len(state.Nodes)),
+	}
+	for _, controller := range state.Controllers {
+		body.Controllers = append(body.Controllers, slurmControllerResponse{
+			Hostname: controller.Hostname, Primary: controller.Primary, Status: controller.Status,
+		})
+	}
+	for _, partition := range state.Partitions {
+		body.Partitions = append(body.Partitions, slurmPartitionResponse{
+			Name: partition.Name, State: partition.State,
+			NodeSpec: partition.NodeSpec, TotalNodes: partition.TotalNodes,
+		})
+	}
+	for _, node := range state.Nodes {
+		partitions := node.Partitions
+		if partitions == nil {
+			partitions = []string{}
+		}
+		body.Nodes = append(body.Nodes, slurmNodeResponse{
+			Name: node.Name, State: node.State, Cpus: node.CPUs,
+			RealMemoryMiB: node.RealMemoryMiB, Gres: node.Gres,
+			Partitions: partitions, Address: node.Address,
+		})
+	}
+	return body
+}
+
+// GetSlurmCluster returns a Slurm platform's live cluster state read on demand from
+// slurmrestd. It is a Slurm-only read: a non-Slurm platform, or one whose slurmrestd
+// integration is not recorded, returns a validation error the dashboard treats as "no live
+// view yet" and degrades from.
+func (h *PlatformHandler) GetSlurmCluster(c *fiber.Ctx) error {
+	if h.slurmCluster == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Slurm cluster state is unavailable."))
+	}
+	state, err := h.slurmCluster.Execute(c.Context(), c.Params("id"))
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(slurmClusterBody(state))
 }
 
 func (h *PlatformHandler) SyncAllMembership(c *fiber.Ctx) error {

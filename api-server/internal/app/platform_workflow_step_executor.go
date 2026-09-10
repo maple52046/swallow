@@ -15,6 +15,14 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
+// platformUninstallFinalizer clears a Platform's projections after a successful uninstall.
+// It is the completion hook for the release-and-uninstall path, whose workflow has no ansible
+// step (the usual AnsibleStepSucceeded trigger), so this narrow port lets the internal
+// complete-uninstall step run the same cleanup keyed only by platform id.
+type platformUninstallFinalizer interface {
+	CompleteUninstall(ctx context.Context, platformID string) error
+}
+
 // platformWorkflowStepExecutor implements Swallow-owned readiness and health phases.
 // It exposes only normalized outcomes to Temporal; provider and socket details remain in
 // the adapters that own them.
@@ -22,6 +30,7 @@ type platformWorkflowStepExecutor struct {
 	servers        serverdomain.ServerRepository
 	configurations operationdomain.AutomationConfigurationRepository
 	membership     *platformapp.MembershipSyncUseCase
+	finalizer      platformUninstallFinalizer
 	poll           time.Duration
 }
 
@@ -33,9 +42,26 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 		return e.waitForSSH(ctx, input)
 	case "validate-platform-health":
 		return e.validatePlatform(ctx, input.PlatformID, input.Step)
+	case "complete-uninstall":
+		return e.completeUninstall(ctx, input.PlatformID)
 	default:
 		return internalStepFailed("unsupported_internal_step", "The internal Step kind is not supported.", false)
 	}
+}
+
+// completeUninstall finalizes a release-and-uninstall Operation by clearing the Platform's
+// projections (membership, owned credential Integration, sync). It runs after every release
+// step succeeds, replacing the ansible step's AnsibleStepSucceeded cleanup that this path
+// omits. A missing finalizer or platform id is a non-retryable failure; the cleanup itself is
+// idempotent, so a retried step is safe.
+func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, platformID string) temporalworkflow.StepExecutionResult {
+	if e.finalizer == nil || strings.TrimSpace(platformID) == "" {
+		return internalStepFailed("platform_finalize_unavailable", "Platform uninstall finalization is unavailable.", false)
+	}
+	if err := e.finalizer.CompleteUninstall(ctx, platformID); err != nil {
+		return internalStepFailed("platform_finalize_failed", err.Error(), true)
+	}
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 }
 
 func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {

@@ -72,6 +72,9 @@
 | [`018-automatic-addressing-provider-auto-assign.md`](018-automatic-addressing-provider-auto-assign.md) | 部署自動定址意圖 `automatic` 由 provider auto-assign（MAAS `AUTO`）實現而非 raw DHCP，位址穩定且 provider 一定記錄；`dhcp` 降為一 release deprecated alias；refine ADR 012 的模式選擇 |
 | [`019-slurm-platform-deployment.md`](019-slurm-platform-deployment.md) | Slurm platform 部署：per-daemon 角色（slurmctld/slurmd）、套件由 image 提供、slurmrestd+JWT 憑證、重用 ensure-os + 新增 configure-slurm Job、單 controller 首版且保留 HA 掛勾、不套 k0s 的 ephemeral 防呆 |
 | [`020-durable-operation-recovery.md`](020-durable-operation-recovery.md) | Durable Operation 失敗回復：以新 Operation + `RetryOfOperationId` 重跑（保留成功 Step、複製封存 secrets）不刪 Platform、`requires_attention` 等待期撐過中斷、lost-execution reconciler 只標記不自動修 |
+| [`021-platform-type-specific-management.md`](021-platform-type-specific-management.md) | Platform 管理改為共用外殼 + 各 type 專屬視圖（Kubernetes/Slurm）；新增 on-demand Slurm-native cluster read（controllers ping、partitions、node 排程狀態），與 membership sync 及 deployment intent 分離；health 為獨立軸、暫不與 scheduler state 混用 |
+| [`022-uninstall-release-shortcut.md`](022-uninstall-release-shortcut.md) | Uninstall 同時 release servers 時直接 release（release 會清 OS,略過多餘的 platform-software uninstall step）,以內部 complete-uninstall finalize step 做投影清理;僅限整平台 uninstall,未來 scale-in 仍走 uninstall |
+| [`023-slurm-ha-shared-state-provisioning.md`](023-slurm-ha-shared-state-provisioning.md) | Slurm HA 的 shared `StateSaveLocation` 由 swallow 自動佈署：deploy use case 選 state server（compute-only 優先,退回 primary）,playbook 以 managed NFS export（`slurm_state_server`）+ 每台 controller 掛載與 systemd mount guard（`slurm_controller_state`,fail-closed）供給;`stateSaveLocation` 由必填改為選用覆寫;僅用 `ansible.builtin`;lab 等級單一 storage failure domain,外部/production 儲存為後續 |
 `001`–`003` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
 Consequences / Rejected alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄
 `Date`，依「不得杜撰歷史理由」原則保留為 unrecorded 而非捏造。其論述結構刻意維持原樣。

@@ -22,6 +22,22 @@ import (
 
 const maxErrorBodyBytes = 512
 
+// newReaderTransport builds the HTTP transport for a platform reader. Keep-alives are disabled
+// on purpose: readers are created per read and are not cached (see ReaderFactory), so there is
+// no connection reuse to protect, while a lingering keep-alive connection would accumulate on
+// the server. slurmrestd in particular caps concurrent connections (around 124) and, once
+// leaked idle connections fill that cap, refuses new ones — stalling membership sync with
+// "Could not reach the Slurm API". Closing each connection after its response keeps the
+// server's connection count flat. A per-reader transport (not http.DefaultTransport) also
+// avoids mutating shared global state when TLS verification is skipped.
+func newReaderTransport(insecureSkipVerify bool) *http.Transport {
+	transport := &http.Transport{DisableKeepAlives: true}
+	if insecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	return transport
+}
+
 // Kubernetes role labels. A node carrying either is a control-plane node; the label was
 // renamed upstream, so both are checked.
 const (
@@ -61,15 +77,10 @@ func NewKubernetesReader(rawURL, token string, timeout time.Duration, insecureSk
 		return nil, errors.New("Kubernetes API token is empty")
 	}
 
-	transport := http.DefaultTransport
-	if insecureSkipVerify {
-		transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	}
-
 	return &KubernetesReader{
 		baseURL:                  baseURL,
 		token:                    token,
-		httpClient:               &http.Client{Timeout: timeout, Transport: transport},
+		httpClient:               &http.Client{Timeout: timeout, Transport: newReaderTransport(insecureSkipVerify)},
 		discoverControllerLeases: discoverControllerLeases,
 	}, nil
 }

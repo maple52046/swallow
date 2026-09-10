@@ -1,0 +1,111 @@
+---
+# Place the slurmctld StateSaveLocation on this controller and, in HA, guarantee it is the
+# shared NFS mount before slurmctld starts. HA correctness depends on every controller reading
+# and writing one StateSaveLocation; a controller that silently wrote state to a local
+# directory under an unmounted path would break takeover, so 'shared' mode is fail-closed:
+# it mounts, verifies the mountpoint, and installs a systemd guard that refuses to start
+# slurmctld unless the path is a mountpoint.
+#
+# builtin-only (no ansible.posix): the executor image ships no galaxy collections. The mount
+# is expressed as an fstab entry plus a guarded `mount`, which is idempotent (mount only runs
+# when the path is not already a mountpoint) and also gives the systemd RequiresMountsFor guard
+# a real fstab target to order against.
+
+- name: Ensure NFS client support for shared controller state
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+    lock_timeout: 300
+  become: true
+  when:
+    - slurm_controller_state_mode == 'shared'
+    - slurm_state_fstype in ['nfs', 'nfs4']
+
+- name: Ensure the controller state directory exists
+  # Created for both modes: the local StateSaveLocation, or the mountpoint the share lands on.
+  # Owner slurm because slurmctld runs as slurm; the uid is uniform across the shared image.
+  ansible.builtin.file:
+    path: "{{ slurm_state_save_location }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0750"
+  become: true
+
+- name: Register the shared controller-state mount in fstab
+  # The fstab entry is the single source of truth for both the guarded mount below and the
+  # systemd RequiresMountsFor guard, so a reboot re-mounts before slurmctld starts.
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^[^ \t]+[ \t]+{{ slurm_state_save_location | regex_escape }}[ \t]'
+    line: "{{ slurm_state_source }} {{ slurm_state_save_location }} {{ slurm_state_fstype }} {{ slurm_state_mount_options }} 0 0"
+    state: present
+  become: true
+  when: slurm_controller_state_mode == 'shared'
+
+- name: Check whether the shared controller state is already mounted
+  ansible.builtin.command:
+    argv: [mountpoint, -q, "{{ slurm_state_save_location }}"]
+  register: slurm_state_mountcheck
+  changed_when: false
+  failed_when: false
+  become: true
+  when: slurm_controller_state_mode == 'shared'
+
+- name: Mount the shared controller state
+  # Reads the fstab entry above; runs only when not already mounted, so a converged rerun is a
+  # no-op rather than remounting a live share.
+  ansible.builtin.command:
+    argv: [mount, "{{ slurm_state_save_location }}"]
+  become: true
+  when:
+    - slurm_controller_state_mode == 'shared'
+    - slurm_state_mountcheck.rc != 0
+  changed_when: true
+
+- name: Verify the shared controller state is mounted
+  # Fail-closed: refuse to continue (and thus to start slurmctld) if the share is not mounted,
+  # so state can never be written to the underlying local filesystem.
+  ansible.builtin.command:
+    argv: [mountpoint, -q, "{{ slurm_state_save_location }}"]
+  changed_when: false
+  become: true
+  when: slurm_controller_state_mode == 'shared'
+
+- name: Ensure the slurmctld systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/slurmctld.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: slurm_controller_state_mode == 'shared'
+
+- name: Require the shared state mount before slurmctld starts
+  # RequiresMountsFor orders/needs the mount; ConditionPathIsMountPoint makes systemd skip a
+  # start when the path is not a mountpoint, so slurmctld never runs against local state.
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/slurmctld.service.d/state-mount.conf
+    content: |
+      # Managed by Swallow (slurm_controller_state). Do not edit by hand.
+      [Unit]
+      RequiresMountsFor={{ slurm_state_save_location }}
+      After=remote-fs.target
+      ConditionPathIsMountPoint={{ slurm_state_save_location }}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload systemd units
+  when: slurm_controller_state_mode == 'shared'
+
+- name: Remove the shared-state service guard in local mode
+  # A cluster scaled down to one controller (or redeployed local) must not keep a mount guard
+  # that would block a local-state slurmctld from starting.
+  ansible.builtin.file:
+    path: /etc/systemd/system/slurmctld.service.d/state-mount.conf
+    state: absent
+  become: true
+  notify: Reload systemd units
+  when: slurm_controller_state_mode == 'local'

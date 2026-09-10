@@ -162,6 +162,64 @@ type ReaderFactory interface {
 	For(ctx context.Context, platform *Platform) (PlatformReader, error)
 }
 
+// SlurmClusterState is a Slurm platform's live cluster state, read on demand from its API.
+//
+// It is deliberately Slurm-shaped and separate from both the generic membership axis
+// (which carries only compute/slurmd scheduler nodes) and the deployment-intent projection
+// (what was requested). It reports the controller daemons (which are not scheduler nodes and
+// so never appear as members), the scheduling partitions, and each compute node's live Slurm
+// state, none of which the generic Member view can represent. This axis is never conflated
+// with the monitoring health axis.
+type SlurmClusterState struct {
+	Controllers []SlurmController
+	Partitions  []SlurmPartition
+	Nodes       []SlurmNode
+}
+
+// SlurmController is one slurmctld host as reported by scontrol/slurmrestd ping, in failover
+// order. The first controller is the primary; the rest are ordered standbys.
+type SlurmController struct {
+	Hostname string
+	// Primary is true for the active/first controller in the SlurmctldHost order.
+	Primary bool
+	// Status is "up", "down", or "unknown" (ping did not report it). This is the
+	// controller RPC liveness, not the host's monitoring health.
+	Status string
+}
+
+// SlurmPartition is a scheduling partition and its configured node set.
+type SlurmPartition struct {
+	Name string
+	// State is the partition's state (for example "UP"), normalized to lower case.
+	State string
+	// NodeSpec is Slurm's configured node expression for the partition (for example
+	// "compute[1-4]"); empty when the API did not report it.
+	NodeSpec string
+	// TotalNodes is how many nodes the partition contains; zero when unreported.
+	TotalNodes int
+}
+
+// SlurmNode is one compute node's live scheduler state, richer than the membership Member.
+type SlurmNode struct {
+	Name string
+	// State is the collapsed Slurm node state (idle, allocated, mixed, down, drain, ...),
+	// normalized to lower case. This is scheduler state, not monitoring health.
+	State         string
+	CPUs          int
+	RealMemoryMiB int64
+	// Gres is the node's configured generic resources (for example "gpu:8"); empty when none.
+	Gres       string
+	Partitions []string
+	Address    string
+}
+
+// SlurmClusterReader reads a Slurm platform's live cluster state on demand. It is a superset
+// of PlatformReader used only by the Slurm-specific view; the concrete Slurm reader
+// implements both, so membership sync keeps using ListMembers unchanged.
+type SlurmClusterReader interface {
+	GetClusterState(ctx context.Context) (*SlurmClusterState, error)
+}
+
 var (
 	ErrPlatformNotFound  = errors.New("platform not found")
 	ErrPlatformNameTaken = errors.New("a platform with this name already exists at this site")

@@ -43,6 +43,7 @@ export interface OperationRepository {
   cancelOperation(id: string): Promise<void>;
   retryStep(id: string, stepId: string): Promise<void>;
   getStepLogs(id: string, stepId: string): Promise<string>;
+  getStepStderr(id: string, stepId: string): Promise<string>;
   getStepEvents(id: string, stepId: string): Promise<OperationEvents>;
   getStepArtifacts(id: string, stepId: string): Promise<OperationArtifact[]>;
 }

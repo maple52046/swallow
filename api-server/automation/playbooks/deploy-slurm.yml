@@ -23,10 +23,27 @@
         slurm_is_controller: "{{ inventory_hostname in swallow_slurm_controller_ids }}"
         slurm_is_compute: "{{ inventory_hostname in swallow_slurm_compute_ids }}"
         slurm_is_primary: "{{ inventory_hostname == swallow_slurm_primary_controller_id }}"
+        # The state server (HA only) hosts the NFS-exported shared StateSaveLocation; swallow
+        # selects it off-controller when possible. Empty in a single-controller deploy.
+        slurm_is_state_server: "{{ inventory_hostname == (swallow_slurm_state_server_id | default('')) }}"
         # Slurm names a node by its hostname, which is what appears in sinfo and the node
         # registration, not the serverId that keys the inventory.
         slurm_node_name: "{{ ansible_hostname }}"
-        slurm_state_save_location: "{{ swallow_slurm_state_save_location | default('/var/spool/slurmctld', true) }}"
+        # HA controllers share one StateSaveLocation over NFS (mode shared); a single
+        # controller keeps it local (mode local). The default path differs accordingly, and an
+        # operator-supplied swallow_slurm_state_save_location overrides either.
+        slurm_controller_state_mode: "{{ 'shared' if (swallow_slurm_high_availability | default(false) | bool) else 'local' }}"
+        slurm_state_save_location: >-
+          {{ swallow_slurm_state_save_location
+             | default('/var/lib/slurm/slurmctld' if (swallow_slurm_high_availability | default(false) | bool) else '/var/spool/slurmctld', true) }}
+        slurm_state_export: "{{ swallow_slurm_state_export | default('/srv/slurm-state', true) }}"
+        # host:/export the controllers mount; resolved from the state server's connection
+        # address. Empty when no state server is set (single controller).
+        slurm_state_source: >-
+          {{ (hostvars[swallow_slurm_state_server_id].ansible_host ~ ':' ~ (swallow_slurm_state_export | default('/srv/slurm-state', true)))
+             if (swallow_slurm_state_server_id | default('')) | length > 0 else '' }}
+        slurm_state_fstype: nfs4
+        slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2
         slurm_conf_dir: /etc/slurm
         slurm_log_dir: /var/log/slurm
         slurm_jwt_key_path: /etc/slurm/jwt_hs256.key
@@ -48,6 +65,12 @@
     - name: Group the primary controller
       ansible.builtin.group_by:
         key: "slurm_{{ 'primary' if slurm_is_primary | bool else 'secondary' }}"
+
+    - name: Group the shared-state server
+      # Creates the slurm_state_server group only in HA (when a state server was selected), so
+      # the state-server play below no-ops for a single-controller deploy.
+      ansible.builtin.group_by:
+        key: "slurm_{{ 'state_server' if slurm_is_state_server | bool else 'nonstate' }}"
   roles:
     - role: slurm_preflight
     - role: slurm_packages_verify
@@ -74,10 +97,42 @@
       ansible.builtin.set_fact:
         slurm_node_line: "{{ slurm_node_detect.stdout_lines | select('match', '^NodeName=') | first }}"
 
-- name: Configure controllers and start slurmctld
+- name: Provision the shared controller-state NFS export
+  # HA only: no host joins slurm_state_server for a single-controller deploy, so this no-ops.
+  # Runs before the controllers mount, so the export exists when slurm_controller_state mounts.
+  hosts: slurm_state_server
+  gather_facts: false
+  roles:
+    - role: slurm_state_server
+
+- name: Place controller state and enforce the shared-state mount
+  # Runs before slurmctld starts so an HA controller mounts (and is guarded by) the shared
+  # StateSaveLocation, and a single controller gets its local state directory. serial:1 mirrors
+  # the controller-config play's ordering.
   hosts: slurm_controller
   gather_facts: false
-  # Controllers start in order so the primary (SlurmctldHost first) leads before any backup.
+  serial: 1
+  roles:
+    - role: slurm_controller_state
+
+- name: Configure the primary controller and start slurmctld first
+  # The primary must render its slurm.conf, start, and become active (writing the shared
+  # heartbeat) before any backup starts. A backup that starts first comes up in standby and
+  # waits forever for a heartbeat the not-yet-configured primary cannot write; its scontrol
+  # ping then fails and aborts the run before the primary is even given slurm.conf, so the
+  # cluster never forms. group_by does not preserve primary-first order, so the primary runs in
+  # its own play here rather than relying on serial ordering within one controller play.
+  hosts: slurm_primary
+  gather_facts: false
+  roles:
+    - role: slurm_config
+    - role: slurm_controller
+
+- name: Configure and start the backup controllers
+  # Backups only start after the primary is active, so they immediately find the shared
+  # heartbeat and settle into standby. A single-controller deploy has no hosts here.
+  hosts: slurm_controller:!slurm_primary
+  gather_facts: false
   serial: 1
   roles:
     - role: slurm_config

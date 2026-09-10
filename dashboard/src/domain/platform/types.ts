@@ -136,8 +136,9 @@ export interface SlurmNodeAssignment {
 /**
  * A request to deploy a Slurm platform. `clusterName` defaults to a sanitized platform name.
  * `apiVersion` pins the slurmrestd endpoint version recorded in the credential.
- * `stateSaveLocation` is required by the backend only for a highly available (multi-controller)
- * deployment, where a backup controller needs a shared state directory.
+ * `stateSaveLocation` is an optional override of the slurmctld state directory. A highly
+ * available (multi-controller) deployment needs one shared state directory, which the backend
+ * provisions automatically; supplying a path only overrides where it lives.
  */
 export interface SlurmDeploymentSpec {
   clusterName?: string;
@@ -165,6 +166,49 @@ export interface DeployPlatformInput {
   roleAssignments?: RoleAssignment[];
   slurm?: SlurmDeploymentSpec;
   machinePreparation?: PlatformMachinePreparation;
+}
+
+/**
+ * One slurmctld controller as reported by slurmrestd ping, in SlurmctldHost failover order.
+ * `status` is the controller RPC liveness (`up | down | unknown`), never monitoring health.
+ */
+export interface SlurmController {
+  hostname: string
+  primary: boolean
+  status: string
+}
+
+/** A Slurm scheduling partition and its configured node set. */
+export interface SlurmPartition {
+  name: string
+  state: string
+  nodeSpec: string
+  totalNodes: number
+}
+
+/**
+ * One compute node's live Slurm scheduler state (idle/allocated/mixed/down/drain/...),
+ * richer than the membership Member. `state` is scheduler state, not monitoring health.
+ */
+export interface SlurmClusterNode {
+  name: string
+  state: string
+  cpus: number
+  realMemoryMiB: number
+  gres: string
+  partitions: string[]
+  address: string
+}
+
+/**
+ * A Slurm platform's live cluster state, read on demand from slurmrestd. It is Slurm-native
+ * and deliberately separate from the generic membership axis (compute only) and the
+ * deployment intent; it powers the Slurm-specific management view.
+ */
+export interface SlurmCluster {
+  controllers: SlurmController[]
+  partitions: SlurmPartition[]
+  nodes: SlurmClusterNode[]
 }
 
 /** The accepted deployment: the created platform and the operation building it. */

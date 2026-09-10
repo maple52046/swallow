@@ -1,0 +1,7 @@
+---
+- name: Reload systemd units
+  # Pick up the slurmctld drop-in change (added or removed) so the mount guard takes effect
+  # before the controller role starts or restarts the daemon.
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  become: true

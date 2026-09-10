@@ -118,9 +118,17 @@ func RunWorker(cfg config.APIConfig) error {
 	}
 	defer temporalClient.Close()
 
+	// Finalizes the release-and-uninstall path's complete-uninstall step. Only CompleteUninstall
+	// is used, so sites and lifecycle are nil; it needs the platform, server, and owned-credential
+	// integration repositories the worker already has.
+	platformFinalizer := platformapp.NewPlatformService(
+		platforms, nil, servers, nil,
+		managedPlatformIntegrationCleaner{integrations: integrations},
+	)
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
-			servers: servers, configurations: automationConfigurations, membership: membership, poll: 5 * time.Second,
+			servers: servers, configurations: automationConfigurations, membership: membership,
+			finalizer: platformFinalizer, poll: 5 * time.Second,
 		},
 		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,

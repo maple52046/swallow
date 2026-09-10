@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -144,6 +145,15 @@ func (r *LocalRunner) Run(ctx context.Context, input operationdomain.RunnerInput
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
+		// The raw exit error ("exit status 2") names nothing an operator can act on. Prefer a
+		// concise cause read from the run's own events (the failing task, host, and a bounded
+		// tail of its output); this becomes the execution's statusReason and the Step's
+		// normalized error message, which the dashboard shows as the Step reason. The full,
+		// untruncated output stays in the retained stdout artifact (the Stdout tab). Fall back
+		// to the bare exit error only when no failed task event was recorded.
+		if summary := r.summarizeRunFailure(input.Operation.Execution.RunID); summary != "" {
+			return result, errors.New(summary)
+		}
 		return result, fmt.Errorf("ansible-runner: %w", err)
 	}
 
@@ -205,6 +215,78 @@ func (r *LocalRunner) Events(_ context.Context, runID string) ([]operationdomain
 		}
 	}
 	return events, nil
+}
+
+// Stderr builds an error-only report of a run from its retained job events: one block per
+// failed or unreachable task with the task, host (a serverId), module message, return code,
+// and the task's captured stderr and stdout. It is the focused counterpart to Logs (the full
+// runner output) that powers the dashboard's Stderr tab, so an operator reads the failure
+// without scrolling the whole play. It returns "" when the run recorded no failure or its
+// events are absent (an early runner error, or events not yet flushed).
+func (r *LocalRunner) Stderr(_ context.Context, runID string) (string, error) {
+	dir := filepath.Join(r.artifactRoot, filepath.Base(runID), "job_events")
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			files = append(files, entry.Name())
+		}
+	}
+	sort.Slice(files, func(i, j int) bool { return eventOrdinal(files[i]) < eventOrdinal(files[j]) })
+
+	var report strings.Builder
+	for _, name := range files {
+		raw, readErr := os.ReadFile(filepath.Join(dir, name))
+		if readErr != nil {
+			continue
+		}
+		var doc runnerFailureEvent
+		if json.Unmarshal(raw, &doc) != nil {
+			continue
+		}
+		if doc.Event != "runner_on_failed" && doc.Event != "runner_on_unreachable" {
+			continue
+		}
+		if doc.EventData.Host == "" {
+			continue
+		}
+		writeFailureBlock(&report, doc)
+	}
+	return report.String(), nil
+}
+
+// writeFailureBlock appends one human-readable failure block for a failed/unreachable task.
+// Unlike the single-line summary folded into the run error, this preserves the task's full
+// stderr and stdout on their own lines so the Stderr tab reads like a focused error log.
+func writeFailureBlock(b *strings.Builder, doc runnerFailureEvent) {
+	label := "FAILED"
+	if doc.Event == "runner_on_unreachable" {
+		label = "UNREACHABLE"
+	}
+	task := doc.EventData.Task
+	if task == "" {
+		task = "(unnamed task)"
+	}
+	fmt.Fprintf(b, "==> %s  task: %s  host: %s\n", label, task, doc.EventData.Host)
+	if msg := strings.TrimSpace(stringifyMsg(doc.EventData.Res.Msg)); msg != "" {
+		fmt.Fprintf(b, "msg: %s\n", msg)
+	}
+	if doc.EventData.Res.RC != nil {
+		fmt.Fprintf(b, "rc: %d\n", *doc.EventData.Res.RC)
+	}
+	if stderr := strings.TrimRight(doc.EventData.Res.Stderr, "\n"); strings.TrimSpace(stderr) != "" {
+		fmt.Fprintf(b, "stderr:\n%s\n", stderr)
+	}
+	if stdout := strings.TrimRight(doc.EventData.Res.Stdout, "\n"); strings.TrimSpace(stdout) != "" {
+		fmt.Fprintf(b, "stdout:\n%s\n", stdout)
+	}
+	b.WriteString("\n")
 }
 
 // jobEventJSON is the subset of an ansible-runner job event swallow reads.
@@ -271,6 +353,174 @@ func eventOrdinal(name string) int {
 		return 1 << 30
 	}
 	return n
+}
+
+// Failure-summary bounds keep the diagnostic folded into a run's error message readable and
+// prevent a runaway task result from turning statusReason into an unbounded blob. They are a
+// pragmatic balance: enough to name the failing task and show the tail of its output, small
+// enough for a dashboard alert and a persisted error string.
+const (
+	maxFailureHosts       = 6
+	maxFailureDetailChars = 320
+	maxFailureTotalChars  = 2000
+)
+
+// runnerFailureEvent is the subset of a failed or unreachable ansible job event used to
+// explain why a run failed. Unlike the public TaskEvent projection (which is deliberately
+// output-free because it is a public projection), this stays inside the runner and is folded
+// into the run's error message. That message is an operator diagnostic with the same
+// sensitivity as the retained stdout artifact, so it may carry bounded task output.
+type runnerFailureEvent struct {
+	Event     string `json:"event"`
+	EventData struct {
+		Task string `json:"task"`
+		Host string `json:"host"`
+		Res  struct {
+			Msg    any    `json:"msg"`
+			RC     *int   `json:"rc"`
+			Stderr string `json:"stderr"`
+			Stdout string `json:"stdout"`
+		} `json:"res"`
+	} `json:"event_data"`
+}
+
+// summarizeRunFailure reads the run's retained job events and builds a concise, bounded,
+// one-line-per-host explanation of why the run failed: for each failing host it names the
+// host (a serverId, matching the inventory), the most recent failed or unreachable task, and
+// the most specific diagnostic available (ansible message, return code, then a bounded tail
+// of stderr or stdout).
+//
+// It is deliberately a summary, not a transcript: each line is capped and at most
+// maxFailureHosts hosts are listed, so it reads cleanly as a Step reason. The full,
+// untruncated output remains in the retained stdout artifact (the Stdout tab).
+//
+// It returns an empty string when no failed or unreachable task event is present — for
+// example an ansible-runner error before any task ran, or events not yet flushed — so the
+// caller falls back to the raw exit error rather than reporting a misleading empty cause.
+func (r *LocalRunner) summarizeRunFailure(runID string) string {
+	dir := filepath.Join(r.artifactRoot, filepath.Base(runID), "job_events")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			files = append(files, entry.Name())
+		}
+	}
+	sort.Slice(files, func(i, j int) bool { return eventOrdinal(files[i]) < eventOrdinal(files[j]) })
+
+	// Keep only the most recent failure per host. A block/rescue records the original task
+	// failure and then the rescue's diagnostic failure for the same host; the later event is
+	// the more specific cause, so it supersedes the first and the summary stays one line per
+	// host instead of repeating the same failure twice.
+	order := make([]string, 0, len(files))
+	latest := make(map[string]runnerFailureEvent, len(files))
+	for _, name := range files {
+		raw, readErr := os.ReadFile(filepath.Join(dir, name))
+		if readErr != nil {
+			continue
+		}
+		var doc runnerFailureEvent
+		if json.Unmarshal(raw, &doc) != nil {
+			continue
+		}
+		if doc.Event != "runner_on_failed" && doc.Event != "runner_on_unreachable" {
+			continue
+		}
+		host := doc.EventData.Host
+		if host == "" {
+			continue
+		}
+		if _, seen := latest[host]; !seen {
+			order = append(order, host)
+		}
+		latest[host] = doc
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, maxFailureHosts)
+	for _, host := range order {
+		if len(lines) >= maxFailureHosts {
+			break
+		}
+		lines = append(lines, formatFailureLine(latest[host]))
+	}
+	summary := strings.Join(lines, "\n")
+	if len(summary) > maxFailureTotalChars {
+		summary = summary[:maxFailureTotalChars] + " …(truncated)"
+	}
+	return summary
+}
+
+// formatFailureLine renders one failed task event as a single bounded line: the host, the
+// task, and the most specific diagnostic available. stderr is preferred over stdout because
+// it is the conventional error channel; both are shown as a tail because a command's error
+// is usually at the end. Whitespace is collapsed so multi-line output stays on one line.
+func formatFailureLine(doc runnerFailureEvent) string {
+	label := "failed"
+	if doc.Event == "runner_on_unreachable" {
+		label = "unreachable"
+	}
+	parts := make([]string, 0, 3)
+	if msg := collapseWhitespace(stringifyMsg(doc.EventData.Res.Msg)); msg != "" {
+		parts = append(parts, msg)
+	}
+	if doc.EventData.Res.RC != nil {
+		parts = append(parts, fmt.Sprintf("rc=%d", *doc.EventData.Res.RC))
+	}
+	if stderr := collapseWhitespace(doc.EventData.Res.Stderr); stderr != "" {
+		parts = append(parts, "stderr: "+tail(stderr, maxFailureDetailChars))
+	} else if stdout := collapseWhitespace(doc.EventData.Res.Stdout); stdout != "" {
+		parts = append(parts, "stdout: "+tail(stdout, maxFailureDetailChars))
+	}
+	detail := strings.Join(parts, " | ")
+	if detail == "" {
+		detail = label
+	}
+	if len(detail) > maxFailureDetailChars {
+		detail = detail[:maxFailureDetailChars] + " …"
+	}
+	task := doc.EventData.Task
+	if task == "" {
+		task = "(unnamed task)"
+	}
+	return fmt.Sprintf("- %s: task %q %s: %s", doc.EventData.Host, task, label, detail)
+}
+
+// stringifyMsg renders an ansible "msg" field, which is usually a string but can be a list
+// or object (an assertion, or a module returning structured data), as text without failing
+// the summary. A nil message is empty.
+func stringifyMsg(msg any) string {
+	switch value := msg.(type) {
+	case nil:
+		return ""
+	case string:
+		return value
+	default:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return ""
+		}
+		return string(raw)
+	}
+}
+
+// collapseWhitespace trims and folds runs of whitespace (including newlines) into single
+// spaces so multi-line command output renders as one readable diagnostic line.
+func collapseWhitespace(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+// tail returns the last limit characters of value, prefixed with an ellipsis when it was
+// truncated, because a failing command's diagnostic is usually at the end of its output.
+func tail(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return "…" + value[len(value)-limit:]
 }
 
 // mergeExtraVars combines the operation's persisted vars with run-time secret vars.

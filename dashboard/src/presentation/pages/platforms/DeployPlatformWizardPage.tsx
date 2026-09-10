@@ -165,7 +165,6 @@ export function DeployPlatformWizardPage() {
   // Slurm intent. Node roles are per-daemon (a Server may run slurmctld, slurmd, or both).
   const [clusterName, setClusterName] = useState('')
   const [slurmApiVersion, setSlurmApiVersion] = useState('')
-  const [slurmStateSaveLocation, setSlurmStateSaveLocation] = useState('')
   const [slurmDaemons, setSlurmDaemons] = useState<Record<string, { controller: boolean; compute: boolean }>>({})
   const [topology, setTopology] = useState<TopologyChoice>('high-availability')
   const [apiVip, setAPIVip] = useState('')
@@ -216,7 +215,8 @@ export function DeployPlatformWizardPage() {
     (item) => item.role === 'control-plane' && item.runWorkloads,
   ).length
   // Slurm per-daemon selection: a Server may run slurmctld, slurmd, or both. More than one
-  // controller is HA and needs a shared StateSaveLocation the operator supplies.
+  // controller is HA; Swallow provisions the shared StateSaveLocation automatically, so the
+  // operator field is only an optional override and never gates the deploy.
   const slurmSelectedIds = Object.entries(slurmDaemons)
     .filter(([, daemons]) => daemons.controller || daemons.compute)
     .map(([serverId]) => serverId)
@@ -228,7 +228,6 @@ export function DeployPlatformWizardPage() {
     .map(([serverId]) => serverId)
   const slurmHighlyAvailable = slurmControllerIds.length > 1
   const slurmTopologyValid = slurmControllerIds.length >= 1 && slurmComputeIds.length >= 1
-    && (!slurmHighlyAvailable || Boolean(slurmStateSaveLocation.trim()))
   const basicsValid = Boolean(effectiveSiteId && name.trim() && (isSlurm || k0sVersion.trim()))
   // Locked Servers are excluded from the candidate list (see useDeployableServers), so the only
   // "unavailable" reason left to surface is an existing Platform assignment.
@@ -381,7 +380,6 @@ export function DeployPlatformWizardPage() {
     setWorkloadControllers({})
     setAPIVip('')
     setSlurmDaemons({})
-    setSlurmStateSaveLocation('')
     setTemplateId('')
     setImageId('')
     setNetworkInspection(null)
@@ -469,7 +467,8 @@ export function DeployPlatformWizardPage() {
           slurm: {
             clusterName: clusterName.trim() || undefined,
             apiVersion: slurmApiVersion.trim() || undefined,
-            stateSaveLocation: slurmStateSaveLocation.trim() || undefined,
+            // stateSaveLocation is intentionally omitted: Swallow provisions the HA shared
+            // StateSaveLocation itself, so the wizard does not collect a path.
             nodeAssignments: slurmSelectedIds.map((serverId) => ({
               serverId,
               controller: Boolean(slurmDaemons[serverId]?.controller),
@@ -677,22 +676,16 @@ export function DeployPlatformWizardPage() {
                     <Label color={slurmSelectedIds.length > 0 ? 'blue' : 'grey'}>{slurmSelectedIds.length} selected</Label>
                   </LabelGroup>
                   {slurmHighlyAvailable && (
-                    <FormGroup label="Shared state directory (StateSaveLocation)" isRequired fieldId="slurm-state-save">
-                      <TextInput
-                        id="slurm-state-save"
-                        value={slurmStateSaveLocation}
-                        onChange={(_event, value) => setSlurmStateSaveLocation(value)}
-                        placeholder="/mnt/slurm-state"
-                        validated={slurmStateSaveLocation.trim() ? 'default' : 'error'}
-                      />
-                      <FormHelperText>
-                        <HelperText>
-                          <HelperTextItem variant={slurmStateSaveLocation.trim() ? 'default' : 'error'}>
-                            Multiple controllers need a shared, mounted directory so a backup controller can recover state.
-                          </HelperTextItem>
-                        </HelperText>
-                      </FormHelperText>
-                    </FormGroup>
+                    <Alert
+                      variant={AlertVariant.info}
+                      title="Shared controller state is provisioned automatically"
+                      isInline
+                    >
+                      Multiple controllers require one shared StateSaveLocation. Swallow sets it
+                      up for you — a managed NFS export on a selected node, mounted on every
+                      controller — so there is nothing to enter here. (Lab-grade: the export host
+                      is a single storage failure domain.)
+                    </Alert>
                   )}
                 </>
               )}
@@ -1202,7 +1195,7 @@ export function DeployPlatformWizardPage() {
                         ] : []),
                         ['Controllers', String(slurmControllerIds.length)],
                         ['Compute nodes', String(slurmComputeIds.length)],
-                        ...(slurmHighlyAvailable ? [['Shared state directory', slurmStateSaveLocation.trim()]] : []),
+                        ...(slurmHighlyAvailable ? [['Shared state', 'Swallow-provisioned (NFS)']] : []),
                         ...(slurmApiVersion.trim() ? [['slurmrestd API version', slurmApiVersion.trim()]] : []),
                       ]
                       : [

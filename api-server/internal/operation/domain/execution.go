@@ -165,4 +165,10 @@ type Runner interface {
 	// Events returns the task-level progress of a run from its retained artifacts, in the
 	// order the runner emitted them. A run with no events yet returns an empty slice.
 	Events(ctx context.Context, runID string) ([]TaskEvent, error)
+	// Stderr returns an error-only report of a run: one block per failed or unreachable task
+	// with its message, return code, and captured stderr/stdout. It is the focused counterpart
+	// to Logs (the full runner output) and returns an empty string when the run recorded no
+	// failure or its artifacts are absent. It reads retained artifacts, so it is available
+	// after the run ends.
+	Stderr(ctx context.Context, runID string) (string, error)
 }
