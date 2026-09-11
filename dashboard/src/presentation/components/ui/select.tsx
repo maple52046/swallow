@@ -99,7 +99,12 @@ export function Select({
       required={required}
       size={size}
       width={width}
-      positioning={{ sameWidth: true }}
+      // Never pin the listbox to the trigger/field width (`sameWidth`): a field in a
+      // narrow container (compact toolbars, in-table cells) then forces short options to
+      // wrap. The listbox instead sizes to its content, bounded below by the field width
+      // and above by a cap (see Content min/max width), so short options stay on one line
+      // and only genuinely long ones wrap.
+      positioning={{ sameWidth: false }}
     >
       <ChakraSelect.HiddenSelect />
       <ChakraSelect.Control>
@@ -112,7 +117,15 @@ export function Select({
       </ChakraSelect.Control>
       <MaybePortal enabled={!insideDialog}>
         <ChakraSelect.Positioner>
-          <ChakraSelect.Content maxH="20rem">
+          <ChakraSelect.Content
+            maxH="20rem"
+            // Fit the widest option, but never narrower than the field (`--reference-width`,
+            // which Chakra sets from the trigger) and never wider than the cap — beyond the
+            // cap a truly long option wraps rather than running off-screen.
+            width="max-content"
+            minW="var(--reference-width)"
+            maxW="min(44rem, 92vw)"
+          >
             {collection.items.map((item) => (
               <ChakraSelect.Item item={item} key={item.value}>
                 <ChakraSelect.ItemText>{item.label}</ChakraSelect.ItemText>
