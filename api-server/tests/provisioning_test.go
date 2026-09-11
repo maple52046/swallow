@@ -299,6 +299,37 @@ func TestListImages_UnknownIntegration(t *testing.T) {
 	}
 }
 
+// An image is identified by integration, ID, and architecture together — the same identity
+// the catalog returns — so the delete request carries all three as query parameters.
+func TestDeleteImage_Success(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "DELETE",
+		"/api/v1/provisioning/images?integrationId="+testIntegrationID+"&imageId=ubuntu-24.04-rocm&architecture=amd64",
+		nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+	if got := f.provider.deletedImages; len(got) != 1 || got[0] != [2]string{"ubuntu-24.04-rocm", "amd64"} {
+		t.Fatalf("provider deletions: got %+v, want one (ubuntu-24.04-rocm, amd64)", got)
+	}
+}
+
+// The image ID and architecture are required: without them the request cannot name an image,
+// so it is refused before reaching the provider.
+func TestDeleteImage_RequiresImageIdentity(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "DELETE",
+		"/api/v1/provisioning/images?integrationId="+testIntegrationID, nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if len(f.provider.deletedImages) != 0 {
+		t.Fatalf("provider must not be asked to delete on an invalid request: %+v", f.provider.deletedImages)
+	}
+}
+
 // The reconcile endpoint returns the report rather than a bare acknowledgement,
 // because conflicts need an operator and would otherwise go unnoticed.
 func TestReconcileEndpoint_ReturnsReportWithConflicts(t *testing.T) {

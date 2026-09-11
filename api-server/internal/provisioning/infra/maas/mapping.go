@@ -301,6 +301,29 @@ func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImag
 	return images
 }
 
+// deletableBootResourceIDs returns the numeric ids of the uploaded (custom) boot resources
+// whose name and CPU architecture match the catalog image. It mirrors toDomainOSImages'
+// identity — the resource name is the image ID and only its CPU architecture is compared —
+// so a catalog row maps back to exactly the resources that back it. Synced resources are
+// excluded: they are provider-owned mirrors MAAS would re-sync after deletion.
+func deletableBootResourceIDs(resources []bootResourceJSON, imageID, architecture string) []int {
+	var ids []int
+	for _, r := range resources {
+		if !strings.EqualFold(r.Type, "Uploaded") {
+			continue
+		}
+		if strings.TrimSpace(r.Name) != imageID {
+			continue
+		}
+		arch, _, _ := strings.Cut(r.Architecture, "/")
+		if arch != architecture {
+			continue
+		}
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
 // maasPlaceholders are the strings MAAS fills a DMI field with when the vendor left it
 // blank. They are not identity and not data, so they are dropped from display fields.
 var maasPlaceholders = map[string]bool{

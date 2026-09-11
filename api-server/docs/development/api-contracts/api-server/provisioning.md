@@ -38,6 +38,7 @@ timestamps, and authentication behavior follow [conventions.md](conventions.md).
 
 ```text
 GET    /api/v1/provisioning/images?integrationId={integrationId}
+DELETE /api/v1/provisioning/images?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 GET    /api/v1/provisioning/templates?siteId={optional}&integrationId={optional}
 POST   /api/v1/provisioning/templates
 GET    /api/v1/provisioning/templates/{id}
@@ -83,6 +84,20 @@ An uploaded image keeps its provider resource name as `id` and is returned with
 OS Images are provider-owned and are not persisted by Swallow. Missing
 `integrationId` is `400 validation_error`; an unknown integration is
 `404 not_found`; a provider failure is `503 provider_unavailable`.
+
+`DELETE /images` removes one provider-owned OS Image. It requires `integrationId`,
+`imageId`, and `architecture` as query parameters — the same identity `GET /images`
+returns — because an `imageId` can contain a slash and cannot be a path segment, and
+one image name can back several architectures. It returns `204 No Content` on success.
+
+Only operator-uploaded custom images are removable. A synced OS release is a
+provider-owned mirror the provider would immediately re-sync, so the provider refuses
+it — as it refuses an `imageId`/`architecture` that matches no deletable image — with a
+`400 validation_error` carrying the provider's own wording. A provisioner whose adapter
+does not implement image deletion is refused the same way. Any missing query parameter is
+also `400 validation_error`; an unknown integration is `404 not_found`; a provider
+transport failure is `503 provider_unavailable`. Rename is intentionally absent: no
+supported provider exposes an image-rename operation.
 
 ## Deployment Templates
 

@@ -48,4 +48,9 @@ export interface ProvisioningRepository {
     input: ReleaseServersOperationInput,
   ): Promise<ProvisioningOperationReference>;
   listOSImages(integrationId: string): Promise<OSImage[]>;
+  deleteOSImage(
+    integrationId: string,
+    imageId: string,
+    architecture: string,
+  ): Promise<void>;
 }

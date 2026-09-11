@@ -221,6 +221,7 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
+		provisioningapp.NewDeleteOSImageUseCase(providerFactory),
 	)
 
 	platformRepo, err := platforminfra.NewMongoPlatformRepo(db)
@@ -548,6 +549,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)
+	provisioning.Delete("/images", deps.provisioning.DeleteImage)
 	provisioning.Get("/templates", deps.provisioning.ListTemplates)
 	provisioning.Post("/templates", deps.provisioning.CreateTemplate)
 	provisioning.Get("/templates/:id", deps.provisioning.GetTemplate)

@@ -57,10 +57,11 @@ type fakeMAAS struct {
 	lastAuthorization string
 	lastContentType   string
 	lastContentLength int64
-	lastOperation     string
-	lastForm          map[string]string
-	lastMethod        string
-	lastRawQuery      string
+	lastOperation           string
+	lastForm                map[string]string
+	lastMethod              string
+	lastRawQuery            string
+	lastDeletedBootResource string
 }
 
 func newFakeMAAS(t *testing.T) *fakeMAAS {
@@ -125,6 +126,13 @@ func (f *fakeMAAS) onVersion(statusCode int, body string) {
 
 func (f *fakeMAAS) onBootResources(statusCode int, body string) {
 	f.respond("GET "+apiPrefix+"/boot-resources/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onDeleteBootResource(statusCode int) {
+	f.mux.HandleFunc("DELETE "+apiPrefix+"/boot-resources/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		f.lastDeletedBootResource = r.PathValue("id")
+		w.WriteHeader(statusCode)
+	})
 }
 
 func (f *fakeMAAS) onEvents(statusCode int, body string) {
@@ -665,6 +673,49 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 			custom.OSSystem,
 			custom.Release,
 		)
+	}
+}
+
+// The catalog carries a resource name, not the numeric boot-resource id MAAS needs to
+// delete one, so the adapter resolves the uploaded resource from its name and CPU
+// architecture before issuing the delete.
+func TestDeleteOSImage_ResolvesUploadedResourceAndDeletesByID(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onBootResources(http.StatusOK, `[
+	  {"id": 1, "type": "Synced", "name": "ubuntu/jammy", "architecture": "amd64/hwe-22.04"},
+	  {"id": 7, "type": "Uploaded", "name": "ubuntu-24.04-rocm", "title": "Ubuntu 24.04 ROCm", "architecture": "amd64/generic"}
+	]`)
+	fake.onDeleteBootResource(http.StatusNoContent)
+	provider := newTestProvider(t, fake)
+
+	if err := provider.DeleteOSImage(context.Background(), "ubuntu-24.04-rocm", "amd64"); err != nil {
+		t.Fatalf("DeleteOSImage: %v", err)
+	}
+	if fake.lastMethod != http.MethodDelete {
+		t.Errorf("method: got %q, want DELETE", fake.lastMethod)
+	}
+	if fake.lastDeletedBootResource != "7" {
+		t.Errorf("deleted boot resource id: got %q, want 7", fake.lastDeletedBootResource)
+	}
+}
+
+// A synced image is a provider-owned mirror MAAS would re-sync, so deletion is refused
+// rather than attempted; the same rejection covers a name that matches no uploaded image.
+func TestDeleteOSImage_RefusesSyncedImage(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onBootResources(http.StatusOK, `[
+	  {"id": 1, "type": "Synced", "name": "ubuntu/jammy", "architecture": "amd64/hwe-22.04"}
+	]`)
+	// No DELETE handler is registered: a refusal must never reach the delete path.
+	provider := newTestProvider(t, fake)
+
+	err := provider.DeleteOSImage(context.Background(), "ubuntu/jammy", "amd64")
+	var providerErr *provisioningdomain.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != provisioningdomain.ProviderErrorRejected {
+		t.Fatalf("DeleteOSImage error = %v, want a ProviderErrorRejected", err)
+	}
+	if fake.lastMethod == http.MethodDelete {
+		t.Error("a synced image must not be deleted")
 	}
 }
 

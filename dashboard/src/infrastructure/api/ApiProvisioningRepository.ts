@@ -140,4 +140,15 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     const query = new URLSearchParams({ integrationId });
     return apiRequest<OSImage[]>(`/api/v1/provisioning/images?${query}`);
   }
+
+  async deleteOSImage(
+    integrationId: string,
+    imageId: string,
+    architecture: string,
+  ): Promise<void> {
+    const query = new URLSearchParams({ integrationId, imageId, architecture });
+    await apiRequest<void>(`/api/v1/provisioning/images?${query}`, {
+      method: "DELETE",
+    });
+  }
 }

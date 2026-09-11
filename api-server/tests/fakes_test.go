@@ -429,6 +429,8 @@ type fakeProvider struct {
 	releaseRequests       []provisioningdomain.ReleaseRequest
 	releaseCalls          []string
 	deleteCalls           []string
+	deleteImageErr        error
+	deletedImages         [][2]string
 	// actions records every capability action taken, as "op machineID", so a test can
 	// assert the provider was driven correctly.
 	actions []string
@@ -456,6 +458,7 @@ func newFakeProvider() *fakeProvider {
 			MachineRemoval:       true,
 			ReleaseOptions:       true,
 			NetworkConfiguration: true,
+			ImageRemoval:         true,
 		},
 	}
 }
@@ -605,6 +608,14 @@ func (p *fakeProvider) DeleteMachine(_ context.Context, machineID string) error 
 	}
 	p.deleteCalls = append(p.deleteCalls, machineID)
 	delete(p.machines, machineID)
+	return nil
+}
+
+func (p *fakeProvider) DeleteOSImage(_ context.Context, imageID, architecture string) error {
+	if p.deleteImageErr != nil {
+		return p.deleteImageErr
+	}
+	p.deletedImages = append(p.deletedImages, [2]string{imageID, architecture})
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
@@ -82,6 +83,41 @@ func (p *Provider) ListOSImages(ctx context.Context) ([]*provisioningdomain.OSIm
 		return nil, translateError(err, "")
 	}
 	return toDomainOSImages(out), nil
+}
+
+// DeleteOSImage permanently removes an uploaded MAAS custom image.
+//
+// MAAS identifies a boot resource by a numeric id the image catalog does not carry, so
+// the resource is resolved from its name and CPU architecture first. Only uploaded custom
+// images are removable: a synced image is a provider-owned mirror MAAS would re-sync, and
+// a name that matches nothing deletable is a rejection, not a silent success. Every
+// matching uploaded resource is deleted so the catalog row disappears.
+func (p *Provider) DeleteOSImage(ctx context.Context, imageID, architecture string) error {
+	var resources []bootResourceJSON
+	if err := p.client.get(ctx, "/boot-resources/", nil, &resources); err != nil {
+		return translateError(err, "")
+	}
+
+	ids := deletableBootResourceIDs(resources, imageID, architecture)
+	if len(ids) == 0 {
+		return &provisioningdomain.ProviderError{
+			Kind: provisioningdomain.ProviderErrorRejected,
+			Detail: fmt.Sprintf(
+				"No deletable custom image %q (%s) exists. Only uploaded custom images can be deleted.",
+				imageID, architecture),
+		}
+	}
+
+	for _, id := range ids {
+		if err := p.client.delete(ctx, bootResourcePath(id)); err != nil {
+			return translateError(err, "")
+		}
+	}
+	return nil
+}
+
+func bootResourcePath(id int) string {
+	return "/boot-resources/" + strconv.Itoa(id) + "/"
 }
 
 func (p *Provider) Deploy(
@@ -162,6 +198,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		HardwareInventory:    true,
 		MachineRemoval:       true,
 		ReleaseOptions:       true,
+		ImageRemoval:         true,
 	}
 }
 

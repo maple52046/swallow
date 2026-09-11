@@ -32,6 +32,7 @@ type ProvisioningHandler struct {
 	events          *application.GetProviderEventsUseCase
 	actions         *application.MachineActionsUseCase
 	deleteServer    *application.DeleteServerUseCase
+	deleteImage     *application.DeleteOSImageUseCase
 	durable         application.DurableOperationLauncher
 }
 
@@ -50,6 +51,7 @@ func NewProvisioningHandler(
 	events *application.GetProviderEventsUseCase,
 	actions *application.MachineActionsUseCase,
 	deleteServer *application.DeleteServerUseCase,
+	deleteImage *application.DeleteOSImageUseCase,
 	durable ...application.DurableOperationLauncher,
 ) *ProvisioningHandler {
 	handler := &ProvisioningHandler{
@@ -67,6 +69,7 @@ func NewProvisioningHandler(
 		events:          events,
 		actions:         actions,
 		deleteServer:    deleteServer,
+		deleteImage:     deleteImage,
 	}
 	if len(durable) > 0 {
 		handler.durable = durable[0]
@@ -293,6 +296,30 @@ func (h *ProvisioningHandler) ListImages(c *fiber.Ctx) error {
 		return RespondError(c, err)
 	}
 	return c.JSON(items)
+}
+
+// DeleteImage removes one provider-owned OS image. The image is selected by the same
+// identity the catalog returns — integration, image ID, and architecture — passed as query
+// parameters because an image ID contains a slash and cannot be a path segment. Only
+// uploaded custom images are removable; the provider refuses anything else.
+func (h *ProvisioningHandler) DeleteImage(c *fiber.Ctx) error {
+	integrationID := c.Query("integrationId")
+	if integrationID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
+	}
+	imageID := c.Query("imageId")
+	if imageID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "imageId is required."))
+	}
+	architecture := c.Query("architecture")
+	if architecture == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "architecture is required."))
+	}
+
+	if err := h.deleteImage.Execute(c.Context(), integrationID, imageID, architecture); err != nil {
+		return RespondError(c, err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 // Reconcile runs a projection pass immediately instead of waiting for the interval.

@@ -49,7 +49,9 @@ a:focus-visible {
 }
 
 .sw-swallow-logo__light {
-  fill: var(--pf-t--global--background--color--primary--default);
+  /* The bird's belly is a solid white, not the surface colour: on dark backgrounds a
+     surface-coloured fill blended in and read as transparent. */
+  fill: #fff;
   stroke: currentcolor;
   stroke-linejoin: round;
   stroke-width: 1.75;
@@ -371,8 +373,18 @@ a.sw-attention-row:hover { background: var(--pf-t--global--background--color--pr
 }
 
 .sw-server-table { min-width: 2520px; }
-.sw-server-table .sw-sticky-selection { position: sticky; inset-inline-start: 0; width: 72px; min-width: 72px; background: var(--pf-t--global--background--color--primary--default); }
-.sw-server-table .sw-sticky-name { position: sticky; inset-inline-start: 72px; width: 220px; min-width: 220px; background: var(--pf-t--global--background--color--primary--default); }
+.sw-server-table .sw-sticky-selection {
+  position: sticky;
+  inset-inline-start: 0;
+  /* Just the checkbox plus a little padding: pin small inline padding (independent of table
+     density) so the fixed width fits the checkbox without clipping. */
+  width: 40px;
+  min-width: 40px;
+  --pf-v6-c-table--cell--PaddingInlineStart: var(--pf-t--global--spacer--sm);
+  --pf-v6-c-table--cell--PaddingInlineEnd: var(--pf-t--global--spacer--sm);
+  background: var(--pf-t--global--background--color--primary--default);
+}
+.sw-server-table .sw-sticky-name { position: sticky; inset-inline-start: 40px; width: 220px; min-width: 220px; background: var(--pf-t--global--background--color--primary--default); }
 .sw-server-table .sw-sticky-actions { position: sticky; inset-inline-end: 0; width: 72px; min-width: 72px; background: var(--pf-t--global--background--color--primary--default); }
 thead .sw-sticky-name,
 thead .sw-sticky-actions { z-index: 4; background: var(--pf-t--global--background--color--sticky--default); }
@@ -383,6 +395,14 @@ thead .sw-sticky-selection { z-index: 5; background: var(--pf-t--global--backgro
 tbody .sw-sticky-selection { z-index: 2; }
 .sw-cell-center { text-align: center; vertical-align: middle; }
 .sw-cell-center .pf-v6-c-check { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
+/* Selection column: shrink to just the checkbox plus the cell's own padding. PatternFly sets
+   every cell's width from its own custom property, so overriding that property (rather than
+   `width` directly) is what actually collapses the auto-layout column to its content. */
+.sw-col-select {
+  --pf-v6-c-table--cell--Width: 1%;
+  --pf-v6-c-table--cell--MinWidth: 0;
+  white-space: nowrap;
+}
 /* Inline cell content (chip + text) centred on one baseline instead of a chip/plain-text
    baseline mismatch; wraps within a narrow column. */
 .sw-cell-inline { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); flex-wrap: wrap; min-width: 0; }
@@ -450,6 +470,10 @@ tbody .sw-sticky-selection { z-index: 2; }
    PatternFly buttons default to align-items:baseline, which pushes the glyph off-centre, so
    force centre alignment and vertical-align middle within the table cell's line box. */
 .sw-power-button.pf-v6-c-button { --pf-v6-c-button--AlignItems: center; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; padding: 0; block-size: 1.75em; inline-size: 1.75em; min-inline-size: 0; min-block-size: 0; }
+/* PatternFly wraps button children in a `__text` span that carries the body line-height, so the
+   glyph sits on that span's text baseline and reads slightly high. Collapse the span to a
+   zero-line-height flex box so the button's own centring lands the icon dead-centre on both axes. */
+.sw-power-button.pf-v6-c-button .pf-v6-c-button__text { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
 /* Power-actions dialog body: two square action tiles in a 2-column grid, each centred in its
    column. */
 .sw-power-action-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--pf-t--global--spacer--md); justify-items: center; }
@@ -754,12 +778,42 @@ tbody .sw-sticky-selection { z-index: 2; }
 .sw-route-error__brand { position: absolute; inset-block-start: var(--pf-t--global--spacer--lg); inset-inline-start: var(--pf-t--global--spacer--lg); }
 .sw-route-error__code { display: block; color: var(--pf-t--global--text--color--subtle); font-size: var(--pf-t--global--font--size--4xl); font-weight: var(--pf-t--global--font--weight--heading--bold); }
 
-.sw-provisioning-table { min-width: 1120px; }
+.sw-provisioning-table { min-width: 1040px; }
 .sw-row-actions {
   display: inline-flex;
   align-items: center;
   gap: var(--pf-t--global--spacer--sm);
   flex-wrap: wrap;
+}
+/* Image ID column: the provider ID is a single long unspaced token, so it must break within
+   its column (overflow-wrap) and keep the inline copy control immediately after the last
+   character rather than being pushed out of a constrained cell. */
+.sw-provisioning-table .sw-col-imageid { min-inline-size: 16rem; }
+.sw-image-id {
+  overflow-wrap: anywhere;
+  color: var(--pf-t--global--text--color--subtle);
+}
+.sw-image-id .sw-copy-button {
+  vertical-align: middle;
+  margin-inline-start: var(--pf-t--global--spacer--xs);
+}
+/* OS image table column sizing. Scoped to the provisioning table so other action tables keep
+   their own wrapping. Actions stay left-aligned on one row (a fixed column keeps the three
+   icon buttons together); the timestamp is pinned to a single line; the long custom release
+   string is capped and truncated (full value on hover) so rows stay aligned. */
+.sw-provisioning-table .sw-col-actions { inline-size: 8.5rem; text-align: start; }
+.sw-provisioning-table td.sw-col-actions .sw-row-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+.sw-provisioning-table .sw-col-refreshed { inline-size: 12rem; white-space: nowrap; }
+.sw-release-value {
+  display: inline-block;
+  max-inline-size: 13rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 .sw-template-editor {
   display: flex;

@@ -112,6 +112,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
+		provisioningapp.NewDeleteOSImageUseCase(factory),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
@@ -181,6 +182,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	provisioningGroup := v1.Group("/provisioning", admin...)
 	provisioningGroup.Get("/images", provisioningHandler.ListImages)
+	provisioningGroup.Delete("/images", provisioningHandler.DeleteImage)
 	provisioningGroup.Get("/templates", provisioningHandler.ListTemplates)
 	provisioningGroup.Post("/templates", provisioningHandler.CreateTemplate)
 	provisioningGroup.Get("/templates/:id", provisioningHandler.GetTemplate)

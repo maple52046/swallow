@@ -76,6 +76,8 @@ type ProviderCapabilities struct {
 	MachineRemoval bool
 	// ReleaseOptions reports that ConfigurableMachineReleaser is implemented.
 	ReleaseOptions bool
+	// ImageRemoval reports that OSImageRemover is implemented.
+	ImageRemoval bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -167,6 +169,20 @@ type MachineRemover interface {
 // without this optional capability and for backwards-compatible API requests.
 type ConfigurableMachineReleaser interface {
 	ReleaseWithOptions(ctx context.Context, req ReleaseRequest) (*Machine, error)
+}
+
+// OSImageRemover permanently deletes a provider-owned OS image, such as a MAAS
+// uploaded custom image.
+//
+// This is deliberately narrow: only operator-managed custom images are removable this
+// way. An image the provider mirrors from an upstream stream (a synced OS release) is not
+// swallow's to delete — the provider would re-sync it — so adapters map such a request,
+// and an image that does not exist, onto *ProviderError{Kind: ProviderErrorRejected}
+// rather than pretending to have deleted something. imageID and architecture identify the
+// image exactly as ListOSImages reported them, because one image name can back several
+// architectures.
+type OSImageRemover interface {
+	DeleteOSImage(ctx context.Context, imageID, architecture string) error
 }
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled
