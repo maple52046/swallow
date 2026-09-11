@@ -9,7 +9,7 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -116,12 +116,19 @@ export function IntegrationsPage() {
       />
       <DataToolbar variant="plain">
         <SearchInput value={query} onChange={setQuery} placeholder="Search Integrations" aria-label="Search Integrations" />
-        <NativeSelect aria-label="Filter Integration role" value={kind} onChange={(value) => setKind(value as IntegrationKind | '')}>
-          <option value="">All roles</option>
-          <option value="provisioner">Provisioner</option>
-          <option value="metrics">Metrics</option>
-          <option value="platform">Platform</option>
-        </NativeSelect>
+        <Select
+          aria-label="Filter Integration role"
+          value={kind}
+          size="sm"
+          width="auto"
+          onChange={(value) => setKind(value as IntegrationKind | '')}
+          options={[
+            { value: '', label: 'All roles' },
+            { value: 'provisioner', label: 'Provisioner' },
+            { value: 'metrics', label: 'Metrics' },
+            { value: 'platform', label: 'Platform' },
+          ]}
+        />
       </DataToolbar>
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}

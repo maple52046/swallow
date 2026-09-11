@@ -12,7 +12,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -184,17 +184,31 @@ export function MonitoringPage() {
         <div className="sw-section">
           <DataToolbar>
             <SearchInput value={alertQuery} onChange={setAlertQuery} placeholder="Search alerts or labels" aria-label="Search alerts" />
-            <NativeSelect value={severity} onChange={(value) => setFilter('severity', value)} aria-label="Filter alert severity">
-              <option value="">All severities</option>
-              <option value="critical">Critical</option>
-              <option value="warning">Warning</option>
-              <option value="info">Info</option>
-            </NativeSelect>
-            <NativeSelect value={alertState ?? ''} onChange={(value) => setFilter('state', value)} aria-label="Filter alert state">
-              <option value="">All states</option>
-              <option value="firing">Firing</option>
-              <option value="suppressed">Suppressed</option>
-            </NativeSelect>
+            <Select
+              value={severity}
+              onChange={(value) => setFilter('severity', value)}
+              aria-label="Filter alert severity"
+              size="sm"
+              width="auto"
+              options={[
+                { value: '', label: 'All severities' },
+                { value: 'critical', label: 'Critical' },
+                { value: 'warning', label: 'Warning' },
+                { value: 'info', label: 'Info' },
+              ]}
+            />
+            <Select
+              value={alertState ?? ''}
+              onChange={(value) => setFilter('state', value)}
+              aria-label="Filter alert state"
+              size="sm"
+              width="auto"
+              options={[
+                { value: '', label: 'All states' },
+                { value: 'firing', label: 'Firing' },
+                { value: 'suppressed', label: 'Suppressed' },
+              ]}
+            />
           </DataToolbar>
           {alertsState.status === 'error' && <Alert status="warning" title="Alerts are unavailable">{alertsState.message}</Alert>}
           {alertsState.status === 'loading' && <div className="sw-section-empty">Loading alerts...</div>}
@@ -291,12 +305,17 @@ export function MonitoringPage() {
             <Field.Label>
               Silence duration <Field.RequiredIndicator />
             </Field.Label>
-            <NativeSelect value={duration} onChange={setDuration} aria-label="Silence duration">
-              <option value="1h">1 hour</option>
-              <option value="4h">4 hours</option>
-              <option value="24h">24 hours</option>
-              <option value="168h">7 days</option>
-            </NativeSelect>
+            <Select
+              value={duration}
+              onChange={setDuration}
+              aria-label="Silence duration"
+              options={[
+                { value: '1h', label: '1 hour' },
+                { value: '4h', label: '4 hours' },
+                { value: '24h', label: '24 hours' },
+                { value: '168h', label: '7 days' },
+              ]}
+            />
           </Field.Root>
           <Field.Root>
             <Field.Label>Comment</Field.Label>

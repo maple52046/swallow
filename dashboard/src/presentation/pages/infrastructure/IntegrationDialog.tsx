@@ -5,7 +5,7 @@ import type { Integration, IntegrationKind, Site } from '@/domain/site/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 
 interface IntegrationDialogProps {
   integration?: Integration
@@ -142,38 +142,38 @@ export function IntegrationDialog({
             <Field.Label>
               Site <Field.RequiredIndicator />
             </Field.Label>
-            <NativeSelect id="integration-site" value={siteId} disabled={editing} aria-label="Site" onChange={setSiteId}>
-              <option value="" disabled>
-                Select a Site
-              </option>
-              {availableSites.map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name}
-                </option>
-              ))}
-            </NativeSelect>
+            <Select
+              id="integration-site"
+              value={siteId}
+              disabled={editing}
+              aria-label="Site"
+              placeholder="Select a Site"
+              onChange={setSiteId}
+              options={availableSites.map((site) => ({ value: site.id, label: site.name }))}
+            />
           </Field.Root>
           <Field.Root required>
             <Field.Label>
               Role <Field.RequiredIndicator />
             </Field.Label>
-            <NativeSelect
+            <Select
               id="integration-kind"
               value={kind}
               disabled={editing}
               aria-label="Role"
               onChange={(value) => changeKind(value as IntegrationKind)}
-            >
-              <option value="provisioner">Provisioner</option>
-              <option value="metrics">Metrics</option>
-              <option value="platform">Platform</option>
-            </NativeSelect>
+              options={[
+                { value: 'provisioner', label: 'Provisioner' },
+                { value: 'metrics', label: 'Metrics' },
+                { value: 'platform', label: 'Platform' },
+              ]}
+            />
           </Field.Root>
           <Field.Root required>
             <Field.Label>
               Provider <Field.RequiredIndicator />
             </Field.Label>
-            <NativeSelect
+            <Select
               id="integration-provider"
               value={providerKind}
               disabled={editing}
@@ -182,13 +182,8 @@ export function IntegrationDialog({
                 setProviderKind(value)
                 setSettings({})
               }}
-            >
-              {providerOptions.map((provider) => (
-                <option key={provider.value} value={provider.value}>
-                  {provider.label}
-                </option>
-              ))}
-            </NativeSelect>
+              options={providerOptions.map((provider) => ({ value: provider.value, label: provider.label }))}
+            />
           </Field.Root>
           <Field.Root required>
             <Field.Label>

@@ -10,7 +10,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Pagination } from '@/presentation/components/Pagination'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
@@ -46,13 +46,25 @@ export function OperatorOperationsPage() {
     <div className="operator-page">
       <PageHeader title="Operations" subtitle="Retained automation runs for audit, debugging, and explicit retry." />
       <DataToolbar variant="plain">
-        <NativeSelect value={status} onChange={(value) => setFilter('status', value)} aria-label="Filter by status">
-          {STATUSES.map((value) => <option key={value} value={value}>{value === 'all' ? 'All statuses' : value}</option>)}
-        </NativeSelect>
-        <NativeSelect value={active} onChange={(value) => setFilter('active', value)} aria-label="Filter active operations">
-          <option value="all">All activity</option>
-          <option value="active">Active only</option>
-        </NativeSelect>
+        <Select
+          value={status}
+          onChange={(value) => setFilter('status', value)}
+          aria-label="Filter by status"
+          size="sm"
+          width="auto"
+          options={STATUSES.map((value) => ({ value, label: value === 'all' ? 'All statuses' : value }))}
+        />
+        <Select
+          value={active}
+          onChange={(value) => setFilter('active', value)}
+          aria-label="Filter active operations"
+          size="sm"
+          width="auto"
+          options={[
+            { value: 'all', label: 'All activity' },
+            { value: 'active', label: 'Active only' },
+          ]}
+        />
         <SearchInput value={kind} onChange={(value) => setFilter('kind', value || undefined)} placeholder="Filter by kind" aria-label="Filter by operation kind" />
       </DataToolbar>
       {state.status === 'loading' && <LoadingState rows={7} />}

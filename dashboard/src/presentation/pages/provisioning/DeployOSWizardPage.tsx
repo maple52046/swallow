@@ -15,13 +15,12 @@ import type { Integration, OSImage } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SingleSelect } from '@/presentation/components/SingleSelect'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { LockBadge, ProvisioningBadge, PowerBadge } from '@/presentation/components/AxisBadge'
@@ -468,13 +467,13 @@ export function DeployOSWizardPage() {
         <WizardSection title="Deployment targets">
           <Field.Root required>
             <Field.Label>Provisioner integration</Field.Label>
-            <SingleSelect
+            <Select
               id="deploy-integration"
-              ariaLabel="Provisioner integration"
+              aria-label="Provisioner integration"
               value={integrationId}
               placeholder="Select an integration"
               options={integrations.map((integration) => ({ value: integration.id, label: integration.name }))}
-              isRequired
+              required
               onChange={selectIntegration}
             />
           </Field.Root>
@@ -573,16 +572,17 @@ export function DeployOSWizardPage() {
           <div className="sw-form-grid">
             <Field.Root required>
               <Field.Label>Configuration source</Field.Label>
-              <NativeSelect value={templateId} aria-label="Configuration source" onChange={(value) => selectTemplate(value)}>
-                <option value="">Custom configuration</option>
-                {templates
-                  .filter((template) => template.integrationId === integrationId)
-                  .map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
-                  ))}
-              </NativeSelect>
+              <Select
+                value={templateId}
+                aria-label="Configuration source"
+                onChange={(value) => selectTemplate(value)}
+                options={[
+                  { value: '', label: 'Custom configuration' },
+                  ...templates
+                    .filter((template) => template.integrationId === integrationId)
+                    .map((template) => ({ value: template.id, label: template.name })),
+                ]}
+              />
             </Field.Root>
             {selectedTemplate && (
               <Field.Root>
@@ -608,17 +608,17 @@ export function DeployOSWizardPage() {
                   </Button>
                 </HStack>
               </Field.Label>
-              <SingleSelect
+              <Select
                 id="deploy-image"
-                ariaLabel="OS image"
+                aria-label="OS image"
                 value={effectiveImageId}
                 placeholder={catalogLoading ? 'Loading images...' : images.length === 0 ? 'No deployable images available' : 'Select an image'}
                 options={[
                   ...(effectiveImageId && !images.some((image) => image.id === effectiveImageId) ? [{ value: effectiveImageId, label: effectiveImageId }] : []),
                   ...images.map((image) => ({ value: image.id, label: `${image.name} (${image.architecture})` })),
                 ]}
-                isDisabled={Boolean(selectedTemplate && !customized) || Boolean(catalogError) || catalogLoading}
-                isRequired
+                disabled={Boolean(selectedTemplate && !customized) || Boolean(catalogError) || catalogLoading}
+                required
                 onChange={setImageId}
               />
               {!catalogLoading && !catalogError && (
@@ -634,18 +634,21 @@ export function DeployOSWizardPage() {
             </Field.Root>
             <Field.Root required>
               <Field.Label>Cloud-init</Field.Label>
-              <NativeSelect
+              <Select
                 value={userDataMode}
                 aria-label="Cloud-init mode"
                 onChange={(value) => {
                   setUserDataMode(value as DeploymentUserDataMode)
                   if (value !== 'replace') setUserData('')
                 }}
-              >
-                {selectedTemplate && <option value="inherit">{selectedTemplate.hasUserData ? 'Inherit template cloud-init' : 'Inherit (template has none)'}</option>}
-                <option value="replace">Replace for this deployment</option>
-                <option value="omit">Omit cloud-init</option>
-              </NativeSelect>
+                options={[
+                  ...(selectedTemplate
+                    ? [{ value: 'inherit', label: selectedTemplate.hasUserData ? 'Inherit template cloud-init' : 'Inherit (template has none)' }]
+                    : []),
+                  { value: 'replace', label: 'Replace for this deployment' },
+                  { value: 'omit', label: 'Omit cloud-init' },
+                ]}
+              />
             </Field.Root>
             {userDataMode === 'replace' && (
               <Field.Root required>
@@ -740,9 +743,11 @@ export function DeployOSWizardPage() {
                             <strong>{server ? serverDisplayName(server) : target.serverId}</strong>
                           </Table.Cell>
                           <Table.Cell className="sw-network-interface-column">
-                            <NativeSelect
+                            <Select
                               aria-label={`Interface for ${server ? serverDisplayName(server) : target.serverId}`}
                               value={assignment.interfaceId}
+                              size="sm"
+                              placeholder="Select an interface"
                               onChange={(value) => {
                                 const nextInterface = target.network.interfaces.find((item) => item.id === value)
                                 const compatible = nextInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)
@@ -753,32 +758,21 @@ export function DeployOSWizardPage() {
                                     : ''
                                 setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, interfaceId: value, subnetId: suggestedSubnet } }))
                               }}
-                            >
-                              <option value="" disabled>
-                                Select an interface
-                              </option>
-                              {target.network.interfaces.map((item) => (
-                                <option key={item.id} value={item.id}>
-                                  {`${item.name} - ${item.macAddress}${item.boot ? ' (boot NIC)' : ''}`}
-                                </option>
-                              ))}
-                            </NativeSelect>
+                              options={target.network.interfaces.map((item) => ({
+                                value: item.id,
+                                label: `${item.name} - ${item.macAddress}${item.boot ? ' (boot NIC)' : ''}`,
+                              }))}
+                            />
                           </Table.Cell>
                           <Table.Cell className="sw-network-subnet-column">
-                            <NativeSelect
+                            <Select
                               aria-label={`Subnet for ${server ? serverDisplayName(server) : target.serverId}`}
                               value={assignment.subnetId}
+                              size="sm"
+                              placeholder="Select a subnet"
                               onChange={(value) => setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, subnetId: value } }))}
-                            >
-                              <option value="" disabled>
-                                Select a subnet
-                              </option>
-                              {iface?.availableSubnets.map((subnet) => (
-                                <option key={subnet.id} value={subnet.id}>
-                                  {formatSubnetOptionLabel(subnet)}
-                                </option>
-                              ))}
-                            </NativeSelect>
+                              options={(iface?.availableSubnets ?? []).map((subnet) => ({ value: subnet.id, label: formatSubnetOptionLabel(subnet) }))}
+                            />
                           </Table.Cell>
                           {effectiveNetworkMode === 'static' && (
                             <Table.Cell className="sw-network-address-column">

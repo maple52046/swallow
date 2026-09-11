@@ -12,7 +12,7 @@ import { DataToolbar, StickyTableFrame } from '@/presentation/components/Operato
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -239,21 +239,14 @@ export function DeploymentTemplatesPage() {
                 <Field.Label>
                   Provisioner integration <Field.RequiredIndicator />
                 </Field.Label>
-                <NativeSelect
+                <Select
                   value={draft.integrationId}
                   disabled={Boolean(draft.id)}
                   aria-label="Provisioner integration"
+                  placeholder="Select an integration"
                   onChange={(value) => setDraft((current) => ({ ...current, integrationId: value, imageId: '' }))}
-                >
-                  <option value="" disabled>
-                    Select an integration
-                  </option>
-                  {state.status === 'ready' && state.integrations.map((integration) => (
-                    <option key={integration.id} value={integration.id}>
-                      {integration.name}
-                    </option>
-                  ))}
-                </NativeSelect>
+                  options={state.status === 'ready' ? state.integrations.map((integration) => ({ value: integration.id, label: integration.name })) : []}
+                />
               </Field.Root>
               <Field.Root required>
                 <Field.Label>
@@ -265,22 +258,18 @@ export function DeploymentTemplatesPage() {
                 <Field.Label>
                   OS image <Field.RequiredIndicator />
                 </Field.Label>
-                <NativeSelect
+                <Select
                   value={draft.imageId}
                   disabled={!draft.integrationId || Boolean(imageError)}
                   aria-label="OS image"
+                  placeholder="Select an image"
                   onChange={(value) => setDraft((current) => ({ ...current, imageId: value }))}
-                >
-                  <option value="" disabled>
-                    Select an image
-                  </option>
-                  {draft.imageId && !images.some((item) => item.id === draft.imageId) && <option value={draft.imageId}>{draft.imageId}</option>}
-                  {images.map((image) => (
-                    <option key={`${image.id}:${image.architecture}`} value={image.id}>
-                      {`${image.name} (${image.architecture})`}
-                    </option>
-                  ))}
-                </NativeSelect>
+                  options={[
+                    // Keep the current selection visible even if it is no longer in the fetched list.
+                    ...(draft.imageId && !images.some((item) => item.id === draft.imageId) ? [{ value: draft.imageId, label: draft.imageId }] : []),
+                    ...images.map((image) => ({ value: image.id, label: `${image.name} (${image.architecture})` })),
+                  ]}
+                />
               </Field.Root>
               <Field.Root>
                 <Field.Label>Description</Field.Label>

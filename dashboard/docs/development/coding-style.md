@@ -20,7 +20,7 @@
 
 - TypeScript 5.9；`target`/`lib` ES2022；`module: ESNext`；`moduleResolution: bundler`；由 Vite 7 打包。
 - React 19，automatic JSX runtime（`jsx: react-jsx`）——不需要為了寫 JSX 而 import React。
-- 元件庫 Chakra UI v3（`@chakra-ui/react` 搭配 peer `@emotion/react`），color mode 透過 `next-themes`；圖示 `lucide-react`。Chakra 未直接提供、或需要統一封裝的元件（tooltip、modal/dialog、inline alert、checkbox、native/portalled select、description list、toaster、log viewer、wizard/steps）集中在 `src/presentation/components/ui/` 與 `src/presentation/components/`；Chakra 樣式引擎與主題（brand/semantic tokens、radii、fonts）定義於 `src/presentation/app/theme/system.ts`。路由 `react-router-dom` 7；日期 `dayjs`。
+- 元件庫 Chakra UI v3（`@chakra-ui/react` 搭配 peer `@emotion/react`），color mode 透過 `next-themes`；圖示 `lucide-react`。Chakra 未直接提供、或需要統一封裝的元件（tooltip、modal/dialog、inline alert、checkbox、portalled select、description list、toaster、log viewer、wizard/steps）集中在 `src/presentation/components/ui/` 與 `src/presentation/components/`；Chakra 樣式引擎與主題（brand/semantic tokens、radii、fonts）定義於 `src/presentation/app/theme/system.ts`。路由 `react-router-dom` 7；日期 `dayjs`。
 - `strict: true`，另加 `noUnusedLocals`、`noUnusedParameters`、`noFallthroughCasesInSwitch`、`noUncheckedSideEffectImports`。**不得為了讓程式碼編譯而放寬任何一項。**
 - `verbatimModuleSyntax: true`：只作為型別使用的 import **必須**寫成 `import type { … }`，否則產出的模組是錯的。
 - 路徑別名 `@/*` 對應 `src/*`。

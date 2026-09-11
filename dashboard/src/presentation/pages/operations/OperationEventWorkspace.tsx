@@ -4,7 +4,7 @@ import type { OperationEvents } from '@/domain/operation/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 
 /** Filterable AWX-style task event workspace for one retained Operation run. */
@@ -28,10 +28,14 @@ export function OperationEventWorkspace({ events, running }: { events: Operation
       </HStack>
       <div className="sw-workspace-toolbar">
         <SearchInput value={query} onChange={setQuery} placeholder="Search play, task, or host" aria-label="Search operation events" maxW="420px" />
-        <NativeSelect value={status} onChange={setStatus} aria-label="Filter events by status">
-          <option value="all">All results</option>
-          {statuses.map((value) => <option key={value} value={value}>{value}</option>)}
-        </NativeSelect>
+        <Select
+          value={status}
+          onChange={setStatus}
+          aria-label="Filter events by status"
+          size="sm"
+          width="auto"
+          options={[{ value: 'all', label: 'All results' }, ...statuses.map((value) => ({ value, label: value }))]}
+        />
       </div>
       <StickyTableFrame>
         <Table.Root size="sm" aria-label="Operation events">

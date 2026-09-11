@@ -12,7 +12,7 @@ import { SectionHeader, StickyTableFrame } from '@/presentation/components/Opera
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useServerDetailContext } from './useServerDetail'
 
@@ -245,16 +245,13 @@ export function ServerNetworkTab() {
               <Field.Label>
                 Subnet <Field.RequiredIndicator />
               </Field.Label>
-              <NativeSelect value={subnetId} aria-label="Subnet" onChange={setSubnetId}>
-                <option value="" disabled>
-                  Select a subnet
-                </option>
-                {editor.iface.availableSubnets.map((subnet) => (
-                  <option key={subnet.id} value={subnet.id}>
-                    {formatSubnetOptionLabel(subnet)}
-                  </option>
-                ))}
-              </NativeSelect>
+              <Select
+                value={subnetId}
+                aria-label="Subnet"
+                placeholder="Select a subnet"
+                onChange={setSubnetId}
+                options={editor.iface.availableSubnets.map((subnet) => ({ value: subnet.id, label: formatSubnetOptionLabel(subnet) }))}
+              />
             </Field.Root>
             {mode === 'static' && (
               <Field.Root required invalid={Boolean(ipAddress) && !validStaticIP}>

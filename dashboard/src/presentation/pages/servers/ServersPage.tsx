@@ -33,7 +33,7 @@ import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -476,22 +476,25 @@ export function ServersPage() {
         >
           Include absent
         </Checkbox>
-        <NativeSelect
+        <Select
           value={groupBy}
           aria-label="Group Servers"
+          size="sm"
+          width="auto"
           onChange={(value) => {
             setGroupBy(value as ServerGroupBy)
             writePreference(GROUP_KEY, value)
             setCollapsedGroups(new Set())
           }}
-        >
-          <option value="none">No grouping</option>
-          <option value="provisioning">Provisioning</option>
-          <option value="zone">Zone</option>
-          <option value="pool">Pool</option>
-          <option value="architecture">Architecture</option>
-          <option value="power">Power</option>
-        </NativeSelect>
+          options={[
+            { value: 'none', label: 'No grouping' },
+            { value: 'provisioning', label: 'Provisioning' },
+            { value: 'zone', label: 'Zone' },
+            { value: 'pool', label: 'Pool' },
+            { value: 'architecture', label: 'Architecture' },
+            { value: 'power', label: 'Power' },
+          ]}
+        />
         <PopoverButton
           title="Filters"
           trigger={
@@ -513,24 +516,30 @@ export function ServersPage() {
         >
           <ColumnPanel columns={OPTIONAL_COLUMNS} hidden={hiddenColumns} onToggle={toggleColumn} />
         </PopoverButton>
-        <NativeSelect value={density} aria-label="Table density" onChange={(value) => setDensity(value as ServerDensity)}>
-          <option value="compact">Compact</option>
-          <option value="comfortable">Comfortable</option>
-        </NativeSelect>
-        <NativeSelect
+        <Select
+          value={density}
+          aria-label="Table density"
+          size="sm"
+          width="auto"
+          onChange={(value) => setDensity(value as ServerDensity)}
+          options={[
+            { value: 'compact', label: 'Compact' },
+            { value: 'comfortable', label: 'Comfortable' },
+          ]}
+        />
+        <Select
           value={String(pageSize)}
           aria-label="Rows per page"
+          size="sm"
+          width="auto"
           onChange={(value) => {
             const size = Number(value)
             setPageSize(size)
             writePreference(PAGE_SIZE_KEY, size)
             setPage(1)
           }}
-        >
-          {[25, 50, 100].map((size) => (
-            <option key={size} value={String(size)}>{`${size} rows`}</option>
-          ))}
-        </NativeSelect>
+          options={[25, 50, 100].map((size) => ({ value: String(size), label: `${size} rows` }))}
+        />
         {selected.size > 0 && (
           <HStack gap="2" wrap="wrap">
             <Text fontWeight="bold">{selected.size} selected</Text>
@@ -764,15 +773,17 @@ function FilterPanel({
     <div className="sw-filter-panel">
       <fieldset className="sw-filter-group">
         <legend>Protection</legend>
-        <NativeSelect
+        <Select
           value={filters.lockState}
           aria-label="Filter Server lock"
+          size="sm"
           onChange={(value) => onChange({ ...filters, lockState: value as ServerFilters['lockState'] })}
-        >
-          <option value="any">Any</option>
-          <option value="locked">Locked</option>
-          <option value="unlocked">Unlocked</option>
-        </NativeSelect>
+          options={[
+            { value: 'any', label: 'Any' },
+            { value: 'locked', label: 'Locked' },
+            { value: 'unlocked', label: 'Unlocked' },
+          ]}
+        />
       </fieldset>
       <FilterOptions title="Provisioning" values={options.provisioningState} selected={filters.provisioningStates} onChange={(values) => onChange({ ...filters, provisioningStates: values })} />
       <FilterOptions title="Zone" values={options.zone} selected={filters.zones} onChange={(values) => onChange({ ...filters, zones: values })} />
@@ -780,15 +791,17 @@ function FilterPanel({
       <FilterOptions title="Tags" values={options.tag} selected={filters.tags} onChange={(values) => onChange({ ...filters, tags: values })} />
       <fieldset className="sw-filter-group">
         <legend>GPU</legend>
-        <NativeSelect
+        <Select
           value={filters.hasGpu === null ? 'any' : filters.hasGpu ? 'yes' : 'no'}
           aria-label="Filter GPU presence"
+          size="sm"
           onChange={(value) => onChange({ ...filters, hasGpu: value === 'any' ? null : value === 'yes' })}
-        >
-          <option value="any">Any</option>
-          <option value="yes">Has GPU</option>
-          <option value="no">No GPU</option>
-        </NativeSelect>
+          options={[
+            { value: 'any', label: 'Any' },
+            { value: 'yes', label: 'Has GPU' },
+            { value: 'no', label: 'No GPU' },
+          ]}
+        />
       </fieldset>
       <Button variant="plain" size="sm" onClick={() => onChange(EMPTY_SERVER_FILTERS)}>
         Clear filters

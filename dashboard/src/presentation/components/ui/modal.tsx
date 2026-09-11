@@ -1,5 +1,6 @@
 import { chakra, CloseButton, Dialog, Portal } from '@chakra-ui/react'
 import type { FormEvent, ReactNode } from 'react'
+import { InsideDialogContext } from './dialog-portal-context'
 
 interface ModalProps {
   /** Controlled open state; the dialog is fully controlled by the caller. */
@@ -71,13 +72,17 @@ export function Modal({
         <Dialog.Backdrop />
         <Dialog.Positioner>
           <Dialog.Content>
-            {onSubmit ? (
-              <chakra.form onSubmit={onSubmit} display="contents">
-                {inner}
-              </chakra.form>
-            ) : (
-              inner
-            )}
+            {/* Nested Selects read this flag and render their listbox inline instead of
+                portalling to the body, which mis-positions inside a focus-trapped dialog. */}
+            <InsideDialogContext.Provider value={true}>
+              {onSubmit ? (
+                <chakra.form onSubmit={onSubmit} display="contents">
+                  {inner}
+                </chakra.form>
+              ) : (
+                inner
+              )}
+            </InsideDialogContext.Provider>
             <Dialog.CloseTrigger asChild>
               <CloseButton size="sm" />
             </Dialog.CloseTrigger>

@@ -12,13 +12,12 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
-import { SingleSelect } from '@/presentation/components/SingleSelect'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
-import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { Select } from '@/presentation/components/ui/select'
 import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -505,20 +504,25 @@ export function DeployPlatformWizardPage() {
           <div className="sw-form-grid">
             <Field.Root required>
               <Field.Label>Platform type</Field.Label>
-              <NativeSelect value={platformType} aria-label="Platform type" onChange={(value) => changeType(value as PlatformType)}>
-                <option value="kubernetes">Kubernetes</option>
-                <option value="slurm">Slurm</option>
-              </NativeSelect>
+              <Select
+                value={platformType}
+                aria-label="Platform type"
+                onChange={(value) => changeType(value as PlatformType)}
+                options={[
+                  { value: 'kubernetes', label: 'Kubernetes' },
+                  { value: 'slurm', label: 'Slurm' },
+                ]}
+              />
             </Field.Root>
             <Field.Root required>
               <Field.Label>Site</Field.Label>
-              <SingleSelect
+              <Select
                 id="platform-site"
-                ariaLabel="Site"
+                aria-label="Site"
                 value={effectiveSiteId ?? ''}
                 placeholder="Select a Site"
                 options={state.data.sites.map((site) => ({ value: site.id, label: site.name }))}
-                isRequired
+                required
                 onChange={(value) => {
                   setSiteId(value)
                   setRoles({})
@@ -539,10 +543,15 @@ export function DeployPlatformWizardPage() {
             {!isSlurm && (
               <Field.Root required>
                 <Field.Label>GPU stack owner</Field.Label>
-                <NativeSelect value={gpuStackOwner} aria-label="GPU stack owner" onChange={(value) => setGPUStackOwner(value as GPUStackOwner)}>
-                  <option value="provisioning">Provisioning</option>
-                  <option value="gpu-operator">GPU Operator</option>
-                </NativeSelect>
+                <Select
+                  value={gpuStackOwner}
+                  aria-label="GPU stack owner"
+                  onChange={(value) => setGPUStackOwner(value as GPUStackOwner)}
+                  options={[
+                    { value: 'provisioning', label: 'Provisioning' },
+                    { value: 'gpu-operator', label: 'GPU Operator' },
+                  ]}
+                />
               </Field.Root>
             )}
             {!isSlurm && (
@@ -580,11 +589,16 @@ export function DeployPlatformWizardPage() {
             <>
               <Field.Root required>
                 <Field.Label>Topology</Field.Label>
-                <NativeSelect value={topology} aria-label="Topology" onChange={(value) => changeTopology(value as TopologyChoice)}>
-                  <option value="standalone">Standalone (single Server)</option>
-                  <option value="multi-node">Multi-node (non-HA)</option>
-                  <option value="high-availability">High availability</option>
-                </NativeSelect>
+                <Select
+                  value={topology}
+                  aria-label="Topology"
+                  onChange={(value) => changeTopology(value as TopologyChoice)}
+                  options={[
+                    { value: 'standalone', label: 'Standalone (single Server)' },
+                    { value: 'multi-node', label: 'Multi-node (non-HA)' },
+                    { value: 'high-availability', label: 'High availability' },
+                  ]}
+                />
               </Field.Root>
               <Alert status={topology === 'high-availability' ? 'info' : 'warning'} title={topologyPresentation(topology).label}>
                 {topologyPresentation(topology).guidance}
@@ -616,11 +630,16 @@ export function DeployPlatformWizardPage() {
               )}
               <Field.Root>
                 <Field.Label>Shared workload storage</Field.Label>
-                <NativeSelect value={slurmWorkloadMode} aria-label="Shared workload storage mode" onChange={(value) => setSlurmWorkloadMode(value as 'none' | 'self-hosted' | 'external')}>
-                  <option value="none">None (jobs stage their own data)</option>
-                  <option value="self-hosted">Self-hosted (NFS exported from the login node)</option>
-                  <option value="external">External (operator-provided NFS)</option>
-                </NativeSelect>
+                <Select
+                  value={slurmWorkloadMode}
+                  aria-label="Shared workload storage mode"
+                  onChange={(value) => setSlurmWorkloadMode(value as 'none' | 'self-hosted' | 'external')}
+                  options={[
+                    { value: 'none', label: 'None (jobs stage their own data)' },
+                    { value: 'self-hosted', label: 'Self-hosted (NFS exported from the login node)' },
+                    { value: 'external', label: 'External (operator-provided NFS)' },
+                  ]}
+                />
                 <Field.HelperText>
                   Optional shared filesystem for user/job data, mounted on every node. Distinct from controller state. Self-hosted requires a login node.
                 </Field.HelperText>
@@ -629,9 +648,7 @@ export function DeployPlatformWizardPage() {
                 <>
                   <Field.Root>
                     <Field.Label>Storage type</Field.Label>
-                    <NativeSelect value="nfs" disabled aria-label="Workload storage type" onChange={() => undefined}>
-                      <option value="nfs">NFS</option>
-                    </NativeSelect>
+                    <Select value="nfs" disabled aria-label="Workload storage type" onChange={() => undefined} options={[{ value: 'nfs', label: 'NFS' }]} />
                   </Field.Root>
                   <Field.Root>
                     <Field.Label>Mount path</Field.Label>
@@ -765,16 +782,18 @@ export function DeployPlatformWizardPage() {
                         ) : (
                           <>
                             <Table.Cell>
-                              <NativeSelect
+                              <Select
                                 aria-label={existing ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}` : `Role for ${serverDisplayName(server)}`}
                                 value={role}
                                 disabled={unavailable}
+                                size="sm"
                                 onChange={(value) => changeRole(server.id, value as RoleChoice)}
-                              >
-                                <option value="none">Not included</option>
-                                <option value="control-plane">{topology === 'standalone' ? 'Standalone node' : 'Control-plane'}</option>
-                                {topology !== 'standalone' && <option value="worker">Worker</option>}
-                              </NativeSelect>
+                                options={[
+                                  { value: 'none', label: 'Not included' },
+                                  { value: 'control-plane', label: topology === 'standalone' ? 'Standalone node' : 'Control-plane' },
+                                  ...(topology !== 'standalone' ? [{ value: 'worker', label: 'Worker' }] : []),
+                                ]}
+                              />
                             </Table.Cell>
                             <Table.Cell>
                               {role === 'control-plane' ? (
@@ -824,29 +843,30 @@ export function DeployPlatformWizardPage() {
             <div className="sw-form-grid">
               <Field.Root required>
                 <Field.Label>Configuration source</Field.Label>
-                <NativeSelect value={templateId} aria-label="Configuration source" onChange={(value) => selectTemplate(value)}>
-                  <option value="">Custom configuration</option>
-                  {templates
-                    .filter((template) => template.integrationId === integrationId)
-                    .map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.name}
-                      </option>
-                    ))}
-                </NativeSelect>
+                <Select
+                  value={templateId}
+                  aria-label="Configuration source"
+                  onChange={(value) => selectTemplate(value)}
+                  options={[
+                    { value: '', label: 'Custom configuration' },
+                    ...templates
+                      .filter((template) => template.integrationId === integrationId)
+                      .map((template) => ({ value: template.id, label: template.name })),
+                  ]}
+                />
               </Field.Root>
               <Field.Root required>
                 <Field.Label>OS image</Field.Label>
                 <HStack gap="2" align="stretch">
                   <Box flex="1">
-                    <SingleSelect
+                    <Select
                       id="platform-os-image"
-                      ariaLabel="OS image"
+                      aria-label="OS image"
                       value={effectiveImageId}
                       placeholder="Select an OS image"
                       options={images.map((image) => ({ value: image.id, label: `${image.name} - ${image.architecture} (${image.osSystem} ${image.release})` }))}
-                      isRequired
-                      isDisabled={Boolean(selectedTemplate)}
+                      required
+                      disabled={Boolean(selectedTemplate)}
                       onChange={setImageId}
                     />
                   </Box>
@@ -958,9 +978,11 @@ export function DeployPlatformWizardPage() {
                               <strong>{server ? serverDisplayName(server) : target.serverId}</strong>
                             </Table.Cell>
                             <Table.Cell>
-                              <NativeSelect
+                              <Select
                                 aria-label={`Interface for ${server ? serverDisplayName(server) : target.serverId}`}
                                 value={assignment.interfaceId}
+                                size="sm"
+                                placeholder="Select an interface"
                                 onChange={(value) => {
                                   const nextInterface = target.network.interfaces.find((item) => item.id === value)
                                   const subnetId = nextInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)
@@ -970,32 +992,21 @@ export function DeployPlatformWizardPage() {
                                       : ''
                                   setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, interfaceId: value, subnetId } }))
                                 }}
-                              >
-                                <option value="" disabled>
-                                  Select an interface
-                                </option>
-                                {target.network.interfaces.map((item) => (
-                                  <option key={item.id} value={item.id}>
-                                    {`${item.name} - ${item.macAddress}${item.boot ? ' (boot NIC)' : ''}`}
-                                  </option>
-                                ))}
-                              </NativeSelect>
+                                options={target.network.interfaces.map((item) => ({
+                                  value: item.id,
+                                  label: `${item.name} - ${item.macAddress}${item.boot ? ' (boot NIC)' : ''}`,
+                                }))}
+                              />
                             </Table.Cell>
                             <Table.Cell>
-                              <NativeSelect
+                              <Select
                                 aria-label={`Subnet for ${server ? serverDisplayName(server) : target.serverId}`}
                                 value={assignment.subnetId}
+                                size="sm"
+                                placeholder="Select a subnet"
                                 onChange={(value) => setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, subnetId: value } }))}
-                              >
-                                <option value="" disabled>
-                                  Select a subnet
-                                </option>
-                                {iface?.availableSubnets.map((subnet) => (
-                                  <option key={subnet.id} value={subnet.id}>
-                                    {formatSubnetOptionLabel(subnet)}
-                                  </option>
-                                ))}
-                              </NativeSelect>
+                                options={(iface?.availableSubnets ?? []).map((subnet) => ({ value: subnet.id, label: formatSubnetOptionLabel(subnet) }))}
+                              />
                             </Table.Cell>
                             {effectiveNetworkMode === 'static' && (
                               <Table.Cell>
