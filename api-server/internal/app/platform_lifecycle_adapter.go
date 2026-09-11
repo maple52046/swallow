@@ -259,6 +259,7 @@ func deploymentIntentSlurm(operation *operationdomain.Workflow) *platformdomain.
 	// contract into the operation intent, not this package's private constants.
 	controllerIDs := decodeStringSlice(extraVars["swallow_slurm_controller_ids"])
 	computeIDs := decodeStringSlice(extraVars["swallow_slurm_compute_ids"])
+	loginIDs := decodeStringSlice(extraVars["swallow_slurm_login_ids"])
 	if len(controllerIDs) == 0 || len(operation.TargetServerIDs) == 0 {
 		return nil
 	}
@@ -294,5 +295,9 @@ func deploymentIntentSlurm(operation *operationdomain.Workflow) *platformdomain.
 	if len(controllerIDs) > 1 {
 		topology = platformdomain.KubernetesTopologyHighAvailability
 	}
-	return &platformdomain.LifecycleDeployment{Topology: topology, RoleAssignments: assignments}
+	// Login hosts run no cluster daemon, so they are not in assignments; surface them separately
+	// so the read model can show which host to use to operate the cluster.
+	return &platformdomain.LifecycleDeployment{
+		Topology: topology, RoleAssignments: assignments, LoginServerIDs: loginIDs,
+	}
 }

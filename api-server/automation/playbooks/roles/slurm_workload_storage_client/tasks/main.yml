@@ -1,0 +1,59 @@
+---
+# Mount the shared workload filesystem on this node. Runs on every cluster node when workload
+# storage is enabled (self-hosted export from the login node, or an external NFS source). It is
+# fail-closed and builtin-only (fstab entry + guarded mount + mountpoint verify), mirroring
+# slurm_controller_state but without the slurmctld guard: the workload filesystem is for jobs,
+# not for daemon startup, so it must not block slurmd. A same-named local directory is rejected
+# because the deploy verifies the path is a real mountpoint.
+
+- name: Ensure NFS client support for the workload mount
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+    lock_timeout: 300
+  become: true
+  when: slurm_workload_fstype in ['nfs', 'nfs4']
+
+- name: Ensure the workload mount directory exists
+  # A non-overlapping mountpoint (never /home), so mounting cannot hide the automation user's
+  # home and SSH keys.
+  ansible.builtin.file:
+    path: "{{ slurm_workload_mount_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Register the workload mount in fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^[^ \t]+[ \t]+{{ slurm_workload_mount_path | regex_escape }}[ \t]'
+    line: "{{ slurm_workload_source }} {{ slurm_workload_mount_path }} {{ slurm_workload_fstype }} {{ slurm_workload_mount_options }} 0 0"
+    state: present
+  become: true
+
+- name: Check whether the workload filesystem is already mounted
+  ansible.builtin.command:
+    argv: [mountpoint, -q, "{{ slurm_workload_mount_path }}"]
+  register: slurm_workload_mountcheck
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Mount the workload filesystem
+  # Reads the fstab entry above; runs only when not already mounted, so a converged rerun is a
+  # no-op rather than remounting a live share.
+  ansible.builtin.command:
+    argv: [mount, "{{ slurm_workload_mount_path }}"]
+  become: true
+  when: slurm_workload_mountcheck.rc != 0
+  changed_when: true
+
+- name: Verify the workload filesystem is mounted
+  # Fail-closed: refuse to continue if the share is not a real mountpoint, so jobs never write
+  # to an underlying local directory that silently diverges per node.
+  ansible.builtin.command:
+    argv: [mountpoint, -q, "{{ slurm_workload_mount_path }}"]
+  changed_when: false
+  become: true

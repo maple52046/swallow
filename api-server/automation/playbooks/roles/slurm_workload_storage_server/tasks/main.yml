@@ -1,0 +1,58 @@
+---
+# Provision the self-hosted NFS export for the shared workload filesystem. Runs only on the
+# host selected as the workload NFS server (the login node; see deploy-slurm.yml). This is the
+# user/job data share and is deliberately separate from the controller-state export
+# (slurm_state_server): it is exported to every cluster node and owned by the workload user,
+# whose uid is uniform across the shared image. builtin-only so no galaxy collection is needed.
+
+- name: Ensure the NFS server package is present
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  become: true
+
+- name: Create the workload export directory
+  ansible.builtin.file:
+    path: "{{ slurm_workload_export }}"
+    state: directory
+    owner: "{{ slurm_workload_export_owner }}"
+    group: "{{ slurm_workload_export_group }}"
+    mode: "{{ slurm_workload_export_mode }}"
+  become: true
+
+- name: Ensure the NFS exports drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/exports.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Export the workload filesystem to the cluster nodes
+  # One line: the export path followed by every workload client's connection address with
+  # rw,sync and root_squash. root_squash means a remote root cannot own files, while the
+  # workload user (uniform uid) reads/writes normally.
+  ansible.builtin.copy:
+    dest: /etc/exports.d/slurm-workspace.exports
+    content: >-
+      {{ slurm_workload_export }}{% for host in groups['slurm_workload_client'] %} {{ hostvars[host].ansible_host }}(rw,sync,no_subtree_check,root_squash){% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload workload exports
+
+- name: Enable and start the NFS server
+  ansible.builtin.systemd_service:
+    name: nfs-server
+    enabled: true
+    state: started
+  become: true
+
+- name: Apply export changes before the clients mount
+  # Flush now so exportfs has run before the later client play mounts the share.
+  ansible.builtin.meta: flush_handlers

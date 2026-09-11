@@ -165,7 +165,13 @@ export function DeployPlatformWizardPage() {
   // Slurm intent. Node roles are per-daemon (a Server may run slurmctld, slurmd, or both).
   const [clusterName, setClusterName] = useState('')
   const [slurmApiVersion, setSlurmApiVersion] = useState('')
-  const [slurmDaemons, setSlurmDaemons] = useState<Record<string, { controller: boolean; compute: boolean }>>({})
+  const [slurmDaemons, setSlurmDaemons] = useState<Record<string, { controller: boolean; compute: boolean; login: boolean }>>({})
+  // Shared workload filesystem (user/job data), distinct from controller state. "none" = no
+  // shared storage; self-hosted exports from the login node; external mounts an operator NFS.
+  const [slurmWorkloadMode, setSlurmWorkloadMode] = useState<'none' | 'self-hosted' | 'external'>('none')
+  const [slurmWorkloadMountPath, setSlurmWorkloadMountPath] = useState('/shared')
+  const [slurmWorkloadNfsUrl, setSlurmWorkloadNfsUrl] = useState('')
+  const [slurmWorkloadMountOptions, setSlurmWorkloadMountOptions] = useState('')
   const [topology, setTopology] = useState<TopologyChoice>('high-availability')
   const [apiVip, setAPIVip] = useState('')
   const [apiVipPrefix, setAPIVipPrefix] = useState('24')
@@ -218,7 +224,7 @@ export function DeployPlatformWizardPage() {
   // controller is HA; Swallow provisions the shared StateSaveLocation automatically, so the
   // operator field is only an optional override and never gates the deploy.
   const slurmSelectedIds = Object.entries(slurmDaemons)
-    .filter(([, daemons]) => daemons.controller || daemons.compute)
+    .filter(([, daemons]) => daemons.controller || daemons.compute || daemons.login)
     .map(([serverId]) => serverId)
   const slurmControllerIds = Object.entries(slurmDaemons)
     .filter(([, daemons]) => daemons.controller)
@@ -226,8 +232,18 @@ export function DeployPlatformWizardPage() {
   const slurmComputeIds = Object.entries(slurmDaemons)
     .filter(([, daemons]) => daemons.compute)
     .map(([serverId]) => serverId)
+  const slurmLoginIds = Object.entries(slurmDaemons)
+    .filter(([, daemons]) => daemons.login)
+    .map(([serverId]) => serverId)
   const slurmHighlyAvailable = slurmControllerIds.length > 1
-  const slurmTopologyValid = slurmControllerIds.length >= 1 && slurmComputeIds.length >= 1
+  // Workload storage validity: self-hosted needs a login node to export it; external needs an
+  // NFS url shaped host:/path. "none" is always valid.
+  const slurmWorkloadValid =
+    slurmWorkloadMode === 'none' ||
+    (slurmWorkloadMode === 'self-hosted' && slurmLoginIds.length > 0) ||
+    (slurmWorkloadMode === 'external' && /^[^\s:]+:\/\S*$/.test(slurmWorkloadNfsUrl.trim()))
+  const slurmTopologyValid =
+    slurmControllerIds.length >= 1 && slurmComputeIds.length >= 1 && slurmWorkloadValid
   const basicsValid = Boolean(effectiveSiteId && name.trim() && (isSlurm || k0sVersion.trim()))
   // Locked Servers are excluded from the candidate list (see useDeployableServers), so the only
   // "unavailable" reason left to surface is an existing Platform assignment.
@@ -380,6 +396,10 @@ export function DeployPlatformWizardPage() {
     setWorkloadControllers({})
     setAPIVip('')
     setSlurmDaemons({})
+    setSlurmWorkloadMode('none')
+    setSlurmWorkloadMountPath('/shared')
+    setSlurmWorkloadNfsUrl('')
+    setSlurmWorkloadMountOptions('')
     setTemplateId('')
     setImageId('')
     setNetworkInspection(null)
@@ -387,15 +407,15 @@ export function DeployPlatformWizardPage() {
     if (next === 'slurm') setGPUStackOwner('provisioning')
   }
 
-  // Toggle one Slurm daemon on a node. A node keeps whichever daemons are checked; a node with
-  // neither is simply not part of the cluster.
-  const toggleSlurmDaemon = (serverId: string, daemon: 'controller' | 'compute', checked: boolean) => {
+  // Toggle one Slurm role on a node. A node keeps whichever roles are checked; a node with none
+  // is simply not part of the cluster. Login is a submission/client host (no cluster daemon).
+  const toggleSlurmDaemon = (serverId: string, daemon: 'controller' | 'compute' | 'login', checked: boolean) => {
     const server = state.status === 'ready'
       ? state.data.servers.find((candidate) => candidate.id === serverId)
       : undefined
     if (server?.provisioning?.locked) return
     setSlurmDaemons((current) => {
-      const existing = current[serverId] ?? { controller: false, compute: false }
+      const existing = current[serverId] ?? { controller: false, compute: false, login: false }
       return { ...current, [serverId]: { ...existing, [daemon]: checked } }
     })
   }
@@ -473,7 +493,22 @@ export function DeployPlatformWizardPage() {
               serverId,
               controller: Boolean(slurmDaemons[serverId]?.controller),
               compute: Boolean(slurmDaemons[serverId]?.compute),
+              login: Boolean(slurmDaemons[serverId]?.login),
             })),
+            // Optional shared workload filesystem; omitted when "none".
+            workloadStorage: slurmWorkloadMode === 'none'
+              ? undefined
+              : {
+                mode: slurmWorkloadMode,
+                type: 'nfs',
+                mountPath: slurmWorkloadMountPath.trim() || '/shared',
+                nfs: slurmWorkloadMode === 'external'
+                  ? {
+                    url: slurmWorkloadNfsUrl.trim(),
+                    mountOptions: slurmWorkloadMountOptions.trim() || undefined,
+                  }
+                  : undefined,
+              },
           },
           machinePreparation,
         }
@@ -667,12 +702,13 @@ export function DeployPlatformWizardPage() {
               )}
               {isSlurm && (
                 <>
-                  <Alert variant={AlertVariant.info} title="Assign Slurm daemons per node" isInline>
-                    A node may run the controller daemon (slurmctld), the compute daemon (slurmd), or both. At least one controller and one compute node are required.
+                  <Alert variant={AlertVariant.info} title="Assign Slurm roles per node" isInline>
+                    A node may run the controller daemon (slurmctld), the compute daemon (slurmd), both, or be a login (submission) host. At least one controller and one compute node are required. A login node also hosts the shared storage for HA and self-hosted workload storage.
                   </Alert>
                   <LabelGroup aria-label="Slurm status">
                     <Label color={slurmControllerIds.length > 0 ? 'green' : 'orange'}>{slurmControllerIds.length} controller</Label>
                     <Label color={slurmComputeIds.length > 0 ? 'green' : 'orange'}>{slurmComputeIds.length} compute</Label>
+                    <Label color={slurmLoginIds.length > 0 ? 'blue' : 'grey'}>{slurmLoginIds.length} login</Label>
                     <Label color={slurmSelectedIds.length > 0 ? 'blue' : 'grey'}>{slurmSelectedIds.length} selected</Label>
                   </LabelGroup>
                   {slurmHighlyAvailable && (
@@ -686,6 +722,82 @@ export function DeployPlatformWizardPage() {
                       controller — so there is nothing to enter here. (Lab-grade: the export host
                       is a single storage failure domain.)
                     </Alert>
+                  )}
+                  <FormGroup label="Shared workload storage" fieldId="slurm-workload-mode">
+                    <FormSelect
+                      id="slurm-workload-mode"
+                      aria-label="Shared workload storage mode"
+                      value={slurmWorkloadMode}
+                      onChange={(_event, value) => setSlurmWorkloadMode(value as 'none' | 'self-hosted' | 'external')}
+                    >
+                      <FormSelectOption value="none" label="None (jobs stage their own data)" />
+                      <FormSelectOption value="self-hosted" label="Self-hosted (NFS exported from the login node)" />
+                      <FormSelectOption value="external" label="External (operator-provided NFS)" />
+                    </FormSelect>
+                    <FormHelperText>
+                      <HelperText>
+                        <HelperTextItem>
+                          Optional shared filesystem for user/job data, mounted on every node. Distinct from controller state. Self-hosted requires a login node.
+                        </HelperTextItem>
+                      </HelperText>
+                    </FormHelperText>
+                  </FormGroup>
+                  {slurmWorkloadMode !== 'none' && (
+                    <>
+                      <FormGroup label="Storage type" fieldId="slurm-workload-type">
+                        <FormSelect id="slurm-workload-type" aria-label="Workload storage type" value="nfs" isDisabled>
+                          <FormSelectOption value="nfs" label="NFS" />
+                        </FormSelect>
+                      </FormGroup>
+                      <FormGroup label="Mount path" fieldId="slurm-workload-path">
+                        <TextInput
+                          id="slurm-workload-path"
+                          value={slurmWorkloadMountPath}
+                          onChange={(_event, value) => setSlurmWorkloadMountPath(value)}
+                          placeholder="/shared"
+                        />
+                        <FormHelperText>
+                          <HelperText>
+                            <HelperTextItem>
+                              Mounted on every node. Must not be /home (that would hide the SSH user's home).
+                            </HelperTextItem>
+                          </HelperText>
+                        </FormHelperText>
+                      </FormGroup>
+                      {slurmWorkloadMode === 'self-hosted' && slurmLoginIds.length === 0 && (
+                        <Alert variant={AlertVariant.warning} title="Self-hosted workload storage needs a login node" isInline>
+                          Assign the Login role to one node above; it will export the shared filesystem.
+                        </Alert>
+                      )}
+                      {slurmWorkloadMode === 'external' && (
+                        <>
+                          <FormGroup label="NFS URL" isRequired fieldId="slurm-workload-url">
+                            <TextInput
+                              id="slurm-workload-url"
+                              value={slurmWorkloadNfsUrl}
+                              onChange={(_event, value) => setSlurmWorkloadNfsUrl(value)}
+                              placeholder="nfs-server:/export/data"
+                              validated={/^[^\s:]+:\/\S*$/.test(slurmWorkloadNfsUrl.trim()) ? 'default' : 'error'}
+                            />
+                            <FormHelperText>
+                              <HelperText>
+                                <HelperTextItem variant={/^[^\s:]+:\/\S*$/.test(slurmWorkloadNfsUrl.trim()) ? 'default' : 'error'}>
+                                  Form host:/path, for example 10.0.0.9:/export/data.
+                                </HelperTextItem>
+                              </HelperText>
+                            </FormHelperText>
+                          </FormGroup>
+                          <FormGroup label="Mount options (optional)" fieldId="slurm-workload-opts">
+                            <TextInput
+                              id="slurm-workload-opts"
+                              value={slurmWorkloadMountOptions}
+                              onChange={(_event, value) => setSlurmWorkloadMountOptions(value)}
+                              placeholder="rw,_netdev,hard,timeo=600,retrans=2"
+                            />
+                          </FormGroup>
+                        </>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -715,7 +827,7 @@ export function DeployPlatformWizardPage() {
                       <Tr>
                         <Th>Server</Th><Th>Address</Th><Th>OS state</Th><Th>Current assignment</Th>
                         {isSlurm
-                          ? <><Th>Controller</Th><Th>Compute</Th></>
+                          ? <><Th>Controller</Th><Th>Compute</Th><Th>Login</Th></>
                           : <><Th>Role</Th><Th>Runs workloads</Th></>}
                       </Tr>
                     </Thead>
@@ -729,8 +841,8 @@ export function DeployPlatformWizardPage() {
                         const deployed = server.provisioning?.state === 'deployed'
                         const unavailable = Boolean(existing)
                         const role = unavailable ? 'none' : roles[server.id] ?? 'none'
-                        const daemons = slurmDaemons[server.id] ?? { controller: false, compute: false }
-                        const willProvision = isSlurm ? (daemons.controller || daemons.compute) : role !== 'none'
+                        const daemons = slurmDaemons[server.id] ?? { controller: false, compute: false, login: false }
+                        const willProvision = isSlurm ? (daemons.controller || daemons.compute || daemons.login) : role !== 'none'
                         return (
                           <Tr key={server.id}>
                             <Td dataLabel="Server"><strong>{serverDisplayName(server)}</strong></Td>
@@ -776,6 +888,17 @@ export function DeployPlatformWizardPage() {
                                     isChecked={daemons.compute}
                                     isDisabled={unavailable}
                                     onChange={(_event, checked) => toggleSlurmDaemon(server.id, 'compute', checked)}
+                                  />
+                                </Td>
+                                <Td dataLabel="Login">
+                                  <Checkbox
+                                    id={`slurm-login-${server.id}`}
+                                    aria-label={existing
+                                      ? `login node on ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}`
+                                      : `Make ${serverDisplayName(server)} a login (submission) host`}
+                                    isChecked={daemons.login}
+                                    isDisabled={unavailable}
+                                    onChange={(_event, checked) => toggleSlurmDaemon(server.id, 'login', checked)}
                                   />
                                 </Td>
                               </>
@@ -1195,7 +1318,13 @@ export function DeployPlatformWizardPage() {
                         ] : []),
                         ['Controllers', String(slurmControllerIds.length)],
                         ['Compute nodes', String(slurmComputeIds.length)],
+                        ...(slurmLoginIds.length > 0 ? [['Login nodes', String(slurmLoginIds.length)]] : []),
                         ...(slurmHighlyAvailable ? [['Shared state', 'Swallow-provisioned (NFS)']] : []),
+                        ...(slurmWorkloadMode === 'self-hosted'
+                          ? [['Workload storage', `Self-hosted NFS at ${slurmWorkloadMountPath.trim() || '/shared'}`]]
+                          : slurmWorkloadMode === 'external'
+                            ? [['Workload storage', `External ${slurmWorkloadNfsUrl.trim()} at ${slurmWorkloadMountPath.trim() || '/shared'}`]]
+                            : []),
                         ...(slurmApiVersion.trim() ? [['slurmrestd API version', slurmApiVersion.trim()]] : []),
                       ]
                       : [

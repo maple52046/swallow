@@ -1,0 +1,8 @@
+---
+# Self-hosted workload NFS export (user/job data), distinct from the controller-state export.
+# Owned by the workload user (uniform uid across the shared image), not slurm, and exported to
+# every cluster node. The playbook overrides slurm_workload_export from the trusted var.
+slurm_workload_export: /srv/slurm-workspace
+slurm_workload_export_owner: ubuntu
+slurm_workload_export_group: ubuntu
+slurm_workload_export_mode: "0750"

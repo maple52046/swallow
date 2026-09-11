@@ -1,0 +1,9 @@
+---
+- name: Restart sackd
+  # Notified when the sackd conf-server changes, so the login cache picks up the new controller
+  # list without waiting for a reboot.
+  ansible.builtin.systemd:
+    name: sackd
+    state: restarted
+    daemon_reload: true
+  become: true

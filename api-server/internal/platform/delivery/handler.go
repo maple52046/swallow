@@ -171,7 +171,8 @@ func slurmSpecFromRequest(request *slurmDeployRequest) platformdomain.SlurmDeplo
 	assignments := make([]platformdomain.SlurmNodeAssignment, len(request.NodeAssignments))
 	for index, assignment := range request.NodeAssignments {
 		assignments[index] = platformdomain.SlurmNodeAssignment{
-			ServerID: assignment.ServerID, Controller: assignment.Controller, Compute: assignment.Compute,
+			ServerID: assignment.ServerID, Controller: assignment.Controller,
+			Compute: assignment.Compute, Login: assignment.Login,
 		}
 	}
 	return platformdomain.SlurmDeploymentSpec{
@@ -179,7 +180,28 @@ func slurmSpecFromRequest(request *slurmDeployRequest) platformdomain.SlurmDeplo
 		APIVersion:        request.APIVersion,
 		StateSaveLocation: request.StateSaveLocation,
 		NodeAssignments:   assignments,
+		WorkloadStorage:   slurmWorkloadStorageFromRequest(request.WorkloadStorage),
 	}
+}
+
+// slurmWorkloadStorageFromRequest maps the optional workload-storage body into domain intent.
+// A nil request means no shared workload filesystem (Enabled stays false); a present object
+// enables it, and the application validates the mode-specific fields.
+func slurmWorkloadStorageFromRequest(request *slurmWorkloadStorageReq) platformdomain.SlurmWorkloadStorageSpec {
+	if request == nil {
+		return platformdomain.SlurmWorkloadStorageSpec{}
+	}
+	spec := platformdomain.SlurmWorkloadStorageSpec{
+		Enabled:   true,
+		Mode:      platformdomain.SlurmWorkloadStorageMode(request.Mode),
+		Type:      platformdomain.SlurmStorageType(request.Type),
+		MountPath: request.MountPath,
+	}
+	if request.NFS != nil {
+		spec.NFSURL = request.NFS.URL
+		spec.NFSMountOptions = request.NFS.MountOptions
+	}
+	return spec
 }
 
 type deployPlatformRequest struct {
@@ -199,22 +221,42 @@ type deployPlatformRequest struct {
 	MachinePreparation machinePreparationRequest `json:"machinePreparation"`
 }
 
-// slurmDeployRequest is the Slurm-specific deploy body. Node roles are per-daemon flags
-// because a Server may run slurmctld, slurmd, or both. Empty optional fields let the
-// application default them (clusterName from the platform name; a controller-local
-// stateSaveLocation for a single controller).
+// slurmDeployRequest is the Slurm-specific deploy body. Node roles are per-role flags because
+// a Server may run slurmctld, slurmd, both, or be a login (submission) host. Empty optional
+// fields let the application default them (clusterName from the platform name; a
+// controller-local stateSaveLocation for a single controller). workloadStorage is optional;
+// omitting it means no shared workload filesystem.
 type slurmDeployRequest struct {
-	ClusterName       string               `json:"clusterName"`
-	APIVersion        string               `json:"apiVersion"`
-	StateSaveLocation string               `json:"stateSaveLocation"`
-	NodeAssignments   []slurmNodeAssignReq `json:"nodeAssignments"`
+	ClusterName       string                   `json:"clusterName"`
+	APIVersion        string                   `json:"apiVersion"`
+	StateSaveLocation string                   `json:"stateSaveLocation"`
+	NodeAssignments   []slurmNodeAssignReq     `json:"nodeAssignments"`
+	WorkloadStorage   *slurmWorkloadStorageReq `json:"workloadStorage"`
 }
 
-// slurmNodeAssignReq assigns Slurm daemons to one Server; an omitted flag is false.
+// slurmNodeAssignReq assigns Slurm roles to one Server; an omitted flag is false. Login marks
+// a submission/client host that runs no cluster daemon.
 type slurmNodeAssignReq struct {
 	ServerID   string `json:"serverId"`
 	Controller bool   `json:"controller"`
 	Compute    bool   `json:"compute"`
+	Login      bool   `json:"login"`
+}
+
+// slurmWorkloadStorageReq is the optional shared workload filesystem. mode is self-hosted (the
+// login node exports NFS) or external (an operator NFS url); type is nfs; mountPath defaults to
+// a non-overlapping path. nfs.url is required for external mode.
+type slurmWorkloadStorageReq struct {
+	Mode      string       `json:"mode"`
+	Type      string       `json:"type"`
+	MountPath string       `json:"mountPath"`
+	NFS       *slurmNFSReq `json:"nfs"`
+}
+
+// slurmNFSReq carries the NFS source for external workload storage.
+type slurmNFSReq struct {
+	URL          string `json:"url"`
+	MountOptions string `json:"mountOptions"`
 }
 
 // Deploy maps transport data into deployment intent; topology and network rules stay in

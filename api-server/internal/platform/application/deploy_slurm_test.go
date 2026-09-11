@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
@@ -195,6 +196,140 @@ func TestDeploySlurmHighAvailabilityFallsBackToPrimaryStateServer(t *testing.T) 
 	}
 	if vars[varSlurmStateSaveLocation] != "/mnt/slurm-state" {
 		t.Errorf("state save location var = %v, want the operator override /mnt/slurm-state", vars[varSlurmStateSaveLocation])
+	}
+}
+
+// A login-only node (no slurmctld/slurmd) is a valid submission/client host, and in HA it is
+// the shared-storage server: it must be selected as the controller-state server.
+func TestDeploySlurmAcceptsLoginOnlyNodeAsStateServer(t *testing.T) {
+	servers := append(slurmServers(), deployedServer("s4", "lab-slurm-login", "site-1", "192.168.100.9"))
+	service, launcher, _ := newDeployHarness(servers...)
+	input := validSlurmInput()
+	input.SlurmSpec.NodeAssignments = []platformdomain.SlurmNodeAssignment{
+		{ServerID: "s1", Controller: true, Compute: true},
+		{ServerID: "s2", Controller: true, Compute: true},
+		{ServerID: "s3", Compute: true},
+		{ServerID: "s4", Login: true},
+	}
+
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("a login-only node should be accepted, got %v", err)
+	}
+	if launcher.launched == nil {
+		t.Fatal("deploy should launch")
+	}
+	vars := launcher.launched.TrustedVars
+	logins, _ := vars[varSlurmLoginIDs].([]string)
+	if len(logins) != 1 || logins[0] != "s4" {
+		t.Errorf("login ids = %v, want [s4]", vars[varSlurmLoginIDs])
+	}
+	if vars[varSlurmStateServer] != "s4" {
+		t.Errorf("HA state server = %v, want the login node s4", vars[varSlurmStateServer])
+	}
+	if vars[varSlurmLoginConfigMode] != "configless" || vars[varSlurmLoginUseSackd] != true {
+		t.Errorf("login config = %v/%v, want configless/true", vars[varSlurmLoginConfigMode], vars[varSlurmLoginUseSackd])
+	}
+	// s4 is a deployment target even though it runs no daemon.
+	if !slices.Contains(launcher.launched.TargetServerIDs, "s4") {
+		t.Errorf("target ids = %v, want the login node s4 included", launcher.launched.TargetServerIDs)
+	}
+}
+
+// Self-hosted workload storage exports from the login node and requires one.
+func TestDeploySlurmWorkloadSelfHosted(t *testing.T) {
+	servers := append(slurmServers(), deployedServer("s4", "lab-slurm-login", "site-1", "192.168.100.9"))
+	service, launcher, _ := newDeployHarness(servers...)
+	input := validSlurmInput()
+	input.SlurmSpec.NodeAssignments = []platformdomain.SlurmNodeAssignment{
+		{ServerID: "s1", Controller: true, Compute: true},
+		{ServerID: "s2", Compute: true},
+		{ServerID: "s4", Login: true},
+	}
+	input.SlurmSpec.WorkloadStorage = platformdomain.SlurmWorkloadStorageSpec{
+		Enabled: true, Mode: platformdomain.SlurmWorkloadStorageSelfHosted,
+	}
+
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("self-hosted workload storage with a login node should be accepted, got %v", err)
+	}
+	vars := launcher.launched.TrustedVars
+	if vars[varSlurmWorkloadEnabled] != true || vars[varSlurmWorkloadMode] != "self-hosted" {
+		t.Errorf("workload enabled/mode = %v/%v, want true/self-hosted", vars[varSlurmWorkloadEnabled], vars[varSlurmWorkloadMode])
+	}
+	if vars[varSlurmWorkloadServer] != "s4" {
+		t.Errorf("workload server = %v, want the login node s4", vars[varSlurmWorkloadServer])
+	}
+	if vars[varSlurmWorkloadExport] != "/srv/slurm-workspace" {
+		t.Errorf("workload export = %v, want /srv/slurm-workspace", vars[varSlurmWorkloadExport])
+	}
+	if vars[varSlurmWorkloadMountPath] != defaultWorkloadMountPath {
+		t.Errorf("workload mount path = %v, want the default %v", vars[varSlurmWorkloadMountPath], defaultWorkloadMountPath)
+	}
+}
+
+func TestDeploySlurmWorkloadSelfHostedRequiresLogin(t *testing.T) {
+	service, launcher, _ := newDeployHarness(slurmServers()...)
+	input := validSlurmInput() // single controller, no login node
+	input.SlurmSpec.WorkloadStorage = platformdomain.SlurmWorkloadStorageSpec{
+		Enabled: true, Mode: platformdomain.SlurmWorkloadStorageSelfHosted,
+	}
+	if _, err := service.Deploy(context.Background(), input); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Fatalf("self-hosted workload storage without a login node should be rejected, got %v", err)
+	}
+	if launcher.launched != nil {
+		t.Fatal("no deploy should launch")
+	}
+}
+
+// External workload storage mounts an operator NFS URL and runs no swallow server.
+func TestDeploySlurmWorkloadExternal(t *testing.T) {
+	service, launcher, _ := newDeployHarness(slurmServers()...)
+	input := validSlurmInput()
+	input.SlurmSpec.WorkloadStorage = platformdomain.SlurmWorkloadStorageSpec{
+		Enabled: true, Mode: platformdomain.SlurmWorkloadStorageExternal,
+		NFSURL: "10.0.0.9:/export/data", MountPath: "/data",
+	}
+
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("external workload storage should be accepted, got %v", err)
+	}
+	vars := launcher.launched.TrustedVars
+	if vars[varSlurmWorkloadMode] != "external" {
+		t.Errorf("workload mode = %v, want external", vars[varSlurmWorkloadMode])
+	}
+	if vars[varSlurmWorkloadSource] != "10.0.0.9:/export/data" {
+		t.Errorf("workload source = %v, want the operator url", vars[varSlurmWorkloadSource])
+	}
+	if vars[varSlurmWorkloadMountPath] != "/data" {
+		t.Errorf("workload mount path = %v, want /data", vars[varSlurmWorkloadMountPath])
+	}
+	if _, ok := vars[varSlurmWorkloadServer]; ok {
+		t.Errorf("external workload storage must not name a server, got %v", vars[varSlurmWorkloadServer])
+	}
+}
+
+func TestDeploySlurmWorkloadRejectsInvalidStorage(t *testing.T) {
+	cases := []struct {
+		name    string
+		storage platformdomain.SlurmWorkloadStorageSpec
+	}{
+		{"external without url", platformdomain.SlurmWorkloadStorageSpec{Enabled: true, Mode: platformdomain.SlurmWorkloadStorageExternal}},
+		{"unsupported type", platformdomain.SlurmWorkloadStorageSpec{Enabled: true, Mode: platformdomain.SlurmWorkloadStorageExternal, Type: "cephfs", NFSURL: "h:/p"}},
+		{"home mount path", platformdomain.SlurmWorkloadStorageSpec{Enabled: true, Mode: platformdomain.SlurmWorkloadStorageExternal, NFSURL: "h:/p", MountPath: "/home"}},
+		{"unknown mode", platformdomain.SlurmWorkloadStorageSpec{Enabled: true, Mode: "managed", NFSURL: "h:/p"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service, launcher, _ := newDeployHarness(slurmServers()...)
+			input := validSlurmInput()
+			input.SlurmSpec.WorkloadStorage = tc.storage
+			if _, err := service.Deploy(context.Background(), input); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+				t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment", err)
+			}
+			if launcher.launched != nil {
+				t.Error("an invalid workload storage deploy must launch nothing")
+			}
+		})
 	}
 }
 

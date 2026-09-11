@@ -1,0 +1,7 @@
+---
+# Login (submission/client) host configuration. swallow login hosts are pure clients: they run
+# no cluster daemon and discover configuration configless from the controllers. With auth/munge
+# a login sackd is a configuration-cache choice, not an authentication requirement.
+slurm_login_config_mode: configless
+slurm_login_use_sackd: true
+slurm_login_conf_server_port: 6817

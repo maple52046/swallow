@@ -1,0 +1,78 @@
+---
+# Configure a pure login (submission/client) host. swallow login hosts run no cluster daemon;
+# they discover slurm.conf configless from the controllers, optionally caching it with a local
+# sackd. auth/munge is in use (the shared MUNGE key is already distributed to every host,
+# login included), so sackd is a configuration-cache choice rather than an authentication
+# requirement — see knowledge/Slurm/topology-selection.md. MUNGE itself is set up by the
+# cluster-wide slurm_munge play.
+
+- name: Compute the ordered configless conf-server list
+  # Login clients try controllers in SlurmctldHost order; addresses (not hostnames) keep
+  # discovery working without site DNS, matching slurm_compute.
+  ansible.builtin.set_fact:
+    slurm_login_conf_server: >-
+      {{ swallow_slurm_controller_ids
+         | map('extract', hostvars, 'ansible_host')
+         | map('regex_replace', '^(.*)$', '\1:' ~ (slurm_login_conf_server_port | string))
+         | join(',') }}
+
+- name: Remove any local slurm.conf on a configless login host
+  # Configless keeps no authoritative local slurm.conf; an image may ship a sample, so remove it.
+  ansible.builtin.file:
+    path: "{{ slurm_conf_dir }}/slurm.conf"
+    state: absent
+  become: true
+  when: slurm_login_config_mode == 'configless'
+
+- name: Configure sackd controller discovery
+  # sackd fetches and caches configuration in /run/slurm/conf and receives reconfiguration.
+  ansible.builtin.copy:
+    dest: /etc/default/sackd
+    content: |
+      # Managed by Swallow (deploy-slurm): sackd-managed configless login.
+      SACKD_OPTIONS="--conf-server {{ slurm_login_conf_server }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when:
+    - slurm_login_config_mode == 'configless'
+    - slurm_login_use_sackd | bool
+  notify: Restart sackd
+
+- name: Enable and start sackd on configless login hosts
+  ansible.builtin.systemd:
+    name: sackd
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when:
+    - slurm_login_config_mode == 'configless'
+    - slurm_login_use_sackd | bool
+
+- name: Configure direct configless discovery when sackd is not used
+  # Without sackd, client commands read the ordered controllers from SLURM_CONF_SERVER.
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    regexp: '^SLURM_CONF_SERVER='
+    line: 'SLURM_CONF_SERVER="{{ slurm_login_conf_server }}"'
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when:
+    - slurm_login_config_mode == 'configless'
+    - not (slurm_login_use_sackd | bool)
+
+- name: Stop sackd when it is not the selected login configuration manager
+  # failed_when: false so a host without the sackd unit (or already stopped) is not an error;
+  # this only clears a stale sackd when direct configless or local mode is selected.
+  ansible.builtin.systemd:
+    name: sackd
+    state: stopped
+    enabled: false
+  become: true
+  failed_when: false
+  when: not (slurm_login_config_mode == 'configless' and (slurm_login_use_sackd | bool))

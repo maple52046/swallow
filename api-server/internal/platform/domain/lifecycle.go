@@ -38,9 +38,16 @@ type LifecycleOperation struct {
 
 // LifecycleDeployment is the non-secret deployment intent needed by Platform read models.
 // It deliberately excludes the Operation extra-vars map and automation implementation.
+//
+// LoginServerIDs names the Slurm login (submission) hosts in request order. They are not
+// controllers or compute members and so appear in neither RoleAssignments (the k0s-shaped
+// controller/worker projection) nor the membership axis; they are surfaced here so a read model
+// can tell an operator which host to use to operate the cluster. Empty for Kubernetes and for
+// a Slurm cluster deployed without a login node.
 type LifecycleDeployment struct {
 	Topology        KubernetesTopology
 	RoleAssignments []RoleAssignment
+	LoginServerIDs  []string
 }
 
 // LifecycleSnapshot describes a platform using durable deployment and uninstall history.

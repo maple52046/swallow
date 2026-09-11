@@ -44,6 +44,12 @@ export type KubernetesTopology =
 export interface PlatformDeployment {
   topology: KubernetesTopology;
   roleAssignments: RoleAssignment[];
+  /**
+   * Slurm login (submission) host serverIds. They are neither role assignments nor members, so
+   * the Slurm view resolves them to an address to show which host to use to operate the cluster.
+   * Empty for Kubernetes and for a Slurm cluster with no login node.
+   */
+  loginServerIds?: string[];
   machinePreparation?: PlatformMachinePreparation;
 }
 
@@ -131,20 +137,35 @@ export interface SlurmNodeAssignment {
   serverId: string;
   controller: boolean;
   compute: boolean;
+  login: boolean;
+}
+
+/**
+ * The optional shared workload filesystem (user/job data), distinct from controller state.
+ * `mode` is "self-hosted" (the login node exports NFS) or "external" (an operator NFS URL);
+ * `type` is "nfs"; `mountPath` is a non-overlapping path (never /home). `nfs.url` is required
+ * for external mode. Omitting the whole object means no shared workload filesystem.
+ */
+export interface SlurmWorkloadStorageSpec {
+  mode: 'self-hosted' | 'external';
+  type: 'nfs';
+  mountPath: string;
+  nfs?: { url: string; mountOptions?: string };
 }
 
 /**
  * A request to deploy a Slurm platform. `clusterName` defaults to a sanitized platform name.
  * `apiVersion` pins the slurmrestd endpoint version recorded in the credential.
- * `stateSaveLocation` is an optional override of the slurmctld state directory. A highly
- * available (multi-controller) deployment needs one shared state directory, which the backend
- * provisions automatically; supplying a path only overrides where it lives.
+ * `stateSaveLocation` is an optional override of the slurmctld state directory (the backend
+ * provisions HA shared state automatically). A node may be controller, compute, login, or a
+ * combination. `workloadStorage` is optional shared user-data storage.
  */
 export interface SlurmDeploymentSpec {
   clusterName?: string;
   apiVersion?: string;
   stateSaveLocation?: string;
   nodeAssignments: SlurmNodeAssignment[];
+  workloadStorage?: SlurmWorkloadStorageSpec;
 }
 
 /**

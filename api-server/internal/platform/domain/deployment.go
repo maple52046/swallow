@@ -113,33 +113,66 @@ func (s DeploymentSpec) serverIDsWithRole(role NodeRole) []string {
 	return ids
 }
 
-// SlurmNodeAssignment assigns Slurm daemons to one Server. Unlike Kubernetes, the roles are
-// not mutually exclusive: Controller runs the slurmctld management daemon and Compute runs
-// the slurmd job daemon, and a Server may run both — a controller commonly also contributes
-// compute. A Server with neither daemon has no place in the cluster and is rejected by the
-// deploy use case.
+// SlurmNodeAssignment assigns Slurm roles to one Server. Unlike Kubernetes, the roles are
+// not mutually exclusive: Controller runs the slurmctld management daemon, Compute runs the
+// slurmd job daemon, and Login is a submission/client host (no cluster daemon of its own; it
+// may also host the shared-storage NFS exports). A Server may combine roles — a controller
+// commonly also contributes compute — and a login-only host is valid. A Server with no role
+// at all has no place in the cluster and is rejected by the deploy use case.
 type SlurmNodeAssignment struct {
 	ServerID   string
 	Controller bool
 	Compute    bool
+	Login      bool
+}
+
+// SlurmStorageType is the shared-storage backend. Only NFS is supported today; the type is an
+// enum so a future backend (for example CephFS) is an additive change.
+type SlurmStorageType string
+
+const SlurmStorageNFS SlurmStorageType = "nfs"
+
+// SlurmWorkloadStorageMode selects who provides the shared workload filesystem: swallow itself
+// (an NFS export on the login node) or an operator-managed external NFS server.
+type SlurmWorkloadStorageMode string
+
+const (
+	SlurmWorkloadStorageSelfHosted SlurmWorkloadStorageMode = "self-hosted"
+	SlurmWorkloadStorageExternal   SlurmWorkloadStorageMode = "external"
+)
+
+// SlurmWorkloadStorageSpec is the optional shared filesystem for user/job data, distinct from
+// the controller StateSaveLocation. When Enabled it is mounted on every cluster node at
+// MountPath (a non-overlapping path, never /home). Self-hosted mode exports NFS from the login
+// node (so it requires a login node); external mode mounts an operator-supplied NFSURL and
+// runs no server. Type is nfs today. NFSMountOptions overrides the default mount options.
+type SlurmWorkloadStorageSpec struct {
+	Enabled         bool
+	Mode            SlurmWorkloadStorageMode
+	Type            SlurmStorageType
+	MountPath       string
+	NFSURL          string
+	NFSMountOptions string
 }
 
 // SlurmDeploymentSpec is the desired shape of a Slurm platform to build.
 //
-// Node roles are per-daemon flags (see SlurmNodeAssignment) rather than the single mutually
+// Node roles are per-role flags (see SlurmNodeAssignment) rather than the single mutually
 // exclusive NodeRole used by Kubernetes. ClusterName defaults to the platform name when
 // empty. StateSaveLocation is the slurmctld state directory and is optional: a single
 // controller uses a controller-local default from the playbook, and a highly available
 // (multi-controller) deployment gets a swallow-provisioned shared directory — the deploy use
-// case selects a state server and the playbook exports it over NFS and mounts it on every
-// controller (see buildSlurmVars). When set, StateSaveLocation overrides that directory path
-// in either mode. APIVersion pins the slurmrestd endpoint version recorded in the credential
-// when known; empty lets the reader fall back to its default.
+// case selects a state server (the login node when one is assigned, otherwise an off-controller
+// node) and the playbook exports it over NFS and mounts it on every controller (see
+// buildSlurmVars). When set, StateSaveLocation overrides that directory path. WorkloadStorage
+// is the optional shared filesystem for user data. APIVersion pins the slurmrestd endpoint
+// version recorded in the credential when known; empty lets the reader fall back to its default.
 type SlurmDeploymentSpec struct {
 	ClusterName       string
 	NodeAssignments   []SlurmNodeAssignment
 	APIVersion        string
 	StateSaveLocation string
+	WorkloadStorage   SlurmWorkloadStorageSpec
 }
 
 // ControllerServerIDs returns the slurmctld hosts in request order. The first entry is the
@@ -166,6 +199,28 @@ func (s SlurmDeploymentSpec) ComputeServerIDs() []string {
 	return ids
 }
 
+// LoginServerIDs returns the login (submission/client) hosts in request order. A login host
+// runs no cluster daemon of its own but may host the shared-storage NFS exports.
+func (s SlurmDeploymentSpec) LoginServerIDs() []string {
+	ids := make([]string, 0, len(s.NodeAssignments))
+	for _, assignment := range s.NodeAssignments {
+		if assignment.Login {
+			ids = append(ids, assignment.ServerID)
+		}
+	}
+	return ids
+}
+
+// PrimaryLoginID returns the first login host, or "" when none is assigned. It is the host
+// swallow uses as the self-hosted NFS server (controller state in HA, and workload storage).
+func (s SlurmDeploymentSpec) PrimaryLoginID() string {
+	logins := s.LoginServerIDs()
+	if len(logins) == 0 {
+		return ""
+	}
+	return logins[0]
+}
+
 // PrimaryControllerID returns the first controller, or "" when none is assigned. Validation
 // guarantees at least one controller, so a non-empty result is expected after validation.
 func (s SlurmDeploymentSpec) PrimaryControllerID() string {
@@ -176,9 +231,9 @@ func (s SlurmDeploymentSpec) PrimaryControllerID() string {
 	return controllers[0]
 }
 
-// ServerIDs returns every assigned Server (running either daemon) deduplicated in request
-// order. This is the set of deployment targets, since a Server may appear once as both a
-// controller and a compute node.
+// ServerIDs returns every assigned Server (any role) deduplicated in request order. This is
+// the set of deployment targets, since a Server may appear once carrying several roles (for
+// example controller and compute, or a login-only host).
 func (s SlurmDeploymentSpec) ServerIDs() []string {
 	seen := make(map[string]bool, len(s.NodeAssignments))
 	ids := make([]string, 0, len(s.NodeAssignments))

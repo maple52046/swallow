@@ -353,8 +353,18 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge、移除 Swallow 佈的
   設定/金鑰/controller state（保留 OS 與 image 套件），可選擇同時 release 成員機。已在 lab
   以 5 節點驗證(rc=0、platform → uninstalled)。
-- **非目標（後續）**：SlurmDBD/accounting、GRES/GPU 排程、production 等級/外部 HA shared
-  filesystem（目前為 lab 等級 managed NFS，見上）、login/submit 角色。
+- **login 角色 + workload 共享儲存**：Slurm 節點角色新增 **login**(提交/client 主機,不跑
+  cluster daemon;可兼任 NFS server)。`nodeAssignments[]` 帶 `login` 旗標,login-only 節點合法。
+  另新增**選用的 workload 共享檔案系統**(使用者/job 資料,與 controller state 分離),掛在所有
+  節點的非重疊路徑(預設 `/shared`,不可為 `/home`):`slurm.workloadStorage.mode` 為
+  `self-hosted`(由 login node 匯出 NFS,需有 login node)或 `external`(掛操作者提供的 `nfs.url`);
+  對應 roles `slurm_login`、`slurm_workload_storage_server`、`slurm_workload_storage_client`。
+  HA 時 state server 優先選 login node。支援兩種拓樸:single controller + n compute,以及
+  1 login + n controllers(HA)+ n compute(login 提供整個 cluster 的 NFS)。詳見
+  [ADR 024](../decisions/024-slurm-login-and-workload-storage.md)。
+- **非目標（後續）**：SlurmDBD/accounting、GRES/GPU 排程、production 等級/外部 HA controller-state
+  filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
+  workload filesystem、使用者/UID-GID 佈建（swallow 只提供 mount,不管身分）、`auth/slurm`。
 
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/deploy-slurm.yml) 與
 `playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、

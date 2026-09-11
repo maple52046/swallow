@@ -87,8 +87,12 @@ or `null`. These fields are derived by the API in a batch from durable Operation
 clients must not infer them from `integrationId`, membership, or sync freshness.
 
 `deployment` is the non-secret topology intent recovered from the latest durable
-`deploy-kubernetes` Operation. It contains `topology` as `standalone`, `multi-node`, or `high-availability` and the
-original `roleAssignments`, including `runWorkloads`.
+`deploy-kubernetes` or `configure-slurm` Operation. It contains `topology` as `standalone`,
+`multi-node`, or `high-availability` and the original `roleAssignments`, including
+`runWorkloads`. For a Slurm platform it also carries `loginServerIds` (present only when the
+deploy assigned login hosts): the login (submission) hosts, which run no cluster daemon and are
+neither role assignments nor members, so a client resolves them to a Server address to show
+which host to use to operate the cluster.
 It is `null` for registered Platforms and legacy deployment history that cannot be
 projected completely. A control-plane assignment with `runWorkloads=true` retains the
 `control-plane` Node Role while also being workload-capable; clients must not treat the
@@ -226,10 +230,17 @@ the compute daemon (`slurmd`), or both.
     "apiVersion": "v0.0.42",
     "stateSaveLocation": "",
     "nodeAssignments": [
-      { "serverId": "server-a", "controller": true, "compute": true },
-      { "serverId": "server-b", "controller": false, "compute": true },
-      { "serverId": "server-c", "controller": false, "compute": true }
-    ]
+      { "serverId": "server-a", "controller": true, "compute": false, "login": false },
+      { "serverId": "server-b", "controller": false, "compute": true, "login": false },
+      { "serverId": "server-c", "controller": false, "compute": true, "login": false },
+      { "serverId": "server-d", "controller": false, "compute": false, "login": true }
+    ],
+    "workloadStorage": {
+      "mode": "self-hosted",
+      "type": "nfs",
+      "mountPath": "/shared",
+      "nfs": { "url": "10.0.0.9:/export/data", "mountOptions": "" }
+    }
   },
   "machinePreparation": {
     "mode": "provision_os",
@@ -238,19 +249,28 @@ the compute daemon (`slurmd`), or both.
 }
 ```
 
-At least one Server must run `slurmctld` and at least one must run `slurmd`; a Server that
-runs neither is rejected, as is a Server assigned more than once. `gpuStackOwner` defaults
-to `provisioning` when omitted (Slurm has no in-platform GPU operator). In the `slurm`
-object every field except `nodeAssignments` is optional: `clusterName` defaults to a
-sanitized platform name; `apiVersion` pins the `slurmrestd` endpoint version recorded in the
-credential; `stateSaveLocation` is an optional override of the `slurmctld` state directory.
-A highly available deployment (more than one controller) needs a shared state directory, and
-Swallow now provisions it automatically — it selects a state server (an off-controller node
-when one exists, otherwise the primary controller), exports it over NFS, and mounts it on
-every controller before `slurmctld` starts — so `stateSaveLocation` is no longer required for
-HA; when supplied it overrides the directory path. The first controller in `nodeAssignments`
-is the primary: it mints the shared MUNGE key, hosts `slurmrestd`, and produces the reader
-credential.
+At least one Server must run `slurmctld` and at least one must run `slurmd`; a Server with no
+role (`controller`, `compute`, or `login`) is rejected, as is a Server assigned more than
+once. A `login` node is a submission/client host that runs no cluster daemon; it may host the
+shared-storage NFS exports and a login-only Server is valid. `gpuStackOwner` defaults to
+`provisioning` when omitted (Slurm has no in-platform GPU operator). In the `slurm` object
+every field except `nodeAssignments` is optional: `clusterName` defaults to a sanitized
+platform name; `apiVersion` pins the `slurmrestd` endpoint version recorded in the credential;
+`stateSaveLocation` is an optional override of the `slurmctld` state directory. A highly
+available deployment (more than one controller) needs a shared state directory, and Swallow
+provisions it automatically — it selects a state server (the login node when one is assigned,
+otherwise an off-controller node), exports it over NFS, and mounts it on every controller
+before `slurmctld` starts — so `stateSaveLocation` is not required for HA; when supplied it
+overrides the directory path. The first controller in `nodeAssignments` is the primary: it
+mints the shared MUNGE key, hosts `slurmrestd`, and produces the reader credential.
+
+`workloadStorage` is optional and configures a shared filesystem for user/job data (distinct
+from controller state), mounted on every node at `mountPath` (a non-overlapping path, never
+`/home`). Omit it for no shared filesystem. `type` is `nfs`. `mode` is `self-hosted` (Swallow
+exports NFS from the login node, so it requires one) or `external` (mount the operator's
+`nfs.url`, `host:/path`, with optional `nfs.mountOptions`). Swallow provides the mount, not
+cluster identity: consistent workload-user UID/GID across nodes is the operator's
+responsibility.
 
 The same target claim, lock, membership, and Site rules as Kubernetes apply. Success is the
 same `202 Accepted` shape. When the target image includes `slurm-smd-slurmrestd`, Swallow

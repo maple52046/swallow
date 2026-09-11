@@ -51,12 +51,23 @@ const (
 	varSlurmPlatformName        = "swallow_slurm_platform_name"
 	varSlurmControllerIDs       = "swallow_slurm_controller_ids"
 	varSlurmComputeIDs          = "swallow_slurm_compute_ids"
+	varSlurmLoginIDs            = "swallow_slurm_login_ids"
 	varSlurmPrimaryController   = "swallow_slurm_primary_controller_id"
 	varSlurmHighAvailability    = "swallow_slurm_high_availability"
 	varSlurmStateSaveLocation   = "swallow_slurm_state_save_location"
 	varSlurmControllerStateMode = "swallow_slurm_controller_state_mode"
 	varSlurmStateServer         = "swallow_slurm_state_server_id"
 	varSlurmStateExport         = "swallow_slurm_state_export"
+	varSlurmLoginConfigMode     = "swallow_slurm_login_config_mode"
+	varSlurmLoginUseSackd       = "swallow_slurm_login_use_sackd"
+	varSlurmWorkloadEnabled     = "swallow_slurm_workload_enabled"
+	varSlurmWorkloadMode        = "swallow_slurm_workload_mode"
+	varSlurmWorkloadMountPath   = "swallow_slurm_workload_mount_path"
+	varSlurmWorkloadFstype      = "swallow_slurm_workload_fstype"
+	varSlurmWorkloadMountOpts   = "swallow_slurm_workload_mount_options"
+	varSlurmWorkloadServer      = "swallow_slurm_workload_server_id"
+	varSlurmWorkloadExport      = "swallow_slurm_workload_export"
+	varSlurmWorkloadSource      = "swallow_slurm_workload_source"
 	varSlurmAPIVersion          = "swallow_slurm_api_version"
 )
 
@@ -297,8 +308,8 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	controllers := 0
 	computes := 0
 	for _, assignment := range spec.NodeAssignments {
-		if !assignment.Controller && !assignment.Compute {
-			return invalid, fmt.Errorf("%w: server %s must run slurmctld (controller) or slurmd (compute)",
+		if !assignment.Controller && !assignment.Compute && !assignment.Login {
+			return invalid, fmt.Errorf("%w: server %s must have a role: slurmctld (controller), slurmd (compute), or login",
 				platformdomain.ErrInvalidDeployment, assignment.ServerID)
 		}
 		if seenServer[assignment.ServerID] {
@@ -395,11 +406,69 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	spec.StateSaveLocation = strings.TrimSpace(spec.StateSaveLocation)
 	// A highly available (multi-controller) deploy needs one shared StateSaveLocation that
 	// every backup slurmctld can recover from. swallow provisions this automatically (a managed
-	// NFS export on a selected state server, mounted on every controller by the playbook), so
-	// stateSaveLocation is no longer required from the operator; when supplied it overrides the
-	// state directory path. See buildSlurmVars for the state-server selection.
+	// NFS export on the login node when one is assigned, otherwise an off-controller node,
+	// mounted on every controller by the playbook), so stateSaveLocation is no longer required
+	// from the operator; when supplied it overrides the state directory path. See buildSlurmVars.
+
+	normalized, err := validateSlurmWorkloadStorage(spec)
+	if err != nil {
+		return invalid, err
+	}
+	spec.WorkloadStorage = normalized
 
 	return validatedDeployment{slurmSpec: spec, targets: targets, machinePreparation: preparation}, nil
+}
+
+// defaultWorkloadMountPath is the shared workload filesystem mountpoint used when the operator
+// does not override it. It is deliberately not /home: mounting an (initially empty) share over
+// /home would hide the automation user's ~/.ssh and break SSH on every node.
+const defaultWorkloadMountPath = "/shared"
+
+// validateSlurmWorkloadStorage normalizes and checks the optional shared workload filesystem.
+// A disabled spec passes through untouched. NFS is the only supported type. Self-hosted mode
+// exports from the login node, so it requires one; external mode requires an operator NFS URL
+// (host:/path). The mount path must be absolute and must not overlay /home or the root.
+func validateSlurmWorkloadStorage(spec platformdomain.SlurmDeploymentSpec) (platformdomain.SlurmWorkloadStorageSpec, error) {
+	ws := spec.WorkloadStorage
+	if !ws.Enabled {
+		return platformdomain.SlurmWorkloadStorageSpec{}, nil
+	}
+	if ws.Type == "" {
+		ws.Type = platformdomain.SlurmStorageNFS
+	}
+	if ws.Type != platformdomain.SlurmStorageNFS {
+		return ws, fmt.Errorf("%w: workload storage type %q is not supported (only nfs)", platformdomain.ErrInvalidDeployment, ws.Type)
+	}
+	ws.MountPath = strings.TrimSpace(ws.MountPath)
+	if ws.MountPath == "" {
+		ws.MountPath = defaultWorkloadMountPath
+	}
+	if !strings.HasPrefix(ws.MountPath, "/") || ws.MountPath == "/" || ws.MountPath == "/home" {
+		return ws, fmt.Errorf("%w: workload storage mountPath must be an absolute path other than / or /home", platformdomain.ErrInvalidDeployment)
+	}
+	ws.NFSMountOptions = strings.TrimSpace(ws.NFSMountOptions)
+	switch ws.Mode {
+	case platformdomain.SlurmWorkloadStorageSelfHosted:
+		if spec.PrimaryLoginID() == "" {
+			return ws, fmt.Errorf("%w: self-hosted workload storage requires a login node to export it", platformdomain.ErrInvalidDeployment)
+		}
+		ws.NFSURL = ""
+	case platformdomain.SlurmWorkloadStorageExternal:
+		ws.NFSURL = strings.TrimSpace(ws.NFSURL)
+		if !isNFSURL(ws.NFSURL) {
+			return ws, fmt.Errorf("%w: external workload storage requires an NFS url of the form host:/path", platformdomain.ErrInvalidDeployment)
+		}
+	default:
+		return ws, fmt.Errorf("%w: workload storage mode must be self-hosted or external", platformdomain.ErrInvalidDeployment)
+	}
+	return ws, nil
+}
+
+// isNFSURL reports whether value is a host:/absolute-path NFS source, for example
+// "10.0.0.9:/export/data". It is a shape check, not a reachability check.
+func isNFSURL(value string) bool {
+	host, path, found := strings.Cut(value, ":")
+	return found && strings.TrimSpace(host) != "" && strings.HasPrefix(path, "/")
 }
 
 // validate resolves and checks topology, targets, and networks before any record exists.
@@ -722,8 +791,15 @@ func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.Slurm
 		varSlurmPlatformName:      platform.Name,
 		varSlurmControllerIDs:     spec.ControllerServerIDs(),
 		varSlurmComputeIDs:        spec.ComputeServerIDs(),
+		varSlurmLoginIDs:          spec.LoginServerIDs(),
 		varSlurmPrimaryController: spec.PrimaryControllerID(),
 		varSlurmHighAvailability:  spec.HighlyAvailable(),
+	}
+	if len(spec.LoginServerIDs()) > 0 {
+		// Login hosts are pure submission/client nodes here, so they use the cluster's
+		// configless discovery with a sackd-managed cache by default.
+		vars[varSlurmLoginConfigMode] = "configless"
+		vars[varSlurmLoginUseSackd] = true
 	}
 	if spec.HighlyAvailable() {
 		vars[varSlurmControllerStateMode] = "shared"
@@ -735,20 +811,51 @@ func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.Slurm
 	if spec.StateSaveLocation != "" {
 		vars[varSlurmStateSaveLocation] = spec.StateSaveLocation
 	}
+	addSlurmWorkloadVars(vars, spec)
 	if spec.APIVersion != "" {
 		vars[varSlurmAPIVersion] = spec.APIVersion
 	}
 	return vars
 }
 
+// addSlurmWorkloadVars sets the trusted vars for the optional shared workload filesystem. When
+// disabled it records only the disabled flag. Self-hosted mode names the login node as the NFS
+// server and a fixed export path; external mode passes the operator NFS source through. The
+// playbook mounts it on every node at the mount path with the guarded builtin mount.
+func addSlurmWorkloadVars(vars map[string]any, spec platformdomain.SlurmDeploymentSpec) {
+	ws := spec.WorkloadStorage
+	if !ws.Enabled {
+		vars[varSlurmWorkloadEnabled] = false
+		return
+	}
+	vars[varSlurmWorkloadEnabled] = true
+	vars[varSlurmWorkloadMode] = string(ws.Mode)
+	vars[varSlurmWorkloadMountPath] = ws.MountPath
+	vars[varSlurmWorkloadFstype] = "nfs4"
+	if ws.NFSMountOptions != "" {
+		vars[varSlurmWorkloadMountOpts] = ws.NFSMountOptions
+	}
+	switch ws.Mode {
+	case platformdomain.SlurmWorkloadStorageSelfHosted:
+		vars[varSlurmWorkloadServer] = spec.PrimaryLoginID()
+		vars[varSlurmWorkloadExport] = "/srv/slurm-workspace"
+	case platformdomain.SlurmWorkloadStorageExternal:
+		vars[varSlurmWorkloadSource] = ws.NFSURL
+	}
+}
+
 // slurmStateServerID selects the host that exports the shared controller StateSaveLocation for
-// an HA cluster. It prefers a compute-only node (compute and not a controller) so controller
+// an HA cluster. It prefers a login node when one is assigned (the login/NFS host in the
+// reference HA topology), then a compute-only node (compute and not a controller) so controller
 // state lives off the controllers — a controller-host loss then does not also lose state, and
-// no controller runs a kernel NFS loopback mount. When every node is also a controller it
-// falls back to the primary controller. The chosen host is a single storage failure domain
-// (a documented lab limitation, not storage HA). Assumes at least one controller exists, which
+// no controller runs a kernel NFS loopback mount. When every node is also a controller it falls
+// back to the primary controller. The chosen host is a single storage failure domain (a
+// documented lab limitation, not storage HA). Assumes at least one controller exists, which
 // deploy validation guarantees.
 func slurmStateServerID(spec platformdomain.SlurmDeploymentSpec) string {
+	if login := spec.PrimaryLoginID(); login != "" {
+		return login
+	}
 	controllers := make(map[string]bool, len(spec.NodeAssignments))
 	for _, id := range spec.ControllerServerIDs() {
 		controllers[id] = true

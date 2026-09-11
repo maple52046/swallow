@@ -1,0 +1,8 @@
+---
+- name: Reload workload exports
+  # exportfs -ra re-reads the exports without disturbing existing client mounts, so a converged
+  # rerun that changes nothing leaves current clients untouched.
+  ansible.builtin.command:
+    cmd: exportfs -ra
+  become: true
+  changed_when: true

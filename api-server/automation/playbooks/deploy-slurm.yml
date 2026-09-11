@@ -44,15 +44,35 @@
              if (swallow_slurm_state_server_id | default('')) | length > 0 else '' }}
         slurm_state_fstype: nfs4
         slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2
+        # Login (submission/client) host: pure client, configless + sackd by default.
+        slurm_is_login: "{{ inventory_hostname in (swallow_slurm_login_ids | default([])) }}"
+        slurm_login_config_mode: "{{ swallow_slurm_login_config_mode | default('configless', true) }}"
+        slurm_login_use_sackd: "{{ swallow_slurm_login_use_sackd | default(true) }}"
+        # Shared workload filesystem (user/job data), distinct from controller state. Enabled
+        # only when the operator configured it; self-hosted exports from the login node, while
+        # external uses an operator-supplied NFS source. Mounted on every node at the mount path.
+        slurm_workload_enabled: "{{ swallow_slurm_workload_enabled | default(false) | bool }}"
+        slurm_is_workload_server: "{{ inventory_hostname == (swallow_slurm_workload_server_id | default('')) }}"
+        slurm_workload_export: "{{ swallow_slurm_workload_export | default('/srv/slurm-workspace', true) }}"
+        slurm_workload_mount_path: "{{ swallow_slurm_workload_mount_path | default('/shared', true) }}"
+        slurm_workload_source: >-
+          {{ swallow_slurm_workload_source
+             | default((hostvars[swallow_slurm_workload_server_id].ansible_host ~ ':' ~ (swallow_slurm_workload_export | default('/srv/slurm-workspace', true)))
+                       if (swallow_slurm_workload_server_id | default('')) | length > 0 else '', true) }}
+        slurm_workload_fstype: "{{ swallow_slurm_workload_fstype | default('nfs4', true) }}"
+        slurm_workload_mount_options: "{{ swallow_slurm_workload_mount_options | default('rw,_netdev,hard,timeo=600,retrans=2', true) }}"
         slurm_conf_dir: /etc/slurm
         slurm_log_dir: /var/log/slurm
         slurm_jwt_key_path: /etc/slurm/jwt_hs256.key
         slurmrestd_port: 6820
 
-    - name: Fail on a host with no Slurm daemon
+    - name: Fail on a host with no Slurm role
       ansible.builtin.fail:
-        msg: "server {{ inventory_hostname }} is neither a controller nor a compute node"
-      when: not (slurm_is_controller | bool) and not (slurm_is_compute | bool)
+        msg: "server {{ inventory_hostname }} has no Slurm role (controller, compute, or login)"
+      when:
+        - not (slurm_is_controller | bool)
+        - not (slurm_is_compute | bool)
+        - not (slurm_is_login | bool)
 
     - name: Group controllers
       ansible.builtin.group_by:
@@ -61,6 +81,10 @@
     - name: Group compute nodes
       ansible.builtin.group_by:
         key: "slurm_{{ 'compute' if slurm_is_compute | bool else 'noncompute' }}"
+
+    - name: Group login nodes
+      ansible.builtin.group_by:
+        key: "slurm_{{ 'login' if slurm_is_login | bool else 'nonlogin' }}"
 
     - name: Group the primary controller
       ansible.builtin.group_by:
@@ -71,6 +95,17 @@
       # the state-server play below no-ops for a single-controller deploy.
       ansible.builtin.group_by:
         key: "slurm_{{ 'state_server' if slurm_is_state_server | bool else 'nonstate' }}"
+
+    - name: Group the workload storage server
+      # Only the selected self-hosted server host (the login node) joins; empty for external or
+      # no workload storage, so the workload-server play no-ops.
+      ansible.builtin.group_by:
+        key: "slurm_{{ 'workload_server' if (slurm_workload_enabled | bool and slurm_is_workload_server | bool) else 'nonworkload_server' }}"
+
+    - name: Group workload storage clients
+      # Every node mounts the workload filesystem when it is enabled; empty otherwise.
+      ansible.builtin.group_by:
+        key: "slurm_{{ 'workload_client' if slurm_workload_enabled | bool else 'nonworkload_client' }}"
   roles:
     - role: slurm_preflight
     - role: slurm_packages_verify
@@ -143,6 +178,31 @@
   gather_facts: false
   roles:
     - role: slurm_compute
+
+- name: Configure login (submission) hosts
+  # Pure client hosts: configless discovery from the controllers (sackd cache by default).
+  # Runs after the controllers are up so discovery succeeds. No hosts in a topology without a
+  # login node.
+  hosts: slurm_login
+  gather_facts: false
+  roles:
+    - role: slurm_login
+
+- name: Provision the shared workload NFS export
+  # Self-hosted workload storage only: the login node exports the workload filesystem to every
+  # node. No hosts for external or no workload storage, so this no-ops. Runs before clients mount.
+  hosts: slurm_workload_server
+  gather_facts: false
+  roles:
+    - role: slurm_workload_storage_server
+
+- name: Mount the shared workload filesystem on every node
+  # Runs on all nodes when workload storage is enabled (self-hosted or external). No hosts when
+  # workload storage is disabled.
+  hosts: slurm_workload_client
+  gather_facts: false
+  roles:
+    - role: slurm_workload_storage_client
 
 - name: Expose slurmrestd, verify the cluster, and record the Swallow credential
   hosts: slurm_primary

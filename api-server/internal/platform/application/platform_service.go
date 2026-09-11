@@ -75,10 +75,13 @@ type PlatformItem struct {
 }
 
 // PlatformDeploymentItem explains topology and workload co-location without exposing
-// runner variables or conflating the Node Role with workload capability.
+// runner variables or conflating the Node Role with workload capability. LoginServerIDs names
+// the Slurm login (submission) hosts, which are neither role assignments nor members; a read
+// model resolves them to an address to tell the operator which host to use to run the cluster.
 type PlatformDeploymentItem struct {
 	Topology        string                       `json:"topology"`
 	RoleAssignments []PlatformRoleAssignmentItem `json:"roleAssignments"`
+	LoginServerIDs  []string                     `json:"loginServerIds,omitempty"`
 }
 
 // PlatformRoleAssignmentItem is one deployment target's desired role and placement.
@@ -391,6 +394,7 @@ func toPlatformDeploymentItem(operation *platformdomain.LifecycleOperation) *Pla
 	}
 	return &PlatformDeploymentItem{
 		Topology: string(operation.Intent.Topology), RoleAssignments: assignments,
+		LoginServerIDs: operation.Intent.LoginServerIDs,
 	}
 }
 

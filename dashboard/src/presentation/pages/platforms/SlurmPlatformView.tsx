@@ -29,10 +29,12 @@ import { useSlurmCluster } from './useSlurmCluster'
 export function SlurmPlatformView({
   platform,
   members,
+  loginNodes,
   onSelect,
 }: {
   platform: Platform
   members: Server[]
+  loginNodes: Server[]
   onSelect: (server: Server) => void
 }) {
   const clusterState = useSlurmCluster(platform.id, platform.integrationId)
@@ -73,6 +75,8 @@ export function SlurmPlatformView({
         ]}
       />
 
+      <ClusterAccessSection loginNodes={loginNodes} onSelect={onSelect} />
+
       {clusterState.status === 'unavailable' && (
         <Alert variant={AlertVariant.info} title="Live Slurm state is unavailable" isInline>
           Showing the recorded deployment topology and last-synced membership. Live controllers,
@@ -98,6 +102,55 @@ export function SlurmPlatformView({
         onSelect={onSelect}
       />
     </>
+  )
+}
+
+/**
+ * Cluster access: which host and IP to use to operate the cluster (submit jobs). A Slurm login
+ * node is the submission host; it runs no cluster daemon and carries no membership, so it is not
+ * in the controllers/compute tables. Shown only when the deployment has a login node; a cluster
+ * without one is operated from a controller and needs no callout here.
+ */
+function ClusterAccessSection({
+  loginNodes,
+  onSelect,
+}: {
+  loginNodes: Server[]
+  onSelect: (server: Server) => void
+}) {
+  if (loginNodes.length === 0) return null
+  return (
+    <section className="sw-section">
+      <SectionHeader
+        title="Cluster access"
+        description="Use a login node to operate the cluster: SSH in and submit jobs with sbatch/srun."
+      />
+      <StickyTableFrame>
+        <Table aria-label="Slurm login nodes" variant="compact">
+          <Thead>
+            <Tr><Th>Login node</Th><Th>Access address</Th></Tr>
+          </Thead>
+          <Tbody>
+            {loginNodes.map((server) => {
+              const address = serverPrimaryAddress(server)
+              return (
+                <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
+                  <Td dataLabel="Login node">
+                    <strong>{serverDisplayName(server)}</strong>
+                  </Td>
+                  <Td dataLabel="Access address" className="mono">
+                    <span className="sw-cell-inline">
+                      {address ?? '-'}
+                      {address && <CopyButton value={address} label="Copy login node address" />}
+                    </span>
+                  </Td>
+                </Tr>
+              )
+            })}
+          </Tbody>
+        </Table>
+      </StickyTableFrame>
+    </section>
   )
 }
 

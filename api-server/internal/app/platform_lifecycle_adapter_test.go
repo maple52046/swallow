@@ -142,3 +142,29 @@ func TestDeploymentIntentProjectsStandaloneWorkloadController(t *testing.T) {
 		t.Errorf("standalone role assignments = %+v", intent.RoleAssignments)
 	}
 }
+
+// A Slurm login host runs no cluster daemon, so it is not a role assignment; it must still be
+// projected in LoginServerIDs so the read model can show the cluster access point.
+func TestDeploymentIntentSlurmProjectsLoginNodes(t *testing.T) {
+	intent := deploymentIntentSlurm(&operationdomain.Workflow{
+		TargetServerIDs: []string{"c1", "w1", "login1"},
+		Intent: map[string]any{
+			"extraVars": map[string]any{
+				"swallow_slurm_controller_ids": []string{"c1"},
+				"swallow_slurm_compute_ids":    []string{"w1"},
+				"swallow_slurm_login_ids":      []string{"login1"},
+			},
+		},
+	})
+	if intent == nil {
+		t.Fatal("expected a Slurm deployment intent")
+	}
+	if len(intent.LoginServerIDs) != 1 || intent.LoginServerIDs[0] != "login1" {
+		t.Errorf("login server ids = %v, want [login1]", intent.LoginServerIDs)
+	}
+	for _, assignment := range intent.RoleAssignments {
+		if assignment.ServerID == "login1" {
+			t.Errorf("a login-only node must not be a role assignment: %+v", assignment)
+		}
+	}
+}

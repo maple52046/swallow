@@ -96,3 +96,77 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 		t.Error("the backup controller play must target slurm_controller:!slurm_primary")
 	}
 }
+
+// The login role and workload shared storage (self-hosted from the login node, or external)
+// depend on the playbook wiring the login/workload facts, groups, and plays. These assertions
+// pin that wiring so a refactor cannot silently drop login submission or workload mounts.
+func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "automation", "playbooks")
+	cases := []struct {
+		path     string
+		required []string
+	}{
+		{
+			path: "deploy-slurm.yml",
+			required: []string{
+				"swallow_slurm_login_ids",
+				"swallow_slurm_workload_enabled",
+				"swallow_slurm_workload_source",
+				"hosts: slurm_login",
+				"role: slurm_login",
+				"hosts: slurm_workload_server",
+				"role: slurm_workload_storage_server",
+				"hosts: slurm_workload_client",
+				"role: slurm_workload_storage_client",
+			},
+		},
+		{
+			path:     filepath.Join("roles", "slurm_login", "tasks", "main.yml"),
+			required: []string{"SACKD_OPTIONS", "slurm_login_config_mode == 'configless'"},
+		},
+		{
+			path:     filepath.Join("roles", "slurm_workload_storage_server", "tasks", "main.yml"),
+			required: []string{"nfs-kernel-server", "groups['slurm_workload_client']", "root_squash"},
+		},
+		{
+			path: filepath.Join("roles", "slurm_workload_storage_client", "tasks", "main.yml"),
+			required: []string{
+				"nfs-common",
+				"argv: [mountpoint, -q, \"{{ slurm_workload_mount_path }}\"]",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(root, tc.path))
+			if err != nil {
+				t.Fatalf("read playbook artifact: %v", err)
+			}
+			content := string(raw)
+			for _, required := range tc.required {
+				if !strings.Contains(content, required) {
+					t.Errorf("%s missing %q", tc.path, required)
+				}
+			}
+		})
+	}
+
+	// The workload client play must run after the compute play (the workload filesystem is for
+	// jobs, and mounting on all nodes is a post-cluster add-on), and the login play after the
+	// controllers are up so configless discovery succeeds.
+	deploy, err := os.ReadFile(filepath.Join(root, "deploy-slurm.yml"))
+	if err != nil {
+		t.Fatalf("read deploy-slurm.yml: %v", err)
+	}
+	content := string(deploy)
+	computePlay := strings.Index(content, "Configure compute nodes and start slurmd")
+	loginPlay := strings.Index(content, "hosts: slurm_login")
+	workloadClientPlay := strings.Index(content, "hosts: slurm_workload_client")
+	if computePlay == -1 || loginPlay == -1 || workloadClientPlay == -1 {
+		t.Fatal("deploy-slurm.yml must define the compute, login, and workload-client plays")
+	}
+	if !(computePlay < loginPlay && loginPlay < workloadClientPlay) {
+		t.Errorf("play order must be compute -> login -> workload client, got %d, %d, %d",
+			computePlay, loginPlay, workloadClientPlay)
+	}
+}

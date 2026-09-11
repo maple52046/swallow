@@ -32,11 +32,26 @@ async function withDeploymentControllers(
   return controllers.length === 0 ? members : [...members, ...controllers]
 }
 
+/**
+ * Fetches the Slurm login (submission) hosts named by the deployment intent. Login hosts run no
+ * cluster daemon and carry no membership, so they are not in the member list; the Slurm view
+ * shows their address as the cluster access point. A failed lookup is skipped so one unreadable
+ * Server cannot blank the page, and a non-Slurm platform yields an empty list.
+ */
+async function fetchLoginNodes(platform: Platform, servers: ServerRepository): Promise<Server[]> {
+  const ids = platform.deployment?.loginServerIds ?? []
+  if (ids.length === 0) return []
+  const fetched = await Promise.all(ids.map((id) => servers.getServer(id).catch(() => null)))
+  return fetched.filter((server): server is Server => server !== null)
+}
+
 /** Combined Platform page projection; members and Operations may degrade to empty independently. */
 export interface PlatformDetailData {
   platform: Platform
   /** Servers the platform's own API reports as members, read through the membership axis. */
   members: Server[]
+  /** Slurm login (submission) hosts from the deployment intent; empty otherwise. */
+  loginNodes: Server[]
   /** Operations concerning this platform, most recent first. */
   operations: Operation[]
   reload: () => void
@@ -94,12 +109,16 @@ export function usePlatformDetail(id: string | undefined): PlatformDetailState {
             return
           }
           // Slurm controllers are not scheduler members, so merge them in from the deployment
-          // intent before publishing state; k0s is unaffected.
-          const mergedMembers = await withDeploymentControllers(platform, members, servers)
+          // intent before publishing state; k0s is unaffected. Login hosts are fetched
+          // separately (they carry no membership) for the cluster access point.
+          const [mergedMembers, loginNodes] = await Promise.all([
+            withDeploymentControllers(platform, members, servers),
+            fetchLoginNodes(platform, servers),
+          ])
           if (cancelled) return
           setState({
             status: 'ready',
-            data: { platform, members: mergedMembers, operations: relatedOperations, reload },
+            data: { platform, members: mergedMembers, loginNodes, operations: relatedOperations, reload },
           })
           if (lifecycleCanChangeWithoutInput(platform)) {
             timer = setTimeout(load, LIFECYCLE_POLL_INTERVAL_MS)

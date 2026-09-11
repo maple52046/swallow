@@ -71,7 +71,7 @@ export function PlatformDetailPage() {
     return <><PageHeader title="Platform" /><ErrorState message={state.message} /></>
   }
 
-  const { platform, members, operations, reload } = state.data
+  const { platform, members, loginNodes, operations, reload } = state.data
   const isKubernetes = platform.type === 'kubernetes'
   const lifecycleOperation = operations.find(
     (operation) => operation.id === platform.lifecycleOperationId,
@@ -134,7 +134,7 @@ export function PlatformDetailPage() {
       {isKubernetes ? (
         <KubernetesPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
       ) : (
-        <SlurmPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
+        <SlurmPlatformView platform={platform} members={members} loginNodes={loginNodes} onSelect={(server) => openServer(server.id)} />
       )}
 
       <section className="sw-section">
