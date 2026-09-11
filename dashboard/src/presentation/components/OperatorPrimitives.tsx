@@ -1,7 +1,10 @@
-import { Content, Title, Toolbar, ToolbarContent } from '@patternfly/react-core'
+import { Flex, Heading, Text } from '@chakra-ui/react'
 import type { ReactNode } from 'react'
 
-/** One operator KPI. Tone is semantic and always accompanies a visible label/detail. */
+/**
+ * One operator KPI. `tone` is a semantic accent that always accompanies a visible
+ * label and value, so a metric is never distinguished by colour alone.
+ */
 export interface StatItem {
   label: string
   value: ReactNode
@@ -9,7 +12,13 @@ export interface StatItem {
   tone?: 'neutral' | 'success' | 'warning' | 'critical'
 }
 
-/** Compact unframed KPI band used for cross-resource scanning. */
+/**
+ * Compact, unframed KPI band used for cross-resource scanning.
+ *
+ * Structural layout comes from the shared `sw-stat-strip` styles (retuned to the
+ * Chakra theme); each stat carries a data-tone the stylesheet maps to a status
+ * colour for the value.
+ */
 export function StatStrip({ items }: { items: StatItem[] }) {
   return (
     <dl className="sw-stat-strip">
@@ -24,7 +33,11 @@ export function StatStrip({ items }: { items: StatItem[] }) {
   )
 }
 
-/** Consistent section heading for tables, detail groups, and workspaces. */
+/**
+ * Consistent section heading for tables, detail groups, and workspaces. The
+ * `plain` variant drops the framed chrome for headings that sit inside an already
+ * bordered surface.
+ */
 export function SectionHeader({
   title,
   description,
@@ -39,20 +52,37 @@ export function SectionHeader({
   return (
     <div className={`sw-section-header${variant === 'plain' ? ' sw-section-header--plain' : ''}`}>
       <div>
-        <Title headingLevel="h2" size="lg">{title}</Title>
-        {description && <Content component="p">{description}</Content>}
+        <Heading as="h2" size="md">
+          {title}
+        </Heading>
+        {description && (
+          <Text color="fg.muted" mt="1">
+            {description}
+          </Text>
+        )}
       </div>
       {actions && <div className="sw-section-header__actions">{actions}</div>}
     </div>
   )
 }
 
-/** PatternFly toolbar pinned above a large working set, optionally without outer chrome. */
+/**
+ * Toolbar pinned above a large working set, optionally without outer chrome.
+ *
+ * A horizontal, wrapping band; consumers arrange filter/search/action controls as
+ * children. The sticky positioning and surface come from the shared
+ * `sw-data-toolbar` styles.
+ */
 export function DataToolbar({ children, variant = 'default' }: { children: ReactNode; variant?: 'default' | 'plain' }) {
   return (
-    <Toolbar className={`sw-data-toolbar${variant === 'plain' ? ' sw-data-toolbar--plain' : ''}`} clearAllFilters={() => undefined}>
-      <ToolbarContent>{children}</ToolbarContent>
-    </Toolbar>
+    <Flex
+      className={`sw-data-toolbar${variant === 'plain' ? ' sw-data-toolbar--plain' : ''}`}
+      align="center"
+      gap="3"
+      wrap="wrap"
+    >
+      {children}
+    </Flex>
   )
 }
 
@@ -70,7 +100,7 @@ export function KeyValueGrid({ items }: { items: Array<{ label: string; value: R
   )
 }
 
-/** Horizontal overflow boundary with a sticky PatternFly table header. */
+/** Horizontal overflow boundary with a sticky table header for wide data tables. */
 export function StickyTableFrame({ children }: { children: ReactNode }) {
   return <div className="sw-table-frame">{children}</div>
 }

@@ -1,22 +1,26 @@
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
-import '@patternfly/react-core/dist/styles/base.css'
 import './index.css'
 import { router } from './router'
-import { AppearanceProvider } from './presentation/app/theme/AppearanceProvider'
-import { ToastProvider } from './presentation/components/toast/ToastProvider'
+import { Provider } from './presentation/components/ui/provider'
+import { Toaster } from './presentation/components/ui/toaster'
 import { AppProvider } from './di/AppProvider'
 import { AuthProvider } from './presentation/contexts/AuthContext'
 
-/** Browser composition root for the Swallow operator console. */
+/**
+ * Browser composition root for the Swallow operator console.
+ *
+ * `Provider` owns styling (Chakra system + color mode); the DI container and auth
+ * providers sit inside it so screens resolve use cases and the current user, and
+ * the router renders the app. `Toaster` is the single global toast host.
+ */
 createRoot(document.getElementById('root')!).render(
-  <AppearanceProvider>
-    <ToastProvider>
-      <AppProvider>
-        <AuthProvider>
-          <RouterProvider router={router} />
-        </AuthProvider>
-      </AppProvider>
-    </ToastProvider>
-  </AppearanceProvider>,
+  <Provider>
+    <AppProvider>
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </AppProvider>
+    <Toaster />
+  </Provider>,
 )

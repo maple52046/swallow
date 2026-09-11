@@ -1,17 +1,9 @@
 import { useState } from 'react'
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  FormGroup,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  TextInput,
-} from '@patternfly/react-core'
+import { Button, Field, Input, Stack } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Modal } from '@/presentation/components/ui/modal'
 
 interface ServerDeleteDialogProps {
   serverId: string
@@ -24,16 +16,11 @@ interface ServerDeleteDialogProps {
  * Confirms the provider-backed deletion shared by Server list rows and the detail page.
  *
  * The operator must type the displayed Server name before the destructive call is enabled.
- * Success means the backend removed both the provisioner's Machine and the Swallow
- * projection; provider safeguards can refuse the request and are shown inline without
- * closing the dialog. The parent owns navigation or list refresh after `onDeleted`.
+ * Success means the backend removed both the provisioner's Machine and the Swallow projection;
+ * provider safeguards can refuse the request and are shown inline without closing the dialog.
+ * The parent owns navigation or list refresh after `onDeleted`.
  */
-export function ServerDeleteDialog({
-  serverId,
-  serverName,
-  onClose,
-  onDeleted,
-}: ServerDeleteDialogProps) {
+export function ServerDeleteDialog({ serverId, serverName, onClose, onDeleted }: ServerDeleteDialogProps) {
   const { servers } = useApp()
   const { showToast } = useToast()
   const [confirmation, setConfirmation] = useState('')
@@ -50,11 +37,7 @@ export function ServerDeleteDialog({
     setError('')
     try {
       await servers.deleteServer(serverId)
-      showToast({
-        tone: 'success',
-        title: 'Server deleted',
-        description: `${serverName} was removed from the provisioner and Swallow.`,
-      })
+      showToast({ tone: 'success', title: 'Server deleted', description: `${serverName} was removed from the provisioner and Swallow.` })
       onDeleted()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not delete the Server.')
@@ -65,56 +48,49 @@ export function ServerDeleteDialog({
 
   return (
     <Modal
-      isOpen
+      open
       onClose={close}
-      variant="small"
-      aria-labelledby="server-delete-title"
+      role="alertdialog"
+      closeOnInteractOutside={!submitting}
+      title="Delete server"
+      description="This permanently removes the provisioner's Machine and its Swallow Server record."
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" colorPalette="red" loading={submitting} disabled={confirmation !== serverName || submitting}>
+            Delete server
+          </Button>
+        </>
+      }
     >
-      <ModalHeader
-        title="Delete server"
-        labelId="server-delete-title"
-        description="This permanently removes the provisioner's Machine and its Swallow Server record."
-      />
-      <ModalBody>
+      <Stack gap="4">
         {error && (
-          <Alert variant={AlertVariant.danger} title="Server could not be deleted" isInline>
+          <Alert status="error" title="Server could not be deleted">
             {error}
           </Alert>
         )}
-        <Alert variant={AlertVariant.warning} title="This cannot be undone" isInline>
-          Swallow asks the provisioner to delete the Machine first. Provider safeguards are
-          not force-overridden; if deletion is refused, neither record is removed.
+        <Alert status="warning" title="This cannot be undone">
+          Swallow asks the provisioner to delete the Machine first. Provider safeguards are not force-overridden; if
+          deletion is refused, neither record is removed.
         </Alert>
-        <FormGroup
-          label={`Type "${serverName}" to confirm`}
-          isRequired
-          fieldId="server-delete-confirmation"
-        >
-          <TextInput
-            id="server-delete-confirmation"
+        <Field.Root required>
+          <Field.Label>
+            Type "{serverName}" to confirm <Field.RequiredIndicator />
+          </Field.Label>
+          <Input
             value={confirmation}
-            onChange={(_event, value) => setConfirmation(value)}
+            onChange={(event) => setConfirmation(event.target.value)}
             autoFocus
             aria-label="Server name confirmation"
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void submit()
-            }}
           />
-        </FormGroup>
-      </ModalBody>
-      <ModalFooter>
-        <Button
-          variant="danger"
-          onClick={() => void submit()}
-          isLoading={submitting}
-          isDisabled={confirmation !== serverName || submitting}
-        >
-          Delete server
-        </Button>
-        <Button variant="link" onClick={close} isDisabled={submitting}>
-          Cancel
-        </Button>
-      </ModalFooter>
+        </Field.Root>
+      </Stack>
     </Modal>
   )
 }

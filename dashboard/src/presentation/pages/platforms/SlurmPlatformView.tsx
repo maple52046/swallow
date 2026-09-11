@@ -1,19 +1,19 @@
 import { useMemo } from 'react'
-import { Alert, AlertVariant } from '@patternfly/react-core'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
-import type {
-  Platform,
-  SlurmClusterNode,
-  SlurmController,
-  SlurmPartition,
-} from '@/domain/platform/types'
+import { Table } from '@chakra-ui/react'
+import type { Platform, SlurmClusterNode, SlurmController, SlurmPartition } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { SectionHeader, StatStrip, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { Alert } from '@/presentation/components/ui/alert'
 import { platformLifecycleKpi, platformSyncKpis, topologyLabel } from './platformDetailShared'
 import { useSlurmCluster } from './useSlurmCluster'
+
+/** Row interaction props applied only when the row maps to a real Server (so it can be opened). */
+function rowNav(server: Server | undefined, onSelect: (server: Server) => void) {
+  return server ? { cursor: 'pointer' as const, _hover: { bg: 'bg.subtle' }, onClick: () => onSelect(server) } : {}
+}
 
 /**
  * The Slurm-specific body of the platform detail page.
@@ -21,9 +21,8 @@ import { useSlurmCluster } from './useSlurmCluster'
  * Slurm is structurally different from Kubernetes: slurmctld controllers are not scheduler
  * nodes, compute nodes carry Slurm scheduler state, and partitions are first-class. This view
  * reads that live state on demand from slurmrestd (controllers via ping, partitions, node
- * states) and renders each in its own section. When the live read is unavailable (no
- * slurmrestd integration recorded yet, or slurmrestd unreachable) it degrades to the
- * deployment intent (controllers) plus the membership axis (compute), never borrowing the
+ * states) and renders each in its own section. When the live read is unavailable it degrades to
+ * the deployment intent (controllers) plus the membership axis (compute), never borrowing the
  * monitoring health or host-power axes for a node's state.
  */
 export function SlurmPlatformView({
@@ -41,12 +40,8 @@ export function SlurmPlatformView({
   const live = clusterState.status === 'ready' ? clusterState.cluster : null
   const serverIndex = useMemo(() => buildServerIndex(members), [members])
 
-  const intendedControllers = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'control-plane',
-  ) ?? []
-  const workloadCapable = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'worker' || assignment.runWorkloads,
-  ) ?? []
+  const intendedControllers = platform.deployment?.roleAssignments.filter((assignment) => assignment.role === 'control-plane') ?? []
+  const workloadCapable = platform.deployment?.roleAssignments.filter((assignment) => assignment.role === 'worker' || assignment.runWorkloads) ?? []
 
   const managerCount = live ? live.controllers.length : intendedControllers.length
   const computeCount = live ? live.nodes.length : workloadCapable.length
@@ -58,19 +53,9 @@ export function SlurmPlatformView({
       <StatStrip
         items={[
           platformLifecycleKpi(platform),
-          ...(platform.deployment
-            ? [{ label: 'Topology', value: topologyLabel(platform.deployment.topology) }]
-            : []),
-          {
-            label: 'Managers',
-            value: managerCount,
-            detail: live ? `${managersUp}/${managerCount} up` : 'From deploy intent',
-          },
-          {
-            label: 'Compute nodes',
-            value: computeCount,
-            detail: live ? `${nodesIdle} idle` : 'From deploy intent',
-          },
+          ...(platform.deployment ? [{ label: 'Topology', value: topologyLabel(platform.deployment.topology) }] : []),
+          { label: 'Managers', value: managerCount, detail: live ? `${managersUp}/${managerCount} up` : 'From deploy intent' },
+          { label: 'Compute nodes', value: computeCount, detail: live ? `${nodesIdle} idle` : 'From deploy intent' },
           ...platformSyncKpis(platform),
         ]}
       />
@@ -78,10 +63,9 @@ export function SlurmPlatformView({
       <ClusterAccessSection loginNodes={loginNodes} onSelect={onSelect} />
 
       {clusterState.status === 'unavailable' && (
-        <Alert variant={AlertVariant.info} title="Live Slurm state is unavailable" isInline>
-          Showing the recorded deployment topology and last-synced membership. Live controllers,
-          partitions, and node states appear once slurmrestd is reachable (the image must include
-          slurm-smd-slurmrestd and the platform must have its Slurm integration recorded).
+        <Alert status="info" title="Live Slurm state is unavailable">
+          Showing the recorded deployment topology and last-synced membership. Live controllers, partitions, and node states appear once slurmrestd is
+          reachable (the image must include slurm-smd-slurmrestd and the platform must have its Slurm integration recorded).
         </Alert>
       )}
 
@@ -95,12 +79,7 @@ export function SlurmPlatformView({
 
       {live && live.partitions.length > 0 && <PartitionsSection partitions={live.partitions} />}
 
-      <ComputeNodesSection
-        live={live?.nodes ?? null}
-        members={members}
-        serverIndex={serverIndex}
-        onSelect={onSelect}
-      />
+      <ComputeNodesSection live={live?.nodes ?? null} members={members} serverIndex={serverIndex} onSelect={onSelect} />
     </>
   )
 }
@@ -108,47 +87,37 @@ export function SlurmPlatformView({
 /**
  * Cluster access: which host and IP to use to operate the cluster (submit jobs). A Slurm login
  * node is the submission host; it runs no cluster daemon and carries no membership, so it is not
- * in the controllers/compute tables. Shown only when the deployment has a login node; a cluster
- * without one is operated from a controller and needs no callout here.
+ * in the controllers/compute tables. Shown only when the deployment has a login node.
  */
-function ClusterAccessSection({
-  loginNodes,
-  onSelect,
-}: {
-  loginNodes: Server[]
-  onSelect: (server: Server) => void
-}) {
+function ClusterAccessSection({ loginNodes, onSelect }: { loginNodes: Server[]; onSelect: (server: Server) => void }) {
   if (loginNodes.length === 0) return null
   return (
     <section className="sw-section">
-      <SectionHeader
-        title="Cluster access"
-        description="Use a login node to operate the cluster: SSH in and submit jobs with sbatch/srun."
-      />
+      <SectionHeader title="Cluster access" description="Use a login node to operate the cluster: SSH in and submit jobs with sbatch/srun." />
       <StickyTableFrame>
-        <Table aria-label="Slurm login nodes" variant="compact">
-          <Thead>
-            <Tr><Th>Login node</Th><Th>Access address</Th></Tr>
-          </Thead>
-          <Tbody>
+        <Table.Root size="sm" aria-label="Slurm login nodes">
+          <Table.Header>
+            <Table.Row><Table.ColumnHeader>Login node</Table.ColumnHeader><Table.ColumnHeader>Access address</Table.ColumnHeader></Table.Row>
+          </Table.Header>
+          <Table.Body>
             {loginNodes.map((server) => {
               const address = serverPrimaryAddress(server)
               return (
-                <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
-                  <Td dataLabel="Login node">
+                <Table.Row key={server.id} {...rowNav(server, onSelect)}>
+                  <Table.Cell>
                     <strong>{serverDisplayName(server)}</strong>
-                  </Td>
-                  <Td dataLabel="Access address" className="mono">
+                  </Table.Cell>
+                  <Table.Cell className="mono">
                     <span className="sw-cell-inline">
                       {address ?? '-'}
                       {address && <CopyButton value={address} label="Copy login node address" />}
                     </span>
-                  </Td>
-                </Tr>
+                  </Table.Cell>
+                </Table.Row>
               )
             })}
-          </Tbody>
-        </Table>
+          </Table.Body>
+        </Table.Root>
       </StickyTableFrame>
     </section>
   )
@@ -179,69 +148,65 @@ function ControllersSection({
           <EmptyState title="No controllers" message="slurmrestd reported no controllers." />
         ) : (
           <StickyTableFrame>
-            <Table aria-label="Slurm controllers" variant="compact">
-              <Thead>
-                <Tr><Th>Controller</Th><Th>Role</Th><Th>Status</Th></Tr>
-              </Thead>
-              <Tbody>
+            <Table.Root size="sm" aria-label="Slurm controllers">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Controller</Table.ColumnHeader><Table.ColumnHeader>Role</Table.ColumnHeader><Table.ColumnHeader>Status</Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
                 {live.map((controller) => {
                   const server = matchServer(serverIndex, controller.hostname)
                   return (
-                    <Tr
-                      key={controller.hostname}
-                      isClickable={Boolean(server)}
-                      onRowClick={server ? () => onSelect(server) : undefined}
-                    >
-                      <Td dataLabel="Controller">
+                    <Table.Row key={controller.hostname} {...rowNav(server, onSelect)}>
+                      <Table.Cell>
                         <span className="sw-cell-inline">
                           <strong>{controller.hostname}</strong>
                           <CopyButton value={controller.hostname} label="Copy controller name" />
                         </span>
-                      </Td>
-                      <Td dataLabel="Role">
+                      </Table.Cell>
+                      <Table.Cell>
                         <StatusBadge status="info" label={controller.primary ? 'primary' : 'backup'} />
-                      </Td>
-                      <Td dataLabel="Status"><StatusBadge status={controller.status} /></Td>
-                    </Tr>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <StatusBadge status={controller.status} />
+                      </Table.Cell>
+                    </Table.Row>
                   )
                 })}
-              </Tbody>
-            </Table>
+              </Table.Body>
+            </Table.Root>
           </StickyTableFrame>
         )
       ) : intended.length === 0 ? (
         <EmptyState title="No controllers" message="This platform has no recorded controllers." />
       ) : (
         <StickyTableFrame>
-          <Table aria-label="Slurm controllers" variant="compact">
-            <Thead>
-              <Tr><Th>Controller</Th><Th>Role</Th><Th>Status</Th></Tr>
-            </Thead>
-            <Tbody>
+          <Table.Root size="sm" aria-label="Slurm controllers">
+            <Table.Header>
+              <Table.Row><Table.ColumnHeader>Controller</Table.ColumnHeader><Table.ColumnHeader>Role</Table.ColumnHeader><Table.ColumnHeader>Status</Table.ColumnHeader></Table.Row>
+            </Table.Header>
+            <Table.Body>
               {intended.map((serverId, index) => {
                 const server = members.find((candidate) => candidate.id === serverId)
                 const name = server ? serverDisplayName(server) : serverId
                 return (
-                  <Tr
-                    key={serverId}
-                    isClickable={Boolean(server)}
-                    onRowClick={server ? () => onSelect(server) : undefined}
-                  >
-                    <Td dataLabel="Controller">
+                  <Table.Row key={serverId} {...rowNav(server, onSelect)}>
+                    <Table.Cell>
                       <span className="sw-cell-inline">
                         <strong>{name}</strong>
                         <CopyButton value={name} label="Copy controller name" />
                       </span>
-                    </Td>
-                    <Td dataLabel="Role">
+                    </Table.Cell>
+                    <Table.Cell>
                       <StatusBadge status="info" label={index === 0 ? 'primary' : 'backup'} />
-                    </Td>
-                    <Td dataLabel="Status"><StatusBadge status="unknown" label="not read" /></Td>
-                  </Tr>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <StatusBadge status="unknown" label="not read" />
+                    </Table.Cell>
+                  </Table.Row>
                 )
               })}
-            </Tbody>
-          </Table>
+            </Table.Body>
+          </Table.Root>
         </StickyTableFrame>
       )}
     </section>
@@ -254,21 +219,25 @@ function PartitionsSection({ partitions }: { partitions: SlurmPartition[] }) {
     <section className="sw-section">
       <SectionHeader title="Partitions" description="Scheduling partitions reported by slurmrestd." />
       <StickyTableFrame>
-        <Table aria-label="Slurm partitions" variant="compact">
-          <Thead>
-            <Tr><Th>Partition</Th><Th>State</Th><Th>Nodes</Th><Th>Total</Th></Tr>
-          </Thead>
-          <Tbody>
+        <Table.Root size="sm" aria-label="Slurm partitions">
+          <Table.Header>
+            <Table.Row><Table.ColumnHeader>Partition</Table.ColumnHeader><Table.ColumnHeader>State</Table.ColumnHeader><Table.ColumnHeader>Nodes</Table.ColumnHeader><Table.ColumnHeader>Total</Table.ColumnHeader></Table.Row>
+          </Table.Header>
+          <Table.Body>
             {partitions.map((partition) => (
-              <Tr key={partition.name}>
-                <Td dataLabel="Partition"><strong>{partition.name}</strong></Td>
-                <Td dataLabel="State"><StatusBadge status={partition.state === 'up' ? 'up' : 'warning'} label={partition.state || 'unknown'} /></Td>
-                <Td dataLabel="Nodes" className="mono">{partition.nodeSpec || '-'}</Td>
-                <Td dataLabel="Total">{partition.totalNodes || 0}</Td>
-              </Tr>
+              <Table.Row key={partition.name}>
+                <Table.Cell>
+                  <strong>{partition.name}</strong>
+                </Table.Cell>
+                <Table.Cell>
+                  <StatusBadge status={partition.state === 'up' ? 'up' : 'warning'} label={partition.state || 'unknown'} />
+                </Table.Cell>
+                <Table.Cell className="mono">{partition.nodeSpec || '-'}</Table.Cell>
+                <Table.Cell>{partition.totalNodes || 0}</Table.Cell>
+              </Table.Row>
             ))}
-          </Tbody>
-        </Table>
+          </Table.Body>
+        </Table.Root>
       </StickyTableFrame>
     </section>
   )
@@ -301,68 +270,72 @@ function ComputeNodesSection({
           <EmptyState title="No compute nodes" message="slurmrestd reported no nodes." />
         ) : (
           <StickyTableFrame>
-            <Table aria-label="Slurm compute nodes" variant="compact">
-              <Thead>
-                <Tr><Th>Node</Th><Th>State</Th><Th>CPUs</Th><Th>Memory</Th><Th>GRES</Th><Th>Partitions</Th><Th>Address</Th></Tr>
-              </Thead>
-              <Tbody>
+            <Table.Root size="sm" aria-label="Slurm compute nodes">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Node</Table.ColumnHeader><Table.ColumnHeader>State</Table.ColumnHeader><Table.ColumnHeader>CPUs</Table.ColumnHeader><Table.ColumnHeader>Memory</Table.ColumnHeader><Table.ColumnHeader>GRES</Table.ColumnHeader><Table.ColumnHeader>Partitions</Table.ColumnHeader><Table.ColumnHeader>Address</Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
                 {live.map((node) => {
                   const server = matchServer(serverIndex, node.name, node.address)
                   return (
-                    <Tr key={node.name} isClickable={Boolean(server)} onRowClick={server ? () => onSelect(server) : undefined}>
-                      <Td dataLabel="Node">
+                    <Table.Row key={node.name} {...rowNav(server, onSelect)}>
+                      <Table.Cell>
                         <span className="sw-cell-inline">
                           <strong>{node.name}</strong>
                           <CopyButton value={node.name} label="Copy node name" />
                         </span>
-                      </Td>
-                      <Td dataLabel="State"><StatusBadge status={slurmNodeStateTone(node.state)} label={node.state || 'unknown'} /></Td>
-                      <Td dataLabel="CPUs">{node.cpus || '-'}</Td>
-                      <Td dataLabel="Memory">{formatMemory(node.realMemoryMiB)}</Td>
-                      <Td dataLabel="GRES" className="mono">{node.gres || '-'}</Td>
-                      <Td dataLabel="Partitions">{node.partitions.length > 0 ? node.partitions.join(', ') : '-'}</Td>
-                      <Td dataLabel="Address" className="mono">{node.address || '-'}</Td>
-                    </Tr>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <StatusBadge status={slurmNodeStateTone(node.state)} label={node.state || 'unknown'} />
+                      </Table.Cell>
+                      <Table.Cell>{node.cpus || '-'}</Table.Cell>
+                      <Table.Cell>{formatMemory(node.realMemoryMiB)}</Table.Cell>
+                      <Table.Cell className="mono">{node.gres || '-'}</Table.Cell>
+                      <Table.Cell>{node.partitions.length > 0 ? node.partitions.join(', ') : '-'}</Table.Cell>
+                      <Table.Cell className="mono">{node.address || '-'}</Table.Cell>
+                    </Table.Row>
                   )
                 })}
-              </Tbody>
-            </Table>
+              </Table.Body>
+            </Table.Root>
           </StickyTableFrame>
         )
       ) : computeMembers.length === 0 ? (
         <EmptyState title="No compute nodes" message="No Server currently reports Slurm membership." />
       ) : (
         <StickyTableFrame>
-          <Table aria-label="Slurm compute nodes" variant="compact">
-            <Thead>
-              <Tr><Th>Node</Th><Th>State</Th><Th>Partition</Th><Th>Address</Th></Tr>
-            </Thead>
-            <Tbody>
+          <Table.Root size="sm" aria-label="Slurm compute nodes">
+            <Table.Header>
+              <Table.Row><Table.ColumnHeader>Node</Table.ColumnHeader><Table.ColumnHeader>State</Table.ColumnHeader><Table.ColumnHeader>Partition</Table.ColumnHeader><Table.ColumnHeader>Address</Table.ColumnHeader></Table.Row>
+            </Table.Header>
+            <Table.Body>
               {computeMembers.map((server) => {
                 const nodeName = server.membership?.nodeName || serverDisplayName(server)
                 const address = serverPrimaryAddress(server)
                 const state = server.membership?.state ?? 'unknown'
                 return (
-                  <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
-                    <Td dataLabel="Node">
+                  <Table.Row key={server.id} {...rowNav(server, onSelect)}>
+                    <Table.Cell>
                       <span className="sw-cell-inline">
                         <strong>{nodeName}</strong>
                         <CopyButton value={nodeName} label="Copy node name" />
                       </span>
-                    </Td>
-                    <Td dataLabel="State"><StatusBadge status={slurmNodeStateTone(state)} label={state} /></Td>
-                    <Td dataLabel="Partition">{server.membership?.role || '-'}</Td>
-                    <Td dataLabel="Address" className="mono">
+                    </Table.Cell>
+                    <Table.Cell>
+                      <StatusBadge status={slurmNodeStateTone(state)} label={state} />
+                    </Table.Cell>
+                    <Table.Cell>{server.membership?.role || '-'}</Table.Cell>
+                    <Table.Cell className="mono">
                       <span className="sw-cell-inline">
                         {address ?? '-'}
                         <CopyButton value={address ?? ''} label="Copy address" />
                       </span>
-                    </Td>
-                  </Tr>
+                    </Table.Cell>
+                  </Table.Row>
                 )
               })}
-            </Tbody>
-          </Table>
+            </Table.Body>
+          </Table.Root>
         </StickyTableFrame>
       )}
     </section>
@@ -370,10 +343,9 @@ function ComputeNodesSection({
 }
 
 /**
- * slurmNodeStateTone maps a Slurm node scheduler state to a StatusBadge colour family (the
- * label always shows the real word). This is scheduler state, not monitoring health: idle is a
- * healthy available node, allocated/mixed are running, drain is maintenance, down/fail is a
- * problem.
+ * slurmNodeStateTone maps a Slurm node scheduler state to a StatusBadge colour family (the label
+ * always shows the real word). This is scheduler state, not monitoring health: idle is a healthy
+ * available node, allocated/mixed are running, drain is maintenance, down/fail is a problem.
  */
 function slurmNodeStateTone(state: string): string {
   switch (state.toLowerCase()) {

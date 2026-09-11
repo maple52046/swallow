@@ -1,152 +1,68 @@
+/*
+ * Global structural styles for the operator console.
+ *
+ * Colours, fonts, radii, and elevation come from the Chakra theme (see
+ * `presentation/app/theme/system.ts`) and are consumed here through the CSS
+ * variables Chakra emits (`--chakra-colors-*`, `--chakra-radii-*`, …). This file
+ * owns only cross-page structural layout that is more concise as CSS than as
+ * per-element Chakra props — KPI strips, section frames, dense table chrome,
+ * sticky columns, and a few status affordances. It contains no component library
+ * internals; those live in Chakra components.
+ */
+
 :root {
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  --sw-surface-radius: var(--pf-t--global--border--radius--small);
-  --pf-t--global--text-decoration--link--line--default: none;
-  --pf-t--global--text-decoration--link--line--hover: none;
-  --pf-t--global--text-decoration--link--style--default: solid;
-  --pf-t--global--text-decoration--link--style--hover: solid;
+  --sw-radius: var(--chakra-radii-lg);
+  --sw-border-color: var(--chakra-colors-border);
+  --sw-border: 1px solid var(--sw-border-color);
+  /* Soft, low-contrast elevation so framed surfaces lift off the canvas. */
+  --sw-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 6px rgba(15, 23, 42, 0.06);
 }
 
-html,
-body,
-#root {
-  width: 100%;
-  min-width: 320px;
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--pf-t--global--background--color--secondary--default);
-  color: var(--pf-t--global--text--color--regular);
-  font-family: var(--pf-t--global--font--family--body);
-}
-
-a,
-a:hover,
-a:focus {
-  text-decoration-line: none;
-  text-decoration-style: solid;
+.dark {
+  /* Shadows read poorly on near-black; lean on the panel/border contrast instead. */
+  --sw-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 a:focus-visible {
-  outline: 2px solid var(--pf-t--global--color--brand--default);
+  outline: 2px solid var(--chakra-colors-brand-focus-ring, var(--chakra-colors-brand-solid));
   outline-offset: 2px;
 }
 
-.sw-swallow-logo {
-  width: 3rem;
-  height: 2.5rem;
-  flex: 0 0 auto;
-  color: var(--pf-t--global--color--brand--default);
+/* Give Chakra cards the same soft elevation as the framed sections. */
+[data-scope='card'][data-part='root'] {
+  box-shadow: var(--sw-shadow);
 }
 
-.sw-swallow-logo__primary {
-  fill: currentcolor;
-}
-
-.sw-swallow-logo__light {
-  /* The bird's belly is a solid white, not the surface colour: on dark backgrounds a
-     surface-coloured fill blended in and read as transparent. */
-  fill: #fff;
-  stroke: currentcolor;
-  stroke-linejoin: round;
-  stroke-width: 1.75;
-}
-
-.sw-swallow-logo__eye {
-  stroke: var(--pf-t--global--background--color--primary--default);
-  stroke-width: 1.25;
-}
-
-.sw-swallow-logo__accent {
-  fill: var(--pf-t--global--color--status--warning--default);
-}
-
-.sw-swallow-logo__glint {
-  fill: var(--pf-t--global--background--color--primary--default);
-}
-
-button,
-input,
-select,
-textarea {
-  letter-spacing: 0;
-}
+/* ---- Page rhythm --------------------------------------------------------- */
 
 .operator-page {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: var(--pf-t--global--spacer--lg);
+  gap: 1.5rem;
 }
 
 .sw-muted {
-  color: var(--pf-t--global--text--color--subtle);
+  color: var(--chakra-colors-fg-muted);
 }
 
-.sw-mono,
-.mono {
-  font-family: var(--pf-t--global--font--family--mono);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Lucide icons default to 24px; scale them to the current font size so they line up with
-   PatternFly's 1em icons inside buttons, labels, and inline text. currentColor already
-   flows through Lucide's stroke, so colour is controlled by the surrounding element. */
-svg.lucide {
-  width: 1em;
-  height: 1em;
-}
-
-.sw-page-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--pf-t--global--spacer--lg);
-  padding-block-end: var(--pf-t--global--spacer--md);
-  border-block-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--subtle);
-}
-
-.sw-page-header__main {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--xs);
-}
-
-.sw-page-subtitle {
-  max-width: 78ch;
-  color: var(--pf-t--global--text--color--subtle);
-}
-
-.sw-page-header__actions,
-.sw-section-header__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--pf-t--global--spacer--sm);
-  flex-wrap: wrap;
-}
+/* ---- KPI strip ----------------------------------------------------------- */
 
 .sw-stat-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin: 0;
   overflow: hidden;
-  background: var(--pf-t--global--background--color--primary--default);
-  border: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
-  border-radius: var(--sw-surface-radius);
+  background: var(--chakra-colors-bg-panel);
+  border: var(--sw-border);
+  border-radius: var(--sw-radius);
+  box-shadow: var(--sw-shadow);
 }
 
 .sw-stat {
   min-width: 0;
-  padding: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--lg);
-  border-inline-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
+  padding: 1rem 1.5rem;
+  border-inline-end: var(--sw-border);
 }
 
 .sw-stat:last-child {
@@ -154,36 +70,46 @@ svg.lucide {
 }
 
 .sw-stat dt {
-  color: var(--pf-t--global--text--color--subtle);
-  font-size: var(--pf-t--global--font--size--body--sm);
-  font-weight: var(--pf-t--global--font--weight--body--bold);
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-sm);
+  font-weight: var(--chakra-font-weights-semibold);
 }
 
 .sw-stat dd {
-  margin: var(--pf-t--global--spacer--xs) 0 0;
-  font-size: var(--pf-t--global--font--size--heading--h1);
-  font-weight: var(--pf-t--global--font--weight--heading--bold);
-  line-height: var(--pf-t--global--font--line-height--heading);
+  margin: 0.25rem 0 0;
+  font-size: var(--chakra-font-sizes-2xl);
+  font-weight: var(--chakra-font-weights-bold);
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
 .sw-stat > span {
   display: block;
-  margin-block-start: var(--pf-t--global--spacer--xs);
-  color: var(--pf-t--global--text--color--subtle);
-  font-size: var(--pf-t--global--font--size--body--sm);
+  margin-block-start: 0.25rem;
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-sm);
 }
 
-.sw-stat[data-tone='success'] dd { color: var(--pf-t--global--text--color--status--success--default); }
-.sw-stat[data-tone='warning'] dd { color: var(--pf-t--global--text--color--status--warning--default); }
-.sw-stat[data-tone='critical'] dd { color: var(--pf-t--global--text--color--status--danger--default); }
+.sw-stat[data-tone='success'] dd { color: var(--chakra-colors-green-fg); }
+.sw-stat[data-tone='warning'] dd { color: var(--chakra-colors-orange-fg); }
+.sw-stat[data-tone='critical'] dd { color: var(--chakra-colors-red-fg); }
+
+/* ---- Framed sections ----------------------------------------------------- */
 
 .sw-section {
   min-width: 0;
   overflow: hidden;
-  background: var(--pf-t--global--background--color--primary--default);
-  border: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
-  border-radius: var(--sw-surface-radius);
+  background: var(--chakra-colors-bg-panel);
+  border: var(--sw-border);
+  border-radius: var(--sw-radius);
+  box-shadow: var(--sw-shadow);
+}
+
+.sw-section-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .sw-section-header {
@@ -191,14 +117,9 @@ svg.lucide {
   min-height: 58px;
   align-items: center;
   justify-content: space-between;
-  gap: var(--pf-t--global--spacer--md);
-  padding: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--lg);
-  border-block-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
-}
-
-.sw-section-header p {
-  margin-block-start: var(--pf-t--global--spacer--xs);
-  color: var(--pf-t--global--text--color--subtle);
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-block-end: var(--sw-border);
 }
 
 .sw-section-header.sw-section-header--plain {
@@ -207,19 +128,19 @@ svg.lucide {
   border: 0;
 }
 
+.sw-section-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .sw-section-body {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: var(--pf-t--global--spacer--md);
-  padding: var(--pf-t--global--spacer--lg);
-}
-
-.sw-section-group {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--md);
+  gap: 1rem;
+  padding: 1.5rem;
 }
 
 .sw-section-empty {
@@ -227,92 +148,70 @@ svg.lucide {
   min-height: 68px;
   flex-direction: column;
   justify-content: center;
-  gap: var(--pf-t--global--spacer--xs);
-  padding: var(--pf-t--global--spacer--lg);
-  color: var(--pf-t--global--text--color--subtle);
+  gap: 0.25rem;
+  padding: 1.5rem;
+  color: var(--chakra-colors-fg-muted);
 }
+
+/* ---- Tables -------------------------------------------------------------- */
 
 .sw-table-frame {
   width: 100%;
   min-width: 0;
   overflow: auto;
-  background: var(--pf-t--global--background--color--primary--default);
-  border: var(--pf-t--global--border--width--box--default) solid var(--pf-t--global--border--color--default);
-  border-radius: var(--sw-surface-radius);
+  background: var(--chakra-colors-bg-panel);
+  border: var(--sw-border);
+  border-radius: var(--sw-radius);
+  box-shadow: var(--sw-shadow);
 }
 
 .sw-section > .sw-table-frame {
   border: 0;
-  border-radius: 0 0 var(--sw-surface-radius) var(--sw-surface-radius);
-}
-
-.sw-table-frame .pf-v6-c-table > thead {
-  position: sticky;
-  inset-block-start: 0;
-  z-index: var(--pf-t--global--z-index--xs);
-}
-
-.sw-operator-shell .pf-v6-c-table > :is(thead, tbody, tfoot),
-.sw-operator-shell .pf-v6-c-table > :is(thead, tbody, tfoot) > tr > :is(th, td),
-.sw-operator-shell .pf-v6-c-table__check {
-  vertical-align: middle;
-}
-
-.sw-operator-shell .pf-v6-c-table :is(.pf-v6-c-label, .pf-v6-c-button, .pf-v6-c-check, .pf-v6-c-form-control) {
-  vertical-align: middle;
-}
-
-.sw-table-frame .pf-v6-c-table small,
-.pf-v6-c-table td > small {
-  display: block;
-  margin-block-start: var(--pf-t--global--spacer--xs);
-  color: var(--pf-t--global--text--color--subtle);
-  line-height: var(--pf-t--global--font--line-height--body);
-}
-
-.sw-network-assignment-table { min-width: 960px; }
-.sw-network-assignment-table .sw-network-server-column { min-width: 150px; }
-.sw-network-assignment-table .sw-network-interface-column { min-width: 235px; }
-.sw-network-assignment-table .sw-network-subnet-column { min-width: 210px; }
-.sw-network-assignment-table .sw-network-address-column { min-width: 180px; }
-.sw-network-assignment-table .sw-network-current-mode-column { min-width: 205px; }
-
-.sw-operator-shell .sw-data-toolbar {
-  --pf-v6-c-toolbar--PaddingBlockStart: var(--pf-t--global--spacer--md);
-  --pf-v6-c-toolbar--PaddingBlockEnd: var(--pf-t--global--spacer--md);
-
-  position: sticky;
-  inset-block-start: 0;
-  z-index: var(--pf-t--global--z-index--sm);
-  background: var(--pf-t--global--background--color--sticky--default);
-  border-block-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
-  border-radius: var(--sw-surface-radius);
-  box-shadow: var(--pf-t--global--box-shadow--sm--bottom);
-}
-
-.sw-operator-shell .pf-v6-c-card {
-  --pf-v6-c-card--BorderRadius: var(--sw-surface-radius);
-}
-
-.sw-operator-shell .sw-data-toolbar.sw-data-toolbar--plain {
-  background: var(--pf-t--global--background--color--secondary--default);
-  border: 0;
-  border-radius: 0;
+  border-radius: 0 0 var(--sw-radius) var(--sw-radius);
   box-shadow: none;
 }
 
-.sw-operator-shell .sw-data-toolbar .pf-v6-c-toolbar__content-section {
-  align-items: center;
+.sw-table-frame table > thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--chakra-colors-bg-panel);
 }
 
-.sw-data-toolbar .pf-v6-c-search-input {
-  width: min(100%, 390px);
+/* ---- Toolbars ------------------------------------------------------------ */
+
+.sw-data-toolbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+  padding: 1rem;
+  background: var(--chakra-colors-bg-panel);
+  border-block-end: var(--sw-border);
+  border-radius: var(--sw-radius);
+  box-shadow: var(--chakra-shadows-sm);
 }
+
+.sw-data-toolbar.sw-data-toolbar--plain {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0.75rem 0;
+}
+
+.sw-workspace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ---- Overview: attention list + two column ------------------------------- */
 
 .sw-two-column {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
-  gap: var(--pf-t--global--spacer--lg);
+  gap: 1.5rem;
   align-items: start;
 }
 
@@ -326,112 +225,166 @@ svg.lucide {
   min-height: 58px;
   grid-template-columns: 92px minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--pf-t--global--spacer--md);
-  padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--lg);
-  color: var(--pf-t--global--text--color--regular);
+  gap: 1rem;
+  padding: 0.5rem 1.5rem;
+  color: var(--chakra-colors-fg);
   text-decoration: none;
-  border-block-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
+  border-block-end: var(--sw-border);
 }
 
 .sw-attention-row:last-child { border-block-end: 0; }
-a.sw-attention-row:hover { background: var(--pf-t--global--background--color--primary--hover); }
+a.sw-attention-row:hover { background: var(--chakra-colors-bg-muted); }
 .sw-attention-row > span { min-width: 0; }
 .sw-attention-row > span strong,
 .sw-attention-row > span small { display: block; }
-.sw-attention-row > span small { overflow: hidden; color: var(--pf-t--global--text--color--subtle); text-overflow: ellipsis; white-space: nowrap; }
-.sw-attention-row > b { color: var(--pf-t--global--text--color--link--default); font-size: var(--pf-t--global--font--size--body--sm); }
+.sw-attention-row > span small { overflow: hidden; color: var(--chakra-colors-fg-muted); text-overflow: ellipsis; white-space: nowrap; }
+.sw-attention-row > b { color: var(--chakra-colors-brand-fg); font-size: var(--chakra-font-sizes-sm); }
 
 .sw-inline-warning {
   display: grid;
-  gap: var(--pf-t--global--spacer--xs);
-  padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
-  color: var(--pf-t--global--text--color--regular);
-  background: var(--pf-t--global--color--status--warning--100);
-  border-inline-start: var(--pf-t--global--border--width--box--status--default) solid var(--pf-t--global--border--color--status--warning--default);
-  border-radius: var(--sw-surface-radius);
+  gap: 0.25rem;
+  padding: 0.5rem 1rem;
+  color: var(--chakra-colors-fg);
+  background: var(--chakra-colors-orange-subtle);
+  border-inline-start: 3px solid var(--chakra-colors-orange-solid);
+  border-radius: var(--sw-radius);
 }
+
+/* ---- Filter / column panels (popover bodies) ----------------------------- */
 
 .sw-filter-panel,
 .sw-column-panel {
   display: grid;
   min-width: 240px;
   max-height: 420px;
-  gap: var(--pf-t--global--spacer--md);
+  gap: 1rem;
   overflow: auto;
 }
 
 .sw-filter-group {
   display: grid;
-  gap: var(--pf-t--global--spacer--xs);
+  gap: 0.25rem;
   padding: 0;
   border: 0;
 }
 
 .sw-filter-group legend {
-  margin-block-end: var(--pf-t--global--spacer--xs);
-  font-weight: var(--pf-t--global--font--weight--body--bold);
+  margin-block-end: 0.25rem;
+  font-weight: var(--chakra-font-weights-semibold);
+}
+
+/* ---- Key/value grid ------------------------------------------------------ */
+
+.sw-key-value-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.sw-key-value-grid > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-block-end: var(--sw-border);
+}
+
+.sw-key-value-grid dt { color: var(--chakra-colors-fg-muted); font-size: var(--chakra-font-sizes-sm); }
+.sw-key-value-grid dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+
+/* ---- Server list table --------------------------------------------------- */
+
+.sw-server-summary,
+.sw-activity-stack,
+.sw-event-workspace,
+.sw-wizard-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .sw-server-table { min-width: 2520px; }
 .sw-server-table .sw-sticky-selection {
   position: sticky;
   inset-inline-start: 0;
-  /* Just the checkbox plus a little padding: pin small inline padding (independent of table
-     density) so the fixed width fits the checkbox without clipping. */
   width: 40px;
   min-width: 40px;
-  --pf-v6-c-table--cell--PaddingInlineStart: var(--pf-t--global--spacer--sm);
-  --pf-v6-c-table--cell--PaddingInlineEnd: var(--pf-t--global--spacer--sm);
-  background: var(--pf-t--global--background--color--primary--default);
+  padding-inline: 0.5rem;
+  background: var(--chakra-colors-bg-panel);
 }
-.sw-server-table .sw-sticky-name { position: sticky; inset-inline-start: 40px; width: 220px; min-width: 220px; background: var(--pf-t--global--background--color--primary--default); }
-.sw-server-table .sw-sticky-actions { position: sticky; inset-inline-end: 0; width: 72px; min-width: 72px; background: var(--pf-t--global--background--color--primary--default); }
+.sw-server-table .sw-sticky-name { position: sticky; inset-inline-start: 40px; width: 220px; min-width: 220px; background: var(--chakra-colors-bg-panel); }
+.sw-server-table .sw-sticky-actions { position: sticky; inset-inline-end: 0; width: 72px; min-width: 72px; background: var(--chakra-colors-bg-panel); }
 thead .sw-sticky-name,
-thead .sw-sticky-actions { z-index: 4; background: var(--pf-t--global--background--color--sticky--default); }
+thead .sw-sticky-actions { z-index: 4; background: var(--chakra-colors-bg-subtle); }
 .sw-server-table .sw-power-cell { width: 96px; min-width: 96px; }
 tbody .sw-sticky-name,
 tbody .sw-sticky-actions { z-index: 1; }
-thead .sw-sticky-selection { z-index: 5; background: var(--pf-t--global--background--color--sticky--default); }
+thead .sw-sticky-selection { z-index: 5; background: var(--chakra-colors-bg-subtle); }
 tbody .sw-sticky-selection { z-index: 2; }
 .sw-cell-center { text-align: center; vertical-align: middle; }
-.sw-cell-center .pf-v6-c-check { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
-/* Selection column: shrink to just the checkbox plus the cell's own padding. PatternFly sets
-   every cell's width from its own custom property, so overriding that property (rather than
-   `width` directly) is what actually collapses the auto-layout column to its content. */
-.sw-col-select {
-  --pf-v6-c-table--cell--Width: 1%;
-  --pf-v6-c-table--cell--MinWidth: 0;
-  white-space: nowrap;
-}
-/* Inline cell content (chip + text) centred on one baseline instead of a chip/plain-text
-   baseline mismatch; wraps within a narrow column. */
-.sw-cell-inline { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); flex-wrap: wrap; min-width: 0; }
-/* Rows mix a tall form control (role select) with short cells; centre every body cell so their
-   values line up vertically instead of PatternFly's default top alignment. */
-.sw-deploy-machines-table tbody td { vertical-align: middle; }
-.sw-machine-name { display: flex; min-width: 0; align-items: center; gap: var(--pf-t--global--spacer--xs); white-space: nowrap; }
-/* Inline status glyphs (lock = protected, memory-stick = ephemeral): shape + aria-label carry
-   the meaning; the warning tint is only a supplementary hint. */
-.sw-lock-indicator, .sw-ephemeral-indicator { display: inline-flex; align-items: center; flex: none; color: var(--pf-t--global--icon--color--status--warning--default, currentColor); }
-/* Marks a still-running deployment/provisioning state on its PatternFly Label with animated
-   diagonal stripes — a moving "in progress" cue applied by DeploymentBadge. The stripes are a
-   supplementary hint only: the Label text and its Tooltip already carry the state, so the
-   effect never becomes colour/motion-only signalling. It runs regardless of reduced-motion by
-   explicit product request (see the note by the keyframes).
+.sw-col-select { width: 1%; white-space: nowrap; }
+.sw-cell-inline { display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; min-width: 0; }
+.sw-machine-name { display: flex; min-width: 0; align-items: center; gap: 0.25rem; white-space: nowrap; }
+.sw-lock-indicator { display: inline-flex; align-items: center; flex: none; color: var(--chakra-colors-orange-fg); }
+.sw-column-tags { min-width: 150px; }
+.sw-hardware-column { white-space: nowrap; }
+.sw-column-architecture { min-width: 148px; }
+.sw-column-cpu-cores { min-width: 112px; }
+.sw-column-cpu-model { min-width: 220px; }
+.sw-column-memory { min-width: 104px; }
+.sw-column-storage { min-width: 112px; }
+.sw-column-system-vendor { min-width: 160px; }
+.sw-column-system-product { min-width: 180px; }
+.sw-tag-list { display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+.sw-copyable { display: inline-flex; align-items: center; gap: 0.25rem; min-width: 0; }
+.sw-gpu-inventory { display: inline-flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.sw-gpu-inventory > span { display: inline-flex; align-items: center; gap: 0.25rem; }
+.sw-gpu-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sw-group-row td { background: var(--chakra-colors-bg-subtle); }
+.sw-group-row td > span { display: flex; align-items: center; gap: 0.5rem; }
+.sw-sort-button { min-width: 0; padding: 0; font-weight: var(--chakra-font-weights-semibold); }
+.sw-pagination { display: flex; justify-content: flex-end; }
+.sw-action-reason { max-width: 32ch; color: var(--chakra-colors-orange-fg); font-size: var(--chakra-font-sizes-sm); }
 
-   PatternFly v6 does not paint the Label fill on the label element itself (that is
-   transparent); the fill colour, border, and pill radius live on
-   `.pf-v6-c-label__content::before`, which sits *behind* the label text. Adding the animated
-   stripe layer to that same pseudo-element means the stripes render above the fill colour and
-   below the text — visible and animated, with the text kept crisp. (An overlay on the label's
-   own ::after was hidden because PatternFly's fill pseudo painted on top of it.) The
-   translucent white band is an rgba overlay, not a token: it must lighten every label colour
-   (blue/orange) uniformly, and no design token represents a neutral highlight stripe. The
-   keyframe shifts by exactly one tile so the motion loops seamlessly. */
-.sw-label-progress .pf-v6-c-label__content::before {
-  /* Translucent dark band. PatternFly keeps its nonstatus Label fills as pale pastels in both
-     light and dark themes, so a dark stripe contrasts in both (a white stripe would vanish on
-     the pale fill). Not a token: no design token represents a neutral highlight stripe. */
+/* Compact square trigger for the power-state icon button in dense rows. */
+.sw-power-button { padding: 0; block-size: 1.75em; inline-size: 1.75em; min-inline-size: 0; min-block-size: 0; }
+
+/* ---- Power-actions dialog tiles ------------------------------------------ */
+
+.sw-power-action-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; justify-items: center; }
+.sw-power-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  inline-size: 7rem;
+  aspect-ratio: 1 / 1;
+  padding: 1rem;
+  border: var(--sw-border);
+  border-radius: var(--chakra-radii-lg);
+  background-color: var(--chakra-colors-bg-panel);
+  color: var(--chakra-colors-fg);
+  white-space: normal;
+  text-align: center;
+  height: auto;
+}
+.sw-power-tile:hover { background-color: var(--chakra-colors-bg-subtle); }
+.sw-power-tile[aria-disabled='true'] { opacity: 0.6; cursor: not-allowed; }
+.sw-power-tile__icon { display: inline-flex; line-height: 0; }
+.sw-power-tile__icon--success { color: var(--chakra-colors-green-fg); }
+.sw-power-tile__icon--danger { color: var(--chakra-colors-red-fg); }
+
+/* ---- In-progress stripe on a status badge -------------------------------- */
+/*
+ * Animated diagonal stripes signal a still-running lifecycle step on a Chakra
+ * Badge. The badge text and its tooltip stay the authoritative state; the motion
+ * is a supplementary, colour-independent cue. Intentionally not gated behind
+ * prefers-reduced-motion by product request.
+ */
+.sw-label-progress {
   background-image: linear-gradient(
     45deg,
     rgba(0, 0, 0, 0.18) 25%,
@@ -446,126 +399,68 @@ tbody .sw-sticky-selection { z-index: 2; }
   animation: sw-label-stripes 0.8s linear infinite;
 }
 @keyframes sw-label-stripes {
-  /* Animate 0 -> one tile so the diagonal band travels the opposite way; swap to
-     `from { background-position-x: 0.8rem; }` to flip the direction back. */
   to { background-position-x: 0.8rem; }
 }
-/* Note: intentionally NOT gated behind `prefers-reduced-motion: reduce`. This "in progress"
-   motion is an explicitly requested product cue, and gating it made the stripes render as a
-   static texture (no movement) for anyone with reduce-motion enabled. The static stripes are
-   still a valid supplementary cue, but the animation is kept on by request. */
-/* Power state icon (PowerBadge) in dense Server tables. The icon shape plus its Tooltip and
-   aria-label carry the state; colour is only a supplementary cue, so `on` gets the success
-   green and `error` the danger red while off/unknown stay subtle. Tokens (not hex) keep the
-   tints aligned with the active PatternFly theme. */
-.sw-power-indicator { display: inline-flex; align-items: center; justify-content: center; color: var(--pf-t--global--icon--color--subtle, currentColor); }
-.sw-power-indicator.sw-power-on { color: var(--pf-t--global--icon--color--status--success--default, currentColor); }
-.sw-power-indicator.sw-power-error { color: var(--pf-t--global--icon--color--status--danger--default, currentColor); }
-/* Render the glyph as a block so it has no inline baseline descender gap; combined with the
-   flex-centred wrappers this keeps the icon optically centred in its button/cell. */
-.sw-power-indicator svg { display: block; }
-/* The power icon doubles as a trigger for the power-actions dialog. Render the plain button as
-   a compact centred square (like sw-copy-button) so the coloured status icon stays the focus;
-   the nested .sw-power-indicator keeps its own status colour rather than the button's.
-   PatternFly buttons default to align-items:baseline, which pushes the glyph off-centre, so
-   force centre alignment and vertical-align middle within the table cell's line box. */
-.sw-power-button.pf-v6-c-button { --pf-v6-c-button--AlignItems: center; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; padding: 0; block-size: 1.75em; inline-size: 1.75em; min-inline-size: 0; min-block-size: 0; }
-/* PatternFly wraps button children in a `__text` span that carries the body line-height, so the
-   glyph sits on that span's text baseline and reads slightly high. Collapse the span to a
-   zero-line-height flex box so the button's own centring lands the icon dead-centre on both axes. */
-.sw-power-button.pf-v6-c-button .pf-v6-c-button__text { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
-/* Power-actions dialog body: two square action tiles in a 2-column grid, each centred in its
-   column. */
-.sw-power-action-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--pf-t--global--spacer--md); justify-items: center; }
-/* Card-style outlined tile: a neutral surface square with a thin border and medium (rounded)
-   corners, a large icon tinted by the action's meaning, and a label underneath. PatternFly
-   buttons default to align-items:baseline, so force a centred flex column to keep the icon and
-   label dead-centre on both axes. Hover lifts the surface; a gated (locked) tile dims. */
-.sw-power-tile.pf-v6-c-button { --pf-v6-c-button--AlignItems: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--pf-t--global--spacer--md); inline-size: 7rem; aspect-ratio: 1 / 1; padding: var(--pf-t--global--spacer--md); border: var(--pf-t--global--border--width--regular, 1px) solid var(--pf-t--global--border--color--default); border-radius: var(--pf-t--global--border--radius--medium, 8px); background-color: var(--pf-t--global--background--color--primary--default); color: var(--pf-t--global--text--color--regular); white-space: normal; text-align: center; }
-.sw-power-tile.pf-v6-c-button:hover { background-color: var(--pf-t--global--background--color--secondary--default); border-color: var(--pf-t--global--border--color--hover); }
-.sw-power-tile.pf-v6-c-button[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }
-/* Flex-centre the icon and render its glyph as a block so no inline baseline gap skews the
-   vertical centring of the icon-over-label stack. */
-.sw-power-tile__icon { display: inline-flex; line-height: 0; }
-.sw-power-tile__icon svg { display: block; }
-.sw-power-tile__icon--success { color: var(--pf-t--global--icon--color--status--success--default, currentColor); }
-.sw-power-tile__icon--danger { color: var(--pf-t--global--icon--color--status--danger--default, currentColor); }
-.sw-power-action-button .sw-power-tile-icon { display: inline-flex; }
-/* Inline "value + copy" wrapper used in mono identifier cells (address, MAC). */
-.sw-copyable { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); min-width: 0; }
-/* Render the inline copy control as an explicit centred square: equal block/inline size with
-   zero padding keeps the hover/focus splash square and centred on the glyph (PatternFly's
-   default padding otherwise leaves a wide rectangle with an off-centre icon in dense cells). */
-.sw-copy-button.pf-v6-c-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  block-size: 1.5em;
-  inline-size: 1.5em;
-  /* PatternFly's base button sets `min-width: var(--pf-v6-c-button--MinWidth)`, which was
-     clamping this icon button to ~37px wide (a rectangle) despite inline-size. Clear it so the
-     button stays a 1.5em square. */
-  min-inline-size: 0;
-  min-block-size: 0;
-  color: var(--pf-t--global--icon--color--subtle, currentColor);
-}
-.sw-copy-button.pf-v6-c-button:hover { color: var(--pf-t--global--icon--color--regular, currentColor); }
-/* PatternFly's icon slot is a `display: grid` box sized for text alignment, which parks the
-   fixed-size glyph at its top-left. Make it a content-sized, centred flex box (no text-spacing
-   margin, no min-width, line-height 1) so the icon sits dead-centre both axes. */
-.sw-copy-button.pf-v6-c-button .pf-v6-c-button__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+
+/* ---- Operation timeline (numbered) --------------------------------------- */
+
+.sw-operation-timeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
-  min-width: 0;
-  line-height: 1;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  background: var(--chakra-colors-bg-panel);
+  border: var(--sw-border);
+  border-radius: var(--sw-radius);
 }
-.sw-copy-button.pf-v6-c-button svg { display: block; block-size: 0.85em; inline-size: 0.85em; }
-/* Copied confirmation: the Lucide check turns success green (Lucide strokes with currentColor,
-   so setting the SVG's colour is enough). Status is conveyed by icon + colour + tooltip. */
-.sw-copy-button.pf-v6-c-button svg.sw-copy-button__check { color: var(--pf-t--global--icon--color--status--success--default); }
-/* Square icon button for form-adjacent actions: clear PatternFly's min-width clamp and keep the
-   box square (aspect-ratio) with the glyph centred on both axes (its icon slot is a grid that
-   otherwise parks a fixed-size glyph at the top-left). */
-.sw-icon-button.pf-v6-c-button { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 0; aspect-ratio: 1; }
-.sw-icon-button.pf-v6-c-button .pf-v6-c-button__icon { display: inline-flex; align-items: center; justify-content: center; margin: 0; min-width: 0; line-height: 1; }
-/* Workflow event timeline — a faithful port of Chakra UI's Timeline "solid" recipe at the
-   default size (md), rebuilt with PatternFly tokens so there is no second UI framework and it
-   themes with the app (incl. dark mode). Values mirror Chakra's recipe exactly: indicator
-   sizes.5 (1.25rem); a 1px separator centred on the indicator running full height; a bg-coloured
-   2px outline on the disc that masks the separator behind it (Chakra's signature gap); item gap
-   1rem; content flex column gap 0.5rem; title textStyle sm / medium; muted xs descriptions. The
-   one deliberate deviation is a status glyph inside the disc, since conveying status by colour
-   alone is not accessible. data-tone resolves to --sw-tone. */
-.sw-timeline { list-style: none; margin: 0; padding: 0; --sw-timeline-indicator: 1.25rem; --sw-timeline-thickness: 1px; }
+
+.sw-operation-timeline li {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-inline-end: var(--sw-border);
+}
+
+.sw-operation-timeline li:last-child { border-inline-end: 0; }
+.sw-operation-timeline li > span { width: 12px; height: 12px; flex: 0 0 12px; border: 2px solid var(--sw-border-color); border-radius: var(--chakra-radii-full); }
+.sw-operation-timeline li[data-state='complete'] > span { border-color: var(--chakra-colors-green-solid); background: var(--chakra-colors-green-solid); }
+.sw-operation-timeline li[data-state='current'] > span { border-color: var(--chakra-colors-blue-solid); background: var(--chakra-colors-blue-subtle); }
+.sw-operation-timeline li[data-state='failed'] > span { border-color: var(--chakra-colors-red-solid); background: var(--chakra-colors-red-solid); }
+.sw-operation-timeline li div { min-width: 0; flex: 1; }
+.sw-operation-timeline strong,
+.sw-operation-timeline small { display: block; }
+.sw-operation-timeline small { color: var(--chakra-colors-fg-muted); }
+
+/* ---- Event timeline (vertical) ------------------------------------------- */
+
+.sw-timeline { list-style: none; margin: 0; padding: 0; --sw-timeline-indicator: 1.25rem; }
 .sw-timeline__item {
   position: relative;
   display: grid;
   grid-template-columns: var(--sw-timeline-indicator) 1fr;
-  column-gap: var(--pf-t--global--spacer--md);
-  padding-block-end: var(--pf-t--global--spacer--md);
-  --sw-tone: var(--pf-t--global--icon--color--regular, var(--pf-t--global--text--color--subtle));
+  column-gap: 1rem;
+  padding-block-end: 1rem;
+  --sw-tone: var(--chakra-colors-fg-muted);
 }
-.sw-timeline__item[data-tone="success"] { --sw-tone: var(--pf-t--global--icon--color--status--success--default); }
-.sw-timeline__item[data-tone="danger"] { --sw-tone: var(--pf-t--global--icon--color--status--danger--default); }
-.sw-timeline__item[data-tone="warning"] { --sw-tone: var(--pf-t--global--icon--color--status--warning--default); }
-.sw-timeline__item[data-tone="info"] { --sw-tone: var(--pf-t--global--icon--color--status--info--default); }
+.sw-timeline__item[data-tone='success'] { --sw-tone: var(--chakra-colors-green-solid); }
+.sw-timeline__item[data-tone='danger'] { --sw-tone: var(--chakra-colors-red-solid); }
+.sw-timeline__item[data-tone='warning'] { --sw-tone: var(--chakra-colors-orange-solid); }
+.sw-timeline__item[data-tone='info'] { --sw-tone: var(--chakra-colors-blue-solid); }
 .sw-timeline__item:last-child { padding-block-end: 0; }
-/* Separator: 1px line at the indicator centre, full height, behind the disc (Chakra). */
 .sw-timeline__item:not(:last-child)::before {
-  content: "";
+  content: '';
   position: absolute;
   inset-block: 0;
   inset-inline-start: calc(var(--sw-timeline-indicator) / 2);
-  inline-size: var(--sw-timeline-thickness);
-  transform: translateX(calc(-1 * var(--sw-timeline-thickness) / 2));
-  background: var(--pf-t--global--border--color--default);
+  inline-size: 1px;
+  transform: translateX(-0.5px);
+  background: var(--sw-border-color);
   z-index: 0;
 }
-/* Indicator: solid tonal disc + contrast glyph, with a bg outline that masks the separator
-   where it meets the disc (Chakra `outline: 2px solid {colors.bg}`). */
 .sw-timeline__marker {
   grid-column: 1;
   position: relative;
@@ -577,236 +472,131 @@ tbody .sw-sticky-selection { z-index: 2; }
   justify-content: center;
   border-radius: 50%;
   background: var(--sw-tone);
-  color: var(--pf-t--global--icon--color--on-brand);
-  outline: 2px solid var(--pf-t--global--background--color--primary--default);
+  color: var(--chakra-colors-white);
+  outline: 2px solid var(--chakra-colors-bg-panel);
 }
 .sw-timeline__marker svg { inline-size: 0.75rem; block-size: 0.75rem; }
-.sw-timeline__content { grid-column: 2; min-inline-size: 0; display: flex; flex-direction: column; gap: var(--pf-t--global--spacer--sm); }
-.sw-timeline__title { font-weight: 500; font-size: 0.875rem; }
-.sw-timeline__time { color: var(--pf-t--global--text--color--subtle); font-size: 0.75rem; }
-.sw-timeline__message { color: var(--pf-t--global--text--color--subtle); font-size: 0.75rem; }
-/* Preserve the newlines the backend puts between per-host failure lines so a multi-target
-   Ansible failure stays legible, and wrap long serverIds/paths instead of overflowing. */
+.sw-timeline__content { grid-column: 2; min-inline-size: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.sw-timeline__title { font-weight: 500; font-size: var(--chakra-font-sizes-sm); }
+.sw-timeline__time { color: var(--chakra-colors-fg-muted); font-size: var(--chakra-font-sizes-xs); }
+.sw-timeline__message { color: var(--chakra-colors-fg-muted); font-size: var(--chakra-font-sizes-xs); }
+
+/* Preserve backend-inserted newlines in multi-host failure output and wrap long paths. */
 .sw-error-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
-/* The Steps table Reason cell is a compact summary only: show the first line, truncated,
-   with the full message on hover. The complete detail lives in the Step's error Alert and
-   the Stdout tab, so a long failure message never stretches or wraps the table row. */
+/* Compact single-line reason cell; full text is available on hover / in the log tabs. */
 .sw-reason-cell { display: inline-block; max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-.sw-tag-list { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); flex-wrap: wrap; }
-.sw-server-table .sw-column-tags { min-width: 150px; }
-.sw-server-table .sw-hardware-column { white-space: nowrap; }
-.sw-server-table .sw-column-architecture { min-width: 148px; }
-.sw-server-table .sw-column-cpu-cores { min-width: 112px; }
-.sw-server-table .sw-column-cpu-model { min-width: 220px; }
-.sw-server-table .sw-column-memory { min-width: 104px; }
-.sw-server-table .sw-column-storage { min-width: 112px; }
-.sw-server-table .sw-column-system-vendor { min-width: 160px; }
-.sw-server-table .sw-column-system-product { min-width: 180px; }
-.sw-gpu-inventory { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--md); flex-wrap: wrap; }
-.sw-gpu-inventory > span { display: inline-flex; align-items: center; gap: var(--pf-t--global--spacer--xs); }
-.sw-gpu-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.sw-gpu-vendor-logo { display: inline-flex; width: 76px; height: 24px; align-items: center; color: var(--pf-t--global--text--color--regular); }
-.sw-gpu-vendor-logo svg { width: 100%; height: 24px; overflow: visible; }
-.sw-gpu-vendor-logo path,
-.sw-gpu-vendor-logo text { fill: currentcolor; }
-.sw-gpu-vendor-logo text { font-family: var(--pf-t--global--font--family--body); letter-spacing: 0; }
-.sw-gpu-vendor-logo[data-vendor='amd'] { color: #c91920; }
-.sw-gpu-vendor-logo[data-vendor='nvidia'] { color: #3e7b00; }
-.sw-gpu-vendor-logo[data-vendor='intel'] { color: #0068b5; }
-.pf-v6-theme-dark .sw-gpu-vendor-logo[data-vendor='amd'] { color: #ff6b70; }
-.pf-v6-theme-dark .sw-gpu-vendor-logo[data-vendor='nvidia'] { color: #9bdc28; }
-.pf-v6-theme-dark .sw-gpu-vendor-logo[data-vendor='intel'] { color: #4cb5f5; }
-.sw-group-row td { background: var(--pf-t--global--background--color--secondary--default); }
-.sw-group-row td > span { display: flex; align-items: center; gap: var(--pf-t--global--spacer--sm); }
-.sw-sort-button { min-width: 0; padding: 0; font-weight: var(--pf-t--global--font--weight--body--bold); }
-.sw-pagination { display: flex; justify-content: flex-end; }
 
-.sw-key-value-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-}
+.sw-operation-debugger { overflow: hidden; }
+.sw-operation-debugger .sw-tab-content { padding: 1.5rem; }
+.sw-tab-content { padding-block: 1rem; }
 
-.sw-key-value-grid > div {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1.3fr);
-  align-items: center;
-  gap: var(--pf-t--global--spacer--md);
-  padding: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--lg);
-  border-block-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
-}
-
-.sw-key-value-grid dt { color: var(--pf-t--global--text--color--subtle); font-size: var(--pf-t--global--font--size--body--sm); }
-.sw-key-value-grid dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
-.sw-detail-tabs { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
-.sw-detail-tabs .pf-v6-c-tabs { min-width: max-content; }
-
-.sw-server-summary,
-.sw-monitoring-body,
-.sw-event-workspace,
-.sw-tab-content,
-.sw-wizard-section {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--lg);
-}
-
-.sw-server-summary .pf-v6-c-card__body,
-.sw-monitoring-body .pf-v6-c-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--md);
-}
-
-.sw-resource-value {
-  display: block;
-  font-size: var(--pf-t--global--font--size--heading--h2);
-  font-weight: var(--pf-t--global--font--weight--heading--bold);
-  font-variant-numeric: tabular-nums;
-}
+/* ---- Forms --------------------------------------------------------------- */
 
 .sw-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--pf-t--global--spacer--lg);
+  gap: 1.5rem;
   max-width: 960px;
 }
 
 .sw-field-note {
   display: block;
-  margin-block-start: var(--pf-t--global--spacer--sm);
-  color: var(--pf-t--global--text--color--subtle);
-  font-size: var(--pf-t--global--font--size--body--sm);
+  margin-block-start: 0.5rem;
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-sm);
+}
+
+.sw-form-actions,
+.sw-target-summary,
+.sw-result-summary {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sw-target-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sw-target-summary {
+  justify-content: space-between;
+  padding-block: 0.5rem;
+  border-block: var(--sw-border);
 }
 
 .sw-network-context {
   display: flex;
   flex-direction: column;
-  gap: var(--pf-t--global--spacer--sm);
-  padding: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--lg);
-  background: var(--pf-t--global--background--color--secondary--default);
-  border-radius: var(--sw-surface-radius);
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  background: var(--chakra-colors-bg-subtle);
+  border-radius: var(--sw-radius);
 }
 
-.sw-deploy-wizard {
-  min-height: 520px;
-  overflow: hidden;
-  border-radius: var(--sw-surface-radius);
-}
-.sw-wizard-section { max-width: 1050px; }
-.sw-operation-debugger { overflow: hidden; }
-.sw-operation-debugger .sw-tab-content {
-  padding: var(--pf-t--global--spacer--lg);
-}
-.sw-operation-timeline {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  list-style: none;
-  background: var(--pf-t--global--background--color--primary--default);
-  border: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
-  border-radius: var(--sw-surface-radius);
-}
-
-.sw-operation-timeline li {
+.sw-resource-form {
   display: flex;
-  min-height: 72px;
-  align-items: center;
-  gap: var(--pf-t--global--spacer--md);
-  padding: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--lg);
-  border-inline-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
+  min-width: 0;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.sw-operation-timeline li:last-child { border-inline-end: 0; }
-.sw-operation-timeline li > span { width: 12px; height: 12px; flex: 0 0 12px; border: 2px solid var(--pf-t--global--border--color--default); border-radius: var(--pf-t--global--border--radius--pill); }
-.sw-operation-timeline li[data-state='complete'] > span { border-color: var(--pf-t--global--border--color--status--success--default); background: var(--pf-t--global--color--status--success--default); }
-.sw-operation-timeline li[data-state='current'] > span { border-color: var(--pf-t--global--border--color--status--info--default); background: var(--pf-t--global--color--status--info--100); }
-.sw-operation-timeline li[data-state='failed'] > span { border-color: var(--pf-t--global--border--color--status--danger--default); background: var(--pf-t--global--color--status--danger--default); }
-.sw-operation-timeline li div { min-width: 0; flex: 1; }
-.sw-operation-timeline strong,
-.sw-operation-timeline small { display: block; }
-.sw-operation-timeline small { color: var(--pf-t--global--text--color--subtle); }
-.sw-workspace-toolbar { display: flex; align-items: center; gap: var(--pf-t--global--spacer--sm); flex-wrap: wrap; }
-.sw-workspace-toolbar .pf-v6-c-search-input { width: min(100%, 420px); }
-
-.sw-loading {
+.sw-resource-form-grid {
   display: grid;
-  gap: var(--pf-t--global--spacer--sm);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
 }
 
-.sw-login-brand,
-.sw-route-error__brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--pf-t--global--spacer--sm);
+.sw-integration-settings {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--chakra-colors-bg-subtle);
+  border-radius: var(--sw-radius);
 }
 
-.sw-login {
-  min-height: 100vh;
-  background: var(--pf-t--global--background--color--secondary--default);
-}
-
-.sw-login .pf-v6-c-login__container {
-  width: min(100% - 2rem, 30rem);
-}
-
-.sw-login .pf-v6-c-login__main-header {
+.sw-template-editor {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--pf-t--global--spacer--sm);
-}
-.sw-login .pf-v6-c-login__main { overflow: hidden; border-radius: var(--pf-t--global--border--radius--small); }
-.sw-login .pf-v6-c-login__main-body { padding-block-start: 0; }
-.sw-login-brand { color: var(--pf-t--global--text--color--regular); }
-.sw-login-brand span {
-  font-size: var(--pf-t--global--font--size--heading--h2);
-  font-weight: var(--pf-t--global--font--weight--heading--bold);
-}
-.sw-login-subtitle { color: var(--pf-t--global--text--color--subtle); }
-.sw-login-intro { margin-block-end: var(--pf-t--global--spacer--lg); color: var(--pf-t--global--text--color--subtle); }
-.sw-login-error { margin-block-end: var(--pf-t--global--spacer--md); }
-
-@media (max-width: 36rem) {
-  .sw-login .pf-v6-c-login__container { width: min(100% - 1.5rem, 30rem); }
+  gap: 1.5rem;
 }
 
-.sw-route-error { position: relative; display: grid; min-height: 100vh; place-items: center; padding: var(--pf-t--global--spacer--xl); background: var(--pf-t--global--background--color--secondary--default); }
-.sw-route-error__brand { position: absolute; inset-block-start: var(--pf-t--global--spacer--lg); inset-inline-start: var(--pf-t--global--spacer--lg); }
-.sw-route-error__code { display: block; color: var(--pf-t--global--text--color--subtle); font-size: var(--pf-t--global--font--size--4xl); font-weight: var(--pf-t--global--font--weight--heading--bold); }
+/* ---- Wide provider tables ------------------------------------------------ */
+
+.sw-network-assignment-table { min-width: 960px; }
+.sw-network-assignment-table .sw-network-server-column { min-width: 150px; }
+.sw-network-assignment-table .sw-network-interface-column { min-width: 235px; }
+.sw-network-assignment-table .sw-network-subnet-column { min-width: 210px; }
+.sw-network-assignment-table .sw-network-address-column { min-width: 180px; }
+.sw-network-assignment-table .sw-network-current-mode-column { min-width: 205px; }
+
+.sw-deploy-machines-table td { vertical-align: middle; }
+
+.sw-integration-table { min-width: 1380px; }
+.sw-integration-table tr:target {
+  scroll-margin-block: 4rem;
+  background: var(--chakra-colors-bg-muted);
+}
 
 .sw-provisioning-table { min-width: 1040px; }
+.sw-provisioning-table .sw-col-imageid { min-inline-size: 16rem; }
+.sw-provisioning-table .sw-col-actions { inline-size: 8.5rem; text-align: start; }
+.sw-provisioning-table td.sw-col-actions .sw-row-actions { flex-wrap: nowrap; justify-content: flex-start; }
+.sw-provisioning-table .sw-col-refreshed { inline-size: 12rem; white-space: nowrap; }
+
 .sw-row-actions {
   display: inline-flex;
   align-items: center;
-  gap: var(--pf-t--global--spacer--sm);
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
-/* Image ID column: the provider ID is a single long unspaced token, so it must break within
-   its column (overflow-wrap) and keep the inline copy control immediately after the last
-   character rather than being pushed out of a constrained cell. */
-.sw-provisioning-table .sw-col-imageid { min-inline-size: 16rem; }
-.sw-image-id {
-  overflow-wrap: anywhere;
-  color: var(--pf-t--global--text--color--subtle);
-}
-.sw-image-id .sw-copy-button {
-  vertical-align: middle;
-  margin-inline-start: var(--pf-t--global--spacer--xs);
-}
-/* OS image table column sizing. Scoped to the provisioning table so other action tables keep
-   their own wrapping. Actions stay left-aligned on one row (a fixed column keeps the three
-   icon buttons together); the timestamp is pinned to a single line; the long custom release
-   string is capped and truncated (full value on hover) so rows stay aligned. */
-.sw-provisioning-table .sw-col-actions { inline-size: 8.5rem; text-align: start; }
-.sw-provisioning-table td.sw-col-actions .sw-row-actions {
-  flex-wrap: nowrap;
-  justify-content: flex-start;
-}
-.sw-provisioning-table .sw-col-refreshed { inline-size: 12rem; white-space: nowrap; }
+
+.sw-image-id { overflow-wrap: anywhere; color: var(--chakra-colors-fg-muted); }
+.sw-image-id .sw-copy-button { vertical-align: middle; margin-inline-start: 0.25rem; }
 .sw-release-value {
   display: inline-block;
   max-inline-size: 13rem;
@@ -815,130 +605,47 @@ tbody .sw-sticky-selection { z-index: 2; }
   white-space: nowrap;
   vertical-align: bottom;
 }
-.sw-template-editor {
-  display: flex;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--lg);
-}
-.sw-release-suboptions {
-  margin-inline-start: var(--pf-t--global--spacer--lg);
-}
 
-.sw-resource-form {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--lg);
-}
-.sw-resource-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--pf-t--global--spacer--lg);
-}
-.sw-integration-settings {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--md);
-  padding: var(--pf-t--global--spacer--lg);
-  background: var(--pf-t--global--background--color--secondary--default);
-  border-radius: var(--sw-surface-radius);
-}
-.sw-integration-table { min-width: 1380px; }
-.sw-integration-table tr:target {
-  scroll-margin-block: var(--pf-t--global--spacer--3xl);
-  background: var(--pf-t--global--background--color--action--plain--clicked);
-}
-.sw-form-actions,
-.sw-target-summary,
-.sw-result-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--pf-t--global--spacer--md);
-  flex-wrap: wrap;
-}
-.sw-target-issues {
-  display: flex;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--sm);
-}
+/* ---- Server action result + activity ------------------------------------- */
 
-.sw-target-summary {
-  justify-content: space-between;
-  padding-block: var(--pf-t--global--spacer--sm);
-  border-block: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--subtle);
-}
 .sw-action-result-content {
   display: grid;
-  gap: var(--pf-t--global--spacer--md);
+  gap: 1rem;
 }
-.sw-action-result-content .sw-table-frame {
-  max-height: min(56vh, 560px);
-}
+.sw-action-result-content .sw-table-frame { max-height: min(56vh, 560px); }
 .sw-action-result-server-id {
-  margin-block-start: var(--pf-t--global--spacer--xs);
-  color: var(--pf-t--global--text--color--subtle);
-  font-size: var(--pf-t--global--font--size--body--sm);
+  margin-block-start: 0.25rem;
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-sm);
   overflow-wrap: anywhere;
 }
-.sw-action-reason {
-  max-width: 32ch;
-  color: var(--pf-t--global--text--color--status--warning--default);
-  font-size: var(--pf-t--global--font--size--body--sm);
-}
+.sw-activity-alert { padding: 1.5rem; }
+
+/* ---- Responsive ---------------------------------------------------------- */
 
 @media (max-width: 1050px) {
   .sw-two-column { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
-  .operator-page { gap: var(--pf-t--global--spacer--md); }
-  .sw-page-header { align-items: flex-start; flex-direction: column; }
-  .sw-page-header__actions { width: 100%; }
+  .operator-page { gap: 1rem; }
   .sw-stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sw-stat { border-block-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default); }
-  .sw-two-column { gap: var(--pf-t--global--spacer--md); }
+  .sw-stat { border-block-end: var(--sw-border); }
+  .sw-two-column { gap: 1rem; }
   .sw-key-value-grid,
   .sw-form-grid,
   .sw-resource-form-grid { grid-template-columns: 1fr; }
   .sw-integration-table { min-width: 100%; }
-  .pf-v6-c-table.sw-integration-table:is(.pf-m-grid, .pf-m-grid-md, .pf-m-grid-lg, .pf-m-grid-xl, .pf-m-grid-2xl) tbody > tr {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .pf-v6-c-table.sw-integration-table:is(.pf-m-grid, .pf-m-grid-md, .pf-m-grid-lg, .pf-m-grid-xl, .pf-m-grid-2xl) tbody > tr > td {
-    width: 100%;
-    grid-column: 1;
-  }
-  .pf-v6-c-table.sw-integration-table:is(.pf-m-grid, .pf-m-grid-md, .pf-m-grid-lg, .pf-m-grid-xl, .pf-m-grid-2xl) .pf-v6-c-table__action {
-    width: 100%;
-    grid-row-start: auto;
-    grid-column-start: 1;
-    padding-block-start: var(--pf-t--global--spacer--md);
-    border-block-start: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default);
-  }
-  .sw-integration-table .pf-v6-c-table__action .sw-row-actions { justify-content: flex-end; }
   .sw-operation-timeline { grid-template-columns: 1fr; }
-  .sw-operation-timeline li { border-inline-end: 0; border-block-end: var(--pf-t--global--border--width--divider--default) solid var(--pf-t--global--border--color--default); }
-  .sw-attention-row { grid-template-columns: 76px minmax(0, 1fr); padding-inline: var(--pf-t--global--spacer--md); }
+  .sw-operation-timeline li { border-inline-end: 0; border-block-end: var(--sw-border); }
+  .sw-attention-row { grid-template-columns: 76px minmax(0, 1fr); padding-inline: 1rem; }
   .sw-attention-row > b { display: none; }
-  .sw-section-header { align-items: flex-start; padding-inline: var(--pf-t--global--spacer--md); }
-  .sw-deploy-wizard { min-height: 620px; }
+  .sw-section-header { align-items: flex-start; padding-inline: 1rem; }
 }
 
 @media (max-width: 480px) {
   .sw-stat-strip { grid-template-columns: 1fr 1fr; }
-  .sw-stat { padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md); }
-  .sw-stat dd { font-size: var(--pf-t--global--font--size--heading--h2); }
-  .sw-key-value-grid > div { grid-template-columns: 1fr; gap: var(--pf-t--global--spacer--xs); padding-inline: var(--pf-t--global--spacer--md); }
-}
-
-.sw-activity-stack {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--lg);
-}
-
-.sw-activity-alert {
-  padding: var(--pf-t--global--spacer--lg);
+  .sw-stat { padding: 0.5rem 1rem; }
+  .sw-stat dd { font-size: var(--chakra-font-sizes-xl); }
+  .sw-key-value-grid > div { grid-template-columns: 1fr; gap: 0.25rem; padding-inline: 1rem; }
 }

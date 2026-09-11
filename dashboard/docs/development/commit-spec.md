@@ -61,7 +61,7 @@ fix(presentation): stop stale server responses from overwriting newer state
 
 refactor(di): register the real server repository behind an env switch
 
-style(theme): align badge colours with the Radix theme tokens
+style(theme): align badge colours with the Chakra theme tokens
 
 docs(development): add the Clean Architecture spec and coding style
 ```

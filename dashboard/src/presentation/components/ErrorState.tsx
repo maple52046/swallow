@@ -1,4 +1,4 @@
-import { Alert, AlertActionLink, AlertVariant } from '@patternfly/react-core'
+import { Alert, Button } from '@chakra-ui/react'
 import { t } from '@/presentation/app/i18n'
 
 interface ErrorStateProps {
@@ -6,14 +6,24 @@ interface ErrorStateProps {
   onRetry?: () => void
 }
 
-/** Shared actionable failure state for remote data, distinct from empty and unavailable. */
+/**
+ * Shared actionable failure state for remote data, distinct from empty and
+ * unavailable. The message describes what failed; when `onRetry` is provided the
+ * operator gets an inline retry rather than a dead end. Copy is localised through
+ * the shared `t` helper.
+ */
 export function ErrorState({ message, onRetry }: ErrorStateProps) {
   return (
-    <Alert
-      variant={AlertVariant.danger}
-      title={message ?? t('error.loadFailed')}
-      actionLinks={onRetry ? <AlertActionLink onClick={onRetry}>{t('error.tryAgain')}</AlertActionLink> : undefined}
-      isInline
-    />
+    <Alert.Root status="error">
+      <Alert.Indicator />
+      <Alert.Content>
+        <Alert.Title>{message ?? t('error.loadFailed')}</Alert.Title>
+      </Alert.Content>
+      {onRetry && (
+        <Button size="sm" variant="outline" colorPalette="red" onClick={onRetry} alignSelf="center">
+          {t('error.tryAgain')}
+        </Button>
+      )}
+    </Alert.Root>
   )
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Flex, Label } from '@patternfly/react-core'
-import { Table, Tbody, Td, Th, Thead, Tr, type ThProps } from '@patternfly/react-table'
+import { Badge, Button, HStack, Table } from '@chakra-ui/react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { Platform } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
@@ -24,15 +24,9 @@ export function KubernetesPlatformView({
   members: Server[]
   onSelect: (server: Server) => void
 }) {
-  const intendedControllers = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'control-plane',
-  ) ?? []
-  const intendedWorkers = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'worker',
-  ) ?? []
-  const workloadCapable = platform.deployment?.roleAssignments.filter(
-    (assignment) => assignment.role === 'worker' || assignment.runWorkloads,
-  ) ?? []
+  const intendedControllers = platform.deployment?.roleAssignments.filter((assignment) => assignment.role === 'control-plane') ?? []
+  const intendedWorkers = platform.deployment?.roleAssignments.filter((assignment) => assignment.role === 'worker') ?? []
+  const workloadCapable = platform.deployment?.roleAssignments.filter((assignment) => assignment.role === 'worker' || assignment.runWorkloads) ?? []
   const workloadControllers = intendedControllers.filter((assignment) => assignment.runWorkloads)
   // Fallback counts for a registered platform with no deployment intent: derive from the live
   // membership axis instead of the recorded topology.
@@ -50,20 +44,18 @@ export function KubernetesPlatformView({
                 {
                   label: 'Control-plane',
                   value: intendedControllers.length,
-                  detail: workloadControllers.length > 0
-                    ? workloadControllers.length + (workloadControllers.length === 1
-                        ? ' also runs workloads'
-                        : ' also run workloads')
-                    : 'Dedicated control-plane',
+                  detail:
+                    workloadControllers.length > 0
+                      ? workloadControllers.length + (workloadControllers.length === 1 ? ' also runs workloads' : ' also run workloads')
+                      : 'Dedicated control-plane',
                 },
                 {
                   label: 'Workload-capable',
                   value: workloadCapable.length,
-                  detail: intendedWorkers.length === 0
-                    ? 'No worker-only nodes'
-                    : intendedWorkers.length + (intendedWorkers.length === 1
-                        ? ' worker-only node'
-                        : ' worker-only nodes'),
+                  detail:
+                    intendedWorkers.length === 0
+                      ? 'No worker-only nodes'
+                      : intendedWorkers.length + (intendedWorkers.length === 1 ? ' worker-only node' : ' worker-only nodes'),
                 },
               ]
             : [
@@ -109,35 +101,37 @@ function KubernetesMemberTable({
     }
   }
   const sortedMembers = useMemo(() => {
-    const ordered = [...members].sort((a, b) =>
-      sortValue(a, activeSortIndex).localeCompare(sortValue(b, activeSortIndex), undefined, { numeric: true }),
-    )
+    const ordered = [...members].sort((a, b) => sortValue(a, activeSortIndex).localeCompare(sortValue(b, activeSortIndex), undefined, { numeric: true }))
     return activeSortDirection === 'asc' ? ordered : ordered.reverse()
   }, [members, activeSortIndex, activeSortDirection])
-  const sortParams = (columnIndex: number): ThProps['sort'] => ({
-    sortBy: { index: activeSortIndex, direction: activeSortDirection },
-    onSort: (_event, index, direction) => {
+
+  const sort = (index: number) => {
+    if (index === activeSortIndex) setActiveSortDirection((direction) => (direction === 'asc' ? 'desc' : 'asc'))
+    else {
       setActiveSortIndex(index)
-      setActiveSortDirection(direction)
-    },
-    columnIndex,
-  })
+      setActiveSortDirection('asc')
+    }
+  }
 
   if (members.length === 0) {
     return <EmptyState title="No members" message="No Server currently reports membership in this platform." />
   }
   return (
     <StickyTableFrame>
-      <Table aria-label="Platform members" variant="compact">
-        <Thead>
-          <Tr>
-            <Th sort={sortParams(0)}>Node</Th>
-            <Th sort={sortParams(1)}>Role</Th>
-            <Th sort={sortParams(2)}>State</Th>
-            <Th sort={sortParams(3)}>Address</Th>
-          </Tr>
-        </Thead>
-        <Tbody>
+      <Table.Root size="sm" aria-label="Platform members">
+        <Table.Header>
+          <Table.Row>
+            {['Node', 'Role', 'State', 'Address'].map((label, index) => (
+              <Table.ColumnHeader key={label}>
+                <Button variant="plain" size="sm" className="sw-sort-button" onClick={() => sort(index)} aria-label={`Sort by ${label}`}>
+                  {label}
+                  {activeSortIndex === index && (activeSortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                </Button>
+              </Table.ColumnHeader>
+            ))}
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {sortedMembers.map((server) => {
             const assignment = deployment?.roleAssignments.find((candidate) => candidate.serverId === server.id)
             const runsWorkloads = assignment?.role === 'control-plane' && assignment.runWorkloads
@@ -145,40 +139,41 @@ function KubernetesMemberTable({
             const address = serverPrimaryAddress(server)
             const role = server.membership?.role ?? assignment?.role ?? 'unknown'
             return (
-              <Tr key={server.id} isClickable onRowClick={() => onSelect(server)}>
-                <Td dataLabel="Node">
+              <Table.Row key={server.id} cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={() => onSelect(server)}>
+                <Table.Cell>
                   <span className="sw-cell-inline">
                     <strong>{nodeName}</strong>
                     <CopyButton value={nodeName} label="Copy node name" />
                   </span>
-                </Td>
-                <Td dataLabel="Role">
-                  <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
+                </Table.Cell>
+                <Table.Cell>
+                  <HStack gap="2">
                     <StatusBadge status={role === 'control-plane' ? 'info' : 'neutral'} label={role} />
-                    {runsWorkloads && <Label color="green">Runs workloads</Label>}
-                  </Flex>
-                </Td>
-                <Td dataLabel="State">
+                    {runsWorkloads && (
+                      <Badge colorPalette="green" variant="subtle">
+                        Runs workloads
+                      </Badge>
+                    )}
+                  </HStack>
+                </Table.Cell>
+                <Table.Cell>
                   {server.membership?.state ? (
-                    <StatusBadge
-                      status={server.membership.state === 'ready' ? 'succeeded' : 'warning'}
-                      label={server.membership.state}
-                    />
+                    <StatusBadge status={server.membership.state === 'ready' ? 'succeeded' : 'warning'} label={server.membership.state} />
                   ) : (
                     <StatusBadge status="neutral" label="unknown" />
                   )}
-                </Td>
-                <Td dataLabel="Address" className="mono">
+                </Table.Cell>
+                <Table.Cell className="mono">
                   <span className="sw-cell-inline">
                     {address ?? '-'}
                     <CopyButton value={address ?? ''} label="Copy address" />
                   </span>
-                </Td>
-              </Tr>
+                </Table.Cell>
+              </Table.Row>
             )
           })}
-        </Tbody>
-      </Table>
+        </Table.Body>
+      </Table.Root>
     </StickyTableFrame>
   )
 }

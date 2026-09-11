@@ -1,5 +1,7 @@
-import { Alert, AlertVariant, Checkbox, Stack, StackItem } from '@patternfly/react-core'
+import { Stack } from '@chakra-ui/react'
 import type { ReleaseOptionsValue } from './releaseOptions'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
 
 interface ReleaseOptionsFieldsProps {
   /** Namespaces the control ids so two instances never collide when both are mounted. */
@@ -30,11 +32,13 @@ function eraseExplanation(value: ReleaseOptionsValue): string {
 }
 
 /**
- * ReleaseOptionsFields renders the disk-erasure and static-IP cleanup choices for a release.
+ * Renders the disk-erasure and static-IP cleanup choices for a release.
  *
- * It is fully controlled: the caller owns the value and submits it, so the same UI serves
- * both the Server Release dialog and the platform uninstall dialog. Turning erase off also
- * clears the erase modes so a caller cannot submit an inconsistent combination.
+ * Fully controlled: the caller owns the value and submits it, so the same UI serves
+ * both the Server Release dialog and the platform uninstall dialog. Turning erase
+ * off also clears the erase modes so a caller cannot submit an inconsistent
+ * combination. Each choice is mirrored by an inline explanation, so the effect is
+ * always described in text.
  */
 export function ReleaseOptionsFields({
   idPrefix,
@@ -51,76 +55,58 @@ export function ReleaseOptionsFields({
     )
 
   return (
-    <Stack hasGutter>
+    <Stack gap="4">
       {supportsReleaseOptions ? (
         <>
-          <StackItem>
+          <Checkbox id={`${idPrefix}-erase-disks`} checked={value.erase} onCheckedChange={changeErase}>
+            Erase disks before release
+          </Checkbox>
+          <Stack gap="3" ps="6">
             <Checkbox
-              id={`${idPrefix}-erase-disks`}
-              label="Erase disks before release"
-              isChecked={value.erase}
-              onChange={(_event, checked) => changeErase(checked)}
-            />
-          </StackItem>
-          <StackItem className="sw-release-suboptions">
-            <Stack hasGutter>
-              <StackItem>
-                <Checkbox
-                  id={`${idPrefix}-secure-erase`}
-                  label="Use secure erase when supported"
-                  isChecked={value.secureErase}
-                  isDisabled={!value.erase}
-                  onChange={(_event, checked) => onChange({ ...value, secureErase: checked })}
-                />
-              </StackItem>
-              <StackItem>
-                <Checkbox
-                  id={`${idPrefix}-quick-erase`}
-                  label={value.secureErase ? 'Use quick erase if secure erase is unavailable' : 'Use quick erase'}
-                  isChecked={value.quickErase}
-                  isDisabled={!value.erase}
-                  onChange={(_event, checked) => onChange({ ...value, quickErase: checked })}
-                />
-              </StackItem>
-            </Stack>
-          </StackItem>
-          <StackItem>
-            <Alert
-              variant={value.erase ? AlertVariant.warning : AlertVariant.info}
-              title={value.erase ? 'Disk erasure enabled' : 'Disk contents will be retained'}
-              isInline
+              id={`${idPrefix}-secure-erase`}
+              checked={value.secureErase}
+              disabled={!value.erase}
+              onCheckedChange={(checked) => onChange({ ...value, secureErase: checked })}
             >
-              {eraseExplanation(value)}
-            </Alert>
-          </StackItem>
+              Use secure erase when supported
+            </Checkbox>
+            <Checkbox
+              id={`${idPrefix}-quick-erase`}
+              checked={value.quickErase}
+              disabled={!value.erase}
+              onCheckedChange={(checked) => onChange({ ...value, quickErase: checked })}
+            >
+              {value.secureErase ? 'Use quick erase if secure erase is unavailable' : 'Use quick erase'}
+            </Checkbox>
+          </Stack>
+          <Alert
+            status={value.erase ? 'warning' : 'info'}
+            title={value.erase ? 'Disk erasure enabled' : 'Disk contents will be retained'}
+          >
+            {eraseExplanation(value)}
+          </Alert>
         </>
       ) : (
-        <StackItem>
-          <Alert variant={AlertVariant.info} title="Disk erasure options unavailable" isInline>
-            This provisioner can release the machine but does not expose configurable disk erasure through Swallow.
-          </Alert>
-        </StackItem>
-      )}
-      <StackItem>
-        <Checkbox
-          id={`${idPrefix}-unbind-static-ips`}
-          label="Remove static IP bindings after release"
-          isChecked={value.unbindStaticIPs}
-          isDisabled={!supportsNetworkConfiguration}
-          onChange={(_event, checked) => onChange({ ...value, unbindStaticIPs: checked })}
-        />
-      </StackItem>
-      <StackItem>
-        <Alert
-          variant={value.unbindStaticIPs ? AlertVariant.warning : AlertVariant.info}
-          title={value.unbindStaticIPs ? 'Static IP cleanup enabled' : 'Network configuration will be retained'}
-          isInline
-        >
-          {value.unbindStaticIPs
-            ? 'Swallow will wait for Ready, then remove only unchanged Static links captured before Release. DHCP, provider-managed, Link only, and later changes are preserved.'
-            : 'Release will leave all current network links in place.'}
+        <Alert status="info" title="Disk erasure options unavailable">
+          This provisioner can release the machine but does not expose configurable disk erasure through Swallow.
         </Alert>
-      </StackItem>
+      )}
+      <Checkbox
+        id={`${idPrefix}-unbind-static-ips`}
+        checked={value.unbindStaticIPs}
+        disabled={!supportsNetworkConfiguration}
+        onCheckedChange={(checked) => onChange({ ...value, unbindStaticIPs: checked })}
+      >
+        Remove static IP bindings after release
+      </Checkbox>
+      <Alert
+        status={value.unbindStaticIPs ? 'warning' : 'info'}
+        title={value.unbindStaticIPs ? 'Static IP cleanup enabled' : 'Network configuration will be retained'}
+      >
+        {value.unbindStaticIPs
+          ? 'Swallow will wait for Ready, then remove only unchanged Static links captured before Release. DHCP, provider-managed, Link only, and later changes are preserved.'
+          : 'Release will leave all current network links in place.'}
+      </Alert>
     </Stack>
   )
 }

@@ -11,7 +11,7 @@
 本 project 的設計必須滿足以下目標：
 
 - Separation of concerns：UI 呈現、使用者互動、application flow、domain rule、API mapping 與 framework wiring 必須分開。
-- Independent of frameworks：React、Vite、router 與 UI 元件庫（Radix Themes）是工具，不是核心規則的中心。
+- Independent of frameworks：React、Vite、router 與 UI 元件庫（Chakra UI）是工具，不是核心規則的中心。
 - Testable：domain model 與 use case 必須能在不啟動 browser、不 render React、不呼叫外部 API 的情況下測試。
 - Independent of UI details：畫面佈局、component library、CSS、route 結構與瀏覽器事件不得影響內層規則。
 - Independent of external agencies：內層邏輯不應知道 HTTP client、`localStorage`、`URLSearchParams`、第三方 SDK 或後端 response shape 的細節。
@@ -36,7 +36,7 @@ flowchart TB
 
 - 外層可以知道內層。
 - 內層不得 import、引用、命名或依賴外層。
-- Domain model 與 application use case 不得 import React、React DOM、Vite、CSS、Radix（`@radix-ui/*`）、router、API client 或任何 browser API wrapper。
+- Domain model 與 application use case 不得 import React、React DOM、Vite、CSS、Chakra（`@chakra-ui/*`、`@emotion/*`）、router、API client 或任何 browser API wrapper。
 - 內層不得接受外層 framework 的資料型別，例如 `MouseEvent`、`Response`、`URLSearchParams`、route params object、storage record、API response DTO、第三方 SDK object。
 - 外層變更不應迫使內層 domain rule 或 use case contract 變更。
 
@@ -64,7 +64,7 @@ Domain model 不得包含：
 - React component、hook、JSX、CSS class name。
 - API response shape、HTTP status code、fetch client 型別。
 - Browser event、route object、storage key、DOM API。
-- Radix props、theme token 或 framework lifecycle。
+- Chakra props、theme token 或 framework lifecycle。
 
 ### Application Use Cases
 
@@ -80,7 +80,7 @@ Use cases 可以包含：
 Use cases 不得包含：
 
 - JSX、React hook、component state setter。
-- 具體 HTTP client、browser storage、router implementation 或 Radix 呼叫。
+- 具體 HTTP client、browser storage、router implementation 或 Chakra 呼叫。
 - CSS、DOM 操作或 layout decision。
 - 後端原始 response shape 或傳輸協定細節。
 
@@ -223,7 +223,7 @@ React component 屬於 interface adapter 或 framework detail，不是 domain mo
 
 以下做法違反本 project 的 Clean Architecture 原則：
 
-- Domain model 或 use case import React、React DOM、Vite、router、CSS、Radix（`@radix-ui/*`）、browser API、API client 或 storage implementation。
+- Domain model 或 use case import React、React DOM、Vite、router、CSS、Chakra（`@chakra-ui/*`、`@emotion/*`）、browser API、API client 或 storage implementation。
 - Use case 直接呼叫 `fetch`、讀寫 `localStorage`、操作 `window.location`、建立 `URLSearchParams` 或處理 DOM event。
 - `src/presentation/**` import `@/infrastructure/**`。
 - 內層函式接受 API response DTO、browser event、route params object、storage record 或第三方 SDK response。

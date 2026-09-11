@@ -3,7 +3,7 @@
  * extraction they need.
  *
  * These live in the domain because they are framework-free rules on domain types — no
- * React, no Radix, no browser — and are the same operations MAAS performs server-side.
+ * React, no Chakra, no browser — and are the same operations MAAS performs server-side.
  * The swallow API paginates but does not group or multi-filter, so the servers list applies
  * these client-side over a fetched working set. Everything here is deterministic and
  * unit-testable without rendering.

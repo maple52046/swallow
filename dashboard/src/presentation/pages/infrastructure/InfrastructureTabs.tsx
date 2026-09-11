@@ -1,4 +1,4 @@
-import { Tab, Tabs, TabTitleText } from '@patternfly/react-core'
+import { Tabs } from '@chakra-ui/react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 
@@ -15,16 +15,18 @@ export function InfrastructureTabs() {
   const active = TABS.find((item) => location.pathname.startsWith(item.path))?.path ?? TABS[0].path
 
   return (
-    <div className="sw-detail-tabs">
-      <Tabs
-        activeKey={active}
-        aria-label="Infrastructure navigation"
-        onSelect={(_event, key) => navigate(scopedHref(String(key)))}
-      >
+    <Tabs.Root
+      value={active}
+      onValueChange={(details) => navigate(scopedHref(details.value))}
+      aria-label="Infrastructure navigation"
+    >
+      <Tabs.List>
         {TABS.map((item) => (
-          <Tab key={item.path} eventKey={item.path} title={<TabTitleText>{item.label}</TabTitleText>} />
+          <Tabs.Trigger key={item.path} value={item.path}>
+            {item.label}
+          </Tabs.Trigger>
         ))}
-      </Tabs>
-    </div>
+      </Tabs.List>
+    </Tabs.Root>
   )
 }

@@ -1,59 +1,107 @@
-import { useEffect, useRef, type ReactNode } from 'react'
-import { Page, PageSection, SkipToContent } from '@patternfly/react-core'
+import { Box, Drawer, Flex, Link as ChakraLink, Portal } from '@chakra-ui/react'
+import type { ReactNode } from 'react'
 import { OperatorHeader } from './OperatorHeader'
 import { OperatorSideNav } from './OperatorSideNav'
-import './operator-shell.css'
 
 interface OperatorShellProps {
   children: ReactNode
   collapsed: boolean
   mobileNavOpen: boolean
   onCloseMobileNav: () => void
-  onToggleDesktopNav: () => void
-  onToggleMobileNav: () => void
+  onOpenMobileNav: () => void
+  onToggleSidebar: () => void
 }
 
-/** Stock PatternFly docked page used by every authenticated route. */
-export function OperatorShell({ children, collapsed, mobileNavOpen, onCloseMobileNav, onToggleDesktopNav, onToggleMobileNav }: OperatorShellProps) {
-  const previousFocus = useRef<HTMLElement | null>(null)
-
-  useEffect(() => {
-    if (!mobileNavOpen) return
-    previousFocus.current = document.activeElement as HTMLElement | null
-    const dock = document.querySelector<HTMLElement>('.sw-operator-shell .pf-v6-c-page__dock')
-    const focusable = () => [...(dock?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])].filter((element) => element.offsetParent !== null)
-    const focusTimer = window.setTimeout(() => focusable()[0]?.focus(), 0)
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { onCloseMobileNav(); return }
-      if (event.key !== 'Tab') return
-      const items = focusable()
-      if (!items.length) return
-      const first = items[0]; const last = items[items.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.clearTimeout(focusTimer)
-      document.removeEventListener('keydown', onKeyDown)
-      previousFocus.current?.focus()
-    }
-  }, [mobileNavOpen, onCloseMobileNav])
-
-  const navigation = <OperatorSideNav collapsed={collapsed && !mobileNavOpen} onNavigate={onCloseMobileNav} />
+/**
+ * Keyboard skip target that jumps straight to the main region. Hidden off-screen
+ * until it receives focus, so keyboard users can bypass the nav without cluttering
+ * the visual layout.
+ */
+function SkipToContent() {
   return (
-    <Page
-      variant="docked"
-      isDockExpanded={mobileNavOpen}
-      isDockTextExpanded={!collapsed}
-      masthead={<OperatorHeader variant="mobile" expanded={mobileNavOpen} onToggle={onToggleMobileNav} />}
-      dockContent={<OperatorHeader variant="docked" expanded={!collapsed} onToggle={onToggleDesktopNav} navigation={navigation} />}
-      mainContainerId="swallow-main-content"
-      isContentFilled
-      skipToContent={<SkipToContent href="#swallow-main-content">Skip to content</SkipToContent>}
-      className="sw-operator-shell"
+    <ChakraLink
+      href="#swallow-main-content"
+      position="absolute"
+      insetStart="2"
+      top="2"
+      zIndex="skipLink"
+      bg="bg.panel"
+      color="fg"
+      px="3"
+      py="2"
+      rounded="md"
+      borderWidth="1px"
+      borderColor="border"
+      transform="translateY(-150%)"
+      transition="transform 0.15s ease"
+      _focusVisible={{ transform: 'translateY(0)' }}
     >
-      <PageSection className="sw-page-section" isFilled>{children}</PageSection>
-    </Page>
+      Skip to content
+    </ChakraLink>
+  )
+}
+
+/**
+ * Authenticated app frame used by every operator route.
+ *
+ * Renders a persistent left rail on desktop (collapsible to icons) and folds it
+ * into a focus-trapped `Drawer` on mobile — the Drawer owns escape/overlay
+ * dismissal and focus restoration, so no manual focus management is needed. The
+ * main region is the skip-link target and holds the routed screen.
+ */
+export function OperatorShell({
+  children,
+  collapsed,
+  mobileNavOpen,
+  onCloseMobileNav,
+  onOpenMobileNav,
+  onToggleSidebar,
+}: OperatorShellProps) {
+  return (
+    <Flex minH="100dvh" bg="bg.subtle">
+      <SkipToContent />
+
+      <Box
+        as="aside"
+        display={{ base: 'none', lg: 'block' }}
+        w={collapsed ? '16' : '64'}
+        flexShrink="0"
+        position="sticky"
+        top="0"
+        h="100dvh"
+        borderInlineEndWidth="1px"
+        borderColor="border"
+        transition="width 0.15s ease"
+      >
+        <OperatorSideNav collapsed={collapsed} />
+      </Box>
+
+      <Flex direction="column" flex="1" minW="0" minH="100dvh">
+        <OperatorHeader onToggleSidebar={onToggleSidebar} onOpenMobileNav={onOpenMobileNav} />
+        <Box as="main" id="swallow-main-content" tabIndex={-1} flex="1" minW="0" p={{ base: 4, md: 6 }}>
+          {children}
+        </Box>
+      </Flex>
+
+      <Drawer.Root
+        open={mobileNavOpen}
+        onOpenChange={(event) => {
+          if (!event.open) onCloseMobileNav()
+        }}
+        placement="start"
+        size="xs"
+      >
+        <Portal>
+          <Drawer.Backdrop />
+          <Drawer.Positioner>
+            <Drawer.Content maxW="16rem">
+              <Drawer.Body p="0">
+                <OperatorSideNav collapsed={false} onNavigate={onCloseMobileNav} />
+              </Drawer.Body>
+            </Drawer.Content>
+          </Drawer.Positioner>
+        </Portal>
+      </Drawer.Root>
+    </Flex>
   )
 }

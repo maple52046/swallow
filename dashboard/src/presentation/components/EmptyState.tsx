@@ -1,30 +1,38 @@
-import {
-  Button,
-  EmptyState as PatternFlyEmptyState,
-  EmptyStateActions,
-  EmptyStateBody,
-  EmptyStateFooter,
-} from '@patternfly/react-core'
-import { SearchIcon } from '@patternfly/react-icons'
-import type { ComponentType } from 'react'
+import { Button, EmptyState as ChakraEmptyState, VStack } from '@chakra-ui/react'
+import { Inbox } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 interface EmptyStateProps {
   title?: string
   message?: string
-  icon?: ComponentType
+  /** Optional custom indicator; defaults to a neutral inbox glyph. */
+  icon?: ReactNode
+  /** Optional primary recovery action (e.g. clear filters, create the first record). */
   action?: { label: string; onClick: () => void }
 }
 
-/** Shared PatternFly empty result that clearly differs from loading and failure states. */
-export function EmptyState({ title = 'No data', message, icon = SearchIcon, action }: EmptyStateProps) {
+/**
+ * Shared empty result, visually distinct from loading and failure.
+ *
+ * Rendered when a query succeeds but returns nothing. The optional `action` gives
+ * the operator a recovery path (clear filters, create the first record) so an
+ * empty surface never feels like a dead end.
+ */
+export function EmptyState({ title = 'No data', message, icon, action }: EmptyStateProps) {
   return (
-    <PatternFlyEmptyState headingLevel="h2" titleText={title} icon={icon}>
-      {message && <EmptyStateBody>{message}</EmptyStateBody>}
-      {action && (
-        <EmptyStateFooter>
-          <EmptyStateActions><Button onClick={action.onClick}>{action.label}</Button></EmptyStateActions>
-        </EmptyStateFooter>
-      )}
-    </PatternFlyEmptyState>
+    <ChakraEmptyState.Root>
+      <ChakraEmptyState.Content>
+        <ChakraEmptyState.Indicator>{icon ?? <Inbox />}</ChakraEmptyState.Indicator>
+        <VStack textAlign="center" gap="1">
+          <ChakraEmptyState.Title>{title}</ChakraEmptyState.Title>
+          {message && <ChakraEmptyState.Description>{message}</ChakraEmptyState.Description>}
+        </VStack>
+        {action && (
+          <Button colorPalette="brand" onClick={action.onClick} mt="2">
+            {action.label}
+          </Button>
+        )}
+      </ChakraEmptyState.Content>
+    </ChakraEmptyState.Root>
   )
 }

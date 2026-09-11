@@ -1,25 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  Card,
-  CardBody,
-  CardTitle,
-  Checkbox,
-  Form,
-  FormGroup,
-  FormSelect,
-  FormSelectOption,
-  SearchInput,
-  TextArea,
-  TextInput,
-  ToggleGroup,
-  ToggleGroupItem,
-  ToolbarItem,
-} from '@patternfly/react-core'
-import { PlusCircleIcon } from '@patternfly/react-icons'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
+import { Button, Card, Field, Heading, Input, SegmentGroup, Table, Text, Textarea } from '@chakra-ui/react'
+import { Plus } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { DeploymentTemplate } from '@/domain/provisioning/types'
@@ -29,6 +10,10 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
+import { NativeSelect } from '@/presentation/components/ui/native-select'
+import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
@@ -62,6 +47,11 @@ const EMPTY_DRAFT: TemplateDraft = {
   defaultGateway: false,
 }
 
+const NETWORK_MODES = [
+  { value: 'automatic', label: 'Automatic' },
+  { value: 'static', label: 'Static' },
+]
+
 /** CRUD workspace for Swallow-owned deployment intent and write-only cloud-init. */
 export function DeploymentTemplatesPage() {
   const { provisioning, sites: siteRepository } = useApp()
@@ -89,10 +79,7 @@ export function DeploymentTemplatesPage() {
       ])
       setState({ status: 'ready', templates, integrations })
     } catch (error) {
-      setState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Could not load deployment templates.',
-      })
+      setState({ status: 'error', message: error instanceof Error ? error.message : 'Could not load deployment templates.' })
     }
   }, [provisioning, siteId, siteRepository])
 
@@ -118,7 +105,8 @@ export function DeploymentTemplatesPage() {
     }
     let cancelled = false
     setImageError('')
-    provisioning.listOSImages(draft.integrationId)
+    provisioning
+      .listOSImages(draft.integrationId)
       .then((items) => {
         if (!cancelled) setImages(items)
       })
@@ -137,12 +125,11 @@ export function DeploymentTemplatesPage() {
     if (state.status !== 'ready') return []
     const needle = query.trim().toLowerCase()
     if (!needle) return state.templates
-    return state.templates.filter((template) => [
-      template.name,
-      template.description,
-      template.imageId,
-      state.integrations.find((item) => item.id === template.integrationId)?.name ?? '',
-    ].some((value) => value.toLowerCase().includes(needle)))
+    return state.templates.filter((template) =>
+      [template.name, template.description, template.imageId, state.integrations.find((item) => item.id === template.integrationId)?.name ?? ''].some((value) =>
+        value.toLowerCase().includes(needle),
+      ),
+    )
   }, [query, state])
 
   const closeForm = () => {
@@ -156,13 +143,7 @@ export function DeploymentTemplatesPage() {
   }
 
   const submit = async () => {
-    if (
-      saving ||
-      !draft.name.trim() ||
-      !draft.integrationId ||
-      !draft.imageId ||
-      (Boolean(imageError) && !draft.id)
-    ) return
+    if (saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (Boolean(imageError) && !draft.id)) return
     setSaving(true)
     try {
       if (draft.id) {
@@ -188,11 +169,7 @@ export function DeploymentTemplatesPage() {
       closeForm()
       await load()
     } catch (error) {
-      showToast({
-        tone: 'error',
-        title: 'Could not save deployment template',
-        description: error instanceof Error ? error.message : 'Unknown error',
-      })
+      showToast({ tone: 'error', title: 'Could not save deployment template', description: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
       setSaving(false)
     }
@@ -205,11 +182,7 @@ export function DeploymentTemplatesPage() {
       showToast({ tone: 'success', title: 'Deployment template deleted' })
       await load()
     } catch (error) {
-      showToast({
-        tone: 'error',
-        title: 'Could not delete deployment template',
-        description: error instanceof Error ? error.message : 'Unknown error',
-      })
+      showToast({ tone: 'error', title: 'Could not delete deployment template', description: error instanceof Error ? error.message : 'Unknown error' })
     }
   }
 
@@ -223,11 +196,7 @@ export function DeploymentTemplatesPage() {
       showToast({ tone: 'success', title: 'Cloud-init replaced' })
       await load()
     } catch (error) {
-      showToast({
-        tone: 'error',
-        title: 'Could not replace cloud-init',
-        description: error instanceof Error ? error.message : 'Unknown error',
-      })
+      showToast({ tone: 'error', title: 'Could not replace cloud-init', description: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
       setSecretSaving(false)
     }
@@ -239,184 +208,280 @@ export function DeploymentTemplatesPage() {
       showToast({ tone: 'success', title: 'Cloud-init removed' })
       await load()
     } catch (error) {
-      showToast({
-        tone: 'error',
-        title: 'Could not remove cloud-init',
-        description: error instanceof Error ? error.message : 'Unknown error',
-      })
+      showToast({ tone: 'error', title: 'Could not remove cloud-init', description: error instanceof Error ? error.message : 'Unknown error' })
     }
   }
 
-  const integrationName = (id: string) => state.status === 'ready'
-    ? state.integrations.find((item) => item.id === id)?.name ?? id
-    : id
+  const integrationName = (id: string) => (state.status === 'ready' ? state.integrations.find((item) => item.id === id)?.name ?? id : id)
   const siteName = (id: string) => sites.find((item) => item.id === id)?.name ?? id
 
-  return <div className="operator-page">
-    <PageHeader
-      title="Deployment templates"
-      subtitle="Reusable OS deployment intent scoped to one provisioner integration."
-      breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'Templates' }]}
-      actions={<Button variant="primary" icon={<PlusCircleIcon />} onClick={() => openCreate()}>Create template</Button>}
-    />
-    <ProvisioningTabs />
+  return (
+    <div className="operator-page">
+      <PageHeader
+        title="Deployment templates"
+        subtitle="Reusable OS deployment intent scoped to one provisioner integration."
+        breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'Templates' }]}
+        actions={
+          <Button colorPalette="brand" onClick={() => openCreate()}>
+            <Plus size={16} />
+            Create template
+          </Button>
+        }
+      />
+      <ProvisioningTabs />
 
-    {formOpen && (
-      <Card>
-        <CardTitle>{draft.id ? 'Edit deployment template' : 'Create deployment template'}</CardTitle>
-        <CardBody className="sw-template-editor">
-          <Form className="sw-form-grid">
-            <FormGroup label="Provisioner integration" isRequired fieldId="template-integration">
-              <FormSelect
-                id="template-integration"
-                value={draft.integrationId}
-                isDisabled={Boolean(draft.id)}
-                onChange={(_event, value) => setDraft((current) => ({
-                  ...current,
-                  integrationId: value,
-                  imageId: '',
-                }))}
+      {formOpen && (
+        <Card.Root>
+          <Card.Body gap="4" className="sw-template-editor">
+            <Heading size="sm">{draft.id ? 'Edit deployment template' : 'Create deployment template'}</Heading>
+            <div className="sw-form-grid">
+              <Field.Root required>
+                <Field.Label>
+                  Provisioner integration <Field.RequiredIndicator />
+                </Field.Label>
+                <NativeSelect
+                  value={draft.integrationId}
+                  disabled={Boolean(draft.id)}
+                  aria-label="Provisioner integration"
+                  onChange={(value) => setDraft((current) => ({ ...current, integrationId: value, imageId: '' }))}
+                >
+                  <option value="" disabled>
+                    Select an integration
+                  </option>
+                  {state.status === 'ready' && state.integrations.map((integration) => (
+                    <option key={integration.id} value={integration.id}>
+                      {integration.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field.Root>
+              <Field.Root required>
+                <Field.Label>
+                  Name <Field.RequiredIndicator />
+                </Field.Label>
+                <Input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
+              </Field.Root>
+              <Field.Root required>
+                <Field.Label>
+                  OS image <Field.RequiredIndicator />
+                </Field.Label>
+                <NativeSelect
+                  value={draft.imageId}
+                  disabled={!draft.integrationId || Boolean(imageError)}
+                  aria-label="OS image"
+                  onChange={(value) => setDraft((current) => ({ ...current, imageId: value }))}
+                >
+                  <option value="" disabled>
+                    Select an image
+                  </option>
+                  {draft.imageId && !images.some((item) => item.id === draft.imageId) && <option value={draft.imageId}>{draft.imageId}</option>}
+                  {images.map((image) => (
+                    <option key={`${image.id}:${image.architecture}`} value={image.id}>
+                      {`${image.name} (${image.architecture})`}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field.Root>
+              <Field.Root>
+                <Field.Label>Description</Field.Label>
+                <Input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
+              </Field.Root>
+              <Field.Root>
+                <Checkbox id="template-ephemeral" checked={draft.ephemeral} onCheckedChange={(checked) => setDraft((current) => ({ ...current, ephemeral: checked }))}>
+                  Ephemeral deployment
+                </Checkbox>
+              </Field.Root>
+              <Field.Root required>
+                <Field.Label>Network mode</Field.Label>
+                <SegmentGroup.Root
+                  value={draft.networkMode}
+                  onValueChange={(details) => {
+                    if (!details.value) return
+                    const mode = details.value as 'automatic' | 'static'
+                    setDraft((current) => ({ ...current, networkMode: mode, defaultGateway: mode === 'automatic' ? false : current.defaultGateway }))
+                  }}
+                >
+                  <SegmentGroup.Indicator />
+                  {NETWORK_MODES.map((option) => (
+                    <SegmentGroup.Item key={option.value} value={option.value}>
+                      <SegmentGroup.ItemText>{option.label}</SegmentGroup.ItemText>
+                      <SegmentGroup.ItemHiddenInput />
+                    </SegmentGroup.Item>
+                  ))}
+                </SegmentGroup.Root>
+              </Field.Root>
+              {draft.networkMode === 'static' && (
+                <Field.Root required>
+                  <Field.Label>
+                    Subnet ID <Field.RequiredIndicator />
+                  </Field.Label>
+                  <Input value={draft.subnetId} onChange={(event) => setDraft((current) => ({ ...current, subnetId: event.target.value }))} />
+                </Field.Root>
+              )}
+              {draft.networkMode === 'static' && (
+                <Field.Root>
+                  <Checkbox id="template-default-gateway" checked={draft.defaultGateway} onCheckedChange={(checked) => setDraft((current) => ({ ...current, defaultGateway: checked }))}>
+                    Use as default gateway
+                  </Checkbox>
+                </Field.Root>
+              )}
+            </div>
+            {imageError && (
+              <Alert status="warning" title="Image catalog unavailable">
+                {imageError} Image-changing actions are disabled.
+              </Alert>
+            )}
+            <div className="sw-form-actions">
+              <Button variant="ghost" onClick={closeForm}>
+                Cancel
+              </Button>
+              <Button
+                colorPalette="brand"
+                loading={saving}
+                disabled={saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (draft.networkMode === 'static' && !draft.subnetId.trim()) || (Boolean(imageError) && !draft.id)}
+                onClick={() => void submit()}
               >
-                <FormSelectOption value="" label="Select an integration" isDisabled isPlaceholder />
-                {state.status === 'ready' && state.integrations.map((integration) => (
-                  <FormSelectOption key={integration.id} value={integration.id} label={integration.name} />
-                ))}
-              </FormSelect>
-            </FormGroup>
-            <FormGroup label="Name" isRequired fieldId="template-name">
-              <TextInput id="template-name" value={draft.name} onChange={(_event, value) => setDraft((current) => ({ ...current, name: value }))} />
-            </FormGroup>
-            <FormGroup label="OS image" isRequired fieldId="template-image">
-              <FormSelect
-                id="template-image"
-                value={draft.imageId}
-                isDisabled={!draft.integrationId || Boolean(imageError)}
-                onChange={(_event, value) => setDraft((current) => ({ ...current, imageId: value }))}
+                Save
+              </Button>
+            </div>
+          </Card.Body>
+        </Card.Root>
+      )}
+
+      {secretTemplate && (
+        <Card.Root>
+          <Card.Body gap="4" className="sw-template-editor">
+            <Heading size="sm">Replace cloud-init for {secretTemplate.name}</Heading>
+            <Alert status="info" title="Existing cloud-init is write-only and cannot be displayed." />
+            <Field.Root required>
+              <Field.Label>
+                New cloud-init <Field.RequiredIndicator />
+              </Field.Label>
+              <Textarea value={secretValue} onChange={(event) => setSecretValue(event.target.value)} rows={10} autoComplete="off" />
+            </Field.Root>
+            <div className="sw-form-actions">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setSecretTemplate(null)
+                  setSecretValue('')
+                }}
               >
-                <FormSelectOption value="" label="Select an image" isDisabled />
-                {draft.imageId && !images.some((item) => item.id === draft.imageId) && (
-                  <FormSelectOption value={draft.imageId} label={draft.imageId} />
-                )}
-                {images.map((image) => (
-                  <FormSelectOption key={`${image.id}:${image.architecture}`} value={image.id} label={`${image.name} (${image.architecture})`} />
-                ))}
-              </FormSelect>
-            </FormGroup>
-            <FormGroup label="Description" fieldId="template-description">
-              <TextInput id="template-description" value={draft.description} onChange={(_event, value) => setDraft((current) => ({ ...current, description: value }))} />
-            </FormGroup>
-            <FormGroup fieldId="template-ephemeral">
-              <Checkbox
-                id="template-ephemeral"
-                label="Ephemeral deployment"
-                isChecked={draft.ephemeral}
-                onChange={(_event, checked) => setDraft((current) => ({ ...current, ephemeral: checked }))}
-              />
-            </FormGroup>
-            <FormGroup label="Network mode" isRequired fieldId="template-network-mode">
-              <ToggleGroup aria-label="Template network mode">
-                <ToggleGroupItem text="Automatic" buttonId="template-network-automatic" isSelected={draft.networkMode === 'automatic'} onChange={() => setDraft((current) => ({ ...current, networkMode: 'automatic', defaultGateway: false }))} />
-                <ToggleGroupItem text="Static" buttonId="template-network-static" isSelected={draft.networkMode === 'static'} onChange={() => setDraft((current) => ({ ...current, networkMode: 'static' }))} />
-              </ToggleGroup>
-            </FormGroup>
-            {draft.networkMode === 'static' && <FormGroup label="Subnet ID" isRequired fieldId="template-subnet">
-              <TextInput id="template-subnet" value={draft.subnetId} onChange={(_event, value) => setDraft((current) => ({ ...current, subnetId: value }))} />
-            </FormGroup>}
-            {draft.networkMode === 'static' && <FormGroup fieldId="template-default-gateway">
-              <Checkbox id="template-default-gateway" label="Use as default gateway" isChecked={draft.defaultGateway} onChange={(_event, checked) => setDraft((current) => ({ ...current, defaultGateway: checked }))} />
-            </FormGroup>}
-          </Form>
-          {imageError && <Alert variant={AlertVariant.warning} title="Image catalog unavailable" isInline>{imageError} Image-changing actions are disabled.</Alert>}
-          <div className="sw-form-actions">
-            <Button variant="primary" isLoading={saving} isDisabled={saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (draft.networkMode === 'static' && !draft.subnetId.trim()) || (Boolean(imageError) && !draft.id)} onClick={() => void submit()}>Save</Button>
-            <Button variant="link" onClick={closeForm}>Cancel</Button>
-          </div>
-        </CardBody>
-      </Card>
-    )}
+                Cancel
+              </Button>
+              <Button colorPalette="brand" loading={secretSaving} disabled={!secretValue || secretSaving} onClick={() => void saveSecret()}>
+                Replace cloud-init
+              </Button>
+            </div>
+          </Card.Body>
+        </Card.Root>
+      )}
 
-    {secretTemplate && (
-      <Card>
-        <CardTitle>Replace cloud-init for {secretTemplate.name}</CardTitle>
-        <CardBody className="sw-template-editor">
-          <Alert variant={AlertVariant.info} title="Existing cloud-init is write-only and cannot be displayed." isInline />
-          <FormGroup label="New cloud-init" isRequired fieldId="template-user-data">
-            <TextArea
-              id="template-user-data"
-              value={secretValue}
-              onChange={(_event, value) => setSecretValue(value)}
-              rows={10}
-              autoComplete="off"
-            />
-          </FormGroup>
-          <div className="sw-form-actions">
-            <Button variant="primary" isLoading={secretSaving} isDisabled={!secretValue || secretSaving} onClick={() => void saveSecret()}>Replace cloud-init</Button>
-            <Button variant="link" onClick={() => { setSecretTemplate(null); setSecretValue('') }}>Cancel</Button>
-          </div>
-        </CardBody>
-      </Card>
-    )}
+      <DataToolbar variant="plain">
+        <SearchInput value={query} onChange={setQuery} placeholder="Search templates" aria-label="Search deployment templates" />
+      </DataToolbar>
 
-    <DataToolbar variant="plain">
-      <ToolbarItem>
-        <SearchInput
-          value={query}
-          onChange={(_event, value) => setQuery(value)}
-          onClear={() => setQuery('')}
-          placeholder="Search templates"
-          aria-label="Search deployment templates"
-        />
-      </ToolbarItem>
-    </DataToolbar>
-
-    {state.status === 'loading' && <LoadingState rows={6} />}
-    {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
-    {state.status === 'ready' && filtered.length === 0 && (
-      <EmptyState title="No deployment templates" message="Create reusable OS deployment intent for future scale-out." />
-    )}
-    {state.status === 'ready' && filtered.length > 0 && (
-      <StickyTableFrame>
-        <Table aria-label="Deployment templates" variant="compact" className="sw-provisioning-table">
-          <Thead><Tr>
-            <Th>Name</Th><Th>Site</Th><Th>Integration</Th><Th>Image ID</Th>
-            <Th>Ephemeral</Th><Th>Network</Th><Th>Cloud-init</Th><Th>Updated</Th><Th screenReaderText="Actions" />
-          </Tr></Thead>
-          <Tbody>{filtered.map((template) => (
-            <Tr key={template.id}>
-              <Td dataLabel="Name"><strong>{template.name}</strong><small>{template.description || '-'}</small></Td>
-              <Td dataLabel="Site">{siteName(template.siteId)}</Td>
-              <Td dataLabel="Integration">{integrationName(template.integrationId)}</Td>
-              <Td dataLabel="Image ID" className="sw-mono">{template.imageId}</Td>
-              <Td dataLabel="Ephemeral">{template.ephemeral ? 'Yes' : 'No'}</Td>
-              <Td dataLabel="Network">{template.network?.mode === 'static' ? `Static - ${template.network.subnetId || '-'}` : 'Automatic'}</Td>
-              <Td dataLabel="Cloud-init">{template.hasUserData ? 'Configured' : '-'}</Td>
-              <Td dataLabel="Updated">{formatDateTime(template.updatedAt)}</Td>
-              <Td isActionCell>
-                <span className="sw-row-actions">
-                  <Button variant="link" isInline onClick={() => {
-                    setDraft({
-                      id: template.id,
-                      integrationId: template.integrationId,
-                      name: template.name,
-                      description: template.description,
-                      imageId: template.imageId,
-                      ephemeral: template.ephemeral,
-                      networkMode: template.network?.mode ?? 'automatic',
-                      subnetId: template.network?.subnetId ?? '',
-                      defaultGateway: template.network?.defaultGateway ?? false,
-                    })
-                    setFormOpen(true)
-                  }}>Edit</Button>
-                  <Button variant="link" isInline onClick={() => navigate(`${scopedHref('/provisioning/deploy')}&templateId=${encodeURIComponent(template.id)}`.replace('?&', '?'))}>Deploy</Button>
-                  <Button variant="link" isInline onClick={() => { setSecretTemplate(template); setSecretValue('') }}>{template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}</Button>
-                  {template.hasUserData && <Button variant="link" isInline onClick={() => void clearSecret(template)}>Remove cloud-init</Button>}
-                  <Button variant="link" isDanger isInline onClick={() => void removeTemplate(template)}>Delete</Button>
-                </span>
-              </Td>
-            </Tr>
-          ))}</Tbody>
-        </Table>
-      </StickyTableFrame>
-    )}
-  </div>
+      {state.status === 'loading' && <LoadingState rows={6} />}
+      {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
+      {state.status === 'ready' && filtered.length === 0 && (
+        <EmptyState title="No deployment templates" message="Create reusable OS deployment intent for future scale-out." />
+      )}
+      {state.status === 'ready' && filtered.length > 0 && (
+        <StickyTableFrame>
+          <Table.Root size="sm" aria-label="Deployment templates" className="sw-provisioning-table">
+            <Table.Header>
+              <Table.Row>
+                <Table.ColumnHeader>Name</Table.ColumnHeader>
+                <Table.ColumnHeader>Site</Table.ColumnHeader>
+                <Table.ColumnHeader>Integration</Table.ColumnHeader>
+                <Table.ColumnHeader>Image ID</Table.ColumnHeader>
+                <Table.ColumnHeader>Ephemeral</Table.ColumnHeader>
+                <Table.ColumnHeader>Network</Table.ColumnHeader>
+                <Table.ColumnHeader>Cloud-init</Table.ColumnHeader>
+                <Table.ColumnHeader>Updated</Table.ColumnHeader>
+                <Table.ColumnHeader />
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {filtered.map((template) => (
+                <Table.Row key={template.id}>
+                  <Table.Cell>
+                    <strong>{template.name}</strong>
+                    <Text as="small" display="block" color="fg.muted">
+                      {template.description || '-'}
+                    </Text>
+                  </Table.Cell>
+                  <Table.Cell>{siteName(template.siteId)}</Table.Cell>
+                  <Table.Cell>{integrationName(template.integrationId)}</Table.Cell>
+                  <Table.Cell className="sw-mono">{template.imageId}</Table.Cell>
+                  <Table.Cell>{template.ephemeral ? 'Yes' : 'No'}</Table.Cell>
+                  <Table.Cell>{template.network?.mode === 'static' ? `Static - ${template.network.subnetId || '-'}` : 'Automatic'}</Table.Cell>
+                  <Table.Cell>{template.hasUserData ? 'Configured' : '-'}</Table.Cell>
+                  <Table.Cell>{formatDateTime(template.updatedAt)}</Table.Cell>
+                  <Table.Cell textAlign="end">
+                    <span className="sw-row-actions">
+                      <Button
+                        variant="plain"
+                        size="sm"
+                        px="1"
+                        h="auto"
+                        colorPalette="brand"
+                        onClick={() => {
+                          setDraft({
+                            id: template.id,
+                            integrationId: template.integrationId,
+                            name: template.name,
+                            description: template.description,
+                            imageId: template.imageId,
+                            ephemeral: template.ephemeral,
+                            networkMode: template.network?.mode ?? 'automatic',
+                            subnetId: template.network?.subnetId ?? '',
+                            defaultGateway: template.network?.defaultGateway ?? false,
+                          })
+                          setFormOpen(true)
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="plain"
+                        size="sm"
+                        px="1"
+                        h="auto"
+                        colorPalette="brand"
+                        onClick={() => navigate(`${scopedHref('/provisioning/deploy')}&templateId=${encodeURIComponent(template.id)}`.replace('?&', '?'))}
+                      >
+                        Deploy
+                      </Button>
+                      <Button
+                        variant="plain"
+                        size="sm"
+                        px="1"
+                        h="auto"
+                        colorPalette="brand"
+                        onClick={() => {
+                          setSecretTemplate(template)
+                          setSecretValue('')
+                        }}
+                      >
+                        {template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}
+                      </Button>
+                      {template.hasUserData && (
+                        <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => void clearSecret(template)}>
+                          Remove cloud-init
+                        </Button>
+                      )}
+                      <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" onClick={() => void removeTemplate(template)}>
+                        Delete
+                      </Button>
+                    </span>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table.Root>
+        </StickyTableFrame>
+      )}
+    </div>
+  )
 }

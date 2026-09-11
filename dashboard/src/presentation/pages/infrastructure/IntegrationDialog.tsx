@@ -1,24 +1,11 @@
 import { useMemo, useState } from 'react'
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  Checkbox,
-  Form,
-  FormGroup,
-  FormHelperText,
-  FormSelect,
-  FormSelectOption,
-  HelperText,
-  HelperTextItem,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  TextInput,
-} from '@patternfly/react-core'
+import { Button, Field, Heading, Input, Stack } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { Integration, IntegrationKind, Site } from '@/domain/site/types'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
+import { Modal } from '@/presentation/components/ui/modal'
+import { NativeSelect } from '@/presentation/components/ui/native-select'
 
 interface IntegrationDialogProps {
   integration?: Integration
@@ -46,7 +33,8 @@ function replaceSetting(settings: Record<string, string>, key: string, value: st
 
 /**
  * Creates or edits one provider connection without allowing Site or provider ownership
- * to change after registration. Unknown adapter settings are preserved during edits.
+ * to change after registration. Unknown adapter settings are preserved during edits, and
+ * the write-only credential (create flow only) is cleared from state on success.
  */
 export function IntegrationDialog({
   integration,
@@ -96,22 +84,17 @@ export function IntegrationDialog({
     setError('')
     try {
       const saved = integration
-        ? await sites.updateIntegration(integration.id, {
-          name: name.trim(),
-          endpoint: endpoint.trim(),
-          settings,
-          enabled,
-        })
+        ? await sites.updateIntegration(integration.id, { name: name.trim(), endpoint: endpoint.trim(), settings, enabled })
         : await sites.createIntegration({
-          siteId,
-          kind,
-          providerKind,
-          name: name.trim(),
-          endpoint: endpoint.trim(),
-          credential,
-          settings,
-          enabled,
-        })
+            siteId,
+            kind,
+            providerKind,
+            name: name.trim(),
+            endpoint: endpoint.trim(),
+            credential,
+            settings,
+            enabled,
+          })
       setCredential('')
       onSaved(saved)
     } catch (caught) {
@@ -122,135 +105,174 @@ export function IntegrationDialog({
   }
 
   return (
-    <Modal isOpen onClose={close} variant="medium" aria-labelledby="integration-editor-title">
-      <ModalHeader
-        title={editing ? 'Edit integration' : 'Create integration'}
-        labelId="integration-editor-title"
-        description={editing
+    <Modal
+      open
+      onClose={close}
+      size="xl"
+      closeOnInteractOutside={!submitting}
+      title={editing ? 'Edit integration' : 'Create integration'}
+      description={
+        editing
           ? `${providerLabel} remains attached to its original Site and provider role.`
-          : 'An Integration connects exactly one Site to one external provider.'}
-      />
-      <ModalBody>
-        <Form className="sw-resource-form">
-          {error && <Alert variant={AlertVariant.danger} title="Integration could not be saved" isInline>{error}</Alert>}
+          : 'An Integration connects exactly one Site to one external provider.'
+      }
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" colorPalette="brand" loading={submitting} disabled={!valid || submitting}>
+            {editing ? 'Save changes' : 'Create integration'}
+          </Button>
+        </>
+      }
+    >
+      <Stack gap="4" className="sw-resource-form">
+        {error && (
+          <Alert status="error" title="Integration could not be saved">
+            {error}
+          </Alert>
+        )}
+        <div className="sw-resource-form-grid">
+          <Field.Root required>
+            <Field.Label>
+              Site <Field.RequiredIndicator />
+            </Field.Label>
+            <NativeSelect id="integration-site" value={siteId} disabled={editing} aria-label="Site" onChange={setSiteId}>
+              <option value="" disabled>
+                Select a Site
+              </option>
+              {availableSites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field.Root>
+          <Field.Root required>
+            <Field.Label>
+              Role <Field.RequiredIndicator />
+            </Field.Label>
+            <NativeSelect
+              id="integration-kind"
+              value={kind}
+              disabled={editing}
+              aria-label="Role"
+              onChange={(value) => changeKind(value as IntegrationKind)}
+            >
+              <option value="provisioner">Provisioner</option>
+              <option value="metrics">Metrics</option>
+              <option value="platform">Platform</option>
+            </NativeSelect>
+          </Field.Root>
+          <Field.Root required>
+            <Field.Label>
+              Provider <Field.RequiredIndicator />
+            </Field.Label>
+            <NativeSelect
+              id="integration-provider"
+              value={providerKind}
+              disabled={editing}
+              aria-label="Provider"
+              onChange={(value) => {
+                setProviderKind(value)
+                setSettings({})
+              }}
+            >
+              {providerOptions.map((provider) => (
+                <option key={provider.value} value={provider.value}>
+                  {provider.label}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field.Root>
+          <Field.Root required>
+            <Field.Label>
+              Name <Field.RequiredIndicator />
+            </Field.Label>
+            <Input value={name} onChange={(event) => setName(event.target.value)} autoFocus />
+          </Field.Root>
+        </div>
+        <Field.Root required>
+          <Field.Label>
+            Endpoint <Field.RequiredIndicator />
+          </Field.Label>
+          <Input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} />
+        </Field.Root>
+        {!editing && (
+          <Field.Root required={credentialRequired}>
+            <Field.Label>
+              Credential {credentialRequired && <Field.RequiredIndicator />}
+            </Field.Label>
+            <Input
+              type="password"
+              value={credential}
+              onChange={(event) => setCredential(event.target.value)}
+              autoComplete="new-password"
+            />
+            <Field.HelperText>Write-only. Swallow will never return this value.</Field.HelperText>
+          </Field.Root>
+        )}
+        <section className="sw-integration-settings" aria-labelledby="integration-settings-title">
+          <Heading as="h3" size="sm" id="integration-settings-title">
+            Connection settings
+          </Heading>
           <div className="sw-resource-form-grid">
-            <FormGroup label="Site" isRequired fieldId="integration-site">
-              <FormSelect
-                id="integration-site"
-                value={siteId}
-                isDisabled={editing}
-                onChange={(_event, value) => setSiteId(value)}
+            <Field.Root>
+              <Field.Label>Request timeout</Field.Label>
+              <Input value={settings.timeout ?? ''} placeholder="30s" onChange={(event) => setSetting('timeout', event.target.value)} />
+              <Field.HelperText>Go duration such as 30s or 2m.</Field.HelperText>
+            </Field.Root>
+            <Field.Root>
+              <Field.Label>TLS verification</Field.Label>
+              <Checkbox
+                id="integration-insecure"
+                checked={settings.insecureSkipVerify === 'true'}
+                onCheckedChange={(checked) => setSetting('insecureSkipVerify', checked ? 'true' : '')}
               >
-                <FormSelectOption value="" label="Select a Site" isDisabled isPlaceholder />
-                {availableSites.map((site) => <FormSelectOption key={site.id} value={site.id} label={site.name} />)}
-              </FormSelect>
-            </FormGroup>
-            <FormGroup label="Role" isRequired fieldId="integration-kind">
-              <FormSelect
-                id="integration-kind"
-                value={kind}
-                isDisabled={editing}
-                onChange={(_event, value) => changeKind(value as IntegrationKind)}
-              >
-                <FormSelectOption value="provisioner" label="Provisioner" />
-                <FormSelectOption value="metrics" label="Metrics" />
-                <FormSelectOption value="platform" label="Platform" />
-              </FormSelect>
-            </FormGroup>
-            <FormGroup label="Provider" isRequired fieldId="integration-provider">
-              <FormSelect
-                id="integration-provider"
-                value={providerKind}
-                isDisabled={editing}
-                onChange={(_event, value) => {
-                  setProviderKind(value)
-                  setSettings({})
-                }}
-              >
-                {providerOptions.map((provider) => (
-                  <FormSelectOption key={provider.value} value={provider.value} label={provider.label} />
-                ))}
-              </FormSelect>
-            </FormGroup>
-            <FormGroup label="Name" isRequired fieldId="integration-name">
-              <TextInput id="integration-name" value={name} onChange={(_event, value) => setName(value)} autoFocus />
-            </FormGroup>
-          </div>
-          <FormGroup label="Endpoint" isRequired fieldId="integration-endpoint">
-            <TextInput id="integration-endpoint" type="url" value={endpoint} onChange={(_event, value) => setEndpoint(value)} />
-          </FormGroup>
-          {!editing && (
-            <FormGroup label="Credential" isRequired={credentialRequired} fieldId="integration-credential">
-              <TextInput
-                id="integration-credential"
-                type="password"
-                value={credential}
-                onChange={(_event, value) => setCredential(value)}
-                autoComplete="new-password"
-              />
-              <FormHelperText>
-                <HelperText><HelperTextItem>Write-only. Swallow will never return this value.</HelperTextItem></HelperText>
-              </FormHelperText>
-            </FormGroup>
-          )}
-          <section className="sw-integration-settings" aria-labelledby="integration-settings-title">
-            <h3 id="integration-settings-title">Connection settings</h3>
-            <div className="sw-resource-form-grid">
-              <FormGroup label="Request timeout" fieldId="integration-timeout">
-                <TextInput
-                  id="integration-timeout"
-                  value={settings.timeout ?? ''}
-                  placeholder="30s"
-                  onChange={(_event, value) => setSetting('timeout', value)}
-                />
-                <FormHelperText>
-                  <HelperText><HelperTextItem>Go duration such as 30s or 2m.</HelperTextItem></HelperText>
-                </FormHelperText>
-              </FormGroup>
-              <FormGroup fieldId="integration-insecure" label="TLS verification">
+                Skip certificate verification
+              </Checkbox>
+            </Field.Root>
+            {providerKind === 'prometheus' && (
+              <>
+                <Field.Root>
+                  <Field.Label>Alertmanager URL</Field.Label>
+                  <Input type="url" value={settings.alertmanagerUrl ?? ''} onChange={(event) => setSetting('alertmanagerUrl', event.target.value)} />
+                </Field.Root>
+                <Field.Root>
+                  <Field.Label>Grafana URL</Field.Label>
+                  <Input type="url" value={settings.grafanaUrl ?? ''} onChange={(event) => setSetting('grafanaUrl', event.target.value)} />
+                </Field.Root>
+              </>
+            )}
+            {providerKind === 'slurm' && (
+              <Field.Root>
+                <Field.Label>Slurm API version</Field.Label>
+                <Input value={settings.slurmApiVersion ?? ''} placeholder="v0.0.40" onChange={(event) => setSetting('slurmApiVersion', event.target.value)} />
+              </Field.Root>
+            )}
+            {providerKind === 'kubernetes' && (
+              <Field.Root>
+                <Field.Label>Controller discovery</Field.Label>
                 <Checkbox
-                  id="integration-insecure"
-                  label="Skip certificate verification"
-                  isChecked={settings.insecureSkipVerify === 'true'}
-                  onChange={(_event, checked) => setSetting('insecureSkipVerify', checked ? 'true' : '')}
-                />
-              </FormGroup>
-              {providerKind === 'prometheus' && (
-                <>
-                  <FormGroup label="Alertmanager URL" fieldId="integration-alertmanager-url">
-                    <TextInput id="integration-alertmanager-url" type="url" value={settings.alertmanagerUrl ?? ''} onChange={(_event, value) => setSetting('alertmanagerUrl', value)} />
-                  </FormGroup>
-                  <FormGroup label="Grafana URL" fieldId="integration-grafana-url">
-                    <TextInput id="integration-grafana-url" type="url" value={settings.grafanaUrl ?? ''} onChange={(_event, value) => setSetting('grafanaUrl', value)} />
-                  </FormGroup>
-                </>
-              )}
-              {providerKind === 'slurm' && (
-                <FormGroup label="Slurm API version" fieldId="integration-slurm-api-version">
-                  <TextInput id="integration-slurm-api-version" value={settings.slurmApiVersion ?? ''} placeholder="v0.0.40" onChange={(_event, value) => setSetting('slurmApiVersion', value)} />
-                </FormGroup>
-              )}
-              {providerKind === 'kubernetes' && (
-                <FormGroup fieldId="integration-controller-leases" label="Controller discovery">
-                  <Checkbox
-                    id="integration-controller-leases"
-                    label="Discover dedicated k0s controllers from leases"
-                    isChecked={settings.controllerLeaseDiscovery === 'true'}
-                    onChange={(_event, checked) => setSetting('controllerLeaseDiscovery', checked ? 'true' : '')}
-                  />
-                </FormGroup>
-              )}
-            </div>
-          </section>
-          <Checkbox id="integration-enabled" label="Enabled" isChecked={enabled} onChange={(_event, checked) => setEnabled(checked)} />
-        </Form>
-      </ModalBody>
-      <ModalFooter>
-        <Button onClick={() => void submit()} isLoading={submitting} isDisabled={!valid || submitting}>
-          {editing ? 'Save changes' : 'Create integration'}
-        </Button>
-        <Button variant="link" onClick={close} isDisabled={submitting}>Cancel</Button>
-      </ModalFooter>
+                  id="integration-controller-leases"
+                  checked={settings.controllerLeaseDiscovery === 'true'}
+                  onCheckedChange={(checked) => setSetting('controllerLeaseDiscovery', checked ? 'true' : '')}
+                >
+                  Discover dedicated k0s controllers from leases
+                </Checkbox>
+              </Field.Root>
+            )}
+          </div>
+        </section>
+        <Checkbox id="integration-enabled" checked={enabled} onCheckedChange={setEnabled}>
+          Enabled
+        </Checkbox>
+      </Stack>
     </Modal>
   )
 }

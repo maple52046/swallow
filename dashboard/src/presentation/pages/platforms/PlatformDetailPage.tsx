@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
-import { Alert, AlertVariant, Button, Flex, Label } from '@patternfly/react-core'
-import { SyncAltIcon } from '@patternfly/react-icons'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
+import { Badge, Button, HStack, Table } from '@chakra-ui/react'
+import { RefreshCw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
@@ -13,6 +12,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { Alert } from '@/presentation/components/ui/alert'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
@@ -51,33 +51,42 @@ export function PlatformDetailPage() {
       })
       if (state.status === 'ready') state.data.reload()
     } catch (error) {
-      showToast({
-        tone: 'error',
-        title: 'Sync failed',
-        description: error instanceof Error ? error.message : 'Could not sync membership.',
-      })
+      showToast({ tone: 'error', title: 'Sync failed', description: error instanceof Error ? error.message : 'Could not sync membership.' })
     } finally {
       setSyncing(false)
     }
   }, [platforms, id, showToast, state])
 
   if (state.status === 'loading') {
-    return <><PageHeader title="Platform" /><LoadingState rows={6} /></>
+    return (
+      <>
+        <PageHeader title="Platform" />
+        <LoadingState rows={6} />
+      </>
+    )
   }
   if (state.status === 'not-found') {
-    return <><PageHeader title="Platform" /><EmptyState title="Platform not found" message="This platform no longer exists." /></>
+    return (
+      <>
+        <PageHeader title="Platform" />
+        <EmptyState title="Platform not found" message="This platform no longer exists." />
+      </>
+    )
   }
   if (state.status === 'error') {
-    return <><PageHeader title="Platform" /><ErrorState message={state.message} /></>
+    return (
+      <>
+        <PageHeader title="Platform" />
+        <ErrorState message={state.message} />
+      </>
+    )
   }
 
   const { platform, members, loginNodes, operations, reload } = state.data
   const isKubernetes = platform.type === 'kubernetes'
-  const lifecycleOperation = operations.find(
-    (operation) => operation.id === platform.lifecycleOperationId,
-  ) ?? operations.find(
-    (operation) => operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm',
-  )
+  const lifecycleOperation =
+    operations.find((operation) => operation.id === platform.lifecycleOperationId) ??
+    operations.find((operation) => operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm')
   const targetServerIds = lifecycleOperation?.targetServerIds
   const openServer = (serverId: string) => navigate(scopedHref(`/servers/${serverId}`))
 
@@ -86,36 +95,22 @@ export function PlatformDetailPage() {
       <PageHeader
         title={platform.name}
         subtitle={`${platform.type} platform, GPU stack owned by ${platform.gpuStackOwner}, exporters managed by ${platform.exporterOwner}`}
-        breadcrumbs={[
-          { label: 'Platforms', href: scopedHref('/platforms') },
-          { label: platform.name },
-        ]}
+        breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }, { label: platform.name }]}
         metadata={
-          <Flex gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}>
-            <Label color={isKubernetes ? 'blue' : 'grey'}>{platform.type}</Label>
-            <StatusBadge
-              status={platformLifecycleStatus(platform.lifecycleState)}
-              label={platformLifecycleLabel(platform.lifecycleState)}
-            />
-          </Flex>
+          <HStack gap="2" wrap="wrap">
+            <Badge colorPalette={isKubernetes ? 'blue' : 'gray'} variant="subtle">
+              {platform.type}
+            </Badge>
+            <StatusBadge status={platformLifecycleStatus(platform.lifecycleState)} label={platformLifecycleLabel(platform.lifecycleState)} />
+          </HStack>
         }
         actions={
           <>
-            <Button
-              variant="secondary"
-              icon={<SyncAltIcon />}
-              onClick={() => void sync()}
-              isLoading={syncing}
-              isDisabled={syncing || !platform.integrationId}
-            >
+            <Button variant="outline" onClick={() => void sync()} loading={syncing} disabled={syncing || !platform.integrationId}>
+              <RefreshCw size={16} />
               Sync now
             </Button>
-            <PlatformLifecycleActions
-              platform={platform}
-              operation={lifecycleOperation}
-              targetServerIds={targetServerIds}
-              onRepairStarted={reload}
-            />
+            <PlatformLifecycleActions platform={platform} operation={lifecycleOperation} targetServerIds={targetServerIds} onRepairStarted={reload} />
           </>
         }
       />
@@ -125,9 +120,8 @@ export function PlatformDetailPage() {
         onOpenOperation={(operationId) => navigate(scopedHref('/workflows/' + operationId))}
       />
       {platform.sync.lastError && platform.lifecycleState !== 'uninstalled' && (
-        <Alert variant={AlertVariant.danger} title="Membership sync is failing" isInline>
-          {platform.sync.lastError}. The member list may be stale; last success{' '}
-          {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
+        <Alert status="error" title="Membership sync is failing">
+          {platform.sync.lastError}. The member list may be stale; last success {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
         </Alert>
       )}
 
@@ -141,29 +135,32 @@ export function PlatformDetailPage() {
         <SectionHeader
           title="Related operations"
           description="Deployment, uninstall, and retry history for this Platform."
-          actions={<Button variant="link" icon={<SyncAltIcon />} onClick={reload}>Refresh</Button>}
+          actions={
+            <Button variant="plain" size="sm" onClick={reload}>
+              <RefreshCw size={16} />
+              Refresh
+            </Button>
+          }
         />
         {operations.length === 0 ? (
           <EmptyState title="No operations" message="No automation has run against this platform." />
         ) : (
           <StickyTableFrame>
-            <Table aria-label="Related operations" variant="compact">
-              <Thead><Tr><Th>Intent</Th><Th>Kind</Th><Th>Status</Th><Th>Requested</Th></Tr></Thead>
-              <Tbody>
+            <Table.Root size="sm" aria-label="Related operations">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Intent</Table.ColumnHeader><Table.ColumnHeader>Kind</Table.ColumnHeader><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Requested</Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
                 {operations.map((operation) => (
-                  <Tr
-                    key={operation.id}
-                    isClickable
-                    onRowClick={() => navigate(scopedHref(`/workflows/${operation.id}`))}
-                  >
-                    <Td dataLabel="Intent">{operation.intent || operation.execution.playbook}</Td>
-                    <Td dataLabel="Kind">{operation.kind}</Td>
-                    <Td dataLabel="Status"><StatusBadge status={operation.execution.status} /></Td>
-                    <Td dataLabel="Requested">{formatDateTime(operation.requestedAt)}</Td>
-                  </Tr>
+                  <Table.Row key={operation.id} cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={() => navigate(scopedHref(`/workflows/${operation.id}`))}>
+                    <Table.Cell>{operation.intent || operation.execution.playbook}</Table.Cell>
+                    <Table.Cell>{operation.kind}</Table.Cell>
+                    <Table.Cell><StatusBadge status={operation.execution.status} /></Table.Cell>
+                    <Table.Cell>{formatDateTime(operation.requestedAt)}</Table.Cell>
+                  </Table.Row>
                 ))}
-              </Tbody>
-            </Table>
+              </Table.Body>
+            </Table.Root>
           </StickyTableFrame>
         )}
       </section>
@@ -188,11 +185,7 @@ function LifecycleNotice({
   const operationId = platform.lifecycleOperationId
   const failureMessage = deploymentFailureMessage(operation)
   const details = operationId ? (
-    <Button
-      variant="link"
-      isInline
-      onClick={() => onOpenOperation(operationId)}
-    >
+    <Button variant="plain" size="sm" px="0" h="auto" colorPalette="brand" onClick={() => onOpenOperation(operationId)}>
       View automation details
     </Button>
   ) : null
@@ -200,34 +193,42 @@ function LifecycleNotice({
   switch (platform.lifecycleState) {
     case 'deploying':
       return (
-        <Alert variant={AlertVariant.info} title="Platform deployment is running" isInline>
+        <Alert status="info" title="Platform deployment is running">
           Swallow is configuring {platform.name}. Lifecycle and membership update here automatically. {details}
         </Alert>
       )
     case 'deploy_failed':
       return (
-        <Alert variant={AlertVariant.danger} title="Platform deployment failed" isInline>
+        <Alert status="error" title="Platform deployment failed">
           {/* pre-wrap keeps the executor's per-host failure lines legible; see sw-error-detail. */}
           <span className="sw-error-detail">{failureMessage}</span> {details}
         </Alert>
       )
     case 'uninstalling':
       return (
-        <Alert variant={AlertVariant.warning} title="Platform uninstall is running" isInline>
+        <Alert status="warning" title="Platform uninstall is running">
           The Swallow record remains available while original deployment targets are cleaned. {details}
         </Alert>
       )
     case 'uninstall_failed':
       return (
-        <Alert variant={AlertVariant.danger} title="Platform uninstall failed" isInline>
+        <Alert status="error" title="Platform uninstall failed">
           Hosts may be in mixed states. Inspect the automation output before retrying. {details}
         </Alert>
       )
     case 'uninstalled':
-      return <Alert variant={AlertVariant.info} title="Platform is uninstalled" isInline>The platform was removed from the original targets. This record remains until you delete it.</Alert>
+      return (
+        <Alert status="info" title="Platform is uninstalled">
+          The platform was removed from the original targets. This record remains until you delete it.
+        </Alert>
+      )
     default:
       if (!platform.integrationId) {
-        return <Alert variant={AlertVariant.info} title="Platform is not reachable" isInline>No platform integration is attached, so membership cannot be read.</Alert>
+        return (
+          <Alert status="info" title="Platform is not reachable">
+            No platform integration is attached, so membership cannot be read.
+          </Alert>
+        )
       }
       return null
   }
@@ -243,9 +244,7 @@ function deploymentFailureMessage(operation?: Operation): string {
   if (!operation || !isOrchestrationOperation(operation)) {
     return 'Review the automation details, then use Repair deployment to rerun the original configuration.'
   }
-  const failedStep = operation.steps?.find((step) =>
-    step.status === 'failed' || step.status === 'requires_attention',
-  )
+  const failedStep = operation.steps?.find((step) => step.status === 'failed' || step.status === 'requires_attention')
   if (failedStep?.kind === 'wait-for-ssh') {
     return `${failedStep.error?.message ?? 'SSH readiness verification failed.'} This older Operation can only recheck SSH; it cannot repair a missing provider address or redeploy the operating system. Correct the provider network state first, or release and redeploy the affected Server.`
   }

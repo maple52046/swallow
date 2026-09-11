@@ -1,15 +1,7 @@
 import { useState } from 'react'
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  FormGroup,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  TextInput,
-} from '@patternfly/react-core'
+import { Button, Field, Input, Stack } from '@chakra-ui/react'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Modal } from '@/presentation/components/ui/modal'
 
 interface ResourceDeleteDialogProps {
   resourceLabel: 'Site' | 'Integration'
@@ -22,7 +14,10 @@ interface ResourceDeleteDialogProps {
 
 /**
  * Typed confirmation shared by Site and Integration deletion.
- * Provider dependency conflicts remain inline so operators keep the exact resource context.
+ *
+ * The destructive action stays disabled until the operator retypes the exact
+ * resource name, and provider dependency conflicts surface inline so the resource
+ * context is never lost. Dismissal is blocked while the delete is in flight.
  */
 export function ResourceDeleteDialog({
   resourceLabel,
@@ -56,34 +51,49 @@ export function ResourceDeleteDialog({
 
   const noun = resourceLabel.toLowerCase()
   return (
-    <Modal isOpen onClose={close} variant="small" aria-labelledby="resource-delete-title">
-      <ModalHeader
-        title={`Delete ${noun}`}
-        labelId="resource-delete-title"
-        description={`This removes only the ${resourceLabel} registration from Swallow.`}
-      />
-      <ModalBody className="sw-resource-form">
-        {error && <Alert variant={AlertVariant.danger} title={`${resourceLabel} could not be deleted`} isInline>{error}</Alert>}
-        <Alert variant={AlertVariant.warning} title="This cannot be undone" isInline>{warning}</Alert>
-        <FormGroup label={`Type "${name}" to confirm`} isRequired fieldId="resource-delete-confirmation">
-          <TextInput
-            id="resource-delete-confirmation"
+    <Modal
+      open
+      onClose={close}
+      role="alertdialog"
+      closeOnInteractOutside={!submitting}
+      title={`Delete ${noun}`}
+      description={`This removes only the ${resourceLabel} registration from Swallow.`}
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" colorPalette="red" loading={submitting} disabled={confirmation !== name || submitting}>
+            Delete {noun}
+          </Button>
+        </>
+      }
+    >
+      <Stack gap="4">
+        {error && (
+          <Alert status="error" title={`${resourceLabel} could not be deleted`}>
+            {error}
+          </Alert>
+        )}
+        <Alert status="warning" title="This cannot be undone">
+          {warning}
+        </Alert>
+        <Field.Root required>
+          <Field.Label>
+            Type "{name}" to confirm <Field.RequiredIndicator />
+          </Field.Label>
+          <Input
             aria-label={`${resourceLabel} name confirmation`}
             value={confirmation}
-            onChange={(_event, value) => setConfirmation(value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void submit()
-            }}
+            onChange={(event) => setConfirmation(event.target.value)}
             autoFocus
           />
-        </FormGroup>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="danger" onClick={() => void submit()} isLoading={submitting} isDisabled={confirmation !== name || submitting}>
-          Delete {noun}
-        </Button>
-        <Button variant="link" onClick={close} isDisabled={submitting}>Cancel</Button>
-      </ModalFooter>
+        </Field.Root>
+      </Stack>
     </Modal>
   )
 }

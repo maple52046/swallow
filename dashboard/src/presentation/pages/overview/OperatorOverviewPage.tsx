@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, AlertVariant, Content, Label } from '@patternfly/react-core'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
+import { Badge, Table, Text } from '@chakra-ui/react'
 import { Link } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Overview } from '@/domain/overview/types'
@@ -9,6 +8,7 @@ import { SectionHeader, StatStrip, StickyTableFrame } from '@/presentation/compo
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
 
@@ -32,7 +32,7 @@ function attentionItems(data: Overview): AttentionItem[] {
   return items.sort((left, right) => left.priority - right.priority).slice(0, 10)
 }
 
-/** PatternFly operator landing page backed by one coherent provider-owned aggregate. */
+/** Operator landing page backed by one coherent provider-owned aggregate. */
 export function OperatorOverviewPage() {
   const { overview } = useApp()
   const { siteId, scopedHref } = useSiteScope()
@@ -48,8 +48,16 @@ export function OperatorOverviewPage() {
   const data = state.data
   return (
     <div className="operator-page">
-      <PageHeader title="Overview" subtitle="Current infrastructure, automation, and monitoring posture." metadata={<Content component="small">Generated {formatRelative(data.generatedAt)}</Content>} />
-      {!data.monitoring.available && <Alert variant={AlertVariant.warning} title="Monitoring is temporarily unavailable" isInline>Inventory and operations remain current.</Alert>}
+      <PageHeader
+        title="Overview"
+        subtitle="Current infrastructure, automation, and monitoring posture."
+        metadata={<Text as="span" fontSize="sm" color="fg.muted">Generated {formatRelative(data.generatedAt)}</Text>}
+      />
+      {!data.monitoring.available && (
+        <Alert status="warning" title="Monitoring is temporarily unavailable">
+          Inventory and operations remain current.
+        </Alert>
+      )}
       <StatStrip items={[
         { label: 'Servers', value: data.inventory.servers, detail: `${data.inventory.absent} absent` },
         { label: 'Health up', value: data.inventory.health.up, detail: `${data.inventory.health.down} down, ${data.inventory.health.unknown} unknown`, tone: data.inventory.health.down ? 'critical' : 'success' },
@@ -60,17 +68,66 @@ export function OperatorOverviewPage() {
       ]} />
       <section className="sw-section">
         <SectionHeader title="Operator attention" description="Issues ordered by severity and immediate operational impact." />
-        {attention.length === 0 ? <div className="sw-section-empty"><strong>No immediate issues</strong><span>Observed systems are within their current operating signals.</span></div> : (
+        {attention.length === 0 ? (
+          <div className="sw-section-empty"><strong>No immediate issues</strong><span>Observed systems are within their current operating signals.</span></div>
+        ) : (
           <div className="sw-attention-list">{attention.map((item) => {
             const href = item.href ? scopedHref(item.href) : undefined
-            const content = <><Label color={item.priority <= 1 ? 'red' : item.priority === 2 ? 'orange' : 'grey'}>{item.kind}</Label><span><strong>{item.title}</strong><small>{item.detail}</small></span><b>{href ? 'Open' : 'Inspect'}</b></>
+            const content = (
+              <>
+                <Badge colorPalette={item.priority <= 1 ? 'red' : item.priority === 2 ? 'orange' : 'gray'} variant="subtle">{item.kind}</Badge>
+                <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+                <b>{href ? 'Open' : 'Inspect'}</b>
+              </>
+            )
             return href ? <Link key={item.key} className="sw-attention-row" to={href}>{content}</Link> : <div key={item.key} className="sw-attention-row">{content}</div>
           })}</div>
         )}
       </section>
       <div className="sw-two-column">
-        <section className="sw-section"><SectionHeader title="Recent operations" description="Newest accepted work in this scope." actions={<Link to={scopedHref('/workflows')}>View all</Link>} /><StickyTableFrame><Table aria-label="Recent operations" variant="compact"><Thead><Tr><Th>Operation</Th><Th>Status</Th><Th>Requested</Th></Tr></Thead><Tbody>{data.operations.recent.map((operation) => <Tr key={operation.id}><Td dataLabel="Operation"><Link to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent || operation.kind}</Link><small>{operation.kind}</small></Td><Td dataLabel="Status"><StatusBadge status={operation.execution.status} /></Td><Td dataLabel="Requested">{formatRelative(operation.requestedAt)}</Td></Tr>)}</Tbody></Table></StickyTableFrame>{data.operations.recent.length === 0 && <div className="sw-section-empty">No operations in this scope.</div>}</section>
-        <section className="sw-section"><SectionHeader title="Integrations" description="Provider freshness and ingestion health." /><StickyTableFrame><Table aria-label="Integrations" variant="compact"><Thead><Tr><Th>Name</Th><Th>Kind</Th><Th>Freshness</Th></Tr></Thead><Tbody>{data.integrations.items.map((item) => <Tr key={item.id}><Td dataLabel="Name">{item.name}</Td><Td dataLabel="Kind">{item.providerKind}</Td><Td dataLabel="Freshness">{item.lastError ? <StatusBadge status="failed" /> : item.lastSucceededAt ? formatRelative(item.lastSucceededAt) : 'Not synced'}</Td></Tr>)}</Tbody></Table></StickyTableFrame>{data.integrations.items.length === 0 && <div className="sw-section-empty">No integrations in this scope.</div>}</section>
+        <section className="sw-section">
+          <SectionHeader title="Recent operations" description="Newest accepted work in this scope." actions={<Link to={scopedHref('/workflows')}>View all</Link>} />
+          <StickyTableFrame>
+            <Table.Root size="sm" aria-label="Recent operations">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Operation</Table.ColumnHeader><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Requested</Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {data.operations.recent.map((operation) => (
+                  <Table.Row key={operation.id}>
+                    <Table.Cell>
+                      <Link to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent || operation.kind}</Link>
+                      <Text fontSize="xs" color="fg.muted">{operation.kind}</Text>
+                    </Table.Cell>
+                    <Table.Cell><StatusBadge status={operation.execution.status} /></Table.Cell>
+                    <Table.Cell>{formatRelative(operation.requestedAt)}</Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
+          </StickyTableFrame>
+          {data.operations.recent.length === 0 && <div className="sw-section-empty">No operations in this scope.</div>}
+        </section>
+        <section className="sw-section">
+          <SectionHeader title="Integrations" description="Provider freshness and ingestion health." />
+          <StickyTableFrame>
+            <Table.Root size="sm" aria-label="Integrations">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Name</Table.ColumnHeader><Table.ColumnHeader>Kind</Table.ColumnHeader><Table.ColumnHeader>Freshness</Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {data.integrations.items.map((item) => (
+                  <Table.Row key={item.id}>
+                    <Table.Cell>{item.name}</Table.Cell>
+                    <Table.Cell>{item.providerKind}</Table.Cell>
+                    <Table.Cell>{item.lastError ? <StatusBadge status="failed" /> : item.lastSucceededAt ? formatRelative(item.lastSucceededAt) : 'Not synced'}</Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
+          </StickyTableFrame>
+          {data.integrations.items.length === 0 && <div className="sw-section-empty">No integrations in this scope.</div>}
+        </section>
       </div>
     </div>
   )

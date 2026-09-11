@@ -1,6 +1,6 @@
 # dashboard
 
-Frontend for the Swallow operator console. React, TypeScript, Vite, and PatternFly 6
+Frontend for the Swallow operator console. React, TypeScript, Vite, and Chakra UI v3
 provide one shared design system across every domain workflow.
 
 ## What is here
@@ -21,7 +21,7 @@ Only screens backed by a real endpoint:
 | `/monitoring` | Current alerts, acknowledgement, fleet health, metrics, and Grafana link |
 | `/sites`, `/integrations` | Scoped resource management |
 
-Screens expose only behavior backed by the provider-owned API contracts. PatternFly owns
+Screens expose only behavior backed by the provider-owned API contracts. Chakra UI owns
 the visual language; Cockpit, NetBox, MAAS, Headlamp, Rancher, AWX, and Grafana inform the
 information architecture without contributing their CSS, components, assets, or branding.
 

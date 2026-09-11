@@ -1,26 +1,8 @@
 import { useState } from 'react'
-import {
-  Badge,
-  Button,
-  Checkbox,
-  Dropdown,
-  DropdownItem,
-  DropdownList,
-  Label,
-  MenuToggle,
-  ToolbarGroup,
-  ToolbarItem,
-  Tooltip,
-} from '@patternfly/react-core'
-import { PlusIcon } from '@patternfly/react-icons'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
-import { ListFilter } from 'lucide-react'
+import { Badge, Button, HStack, Menu, Portal, Table, Text } from '@chakra-ui/react'
+import { ListFilter, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import {
-  platformLifecycleLabel,
-  platformLifecycleStatus,
-  platformUninstallDisabledReason,
-} from '@/domain/platform/lifecycle'
+import { platformLifecycleLabel, platformLifecycleStatus, platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
 import type { Platform, PlatformLifecycleState, PlatformType } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -28,6 +10,8 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StatStrip, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
+import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
 import { PlatformBulkActionDialog } from './PlatformBulkActionDialog'
@@ -41,10 +25,8 @@ function issueScore(platform: Platform): number {
       : platform.lifecycleState === 'deploying' || platform.lifecycleState === 'uninstalling'
         ? 2
         : 0
-  const reachabilityIssue =
-    platform.lifecycleState !== 'uninstalled' && !platform.integrationId ? 2 : 0
-  return lifecycleIssue + reachabilityIssue + (platform.sync.lastError ? 2 : 0)
-    + Math.max(0, platform.sync.memberCount - platform.sync.matchedCount)
+  const reachabilityIssue = platform.lifecycleState !== 'uninstalled' && !platform.integrationId ? 2 : 0
+  return lifecycleIssue + reachabilityIssue + (platform.sync.lastError ? 2 : 0) + Math.max(0, platform.sync.memberCount - platform.sync.matchedCount)
 }
 
 function needsAttention(platform: Platform): boolean {
@@ -73,7 +55,6 @@ export function PlatformsPage() {
   const { siteId, scopedHref } = useSiteScope()
   const { state, reload } = usePlatforms(siteId)
   const [typeFilter, setTypeFilter] = useState<Set<PlatformType>>(new Set())
-  const [typeMenuOpen, setTypeMenuOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<PlatformBulkAction | null>(null)
 
@@ -81,20 +62,12 @@ export function PlatformsPage() {
   const platforms = allPlatforms
     .filter((platform) => typeFilter.size === 0 || typeFilter.has(platform.type))
     .sort(
-      (a, b) =>
-        lifecycleRank(a.lifecycleState) - lifecycleRank(b.lifecycleState) ||
-        issueScore(b) - issueScore(a) ||
-        a.name.localeCompare(b.name),
+      (a, b) => lifecycleRank(a.lifecycleState) - lifecycleRank(b.lifecycleState) || issueScore(b) - issueScore(a) || a.name.localeCompare(b.name),
     )
 
   const attention = platforms.filter(needsAttention).length
-  const uninstalling = platforms.filter(
-    (platform) => platform.lifecycleState === 'uninstalling',
-  ).length
-  const unmatched = platforms.reduce(
-    (sum, platform) => sum + Math.max(0, platform.sync.memberCount - platform.sync.matchedCount),
-    0,
-  )
+  const uninstalling = platforms.filter((platform) => platform.lifecycleState === 'uninstalling').length
+  const unmatched = platforms.reduce((sum, platform) => sum + Math.max(0, platform.sync.memberCount - platform.sync.matchedCount), 0)
 
   // Changing the type filter clears selection so a bulk action can never target a hidden row.
   const toggleType = (type: PlatformType) => {
@@ -130,15 +103,9 @@ export function PlatformsPage() {
   const clearSelection = () => setSelected(new Set())
 
   const selectedPlatforms = platforms.filter((platform) => selected.has(platform.id))
-  const uninstallEligible = selectedPlatforms.filter(
-    (platform) => !platformUninstallDisabledReason(platform),
-  )
-  const uninstallSkipped = selectedPlatforms.filter((platform) =>
-    Boolean(platformUninstallDisabledReason(platform)),
-  )
-  const uninstallDisabledReason = uninstallEligible.length === 0
-    ? 'None of the selected platforms can be uninstalled.'
-    : undefined
+  const uninstallEligible = selectedPlatforms.filter((platform) => !platformUninstallDisabledReason(platform))
+  const uninstallSkipped = selectedPlatforms.filter((platform) => Boolean(platformUninstallDisabledReason(platform)))
+  const uninstallDisabledReason = uninstallEligible.length === 0 ? 'None of the selected platforms can be uninstalled.' : undefined
 
   const onBulkDone = () => {
     setBulkAction(null)
@@ -152,10 +119,8 @@ export function PlatformsPage() {
         title="Platforms"
         subtitle="Multi-platform lifecycle, readiness, membership, and automation context."
         actions={
-          <Button
-            icon={<PlusIcon />}
-            onClick={() => navigate(scopedHref('/platforms/deploy'))}
-          >
+          <Button colorPalette="brand" onClick={() => navigate(scopedHref('/platforms/deploy'))}>
+            <Plus size={16} />
             Deploy platform
           </Button>
         }
@@ -166,10 +131,7 @@ export function PlatformsPage() {
         <EmptyState
           title="No platforms"
           message="Deploy a Kubernetes or Slurm platform onto your Servers to get started."
-          action={{
-            label: 'Deploy platform',
-            onClick: () => navigate(scopedHref('/platforms/deploy')),
-          }}
+          action={{ label: 'Deploy platform', onClick: () => navigate(scopedHref('/platforms/deploy')) }}
         />
       )}
       {state.status === 'ready' && allPlatforms.length > 0 && (
@@ -179,72 +141,52 @@ export function PlatformsPage() {
               { label: 'Platforms', value: platforms.length },
               { label: 'Needs attention', value: attention, tone: attention ? 'warning' : 'neutral' },
               { label: 'Uninstalling', value: uninstalling },
-              {
-                label: 'Unmatched members',
-                value: unmatched,
-                tone: unmatched ? 'warning' : 'neutral',
-              },
+              { label: 'Unmatched members', value: unmatched, tone: unmatched ? 'warning' : 'neutral' },
             ]}
           />
           <DataToolbar variant="plain">
-            <ToolbarItem>
-              <Dropdown
-                isOpen={typeMenuOpen}
-                onOpenChange={setTypeMenuOpen}
-                onSelect={() => undefined}
-                toggle={(ref) => (
-                  <MenuToggle
-                    ref={ref}
-                    icon={<ListFilter size={16} />}
-                    isExpanded={typeMenuOpen}
-                    onClick={() => setTypeMenuOpen((value) => !value)}
-                    badge={typeFilter.size > 0 ? <Badge isRead>{typeFilter.size}</Badge> : undefined}
-                  >
-                    Type
-                  </MenuToggle>
-                )}
-              >
-                <DropdownList>
-                  {PLATFORM_TYPES.map((type) => (
-                    <DropdownItem
-                      key={type.value}
-                      hasCheckbox
-                      isSelected={typeFilter.has(type.value)}
-                      onClick={() => toggleType(type.value)}
-                    >
-                      {type.label}
-                    </DropdownItem>
-                  ))}
-                </DropdownList>
-              </Dropdown>
-            </ToolbarItem>
+            <Menu.Root closeOnSelect={false}>
+              <Menu.Trigger asChild>
+                <Button variant="outline" size="sm">
+                  <ListFilter size={16} />
+                  Type {typeFilter.size > 0 && <Badge variant="subtle">{typeFilter.size}</Badge>}
+                </Button>
+              </Menu.Trigger>
+              <Portal>
+                <Menu.Positioner>
+                  <Menu.Content>
+                    {PLATFORM_TYPES.map((type) => (
+                      <Menu.CheckboxItem
+                        key={type.value}
+                        value={type.value}
+                        checked={typeFilter.has(type.value)}
+                        onCheckedChange={() => toggleType(type.value)}
+                      >
+                        {type.label}
+                        <Menu.ItemIndicator />
+                      </Menu.CheckboxItem>
+                    ))}
+                  </Menu.Content>
+                </Menu.Positioner>
+              </Portal>
+            </Menu.Root>
             {selected.size > 0 && (
-              <ToolbarGroup variant="action-group">
-                <ToolbarItem>
-                  <strong>{selected.size} selected</strong>
-                </ToolbarItem>
-                <ToolbarItem>
-                  <Tooltip content={uninstallDisabledReason ?? 'Uninstall the selected platforms'}>
-                    <Button
-                      variant="secondary"
-                      isAriaDisabled={Boolean(uninstallDisabledReason)}
-                      onClick={() => {
-                        if (!uninstallDisabledReason) setBulkAction('uninstall')
-                      }}
-                    >
+              <HStack gap="2" wrap="wrap">
+                <Text fontWeight="bold">{selected.size} selected</Text>
+                <Tooltip content={uninstallDisabledReason ?? 'Uninstall the selected platforms'}>
+                  <span>
+                    <Button variant="outline" size="sm" disabled={Boolean(uninstallDisabledReason)} onClick={() => setBulkAction('uninstall')}>
                       Uninstall
                     </Button>
-                  </Tooltip>
-                </ToolbarItem>
-                <ToolbarItem>
-                  <Button variant="danger" onClick={() => setBulkAction('delete')}>
-                    Delete
-                  </Button>
-                </ToolbarItem>
-                <ToolbarItem>
-                  <Button variant="link" onClick={clearSelection}>Clear selection</Button>
-                </ToolbarItem>
-              </ToolbarGroup>
+                  </span>
+                </Tooltip>
+                <Button colorPalette="red" size="sm" onClick={() => setBulkAction('delete')}>
+                  Delete
+                </Button>
+                <Button variant="plain" size="sm" onClick={clearSelection}>
+                  Clear selection
+                </Button>
+              </HStack>
             )}
           </DataToolbar>
           {platforms.length === 0 ? (
@@ -254,64 +196,56 @@ export function PlatformsPage() {
             />
           ) : (
             <StickyTableFrame>
-              <Table aria-label="Platforms" variant="compact" isStriped>
-                <Thead>
-                  <Tr>
-                    <Th className="sw-cell-center sw-col-select" aria-label="Row selection">
+              <Table.Root size="sm" aria-label="Platforms">
+                <Table.Header>
+                  <Table.Row>
+                    <Table.ColumnHeader className="sw-cell-center sw-col-select" aria-label="Row selection">
                       <Checkbox
                         id="select-all-platforms"
                         aria-label="Select all platforms"
-                        isChecked={allSelected ? true : someSelected ? null : false}
-                        onChange={(_event, checked) => setAllVisible(checked)}
+                        checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                        onCheckedChange={(checked) => setAllVisible(checked)}
                       />
-                    </Th>
-                    <Th>Name</Th>
-                    <Th>Type</Th>
-                    <Th>Lifecycle</Th>
-                    <Th>Connectivity</Th>
-                    <Th>Members</Th>
-                    <Th>Membership freshness</Th>
-                  </Tr>
-                </Thead>
-                <Tbody>
+                    </Table.ColumnHeader>
+                    <Table.ColumnHeader>Name</Table.ColumnHeader>
+                    <Table.ColumnHeader>Type</Table.ColumnHeader>
+                    <Table.ColumnHeader>Lifecycle</Table.ColumnHeader>
+                    <Table.ColumnHeader>Connectivity</Table.ColumnHeader>
+                    <Table.ColumnHeader>Members</Table.ColumnHeader>
+                    <Table.ColumnHeader>Membership freshness</Table.ColumnHeader>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
                   {platforms.map((platform) => {
-                    const unmanaged = Math.max(
-                      0,
-                      platform.sync.memberCount - platform.sync.matchedCount,
-                    )
+                    const unmanaged = Math.max(0, platform.sync.memberCount - platform.sync.matchedCount)
                     return (
-                      <Tr
+                      <Table.Row
                         key={platform.id}
-                        isClickable
-                        isRowSelected={selected.has(platform.id)}
-                        onRowClick={() => navigate(scopedHref(`/platforms/${platform.id}`))}
+                        cursor="pointer"
+                        bg={selected.has(platform.id) ? 'bg.subtle' : undefined}
+                        _hover={{ bg: 'bg.subtle' }}
+                        onClick={() => navigate(scopedHref(`/platforms/${platform.id}`))}
                       >
-                        <Td
-                          className="sw-cell-center sw-col-select"
-                          onClick={(event) => event.stopPropagation()}
-                        >
+                        <Table.Cell className="sw-cell-center sw-col-select" onClick={(event) => event.stopPropagation()}>
                           <Checkbox
                             id={`select-platform-${platform.id}`}
                             aria-label={`Select ${platform.name}`}
-                            isChecked={selected.has(platform.id)}
-                            onChange={() => toggleOne(platform.id)}
+                            checked={selected.has(platform.id)}
+                            onCheckedChange={() => toggleOne(platform.id)}
                           />
-                        </Td>
-                        <Td dataLabel="Name">
+                        </Table.Cell>
+                        <Table.Cell>
                           <strong>{platform.name}</strong>
-                        </Td>
-                        <Td dataLabel="Type">
-                          <Label color={platform.type === 'kubernetes' ? 'blue' : 'grey'}>
+                        </Table.Cell>
+                        <Table.Cell>
+                          <Badge colorPalette={platform.type === 'kubernetes' ? 'blue' : 'gray'} variant="subtle">
                             {platform.type}
-                          </Label>
-                        </Td>
-                        <Td dataLabel="Lifecycle">
-                          <StatusBadge
-                            status={platformLifecycleStatus(platform.lifecycleState)}
-                            label={platformLifecycleLabel(platform.lifecycleState)}
-                          />
-                        </Td>
-                        <Td dataLabel="Connectivity">
+                          </Badge>
+                        </Table.Cell>
+                        <Table.Cell>
+                          <StatusBadge status={platformLifecycleStatus(platform.lifecycleState)} label={platformLifecycleLabel(platform.lifecycleState)} />
+                        </Table.Cell>
+                        <Table.Cell>
                           {platform.lifecycleState === 'uninstalled' ? (
                             '-'
                           ) : !platform.integrationId ? (
@@ -321,25 +255,29 @@ export function PlatformsPage() {
                           ) : (
                             <StatusBadge status="ready" label="Connected" />
                           )}
-                        </Td>
-                        <Td dataLabel="Members">
+                        </Table.Cell>
+                        <Table.Cell>
                           {platform.integrationId ? (
-                            <>
-                              {platform.sync.matchedCount}/{platform.sync.memberCount}
-                              {unmanaged > 0 && <Label color="orange">{unmanaged} unmatched</Label>}
-                            </>
-                          ) : '-'}
-                        </Td>
-                        <Td dataLabel="Membership freshness">
-                          {platform.sync.lastSucceededAt
-                            ? formatRelative(platform.sync.lastSucceededAt)
-                            : '-'}
-                        </Td>
-                      </Tr>
+                            <HStack gap="2">
+                              <span>
+                                {platform.sync.matchedCount}/{platform.sync.memberCount}
+                              </span>
+                              {unmanaged > 0 && (
+                                <Badge colorPalette="orange" variant="subtle">
+                                  {unmanaged} unmatched
+                                </Badge>
+                              )}
+                            </HStack>
+                          ) : (
+                            '-'
+                          )}
+                        </Table.Cell>
+                        <Table.Cell>{platform.sync.lastSucceededAt ? formatRelative(platform.sync.lastSucceededAt) : '-'}</Table.Cell>
+                      </Table.Row>
                     )
                   })}
-                </Tbody>
-              </Table>
+                </Table.Body>
+              </Table.Root>
             </StickyTableFrame>
           )}
         </>

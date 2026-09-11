@@ -1,5 +1,5 @@
-import { Button, Flex } from '@patternfly/react-core'
-import { HomeIcon, SyncAltIcon } from '@patternfly/react-icons'
+import { Button, HStack } from '@chakra-ui/react'
+import { Home, RefreshCw } from 'lucide-react'
 import { isRouteErrorResponse, useNavigate, useRouteError } from 'react-router-dom'
 import { RouteErrorTemplate } from '@/presentation/components/RouteErrorTemplate'
 
@@ -18,16 +18,18 @@ export function UnexpectedErrorPage() {
       code="500"
       title="Dashboard could not render this page"
       message={message}
-      action={(
-        <Flex gap={{ default: 'gapSm' }}>
-          <Button icon={<SyncAltIcon />} onClick={() => window.location.reload()}>
+      action={
+        <HStack gap="2">
+          <Button colorPalette="brand" onClick={() => window.location.reload()}>
+            <RefreshCw size={16} />
             Reload page
           </Button>
-          <Button variant="secondary" icon={<HomeIcon />} onClick={() => navigate('/')}>
+          <Button variant="outline" onClick={() => navigate('/')}>
+            <Home size={16} />
             Back to Overview
           </Button>
-        </Flex>
-      )}
+        </HStack>
+      }
     />
   )
 }

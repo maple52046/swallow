@@ -1,19 +1,9 @@
 import { useState } from 'react'
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  Form,
-  FormGroup,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  TextArea,
-  TextInput,
-} from '@patternfly/react-core'
+import { Button, Field, Input, Stack, Textarea } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { Site } from '@/domain/site/types'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Modal } from '@/presentation/components/ui/modal'
 
 interface SiteDialogProps {
   site?: Site
@@ -23,7 +13,10 @@ interface SiteDialogProps {
 
 /**
  * Creates or edits the deliberately thin Site aggregate.
- * Identity remains backend-owned; only the operator label and optional description change.
+ *
+ * Identity remains backend-owned; only the operator label and optional description
+ * change. Submit stays disabled until a name is present, and dismissal is blocked
+ * while the save is in flight.
  */
 export function SiteDialog({ site, onClose, onSaved }: SiteDialogProps) {
   const { sites } = useApp()
@@ -54,29 +47,44 @@ export function SiteDialog({ site, onClose, onSaved }: SiteDialogProps) {
   }
 
   return (
-    <Modal isOpen onClose={close} variant="small" aria-labelledby="site-editor-title">
-      <ModalHeader
-        title={editing ? 'Edit site' : 'Create site'}
-        labelId="site-editor-title"
-        description="A Site is a physical or logical infrastructure location such as a datacenter, cage, or lab."
-      />
-      <ModalBody>
-        <Form className="sw-resource-form">
-          {error && <Alert variant={AlertVariant.danger} title="Site could not be saved" isInline>{error}</Alert>}
-          <FormGroup label="Name" isRequired fieldId="site-name">
-            <TextInput id="site-name" value={name} onChange={(_event, value) => setName(value)} autoFocus />
-          </FormGroup>
-          <FormGroup label="Description" fieldId="site-description">
-            <TextArea id="site-description" value={description} onChange={(_event, value) => setDescription(value)} resizeOrientation="vertical" />
-          </FormGroup>
-        </Form>
-      </ModalBody>
-      <ModalFooter>
-        <Button onClick={() => void submit()} isLoading={submitting} isDisabled={!name.trim() || submitting}>
-          {editing ? 'Save changes' : 'Create site'}
-        </Button>
-        <Button variant="link" onClick={close} isDisabled={submitting}>Cancel</Button>
-      </ModalFooter>
+    <Modal
+      open
+      onClose={close}
+      closeOnInteractOutside={!submitting}
+      title={editing ? 'Edit site' : 'Create site'}
+      description="A Site is a physical or logical infrastructure location such as a datacenter, cage, or lab."
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" colorPalette="brand" loading={submitting} disabled={!name.trim() || submitting}>
+            {editing ? 'Save changes' : 'Create site'}
+          </Button>
+        </>
+      }
+    >
+      <Stack gap="4">
+        {error && (
+          <Alert status="error" title="Site could not be saved">
+            {error}
+          </Alert>
+        )}
+        <Field.Root required>
+          <Field.Label>
+            Name <Field.RequiredIndicator />
+          </Field.Label>
+          <Input value={name} onChange={(event) => setName(event.target.value)} autoFocus />
+        </Field.Root>
+        <Field.Root>
+          <Field.Label>Description</Field.Label>
+          <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} />
+        </Field.Root>
+      </Stack>
     </Modal>
   )
 }

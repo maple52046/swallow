@@ -1,23 +1,12 @@
 import { useState } from 'react'
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  Label,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-} from '@patternfly/react-core'
+import { Badge, Box, Button, Table } from '@chakra-ui/react'
 import { Copy } from 'lucide-react'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
 import { copyText } from '@/presentation/utils/clipboard'
 import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Modal } from '@/presentation/components/ui/modal'
 import { actionLabel } from './serverActions'
-import {
-  failedServerActionOutcomes,
-  type ServerActionRunResult,
-} from './serverActionResults'
+import { failedServerActionOutcomes, type ServerActionRunResult } from './serverActionResults'
 
 interface ServerActionResultDialogProps {
   result: ServerActionRunResult
@@ -45,13 +34,11 @@ function formatResult(result: ServerActionRunResult): string {
 }
 
 /**
- * Shows every target outcome for a Server action and the request ID needed to find
- * its corresponding backend log entry.
+ * Shows every target outcome for a Server action and the request ID needed to find its
+ * corresponding backend log entry. Copy exports the full result as plain text (best-effort
+ * on insecure origins) so an operator can attach it to an incident.
  */
-export function ServerActionResultDialog({
-  result,
-  onClose,
-}: ServerActionResultDialogProps) {
+export function ServerActionResultDialog({ result, onClose }: ServerActionResultDialogProps) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const failures = failedServerActionOutcomes(result)
   const action = actionLabel(result.action)
@@ -64,77 +51,71 @@ export function ServerActionResultDialog({
 
   return (
     <Modal
-      isOpen
+      open
       onClose={onClose}
-      variant="large"
-      aria-labelledby="server-action-result-title"
+      size="xl"
+      title={`${action} result`}
+      description={`${result.succeeded} accepted, ${failures.length} failed across ${result.total} target${result.total === 1 ? '' : 's'}.`}
+      footer={
+        <>
+          <Button variant="outline" onClick={() => void copy()}>
+            <Copy size={16} />
+            {copyState === 'copied' ? 'Copied' : 'Copy details'}
+          </Button>
+          <Button colorPalette="brand" onClick={onClose}>
+            Done
+          </Button>
+        </>
+      }
     >
-      <ModalHeader
-        title={`${action} result`}
-        labelId="server-action-result-title"
-        description={`${result.succeeded} accepted, ${failures.length} failed across ${result.total} target${result.total === 1 ? '' : 's'}.`}
-      />
-      <ModalBody>
-        <div className="sw-action-result-content">
-          {failures.length > 0 && (
-            <Alert
-              variant={result.succeeded > 0 ? AlertVariant.warning : AlertVariant.danger}
-              title={result.succeeded > 0 ? `${action} was only partially accepted` : `${action} failed`}
-              isInline
-            >
-              Request IDs correlate these provider failures with the API server logs.
-            </Alert>
-          )}
-          {copyState === 'failed' && (
-            <Alert variant={AlertVariant.danger} title="Could not copy result details" isInline>
-              Clipboard access is unavailable in this browser.
-            </Alert>
-          )}
-          <StickyTableFrame>
-            <Table aria-label={`${action} target results`} variant="compact" gridBreakPoint="grid-md">
-              <Thead>
-                <Tr>
-                  <Th>Server</Th>
-                  <Th>Result</Th>
-                  <Th>Error code</Th>
-                  <Th>HTTP</Th>
-                  <Th>Request ID</Th>
-                  <Th>Message</Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {result.outcomes.map((outcome) => (
-                  <Tr key={outcome.serverId}>
-                    <Td dataLabel="Server">
-                      <strong>{outcome.serverName}</strong>
-                      <div className="mono sw-action-result-server-id">{outcome.serverId}</div>
-                    </Td>
-                    <Td dataLabel="Result">
-                      <Label color={outcome.accepted ? 'green' : 'red'} isCompact>
-                        {outcome.accepted ? 'Accepted' : 'Failed'}
-                      </Label>
-                    </Td>
-                    <Td dataLabel="Error code" className="mono">{outcome.code ?? '-'}</Td>
-                    <Td dataLabel="HTTP">{outcome.httpStatus ?? '-'}</Td>
-                    <Td dataLabel="Request ID" className="mono">{outcome.requestId ?? '-'}</Td>
-                    <Td dataLabel="Message">{outcome.message ?? '-'}</Td>
-                  </Tr>
-                ))}
-              </Tbody>
-            </Table>
-          </StickyTableFrame>
-        </div>
-      </ModalBody>
-      <ModalFooter>
-        <Button
-          variant="secondary"
-          icon={<Copy />}
-          onClick={() => void copy()}
-        >
-          {copyState === 'copied' ? 'Copied' : 'Copy details'}
-        </Button>
-        <Button variant="primary" onClick={onClose}>Done</Button>
-      </ModalFooter>
+      <div className="sw-action-result-content">
+        {failures.length > 0 && (
+          <Alert
+            status={result.succeeded > 0 ? 'warning' : 'error'}
+            title={result.succeeded > 0 ? `${action} was only partially accepted` : `${action} failed`}
+          >
+            Request IDs correlate these provider failures with the API server logs.
+          </Alert>
+        )}
+        {copyState === 'failed' && (
+          <Alert status="error" title="Could not copy result details">
+            Clipboard access is unavailable in this browser.
+          </Alert>
+        )}
+        <StickyTableFrame>
+          <Table.Root size="sm" aria-label={`${action} target results`}>
+            <Table.Header>
+              <Table.Row>
+                <Table.ColumnHeader>Server</Table.ColumnHeader>
+                <Table.ColumnHeader>Result</Table.ColumnHeader>
+                <Table.ColumnHeader>Error code</Table.ColumnHeader>
+                <Table.ColumnHeader>HTTP</Table.ColumnHeader>
+                <Table.ColumnHeader>Request ID</Table.ColumnHeader>
+                <Table.ColumnHeader>Message</Table.ColumnHeader>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {result.outcomes.map((outcome) => (
+                <Table.Row key={outcome.serverId}>
+                  <Table.Cell>
+                    <strong>{outcome.serverName}</strong>
+                    <Box className="mono sw-action-result-server-id">{outcome.serverId}</Box>
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Badge colorPalette={outcome.accepted ? 'green' : 'red'} variant="subtle">
+                      {outcome.accepted ? 'Accepted' : 'Failed'}
+                    </Badge>
+                  </Table.Cell>
+                  <Table.Cell className="mono">{outcome.code ?? '-'}</Table.Cell>
+                  <Table.Cell>{outcome.httpStatus ?? '-'}</Table.Cell>
+                  <Table.Cell className="mono">{outcome.requestId ?? '-'}</Table.Cell>
+                  <Table.Cell>{outcome.message ?? '-'}</Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table.Root>
+        </StickyTableFrame>
+      </div>
     </Modal>
   )
 }

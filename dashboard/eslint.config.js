@@ -12,16 +12,25 @@ export default defineConfig([
     extends: [js.configs.recommended, tseslint.configs.recommended, reactHooks.configs.flat.recommended, reactRefresh.configs.vite],
     languageOptions: { ecmaVersion: 2020, globals: globals.browser },
     rules: {
-      'no-restricted-imports': ['error', { patterns: [{ group: ['@radix-ui/*', 'recharts'], message: 'Production UI uses PatternFly 6 only.' }] }],
+      'no-restricted-imports': ['error', { patterns: [{ group: ['@patternfly/*'], message: 'Production UI uses Chakra UI v3; do not reintroduce PatternFly.' }] }],
     },
   },
   {
     files: ['src/presentation/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [
-        { group: ['@radix-ui/*', 'recharts'], message: 'Production UI uses PatternFly 6 only.' },
+        { group: ['@patternfly/*'], message: 'Production UI uses Chakra UI v3; do not reintroduce PatternFly.' },
         { group: ['@/infrastructure/*'], message: 'Presentation must consume application ports through the composition root.' },
       ] }],
+    },
+  },
+  {
+    // The `components/ui/*` files are Chakra composition snippets: they deliberately export a
+    // component plus its companion hooks/store (e.g. color mode, the toaster instance), which
+    // is not a Fast Refresh boundary concern for these library-like modules.
+    files: ['src/presentation/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
 ])

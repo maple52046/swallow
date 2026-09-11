@@ -1,20 +1,9 @@
 import { useState } from 'react'
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  FormGroup,
-  FormHelperText,
-  HelperText,
-  HelperTextItem,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  TextInput,
-} from '@patternfly/react-core'
+import { Button, Field, Input, Stack } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { Integration } from '@/domain/site/types'
+import { Alert } from '@/presentation/components/ui/alert'
+import { Modal } from '@/presentation/components/ui/modal'
 
 interface IntegrationCredentialDialogProps {
   integration: Integration
@@ -24,7 +13,10 @@ interface IntegrationCredentialDialogProps {
 
 /**
  * Replaces an Integration secret through the write-only endpoint.
- * The value lives only in transient component state and is cleared before dismissal.
+ *
+ * The value lives only in transient component state and is cleared before
+ * dismissal, so a replaced credential is never retained in the client. The helper
+ * text warns that the value cannot be viewed again after saving.
  */
 export function IntegrationCredentialDialog({ integration, onClose, onReplaced }: IntegrationCredentialDialogProps) {
   const { sites } = useApp()
@@ -54,32 +46,47 @@ export function IntegrationCredentialDialog({ integration, onClose, onReplaced }
   }
 
   return (
-    <Modal isOpen onClose={close} variant="small" aria-labelledby="integration-credential-title">
-      <ModalHeader
-        title="Replace credential"
-        labelId="integration-credential-title"
-        description={`Replace the stored credential for ${integration.name}.`}
-      />
-      <ModalBody className="sw-resource-form">
-        {error && <Alert variant={AlertVariant.danger} title="Credential could not be replaced" isInline>{error}</Alert>}
-        <FormGroup label="New credential" isRequired fieldId="replacement-credential">
-          <TextInput
-            id="replacement-credential"
+    <Modal
+      open
+      onClose={close}
+      closeOnInteractOutside={!submitting}
+      title="Replace credential"
+      description={`Replace the stored credential for ${integration.name}.`}
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" colorPalette="brand" loading={submitting} disabled={!credential || submitting}>
+            Replace credential
+          </Button>
+        </>
+      }
+    >
+      <Stack gap="4">
+        {error && (
+          <Alert status="error" title="Credential could not be replaced">
+            {error}
+          </Alert>
+        )}
+        <Field.Root required>
+          <Field.Label>
+            New credential <Field.RequiredIndicator />
+          </Field.Label>
+          <Input
             type="password"
             value={credential}
-            onChange={(_event, value) => setCredential(value)}
+            onChange={(event) => setCredential(event.target.value)}
             autoComplete="new-password"
             autoFocus
           />
-          <FormHelperText>
-            <HelperText><HelperTextItem>This value cannot be viewed again after saving.</HelperTextItem></HelperText>
-          </FormHelperText>
-        </FormGroup>
-      </ModalBody>
-      <ModalFooter>
-        <Button onClick={() => void submit()} isLoading={submitting} isDisabled={!credential || submitting}>Replace credential</Button>
-        <Button variant="link" onClick={close} isDisabled={submitting}>Cancel</Button>
-      </ModalFooter>
+          <Field.HelperText>This value cannot be viewed again after saving.</Field.HelperText>
+        </Field.Root>
+      </Stack>
     </Modal>
   )
 }

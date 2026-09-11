@@ -1,19 +1,14 @@
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  ExpandableSection,
-  Stack,
-  StackItem,
-} from '@patternfly/react-core'
+import { useState } from 'react'
+import { Box, Button, Stack, Text } from '@chakra-ui/react'
 import type { DeploymentAxis } from '@/domain/server/types'
+import { Alert } from '@/presentation/components/ui/alert'
 import { deploymentFailureSummary } from './deploymentFailure'
 
 /**
  * Presents a failed or attention-needing deployment on the Server detail page as a concise
- * root cause plus a link to the owning Operation. The verbose executor reason is kept out of
- * the way behind a collapsible "Show details", so the common case ("no network address") is
- * one readable line rather than a wall of recovery text.
+ * root cause plus a link to the owning Operation. The verbose executor reason is kept behind a
+ * collapsible "Show details", so the common case ("no network address") is one readable line
+ * rather than a wall of recovery text.
  */
 export function DeploymentFailureAlert({
   deployment,
@@ -22,6 +17,7 @@ export function DeploymentFailureAlert({
   deployment: DeploymentAxis
   onViewOperation: () => void
 }) {
+  const [open, setOpen] = useState(false)
   const failed = deployment.state === 'failed'
   const summary = deploymentFailureSummary(deployment)
   const reason = deployment.statusReason.trim()
@@ -30,27 +26,27 @@ export function DeploymentFailureAlert({
 
   return (
     <Alert
-      variant={failed ? AlertVariant.danger : AlertVariant.warning}
-      title={
-        failed
-          ? 'Operating system deployment failed'
-          : 'Operating system deployment requires attention'
-      }
-      isInline
+      status={failed ? 'error' : 'warning'}
+      title={failed ? 'Operating system deployment failed' : 'Operating system deployment requires attention'}
     >
-      <Stack hasGutter>
-        <StackItem>
+      <Stack gap="2">
+        <Box>
           {summary}{' '}
-          <Button variant="link" isInline onClick={onViewOperation}>
+          <Button variant="plain" size="sm" px="0" h="auto" colorPalette="brand" onClick={onViewOperation}>
             View operation
           </Button>
-        </StackItem>
+        </Box>
         {showDetails && (
-          <StackItem>
-            <ExpandableSection toggleText="Show details" toggleTextExpanded="Hide details">
-              {reason}
-            </ExpandableSection>
-          </StackItem>
+          <Box>
+            <Button variant="plain" size="sm" px="0" h="auto" onClick={() => setOpen((value) => !value)}>
+              {open ? 'Hide details' : 'Show details'}
+            </Button>
+            {open && (
+              <Text mt="1" whiteSpace="pre-wrap" className="sw-error-detail">
+                {reason}
+              </Text>
+            )}
+          </Box>
         )}
       </Stack>
     </Alert>

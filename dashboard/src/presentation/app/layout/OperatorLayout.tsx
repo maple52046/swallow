@@ -5,6 +5,7 @@ import { SiteScopeProvider } from '@/presentation/contexts/SiteScopeContext'
 
 const NAV_COLLAPSED_KEY = 'swallow.shell.sidebar-collapsed'
 
+/** Reads the persisted desktop-rail preference; defaults to expanded when unavailable. */
 function loadCollapsed(): boolean {
   try {
     return localStorage.getItem(NAV_COLLAPSED_KEY) === 'true'
@@ -14,15 +15,19 @@ function loadCollapsed(): boolean {
 }
 
 /**
- * Authenticated route frame. Sidebar preference is local browser state while Site scope
- * remains URL-owned so links, reloads, and back/forward navigation stay shareable.
+ * Authenticated route frame. The desktop-rail collapse preference is local browser
+ * state, while Site scope stays URL-owned (via `SiteScopeProvider`) so links,
+ * reloads, and back/forward navigation remain shareable. The mobile drawer is
+ * ephemeral session state that resets on reload.
  */
 export function OperatorLayout() {
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  const openMobileNav = useCallback(() => setMobileNavOpen(true), [])
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
 
-  const toggleDesktopNav = useCallback(() => {
+  const toggleSidebar = useCallback(() => {
     setCollapsed((current) => {
       const next = !current
       try {
@@ -40,8 +45,8 @@ export function OperatorLayout() {
         collapsed={collapsed}
         mobileNavOpen={mobileNavOpen}
         onCloseMobileNav={closeMobileNav}
-        onToggleDesktopNav={toggleDesktopNav}
-        onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
+        onOpenMobileNav={openMobileNav}
+        onToggleSidebar={toggleSidebar}
       >
         <Outlet />
       </OperatorShell>

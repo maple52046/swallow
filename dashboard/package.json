@@ -11,12 +11,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@patternfly/react-core": "~6.6.1",
-    "@patternfly/react-icons": "~6.6.1",
-    "@patternfly/react-log-viewer": "~6.5.0",
-    "@patternfly/react-table": "~6.6.1",
+    "@chakra-ui/react": "^3.35.0",
+    "@emotion/react": "^11.14.0",
     "dayjs": "^1.11.19",
     "lucide-react": "^1.41.0",
+    "next-themes": "^0.4.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1"

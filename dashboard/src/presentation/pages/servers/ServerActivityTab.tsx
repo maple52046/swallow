@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, AlertVariant, Button } from '@patternfly/react-core'
-import { SyncAltIcon } from '@patternfly/react-icons'
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table'
+import { Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
+import { RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Operation } from '@/domain/operation/types'
 import type { ProvisioningTask } from '@/domain/provisioning/types'
@@ -9,6 +8,7 @@ import type { ProviderEvents } from '@/domain/server/types'
 import { useApp } from '@/di/AppProvider'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { Alert } from '@/presentation/components/ui/alert'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
@@ -21,14 +21,12 @@ import {
 } from './serverActionResults'
 import { useServerDetailContext } from './useServerDetail'
 
-type LoadState<T> =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; data: T }
+type LoadState<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: T }
 
 /**
- * Composes the three truthful activity sources for one Server: live provider events,
- * durable automation Operations, and current-tab synchronous action diagnostics.
+ * Composes the three truthful activity sources for one Server: live provider events, durable
+ * automation Operations, and current-tab synchronous action diagnostics. Each source has its
+ * own loading/error/empty state, so one unavailable source never blanks the whole tab.
  */
 export function ServerActivityTab() {
   const { server } = useServerDetailContext()
@@ -38,9 +36,7 @@ export function ServerActivityTab() {
   const [provider, setProvider] = useState<LoadState<ProviderEvents>>({ status: 'loading' })
   const [related, setRelated] = useState<LoadState<Operation[]>>({ status: 'loading' })
   const [tasks, setTasks] = useState<LoadState<ProvisioningTask[]>>({ status: 'loading' })
-  const [sessionResults, setSessionResults] = useState<ServerActionRunResult[]>(
-    () => listStoredServerActionResults(server.id),
-  )
+  const [sessionResults, setSessionResults] = useState<ServerActionRunResult[]>(() => listStoredServerActionResults(server.id))
   const [selectedResult, setSelectedResult] = useState<ServerActionRunResult | null>(null)
   const [retryingTaskId, setRetryingTaskId] = useState('')
   const [nonce, setNonce] = useState(0)
@@ -60,19 +56,33 @@ export function ServerActivityTab() {
   useEffect(() => {
     let cancelled = false
     servers.getProviderEvents(server.id, 50).then(
-      (data) => { if (!cancelled) setProvider({ status: 'ready', data }) },
-      (error: Error) => { if (!cancelled) setProvider({ status: 'error', message: error.message }) },
+      (data) => {
+        if (!cancelled) setProvider({ status: 'ready', data })
+      },
+      (error: Error) => {
+        if (!cancelled) setProvider({ status: 'error', message: error.message })
+      },
     )
     operations.listOperations({ serverId: server.id, page: 1, pageSize: 50 }).then(
-      (data) => { if (!cancelled) setRelated({ status: 'ready', data: data.items }) },
-      (error: Error) => { if (!cancelled) setRelated({ status: 'error', message: error.message }) },
+      (data) => {
+        if (!cancelled) setRelated({ status: 'ready', data: data.items })
+      },
+      (error: Error) => {
+        if (!cancelled) setRelated({ status: 'error', message: error.message })
+      },
     )
     servers.listProvisioningTasks(server.id).then(
-      (data) => { if (!cancelled) setTasks({ status: 'ready', data }) },
-      (error: Error) => { if (!cancelled) setTasks({ status: 'error', message: error.message }) },
+      (data) => {
+        if (!cancelled) setTasks({ status: 'ready', data })
+      },
+      (error: Error) => {
+        if (!cancelled) setTasks({ status: 'error', message: error.message })
+      },
     )
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [nonce, operations, server.id, servers])
 
   const retryCleanup = async (taskId: string) => {
@@ -82,11 +92,7 @@ export function ServerActivityTab() {
       showToast({ tone: 'success', title: 'Cleanup retry queued' })
       refresh()
     } catch (error) {
-      showToast({
-        tone: 'error',
-        title: 'Could not retry cleanup',
-        description: error instanceof Error ? error.message : 'Unknown error',
-      })
+      showToast({ tone: 'error', title: 'Could not retry cleanup', description: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
       setRetryingTaskId('')
     }
@@ -103,20 +109,30 @@ export function ServerActivityTab() {
           <div className="sw-section-empty">No Server actions have been recorded in this browser tab.</div>
         ) : (
           <StickyTableFrame>
-            <Table aria-label="Current browser session Server actions" variant="compact">
-              <Thead><Tr><Th>Time</Th><Th>Action</Th><Th>Result</Th><Th>Message</Th><Th>Request ID</Th><Th screenReaderText="Details" /></Tr></Thead>
-              <Tbody>{sessionResults.map((result) => {
-                const outcome = result.outcomes[0]
-                return <Tr key={`${result.completedAt}:${result.action}:${outcome.requestId ?? outcome.serverId}`}>
-                  <Td dataLabel="Time">{formatDateTime(result.completedAt)}</Td>
-                  <Td dataLabel="Action">{actionLabel(result.action)}</Td>
-                  <Td dataLabel="Result"><StatusBadge status={outcome.accepted ? 'succeeded' : 'failed'} label={outcome.accepted ? 'Accepted' : 'Failed'} /></Td>
-                  <Td dataLabel="Message">{outcome.message ?? '-'}</Td>
-                  <Td dataLabel="Request ID" className="mono">{outcome.requestId ?? '-'}</Td>
-                  <Td isActionCell><Button variant="link" isInline onClick={() => setSelectedResult(result)}>View details</Button></Td>
-                </Tr>
-              })}</Tbody>
-            </Table>
+            <Table.Root size="sm" aria-label="Current browser session Server actions">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Time</Table.ColumnHeader><Table.ColumnHeader>Action</Table.ColumnHeader><Table.ColumnHeader>Result</Table.ColumnHeader><Table.ColumnHeader>Message</Table.ColumnHeader><Table.ColumnHeader>Request ID</Table.ColumnHeader><Table.ColumnHeader><VisuallyHidden>Details</VisuallyHidden></Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {sessionResults.map((result) => {
+                  const outcome = result.outcomes[0]
+                  return (
+                    <Table.Row key={`${result.completedAt}:${result.action}:${outcome.requestId ?? outcome.serverId}`}>
+                      <Table.Cell>{formatDateTime(result.completedAt)}</Table.Cell>
+                      <Table.Cell>{actionLabel(result.action)}</Table.Cell>
+                      <Table.Cell><StatusBadge status={outcome.accepted ? 'succeeded' : 'failed'} label={outcome.accepted ? 'Accepted' : 'Failed'} /></Table.Cell>
+                      <Table.Cell>{outcome.message ?? '-'}</Table.Cell>
+                      <Table.Cell className="mono">{outcome.requestId ?? '-'}</Table.Cell>
+                      <Table.Cell textAlign="end">
+                        <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setSelectedResult(result)}>
+                          View details
+                        </Button>
+                      </Table.Cell>
+                    </Table.Row>
+                  )
+                })}
+              </Table.Body>
+            </Table.Root>
           </StickyTableFrame>
         )}
       </section>
@@ -127,22 +143,43 @@ export function ServerActivityTab() {
           description="Durable Swallow follow-up such as post-Release static IP cleanup. Retry resumes cleanup and never repeats Release."
         />
         {tasks.status === 'loading' && <div className="sw-section-empty">Loading provisioning tasks...</div>}
-        {tasks.status === 'error' && <div className="sw-activity-alert"><Alert variant={AlertVariant.warning} title="Provisioning tasks are unavailable" isInline>{tasks.message}</Alert></div>}
+        {tasks.status === 'error' && (
+          <div className="sw-activity-alert">
+            <Alert status="warning" title="Provisioning tasks are unavailable">
+              {tasks.message}
+            </Alert>
+          </div>
+        )}
         {tasks.status === 'ready' && tasks.data.length === 0 && <div className="sw-section-empty">No durable provisioning tasks for this Server.</div>}
         {tasks.status === 'ready' && tasks.data.length > 0 && (
           <StickyTableFrame>
-            <Table aria-label="Provisioning tasks" variant="compact">
-              <Thead><Tr><Th>Status</Th><Th>Task</Th><Th>Phase</Th><Th>Updated</Th><Th>Error</Th><Th>Request ID</Th><Th screenReaderText="Actions" /></Tr></Thead>
-              <Tbody>{tasks.data.map((task) => <Tr key={task.id}>
-                <Td dataLabel="Status"><StatusBadge status={task.status} /></Td>
-                <Td dataLabel="Task">Release network cleanup<small className="mono">{task.id}</small></Td>
-                <Td dataLabel="Phase">{task.phase.replaceAll('_', ' ')}</Td>
-                <Td dataLabel="Updated">{formatDateTime(task.updatedAt)}</Td>
-                <Td dataLabel="Error">{task.error || '-'}</Td>
-                <Td dataLabel="Request ID" className="mono">{task.requestId || '-'}</Td>
-                <Td isActionCell>{task.retryable && <Button variant="secondary" isLoading={retryingTaskId === task.id} isDisabled={Boolean(retryingTaskId)} onClick={() => void retryCleanup(task.id)}>Retry cleanup</Button>}</Td>
-              </Tr>)}</Tbody>
-            </Table>
+            <Table.Root size="sm" aria-label="Provisioning tasks">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Task</Table.ColumnHeader><Table.ColumnHeader>Phase</Table.ColumnHeader><Table.ColumnHeader>Updated</Table.ColumnHeader><Table.ColumnHeader>Error</Table.ColumnHeader><Table.ColumnHeader>Request ID</Table.ColumnHeader><Table.ColumnHeader><VisuallyHidden>Actions</VisuallyHidden></Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {tasks.data.map((task) => (
+                  <Table.Row key={task.id}>
+                    <Table.Cell><StatusBadge status={task.status} /></Table.Cell>
+                    <Table.Cell>
+                      Release network cleanup
+                      <Text as="small" display="block" color="fg.muted" className="mono">{task.id}</Text>
+                    </Table.Cell>
+                    <Table.Cell>{task.phase.replaceAll('_', ' ')}</Table.Cell>
+                    <Table.Cell>{formatDateTime(task.updatedAt)}</Table.Cell>
+                    <Table.Cell>{task.error || '-'}</Table.Cell>
+                    <Table.Cell className="mono">{task.requestId || '-'}</Table.Cell>
+                    <Table.Cell textAlign="end">
+                      {task.retryable && (
+                        <Button variant="outline" size="sm" loading={retryingTaskId === task.id} disabled={Boolean(retryingTaskId)} onClick={() => void retryCleanup(task.id)}>
+                          Retry cleanup
+                        </Button>
+                      )}
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
           </StickyTableFrame>
         )}
       </section>
@@ -151,24 +188,41 @@ export function ServerActivityTab() {
         <SectionHeader
           title="Provider events"
           description="Live machine history retained by the provisioner. This is not a complete Swallow audit log."
-          actions={<Button variant="secondary" icon={<SyncAltIcon />} onClick={refresh}>Refresh</Button>}
+          actions={
+            <Button variant="outline" onClick={refresh}>
+              <RefreshCw size={16} />
+              Refresh
+            </Button>
+          }
         />
         {provider.status === 'loading' && <div className="sw-section-empty">Loading provider events...</div>}
-        {provider.status === 'error' && <div className="sw-activity-alert"><Alert variant={AlertVariant.warning} title="Provider events are unavailable" isInline>{provider.message}</Alert></div>}
+        {provider.status === 'error' && (
+          <div className="sw-activity-alert">
+            <Alert status="warning" title="Provider events are unavailable">
+              {provider.message}
+            </Alert>
+          </div>
+        )}
         {provider.status === 'ready' && !provider.data.supported && <div className="sw-section-empty">This provisioner does not expose machine events.</div>}
         {provider.status === 'ready' && provider.data.supported && provider.data.events.length === 0 && <div className="sw-section-empty">No provider events are retained for this Server.</div>}
         {provider.status === 'ready' && provider.data.events.length > 0 && (
           <StickyTableFrame>
-            <Table aria-label="Provider events" variant="compact">
-              <Thead><Tr><Th>Time</Th><Th>Level</Th><Th>Type</Th><Th>Message</Th><Th>Actor</Th></Tr></Thead>
-              <Tbody>{provider.data.events.map((event) => <Tr key={event.id}>
-                <Td dataLabel="Time">{formatDateTime(event.occurredAt)}</Td>
-                <Td dataLabel="Level"><StatusBadge status={event.level} /></Td>
-                <Td dataLabel="Type">{event.type || '-'}</Td>
-                <Td dataLabel="Message">{event.message || '-'}</Td>
-                <Td dataLabel="Actor">{event.actor || '-'}</Td>
-              </Tr>)}</Tbody>
-            </Table>
+            <Table.Root size="sm" aria-label="Provider events">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Time</Table.ColumnHeader><Table.ColumnHeader>Level</Table.ColumnHeader><Table.ColumnHeader>Type</Table.ColumnHeader><Table.ColumnHeader>Message</Table.ColumnHeader><Table.ColumnHeader>Actor</Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {provider.data.events.map((event) => (
+                  <Table.Row key={event.id}>
+                    <Table.Cell>{formatDateTime(event.occurredAt)}</Table.Cell>
+                    <Table.Cell><StatusBadge status={event.level} /></Table.Cell>
+                    <Table.Cell>{event.type || '-'}</Table.Cell>
+                    <Table.Cell>{event.message || '-'}</Table.Cell>
+                    <Table.Cell>{event.actor || '-'}</Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
           </StickyTableFrame>
         )}
       </section>
@@ -176,20 +230,35 @@ export function ServerActivityTab() {
       <section className="sw-section">
         <SectionHeader title="Related Operations" description="Durable automation runs that include this Server. Open one for retained events and stdout." />
         {related.status === 'loading' && <div className="sw-section-empty">Loading related Operations...</div>}
-        {related.status === 'error' && <div className="sw-activity-alert"><Alert variant={AlertVariant.warning} title="Related Operations are unavailable" isInline>{related.message}</Alert></div>}
+        {related.status === 'error' && (
+          <div className="sw-activity-alert">
+            <Alert status="warning" title="Related Operations are unavailable">
+              {related.message}
+            </Alert>
+          </div>
+        )}
         {related.status === 'ready' && related.data.length === 0 && <div className="sw-section-empty">No durable Operations include this Server.</div>}
         {related.status === 'ready' && related.data.length > 0 && (
           <StickyTableFrame>
-            <Table aria-label="Related Operations" variant="compact">
-              <Thead><Tr><Th>Status</Th><Th>Operation</Th><Th>Kind</Th><Th>Requested</Th><Th>Requested by</Th></Tr></Thead>
-              <Tbody>{related.data.map((operation) => <Tr key={operation.id}>
-                <Td dataLabel="Status"><StatusBadge status={operation.execution.status} /></Td>
-                <Td dataLabel="Operation"><Link to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent || operation.execution.playbook}</Link><small className="mono">{operation.id}</small></Td>
-                <Td dataLabel="Kind">{operation.kind}</Td>
-                <Td dataLabel="Requested">{formatDateTime(operation.requestedAt)}</Td>
-                <Td dataLabel="Requested by">{operation.requestedBy || 'system'}</Td>
-              </Tr>)}</Tbody>
-            </Table>
+            <Table.Root size="sm" aria-label="Related Operations">
+              <Table.Header>
+                <Table.Row><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Operation</Table.ColumnHeader><Table.ColumnHeader>Kind</Table.ColumnHeader><Table.ColumnHeader>Requested</Table.ColumnHeader><Table.ColumnHeader>Requested by</Table.ColumnHeader></Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {related.data.map((operation) => (
+                  <Table.Row key={operation.id}>
+                    <Table.Cell><StatusBadge status={operation.execution.status} /></Table.Cell>
+                    <Table.Cell>
+                      <Link to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent || operation.execution.playbook}</Link>
+                      <Text as="small" display="block" color="fg.muted" className="mono">{operation.id}</Text>
+                    </Table.Cell>
+                    <Table.Cell>{operation.kind}</Table.Cell>
+                    <Table.Cell>{formatDateTime(operation.requestedAt)}</Table.Cell>
+                    <Table.Cell>{operation.requestedBy || 'system'}</Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
           </StickyTableFrame>
         )}
       </section>

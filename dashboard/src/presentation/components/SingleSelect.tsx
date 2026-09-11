@@ -1,10 +1,5 @@
-import { useState } from 'react'
-import {
-  MenuToggle,
-  Select,
-  SelectList,
-  SelectOption,
-} from '@patternfly/react-core'
+import { useMemo } from 'react'
+import { Portal, Select, createListCollection } from '@chakra-ui/react'
 
 interface SingleSelectOption {
   readonly value: string
@@ -24,14 +19,14 @@ interface SingleSelectProps {
 }
 
 /**
- * Renders a full-width PatternFly single-select field whose options remain in
- * the document rather than in the browser's native select popup.
+ * Full-width single-select field whose options render in a portalled listbox
+ * rather than the browser's native `<select>` popup.
  *
- * Linux Chromium can paint disabled native placeholder options with an
- * unreadable user-agent color until pointer movement triggers a repaint. This
- * shared control avoids that inaccessible rendering path while preserving a
- * visible disabled placeholder, keyboard navigation, focus restoration, and a
- * form-label target through `id`.
+ * This is the shared select control for forms and toolbars: it keeps keyboard
+ * navigation, a visible placeholder, focus restoration on close, and a
+ * form-label target through `id`. The `HiddenSelect` keeps native form
+ * semantics for required validation. `onChange` reports the selected value, or an
+ * empty string once cleared.
  */
 export function SingleSelect({
   id,
@@ -43,50 +38,50 @@ export function SingleSelect({
   isRequired = false,
   onChange,
 }: SingleSelectProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const selectedOption = options.find((option) => option.value === value)
+  // The collection is Chakra's value/label lookup; rebuild it only when options change.
+  const collection = useMemo(
+    () =>
+      createListCollection({
+        items: options.map((option) => ({
+          label: option.label,
+          value: option.value,
+          disabled: option.isDisabled ?? false,
+        })),
+      }),
+    [options],
+  )
 
   return (
-    <Select
-      id={`${id}-menu`}
-      isOpen={isOpen}
-      selected={selectedOption?.value}
-      onOpenChange={setIsOpen}
-      onSelect={(_event, selectedValue) => {
-        if (typeof selectedValue !== 'string') return
-        onChange(selectedValue)
-        setIsOpen(false)
-      }}
-      shouldFocusFirstItemOnOpen
-      shouldFocusToggleOnSelect
-      maxMenuHeight="20rem"
-      popperProps={{ width: 'trigger' }}
-      toggle={(toggleRef) => (
-        <MenuToggle
-          ref={toggleRef}
-          id={id}
-          type="button"
-          aria-label={ariaLabel}
-          aria-required={isRequired || undefined}
-          isDisabled={isDisabled}
-          isExpanded={isOpen}
-          isFullWidth
-          isInForm
-          isPlaceholder={!selectedOption}
-          onClick={() => setIsOpen((open) => !open)}
-        >
-          {selectedOption?.label ?? placeholder}
-        </MenuToggle>
-      )}
+    <Select.Root
+      collection={collection}
+      value={value ? [value] : []}
+      onValueChange={(details) => onChange(details.value[0] ?? '')}
+      disabled={isDisabled}
+      required={isRequired}
+      positioning={{ sameWidth: true }}
+      width="full"
     >
-      <SelectList>
-        <SelectOption value="" isDisabled>{placeholder}</SelectOption>
-        {options.map((option) => (
-          <SelectOption key={option.value} value={option.value} isDisabled={option.isDisabled}>
-            {option.label}
-          </SelectOption>
-        ))}
-      </SelectList>
-    </Select>
+      <Select.HiddenSelect />
+      <Select.Control>
+        <Select.Trigger id={id} aria-label={ariaLabel}>
+          <Select.ValueText placeholder={placeholder} />
+        </Select.Trigger>
+        <Select.IndicatorGroup>
+          <Select.Indicator />
+        </Select.IndicatorGroup>
+      </Select.Control>
+      <Portal>
+        <Select.Positioner>
+          <Select.Content maxH="20rem">
+            {collection.items.map((item) => (
+              <Select.Item item={item} key={item.value}>
+                <Select.ItemText>{item.label}</Select.ItemText>
+                <Select.ItemIndicator />
+              </Select.Item>
+            ))}
+          </Select.Content>
+        </Select.Positioner>
+      </Portal>
+    </Select.Root>
   )
 }

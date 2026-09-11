@@ -1,35 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  AlertVariant,
-  Button,
-  DescriptionList,
-  DescriptionListDescription,
-  DescriptionListGroup,
-  DescriptionListTerm,
-  Flex,
-  Label,
-  LabelGroup,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  Tab,
-  Tabs,
-  TabTitleText,
-  Tooltip,
-} from "@patternfly/react-core";
-import { BanIcon, RedoIcon, SyncAltIcon } from "@patternfly/react-icons";
-import {
-  Ban,
-  Check,
-  CircleDot,
-  TriangleAlert,
-  X,
-  type LucideIcon,
-} from "lucide-react";
-import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
-import { useApp } from "@/di/AppProvider";
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Badge, Button, HStack, IconButton, Stack, Table, Tabs, Text, VisuallyHidden } from '@chakra-ui/react'
+import { Ban, Check, CircleDot, Redo, RefreshCw, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { useApp } from '@/di/AppProvider'
 import {
   isTerminalStatus,
   operationStatus,
@@ -38,187 +10,134 @@ import {
   type OperationEvents,
   type OperationStep,
   type OperationTimelineEvent,
-} from "@/domain/operation/types";
-import { EmptyState } from "@/presentation/components/EmptyState";
-import {
-  KeyValueGrid,
-  SectionHeader,
-  StickyTableFrame,
-} from "@/presentation/components/OperatorPrimitives";
-import { PageHeader } from "@/presentation/components/PageHeader";
-import { StatusBadge } from "@/presentation/components/StatusBadge";
-import { useToast } from "@/presentation/components/toast/toastContext";
-import { useSiteScope } from "@/presentation/contexts/SiteScopeContext";
-import { useTargetLockProtection } from "@/presentation/hooks/useTargetLockProtection";
-import { formatDateTime } from "@/shared/utils/time";
-import { OperationEventWorkspace } from "./OperationEventWorkspace";
-import { OperationLogWorkspace } from "./OperationLogWorkspace";
+} from '@/domain/operation/types'
+import { EmptyState } from '@/presentation/components/EmptyState'
+import { KeyValueGrid, SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { PageHeader } from '@/presentation/components/PageHeader'
+import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { Alert } from '@/presentation/components/ui/alert'
+import { DescriptionList } from '@/presentation/components/ui/description-list'
+import { Modal } from '@/presentation/components/ui/modal'
+import { Tooltip } from '@/presentation/components/ui/tooltip'
+import { useToast } from '@/presentation/components/toast/toastContext'
+import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
+import { formatDateTime } from '@/shared/utils/time'
+import { OperationEventWorkspace } from './OperationEventWorkspace'
+import { OperationLogWorkspace } from './OperationLogWorkspace'
 
 interface DurableOperationDetailProps {
-  operation: Operation;
-  reload: () => void;
+  operation: Operation
+  reload: () => void
 }
 
 /** Unified, Step-first debugger for schema-v3 Operations. */
-export function DurableOperationDetail({
-  operation,
-  reload,
-}: DurableOperationDetailProps) {
-  const { operations } = useApp();
-  const { scopedHref } = useSiteScope();
-  const { showToast } = useToast();
-  const status = operationStatus(operation);
-  const steps = useMemo(() => operation.steps ?? [], [operation.steps]);
-  const targetProtection = useTargetLockProtection(operation.targetServerIds);
+export function DurableOperationDetail({ operation, reload }: DurableOperationDetailProps) {
+  const { operations } = useApp()
+  const { scopedHref } = useSiteScope()
+  const { showToast } = useToast()
+  const status = operationStatus(operation)
+  const steps = useMemo(() => operation.steps ?? [], [operation.steps])
+  const targetProtection = useTargetLockProtection(operation.targetServerIds)
   const retryDisabledReason = targetProtection.checking
-    ? "Checking target protection."
+    ? 'Checking target protection.'
     : targetProtection.error
       ? targetProtection.error
       : targetProtection.lockedNames.length > 0
-        ? `${targetProtection.lockedNames.join(", ")} ${targetProtection.lockedNames.length === 1 ? "is" : "are"} locked. Unlock ${targetProtection.lockedNames.length === 1 ? "it" : "them"} before retrying this Step.`
-        : undefined;
+        ? `${targetProtection.lockedNames.join(', ')} ${targetProtection.lockedNames.length === 1 ? 'is' : 'are'} locked. Unlock ${targetProtection.lockedNames.length === 1 ? 'it' : 'them'} before retrying this Step.`
+        : undefined
   const preferredStep =
-    steps.find((step) =>
-      ["running", "waiting_external", "requires_attention", "failed"].includes(
-        step.status,
-      ),
-    ) ?? steps[0];
-  const [selectedStepId, setSelectedStepId] = useState(preferredStep?.id ?? "");
+    steps.find((step) => ['running', 'waiting_external', 'requires_attention', 'failed'].includes(step.status)) ?? steps[0]
+  const [selectedStepId, setSelectedStepId] = useState(preferredStep?.id ?? '')
   // A failed Step opens on its Stderr (the error-only report) so the cause is visible without a
   // click; healthy Steps open on Stdout.
-  const [tab, setTab] = useState<string | number>(
-    preferredStep?.error ? "stderr" : "stdout",
-  );
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [retryCandidate, setRetryCandidate] = useState<OperationStep | null>(null);
-  const [controlling, setControlling] = useState(false);
-  const selectedStep =
-    steps.find((step) => step.id === selectedStepId) ?? preferredStep;
+  const [tab, setTab] = useState(preferredStep?.error ? 'stderr' : 'stdout')
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [retryCandidate, setRetryCandidate] = useState<OperationStep | null>(null)
+  const [controlling, setControlling] = useState(false)
+  const selectedStep = steps.find((step) => step.id === selectedStepId) ?? preferredStep
 
   useEffect(() => {
-    if (!steps.some((step) => step.id === selectedStepId))
-      setSelectedStepId(preferredStep?.id ?? "");
-  }, [preferredStep?.id, selectedStepId, steps]);
+    if (!steps.some((step) => step.id === selectedStepId)) setSelectedStepId(preferredStep?.id ?? '')
+  }, [preferredStep?.id, selectedStepId, steps])
 
   const cancel = useCallback(async () => {
-    setControlling(true);
+    setControlling(true)
     try {
-      await operations.cancelOperation(operation.id);
-      setCancelOpen(false);
-      showToast({
-        tone: "success",
-        title: "Cancellation requested",
-        description:
-          "Running provider work will be canceled when it is safe to do so.",
-      });
-      reload();
+      await operations.cancelOperation(operation.id)
+      setCancelOpen(false)
+      showToast({ tone: 'success', title: 'Cancellation requested', description: 'Running provider work will be canceled when it is safe to do so.' })
+      reload()
     } catch (error) {
-      showToast({
-        tone: "error",
-        title: "Could not cancel Operation",
-        description: error instanceof Error ? error.message : "Unknown error",
-      });
+      showToast({ tone: 'error', title: 'Could not cancel Operation', description: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
-      setControlling(false);
+      setControlling(false)
     }
-  }, [operation.id, operations, reload, showToast]);
+  }, [operation.id, operations, reload, showToast])
 
   const retryStep = useCallback(
     async (step: OperationStep) => {
-      setControlling(true);
+      setControlling(true)
       try {
-        await operations.retryStep(operation.id, step.id);
-        showToast({
-          tone: "success",
-          title: "Step retry requested",
-          description: `${step.name} will continue as attempt ${step.attempt + 1}.`,
-        });
-        setRetryCandidate(null);
-        reload();
+        await operations.retryStep(operation.id, step.id)
+        showToast({ tone: 'success', title: 'Step retry requested', description: `${step.name} will continue as attempt ${step.attempt + 1}.` })
+        setRetryCandidate(null)
+        reload()
       } catch (error) {
-        showToast({
-          tone: "error",
-          title: "Could not retry Step",
-          description: error instanceof Error ? error.message : "Unknown error",
-        });
+        showToast({ tone: 'error', title: 'Could not retry Step', description: error instanceof Error ? error.message : 'Unknown error' })
       } finally {
-        setControlling(false);
+        setControlling(false)
       }
     },
     [operation.id, operations, reload, showToast],
-  );
+  )
 
   const details = [
+    { label: 'Operation ID', value: <span className="mono">{operation.id}</span> },
+    { label: 'Definition', value: `${operation.definition ?? '-'} v${operation.definitionVersion ?? '-'}` },
+    { label: 'Workflow ID', value: <span className="mono">{operation.temporal?.workflowId ?? '-'}</span> },
+    { label: 'Run ID', value: <span className="mono">{operation.temporal?.runId ?? '-'}</span> },
+    { label: 'Requested by', value: operation.requestedBy || 'system' },
+    { label: 'Request correlation', value: <span className="mono">{operation.requestCorrelation ?? '-'}</span> },
+    { label: 'Targets', value: `${operation.targetServerIds.length} Servers` },
     {
-      label: "Operation ID",
-      value: <span className="mono">{operation.id}</span>,
-    },
-    {
-      label: "Definition",
-      value: `${operation.definition ?? "-"} v${operation.definitionVersion ?? "-"}`,
-    },
-    {
-      label: "Workflow ID",
-      value: (
-        <span className="mono">{operation.temporal?.workflowId ?? "-"}</span>
-      ),
-    },
-    {
-      label: "Run ID",
-      value: <span className="mono">{operation.temporal?.runId ?? "-"}</span>,
-    },
-    { label: "Requested by", value: operation.requestedBy || "system" },
-    {
-      label: "Request correlation",
-      value: (
-        <span className="mono">{operation.requestCorrelation ?? "-"}</span>
-      ),
-    },
-    { label: "Targets", value: `${operation.targetServerIds.length} Servers` },
-    {
-      label: "Resource leases",
+      label: 'Resource leases',
       value: operation.leases?.length ? (
-        <LabelGroup aria-label="Active resource leases">
+        <HStack gap="1" wrap="wrap" aria-label="Active resource leases">
           {operation.leases.map((lease) => (
-            <Label key={lease.resourceKey} variant="outline">
+            <Badge key={lease.resourceKey} variant="outline">
               {lease.resourceKey} · fence {lease.fencingToken}
-            </Label>
+            </Badge>
           ))}
-        </LabelGroup>
-      ) : "No active leases",
+        </HStack>
+      ) : (
+        'No active leases'
+      ),
     },
-    { label: "Updated", value: formatDateTime(operation.updatedAt) },
-  ];
+    { label: 'Updated', value: formatDateTime(operation.updatedAt) },
+  ]
 
   return (
     <div className="operator-page">
       <PageHeader
         title={operation.intent || operation.kind}
-        breadcrumbs={[
-          { label: "Workflows", href: scopedHref("/workflows") },
-          { label: operation.id },
-        ]}
-        subtitle={`${operation.kind} - ${operation.definition ?? "durable workflow"}`}
+        breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
+        subtitle={`${operation.kind} - ${operation.definition ?? 'durable workflow'}`}
         metadata={
-          <Flex
-            gap={{ default: "gapSm" }}
-            alignItems={{ default: "alignItemsCenter" }}
-          >
+          <HStack gap="2">
             <StatusBadge status={status} />
-            {operation.statusReason && <span>{operation.statusReason}</span>}
-          </Flex>
+            {operation.statusReason && <Text as="span" color="fg.muted">{operation.statusReason}</Text>}
+          </HStack>
         }
         actions={
           <>
-            <Button variant="secondary" icon={<SyncAltIcon />} onClick={reload}>
+            <Button variant="outline" onClick={reload}>
+              <RefreshCw size={16} />
               Refresh
             </Button>
             {!isTerminalStatus(status) && (
-              <Button
-                variant="danger"
-                icon={<BanIcon />}
-                onClick={() => setCancelOpen(true)}
-              >
+              <Button colorPalette="red" onClick={() => setCancelOpen(true)}>
+                <Ban size={16} />
                 Cancel
               </Button>
             )}
@@ -232,283 +151,208 @@ export function DurableOperationDetail({
       </section>
 
       <section className="sw-section">
-        <SectionHeader
-          title="Operation Steps"
-          description="Each provider or executor phase is persisted and retried independently."
-        />
+        <SectionHeader title="Operation Steps" description="Each provider or executor phase is persisted and retried independently." />
         <StickyTableFrame>
-          <Table
-            aria-label="Operation Steps"
-            variant="compact"
-            className="sw-operation-steps-table"
-          >
-            <Thead>
-              <Tr>
-                <Th>Step</Th>
-                <Th>Targets</Th>
-                <Th>Executor</Th>
-                <Th>Status</Th>
-                <Th>Attempt</Th>
-                <Th>Duration</Th>
-                <Th>Reason</Th>
-                <Th screenReaderText="Actions" />
-              </Tr>
-            </Thead>
-            <Tbody>
+          <Table.Root size="sm" aria-label="Operation Steps" className="sw-operation-steps-table">
+            <Table.Header>
+              <Table.Row>
+                <Table.ColumnHeader>Step</Table.ColumnHeader>
+                <Table.ColumnHeader>Targets</Table.ColumnHeader>
+                <Table.ColumnHeader>Executor</Table.ColumnHeader>
+                <Table.ColumnHeader>Status</Table.ColumnHeader>
+                <Table.ColumnHeader>Attempt</Table.ColumnHeader>
+                <Table.ColumnHeader>Duration</Table.ColumnHeader>
+                <Table.ColumnHeader>Reason</Table.ColumnHeader>
+                <Table.ColumnHeader><VisuallyHidden>Actions</VisuallyHidden></Table.ColumnHeader>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
               {steps.map((step) => {
-                const retryable =
-                  (step.status === "failed" ||
-                    step.status === "requires_attention") &&
-                  step.error?.retryable;
+                const retryable = (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable
                 return (
-                  <Tr
-                    key={step.id}
-                    isClickable
-                    isRowSelected={selectedStep?.id === step.id}
-                  >
-                    <Td dataLabel="Step">
+                  <Table.Row key={step.id} bg={selectedStep?.id === step.id ? 'bg.subtle' : undefined}>
+                    <Table.Cell>
                       <Button
-                        variant="link"
-                        isInline
+                        variant="plain"
+                        size="sm"
+                        px="0"
+                        h="auto"
+                        colorPalette="brand"
                         onClick={() => {
-                          setSelectedStepId(step.id);
-                          setTab(step.error ? "stderr" : "stdout");
+                          setSelectedStepId(step.id)
+                          setTab(step.error ? 'stderr' : 'stdout')
                         }}
                       >
                         {step.name}
                       </Button>
-                      <small className="sw-block-subtle mono">
+                      <Text as="small" display="block" color="fg.muted" className="mono">
                         {step.kind}
-                      </small>
-                    </Td>
-                    <Td dataLabel="Targets">{formatTargets(step)}</Td>
-                    <Td dataLabel="Executor">
-                      <Label variant="outline">{step.executor}</Label>
-                    </Td>
-                    <Td dataLabel="Status">
+                      </Text>
+                    </Table.Cell>
+                    <Table.Cell>{formatTargets(step)}</Table.Cell>
+                    <Table.Cell>
+                      <Badge variant="outline">{step.executor}</Badge>
+                    </Table.Cell>
+                    <Table.Cell>
                       <StatusBadge status={step.status} />
-                    </Td>
-                    <Td dataLabel="Attempt">{step.attempt}</Td>
-                    <Td dataLabel="Duration">
-                      {formatDuration(step.startedAt, step.finishedAt)}
-                    </Td>
-                    <Td dataLabel="Reason">
+                    </Table.Cell>
+                    <Table.Cell>{step.attempt}</Table.Cell>
+                    <Table.Cell>{formatDuration(step.startedAt, step.finishedAt)}</Table.Cell>
+                    <Table.Cell>
                       {step.error?.message ? (
-                        <span
-                          className="sw-reason-cell"
-                          title={step.error.message}
-                        >
+                        <span className="sw-reason-cell" title={step.error.message}>
                           {firstLine(step.error.message)}
                         </span>
                       ) : (
-                        (step.waitingReason ?? "-")
+                        step.waitingReason ?? '-'
                       )}
-                    </Td>
-                    <Td isActionCell>
+                    </Table.Cell>
+                    <Table.Cell textAlign="end">
                       {retryable && (
                         <Tooltip
                           content={
                             retryDisabledReason ??
-                            (step.kind === "provision-os"
-                              ? "Retry verification; a target with no provider address will be released and redeployed"
-                              : "Retry this failed Step without repeating completed Steps")
+                            (step.kind === 'provision-os'
+                              ? 'Retry verification; a target with no provider address will be released and redeployed'
+                              : 'Retry this failed Step without repeating completed Steps')
                           }
                         >
-                          <Button
-                            variant="plain"
-                            icon={<RedoIcon />}
-                            aria-label={retryDisabledReason
-                              ? `Retry: ${retryDisabledReason}`
-                              : `Retry ${step.name}`}
-                            isDisabled={controlling || Boolean(retryDisabledReason)}
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            aria-label={retryDisabledReason ? `Retry: ${retryDisabledReason}` : `Retry ${step.name}`}
+                            disabled={controlling || Boolean(retryDisabledReason)}
                             onClick={() => {
-                              if (step.kind === "provision-os")
-                                setRetryCandidate(step);
-                              else void retryStep(step);
+                              if (step.kind === 'provision-os') setRetryCandidate(step)
+                              else void retryStep(step)
                             }}
-                          />
+                          >
+                            <Redo size={16} />
+                          </IconButton>
                         </Tooltip>
                       )}
-                    </Td>
-                  </Tr>
-                );
+                    </Table.Cell>
+                  </Table.Row>
+                )
               })}
-            </Tbody>
-          </Table>
+            </Table.Body>
+          </Table.Root>
         </StickyTableFrame>
-        {steps.length === 0 && (
-          <EmptyState
-            title="No Steps"
-            message="This durable Operation has no projected Steps."
-          />
-        )}
+        {steps.length === 0 && <EmptyState title="No Steps" message="This durable Operation has no projected Steps." />}
       </section>
 
       {selectedStep && (
         <section className="sw-section sw-operation-debugger">
-          <SectionHeader
-            title={selectedStep.name}
-            description={`Attempt ${selectedStep.attempt} - ${selectedStep.executor}`}
-          />
+          <SectionHeader title={selectedStep.name} description={`Attempt ${selectedStep.attempt} - ${selectedStep.executor}`} />
           {selectedStep.error && (
             <Alert
-              variant={
-                selectedStep.status === "requires_attention"
-                  ? AlertVariant.warning
-                  : AlertVariant.danger
-              }
+              status={selectedStep.status === 'requires_attention' ? 'warning' : 'error'}
               title={selectedStep.error.code}
-              isInline
             >
-              {/* Keep the alert a one-line headline; the full failure output (per failed task,
-                  with stderr/stdout) lives in the Stderr tab below, not crammed in here. */}
+              {/* Keep the alert a one-line headline; the full failure output lives in the Stderr tab. */}
               {firstLine(selectedStep.error.message)}
-              {selectedStep.error.stage
-                ? ` (stage: ${selectedStep.error.stage})`
-                : ""}
+              {selectedStep.error.stage ? ` (stage: ${selectedStep.error.stage})` : ''}
             </Alert>
           )}
           {selectedStep.waitingReason && (
-            <Alert variant={AlertVariant.info} title="Waiting" isInline>
+            <Alert status="info" title="Waiting">
               {selectedStep.waitingReason}
             </Alert>
           )}
-          <Tabs
-            activeKey={tab}
-            onSelect={(_event, key) => setTab(key)}
-            aria-label="Step diagnostics"
-          >
-            <Tab eventKey="stdout" title={<TabTitleText>Stdout</TabTitleText>}>
+          <Tabs.Root value={tab} onValueChange={(details) => setTab(details.value)} aria-label="Step diagnostics">
+            <Tabs.List px="4">
+              <Tabs.Trigger value="stdout">Stdout</Tabs.Trigger>
+              <Tabs.Trigger value="stderr">Stderr</Tabs.Trigger>
+              <Tabs.Trigger value="events">Events</Tabs.Trigger>
+              <Tabs.Trigger value="artifacts">Artifacts</Tabs.Trigger>
+              <Tabs.Trigger value="details">Details</Tabs.Trigger>
+            </Tabs.List>
+            <Tabs.Content value="stdout">
               <div className="sw-tab-content">
-                <OperationLogWorkspace
-                  operationId={operation.id}
-                  stepId={selectedStep.id}
-                />
+                <OperationLogWorkspace operationId={operation.id} stepId={selectedStep.id} />
               </div>
-            </Tab>
-            <Tab eventKey="stderr" title={<TabTitleText>Stderr</TabTitleText>}>
+            </Tabs.Content>
+            <Tabs.Content value="stderr">
               <div className="sw-tab-content">
-                <OperationLogWorkspace
-                  operationId={operation.id}
-                  stepId={selectedStep.id}
-                  variant="stderr"
-                />
+                <OperationLogWorkspace operationId={operation.id} stepId={selectedStep.id} variant="stderr" />
               </div>
-            </Tab>
-            <Tab eventKey="events" title={<TabTitleText>Events</TabTitleText>}>
+            </Tabs.Content>
+            <Tabs.Content value="events">
               <div className="sw-tab-content">
                 <StepEvents operation={operation} step={selectedStep} />
               </div>
-            </Tab>
-            <Tab
-              eventKey="artifacts"
-              title={<TabTitleText>Artifacts</TabTitleText>}
-            >
+            </Tabs.Content>
+            <Tabs.Content value="artifacts">
               <div className="sw-tab-content">
                 <StepArtifacts operationId={operation.id} step={selectedStep} />
               </div>
-            </Tab>
-            <Tab
-              eventKey="details"
-              title={<TabTitleText>Details</TabTitleText>}
-            >
+            </Tabs.Content>
+            <Tabs.Content value="details">
               <div className="sw-tab-content">
                 <StepDetails step={selectedStep} />
               </div>
-            </Tab>
-          </Tabs>
+            </Tabs.Content>
+          </Tabs.Root>
         </section>
       )}
 
       <section className="sw-section">
-        <SectionHeader
-          title="Timeline"
-          description="Normalized workflow events retained independently from provider diagnostics."
-        />
+        <SectionHeader title="Timeline" description="Normalized workflow events retained independently from provider diagnostics." />
         <div className="sw-section-body">
           <OperationTimeline operation={operation} />
         </div>
       </section>
 
       <Modal
-        isOpen={retryCandidate !== null}
+        open={retryCandidate !== null}
         onClose={() => !controlling && setRetryCandidate(null)}
-        variant="small"
-        aria-labelledby="retry-os-deployment-title"
+        size="md"
+        closeOnInteractOutside={!controlling}
+        title="Retry failed OS deployment"
+        description="Recheck a failed operating system deployment and recover it when necessary."
+        footer={
+          <>
+            <Button variant="ghost" disabled={controlling} onClick={() => setRetryCandidate(null)}>
+              Cancel
+            </Button>
+            <Button colorPalette="red" loading={controlling} onClick={() => retryCandidate && void retryStep(retryCandidate)}>
+              Retry deployment
+            </Button>
+          </>
+        }
       >
-        <ModalHeader
-          title="Retry failed OS deployment"
-          labelId="retry-os-deployment-title"
-          description="Recheck a failed operating system deployment and recover it when necessary."
-        />
-        <ModalBody>
-          <Alert
-            variant={AlertVariant.warning}
-            title="This retry may redeploy the Server"
-            isInline
-          >
-            Swallow first rechecks the installed image, provider address, and SSH.
-            If MAAS still reports no address, Swallow will release the unusable
-            installation, wait for Ready, then redeploy the same image, network
+        <Stack gap="3">
+          <Alert status="warning" title="This retry may redeploy the Server">
+            Swallow first rechecks the installed image, provider address, and SSH. If MAAS still reports no address,
+            Swallow will release the unusable installation, wait for Ready, then redeploy the same image, network
             settings, and protected cloud-init data. An SSH-only failure is not redeployed.
           </Alert>
-          <p>
-            Other successful targets and completed Steps are preserved. No
-            release occurs until you confirm this retry.
-          </p>
-        </ModalBody>
-        <ModalFooter>
-          <Button
-            variant="danger"
-            isLoading={controlling}
-            onClick={() => retryCandidate && void retryStep(retryCandidate)}
-          >
-            Retry deployment
-          </Button>
-          <Button
-            variant="link"
-            isDisabled={controlling}
-            onClick={() => setRetryCandidate(null)}
-          >
-            Cancel
-          </Button>
-        </ModalFooter>
+          <Text>Other successful targets and completed Steps are preserved. No release occurs until you confirm this retry.</Text>
+        </Stack>
       </Modal>
 
       <Modal
-        isOpen={cancelOpen}
+        open={cancelOpen}
         onClose={() => !controlling && setCancelOpen(false)}
-        variant="small"
-        aria-labelledby="cancel-operation-title"
+        size="md"
+        closeOnInteractOutside={!controlling}
+        title="Cancel Operation"
+        description="Completed side effects are preserved. Swallow will stop work that has not started and ask active providers to cancel when supported."
+        footer={
+          <>
+            <Button variant="ghost" disabled={controlling} onClick={() => setCancelOpen(false)}>
+              Keep running
+            </Button>
+            <Button colorPalette="red" loading={controlling} onClick={() => void cancel()}>
+              Cancel Operation
+            </Button>
+          </>
+        }
       >
-        <ModalHeader
-          title="Cancel Operation"
-          labelId="cancel-operation-title"
-          description="Completed side effects are preserved. Swallow will stop work that has not started and ask active providers to cancel when supported."
-        />
-        <ModalBody>
-          This does not automatically release an installed OS or uninstall a
-          Platform.
-        </ModalBody>
-        <ModalFooter>
-          <Button
-            variant="danger"
-            isLoading={controlling}
-            onClick={() => void cancel()}
-          >
-            Cancel Operation
-          </Button>
-          <Button
-            variant="link"
-            isDisabled={controlling}
-            onClick={() => setCancelOpen(false)}
-          >
-            Keep running
-          </Button>
-        </ModalFooter>
+        This does not automatically release an installed OS or uninstall a Platform.
       </Modal>
     </div>
-  );
+  )
 }
 
 /**
@@ -517,150 +361,100 @@ export function DurableOperationDetail({
  * full text on hover, while the Alert and Stdout tab carry the rest.
  */
 function firstLine(message: string): string {
-  const line = message.split("\n", 1)[0]?.trim() ?? "";
-  return line || message.trim();
+  const line = message.split('\n', 1)[0]?.trim() ?? ''
+  return line || message.trim()
 }
 
 function formatTargets(step: OperationStep): string {
-  const targets = step.targets ?? [];
-  if (targets.length === 0) return "-";
-  const visible = targets.slice(0, 2).map((target) => target.id);
-  return `${visible.join(", ")}${targets.length > visible.length ? ` +${targets.length - visible.length}` : ""}`;
+  const targets = step.targets ?? []
+  if (targets.length === 0) return '-'
+  const visible = targets.slice(0, 2).map((target) => target.id)
+  return `${visible.join(', ')}${targets.length > visible.length ? ` +${targets.length - visible.length}` : ''}`
 }
 
 function formatDuration(start: string | null, finish: string | null): string {
-  if (!start) return "-";
-  const milliseconds = Math.max(
-    0,
-    new Date(finish ?? Date.now()).getTime() - new Date(start).getTime(),
-  );
-  if (milliseconds < 1000) return "<1s";
-  const seconds = Math.floor(milliseconds / 1000);
-  return seconds < 60
-    ? `${seconds}s`
-    : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  if (!start) return '-'
+  const milliseconds = Math.max(0, new Date(finish ?? Date.now()).getTime() - new Date(start).getTime())
+  if (milliseconds < 1000) return '<1s'
+  const seconds = Math.floor(milliseconds / 1000)
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
 
-function StepEvents({
-  operation,
-  step,
-}: {
-  operation: Operation;
-  step: OperationStep;
-}) {
-  const { operations } = useApp();
-  const [events, setEvents] = useState<OperationEvents | null>(null);
-  const [error, setError] = useState("");
+function StepEvents({ operation, step }: { operation: Operation; step: OperationStep }) {
+  const { operations } = useApp()
+  const [events, setEvents] = useState<OperationEvents | null>(null)
+  const [error, setError] = useState('')
   useEffect(() => {
-    let canceled = false;
+    let canceled = false
     operations
       .getStepEvents(operation.id, step.id)
       .then((result) => {
-        if (!canceled) setEvents(result);
+        if (!canceled) setEvents(result)
       })
       .catch((caught: Error) => {
-        if (!canceled) setError(caught.message);
-      });
+        if (!canceled) setError(caught.message)
+      })
     return () => {
-      canceled = true;
-    };
-  }, [operation.id, operation.updatedAt, operations, step.id]);
-  if (error)
+      canceled = true
+    }
+  }, [operation.id, operation.updatedAt, operations, step.id])
+  if (error) {
     return (
-      <Alert variant={AlertVariant.warning} title="Events unavailable" isInline>
+      <Alert status="warning" title="Events unavailable">
         {error}
       </Alert>
-    );
-  return (
-    <OperationEventWorkspace
-      events={events}
-      running={
-        !["succeeded", "failed", "canceled", "skipped"].includes(step.status)
-      }
-    />
-  );
+    )
+  }
+  return <OperationEventWorkspace events={events} running={!['succeeded', 'failed', 'canceled', 'skipped'].includes(step.status)} />
 }
 
-function StepArtifacts({
-  operationId,
-  step,
-}: {
-  operationId: string;
-  step: OperationStep;
-}) {
-  const { operations } = useApp();
-  const [artifacts, setArtifacts] = useState<OperationArtifact[]>(
-    step.artifacts ?? [],
-  );
+function StepArtifacts({ operationId, step }: { operationId: string; step: OperationStep }) {
+  const { operations } = useApp()
+  const [artifacts, setArtifacts] = useState<OperationArtifact[]>(step.artifacts ?? [])
   useEffect(() => {
-    let canceled = false;
+    let canceled = false
     operations
       .getStepArtifacts(operationId, step.id)
       .then((items) => {
-        if (!canceled) setArtifacts(items ?? []);
+        if (!canceled) setArtifacts(items ?? [])
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
     return () => {
-      canceled = true;
-    };
-  }, [operationId, operations, step.id, step.artifacts]);
-  if (artifacts.length === 0)
-    return (
-      <EmptyState
-        title="No artifacts"
-        message="This Step has no retained artifact metadata."
-      />
-    );
+      canceled = true
+    }
+  }, [operationId, operations, step.id, step.artifacts])
+  if (artifacts.length === 0) {
+    return <EmptyState title="No artifacts" message="This Step has no retained artifact metadata." />
+  }
   return (
-    <DescriptionList>
-      {artifacts.map((artifact) => (
-        <DescriptionListGroup key={artifact.id}>
-          <DescriptionListTerm>{artifact.name}</DescriptionListTerm>
-          <DescriptionListDescription>
-            {artifact.mediaType} - {artifact.sizeBytes.toLocaleString()} bytes -{" "}
-            {formatDateTime(artifact.createdAt)}
-          </DescriptionListDescription>
-        </DescriptionListGroup>
-      ))}
-    </DescriptionList>
-  );
+    <DescriptionList
+      emptyText="No data"
+      items={artifacts.map((artifact) => ({
+        label: artifact.name,
+        value: `${artifact.mediaType} - ${artifact.sizeBytes.toLocaleString()} bytes - ${formatDateTime(artifact.createdAt)}`,
+      }))}
+    />
+  )
 }
 
 function StepDetails({ step }: { step: OperationStep }) {
   return (
     <KeyValueGrid
       items={[
-        { label: "Step ID", value: <span className="mono">{step.id}</span> },
-        { label: "Dependencies", value: step.dependsOn?.join(", ") || "-" },
-        { label: "Progress", value: `${step.progress}%` },
-        {
-          label: "External provider",
-          value: step.externalExecution?.provider ?? "-",
-        },
-        {
-          label: "External execution",
-          value: (
-            <span className="mono">{step.externalExecution?.id ?? "-"}</span>
-          ),
-        },
-        {
-          label: "Started",
-          value: formatDateTime(step.startedAt ?? undefined),
-        },
-        {
-          label: "Finished",
-          value: formatDateTime(step.finishedAt ?? undefined),
-        },
-        {
-          label: "Retryable",
-          value: step.error ? (step.error.retryable ? "Yes" : "No") : "-",
-        },
+        { label: 'Step ID', value: <span className="mono">{step.id}</span> },
+        { label: 'Dependencies', value: step.dependsOn?.join(', ') || '-' },
+        { label: 'Progress', value: `${step.progress}%` },
+        { label: 'External provider', value: step.externalExecution?.provider ?? '-' },
+        { label: 'External execution', value: <span className="mono">{step.externalExecution?.id ?? '-'}</span> },
+        { label: 'Started', value: formatDateTime(step.startedAt ?? undefined) },
+        { label: 'Finished', value: formatDateTime(step.finishedAt ?? undefined) },
+        { label: 'Retryable', value: step.error ? (step.error.retryable ? 'Yes' : 'No') : '-' },
       ]}
     />
-  );
+  )
 }
 
-type TimelineTone = "success" | "danger" | "warning" | "info" | "neutral";
+type TimelineTone = 'success' | 'danger' | 'warning' | 'info' | 'neutral'
 
 /**
  * Maps a normalized workflow event type to a timeline marker tone and glyph. Matching is by
@@ -668,50 +462,45 @@ type TimelineTone = "success" | "danger" | "warning" | "info" | "neutral";
  * than rendering nothing. The tone drives the marker colour in CSS (`data-tone`).
  */
 function timelineEventTone(type: string): { tone: TimelineTone; Icon: LucideIcon } {
-  const value = type.toLowerCase();
-  if (/(succeed|complete|active|ready)/.test(value)) return { tone: "success", Icon: Check };
-  if (/(fail|error)/.test(value)) return { tone: "danger", Icon: X };
-  if (/cancel/.test(value)) return { tone: "neutral", Icon: Ban };
-  if (/(attention|warn)/.test(value)) return { tone: "warning", Icon: TriangleAlert };
+  const value = type.toLowerCase()
+  if (/(succeed|complete|active|ready)/.test(value)) return { tone: 'success', Icon: Check }
+  if (/(fail|error)/.test(value)) return { tone: 'danger', Icon: X }
+  if (/cancel/.test(value)) return { tone: 'neutral', Icon: Ban }
+  if (/(attention|warn)/.test(value)) return { tone: 'warning', Icon: TriangleAlert }
   if (/(start|running|request|accept|queue|retry|resume|dispatch)/.test(value)) {
-    return { tone: "info", Icon: CircleDot };
+    return { tone: 'info', Icon: CircleDot }
   }
-  return { tone: "neutral", Icon: CircleDot };
+  return { tone: 'neutral', Icon: CircleDot }
 }
 
 /** Renders an event type token such as `operation_requested` as "Operation requested". */
 function humanizeEventType(type: string): string {
-  const spaced = type.replace(/[_-]+/g, " ").trim();
-  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : type;
+  const spaced = type.replace(/[_-]+/g, ' ').trim()
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : type
 }
 
 function OperationTimeline({ operation }: { operation: Operation }) {
-  const { operations } = useApp();
-  const [events, setEvents] = useState<OperationTimelineEvent[]>([]);
+  const { operations } = useApp()
+  const [events, setEvents] = useState<OperationTimelineEvent[]>([])
   useEffect(() => {
-    let canceled = false;
+    let canceled = false
     operations
       .getTimeline(operation.id)
       .then((items) => {
-        if (!canceled) setEvents(items);
+        if (!canceled) setEvents(items)
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
     return () => {
-      canceled = true;
-    };
-  }, [operation.id, operation.updatedAt, operations]);
-  const stepNames = useMemo(
-    () => new Map((operation.steps ?? []).map((step) => [step.id, step.name])),
-    [operation.steps],
-  );
-  if (events.length === 0) return <EmptyState title="No timeline events" />;
+      canceled = true
+    }
+  }, [operation.id, operation.updatedAt, operations])
+  const stepNames = useMemo(() => new Map((operation.steps ?? []).map((step) => [step.id, step.name])), [operation.steps])
+  if (events.length === 0) return <EmptyState title="No timeline events" />
   return (
     <ol className="sw-timeline">
       {events.map((event) => {
-        const { tone, Icon } = timelineEventTone(event.type);
-        const title = event.stepId
-          ? (stepNames.get(event.stepId) ?? event.stepId)
-          : humanizeEventType(event.type);
+        const { tone, Icon } = timelineEventTone(event.type)
+        const title = event.stepId ? (stepNames.get(event.stepId) ?? event.stepId) : humanizeEventType(event.type)
         return (
           <li key={event.id} className="sw-timeline__item" data-tone={tone}>
             <span className="sw-timeline__marker" aria-hidden="true">
@@ -722,13 +511,11 @@ function OperationTimeline({ operation }: { operation: Operation }) {
               <time className="sw-timeline__time" dateTime={event.createdAt}>
                 {formatDateTime(event.createdAt)}
               </time>
-              {event.message && (
-                <span className="sw-timeline__message">{event.message}</span>
-              )}
+              {event.message && <span className="sw-timeline__message">{event.message}</span>}
             </div>
           </li>
-        );
+        )
       })}
     </ol>
-  );
+  )
 }
