@@ -1,9 +1,14 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
+async function chooseSingleSelectOption(page: import('playwright/test').Page, fieldLabel: string, optionLabel: string) {
+  await page.getByRole('combobox', { name: fieldLabel, exact: true }).click()
+  await page.getByRole('option', { name: optionLabel, exact: true }).click()
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('swallow.appearance', JSON.stringify('light'))
+    localStorage.setItem('swallow.appearance', 'light')
     localStorage.setItem('access_token', 'e2e-token')
   })
 })
@@ -17,13 +22,13 @@ test('locked Servers are visible, filterable, and mixed Lock converges with skip
 
   const first = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
   const second = page.getByRole('row').filter({ hasText: 'gpu-node-02' })
-  await expect(first).toContainText('Locked')
+  await expect(first.getByRole('img', { name: 'Locked' })).toBeVisible()
 
   await page.getByRole('button', { name: /Filters/ }).click()
-  await page.getByLabel('Filter Server lock').selectOption('locked')
+  await chooseSingleSelectOption(page, 'Filter Server lock', 'Locked')
   await expect(first).toBeVisible()
   await expect(second).toHaveCount(0)
-  await page.getByLabel('Filter Server lock').selectOption('any')
+  await chooseSingleSelectOption(page, 'Filter Server lock', 'Any')
 
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByLabel('Select gpu-node-02').check()
@@ -38,7 +43,7 @@ test('locked Servers are visible, filterable, and mixed Lock converges with skip
   await expect(confirmation).toContainText('Monitoring and diagnostics remain available')
   await confirmation.getByRole('button', { name: 'Lock', exact: true }).click()
 
-  await expect(second).toContainText('Locked')
+  await expect(second.getByRole('img', { name: 'Locked' })).toBeVisible()
 })
 
 test('Unlock is the only mutation offered for a protected Server', async ({ page }) => {
@@ -57,7 +62,7 @@ test('Unlock is the only mutation offered for a protected Server', async ({ page
   await expect(page.getByText('Locked', { exact: true })).toHaveCount(0)
 })
 
-test('locked candidates remain visible but cannot enter OS or Platform deployment', async ({ page }) => {
+test('locked targets stay visible in OS deployment and are excluded from Platform deployment', async ({ page }) => {
   await installApiFixtures(page, {
     lockedServerIds: ['srv-1'],
     freePlatformCandidates: true,
@@ -68,7 +73,7 @@ test('locked candidates remain visible but cannot enter OS or Platform deploymen
   await expect(page.getByText('Locked targets removed')).toBeVisible()
   await expect(page).not.toHaveURL(/serverId=srv-1/)
   await expect(page.getByLabel('Select gpu-node-01')).toBeDisabled()
-  await expect(page.getByRole('grid', { name: 'Deployment targets' }).getByText('Locked')).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Deployment targets' }).getByText('Locked')).toBeVisible()
 
   await installApiFixtures(page, {
     lockedServerIds: ['srv-1'],
@@ -79,11 +84,9 @@ test('locked candidates remain visible but cannot enter OS or Platform deploymen
   await page.getByRole('option', { name: 'Taipei Lab', exact: true }).click()
   await page.getByLabel('Platform name').fill('locked-candidate-check')
   await page.getByRole('button', { name: 'Next' }).click()
-  const lockedRow = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
-  await expect(lockedRow).toContainText('Locked')
-  await expect(lockedRow.locator('td').nth(2)).toHaveText('-')
-  await expect(page.getByLabel('Role for gpu-node-01')).toBeDisabled()
-  await expect(page.getByLabel('Role for gpu-node-02')).toBeEnabled()
+  await expect(page.getByRole('row').filter({ hasText: 'gpu-node-01' })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Role for gpu-node-01' })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Role for gpu-node-02' })).toBeEnabled()
 })
 test('locked targets disable Platform repair, uninstall, and Operation retry', async ({ page }) => {
   await installApiFixtures(page, { lockedServerIds: ['srv-4'] })
@@ -100,7 +103,7 @@ test('locked targets disable Platform repair, uninstall, and Operation retry', a
   await expect(uninstall).toContainText('Unlock it before changing this Platform.')
   await expect(page.getByRole('menuitem', { name: 'Delete platform' })).toBeEnabled()
 
-  await page.goto('/operations/op-deploy-failed?site=site-a')
+  await page.goto('/workflows/op-deploy-failed?site=site-a')
   await expect(page.getByRole('button', {
     name: /Retry: gpu-node-04 is locked/,
   })).toBeDisabled()

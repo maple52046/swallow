@@ -1,8 +1,9 @@
 ---
 name: git-commit
 description: >-
-  Analyse the swallow repository's changes, write a Conventional Commits message,
-  and run git commit (optionally git add and git push). Use when the user runs
+  Analyse the swallow repository's changes, write a Conventional Commits message
+  with the invoking agent's Co-authored-by trailer, and run git commit (optionally
+  git add and git push). Use when the user runs
   $git-commit or asks to commit staged changes with a generated message.
 ---
 
@@ -32,7 +33,7 @@ $git-commit [--auto-add] [--all] [--push] [--date <when>]
 - [ ] 1. Gather current state in parallel: git status / git diff (staged) / git log
 - [ ] 2. Determine the commit scope by mode (staged-only / --auto-add / --all)
 - [ ] 3. Check for secrets and files that should not be version-controlled
-- [ ] 4. Write the commit message per docs/development/commit-spec.md
+- [ ] 4. Write the commit message per docs/development/commit-spec.md and append the agent trailer
 - [ ] 5. Run git commit (pass the message via HEREDOC; keep author/committer date consistent when --date is given)
 - [ ] 6. --push: run git push after a successful commit
 - [ ] 7. Verify and report the results
@@ -84,17 +85,22 @@ breaking-change determination), always go back and check. Format:
 
 [body]
 
-[footer(s)]
+[other footer(s)]
+Co-authored-by: <agent name> <agent email>
 ```
 
 - **type** (required): a noun prefix followed by `: ` (colon and a space). `feat` = a new feature, `fix` = a bug fix; other common ones: `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style`.
 - **scope** (optional): a noun in parentheses marking the area of impact, e.g. `fix(api-server):`; follow the existing scope naming in `git log`.
 - **description** (required): a concise summary immediately after `: ` (recommended <= 72 characters), focused on the change itself, in the imperative mood.
 - **body** (optional): separated from the description by **one** blank line; freely explain the motivation and impact (the why).
-- **footer(s)** (optional): separated from the body by one blank line; tokens use `-` in place of spaces (e.g. `Reviewed-by:`, `Refs: #123`).
+- **footer(s)**: other footers are optional and are separated from the body by one blank line; tokens use `-` in place of spaces (e.g. `Reviewed-by:`, `Refs: #123`). The agent trailer below is required.
 - **breaking change**: add `!` after the type/scope and before the `:` (e.g. `feat(api-server)!:`), or write an uppercase `BREAKING CHANGE: <description>` in a footer; either one suffices, and the footer may be omitted when `!` is already present.
 - type/scope are case-insensitive, but `BREAKING CHANGE` **must** be uppercase.
-- Do not claim in the message that tests were run or add markers that were not requested.
+- **agent co-author trailer (required)**: append exactly one trailer for the agent creating the commit, using the matching stable identity:
+  - Cursor: `Co-authored-by: Cursor <cursoragent@cursor.com>`
+  - Codex: `Co-authored-by: Codex <noreply@openai.com>`
+- Keep the current agent's trailer as the final footer. Preserve trailers for other co-authors, but if the current agent's exact trailer is already present, keep only one occurrence.
+- Do not use the human author's Git identity for the agent trailer. Do not claim in the message that tests were run or add other markers that were not requested; the required agent trailer is the sole automatic exception.
 
 ### 5. Run git commit
 
@@ -106,7 +112,8 @@ git commit -m "$(cat <<'EOF'
 
 <optional body>
 
-<optional footers>
+<optional non-agent footers>
+Co-authored-by: <agent name> <agent email>
 EOF
 )"
 ```
@@ -117,6 +124,8 @@ the committer date is controlled separately by the `GIT_COMMITTER_DATE` environm
 ```bash
 GIT_COMMITTER_DATE='<when>' git commit --date='<when>' -m "$(cat <<'EOF'
 <type>(<scope>): <description>
+
+Co-authored-by: <agent name> <agent email>
 EOF
 )"
 ```
@@ -138,11 +147,12 @@ EOF
 
 ### 7. Verify and report
 
-- After committing, run `git status` to confirm success; with `--date`, use `git log -1 --pretty=fuller` to confirm AuthorDate and CommitDate match.
-- Report: the commit summary, the files included (in `--auto-add` / `--all` mode, specifically list the files added by the agent), the date applied (if `--date` was given), and whether it was pushed and to which branch.
+- After committing, run `git status` to confirm success and `git log -1 --format=%B` to verify the current agent's trailer appears exactly once as the final footer. With `--date`, also use `git log -1 --pretty=fuller` to confirm AuthorDate and CommitDate match.
+- Report: the commit summary, co-author identity, the files included (in `--auto-add` / `--all` mode, specifically list the files added by the agent), the date applied (if `--date` was given), and whether it was pushed and to which branch.
 
 ## Important reminders
 
 - One `$git-commit` invocation produces at most one commit.
+- Every commit created by this skill ends with exactly one `Co-authored-by` trailer for the invoking agent.
 - When there is nothing to commit (no staged changes and not `--auto-add` / `--all`, or no changes at all), do not create an empty commit; stop and report.
 - The default behavior minimizes side effects: **commit staged files only, no push, use the current time**; `--auto-add` / `--all` (loosen file staging), `--push` (push), and `--date` (specify the date) relax this.

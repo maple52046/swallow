@@ -6,10 +6,11 @@
     <title>Swallow</title>
     <script>
       try {
-        var stored = JSON.parse(window.localStorage.getItem('swallow.appearance') || '"system"');
+        var rawAppearance = window.localStorage.getItem('swallow.appearance') || 'system';
+        var stored = rawAppearance.charAt(0) === '"' ? JSON.parse(rawAppearance) : rawAppearance;
         var appearance = stored === 'light' || stored === 'dark' ? stored : 'system';
         var dark = appearance === 'dark' || (appearance === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        document.documentElement.classList.toggle('pf-v6-theme-dark', dark);
+        document.documentElement.classList.toggle('dark', dark);
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       } catch (e) {}
     </script>

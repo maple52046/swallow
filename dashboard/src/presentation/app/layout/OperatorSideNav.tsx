@@ -10,9 +10,9 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
-import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
+import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 
 interface NavEntry {
   label: string
@@ -20,11 +20,7 @@ interface NavEntry {
   icon: LucideIcon
 }
 
-/**
- * Primary navigation targets, ordered by operator workflow. Paths are the
- * canonical entry route for each area; active state matches by route prefix so a
- * detail or sub-tab keeps its top-level item highlighted.
- */
+/** Primary operator destinations in workflow order. */
 const NAVIGATION: readonly NavEntry[] = [
   { label: 'Overview', path: '/', icon: LayoutDashboard },
   { label: 'Servers', path: '/servers', icon: Server },
@@ -36,13 +32,13 @@ const NAVIGATION: readonly NavEntry[] = [
 ]
 
 interface OperatorSideNavProps {
-  /** Icon-only rail when true; full labels otherwise. Always false inside the mobile drawer. */
+  /** Icon-only rail when true; always false in the mobile drawer. */
   collapsed: boolean
-  /** Fired after a link is chosen so the mobile drawer can close itself. */
+  /** Closes the mobile drawer after native router navigation. */
   onNavigate?: () => void
 }
 
-/** Matches the current route against a nav entry using the same prefix rules the shell has always used. */
+/** Keeps a top-level destination active for all of its nested routes. */
 function isEntryActive(path: string, pathname: string): boolean {
   if (path === '/') return pathname === '/'
   if (path.startsWith('/provisioning')) return pathname.startsWith('/provisioning')
@@ -59,10 +55,10 @@ interface NavLinkProps {
 }
 
 /**
- * One navigation link. Renders a real anchor (router-driven) so keyboard and
- * middle-click behave natively; the accent `brand.subtle`/`brand.fg` treatment
- * plus `aria-current="page"` mark the active area without relying on colour alone.
- * When collapsed the label moves into a right-aligned tooltip.
+ * Accessible router link used by both desktop and mobile navigation.
+ *
+ * The active marker combines `aria-current`, colour, fill, and a leading rule.
+ * Collapsed labels move into a tooltip while the anchor keeps its accessible name.
  */
 function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
   const Icon = entry.icon
@@ -74,51 +70,79 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
       display="flex"
       alignItems="center"
       justifyContent={collapsed ? 'center' : 'flex-start'}
-      gap="3"
-      rounded="md"
-      px={collapsed ? '0' : '3'}
-      py="2"
+      gap="2"
+      minH="10"
+      position="relative"
+      rounded="lg"
+      px={collapsed ? '0' : '2'}
       fontSize="sm"
       fontWeight="medium"
       color={active ? 'brand.fg' : 'fg.muted'}
       bg={active ? 'brand.subtle' : 'transparent'}
-      _hover={{ bg: active ? 'brand.subtle' : 'bg.muted', color: active ? 'brand.fg' : 'fg', textDecoration: 'none' }}
+      _before={active ? {
+        content: '""',
+        position: 'absolute',
+        insetInlineStart: '0',
+        top: '25%',
+        h: '50%',
+        w: '2px',
+        rounded: 'full',
+        bg: 'brand.solid',
+      } : undefined}
+      _hover={{
+        bg: active ? 'brand.subtle' : 'bg.muted',
+        color: active ? 'brand.fg' : 'fg',
+        textDecoration: 'none',
+        transform: 'translateX(1px)',
+      }}
       _focusVisible={{ outline: '2px solid', outlineColor: 'brand.focusRing', outlineOffset: '2px' }}
+      transition="background 0.18s ease, color 0.18s ease, transform 0.18s ease"
     >
       <RouterLink to={href} onClick={() => onNavigate?.()}>
-        <Icon size={18} aria-hidden />
+        <Box
+          as="span"
+          display="inline-flex"
+          alignItems="center"
+          justifyContent="center"
+          w="7"
+          h="7"
+          rounded="md"
+          bg={active ? 'brand.muted' : 'transparent'}
+          flexShrink="0"
+        >
+          <Icon size={17} aria-hidden />
+        </Box>
         {!collapsed && <span>{entry.label}</span>}
       </RouterLink>
     </ChakraLink>
   )
+
   return collapsed ? (
     <Tooltip content={entry.label} positioning={{ placement: 'right' }} showArrow>
       {link}
     </Tooltip>
-  ) : (
-    link
-  )
+  ) : link
 }
 
 /**
- * Scope-preserving side navigation, shared by the desktop rail and the mobile
- * drawer. Links go through `scopedHref` so the active Site query survives
- * navigation, matching the rest of the shell.
+ * Scope-preserving primary navigation shared by the desktop rail and mobile drawer.
+ *
+ * Every destination passes through `scopedHref`, so changing areas never drops the
+ * Site query parameter. The rail may collapse visually without changing link order.
  */
 export function OperatorSideNav({ collapsed, onNavigate }: OperatorSideNavProps) {
   const location = useLocation()
   const { scopedHref } = useSiteScope()
 
   return (
-    <Flex direction="column" h="100%" w="full" bg="bg.panel">
+    <Flex direction="column" h="100%" w="full" bg="bg.panel" px="2" py="3">
       <Flex
         align="center"
         justify={collapsed ? 'center' : 'flex-start'}
         gap="2.5"
-        h="16"
-        px={collapsed ? '0' : '4'}
-        borderBottomWidth="1px"
-        borderColor="border"
+        h="12"
+        px={collapsed ? '0' : '2'}
+        mb="5"
         flexShrink="0"
       >
         <Box color="brand.solid" flexShrink="0">
@@ -130,7 +154,12 @@ export function OperatorSideNav({ collapsed, onNavigate }: OperatorSideNavProps)
           </Text>
         )}
       </Flex>
-      <Stack as="nav" aria-label="Primary navigation" flex="1" gap="1" p="2" overflowY="auto">
+      {!collapsed && (
+        <Text px="3" pb="2" color="fg.muted" fontSize="2xs" fontWeight="semibold" letterSpacing="widest" textTransform="uppercase">
+          Workspace
+        </Text>
+      )}
+      <Stack as="nav" aria-label="Primary navigation" flex="1" gap="1" overflowY="auto">
         {NAVIGATION.map((entry) => (
           <NavLink
             key={entry.path}

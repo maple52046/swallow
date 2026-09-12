@@ -1,4 +1,5 @@
 import {
+  Box,
   Button,
   Flex,
   HStack,
@@ -10,7 +11,6 @@ import {
 } from '@chakra-ui/react'
 import {
   Check,
-  CircleUser,
   LogOut,
   MapPin,
   Menu as MenuIcon,
@@ -20,16 +20,16 @@ import {
   Sun,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useAppearance } from '@/presentation/app/theme/appearanceContext'
 import type { AppearanceMode } from '@/presentation/app/theme'
+import { useAppearance } from '@/presentation/app/theme/appearanceContext'
+import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 
 interface OperatorHeaderProps {
-  /** Collapses/expands the desktop rail (icon-only vs. full labels). */
+  /** Collapses or expands the persisted desktop navigation rail. */
   onToggleSidebar: () => void
-  /** Opens the mobile navigation drawer. */
+  /** Opens the focus-trapped mobile navigation drawer. */
   onOpenMobileNav: () => void
 }
 
@@ -39,16 +39,26 @@ const APPEARANCE_ICON: Record<AppearanceMode, typeof Monitor> = {
   dark: Moon,
 }
 
-/** The synthetic option value used for the "All sites" scope, distinct from any real Site id. */
+/** Synthetic selection value for the unscoped view; it cannot collide with a Site id. */
 const ALL_SITES = '__all__'
 
+/** Returns compact initials for the visual avatar; the account button still owns the accessible label. */
+function accountInitials(displayName: string, username: string): string {
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+  return initials || username.slice(0, 2).toUpperCase() || 'U'
+}
+
 /**
- * Console masthead.
+ * Sticky console masthead for viewport-level controls.
  *
- * Owns the viewport-level controls: navigation toggles (mobile drawer + desktop
- * collapse), Site scope, appearance, and the account menu. Site scope is
- * URL-owned, appearance is persisted browser state, and the account menu reads the
- * authenticated user — so the same boundaries hold no matter the viewport.
+ * Site scope remains URL-owned, appearance remains browser-owned, and account
+ * actions remain session-owned. Compact outlined controls keep those global
+ * choices distinct from page actions without consuming a second toolbar row.
  */
 export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHeaderProps) {
   const navigate = useNavigate()
@@ -67,15 +77,17 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
   return (
     <Flex
       as="header"
+      data-testid="operator-header"
       align="center"
       gap="2"
-      h="16"
+      minH="14"
       px={{ base: 3, md: 4 }}
       flexShrink="0"
       position="sticky"
       top="0"
       zIndex="docked"
-      bg="bg.panel"
+      bg="color-mix(in srgb, var(--chakra-colors-bg-panel) 88%, transparent)"
+      backdropFilter="blur(14px)"
       borderBottomWidth="1px"
       borderColor="border"
     >
@@ -112,7 +124,7 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
           onSelect={(details) => setSite(details.value === ALL_SITES ? undefined : details.value)}
         >
           <Menu.Trigger asChild>
-            <Button variant="ghost" size="sm" aria-label={`Site scope: ${selectedSite}`}>
+            <Button variant="outline" size="sm" rounded="lg" bg="bg.panel" aria-label={`Site scope: ${selectedSite}`}>
               <MapPin size={16} />
               <Text as="span" display={{ base: 'none', md: 'inline' }} maxW="40" truncate>
                 {selectedSite}
@@ -121,7 +133,7 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
           </Menu.Trigger>
           <Portal>
             <Menu.Positioner>
-              <Menu.Content minW="12rem" maxH="20rem" overflowY="auto">
+              <Menu.Content minW="12rem" maxH="20rem" overflowY="auto" boxShadow="floating">
                 <Menu.Item value={ALL_SITES}>
                   <Text flex="1">All sites</Text>
                   {siteId === undefined && <Check size={16} />}
@@ -142,13 +154,13 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
           onSelect={(details) => setMode(details.value as AppearanceMode)}
         >
           <Menu.Trigger asChild>
-            <IconButton variant="ghost" size="sm" aria-label={`Appearance: ${mode}`}>
+            <IconButton variant="outline" size="sm" rounded="lg" bg="bg.panel" aria-label={`Appearance: ${mode}`}>
               <AppearanceIcon size={16} />
             </IconButton>
           </Menu.Trigger>
           <Portal>
             <Menu.Positioner>
-              <Menu.Content minW="10rem">
+              <Menu.Content minW="10rem" boxShadow="floating">
                 <Menu.Item value="system">
                   <Monitor size={16} />
                   <Text flex="1">System</Text>
@@ -177,8 +189,23 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
             }}
           >
             <Menu.Trigger asChild>
-              <Button variant="ghost" size="sm" aria-label="Account menu">
-                <CircleUser size={16} />
+              <Button variant="outline" size="sm" rounded="lg" bg="bg.panel" aria-label="Account menu">
+                <Box
+                  as="span"
+                  display="inline-flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  w="6"
+                  h="6"
+                  rounded="md"
+                  bg="brand.subtle"
+                  color="brand.fg"
+                  fontSize="2xs"
+                  fontWeight="bold"
+                  aria-hidden
+                >
+                  {accountInitials(currentUser.displayName, currentUser.username)}
+                </Box>
                 <Text as="span" display={{ base: 'none', md: 'inline' }} maxW="40" truncate>
                   {currentUser.displayName}
                 </Text>
@@ -186,7 +213,7 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
             </Menu.Trigger>
             <Portal>
               <Menu.Positioner>
-                <Menu.Content minW="14rem">
+                <Menu.Content minW="14rem" boxShadow="floating">
                   <Menu.ItemGroup>
                     <Menu.ItemGroupLabel>
                       <Flex direction="column" gap="0.5">

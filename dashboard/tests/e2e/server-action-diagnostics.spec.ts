@@ -15,7 +15,7 @@ async function confirmRelease(page: import('playwright/test').Page, targetCount:
 test.beforeEach(async ({ page }) => {
   await installApiFixtures(page, { serverActionFailureIds: ['srv-2'] })
   await page.addInitScript(() => {
-    localStorage.setItem('swallow.appearance', JSON.stringify('light'))
+    localStorage.setItem('swallow.appearance', 'light')
     localStorage.setItem('access_token', 'e2e-token')
   })
 })
@@ -42,9 +42,9 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   await page.getByRole('button', { name: 'Take action' }).click()
   await chooseMenuItem(page, 'Release')
   confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
-  await confirmation.getByLabel('Erase disks before release').check()
-  await confirmation.getByLabel('Use secure erase when supported').check()
-  await confirmation.getByLabel('Use quick erase if secure erase is unavailable').check()
+  await confirmation.getByLabel('Erase disks before release').locator('..').click()
+  await confirmation.getByLabel('Use secure erase when supported').locator('..').click()
+  await confirmation.getByLabel('Use quick erase if secure erase is unavailable').locator('..').click()
   await confirmation.getByLabel('Provider event comment (optional)').fill('retire from test pool')
   await expect(confirmation).toContainText('Secure erase is preferred')
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
@@ -63,7 +63,7 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   // The release must not leave the Server list; it converges in place instead of
   // navigating to the Operation.
   await expect(page).toHaveURL(/\/servers(\?|$)/)
-  const updating = page.getByText('Updating active Servers...', { exact: true })
+  const updating = page.getByText(/Updating servers/)
   await expect(updating).toBeVisible()
   const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
   await expect(row).toContainText(/releasing/i)
@@ -81,7 +81,7 @@ test('Release detects running operations and cancels them before releasing', asy
   })
   page.on('request', (request) => {
     const path = new URL(request.url()).pathname
-    const match = path.match(/^\/api\/v1\/operations\/([^/]+)\/cancel$/)
+    const match = path.match(/^\/api\/v1\/workflows\/([^/]+)\/cancel$/)
     if (match && request.method() === 'POST') cancels.push(match[1])
   })
 
@@ -96,7 +96,7 @@ test('Release detects running operations and cancels them before releasing', asy
 
   // Leaving the box unchecked would release straight away; opting in must cancel the
   // blocking Operation first and only then submit the release.
-  await confirmation.getByLabel('Cancel running operations before releasing').check()
+  await confirmation.getByLabel('Cancel running operations before releasing').locator('..').click()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
   await expect.poll(() => releases.map((entry) => entry.serverId)).toContain('srv-1')
@@ -114,13 +114,13 @@ test('Server list waits for release cleanup and refreshes addresses and Ephemera
   await page.goto('/servers?site=site-a')
   const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
   await expect(row).toContainText('192.168.40.21')
-  await expect(row).toContainText('Ephemeral')
+  await expect(row.getByRole('img', { name: 'Ephemeral deployment' })).toBeVisible()
 
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByRole('button', { name: 'Take action' }).click()
   await chooseMenuItem(page, 'Release')
   const confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
-  await confirmation.getByLabel('Remove static IP bindings after release').check()
+  await confirmation.getByLabel('Remove static IP bindings after release').locator('..').click()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
   // Stay on the list and converge in place. With a single-refresh convergence the transient
@@ -129,9 +129,9 @@ test('Server list waits for release cleanup and refreshes addresses and Ephemera
   await expect(page).toHaveURL(/\/servers(\?|$)/)
   await expect(row).toContainText('ready', { timeout: 7_000 })
   await expect(row).not.toContainText('192.168.40.21', { timeout: 7_000 })
-  await expect(row).not.toContainText('Ephemeral')
+  await expect(row.getByRole('img', { name: 'Ephemeral deployment' })).toHaveCount(0)
   await expect(row).not.toContainText('in memory')
-  await expect(page.getByText('Updating active Servers...', { exact: true })).toBeHidden({ timeout: 7_000 })
+  await expect(page.getByText(/Updating servers/)).toBeHidden({ timeout: 7_000 })
 })
 
 test('Server list follows a released server that starts deployed until it converges', async ({ page }) => {
@@ -184,7 +184,7 @@ test('Release static cleanup is opt-in, durable, and retries cleanup without ano
 
   const release = page.getByRole('dialog', { name: 'Release server', exact: true })
   await expect(release.getByLabel('Remove static IP bindings after release')).not.toBeChecked()
-  await release.getByLabel('Remove static IP bindings after release').check()
+  await release.getByLabel('Remove static IP bindings after release').locator('..').click()
   await expect(release).toContainText('DHCP, provider-managed, Link only, and later changes are preserved.')
   await release.getByRole('button', { name: 'Release server', exact: true }).click()
   await expect(page).toHaveURL(/\/servers\/srv-1\/summary/)
@@ -197,7 +197,7 @@ test('Release static cleanup is opt-in, durable, and retries cleanup without ano
 
   await page.goto('/servers/srv-1/activity?site=site-a')
   await page.getByRole('tab', { name: 'Activity' }).click()
-  const tasks = page.getByRole('grid', { name: 'Provisioning tasks' })
+  const tasks = page.getByRole('table', { name: 'Provisioning tasks' })
   await expect(tasks).toContainText('MAAS refused to unlink the captured Static address.')
   await tasks.getByRole('button', { name: 'Retry cleanup' }).click()
   await expect(tasks).toContainText('pending')
@@ -221,9 +221,9 @@ test('Release Operation keeps complete per-Step partial diagnostics', async ({ p
   // Releasing stays on the Server list; open the created Operation explicitly to inspect
   // its per-Step diagnostics.
   await expect(page).toHaveURL(/\/servers(\?|$)/)
-  await page.goto(`/operations/${operationId}?site=site-a`)
+  await page.goto(`/workflows/${operationId}?site=site-a`)
   await expect(page.getByText('partially succeeded', { exact: true })).toBeVisible()
-  const results = page.getByRole('grid', { name: 'Operation Steps' })
+  const results = page.getByRole('table', { name: 'Workflow steps' })
   await expect(results.getByRole('row').filter({ hasText: 'Release srv-1' })).toContainText('succeeded')
   const failed = results.getByRole('row').filter({ hasText: 'Release srv-2' })
   await expect(failed).toContainText('failed')
@@ -232,7 +232,7 @@ test('Release Operation keeps complete per-Step partial diagnostics', async ({ p
   await expect(page.getByText(/e\.g\./)).toHaveCount(0)
 
   await page.goto('/servers/srv-2/activity?site=site-a')
-  const related = page.getByRole('grid', { name: 'Related Operations' })
+  const related = page.getByRole('table', { name: 'Related Operations' })
   await expect(related).toContainText('Release 2 Server(s)')
   await expect(related).toContainText('partially succeeded')
 })
@@ -253,13 +253,13 @@ test('Server detail failure exposes and reopens its correlated provider error', 
   // Releasing stays on the Server detail page; open the created Operation to inspect its
   // correlated provider error.
   await expect(page).toHaveURL(/\/servers\/srv-1\/summary/)
-  await page.goto(`/operations/${operationId}?site=site-a`)
+  await page.goto(`/workflows/${operationId}?site=site-a`)
   await expect(page.getByText(/req-op-release-os-/)).toBeVisible()
   await expect(page.getByText('MAAS refused the request: Machine cannot be released while a hosted VM is running.').first()).toBeVisible()
 
   await page.goto('/servers/srv-1/activity?site=site-a')
-  await expect(page.getByRole('grid', { name: 'Provider events' })).toContainText('Started releasing machine.')
-  const related = page.getByRole('grid', { name: 'Related Operations' })
+  await expect(page.getByRole('table', { name: 'Provider events' })).toContainText('Started releasing machine.')
+  const related = page.getByRole('table', { name: 'Related Operations' })
   await expect(related).toContainText('Release 1 Server(s)')
   await expect(related).toContainText('failed')
 })
@@ -283,11 +283,11 @@ test('Durable Operation retries one safe Step and accepts cancellation', async (
   // Releasing stays on the Server detail page; open the created Operation to retry and
   // cancel it.
   await expect(page).toHaveURL(/\/servers\/srv-1\/summary/)
-  await page.goto(`/operations/${operationId}?site=site-a`)
+  await page.goto(`/workflows/${operationId}?site=site-a`)
   await expect(page.getByText('requires attention', { exact: true }).first()).toBeVisible()
   await expect(page.locator('section.sw-operation-debugger')).toContainText('provider_unavailable')
   await page.getByRole('button', { name: 'Retry Release srv-1' }).click()
-  const step = page.getByRole('grid', { name: 'Operation Steps' }).getByRole('row').filter({ hasText: 'Release srv-1' })
+  const step = page.getByRole('table', { name: 'Workflow steps' }).getByRole('row').filter({ hasText: 'Release srv-1' })
   await expect(step).toContainText('pending')
   await expect(step).toContainText('2')
 

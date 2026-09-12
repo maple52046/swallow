@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Badge, Button, Field, Stack, Table, Text, Textarea } from '@chakra-ui/react'
-import { ExternalLink, RefreshCw } from 'lucide-react'
+import { Badge, Box, Button, Field, HStack, Stack, Table, Text, Textarea } from '@chakra-ui/react'
+import { Activity, ExternalLink, RefreshCw, ServerIcon, ShieldAlert, TriangleAlert } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { loadFleetMetrics, type FleetMetricsResult } from '@/application/usecases/monitoring/loadFleetMetrics'
 import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerWorkingSet'
 import { useApp } from '@/di/AppProvider'
-import { METRIC_DESCRIPTORS, type MonitoringAlert, type MonitoringAlertState, type ServerMetrics } from '@/domain/monitoring/types'
+import { type MonitoringAlert, type MonitoringAlertState, type ServerMetrics } from '@/domain/monitoring/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
-import { DataToolbar, SectionHeader, StatStrip, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { DataToolbar, SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -21,11 +22,26 @@ import { formatRelative } from '@/shared/utils/time'
 type AlertsState = { status: 'loading' } | { status: 'ready'; alerts: MonitoringAlert[] } | { status: 'error'; message: string }
 type FleetState = { status: 'loading' } | { status: 'ready'; servers: Server[]; metrics: FleetMetricsResult } | { status: 'error'; message: string }
 
-const metricByName = new Map(METRIC_DESCRIPTORS.map((descriptor) => [descriptor.name, descriptor]))
 
-function metricValue(item: ServerMetrics | undefined, name: 'cpuUsagePercent' | 'memoryUsedPercent' | 'gpuUtilizationPercent'): string {
-  const value = item?.metrics[name]
-  return value === undefined ? 'No data' : metricByName.get(name)?.format(value) ?? String(value)
+
+function metricPercent(item: ServerMetrics | undefined, name: 'cpuUsagePercent' | 'memoryUsedPercent' | 'gpuUtilizationPercent'): number | undefined {
+  return item?.metrics[name]
+}
+
+/** Compact current-value meter; absent samples stay explicitly unknown. */
+function CompactMeter({ value, label }: { value: number | undefined; label: string }) {
+  if (value === undefined) return <Text color="fg.muted">No data</Text>
+  const bounded = Math.max(0, Math.min(100, value))
+  return (
+    <Box className="sw-compact-meter">
+      <HStack justify="space-between" gap="2">
+        <Text as="span" fontWeight="semibold">{`${Math.round(value)}%`}</Text>
+      </HStack>
+      <Box role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={bounded} className="sw-compact-meter__track">
+        <Box className="sw-compact-meter__value" width={`${bounded}%`} data-level={bounded >= 90 ? 'critical' : bounded >= 75 ? 'warning' : 'normal'} />
+      </Box>
+    </Box>
+  )
 }
 
 /** Alertmanager severity to a semantic colour family; text always carries the severity too. */
@@ -153,7 +169,6 @@ export function MonitoringPage() {
     <div className="operator-page">
       <PageHeader
         title="Monitoring"
-        subtitle="Current fleet health, Alertmanager alerts, and instant server metrics."
         metadata={<Text as="span" fontSize="sm" color="fg.muted">Refreshed {formatRelative(refreshedAt)}</Text>}
         actions={
           <>
@@ -172,16 +187,16 @@ export function MonitoringPage() {
           </>
         }
       />
-      <StatStrip items={[
-        { label: 'Fleet servers', value: fleetState.status === 'ready' ? fleet.length : 'Unavailable', detail: `${healthUp} reporting up` },
-        { label: 'Health down', value: fleetState.status === 'ready' ? healthDown : 'Unavailable', detail: `${Math.max(0, fleet.length - healthUp - healthDown)} unknown`, tone: healthDown ? 'critical' : 'neutral' },
-        { label: 'Critical alerts', value: alertsState.status === 'ready' ? alerts.filter((alert) => alert.severity.toLowerCase() === 'critical' && alert.state === 'firing').length : 'Unavailable', tone: alerts.some((alert) => alert.severity.toLowerCase() === 'critical' && alert.state === 'firing') ? 'critical' : 'neutral' },
-        { label: 'Warning alerts', value: alertsState.status === 'ready' ? alerts.filter((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing').length : 'Unavailable', tone: alerts.some((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing') ? 'warning' : 'neutral' },
+      <MetricGrid items={[
+        { label: 'Fleet servers', value: fleetState.status === 'ready' ? fleet.length : 'Unavailable', detail: `${healthUp} reporting up`, icon: <ServerIcon size={18} /> },
+        { label: 'Health down', value: fleetState.status === 'ready' ? healthDown : 'Unavailable', detail: `${Math.max(0, fleet.length - healthUp - healthDown)} unknown`, tone: healthDown ? 'critical' : 'neutral', icon: <Activity size={18} /> },
+        { label: 'Critical alerts', value: alertsState.status === 'ready' ? alerts.filter((alert) => alert.severity.toLowerCase() === 'critical' && alert.state === 'firing').length : 'Unavailable', tone: alerts.some((alert) => alert.severity.toLowerCase() === 'critical' && alert.state === 'firing') ? 'critical' : 'neutral', icon: <ShieldAlert size={18} /> },
+        { label: 'Warning alerts', value: alertsState.status === 'ready' ? alerts.filter((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing').length : 'Unavailable', tone: alerts.some((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing') ? 'warning' : 'neutral', icon: <TriangleAlert size={18} /> },
       ]} />
 
       <section className="sw-section-group">
-        <SectionHeader variant="plain" title="Alerts" description="Firing and suppressed alerts from Alertmanager, ordered by provider severity." />
-        <div className="sw-section">
+        <SectionHeader variant="plain" title="Alerts" />
+        <div className="sw-section sw-alert-section">
           <DataToolbar>
             <SearchInput value={alertQuery} onChange={setAlertQuery} placeholder="Search alerts or labels" aria-label="Search alerts" />
             <Select
@@ -211,47 +226,109 @@ export function MonitoringPage() {
             />
           </DataToolbar>
           {alertsState.status === 'error' && <Alert status="warning" title="Alerts are unavailable">{alertsState.message}</Alert>}
-          {alertsState.status === 'loading' && <div className="sw-section-empty">Loading alerts...</div>}
-          {alertsState.status === 'ready' && visibleAlerts.length === 0 && <div className="sw-section-empty">No alerts match the current filters.</div>}
+          {alertsState.status === 'loading' && <div className="sw-section-empty">Loading alerts…</div>}
+          {alertsState.status === 'ready' && visibleAlerts.length === 0 && <div className="sw-section-empty">No alerts match these filters.</div>}
           {visibleAlerts.length > 0 && (
-            <StickyTableFrame>
-              <Table.Root size="sm" aria-label="Monitoring alerts">
-                <Table.Header>
-                  <Table.Row><Table.ColumnHeader>Alert</Table.ColumnHeader><Table.ColumnHeader>Severity</Table.ColumnHeader><Table.ColumnHeader>State</Table.ColumnHeader><Table.ColumnHeader>Resource</Table.ColumnHeader><Table.ColumnHeader>Started</Table.ColumnHeader><Table.ColumnHeader /></Table.Row>
-                </Table.Header>
-                <Table.Body>
+            <ResponsiveDataView
+              desktop={
+                <Box role="list" aria-label="Monitoring alerts" className="sw-alert-list">
+                  {visibleAlerts.map((alert) => {
+                    const alertSeverity = alert.severity.toLowerCase()
+                    return (
+                      <Box
+                        as="article"
+                        role="listitem"
+                        key={alert.fingerprint}
+                        className="sw-alert-row"
+                        data-severity={alertSeverity}
+                      >
+                        <Box className="sw-alert-row__signal" aria-hidden>
+                          {alertSeverity === 'critical' ? <ShieldAlert size={18} /> : <TriangleAlert size={18} />}
+                        </Box>
+                        <Box className="sw-alert-row__content">
+                          <HStack gap="2" wrap="wrap">
+                            <Text as="strong">{alert.name}</Text>
+                            <Badge colorPalette={severityColor(alert.severity)} variant="subtle">
+                              {alert.severity || 'unknown'}
+                            </Badge>
+                            <StatusBadge status={alert.state} label={alert.state === 'suppressed' ? 'Acknowledged' : alert.state} />
+                          </HStack>
+                          <Text className="sw-alert-row__summary">{alert.summary || alert.description || 'No description'}</Text>
+                        </Box>
+                        <Box as="dl" className="sw-alert-row__meta">
+                          <Box>
+                            <Text as="dt">Resource</Text>
+                            <Box as="dd">
+                              {alert.serverId ? (
+                                <Link to={scopedHref(`/servers/${alert.serverId}/monitoring`)}>{alert.serverId}</Link>
+                              ) : alert.platformId ? (
+                                <Link to={scopedHref(`/platforms/${alert.platformId}`)}>{alert.platformId}</Link>
+                              ) : (
+                                'Fleet'
+                              )}
+                            </Box>
+                          </Box>
+                          <Box>
+                            <Text as="dt">Started</Text>
+                            <Box as="dd">{formatRelative(alert.startsAt ?? undefined)}</Box>
+                          </Box>
+                        </Box>
+                        <Box className="sw-alert-row__action">
+                          {alert.state === 'firing' ? (
+                            <Button variant="outline" size="sm" onClick={() => openAcknowledge(alert)}>
+                              Acknowledge
+                            </Button>
+                          ) : (
+                            <Text color="fg.muted" fontSize="sm">
+                              Silenced
+                            </Text>
+                          )}
+                        </Box>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              }
+              mobile={
+                <div className="sw-resource-card-list">
                   {visibleAlerts.map((alert) => (
-                    <Table.Row key={alert.fingerprint}>
-                      <Table.Cell>
-                        <strong>{alert.name}</strong>
-                        <Text as="small" display="block" color="fg.muted">{alert.summary || alert.description || 'No description'}</Text>
-                      </Table.Cell>
-                      <Table.Cell><Badge colorPalette={severityColor(alert.severity)} variant="subtle">{alert.severity || 'unknown'}</Badge></Table.Cell>
-                      <Table.Cell><StatusBadge status={alert.state} label={alert.state === 'suppressed' ? 'Acknowledged' : alert.state} /></Table.Cell>
-                      <Table.Cell>{alert.serverId ? <Link to={scopedHref(`/servers/${alert.serverId}/monitoring`)}>{alert.serverId}</Link> : alert.platformId ? <Link to={scopedHref(`/platforms/${alert.platformId}`)}>{alert.platformId}</Link> : 'Fleet'}</Table.Cell>
-                      <Table.Cell>{formatRelative(alert.startsAt ?? undefined)}</Table.Cell>
-                      <Table.Cell textAlign="end">{alert.state === 'firing' ? <Button variant="outline" size="sm" onClick={() => openAcknowledge(alert)}>Acknowledge</Button> : <span className="sw-muted">Silenced</span>}</Table.Cell>
-                    </Table.Row>
+                    <ResourceCard
+                      key={alert.fingerprint}
+                      title={alert.name}
+                      description={alert.summary || alert.description || 'No description'}
+                      status={
+                        <HStack gap="1" wrap="wrap" justify="flex-end">
+                          <Badge colorPalette={severityColor(alert.severity)} variant="subtle">{alert.severity || 'unknown'}</Badge>
+                          <StatusBadge status={alert.state} label={alert.state === 'suppressed' ? 'Acknowledged' : alert.state} />
+                        </HStack>
+                      }
+                      actions={alert.state === 'firing' ? <Button variant="outline" size="sm" onClick={() => openAcknowledge(alert)}>Acknowledge alert</Button> : undefined}
+                    >
+                      <ResourceCardField label="Resource">{alert.serverId ? <Link to={scopedHref(`/servers/${alert.serverId}/monitoring`)}>{alert.serverId}</Link> : alert.platformId ? <Link to={scopedHref(`/platforms/${alert.platformId}`)}>{alert.platformId}</Link> : 'Fleet'}</ResourceCardField>
+                      <ResourceCardField label="Started">{formatRelative(alert.startsAt ?? undefined)}</ResourceCardField>
+                    </ResourceCard>
                   ))}
-                </Table.Body>
-              </Table.Root>
-            </StickyTableFrame>
+                </div>
+              }
+            />
           )}
         </div>
       </section>
 
       <section className="sw-section-group">
-        <SectionHeader variant="plain" title="Server metrics" description="Current named metrics only. Missing samples remain No data; history belongs in Grafana." />
+        <SectionHeader variant="plain" title="Server metrics" description="Current values only. Open Grafana for history." />
         <div className="sw-section">
           <DataToolbar>
             <SearchInput value={serverQuery} onChange={setServerQuery} placeholder="Search server or address" aria-label="Search server metrics" />
           </DataToolbar>
           {fleetState.status === 'error' && <Alert status="error" title="Inventory is unavailable">{fleetState.message}</Alert>}
-          {fleetState.status === 'loading' && <div className="sw-section-empty">Loading fleet metrics...</div>}
+          {fleetState.status === 'loading' && <div className="sw-section-empty">Loading metrics…</div>}
           {fleetState.status === 'ready' && fleetState.metrics.errors.length > 0 && <Alert status="warning" title="Some metric batches are unavailable">{`${fleetState.metrics.errors.length} batch request${fleetState.metrics.errors.length === 1 ? '' : 's'} failed. Other values remain current.`}</Alert>}
-          {fleetState.status === 'ready' && visibleServers.length === 0 && <div className="sw-section-empty">No Servers match this scope or search.</div>}
+          {fleetState.status === 'ready' && visibleServers.length === 0 && <div className="sw-section-empty">No servers match this view.</div>}
           {visibleServers.length > 0 && (
-            <StickyTableFrame>
+            <ResponsiveDataView
+              desktop={
+                <StickyTableFrame>
               <Table.Root size="sm" aria-label="Server metrics">
                 <Table.Header>
                   <Table.Row><Table.ColumnHeader>Server</Table.ColumnHeader><Table.ColumnHeader>Health</Table.ColumnHeader><Table.ColumnHeader>CPU usage</Table.ColumnHeader><Table.ColumnHeader>Memory used</Table.ColumnHeader><Table.ColumnHeader>GPU utilization</Table.ColumnHeader></Table.Row>
@@ -266,15 +343,36 @@ export function MonitoringPage() {
                           <Text as="small" display="block" color="fg.muted">{serverPrimaryAddress(server) ?? server.id}</Text>
                         </Table.Cell>
                         <Table.Cell><StatusBadge status={server.health?.state ?? 'unknown'} /></Table.Cell>
-                        <Table.Cell>{metricValue(item, 'cpuUsagePercent')}</Table.Cell>
-                        <Table.Cell>{metricValue(item, 'memoryUsedPercent')}</Table.Cell>
-                        <Table.Cell>{server.gpus.length ? metricValue(item, 'gpuUtilizationPercent') : 'Not applicable'}</Table.Cell>
+                        <Table.Cell><CompactMeter value={metricPercent(item, 'cpuUsagePercent')} label={`CPU usage for ${serverDisplayName(server)}`} /></Table.Cell>
+                        <Table.Cell><CompactMeter value={metricPercent(item, 'memoryUsedPercent')} label={`Memory used for ${serverDisplayName(server)}`} /></Table.Cell>
+                        <Table.Cell>{server.gpus.length ? <CompactMeter value={metricPercent(item, 'gpuUtilizationPercent')} label={`GPU utilization for ${serverDisplayName(server)}`} /> : 'Not applicable'}</Table.Cell>
                       </Table.Row>
                     )
                   })}
                 </Table.Body>
               </Table.Root>
-            </StickyTableFrame>
+                </StickyTableFrame>
+              }
+              mobile={
+                <div className="sw-resource-card-list">
+                  {visibleServers.map((server) => {
+                    const item = metricsByServer.get(server.id)
+                    return (
+                      <ResourceCard
+                        key={server.id}
+                        title={<Link to={scopedHref(`/servers/${server.id}/monitoring`)}>{serverDisplayName(server)}</Link>}
+                        description={serverPrimaryAddress(server) ?? server.id}
+                        status={<StatusBadge status={server.health?.state ?? 'unknown'} />}
+                      >
+                        <ResourceCardField label="CPU usage"><CompactMeter value={metricPercent(item, 'cpuUsagePercent')} label={`CPU usage for ${serverDisplayName(server)}`} /></ResourceCardField>
+                        <ResourceCardField label="Memory used"><CompactMeter value={metricPercent(item, 'memoryUsedPercent')} label={`Memory used for ${serverDisplayName(server)}`} /></ResourceCardField>
+                        <ResourceCardField label="GPU utilization">{server.gpus.length ? <CompactMeter value={metricPercent(item, 'gpuUtilizationPercent')} label={`GPU utilization for ${serverDisplayName(server)}`} /> : 'Not applicable'}</ResourceCardField>
+                      </ResourceCard>
+                    )
+                  })}
+                </div>
+              }
+            />
           )}
         </div>
       </section>
@@ -318,8 +416,8 @@ export function MonitoringPage() {
             />
           </Field.Root>
           <Field.Root>
-            <Field.Label>Comment</Field.Label>
-            <Textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} />
+            <Field.Label htmlFor="alert-comment">Comment</Field.Label>
+            <Textarea id="alert-comment" value={comment} onChange={(event) => setComment(event.target.value)} rows={3} />
           </Field.Root>
           {selectedAlert && Object.keys(selectedAlert.labels).length === 0 && (
             <Alert status="warning" title="This alert has no labels and cannot be safely silenced." />

@@ -1,5 +1,4 @@
 import { Alert, Button } from '@chakra-ui/react'
-import { t } from '@/presentation/app/i18n'
 
 interface ErrorStateProps {
   message?: string
@@ -7,21 +6,21 @@ interface ErrorStateProps {
 }
 
 /**
- * Shared actionable failure state for remote data, distinct from empty and
- * unavailable. The message describes what failed; when `onRetry` is provided the
- * operator gets an inline retry rather than a dead end. Copy is localised through
- * the shared `t` helper.
+ * Shared actionable failure state for remote data.
+ *
+ * The concise message names what failed; when retry is safe, the inline button
+ * keeps recovery beside the error without exposing transport implementation.
  */
 export function ErrorState({ message, onRetry }: ErrorStateProps) {
   return (
-    <Alert.Root status="error">
+    <Alert.Root status="error" variant="subtle" rounded="xl" borderWidth="1px">
       <Alert.Indicator />
       <Alert.Content>
-        <Alert.Title>{message ?? t('error.loadFailed')}</Alert.Title>
+        <Alert.Title>{message ?? 'Could not load this view'}</Alert.Title>
       </Alert.Content>
       {onRetry && (
         <Button size="sm" variant="outline" colorPalette="red" onClick={onRetry} alignSelf="center">
-          {t('error.tryAgain')}
+          Retry
         </Button>
       )}
     </Alert.Root>

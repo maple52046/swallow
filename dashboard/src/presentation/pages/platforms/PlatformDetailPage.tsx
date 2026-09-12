@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Badge, Button, HStack, Table } from '@chakra-ui/react'
+import { Badge, Button, HStack, Table, Tabs } from '@chakra-ui/react'
 import { RefreshCw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
@@ -10,6 +10,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -94,8 +95,8 @@ export function PlatformDetailPage() {
     <div className="operator-page">
       <PageHeader
         title={platform.name}
-        subtitle={`${platform.type} platform, GPU stack owned by ${platform.gpuStackOwner}, exporters managed by ${platform.exporterOwner}`}
-        breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }, { label: platform.name }]}
+        breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }]}
+        stackActionsOnMobile
         metadata={
           <HStack gap="2" wrap="wrap">
             <Badge colorPalette={isKubernetes ? 'blue' : 'gray'} variant="subtle">
@@ -114,57 +115,117 @@ export function PlatformDetailPage() {
           </>
         }
       />
-      <LifecycleNotice
-        platform={platform}
-        operation={lifecycleOperation}
-        onOpenOperation={(operationId) => navigate(scopedHref('/workflows/' + operationId))}
-      />
-      {platform.sync.lastError && platform.lifecycleState !== 'uninstalled' && (
-        <Alert status="error" title="Membership sync is failing">
-          {platform.sync.lastError}. The member list may be stale; last success {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
-        </Alert>
-      )}
-
-      {isKubernetes ? (
-        <KubernetesPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
-      ) : (
-        <SlurmPlatformView platform={platform} members={members} loginNodes={loginNodes} onSelect={(server) => openServer(server.id)} />
-      )}
-
-      <section className="sw-section">
-        <SectionHeader
-          title="Related operations"
-          description="Deployment, uninstall, and retry history for this Platform."
-          actions={
-            <Button variant="plain" size="sm" onClick={reload}>
-              <RefreshCw size={16} />
-              Refresh
-            </Button>
-          }
-        />
-        {operations.length === 0 ? (
-          <EmptyState title="No operations" message="No automation has run against this platform." />
-        ) : (
-          <StickyTableFrame>
-            <Table.Root size="sm" aria-label="Related operations">
-              <Table.Header>
-                <Table.Row><Table.ColumnHeader>Intent</Table.ColumnHeader><Table.ColumnHeader>Kind</Table.ColumnHeader><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Requested</Table.ColumnHeader></Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {operations.map((operation) => (
-                  <Table.Row key={operation.id} cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={() => navigate(scopedHref(`/workflows/${operation.id}`))}>
-                    <Table.Cell>{operation.intent || operation.execution.playbook}</Table.Cell>
-                    <Table.Cell>{operation.kind}</Table.Cell>
-                    <Table.Cell><StatusBadge status={operation.execution.status} /></Table.Cell>
-                    <Table.Cell>{formatDateTime(operation.requestedAt)}</Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table.Root>
-          </StickyTableFrame>
-        )}
-      </section>
+      <Tabs.Root defaultValue="overview" aria-label="Platform details">
+        <Tabs.List>
+          <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
+          <Tabs.Trigger value="activity">Activity</Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Content value="overview">
+          <div className="sw-platform-overview">
+            <LifecycleNotice
+              platform={platform}
+              operation={lifecycleOperation}
+              onOpenOperation={(operationId) => navigate(scopedHref('/workflows/' + operationId))}
+            />
+            {platform.sync.lastError && platform.lifecycleState !== 'uninstalled' && (
+              <Alert status="error" title="Membership sync is failing">
+                {platform.sync.lastError}. The member list may be stale; last success {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
+              </Alert>
+            )}
+            {isKubernetes ? (
+              <KubernetesPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
+            ) : (
+              <SlurmPlatformView platform={platform} members={members} loginNodes={loginNodes} onSelect={(server) => openServer(server.id)} />
+            )}
+            <PlatformConfiguration platform={platform} />
+          </div>
+        </Tabs.Content>
+        <Tabs.Content value="activity">
+          <section className="sw-section">
+            <SectionHeader
+              title="Related workflows"
+              actions={
+                <Button variant="plain" size="sm" onClick={reload}>
+                  <RefreshCw size={16} />
+                  Refresh
+                </Button>
+              }
+            />
+            {operations.length === 0 ? (
+              <EmptyState title="No workflows" message="No workflow has run for this platform." />
+            ) : (
+              <ResponsiveDataView
+                desktop={
+                  <StickyTableFrame>
+                    <Table.Root size="sm" aria-label="Related workflows">
+                      <Table.Header>
+                        <Table.Row><Table.ColumnHeader>Intent</Table.ColumnHeader><Table.ColumnHeader>Kind</Table.ColumnHeader><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Requested</Table.ColumnHeader></Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {operations.map((operation) => (
+                          <Table.Row key={operation.id} cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={() => navigate(scopedHref(`/workflows/${operation.id}`))}>
+                            <Table.Cell>{operation.intent || operation.execution.playbook}</Table.Cell>
+                            <Table.Cell>{operation.kind}</Table.Cell>
+                            <Table.Cell><StatusBadge status={operation.execution.status} /></Table.Cell>
+                            <Table.Cell>{formatDateTime(operation.requestedAt)}</Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table.Root>
+                  </StickyTableFrame>
+                }
+                mobile={
+                  <div className="sw-resource-card-list">
+                    {operations.map((operation) => (
+                      <ResourceCard
+                        key={operation.id}
+                        title={operation.intent || operation.execution.playbook}
+                        description={operation.kind}
+                        status={<StatusBadge status={operation.execution.status} />}
+                        actions={
+                          <Button variant="outline" size="sm" onClick={() => navigate(scopedHref(`/workflows/${operation.id}`))}>
+                            Open workflow
+                          </Button>
+                        }
+                      >
+                        <ResourceCardField label="Requested">{formatDateTime(operation.requestedAt)}</ResourceCardField>
+                      </ResourceCard>
+                    ))}
+                  </div>
+                }
+              />
+            )}
+          </section>
+        </Tabs.Content>
+      </Tabs.Root>
     </div>
+  )
+}
+
+/**
+ * Secondary platform settings shown after operational state and membership.
+ * Type already appears beside the page title, so this group keeps only the
+ * configuration facts an operator may need while investigating the platform.
+ */
+function PlatformConfiguration({ platform }: { platform: Platform }) {
+  const items = [
+    { label: 'GPU stack', value: platform.gpuStackOwner },
+    { label: 'Exporters', value: platform.exporterOwner },
+    { label: 'Integration', value: platform.integrationId || 'Not connected' },
+  ]
+
+  return (
+    <section className="sw-section">
+      <SectionHeader title="Configuration" />
+      <dl className="sw-platform-facts">
+        {items.map((item) => (
+          <div key={item.label}>
+            <dt>{item.label}</dt>
+            <dd>{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   )
 }
 

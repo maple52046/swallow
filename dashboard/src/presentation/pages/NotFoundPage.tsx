@@ -10,11 +10,11 @@ export function NotFoundPage() {
     <RouteErrorTemplate
       code="404"
       title="Page not found"
-      message="The requested Swallow route does not exist or is no longer available."
+      message="Check the URL or return to Overview."
       action={
         <Button colorPalette="brand" onClick={() => navigate('/')}>
           <Home size={16} />
-          Back to Overview
+          Open Overview
         </Button>
       }
     />

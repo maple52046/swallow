@@ -22,7 +22,8 @@ import {
   type SortDirection,
 } from '@/domain/server/list'
 import { PageHeader } from '@/presentation/components/PageHeader'
-import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { DataToolbar, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { GpuVendorLogo } from '@/presentation/components/GpuVendorLogo'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -266,6 +267,9 @@ export function ServersPage() {
       // useServerWorkingSet, so this no longer refetches the whole list.
       await refreshServerProjections(servers, targetIds)
       if (cancelled) return
+      // SSE is the primary update path. A recently accepted Release also reloads the
+      // working set so the row still converges if stream delivery is delayed or offline.
+      if (followedServerIds.length > 0) reload()
       attempts += 1
       if (attempts < MAX_DEPLOYMENT_POLL_ATTEMPTS) {
         timer = setTimeout(() => void tick(), DEPLOYMENT_POLL_INTERVAL_MS)
@@ -276,7 +280,7 @@ export function ServersPage() {
       cancelled = true
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [pollTargetKey, servers])
+  }, [followedServerIds.length, pollTargetKey, reload, servers])
   // Stop following released Servers after a bounded window so the list does not poll forever.
   useEffect(() => {
     if (followedServerIds.length === 0) return
@@ -420,7 +424,7 @@ export function ServersPage() {
   if (state.status === 'error') {
     return (
       <>
-        <PageHeader title="Servers" subtitle="Projected from each Site's provisioner." />
+        <PageHeader title="Servers" />
         <ErrorState message={state.message} onRetry={reload} />
       </>
     )
@@ -429,8 +433,7 @@ export function ServersPage() {
     <div className="operator-page">
       <PageHeader
         title="Servers"
-        subtitle="Fleet inventory projected from Site provisioners; machines are not created here."
-        metadata={activeProjectionTargetKey ? <Badge colorPalette="blue" variant="subtle">Updating active Servers...</Badge> : undefined}
+        metadata={activeProjectionTargetKey ? <Badge colorPalette="blue" variant="subtle">Updating servers…</Badge> : undefined}
       />
       {staleProvisioners.map((item) => (
         <div key={item.id} className="sw-inline-warning">
@@ -540,24 +543,18 @@ export function ServersPage() {
           }}
           options={[25, 50, 100].map((size) => ({ value: String(size), label: `${size} rows` }))}
         />
-        {selected.size > 0 && (
-          <HStack gap="2" wrap="wrap">
-            <Text fontWeight="bold">{selected.size} selected</Text>
-            <Tooltip content={deployDisabledReason ?? 'Deploy one OS configuration to the selected Servers'}>
-              <span>
-                <Button colorPalette="brand" size="sm" disabled={Boolean(deployDisabledReason)} onClick={deploySelected}>
-                  <UploadCloud size={16} />
-                  Deploy OS
-                </Button>
-              </span>
-            </Tooltip>
-            <BulkActionMenu targets={actionTargets} running={bulk.running} onAction={(action) => void runAction(action, [...selected])} />
-            {deployDisabledReason && <span className="sw-action-reason">{deployDisabledReason}</span>}
-            <Button variant="plain" size="sm" onClick={clearSelection}>
-              Clear
-            </Button>
-          </HStack>
-        )}
+        <SelectionToolbar count={selected.size} onClear={clearSelection}>
+          <Tooltip content={deployDisabledReason ?? 'Deploy one OS configuration to the selected Servers'}>
+            <span>
+              <Button colorPalette="brand" size="sm" disabled={Boolean(deployDisabledReason)} onClick={deploySelected}>
+                <UploadCloud size={16} />
+                Deploy OS
+              </Button>
+            </span>
+          </Tooltip>
+          <BulkActionMenu targets={actionTargets} running={bulk.running} onAction={(action) => void runAction(action, [...selected])} />
+          {deployDisabledReason && <span className="sw-action-reason">{deployDisabledReason}</span>}
+        </SelectionToolbar>
       </DataToolbar>
       {state.status === 'loading' && <LoadingState rows={8} />}
       {state.status === 'ready' && sorted.length === 0 && (
@@ -584,8 +581,10 @@ export function ServersPage() {
               Select all {filtered.length} matching Servers
             </Button>
           )}
-          <StickyTableFrame>
-            <Table.Root size={density === 'compact' ? 'sm' : 'md'} className="sw-server-table">
+          <ResponsiveDataView
+            desktop={
+              <StickyTableFrame>
+            <Table.Root size={density === 'compact' ? 'sm' : 'md'} aria-label="Servers" className="sw-server-table">
               <Table.Header>
                 <Table.Row>
                   <Table.ColumnHeader className="sw-sticky-selection sw-cell-center">
@@ -653,7 +652,36 @@ export function ServersPage() {
                 ))}
               </Table.Body>
             </Table.Root>
-          </StickyTableFrame>
+              </StickyTableFrame>
+            }
+            mobile={
+              <Box className="sw-resource-card-list">
+                {renderGroups(pageItems, groupBy).map((group) => (
+                  <Box key={group.key || 'all'}>
+                    {groupBy !== 'none' && (
+                      <HStack mb="2" gap="2">
+                        <Text fontWeight="semibold">{group.label}</Text>
+                        <Badge variant="subtle">{group.items.length}</Badge>
+                      </HStack>
+                    )}
+                    <Box className="sw-resource-card-list">
+                      {group.items.map((server) => (
+                        <ServerMobileCard
+                          key={server.id}
+                          server={server}
+                          checked={selected.has(server.id)}
+                          onToggle={() => toggleOne(server.id)}
+                          onNavigate={() => navigate(scopedHref(`/servers/${server.id}`))}
+                          onAction={(action) => void runAction(action, [server.id])}
+                          visible={visible}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            }
+          />
           <div className="sw-pagination">
             <Pagination total={totalPages} value={safePage} onChange={setPage} />
           </div>
@@ -986,6 +1014,86 @@ function GroupRows({
   )
 }
 
+/** Mobile server row with the same state axes, selection, and actions as the desktop table. */
+function ServerMobileCard({
+  server,
+  checked,
+  onToggle,
+  onNavigate,
+  onAction,
+  visible,
+}: {
+  server: Server
+  checked: boolean
+  onToggle: () => void
+  onNavigate: () => void
+  onAction: (action: ServerMenuAction) => void
+  visible: (key: string) => boolean
+}) {
+  const [powerDialogOpen, setPowerDialogOpen] = useState(false)
+  const name = serverDisplayName(server)
+  return (
+    <>
+      <ResourceCard
+        title={name}
+        description={server.hardware.serialNumber || server.source.providerMachineId}
+        status={
+          <HStack gap="1" wrap="wrap" justify="flex-end">
+            {server.provisioning?.locked && <Badge colorPalette="orange" variant="subtle"><Lock size={12} /> Locked</Badge>}
+            {server.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
+          </HStack>
+        }
+        selected={checked}
+        actions={
+          <>
+            <Checkbox id={'server-mobile-' + server.id} aria-label={'Mobile selection: ' + name} checked={checked} onCheckedChange={onToggle}>
+              Select
+            </Checkbox>
+            <Button colorPalette="brand" variant="outline" size="sm" onClick={onNavigate}>Open server</Button>
+            {visible('power') && server.provisioning && (
+              <Button variant="outline" size="sm" onClick={() => setPowerDialogOpen(true)}>
+                Power · {powerStateLabel(server.provisioning.powerState)}
+              </Button>
+            )}
+            <ActionMenu label="Actions" targets={[server]} onAction={onAction} />
+          </>
+        }
+        details={
+          <>
+            {visible('mac') && <ResourceCardField label="MAC address"><span className="mono">{textOrDash(serverMacAddress(server))}</span></ResourceCardField>}
+            {visible('pool') && <ResourceCardField label="Pool">{textOrDash(server.providerResourcePool)}</ResourceCardField>}
+            {visible('tags') && <ResourceCardField label="Tags">{server.tags.length ? server.tags.join(', ') : '-'}</ResourceCardField>}
+            {visible('architecture') && <ResourceCardField label="Architecture">{textOrDash(server.architecture)}</ResourceCardField>}
+            {visible('cpuCores') && <ResourceCardField label="CPU cores">{quantityOrDash(server.cpuCores)}</ResourceCardField>}
+            {visible('cpuModel') && <ResourceCardField label="CPU model">{textOrDash(server.cpuModel)}</ResourceCardField>}
+            {visible('memory') && <ResourceCardField label="Memory">{quantityOrDash(server.memoryMiB, 'GiB', 1024)}</ResourceCardField>}
+            {visible('storage') && <ResourceCardField label="Storage">{quantityOrDash(server.storageGB, 'GB')}</ResourceCardField>}
+            {visible('systemVendor') && <ResourceCardField label="System vendor">{textOrDash(server.systemVendor)}</ResourceCardField>}
+            {visible('systemProduct') && <ResourceCardField label="System product">{textOrDash(server.systemProduct)}</ResourceCardField>}
+            {visible('gpus') && <ResourceCardField label="GPUs"><GpuInventory server={server} /></ResourceCardField>}
+          </>
+        }
+      >
+        {visible('status') && <ResourceCardField label="Deployment"><DeploymentBadge axis={server.deployment} provider={server.provisioning} /></ResourceCardField>}
+        {visible('health') && <ResourceCardField label="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</ResourceCardField>}
+        {visible('platform') && <ResourceCardField label="Platform">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</ResourceCardField>}
+        {visible('address') && <ResourceCardField label="Address"><span className="mono">{textOrDash(serverPrimaryAddress(server))}</span></ResourceCardField>}
+        {visible('zone') && <ResourceCardField label="Zone">{textOrDash(server.providerZone)}</ResourceCardField>}
+      </ResourceCard>
+      {powerDialogOpen && (
+        <ServerPowerDialog
+          server={server}
+          onClose={() => setPowerDialogOpen(false)}
+          onSelect={(action) => {
+            setPowerDialogOpen(false)
+            onAction(action)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
 function ServerRow({
   server,
   checked,
@@ -1007,10 +1115,10 @@ function ServerRow({
   return (
     <>
       <Table.Row cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={onNavigate}>
-        <Table.Cell className="sw-sticky-selection sw-cell-center" onClick={(event) => event.stopPropagation()}>
+        <Table.Cell data-label="Selection" className="sw-sticky-selection sw-cell-center" onClick={(event) => event.stopPropagation()}>
           <Checkbox id={'server-' + server.id} aria-label={'Select ' + serverDisplayName(server)} checked={checked} onCheckedChange={onToggle} />
         </Table.Cell>
-        <Table.Cell className="sw-sticky-name">
+        <Table.Cell data-label="Machine" className="sw-sticky-name">
           <span className="sw-machine-name">
             {(server.provisioning?.locked ?? false) && (
               <Tooltip content="This Server is protected. Unlock it before making changes.">
@@ -1025,7 +1133,7 @@ function ServerRow({
           </span>
         </Table.Cell>
         {visible('power') && (
-          <Table.Cell className="sw-cell-center sw-power-cell" onClick={(event) => event.stopPropagation()}>
+          <Table.Cell data-label="Power" className="sw-cell-center sw-power-cell" onClick={(event) => event.stopPropagation()}>
             {server.provisioning ? (
               <Tooltip content={`Power actions (${powerStateLabel(server.provisioning.powerState)})`}>
                 <Button variant="plain" className="sw-power-button" aria-label={`Power actions for ${serverDisplayName(server)}`} onClick={() => setPowerDialogOpen(true)}>
@@ -1038,12 +1146,12 @@ function ServerRow({
           </Table.Cell>
         )}
         {visible('status') && (
-          <Table.Cell>
+          <Table.Cell data-label="Deployment">
             <DeploymentBadge axis={server.deployment} provider={server.provisioning} />
           </Table.Cell>
         )}
         {visible('address') && (
-          <Table.Cell className="mono">
+          <Table.Cell data-label="Address" className="mono">
             <span className="sw-copyable">
               {textOrDash(serverPrimaryAddress(server))}
               <CopyButton value={serverPrimaryAddress(server) ?? ''} label="Copy IP address" />
@@ -1051,17 +1159,17 @@ function ServerRow({
           </Table.Cell>
         )}
         {visible('mac') && (
-          <Table.Cell className="mono">
+          <Table.Cell data-label="MAC address" className="mono">
             <span className="sw-copyable">
               {textOrDash(serverMacAddress(server))}
               <CopyButton value={serverMacAddress(server) ?? ''} label="Copy MAC address" />
             </span>
           </Table.Cell>
         )}
-        {visible('zone') && <Table.Cell>{textOrDash(server.providerZone)}</Table.Cell>}
-        {visible('pool') && <Table.Cell>{textOrDash(server.providerResourcePool)}</Table.Cell>}
+        {visible('zone') && <Table.Cell data-label="Zone">{textOrDash(server.providerZone)}</Table.Cell>}
+        {visible('pool') && <Table.Cell data-label="Pool">{textOrDash(server.providerResourcePool)}</Table.Cell>}
         {visible('tags') && (
-          <Table.Cell className="sw-column-tags">
+          <Table.Cell data-label="Tags" className="sw-column-tags">
             {server.tags.length ? (
               <span className="sw-tag-list">
                 {server.tags.slice(0, 3).map((tag) => (
@@ -1075,21 +1183,21 @@ function ServerRow({
             )}
           </Table.Cell>
         )}
-        {visible('architecture') && <Table.Cell className="sw-hardware-column sw-column-architecture">{textOrDash(server.architecture)}</Table.Cell>}
-        {visible('cpuCores') && <Table.Cell className="sw-hardware-column sw-column-cpu-cores sw-cell-center">{quantityOrDash(server.cpuCores)}</Table.Cell>}
-        {visible('cpuModel') && <Table.Cell className="sw-hardware-column sw-column-cpu-model">{textOrDash(server.cpuModel)}</Table.Cell>}
-        {visible('memory') && <Table.Cell className="sw-hardware-column sw-column-memory">{quantityOrDash(server.memoryMiB, 'GiB', 1024)}</Table.Cell>}
-        {visible('storage') && <Table.Cell className="sw-hardware-column sw-column-storage">{quantityOrDash(server.storageGB, 'GB')}</Table.Cell>}
-        {visible('systemVendor') && <Table.Cell className="sw-hardware-column sw-column-system-vendor">{textOrDash(server.systemVendor)}</Table.Cell>}
-        {visible('systemProduct') && <Table.Cell className="sw-hardware-column sw-column-system-product">{textOrDash(server.systemProduct)}</Table.Cell>}
+        {visible('architecture') && <Table.Cell data-label="Architecture" className="sw-hardware-column sw-column-architecture">{textOrDash(server.architecture)}</Table.Cell>}
+        {visible('cpuCores') && <Table.Cell data-label="CPU cores" className="sw-hardware-column sw-column-cpu-cores sw-cell-center">{quantityOrDash(server.cpuCores)}</Table.Cell>}
+        {visible('cpuModel') && <Table.Cell data-label="CPU model" className="sw-hardware-column sw-column-cpu-model">{textOrDash(server.cpuModel)}</Table.Cell>}
+        {visible('memory') && <Table.Cell data-label="Memory" className="sw-hardware-column sw-column-memory">{quantityOrDash(server.memoryMiB, 'GiB', 1024)}</Table.Cell>}
+        {visible('storage') && <Table.Cell data-label="Storage" className="sw-hardware-column sw-column-storage">{quantityOrDash(server.storageGB, 'GB')}</Table.Cell>}
+        {visible('systemVendor') && <Table.Cell data-label="System vendor" className="sw-hardware-column sw-column-system-vendor">{textOrDash(server.systemVendor)}</Table.Cell>}
+        {visible('systemProduct') && <Table.Cell data-label="System product" className="sw-hardware-column sw-column-system-product">{textOrDash(server.systemProduct)}</Table.Cell>}
         {visible('gpus') && (
-          <Table.Cell>
+          <Table.Cell data-label="GPUs">
             <GpuInventory server={server} />
           </Table.Cell>
         )}
-        {visible('platform') && <Table.Cell>{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Table.Cell>}
-        {visible('health') && <Table.Cell>{server.health ? <HealthBadge axis={server.health} /> : '-'}</Table.Cell>}
-        <Table.Cell className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}>
+        {visible('platform') && <Table.Cell data-label="Platform">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Table.Cell>}
+        {visible('health') && <Table.Cell data-label="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</Table.Cell>}
+        <Table.Cell data-label="Actions" className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}>
           <ActionMenu label="" icon={<MoreVertical size={16} />} targets={[server]} onAction={onAction} />
         </Table.Cell>
       </Table.Row>

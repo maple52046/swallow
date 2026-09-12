@@ -5,7 +5,8 @@ import type { Platform } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
-import { SectionHeader, StatStrip, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { platformLifecycleKpi, platformSyncKpis, topologyLabel } from './platformDetailShared'
 
@@ -35,7 +36,7 @@ export function KubernetesPlatformView({
 
   return (
     <>
-      <StatStrip
+      <MetricGrid
         items={[
           platformLifecycleKpi(platform),
           ...(platform.deployment
@@ -116,64 +117,118 @@ function KubernetesMemberTable({
   if (members.length === 0) {
     return <EmptyState title="No members" message="No Server currently reports membership in this platform." />
   }
+
+  const rows = sortedMembers.map((server) => {
+    const assignment = deployment?.roleAssignments.find((candidate) => candidate.serverId === server.id)
+    return {
+      server,
+      nodeName: server.membership?.nodeName || serverDisplayName(server),
+      address: serverPrimaryAddress(server),
+      role: server.membership?.role ?? assignment?.role ?? 'unknown',
+      runsWorkloads: assignment?.role === 'control-plane' && assignment.runWorkloads,
+      membershipState: server.membership?.state,
+    }
+  })
+
   return (
-    <StickyTableFrame>
-      <Table.Root size="sm" aria-label="Platform members">
-        <Table.Header>
-          <Table.Row>
-            {['Node', 'Role', 'State', 'Address'].map((label, index) => (
-              <Table.ColumnHeader key={label}>
-                <Button variant="plain" size="sm" className="sw-sort-button" onClick={() => sort(index)} aria-label={`Sort by ${label}`}>
-                  {label}
-                  {activeSortIndex === index && (activeSortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
-                </Button>
-              </Table.ColumnHeader>
-            ))}
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {sortedMembers.map((server) => {
-            const assignment = deployment?.roleAssignments.find((candidate) => candidate.serverId === server.id)
-            const runsWorkloads = assignment?.role === 'control-plane' && assignment.runWorkloads
-            const nodeName = server.membership?.nodeName || serverDisplayName(server)
-            const address = serverPrimaryAddress(server)
-            const role = server.membership?.role ?? assignment?.role ?? 'unknown'
-            return (
-              <Table.Row key={server.id} cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={() => onSelect(server)}>
-                <Table.Cell>
-                  <span className="sw-cell-inline">
-                    <strong>{nodeName}</strong>
-                    <CopyButton value={nodeName} label="Copy node name" />
-                  </span>
-                </Table.Cell>
-                <Table.Cell>
-                  <HStack gap="2">
-                    <StatusBadge status={role === 'control-plane' ? 'info' : 'neutral'} label={role} />
-                    {runsWorkloads && (
-                      <Badge colorPalette="green" variant="subtle">
-                        Runs workloads
-                      </Badge>
-                    )}
-                  </HStack>
-                </Table.Cell>
-                <Table.Cell>
-                  {server.membership?.state ? (
-                    <StatusBadge status={server.membership.state === 'ready' ? 'succeeded' : 'warning'} label={server.membership.state} />
-                  ) : (
-                    <StatusBadge status="neutral" label="unknown" />
-                  )}
-                </Table.Cell>
-                <Table.Cell className="mono">
-                  <span className="sw-cell-inline">
-                    {address ?? '-'}
-                    <CopyButton value={address ?? ''} label="Copy address" />
-                  </span>
-                </Table.Cell>
+    <ResponsiveDataView
+      desktop={
+        <StickyTableFrame>
+          <Table.Root size="sm" aria-label="Platform members">
+            <Table.Header>
+              <Table.Row>
+                {['Node', 'Role', 'State', 'Address'].map((label, index) => (
+                  <Table.ColumnHeader key={label}>
+                    <Button variant="plain" size="sm" className="sw-sort-button" onClick={() => sort(index)} aria-label={`Sort by ${label}`}>
+                      {label}
+                      {activeSortIndex === index && (activeSortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                    </Button>
+                  </Table.ColumnHeader>
+                ))}
               </Table.Row>
-            )
-          })}
-        </Table.Body>
-      </Table.Root>
-    </StickyTableFrame>
+            </Table.Header>
+            <Table.Body>
+              {rows.map(({ server, nodeName, address, role, runsWorkloads, membershipState }) => (
+                <Table.Row key={server.id} cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={() => onSelect(server)}>
+                  <Table.Cell>
+                    <span className="sw-cell-inline">
+                      <strong>{nodeName}</strong>
+                      <CopyButton value={nodeName} label="Copy node name" />
+                    </span>
+                  </Table.Cell>
+                  <Table.Cell>
+                    <HStack gap="2">
+                      <StatusBadge status={role === 'control-plane' ? 'info' : 'neutral'} label={role} />
+                      {runsWorkloads && (
+                        <Badge colorPalette="green" variant="subtle">
+                          Runs workloads
+                        </Badge>
+                      )}
+                    </HStack>
+                  </Table.Cell>
+                  <Table.Cell>
+                    {membershipState ? (
+                      <StatusBadge status={membershipState === 'ready' ? 'succeeded' : 'warning'} label={membershipState} />
+                    ) : (
+                      <StatusBadge status="neutral" label="unknown" />
+                    )}
+                  </Table.Cell>
+                  <Table.Cell className="mono">
+                    <span className="sw-cell-inline">
+                      {address ?? '-'}
+                      <CopyButton value={address ?? ''} label="Copy address" />
+                    </span>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table.Root>
+        </StickyTableFrame>
+      }
+      mobile={
+        <div className="sw-resource-card-list">
+          {rows.map(({ server, nodeName, address, role, runsWorkloads, membershipState }) => (
+            <ResourceCard
+              key={server.id}
+              title={
+                <span className="sw-cell-inline">
+                  <strong>{nodeName}</strong>
+                  <CopyButton value={nodeName} label="Copy node name" />
+                </span>
+              }
+              status={
+                membershipState ? (
+                  <StatusBadge status={membershipState === 'ready' ? 'succeeded' : 'warning'} label={membershipState} />
+                ) : (
+                  <StatusBadge status="neutral" label="unknown" />
+                )
+              }
+              actions={
+                <Button variant="outline" size="sm" onClick={() => onSelect(server)}>
+                  Open server
+                </Button>
+              }
+            >
+              <ResourceCardField label="Role">
+                <StatusBadge status={role === 'control-plane' ? 'info' : 'neutral'} label={role} />
+              </ResourceCardField>
+              <ResourceCardField label="Address">
+                <span className="sw-cell-inline">
+                  {address ?? '-'}
+                  <CopyButton value={address ?? ''} label="Copy address" />
+                </span>
+              </ResourceCardField>
+              {runsWorkloads && (
+                <ResourceCardField label="Scheduling">
+                  <Badge colorPalette="green" variant="subtle">
+                    Runs workloads
+                  </Badge>
+                </ResourceCardField>
+              )}
+            </ResourceCard>
+          ))}
+        </div>
+      }
+    />
   )
 }

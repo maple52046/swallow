@@ -660,7 +660,7 @@ export function DeployOSWizardPage() {
           <section className="sw-section">
             <SectionHeader
               title="Network configuration"
-              description="Swallow applies an explicit Automatic or Static intent before deployment. Automatic uses provider auto-assign (a stable, recorded address); existing provider-managed modes are never reused implicitly."
+              description="Choose Automatic or Static addressing; existing provider settings are not reused."
             />
             <div className="sw-section-body">
               <div className="sw-form-grid">
@@ -908,7 +908,7 @@ export function DeployOSWizardPage() {
 
   return (
     <div className="operator-page">
-      <PageHeader title="Deploy OS" subtitle="Apply one operating system configuration to as many as 100 ready Servers." breadcrumbs={[{ label: 'Provisioning' }, { label: 'Deploy OS' }]} />
+      <PageHeader title="Deploy OS" breadcrumbs={[{ label: 'Provisioning' }, { label: 'Deploy OS' }]} />
       <ProvisioningTabs />
       {(workingSet.state.status === 'loading' || resourcesLoading) && <LoadingState rows={7} />}
       {workingSet.state.status === 'error' && <ErrorState message={workingSet.state.message} onRetry={workingSet.reload} />}

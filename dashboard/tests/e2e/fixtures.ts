@@ -1209,7 +1209,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path.endsWith('/events')) return json(route, { runId: 'run-1024', status: 'running', okCount: 4, changedCount: 2, failedCount: 1, events: [{ play: 'Prepare hosts', task: 'Gather facts', host: 'gpu-node-01', status: 'ok', changed: false, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Write configuration', host: 'gpu-node-02', status: 'changed', changed: true, startedAt: now, endedAt: now }, { play: 'Install k0s', task: 'Start controller', host: 'gpu-node-04', status: 'failed', changed: false, startedAt: now, endedAt: now }] })
     if (path.endsWith('/logs')) return route.fulfill({ status: 200, contentType: 'text/plain', body: 'PLAY [Prepare hosts]\nTASK [Gather facts]\nok: [gpu-node-01]\nTASK [Write configuration]\nchanged: [gpu-node-02]\nTASK [Start controller]\nfatal: [gpu-node-04]: UNREACHABLE\n' })
     if (path.endsWith('/artifacts')) return json(route, null)
-    const cancelMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/cancel$/)
+    const cancelMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)\/cancel$/)
     if (cancelMatch && request.method() === 'POST') {
       const operation = operationItems.find((item) => item.id === cancelMatch[1]) as unknown as Record<string, unknown> | undefined
       if (!operation) return json(route, { error: { code: 'not_found', message: 'Operation not found' } }, 404)

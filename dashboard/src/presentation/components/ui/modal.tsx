@@ -18,6 +18,8 @@ interface ModalProps {
   /** Prevents backdrop/Escape dismissal for destructive flows that must be answered. */
   closeOnInteractOutside?: boolean
   role?: Dialog.RootProps['role']
+  /** Element that receives focus when the dialog opens. */
+  initialFocusEl?: Dialog.RootProps['initialFocusEl']
   /**
    * When provided, the header/body/footer are wrapped in a `<form>` so Enter submits
    * and the footer's `type="submit"` button triggers `onSubmit`.
@@ -44,6 +46,7 @@ export function Modal({
   size = 'md',
   closeOnInteractOutside = true,
   role,
+  initialFocusEl,
   onSubmit,
 }: ModalProps) {
   const inner = (
@@ -66,6 +69,7 @@ export function Modal({
       size={size}
       placement="center"
       role={role}
+      initialFocusEl={initialFocusEl}
       closeOnInteractOutside={closeOnInteractOutside}
     >
       <Portal>

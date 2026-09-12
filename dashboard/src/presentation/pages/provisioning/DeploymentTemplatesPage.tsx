@@ -9,6 +9,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -212,6 +213,24 @@ export function DeploymentTemplatesPage() {
     }
   }
 
+  const openEdit = (template: DeploymentTemplate) => {
+    setDraft({
+      id: template.id,
+      integrationId: template.integrationId,
+      name: template.name,
+      description: template.description,
+      imageId: template.imageId,
+      ephemeral: template.ephemeral,
+      networkMode: template.network?.mode ?? 'automatic',
+      subnetId: template.network?.subnetId ?? '',
+      defaultGateway: template.network?.defaultGateway ?? false,
+    })
+    setFormOpen(true)
+  }
+  const deployTemplate = (template: DeploymentTemplate) => {
+    navigate(`${scopedHref('/provisioning/deploy')}&templateId=${encodeURIComponent(template.id)}`.replace('?&', '?'))
+  }
+
   const integrationName = (id: string) => (state.status === 'ready' ? state.integrations.find((item) => item.id === id)?.name ?? id : id)
   const siteName = (id: string) => sites.find((item) => item.id === id)?.name ?? id
 
@@ -219,7 +238,6 @@ export function DeploymentTemplatesPage() {
     <div className="operator-page">
       <PageHeader
         title="Deployment templates"
-        subtitle="Reusable OS deployment intent scoped to one provisioner integration."
         breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'Templates' }]}
         actions={
           <Button colorPalette="brand" onClick={() => openCreate()}>
@@ -343,10 +361,10 @@ export function DeploymentTemplatesPage() {
             <Heading size="sm">Replace cloud-init for {secretTemplate.name}</Heading>
             <Alert status="info" title="Existing cloud-init is write-only and cannot be displayed." />
             <Field.Root required>
-              <Field.Label>
+              <Field.Label htmlFor="template-cloud-init">
                 New cloud-init <Field.RequiredIndicator />
               </Field.Label>
-              <Textarea value={secretValue} onChange={(event) => setSecretValue(event.target.value)} rows={10} autoComplete="off" />
+              <Textarea id="template-cloud-init" value={secretValue} onChange={(event) => setSecretValue(event.target.value)} rows={10} autoComplete="off" />
             </Field.Root>
             <div className="sw-form-actions">
               <Button
@@ -373,10 +391,12 @@ export function DeploymentTemplatesPage() {
       {state.status === 'loading' && <LoadingState rows={6} />}
       {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
       {state.status === 'ready' && filtered.length === 0 && (
-        <EmptyState title="No deployment templates" message="Create reusable OS deployment intent for future scale-out." />
+        <EmptyState title="No deployment templates" message="Create one to reuse deployment settings." />
       )}
       {state.status === 'ready' && filtered.length > 0 && (
-        <StickyTableFrame>
+        <ResponsiveDataView
+          desktop={
+            <StickyTableFrame>
           <Table.Root size="sm" aria-label="Deployment templates" className="sw-provisioning-table">
             <Table.Header>
               <Table.Row>
@@ -415,20 +435,7 @@ export function DeploymentTemplatesPage() {
                         px="1"
                         h="auto"
                         colorPalette="brand"
-                        onClick={() => {
-                          setDraft({
-                            id: template.id,
-                            integrationId: template.integrationId,
-                            name: template.name,
-                            description: template.description,
-                            imageId: template.imageId,
-                            ephemeral: template.ephemeral,
-                            networkMode: template.network?.mode ?? 'automatic',
-                            subnetId: template.network?.subnetId ?? '',
-                            defaultGateway: template.network?.defaultGateway ?? false,
-                          })
-                          setFormOpen(true)
-                        }}
+                        onClick={() => openEdit(template)}
                       >
                         Edit
                       </Button>
@@ -438,7 +445,7 @@ export function DeploymentTemplatesPage() {
                         px="1"
                         h="auto"
                         colorPalette="brand"
-                        onClick={() => navigate(`${scopedHref('/provisioning/deploy')}&templateId=${encodeURIComponent(template.id)}`.replace('?&', '?'))}
+                        onClick={() => deployTemplate(template)}
                       >
                         Deploy
                       </Button>
@@ -469,7 +476,39 @@ export function DeploymentTemplatesPage() {
               ))}
             </Table.Body>
           </Table.Root>
-        </StickyTableFrame>
+            </StickyTableFrame>
+          }
+          mobile={
+            <div className="sw-resource-card-list">
+              {filtered.map((template) => (
+                <ResourceCard
+                  key={template.id}
+                  title={template.name}
+                  description={template.description || template.imageId}
+                  actions={
+                    <>
+                      <Button size="sm" colorPalette="brand" onClick={() => deployTemplate(template)}>Deploy template</Button>
+                      <Button size="sm" variant="outline" onClick={() => openEdit(template)}>Edit template</Button>
+                      <Button size="sm" variant="plain" onClick={() => { setSecretTemplate(template); setSecretValue('') }}>
+                        {template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}
+                      </Button>
+                      {template.hasUserData && <Button size="sm" variant="plain" onClick={() => void clearSecret(template)}>Remove cloud-init</Button>}
+                      <Button size="sm" variant="plain" colorPalette="red" onClick={() => void removeTemplate(template)}>Delete template</Button>
+                    </>
+                  }
+                  details={<ResourceCardField label="Updated">{formatDateTime(template.updatedAt)}</ResourceCardField>}
+                >
+                  <ResourceCardField label="Site">{siteName(template.siteId)}</ResourceCardField>
+                  <ResourceCardField label="Integration">{integrationName(template.integrationId)}</ResourceCardField>
+                  <ResourceCardField label="Image ID"><span className="sw-mono">{template.imageId}</span></ResourceCardField>
+                  <ResourceCardField label="Ephemeral">{template.ephemeral ? 'Yes' : 'No'}</ResourceCardField>
+                  <ResourceCardField label="Network">{template.network?.mode === 'static' ? `Static · ${template.network.subnetId || '-'}` : 'Automatic'}</ResourceCardField>
+                  <ResourceCardField label="Cloud-init">{template.hasUserData ? 'Configured' : 'Not configured'}</ResourceCardField>
+                </ResourceCard>
+              ))}
+            </div>
+          }
+        />
       )}
     </div>
   )

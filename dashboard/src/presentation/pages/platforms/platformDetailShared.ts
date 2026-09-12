@@ -1,6 +1,6 @@
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import type { KubernetesTopology, Platform } from '@/domain/platform/types'
-import type { StatItem } from '@/presentation/components/OperatorPrimitives'
+import type { MetricItem } from '@/presentation/components/OperatorPrimitives'
 import { formatRelative } from '@/shared/utils/time'
 
 /**
@@ -20,9 +20,9 @@ export function topologyLabel(topology: KubernetesTopology): string {
 
 /**
  * The lifecycle KPI shown first in every platform summary strip, regardless of type. Kept
- * here so both the Kubernetes and Slurm views open their StatStrip the same way.
+ * here so both the Kubernetes and Slurm views open their MetricGrid the same way.
  */
-export function platformLifecycleKpi(platform: Platform): StatItem {
+export function platformLifecycleKpi(platform: Platform): MetricItem {
   return { label: 'Lifecycle', value: platformLifecycleLabel(platform.lifecycleState) }
 }
 
@@ -31,7 +31,7 @@ export function platformLifecycleKpi(platform: Platform): StatItem {
  * membership axis (matched vs reported members, freshness) and are shared by both views; the
  * type-specific counts in between are owned by each view.
  */
-export function platformSyncKpis(platform: Platform): StatItem[] {
+export function platformSyncKpis(platform: Platform): MetricItem[] {
   return [
     {
       label: 'Matched members',

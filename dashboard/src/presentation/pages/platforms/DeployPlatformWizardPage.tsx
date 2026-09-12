@@ -904,7 +904,7 @@ export function DeployPlatformWizardPage() {
             </div>
 
             <section className="sw-section">
-              <SectionHeader title="Network configuration" description="Swallow configures each boot interface before the operating system deployment starts." />
+              <SectionHeader title="Network configuration" description="Configure each boot interface before deployment." />
               <div className="sw-section-body">
                 <div className="sw-form-grid">
                   <Field.Root required>
@@ -1163,7 +1163,6 @@ export function DeployPlatformWizardPage() {
       <PageHeader
         title="Deploy platform"
         breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }, { label: 'Deploy' }]}
-        subtitle="Build a Kubernetes (k0s) or Slurm platform on Ready or already-deployed Servers, with an existing or newly provisioned operating system."
       />
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} />}

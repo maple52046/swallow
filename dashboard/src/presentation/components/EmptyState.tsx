@@ -7,22 +7,23 @@ interface EmptyStateProps {
   message?: string
   /** Optional custom indicator; defaults to a neutral inbox glyph. */
   icon?: ReactNode
-  /** Optional primary recovery action (e.g. clear filters, create the first record). */
+  /** Optional primary recovery action, such as clearing filters or creating a resource. */
   action?: { label: string; onClick: () => void }
 }
 
 /**
- * Shared empty result, visually distinct from loading and failure.
+ * Shared successful-but-empty state.
  *
- * Rendered when a query succeeds but returns nothing. The optional `action` gives
- * the operator a recovery path (clear filters, create the first record) so an
- * empty surface never feels like a dead end.
+ * Copy names the empty result; the optional action provides one direct recovery
+ * path. The bounded surface keeps it visually distinct from loading and failure.
  */
 export function EmptyState({ title = 'No data', message, icon, action }: EmptyStateProps) {
   return (
-    <ChakraEmptyState.Root>
+    <ChakraEmptyState.Root minH="15rem" rounded="xl" borderWidth="1px" borderColor="border" bg="bg.panel">
       <ChakraEmptyState.Content>
-        <ChakraEmptyState.Indicator>{icon ?? <Inbox />}</ChakraEmptyState.Indicator>
+        <ChakraEmptyState.Indicator rounded="xl" bg="brand.subtle" color="brand.fg">
+          {icon ?? <Inbox />}
+        </ChakraEmptyState.Indicator>
         <VStack textAlign="center" gap="1">
           <ChakraEmptyState.Title>{title}</ChakraEmptyState.Title>
           {message && <ChakraEmptyState.Description>{message}</ChakraEmptyState.Description>}

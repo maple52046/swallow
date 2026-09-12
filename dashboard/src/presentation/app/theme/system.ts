@@ -4,20 +4,20 @@ import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react'
  * Chakra styling engine for the Swallow operator console.
  *
  * This module is the single source of truth for the dashboard's visual language.
- * It layers a bespoke, restrained-but-modern theme on top of Chakra's
+ * It layers a bespoke operator-console theme on top of Chakra's
  * `defaultConfig` (so every stock recipe keeps working) and is consumed only by
  * the composition root in `components/ui/provider`. Nothing in `domain/` or
  * `application/` may import it — it is a framework/UI detail.
  *
- * Design intent (a modern deployment platform, not an enterprise console):
+ * Design intent (a modern operational workspace, not a legacy admin console):
  * - Neutral base is a cool slate scale (the `gray` palette is overridden), so
  *   backgrounds, borders, and text read calm and low-chroma. Chakra's global
  *   semantic tokens (`bg`, `fg`, `border`, …) reference `gray`, so overriding the
  *   scale re-tones the whole app, light and dark, from one place.
  * - A single indigo accent (`brand`) is reserved for primary interaction,
  *   selection, focus, links, and key status — never full-bleed colour washes.
- * - Slightly larger radii and a modern system-sans type stack keep the surface
- *   contemporary without shouting.
+ * - Rounded surfaces, restrained elevation, and short transitions establish
+ *   hierarchy without obscuring dense operational data.
  *
  * Colour is never the only signal: status meaning is always carried by text or an
  * icon in the components that consume these tokens.
@@ -41,13 +41,22 @@ const config = defineConfig({
             "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace",
         },
       },
-      // Rounder than Chakra's defaults so controls, cards, and menus feel current.
+      // The shared scale keeps data surfaces and controls related without making
+      // every element look like the same container.
       radii: {
-        sm: { value: '0.375rem' },
-        md: { value: '0.5rem' },
-        lg: { value: '0.75rem' },
-        xl: { value: '1rem' },
-        '2xl': { value: '1.25rem' },
+        sm: { value: '0.5rem' },
+        md: { value: '0.625rem' },
+        lg: { value: '0.875rem' },
+        xl: { value: '1.125rem' },
+        '2xl': { value: '1.375rem' },
+      },
+      shadows: {
+        panel: {
+          value: '0 1px 2px rgba(15, 23, 42, 0.08), 0 12px 28px rgba(15, 23, 42, 0.08)',
+        },
+        floating: {
+          value: '0 18px 45px rgba(15, 23, 42, 0.18)',
+        },
       },
       colors: {
         // A clean, professional blue accent that pops against the near-black canvas.
@@ -99,19 +108,20 @@ const config = defineConfig({
           emphasized: { value: { base: '{colors.brand.200}', _dark: '{colors.brand.800}' } },
           focusRing: { value: { base: '{colors.brand.500}', _dark: '{colors.brand.400}' } },
         },
-        // Surface hierarchy tuned for depth: the canvas is a clear step below panels
-        // so cards/tables read as lifted surfaces rather than a flat wash. Dark mode
-        // lifts panels above a near-black canvas for the same separation.
+        // Canvas, panel, and raised surfaces are intentionally distinct so a page
+        // can group content without outlining every nested element.
         bg: {
           DEFAULT: { value: { base: 'white', _dark: '{colors.gray.950}' } },
-          subtle: { value: { base: '{colors.gray.100}', _dark: '{colors.gray.950}' } },
-          muted: { value: { base: '{colors.gray.100}', _dark: '{colors.gray.800}' } },
+          canvas: { value: { base: '#f5f7fb', _dark: '#090b10' } },
+          subtle: { value: { base: '#f5f7fb', _dark: '#090b10' } },
+          muted: { value: { base: '#eef2f7', _dark: '#1c2029' } },
           emphasized: { value: { base: '{colors.gray.200}', _dark: '{colors.gray.700}' } },
-          panel: { value: { base: 'white', _dark: '{colors.gray.900}' } },
+          panel: { value: { base: 'white', _dark: '#14171e' } },
+          raised: { value: { base: 'white', _dark: '#191d26' } },
         },
         border: {
-          DEFAULT: { value: { base: '{colors.gray.200}', _dark: '{colors.gray.800}' } },
-          muted: { value: { base: '{colors.gray.100}', _dark: '{colors.gray.800}' } },
+          DEFAULT: { value: { base: '#e2e8f0', _dark: '#292e39' } },
+          muted: { value: { base: '#edf1f6', _dark: '#222731' } },
         },
       },
     },
@@ -122,10 +132,16 @@ const config = defineConfig({
       minWidth: '320px',
     },
     body: {
-      // Calm slate canvas; panels/cards paint the lighter `bg.panel` on top.
-      background: 'bg.subtle',
+      background: 'bg.canvas',
+      backgroundImage:
+        'radial-gradient(circle at 82% 0%, color-mix(in srgb, var(--chakra-colors-brand-solid) 8%, transparent), transparent 30rem)',
+      backgroundAttachment: 'fixed',
       color: 'fg',
       textRendering: 'optimizeLegibility',
+    },
+    '::selection': {
+      background: 'brand.muted',
+      color: 'fg',
     },
     // Numeric identifiers (addresses, MACs, IDs) line up when tabular.
     '.sw-mono, .mono': {

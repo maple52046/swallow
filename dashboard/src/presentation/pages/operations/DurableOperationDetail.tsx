@@ -122,7 +122,6 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
       <PageHeader
         title={operation.intent || operation.kind}
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
-        subtitle={`${operation.kind} - ${operation.definition ?? 'durable workflow'}`}
         metadata={
           <HStack gap="2">
             <StatusBadge status={status} />
@@ -151,9 +150,9 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
       </section>
 
       <section className="sw-section">
-        <SectionHeader title="Operation Steps" description="Each provider or executor phase is persisted and retried independently." />
+        <SectionHeader title="Steps" />
         <StickyTableFrame>
-          <Table.Root size="sm" aria-label="Operation Steps" className="sw-operation-steps-table">
+          <Table.Root size="sm" aria-label="Workflow steps" className="sw-operation-steps-table">
             <Table.Header>
               <Table.Row>
                 <Table.ColumnHeader>Step</Table.ColumnHeader>
@@ -238,7 +237,7 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
             </Table.Body>
           </Table.Root>
         </StickyTableFrame>
-        {steps.length === 0 && <EmptyState title="No Steps" message="This durable Operation has no projected Steps." />}
+        {steps.length === 0 && <EmptyState title="No steps" message="No steps are available yet." />}
       </section>
 
       {selectedStep && (
@@ -297,7 +296,7 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
       )}
 
       <section className="sw-section">
-        <SectionHeader title="Timeline" description="Normalized workflow events retained independently from provider diagnostics." />
+        <SectionHeader title="Timeline" />
         <div className="sw-section-body">
           <OperationTimeline operation={operation} />
         </div>

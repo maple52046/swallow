@@ -8,9 +8,10 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
-import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
+import { Select } from '@/presentation/components/ui/select'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
@@ -31,8 +32,10 @@ const KIND_LABELS: Record<IntegrationKind, string> = {
 }
 
 /**
- * Admin Integration registry showing the Site parent beside each concrete provider.
- * Credentials remain write-only and use a separate transient replacement flow.
+ * Admin Integration registry for Site-owned external provider connections.
+ *
+ * Credentials remain write-only and use a separate replacement dialog. Desktop
+ * rows and mobile cards share the same filters, status semantics, and mutations.
  */
 export function IntegrationsPage() {
   const { sites: repository } = useApp()
@@ -49,60 +52,54 @@ export function IntegrationsPage() {
     try {
       setState({ status: 'ready', integrations: await repository.listIntegrations({ siteId }) })
     } catch (caught) {
-      setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load Integrations.' })
+      setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load integrations' })
     }
   }, [repository, siteId])
 
   useEffect(() => {
     let cancelled = false
-    repository
-      .listIntegrations({ siteId })
+    repository.listIntegrations({ siteId })
       .then((integrations) => {
         if (!cancelled) setState({ status: 'ready', integrations })
       })
       .catch((caught: Error) => {
         if (!cancelled) setState({ status: 'error', message: caught.message })
       })
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [repository, siteId])
 
   const siteName = (targetSiteId: string) => sites.find((site) => site.id === targetSiteId)?.name ?? targetSiteId
   const needle = query.trim().toLowerCase()
-  const filtered =
-    state.status === 'ready'
-      ? state.integrations.filter(
-          (integration) =>
-            (!kind || integration.kind === kind) &&
-            (!needle ||
-              [integration.name, integration.endpoint, integration.providerKind, siteName(integration.siteId)].some((value) =>
-                value.toLowerCase().includes(needle),
-              )),
-        )
-      : []
+  const filtered = state.status === 'ready'
+    ? state.integrations.filter(
+        (integration) =>
+          (!kind || integration.kind === kind) &&
+          (!needle || [integration.name, integration.endpoint, integration.providerKind, siteName(integration.siteId)].some((value) => value.toLowerCase().includes(needle))),
+      )
+    : []
 
-  const handleSaved = async (saved: Integration) => {
+  const handleSaved = async () => {
+    const created = editor === 'create'
     setEditor(null)
     await load()
-    showToast({
-      tone: 'success',
-      title: editor === 'create' ? 'Integration created' : 'Integration updated',
-      description: `${saved.name} is registered under ${siteName(saved.siteId)}.`,
-    })
+    showToast({ tone: 'success', title: created ? 'Integration created' : 'Integration updated' })
   }
 
-  const handleCredentialReplaced = async (target: Integration) => {
+  const handleCredentialReplaced = async () => {
     setCredentialTarget(null)
     await load()
-    showToast({ tone: 'success', title: 'Credential replaced', description: `${target.name} now uses the new write-only credential.` })
+    showToast({ tone: 'success', title: 'Credential replaced' })
   }
 
-  const handleDeleted = async (deleted: Integration) => {
+  const handleDeleted = async () => {
     setDeleting(null)
     await load()
-    showToast({ tone: 'success', title: 'Integration deleted', description: `${deleted.name} was removed from the Swallow registry.` })
+    showToast({ tone: 'success', title: 'Integration deleted' })
   }
+
+  const syncState = (integration: Integration) => integration.sync.lastError
+    ? <><StatusBadge status="failed" /><Text as="small" display="block" color="fg.muted">{integration.sync.lastError}</Text></>
+    : formatRelative(integration.sync.lastSucceededAt ?? undefined)
 
   return (
     <div className="operator-page">
@@ -115,9 +112,9 @@ export function IntegrationsPage() {
         }
       />
       <DataToolbar variant="plain">
-        <SearchInput value={query} onChange={setQuery} placeholder="Search Integrations" aria-label="Search Integrations" />
+        <SearchInput value={query} onChange={setQuery} placeholder="Search integrations" aria-label="Search integrations" />
         <Select
-          aria-label="Filter Integration role"
+          aria-label="Filter integration role"
           value={kind}
           size="sm"
           width="auto"
@@ -130,112 +127,109 @@ export function IntegrationsPage() {
           ]}
         />
       </DataToolbar>
+
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
       {state.status === 'ready' && filtered.length === 0 && (
         <EmptyState
-          title="No Integrations"
-          message={query || kind ? 'No Integration matches these filters.' : 'Register an external provider under a Site.'}
+          title="No integrations"
+          message={query || kind ? 'No results match these filters.' : 'Connect a provider to a site.'}
           action={!query && !kind && sites.length > 0 ? { label: 'Create integration', onClick: () => setEditor('create') } : undefined}
         />
       )}
       {state.status === 'ready' && filtered.length > 0 && (
-        <StickyTableFrame>
-          <Table.Root size="sm" aria-label="Integrations" className="sw-integration-table">
-            <Table.Header>
-              <Table.Row>
-                <Table.ColumnHeader>Name</Table.ColumnHeader>
-                <Table.ColumnHeader>Site</Table.ColumnHeader>
-                <Table.ColumnHeader>Role</Table.ColumnHeader>
-                <Table.ColumnHeader>Provider</Table.ColumnHeader>
-                <Table.ColumnHeader>Endpoint</Table.ColumnHeader>
-                <Table.ColumnHeader>Status</Table.ColumnHeader>
-                <Table.ColumnHeader>Credential</Table.ColumnHeader>
-                <Table.ColumnHeader>Last sync</Table.ColumnHeader>
-                <Table.ColumnHeader><VisuallyHidden>Actions</VisuallyHidden></Table.ColumnHeader>
-              </Table.Row>
-            </Table.Header>
-            <Table.Body>
+        <ResponsiveDataView
+          desktop={
+            <StickyTableFrame>
+              <Table.Root size="sm" aria-label="Integrations" className="sw-integration-table">
+                <Table.Header>
+                  <Table.Row>
+                    <Table.ColumnHeader>Name</Table.ColumnHeader>
+                    <Table.ColumnHeader>Site</Table.ColumnHeader>
+                    <Table.ColumnHeader>Role</Table.ColumnHeader>
+                    <Table.ColumnHeader>Provider</Table.ColumnHeader>
+                    <Table.ColumnHeader>Endpoint</Table.ColumnHeader>
+                    <Table.ColumnHeader>Status</Table.ColumnHeader>
+                    <Table.ColumnHeader>Credential</Table.ColumnHeader>
+                    <Table.ColumnHeader>Last sync</Table.ColumnHeader>
+                    <Table.ColumnHeader><VisuallyHidden>Actions</VisuallyHidden></Table.ColumnHeader>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {filtered.map((integration) => (
+                    <Table.Row key={integration.id} id={`integration-${integration.id}`}>
+                      <Table.Cell><strong>{integration.name}</strong><Text as="small" display="block" color="fg.muted" className="sw-mono">{integration.id}</Text></Table.Cell>
+                      <Table.Cell><Link to={`/infrastructure/sites?site=${encodeURIComponent(integration.siteId)}#site-${integration.siteId}`}>{siteName(integration.siteId)}</Link></Table.Cell>
+                      <Table.Cell>{KIND_LABELS[integration.kind]}</Table.Cell>
+                      <Table.Cell>{integration.providerKind}</Table.Cell>
+                      <Table.Cell className="sw-mono">{integration.endpoint || '-'}</Table.Cell>
+                      <Table.Cell><StatusBadge status={integration.enabled ? 'active' : 'offline'} label={integration.enabled ? 'Enabled' : 'Paused'} /></Table.Cell>
+                      <Table.Cell><StatusBadge status={integration.hasCredential ? 'active' : 'warning'} label={integration.hasCredential ? 'Configured' : 'Missing'} /></Table.Cell>
+                      <Table.Cell>{syncState(integration)}</Table.Cell>
+                      <Table.Cell textAlign="end">
+                        <span className="sw-row-actions">
+                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setEditor(integration)}>Edit</Button>
+                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setCredentialTarget(integration)}>Credential</Button>
+                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" onClick={() => setDeleting(integration)}>Delete</Button>
+                        </span>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Root>
+            </StickyTableFrame>
+          }
+          mobile={
+            <div className="sw-resource-card-list" aria-label="Integrations">
               {filtered.map((integration) => (
-                <Table.Row key={integration.id} id={`integration-${integration.id}`}>
-                  <Table.Cell>
-                    <strong>{integration.name}</strong>
-                    <Text as="small" display="block" color="fg.muted" className="sw-mono">
-                      {integration.id}
-                    </Text>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <Link to={`/infrastructure/sites?site=${encodeURIComponent(integration.siteId)}#site-${integration.siteId}`}>
-                      {siteName(integration.siteId)}
-                    </Link>
-                  </Table.Cell>
-                  <Table.Cell>{KIND_LABELS[integration.kind]}</Table.Cell>
-                  <Table.Cell>{integration.providerKind}</Table.Cell>
-                  <Table.Cell className="sw-mono">{integration.endpoint || '-'}</Table.Cell>
-                  <Table.Cell>
-                    <StatusBadge status={integration.enabled ? 'active' : 'offline'} label={integration.enabled ? 'Enabled' : 'Paused'} />
-                  </Table.Cell>
-                  <Table.Cell>
-                    <StatusBadge
-                      status={integration.hasCredential ? 'active' : 'warning'}
-                      label={integration.hasCredential ? 'Configured' : 'Not configured'}
-                    />
-                  </Table.Cell>
-                  <Table.Cell>
-                    {integration.sync.lastError ? (
-                      <>
-                        <StatusBadge status="failed" label="Failed" />
-                        <Text as="small" display="block" color="fg.muted">
-                          {integration.sync.lastError}
-                        </Text>
-                      </>
-                    ) : (
-                      formatRelative(integration.sync.lastSucceededAt ?? undefined)
-                    )}
-                  </Table.Cell>
-                  <Table.Cell textAlign="end">
-                    <span className="sw-row-actions">
-                      <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setEditor(integration)}>
-                        Edit
-                      </Button>
-                      <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setCredentialTarget(integration)}>
-                        Credential
-                      </Button>
-                      <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" onClick={() => setDeleting(integration)}>
-                        Delete
-                      </Button>
-                    </span>
-                  </Table.Cell>
-                </Table.Row>
+                <ResourceCard
+                  key={integration.id}
+                  title={integration.name}
+                  description={integration.endpoint || integration.id}
+                  status={<StatusBadge status={integration.enabled ? 'active' : 'offline'} label={integration.enabled ? 'Enabled' : 'Paused'} />}
+                  actions={
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => setEditor(integration)}>Edit</Button>
+                      <Button variant="outline" size="sm" onClick={() => setCredentialTarget(integration)}>Credential</Button>
+                      <Button variant="outline" size="sm" colorPalette="red" onClick={() => setDeleting(integration)}>Delete</Button>
+                    </>
+                  }
+                >
+                  <ResourceCardField label="Site">{siteName(integration.siteId)}</ResourceCardField>
+                  <ResourceCardField label="Provider">{integration.providerKind}</ResourceCardField>
+                  <ResourceCardField label="Credential">{integration.hasCredential ? 'Configured' : 'Missing'}</ResourceCardField>
+                  <ResourceCardField label="Last sync">{syncState(integration)}</ResourceCardField>
+                </ResourceCard>
               ))}
-            </Table.Body>
-          </Table.Root>
-        </StickyTableFrame>
+            </div>
+          }
+        />
       )}
+
       {editor && (
         <IntegrationDialog
           integration={editor === 'create' ? undefined : editor}
           sites={sites}
           defaultSiteId={siteId}
           onClose={() => setEditor(null)}
-          onSaved={(saved) => void handleSaved(saved)}
+          onSaved={() => void handleSaved()}
         />
       )}
       {credentialTarget && (
         <IntegrationCredentialDialog
           integration={credentialTarget}
           onClose={() => setCredentialTarget(null)}
-          onReplaced={() => void handleCredentialReplaced(credentialTarget)}
+          onReplaced={() => void handleCredentialReplaced()}
         />
       )}
       {deleting && (
         <ResourceDeleteDialog
           resourceLabel="Integration"
           name={deleting.name}
-          warning="External systems are not changed. Servers or deployment templates that still reference this Integration will block deletion."
+          warning="External systems are unchanged. Remove dependent resources first."
           onClose={() => setDeleting(null)}
           onDelete={() => repository.deleteIntegration(deleting.id)}
-          onDeleted={() => void handleDeleted(deleting)}
+          onDeleted={() => void handleDeleted()}
         />
       )}
     </div>

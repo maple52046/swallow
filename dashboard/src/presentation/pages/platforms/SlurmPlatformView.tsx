@@ -4,7 +4,7 @@ import type { Platform, SlurmClusterNode, SlurmController, SlurmPartition } from
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
-import { SectionHeader, StatStrip, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { platformLifecycleKpi, platformSyncKpis, topologyLabel } from './platformDetailShared'
@@ -50,7 +50,7 @@ export function SlurmPlatformView({
 
   return (
     <>
-      <StatStrip
+      <MetricGrid
         items={[
           platformLifecycleKpi(platform),
           ...(platform.deployment ? [{ label: 'Topology', value: topologyLabel(platform.deployment.topology) }] : []),

@@ -16,7 +16,7 @@ export function UnexpectedErrorPage() {
   return (
     <RouteErrorTemplate
       code="500"
-      title="Dashboard could not render this page"
+      title="Page unavailable"
       message={message}
       action={
         <HStack gap="2">
@@ -26,7 +26,7 @@ export function UnexpectedErrorPage() {
           </Button>
           <Button variant="outline" onClick={() => navigate('/')}>
             <Home size={16} />
-            Back to Overview
+            Open Overview
           </Button>
         </HStack>
       }
@@ -43,5 +43,5 @@ function routeErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message
   }
-  return 'An unexpected rendering error interrupted this page.'
+  return 'Reload the page or return to Overview.'
 }

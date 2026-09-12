@@ -1,42 +1,42 @@
-import { Flex, Heading, Text } from '@chakra-ui/react'
+import { Box, Button, Flex, Heading, HStack, Text } from '@chakra-ui/react'
 import type { ReactNode } from 'react'
 
-/**
- * One operator KPI. `tone` is a semantic accent that always accompanies a visible
- * label and value, so a metric is never distinguished by colour alone.
- */
-export interface StatItem {
+/** One current-state metric. Tone supplements the visible label and value. */
+export interface MetricItem {
   label: string
   value: ReactNode
   detail?: ReactNode
   tone?: 'neutral' | 'success' | 'warning' | 'critical'
+  /** Optional decorative glyph that helps distinguish peer metrics when scanning. */
+  icon?: ReactNode
 }
 
 /**
- * Compact, unframed KPI band used for cross-resource scanning.
+ * Responsive metric-card grid for current operational facts.
  *
- * Structural layout comes from the shared `sw-stat-strip` styles (retuned to the
- * Chakra theme); each stat carries a data-tone the stylesheet maps to a status
- * colour for the value.
+ * Cards provide hierarchy without implying historical trends. Tone is reflected
+ * in an accent and the value but meaning always remains in visible text.
  */
-export function StatStrip({ items }: { items: StatItem[] }) {
+export function MetricGrid({ items }: { items: readonly MetricItem[] }) {
   return (
-    <dl className="sw-stat-strip">
+    <Box as="dl" className="sw-metric-grid">
       {items.map((item) => (
-        <div key={item.label} className="sw-stat" data-tone={item.tone ?? 'neutral'}>
-          <dt>{item.label}</dt>
-          <dd>{item.value}</dd>
-          {item.detail && <span>{item.detail}</span>}
-        </div>
+        <Box as="div" key={item.label} className="sw-metric-card" data-tone={item.tone ?? 'neutral'}>
+          <HStack as="dt" justify="space-between" gap="3">
+            <span>{item.label}</span>
+            {item.icon && <Box className="sw-metric-card__icon" aria-hidden>{item.icon}</Box>}
+          </HStack>
+          <Box as="dd">{item.value}</Box>
+          {item.detail && <Text as="span">{item.detail}</Text>}
+        </Box>
       ))}
-    </dl>
+    </Box>
   )
 }
 
 /**
- * Consistent section heading for tables, detail groups, and workspaces. The
- * `plain` variant drops the framed chrome for headings that sit inside an already
- * bordered surface.
+ * Consistent section heading for tables, detail groups, and workspaces.
+ * The plain variant sits above an already framed surface.
  */
 export function SectionHeader({
   title,
@@ -52,26 +52,47 @@ export function SectionHeader({
   return (
     <div className={`sw-section-header${variant === 'plain' ? ' sw-section-header--plain' : ''}`}>
       <div>
-        <Heading as="h2" size="md">
+        <Heading as="h2" size="md" fontWeight="semibold">
           {title}
         </Heading>
-        {description && (
-          <Text color="fg.muted" mt="1">
-            {description}
-          </Text>
-        )}
+        {description && <Text color="fg.muted" mt="1">{description}</Text>}
       </div>
       {actions && <div className="sw-section-header__actions">{actions}</div>}
     </div>
   )
 }
 
+interface SectionSurfaceProps {
+  title?: string
+  description?: string
+  actions?: ReactNode
+  children: ReactNode
+  /** Omits body padding for tables and other edge-to-edge workspaces. */
+  flush?: boolean
+  className?: string
+}
+
 /**
- * Toolbar pinned above a large working set, optionally without outer chrome.
+ * Shared elevated content group used across route pages.
  *
- * A horizontal, wrapping band; consumers arrange filter/search/action controls as
- * children. The sticky positioning and surface come from the shared
- * `sw-data-toolbar` styles.
+ * Heading and body chrome are composed once so list, detail, and monitoring pages
+ * cannot drift into slightly different card structures. `flush` is reserved for
+ * content that owns its own row or table spacing.
+ */
+export function SectionSurface({ title, description, actions, children, flush = false, className }: SectionSurfaceProps) {
+  const classes = ['sw-section', className].filter(Boolean).join(' ')
+  return (
+    <section className={classes}>
+      {title && <SectionHeader title={title} description={description} actions={actions} />}
+      <div className={flush ? 'sw-section-content sw-section-content--flush' : 'sw-section-content'}>{children}</div>
+    </section>
+  )
+}
+
+/**
+ * Toolbar pinned above a large working set.
+ * Consumers own filtering state while this component standardizes wrapping,
+ * surface, and touch-target spacing.
  */
 export function DataToolbar({ children, variant = 'default' }: { children: ReactNode; variant?: 'default' | 'plain' }) {
   return (
@@ -86,7 +107,30 @@ export function DataToolbar({ children, variant = 'default' }: { children: React
   )
 }
 
-/** Dense definition-list grid for machine and operation metadata. */
+interface SelectionToolbarProps {
+  count: number
+  onClear: () => void
+  children: ReactNode
+}
+
+/**
+ * Shared bulk-selection banner for list pages.
+ *
+ * It appears only when selection exists, announces the count as text, and keeps
+ * the clear action last so keyboard order matches the visual workflow.
+ */
+export function SelectionToolbar({ count, onClear, children }: SelectionToolbarProps) {
+  if (count === 0) return null
+  return (
+    <HStack className="sw-selection-toolbar" gap="2" wrap="wrap" aria-live="polite">
+      <Text fontWeight="semibold">{count} selected</Text>
+      {children}
+      <Button variant="plain" size="sm" onClick={onClear}>Clear</Button>
+    </HStack>
+  )
+}
+
+/** Dense definition-list grid for machine and workflow metadata. */
 export function KeyValueGrid({ items }: { items: Array<{ label: string; value: ReactNode }> }) {
   return (
     <dl className="sw-key-value-grid">
@@ -100,7 +144,16 @@ export function KeyValueGrid({ items }: { items: Array<{ label: string; value: R
   )
 }
 
-/** Horizontal overflow boundary with a sticky table header for wide data tables. */
+/** Compact identity facts placed directly below a detail-page heading. */
+export function IdentitySummary({ items }: { items: Array<{ label: string; value: ReactNode }> }) {
+  return (
+    <Box className="sw-identity-summary">
+      <KeyValueGrid items={items} />
+    </Box>
+  )
+}
+
+/** Horizontal overflow boundary with a sticky table header for wide desktop data. */
 export function StickyTableFrame({ children }: { children: ReactNode }) {
   return <div className="sw-table-frame">{children}</div>
 }

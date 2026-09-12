@@ -7,7 +7,7 @@ import { isOrchestrationOperation, isTerminalStatus, type Operation } from '@/do
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { KeyValueGrid, SectionHeader } from '@/presentation/components/OperatorPrimitives'
+import { IdentitySummary, KeyValueGrid, SectionHeader } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
@@ -63,7 +63,7 @@ export function OperatorOperationDetailPage() {
   const terminal = isTerminalStatus(operation.execution.status)
   const details = (
     <section className="sw-section">
-      <SectionHeader title="Execution details" description="Immutable intent and current run metadata." />
+      <SectionHeader title="Execution details" />
       <KeyValueGrid
         items={[
           { label: 'Operation ID', value: <span className="mono">{operation.id}</span> },
@@ -102,7 +102,6 @@ export function OperatorOperationDetailPage() {
       <PageHeader
         title={operation.intent || operation.execution.playbook}
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
-        subtitle={`${operation.kind} - ${operation.execution.playbook}`}
         metadata={<StatusBadge status={operation.execution.status} />}
         actions={
           <>
@@ -113,6 +112,14 @@ export function OperatorOperationDetailPage() {
             {terminal && <OperationRetryButton operation={operation} retrying={retrying} onRetry={() => void retry()} />}
           </>
         }
+      />
+      <IdentitySummary
+        items={[
+          { label: 'Kind', value: operation.kind },
+          { label: 'Playbook', value: operation.execution.playbook },
+          { label: 'Targets', value: `${operation.targetServerIds.length} servers` },
+          { label: 'Operation ID', value: <span className="mono">{operation.id}</span> },
+        ]}
       />
       <ol className="sw-operation-timeline" aria-label="Operation status timeline">
         <TimelineStep label="Requested" value={formatDateTime(operation.requestedAt)} state="complete" />

@@ -10,11 +10,11 @@ export function ForbiddenPage() {
     <RouteErrorTemplate
       code="403"
       title="Access denied"
-      message="Your account does not have permission to open this operator surface."
+      message="Ask an administrator for access."
       action={
         <Button colorPalette="brand" onClick={() => navigate('/')}>
           <ArrowLeft size={16} />
-          Back to Overview
+          Open Overview
         </Button>
       }
     />

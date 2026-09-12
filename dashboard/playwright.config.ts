@@ -3,6 +3,8 @@ import { defineConfig, devices } from 'playwright/test'
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
+  // Keep Chromium/Vite memory predictable locally and in CI.
+  workers: 4,
   timeout: 30_000,
   expect: { timeout: 5_000 },
   use: {

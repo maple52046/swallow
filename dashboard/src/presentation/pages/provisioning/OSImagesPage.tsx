@@ -10,6 +10,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -178,7 +179,6 @@ export function OSImagesPage() {
     <div className="operator-page">
       <PageHeader
         title="OS images"
-        subtitle="Live, read-only images offered by provisioner Integrations registered under each Site."
         breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'OS images' }]}
         actions={
           <>
@@ -225,10 +225,12 @@ export function OSImagesPage() {
           </Alert>
         ))}
       {state.status === 'ready' && filtered.length === 0 && (
-        <EmptyState title="No OS images" message={query ? 'No live image matches this search.' : 'No scoped provisioner returned an image.'} />
+        <EmptyState title="No OS images" message={query ? 'Try another search.' : 'Refresh after adding a provisioner integration.'} />
       )}
       {state.status === 'ready' && filtered.length > 0 && (
-        <StickyTableFrame>
+        <ResponsiveDataView
+          desktop={
+            <StickyTableFrame>
           <Table.Root size="sm" aria-label="OS images" className="sw-provisioning-table">
             <Table.Header>
               <Table.Row>
@@ -292,7 +294,35 @@ export function OSImagesPage() {
               ))}
             </Table.Body>
           </Table.Root>
-        </StickyTableFrame>
+            </StickyTableFrame>
+          }
+          mobile={
+            <div className="sw-resource-card-list">
+              {filtered.map((image) => (
+                <ResourceCard
+                  key={`${image.integrationId}:${image.id}:${image.architecture}`}
+                  title={image.name || image.id}
+                  description={<span className="sw-mono">{image.id}</span>}
+                  actions={
+                    <>
+                      <Button size="sm" colorPalette="brand" onClick={() => navigate(provisioningHref('/provisioning/deploy', { integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
+                        Deploy image
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => navigate(provisioningHref('/provisioning/templates', { create: '1', integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
+                        Create template
+                      </Button>
+                      {image.osSystem === 'custom' && <Button size="sm" variant="plain" colorPalette="red" onClick={() => setDeleting(image)}>Delete image</Button>}
+                    </>
+                  }
+                >
+                  {activeColumns.filter((column) => !['name', 'imageId'].includes(column.key)).map((column) => (
+                    <ResourceCardField key={column.key} label={column.label}>{column.render(image)}</ResourceCardField>
+                  ))}
+                </ResourceCard>
+              ))}
+            </div>
+          }
+        />
       )}
       {deleting && (
         <DeleteImageDialog

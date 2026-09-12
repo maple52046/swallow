@@ -13,9 +13,10 @@ interface OperatorShellProps {
 }
 
 /**
- * Keyboard skip target that jumps straight to the main region. Hidden off-screen
- * until it receives focus, so keyboard users can bypass the nav without cluttering
- * the visual layout.
+ * Keyboard skip target that jumps straight to the routed workspace.
+ *
+ * It remains off-screen until focused so keyboard users can bypass the persistent
+ * navigation without adding visual chrome to the compact masthead.
  */
 function SkipToContent() {
   return (
@@ -25,15 +26,16 @@ function SkipToContent() {
       insetStart="2"
       top="2"
       zIndex="skipLink"
-      bg="bg.panel"
+      bg="bg.raised"
       color="fg"
       px="3"
       py="2"
-      rounded="md"
+      rounded="lg"
       borderWidth="1px"
       borderColor="border"
+      boxShadow="floating"
       transform="translateY(-150%)"
-      transition="transform 0.15s ease"
+      transition="transform 0.18s ease"
       _focusVisible={{ transform: 'translateY(0)' }}
     >
       Skip to content
@@ -42,12 +44,11 @@ function SkipToContent() {
 }
 
 /**
- * Authenticated app frame used by every operator route.
+ * Authenticated frame shared by every operator route.
  *
- * Renders a persistent left rail on desktop (collapsible to icons) and folds it
- * into a focus-trapped `Drawer` on mobile — the Drawer owns escape/overlay
- * dismissal and focus restoration, so no manual focus management is needed. The
- * main region is the skip-link target and holds the routed screen.
+ * Desktop navigation is a persistent, preference-backed rail. Mobile navigation
+ * uses Chakra's focus-trapped Drawer, which owns escape dismissal and focus
+ * restoration. The routed main region remains full-width for dense inventory.
  */
 export function OperatorShell({
   children,
@@ -58,27 +59,36 @@ export function OperatorShell({
   onToggleSidebar,
 }: OperatorShellProps) {
   return (
-    <Flex minH="100dvh" bg="bg.subtle">
+    <Flex minH="100dvh" bg="transparent">
       <SkipToContent />
 
       <Box
         as="aside"
+        data-testid="desktop-navigation"
         display={{ base: 'none', lg: 'block' }}
-        w={collapsed ? '16' : '64'}
+        w={collapsed ? '16' : '52'}
         flexShrink="0"
         position="sticky"
         top="0"
         h="100dvh"
         borderInlineEndWidth="1px"
         borderColor="border"
-        transition="width 0.15s ease"
+        bg="bg.panel"
+        transition="width 0.18s ease"
       >
         <OperatorSideNav collapsed={collapsed} />
       </Box>
 
       <Flex direction="column" flex="1" minW="0" minH="100dvh">
         <OperatorHeader onToggleSidebar={onToggleSidebar} onOpenMobileNav={onOpenMobileNav} />
-        <Box as="main" id="swallow-main-content" tabIndex={-1} flex="1" minW="0" p={{ base: 4, md: 6 }}>
+        <Box
+          as="main"
+          id="swallow-main-content"
+          tabIndex={-1}
+          flex="1"
+          minW="0"
+          p={{ base: 4, md: 6, xl: 8 }}
+        >
           {children}
         </Box>
       </Flex>
@@ -94,7 +104,7 @@ export function OperatorShell({
         <Portal>
           <Drawer.Backdrop />
           <Drawer.Positioner>
-            <Drawer.Content maxW="16rem">
+            <Drawer.Content maxW="16rem" bg="bg.panel">
               <Drawer.Body p="0">
                 <OperatorSideNav collapsed={false} onNavigate={onCloseMobileNav} />
               </Drawer.Body>

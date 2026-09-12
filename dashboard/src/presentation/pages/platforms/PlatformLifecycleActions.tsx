@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button, Field, Input, Menu, Portal, Stack, Text } from '@chakra-ui/react'
 import { Redo } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -51,6 +51,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   const navigate = useNavigate()
   const [action, setAction] = useState<ConfirmationAction | null>(null)
   const [confirmation, setConfirmation] = useState('')
+  const confirmationRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   // Uninstall-scoped choice to also release member servers back to the provider.
@@ -286,6 +287,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         onClose={close}
         size={releaseServers ? 'lg' : 'md'}
         closeOnInteractOutside={!submitting}
+        initialFocusEl={() => confirmationRef.current}
         title={isUninstall ? 'Uninstall platform' : 'Delete platform'}
         description={
           isUninstall
@@ -352,7 +354,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
             <Field.Label>
               Type "{platform.name}" to confirm <Field.RequiredIndicator />
             </Field.Label>
-            <Input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoFocus aria-label="Platform name confirmation" />
+            <Input ref={confirmationRef} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="Platform name confirmation" />
           </Field.Root>
         </Stack>
       </Modal>

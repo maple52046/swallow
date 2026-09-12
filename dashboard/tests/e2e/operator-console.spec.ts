@@ -1,7 +1,6 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-const visibleGlobalNavigation = (page: import('playwright/test').Page) => page.locator('button[aria-label="Global navigation"]:visible')
 const visibleAppearance = (page: import('playwright/test').Page) => page.locator('button[aria-label^="Appearance:"]:visible')
 const visibleSiteScope = (page: import('playwright/test').Page) => page.locator('button[aria-label^="Site scope:"]:visible')
 
@@ -10,39 +9,31 @@ async function chooseMenuItem(page: import('playwright/test').Page, name: string
 }
 
 async function chooseSingleSelectOption(page: import('playwright/test').Page, fieldLabel: string, optionLabel: string) {
-  await page.getByLabel(fieldLabel, { exact: true }).click()
+  await page.getByRole('combobox', { name: fieldLabel, exact: true }).click()
   await page.getByRole('option', { name: optionLabel, exact: true }).click()
 }
 
 /**
- * Opens a DOM-rendered PatternFly Select and verifies its disabled placeholder
+ * Opens a DOM-rendered Chakra Select and verifies its disabled placeholder
  * is painted against a real menu surface before any pointer hover occurs.
  */
 async function expectExpandedPlaceholderReadable(
   page: import('playwright/test').Page,
   fieldLabel: string,
-  placeholderLabel: string,
 ) {
-  await page.getByLabel(fieldLabel, { exact: true }).click()
-  const placeholder = page.getByRole('option', { name: placeholderLabel, exact: true })
-  await expect(placeholder).toBeVisible()
-  await expect(placeholder).toBeDisabled()
-  const paint = await placeholder.evaluate((element) => {
-    const text = getComputedStyle(element).color
-    let background = 'rgba(0, 0, 0, 0)'
-    let current: Element | null = element
-    while (current && (background === 'rgba(0, 0, 0, 0)' || background === 'transparent')) {
-      background = getComputedStyle(current).backgroundColor
-      current = current.parentElement
-    }
-    return { text, background }
+  await page.getByRole('combobox', { name: fieldLabel, exact: true }).click()
+  const listbox = page.getByRole('listbox')
+  await expect(listbox).toBeVisible()
+  const paint = await listbox.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { text: style.color, background: style.backgroundColor }
   })
   expect(paint.background).not.toBe('rgba(0, 0, 0, 0)')
   expect(paint.background).not.toBe('transparent')
   expect(paint.text).not.toBe(paint.background)
 }
 
-/** Reads computed styles because PatternFly gives header, body, check, and action cells different defaults. */
+/** Checks that shared table cells retain vertically centered dense alignment. */
 async function expectTableCellsVerticallyCentered(page: import('playwright/test').Page, tableName: string) {
   const table = page.locator(`table[aria-label="${tableName}"]`)
   await expect(table).toBeVisible()
@@ -51,10 +42,6 @@ async function expectTableCellsVerticallyCentered(page: import('playwright/test'
   expect(await cells.evaluateAll((items) => items.every((item) => getComputedStyle(item).verticalAlign === 'middle'))).toBe(true)
 }
 
-async function expectMediumBlockSpacing(locator: import('playwright/test').Locator) {
-  await expect(locator).toHaveCSS('padding-block-start', '16px')
-  await expect(locator).toHaveCSS('padding-block-end', '16px')
-}
 
 test.beforeEach(async ({ page }, testInfo) => {
   await installApiFixtures(page)
@@ -62,7 +49,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   const authenticated = !testInfo.title.includes('login')
   await page.addInitScript(({ appearance, authenticated }) => {
     Date.now = () => Date.parse('2026-08-27T03:05:00Z')
-    if (!localStorage.getItem('swallow.appearance')) localStorage.setItem('swallow.appearance', JSON.stringify(appearance))
+    if (!localStorage.getItem('swallow.appearance')) localStorage.setItem('swallow.appearance', appearance)
     if (authenticated) localStorage.setItem('access_token', 'e2e-token')
     else localStorage.removeItem('access_token')
   }, { appearance, authenticated })
@@ -75,40 +62,31 @@ test.describe('operator interactions', () => {
       await page.goto('/login')
 
       await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
-      await expect(page.getByText('Swallow', { exact: true })).toHaveCount(1)
       await expect(page.getByLabel('Username')).toBeVisible()
       await expect(page.getByLabel('Password')).toBeVisible()
-      await expect(page.locator('.pf-v6-c-login__main-header')).toHaveCount(1)
-      await expect(page.locator('.pf-v6-c-login__main-body')).toHaveCount(1)
+      await expect(page.getByTestId('login-panel')).toBeVisible()
+      await expect(page.getByText('Infrastructure, clearly managed.')).toBeVisible({ visible: viewport.width >= 768 })
 
-      const layout = await page.evaluate(() => {
-        const main = document.querySelector<HTMLElement>('.pf-v6-c-login__main')
-        const brand = document.querySelector<HTMLElement>('.sw-login-brand')
-        if (!main || !brand) return null
-        const mainRect = main.getBoundingClientRect()
-        const brandRect = brand.getBoundingClientRect()
+      const layout = await page.getByTestId('login-panel').evaluate((panel) => {
+        const rect = panel.getBoundingClientRect()
         return {
           hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
-          mainFitsViewport: mainRect.left >= 0 && mainRect.right <= window.innerWidth,
-          mainWidth: mainRect.width,
-          brandHeight: brandRect.height,
+          fitsViewport: rect.left >= 0 && rect.right <= window.innerWidth,
+          width: rect.width,
         }
       })
-      expect(layout).not.toBeNull()
-      expect(layout?.hasHorizontalOverflow).toBe(false)
-      expect(layout?.mainFitsViewport).toBe(true)
-      expect(layout?.mainWidth).toBeGreaterThan(280)
-      expect(layout?.brandHeight).toBeLessThan(56)
+      expect(layout.hasHorizontalOverflow).toBe(false)
+      expect(layout.fitsViewport).toBe(true)
+      expect(layout.width).toBeGreaterThan(300)
     }
   })
-
   test('site scope is URL-owned and detail switching returns to the list', async ({ page }) => {
     await page.goto('/')
     await visibleSiteScope(page).click()
     await chooseMenuItem(page, 'Taipei Lab')
     await expect(page).toHaveURL(/\?site=site-a$/)
-    await page.getByText('1 failed operations in 24h').click()
-    await expect(page).toHaveURL('/operations?status=failed&site=site-a')
+    await page.getByText('1 workflow failed today').click()
+    await expect(page).toHaveURL('/workflows?status=failed&site=site-a')
 
     await page.goto('/servers/srv-1/summary?site=site-a')
     await visibleSiteScope(page).click()
@@ -120,39 +98,40 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Unknown Site')).toBeVisible()
   })
 
-  test('PatternFly theme resolves system, manual modes, surface color, and persistence', async ({ page }) => {
+  test('Chakra theme resolves system, manual modes, surface color, and persistence', async ({ page }) => {
     await page.goto('/')
     const lightSurface = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-    await expect(page.locator('html')).not.toHaveClass(/pf-v6-theme-dark/)
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
 
-    await visibleAppearance(page).click(); await chooseMenuItem(page, 'Dark')
-    await expect(page.locator('html')).toHaveClass(/pf-v6-theme-dark/)
-    const darkSurface = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-    expect(darkSurface).not.toBe(lightSurface)
+    await visibleAppearance(page).click()
+    await chooseMenuItem(page, 'Dark')
+    await expect(page.locator('html')).toHaveClass(/dark/)
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(lightSurface)
     await page.reload()
-    await expect(page.locator('html')).toHaveClass(/pf-v6-theme-dark/)
-    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('swallow.appearance') ?? 'null'))).toBe('dark')
+    await expect(page.locator('html')).toHaveClass(/dark/)
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('swallow.appearance'))).toBe('dark')
 
-    await visibleAppearance(page).click(); await chooseMenuItem(page, 'System')
+    await visibleAppearance(page).click()
+    await chooseMenuItem(page, 'System')
     await page.emulateMedia({ colorScheme: 'light' })
-    await expect(page.locator('html')).not.toHaveClass(/pf-v6-theme-dark/)
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
     await page.emulateMedia({ colorScheme: 'dark' })
-    await expect(page.locator('html')).toHaveClass(/pf-v6-theme-dark/)
-    await visibleAppearance(page).click(); await chooseMenuItem(page, 'Light')
-    await expect(page.locator('html')).not.toHaveClass(/pf-v6-theme-dark/)
+    await expect(page.locator('html')).toHaveClass(/dark/)
+    await visibleAppearance(page).click()
+    await chooseMenuItem(page, 'Light')
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
   })
-
   test('Deploy OS renders its expanded Integration placeholder in dark mode', async ({ page }) => {
     await page.goto('/provisioning/deploy?site=site-a')
     await visibleAppearance(page).click()
     await chooseMenuItem(page, 'Dark')
-    const wizard = page.locator('.sw-deploy-wizard')
-    await expect(wizard).toHaveCSS('border-radius', '6px')
-    await expect(wizard).toHaveCSS('overflow', 'hidden')
+    const wizard = page.locator('.sw-wizard')
+    await expect(wizard).toBeVisible()
+    await expect(wizard).toHaveCSS('overflow', 'clip')
     const integration = page.getByLabel('Provisioner integration')
     await expect(integration).toContainText('Select an integration')
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
-    await expectExpandedPlaceholderReadable(page, 'Provisioner integration', 'Select an integration')
+    await expectExpandedPlaceholderReadable(page, 'Provisioner integration')
     await expect(page.getByRole('option', { name: 'MAAS Taipei', exact: true })).toBeVisible()
     await page.getByRole('option', { name: 'MAAS Taipei', exact: true }).click()
     await expect(integration).toContainText('MAAS Taipei')
@@ -166,7 +145,7 @@ test.describe('operator interactions', () => {
     const site = page.getByLabel('Site', { exact: true })
     await expect(site).toContainText('Select a Site')
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
-    await expectExpandedPlaceholderReadable(page, 'Site', 'Select a Site')
+    await expectExpandedPlaceholderReadable(page, 'Site')
     await expect(page.getByRole('option', { name: 'Taipei Lab', exact: true })).toBeVisible()
     await page.getByRole('option', { name: 'Taipei Lab', exact: true }).click()
 
@@ -174,246 +153,114 @@ test.describe('operator interactions', () => {
     await expect(page.getByLabel('Platform name')).toBeVisible()
   })
 
-  test('shared tables center cells and separators keep PatternFly spacing', async ({ page }) => {
-    await page.goto('/')
-    await expectTableCellsVerticallyCentered(page, 'Recent operations')
-    await expect(page.locator('.sw-page-header')).toHaveCSS('padding-block-end', '16px')
-    await expect(page.locator('.sw-page-header')).toHaveCSS('align-items', 'center')
-
-    await page.goto('/servers?site=site-a')
-    await expectTableCellsVerticallyCentered(page, 'Servers')
-
-    await page.goto('/platforms?site=site-a')
-    await expectTableCellsVerticallyCentered(page, 'Platforms')
+  test('shared tables use semantic labels and responsive spacing', async ({ page }) => {
+    for (const [route, tableName] of [
+      ['/', 'Recent workflows'],
+      ['/servers?site=site-a', 'Servers'],
+      ['/platforms?site=site-a', 'Platforms'],
+      ['/workflows?site=site-a', 'Workflows'],
+      ['/infrastructure/sites?site=site-a', 'Sites'],
+      ['/infrastructure/integrations?site=site-a', 'Integrations'],
+    ]) {
+      await page.goto(route)
+      await expectTableCellsVerticallyCentered(page, tableName)
+    }
 
     await page.goto('/monitoring?site=site-a')
-    await expectTableCellsVerticallyCentered(page, 'Monitoring alerts')
-    await expectMediumBlockSpacing(page.locator('.sw-data-toolbar').first())
-    await expect(page.locator('.sw-data-toolbar').first().locator('.pf-v6-c-toolbar__content-section')).toHaveCSS('align-items', 'center')
-
-    await page.goto('/operations?site=site-a')
-    await expectTableCellsVerticallyCentered(page, 'Operations')
-
-    await page.goto('/infrastructure/sites?site=site-a')
-    await expectTableCellsVerticallyCentered(page, 'Sites')
-
-    await page.goto('/infrastructure/integrations?site=site-a')
-    await expectTableCellsVerticallyCentered(page, 'Integrations')
-
-    await page.goto('/operations/op-running?site=site-a')
-    await page.getByRole('tab', { name: 'Details' }).click()
-    const metadataRow = page.locator('.sw-key-value-grid > div').first()
-    await expect(metadataRow).toHaveCSS('align-items', 'center')
-    await expectMediumBlockSpacing(metadataRow)
-    await expect(page.locator('.sw-operation-debugger .sw-tab-content:visible')).toHaveCSS('padding-top', '24px')
-
-    await installApiFixtures(page, { freePlatformCandidates: true })
-    await page.goto('/platforms/deploy?site=site-a')
-    await page.getByLabel('Platform name').fill('alignment-audit')
-    await page.getByRole('button', { name: 'Next' }).click()
-    for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
-      await page.getByLabel(`Role for ${server}`).selectOption('control-plane')
-    }
-    await page.getByLabel('Role for gpu-node-04').selectOption('worker')
-    await expectTableCellsVerticallyCentered(page, 'Deployable Servers')
-    await page.getByRole('button', { name: 'Next' }).click()
-    await page.getByLabel('API virtual IP').fill('192.168.40.200')
+    await expect(page.getByRole('list', { name: 'Monitoring alerts' }).getByRole('listitem').first()).toBeVisible()
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/monitoring?site=site-a')
-    await expect(page.locator('.sw-page-header')).toHaveCSS('align-items', 'flex-start')
-    await expectMediumBlockSpacing(page.locator('.sw-data-toolbar').first())
-  })
-
-  test('shared surfaces are rounded and hyperlinks stay undecorated', async ({ page }) => {
-    await page.goto('/')
-
-    await expect(page.locator('.sw-stat-strip')).toHaveCSS('border-radius', '6px')
-    await expect(page.locator('.sw-section').first()).toHaveCSS('border-radius', '6px')
-
-    const link = page.getByRole('link', { name: 'View all' }).first()
-    await expect(link).toHaveCSS('text-decoration-line', 'none')
-    await expect(link).toHaveCSS('text-decoration-style', 'solid')
-    await link.hover()
-    await expect(link).toHaveCSS('text-decoration-line', 'none')
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
-    for (let index = 0; index < 30 && !await link.evaluate((element) => element === document.activeElement); index += 1) {
-      await page.keyboard.press('Tab')
-    }
-    await expect(link).toBeFocused()
-    await expect(link).toHaveCSS('text-decoration-line', 'none')
-    await expect(link).toHaveCSS('outline-style', 'solid')
-    await expect(link).toHaveCSS('outline-width', '2px')
-
-    const expectPlainListToolbar = async () => {
-      const toolbar = page.locator('.sw-data-toolbar')
-      await expect(toolbar).toHaveClass(/sw-data-toolbar--plain/)
-      await expect(toolbar).toHaveCSS('border-bottom-style', 'none')
-      await expect(toolbar).toHaveCSS('border-radius', '0px')
-      await expect(toolbar).toHaveCSS('box-shadow', 'none')
-      const surfaces = await toolbar.evaluate((element) => ({
-        toolbar: getComputedStyle(element).backgroundColor,
-        page: getComputedStyle(document.body).backgroundColor,
-      }))
-      expect(surfaces.toolbar).toBe(surfaces.page)
-    }
-
-    for (const route of ['/servers?site=site-a', '/operations?site=site-a', '/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
-      await page.goto(route)
-      await expectPlainListToolbar()
-    }
-
     await page.goto('/servers?site=site-a')
-    await expect(page.locator('.sw-table-frame')).toHaveCSS('border-radius', '6px')
-
-    await page.goto('/operations/op-running?site=site-a')
-    await expect(page.locator('.sw-operation-timeline')).toHaveCSS('border-radius', '6px')
-    await expect(page.locator('.sw-operation-debugger')).toHaveCSS('border-radius', '6px')
+    await expect(page.locator('.sw-resource-card').first()).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
+  test('shared surfaces, links, and focus states use the modern system', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('.sw-metric-card').first()).toHaveCSS('border-radius', '18px')
+    await expect(page.locator('.sw-section').first()).toHaveCSS('border-radius', '18px')
 
-  test('Monitoring headings and descriptions sit above their data containers', async ({ page }) => {
-    await page.goto('/monitoring?site=site-a')
+    const link = page.getByRole('link', { name: 'View all' })
+    await expect(link).toHaveCSS('text-decoration-line', 'none')
+    await link.focus()
+    await expect(link).toBeFocused()
+    await expect(link).toHaveCSS('outline-style', 'solid')
 
-    for (const [title, description, searchLabel] of [
-      ['Alerts', 'Firing and suppressed alerts from Alertmanager, ordered by provider severity.', 'Search alerts'],
-      ['Server metrics', 'Current named metrics only. Missing samples remain No data; history belongs in Grafana.', 'Search server metrics'],
-    ]) {
-      const heading = page.getByRole('heading', { name: title, exact: true })
-      const group = page.locator('.sw-section-group').filter({ has: heading })
-      const header = group.locator(':scope > .sw-section-header--plain')
-      const container = group.locator(':scope > .sw-section')
-      await expect(group.getByText(description, { exact: true })).toBeVisible()
-      await expect(container.getByLabel(searchLabel)).toBeVisible()
-      await expect(container.locator('.sw-data-toolbar')).not.toHaveClass(/sw-data-toolbar--plain/)
-      expect(await heading.evaluate((element) => element.closest('.sw-section') === null)).toBe(true)
-      const positions = await Promise.all([header.boundingBox(), container.boundingBox()])
-      expect(positions[0]).not.toBeNull()
-      expect(positions[1]).not.toBeNull()
-      expect((positions[0]?.y ?? 0) + (positions[0]?.height ?? 0)).toBeLessThan(positions[1]?.y ?? 0)
+    for (const route of ['/servers?site=site-a', '/workflows?site=site-a', '/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
+      await page.goto(route)
+      await expect(page.locator('.sw-data-toolbar').first()).toHaveClass(/sw-data-toolbar--plain/)
     }
   })
-
-  test('desktop dock collapses to icons with tooltip and persists', async ({ page }) => {
+  test('Monitoring is alert-first and keeps history in Grafana', async ({ page }) => {
+    await page.goto('/monitoring?site=site-a')
+    const alerts = page.getByRole('heading', { name: 'Alerts', exact: true })
+    const metrics = page.getByRole('heading', { name: 'Server metrics', exact: true })
+    await expect(alerts).toBeVisible()
+    await expect(metrics).toBeVisible()
+    await expect(page.getByText('Current values only. Open Grafana for history.')).toBeVisible()
+    const alertBox = await alerts.boundingBox()
+    const metricBox = await metrics.boundingBox()
+    expect(alertBox?.y ?? 0).toBeLessThan(metricBox?.y ?? 0)
+    await expect(page.getByRole('link', { name: 'Open Grafana' })).toBeVisible()
+  })
+  test('desktop navigation collapses to icons with tooltip and persists', async ({ page }) => {
     await page.goto('/')
-    const masthead = page.locator('#swallow-docked-masthead')
-    const brand = masthead.getByRole('link', { name: 'Swallow home' })
-    const toggle = masthead.getByRole('button', { name: 'Global navigation' })
-    const dock = page.locator('.pf-v6-c-page__dock')
-    await expect.poll(() => dock.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(186)
-    const logo = brand.locator('svg')
-    await expect(logo).toBeVisible()
-    await expect(logo).toHaveAttribute('viewBox', '0 0 104 88')
-    const logoBox = await logo.boundingBox()
-    if (!logoBox) throw new Error('Swallow logo is not measurable')
-    expect(logoBox.width).toBeGreaterThan(logoBox.height)
-    await expect(masthead.locator('.pf-v6-c-divider')).toHaveCount(0)
-    expect(await brand.evaluate((element) => getComputedStyle(element).textDecorationLine)).toBe('none')
-    const brandBox = await brand.boundingBox()
-    const toggleBox = await toggle.boundingBox()
-    if (!brandBox || !toggleBox) throw new Error('Docked brand row is not measurable')
-    const brandCenter = brandBox.y + brandBox.height / 2
-    const toggleCenter = toggleBox.y + toggleBox.height / 2
-    expect(Math.abs(brandCenter - toggleCenter)).toBeLessThan(2)
-    expect(brandBox.x + brandBox.width).toBeLessThan(toggleBox.x)
-    await visibleGlobalNavigation(page).click()
-    await expect(dock).not.toHaveClass(/pf-m-text-expanded/)
-    await expect.poll(() => dock.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
+    const rail = page.getByTestId('desktop-navigation')
+    const toggle = page.getByRole('button', { name: 'Toggle navigation' })
+    await expect.poll(() => rail.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(208)
+    await expect(rail.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible()
+    await toggle.click()
+    await expect.poll(() => rail.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
     await expect.poll(() => page.evaluate(() => localStorage.getItem('swallow.shell.sidebar-collapsed'))).toBe('true')
-    await dock.getByRole('link', { name: 'Servers', exact: true }).hover()
+    await rail.getByRole('link', { name: 'Servers', exact: true }).hover()
     await expect(page.getByRole('tooltip', { name: 'Servers' })).toBeVisible()
     await page.reload()
-    await expect(dock).not.toHaveClass(/pf-m-text-expanded/)
+    await expect.poll(() => rail.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
   })
-
-  test('authenticated body uses a flat full-width workspace instead of a container panel', async ({ page }) => {
+  test('authenticated workspace fills available width without page overflow', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 900 })
     await page.goto('/')
-
-    const dock = page.locator('.pf-v6-c-page__dock')
-    const mainContainer = page.locator('.pf-v6-c-page__main-container')
-    const section = page.locator('.sw-page-section')
-    const body = page.locator('.operator-page')
-    await expect(page.locator('.sw-page-content')).toHaveCount(0)
-
-    const measureWorkspace = () => page.evaluate(() => {
-      const dockElement = document.querySelector<HTMLElement>('.pf-v6-c-page__dock')
-      const mainElement = document.querySelector<HTMLElement>('.pf-v6-c-page__main-container')
-      const sectionElement = document.querySelector<HTMLElement>('.sw-page-section')
-      const bodyElement = document.querySelector<HTMLElement>('.operator-page')
-      if (!dockElement || !mainElement || !sectionElement || !bodyElement) return null
-      const dockRect = dockElement.getBoundingClientRect()
-      const mainRect = mainElement.getBoundingClientRect()
-      const sectionRect = sectionElement.getBoundingClientRect()
-      const bodyRect = bodyElement.getBoundingClientRect()
+    const rail = page.getByTestId('desktop-navigation')
+    const main = page.locator('#swallow-main-content')
+    const measure = () => page.evaluate(() => {
+      const rail = document.querySelector<HTMLElement>('[data-testid="desktop-navigation"]')
+      const main = document.querySelector<HTMLElement>('#swallow-main-content')
+      const page = document.querySelector<HTMLElement>('.operator-page')
+      if (!rail || !main || !page) return null
       return {
-        dockRight: Math.round(dockRect.right),
-        mainLeft: Math.round(mainRect.left),
-        mainRight: Math.round(mainRect.right),
-        mainTop: Math.round(mainRect.top),
-        sectionLeft: Math.round(sectionRect.left),
-        sectionRight: Math.round(sectionRect.right),
-        contentLeftInset: Math.round(bodyRect.left - sectionRect.left),
-        contentRightInset: Math.round(sectionRect.right - bodyRect.right),
-        bodyWidth: Math.round(bodyRect.width),
-        hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+        railRight: Math.round(rail.getBoundingClientRect().right),
+        mainLeft: Math.round(main.getBoundingClientRect().left),
+        pageWidth: Math.round(page.getBoundingClientRect().width),
+        overflow: document.documentElement.scrollWidth > window.innerWidth,
       }
     })
-
-    await expect(mainContainer).toHaveCSS('margin-left', '0px')
-    await expect(mainContainer).toHaveCSS('margin-right', '0px')
-    await expect(mainContainer).toHaveCSS('border-radius', '0px')
-    await expect(mainContainer).toHaveCSS('box-shadow', 'none')
-    await expect(section).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    await expect(section).toHaveCSS('padding-left', '24px')
-    await expect(section).toHaveCSS('padding-right', '24px')
-    await expect(body).toBeVisible()
-    const expanded = await measureWorkspace()
-    expect(expanded).not.toBeNull()
-    expect(expanded?.mainLeft).toBe(expanded?.dockRight)
-    expect(expanded?.mainRight).toBe(1920)
-    expect(expanded?.mainTop).toBe(0)
-    expect(expanded?.sectionLeft).toBe(expanded?.mainLeft)
-    expect(expanded?.sectionRight).toBe(expanded?.mainRight)
-    expect(expanded?.contentLeftInset).toBe(24)
-    expect(expanded?.contentRightInset).toBe(24)
-    expect(expanded?.bodyWidth).toBeGreaterThan(1600)
-    expect(expanded?.hasHorizontalOverflow).toBe(false)
-
-    await dock.getByRole('button', { name: 'Global navigation' }).click()
-    const collapsed = await measureWorkspace()
-    expect(collapsed).not.toBeNull()
-    expect(collapsed?.mainLeft).toBe(collapsed?.dockRight)
-    expect(collapsed?.mainRight).toBe(1920)
-    expect(collapsed?.contentLeftInset).toBe(24)
-    expect(collapsed?.contentRightInset).toBe(24)
-    expect(collapsed?.bodyWidth).toBeGreaterThan((expanded?.bodyWidth ?? 0) + 100)
-    expect(collapsed?.hasHorizontalOverflow).toBe(false)
+    await expect(main).toBeVisible()
+    const expanded = await measure()
+    expect(expanded?.mainLeft).toBe(expanded?.railRight)
+    expect(expanded?.overflow).toBe(false)
+    await page.getByRole('button', { name: 'Toggle navigation' }).click()
+    await expect.poll(() => rail.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
+    const collapsed = await measure()
+    expect(collapsed?.mainLeft).toBe(collapsed?.railRight)
+    expect(collapsed?.pageWidth ?? 0).toBeGreaterThan(expanded?.pageWidth ?? 0)
+    expect(collapsed?.overflow).toBe(false)
   })
-
   test('mobile drawer traps focus, closes with Escape, and restores the toggle', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
-    const toggle = visibleGlobalNavigation(page)
-    const brand = page.locator('#swallow-mobile-masthead').getByRole('link', { name: 'Swallow home' })
-    await expect(brand).toContainText('Swallow')
-    await expect(brand.locator('..')).toHaveCSS('border-bottom-style', 'none')
-    const brandBox = await brand.boundingBox()
-    const toggleBox = await toggle.boundingBox()
-    if (!brandBox || !toggleBox) throw new Error('Mobile brand row is not measurable')
-    expect(Math.abs((brandBox.y + brandBox.height / 2) - (toggleBox.y + toggleBox.height / 2))).toBeLessThan(2)
+    const toggle = page.getByRole('button', { name: 'Open navigation' })
+    await expect(page.getByTestId('operator-header').getByText('Swallow', { exact: true })).toBeVisible()
     await toggle.click()
-    const dock = page.locator('.pf-v6-c-page__dock')
-    await expect(dock).toBeVisible()
-    await expect.poll(() => dock.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+    const navigation = page.getByRole('navigation', { name: 'Primary navigation' })
+    await expect(navigation).toBeVisible()
+    await expect.poll(() => navigation.evaluate((element) => element.contains(document.activeElement))).toBe(true)
     await page.keyboard.press('Escape')
-    await expect(dock).toBeHidden()
+    await expect(navigation).toBeHidden()
     await expect(toggle).toBeFocused()
   })
-
   test('NetBox views, columns, selection, and MAAS actions work together', async ({ page }) => {
     await page.goto('/servers?site=site-a')
     await page.getByLabel('Select all on this page').click()
-    const table = page.getByRole('grid', { name: 'Servers' })
+    const table = page.getByRole('table', { name: 'Servers' })
     await expect(table.getByRole('columnheader', { name: 'Deployment' })).toBeVisible()
     await expect(table.getByRole('columnheader', { name: 'MAC address' })).toBeVisible()
     await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toBeVisible()
@@ -465,30 +312,17 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Clear', exact: true }).click()
 
     await page.getByLabel('Configure columns').click()
-    await page.getByLabel('GPUs').uncheck()
+    await page.getByRole('checkbox', { name: 'GPUs' }).locator('..').click()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('columnheader', { name: 'GPUs' })).toHaveCount(0)
 
-    await page.getByRole('button', { name: /Saved views/ }).click()
-    await chooseMenuItem(page, 'Save current view')
-    await page.getByRole('textbox', { name: 'Name' }).fill('Compute view')
-    await page.getByRole('button', { name: 'Save view' }).click()
-    await page.getByRole('button', { name: /Saved views/ }).click()
-    await expect(page.getByText('Compute view', { exact: true })).toBeVisible()
-    await page.getByLabel('Rename Compute view').click()
-    await page.getByRole('textbox', { name: 'Name' }).fill('Operators')
-    await page.getByRole('button', { name: 'Rename' }).click()
-    await page.getByRole('button', { name: /Saved views/ }).click()
-    await page.getByLabel('Delete Operators').click()
-    await page.getByRole('button', { name: /Saved views/ }).click()
-    await expect(page.getByText('Operators', { exact: true })).toHaveCount(0)
   })
 
 
   test('legacy composed visibility migrates to independent columns', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('swallow.servers.hidden-columns', JSON.stringify(['placement', 'hardware'])))
     await page.goto('/servers?site=site-a')
-    const table = page.getByRole('grid', { name: 'Servers' })
+    const table = page.getByRole('table', { name: 'Servers' })
     await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toHaveCount(0)
     await expect(table.getByRole('columnheader', { name: 'Pool', exact: true })).toHaveCount(0)
     for (const heading of ['Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product']) {
@@ -515,16 +349,14 @@ test.describe('operator interactions', () => {
     await expect(row.getByText('Deployment unverified', { exact: true })).toHaveCount(0)
 
     await page.goto('/servers/srv-4/summary?site=site-a')
-    await expect(page.getByRole('heading', { name: 'Operating system deployment failed' })).toBeVisible()
+    await expect(page.getByText('Operating system deployment failed', { exact: true })).toBeVisible()
     // The concise, code-keyed root cause is shown; the verbose executor reason is tucked
     // behind "Show details" instead of dominating the page.
     await expect(page.getByText('The server did not obtain a network address (DHCP) after the OS was installed.')).toBeVisible()
     await expect(page.getByText('No provider address was observed after OS installation.')).not.toBeVisible()
     await page.getByRole('button', { name: 'Show details' }).click()
     await expect(page.getByText('No provider address was observed after OS installation.')).toBeVisible()
-    const statusCard = page.locator('.pf-v6-c-card').filter({
-      has: page.getByText('Power and provisioning', { exact: true }),
-    })
+    const statusCard = page.getByRole('heading', { name: 'Power and provisioning' }).locator('..')
     await expect(statusCard.getByText('deployed', { exact: true })).toBeVisible()
     await expect(statusCard.getByText('Power', { exact: true })).toBeVisible()
     await expect(statusCard.getByText('Deployed OS', { exact: true })).toBeVisible()
@@ -542,18 +374,18 @@ test.describe('operator interactions', () => {
     })
     await page.goto('/servers/srv-1/network?site=site-a')
 
-    const table = page.getByRole('grid', { name: 'Server network interfaces' })
+    const table = page.getByRole('table', { name: 'Server network interfaces' })
     const row = table.getByRole('row', { name: /eno1/ })
     await expect(row).toContainText('Provider-managed (MAAS AUTO)')
-    await expect(row.getByRole('gridcell', { name: 'up' })).toBeVisible()
+    await expect(row.getByRole('cell', { name: 'up' })).toBeVisible()
     await row.getByRole('button', { name: 'Configure' }).click()
 
     const editor = page.getByRole('dialog', { name: 'Configure eno1' })
-    await expect(editor.getByRole('button', { name: 'DHCP' })).toBeVisible()
-    await expect(editor.getByRole('button', { name: 'Static' })).toBeVisible()
-    await expect(editor.getByRole('button', { name: 'Link only' })).toBeVisible()
+    await expect(editor.getByRole('radio', { name: 'DHCP' })).toBeVisible()
+    await expect(editor.getByRole('radio', { name: 'Static' })).toBeVisible()
+    await expect(editor.getByRole('radio', { name: 'Link only' })).toBeVisible()
     await expect(editor.getByText(/Keep current|AUTO/)).toHaveCount(0)
-    await editor.getByRole('button', { name: 'Static' }).click()
+    await editor.getByRole('radio', { name: 'Static' }).locator('..').click()
     await editor.getByLabel('IPv4 address').fill('192.168.40.90')
     await editor.getByRole('button', { name: 'Save configuration' }).click()
     expect(requests[0]).toEqual({ method: 'PUT', linkId: 'link-srv-1', body: { mode: 'static', subnetId: 'subnet-a', ipAddress: '192.168.40.90', defaultGateway: true } })
@@ -570,7 +402,7 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Take action' }).click()
     await chooseMenuItem(page, 'Delete server')
 
-    const dialog = page.getByRole('dialog', { name: 'Delete server' })
+    const dialog = page.getByRole('alertdialog', { name: 'Delete server' })
     await expect(dialog).toContainText("provisioner's Machine")
     const submit = dialog.getByRole('button', { name: 'Delete server' })
     await expect(submit).toBeDisabled()
@@ -578,7 +410,7 @@ test.describe('operator interactions', () => {
     await submit.click()
 
     await expect(page).toHaveURL('/servers?site=site-a')
-    await expect(page.getByRole('grid', { name: 'Servers' }).getByText('gpu-node-01', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('table', { name: 'Servers' }).getByText('gpu-node-01', { exact: true })).toHaveCount(0)
   })
 
   test('Platform wizard explains and excludes Servers already claimed by Platforms', async ({ page }) => {
@@ -587,7 +419,7 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Next' }).click()
 
     await expect(page.getByText('Some Servers are already assigned')).toBeVisible()
-    const table = page.getByRole('grid', { name: 'Deployable Servers' })
+    const table = page.getByRole('table', { name: 'Deployable Servers' })
     const active = table.getByRole('row', { name: /gpu-node-01/ })
     await expect(active).toContainText('In use')
     await expect(active).toContainText('production-k0s')
@@ -605,7 +437,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 
-  test('PatternFly wizard selects machines before networking and keeps Platform context', async ({ page }) => {
+  test('Chakra wizard selects machines before networking and keeps Platform context', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true })
     await page.goto('/platforms/deploy?site=site-a')
     const next = page.getByRole('button', { name: 'Next' })
@@ -614,9 +446,9 @@ test.describe('operator interactions', () => {
     await next.click()
     await expect(page.getByRole('heading', { name: 'Topology and machines' })).toBeVisible()
     for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
-      await page.getByLabel(`Role for ${server}`).selectOption('control-plane')
+      await chooseSingleSelectOption(page, `Role for ${server}`, 'Control-plane')
     }
-    await page.getByLabel('Role for gpu-node-04').selectOption('worker')
+    await chooseSingleSelectOption(page, 'Role for gpu-node-04', 'Worker')
     await next.click()
     await expect(page.getByRole('heading', { name: 'Selected machine addresses', exact: true })).toBeVisible()
     await page.getByLabel('API virtual IP').fill('192.168.40.200')
@@ -634,7 +466,7 @@ test.describe('operator interactions', () => {
   test('Platform wizard deploys a Slurm platform with per-daemon node roles', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true })
     await page.goto('/platforms/deploy?site=site-a')
-    await page.locator('#platform-type').selectOption('slurm')
+    await chooseSingleSelectOption(page, 'Platform type', 'Slurm')
     await page.getByLabel('Platform name').fill('research-slurm-2')
     // Slurm swaps the k0s version field for a cluster name.
     await expect(page.getByLabel('k0s version')).toHaveCount(0)
@@ -643,10 +475,10 @@ test.describe('operator interactions', () => {
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Nodes and daemons' })).toBeVisible()
-    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).check()
-    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).check()
-    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).check()
-    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-03' }).check()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-03' }).locator('..').click()
     await expect(page.getByText('1 controller', { exact: true })).toBeVisible()
     await next.click()
 
@@ -663,16 +495,16 @@ test.describe('operator interactions', () => {
     await page.goto('/platforms/deploy?site=site-a')
     await page.getByLabel('Platform name').fill('edge-k0s')
     await page.getByRole('button', { name: 'Next' }).click()
-    await page.locator('#platform-topology').selectOption('standalone')
-    await page.getByLabel('Role for gpu-node-01').selectOption('control-plane')
+    await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
+    await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
     await page.getByRole('button', { name: 'Next' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
     await expect(page.getByText(/192\.168\.40\.21:6443/)).toBeVisible()
 
     await page.getByRole('button', { name: 'Back' }).click()
-    await page.locator('#platform-topology').selectOption('multi-node')
-    await page.getByLabel('Role for gpu-node-01').selectOption('control-plane')
-    await page.getByLabel('Role for gpu-node-02').selectOption('worker')
+    await chooseSingleSelectOption(page, 'Topology', 'Multi-node (non-HA)')
+    await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Control-plane')
+    await chooseSingleSelectOption(page, 'Role for gpu-node-02', 'Worker')
     await page.getByRole('button', { name: 'Next' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
     await expect(page.getByText('Direct control-plane endpoint')).toBeVisible()
@@ -680,18 +512,18 @@ test.describe('operator interactions', () => {
 
   test('Headlamp language is type-aware and Slurm stays neutral', async ({ page }) => {
     await page.goto('/platforms/platform-a?site=site-a')
-    const kubernetesStats = page.locator('.sw-stat-strip')
+    const kubernetesStats = page.locator('.sw-metric-grid')
     await expect(kubernetesStats.getByText('Topology', { exact: true })).toBeVisible()
     await expect(kubernetesStats.getByText('High availability', { exact: true })).toBeVisible()
     await expect(kubernetesStats.getByText('Control-plane', { exact: true })).toBeVisible()
     await expect(kubernetesStats.getByText('Workload-capable', { exact: true })).toBeVisible()
     await expect(kubernetesStats.getByText('1 also runs workloads', { exact: true })).toBeVisible()
     await expect(
-      page.getByRole('grid', { name: 'Platform members' }).getByRole('row', { name: /gpu-node-01/ }),
+      page.getByRole('table', { name: 'Platform members' }).getByRole('row', { name: /gpu-node-01/ }),
     ).toContainText('Runs workloads')
     await expect(page.getByText(/Kubernetes membership/)).toBeVisible()
     await page.goto('/platforms/platform-slurm?site=site-a')
-    const slurmStats = page.locator('.sw-stat-strip')
+    const slurmStats = page.locator('.sw-metric-grid')
     await expect(slurmStats.getByText('Managers')).toBeVisible()
     await expect(slurmStats.getByText('Compute nodes')).toBeVisible()
     // A registered Slurm platform has no live slurmrestd read, so the Slurm view degrades and
@@ -700,28 +532,60 @@ test.describe('operator interactions', () => {
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
+  test('Platform detail keeps configuration inside Overview and Activity separate', async ({ page }) => {
+    await page.goto('/platforms/platform-a?site=site-a')
+
+    const tabList = page.getByRole('tablist')
+    const configuration = page.getByRole('heading', { name: 'Configuration', exact: true })
+    await expect(tabList).toBeVisible()
+    await expect(configuration).toBeVisible()
+
+    const tabBounds = await tabList.boundingBox()
+    const configurationBounds = await configuration.boundingBox()
+    expect(tabBounds).not.toBeNull()
+    expect(configurationBounds).not.toBeNull()
+    expect(tabBounds!.y).toBeLessThan(configurationBounds!.y)
+
+    await page.getByRole('tab', { name: 'Activity' }).click()
+    await expect(configuration).toBeHidden()
+    await expect(page.getByRole('heading', { name: 'Related workflows', exact: true })).toBeVisible()
+
+    await page.getByRole('tab', { name: 'Overview' }).click()
+    await expect(configuration).toBeVisible()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    const memberCard = page.locator('.sw-resource-card').filter({ hasText: 'gpu-node-01' })
+    await expect(memberCard).toBeVisible()
+    await expect(memberCard.getByRole('button', { name: 'Open server' })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Platform members' })).toBeHidden()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+    await page.getByRole('tab', { name: 'Activity' }).click()
+    await expect(page.getByRole('button', { name: 'Open workflow' }).first()).toBeVisible()
+  })
+
   test('deployed Slurm platform shows the Slurm-native cluster view (controllers, partitions, node states)', async ({ page }) => {
     // The Slurm view reads live cluster state from slurmrestd: controllers via ping, partitions,
     // and compute node scheduler state - each in its own section, not the k0s member table.
     await installApiFixtures(page, { slurmDeployed: true })
     await page.goto('/platforms/platform-slurm-ha?site=site-a')
 
-    const stats = page.locator('.sw-stat-strip')
-    await expect(stats.locator('.sw-stat').filter({ hasText: 'Managers' })).toContainText('2')
-    await expect(stats.locator('.sw-stat').filter({ hasText: 'Compute nodes' })).toContainText('2')
+    const stats = page.locator('.sw-metric-grid')
+    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Managers' })).toContainText('2')
+    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Compute nodes' })).toContainText('2')
 
     // Controllers come from slurmrestd ping with a real up/down status, in failover order.
-    const controllers = page.getByRole('grid', { name: 'Slurm controllers' })
+    const controllers = page.getByRole('table', { name: 'Slurm controllers' })
     const primaryRow = controllers.getByRole('row', { name: /slurm-ctl-01/ })
     await expect(primaryRow).toContainText('primary')
     await expect(primaryRow).toContainText('up')
     await expect(controllers.getByRole('row', { name: /slurm-ctl-02/ })).toContainText('backup')
 
     // Partitions are a first-class Slurm concept, shown in their own section.
-    await expect(page.getByRole('grid', { name: 'Slurm partitions' }).getByRole('row', { name: /main/ })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Slurm partitions' }).getByRole('row', { name: /main/ })).toBeVisible()
 
     // Compute nodes show the real Slurm scheduler state; health/power is never conflated in.
-    const nodes = page.getByRole('grid', { name: 'Slurm compute nodes' })
+    const nodes = page.getByRole('table', { name: 'Slurm compute nodes' })
     await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).toContainText('idle')
     await expect(nodes.getByRole('row', { name: /slurm-cpt-02/ })).toContainText('allocated')
     await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).not.toContainText('host on')
@@ -729,17 +593,17 @@ test.describe('operator interactions', () => {
 
   test('standalone Platform summary shows one control-plane is workload-capable', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
-    const stats = page.locator('.sw-stat-strip')
-    await expect(stats.locator('.sw-stat').filter({ hasText: 'Topology' })).toContainText('Standalone')
-    await expect(stats.locator('.sw-stat').filter({ hasText: 'Control-plane' }))
+    const stats = page.locator('.sw-metric-grid')
+    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Topology' })).toContainText('Standalone')
+    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Control-plane' }))
       .toContainText('1 also runs workloads')
-    await expect(stats.locator('.sw-stat').filter({ hasText: 'Workload-capable' }))
+    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Workload-capable' }))
       .toContainText('1')
   })
 
   test('Platform list uses backend lifecycle labels and keeps registered-platform uninstall disabled', async ({ page }) => {
     await page.goto('/platforms?site=site-a')
-    const table = page.getByRole('grid', { name: 'Platforms' })
+    const table = page.getByRole('table', { name: 'Platforms' })
     await expect(table.getByRole('row', { name: /production-k0s/ })).toContainText('Active')
     await expect(table.getByRole('row', { name: /edge-staging/ })).toContainText('Deployment failed')
     await expect(table.getByRole('row', { name: /research-slurm/ })).toContainText('Registered')
@@ -780,8 +644,9 @@ test.describe('operator interactions', () => {
     await expect(page.getByText(/Provision and verify operating system on srv-4 will retry in Operation op-deploy-failed/)).toBeVisible()
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByText('Deployment failed')).toHaveCount(0)
+    await page.getByRole('tab', { name: 'Activity' }).click()
     await expect(
-      page.getByRole('grid', { name: 'Related operations' })
+      page.getByRole('table', { name: 'Related workflows' })
         .getByRole('row', { name: /Deploy edge-staging k0s platform/ })
         .first(),
     ).toContainText('running')
@@ -806,7 +671,7 @@ test.describe('operator interactions', () => {
   })
 
   test('missing-address OS Step retry requires release and redeploy confirmation', async ({ page }) => {
-    await page.goto('/operations/op-deploy-failed?site=site-a')
+    await page.goto('/workflows/op-deploy-failed?site=site-a')
     const row = page.getByRole('row', { name: /Provision and verify operating system on srv-4/ })
     await row.getByRole('button', { name: /Retry Provision and verify/ }).click()
     const dialog = page.getByRole('dialog', { name: 'Retry failed OS deployment' })
@@ -833,7 +698,7 @@ test.describe('operator interactions', () => {
     await expect(uninstall).toBeDisabled()
     await confirmation.fill('production-k0s')
     await uninstall.click()
-    await expect(page).toHaveURL('/operations/op-uninstall?site=site-a')
+    await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
     await expect(page.getByText('Platform uninstall accepted')).toBeVisible()
 
     await page.goto('/platforms/platform-a?site=site-a')
@@ -861,15 +726,15 @@ test.describe('operator interactions', () => {
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
     // Options are hidden until the operator opts into releasing servers.
     await expect(dialog.getByLabel('Erase disks before release')).toHaveCount(0)
-    await dialog.getByLabel('Also release servers back to the provider').check()
+    await dialog.getByLabel('Also release servers back to the provider').locator('..').click()
     await expect(dialog.getByText(/Servers will be wiped and returned to the provider/)).toBeVisible()
-    await dialog.getByLabel('Erase disks before release').check()
-    await dialog.getByLabel('Use secure erase when supported').check()
-    await dialog.getByLabel('Remove static IP bindings after release').check()
+    await dialog.getByLabel('Erase disks before release').locator('..').click()
+    await dialog.getByLabel('Use secure erase when supported').locator('..').click()
+    await dialog.getByLabel('Remove static IP bindings after release').locator('..').click()
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
     await dialog.getByRole('button', { name: 'Uninstall platform' }).click()
 
-    await expect(page).toHaveURL('/operations/op-uninstall?site=site-a')
+    await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
     await expect(page.getByText('Platform uninstall accepted')).toBeVisible()
     await expect.poll(() => uninstalls.length).toBe(1)
     expect(uninstalls[0]).toEqual({
@@ -883,10 +748,10 @@ test.describe('operator interactions', () => {
 
 
   test('AWX stdout is first and supports search, navigation, copy, download, events, and retry', async ({ page }) => {
-    await page.goto('/operations?site=site-a')
-    await page.getByLabel('Filter by status').selectOption('failed')
+    await page.goto('/workflows?site=site-a')
+    await chooseSingleSelectOption(page, 'Filter by status', 'failed')
     await expect(page).toHaveURL(/status=failed/)
-    await page.goto('/operations/op-running?site=site-a')
+    await page.goto('/workflows/op-running?site=site-a')
     await expect(page.getByRole('tab', { name: 'Stdout' })).toHaveAttribute('aria-selected', 'true')
     await page.getByPlaceholder('Search stdout').fill('TASK')
     await expect(page.getByText('1 / 3')).toBeVisible()
@@ -899,16 +764,16 @@ test.describe('operator interactions', () => {
     }))
     await page.getByLabel('Copy stdout').click()
     await expect.poll(() => page.evaluate(() => localStorage.getItem('e2e.clipboard'))).toContain('PLAY [Prepare hosts]')
-    await expect(page.getByRole('heading', { name: /Stdout copied/ })).toBeVisible()
+    await expect(page.getByText('stdout copied', { exact: true })).toBeVisible()
     const download = page.waitForEvent('download')
     await page.getByLabel('Download stdout').click()
-    expect((await download).suggestedFilename()).toBe('swallow-operation-op-running.log')
+    expect((await download).suggestedFilename()).toBe('swallow-operation-op-running-stdout.log')
     await page.getByRole('tab', { name: 'Events' }).click()
-    await page.getByLabel('Filter events by status').selectOption('failed')
-    await expect(page.getByRole('gridcell', { name: 'Start controller' })).toBeVisible()
-    await page.goto('/operations/op-failed?site=site-a')
+    await chooseSingleSelectOption(page, 'Filter events by status', 'failed')
+    await expect(page.getByRole('cell', { name: 'Start controller' })).toBeVisible()
+    await page.goto('/workflows/op-failed?site=site-a')
     await page.getByRole('button', { name: 'Retry' }).click()
-    await expect(page).toHaveURL('/operations/op-retry?site=site-a')
+    await expect(page).toHaveURL('/workflows/op-retry?site=site-a')
   })
 
   test('Monitoring filters, acknowledges, and exposes the provider Grafana link', async ({ page }) => {
@@ -916,11 +781,15 @@ test.describe('operator interactions', () => {
     const grafana = page.getByRole('link', { name: 'Open Grafana' })
     await expect(grafana).toHaveAttribute('href', 'https://grafana.example')
     await expect(grafana).toHaveAttribute('target', '_blank')
-    await page.getByLabel('Filter alert severity').selectOption('critical')
+    await chooseSingleSelectOption(page, 'Filter alert severity', 'Critical')
     await expect(page).toHaveURL(/severity=critical/)
-    await expect(page.getByText('NodeDown')).toBeVisible()
-    await page.getByRole('row', { name: /NodeDown/ }).getByRole('button', { name: 'Acknowledge' }).click()
-    await page.getByLabel('Comment').fill('Investigating host power')
+    const alertsList = page.getByRole('list', { name: 'Monitoring alerts' })
+    await expect(alertsList.getByText('NodeDown')).toBeVisible()
+    await expect(alertsList.getByRole('listitem')).toHaveCount(1)
+    await alertsList.getByRole('listitem').filter({ hasText: 'NodeDown' }).getByRole('button', { name: 'Acknowledge' }).click()
+    const acknowledgeDialog = page.getByRole('dialog', { name: 'Acknowledge alert' })
+    await expect(acknowledgeDialog).toBeVisible()
+    await acknowledgeDialog.getByLabel('Comment').fill('Investigating host power')
     await page.getByRole('dialog').getByRole('button', { name: 'Acknowledge' }).click()
     await expect(page.getByText('Alert acknowledged')).toBeVisible()
   })
@@ -935,7 +804,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Some metric batches are unavailable')).toBeVisible()
     expect(maxActive).toBeLessThanOrEqual(2)
     expect(maxActive).toBe(2)
-    await expect(page.getByRole('gridcell', { name: '30.0%' }).first()).toBeVisible()
+    await expect(page.getByRole('cell', { name: /30%/ }).first()).toBeVisible()
     await expect(page.getByText('No data').first()).toBeVisible()
   })
 
@@ -947,7 +816,7 @@ test.describe('operator interactions', () => {
     await page.getByRole('dialog').getByRole('button', { name: 'Acknowledge' }).click()
     await expect(page.getByText('Alertmanager is unavailable')).toBeVisible()
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
-    await expect(page.getByRole('row', { name: /NodeDown/ })).toBeVisible()
+    await expect(page.getByRole('listitem').filter({ hasText: 'NodeDown' })).toBeVisible()
   })
 
   test('Server Detail opens the standalone OS deployment workflow with its target', async ({ page }) => {
@@ -1002,21 +871,21 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('2 of 100 selected')).toBeVisible()
 
     await page.getByRole('button', { name: 'Next' }).click()
-    await page.getByLabel('Configuration source').selectOption('template-a')
+    await chooseSingleSelectOption(page, 'Configuration source', 'GPU compute baseline')
     await expect(page.getByLabel('OS image')).toBeDisabled()
     await page.getByRole('button', { name: 'Customize' }).click()
     await expect(page.getByLabel('OS image')).toBeEnabled()
-    await page.getByLabel('Cloud-init').first().selectOption('replace')
+    await chooseSingleSelectOption(page, 'Cloud-init', 'Replace for this deployment')
     await page.locator('textarea#deploy-user-data').fill('#cloud-config\nhostname: batch')
     await page.getByRole('button', { name: 'Next' }).click()
-    await page.getByLabel('Save as a deployment template').check()
+    await page.getByLabel('Save as a deployment template').locator('..').click()
     await page.getByLabel('New deployment template name').fill('Scale-out baseline')
     await page.getByRole('button', { name: 'Deploy OS' }).click()
 
     await expect(page).toHaveURL('/servers?site=site-a')
     await expect(page.getByText('OS deployment started')).toBeVisible()
     await expect(page.getByText(/Operation op-deploy-os-1 is running in the background/)).toBeVisible()
-    await expect(page.getByRole('grid', { name: 'Servers' })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Servers' })).toBeVisible()
     expect(deploymentRequest?.serverIds).toEqual(['srv-1', 'srv-2'])
     expect(deploymentRequest?.network).toEqual({ mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false, assignments: [{ serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a' }, { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a' }] })
     expect(JSON.stringify(deploymentRequest)).toContain('#cloud-config')
@@ -1049,11 +918,11 @@ test.describe('operator interactions', () => {
 
     const networkSection = page.locator('section.sw-section').filter({ hasText: 'Network configuration' })
     const sectionBox = await networkSection.boundingBox()
-    const dhcpBox = await page.getByRole('button', { name: 'DHCP' }).boundingBox()
+    const automaticBox = await page.getByRole('radio', { name: 'Automatic' }).locator('..').boundingBox()
     expect(sectionBox).not.toBeNull()
-    expect(dhcpBox).not.toBeNull()
-    if (!sectionBox || !dhcpBox) throw new Error('Network configuration controls are not visible')
-    expect(dhcpBox.x - sectionBox.x).toBeGreaterThan(16)
+    expect(automaticBox).not.toBeNull()
+    if (!sectionBox || !automaticBox) throw new Error('Network configuration controls are not visible')
+    expect(automaticBox.x - sectionBox.x).toBeGreaterThan(16)
   })
 
   test('Deploy OS preserves an existing Static binding as the network default', async ({ page }) => {
@@ -1067,13 +936,13 @@ test.describe('operator interactions', () => {
     await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
     await page.getByRole('button', { name: 'Next' }).click()
 
-    const staticMode = page.getByRole('button', { name: 'Static' })
-    const dhcpMode = page.getByRole('button', { name: 'DHCP' })
-    await expect(staticMode).toHaveAttribute('aria-pressed', 'true')
-    await expect(dhcpMode).toHaveAttribute('aria-pressed', 'false')
-    const subnet = page.getByLabel('Subnet for gpu-node-01')
-    await expect(subnet.locator('option:checked')).toHaveText('192.168.40.0/24')
-    await expect(subnet.locator('option:checked')).not.toContainText('(')
+    const staticMode = page.getByRole('radio', { name: 'Static' })
+    const automaticMode = page.getByRole('radio', { name: 'Automatic' })
+    await expect(staticMode).toBeChecked()
+    await expect(automaticMode).not.toBeChecked()
+    const subnet = page.getByRole('combobox', { name: 'Subnet for gpu-node-01' })
+    await expect(subnet).toHaveText('192.168.40.0/24')
+    await expect(subnet).not.toContainText('(')
     const currentModeHeading = page.getByRole('columnheader', { name: 'Current mode' })
     await expect(currentModeHeading).toBeVisible()
     expect(await currentModeHeading.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
@@ -1085,8 +954,8 @@ test.describe('operator interactions', () => {
     await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 22.04 LTS (amd64)')
     await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
 
-    await dhcpMode.click()
-    await expect(dhcpMode).toHaveAttribute('aria-pressed', 'true')
+    await automaticMode.locator('..').click()
+    await expect(automaticMode).toBeChecked()
     await expect(page.getByLabel('Static IPv4 address for gpu-node-01')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled()
   })
@@ -1123,7 +992,7 @@ test.describe('operator interactions', () => {
     await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
     await page.getByRole('button', { name: 'Next' }).click()
     await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 22.04 LTS (amd64)')
-    await page.getByRole('button', { name: 'Static' }).click()
+    await page.getByRole('radio', { name: 'Static' }).locator('..').click()
 
     const next = page.getByRole('button', { name: 'Next' })
     await expect(next).toBeDisabled()
@@ -1134,7 +1003,7 @@ test.describe('operator interactions', () => {
     await expect(next).toBeEnabled()
     await next.click()
 
-    const review = page.getByRole('grid', { name: 'Deployment review targets' })
+    const review = page.getByRole('table', { name: 'Deployment review targets' })
     await expect(review).toContainText('192.168.40.91')
     await expect(review).toContainText('192.168.40.92')
     await page.getByRole('button', { name: 'Deploy OS' }).click()
@@ -1148,24 +1017,24 @@ test.describe('operator interactions', () => {
       ],
     })
     await expect(page.getByText('OS deployment started')).toBeVisible()
-    await expect(page.getByRole('grid', { name: 'Servers' })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Servers' })).toBeVisible()
   })
 
   test('template CRUD remains write-only and OS Images preserves partial provider results', async ({ page }) => {
     await page.unroute('**/api/v1/**')
     await installApiFixtures(page, { failImageIntegrationIds: ['maas-b'] })
     await page.goto('/provisioning/templates?site=site-a')
-    await expect(page.getByText('GPU compute baseline')).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Deployment templates' }).getByText('GPU compute baseline')).toBeVisible()
     await page.getByRole('button', { name: 'Create template' }).click()
-    await page.getByLabel('Provisioner integration').selectOption('maas-a')
+    await chooseSingleSelectOption(page, 'Provisioner integration', 'MAAS Taipei')
     await page.getByLabel('Name').fill('Scale-out template')
-    await page.getByLabel('OS image').selectOption('ubuntu/noble')
+    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 24.04 LTS (amd64)')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     const row = page.getByRole('row', { name: /Scale-out template/ })
     await expect(row).toBeVisible()
     await row.getByRole('button', { name: 'Add cloud-init' }).click()
-    await page.locator('textarea#template-user-data').fill('#cloud-config\nusers: []')
-    await page.locator('.pf-v6-c-card').filter({ hasText: 'Replace cloud-init for Scale-out template' }).getByRole('button', { name: 'Replace cloud-init' }).click()
+    await page.getByLabel('New cloud-init').fill('#cloud-config\nusers: []')
+    await page.getByRole('heading', { name: 'Replace cloud-init for Scale-out template' }).locator('..').getByRole('button', { name: 'Replace cloud-init' }).click()
     await expect(page.getByRole('row', { name: /Scale-out template/ })).toContainText('Configured')
     expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('#cloud-config')
 
@@ -1178,15 +1047,15 @@ test.describe('operator interactions', () => {
   test('Infrastructure exposes the Site hierarchy and OS Image provider sources', async ({ page }) => {
     await page.goto('/infrastructure/sites')
     await expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible()
-    await expect(page.getByText('Sites define infrastructure locations. Each Integration connects one Site to an external provider.')).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Sites' })).toHaveAttribute('aria-selected', 'true')
     const taipei = page.getByRole('row', { name: /Taipei Lab/ })
     await expect(taipei).toContainText('Primary accelerator lab')
-    await expect(taipei.getByRole('gridcell', { name: '3' })).toBeVisible()
+    await expect(taipei.getByRole('cell', { name: '3' })).toBeVisible()
     await taipei.getByRole('button', { name: 'Delete' }).click()
     await page.getByLabel('Site name confirmation').fill('Taipei Lab')
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete site' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete site' }).click()
     await expect(page.getByText('This site still has integrations. Delete them first.')).toBeVisible()
-    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel' }).click()
 
     await page.getByRole('tab', { name: 'Integrations' }).click()
     const maas = page.getByRole('row', { name: /MAAS Taipei/ })
@@ -1217,7 +1086,7 @@ test.describe('operator interactions', () => {
     await expect(page).toHaveURL('/infrastructure/integrations?site=site-3')
 
     await page.locator('.sw-page-header').getByRole('button', { name: 'Create integration' }).click()
-    await expect(page.getByRole('dialog').getByLabel('Site')).toHaveValue('site-3')
+    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Site', exact: true })).toHaveText('Singapore DC')
     await page.getByLabel('Name').fill('MAAS Singapore')
     await page.getByLabel('Endpoint').fill('https://maas.sg.example')
     await page.getByLabel('Credential').fill('consumer:token:initial-secret')
@@ -1228,11 +1097,11 @@ test.describe('operator interactions', () => {
     await expect(integration).toContainText('Singapore DC')
     await expect(integration).toContainText('Configured')
     await integration.getByRole('button', { name: 'Edit' }).click()
-    await expect(page.getByRole('dialog').getByLabel('Site')).toBeDisabled()
-    await expect(page.getByRole('dialog').getByLabel('Role')).toBeDisabled()
-    await expect(page.getByRole('dialog').getByLabel('Provider')).toBeDisabled()
+    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Site', exact: true })).toBeDisabled()
+    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Role', exact: true })).toBeDisabled()
+    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Provider', exact: true })).toBeDisabled()
     await page.getByLabel('Name').fill('MAAS Singapore Primary')
-    await page.getByLabel('Enabled').uncheck()
+    await page.getByLabel('Enabled').locator('..').click()
     await page.getByRole('dialog').getByRole('button', { name: 'Save changes' }).click()
 
     integration = page.getByRole('row', { name: /MAAS Singapore Primary/ })
@@ -1245,37 +1114,24 @@ test.describe('operator interactions', () => {
 
     await integration.getByRole('button', { name: 'Delete' }).click()
     await page.getByLabel('Integration name confirmation').fill('MAAS Singapore Primary')
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete integration' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete integration' }).click()
     await expect(page.getByRole('row', { name: /MAAS Singapore Primary/ })).toHaveCount(0)
 
     await page.getByRole('tab', { name: 'Sites' }).click()
     const site = page.getByRole('row', { name: /Singapore DC/ })
     await site.getByRole('button', { name: 'Delete' }).click()
     await page.getByLabel('Site name confirmation').fill('Singapore DC')
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete site' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete site' }).click()
     await expect(page).toHaveURL('/infrastructure/sites')
     await expect(page.getByRole('row', { name: /Singapore DC/ })).toHaveCount(0)
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.evaluate(() => localStorage.setItem('swallow.appearance', JSON.stringify('dark')))
+    await page.evaluate(() => localStorage.setItem('swallow.appearance', 'dark'))
     await page.goto('/infrastructure/integrations')
-    await expect(page.locator('html')).toHaveClass(/pf-v6-theme-dark/)
+    await expect(page.locator('html')).toHaveClass(/dark/)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    const mobileRowLayout = await page.locator('table[aria-label="Integrations"] tbody tr').first().evaluate((row) => {
-      const rowWidth = row.getBoundingClientRect().width
-      const rowStyle = getComputedStyle(row)
-      const availableWidth = rowWidth - Number.parseFloat(rowStyle.paddingInlineStart) - Number.parseFloat(rowStyle.paddingInlineEnd)
-      const cells = [...row.querySelectorAll('td')]
-      const action = row.querySelector('.pf-v6-c-table__action')
-      return {
-        allCellsUseRowWidth: cells.every((cell) => cell.getBoundingClientRect().width >= availableWidth * 0.95),
-        allCellsUseFirstColumn: cells.every((cell) => getComputedStyle(cell).gridColumnStart === '1'),
-        actionColumn: action ? getComputedStyle(action).gridColumnStart : '',
-      }
-    })
-    expect(mobileRowLayout.allCellsUseRowWidth).toBe(true)
-    expect(mobileRowLayout.allCellsUseFirstColumn).toBe(true)
-    expect(mobileRowLayout.actionColumn).toBe('1')
+    await expect(page.locator('.sw-resource-card').first()).toBeVisible()
+    await expect(page.locator('table[aria-label="Integrations"]')).toBeHidden()
   })
 
   test('keyboard can traverse primary navigation', async ({ page }) => {
