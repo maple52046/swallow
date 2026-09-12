@@ -129,6 +129,12 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("deployment template repo init: %w", err)
 	}
+	// Swallow-owned OS Image name overlays merged onto the provider catalog at read
+	// (docs/decisions/025). Owned data, so no sealing or staleness applies.
+	osImageOverlayRepo, err := provisioninginfra.NewMongoOSImageOverlayRepo(db)
+	if err != nil {
+		return fmt.Errorf("os image overlay repo init: %w", err)
+	}
 	taskRepo, err := provisioninginfra.NewMongoProvisioningTaskRepo(db)
 	if err != nil {
 		return fmt.Errorf("provisioning task repo init: %w", err)
@@ -204,7 +210,7 @@ func RunAPI(cfg config.APIConfig) error {
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
@@ -215,13 +221,14 @@ func RunAPI(cfg config.APIConfig) error {
 		taskService,
 		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo),
 		provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory),
-		provisioningapp.NewListOSImagesUseCase(providerFactory),
+		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageOverlayRepo),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
 		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
-		provisioningapp.NewDeleteOSImageUseCase(providerFactory),
+		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo),
+		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo),
 	)
 
 	platformRepo, err := platforminfra.NewMongoPlatformRepo(db)
@@ -550,6 +557,11 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)
 	provisioning.Delete("/images", deps.provisioning.DeleteImage)
+	// Swallow-owned OS Image overlay: set or clear the display overrides (name, OS, release)
+	// merged over the provider values. Same query-parameter identity as DELETE /images
+	// (docs/decisions/025).
+	provisioning.Patch("/images/overlay", deps.provisioning.SetImageOverlay)
+	provisioning.Delete("/images/overlay", deps.provisioning.ClearImageOverlay)
 	provisioning.Get("/templates", deps.provisioning.ListTemplates)
 	provisioning.Post("/templates", deps.provisioning.CreateTemplate)
 	provisioning.Get("/templates/:id", deps.provisioning.GetTemplate)

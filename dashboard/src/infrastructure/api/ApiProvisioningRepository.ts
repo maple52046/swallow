@@ -1,4 +1,7 @@
-import type { ProvisioningRepository } from "@/application/ports/ProvisioningRepository";
+import type {
+  OSImageOverlayInput,
+  ProvisioningRepository,
+} from "@/application/ports/ProvisioningRepository";
 import type {
   CreateDeploymentTemplateInput,
   DeploymentTemplate,
@@ -148,6 +151,30 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
   ): Promise<void> {
     const query = new URLSearchParams({ integrationId, imageId, architecture });
     await apiRequest<void>(`/api/v1/provisioning/images?${query}`, {
+      method: "DELETE",
+    });
+  }
+
+  async setOSImageOverlay(
+    integrationId: string,
+    imageId: string,
+    architecture: string,
+    overlay: OSImageOverlayInput,
+  ): Promise<void> {
+    const query = new URLSearchParams({ integrationId, imageId, architecture });
+    await apiRequest<void>(`/api/v1/provisioning/images/overlay?${query}`, {
+      method: "PATCH",
+      body: JSON.stringify(overlay),
+    });
+  }
+
+  async clearOSImageOverlay(
+    integrationId: string,
+    imageId: string,
+    architecture: string,
+  ): Promise<void> {
+    const query = new URLSearchParams({ integrationId, imageId, architecture });
+    await apiRequest<void>(`/api/v1/provisioning/images/overlay?${query}`, {
       method: "DELETE",
     });
   }

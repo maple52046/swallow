@@ -41,7 +41,7 @@ export class ApiPlatformRepository implements PlatformRepository {
     id: string,
     options?: UninstallPlatformOptions,
   ): Promise<DeployPlatformResult> {
-    // An absent body keeps the k0s-only uninstall; a body opts into releasing members.
+    // An absent body removes platform software; releaseServers selects the direct-release shortcut.
     return apiRequest<DeployPlatformResult>(
       `/api/v1/platforms/${encodeURIComponent(id)}/uninstall`,
       options ? { method: 'POST', body: JSON.stringify(options) } : { method: 'POST' },

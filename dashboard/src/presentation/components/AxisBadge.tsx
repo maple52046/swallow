@@ -84,13 +84,23 @@ function EphemeralIndicator() {
   )
 }
 
-/** Swallow-owned deployment outcome; this is the primary deployability result. */
+/**
+ * Swallow-owned deployment outcome; this is the primary deployability result.
+ *
+ * Two presentations. The default "merged" mode (used in the dense Server list) folds the
+ * deployed OS image name and the ephemeral qualifier into the one badge, so an operator scans
+ * both the state and the image in a single column. Pass `stateOnly` for the detail page, where
+ * deployment state, deployed OS, and ephemeral each get their own field: the badge then shows
+ * only the state and never the image name or the ephemeral icon.
+ */
 export function DeploymentBadge({
   axis,
   provider,
+  stateOnly = false,
 }: {
   axis: DeploymentAxis | null
   provider: ProvisioningAxis | null
+  stateOnly?: boolean
 }) {
   let state: ReactNode
   // The releasing / commissioning / testing / deploying provider states and the in-progress
@@ -102,30 +112,54 @@ export function DeploymentBadge({
     state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is commissioning this Server.">Commissioning</AxisLabel>
   } else if (provider?.state === 'testing') {
     state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is testing this Server.">Testing</AxisLabel>
-  } else if (axis) {
+  } else if (axis && axis.state !== 'succeeded') {
+    // A swallow deployment that is still running or ended in a non-success outcome keeps its
+    // own state label; only a succeeded deployment shows the image name (handled below).
     const presentation = DEPLOYMENT_PRESENTATION[axis.state]
-    const detail =
-      axis.statusReason ||
-      (axis.state === 'succeeded'
-        ? 'Swallow verified the installed image, provider address, and SSH endpoint.'
-        : `Operation ${axis.operationId}, attempt ${axis.attempt}`)
+    const detail = axis.statusReason || `Operation ${axis.operationId}, attempt ${axis.attempt}`
     const stripes = IN_PROGRESS_DEPLOYMENT_STATES.has(axis.state) ? IN_PROGRESS_LABEL_CLASS : undefined
     state = <AxisLabel color={presentation.color} className={stripes} tooltip={detail}>{presentation.label}</AxisLabel>
+  } else if (provider?.state === 'deployed') {
+    // A deployed machine. In state-only mode the badge shows just the deployment state; in
+    // merged mode it shows the OS image name (the effective name mirrored by reconcile: provider
+    // catalog title overlaid with any swallow custom name), falling back to OS + release so the
+    // list cell is never blank. Either way a swallow-verified deployment reads green while an
+    // externally deployed machine reads neutral, since swallow has no verification result for it.
+    const swallowVerified = axis?.state === 'succeeded'
+    if (stateOnly) {
+      state = swallowVerified ? (
+        <AxisLabel color="green" tooltip="Swallow deployed and verified this OS.">Deployed</AxisLabel>
+      ) : (
+        <AxisLabel color="gray" tooltip="The OS is installed, but no Swallow deployment result exists. See the Deployed OS field for the installed image.">Unknown</AxisLabel>
+      )
+    } else {
+      const fallback = [provider.osSystem, provider.distroSeries].filter(Boolean).join(' ')
+      const label = provider.deployedImageName || fallback || 'Deployed'
+      const tooltip = swallowVerified
+        ? 'Swallow deployed and verified this OS image.'
+        : 'Operating system reported by the provider; not deployed by swallow.'
+      state = <AxisLabel color={swallowVerified ? 'green' : 'gray'} tooltip={tooltip}>{label}</AxisLabel>
+    }
   } else if (provider?.state === 'deploying') {
     state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is installing an operating system; no verified Swallow result exists yet.">Deploying</AxisLabel>
-  } else if (provider?.state === 'deployed') {
-    state = <AxisLabel color="gray" tooltip="The OS is installed, but no Swallow deployment result exists. Check the OS and Network fields for the facts that are known.">Unknown</AxisLabel>
   } else if (provider?.state === 'failed' || provider?.state === 'broken') {
     state = <AxisLabel color="red" tooltip={`Provider lifecycle: ${provider.providerState}`}>Failed</AxisLabel>
   } else if (provider?.state === 'ready') {
     // A released machine is back in the provider's available pool. Show it as "Ready"
     // (the provider's own term) rather than "Not deployed", which reads like a fault.
     state = <AxisLabel color="blue" tooltip="The Server is in the provider's available pool, ready to be deployed.">Ready</AxisLabel>
+  } else if (axis?.state === 'succeeded') {
+    // A verified swallow deployment with no current provisioning projection still reads as
+    // deployed; the image name is unavailable without the provider axis, so fall back to a label.
+    const label = stateOnly ? 'Deployed' : provider?.deployedImageName || 'Deployed'
+    state = <AxisLabel color="green" tooltip="Swallow deployed and verified this OS image.">{label}</AxisLabel>
   } else {
     state = <AxisLabel color="gray" tooltip="No operating system deployment is active or verified.">Not deployed</AxisLabel>
   }
 
-  if (!provider?.ephemeral) return state
+  // In state-only mode the ephemeral qualifier is shown as its own field by the caller, so the
+  // badge never appends the icon; the merged list badge keeps it as a compact supplementary cue.
+  if (stateOnly || !provider?.ephemeral) return state
   return (
     <HStack gap="1" flexWrap="nowrap">
       {state}

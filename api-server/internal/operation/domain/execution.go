@@ -103,7 +103,6 @@ type ExecutionRepository interface {
 	SecretVars(ctx context.Context, id string) (map[string]any, error)
 }
 
-
 // AutomationConfigurationRepository stores site settings and sealed credentials.
 type AutomationConfigurationRepository interface {
 	FindBySiteID(ctx context.Context, siteID string) (*AutomationConfiguration, error)

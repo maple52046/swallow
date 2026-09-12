@@ -49,7 +49,7 @@ func setupReconcile(t *testing.T) *reconcileFixture {
 	}, "ck:tk:ts")
 
 	return &reconcileFixture{
-		uc:           provisioningapp.NewReconcileUseCase(integrations, servers, factory),
+		uc:           provisioningapp.NewReconcileUseCase(integrations, servers, factory, newFakeOSImageOverlayRepo()),
 		servers:      servers,
 		integrations: integrations,
 		provider:     provider,
@@ -108,6 +108,52 @@ func TestReconcile_CreatesServerFromMachine(t *testing.T) {
 		}
 		if server.Health != nil {
 			t.Error("health axis must never be set by the reconciler")
+		}
+	}
+}
+
+// A deployed machine gets its OS image's effective name mirrored onto the provisioning axis,
+// resolved once per pass from the catalog (matching a subarch machine arch to the image's
+// primary arch), so the fleet list can show a real image name without a per-request catalog read.
+func TestReconcile_MirrorsDeployedImageName(t *testing.T) {
+	f := setupReconcile(t)
+	machine := testMachine("abc123", "gpu-node-01")
+	machine.Status = provisioningdomain.MachineStatusDeployed
+	machine.ProviderStatus = "Deployed"
+	machine.OSSystem = "ubuntu"
+	machine.DistroSeries = "jammy"
+	// MAAS reports the machine arch with a subarch; the catalog image is plain "amd64".
+	machine.Architecture = "amd64/generic"
+	f.provider.withMachine(machine)
+
+	if _, err := f.uc.Execute(context.Background(), testIntegrationID); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var server *serverdomain.Server
+	for _, s := range f.servers.servers {
+		server = s
+	}
+	if server == nil || server.Provisioning == nil {
+		t.Fatal("expected a projected server with a provisioning axis")
+	}
+	if server.Provisioning.DeployedImageName != "Ubuntu 22.04 LTS" {
+		t.Errorf("DeployedImageName = %q, want the catalog name %q", server.Provisioning.DeployedImageName, "Ubuntu 22.04 LTS")
+	}
+}
+
+// A machine that is not deployed carries no deployed-image name, so a ready or commissioning
+// machine is never mislabelled with whatever image the catalog happens to list.
+func TestReconcile_NoDeployedImageNameWhenNotDeployed(t *testing.T) {
+	f := setupReconcile(t)
+	f.provider.withMachine(testMachine("abc123", "gpu-node-01")) // status ready
+
+	if _, err := f.uc.Execute(context.Background(), testIntegrationID); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	for _, s := range f.servers.servers {
+		if s.Provisioning != nil && s.Provisioning.DeployedImageName != "" {
+			t.Errorf("DeployedImageName = %q, want empty for a non-deployed machine", s.Provisioning.DeployedImageName)
 		}
 	}
 }

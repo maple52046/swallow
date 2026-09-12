@@ -95,6 +95,7 @@ type provisioningDoc struct {
 	PowerState          string    `bson:"powerState"`
 	OSSystem            string    `bson:"osSystem,omitempty"`
 	DistroSeries        string    `bson:"distroSeries,omitempty"`
+	DeployedImageName   string    `bson:"deployedImageName,omitempty"`
 	Ephemeral           bool      `bson:"ephemeral"`
 	HWEKernel           string    `bson:"hweKernel,omitempty"`
 	Locked              bool      `bson:"locked"`
@@ -556,6 +557,7 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 			PowerState:          p.PowerState,
 			OSSystem:            p.OSSystem,
 			DistroSeries:        p.DistroSeries,
+			DeployedImageName:   p.DeployedImageName,
 			Ephemeral:           p.Ephemeral,
 			HWEKernel:           p.HWEKernel,
 			Locked:              p.Locked,
@@ -646,6 +648,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			PowerState:          p.PowerState,
 			OSSystem:            p.OSSystem,
 			DistroSeries:        p.DistroSeries,
+			DeployedImageName:   p.DeployedImageName,
 			Ephemeral:           p.Ephemeral,
 			HWEKernel:           p.HWEKernel,
 			Locked:              p.Locked,

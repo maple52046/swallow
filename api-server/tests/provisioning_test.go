@@ -2,6 +2,7 @@ package tests
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
@@ -327,6 +328,83 @@ func TestDeleteImage_RequiresImageIdentity(t *testing.T) {
 	}
 	if len(f.provider.deletedImages) != 0 {
 		t.Fatalf("provider must not be asked to delete on an invalid request: %+v", f.provider.deletedImages)
+	}
+}
+
+// The swallow overlay is layered over the provider catalog at read: after an edit the catalog
+// shows the swallow values (name, OS, release) as effective while keeping the provider values,
+// and clearing it reverts to the provider values. The provider is never asked to change.
+func TestImageOverlay_SetMergeAndClear(t *testing.T) {
+	f := setupPlatform(t)
+	overlayPath := "/api/v1/provisioning/images/overlay?integrationId=" + testIntegrationID + "&imageId=ubuntu/jammy&architecture=amd64"
+
+	resp := doRequest(t, f.app, "PATCH", overlayPath,
+		map[string]any{"name": "  Golden Ubuntu  ", "osSystem": "Ubuntu LTS", "release": "22.04", "tags": []string{" gpu ", "gpu", "ml"}}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("set overlay: expected 204, got %d", resp.StatusCode)
+	}
+
+	resp = doRequest(t, f.app,
+		"GET", "/api/v1/provisioning/images?integrationId="+testIntegrationID, nil, f.adminAuth(t))
+	items := parseArrayBody(t, resp)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(items))
+	}
+	image := items[0]
+	if image["name"] != "Golden Ubuntu" || image["customName"] != "Golden Ubuntu" || image["providerName"] != "Ubuntu 22.04 LTS" {
+		t.Fatalf("name merge = %v, want effective/custom \"Golden Ubuntu\" over provider \"Ubuntu 22.04 LTS\"", image)
+	}
+	if image["osSystem"] != "Ubuntu LTS" || image["customOsSystem"] != "Ubuntu LTS" || image["providerOsSystem"] != "ubuntu" {
+		t.Fatalf("os merge = %v, want effective/custom \"Ubuntu LTS\" over provider \"ubuntu\"", image)
+	}
+	if image["release"] != "22.04" || image["customRelease"] != "22.04" || image["providerRelease"] != "jammy" {
+		t.Fatalf("release merge = %v, want effective/custom \"22.04\" over provider \"jammy\"", image)
+	}
+	tags, ok := image["tags"].([]any)
+	if !ok || len(tags) != 2 || tags[0] != "gpu" || tags[1] != "ml" {
+		t.Fatalf("tags = %v, want normalized [gpu ml]", image["tags"])
+	}
+
+	resp = doRequest(t, f.app, "DELETE", overlayPath, nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("clear overlay: expected 204, got %d", resp.StatusCode)
+	}
+
+	resp = doRequest(t, f.app,
+		"GET", "/api/v1/provisioning/images?integrationId="+testIntegrationID, nil, f.adminAuth(t))
+	items = parseArrayBody(t, resp)
+	image = items[0]
+	if image["name"] != "Ubuntu 22.04 LTS" || image["customName"] != nil {
+		t.Fatalf("after clear name = %v, want provider label and no custom name", image)
+	}
+	if image["osSystem"] != "ubuntu" || image["customOsSystem"] != nil || image["release"] != "jammy" || image["customRelease"] != nil {
+		t.Fatalf("after clear os/release = %v, want provider values and no custom fields", image)
+	}
+	if tags, ok := image["tags"].([]any); !ok || len(tags) != 0 {
+		t.Fatalf("after clear tags = %v, want empty array", image["tags"])
+	}
+}
+
+// An over-long override is a validation error, so a runaway label cannot be stored.
+func TestImageOverlay_RejectsOverLongField(t *testing.T) {
+	f := setupPlatform(t)
+	resp := doRequest(t, f.app, "PATCH",
+		"/api/v1/provisioning/images/overlay?integrationId="+testIntegrationID+"&imageId=ubuntu/jammy&architecture=amd64",
+		map[string]any{"name": strings.Repeat("x", 201)}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("over-long name: expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// The image identity is required for the overlay just as it is for delete: without image ID and
+// architecture the request cannot name an image.
+func TestImageOverlay_RequiresImageIdentity(t *testing.T) {
+	f := setupPlatform(t)
+	resp := doRequest(t, f.app, "PATCH",
+		"/api/v1/provisioning/images/overlay?integrationId="+testIntegrationID,
+		map[string]any{"name": "Golden Ubuntu"}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing identity: expected 400, got %d", resp.StatusCode)
 	}
 }
 

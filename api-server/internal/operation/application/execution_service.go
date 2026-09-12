@@ -54,20 +54,20 @@ func (s *ExecutionService) AttachWorkflow(durable *WorkflowService) { s.durable 
 
 // ExecutionOperationItem is the public operation representation.
 type ExecutionOperationItem struct {
-	SchemaVersion      int                             `json:"schemaVersion"`
+	SchemaVersion      int                    `json:"schemaVersion"`
 	Steps              []operationdomain.Task `json:"steps"`
-	ID                 string                          `json:"id"`
-	Kind               string                          `json:"kind"`
-	Intent             string                          `json:"intent"`
-	SiteID             string                          `json:"siteId"`
-	PlatformID         *string                         `json:"platformId"`
-	ClusterID          *string                         `json:"clusterId"`
-	TargetServerIDs    []string                        `json:"targetServerIds"`
-	RetryOfOperationID *string                         `json:"retryOfOperationId"`
-	Execution          ExecutionItem                   `json:"execution"`
-	RequestedBy        string                          `json:"requestedBy"`
-	RequestedAt        string                          `json:"requestedAt"`
-	UpdatedAt          string                          `json:"updatedAt"`
+	ID                 string                 `json:"id"`
+	Kind               string                 `json:"kind"`
+	Intent             string                 `json:"intent"`
+	SiteID             string                 `json:"siteId"`
+	PlatformID         *string                `json:"platformId"`
+	ClusterID          *string                `json:"clusterId"`
+	TargetServerIDs    []string               `json:"targetServerIds"`
+	RetryOfOperationID *string                `json:"retryOfOperationId"`
+	Execution          ExecutionItem          `json:"execution"`
+	RequestedBy        string                 `json:"requestedBy"`
+	RequestedAt        string                 `json:"requestedAt"`
+	UpdatedAt          string                 `json:"updatedAt"`
 }
 
 // ExecutionItem contains no controller-specific fields.

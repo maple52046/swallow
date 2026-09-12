@@ -86,6 +86,8 @@ query language. `includeAbsent=true` changes visibility only.
         "state": "deployed",
         "powerState": "on",
         "osSystem": "ubuntu",
+        "distroSeries": "jammy",
+        "deployedImageName": "Ubuntu 22.04 LTS",
         "observedAt": "2026-05-02T15:00:00Z"
       },
       "membership": {
@@ -111,6 +113,12 @@ query language. `includeAbsent=true` changes visibility only.
 This is the same complete Server projection returned by the detail endpoint.
 Optional observations use `null`; an unavailable axis is not assigned a default
 state. No BMC, SSH, integration, or automation credential is returned.
+
+On the provisioning axis, `deployedImageName` is the effective display name of the
+currently deployed OS image — the provider catalog name overlaid with any Swallow
+custom name — mirrored during reconcile. It is display only and is empty when
+nothing is deployed or the image cannot be resolved from the catalog; clients fall
+back to `osSystem`/`distroSeries` in that case.
 
 ### Error Response
 

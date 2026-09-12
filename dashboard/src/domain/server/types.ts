@@ -79,6 +79,12 @@ export interface ProvisioningAxis {
   osSystem: string
   distroSeries: string
   /**
+   * Effective display name of the currently deployed OS image (provider catalog name overlaid
+   * with any swallow custom name), mirrored during reconcile. Empty when nothing is deployed or
+   * the image could not be resolved from the catalog.
+   */
+  deployedImageName: string
+  /**
    * The OS runs from memory and the disks are untouched, so everything on the root
    * filesystem is lost on reboot.
    *

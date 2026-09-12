@@ -33,6 +33,7 @@ type ProvisioningHandler struct {
 	actions         *application.MachineActionsUseCase
 	deleteServer    *application.DeleteServerUseCase
 	deleteImage     *application.DeleteOSImageUseCase
+	imageOverlay    *application.SetOSImageOverlayUseCase
 	durable         application.DurableOperationLauncher
 }
 
@@ -52,6 +53,7 @@ func NewProvisioningHandler(
 	actions *application.MachineActionsUseCase,
 	deleteServer *application.DeleteServerUseCase,
 	deleteImage *application.DeleteOSImageUseCase,
+	imageOverlay *application.SetOSImageOverlayUseCase,
 	durable ...application.DurableOperationLauncher,
 ) *ProvisioningHandler {
 	handler := &ProvisioningHandler{
@@ -70,6 +72,7 @@ func NewProvisioningHandler(
 		actions:         actions,
 		deleteServer:    deleteServer,
 		deleteImage:     deleteImage,
+		imageOverlay:    imageOverlay,
 	}
 	if len(durable) > 0 {
 		handler.durable = durable[0]
@@ -322,6 +325,70 @@ func (h *ProvisioningHandler) DeleteImage(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+// imageOverlayRequest carries the swallow-owned display overrides and tags for an OS Image
+// overlay. Each override field is optional; an empty field clears that override so the image
+// shows its provider value. Tags are swallow-owned labels with no provider counterpart; an
+// empty or omitted list clears them.
+type imageOverlayRequest struct {
+	Name     string   `json:"name"`
+	OSSystem string   `json:"osSystem"`
+	Release  string   `json:"release"`
+	Tags     []string `json:"tags"`
+}
+
+// SetImageOverlay writes the swallow-owned display overlay (name, OS, release) for one OS Image,
+// the effective values a user sees over the provider's. The image is selected by the same
+// identity GET /images returns — integration, image ID, and architecture — passed as query
+// parameters because an image ID contains a slash and cannot be a path segment, and one image
+// name can back several architectures. The overlay is swallow-local and never changes the
+// provider (docs/decisions/025).
+func (h *ProvisioningHandler) SetImageOverlay(c *fiber.Ctx) error {
+	integrationID := c.Query("integrationId")
+	if integrationID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
+	}
+	imageID := c.Query("imageId")
+	if imageID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "imageId is required."))
+	}
+	architecture := c.Query("architecture")
+	if architecture == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "architecture is required."))
+	}
+	var req imageOverlayRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+
+	if err := h.imageOverlay.Set(c.Context(), integrationID, imageID, architecture, req.Name, req.OSSystem, req.Release, req.Tags); err != nil {
+		return RespondError(c, err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// ClearImageOverlay removes the swallow-owned overlay for one OS Image, reverting it to the
+// provider values. It uses the same query-parameter identity as SetImageOverlay and DeleteImage,
+// and returns 204 even when no overlay existed, because the requested end state already holds.
+func (h *ProvisioningHandler) ClearImageOverlay(c *fiber.Ctx) error {
+	integrationID := c.Query("integrationId")
+	if integrationID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
+	}
+	imageID := c.Query("imageId")
+	if imageID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "imageId is required."))
+	}
+	architecture := c.Query("architecture")
+	if architecture == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "architecture is required."))
+	}
+
+	if err := h.imageOverlay.Clear(c.Context(), integrationID, imageID, architecture); err != nil {
+		return RespondError(c, err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
 // Reconcile runs a projection pass immediately instead of waiting for the interval.
 //
 // The report is returned rather than just an acknowledgement, because the interesting
@@ -376,7 +443,8 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrInvalidDeploymentTemplate),
 		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch),
 		errors.Is(err, provisioningdomain.ErrInvalidReleaseRequest),
-		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration):
+		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration),
+		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	case errors.Is(err, sitedomain.ErrSiteNotFound):

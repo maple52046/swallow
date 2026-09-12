@@ -5,7 +5,6 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { PageHeader } from '@/presentation/components/PageHeader'
-import { IdentitySummary } from '@/presentation/components/OperatorPrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useApp } from '@/di/AppProvider'
@@ -130,7 +129,7 @@ export function ServerDetailPage() {
         breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]}
         metadata={
           <HStack gap="2" wrap="wrap">
-            <DeploymentBadge axis={server.deployment} provider={server.provisioning} />
+            <DeploymentBadge axis={server.deployment} provider={server.provisioning} stateOnly />
             <LockBadge locked={server.provisioning?.locked ?? false} />
             <HealthBadge axis={server.health} />
             {activeProjection && <Badge colorPalette="blue" variant="subtle">Updating…</Badge>}
@@ -152,13 +151,6 @@ export function ServerDetailPage() {
           />
         }
       />
-      <IdentitySummary
-        items={[
-          { label: 'Provider machine', value: <span className="mono">{server.source.providerMachineId}</span> },
-          { label: 'Site', value: server.source.siteId },
-          { label: 'Server ID', value: <span className="mono">{server.id}</span> },
-        ]}
-      />
       {server.absent && (
         <Alert status="warning" title="Machine is absent from its provisioner">
           Swallow retains the projection because inventory absence is commonly transient.
@@ -175,7 +167,7 @@ export function ServerDetailPage() {
         onValueChange={(details) => navigate(scopedHref(`/servers/${server.id}/${details.value}`))}
         aria-label="Server details"
       >
-        <Tabs.List className="sw-local-tabs" overflowX="auto">
+        <Tabs.List>
           {TABS.map((tab) => (
             <Tabs.Trigger key={tab.value} value={tab.value}>
               {tab.label}

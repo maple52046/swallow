@@ -31,6 +31,17 @@ OS Images are read live from each Integration and are never mirrored into the
 template collection. Creating, changing, or using a template validates its image
 against the current provider catalog.
 
+One narrow exception is the mirrored display name of a Server's currently deployed
+image. The reconciler already reads each Integration's catalog once per pass, so it
+resolves each deployed machine's `osSystem`/`distroSeries` to the image's effective
+name (provider title overlaid with any Swallow custom name per
+[ADR 025](025-provider-data-overlay.md)) and mirrors that single string onto the
+Server provisioning axis with an `observedAt`. This is the ADR 001 mirror mechanism
+(one catalog read per Integration per reconcile, never a per-request fleet fan-out),
+and it exists so the fleet Server list can show a meaningful image name rather than a
+bare `osSystem/distroSeries`. The image catalog itself remains live-read and
+un-mirrored; only this derived name is cached on the Server.
+
 ## Alternatives considered
 
 - Restore `ProvisioningProfile`: rejected because mutable automation content

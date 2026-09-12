@@ -23,9 +23,9 @@ interface PlatformBulkActionDialogProps {
  * Confirms and fans out uninstall or delete across the selected platforms.
  *
  * Bulk destructive actions cannot ask an operator to type every platform name, so the gate is
- * typing the action verb. Uninstall reuses the standalone release-servers option; delete only
- * removes the Swallow records. The dialog stays open and shows an inline error when every target
- * failed, otherwise it hands control back to the page.
+ * typing the action verb. Uninstall reuses the standalone mutually exclusive server-release
+ * shortcut; delete only removes the Swallow records. The dialog stays open and shows an inline
+ * error when every target failed, otherwise it hands control back to the page.
  */
 export function PlatformBulkActionDialog({ action, targets, skipped, onClose, onDone }: PlatformBulkActionDialogProps) {
   const { run, running } = usePlatformBulkActions()
@@ -76,7 +76,9 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
       title={isUninstall ? `Uninstall ${count} platform${count === 1 ? '' : 's'}` : `Delete ${count} platform${count === 1 ? '' : 's'}`}
       description={
         isUninstall
-          ? 'Each platform runs its own uninstall Operation; the deployment targets are cleaned.'
+          ? releaseServers
+            ? 'Each platform releases its original deployment targets directly; platform software uninstall is skipped.'
+            : 'Each platform removes its software from the original deployment targets.'
           : 'This removes only the Swallow records and owned projections. Hosts are not changed.'
       }
       onSubmit={(event) => {
@@ -89,7 +91,11 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
             Cancel
           </Button>
           <Button type="submit" colorPalette="red" loading={running} disabled={confirmation !== verb || running || count === 0}>
-            {isUninstall ? `Uninstall ${count} platform${count === 1 ? '' : 's'}` : `Delete ${count} platform${count === 1 ? '' : 's'}`}
+            {isUninstall
+              ? releaseServers
+                ? 'Release all servers'
+                : `Uninstall ${count} platform${count === 1 ? '' : 's'}`
+              : `Delete ${count} platform${count === 1 ? '' : 's'}`}
           </Button>
         </>
       }
@@ -100,16 +106,16 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
             {error}
           </Alert>
         )}
-        {isUninstall ? (
+        {isUninstall && !releaseServers ? (
           <Text>
-            Platform software (Slurm or k0s), configuration, keys, and state are removed from each platform&apos;s deployment targets. The operating system
-            stays installed unless you also release the servers. Hosts are not rebooted.
+            Platform services, configuration, credentials, and managed state are removed from each platform&apos;s deployment targets. Operating systems,
+            user data, and other installed packages remain. Hosts are not rebooted.
           </Text>
-        ) : (
+        ) : !isUninstall ? (
           <Alert status="warning" title="Hosts will not be uninstalled">
             Any platform still running on the hosts continues to run, and accepted Operations continue after these records are deleted.
           </Alert>
-        )}
+        ) : null}
         <Field.Root>
           <Field.Label>{`${count} platform${count === 1 ? '' : 's'} affected`}</Field.Label>
           <List.Root id="platform-bulk-targets" listStyle="none" ps="0">
@@ -134,13 +140,12 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
                 if (!checked) setReleaseOptions(emptyReleaseOptions)
               }}
             >
-              Also release servers back to the provider
+              Release all servers instead of uninstalling platform software
             </Checkbox>
             {releaseServers && (
               <>
-                <Alert status="error" title="Servers will be wiped and returned to the provider">
-                  After the platform software is removed, every target server of these platforms is released to the provider in the same operation. This
-                  removes its deployed operating system; the servers leave their platform and return to the available pool.
+                <Alert status="error" title="Platform software uninstall is skipped">
+                  Every target server is released to its provider, which removes its deployed operating system.
                 </Alert>
                 <ReleaseOptionsFields idPrefix="bulk-uninstall-release" value={releaseOptions} onChange={setReleaseOptions} />
               </>

@@ -47,12 +47,28 @@ export interface Integration {
   updatedAt: string
 }
 
-/** An operating system a provisioner can currently deploy. */
+/**
+ * An operating system a provisioner can currently deploy.
+ *
+ * `name`, `osSystem`, and `release` are the effective display values: the swallow overlay value
+ * when one is set, otherwise the provider value. Each `provider*` field always carries the
+ * provider's own value (shown when reverting an override), and each `custom*` field is present
+ * only when that field has a swallow override. `id` and `architecture` identify the deployable
+ * artifact and are never overridable. See ADR 025 (Provider Data Overlay).
+ */
 export interface OSImage {
   /** Pass this back as `distroSeries` when deploying. */
   id: string
   name: string
+  providerName: string
+  customName?: string
   osSystem: string
+  providerOsSystem: string
+  customOsSystem?: string
   release: string
+  providerRelease: string
+  customRelease?: string
+  /** Swallow-owned labels for organizing and searching images; no provider counterpart. */
+  tags: string[]
   architecture: string
 }

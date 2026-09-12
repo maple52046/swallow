@@ -54,9 +54,9 @@ type fakeMAAS struct {
 	server *httptest.Server
 	mux    *http.ServeMux
 
-	lastAuthorization string
-	lastContentType   string
-	lastContentLength int64
+	lastAuthorization       string
+	lastContentType         string
+	lastContentLength       int64
 	lastOperation           string
 	lastForm                map[string]string
 	lastMethod              string

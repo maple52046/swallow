@@ -84,6 +84,10 @@ type ProvisioningAxisItem struct {
 	PowerState    string `json:"powerState"`
 	OSSystem      string `json:"osSystem"`
 	DistroSeries  string `json:"distroSeries"`
+	// DeployedImageName is the effective display name of the deployed OS image (provider
+	// catalog name overlaid with any swallow custom name), mirrored during reconcile. Empty
+	// when nothing is deployed or the image could not be resolved from the catalog.
+	DeployedImageName string `json:"deployedImageName"`
 	// Ephemeral means the deployed OS runs from memory: anything written to it is
 	// lost on reboot. Clients must show it, because no other field distinguishes such
 	// a machine from one with the same OS installed on disk.
@@ -179,6 +183,7 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 			PowerState:          p.PowerState,
 			OSSystem:            p.OSSystem,
 			DistroSeries:        p.DistroSeries,
+			DeployedImageName:   p.DeployedImageName,
 			Ephemeral:           p.Ephemeral,
 			HWEKernel:           p.HWEKernel,
 			Locked:              p.Locked,

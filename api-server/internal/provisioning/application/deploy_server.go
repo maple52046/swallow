@@ -145,12 +145,22 @@ func updateProvisioningProjection(
 ) *ProvisioningStateItem {
 	now := time.Now().UTC()
 
+	// The deployed-image name is mirrored only by reconcile (it needs the image catalog), so a
+	// single-machine action carries the previously mirrored value forward rather than blanking
+	// it; the next reconcile refreshes it. A redeploy to a different image shows the old name
+	// for at most one reconcile interval, which the ObservedAt staleness already accounts for.
+	deployedImageName := ""
+	if server.Provisioning != nil {
+		deployedImageName = server.Provisioning.DeployedImageName
+	}
+
 	server.Provisioning = &serverdomain.ProvisioningStatus{
 		State:               string(machine.Status),
 		ProviderState:       machine.ProviderStatus,
 		PowerState:          string(machine.PowerState),
 		OSSystem:            machine.OSSystem,
 		DistroSeries:        machine.DistroSeries,
+		DeployedImageName:   deployedImageName,
 		Ephemeral:           projectedEphemeral(machine),
 		HWEKernel:           machine.HWEKernel,
 		Locked:              machine.Locked,

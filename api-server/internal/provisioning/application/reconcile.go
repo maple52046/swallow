@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,15 +49,23 @@ type ReconcileUseCase struct {
 	integrations sitedomain.IntegrationRepository
 	servers      serverdomain.ServerRepository
 	providers    provisioningdomain.ProviderFactory
+	// overlays supplies swallow-owned OS image display names so the mirrored deployed-image
+	// name reflects an operator's custom rename, not just the provider catalog title.
+	overlays provisioningdomain.OSImageOverlayRepository
 }
 
 func NewReconcileUseCase(
 	integrations sitedomain.IntegrationRepository,
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
+	overlays provisioningdomain.OSImageOverlayRepository,
 ) *ReconcileUseCase {
-	return &ReconcileUseCase{integrations: integrations, servers: servers, providers: providers}
+	return &ReconcileUseCase{integrations: integrations, servers: servers, providers: providers, overlays: overlays}
 }
+
+// deployedImageNamer resolves the effective display name of a machine's currently deployed OS
+// image, or "" when the machine is not deployed or the image cannot be matched to the catalog.
+type deployedImageNamer func(machine *provisioningdomain.Machine) string
 
 // ExecuteAll reconciles every enabled provisioner.
 //
@@ -116,6 +125,12 @@ func (uc *ReconcileUseCase) reconcile(ctx context.Context, integration *sitedoma
 	}
 	report.Machines = len(machines)
 
+	// Resolve the deployed-image name once per pass (one catalog read per integration, not per
+	// machine and never per API request) so the fleet list can show a meaningful image name
+	// without a per-request provider fan-out. A catalog read failure degrades to no names for
+	// this pass rather than failing the whole reconcile.
+	resolveImageName := uc.buildDeployedImageNamer(ctx, provider, integration.ID)
+
 	// Which server each machine in this pass ended up owning.
 	//
 	// Without this, two machines matching the same existing server would both relink it:
@@ -125,7 +140,7 @@ func (uc *ReconcileUseCase) reconcile(ctx context.Context, integration *sitedoma
 	claimed := make(map[string]string, len(machines))
 
 	for _, machine := range machines {
-		outcome, conflict, err := uc.project(ctx, integration, machine, claimed)
+		outcome, conflict, err := uc.project(ctx, integration, machine, claimed, resolveImageName)
 		if err != nil {
 			return uc.recordSyncFailure(ctx, integration, report, startedAt, err)
 		}
@@ -170,6 +185,7 @@ func (uc *ReconcileUseCase) project(
 	integration *sitedomain.Integration,
 	machine *provisioningdomain.Machine,
 	claimed map[string]string,
+	resolveImageName deployedImageNamer,
 ) (projectionOutcome, *Conflict, error) {
 	source := serverdomain.Source{
 		SiteID:            integration.SiteID,
@@ -179,7 +195,7 @@ func (uc *ReconcileUseCase) project(
 
 	existing, err := uc.servers.FindBySource(ctx, source)
 	if err == nil {
-		apply(existing, source, machine, integration.ID)
+		apply(existing, source, machine, integration.ID, resolveImageName)
 		claimed[existing.ID] = machine.ID
 		if err := uc.servers.Upsert(ctx, existing); err != nil {
 			return 0, nil, err
@@ -195,7 +211,7 @@ func (uc *ReconcileUseCase) project(
 		// Nothing to match on, so this can only be a new server. A machine with no
 		// usable hardware identifiers is normal before commissioning, and common on
 		// virtual machines whose firmware reports placeholders.
-		return uc.create(ctx, source, machine, integration.ID, claimed)
+		return uc.create(ctx, source, machine, integration.ID, claimed, resolveImageName)
 	}
 
 	candidates, err := uc.servers.FindByHardware(ctx, hardware)
@@ -205,7 +221,7 @@ func (uc *ReconcileUseCase) project(
 
 	switch len(candidates) {
 	case 0:
-		return uc.create(ctx, source, machine, integration.ID, claimed)
+		return uc.create(ctx, source, machine, integration.ID, claimed, resolveImageName)
 
 	case 1:
 		candidate := candidates[0]
@@ -222,7 +238,7 @@ func (uc *ReconcileUseCase) project(
 		if conflict := relinkConflict(candidate, integration, machine); conflict != nil {
 			return 0, conflict, nil
 		}
-		apply(candidate, source, machine, integration.ID)
+		apply(candidate, source, machine, integration.ID, resolveImageName)
 		claimed[candidate.ID] = machine.ID
 		if err := uc.servers.Upsert(ctx, candidate); err != nil {
 			return 0, nil, err
@@ -275,15 +291,104 @@ func (uc *ReconcileUseCase) create(
 	machine *provisioningdomain.Machine,
 	integrationID string,
 	claimed map[string]string,
+	resolveImageName deployedImageNamer,
 ) (projectionOutcome, *Conflict, error) {
 	now := time.Now().UTC()
 	server := &serverdomain.Server{
 		ID:        uuid.NewString(),
 		CreatedAt: now,
 	}
-	apply(server, source, machine, integrationID)
+	apply(server, source, machine, integrationID, resolveImageName)
 	claimed[server.ID] = machine.ID
 	return outcomeCreated, nil, uc.servers.Upsert(ctx, server)
+}
+
+// buildDeployedImageNamer reads the integration's image catalog once and returns a resolver
+// from a machine's observed OSSystem/DistroSeries to the effective image display name. The
+// effective name is the provider's catalog title overlaid with any swallow custom name, so a
+// renamed image shows its swallow name on every server deployed with it.
+//
+// Failures degrade rather than abort: if the catalog cannot be read this pass, the resolver
+// returns "" for every machine, and the mirrored name simply stays empty until a later pass.
+func (uc *ReconcileUseCase) buildDeployedImageNamer(
+	ctx context.Context,
+	provider provisioningdomain.OSProvisioningProvider,
+	integrationID string,
+) deployedImageNamer {
+	images, err := provider.ListOSImages(ctx)
+	if err != nil {
+		return func(*provisioningdomain.Machine) string { return "" }
+	}
+
+	// Overlay lookup is best effort: a failure here means no custom names this pass, not a
+	// failed reconcile. Only the display-name override matters for the deployed-image label.
+	custom := map[string]string{}
+	if overlays, err := uc.overlays.ListByIntegration(ctx, integrationID); err == nil {
+		for _, overlay := range overlays {
+			if overlay.DisplayName != "" {
+				custom[imageArchKey(overlay.ImageID, overlay.Architecture)] = overlay.DisplayName
+			}
+		}
+	}
+
+	// Matching a machine to a catalog image must tolerate MAAS reporting a machine's
+	// architecture with a subarch (e.g. "amd64/generic") while the image lists only the
+	// primary arch (e.g. "amd64"). Keys therefore use the primary arch on both sides, plus a
+	// no-arch fallback for the rare catalog whose names differ only by subarch.
+	byIDArch := make(map[string]string, len(images))
+	byOSReleaseArch := make(map[string]string, len(images))
+	byID := make(map[string]string, len(images))
+	for _, image := range images {
+		effective := image.Name
+		if name, ok := custom[imageArchKey(image.ID, image.Architecture)]; ok {
+			effective = name
+		}
+		arch := primaryArch(image.Architecture)
+		byIDArch[imageArchKey(image.ID, arch)] = effective
+		byOSReleaseArch[osReleaseArchKey(image.OSSystem, image.Release, arch)] = effective
+		byID[image.ID] = effective
+	}
+
+	return func(machine *provisioningdomain.Machine) string {
+		// Only a deployed machine has a meaningful "deployed image"; other lifecycle states
+		// would otherwise mislabel a machine with whatever it last ran.
+		if machine.Status != provisioningdomain.MachineStatusDeployed {
+			return ""
+		}
+		// A synced image's catalog ID is "<osSystem>/<distroSeries>"; match that first, then
+		// fall back to matching the OS family and release, and finally the ID without arch.
+		imageID := machine.OSSystem + "/" + machine.DistroSeries
+		arch := primaryArch(machine.Architecture)
+		if name, ok := byIDArch[imageArchKey(imageID, arch)]; ok {
+			return name
+		}
+		if name, ok := byOSReleaseArch[osReleaseArchKey(machine.OSSystem, machine.DistroSeries, arch)]; ok {
+			return name
+		}
+		if name, ok := byID[imageID]; ok {
+			return name
+		}
+		return ""
+	}
+}
+
+// imageArchKey and osReleaseArchKey join their parts with a separator that cannot appear in the
+// values, so distinct tuples never collide in the resolver maps.
+func imageArchKey(imageID, architecture string) string {
+	return imageID + "\x00" + architecture
+}
+
+func osReleaseArchKey(osSystem, release, architecture string) string {
+	return osSystem + "\x00" + release + "\x00" + architecture
+}
+
+// primaryArch drops a MAAS subarch suffix ("amd64/generic" -> "amd64") so a machine's reported
+// architecture matches an image catalog entry that lists only the primary architecture.
+func primaryArch(architecture string) string {
+	if index := strings.IndexByte(architecture, '/'); index >= 0 {
+		return architecture[:index]
+	}
+	return architecture
 }
 
 // clearStaleDeployment recovers a Server whose deployment record no longer reflects
@@ -330,7 +435,7 @@ func staleDeploymentOnReady(machine *provisioningdomain.Machine, deployment *ser
 //
 // It never touches the membership axis, which belongs to the platform context, nor
 // CreatedAt, which belongs to whoever created the record.
-func apply(server *serverdomain.Server, source serverdomain.Source, machine *provisioningdomain.Machine, integrationID string) {
+func apply(server *serverdomain.Server, source serverdomain.Source, machine *provisioningdomain.Machine, integrationID string, resolveImageName deployedImageNamer) {
 	now := time.Now().UTC()
 
 	server.Source = source
@@ -363,6 +468,7 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 		PowerState:          string(machine.PowerState),
 		OSSystem:            machine.OSSystem,
 		DistroSeries:        machine.DistroSeries,
+		DeployedImageName:   resolveImageName(machine),
 		Ephemeral:           projectedEphemeral(machine),
 		HWEKernel:           machine.HWEKernel,
 		Locked:              machine.Locked,

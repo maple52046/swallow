@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, IconButton, Menu, Portal, Stack, Table } from '@chakra-ui/react'
-import { Columns3, FilePlus2, RefreshCw, Rocket, Trash2 } from 'lucide-react'
+import { Badge, Button, Field, HStack, IconButton, Input, Menu, Portal, Stack, Table } from '@chakra-ui/react'
+import { Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, Trash2, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { loadOSImageCatalog, type OSImageCatalog, type OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
@@ -9,17 +9,20 @@ import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { DataToolbar, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
+import { BulkImageActionDialog } from './BulkImageActionDialog'
 import { ProvisioningTabs } from './ProvisioningTabs'
+import type { OSImageBulkAction, OSImageBulkTarget } from './useOSImageBulkActions'
 
 type CatalogState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: OSImageCatalog }
 
@@ -29,7 +32,31 @@ function provisioningHref(path: string, params: Record<string, string>, scopedHr
   return `${target.pathname}${target.search}`
 }
 
-type ImageColumnKey = 'name' | 'imageId' | 'osSystem' | 'release' | 'architecture' | 'site' | 'integration' | 'refreshed'
+/**
+ * Stable selection key for one image row. An image is identified across the fleet by its
+ * integration plus the provider identity (id and architecture), the same key the catalog uses
+ * for React keys and the overlay endpoints.
+ */
+function imageKey(image: OSImageCatalogRow): string {
+  return `${image.integrationId}:${image.id}:${image.architecture}`
+}
+
+/** Projects a catalog row onto the identity a bulk action needs, with a label for messages. */
+function toBulkTarget(image: OSImageCatalogRow): OSImageBulkTarget {
+  return {
+    integrationId: image.integrationId,
+    imageId: image.id,
+    architecture: image.architecture,
+    name: image.name || image.id,
+  }
+}
+
+/** Whether the image carries any swallow override or tag (name, OS, release, or tags). */
+function hasOverride(image: OSImageCatalogRow): boolean {
+  return Boolean(image.customName || image.customOsSystem || image.customRelease || image.tags.length)
+}
+
+type ImageColumnKey = 'name' | 'imageId' | 'osSystem' | 'release' | 'tags' | 'architecture' | 'site' | 'integration' | 'refreshed'
 
 /** One toggleable data column. Actions are always rendered and are not part of this set. */
 interface ImageColumn {
@@ -40,20 +67,25 @@ interface ImageColumn {
   render: (image: OSImageCatalogRow) => ReactNode
 }
 
-const DEFAULT_VISIBLE_COLUMNS: ImageColumnKey[] = ['name', 'imageId', 'osSystem', 'release', 'architecture', 'site', 'integration', 'refreshed']
+// Every toggleable column, used to validate a saved choice. Kept separate from the default
+// visible set so a column can exist (and be toggled on) without being shown by default.
+const ALL_COLUMN_KEYS: ImageColumnKey[] = ['name', 'imageId', 'osSystem', 'release', 'tags', 'architecture', 'site', 'integration', 'refreshed']
+// Release is intentionally hidden by default (operators can enable it in the Columns menu); tags
+// are shown so the swallow-owned labels are visible at a glance.
+const DEFAULT_VISIBLE_COLUMNS: ImageColumnKey[] = ['name', 'imageId', 'osSystem', 'tags', 'architecture', 'site', 'integration', 'refreshed']
 const COLUMNS_STORAGE_KEY = 'sw.osImages.visibleColumns'
 
-/** Reads the operator's saved column choice, falling back to every column. */
+/** Reads the operator's saved column choice, falling back to the default visible set. */
 function loadVisibleColumns(): Set<ImageColumnKey> {
   try {
     const raw = localStorage.getItem(COLUMNS_STORAGE_KEY)
     if (raw) {
-      const allowed = new Set<ImageColumnKey>(DEFAULT_VISIBLE_COLUMNS)
+      const allowed = new Set<ImageColumnKey>(ALL_COLUMN_KEYS)
       const saved = (JSON.parse(raw) as ImageColumnKey[]).filter((key) => allowed.has(key))
       if (saved.length > 0) return new Set(saved)
     }
   } catch {
-    // Malformed or unavailable storage should never hide the catalog: show everything.
+    // Malformed or unavailable storage should never hide the catalog: show the default set.
   }
   return new Set(DEFAULT_VISIBLE_COLUMNS)
 }
@@ -68,6 +100,9 @@ export function OSImagesPage() {
   const [query, setQuery] = useState('')
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [deleting, setDeleting] = useState<OSImageCatalogRow | null>(null)
+  const [editing, setEditing] = useState<OSImageCatalogRow | null>(null)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [bulkAction, setBulkAction] = useState<OSImageBulkAction | null>(null)
   const [visibleColumns, setVisibleColumns] = useState<Set<ImageColumnKey>>(loadVisibleColumns)
 
   useEffect(() => {
@@ -124,14 +159,55 @@ export function OSImagesPage() {
     const needle = query.trim().toLowerCase()
     if (!needle) return items
     return items.filter((item) =>
-      [item.name, item.id, item.osSystem, item.release, item.architecture, item.integrationName].some((value) => value.toLowerCase().includes(needle)),
+      [item.name, item.id, item.osSystem, item.release, item.architecture, item.integrationName, ...item.tags].some((value) =>
+        value.toLowerCase().includes(needle),
+      ),
     )
   }, [items, query])
 
   const siteName = (id: string) => sites.find((site) => site.id === id)?.name ?? id
 
+  // Selection is keyed by imageKey over the currently filtered rows. Keys that no longer match a
+  // row (after a refresh or a narrower search) are harmless: every consumer intersects with the
+  // visible rows, and a completed bulk action clears the set.
+  const toggleOne = useCallback((key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+  const setMany = useCallback((keys: string[], value: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const key of keys) {
+        if (value) next.add(key)
+        else next.delete(key)
+      }
+      return next
+    })
+  }, [])
+  const clearSelection = useCallback(() => setSelected(new Set()), [])
+
+  const filteredKeys = useMemo(() => filtered.map(imageKey), [filtered])
+  const allFilteredSelected = filteredKeys.length > 0 && filteredKeys.every((key) => selected.has(key))
+  const someFilteredSelected = filteredKeys.some((key) => selected.has(key))
+
+  // Bulk targets are the selected rows still visible, split by eligibility: only custom images
+  // are deletable, and only images carrying a swallow override can be reset.
+  const selectedImages = useMemo(() => filtered.filter((image) => selected.has(imageKey(image))), [filtered, selected])
+  const deletableTargets = selectedImages.filter((image) => image.providerOsSystem === 'custom').map(toBulkTarget)
+  const deleteSkipped = selectedImages.filter((image) => image.providerOsSystem !== 'custom').map(toBulkTarget)
+  const resettableTargets = selectedImages.filter(hasOverride).map(toBulkTarget)
+  const resetSkipped = selectedImages.filter((image) => !hasOverride(image)).map(toBulkTarget)
+
   const columns: ImageColumn[] = [
-    { key: 'name', label: 'Name', render: (image) => <strong>{image.name || '-'}</strong> },
+    {
+      key: 'name',
+      label: 'Name',
+      render: (image) => <strong>{image.name || '-'}</strong>,
+    },
     {
       key: 'imageId',
       label: 'Image ID',
@@ -147,14 +223,22 @@ export function OSImagesPage() {
         ),
     },
     { key: 'osSystem', label: 'OS', render: (image) => image.osSystem || '-' },
+    { key: 'release', label: 'Release', render: (image) => image.release || '-' },
     {
-      key: 'release',
-      label: 'Release',
-      render: (image) => (
-        <span className="sw-release-value" title={image.release || undefined}>
-          {image.release || '-'}
-        </span>
-      ),
+      key: 'tags',
+      label: 'Tags',
+      render: (image) =>
+        image.tags.length ? (
+          <span className="sw-image-tags">
+            {image.tags.map((tag) => (
+              <Badge key={tag} variant="subtle">
+                {tag}
+              </Badge>
+            ))}
+          </span>
+        ) : (
+          '-'
+        ),
     },
     { key: 'architecture', label: 'Architecture', render: (image) => image.architecture || '-' },
     {
@@ -166,7 +250,7 @@ export function OSImagesPage() {
     },
     {
       key: 'integration',
-      label: 'Provider integration',
+      label: 'Provider',
       render: (image) => (
         <Link to={`/infrastructure/integrations?site=${encodeURIComponent(image.siteId)}#integration-${image.integrationId}`}>{image.integrationName}</Link>
       ),
@@ -215,6 +299,36 @@ export function OSImagesPage() {
             </Menu.Positioner>
           </Portal>
         </Menu.Root>
+        <SelectionToolbar count={selectedImages.length} onClear={clearSelection}>
+          <Tooltip
+            content={
+              deletableTargets.length === 0
+                ? 'None of the selected images can be deleted from their provider'
+                : `Delete ${deletableTargets.length} image${deletableTargets.length === 1 ? '' : 's'}`
+            }
+          >
+            <span>
+              <Button size="sm" colorPalette="red" disabled={deletableTargets.length === 0} onClick={() => setBulkAction('delete')}>
+                <Trash2 size={16} />
+                Delete
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip
+            content={
+              resettableTargets.length === 0
+                ? 'Only images with a swallow override can be reset to provider values'
+                : `Reset ${resettableTargets.length} image${resettableTargets.length === 1 ? '' : 's'} to provider values`
+            }
+          >
+            <span>
+              <Button size="sm" variant="outline" disabled={resettableTargets.length === 0} onClick={() => setBulkAction('reset-overrides')}>
+                <RotateCcw size={16} />
+                Reset overrides
+              </Button>
+            </span>
+          </Tooltip>
+        </SelectionToolbar>
       </DataToolbar>
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
@@ -234,6 +348,13 @@ export function OSImagesPage() {
           <Table.Root size="sm" aria-label="OS images" className="sw-provisioning-table">
             <Table.Header>
               <Table.Row>
+                <Table.ColumnHeader className="sw-cell-center sw-col-selection">
+                  <Checkbox
+                    aria-label="Select all shown images"
+                    checked={allFilteredSelected ? true : someFilteredSelected ? 'indeterminate' : false}
+                    onCheckedChange={() => setMany(filteredKeys, !allFilteredSelected)}
+                  />
+                </Table.ColumnHeader>
                 {activeColumns.map((column) => (
                   <Table.ColumnHeader key={column.key} className={column.className}>
                     {column.label}
@@ -244,7 +365,14 @@ export function OSImagesPage() {
             </Table.Header>
             <Table.Body>
               {filtered.map((image) => (
-                <Table.Row key={`${image.integrationId}:${image.id}:${image.architecture}`}>
+                <Table.Row key={imageKey(image)} data-selected={selected.has(imageKey(image)) || undefined}>
+                  <Table.Cell className="sw-cell-center sw-col-selection">
+                    <Checkbox
+                      aria-label={`Select ${image.name || image.id}`}
+                      checked={selected.has(imageKey(image))}
+                      onCheckedChange={() => toggleOne(imageKey(image))}
+                    />
+                  </Table.Cell>
                   {activeColumns.map((column) => (
                     <Table.Cell key={column.key} className={column.className}>
                       {column.render(image)}
@@ -274,15 +402,25 @@ export function OSImagesPage() {
                           <FilePlus2 size={18} />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip content={image.osSystem === 'custom' ? 'Delete this custom image from the provider' : 'Only uploaded custom images can be deleted'}>
+                      <Tooltip content="Edit image labels (stored by swallow)">
+                        <IconButton
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Edit ${image.name || image.id}`}
+                          onClick={() => setEditing(image)}
+                        >
+                          <Pencil size={18} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip content={image.providerOsSystem === 'custom' ? 'Delete this image from its provider' : 'This image cannot be deleted from its provider'}>
                         <IconButton
                           variant="ghost"
                           size="sm"
                           colorPalette="red"
-                          aria-disabled={image.osSystem !== 'custom'}
+                          aria-disabled={image.providerOsSystem !== 'custom'}
                           aria-label={`Delete ${image.name || image.id}`}
                           onClick={() => {
-                            if (image.osSystem === 'custom') setDeleting(image)
+                            if (image.providerOsSystem === 'custom') setDeleting(image)
                           }}
                         >
                           <Trash2 size={18} />
@@ -300,9 +438,17 @@ export function OSImagesPage() {
             <div className="sw-resource-card-list">
               {filtered.map((image) => (
                 <ResourceCard
-                  key={`${image.integrationId}:${image.id}:${image.architecture}`}
+                  key={imageKey(image)}
                   title={image.name || image.id}
                   description={<span className="sw-mono">{image.id}</span>}
+                  selected={selected.has(imageKey(image))}
+                  status={
+                    <Checkbox
+                      aria-label={`Select ${image.name || image.id}`}
+                      checked={selected.has(imageKey(image))}
+                      onCheckedChange={() => toggleOne(imageKey(image))}
+                    />
+                  }
                   actions={
                     <>
                       <Button size="sm" colorPalette="brand" onClick={() => navigate(provisioningHref('/provisioning/deploy', { integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
@@ -311,7 +457,10 @@ export function OSImagesPage() {
                       <Button size="sm" variant="outline" onClick={() => navigate(provisioningHref('/provisioning/templates', { create: '1', integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
                         Create template
                       </Button>
-                      {image.osSystem === 'custom' && <Button size="sm" variant="plain" colorPalette="red" onClick={() => setDeleting(image)}>Delete image</Button>}
+                      <Button size="sm" variant="outline" onClick={() => setEditing(image)}>
+                        Edit
+                      </Button>
+                      {image.providerOsSystem === 'custom' && <Button size="sm" variant="plain" colorPalette="red" onClick={() => setDeleting(image)}>Delete image</Button>}
                     </>
                   }
                 >
@@ -336,11 +485,213 @@ export function OSImagesPage() {
           }}
         />
       )}
+      {editing && (
+        <EditImageDialog
+          image={editing}
+          repository={provisioning}
+          onClose={() => setEditing(null)}
+          onSaved={(title) => {
+            setEditing(null)
+            showToast({ tone: 'success', title })
+            setRefreshNonce((value) => value + 1)
+          }}
+        />
+      )}
+      {bulkAction && (
+        <BulkImageActionDialog
+          action={bulkAction}
+          targets={bulkAction === 'delete' ? deletableTargets : resettableTargets}
+          skipped={bulkAction === 'delete' ? deleteSkipped : resetSkipped}
+          onClose={() => setBulkAction(null)}
+          onDone={() => {
+            setBulkAction(null)
+            clearSelection()
+            setRefreshNonce((value) => value + 1)
+          }}
+        />
+      )}
     </div>
   )
 }
 
-/** Danger confirmation for removing a provider-owned custom image; deletion is irreversible. */
+/**
+ * Sets or clears the swallow-owned display overlay (name, OS, release) for one image. Each field
+ * is stored by swallow and merged over the provider value at read; a blank field uses the
+ * provider value. Saving or resetting never mutates the provider.
+ */
+function EditImageDialog({
+  image,
+  repository,
+  onClose,
+  onSaved,
+}: {
+  image: OSImageCatalogRow
+  repository: ProvisioningRepository
+  onClose: () => void
+  /** Called after a successful save or reset with the toast title to show. */
+  onSaved: (title: string) => void
+}) {
+  const [name, setName] = useState(image.customName ?? '')
+  const [osSystem, setOsSystem] = useState(image.customOsSystem ?? '')
+  const [release, setRelease] = useState(image.customRelease ?? '')
+  const [tags, setTags] = useState<string[]>(image.tags)
+  const [tagDraft, setTagDraft] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const close = () => {
+    if (!submitting) onClose()
+  }
+
+  // Commit the in-progress tag text as a chip. Duplicates and blanks are ignored so the list
+  // stays clean before it is sent; the backend normalizes again as the source of truth.
+  const addTag = () => {
+    const trimmed = tagDraft.trim()
+    if (trimmed && !tags.includes(trimmed)) setTags([...tags, trimmed])
+    setTagDraft('')
+  }
+  const removeTag = (tag: string) => setTags(tags.filter((entry) => entry !== tag))
+
+  // Each field is optional: a blank field is sent as an empty override, which the backend treats
+  // as "use the provider value". An all-blank save therefore reverts every field, mirroring reset.
+  // The in-progress tag text is folded in so a value typed but not yet committed is not lost.
+  const save = async () => {
+    if (submitting) return
+    const pending = tagDraft.trim()
+    const finalTags = pending && !tags.includes(pending) ? [...tags, pending] : tags
+    setSubmitting(true)
+    setError('')
+    try {
+      await repository.setOSImageOverlay(image.integrationId, image.id, image.architecture, {
+        name: name.trim(),
+        osSystem: osSystem.trim(),
+        release: release.trim(),
+        tags: finalTags,
+      })
+      onSaved('OS image updated')
+    } catch (caught) {
+      // Keep the dialog open on failure so the operator can correct and retry; only a success
+      // unmounts it, so submitting is not reset there.
+      setError(caught instanceof Error ? caught.message : 'The image could not be updated.')
+      setSubmitting(false)
+    }
+  }
+
+  const reset = async () => {
+    if (submitting) return
+    setSubmitting(true)
+    setError('')
+    try {
+      await repository.clearOSImageOverlay(image.integrationId, image.id, image.architecture)
+      onSaved('OS image reset to provider values')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The image could not be reset.')
+      setSubmitting(false)
+    }
+  }
+
+  const hasCustom = hasOverride(image)
+
+  return (
+    <Modal
+      open
+      onClose={close}
+      closeOnInteractOutside={!submitting}
+      title="Edit OS image labels"
+      description={`These labels are stored by swallow and shown instead of the provider values. They do not change the image in ${image.integrationName} or what it deploys.`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          {hasCustom && (
+            <Button variant="outline" onClick={() => void reset()} disabled={submitting}>
+              Reset to provider values
+            </Button>
+          )}
+          <Button colorPalette="brand" onClick={() => void save()} loading={submitting} disabled={submitting}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <Stack gap="4">
+        {error && (
+          <Alert status="error" title="Image could not be updated">
+            {error}
+          </Alert>
+        )}
+        <Field.Root>
+          <Field.Label htmlFor="os-image-name">Name</Field.Label>
+          <Input
+            id="os-image-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={image.providerName}
+            maxLength={200}
+            autoFocus
+          />
+          <Field.HelperText>Leave blank to use the provider name: {image.providerName}</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label htmlFor="os-image-os">OS</Field.Label>
+          <Input
+            id="os-image-os"
+            value={osSystem}
+            onChange={(event) => setOsSystem(event.target.value)}
+            placeholder={image.providerOsSystem}
+            maxLength={200}
+          />
+          <Field.HelperText>Leave blank to use the provider OS: {image.providerOsSystem}</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label htmlFor="os-image-release">Release</Field.Label>
+          <Input
+            id="os-image-release"
+            value={release}
+            onChange={(event) => setRelease(event.target.value)}
+            placeholder={image.providerRelease}
+            maxLength={200}
+          />
+          <Field.HelperText>Leave blank to use the provider release: {image.providerRelease}</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label htmlFor="os-image-tags">Tags</Field.Label>
+          <Input
+            id="os-image-tags"
+            value={tagDraft}
+            onChange={(event) => setTagDraft(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter or comma commits the current tag without submitting the form.
+              if (event.key === 'Enter' || event.key === ',') {
+                event.preventDefault()
+                addTag()
+              }
+            }}
+            onBlur={addTag}
+            placeholder="Add a tag and press Enter"
+            maxLength={200}
+          />
+          {tags.length > 0 && (
+            <HStack wrap="wrap" gap="1" mt="2">
+              {tags.map((tag) => (
+                <Badge key={tag} variant="subtle" gap="1">
+                  {tag}
+                  <button type="button" aria-label={`Remove tag ${tag}`} onClick={() => removeTag(tag)}>
+                    <X size={12} />
+                  </button>
+                </Badge>
+              ))}
+            </HStack>
+          )}
+          <Field.HelperText>Swallow-owned labels for organizing and searching images.</Field.HelperText>
+        </Field.Root>
+      </Stack>
+    </Modal>
+  )
+}
+
+/** Confirms permanent provider-side OS Image deletion before the destructive request is sent. */
 function DeleteImageDialog({
   image,
   repository,
@@ -380,7 +731,6 @@ function DeleteImageDialog({
       role="alertdialog"
       closeOnInteractOutside={!submitting}
       title="Delete OS image"
-      description={`This permanently removes the image from ${image.integrationName}.`}
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={submitting}>
@@ -399,8 +749,8 @@ function DeleteImageDialog({
           </Alert>
         )}
         <Alert status="warning" title="This cannot be undone">
-          The custom image <strong>{image.name || image.id}</strong> ({image.architecture}) is deleted from the provider. Re-uploading it is the only way
-          back, and any deployment template or in-flight deployment that references it will fail until it is replaced.
+          This will permanently remove <strong>{image.name || image.id}</strong> ({image.architecture}) from its provider. Deployment templates and
+          in-flight deployments that reference this image may fail after deletion. Make the image available again or update the affected templates before retrying.
         </Alert>
       </Stack>
     </Modal>

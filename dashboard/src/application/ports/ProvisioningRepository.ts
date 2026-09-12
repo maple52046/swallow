@@ -53,4 +53,36 @@ export interface ProvisioningRepository {
     imageId: string,
     architecture: string,
   ): Promise<void>;
+  /**
+   * Sets the swallow-owned display overlay (name, OS, release) for one image. Each provided,
+   * non-empty field becomes the effective value on the next catalog read while the provider
+   * value is preserved; an empty field clears that override. When every field is empty the
+   * overlay is removed entirely. The provider is never changed.
+   */
+  setOSImageOverlay(
+    integrationId: string,
+    imageId: string,
+    architecture: string,
+    overlay: OSImageOverlayInput,
+  ): Promise<void>;
+  /**
+   * Removes the swallow-owned overlay, reverting every field to its provider value. Safe to
+   * call when no overlay exists.
+   */
+  clearOSImageOverlay(
+    integrationId: string,
+    imageId: string,
+    architecture: string,
+  ): Promise<void>;
+}
+
+/**
+ * The overridable display fields and tags of an OS image overlay. An empty field clears that
+ * override; an empty `tags` list clears the tags.
+ */
+export interface OSImageOverlayInput {
+  name: string;
+  osSystem: string;
+  release: string;
+  tags: string[];
 }

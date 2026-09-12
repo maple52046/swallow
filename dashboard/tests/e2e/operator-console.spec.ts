@@ -714,7 +714,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('row', { name: /production-k0s/ })).toHaveCount(0)
   })
 
-  test('Uninstall can also release servers with erase and unbind options', async ({ page }) => {
+  test('Release shortcut skips platform uninstall and preserves release options', async ({ page }) => {
     const uninstalls: Array<{ platformId: string; body: Record<string, unknown> | null }> = []
     await installApiFixtures(page, {
       onPlatformUninstallRequest: (platformId, body) => uninstalls.push({ platformId, body }),
@@ -724,18 +724,22 @@ test.describe('operator interactions', () => {
     await page.getByRole('menuitem', { name: 'Uninstall platform', exact: true }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
-    // Options are hidden until the operator opts into releasing servers.
+    await expect(dialog.getByText(/Platform services, configuration, credentials/)).toBeVisible()
+    await expect(dialog.getByText(/k0s services|After k0s/)).toHaveCount(0)
+    // Release is an alternative execution path, and its options stay hidden until selected.
     await expect(dialog.getByLabel('Erase disks before release')).toHaveCount(0)
-    await dialog.getByLabel('Also release servers back to the provider').locator('..').click()
-    await expect(dialog.getByText(/Servers will be wiped and returned to the provider/)).toBeVisible()
+    await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
+    await expect(dialog.getByText('Platform software uninstall is skipped')).toBeVisible()
+    await expect(dialog.getByText(/released to its provider, which removes its deployed operating system/)).toBeVisible()
+    await expect(dialog.getByText(/leaves this platform|host exporters/)).toHaveCount(0)
     await dialog.getByLabel('Erase disks before release').locator('..').click()
     await dialog.getByLabel('Use secure erase when supported').locator('..').click()
     await dialog.getByLabel('Remove static IP bindings after release').locator('..').click()
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
-    await dialog.getByRole('button', { name: 'Uninstall platform' }).click()
+    await dialog.getByRole('button', { name: 'Release all servers' }).click()
 
     await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
-    await expect(page.getByText('Platform uninstall accepted')).toBeVisible()
+    await expect(page.getByText('Server release accepted')).toBeVisible()
     await expect.poll(() => uninstalls.length).toBe(1)
     expect(uninstalls[0]).toEqual({
       platformId: 'platform-a',

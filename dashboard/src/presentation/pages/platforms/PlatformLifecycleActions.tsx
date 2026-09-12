@@ -105,9 +105,6 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
     setReleaseOptions(emptyReleaseOptions)
   }
 
-  // The host-side software removed by uninstall depends on the platform type.
-  const platformSoftware = platform.type === 'slurm' ? 'Slurm' : 'k0s'
-
   const submit = async () => {
     if (!action || confirmation !== platform.name || submitting) return
     setSubmitting(true)
@@ -130,8 +127,10 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         const cleaned = targetCount === undefined ? 'the original deployment targets' : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
         showToast({
           tone: 'success',
-          title: 'Platform uninstall accepted',
-          description: releaseServers ? `${platformSoftware} will be removed and ${cleaned} released to the provider.` : `${cleaned} will be cleaned.`,
+          title: releaseServers ? 'Server release accepted' : 'Platform uninstall accepted',
+          description: releaseServers
+            ? `${cleaned} will be released directly to the provider. Platform software uninstall is skipped.`
+            : `Platform software will be removed from ${cleaned}.`,
         })
         navigate(scopedHref(`/workflows/${accepted.operationId}`))
         return
@@ -291,7 +290,9 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         title={isUninstall ? 'Uninstall platform' : 'Delete platform'}
         description={
           isUninstall
-            ? `This removes ${platformSoftware} from ${targetLabel} and keeps the Swallow record.`
+            ? releaseServers
+              ? `This releases ${targetLabel} directly to the provider and keeps the Swallow record. Platform software is not uninstalled first.`
+              : `This removes platform software from ${targetLabel} and keeps the Swallow record.`
             : 'This removes only the Swallow record and owned projections.'
         }
         onSubmit={(event) => {
@@ -304,7 +305,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
               Cancel
             </Button>
             <Button type="submit" colorPalette="red" loading={submitting} disabled={confirmation !== platform.name || submitting}>
-              {isUninstall ? 'Uninstall platform' : 'Delete platform'}
+              {isUninstall ? (releaseServers ? 'Release all servers' : 'Uninstall platform') : 'Delete platform'}
             </Button>
           </>
         }
@@ -317,11 +318,12 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
           )}
           {isUninstall ? (
             <>
-              <Text>
-                {platform.type === 'slurm'
-                  ? 'Slurm services (slurmctld, slurmd, slurmrestd), configuration, the MUNGE and JWT keys, and controller state will be removed. The operating system and the image-supplied Slurm packages remain installed unless you also release the servers. Hosts are not rebooted.'
-                  : 'k0s services, state, configuration, join tokens, temporary installer, and binary will be removed. The operating system, user data, and shared packages remain installed unless you also release the servers. Hosts are not rebooted.'}
-              </Text>
+              {!releaseServers && (
+                <Text>
+                  Platform services, configuration, credentials, and managed state will be removed. The operating system, user data, and other installed
+                  packages remain. Hosts are not rebooted.
+                </Text>
+              )}
               <Text>
                 <strong>Targets:</strong> {targetLabel}
               </Text>
@@ -333,13 +335,12 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
                   if (!checked) setReleaseOptions(emptyReleaseOptions)
                 }}
               >
-                Also release servers back to the provider
+                Release all servers instead of uninstalling platform software
               </Checkbox>
               {releaseServers && (
                 <>
-                  <Alert status="error" title="Servers will be wiped and returned to the provider">
-                    After k0s is removed, each target server is released to the provider in the same operation. This removes its deployed operating system;
-                    the servers leave this platform and return to the available pool, and host exporters are not restored.
+                  <Alert status="error" title="Platform software uninstall is skipped">
+                    Each target server is released to its provider, which removes its deployed operating system.
                   </Alert>
                   <ReleaseOptionsFields idPrefix="uninstall-release" value={releaseOptions} onChange={setReleaseOptions} />
                 </>

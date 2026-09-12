@@ -77,6 +77,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	sites := newFakeSiteRepo()
 	integrations := newFakeIntegrationRepo()
 	templates := newFakeDeploymentTemplateRepo()
+	osImageOverlays := newFakeOSImageOverlayRepo()
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
 	factory.providers[testIntegrationID] = provider
@@ -106,13 +107,14 @@ func setupPlatform(t *testing.T) *platformFixture {
 		nil,
 		provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
 		provisioningapp.NewRefreshServerUseCase(servers, factory),
-		provisioningapp.NewListOSImagesUseCase(factory),
-		provisioningapp.NewReconcileUseCase(integrations, servers, factory),
+		provisioningapp.NewListOSImagesUseCase(factory, osImageOverlays),
+		provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageOverlays),
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
 		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
-		provisioningapp.NewDeleteOSImageUseCase(factory),
+		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays),
+		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlays),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
@@ -183,6 +185,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup := v1.Group("/provisioning", admin...)
 	provisioningGroup.Get("/images", provisioningHandler.ListImages)
 	provisioningGroup.Delete("/images", provisioningHandler.DeleteImage)
+	provisioningGroup.Patch("/images/overlay", provisioningHandler.SetImageOverlay)
+	provisioningGroup.Delete("/images/overlay", provisioningHandler.ClearImageOverlay)
 	provisioningGroup.Get("/templates", provisioningHandler.ListTemplates)
 	provisioningGroup.Post("/templates", provisioningHandler.CreateTemplate)
 	provisioningGroup.Get("/templates/:id", provisioningHandler.GetTemplate)

@@ -20,6 +20,7 @@ submit one OS deployment configuration to one or more eligible Servers.
 ## Related Glossary Terms
 
 - OS Image
+- Provider Data Overlay
 - OS Deployment
 - Deployment Template
 - Server
@@ -39,6 +40,8 @@ timestamps, and authentication behavior follow [conventions.md](conventions.md).
 ```text
 GET    /api/v1/provisioning/images?integrationId={integrationId}
 DELETE /api/v1/provisioning/images?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
+PATCH  /api/v1/provisioning/images/overlay?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
+DELETE /api/v1/provisioning/images/overlay?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 GET    /api/v1/provisioning/templates?siteId={optional}&integrationId={optional}
 POST   /api/v1/provisioning/templates
 GET    /api/v1/provisioning/templates/{id}
@@ -60,30 +63,49 @@ unchanged for backward compatibility.
 
 ## OS Image Catalog
 
-`GET /images` requires `integrationId` and reads the named provisioner live.
-It returns:
+`GET /images` requires `integrationId` and reads the named provisioner live,
+then merges the Swallow-owned overlay (see "OS Image Overlay" below) onto it. It
+returns:
 
 ```json
 [
   {
     "id": "ubuntu/jammy",
-    "name": "Ubuntu 22.04 LTS",
-    "osSystem": "ubuntu",
-    "release": "jammy",
+    "name": "Golden Ubuntu",
+    "providerName": "Ubuntu 22.04 LTS",
+    "customName": "Golden Ubuntu",
+    "osSystem": "Ubuntu LTS",
+    "providerOsSystem": "ubuntu",
+    "customOsSystem": "Ubuntu LTS",
+    "release": "22.04",
+    "providerRelease": "jammy",
+    "customRelease": "22.04",
+    "tags": ["gpu", "ml"],
     "architecture": "amd64"
   }
 ]
 ```
 
+`name`, `osSystem`, and `release` are the effective values a client displays: the
+Swallow overlay value when one is set, otherwise the provider value. The
+`provider*` fields (`providerName`, `providerOsSystem`, `providerRelease`) always
+carry the provider's own values. The `custom*` fields (`customName`,
+`customOsSystem`, `customRelease`) carry the Swallow overrides and are each omitted
+when that field has no override, in which case the effective value equals the
+provider value. `id` and `architecture` are never overridable — they identify the
+deployable artifact. `tags` is a Swallow-owned list of labels with no provider
+counterpart, always returned as an array (empty when the image has no tags).
+
 The catalog contains only resources the provisioner accepts for OS deployment.
 For MAAS this includes synced operating systems and uploaded custom images, but
 excludes PXE and bootloader artifacts returned by the same boot-resources API.
 An uploaded image keeps its provider resource name as `id` and is returned with
-`osSystem: "custom"`.
+`providerOsSystem: "custom"`.
 
-OS Images are provider-owned and are not persisted by Swallow. Missing
-`integrationId` is `400 validation_error`; an unknown integration is
-`404 not_found`; a provider failure is `503 provider_unavailable`.
+The image artifact is provider-owned and is not persisted by Swallow; only the
+overlay is Swallow-owned (see ADR 025). Missing `integrationId` is
+`400 validation_error`; an unknown integration is `404 not_found`; a provider
+failure is `503 provider_unavailable`.
 
 `DELETE /images` removes one provider-owned OS Image. It requires `integrationId`,
 `imageId`, and `architecture` as query parameters — the same identity `GET /images`
@@ -96,8 +118,45 @@ it — as it refuses an `imageId`/`architecture` that matches no deletable image
 `400 validation_error` carrying the provider's own wording. A provisioner whose adapter
 does not implement image deletion is refused the same way. Any missing query parameter is
 also `400 validation_error`; an unknown integration is `404 not_found`; a provider
-transport failure is `503 provider_unavailable`. Rename is intentionally absent: no
-supported provider exposes an image-rename operation.
+transport failure is `503 provider_unavailable`. Deleting an image also removes any
+Swallow overlay for it, so a deleted image leaves no orphan override behind.
+
+## OS Image Overlay
+
+No supported provider exposes an operation to rename an image or relabel its OS and
+release, and these display strings have no external owner, so Swallow owns an overlay
+merged onto the provider catalog at read as a Provider Data Overlay (see ADR 025). The
+overlay is Swallow-owned data: it never changes the provider or the deployable image
+identity, and it is keyed by the same `integrationId` + `imageId` + `architecture`
+identity the catalog returns, passed as query parameters because an `imageId` can contain
+a slash and one image name can back several architectures.
+
+`PATCH /images/overlay` sets the overlay. The body carries the overridable display fields
+and the Swallow-owned tag list, each optional:
+
+```json
+{ "name": "Golden Ubuntu", "osSystem": "Ubuntu LTS", "release": "22.04", "tags": ["gpu", "ml"] }
+```
+
+Each override field is trimmed before storage. A non-empty field becomes the effective value
+on subsequent `GET /images` responses while the corresponding `provider*` field continues to
+show the provider value; an empty or omitted field clears that override so the image shows its
+provider value. `tags` are trimmed, blanks dropped, and duplicates removed while preserving
+order; an empty or omitted list clears them. When no override field and no tag remains after
+normalization, the overlay is removed entirely, so an all-empty `PATCH` reverts the image to
+its provider values (the same effect as `DELETE`). It returns `204 No Content` on success. A
+field or tag longer than 200 characters, or more than 50 tags, is `400 validation_error`. Any
+missing query parameter or an invalid body is also `400 validation_error`.
+
+`DELETE /images/overlay` removes the overlay, reverting every field to its provider value.
+It uses the same query-parameter identity and returns `204 No Content` even when no overlay
+existed, because the requested end state already holds. Any missing query parameter is
+`400 validation_error`.
+
+Setting or clearing an overlay does not validate the image against the live provider
+catalog: an overlay for an image that later disappears is simply not merged, so these
+endpoints stay Swallow-local with no provider round trip and do not return
+`503 provider_unavailable`.
 
 ## Deployment Templates
 

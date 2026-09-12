@@ -220,7 +220,9 @@ a:focus-visible {
   overflow: auto;
   background: var(--chakra-colors-bg-panel);
   border: 1px solid var(--chakra-colors-border-muted);
-  border-radius: var(--sw-radius);
+  /* Match the search input's corner (Chakra `l2` → radii.sm) instead of the large panel
+     radius, so dense data tables read crisp rather than pill-like. */
+  border-radius: var(--chakra-radii-sm);
   box-shadow: var(--sw-shadow);
 }
 
@@ -729,6 +731,9 @@ tbody .sw-sticky-selection { z-index: 2; }
 }
 
 .sw-provisioning-table { min-width: 1040px; }
+/* The selection checkbox reads cramped against the table's left edge; give its column a little
+   breathing room so the control is not flush with the frame border. */
+.sw-provisioning-table .sw-col-selection { padding-inline-start: 1rem; width: 1%; white-space: nowrap; }
 .sw-provisioning-table .sw-col-imageid { min-inline-size: 16rem; }
 .sw-provisioning-table .sw-col-actions { inline-size: 8.5rem; text-align: start; }
 .sw-provisioning-table td.sw-col-actions .sw-row-actions { flex-wrap: nowrap; justify-content: flex-start; }
@@ -743,14 +748,7 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 .sw-image-id { overflow-wrap: anywhere; color: var(--chakra-colors-fg-muted); }
 .sw-image-id .sw-copy-button { vertical-align: middle; margin-inline-start: 0.25rem; }
-.sw-release-value {
-  display: inline-block;
-  max-inline-size: 13rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-}
+.sw-image-tags { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 
 /* ---- Server action result + activity ------------------------------------- */
 
@@ -933,25 +931,6 @@ tbody .sw-sticky-selection { z-index: 2; }
   margin: 0.25rem 0 0;
   overflow-wrap: anywhere;
   font-weight: var(--chakra-font-weights-semibold);
-}
-
-.sw-local-tabs {
-  width: fit-content;
-  max-width: 100%;
-  padding: 0.25rem;
-  border: 1px solid var(--chakra-colors-border-muted);
-  border-radius: var(--sw-radius-lg);
-  background: var(--chakra-colors-bg-panel);
-  box-shadow: var(--sw-shadow-soft);
-  overflow-x: auto;
-}
-.sw-local-tabs [role='tab'] { min-height: 2.25rem; border-radius: var(--sw-radius-md); }
-.sw-local-tab-content {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1.25rem;
-  padding-block-start: 1rem;
 }
 
 .sw-alert-section .sw-data-toolbar { position: static; }

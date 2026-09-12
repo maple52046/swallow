@@ -50,9 +50,15 @@ export function StatusCard({ server }: { server: Server }) {
           <DescriptionList
             items={[
               { label: 'Power', value: axis.powerState },
+              // Deployed OS is the image name (provider catalog title overlaid with any swallow
+              // custom name), not the raw osSystem/distroSeries identifier. It is only present
+              // when an image is deployed, so a non-deployed machine simply omits the row.
+              { label: 'Deployed OS', value: axis.deployedImageName || null },
+              // Ephemeral is a first-class field here, not only the compact icon used in the
+              // list: on the detail page it must read unambiguously for a deployed machine.
               {
-                label: 'Deployed OS',
-                value: axis.distroSeries ? [axis.osSystem, axis.distroSeries].filter(Boolean).join(' ') : null,
+                label: 'Ephemeral',
+                value: axis.state === 'deployed' ? (axis.ephemeral ? 'Yes — runs from memory; disk changes are lost on reboot' : 'No') : null,
               },
               { label: 'Kernel', value: axis.hweKernel },
               { label: 'Commissioning', value: axis.commissioningStatus },

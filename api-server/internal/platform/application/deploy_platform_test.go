@@ -331,7 +331,7 @@ func provisionOSInput() DeployPlatformInput {
 // provision_os deploy may mix already-deployed servers with servers that still need an OS,
 // and only the ready ones are preflighted for provisioning.
 func TestDeployProvisionOSAcceptsMixedReadyAndDeployed(t *testing.T) {
-	servers := haServers()          // c1,c2,c3,w1 all deployed
+	servers := haServers()                  // c1,c2,c3,w1 all deployed
 	servers[1].Provisioning.State = "ready" // c2 needs an OS
 	servers[3].Provisioning.State = "ready" // w1 needs an OS
 	service, launcher, platforms := newDeployHarness(servers...)
