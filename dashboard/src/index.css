@@ -734,7 +734,8 @@ tbody .sw-sticky-selection { z-index: 2; }
 /* The selection checkbox reads cramped against the table's left edge; give its column a little
    breathing room so the control is not flush with the frame border. */
 .sw-provisioning-table .sw-col-selection { padding-inline-start: 1rem; width: 1%; white-space: nowrap; }
-.sw-provisioning-table .sw-col-imageid { min-inline-size: 16rem; }
+.sw-provisioning-table .sw-col-name { min-inline-size: 16rem; }
+.sw-provisioning-table .sw-col-size { white-space: nowrap; }
 .sw-provisioning-table .sw-col-actions { inline-size: 8.5rem; text-align: start; }
 .sw-provisioning-table td.sw-col-actions .sw-row-actions { flex-wrap: nowrap; justify-content: flex-start; }
 .sw-provisioning-table .sw-col-refreshed { inline-size: 12rem; white-space: nowrap; }
@@ -746,8 +747,8 @@ tbody .sw-sticky-selection { z-index: 2; }
   flex-wrap: wrap;
 }
 
-.sw-image-id { overflow-wrap: anywhere; color: var(--chakra-colors-fg-muted); }
-.sw-image-id .sw-copy-button { vertical-align: middle; margin-inline-start: 0.25rem; }
+.sw-image-name { display: flex; flex-direction: column; align-items: flex-start; gap: 0.125rem; }
+.sw-image-id { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; color: var(--chakra-colors-fg-muted); }
 .sw-image-tags { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 
 /* ---- Server action result + activity ------------------------------------- */

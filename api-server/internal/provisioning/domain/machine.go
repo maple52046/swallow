@@ -169,6 +169,9 @@ type OSImage struct {
 	Release string
 	// Architecture is the CPU architecture the image targets, e.g. "amd64".
 	Architecture string
+	// SizeBytes is the provider-reported size of the current complete image artifact.
+	// Zero means the provider did not report a usable size.
+	SizeBytes int64
 }
 
 // ProviderInfo identifies a configured provider and reports what it advertises

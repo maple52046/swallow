@@ -65,11 +65,7 @@ export function BulkImageActionDialog({ action, targets, skipped, onClose, onDon
       role={isDelete ? 'alertdialog' : undefined}
       closeOnInteractOutside={!running}
       title={title}
-      description={
-        isDelete
-          ? 'Each selected image will be permanently removed from its provider.'
-          : 'This clears the swallow-owned overrides (name, OS, release) and shows each image under its provider values again. It does not change the provider.'
-      }
+      description={isDelete ? undefined : 'Clears Swallow label overrides and restores provider values without changing the provider images.'}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -98,8 +94,8 @@ export function BulkImageActionDialog({ action, targets, skipped, onClose, onDon
         )}
         {isDelete && (
           <Alert status="warning" title="This cannot be undone">
-            Deployment templates and in-flight deployments that reference a selected image may fail after deletion. Make the image available again or
-            update the affected templates before retrying.
+            Each selected image is permanently removed from its provider. Deployment templates and in-flight
+            deployments that reference it may fail until the image is restored or those templates are updated.
           </Alert>
         )}
         <Field.Root>

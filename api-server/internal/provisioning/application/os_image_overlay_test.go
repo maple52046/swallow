@@ -138,7 +138,7 @@ func (f osImageTestFactory) For(context.Context, string) (provisioningdomain.OSP
 
 func TestListOSImagesMergesOverlay(t *testing.T) {
 	provider := &osImageBaseProvider{images: []*provisioningdomain.OSImage{
-		{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64"},
+		{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64", SizeBytes: 5 * 1024 * 1024 * 1024},
 		{ID: "ubuntu/noble", Name: "Ubuntu 24.04 LTS", OSSystem: "ubuntu", Release: "noble", Architecture: "amd64"},
 	}}
 	overlays := newOSImageOverlayRepoFake()
@@ -180,6 +180,9 @@ func TestListOSImagesMergesOverlay(t *testing.T) {
 	}
 	if len(full.Tags) != 2 || full.Tags[0] != "golden" || full.Tags[1] != "baseline" {
 		t.Errorf("tags merge = %v, want [golden baseline]", full.Tags)
+	}
+	if full.SizeBytes != 5*1024*1024*1024 {
+		t.Errorf("sizeBytes = %d, want provider size preserved through overlay merge", full.SizeBytes)
 	}
 
 	partial := items[1]

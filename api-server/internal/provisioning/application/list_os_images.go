@@ -29,6 +29,9 @@ type OSImageItem struct {
 	// clients can iterate without a null check; empty when the image has no tags.
 	Tags         []string `json:"tags"`
 	Architecture string   `json:"architecture"`
+	// SizeBytes is live provider metadata and is omitted when no complete image size is
+	// available. It is never read from or written to the swallow overlay.
+	SizeBytes int64 `json:"sizeBytes,omitempty"`
 }
 
 // ListOSImagesUseCase reads the images one provisioner can currently deploy and merges the
@@ -94,6 +97,7 @@ func (uc *ListOSImagesUseCase) Execute(ctx context.Context, integrationID string
 			ProviderRelease:  image.Release,
 			Tags:             []string{},
 			Architecture:     image.Architecture,
+			SizeBytes:        image.SizeBytes,
 		}
 		// Overlay precedence is one-directional and per field: a non-empty swallow value becomes
 		// the effective value while the provider value stays visible as provider*. Tags have no

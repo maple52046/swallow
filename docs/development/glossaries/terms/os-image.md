@@ -12,7 +12,9 @@
   offers no way to relabel or tag these and they have no external owner; each
   override is merged over the provider value at read, tags are purely additive
   (no provider counterpart), and the artifact and its deployable `id` stay
-  provider-owned.
+  provider-owned. Provider-reported artifact metadata such as its current complete
+  resource-set size may accompany the live catalog but remains provider-owned and
+  is never part of the overlay.
 - Disallowed meaning: A Swallow release, container image, package bundle,
   post-install script collection, or durable Swallow-owned copy of the image
   artifact. The overlay is not a mirror of the artifact and is never written back
@@ -27,6 +29,7 @@
   and can reset to the provider values.
 - Related terms: OS Deployment, Deployment Template, Server, Provider Data Overlay.
 - Change note: Added to make the provider ownership and integration scope used by
-  the OS provisioning API explicit. Updated 2026-09-12 for the swallow-owned
+  the OS provisioning API explicit. Updated 2026-09-13 to clarify that live image
+  size metadata remains provider-owned. Updated 2026-09-12 for the swallow-owned
   display overlay (name, OS, release) per
   [decision 025](../../../decisions/025-provider-data-overlay.md).

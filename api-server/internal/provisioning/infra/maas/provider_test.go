@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,6 +54,7 @@ const deployingMachineJSON = `{
 type fakeMAAS struct {
 	server *httptest.Server
 	mux    *http.ServeMux
+	mu     sync.Mutex
 
 	lastAuthorization       string
 	lastContentType         string
@@ -69,6 +71,7 @@ func newFakeMAAS(t *testing.T) *fakeMAAS {
 
 	f := &fakeMAAS{mux: http.NewServeMux()}
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
 		f.lastMethod = r.Method
 		f.lastRawQuery = r.URL.RawQuery
 		f.lastAuthorization = r.Header.Get("Authorization")
@@ -88,6 +91,7 @@ func newFakeMAAS(t *testing.T) *fakeMAAS {
 				}
 			}
 		}
+		f.mu.Unlock()
 
 		f.mux.ServeHTTP(w, r)
 	}))
@@ -128,9 +132,23 @@ func (f *fakeMAAS) onBootResources(statusCode int, body string) {
 	f.respond("GET "+apiPrefix+"/boot-resources/{$}", statusCode, body)
 }
 
+func (f *fakeMAAS) onBootResourceDetails(bodies map[string]string) {
+	f.mux.HandleFunc("GET "+apiPrefix+"/boot-resources/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		body, ok := bodies[r.PathValue("id")]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	})
+}
+
 func (f *fakeMAAS) onDeleteBootResource(statusCode int) {
 	f.mux.HandleFunc("DELETE "+apiPrefix+"/boot-resources/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
 		f.lastDeletedBootResource = r.PathValue("id")
+		f.mu.Unlock()
 		w.WriteHeader(statusCode)
 	})
 }
@@ -628,6 +646,13 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	  {"id": 4, "type": "Synced", "name": "grub-efi-signed/uefi", "architecture": "amd64/generic"},
 	  {"id": 5, "type": "Uploaded", "name": "ubuntu-24.04-rocm", "title": "Ubuntu 24.04 ROCm", "architecture": "amd64/generic"}
 	]`)
+	// Resource 3 intentionally has no detail response: a per-image 404 must keep the
+	// catalog usable and leave only that image's optional size unknown.
+	fake.onBootResourceDetails(map[string]string{
+		"1": `{"sets":{"20260913":{"version":"20260913","size":9663676416,"complete":false},"20260912":{"version":"20260912","size":4294967296,"complete":true}}}`,
+		"2": `{"sets":{"20260912":{"version":"20260912","size":5368709120,"complete":true}}}`,
+		"5": `{"sets":{"20260912":{"version":"20260912","size":3221225472,"complete":true}}}`,
+	})
 	provider := newTestProvider(t, fake)
 
 	images, err := provider.ListOSImages(context.Background())
@@ -654,10 +679,16 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	if jammy.Architecture != "amd64" {
 		t.Errorf("Architecture: got %q, want amd64 without the kernel flavour", jammy.Architecture)
 	}
+	if jammy.SizeBytes != 5368709120 {
+		t.Errorf("SizeBytes: got %d, want the largest newest complete kernel variant", jammy.SizeBytes)
+	}
 
 	noble := images[1]
 	if noble.Name != "ubuntu/noble" {
 		t.Errorf("expected the resource name as a fallback display name, got %q", noble.Name)
+	}
+	if noble.SizeBytes != 0 {
+		t.Errorf("noble SizeBytes: got %d, want unknown when MAAS has no complete set", noble.SizeBytes)
 	}
 
 	custom := images[2]
@@ -673,6 +704,9 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 			custom.OSSystem,
 			custom.Release,
 		)
+	}
+	if custom.SizeBytes != 3221225472 {
+		t.Errorf("custom SizeBytes: got %d, want 3221225472", custom.SizeBytes)
 	}
 }
 

@@ -54,7 +54,11 @@ export function ServerPowerDialog({ server, onSelect, onClose }: ServerPowerDial
   ]
 
   return (
-    <Modal open onClose={onClose} size="xs" title="Power actions" description={`Choose a power action for ${name}.`}
+    <Modal
+      open
+      onClose={onClose}
+      size="xs"
+      title="Power actions"
       footer={
         <Button variant="ghost" onClick={onClose}>
           Cancel
@@ -62,7 +66,9 @@ export function ServerPowerDialog({ server, onSelect, onClose }: ServerPowerDial
       }
     >
       <Text mb="3">
-        Current power state: <strong>{powerStateLabel(currentState)}</strong>.
+        <strong>{name}</strong>
+        <br />
+        Current power state: {powerStateLabel(currentState)}.
       </Text>
       <div className="sw-power-action-grid">
         {tiles.map(({ action, label, Icon, tone, reason }) => {

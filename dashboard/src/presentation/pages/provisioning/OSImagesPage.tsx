@@ -41,6 +41,17 @@ function imageKey(image: OSImageCatalogRow): string {
   return `${image.integrationId}:${image.id}:${image.architecture}`
 }
 
+/** Renders the provider image identity with its copy action kept directly beside the ID. */
+function ImageID({ imageId }: { imageId: string }) {
+  if (!imageId) return null
+  return (
+    <span className="sw-image-id">
+      <span className="sw-mono">{imageId}</span>
+      <CopyButton value={imageId} label="Copy image ID" />
+    </span>
+  )
+}
+
 /** Projects a catalog row onto the identity a bulk action needs, with a label for messages. */
 function toBulkTarget(image: OSImageCatalogRow): OSImageBulkTarget {
   return {
@@ -56,7 +67,19 @@ function hasOverride(image: OSImageCatalogRow): boolean {
   return Boolean(image.customName || image.customOsSystem || image.customRelease || image.tags.length)
 }
 
-type ImageColumnKey = 'name' | 'imageId' | 'osSystem' | 'release' | 'tags' | 'architecture' | 'site' | 'integration' | 'refreshed'
+/** Formats provider bytes with binary units while preserving an explicit unknown state. */
+function formatImageSize(sizeBytes?: number): string {
+  if (sizeBytes === undefined || !Number.isFinite(sizeBytes) || sizeBytes <= 0) return '—'
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  const unitIndex = Math.min(Math.floor(Math.log(sizeBytes) / Math.log(1024)), units.length - 1)
+  const value = sizeBytes / 1024 ** unitIndex
+  const formatted = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: value >= 10 || unitIndex === 0 ? 0 : 1,
+  }).format(value)
+  return `${formatted} ${units[unitIndex]}`
+}
+
+type ImageColumnKey = 'name' | 'osSystem' | 'release' | 'tags' | 'architecture' | 'size' | 'site' | 'integration' | 'refreshed'
 
 /** One toggleable data column. Actions are always rendered and are not part of this set. */
 interface ImageColumn {
@@ -69,10 +92,10 @@ interface ImageColumn {
 
 // Every toggleable column, used to validate a saved choice. Kept separate from the default
 // visible set so a column can exist (and be toggled on) without being shown by default.
-const ALL_COLUMN_KEYS: ImageColumnKey[] = ['name', 'imageId', 'osSystem', 'release', 'tags', 'architecture', 'site', 'integration', 'refreshed']
-// Release is intentionally hidden by default (operators can enable it in the Columns menu); tags
-// are shown so the swallow-owned labels are visible at a glance.
-const DEFAULT_VISIBLE_COLUMNS: ImageColumnKey[] = ['name', 'imageId', 'osSystem', 'tags', 'architecture', 'site', 'integration', 'refreshed']
+const ALL_COLUMN_KEYS: ImageColumnKey[] = ['name', 'osSystem', 'release', 'tags', 'architecture', 'size', 'site', 'integration', 'refreshed']
+// Release, Architecture, and Refreshed stay available from the Columns menu but are hidden by
+// default; Tags and Size remain visible for at-a-glance catalog comparison.
+const DEFAULT_VISIBLE_COLUMNS: ImageColumnKey[] = ['name', 'osSystem', 'tags', 'size', 'site', 'integration']
 const COLUMNS_STORAGE_KEY = 'sw.osImages.visibleColumns'
 
 /** Reads the operator's saved column choice, falling back to the default visible set. */
@@ -206,21 +229,13 @@ export function OSImagesPage() {
     {
       key: 'name',
       label: 'Name',
-      render: (image) => <strong>{image.name || '-'}</strong>,
-    },
-    {
-      key: 'imageId',
-      label: 'Image ID',
-      className: 'sw-col-imageid',
-      render: (image) =>
-        image.id ? (
-          <span className="sw-image-id">
-            <span className="sw-mono">{image.id}</span>
-            <CopyButton value={image.id} label="Copy image ID" />
-          </span>
-        ) : (
-          '-'
-        ),
+      className: 'sw-col-name',
+      render: (image) => (
+        <span className="sw-image-name">
+          <strong>{image.name || '-'}</strong>
+          <ImageID imageId={image.id} />
+        </span>
+      ),
     },
     { key: 'osSystem', label: 'OS', render: (image) => image.osSystem || '-' },
     { key: 'release', label: 'Release', render: (image) => image.release || '-' },
@@ -241,6 +256,7 @@ export function OSImagesPage() {
         ),
     },
     { key: 'architecture', label: 'Architecture', render: (image) => image.architecture || '-' },
+    { key: 'size', label: 'Size', className: 'sw-col-size', render: (image) => formatImageSize(image.sizeBytes) },
     {
       key: 'site',
       label: 'Site',
@@ -440,7 +456,7 @@ export function OSImagesPage() {
                 <ResourceCard
                   key={imageKey(image)}
                   title={image.name || image.id}
-                  description={<span className="sw-mono">{image.id}</span>}
+                  description={<ImageID imageId={image.id} />}
                   selected={selected.has(imageKey(image))}
                   status={
                     <Checkbox
@@ -464,7 +480,7 @@ export function OSImagesPage() {
                     </>
                   }
                 >
-                  {activeColumns.filter((column) => !['name', 'imageId'].includes(column.key)).map((column) => (
+                  {activeColumns.filter((column) => column.key !== 'name').map((column) => (
                     <ResourceCardField key={column.key} label={column.label}>{column.render(image)}</ResourceCardField>
                   ))}
                 </ResourceCard>
@@ -598,7 +614,7 @@ function EditImageDialog({
       onClose={close}
       closeOnInteractOutside={!submitting}
       title="Edit OS image labels"
-      description={`These labels are stored by swallow and shown instead of the provider values. They do not change the image in ${image.integrationName} or what it deploys.`}
+      description={`Swallow label overrides do not change the image in ${image.integrationName} or what it deploys.`}
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={submitting}>

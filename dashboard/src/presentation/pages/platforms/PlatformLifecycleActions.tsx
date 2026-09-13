@@ -249,7 +249,6 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         onClose={() => !repairing && setRepairOpen(false)}
         closeOnInteractOutside={!repairing}
         title="Repair platform deployment"
-        description="Rerun the original deployment safely against its existing partial state."
         footer={
           <>
             <Button variant="ghost" onClick={() => setRepairOpen(false)} disabled={repairing}>
@@ -271,13 +270,14 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
             status={failedProvisioningRecovery ? 'warning' : 'info'}
             title={failedProvisioningRecovery ? 'Provisioning recovery may redeploy failed Servers' : 'Original configuration will be reused'}
           >
-            Repair reuses the same machines, roles, network settings, and protected credentials. Existing attempts, events, and logs remain available for diagnosis.
+            Repair resumes only failed retryable work against the hosts&apos; current state, using the same machines,
+            roles, network settings, and protected credentials. Successful Steps stay completed, and existing
+            attempts, events, and logs remain available for diagnosis.
             {failedProvisioningRecovery && ' Swallow rechecks each failed target first. A target with no MAAS address is released, returned to Ready, and redeployed; an SSH-only failure is only rechecked.'}
           </Alert>
           <Text>
             <strong>Targets:</strong> {targetLabel}
           </Text>
-          <Text>Successful Steps are preserved. Only failed retryable work resumes from the hosts' current state.</Text>
         </Stack>
       </Modal>
 
@@ -288,13 +288,6 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         closeOnInteractOutside={!submitting}
         initialFocusEl={() => confirmationRef.current}
         title={isUninstall ? 'Uninstall platform' : 'Delete platform'}
-        description={
-          isUninstall
-            ? releaseServers
-              ? `This releases ${targetLabel} directly to the provider and keeps the Swallow record. Platform software is not uninstalled first.`
-              : `This removes platform software from ${targetLabel} and keeps the Swallow record.`
-            : 'This removes only the Swallow record and owned projections.'
-        }
         onSubmit={(event) => {
           event.preventDefault()
           void submit()
@@ -321,7 +314,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
               {!releaseServers && (
                 <Text>
                   Platform services, configuration, credentials, and managed state will be removed. The operating system, user data, and other installed
-                  packages remain. Hosts are not rebooted.
+                  packages remain. Hosts are not rebooted, and the Swallow platform record is retained.
                 </Text>
               )}
               <Text>
@@ -340,7 +333,8 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
               {releaseServers && (
                 <>
                   <Alert status="error" title="Platform software uninstall is skipped">
-                    Each target server is released to its provider, which removes its deployed operating system.
+                    {targetLabel} will be released directly to the provider, which removes each deployed operating
+                    system. The Swallow platform record is retained.
                   </Alert>
                   <ReleaseOptionsFields idPrefix="uninstall-release" value={releaseOptions} onChange={setReleaseOptions} />
                 </>
@@ -348,7 +342,8 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
             </>
           ) : (
             <Alert status="warning" title="Hosts will not be uninstalled">
-              Any platform still running on the hosts will continue to run. Accepted operations will also continue after this record is deleted.
+              Only the Swallow record and owned projections are deleted. Any platform still running on the hosts and
+              any accepted Operations will continue.
             </Alert>
           )}
           <Field.Root required>

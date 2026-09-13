@@ -53,7 +53,6 @@ export function ServerDeleteDialog({ serverId, serverName, onClose, onDeleted }:
       role="alertdialog"
       closeOnInteractOutside={!submitting}
       title="Delete server"
-      description="This permanently removes the provisioner's Machine and its Swallow Server record."
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -76,8 +75,8 @@ export function ServerDeleteDialog({ serverId, serverName, onClose, onDeleted }:
           </Alert>
         )}
         <Alert status="warning" title="This cannot be undone">
-          Swallow asks the provisioner to delete the Machine first. Provider safeguards are not force-overridden; if
-          deletion is refused, neither record is removed.
+          Swallow asks the provisioner to permanently delete the Machine, then removes its Server record. Provider
+          safeguards are not overridden; if deletion is refused, neither record is removed.
         </Alert>
         <Field.Root required>
           <Field.Label>

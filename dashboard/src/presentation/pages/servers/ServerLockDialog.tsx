@@ -24,11 +24,6 @@ export function ServerLockDialog({ action, targets, skipped, busy = false, onCon
       onClose={onClose}
       closeOnInteractOutside={!busy}
       title={title}
-      description={
-        locking
-          ? 'Lock protects the Machine from provisioning, power, network, platform, automation, and removal changes.'
-          : 'Unlock removes protection only. It does not resume, retry, or create any work.'
-      }
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
@@ -47,8 +42,8 @@ export function ServerLockDialog({ action, targets, skipped, busy = false, onCon
           title={locking ? 'Monitoring and diagnostics remain available' : 'No work starts automatically'}
         >
           {locking
-            ? 'Metrics, alerts, inventory refresh, events, and other read-only views continue while locked.'
-            : 'Review the Server state and explicitly start the operation you need after unlocking.'}
+            ? 'Lock blocks provisioning, power, network, platform, automation, and removal changes. Metrics, alerts, inventory refresh, events, and other read-only views remain available.'
+            : 'Unlock removes protection only. It does not resume, retry, or create any work. Review the Server state and explicitly start the operation you need.'}
         </Alert>
         <Text>
           <strong>{targets.length}</strong> Server{targets.length === 1 ? '' : 's'} will be {locking ? 'locked' : 'unlocked'}.

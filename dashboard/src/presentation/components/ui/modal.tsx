@@ -8,7 +8,10 @@ interface ModalProps {
   /** Called on any dismissal (close button, backdrop, Escape) so the caller can reset state. */
   onClose: () => void
   title: ReactNode
-  /** Optional supporting line under the title (announced as the dialog description). */
+  /**
+   * Optional, non-redundant context announced as the dialog description and rendered on its
+   * own line below the title. Omit it when the body already explains the action.
+   */
   description?: ReactNode
   /** Dialog body content. */
   children: ReactNode
@@ -51,12 +54,12 @@ export function Modal({
 }: ModalProps) {
   const inner = (
     <>
-      <Dialog.Header>
-        <Dialog.Title>{title}</Dialog.Title>
-        {description && <Dialog.Description mt="1">{description}</Dialog.Description>}
+      <Dialog.Header flexDirection="column" alignItems="stretch" gap="1" pe="12">
+        <Dialog.Title minW="0" width="full">{title}</Dialog.Title>
+        {description && <Dialog.Description width="full" lineHeight="tall">{description}</Dialog.Description>}
       </Dialog.Header>
-      <Dialog.Body>{children}</Dialog.Body>
-      {footer && <Dialog.Footer>{footer}</Dialog.Footer>}
+      <Dialog.Body minW="0">{children}</Dialog.Body>
+      {footer && <Dialog.Footer flexWrap="wrap">{footer}</Dialog.Footer>}
     </>
   )
 

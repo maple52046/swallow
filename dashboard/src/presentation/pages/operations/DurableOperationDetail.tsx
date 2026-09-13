@@ -308,7 +308,6 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
         size="md"
         closeOnInteractOutside={!controlling}
         title="Retry failed OS deployment"
-        description="Recheck a failed operating system deployment and recover it when necessary."
         footer={
           <>
             <Button variant="ghost" disabled={controlling} onClick={() => setRetryCandidate(null)}>
@@ -324,9 +323,9 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
           <Alert status="warning" title="This retry may redeploy the Server">
             Swallow first rechecks the installed image, provider address, and SSH. If MAAS still reports no address,
             Swallow will release the unusable installation, wait for Ready, then redeploy the same image, network
-            settings, and protected cloud-init data. An SSH-only failure is not redeployed.
+            settings, and protected cloud-init data. An SSH-only failure is not redeployed. Other successful targets
+            and completed Steps are preserved.
           </Alert>
-          <Text>Other successful targets and completed Steps are preserved. No release occurs until you confirm this retry.</Text>
         </Stack>
       </Modal>
 
@@ -336,7 +335,6 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
         size="md"
         closeOnInteractOutside={!controlling}
         title="Cancel Operation"
-        description="Completed side effects are preserved. Swallow will stop work that has not started and ask active providers to cancel when supported."
         footer={
           <>
             <Button variant="ghost" disabled={controlling} onClick={() => setCancelOpen(false)}>
@@ -348,7 +346,10 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
           </>
         }
       >
-        This does not automatically release an installed OS or uninstall a Platform.
+        <Alert status="warning" title="Completed work is not rolled back">
+          Swallow stops work that has not started and asks active providers to cancel when supported. Installed
+          operating systems and Platform software remain in place.
+        </Alert>
       </Modal>
     </div>
   )

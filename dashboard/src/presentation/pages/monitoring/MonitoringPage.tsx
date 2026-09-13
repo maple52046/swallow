@@ -381,7 +381,11 @@ export function MonitoringPage() {
         open={selectedAlert !== null}
         onClose={() => setSelectedAlert(null)}
         title="Acknowledge alert"
-        description={selectedAlert ? `${selectedAlert.name}: ${selectedAlert.summary || selectedAlert.description}` : undefined}
+        description={
+          selectedAlert
+            ? [selectedAlert.name, selectedAlert.summary || selectedAlert.description].filter(Boolean).join(': ')
+            : undefined
+        }
         onSubmit={(event) => {
           event.preventDefault()
           void acknowledge()

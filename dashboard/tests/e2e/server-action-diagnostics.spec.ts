@@ -293,7 +293,7 @@ test('Durable Operation retries one safe Step and accepts cancellation', async (
 
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   const confirmation = page.getByRole('dialog', { name: 'Cancel Operation' })
-  await expect(confirmation).toContainText('Completed side effects are preserved.')
+  await expect(confirmation).toContainText('Completed work is not rolled back')
   await confirmation.getByRole('button', { name: 'Cancel Operation', exact: true }).click()
   await expect(page.getByText('canceling', { exact: true })).toBeVisible()
 })

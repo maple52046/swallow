@@ -281,7 +281,6 @@ export function ServerNetworkTab() {
           onClose={() => !saving && setUnbind(null)}
           closeOnInteractOutside={!saving}
           title="Unbind network link"
-          description={`Remove ${unbind.link.ipAddress || unbind.link.subnetName || 'this subnet link'} from ${unbind.iface.name}. Other links are preserved.`}
           footer={
             <>
               <Button variant="ghost" disabled={saving} onClick={() => setUnbind(null)}>
@@ -294,7 +293,9 @@ export function ServerNetworkTab() {
           }
         >
           <Alert status="warning" title="The interface will lose this configuration">
-            Unbind is available only while the Server is Ready and unlocked.
+            {unbind.link.ipAddress || unbind.link.subnetName || 'This subnet link'} will be removed from{' '}
+            {unbind.iface.name}; all other links are preserved. Unbind is available only while the Server is Ready
+            and unlocked.
           </Alert>
         </Modal>
       )}

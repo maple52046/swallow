@@ -74,13 +74,6 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
       size={isUninstall && releaseServers ? 'lg' : 'md'}
       closeOnInteractOutside={!running}
       title={isUninstall ? `Uninstall ${count} platform${count === 1 ? '' : 's'}` : `Delete ${count} platform${count === 1 ? '' : 's'}`}
-      description={
-        isUninstall
-          ? releaseServers
-            ? 'Each platform releases its original deployment targets directly; platform software uninstall is skipped.'
-            : 'Each platform removes its software from the original deployment targets.'
-          : 'This removes only the Swallow records and owned projections. Hosts are not changed.'
-      }
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -109,11 +102,13 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
         {isUninstall && !releaseServers ? (
           <Text>
             Platform services, configuration, credentials, and managed state are removed from each platform&apos;s deployment targets. Operating systems,
-            user data, and other installed packages remain. Hosts are not rebooted.
+            user data, and other installed packages remain. Hosts are not rebooted, and the Swallow platform records
+            are retained.
           </Text>
         ) : !isUninstall ? (
           <Alert status="warning" title="Hosts will not be uninstalled">
-            Any platform still running on the hosts continues to run, and accepted Operations continue after these records are deleted.
+            Only the Swallow records and owned projections are deleted. Any platforms still running on the hosts and
+            any accepted Operations will continue.
           </Alert>
         ) : null}
         <Field.Root>
@@ -145,7 +140,8 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
             {releaseServers && (
               <>
                 <Alert status="error" title="Platform software uninstall is skipped">
-                  Every target server is released to its provider, which removes its deployed operating system.
+                  Every original deployment target is released directly to its provider, which removes its deployed
+                  operating system. The Swallow platform records are retained.
                 </Alert>
                 <ReleaseOptionsFields idPrefix="bulk-uninstall-release" value={releaseOptions} onChange={setReleaseOptions} />
               </>

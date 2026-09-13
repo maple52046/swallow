@@ -57,7 +57,6 @@ export function ResourceDeleteDialog({
       role="alertdialog"
       closeOnInteractOutside={!submitting}
       title={`Delete ${noun}`}
-      description={`This removes only the ${resourceLabel} registration from Swallow.`}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -80,7 +79,7 @@ export function ResourceDeleteDialog({
           </Alert>
         )}
         <Alert status="warning" title="This cannot be undone">
-          {warning}
+          Only the {resourceLabel} registration is removed from Swallow. {warning}
         </Alert>
         <Field.Root required>
           <Field.Label>

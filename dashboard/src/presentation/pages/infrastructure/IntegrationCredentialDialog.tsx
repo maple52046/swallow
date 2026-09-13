@@ -51,7 +51,6 @@ export function IntegrationCredentialDialog({ integration, onClose, onReplaced }
       onClose={close}
       closeOnInteractOutside={!submitting}
       title="Replace credential"
-      description={`Replace the stored credential for ${integration.name}.`}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()

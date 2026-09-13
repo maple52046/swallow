@@ -81,7 +81,8 @@ returns:
     "providerRelease": "jammy",
     "customRelease": "22.04",
     "tags": ["gpu", "ml"],
-    "architecture": "amd64"
+    "architecture": "amd64",
+    "sizeBytes": 5368709120
   }
 ]
 ```
@@ -95,6 +96,14 @@ when that field has no override, in which case the effective value equals the
 provider value. `id` and `architecture` are never overridable — they identify the
 deployable artifact. `tags` is a Swallow-owned list of labels with no provider
 counterpart, always returned as an array (empty when the image has no tags).
+
+`sizeBytes`, when present, is a positive integer containing the provider-reported
+total bytes of the newest complete resource set that backs the image. It is omitted
+when the provider does not expose a complete size or its detail is temporarily
+unavailable. Providers may expose multiple kernel or subarchitecture variants that
+collapse into the same `id` + `architecture` row; in that case the catalog returns
+the largest current complete-set size rather than summing mutually exclusive
+variants. Size is provider-owned live metadata and cannot be changed by the overlay.
 
 The catalog contains only resources the provisioner accepts for OS deployment.
 For MAAS this includes synced operating systems and uploaded custom images, but

@@ -71,4 +71,6 @@ export interface OSImage {
   /** Swallow-owned labels for organizing and searching images; no provider counterpart. */
   tags: string[]
   architecture: string
+  /** Provider-reported bytes for the current complete artifact; absent when unavailable. */
+  sizeBytes?: number
 }

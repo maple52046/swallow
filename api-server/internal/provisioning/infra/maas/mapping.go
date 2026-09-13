@@ -107,11 +107,20 @@ type subnetJSON struct {
 }
 
 type bootResourceJSON struct {
-	ID           int    `json:"id"`
-	Type         string `json:"type"`
-	Name         string `json:"name"`
-	Title        string `json:"title"`
-	Architecture string `json:"architecture"`
+	ID           int                            `json:"id"`
+	Type         string                         `json:"type"`
+	Name         string                         `json:"name"`
+	Title        string                         `json:"title"`
+	Architecture string                         `json:"architecture"`
+	Sets         map[string]bootResourceSetJSON `json:"sets"`
+}
+
+// bootResourceSetJSON is the deployable file set MAAS nests only in a boot-resource
+// detail response. Size is MAAS's total_size for every file in the set, in bytes.
+type bootResourceSetJSON struct {
+	Version   string `json:"version"`
+	SizeBytes int64  `json:"size"`
+	Complete  bool   `json:"complete"`
 }
 
 type versionJSON struct {
@@ -243,6 +252,56 @@ func isMAASBootloaderOSSystem(osSystem string) bool {
 	}
 }
 
+// bootResourceImageFields recognizes a MAAS resource that can appear in Swallow's
+// OS Image catalog and returns the provider identity fields used by deployment.
+func bootResourceImageFields(r bootResourceJSON) (
+	imageID, osSystem, release string,
+	ok bool,
+) {
+	imageID = strings.TrimSpace(r.Name)
+	if imageID == "" {
+		return "", "", "", false
+	}
+
+	if strings.EqualFold(r.Type, "Uploaded") {
+		osSystem = "custom"
+		release = strings.TrimPrefix(imageID, "custom/")
+	} else {
+		var found bool
+		osSystem, release, found = strings.Cut(imageID, "/")
+		if !found || osSystem == "" || release == "" || isMAASBootloaderOSSystem(osSystem) {
+			return "", "", "", false
+		}
+	}
+	if release == "" {
+		return "", "", "", false
+	}
+	return imageID, osSystem, release, true
+}
+
+// latestCompleteBootResourceSize returns the total bytes for the newest complete
+// MAAS resource set. MAAS's own CLI selects the newest set by reverse-sorting the
+// version keys, so the adapter follows the same ordering rather than map iteration.
+func latestCompleteBootResourceSize(sets map[string]bootResourceSetJSON) int64 {
+	var latestVersion string
+	var sizeBytes int64
+	found := false
+	for version, set := range sets {
+		if !set.Complete || set.SizeBytes <= 0 {
+			continue
+		}
+		if version == "" {
+			version = set.Version
+		}
+		if !found || version > latestVersion {
+			latestVersion = version
+			sizeBytes = set.SizeBytes
+			found = true
+		}
+	}
+	return sizeBytes
+}
+
 // toDomainOSImages converts MAAS boot resources into deployable images.
 //
 // MAAS reports one boot resource per name and architecture, where the architecture
@@ -253,36 +312,27 @@ func isMAASBootloaderOSSystem(osSystem string) bool {
 // distro_series while the adapter supplies the required "custom" osystem.
 func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImage {
 	images := make([]*provisioningdomain.OSImage, 0, len(resources))
-	seen := make(map[string]struct{}, len(resources))
+	byKey := make(map[string]int, len(resources))
 
 	for _, r := range resources {
-		imageID := strings.TrimSpace(r.Name)
-		if imageID == "" {
-			continue
-		}
-
-		var osSystem, release string
-		if strings.EqualFold(r.Type, "Uploaded") {
-			osSystem = "custom"
-			release = strings.TrimPrefix(imageID, "custom/")
-		} else {
-			var found bool
-			osSystem, release, found = strings.Cut(imageID, "/")
-			if !found || osSystem == "" || release == "" || isMAASBootloaderOSSystem(osSystem) {
-				continue
-			}
-		}
-		if release == "" {
+		imageID, osSystem, release, ok := bootResourceImageFields(r)
+		if !ok {
 			continue
 		}
 
 		arch, _, _ := strings.Cut(r.Architecture, "/")
 
 		key := imageID + "|" + arch
-		if _, duplicate := seen[key]; duplicate {
+		sizeBytes := latestCompleteBootResourceSize(r.Sets)
+		if index, duplicate := byKey[key]; duplicate {
+			// Kernel subarchitecture variants are alternatives, not additive files. Use
+			// the largest current set as a deterministic conservative display value.
+			if sizeBytes > images[index].SizeBytes {
+				images[index].SizeBytes = sizeBytes
+			}
 			continue
 		}
-		seen[key] = struct{}{}
+		byKey[key] = len(images)
 
 		name := r.Title
 		if name == "" {
@@ -295,6 +345,7 @@ func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImag
 			OSSystem:     osSystem,
 			Release:      release,
 			Architecture: arch,
+			SizeBytes:    sizeBytes,
 		})
 	}
 

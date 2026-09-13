@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
@@ -19,6 +20,10 @@ const (
 	// providerName is persisted in server.ProvisioningSource, so it must stay stable.
 	providerName        = "maas"
 	providerDisplayName = "Ubuntu MAAS"
+	// MAAS omits resource sets from its list response, so image sizes require detail
+	// reads. Bound those reads to avoid turning one catalog request into an unbounded
+	// burst against the region controller.
+	bootResourceDetailParallelism = 8
 )
 
 // Provider implements provisioningdomain.OSProvisioningProvider against MAAS.
@@ -82,7 +87,54 @@ func (p *Provider) ListOSImages(ctx context.Context) ([]*provisioningdomain.OSIm
 	if err := p.client.get(ctx, "/boot-resources/", nil, &out); err != nil {
 		return nil, translateError(err, "")
 	}
+	p.populateBootResourceSets(ctx, out)
 	return toDomainOSImages(out), nil
+}
+
+// populateBootResourceSets enriches deployable list entries with their detailed MAAS
+// resource sets. Size is optional metadata: a detail that disappears during the list/detail
+// race, or a temporary detail failure, leaves only that image without a size instead of
+// making the otherwise usable deployment catalog unavailable.
+func (p *Provider) populateBootResourceSets(ctx context.Context, resources []bootResourceJSON) {
+	indices := make([]int, 0, len(resources))
+	for index, resource := range resources {
+		if resource.ID > 0 {
+			if _, _, _, ok := bootResourceImageFields(resource); ok {
+				indices = append(indices, index)
+			}
+		}
+	}
+	if len(indices) == 0 {
+		return
+	}
+
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	workerCount := min(bootResourceDetailParallelism, len(indices))
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				var detail bootResourceJSON
+				if err := p.client.get(ctx, bootResourcePath(resources[index].ID), nil, &detail); err == nil {
+					resources[index].Sets = detail.Sets
+				}
+			}
+		}()
+	}
+
+	for _, index := range indices {
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			close(jobs)
+			workers.Wait()
+			return
+		}
+	}
+	close(jobs)
+	workers.Wait()
 }
 
 // DeleteOSImage permanently removes an uploaded MAAS custom image.
