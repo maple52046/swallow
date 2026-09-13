@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Badge, Box, Card, Field, Heading, HStack, IconButton, Input, SegmentGroup, Table, Text, Textarea } from '@chakra-ui/react'
+import { Badge, Box, Button, Card, Field, Heading, HStack, IconButton, Input, SegmentGroup, Table, Text, Textarea } from '@chakra-ui/react'
 import { RefreshCcw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
+import { evaluateMinimumResourceEligibility, formatGiB, formatMinimumResources } from '@/domain/platform/resourceEligibility'
 import type { Platform, GPUStackOwner, NodeRole, PlatformType, PlatformMachinePreparation, RoleAssignment } from '@/domain/platform/types'
 import type { DeploymentNetworkMode, DeploymentTemplate, NetworkInspectionResult } from '@/domain/provisioning/types'
 import type { OSImage } from '@/domain/site/types'
@@ -22,6 +23,7 @@ import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useDeployableServers } from './useDeployableServers'
+import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
 
 const DEFAULT_K0S_VERSION = 'v1.36.3+k0s.2'
 const DEFAULT_POD_CIDR = '10.244.0.0/16'
@@ -154,6 +156,7 @@ export function DeployPlatformWizardPage() {
   const [roles, setRoles] = useState<Record<string, RoleChoice>>({})
   const [workloadControllers, setWorkloadControllers] = useState<Record<string, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [candidateRevision, setCandidateRevision] = useState(0)
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
   const [templateId, setTemplateId] = useState('')
   const [images, setImages] = useState<OSImage[]>([])
@@ -167,7 +170,8 @@ export function DeployPlatformWizardPage() {
   const [provisioningLoading, setProvisioningLoading] = useState(false)
   const [provisioningError, setProvisioningError] = useState('')
   const effectiveSiteId = siteId ?? scopedSiteId
-  const state = useDeployableServers(effectiveSiteId, CANDIDATE_PROVISIONING_STATES)
+  const state = useDeployableServers(effectiveSiteId, CANDIDATE_PROVISIONING_STATES, candidateRevision)
+  const { state: slurmRequirementState, reload: reloadSlurmRequirement } = useSlurmDeploymentRequirement()
 
   // Deployment templates are per-Site; the OS step filters them to the derived provisioner.
   useEffect(() => {
@@ -187,6 +191,11 @@ export function DeployPlatformWizardPage() {
   }, [effectiveSiteId, provisioning])
 
   const isSlurm = platformType === 'slurm'
+  const slurmMinimumResources = slurmRequirementState.status === 'ready' ? slurmRequirementState.requirement.minimumResources : null
+  const slurmEligibilityByServerId = useMemo<Record<string, ReturnType<typeof evaluateMinimumResourceEligibility>>>(() => {
+    if (state.status !== 'ready' || slurmRequirementState.status !== 'ready') return {}
+    return Object.fromEntries(state.data.servers.map((server) => [server.id, evaluateMinimumResourceEligibility(server, slurmMinimumResources)]))
+  }, [state, slurmRequirementState.status, slurmMinimumResources])
   const assignments = useMemo<RoleAssignment[]>(
     () =>
       Object.entries(roles)
@@ -204,16 +213,16 @@ export function DeployPlatformWizardPage() {
   // Slurm per-daemon selection: a Server may run slurmctld, slurmd, or both. More than one
   // controller is HA; Swallow provisions the shared StateSaveLocation automatically.
   const slurmSelectedIds = Object.entries(slurmDaemons)
-    .filter(([, daemons]) => daemons.controller || daemons.compute || daemons.login)
+    .filter(([serverId, daemons]) => (daemons.controller || daemons.compute || daemons.login) && Boolean(slurmEligibilityByServerId[serverId]?.eligible))
     .map(([serverId]) => serverId)
   const slurmControllerIds = Object.entries(slurmDaemons)
-    .filter(([, daemons]) => daemons.controller)
+    .filter(([serverId, daemons]) => daemons.controller && Boolean(slurmEligibilityByServerId[serverId]?.eligible))
     .map(([serverId]) => serverId)
   const slurmComputeIds = Object.entries(slurmDaemons)
-    .filter(([, daemons]) => daemons.compute)
+    .filter(([serverId, daemons]) => daemons.compute && Boolean(slurmEligibilityByServerId[serverId]?.eligible))
     .map(([serverId]) => serverId)
   const slurmLoginIds = Object.entries(slurmDaemons)
-    .filter(([, daemons]) => daemons.login)
+    .filter(([serverId, daemons]) => daemons.login && Boolean(slurmEligibilityByServerId[serverId]?.eligible))
     .map(([serverId]) => serverId)
   const slurmHighlyAvailable = slurmControllerIds.length > 1
   // Workload storage validity: self-hosted needs a login node to export it; external needs an
@@ -223,7 +232,7 @@ export function DeployPlatformWizardPage() {
     (slurmWorkloadMode === 'self-hosted' && slurmLoginIds.length > 0) ||
     (slurmWorkloadMode === 'external' && /^[^\s:]+:\/\S*$/.test(slurmWorkloadNfsUrl.trim()))
   const slurmTopologyValid = slurmControllerIds.length >= 1 && slurmComputeIds.length >= 1 && slurmWorkloadValid
-  const basicsValid = Boolean(effectiveSiteId && name.trim() && (isSlurm || k0sVersion.trim()))
+  const basicsValid = Boolean(effectiveSiteId && name.trim() && (isSlurm || k0sVersion.trim()) && (!isSlurm || slurmRequirementState.status === 'ready'))
   // Locked Servers are excluded from the candidate list (see useDeployableServers), so the only
   // "unavailable" reason left to surface is an existing Platform assignment.
   const hasAssignedServers =
@@ -327,6 +336,8 @@ export function DeployPlatformWizardPage() {
   const selectedTemplate = templates.find((template) => template.id === templateId && template.integrationId === integrationId)
   const effectiveImageId = selectedTemplate?.imageId ?? imageId
   const effectiveEphemeral = selectedTemplate?.ephemeral ?? ephemeral
+  // Review the same resolved mode that deployment submits, including a template-owned setting.
+  const osDeploymentModeLabel = effectiveEphemeral ? 'Ephemeral (memory-backed)' : 'Persistent (disk-backed)'
   const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
   const inspectedTargetKey = networkInspection?.targets.map((target) => target.serverId).sort().join(',') ?? ''
   const networkAssignmentsValid =
@@ -381,7 +392,7 @@ export function DeployPlatformWizardPage() {
   // is simply not part of the cluster. Login is a submission/client host (no cluster daemon).
   const toggleSlurmDaemon = (serverId: string, daemon: 'controller' | 'compute' | 'login', checked: boolean) => {
     const server = state.status === 'ready' ? state.data.servers.find((candidate) => candidate.id === serverId) : undefined
-    if (server?.provisioning?.locked) return
+    if (server?.provisioning?.locked || !slurmEligibilityByServerId[serverId]?.eligible) return
     setSlurmDaemons((current) => {
       const existing = current[serverId] ?? { controller: false, compute: false, login: false }
       return { ...current, [serverId]: { ...existing, [daemon]: checked } }
@@ -488,6 +499,10 @@ export function DeployPlatformWizardPage() {
       })
       navigate(scopedHref(`/platforms/${result.platformId}`))
     } catch (error) {
+      if (isSlurm) {
+        reloadSlurmRequirement()
+        setCandidateRevision((current) => current + 1)
+      }
       showToast({ title: 'Deployment failed', description: error instanceof Error ? error.message : 'Could not start the deployment.', tone: 'error' })
       setSubmitting(false)
     }
@@ -575,6 +590,15 @@ export function DeployPlatformWizardPage() {
               </Field.Root>
             )}
           </div>
+          {isSlurm && slurmRequirementState.status === 'loading' && (
+            <Alert status="info" title="Loading Slurm deployment requirement">Node selection remains unavailable until the current policy is known.</Alert>
+          )}
+          {isSlurm && slurmRequirementState.status === 'error' && (
+            <Alert status="error" title="Slurm deployment requirement is unavailable">
+              {slurmRequirementState.message}
+              <Button size="sm" variant="outline" onClick={reloadSlurmRequirement}>Retry</Button>
+            </Alert>
+          )}
         </WizardSection>
       ),
     })
@@ -612,6 +636,9 @@ export function DeployPlatformWizardPage() {
           )}
           {isSlurm && (
             <>
+              <Alert status="info" title={'Minimum resources: ' + formatMinimumResources(slurmMinimumResources)}>
+                The same observed-hardware floor applies to controller, compute, and login roles. Ineligible Servers remain visible with their shortfalls.
+              </Alert>
               <Alert status="info" title="Assign Slurm roles per node">
                 A node may run the controller daemon (slurmctld), the compute daemon (slurmd), both, or be a login (submission) host. At least one controller
                 and one compute node are required. A login node also hosts the shared storage for HA and self-hosted workload storage.
@@ -702,6 +729,8 @@ export function DeployPlatformWizardPage() {
                     <Table.ColumnHeader>Current assignment</Table.ColumnHeader>
                     {isSlurm ? (
                       <>
+                        <Table.ColumnHeader>Resources</Table.ColumnHeader>
+                        <Table.ColumnHeader>Eligibility</Table.ColumnHeader>
                         <Table.ColumnHeader>Controller</Table.ColumnHeader>
                         <Table.ColumnHeader>Compute</Table.ColumnHeader>
                         <Table.ColumnHeader>Login</Table.ColumnHeader>
@@ -718,10 +747,14 @@ export function DeployPlatformWizardPage() {
                   {state.data.servers.map((server) => {
                     const existing = existingPlatformAssignment(server, state.data.platforms, state.data.deploymentClaims)
                     const deployed = server.provisioning?.state === 'deployed'
-                    const unavailable = Boolean(existing)
+                    const eligibility = isSlurm ? slurmEligibilityByServerId[server.id] : undefined
+                    const unavailable = Boolean(existing) || (isSlurm && !eligibility?.eligible)
+                    const unavailableReason = existing
+                      ? 'assigned to ' + existing.platformName
+                      : eligibility?.explanation ?? 'the deployment requirement is unavailable'
                     const role = unavailable ? 'none' : roles[server.id] ?? 'none'
                     const daemons = slurmDaemons[server.id] ?? { controller: false, compute: false, login: false }
-                    const willProvision = isSlurm ? daemons.controller || daemons.compute || daemons.login : role !== 'none'
+                    const willProvision = !unavailable && (isSlurm ? daemons.controller || daemons.compute || daemons.login : role !== 'none')
                     return (
                       <Table.Row key={server.id}>
                         <Table.Cell>
@@ -749,13 +782,30 @@ export function DeployPlatformWizardPage() {
                             '-'
                           )}
                         </Table.Cell>
+                        {isSlurm && (
+                          <>
+                            <Table.Cell>
+                              {server.cpuCores} C / {formatGiB(server.memoryMiB)} GiB / {server.storageGB} GB
+                            </Table.Cell>
+                            <Table.Cell>
+                              {eligibility?.eligible ? (
+                                <Badge colorPalette="green" variant="subtle">Eligible</Badge>
+                              ) : (
+                                <span className="sw-cell-inline">
+                                  <Badge colorPalette="red" variant="subtle">Ineligible</Badge>
+                                  <Text className="sw-muted">{eligibility?.explanation ?? 'Policy unavailable'}</Text>
+                                </span>
+                              )}
+                            </Table.Cell>
+                          </>
+                        )}
                         {isSlurm ? (
                           <>
                             <Table.Cell>
                               <Checkbox
-                                id={`slurm-controller-${server.id}`}
-                                aria-label={existing ? `slurmctld on ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}` : `Run slurmctld on ${serverDisplayName(server)}`}
-                                checked={daemons.controller}
+                                id={'slurm-controller-' + server.id}
+                                aria-label={unavailable ? 'slurmctld on ' + serverDisplayName(server) + ', unavailable: ' + unavailableReason : 'Run slurmctld on ' + serverDisplayName(server)}
+                                checked={!unavailable && daemons.controller}
                                 disabled={unavailable}
                                 onCheckedChange={(checked) => toggleSlurmDaemon(server.id, 'controller', checked)}
                               />
@@ -763,8 +813,8 @@ export function DeployPlatformWizardPage() {
                             <Table.Cell>
                               <Checkbox
                                 id={`slurm-compute-${server.id}`}
-                                aria-label={existing ? `slurmd on ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}` : `Run slurmd on ${serverDisplayName(server)}`}
-                                checked={daemons.compute}
+                                aria-label={unavailable ? 'slurmd on ' + serverDisplayName(server) + ', unavailable: ' + unavailableReason : 'Run slurmd on ' + serverDisplayName(server)}
+                                checked={!unavailable && daemons.compute}
                                 disabled={unavailable}
                                 onCheckedChange={(checked) => toggleSlurmDaemon(server.id, 'compute', checked)}
                               />
@@ -772,8 +822,8 @@ export function DeployPlatformWizardPage() {
                             <Table.Cell>
                               <Checkbox
                                 id={`slurm-login-${server.id}`}
-                                aria-label={existing ? `login node on ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}` : `Make ${serverDisplayName(server)} a login (submission) host`}
-                                checked={daemons.login}
+                                aria-label={unavailable ? 'login node on ' + serverDisplayName(server) + ', unavailable: ' + unavailableReason : 'Make ' + serverDisplayName(server) + ' a login (submission) host'}
+                                checked={!unavailable && daemons.login}
                                 disabled={unavailable}
                                 onCheckedChange={(checked) => toggleSlurmDaemon(server.id, 'login', checked)}
                               />
@@ -1108,11 +1158,13 @@ export function DeployPlatformWizardPage() {
                   ? [
                       ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
                       ['Platform type', 'Slurm'],
+                      ['Minimum resources', formatMinimumResources(slurmMinimumResources)],
                       ['Cluster name', clusterName.trim() || name.trim()],
                       ['Machine preparation', needsProvisioning ? `Provision ${readySelectedServers.length}, ${deployedSelectedServers.length} already deployed` : 'Use existing OS'],
                       ...(needsProvisioning
                         ? [
                             ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
+                            ['OS deployment mode', osDeploymentModeLabel],
                             ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
                           ]
                         : []),
@@ -1135,6 +1187,7 @@ export function DeployPlatformWizardPage() {
                       ...(needsProvisioning
                         ? [
                             ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
+                            ['OS deployment mode', osDeploymentModeLabel],
                             ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
                           ]
                         : []),

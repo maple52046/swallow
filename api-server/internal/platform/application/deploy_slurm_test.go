@@ -265,6 +265,9 @@ func TestDeploySlurmWorkloadSelfHosted(t *testing.T) {
 	if vars[varSlurmWorkloadMountPath] != defaultWorkloadMountPath {
 		t.Errorf("workload mount path = %v, want the default %v", vars[varSlurmWorkloadMountPath], defaultWorkloadMountPath)
 	}
+	if vars[varSlurmWorkloadFstype] != "nfs" || vars[varSlurmWorkloadMountOpts] != "rw,_netdev,hard,timeo=600,retrans=2,vers=3" {
+		t.Errorf("self-hosted mount protocol = %v/%v, want nfs with vers=3", vars[varSlurmWorkloadFstype], vars[varSlurmWorkloadMountOpts])
+	}
 }
 
 func TestDeploySlurmWorkloadSelfHostedRequiresLogin(t *testing.T) {
@@ -302,6 +305,9 @@ func TestDeploySlurmWorkloadExternal(t *testing.T) {
 	}
 	if vars[varSlurmWorkloadMountPath] != "/data" {
 		t.Errorf("workload mount path = %v, want /data", vars[varSlurmWorkloadMountPath])
+	}
+	if vars[varSlurmWorkloadFstype] != "nfs4" {
+		t.Errorf("external workload fstype = %v, want nfs4", vars[varSlurmWorkloadFstype])
 	}
 	if _, ok := vars[varSlurmWorkloadServer]; ok {
 		t.Errorf("external workload storage must not name a server, got %v", vars[varSlurmWorkloadServer])

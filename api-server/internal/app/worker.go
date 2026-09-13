@@ -133,7 +133,7 @@ func RunWorker(cfg config.APIConfig) error {
 		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,
 	}, serverDeploymentStepObserver{servers: servers})
-	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{})
+	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{WorkerStopTimeout: 10 * time.Second})
 	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.OperationWorkflowV1,
 		workflowregister.RegisterOptions{Name: temporalworkflow.WorkflowNameV1})
 	// Reusable Job child workflow (ADR 017): the parent Operation runs each Job through it.

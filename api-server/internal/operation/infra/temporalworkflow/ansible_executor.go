@@ -120,7 +120,9 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 		}
 		select {
 		case <-ctx.Done():
-			_ = e.executions.RequestCancel(context.Background(), execution.ID)
+			if !IsActivityWorkerStopping(ctx) {
+				_ = e.executions.RequestCancel(context.Background(), execution.ID)
+			}
 			return StepExecutionResult{Status: operationdomain.TaskCanceled, ExternalExecution: reference}
 		case <-ticker.C:
 		}

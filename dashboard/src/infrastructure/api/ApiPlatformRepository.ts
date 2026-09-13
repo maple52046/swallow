@@ -6,6 +6,8 @@ import type {
   MembershipReport,
   SlurmCluster,
   UninstallPlatformOptions,
+  MinimumResources,
+  SlurmDeploymentRequirement,
 } from '@/domain/platform/types'
 import { ApiRequestError, apiRequest } from './client'
 
@@ -29,6 +31,17 @@ export class ApiPlatformRepository implements PlatformRepository {
       }
       throw error
     }
+  }
+
+  async getSlurmDeploymentRequirement(): Promise<SlurmDeploymentRequirement> {
+    return apiRequest<SlurmDeploymentRequirement>('/api/v1/platforms/deployment-requirements/slurm')
+  }
+
+  async putSlurmDeploymentRequirement(minimum: MinimumResources | null): Promise<SlurmDeploymentRequirement> {
+    return apiRequest<SlurmDeploymentRequirement>('/api/v1/platforms/deployment-requirements/slurm', {
+      method: 'PUT',
+      body: JSON.stringify({ minimumResources: minimum }),
+    })
   }
 
   async deployPlatform(input: DeployPlatformInput): Promise<DeployPlatformResult> {

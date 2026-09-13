@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -81,6 +82,7 @@ type DeployService struct {
 	launcher           platformdomain.DeploymentLauncher
 	protection         serverdomain.MutationGuard
 	machinePreparation platformdomain.MachinePreparationValidator
+	requirements       platformdomain.DeploymentRequirementReader
 }
 
 // NewDeployService constructs deployment preflight with both Server observations and the
@@ -156,6 +158,12 @@ type deploymentTargetAvailability struct {
 // AttachMachinePreparationValidator adds provisioner preflight without coupling Platform to provisioning models.
 func (s *DeployService) AttachMachinePreparationValidator(validator platformdomain.MachinePreparationValidator) {
 	s.machinePreparation = validator
+}
+
+// AttachDeploymentRequirementReader enables authoritative resource eligibility checks for
+// Slurm. Repository failures are returned before any Platform or Workflow is created.
+func (s *DeployService) AttachDeploymentRequirementReader(reader platformdomain.DeploymentRequirementReader) {
+	s.requirements = reader
 }
 
 // Deploy dispatches on the requested platform type. An empty type defaults to Kubernetes so
@@ -295,6 +303,21 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 		return invalid, fmt.Errorf("%w: at least one node assignment is required", platformdomain.ErrInvalidDeployment)
 	}
 
+	var minimum *platformdomain.MinimumResources
+	if s.requirements != nil {
+		requirement, err := s.requirements.FindByPlatformType(ctx, platformdomain.PlatformTypeSlurm)
+		switch {
+		case err == nil && requirement != nil:
+			minimum = requirement.MinimumResources
+		case err == nil:
+			return invalid, fmt.Errorf("read Slurm deployment requirement: repository returned nil requirement")
+		case errors.Is(err, platformdomain.ErrDeploymentRequirementNotFound):
+			// A missing record is the defined disabled state.
+		default:
+			return invalid, fmt.Errorf("read Slurm deployment requirement: %w", err)
+		}
+	}
+
 	availability, err := s.targetAvailability(ctx, input.SiteID)
 	if err != nil {
 		return invalid, err
@@ -321,6 +344,11 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 		server, err := s.servers.FindByID(ctx, assignment.ServerID)
 		if err != nil {
 			return invalid, err
+		}
+		if minimum != nil {
+			if err := validateMinimumResources(server, *minimum); err != nil {
+				return invalid, err
+			}
 		}
 		if server.Source.SiteID != input.SiteID {
 			return invalid, fmt.Errorf("%w: server %s is not at site %s",
@@ -831,15 +859,25 @@ func addSlurmWorkloadVars(vars map[string]any, spec platformdomain.SlurmDeployme
 	vars[varSlurmWorkloadEnabled] = true
 	vars[varSlurmWorkloadMode] = string(ws.Mode)
 	vars[varSlurmWorkloadMountPath] = ws.MountPath
-	vars[varSlurmWorkloadFstype] = "nfs4"
-	if ws.NFSMountOptions != "" {
-		vars[varSlurmWorkloadMountOpts] = ws.NFSMountOptions
-	}
 	switch ws.Mode {
 	case platformdomain.SlurmWorkloadStorageSelfHosted:
+		// Ephemeral roots need a standalone tmpfs below the OverlayFS root because overlay
+		// itself is not exportable. That export is directly addressable via NFSv3; NFSv4
+		// would need a separately managed pseudo-root namespace. Keep this protocol choice
+		// scoped to the Swallow-managed server—external storage retains NFSv4 below.
+		vars[varSlurmWorkloadFstype] = "nfs"
+		if ws.NFSMountOptions == "" {
+			vars[varSlurmWorkloadMountOpts] = "rw,_netdev,hard,timeo=600,retrans=2,vers=3"
+		} else {
+			vars[varSlurmWorkloadMountOpts] = ws.NFSMountOptions
+		}
 		vars[varSlurmWorkloadServer] = spec.PrimaryLoginID()
 		vars[varSlurmWorkloadExport] = "/srv/slurm-workspace"
 	case platformdomain.SlurmWorkloadStorageExternal:
+		vars[varSlurmWorkloadFstype] = "nfs4"
+		if ws.NFSMountOptions != "" {
+			vars[varSlurmWorkloadMountOpts] = ws.NFSMountOptions
+		}
 		vars[varSlurmWorkloadSource] = ws.NFSURL
 	}
 }

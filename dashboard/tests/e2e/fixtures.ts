@@ -185,6 +185,10 @@ export interface FixtureOptions {
   onMetricsRequest?: (serverIds: string[]) => void
   /** Removes Platform membership and deployment target claims for wizard success paths. */
   freePlatformCandidates?: boolean
+  // Gives srv-1 exactly 4C/24GiB/80GB and srv-2 4C/16GiB/80GB.
+  minimumResourceCandidates?: boolean
+  /** Makes the Slurm requirement GET fail so the wizard fail-closed path can be verified. */
+  slurmRequirementFails?: boolean
   onMetricsActive?: (active: number) => void
   /**
    * Adds a Swallow-deployed HA Slurm platform (`platform-slurm-ha`) with two controller-only
@@ -207,6 +211,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     for (const server of fleet) {
       server.membership = null
     }
+  }
+  if (options.minimumResourceCandidates && fleet[0] && fleet[1]) {
+    Object.assign(fleet[0], { cpuCores: 4, memoryMiB: 24576, storageGB: 80 })
+    Object.assign(fleet[1], { cpuCores: 4, memoryMiB: 16384, storageGB: 80 })
   }
   for (let index = 0; index < (options.readyServerCount ?? 0) && index < fleet.length; index++) {
     fleet[index].provisioning.state = 'ready'
@@ -238,6 +246,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }))
   let metricBatchIndex = 0
   let activeMetricRequests = 0
+  let slurmRequirement: {
+    platformType: 'slurm'
+    minimumResources: { cpuCores: number; memoryMiB: number; storageGB: number } | null
+    updatedAt: string | null
+  } = { platformType: 'slurm', minimumResources: null, updatedAt: null }
   const releaseRefreshesRemaining = new Map<string, number>()
   const deploymentRefreshesRemaining = new Map<string, number>()
   const releaseCleanupRequested = new Set<string>()
@@ -986,6 +999,17 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       activeMetricRequests -= 1
       if (batch === options.failMetricsBatchIndex) return json(route, { error: { code: 'provider_unavailable', message: 'Prometheus batch failed' } }, 503)
       return json(route, { items: ids.map((serverId, index) => ({ serverId, metrics: { cpuUsagePercent: 30 + (index % 20), memoryUsedPercent: 60 + (index % 10), ...(Number(serverId.split('-')[1]) <= 4 ? { gpuUtilizationPercent: 88.1, gpuTemperatureCelsius: 71.3 } : {}) } })), grafana: 'https://grafana.example' })
+    }
+
+    if (path === '/api/v1/platforms/deployment-requirements/slurm') {
+      if (options.slurmRequirementFails && request.method() === 'GET') {
+        return json(route, { error: { code: 'provider_error', message: 'Requirement store unavailable' } }, 503)
+      }
+      if (request.method() === 'PUT') {
+        const body = request.postDataJSON() as { minimumResources: typeof slurmRequirement.minimumResources }
+        slurmRequirement = { platformType: 'slurm', minimumResources: body.minimumResources, updatedAt: now }
+      }
+      return json(route, slurmRequirement)
     }
 
     if (path === '/api/v1/platforms/deploy' && request.method() === 'POST') {

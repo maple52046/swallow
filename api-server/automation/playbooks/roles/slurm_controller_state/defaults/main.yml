@@ -8,7 +8,7 @@ slurm_controller_state_mode: local
 slurm_state_save_location: /var/spool/slurmctld
 # NFS source (host:/export) for 'shared' mode; empty in 'local' mode.
 slurm_state_source: ""
-slurm_state_fstype: nfs4
+slurm_state_fstype: nfs
 # hard + _netdev so slurmctld blocks rather than corrupts state if the server blips, and the
 # mount is treated as network storage ordered after the network is up.
-slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2
+slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2,vers=3

@@ -445,6 +445,11 @@ Each Step observes the requested image, refreshes the Server address projection,
 requires the Site's configured SSH port (default 22) to become reachable. A missing
 provider address or unreachable SSH endpoint therefore fails the Step and the Operation;
 MAAS's `deployed` value remains available only as provider-owned lifecycle diagnostics.
+While the provider remains in `deploying`, Swallow checks live BMC power after ten
+minutes. A machine that is still powered off becomes `requires_attention` with code
+`deployment_power_on_timeout` and stage `deployment_power_on`; Swallow does not abort,
+power on, or resubmit it automatically. Providers without live power inspection retain
+the general two-hour observation timeout.
 
 Retry observes before writing. If the expected image is now SSH-reachable, the Step
 succeeds without repeating provider work. If MAAS installed the image but reports no

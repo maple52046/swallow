@@ -11,6 +11,10 @@
     name: nfs-common
     state: present
     lock_timeout: 300
+  register: slurm_workload_client_nfs_package
+  until: slurm_workload_client_nfs_package is succeeded
+  retries: 120
+  delay: 5
   become: true
   when: slurm_workload_fstype in ['nfs', 'nfs4']
 
@@ -31,6 +35,12 @@
     regexp: '^[^ \t]+[ \t]+{{ slurm_workload_mount_path | regex_escape }}[ \t]'
     line: "{{ slurm_workload_source }} {{ slurm_workload_mount_path }} {{ slurm_workload_fstype }} {{ slurm_workload_mount_options }} 0 0"
     state: present
+    # MAAS ephemeral images may omit fstab; create it so mount-by-target and systemd's remote
+    # filesystem ordering use the same explicit source of truth during this boot.
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
   become: true
 
 - name: Check whether the workload filesystem is already mounted

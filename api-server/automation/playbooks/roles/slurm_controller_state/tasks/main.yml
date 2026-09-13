@@ -16,6 +16,12 @@
     name: nfs-common
     state: present
     lock_timeout: 300
+  # The fresh-boot lock gate runs earlier, but unattended-upgrades can start after that
+  # check. Retrying the apt operation itself closes that unavoidable check/use race.
+  register: slurm_controller_state_nfs_package
+  until: slurm_controller_state_nfs_package is succeeded
+  retries: 120
+  delay: 5
   become: true
   when:
     - slurm_controller_state_mode == 'shared'
@@ -40,6 +46,12 @@
     regexp: '^[^ \t]+[ \t]+{{ slurm_state_save_location | regex_escape }}[ \t]'
     line: "{{ slurm_state_source }} {{ slurm_state_save_location }} {{ slurm_state_fstype }} {{ slurm_state_mount_options }} 0 0"
     state: present
+    # Some MAAS ephemeral images intentionally omit fstab. It remains the mount source of
+    # truth for this boot, so create the ordinary root-owned file when absent.
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
   become: true
   when: slurm_controller_state_mode == 'shared'
 

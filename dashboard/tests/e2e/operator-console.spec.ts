@@ -490,6 +490,29 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
   })
 
+  test('Platform deployment review shows ephemeral OS deployment', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 2 })
+    await page.goto('/platforms/deploy?site=site-a')
+    await chooseSingleSelectOption(page, 'Platform type', 'Slurm')
+    await page.getByLabel('Platform name').fill('ephemeral-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Operating system configuration' })).toBeVisible()
+    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 24.04 LTS - amd64 (ubuntu noble)')
+    await page.getByRole('checkbox', { name: 'Run the operating system from memory' }).locator('..').click()
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(page.getByText('OS deployment mode', { exact: true })).toBeVisible()
+    await expect(page.getByText('Ephemeral (memory-backed)', { exact: true })).toBeVisible()
+  })
+
   test('Platform wizard supports standalone and non-HA multi-node without a VIP', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true })
     await page.goto('/platforms/deploy?site=site-a')

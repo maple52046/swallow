@@ -6,3 +6,7 @@ slurm_workload_export: /srv/slurm-workspace
 slurm_workload_export_owner: ubuntu
 slurm_workload_export_group: ubuntu
 slurm_workload_export_mode: "0750"
+
+# OverlayFS cannot be exported by the kernel NFS server. On an ephemeral root only, the role
+# mounts this bounded tmpfs at the export path. tmpfs allocates pages on demand, not up front.
+slurm_workload_ephemeral_tmpfs_size: 4G

@@ -22,6 +22,7 @@ type PlatformHandler struct {
 	membership   *application.MembershipSyncUseCase
 	deploy       *application.DeployService
 	slurmCluster *application.GetSlurmClusterUseCase
+	requirements *application.DeploymentRequirementService
 }
 
 func NewPlatformHandler(
@@ -30,10 +31,11 @@ func NewPlatformHandler(
 	deploy *application.DeployService,
 	uninstall *application.UninstallService,
 	slurmCluster *application.GetSlurmClusterUseCase,
+	requirements *application.DeploymentRequirementService,
 ) *PlatformHandler {
 	return &PlatformHandler{
 		platforms: platforms, membership: membership, deploy: deploy,
-		uninstall: uninstall, slurmCluster: slurmCluster,
+		uninstall: uninstall, slurmCluster: slurmCluster, requirements: requirements,
 	}
 }
 
@@ -535,6 +537,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 
 	case errors.Is(err, application.ErrInvalidPlatform),
+		errors.Is(err, platformdomain.ErrInvalidDeploymentRequirement),
 		errors.Is(err, platformdomain.ErrInvalidDeployment),
 		errors.Is(err, serverdomain.ErrServerNotFound),
 		errors.Is(err, platformdomain.ErrUnsupportedPlatformType):

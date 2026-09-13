@@ -31,7 +31,7 @@ Consumer: `dashboard`.
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
 | [workflows.md](workflows.md) | Active | `/api/v1/workflows` | Create, observe, and retry Swallow-owned Workflows (DAG of Tasks), with timeline, logs, and per-Task events. |
 | [operations.md](operations.md) | Deprecated | `/api/v1/operations` | One-release compatibility alias of `workflows.md`; served by the same handlers with a `Deprecation` header. |
-| [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Register platforms, read membership, and deploy a k0s cluster onto provisioned servers. |
+| [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Manage Kubernetes and Slurm Platforms, Slurm deployment requirements, lifecycle, deployment, and observed state. |
 | [server-metrics.md](server-metrics.md) | Active | `GET /api/v1/monitoring/metrics` | Read current metric values for servers from the metrics backend, and list the fixed metric-name set. |
 | [monitoring-alerts.md](monitoring-alerts.md) | Active | `/api/v1/monitoring/alerts` | List correlated alerts and create Alertmanager silences. |
 | [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus` | Prometheus `http_sd` target list with the metrics label contract; `tag` selects one server type. |

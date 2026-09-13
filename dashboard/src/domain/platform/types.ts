@@ -9,6 +9,20 @@
 
 export type PlatformType = "kubernetes" | "slurm";
 
+/** Observed Server hardware floor for Slurm deployment eligibility. */
+export interface MinimumResources {
+  cpuCores: number;
+  memoryMiB: number;
+  storageGB: number;
+}
+
+/** Current global Slurm deployment requirement; null means resource filtering is disabled. */
+export interface SlurmDeploymentRequirement {
+  platformType: "slurm";
+  minimumResources: MinimumResources | null;
+  updatedAt: string | null;
+}
+
 /**
  * Options for uninstalling a platform. releaseServers additionally returns each member
  * server to the provider after k0s removal; releaseOptions then mirrors the standalone

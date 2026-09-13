@@ -66,6 +66,7 @@ type platformFixture struct {
 	monitoring        *fakeMonitoringFactory
 	platformRepo      *fakePlatformRepo
 	platformReader    *fakeReaderFactory
+	requirementRepo   *fakeDeploymentRequirementRepo
 }
 
 // setupPlatform wires the routes exactly as internal/app does, so that route shape and
@@ -127,6 +128,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	)
 
 	platformRepo := newFakePlatformRepo()
+	requirementRepo := &fakeDeploymentRequirementRepo{}
 	readerFactory := newFakeReaderFactory()
 	lifecycle := newFakeLifecycleReader()
 	uninstallLauncher := &fakeUninstallLauncher{}
@@ -134,11 +136,13 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformService := platformapp.NewPlatformService(platformRepo, sites, servers, lifecycle, nil)
 	deployService := platformapp.NewDeployService(
 		platformService, platformRepo, servers, lifecycle, &fakeDeploymentLauncher{})
+	deployService.AttachDeploymentRequirementReader(requirementRepo)
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, servers, lifecycle, uninstallLauncher)
 	slurmClusterRead := platformapp.NewGetSlurmClusterUseCase(platformRepo, readerFactory)
+	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService, slurmClusterRead)
+		platformService, membershipSync, deployService, uninstallService, slurmClusterRead, requirementService)
 
 	app := fiber.New()
 	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
@@ -200,6 +204,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup.Post("/integrations/:id/reconcile", provisioningHandler.Reconcile)
 
 	platformGroup := v1.Group("/platforms", admin...)
+	platformGroup.Get("/deployment-requirements/slurm", platformHandler.GetSlurmDeploymentRequirement)
+	platformGroup.Put("/deployment-requirements/slurm", platformHandler.PutSlurmDeploymentRequirement)
 	platformGroup.Post("/", platformHandler.Create)
 	platformGroup.Get("/", platformHandler.List)
 	platformGroup.Post("/deploy", platformHandler.Deploy)
@@ -254,6 +260,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		monitoring:        monitoringFactory,
 		platformRepo:      platformRepo,
 		platformReader:    readerFactory,
+		requirementRepo:   requirementRepo,
 		platformLifecycle: lifecycle,
 		uninstallLauncher: uninstallLauncher,
 	}

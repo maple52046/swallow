@@ -26,6 +26,7 @@ membership.
 - [Operation](../../../../../docs/development/glossaries/terms/operation.md)
 - [Node Role](../../../../../docs/development/glossaries/terms/node-role.md)
 - [Platform Topology](../../../../../docs/development/glossaries/terms/platform-topology.md)
+- [Minimum Resource Requirement](../../../../../docs/development/glossaries/terms/minimum-resource-requirement.md)
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
 
 ## Endpoints
@@ -33,6 +34,8 @@ membership.
 ```text
 POST   /api/v1/platforms/
 GET    /api/v1/platforms/
+GET    /api/v1/platforms/deployment-requirements/slurm
+PUT    /api/v1/platforms/deployment-requirements/slurm
 POST   /api/v1/platforms/deploy
 GET    /api/v1/platforms/{platformId}
 PATCH  /api/v1/platforms/{platformId}
@@ -121,6 +124,35 @@ matched a Server.
 `siteId`, `name`, `type`, and `gpuStackOwner` are required. `integrationId` and
 `exporterOwner` are optional; `exporterOwner` defaults to `ansible`. Success is
 `201 Created` returning the resource with `origin=registered`.
+
+## Manage The Slurm Deployment Requirement
+
+`GET /api/v1/platforms/deployment-requirements/slurm` reads the current system-wide Slurm
+deployment eligibility policy. A missing stored record is returned as the disabled representation;
+it is not a 404. `PUT` replaces the policy. These routes exist only on the canonical Platforms
+surface and have no `/clusters` compatibility alias.
+
+```json
+{
+  "platformType": "slurm",
+  "minimumResources": {
+    "cpuCores": 4,
+    "memoryMiB": 24576,
+    "storageGB": 80
+  },
+  "updatedAt": "2026-09-13T00:00:00Z"
+}
+```
+
+The PUT request contains `minimumResources` with the same object shape. All three fields are
+required when enabled and must be greater than zero; `cpuCores` and `memoryMiB` are integers.
+Sending `{ "minimumResources": null }` disables the policy. The response is the complete shape
+above; while disabled, both `minimumResources` and the never-configured `updatedAt` are `null`
+(the timestamp remains populated after an explicit disable). Omitting `minimumResources` is a
+validation error.
+
+This policy is a hardware eligibility floor, not a reservation, Slurm scheduler capacity, or image
+size calculation.
 
 ## Deploy A New Platform
 
@@ -272,7 +304,13 @@ exports NFS from the login node, so it requires one) or `external` (mount the op
 cluster identity: consistent workload-user UID/GID across nodes is the operator's
 responsibility.
 
-The same target claim, lock, membership, and Site rules as Kubernetes apply. Success is the
+The same target claim, lock, membership, and Site rules as Kubernetes apply. Before any Platform
+or Workflow is created, a Slurm deploy also reads the current minimum resource requirement once
+and validates every controller, compute, and login Server against its observed CPU, memory, and
+storage. Equality is eligible; unknown or zero hardware fails an enabled positive threshold. Any
+shortfall returns the standard validation error naming the Server, actual resources, and minimum,
+with no deployment side effects. Failure to read the requirement fails closed. Kubernetes
+deployments do not apply this policy. Success is the
 same `202 Accepted` shape. When the target image includes `slurm-smd-slurmrestd`, Swallow
 records a `slurm` platform Integration pointing at `slurmrestd` on success and begins
 membership reads; if the image omits it, the cluster still deploys successfully but the

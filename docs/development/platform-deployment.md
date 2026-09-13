@@ -123,6 +123,9 @@ flowchart TB
 所有 Task 都必須 **idempotent**：重跑已收斂的 Task 為 no-op（`provisioner` 在已 `deployed`
 且 image 相符且 SSH 可達時直接成功；`ansible` 靠 playbook 本身冪等）。
 
+`provision-os` 的成功條件會同時比對請求的 image 與 ephemeral mode；僅 image 相同、但
+provider 回報的 `ephemeral` 不同，不能視為已收斂。
+
 > **命名現況（glossary vs 現行 code）**：glossary 已採 Workflow/Job/Task/Runner，但 code 與
 > 部分 wire/BSON 仍是舊名（`Operation`/`Step`/`executor`、`Task.Executor` 的 bson tag 為
 > `runner`、`Workflow.Steps` 的 bson 為 `tasks`、`RunnerKindProvisioner` 的值仍是 `maas`、
@@ -228,6 +231,11 @@ operator 維護 `knownHosts`。
 ### 4.7 冪等、失敗與重試語意
 
 - 每個 Task 與每支 playbook 必須 idempotent（ensure）。
+- **worker turnover 會自動續跑同一個 Task attempt**：worker graceful stop 會中止本地等待，
+  但不會對 MAAS 發 abort，也不會對 Ansible 發 cancel。heartbeat timeout／retry 由 Temporal
+  重新派發 activity；Runner 以同一個 MAAS deployment 或 Ansible idempotency key 接續觀測。
+  只有真正的 Workflow cancellation 才取消 provider／Ansible 的外部工作。此 infrastructure
+  retry 不建立新的 operator-visible Task attempt。
 - 可重試的失敗會讓 Workflow 停在 `requires_attention`，由 **operator 觸發**單一 Task 重試（不自動
   重試）；Job 重試會**遞增該 Job 內 Task 的 attempt**，使 Runner 以新的 idempotency key 真正重跑，
   而非回傳前次快取結果。
@@ -347,8 +355,17 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   （`RequiresMountsFor` + `ConditionPathIsMountPoint`，未掛載即拒絕啟動 slurmctld，避免 state 靜默
   寫入 local disk）後才啟動 slurmctld。`stateSaveLocation` 由必填改為**選用覆寫**（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
   該 state server 為單一 storage failure domain（lab 等級，非 storage HA）；production 的外部/
-  pre-mounted 共享儲存為後續延伸（role 已保留 mode 掛勾）。
+  pre-mounted 共享儲存為後續延伸（role 已保留 mode 掛勾）。當 export path 位於 ephemeral
+  OverlayFS 時，kernel NFS 無法直接 export，server role 會只在此情況掛一個 bounded、按需配置
+  page 的 tmpfs（controller state 預設 1 GiB）；一般 disk filesystem 不變。Swallow-managed 的
+  standalone export 明確使用 NFSv3，避免 NFSv4 pseudo-root namespace 無法解析絕對 export path。
+  client role 也會相容於 image 未預建 `/etc/fstab` 的情況。
 - **不套 ephemeral 防呆**：k0s 禁止 ephemeral OS，Slurm 首版不沿用（k8s 的 ephemeral 問題另議）。
+- **minimum resource policy**：Slurm 可啟用一份 system-wide CPU cores、memory MiB、storage GB
+  eligibility floor（[ADR 026](../decisions/026-slurm-minimum-resource-policy.md)）。controller、compute、
+  login 套用同一門檻；Dashboard 顯示但禁選不足節點，backend 在建立 Platform／Workflow 前以
+  inventory observed hardware 再驗證。policy 不存在即停用，讀取失敗則 fail closed；Kubernetes
+  不受影響。它不保證任意 image 的 ephemeral rootfs 一定能容納。
 - **uninstall**：`uninstall-slurm`（[uninstall-slurm.yml](../../api-server/automation/playbooks/uninstall-slurm.yml)）
   比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge、移除 Swallow 佈的
   設定/金鑰/controller state（保留 OS 與 image 套件），可選擇同時 release 成員機。已在 lab
@@ -359,6 +376,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   節點的非重疊路徑(預設 `/shared`,不可為 `/home`):`slurm.workloadStorage.mode` 為
   `self-hosted`(由 login node 匯出 NFS,需有 login node)或 `external`(掛操作者提供的 `nfs.url`);
   對應 roles `slurm_login`、`slurm_workload_storage_server`、`slurm_workload_storage_client`。
+  self-hosted export 在 ephemeral OverlayFS 上使用 bounded tmpfs（預設 4 GiB）及 NFSv3；external
+  storage 不受此選擇影響，仍使用 Workflow snapshot 捕捉的 NFSv4 與 operator mount options。
   HA 時 state server 優先選 login node。支援兩種拓樸:single controller + n compute,以及
   1 login + n controllers(HA)+ n compute(login 提供整個 cluster 的 NFS)。詳見
   [ADR 024](../decisions/024-slurm-login-and-workload-storage.md)。

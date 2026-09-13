@@ -18,9 +18,43 @@
     update_cache: true
     cache_valid_time: 3600
     lock_timeout: 300
+  register: slurm_state_server_nfs_package
+  until: slurm_state_server_nfs_package is succeeded
+  retries: 120
+  delay: 5
   become: true
 
-- name: Create the controller-state export directory
+- name: Create the controller-state export mount point
+  ansible.builtin.file:
+    path: "{{ slurm_state_export }}"
+    state: directory
+  become: true
+
+- name: Inspect the controller-state export backing filesystem
+  # The ephemeral MAAS root is OverlayFS. Linux NFS refuses to export a directory backed by
+  # overlay, so give only that case its own exportable, memory-backed filesystem. A normal
+  # disk deployment keeps its existing filesystem and persistence semantics.
+  ansible.builtin.command:
+    argv: [findmnt, --noheadings, --output, FSTYPE, --target, "{{ slurm_state_export }}"]
+  register: slurm_state_export_filesystem
+  changed_when: false
+  become: true
+
+- name: Mount memory-backed controller state for an ephemeral root
+  ansible.builtin.command:
+    argv:
+      - mount
+      - -t
+      - tmpfs
+      - -o
+      - "size={{ slurm_state_ephemeral_tmpfs_size }},nosuid,nodev"
+      - tmpfs
+      - "{{ slurm_state_export }}"
+  when: slurm_state_export_filesystem.stdout | trim == 'overlay'
+  changed_when: true
+  become: true
+
+- name: Set controller-state export ownership
   ansible.builtin.file:
     path: "{{ slurm_state_export }}"
     state: directory

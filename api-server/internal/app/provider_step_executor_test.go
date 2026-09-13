@@ -2,14 +2,77 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
+
+type cancellationProvider struct {
+	aborts     int
+	machine    *provisioningdomain.Machine
+	powerState provisioningdomain.PowerState
+}
+
+func (p *cancellationProvider) Name() string { return "test" }
+func (p *cancellationProvider) Probe(context.Context) (provisioningdomain.ProviderInfo, error) {
+	return provisioningdomain.ProviderInfo{}, nil
+}
+func (p *cancellationProvider) Capabilities() provisioningdomain.ProviderCapabilities {
+	return provisioningdomain.ProviderCapabilities{HardwareValidation: true}
+}
+func (p *cancellationProvider) ListMachines(context.Context, provisioningdomain.MachineFilter) ([]*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+func (p *cancellationProvider) GetMachine(context.Context, string) (*provisioningdomain.Machine, error) {
+	if p.machine != nil {
+		return p.machine, nil
+	}
+	return nil, errors.New("observation unavailable")
+}
+func (p *cancellationProvider) ListOSImages(context.Context) ([]*provisioningdomain.OSImage, error) {
+	return nil, nil
+}
+func (p *cancellationProvider) Deploy(context.Context, provisioningdomain.DeployRequest) (*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+func (p *cancellationProvider) Release(context.Context, string) (*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+func (p *cancellationProvider) PowerOn(context.Context, string) (*provisioningdomain.Machine, error) {
+	return p.machine, nil
+}
+func (p *cancellationProvider) PowerOff(context.Context, string) (*provisioningdomain.Machine, error) {
+	return p.machine, nil
+}
+func (p *cancellationProvider) QueryPowerState(context.Context, string) (provisioningdomain.PowerState, error) {
+	return p.powerState, nil
+}
+func (p *cancellationProvider) Commission(context.Context, string) (*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+func (p *cancellationProvider) Test(context.Context, string) (*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+func (p *cancellationProvider) Abort(context.Context, string) (*provisioningdomain.Machine, error) {
+	p.aborts++
+	return nil, nil
+}
+func (p *cancellationProvider) OverrideFailedTesting(context.Context, string) (*provisioningdomain.Machine, error) {
+	return nil, nil
+}
+
+type cancellationProviderFactory struct{ provider *cancellationProvider }
+
+func (f cancellationProviderFactory) For(context.Context, string) (provisioningdomain.OSProvisioningProvider, error) {
+	return f.provider, nil
+}
 
 type deploymentProjectionTestRepo struct {
 	serverdomain.ServerRepository
@@ -18,6 +81,11 @@ type deploymentProjectionTestRepo struct {
 
 func (r *deploymentProjectionTestRepo) FindByID(context.Context, string) (*serverdomain.Server, error) {
 	return r.server, nil
+}
+
+func (r *deploymentProjectionTestRepo) Upsert(_ context.Context, server *serverdomain.Server) error {
+	r.server = server
+	return nil
 }
 
 func (r *deploymentProjectionTestRepo) SetDeployment(_ context.Context, _ string, deployment *serverdomain.DeploymentStatus) error {
@@ -115,6 +183,53 @@ func TestProviderStepReadinessTimeout(t *testing.T) {
 	}
 }
 
+func TestProviderStepDeploymentPowerOnTimeout(t *testing.T) {
+	if got := (providerStepExecutor{}).powerOnTimeout(); got != defaultDeploymentPowerOnWait {
+		t.Fatalf("default power-on timeout = %s", got)
+	}
+
+	server := &serverdomain.Server{
+		ID: "server-id",
+		Source: serverdomain.Source{
+			IntegrationID:     "integration-id",
+			ProviderMachineID: "machine-id",
+		},
+	}
+	repository := &deploymentProjectionTestRepo{server: server}
+	provider := &cancellationProvider{
+		machine: &provisioningdomain.Machine{
+			ID: "machine-id", Status: provisioningdomain.MachineStatusDeploying,
+		},
+		powerState: provisioningdomain.PowerStateOff,
+	}
+	factory := cancellationProviderFactory{provider: provider}
+	executor := providerStepExecutor{
+		refresh:     provisioningapp.NewRefreshServerUseCase(repository, factory),
+		servers:     repository,
+		providers:   factory,
+		poll:        time.Millisecond,
+		powerOnWait: 2 * time.Millisecond,
+	}
+	image := "ubuntu/custom-image"
+	result := executor.observeDeploy(
+		context.Background(),
+		temporalworkflow.StepExecutionInput{Step: operationdomain.Task{ID: "provision"}},
+		server.ID,
+		provisioningapp.DeployServersInput{Settings: provisioningapp.DeploymentSettingsInput{ImageID: &image}},
+		true,
+	)
+
+	if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil {
+		t.Fatalf("result = %+v, want requires-attention Step", result)
+	}
+	if result.Error.Code != "deployment_power_on_timeout" || result.Error.Stage != "deployment_power_on" {
+		t.Fatalf("error = %+v, want explicit provider power-on diagnosis", result.Error)
+	}
+	if provider.aborts != 0 {
+		t.Fatalf("stalled observation called provider abort %d times", provider.aborts)
+	}
+}
+
 func TestInitialDeploymentProjectionClosesWorkerStartGap(t *testing.T) {
 	server := &serverdomain.Server{ID: "server-id"}
 	repository := &deploymentProjectionTestRepo{server: server}
@@ -128,5 +243,49 @@ func TestInitialDeploymentProjectionClosesWorkerStartGap(t *testing.T) {
 	}
 	if server.Deployment.OperationID != "operation-id" || server.Deployment.StepID != "provision-server" || server.Deployment.Attempt != 1 {
 		t.Fatalf("deployment identity = %+v", server.Deployment)
+	}
+}
+
+func TestImageMatchesIncludesRequestedEphemeralMode(t *testing.T) {
+	image := "ubuntu/custom-image"
+	ephemeral := true
+	input := provisioningapp.DeployServersInput{Settings: provisioningapp.DeploymentSettingsInput{ImageID: &image, Ephemeral: &ephemeral}}
+	state := &provisioningapp.ProvisioningStateItem{DistroSeries: image}
+	if imageMatches(state, input) {
+		t.Fatal("disk deployment must not satisfy requested ephemeral deployment")
+	}
+	state.Ephemeral = true
+	if !imageMatches(state, input) {
+		t.Fatal("matching image and ephemeral mode should satisfy deployment intent")
+	}
+}
+
+func TestProviderCancellationAbortsOnlyForWorkflowCancellation(t *testing.T) {
+	server := &serverdomain.Server{ID: "server-id", Source: serverdomain.Source{IntegrationID: "integration-id", ProviderMachineID: "machine-id"}}
+	repository := &deploymentProjectionTestRepo{server: server}
+	provider := &cancellationProvider{}
+	factory := cancellationProviderFactory{provider: provider}
+	executor := providerStepExecutor{
+		servers:   repository,
+		providers: factory,
+		refresh:   provisioningapp.NewRefreshServerUseCase(repository, factory),
+		poll:      time.Hour,
+	}
+	image := "ubuntu/custom-image"
+	input := provisioningapp.DeployServersInput{Settings: provisioningapp.DeploymentSettingsInput{ImageID: &image}}
+	step := temporalworkflow.StepExecutionInput{Step: operationdomain.Task{ID: "provision", Attempt: 1}}
+
+	workerContext, stopWorker := context.WithCancelCause(context.Background())
+	stopWorker(temporalworkflow.ErrActivityWorkerStopping)
+	executor.observeDeploy(workerContext, step, server.ID, input, true)
+	if provider.aborts != 0 {
+		t.Fatalf("worker stop called provider abort %d times", provider.aborts)
+	}
+
+	workflowContext, cancelWorkflow := context.WithCancelCause(context.Background())
+	cancelWorkflow(context.Canceled)
+	executor.observeDeploy(workflowContext, step, server.ID, input, true)
+	if provider.aborts != 1 {
+		t.Fatalf("workflow cancellation called provider abort %d times, want 1", provider.aborts)
 	}
 }

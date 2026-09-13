@@ -39,7 +39,7 @@ const (
 // Histories written before versioning was introduced replay as workflow.DefaultVersion;
 // future incompatible changes must add a branch keyed on a higher value here rather than
 // editing existing decision paths, so completed and in-flight histories stay replayable.
-const operationWorkflowVersion = 1
+const operationWorkflowVersion = 2
 
 // WorkflowInput is a secret-free immutable snapshot. Workflows carry opaque references,
 // never credential, cloud-init, or automation secret values.
@@ -99,6 +99,8 @@ type StepExecutionInput struct {
 	Step          operationdomain.Task
 	Leases        []operationdomain.ResourceLease
 	LeaseDuration time.Duration
+	// ActivityAttempt is populated inside ExecuteStep and is never persisted in workflow input.
+	ActivityAttempt int `json:"-"`
 }
 
 // StepExecutionResult is normalized before it reaches workflow history.
@@ -188,6 +190,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 				"resource lease fencing token is no longer current", "lease_fenced", err)
 		}
 	}
+	input.ActivityAttempt = int(activity.GetInfo(ctx).Attempt)
 	executor := a.executors[input.Step.Executor]
 	if executor == nil {
 		return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
@@ -198,8 +201,8 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 	waiting.Status = operationdomain.TaskWaitingExternal
 	waiting.WaitingReason = "Waiting for " + string(input.Step.Executor) + " execution."
 	_ = a.UpdateStep(ctx, StepUpdate{OperationID: input.OperationID, Step: waiting})
-	executionCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	executionCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	type outcome struct{ result StepExecutionResult }
 	done := make(chan outcome, 1)
 	go func() { done <- outcome{result: executor.Execute(executionCtx, input)} }()
@@ -214,6 +217,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 	activity.RecordHeartbeat(ctx, "Step execution started")
 	ticker := time.NewTicker(renewInterval)
 	defer ticker.Stop()
+	workerStop := activity.GetWorkerStopChannel(ctx)
 	var result StepExecutionResult
 	for {
 		select {
@@ -222,12 +226,15 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 			goto finished
 		case <-ticker.C:
 			if err := a.leases.Renew(ctx, input.Leases, time.Now().UTC().Add(duration)); err != nil {
-				cancel()
+				cancel(err)
 				return StepExecutionResult{}, temporal.NewNonRetryableApplicationError("resource lease could not be renewed", "lease_fenced", err)
 			}
 			activity.RecordHeartbeat(ctx, "resource leases renewed")
+		case <-workerStop:
+			cancel(ErrActivityWorkerStopping)
+			return StepExecutionResult{}, temporal.NewApplicationError("activity worker stopped before external execution completed", "worker_shutdown")
 		case <-ctx.Done():
-			cancel()
+			cancel(ctx.Err())
 			return StepExecutionResult{}, ctx.Err()
 		}
 	}
@@ -254,7 +261,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	// Versioning checkpoint. Discarded today because there is only one logic version;
 	// it exists so a future incompatible change can branch here without breaking the
 	// replay of histories recorded before that change.
-	_ = workflow.GetVersion(ctx, "operation-workflow", workflow.DefaultVersion, operationWorkflowVersion)
+	operationVersion := workflow.GetVersion(ctx, "operation-workflow", workflow.DefaultVersion, operationWorkflowVersion)
 	if input.LeaseDuration <= 0 {
 		input.LeaseDuration = 90 * time.Second
 	}
@@ -370,10 +377,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				steps[index].StartedAt = &started
 				steps[index].WaitingReason = ""
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
-				executionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-					StartToCloseTimeout: 7 * 24 * time.Hour, HeartbeatTimeout: 30 * time.Second,
-					RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1},
-				})
+				executionCtx := workflow.WithActivityOptions(ctx, executeStepActivityOptions(operationVersion >= 2))
 				futures[pos] = workflow.ExecuteActivity(executionCtx, ActivityExecuteStep, StepExecutionInput{
 					OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID, Step: steps[index], Leases: leases, LeaseDuration: input.LeaseDuration,
 				})
@@ -590,6 +594,7 @@ func runJobChild(ctx workflow.Context, input WorkflowInput, leases []operationdo
 // projection. It reports failure as a JobResult value so the parent Operation owns retry and
 // final status. Cross-Job dependencies are treated as already satisfied by parent ordering.
 func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, error) {
+	activityRetryVersion := workflow.GetVersion(ctx, "job-execute-step-worker-retry", workflow.DefaultVersion, 1)
 	if input.LeaseDuration <= 0 {
 		input.LeaseDuration = 90 * time.Second
 	}
@@ -644,10 +649,7 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 				tasks[index].StartedAt = &started
 				tasks[index].WaitingReason = ""
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: tasks[index]}).Get(projectionCtx, nil)
-				executionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-					StartToCloseTimeout: 7 * 24 * time.Hour, HeartbeatTimeout: 30 * time.Second,
-					RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1},
-				})
+				executionCtx := workflow.WithActivityOptions(ctx, executeStepActivityOptions(activityRetryVersion >= 1))
 				futures[pos] = workflow.ExecuteActivity(executionCtx, ActivityExecuteStep, StepExecutionInput{
 					OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID, Step: tasks[index], Leases: input.Leases, LeaseDuration: input.LeaseDuration,
 				})

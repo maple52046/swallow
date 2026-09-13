@@ -235,6 +235,8 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("platform repo init: %w", err)
 	}
+	requirementRepo := platforminfra.NewMongoDeploymentRequirementRepo(db)
+	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformReaderFactory := platforminfra.NewReaderFactory(integrationRepo)
 	membershipSync := platformapp.NewMembershipSyncUseCase(
 		platformRepo, serverRepo, platformReaderFactory)
@@ -302,12 +304,13 @@ func RunAPI(cfg config.APIConfig) error {
 		serverProtection,
 	)
 	deployService.AttachMachinePreparationValidator(platformMachinePreparationValidator{deployments: deploymentsUC})
+	deployService.AttachDeploymentRequirementReader(requirementRepo)
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
 	)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService, slurmClusterRead)
+		platformService, membershipSync, deployService, uninstallService, slurmClusterRead, requirementService)
 
 	// Auto-install exporters when a server reaches the deployed state and its effective
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
@@ -582,6 +585,8 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// Swallow owns Platform registration and policy; membership is observed from the
 	// runtime API. The former Cluster route is a delivery-only compatibility alias.
 	platforms := v1.Group("/platforms", admin...)
+	platforms.Get("/deployment-requirements/slurm", deps.platforms.GetSlurmDeploymentRequirement)
+	platforms.Put("/deployment-requirements/slurm", deps.platforms.PutSlurmDeploymentRequirement)
 	registerPlatformRoutes(platforms, deps.platforms)
 	legacyPlatforms := v1.Group("/clusters", admin...)
 	legacyPlatforms.Use(markDeprecatedPlatformRoute)

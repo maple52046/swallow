@@ -12,9 +12,42 @@
     update_cache: true
     cache_valid_time: 3600
     lock_timeout: 300
+  register: slurm_workload_server_nfs_package
+  until: slurm_workload_server_nfs_package is succeeded
+  retries: 120
+  delay: 5
   become: true
 
-- name: Create the workload export directory
+- name: Create the workload export mount point
+  ansible.builtin.file:
+    path: "{{ slurm_workload_export }}"
+    state: directory
+  become: true
+
+- name: Inspect the workload export backing filesystem
+  # The ephemeral MAAS root is OverlayFS, which the kernel NFS server cannot export. Mount a
+  # bounded tmpfs only in that case; ordinary disk deployments retain their persistent backing.
+  ansible.builtin.command:
+    argv: [findmnt, --noheadings, --output, FSTYPE, --target, "{{ slurm_workload_export }}"]
+  register: slurm_workload_export_filesystem
+  changed_when: false
+  become: true
+
+- name: Mount memory-backed workload storage for an ephemeral root
+  ansible.builtin.command:
+    argv:
+      - mount
+      - -t
+      - tmpfs
+      - -o
+      - "size={{ slurm_workload_ephemeral_tmpfs_size }},nosuid,nodev"
+      - tmpfs
+      - "{{ slurm_workload_export }}"
+  when: slurm_workload_export_filesystem.stdout | trim == 'overlay'
+  changed_when: true
+  become: true
+
+- name: Set workload export ownership
   ansible.builtin.file:
     path: "{{ slurm_workload_export }}"
     state: directory

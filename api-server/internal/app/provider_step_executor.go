@@ -30,10 +30,14 @@ type providerStepExecutor struct {
 	protection     serverdomain.MutationGuard
 	poll           time.Duration
 	readinessWait  time.Duration
+	powerOnWait    time.Duration
 	sshProbe       func(context.Context, string, int) error
 }
 
-const defaultDeploymentReadinessWait = 20 * time.Minute
+const (
+	defaultDeploymentReadinessWait = 20 * time.Minute
+	defaultDeploymentPowerOnWait   = 10 * time.Minute
+)
 
 func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	switch input.Step.Kind {
@@ -46,6 +50,9 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
 		}
 		result := e.deploy(ctx, input)
+		if temporalworkflow.IsActivityWorkerStopping(ctx) {
+			return result
+		}
 		if err := e.finishDeployment(ctx, input, serverID, result); err != nil {
 			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
 		}
@@ -141,7 +148,7 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 	if serverID == "" {
 		return providerFailed("invalid_step", "The provisioning Step has no Server target.", false).StepExecutionResult
 	}
-	if step.Step.Attempt > 1 {
+	if step.Step.Attempt > 1 || step.ActivityAttempt > 1 {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil && state.State == string(provisioningdomain.MachineStatusDeployed) && imageMatches(state, input) {
 			readiness, inspectErr := e.inspectDeploymentReadiness(ctx, serverID, step.SiteID)
@@ -183,12 +190,33 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
 	var readinessDeadline time.Time
+	var deployingSince time.Time
 	var lastReadiness deploymentReadiness
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil {
 			switch state.State {
+			case string(provisioningdomain.MachineStatusDeploying):
+				now := time.Now()
+				if deployingSince.IsZero() {
+					deployingSince = now
+				}
+				if !now.Before(deployingSince.Add(e.powerOnTimeout())) {
+					powerState, supported, powerErr := e.queryLivePower(ctx, serverID)
+					if powerErr == nil && supported && powerState == provisioningdomain.PowerStateOff {
+						return providerAttention(
+							"deployment_power_on_timeout",
+							"The provisioner still reports Deploying, but the Server remained powered off for 10 minutes. Check the provider deployment and power workflow before retrying.",
+							"deployment_power_on",
+						)
+					}
+					// A live-on, unknown, or temporarily unavailable power reading is not
+					// proof of a provider stall. Delay the next diagnostic query while the
+					// outer two-hour deployment observation remains authoritative.
+					deployingSince = now
+				}
 			case string(provisioningdomain.MachineStatusDeployed):
+				deployingSince = time.Time{}
 				if imageMatches(state, input) {
 					if readinessDeadline.IsZero() {
 						if err := e.setDeployment(ctx, step, serverID, serverdomain.DeploymentVerifying, nil, false); err != nil {
@@ -214,6 +242,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 			case string(provisioningdomain.MachineStatusFailed), string(provisioningdomain.MachineStatusBroken):
 				return providerFailed("deployment_failed", "The provisioner reported that OS deployment failed.", true).withStage("deployment")
 			case string(provisioningdomain.MachineStatusReady):
+				deployingSince = time.Time{}
 				if !accepted {
 					return providerAttention("provider_outcome_unknown", "The provider response was lost before Swallow could prove whether deployment started. Verify MAAS before retrying.", "deployment")
 				}
@@ -221,7 +250,9 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 		}
 		select {
 		case <-ctx.Done():
-			e.abort(serverID)
+			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
+				e.abort(serverID)
+			}
 			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
 			if !readinessDeadline.IsZero() {
@@ -357,6 +388,30 @@ func (e providerStepExecutor) readinessTimeout() time.Duration {
 	return e.readinessWait
 }
 
+func (e providerStepExecutor) powerOnTimeout() time.Duration {
+	if e.powerOnWait <= 0 {
+		return defaultDeploymentPowerOnWait
+	}
+	return e.powerOnWait
+}
+
+func (e providerStepExecutor) queryLivePower(ctx context.Context, serverID string) (provisioningdomain.PowerState, bool, error) {
+	server, err := e.servers.FindByID(ctx, serverID)
+	if err != nil {
+		return provisioningdomain.PowerStateUnknown, false, err
+	}
+	provider, err := e.providers.For(ctx, server.Source.IntegrationID)
+	if err != nil {
+		return provisioningdomain.PowerStateUnknown, false, err
+	}
+	controller, ok := provider.(provisioningdomain.PowerController)
+	if !ok {
+		return provisioningdomain.PowerStateUnknown, false, nil
+	}
+	state, err := controller.QueryPowerState(ctx, server.Source.ProviderMachineID)
+	return state, true, err
+}
+
 func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	var input provisioningapp.ReleaseServerInput
 	if err := decodeStepRequest(step.Step.Parameters, &input); err != nil {
@@ -371,7 +426,7 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 	} else {
 		input.Comment = input.Comment + " | " + correlation
 	}
-	if step.Step.Attempt > 1 {
+	if step.Step.Attempt > 1 || step.ActivityAttempt > 1 {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil && state.State == string(provisioningdomain.MachineStatusReady) {
 			return e.observeReleaseCleanup(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
@@ -415,7 +470,9 @@ func (e providerStepExecutor) observeRelease(ctx context.Context, serverID, oper
 		}
 		select {
 		case <-ctx.Done():
-			e.abort(serverID)
+			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
+				e.abort(serverID)
+			}
 			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
 			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "release")
@@ -519,7 +576,11 @@ func imageMatches(state *provisioningapp.ProvisioningStateItem, input provisioni
 	}
 	wanted := strings.ToLower(strings.TrimSpace(*input.Settings.ImageID))
 	actual := strings.ToLower(strings.TrimSpace(state.DistroSeries))
-	return actual == wanted || strings.HasSuffix(wanted, "/"+actual)
+	imageMatches := actual == wanted || strings.HasSuffix(wanted, "/"+actual)
+	if !imageMatches {
+		return false
+	}
+	return input.Settings.Ephemeral == nil || state.Ephemeral == *input.Settings.Ephemeral
 }
 
 type providerResult struct {

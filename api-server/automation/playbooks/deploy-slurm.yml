@@ -42,8 +42,11 @@
         slurm_state_source: >-
           {{ (hostvars[swallow_slurm_state_server_id].ansible_host ~ ':' ~ (swallow_slurm_state_export | default('/srv/slurm-state', true)))
              if (swallow_slurm_state_server_id | default('')) | length > 0 else '' }}
-        slurm_state_fstype: nfs4
-        slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2
+        # A standalone tmpfs export on an ephemeral state server is directly addressable via
+        # NFSv3. NFSv4 would require a separate pseudo-root namespace and cannot resolve this
+        # absolute export path, so the Swallow-managed state share pins the proven protocol.
+        slurm_state_fstype: nfs
+        slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2,vers=3
         # Login (submission/client) host: pure client, configless + sackd by default.
         slurm_is_login: "{{ inventory_hostname in (swallow_slurm_login_ids | default([])) }}"
         slurm_login_config_mode: "{{ swallow_slurm_login_config_mode | default('configless', true) }}"
@@ -59,8 +62,18 @@
           {{ swallow_slurm_workload_source
              | default((hostvars[swallow_slurm_workload_server_id].ansible_host ~ ':' ~ (swallow_slurm_workload_export | default('/srv/slurm-workspace', true)))
                        if (swallow_slurm_workload_server_id | default('')) | length > 0 else '', true) }}
-        slurm_workload_fstype: "{{ swallow_slurm_workload_fstype | default('nfs4', true) }}"
-        slurm_workload_mount_options: "{{ swallow_slurm_workload_mount_options | default('rw,_netdev,hard,timeo=600,retrans=2', true) }}"
+        # Self-hosted storage may be a standalone tmpfs on an ephemeral root and therefore
+        # uses the directly-addressable NFSv3 export. Derive this from the immutable workload
+        # mode so an existing Workflow retry also receives the compatibility fix; external
+        # storage continues to honor its captured fstype and mount options.
+        slurm_workload_fstype: >-
+          {{ 'nfs'
+             if (swallow_slurm_workload_mode | default('')) == 'self-hosted'
+             else (swallow_slurm_workload_fstype | default('nfs4', true)) }}
+        slurm_workload_mount_options: >-
+          {{ 'rw,_netdev,hard,timeo=600,retrans=2,vers=3'
+             if (swallow_slurm_workload_mode | default('')) == 'self-hosted'
+             else (swallow_slurm_workload_mount_options | default('rw,_netdev,hard,timeo=600,retrans=2', true)) }}
         slurm_conf_dir: /etc/slurm
         slurm_log_dir: /var/log/slurm
         slurm_jwt_key_path: /etc/slurm/jwt_hs256.key
@@ -106,6 +119,25 @@
       # Every node mounts the workload filesystem when it is enabled; empty otherwise.
       ansible.builtin.group_by:
         key: "slurm_{{ 'workload_client' if slurm_workload_enabled | bool else 'nonworkload_client' }}"
+
+    - name: Wait for image-started package operations to release dpkg locks
+      # Fresh ephemeral boots may still be finishing unattended-upgrades when automation
+      # connects. apt.lock_timeout is not consistently honoured by every ansible-core/apt
+      # combination, so establish one explicit readiness gate before any Slurm role installs
+      # MUNGE or NFS packages. fuser returns 1 only when none of the locks has an owner.
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/fuser
+          - /var/lib/dpkg/lock-frontend
+          - /var/lib/dpkg/lock
+          - /var/cache/apt/archives/lock
+      register: slurm_dpkg_locks
+      until: slurm_dpkg_locks.rc != 0
+      retries: 120
+      delay: 5
+      changed_when: false
+      failed_when: false
+      become: true
   roles:
     - role: slurm_preflight
     - role: slurm_packages_verify

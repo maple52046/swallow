@@ -23,6 +23,7 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 			required: []string{
 				"swallow_slurm_state_server_id",
 				"swallow_slurm_high_availability",
+				"slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2,vers=3",
 				"slurm_controller_state_mode",
 				"slurm_state_source",
 				"hosts: slurm_state_server",
@@ -35,6 +36,7 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 			required: []string{
 				"slurm_controller_state_mode == 'shared'",
 				"slurm_controller_state_mode == 'local'",
+				"create: true",
 				"RequiresMountsFor={{ slurm_state_save_location }}",
 				"ConditionPathIsMountPoint={{ slurm_state_save_location }}",
 				"argv: [mountpoint, -q, \"{{ slurm_state_save_location }}\"]",
@@ -46,6 +48,9 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 				"nfs-kernel-server",
 				"groups['slurm_controller']",
 				"root_squash",
+				"findmnt, --noheadings, --output, FSTYPE",
+				"slurm_state_export_filesystem.stdout | trim == 'overlay'",
+				"slurm_state_ephemeral_tmpfs_size",
 			},
 		},
 		{
@@ -112,6 +117,7 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 				"swallow_slurm_login_ids",
 				"swallow_slurm_workload_enabled",
 				"swallow_slurm_workload_source",
+				"if (swallow_slurm_workload_mode | default('')) == 'self-hosted'",
 				"hosts: slurm_login",
 				"role: slurm_login",
 				"hosts: slurm_workload_server",
@@ -125,13 +131,21 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 			required: []string{"SACKD_OPTIONS", "slurm_login_config_mode == 'configless'"},
 		},
 		{
-			path:     filepath.Join("roles", "slurm_workload_storage_server", "tasks", "main.yml"),
-			required: []string{"nfs-kernel-server", "groups['slurm_workload_client']", "root_squash"},
+			path: filepath.Join("roles", "slurm_workload_storage_server", "tasks", "main.yml"),
+			required: []string{
+				"nfs-kernel-server",
+				"groups['slurm_workload_client']",
+				"root_squash",
+				"findmnt, --noheadings, --output, FSTYPE",
+				"slurm_workload_export_filesystem.stdout | trim == 'overlay'",
+				"slurm_workload_ephemeral_tmpfs_size",
+			},
 		},
 		{
 			path: filepath.Join("roles", "slurm_workload_storage_client", "tasks", "main.yml"),
 			required: []string{
 				"nfs-common",
+				"create: true",
 				"argv: [mountpoint, -q, \"{{ slurm_workload_mount_path }}\"]",
 			},
 		},
@@ -168,5 +182,32 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 	if !(computePlay < loginPlay && loginPlay < workloadClientPlay) {
 		t.Errorf("play order must be compute -> login -> workload client, got %d, %d, %d",
 			computePlay, loginPlay, workloadClientPlay)
+	}
+}
+
+func TestSlurmPackageInstallsRetryAfterFreshBootLockRaces(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "automation", "playbooks", "roles")
+	cases := map[string]string{
+		filepath.Join("slurm_munge", "tasks", "main.yml"):                   "until: slurm_munge_package is succeeded",
+		filepath.Join("slurm_controller_state", "tasks", "main.yml"):        "until: slurm_controller_state_nfs_package is succeeded",
+		filepath.Join("slurm_state_server", "tasks", "main.yml"):            "until: slurm_state_server_nfs_package is succeeded",
+		filepath.Join("slurm_workload_storage_client", "tasks", "main.yml"): "until: slurm_workload_client_nfs_package is succeeded",
+		filepath.Join("slurm_workload_storage_server", "tasks", "main.yml"): "until: slurm_workload_server_nfs_package is succeeded",
+	}
+
+	for path, retryCondition := range cases {
+		t.Run(path, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(root, path))
+			if err != nil {
+				t.Fatalf("read playbook artifact: %v", err)
+			}
+			content := string(raw)
+			if !strings.Contains(content, retryCondition) {
+				t.Errorf("%s missing %q", path, retryCondition)
+			}
+			if !strings.Contains(content, "retries: 120") || !strings.Contains(content, "delay: 5") {
+				t.Errorf("%s must bound apt retry to ten minutes", path)
+			}
+		})
 	}
 }

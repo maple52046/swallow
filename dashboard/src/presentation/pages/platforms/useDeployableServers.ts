@@ -33,10 +33,12 @@ export type DeployableState =
  *
  * `provisioningStates` must be a stable reference (e.g. a module constant) because it keys the
  * load effect; an inline array literal would refetch on every render.
+ * `refreshKey` intentionally invalidates the load after a stale-policy deployment rejection.
  */
 export function useDeployableServers(
   siteId: string | undefined,
   provisioningStates: readonly string[] = ['deployed'],
+  refreshKey = 0,
 ): DeployableState {
   const { sites, servers, platforms, operations } = useApp()
   const [state, setState] = useState<DeployableState>({ status: 'loading' })
@@ -111,7 +113,7 @@ export function useDeployableServers(
     return () => {
       cancelled = true
     }
-  }, [sites, servers, platforms, operations, siteId, provisioningStates])
+  }, [sites, servers, platforms, operations, siteId, provisioningStates, refreshKey])
 
   return state
 }

@@ -12,6 +12,11 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+    lock_timeout: 600
+  register: slurm_munge_package
+  until: slurm_munge_package is succeeded
+  retries: 120
+  delay: 5
   become: true
 
 - name: Create the MUNGE key on the primary controller if absent

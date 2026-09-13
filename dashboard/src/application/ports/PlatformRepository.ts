@@ -5,6 +5,8 @@ import type {
   MembershipReport,
   SlurmCluster,
   UninstallPlatformOptions,
+  MinimumResources,
+  SlurmDeploymentRequirement,
 } from '@/domain/platform/types'
 
 /**
@@ -40,4 +42,8 @@ export interface PlatformRepository {
    * membership instead of surfacing an error.
    */
   getSlurmCluster(id: string): Promise<SlurmCluster | null>
+  /** Reads the system-wide Slurm node eligibility floor; a null minimum is disabled. */
+  getSlurmDeploymentRequirement(): Promise<SlurmDeploymentRequirement>
+  /** Replaces the Slurm eligibility floor, or disables it when minimum is null. */
+  putSlurmDeploymentRequirement(minimum: MinimumResources | null): Promise<SlurmDeploymentRequirement>
 }

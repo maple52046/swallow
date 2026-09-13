@@ -3,3 +3,7 @@
 # mount this at slurm_state_save_location (see slurm_controller_state). Overridable by the
 # playbook's trusted var swallow_slurm_state_export.
 slurm_state_export: /srv/slurm-state
+
+# OverlayFS cannot be exported by the kernel NFS server. On an ephemeral root only, the role
+# mounts this bounded tmpfs at the export path. tmpfs allocates pages on demand, not up front.
+slurm_state_ephemeral_tmpfs_size: 1G

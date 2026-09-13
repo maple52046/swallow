@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Badge, Button, HStack, Menu, Portal, Table } from '@chakra-ui/react'
-import { Boxes, ListFilter, LoaderCircle, Plus, TriangleAlert, Unplug } from 'lucide-react'
+import { Boxes, ListFilter, LoaderCircle, Plus, Settings, TriangleAlert, Unplug } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { platformLifecycleLabel, platformLifecycleStatus, platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
 import type { Platform, PlatformLifecycleState, PlatformType } from '@/domain/platform/types'
@@ -121,10 +121,16 @@ export function PlatformsPage() {
       <PageHeader
         title="Platforms"
         actions={
-          <Button colorPalette="brand" onClick={() => navigate(scopedHref('/platforms/deploy'))}>
-            <Plus size={16} />
-            Deploy platform
-          </Button>
+          <HStack gap="2">
+            <Button variant="outline" onClick={() => navigate(scopedHref('/platforms/settings'))}>
+              <Settings size={16} />
+              Settings
+            </Button>
+            <Button colorPalette="brand" onClick={() => navigate(scopedHref('/platforms/deploy'))}>
+              <Plus size={16} />
+              Deploy platform
+            </Button>
+          </HStack>
         }
       />
 
