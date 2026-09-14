@@ -24,6 +24,8 @@ export function OperationEventWorkspace({ events, running }: { events: Operation
         <Badge colorPalette="green" variant="subtle">{events.okCount} ok</Badge>
         <Badge colorPalette="blue" variant="subtle">{events.changedCount} changed</Badge>
         <Badge colorPalette={events.failedCount ? 'red' : 'gray'} variant="subtle">{events.failedCount} failed</Badge>
+        {events.unreachableCount > 0 && <Badge colorPalette="orange" variant="subtle">{events.unreachableCount} unreachable</Badge>}
+        {events.skippedCount > 0 && <Badge colorPalette="gray" variant="subtle">{events.skippedCount} skipped</Badge>}
         <Text as="span" color="fg.muted">{filtered.length} of {events.events.length} events</Text>
       </HStack>
       <div className="sw-workspace-toolbar">

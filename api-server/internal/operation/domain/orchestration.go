@@ -89,6 +89,22 @@ type ArtifactMetadata struct {
 	CreatedAt   time.Time `json:"createdAt" bson:"createdAt"`
 }
 
+// TaskLive is the live, coarse progress of an in-flight Task, projected from its Runner while it
+// runs (currently only the ansible Runner populates it). It carries no task output and is advisory:
+// the authoritative outcome is Status/Error. It is cleared implicitly when the Task reaches a
+// terminal state and the workflow writes the final projection.
+type TaskLive struct {
+	CurrentPlay string    `json:"currentPlay,omitempty" bson:"currentPlay,omitempty"`
+	CurrentTask string    `json:"currentTask,omitempty" bson:"currentTask,omitempty"`
+	Total       int       `json:"total" bson:"total"`
+	OK          int       `json:"ok" bson:"ok"`
+	Changed     int       `json:"changed" bson:"changed"`
+	Failed      int       `json:"failed" bson:"failed"`
+	Unreachable int       `json:"unreachable" bson:"unreachable"`
+	Skipped     int       `json:"skipped" bson:"skipped"`
+	UpdatedAt   time.Time `json:"updatedAt" bson:"updatedAt"`
+}
+
 // Task is one durable, observable phase of an Operation.
 type Task struct {
 	ID   string `json:"id" bson:"id"`
@@ -109,9 +125,12 @@ type Task struct {
 	WaitingReason     string                      `json:"waitingReason,omitempty" bson:"waitingReason,omitempty"`
 	Error             *NormalizedError            `json:"error" bson:"error,omitempty"`
 	ExternalExecution *ExternalExecutionReference `json:"externalExecution" bson:"externalExecution,omitempty"`
-	Artifacts         []ArtifactMetadata          `json:"artifacts" bson:"artifacts"`
-	StartedAt         *time.Time                  `json:"startedAt" bson:"startedAt,omitempty"`
-	FinishedAt        *time.Time                  `json:"finishedAt" bson:"finishedAt,omitempty"`
+	// Live is the in-flight progress of the Task, set by its Runner while it runs and cleared by
+	// the final projection. Nil for a Task that has not started or has no live-progress Runner.
+	Live       *TaskLive          `json:"live,omitempty" bson:"live,omitempty"`
+	Artifacts  []ArtifactMetadata `json:"artifacts" bson:"artifacts"`
+	StartedAt  *time.Time         `json:"startedAt" bson:"startedAt,omitempty"`
+	FinishedAt *time.Time         `json:"finishedAt" bson:"finishedAt,omitempty"`
 }
 
 // TemporalReference correlates the query projection with its durable workflow.
@@ -193,6 +212,12 @@ type WorkflowRepository interface {
 	MarkWorkflowStarted(ctx context.Context, id, runID string) error
 	UpdateState(ctx context.Context, id string, status WorkflowStatus, reason string, startedAt, finishedAt *time.Time) error
 	UpdateStep(ctx context.Context, operationID string, step Task) error
+	// UpdateStepLive projects a running Task's live fields without replacing the whole step, so a
+	// mid-run writer (the ansible activity) cannot clobber targets, parameters, or dependencies.
+	// Each argument is applied only when non-nil: ref sets the external execution reference,
+	// startedAt stamps the first observation, and live refreshes the coarse progress. It returns
+	// ErrTaskNotFound when the step is absent.
+	UpdateStepLive(ctx context.Context, operationID, stepID string, ref *ExternalExecutionReference, startedAt *time.Time, live *TaskLive) error
 	AppendEvent(ctx context.Context, event TimelineEvent) error
 	Timeline(ctx context.Context, operationID string) ([]TimelineEvent, error)
 }

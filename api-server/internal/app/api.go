@@ -281,8 +281,14 @@ func RunAPI(cfg config.APIConfig) error {
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
+	// Live Ansible task events, streamed by the executor and read here to serve a durable Step's
+	// task list during a run rather than only after it finishes (decision: live progress).
+	ansibleEventRepo, err := operationinfra.NewMongoAnsibleEventRepo(db)
+	if err != nil {
+		return fmt.Errorf("ansible event repo init: %w", err)
+	}
 	operationService := operationapp.NewExecutionService(
-		operationRepo, serverRepo, automationRepo, catalog, runner,
+		operationRepo, serverRepo, automationRepo, catalog, runner, ansibleEventRepo,
 		platformapp.NewPolicyChecker(platformRepo, serverRepo),
 		serverProtection,
 	)

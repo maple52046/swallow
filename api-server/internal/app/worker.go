@@ -130,7 +130,7 @@ func RunWorker(cfg config.APIConfig) error {
 			servers: servers, configurations: automationConfigurations, membership: membership,
 			finalizer: platformFinalizer, poll: 5 * time.Second,
 		},
-		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), cfg.JobArtifactDir, 2*time.Second),
+		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,
 	}, serverDeploymentStepObserver{servers: servers})
 	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{WorkerStopTimeout: 10 * time.Second})

@@ -217,6 +217,107 @@ func (r *LocalRunner) Events(_ context.Context, runID string) ([]operationdomain
 	return events, nil
 }
 
+// EventsSince returns the run's task events past afterSeq, plus the newest play/task the runner
+// started, so the executor can stream live progress while ansible-runner is still writing.
+//
+// It implements the optional IncrementalEventReader capability. Only files whose ordinal exceeds
+// afterSeq are read, so repeated calls during a run are cheap and never re-emit an event. Host
+// results become StreamedTaskEvents (output dropped, secret-safe); play-start and task-start events
+// only advance CurrentPlay/CurrentTask. A missing job_events directory (the run has not written any
+// event yet) returns an empty delta at the same cursor rather than an error.
+func (r *LocalRunner) EventsSince(runID string, afterSeq int) (operationdomain.RunProgressDelta, error) {
+	dir := filepath.Join(r.artifactRoot, filepath.Base(runID), "job_events")
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return operationdomain.RunProgressDelta{LastSeq: afterSeq}, nil
+	}
+	if err != nil {
+		return operationdomain.RunProgressDelta{}, err
+	}
+
+	type ordinaled struct {
+		seq  int
+		name string
+	}
+	files := make([]ordinaled, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		seq := eventOrdinal(entry.Name())
+		if seq <= afterSeq {
+			continue
+		}
+		files = append(files, ordinaled{seq: seq, name: entry.Name()})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].seq < files[j].seq })
+
+	delta := operationdomain.RunProgressDelta{LastSeq: afterSeq}
+	for _, file := range files {
+		raw, readErr := os.ReadFile(filepath.Join(dir, file.name))
+		if readErr != nil {
+			continue
+		}
+		if file.seq > delta.LastSeq {
+			delta.LastSeq = file.seq
+		}
+		if play, task, ok := parseActivityEvent(raw); ok {
+			// A play/task-start only advances the "currently running" labels; the last one seen in
+			// ordinal order is the task ansible-runner most recently started.
+			if play != "" {
+				delta.CurrentPlay = play
+			}
+			if task != "" {
+				delta.CurrentTask = task
+			}
+			continue
+		}
+		if event, ok := parseTaskEvent(raw); ok {
+			delta.Events = append(delta.Events, operationdomain.StreamedTaskEvent{
+				RunID: runID, Seq: file.seq, TaskEvent: event,
+			})
+		}
+	}
+	return delta, nil
+}
+
+// activityEventJSON is the subset of an ansible-runner play/task-start event used to report which
+// play and task are currently running. task-start carries the task in "task" (older runners use
+// "name"); play-start carries the play in "play" or "name".
+type activityEventJSON struct {
+	Event     string `json:"event"`
+	EventData struct {
+		Play string `json:"play"`
+		Task string `json:"task"`
+		Name string `json:"name"`
+	} `json:"event_data"`
+}
+
+// parseActivityEvent extracts the current play/task from a play-start or task-start event, and
+// reports ok=false for any other event (including host results, which parseTaskEvent handles).
+func parseActivityEvent(raw []byte) (play, task string, ok bool) {
+	var doc activityEventJSON
+	if json.Unmarshal(raw, &doc) != nil {
+		return "", "", false
+	}
+	switch doc.Event {
+	case "playbook_on_play_start":
+		play = doc.EventData.Play
+		if play == "" {
+			play = doc.EventData.Name
+		}
+		return play, "", true
+	case "playbook_on_task_start":
+		task = doc.EventData.Task
+		if task == "" {
+			task = doc.EventData.Name
+		}
+		return doc.EventData.Play, task, true
+	default:
+		return "", "", false
+	}
+}
+
 // Stderr builds an error-only report of a run from its retained job events: one block per
 // failed or unreachable task with the task, host (a serverId), module message, return code,
 // and the task's captured stderr and stdout. It is the focused counterpart to Logs (the full

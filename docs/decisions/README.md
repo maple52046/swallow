@@ -81,6 +81,7 @@
 | [`027-os-image-upload.md`](027-os-image-upload.md) | Swallow 可驅動 provisioner 上傳 provider-owned OS image（optional `OSImageUploader` capability，對稱於 delete）：bytes 由 browser→api-server→provider 串流、swallow 不留副本，custom 分類由 provider adapter 判斷而非呼叫端；新增 `POST /provisioning/images`（multipart）；refine ADR 001/009 |
 | [`028-ephemeral-kubernetes-deployment.md`](028-ephemeral-kubernetes-deployment.md) | Kubernetes accepts the existing ephemeral OS intent for disposable clusters and gates the booted host with cgroup, module, command, and `k0s sysinfo` checks before cluster state is created |
 | [`029-infrastructure-zone-pool-ownership.md`](029-infrastructure-zone-pool-ownership.md) | Zone 與 Pool 改為 swallow-owned、Site-scoped 的受管概念（新 `infrastructure` feature，完整 CRUD 與 Server placement），provider 具備能力時以 optional `GroupingController` capability 實現於 MAAS；Server 的 observed zone/pool 仍為 provider 鏡射；supersede `Machine.Zone/ResourcePool` 的 opaque pass-through 註記，refine ADR 001/012/025 |
+| [`030-live-ansible-task-streaming.md`](030-live-ansible-task-streaming.md) | Ansible Task 執行中即時串流 per-task 事件進 MongoDB、run 一開始就投影 `externalExecution`、並以 `Task.Live`（current play/task + ok/changed/failed/unreachable/skipped 計數，非百分比）呈現進度；raw stdout 仍留磁碟；沿用既有輪詢；refine ADR 016/017 |
 `001`–`003` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
 Consequences / Rejected alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄
 `Date`，依「不得杜撰歷史理由」原則保留為 unrecorded 而非捏造。其論述結構刻意維持原樣。

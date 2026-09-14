@@ -154,6 +154,44 @@ type TaskEvent struct {
 	EndedAt   *time.Time
 }
 
+// StreamedTaskEvent is a TaskEvent persisted as it is produced during a run, carrying the run
+// identity and the runner's own event ordinal. The ordinal makes appends idempotent and ordered:
+// a re-tail after a worker restart writes the same (RunID, Seq) rather than duplicating an event.
+type StreamedTaskEvent struct {
+	RunID string
+	Seq   int
+	TaskEvent
+}
+
+// AnsibleEventRepository is the durable, append-only store of per-task Ansible events, written by
+// the executor while a run advances and read by the API to serve live progress. It carries no task
+// output (secret safety); it is the streaming counterpart to the on-disk stdout artifact.
+//
+// Implementations must make AppendEvents idempotent on (RunID, Seq) so repeated tails or a worker
+// turnover cannot create duplicates. ListEvents returns events in ascending Seq order.
+type AnsibleEventRepository interface {
+	AppendEvents(ctx context.Context, events []StreamedTaskEvent) error
+	ListEvents(ctx context.Context, runID string) ([]TaskEvent, error)
+}
+
+// RunProgressDelta is the incremental view of a run since a prior event ordinal: the new per-host
+// task results, the highest ordinal seen (the next cursor), and the most recent play/task the
+// runner started. CurrentPlay/CurrentTask are empty when no play/task-start appeared past the
+// cursor, so the caller keeps its previous value.
+type RunProgressDelta struct {
+	Events      []StreamedTaskEvent
+	LastSeq     int
+	CurrentPlay string
+	CurrentTask string
+}
+
+// IncrementalEventReader is an optional Runner capability: reading a run's task events since a
+// given ordinal while the run is still in progress. It exists so the executor can stream live
+// progress; a Runner that does not implement it simply provides no live updates.
+type IncrementalEventReader interface {
+	EventsSince(runID string, afterSeq int) (RunProgressDelta, error)
+}
+
 // Runner owns local ansible-runner process execution and persistent artifacts.
 type Runner interface {
 	// Run executes the playbook and returns whatever result the playbook captured. A

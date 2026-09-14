@@ -124,11 +124,22 @@ The response carries the Workflow, its Tasks (currently serialized under `steps[
       "executor": "ansible",
       "dependsOn": ["wait-for-ssh"],
       "targets": [{ "kind": "server", "id": "server-id" }],
-      "status": "waiting_external",
+      "status": "running",
       "attempt": 1,
       "progress": 0,
       "error": null,
       "externalExecution": { "provider": "ansible-runner", "id": "run-id", "generation": 1 },
+      "live": {
+        "currentPlay": "Install k0s",
+        "currentTask": "k0s_binary : Download k0s",
+        "total": 12,
+        "ok": 10,
+        "changed": 4,
+        "failed": 0,
+        "unreachable": 0,
+        "skipped": 2,
+        "updatedAt": "2026-09-03T00:01:20Z"
+      },
       "artifacts": []
     }
   ],
@@ -148,6 +159,15 @@ waiting_dependency | succeeded | failed | canceled | skipped | requires_attentio
 `intentSnapshot` and Task parameters never contain credential, cloud-init, or Kubernetes
 secret values; opaque secret references are internal and never returned.
 
+An Ansible Task's `externalExecution` is published as soon as the run starts (not only when it
+finishes), so its live diagnostics are available during the run. While it runs, `live` carries a
+coarse, output-free progress summary: the current play and task the runner started, and cumulative
+host-result counts (`total`, `ok`, `changed`, `failed`, `unreachable`, `skipped`). `changed` is a
+subset of `ok`. `live` is advisory and present only while a run is in flight — it is absent before
+the run starts and after the Task reaches a terminal state (the authoritative outcome is `status`
+and `error`). There is no percentage: Ansible's total task count is not known up front. Only the
+Ansible Runner populates `live`.
+
 ## List Query
 
 Optional filters are `siteId`, `platformId`, deprecated `clusterId`, `serverId`, `kind`,
@@ -162,10 +182,18 @@ Workflow and Task state transitions with no secret material. Task logs are UTF-8
 /tasks/{taskId}/stderr` returns an error-only UTF-8 `text/plain` report for an Ansible Task —
 one block per failed or unreachable task (task, host, message, return code, and its captured
 stderr/stdout) — and an empty body when the Task recorded no failure or is not an Ansible
-Task; it is the focused counterpart to `logs` (the full runner output). Task events
-return the retained runner task-event projection for Ansible and an empty list for other
-Runners. Task artifacts return metadata only. `dependsOn`, `targets`, `artifacts`, and
-timeline results are JSON arrays and never `null`.
+Task; it is the focused counterpart to `logs` (the full runner output).
+
+`GET /tasks/{taskId}/events` returns an Ansible Task's per-task results, and an empty list for
+other Runners. The events stream **during** the run — new results appear as the runner completes
+each task, so a client polling this endpoint sees progress instead of waiting for the whole run —
+and each carries `play`, `task`, `host` (a serverId), `status` (`ok | changed | failed |
+unreachable | skipped`), `changed`, and `startedAt`/`endedAt`; task output is never included
+(secret safety). The response also carries derived counts (`okCount`, `changedCount`,
+`failedCount`, `unreachableCount`, `skippedCount`). The current running play/task is on the Task's
+`live` field above, not in this list. Raw stdout stays on disk and is served by `logs`; it is not
+part of this projection. Task artifacts return metadata only. `dependsOn`, `targets`, `artifacts`,
+and timeline results are JSON arrays and never `null`.
 
 ## Cancel
 

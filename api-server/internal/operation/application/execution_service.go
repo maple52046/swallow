@@ -23,9 +23,13 @@ type ExecutionService struct {
 	configurations operationdomain.AutomationConfigurationRepository
 	catalog        operationdomain.PlaybookCatalog
 	runner         operationdomain.Runner
-	protection     serverdomain.MutationGuard
-	policy         PolicyChecker
-	durable        *WorkflowService
+	// events is the durable stream of per-task Ansible events. EventsForRun reads it so a
+	// durable Step's task list is available live during a run, independent of the artifact
+	// filesystem. Nil falls back to the runner's on-disk events (post-hoc only).
+	events     operationdomain.AnsibleEventRepository
+	protection serverdomain.MutationGuard
+	policy     PolicyChecker
+	durable    *WorkflowService
 }
 
 // NewExecutionService constructs the embedded-execution use case.
@@ -35,12 +39,13 @@ func NewExecutionService(
 	configurations operationdomain.AutomationConfigurationRepository,
 	catalog operationdomain.PlaybookCatalog,
 	runner operationdomain.Runner,
+	events operationdomain.AnsibleEventRepository,
 	policy PolicyChecker,
 	protection ...serverdomain.MutationGuard,
 ) *ExecutionService {
 	service := &ExecutionService{
 		operations: operations, servers: servers, configurations: configurations,
-		catalog: catalog, runner: runner, policy: policy,
+		catalog: catalog, runner: runner, events: events, policy: policy,
 	}
 	if len(protection) > 0 {
 		service.protection = protection[0]
@@ -364,12 +369,14 @@ func (s *ExecutionService) Retry(ctx context.Context, id, requestedBy string) (*
 
 // OperationEventsItem is the task-level progress of a run.
 type OperationEventsItem struct {
-	RunID        string          `json:"runId"`
-	Status       string          `json:"status"`
-	OKCount      int             `json:"okCount"`
-	ChangedCount int             `json:"changedCount"`
-	FailedCount  int             `json:"failedCount"`
-	Events       []TaskEventItem `json:"events"`
+	RunID            string          `json:"runId"`
+	Status           string          `json:"status"`
+	OKCount          int             `json:"okCount"`
+	ChangedCount     int             `json:"changedCount"`
+	FailedCount      int             `json:"failedCount"`
+	UnreachableCount int             `json:"unreachableCount"`
+	SkippedCount     int             `json:"skippedCount"`
+	Events           []TaskEventItem `json:"events"`
 }
 
 // TaskEventItem is one task result on one host.
@@ -403,8 +410,12 @@ func (s *ExecutionService) Events(ctx context.Context, id string) (*OperationEve
 		switch event.Status {
 		case "ok":
 			item.OKCount++
-		case "failed", "unreachable":
+		case "failed":
 			item.FailedCount++
+		case "unreachable":
+			item.UnreachableCount++
+		case "skipped":
+			item.SkippedCount++
 		}
 		if event.Changed {
 			item.ChangedCount++
@@ -514,9 +525,20 @@ func (s *ExecutionService) StderrForRun(ctx context.Context, runID string) (stri
 	return s.runner.Stderr(ctx, runID)
 }
 
-// EventsForRun projects retained Ansible task events for a durable Step.
+// EventsForRun projects a durable Step's Ansible task events for the API.
+//
+// It reads the durable event stream when one is configured, so the task list is available live
+// while the run is still in progress; without it, it falls back to the runner's on-disk events,
+// which are only complete after the run ends. Counts are derived from the events so the summary and
+// the list can never disagree.
 func (s *ExecutionService) EventsForRun(ctx context.Context, runID, status string) (*OperationEventsItem, error) {
-	events, err := s.runner.Events(ctx, runID)
+	var events []operationdomain.TaskEvent
+	var err error
+	if s.events != nil {
+		events, err = s.events.ListEvents(ctx, runID)
+	} else {
+		events, err = s.runner.Events(ctx, runID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -525,8 +547,12 @@ func (s *ExecutionService) EventsForRun(ctx context.Context, runID, status strin
 		switch event.Status {
 		case "ok":
 			item.OKCount++
-		case "failed", "unreachable":
+		case "failed":
 			item.FailedCount++
+		case "unreachable":
+			item.UnreachableCount++
+		case "skipped":
+			item.SkippedCount++
 		}
 		if event.Changed {
 			item.ChangedCount++

@@ -55,6 +55,24 @@ export interface OperationArtifact {
   createdAt: string;
 }
 
+/**
+ * Live, coarse progress of an in-flight Ansible Step: the play/task the runner is currently on and
+ * cumulative host-result counts. Present only while a run is in flight and absent otherwise; it is
+ * advisory (the authoritative outcome is `status`/`error`) and carries no task output. There is no
+ * percentage because Ansible's total task count is not known up front. `changed` is a subset of `ok`.
+ */
+export interface OperationStepLive {
+  currentPlay?: string;
+  currentTask?: string;
+  total: number;
+  ok: number;
+  changed: number;
+  failed: number;
+  unreachable: number;
+  skipped: number;
+  updatedAt: string;
+}
+
 /** One durable and independently observable phase of an Operation. */
 export interface OperationStep {
   id: string;
@@ -69,6 +87,8 @@ export interface OperationStep {
   waitingReason?: string;
   error: OperationNormalizedError | null;
   externalExecution: OperationExternalExecution | null;
+  /** Live progress while the Step runs; null/absent before it starts and after it finishes. */
+  live?: OperationStepLive | null;
   artifacts: OperationArtifact[];
   startedAt: string | null;
   finishedAt: string | null;
@@ -135,13 +155,19 @@ export interface TaskEvent {
   endedAt: string | null;
 }
 
-/** A run's task-level progress, derived from the runner's own event stream. */
+/**
+ * A run's task-level progress, derived from the runner's own event stream. For an Ansible Step the
+ * events accumulate live during the run, so polling this shows progress rather than waiting for the
+ * whole run to finish.
+ */
 export interface OperationEvents {
   runId: string;
   status: string;
   okCount: number;
   changedCount: number;
   failedCount: number;
+  unreachableCount: number;
+  skippedCount: number;
   events: TaskEvent[];
 }
 

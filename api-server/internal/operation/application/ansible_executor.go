@@ -25,23 +25,32 @@ type StepCompletionObserver interface {
 	AnsibleStepSucceeded(ctx context.Context, execution *operationdomain.AnsibleExecution, result operationdomain.RunnerResult) error
 }
 
+// streamInterval bounds how often the executor tails a run's events into the durable event store
+// and refreshes its progress. It is fast enough to feel live under the dashboard's polling and slow
+// enough to keep the per-run read/write load negligible next to the ansible-runner subprocess.
+const streamInterval = 2 * time.Second
+
 // AnsibleQueueWorker is the only process allowed to own ansible-runner subprocesses.
 type AnsibleQueueWorker struct {
 	executions     operationdomain.AnsibleExecutionRepository
 	configurations operationdomain.AutomationConfigurationRepository
 	catalog        operationdomain.PlaybookCatalog
 	runner         operationdomain.Runner
-	inventory      InventorySource
-	protection     serverdomain.MutationGuard
-	leases         operationdomain.ResourceLeaseRepository
-	observer       StepCompletionObserver
-	secrets        operationdomain.OperationSecretRepository
-	interval       time.Duration
-	leaseDuration  time.Duration
-	owner          string
-	parallelism    int
-	semaphore      chan struct{}
-	wait           sync.WaitGroup
+	// events is the durable stream of per-task results written while a run advances. It is
+	// optional: a nil store, or a runner without IncrementalEventReader, simply disables live
+	// streaming without affecting the run's outcome.
+	events        operationdomain.AnsibleEventRepository
+	inventory     InventorySource
+	protection    serverdomain.MutationGuard
+	leases        operationdomain.ResourceLeaseRepository
+	observer      StepCompletionObserver
+	secrets       operationdomain.OperationSecretRepository
+	interval      time.Duration
+	leaseDuration time.Duration
+	owner         string
+	parallelism   int
+	semaphore     chan struct{}
+	wait          sync.WaitGroup
 }
 
 func NewAnsibleQueueWorker(
@@ -49,6 +58,7 @@ func NewAnsibleQueueWorker(
 	configurations operationdomain.AutomationConfigurationRepository,
 	catalog operationdomain.PlaybookCatalog,
 	runner operationdomain.Runner,
+	events operationdomain.AnsibleEventRepository,
 	inventory InventorySource,
 	protection serverdomain.MutationGuard,
 	leases operationdomain.ResourceLeaseRepository,
@@ -68,7 +78,7 @@ func NewAnsibleQueueWorker(
 	}
 	worker := &AnsibleQueueWorker{
 		executions: executions, configurations: configurations, catalog: catalog,
-		runner: runner, inventory: inventory, protection: protection, leases: leases, observer: observer,
+		runner: runner, events: events, inventory: inventory, protection: protection, leases: leases, observer: observer,
 		interval: interval, leaseDuration: leaseDuration, parallelism: parallelism,
 		owner: uuid.NewString(), semaphore: make(chan struct{}, parallelism),
 	}
@@ -215,6 +225,15 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 		done <- outcome{result: result, err: runErr}
 	}()
 
+	// Live streaming is best-effort and optional: it needs both an event store and a runner that
+	// can read its own events incrementally. When either is absent the run behaves exactly as
+	// before, just without live progress.
+	reader, canStream := w.runner.(operationdomain.IncrementalEventReader)
+	canStream = canStream && w.events != nil
+	stream := &runProgressState{}
+	streamTicker := time.NewTicker(streamInterval)
+	defer streamTicker.Stop()
+
 	ticker := time.NewTicker(w.leaseDuration / 3)
 	defer ticker.Stop()
 	for {
@@ -224,6 +243,11 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 				// Process ownership was lost with this executor. Leave the lease to expire;
 				// the next executor will require explicit operator attention.
 				return
+			}
+			// Final flush so the last task results and current-task label land before the
+			// terminal status is written and the dashboard stops polling.
+			if canStream {
+				w.streamProgress(ctx, execution, reader, stream)
 			}
 			latest, findErr := w.executions.FindByID(ctx, execution.ID)
 			if findErr == nil && latest.CancelRequested {
@@ -242,6 +266,10 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 			}
 			finish(operationdomain.AnsibleSucceeded, nil)
 			return
+		case <-streamTicker.C:
+			if canStream {
+				w.streamProgress(ctx, execution, reader, stream)
+			}
 		case <-ticker.C:
 			latest, findErr := w.executions.FindByID(ctx, execution.ID)
 			if findErr != nil {
@@ -275,6 +303,74 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 			cancel()
 			return
 		}
+	}
+}
+
+// runProgressState accumulates a run's live progress across streaming ticks. lastSeq is the event
+// ordinal cursor; prog carries the cumulative counts and current play/task. It advances only after
+// new events are durably appended, so a failed append is retried on the next tick without losing or
+// double-counting events.
+type runProgressState struct {
+	lastSeq int
+	prog    operationdomain.AnsibleRunProgress
+}
+
+// apply folds a delta into the accumulator: it advances the cursor, carries forward the newest
+// play/task, and counts each host result. A changed result also counts as ok, matching Ansible's
+// recap where "changed" is a subset of "ok".
+func (s *runProgressState) apply(delta operationdomain.RunProgressDelta) {
+	if delta.CurrentPlay != "" {
+		s.prog.CurrentPlay = delta.CurrentPlay
+	}
+	if delta.CurrentTask != "" {
+		s.prog.CurrentTask = delta.CurrentTask
+	}
+	for _, event := range delta.Events {
+		s.prog.Total++
+		switch event.Status {
+		case "ok":
+			s.prog.OK++
+		case "failed":
+			s.prog.Failed++
+		case "unreachable":
+			s.prog.Unreachable++
+		case "skipped":
+			s.prog.Skipped++
+		}
+		if event.Changed {
+			s.prog.Changed++
+		}
+	}
+	if delta.LastSeq > s.lastSeq {
+		s.lastSeq = delta.LastSeq
+	}
+}
+
+// streamProgress tails the run's new events into the durable store and refreshes its progress. It
+// is best-effort: a read or write failure is logged and retried on the next tick rather than
+// affecting the run. The cursor and counts advance only after the new events are appended, so an
+// append failure re-reads and re-appends the same window (idempotent by (runId, seq)) instead of
+// dropping or double-counting events.
+func (w *AnsibleQueueWorker) streamProgress(
+	ctx context.Context,
+	execution *operationdomain.AnsibleExecution,
+	reader operationdomain.IncrementalEventReader,
+	state *runProgressState,
+) {
+	delta, err := reader.EventsSince(execution.RunID, state.lastSeq)
+	if err != nil {
+		slog.Warn("read Ansible run events", "executionId", execution.ID, "runId", execution.RunID, "error", err)
+		return
+	}
+	if len(delta.Events) > 0 {
+		if appendErr := w.events.AppendEvents(ctx, delta.Events); appendErr != nil {
+			slog.Warn("append Ansible run events", "executionId", execution.ID, "runId", execution.RunID, "error", appendErr)
+			return
+		}
+	}
+	state.apply(delta)
+	if err := w.executions.UpdateProgress(ctx, execution.ID, w.owner, state.prog); err != nil {
+		slog.Warn("update Ansible run progress", "executionId", execution.ID, "error", err)
 	}
 }
 

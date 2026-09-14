@@ -213,6 +213,34 @@ func (r *MongoWorkflowRepo) UpdateStep(ctx context.Context, operationID string, 
 	return nil
 }
 
+// UpdateStepLive sets only the live fields of a running step via a positional $set, so a mid-run
+// writer never overwrites the step's intent (targets, parameters, dependencies) the way the
+// full-document UpdateStep would. Nil arguments are skipped; startedAt is written verbatim, so the
+// caller passes it only on the first observation to avoid resetting it on every poll.
+func (r *MongoWorkflowRepo) UpdateStepLive(ctx context.Context, operationID, stepID string, ref *operationdomain.ExternalExecutionReference, startedAt *time.Time, live *operationdomain.TaskLive) error {
+	set := bson.M{"updatedAt": time.Now().UTC()}
+	if ref != nil {
+		set["tasks.$.externalExecution"] = ref
+	}
+	if startedAt != nil {
+		set["tasks.$.startedAt"] = startedAt
+	}
+	if live != nil {
+		set["tasks.$.live"] = live
+	}
+	result, err := r.operations.UpdateOne(ctx,
+		bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": stepID},
+		bson.M{"$set": set},
+	)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return operationdomain.ErrTaskNotFound
+	}
+	return nil
+}
+
 // AppendEvent records a timeline event idempotently. Projection activities can be retried
 // (they run with unlimited attempts), so an event whose ID is deterministic for its
 // transition is upserted by _id: a retry re-writes the same document instead of appending a

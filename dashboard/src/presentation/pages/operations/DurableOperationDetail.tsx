@@ -202,6 +202,10 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
                         <span className="sw-reason-cell" title={step.error.message}>
                           {firstLine(step.error.message)}
                         </span>
+                      ) : step.live?.currentTask ? (
+                        <span className="sw-reason-cell" title={step.live.currentTask}>
+                          {step.live.currentTask}
+                        </span>
                       ) : (
                         step.waitingReason ?? '-'
                       )}
@@ -405,7 +409,18 @@ function StepEvents({ operation, step }: { operation: Operation; step: Operation
       </Alert>
     )
   }
-  return <OperationEventWorkspace events={events} running={!['succeeded', 'failed', 'canceled', 'skipped'].includes(step.status)} />
+  const running = !['succeeded', 'failed', 'canceled', 'skipped'].includes(step.status)
+  const live = step.live
+  return (
+    <Stack gap="3">
+      {running && live && (live.currentTask || live.currentPlay) && (
+        <Alert status="info" title={`Running: ${live.currentTask || live.currentPlay}`}>
+          {`${live.currentPlay && live.currentTask ? `Play "${live.currentPlay}" - ` : ''}${live.ok} ok, ${live.changed} changed, ${live.failed} failed${live.unreachable ? `, ${live.unreachable} unreachable` : ''}${live.skipped ? `, ${live.skipped} skipped` : ''}`}
+        </Alert>
+      )}
+      <OperationEventWorkspace events={events} running={running} />
+    </Stack>
+  )
 }
 
 function StepArtifacts({ operationId, step }: { operationId: string; step: OperationStep }) {
@@ -443,7 +458,17 @@ function StepDetails({ step }: { step: OperationStep }) {
       items={[
         { label: 'Step ID', value: <span className="mono">{step.id}</span> },
         { label: 'Dependencies', value: step.dependsOn?.join(', ') || '-' },
-        { label: 'Progress', value: `${step.progress}%` },
+        ...(step.live
+          ? [{ label: 'Current task', value: step.live.currentTask || step.live.currentPlay || '-' }]
+          : []),
+        {
+          label: 'Progress',
+          value: step.live
+            ? `${step.live.ok} ok, ${step.live.changed} changed, ${step.live.failed} failed` +
+              `${step.live.unreachable ? `, ${step.live.unreachable} unreachable` : ''}` +
+              `${step.live.skipped ? `, ${step.live.skipped} skipped` : ''} (${step.live.total} tasks)`
+            : `${step.progress}%`,
+        },
         { label: 'External provider', value: step.externalExecution?.provider ?? '-' },
         { label: 'External execution', value: <span className="mono">{step.externalExecution?.id ?? '-'}</span> },
         { label: 'Started', value: formatDateTime(step.startedAt ?? undefined) },

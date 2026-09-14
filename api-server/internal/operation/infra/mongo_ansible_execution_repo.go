@@ -81,6 +81,18 @@ func (r *MongoAnsibleExecutionRepo) Renew(ctx context.Context, id, owner string,
 	return nil
 }
 
+// UpdateProgress records live run progress for the lease-holding executor. It is best-effort: a
+// zero MatchedCount (lease lost or execution already finished) is not an error, because progress is
+// advisory and the authoritative outcome is written by Finish under the same owner guard.
+func (r *MongoAnsibleExecutionRepo) UpdateProgress(ctx context.Context, id, owner string, progress operationdomain.AnsibleRunProgress) error {
+	progress.UpdatedAt = time.Now().UTC()
+	_, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": id, "status": string(operationdomain.AnsibleRunning), "leaseOwner": owner},
+		bson.M{"$set": bson.M{"progress": progress, "updatedAt": progress.UpdatedAt}},
+	)
+	return err
+}
+
 func (r *MongoAnsibleExecutionRepo) Finish(ctx context.Context, id, owner string, status operationdomain.AnsibleExecutionStatus, reason string) error {
 	now := time.Now().UTC()
 	result, err := r.col.UpdateOne(ctx,

@@ -33,6 +33,15 @@ type HostKeyScanner interface {
 	Scan(ctx context.Context, addresses []string, port int) (string, error)
 }
 
+// StepLiveProjector records a running Step's live fields — its external execution reference and
+// coarse progress — onto the Operation projection without clobbering the Step's intent. It is the
+// projection side of live Ansible progress: the executor process writes AnsibleExecution.Progress,
+// and this activity mirrors it onto the Task so the operation payload shows movement (the run's
+// reference, current task, and counts) while the run is still in flight.
+type StepLiveProjector interface {
+	UpdateStepLive(ctx context.Context, operationID, stepID string, ref *operationdomain.ExternalExecutionReference, startedAt *time.Time, live *operationdomain.TaskLive) error
+}
+
 // AnsibleStepExecutor enqueues once and observes the standalone executor. An unknown
 // executor outcome becomes requires_attention and is never automatically re-enqueued.
 type AnsibleStepExecutor struct {
@@ -40,15 +49,18 @@ type AnsibleStepExecutor struct {
 	configurations operationdomain.AutomationConfigurationRepository
 	inventory      AnsibleInventorySource
 	hostKeys       HostKeyScanner
-	artifactRoot   string
-	poll           time.Duration
+	// projector mirrors live run state onto the Task projection. Optional: a nil projector
+	// simply omits live updates, and the final result is still recorded when the activity returns.
+	projector    StepLiveProjector
+	artifactRoot string
+	poll         time.Duration
 }
 
-func NewAnsibleStepExecutor(executions operationdomain.AnsibleExecutionRepository, configurations operationdomain.AutomationConfigurationRepository, inventory AnsibleInventorySource, hostKeys HostKeyScanner, artifactRoot string, poll time.Duration) *AnsibleStepExecutor {
+func NewAnsibleStepExecutor(executions operationdomain.AnsibleExecutionRepository, configurations operationdomain.AutomationConfigurationRepository, inventory AnsibleInventorySource, hostKeys HostKeyScanner, projector StepLiveProjector, artifactRoot string, poll time.Duration) *AnsibleStepExecutor {
 	if poll <= 0 {
 		poll = 2 * time.Second
 	}
-	return &AnsibleStepExecutor{executions: executions, configurations: configurations, inventory: inventory, hostKeys: hostKeys, artifactRoot: artifactRoot, poll: poll}
+	return &AnsibleStepExecutor{executions: executions, configurations: configurations, inventory: inventory, hostKeys: hostKeys, projector: projector, artifactRoot: artifactRoot, poll: poll}
 }
 
 func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionInput) StepExecutionResult {
@@ -96,6 +108,15 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 	}
 	reference := &operationdomain.ExternalExecutionReference{Provider: "ansible-runner", ID: execution.RunID, Generation: input.Step.Attempt}
 
+	// Publish the run reference immediately so the API can serve this Step's live events and logs
+	// while the run is in flight, instead of only after this activity returns. startedAt is stamped
+	// once, here, and never on later polls.
+	if e.projector != nil {
+		if err := e.projector.UpdateStepLive(ctx, input.OperationID, input.Step.ID, reference, &now, liveFromProgress(execution.Progress)); err != nil {
+			activity.GetLogger(ctx).Warn("project live step reference", "operationId", input.OperationID, "stepId", input.Step.ID, "error", err)
+		}
+	}
+
 	ticker := time.NewTicker(e.poll)
 	defer ticker.Stop()
 	for {
@@ -104,6 +125,10 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 			return failedStep("executor_observation_failed", "The Ansible execution could not be observed.", true)
 		}
 		activity.RecordHeartbeat(ctx, execution.Status)
+		// Mirror the executor's live progress onto the Task each poll (best-effort; advisory).
+		if e.projector != nil {
+			_ = e.projector.UpdateStepLive(ctx, input.OperationID, input.Step.ID, reference, nil, liveFromProgress(execution.Progress))
+		}
 		switch execution.Status {
 		case operationdomain.AnsibleSucceeded:
 			return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID)}
@@ -197,6 +222,25 @@ func sshPortOrDefault(port int) int {
 		return 22
 	}
 	return port
+}
+
+// liveFromProgress maps the executor's run progress onto the Task's live projection, returning nil
+// before any progress has been recorded so a not-yet-started run shows no live block.
+func liveFromProgress(progress *operationdomain.AnsibleRunProgress) *operationdomain.TaskLive {
+	if progress == nil {
+		return nil
+	}
+	return &operationdomain.TaskLive{
+		CurrentPlay: progress.CurrentPlay,
+		CurrentTask: progress.CurrentTask,
+		Total:       progress.Total,
+		OK:          progress.OK,
+		Changed:     progress.Changed,
+		Failed:      progress.Failed,
+		Unreachable: progress.Unreachable,
+		Skipped:     progress.Skipped,
+		UpdatedAt:   progress.UpdatedAt,
+	}
 }
 
 func failedStep(code, message string, retryable bool) StepExecutionResult {

@@ -61,6 +61,10 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
+	ansibleEvents, err := operationinfra.NewMongoAnsibleEventRepo(db)
+	if err != nil {
+		return err
+	}
 	legacyOperations, err := operationinfra.NewMongoExecutionRepo(db, sealer)
 	if err != nil {
 		return err
@@ -95,12 +99,12 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	platformService := platformapp.NewPlatformService(platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
 	credentials := platformapp.NewDeploymentCredentialService(platforms, integrations, membership)
 	durable := operationapp.NewWorkflowService(orchestrations, nil, operationSecrets)
-	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, platformapp.NewPolicyChecker(platforms, servers), protection)
+	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
 	leases := operationinfra.NewMongoResourceLeaseRepo(db)
 	queue := operationapp.NewAnsibleQueueWorker(
-		executions, configurations, catalog, runner,
+		executions, configurations, catalog, runner, ansibleEvents,
 		executionInventoryAdapter{discovery: discovery}, protection, leases, completion,
 		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration, cfg.OperationMaxParallelism, operationSecrets,
 	)
