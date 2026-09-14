@@ -8,6 +8,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { serverDisplayName } from '@/domain/server/list'
 import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
+import { ServerPlacementDialog } from './ServerPlacementDialog'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { SERVER_ACTION_GROUPS, actionLabel, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
@@ -32,6 +33,7 @@ export function ServerActionMenu({
   capabilities,
   deployDisabledReason,
   onActed,
+  onPlacementChanged,
 }: {
   server: Server
   capabilities: ProvisionerCapabilities | null
@@ -43,6 +45,8 @@ export function ServerActionMenu({
     // synchronous provisioning result, so it reloads without one.
     result?: ProvisioningActionResult,
   ) => void
+  /** Called after a zone/pool placement change so the caller can reload the projection. */
+  onPlacementChanged?: () => void
 }) {
   const serverId = server.id
   const serverName = serverDisplayName(server)
@@ -56,6 +60,7 @@ export function ServerActionMenu({
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
   const [lockAction, setLockAction] = useState<'lock' | 'unlock' | null>(null)
+  const [placementOpen, setPlacementOpen] = useState(false)
 
   const run = async (action: ServerMenuAction, releaseInput?: ReleaseServerInput) => {
     if (action === 'delete') {
@@ -141,6 +146,11 @@ export function ServerActionMenu({
               <Menu.Item value="deploy" disabled={Boolean(deployDisabledReason)} onClick={deployHref}>
                 {deployDisabledReason ? `Deploy OS - ${deployDisabledReason}` : 'Deploy OS'}
               </Menu.Item>
+              {/* Placement is a swallow-owned assignment, not a provisioner capability action, so it
+                  is always offered; the backend refuses if the provisioner cannot group. */}
+              <Menu.Item value="set-placement" onClick={() => setPlacementOpen(true)}>
+                Set zone / pool
+              </Menu.Item>
               {groups.map((group) => (
                 <Menu.ItemGroup key={group.label}>
                   <Menu.ItemGroupLabel>{group.label}</Menu.ItemGroupLabel>
@@ -211,6 +221,16 @@ export function ServerActionMenu({
           serverName={serverName}
           onClose={() => setDeleteOpen(false)}
           onDeleted={() => navigate(scopedHref('/servers'), { replace: true })}
+        />
+      )}
+      {placementOpen && (
+        <ServerPlacementDialog
+          server={server}
+          onClose={() => setPlacementOpen(false)}
+          onChanged={() => {
+            showToast({ tone: 'success', title: 'Placement updated', description: 'Reconciliation will confirm the new zone/pool.' })
+            onPlacementChanged?.()
+          }}
         />
       )}
     </>

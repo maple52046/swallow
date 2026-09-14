@@ -60,6 +60,11 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Provisioning Task](terms/provisioning-task.md): Durable coordination for
   provider-backed cleanup that spans asynchronous provisioning transitions.
 
+### Infrastructure Grouping
+
+- [Zone](terms/zone.md): A swallow-owned, Site-scoped grouping of Servers for availability/fault/organization, realized in the provisioner (MAAS physical zone) when it is grouping-capable.
+- [Pool](terms/pool.md): A swallow-owned, Site-scoped resource pool for allocation grouping, realized in the provisioner (MAAS resource pool) when it is grouping-capable; not the "available pool" of Release.
+
 ### Tenancy
 
 - [Allocation State](terms/allocation-state.md): A Server's tenancy assignment —

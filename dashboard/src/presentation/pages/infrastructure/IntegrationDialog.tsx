@@ -6,6 +6,8 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
+import { credentialGuidance } from './credentialGuidance'
+import { CredentialGuidanceNote } from './CredentialGuidanceNote'
 
 interface IntegrationDialogProps {
   integration?: Integration
@@ -199,18 +201,24 @@ export function IntegrationDialog({
           <Input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} />
         </Field.Root>
         {!editing && (
-          <Field.Root required={credentialRequired}>
-            <Field.Label>
-              Credential {credentialRequired && <Field.RequiredIndicator />}
-            </Field.Label>
-            <Input
-              type="password"
-              value={credential}
-              onChange={(event) => setCredential(event.target.value)}
-              autoComplete="new-password"
-            />
-            <Field.HelperText>Write-only. Swallow will never return this value.</Field.HelperText>
-          </Field.Root>
+          <>
+            <CredentialGuidanceNote providerKind={providerKind} />
+            <Field.Root required={credentialRequired}>
+              <Field.Label>
+                {credentialGuidance(providerKind).term} {credentialRequired && <Field.RequiredIndicator />}
+              </Field.Label>
+              <Input
+                type="password"
+                value={credential}
+                onChange={(event) => setCredential(event.target.value)}
+                autoComplete="new-password"
+              />
+              <Field.HelperText>
+                Write-only. Swallow stores it encrypted and never returns it.
+                {credentialRequired ? '' : ' Optional for this provider — leave empty for anonymous access.'}
+              </Field.HelperText>
+            </Field.Root>
+          </>
         )}
         <section className="sw-integration-settings" aria-labelledby="integration-settings-title">
           <Heading as="h3" size="sm" id="integration-settings-title">

@@ -103,8 +103,11 @@ type Machine struct {
 	HWEKernel   string
 	IPAddresses []string
 	Tags        []string
-	// Zone and ResourcePool are the provider's own grouping labels. They are carried
-	// through opaquely and are not mapped onto any swallow hierarchy.
+	// Zone and ResourcePool are the provider's own grouping labels for this machine,
+	// observed here as the provider currently reports them. They are the observed effect
+	// of a grouping assignment, not the swallow-owned catalog: swallow's managed Zone and
+	// Pool concepts live in the infrastructure feature, and swallow drives this provider
+	// through the optional GroupingController capability. See docs/decisions/029.
 	Zone         string
 	ResourcePool string
 

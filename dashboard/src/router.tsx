@@ -28,6 +28,7 @@ import { ProvisioningRedirect } from './presentation/pages/provisioning/Provisio
 import { InfrastructureRedirect } from './presentation/pages/infrastructure/InfrastructureRedirect'
 import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
 import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
+import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
 
 /** Stable Dashboard routes, each backed by active `/api/v1` provider contracts. */
 export const router = createBrowserRouter([
@@ -72,6 +73,8 @@ export const router = createBrowserRouter([
       { path: 'infrastructure', element: <InfrastructureRedirect /> },
       { path: 'infrastructure/sites', element: <SitesPage /> },
       { path: 'infrastructure/integrations', element: <IntegrationsPage /> },
+      { path: 'infrastructure/zones', element: <GroupingPage kind="zone" /> },
+      { path: 'infrastructure/pools', element: <GroupingPage kind="pool" /> },
     ],
   },
   { path: '*', element: <ProtectedRoute><NotFoundPage /></ProtectedRoute> },

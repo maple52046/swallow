@@ -29,6 +29,9 @@ import (
 	authinfra "github.com/maple52046/swallow/internal/auth/infra"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
+	infrastructureapp "github.com/maple52046/swallow/internal/infrastructure/application"
+	infrastructuredelivery "github.com/maple52046/swallow/internal/infrastructure/delivery"
+	infrastructureinfra "github.com/maple52046/swallow/internal/infrastructure/infra"
 	"github.com/maple52046/swallow/internal/migration"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
@@ -232,6 +235,27 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo),
 	)
 
+	// Infrastructure: swallow-owned Zones and Pools (decision 029). The grouping realizer reuses
+	// the provisioning ProviderFactory so there is a single MAAS transport, and reads Sites and
+	// Servers through narrow adapters. Provider realization is optional per Site capability.
+	zoneRepo, err := infrastructureinfra.NewMongoZoneRepo(db)
+	if err != nil {
+		return fmt.Errorf("zone repo init: %w", err)
+	}
+	poolRepo, err := infrastructureinfra.NewMongoPoolRepo(db)
+	if err != nil {
+		return fmt.Errorf("pool repo init: %w", err)
+	}
+	infrastructureHandler := infrastructuredelivery.NewInfrastructureHandler(
+		infrastructureapp.NewGroupingService(
+			zoneRepo,
+			poolRepo,
+			infrastructureinfra.NewSiteReader(siteRepo),
+			infrastructureinfra.NewServerLocator(serverRepo),
+			infrastructureinfra.NewGroupingRealizer(integrationRepo, providerFactory),
+		),
+	)
+
 	platformRepo, err := platforminfra.NewMongoPlatformRepo(db)
 	if err != nil {
 		return fmt.Errorf("platform repo init: %w", err)
@@ -377,6 +401,7 @@ func RunAPI(cfg config.APIConfig) error {
 		operations:     operationHandler,
 		monitoring:     monitoringHandler,
 		platforms:      platformHandler,
+		infrastructure: infrastructureHandler,
 		discovery:      discoveryHandler,
 		releaseVersion: releaseVersion,
 		readiness: func(ctx context.Context) error {
@@ -426,6 +451,7 @@ type routeDeps struct {
 	operations     *operationdelivery.ExecutionHandler
 	monitoring     *monitoringdelivery.MonitoringHandler
 	platforms      *platformdelivery.PlatformHandler
+	infrastructure *infrastructuredelivery.InfrastructureHandler
 	discovery      *discoverydelivery.DiscoveryHandler
 	readiness      func(context.Context) error
 	releaseVersion string
@@ -563,6 +589,10 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Post("/:id/mark-fixed", deps.provisioning.MarkFixed)
 	servers.Post("/:id/rescue-mode", deps.provisioning.RescueMode)
 	servers.Post("/:id/exit-rescue-mode", deps.provisioning.ExitRescueMode)
+	// Placement assigns a Server to a swallow-owned Zone and/or Pool, realized in the
+	// provisioner (decision 029). Mounted here because clients address a Server, but handled by
+	// the infrastructure feature that owns the Zone/Pool catalog.
+	servers.Put("/:id/placement", deps.infrastructure.AssignServerPlacement)
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)
@@ -601,6 +631,20 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	legacyPlatforms := v1.Group("/clusters", admin...)
 	legacyPlatforms.Use(markDeprecatedPlatformRoute)
 	registerPlatformRoutes(legacyPlatforms, deps.platforms)
+
+	// Swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
+	// realized in the Site's provisioner when it is grouping-capable (decision 029).
+	infrastructure := v1.Group("/infrastructure", admin...)
+	infrastructure.Get("/zones", deps.infrastructure.ListZones)
+	infrastructure.Post("/zones", deps.infrastructure.CreateZone)
+	infrastructure.Get("/zones/:id", deps.infrastructure.GetZone)
+	infrastructure.Patch("/zones/:id", deps.infrastructure.UpdateZone)
+	infrastructure.Delete("/zones/:id", deps.infrastructure.DeleteZone)
+	infrastructure.Get("/pools", deps.infrastructure.ListPools)
+	infrastructure.Post("/pools", deps.infrastructure.CreatePool)
+	infrastructure.Get("/pools/:id", deps.infrastructure.GetPool)
+	infrastructure.Patch("/pools/:id", deps.infrastructure.UpdatePool)
+	infrastructure.Delete("/pools/:id", deps.infrastructure.DeletePool)
 
 	// Alerts and metrics are read straight from the monitoring stack: swallow stores
 	// neither, and acknowledging an alert creates a silence in Alertmanager.

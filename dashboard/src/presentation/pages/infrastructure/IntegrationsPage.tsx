@@ -9,12 +9,15 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
+import { ResourceRowActions } from '@/presentation/components/ResourceRowActions'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Select } from '@/presentation/components/ui/select'
+import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
+import { credentialGuidance } from './credentialGuidance'
 import { InfrastructureHeader } from './InfrastructureHeader'
 import { IntegrationCredentialDialog } from './IntegrationCredentialDialog'
 import { IntegrationDialog } from './IntegrationDialog'
@@ -29,6 +32,20 @@ const KIND_LABELS: Record<IntegrationKind, string> = {
   provisioner: 'Provisioner',
   metrics: 'Metrics',
   platform: 'Platform',
+}
+
+/**
+ * One-line explanation of an Integration's credential status, naming the provider-specific secret
+ * and what its absence means, so the "Configured / Missing" badge is never an unexplained state.
+ */
+function credentialHint(integration: Integration): string {
+  const guidance = credentialGuidance(integration.providerKind)
+  if (integration.hasCredential) {
+    return `${guidance.term} is stored. It is write-only — Swallow never shows it again.`
+  }
+  return guidance.optional
+    ? `No ${guidance.term} set. Optional for this provider — leave empty for anonymous access.`
+    : `No ${guidance.term} set. This integration cannot be used until you set one.`
 }
 
 /**
@@ -164,14 +181,22 @@ export function IntegrationsPage() {
                       <Table.Cell>{integration.providerKind}</Table.Cell>
                       <Table.Cell className="sw-mono">{integration.endpoint || '-'}</Table.Cell>
                       <Table.Cell><StatusBadge status={integration.enabled ? 'active' : 'offline'} label={integration.enabled ? 'Enabled' : 'Paused'} /></Table.Cell>
-                      <Table.Cell><StatusBadge status={integration.hasCredential ? 'active' : 'warning'} label={integration.hasCredential ? 'Configured' : 'Missing'} /></Table.Cell>
+                      <Table.Cell>
+                        <Tooltip content={credentialHint(integration)}>
+                          <span>
+                            <StatusBadge status={integration.hasCredential ? 'active' : 'warning'} label={integration.hasCredential ? 'Configured' : 'Missing'} />
+                          </span>
+                        </Tooltip>
+                      </Table.Cell>
                       <Table.Cell>{syncState(integration)}</Table.Cell>
                       <Table.Cell textAlign="end">
-                        <span className="sw-row-actions">
-                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setEditor(integration)}>Edit</Button>
-                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setCredentialTarget(integration)}>Credential</Button>
-                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" onClick={() => setDeleting(integration)}>Delete</Button>
-                        </span>
+                        <ResourceRowActions
+                          actions={[
+                            { kind: 'edit', label: `Edit ${integration.name}`, onClick: () => setEditor(integration) },
+                            { kind: 'credential', label: `${integration.hasCredential ? 'Replace' : 'Set'} credential for ${integration.name}`, onClick: () => setCredentialTarget(integration) },
+                            { kind: 'delete', label: `Delete ${integration.name}`, onClick: () => setDeleting(integration) },
+                          ]}
+                        />
                       </Table.Cell>
                     </Table.Row>
                   ))}
@@ -188,16 +213,22 @@ export function IntegrationsPage() {
                   description={integration.endpoint || integration.id}
                   status={<StatusBadge status={integration.enabled ? 'active' : 'offline'} label={integration.enabled ? 'Enabled' : 'Paused'} />}
                   actions={
-                    <>
-                      <Button variant="outline" size="sm" onClick={() => setEditor(integration)}>Edit</Button>
-                      <Button variant="outline" size="sm" onClick={() => setCredentialTarget(integration)}>Credential</Button>
-                      <Button variant="outline" size="sm" colorPalette="red" onClick={() => setDeleting(integration)}>Delete</Button>
-                    </>
+                    <ResourceRowActions
+                      actions={[
+                        { kind: 'edit', label: `Edit ${integration.name}`, onClick: () => setEditor(integration) },
+                        { kind: 'credential', label: `${integration.hasCredential ? 'Replace' : 'Set'} credential for ${integration.name}`, onClick: () => setCredentialTarget(integration) },
+                        { kind: 'delete', label: `Delete ${integration.name}`, onClick: () => setDeleting(integration) },
+                      ]}
+                    />
                   }
                 >
                   <ResourceCardField label="Site">{siteName(integration.siteId)}</ResourceCardField>
                   <ResourceCardField label="Provider">{integration.providerKind}</ResourceCardField>
-                  <ResourceCardField label="Credential">{integration.hasCredential ? 'Configured' : 'Missing'}</ResourceCardField>
+                  <ResourceCardField label="Credential">
+                    {integration.hasCredential
+                      ? `${credentialGuidance(integration.providerKind).term} set`
+                      : `No ${credentialGuidance(integration.providerKind).term}`}
+                  </ResourceCardField>
                   <ResourceCardField label="Last sync">{syncState(integration)}</ResourceCardField>
                 </ResourceCard>
               ))}

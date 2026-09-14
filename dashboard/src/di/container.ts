@@ -7,6 +7,7 @@ import { ApiOperationRepository } from '@/infrastructure/api/ApiOperationReposit
 import { ApiMonitoringRepository } from '@/infrastructure/api/ApiMonitoringRepository'
 import { ApiOverviewRepository } from '@/infrastructure/api/ApiOverviewRepository'
 import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningRepository'
+import { ApiInfrastructureRepository } from '@/infrastructure/api/ApiInfrastructureRepository'
 import type { AuthRepository } from '@/application/ports/AuthRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { ServerEventStream } from '@/application/ports/ServerEventStream'
@@ -16,6 +17,7 @@ import type { OperationRepository } from '@/application/ports/OperationRepositor
 import type { MonitoringRepository } from '@/application/ports/MonitoringRepository'
 import type { OverviewRepository } from '@/application/ports/OverviewRepository'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
+import type { InfrastructureRepository } from '@/application/ports/InfrastructureRepository'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
 export interface AppContainer {
@@ -26,6 +28,8 @@ export interface AppContainer {
   /** Live Server projection changes, so the list patches rows instead of re-reading. */
   serverEvents: ServerEventStream
   sites: SiteRepository
+  /** swallow-owned Zone/Pool management and Server placement (decision 029). */
+  infrastructure: InfrastructureRepository
   platforms: PlatformRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
@@ -40,6 +44,7 @@ export function createContainer(): AppContainer {
     servers: new ApiServerRepository(),
     serverEvents: new ApiServerEventStream(),
     sites: new ApiSiteRepository(),
+    infrastructure: new ApiInfrastructureRepository(),
     platforms: new ApiPlatformRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),

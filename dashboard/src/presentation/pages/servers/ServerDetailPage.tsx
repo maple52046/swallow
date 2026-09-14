@@ -148,6 +148,7 @@ export function ServerDetailPage() {
                 setReleaseFollow({ id: server.id, token: Date.now() })
               }
             }}
+            onPlacementChanged={reload}
           />
         }
       />

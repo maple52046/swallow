@@ -9,6 +9,7 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
+import { ResourceRowActions } from '@/presentation/components/ResourceRowActions'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -133,10 +134,12 @@ export function SitesPage() {
                       <Table.Cell><Link to={`/infrastructure/integrations?site=${encodeURIComponent(site.id)}`}>{integrationCount(site.id)}</Link></Table.Cell>
                       <Table.Cell>{formatDateTime(site.updatedAt)}</Table.Cell>
                       <Table.Cell textAlign="end">
-                        <span className="sw-row-actions">
-                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setEditor(site)}>Edit</Button>
-                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" onClick={() => setDeleting(site)}>Delete</Button>
-                        </span>
+                        <ResourceRowActions
+                          actions={[
+                            { kind: 'edit', label: `Edit ${site.name}`, onClick: () => setEditor(site) },
+                            { kind: 'delete', label: `Delete ${site.name}`, onClick: () => setDeleting(site) },
+                          ]}
+                        />
                       </Table.Cell>
                     </Table.Row>
                   ))}
@@ -152,10 +155,12 @@ export function SitesPage() {
                   title={site.name}
                   description={site.description || site.id}
                   actions={
-                    <>
-                      <Button variant="outline" size="sm" onClick={() => setEditor(site)}>Edit</Button>
-                      <Button variant="outline" size="sm" colorPalette="red" onClick={() => setDeleting(site)}>Delete</Button>
-                    </>
+                    <ResourceRowActions
+                      actions={[
+                        { kind: 'edit', label: `Edit ${site.name}`, onClick: () => setEditor(site) },
+                        { kind: 'delete', label: `Delete ${site.name}`, onClick: () => setDeleting(site) },
+                      ]}
+                    />
                   }
                 >
                   <ResourceCardField label="Integrations"><Link to={`/infrastructure/integrations?site=${encodeURIComponent(site.id)}`}>{integrationCount(site.id)}</Link></ResourceCardField>

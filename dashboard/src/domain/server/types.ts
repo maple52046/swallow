@@ -141,7 +141,11 @@ export interface Server {
   /** Hardware make as the provisioner commissioned it, for grouping the fleet. */
   systemVendor: string
   systemProduct: string
-  /** The provisioner's own grouping labels. Not a swallow placement hierarchy. */
+  /**
+   * The provisioner's observed grouping labels for this machine — the effect of a Zone/Pool
+   * placement, not the swallow-owned catalog. Swallow's managed Zones and Pools live under
+   * Infrastructure and are assigned through Set zone/pool. See docs/decisions/029.
+   */
   providerZone: string
   providerResourcePool: string
   /** The VM host a virtual machine belongs to, empty for bare metal. */

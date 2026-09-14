@@ -83,6 +83,9 @@ type ProviderCapabilities struct {
 	ImageRemoval bool
 	// ImageUpload reports that OSImageUploader is implemented.
 	ImageUpload bool
+	// Grouping reports that GroupingController is implemented, i.e. the provider can
+	// realize swallow-owned Zone and Pool intent and assign a machine to them.
+	Grouping bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -230,6 +233,45 @@ type UploadOSImageRequest struct {
 // the provider reports it so the caller can show the new catalog row without a second read.
 type OSImageUploader interface {
 	UploadOSImage(ctx context.Context, req UploadOSImageRequest) (*OSImage, error)
+}
+
+// GroupingController realizes swallow-owned Zone and Pool intent in a provisioner that
+// supports machine grouping (for MAAS: physical zones and resource pools), and assigns a
+// machine to a zone or pool. It is the provider side of decision 029: swallow owns the
+// Zone/Pool catalog, and this capability drives the provisioner when it can express the
+// same grouping.
+//
+// The controller speaks swallow's currency — group names — and hides any provider-internal
+// identifier. Create is deliberately *ensure* semantics: a group the provider already holds
+// (MAAS ships a `default` zone and pool) is not an error, so a swallow create over an existing
+// provider group succeeds. Delete of a group the provider does not have is likewise satisfied;
+// a provider that refuses to delete a group still in use maps that refusal to
+// ProviderErrorRejected. Rename maps the previous name to the new one.
+//
+// Assignment returns the machine as the provider reports it immediately afterwards so the
+// caller can echo the effective zone/pool without a second read; an unknown machine maps to
+// ErrMachineNotFound. An adapter that sets ProviderCapabilities.Grouping must implement this.
+type GroupingController interface {
+	// EnsureZone creates the named zone, treating an existing one as already satisfied.
+	EnsureZone(ctx context.Context, name, description string) error
+	// RenameZone changes a zone's name (and description) from currentName to newName.
+	RenameZone(ctx context.Context, currentName, newName, description string) error
+	// DeleteZone removes the named zone, treating a missing one as already satisfied.
+	DeleteZone(ctx context.Context, name string) error
+
+	// EnsurePool creates the named resource pool, treating an existing one as satisfied.
+	EnsurePool(ctx context.Context, name, description string) error
+	// RenamePool changes a pool's name (and description) from currentName to newName.
+	RenamePool(ctx context.Context, currentName, newName, description string) error
+	// DeletePool removes the named resource pool, treating a missing one as satisfied.
+	DeletePool(ctx context.Context, name string) error
+
+	// SetMachineZone assigns machineID to the named zone; an empty name is refused because
+	// a machine always has a zone in providers that support them.
+	SetMachineZone(ctx context.Context, machineID, zoneName string) (*Machine, error)
+	// SetMachinePool assigns machineID to the named resource pool; an empty name is refused
+	// for the same reason as SetMachineZone.
+	SetMachinePool(ctx context.Context, machineID, poolName string) (*Machine, error)
 }
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled

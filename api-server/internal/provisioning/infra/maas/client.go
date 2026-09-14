@@ -150,6 +150,24 @@ func (c *Client) postMultipart(ctx context.Context, path string, fields map[stri
 	return c.do(req, out)
 }
 
+// putMultipart issues an authenticated PUT whose parameters are multipart/form-data fields,
+// used for MAAS resource updates such as renaming a zone or setting a machine's zone/pool. Like
+// the MAAS CLI's own "update" verb, the write is a PUT to the resource path with form fields;
+// MAAS rejects a JSON body the same way it does for named operations. Empty values are dropped by
+// multipartBody so an unset optional parameter is absent rather than sent as "".
+func (c *Client) putMultipart(ctx context.Context, path string, fields map[string]string, out any) error {
+	body, contentType, err := multipartBody(fields)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPut, path, nil, body, contentType)
+	if err != nil {
+		return err
+	}
+	return c.do(req, out)
+}
+
 // putUpload streams one raw chunk to a MAAS boot-resource upload target.
 //
 // rawURL is the upload_uri MAAS returns for an incomplete boot-resource file: a host-absolute
