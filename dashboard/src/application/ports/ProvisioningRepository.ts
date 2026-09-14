@@ -48,6 +48,18 @@ export interface ProvisioningRepository {
     input: ReleaseServersOperationInput,
   ): Promise<ProvisioningOperationReference>;
   listOSImages(integrationId: string): Promise<OSImage[]>;
+  /**
+   * Uploads a new provider-owned OS image to one provisioner and returns the created catalog
+   * row. Swallow streams the file to the provider and keeps no copy; whether the result is a
+   * custom image is decided by the provisioner, not by this call. `onProgress` reports upload
+   * bytes for the (potentially multi-gigabyte) artifact. Rejects with the shared error envelope
+   * when the provisioner does not support upload or the provider refuses the artifact.
+   */
+  uploadOSImage(
+    integrationId: string,
+    input: UploadOSImageInput,
+    onProgress?: (progress: { loaded: number; total: number }) => void,
+  ): Promise<OSImage>;
   deleteOSImage(
     integrationId: string,
     imageId: string,
@@ -74,6 +86,20 @@ export interface ProvisioningRepository {
     imageId: string,
     architecture: string,
   ): Promise<void>;
+}
+
+/**
+ * Operator intent for uploading a new OS image to a provisioner. `name` and `architecture` are
+ * swallow-neutral; the backend maps them into the provider's own vocabulary. `filetype` is
+ * provider-validated and, when omitted, uses the provider default. `file` is the artifact to
+ * stream. The image's custom classification is provider-determined, never set here.
+ */
+export interface UploadOSImageInput {
+  name: string;
+  architecture: string;
+  title?: string;
+  filetype?: string;
+  file: File;
 }
 
 /**

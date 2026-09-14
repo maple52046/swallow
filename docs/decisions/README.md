@@ -78,6 +78,7 @@
 | [`024-slurm-login-and-workload-storage.md`](024-slurm-login-and-workload-storage.md) | 新增 Slurm **login** 角色（提交/client,可兼 NFS server;login-only 合法;HA 時 state server 優先選 login）與**選用的 workload 共享檔案系統**（與 controller state 分離,掛所有節點的非重疊路徑,不可 `/home`）：`workloadStorage.mode` 為 `self-hosted`（login node 匯出 NFS）或 `external`（操作者 NFS URL）;roles `slurm_login`/`slurm_workload_storage_server`/`slurm_workload_storage_client`,builtin-only;支援 single-controller 與 login+HA+compute 兩種拓樸 |
 | [`025-provider-data-overlay.md`](025-provider-data-overlay.md) | provider-owned 事實可疊加 swallow-owned **overlay**（owned data,以 provider 身分鍵、讀取時 `overlay ?? provider` 合併、永不回寫 provider、entity 刪除時連帶清）;展示型能力缺→overlay 補,操作型能力缺→沿用 `ProviderCapabilities` 標不可用;首個 reference 為 OS Image 名稱;refine ADR 001/009 |
 | [`026-slurm-minimum-resource-policy.md`](026-slurm-minimum-resource-policy.md) | Slurm deployment uses one optional system-wide CPU, memory, and storage eligibility floor, enforced in both node selection and backend preflight |
+| [`027-os-image-upload.md`](027-os-image-upload.md) | Swallow 可驅動 provisioner 上傳 provider-owned OS image（optional `OSImageUploader` capability，對稱於 delete）：bytes 由 browser→api-server→provider 串流、swallow 不留副本，custom 分類由 provider adapter 判斷而非呼叫端；新增 `POST /provisioning/images`（multipart）；refine ADR 001/009 |
 `001`–`003` 沿用先前的三位數命名，章節結構也與上方格式不同（Decision / Context /
 Consequences / Rejected alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄
 `Date`，依「不得杜撰歷史理由」原則保留為 unrecorded 而非捏造。其論述結構刻意維持原樣。

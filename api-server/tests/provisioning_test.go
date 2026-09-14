@@ -1,7 +1,10 @@
 package tests
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -297,6 +300,99 @@ func TestListImages_UnknownIntegration(t *testing.T) {
 		"GET", "/api/v1/provisioning/images?integrationId=nope", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+// uploadImageRequest builds a multipart/form-data POST for the image upload endpoint. doRequest
+// forces application/json, so the upload path is exercised with its own request builder.
+func uploadImageRequest(t *testing.T, f *platformFixture, fields map[string]string, fileField, filename string, content []byte) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	for name, value := range fields {
+		if err := writer.WriteField(name, value); err != nil {
+			t.Fatalf("write field %q: %v", name, err)
+		}
+	}
+	if fileField != "" {
+		part, err := writer.CreateFormFile(fileField, filename)
+		if err != nil {
+			t.Fatalf("create file part: %v", err)
+		}
+		if _, err := part.Write(content); err != nil {
+			t.Fatalf("write file part: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/provisioning/images", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+adminToken(t, f.jwtSvc))
+	resp, err := f.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	return resp
+}
+
+// A successful upload streams the file to the provider and returns the created catalog row. The
+// caller never sends a "custom" flag: the provider classifies the uploaded image (here as the
+// custom osystem), which is what the response reflects.
+func TestUploadImage_Success(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := uploadImageRequest(t, f,
+		map[string]string{
+			"integrationId": testIntegrationID,
+			"name":          "ubuntu-24.04-rocm",
+			"architecture":  "amd64",
+			"filetype":      "tgz",
+			"title":         "Ubuntu 24.04 ROCm",
+		},
+		"content", "image.tar.gz", []byte("fake-image-bytes"),
+	)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	body := parseBody(t, resp)
+	if body["id"] != "ubuntu-24.04-rocm" {
+		t.Errorf("id: got %v", body["id"])
+	}
+	if body["providerOsSystem"] != "custom" {
+		t.Errorf("providerOsSystem: got %v, want custom (provider-classified)", body["providerOsSystem"])
+	}
+	if body["architecture"] != "amd64" {
+		t.Errorf("architecture: got %v", body["architecture"])
+	}
+
+	if len(f.provider.uploadedImages) != 1 {
+		t.Fatalf("expected 1 recorded upload, got %d", len(f.provider.uploadedImages))
+	}
+	uploaded := f.provider.uploadedImages[0]
+	if uploaded.Name != "ubuntu-24.04-rocm" || uploaded.Size != int64(len("fake-image-bytes")) {
+		t.Errorf("recorded upload: %+v", uploaded)
+	}
+	if uploaded.SHA256 == "" {
+		t.Error("the handler must compute and forward a sha256 for the spooled content")
+	}
+}
+
+// The file part is required: without it the request cannot carry an image, so it is refused
+// before reaching the provider.
+func TestUploadImage_RequiresContent(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := uploadImageRequest(t, f,
+		map[string]string{"integrationId": testIntegrationID, "name": "img", "architecture": "amd64"},
+		"", "", nil,
+	)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if len(f.provider.uploadedImages) != 0 {
+		t.Error("a request missing the file must not reach the provider")
 	}
 }
 

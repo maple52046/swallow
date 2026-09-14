@@ -1,11 +1,13 @@
 package maas
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -172,6 +174,124 @@ func bootResourcePath(id int) string {
 	return "/boot-resources/" + strconv.Itoa(id) + "/"
 }
 
+// uploadChunkSize is the byte length of each PUT during a chunked boot-resource upload. It
+// matches the MAAS CLI's own chunk size so each request stays small enough to complete within
+// the per-request client timeout while a multi-gigabyte artifact is streamed sequentially.
+const uploadChunkSize = 1 << 22 // 4 MiB
+
+// UploadOSImage creates a new MAAS custom (Uploaded) boot resource from operator-supplied
+// content and streams the artifact to it.
+//
+// MAAS reserves the resource from metadata first — it needs the exact size and sha256 up front —
+// and then accepts the bytes in chunks against the upload URI it returns for the incomplete file.
+// The artifact is therefore streamed sequentially and never held whole in memory. The CPU
+// architecture is expanded to MAAS's "<arch>/generic" form and MAAS classifies the result as an
+// Uploaded/custom resource on its own; swallow does not label it. The completed resource is read
+// back so the returned image carries the final size and classification rather than the pre-upload
+// placeholder.
+func (p *Provider) UploadOSImage(
+	ctx context.Context,
+	req provisioningdomain.UploadOSImageRequest,
+) (*provisioningdomain.OSImage, error) {
+	fields := map[string]string{
+		"name":         req.Name,
+		"architecture": maasUploadArchitecture(req.Architecture),
+		"sha256":       req.SHA256,
+		"size":         strconv.FormatInt(req.Size, 10),
+		"title":        req.Title,
+		"filetype":     req.FileType,
+	}
+	var created bootResourceJSON
+	if err := p.client.postMultipart(ctx, "/boot-resources/", fields, &created); err != nil {
+		return nil, translateError(err, "")
+	}
+
+	uploadURI, ok := incompleteUploadURI(created)
+	if !ok {
+		// MAAS accepted the metadata but exposed no file to upload to. Nothing was streamed,
+		// so this is a provider-side refusal rather than a transport failure.
+		return nil, &provisioningdomain.ProviderError{
+			Kind:   provisioningdomain.ProviderErrorRejected,
+			Detail: "MAAS accepted the image metadata but returned no upload target.",
+		}
+	}
+
+	if err := p.streamUpload(ctx, uploadURI, req.Content); err != nil {
+		return nil, err
+	}
+
+	// Re-read the resource so the returned image reflects the completed set size and the
+	// provider's final classification instead of the pre-upload placeholder.
+	var detail bootResourceJSON
+	if err := p.client.get(ctx, bootResourcePath(created.ID), nil, &detail); err != nil {
+		return nil, translateError(err, "")
+	}
+	images := toDomainOSImages([]bootResourceJSON{detail})
+	if len(images) == 0 {
+		return nil, &provisioningdomain.ProviderError{
+			Kind:   provisioningdomain.ProviderErrorRejected,
+			Detail: "MAAS stored the image but does not report it as deployable.",
+		}
+	}
+	return images[0], nil
+}
+
+// streamUpload reads content in fixed-size chunks and PUTs each to the MAAS upload URI until the
+// stream is exhausted. A read failure on the source stream is reported as unavailable rather than
+// a provider rejection, because it is swallow's own transfer that broke, not MAAS refusing.
+func (p *Provider) streamUpload(ctx context.Context, uploadURI string, content io.Reader) error {
+	buf := make([]byte, uploadChunkSize)
+	for {
+		n, readErr := io.ReadFull(content, buf)
+		if n > 0 {
+			if err := p.client.putUpload(ctx, uploadURI, bytes.NewReader(buf[:n]), int64(n)); err != nil {
+				return translateError(err, "")
+			}
+		}
+		switch {
+		case readErr == nil:
+			continue
+		case errors.Is(readErr, io.EOF), errors.Is(readErr, io.ErrUnexpectedEOF):
+			return nil
+		default:
+			return &provisioningdomain.ProviderError{
+				Kind:   provisioningdomain.ProviderErrorUnavailable,
+				Detail: "Reading the upload stream failed before the image was fully sent.",
+				Err:    readErr,
+			}
+		}
+	}
+}
+
+// incompleteUploadURI returns the chunked-upload target MAAS assigns to the boot-resource file
+// that still needs bytes. MAAS nests it under sets -> files, so the create response is walked for
+// the first file that is not yet complete and carries an upload URI.
+func incompleteUploadURI(r bootResourceJSON) (string, bool) {
+	for _, set := range r.Sets {
+		for _, file := range set.Files {
+			if file.UploadURI != "" && !file.Complete {
+				return file.UploadURI, true
+			}
+		}
+	}
+	return "", false
+}
+
+// maasUploadArchitecture expands a CPU architecture like "amd64" into the "<arch>/subarch" form
+// MAAS stores boot resources under, defaulting the subarchitecture to "generic" when the caller
+// gives only the CPU architecture. An architecture that already carries a subarchitecture is
+// passed through unchanged.
+func maasUploadArchitecture(architecture string) string {
+	arch := strings.TrimSpace(architecture)
+	if arch == "" {
+		return ""
+	}
+	if strings.Contains(arch, "/") {
+		return arch
+	}
+	return arch + "/generic"
+}
+
 func (p *Provider) Deploy(
 	ctx context.Context,
 	req provisioningdomain.DeployRequest,
@@ -251,6 +371,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		MachineRemoval:       true,
 		ReleaseOptions:       true,
 		ImageRemoval:         true,
+		ImageUpload:          true,
 	}
 }
 

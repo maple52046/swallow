@@ -1,11 +1,14 @@
 package maas
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -64,6 +67,9 @@ type fakeMAAS struct {
 	lastMethod              string
 	lastRawQuery            string
 	lastDeletedBootResource string
+	uploadedBytes           int64
+	uploadChunks            int
+	lastUploadPath          string
 }
 
 func newFakeMAAS(t *testing.T) *fakeMAAS {
@@ -141,6 +147,26 @@ func (f *fakeMAAS) onBootResourceDetails(bodies map[string]string) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(body))
+	})
+}
+
+func (f *fakeMAAS) onCreateBootResource(statusCode int, body string) {
+	f.mux.HandleFunc("POST "+apiPrefix+"/boot-resources/{$}", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		_, _ = w.Write([]byte(body))
+	})
+}
+
+func (f *fakeMAAS) onUploadBootResourceChunk(statusCode int) {
+	f.mux.HandleFunc("PUT "+apiPrefix+"/boot-resources/{id}/upload/{fileId}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		f.mu.Lock()
+		f.uploadedBytes += int64(len(body))
+		f.uploadChunks++
+		f.lastUploadPath = r.URL.Path
+		f.mu.Unlock()
+		w.WriteHeader(statusCode)
 	})
 }
 
@@ -730,6 +756,113 @@ func TestDeleteOSImage_ResolvesUploadedResourceAndDeletesByID(t *testing.T) {
 	}
 	if fake.lastDeletedBootResource != "7" {
 		t.Errorf("deleted boot resource id: got %q, want 7", fake.lastDeletedBootResource)
+	}
+}
+
+// Upload reserves the resource from metadata (name, architecture, sha256, size), streams the
+// content in chunks to the URI MAAS returns for the incomplete file, and reads the completed
+// resource back so the returned image carries its final size and custom classification.
+func TestUploadOSImage_CreatesResourceAndStreamsChunks(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onCreateBootResource(http.StatusOK, `{
+	  "id": 9,
+	  "type": "Uploaded",
+	  "name": "ubuntu-24.04-rocm",
+	  "architecture": "amd64/generic",
+	  "sets": {
+	    "20260913": {
+	      "version": "20260913",
+	      "complete": false,
+	      "files": {
+	        "root-tgz": {"filename": "root-tgz", "complete": false, "upload_uri": "`+apiPrefix+`/boot-resources/9/upload/3/"}
+	      }
+	    }
+	  }
+	}`)
+	fake.onUploadBootResourceChunk(http.StatusOK)
+	fake.onBootResourceDetails(map[string]string{
+		"9": `{"id": 9, "type": "Uploaded", "name": "ubuntu-24.04-rocm", "title": "Ubuntu 24.04 ROCm", "architecture": "amd64/generic", "sets": {"20260913": {"version": "20260913", "size": 10485760, "complete": true}}}`,
+	})
+	provider := newTestProvider(t, fake)
+
+	// One full chunk plus a partial one exercises the streaming loop's final short read.
+	content := bytes.Repeat([]byte("x"), uploadChunkSize+1234)
+	image, err := provider.UploadOSImage(context.Background(), provisioningdomain.UploadOSImageRequest{
+		Name:         "ubuntu-24.04-rocm",
+		Architecture: "amd64",
+		Title:        "Ubuntu 24.04 ROCm",
+		FileType:     "tgz",
+		Size:         int64(len(content)),
+		SHA256:       "deadbeef",
+		Content:      bytes.NewReader(content),
+	})
+	if err != nil {
+		t.Fatalf("UploadOSImage: %v", err)
+	}
+
+	// The create metadata is the last recorded POST form; the CPU architecture is expanded to
+	// MAAS's "<arch>/generic" form and the caller-supplied size and digest are sent verbatim.
+	if fake.lastForm["name"] != "ubuntu-24.04-rocm" {
+		t.Errorf("create name: got %q", fake.lastForm["name"])
+	}
+	if fake.lastForm["architecture"] != "amd64/generic" {
+		t.Errorf("create architecture: got %q, want amd64/generic", fake.lastForm["architecture"])
+	}
+	if fake.lastForm["sha256"] != "deadbeef" {
+		t.Errorf("create sha256: got %q", fake.lastForm["sha256"])
+	}
+	if fake.lastForm["size"] != strconv.Itoa(len(content)) {
+		t.Errorf("create size: got %q, want %d", fake.lastForm["size"], len(content))
+	}
+	if fake.lastForm["filetype"] != "tgz" {
+		t.Errorf("create filetype: got %q", fake.lastForm["filetype"])
+	}
+
+	if fake.uploadChunks != 2 {
+		t.Errorf("upload chunks: got %d, want 2 (one full + one partial)", fake.uploadChunks)
+	}
+	if fake.uploadedBytes != int64(len(content)) {
+		t.Errorf("uploaded bytes: got %d, want %d", fake.uploadedBytes, len(content))
+	}
+	if fake.lastUploadPath != apiPrefix+"/boot-resources/9/upload/3/" {
+		t.Errorf("upload path: got %q", fake.lastUploadPath)
+	}
+
+	if image.ID != "ubuntu-24.04-rocm" {
+		t.Errorf("image ID: got %q", image.ID)
+	}
+	if image.OSSystem != "custom" {
+		t.Errorf("image OSSystem: got %q, want custom (provider-classified)", image.OSSystem)
+	}
+	if image.Architecture != "amd64" {
+		t.Errorf("image Architecture: got %q, want amd64", image.Architecture)
+	}
+	if image.SizeBytes != 10485760 {
+		t.Errorf("image SizeBytes: got %d, want the completed set size", image.SizeBytes)
+	}
+}
+
+// A provider that refuses the create (a duplicate name, an unsupported file type) is a
+// rejection carrying MAAS's own wording, and no bytes are streamed.
+func TestUploadOSImage_RejectedCreateStreamsNothing(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onCreateBootResource(http.StatusBadRequest, "Boot resource with this name already exists.")
+	fake.onUploadBootResourceChunk(http.StatusOK)
+	provider := newTestProvider(t, fake)
+
+	_, err := provider.UploadOSImage(context.Background(), provisioningdomain.UploadOSImageRequest{
+		Name:         "ubuntu-24.04-rocm",
+		Architecture: "amd64",
+		Size:         4,
+		SHA256:       "deadbeef",
+		Content:      bytes.NewReader([]byte("data")),
+	})
+	var providerErr *provisioningdomain.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != provisioningdomain.ProviderErrorRejected {
+		t.Fatalf("UploadOSImage error = %v, want a ProviderErrorRejected", err)
+	}
+	if fake.uploadChunks != 0 {
+		t.Errorf("a rejected create must not stream any chunk, got %d", fake.uploadChunks)
 	}
 }
 

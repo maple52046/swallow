@@ -513,6 +513,43 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Ephemeral (memory-backed)', { exact: true })).toBeVisible()
   })
 
+  test('Kubernetes ephemeral deployment warns about volatile state and submits the intent', async ({ page }) => {
+    let submitted: Record<string, unknown> | undefined
+    await installApiFixtures(page, {
+      freePlatformCandidates: true,
+      readyServerCount: 1,
+      onPlatformDeploymentRequest: (body) => { submitted = body },
+    })
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.getByLabel('Platform name').fill('ephemeral-k0s')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+
+    await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
+    await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Operating system configuration' })).toBeVisible()
+    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 24.04 LTS - amd64 (ubuntu noble)')
+    await page.getByRole('checkbox', { name: 'Run the operating system from memory' }).locator('..').click()
+    await expect(page.getByText('Ephemeral Kubernetes is disposable')).toBeVisible()
+    await expect(page.getByText(/control-plane state, container runtime, and workloads are held in memory/)).toBeVisible()
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Platform network' })).toBeVisible()
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(page.getByText('Ephemeral (memory-backed)', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Deploy platform' }).click()
+    expect(submitted).toMatchObject({
+      machinePreparation: {
+        mode: 'provision_os',
+        settings: { ephemeral: true },
+      },
+    })
+  })
+
   test('Platform wizard supports standalone and non-HA multi-node without a VIP', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true })
     await page.goto('/platforms/deploy?site=site-a')
@@ -1065,6 +1102,29 @@ test.describe('operator interactions', () => {
 
     const customImage = page.getByRole('row', { name: /Ubuntu 24.04 ROCm/ }).first()
     await expect(customImage.getByRole('cell', { name: '—', exact: true })).toBeVisible()
+  })
+
+  test('OS Images uploads a new image to the selected provisioner', async ({ page }) => {
+    const uploads: string[] = []
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, { onOSImageUploadRequest: (integrationId) => uploads.push(integrationId) })
+
+    await page.goto('/provisioning/images?site=site-a')
+    await page.getByRole('button', { name: 'Upload image' }).click()
+
+    // Site-a has two provisioners, so the target is chosen explicitly; the caller never sends a
+    // custom flag — the provisioner classifies the uploaded image.
+    await chooseSingleSelectOption(page, 'Provisioner integration', 'MAAS Taipei')
+    await page.locator('#upload-image-name').fill('ubuntu-24.04-rocm')
+    await page.locator('#upload-image-file').setInputFiles({
+      name: 'image.tar.gz',
+      mimeType: 'application/gzip',
+      buffer: Buffer.from('fake-image-bytes'),
+    })
+    await page.getByRole('button', { name: 'Upload', exact: true }).click()
+
+    await expect(page.getByText('OS image uploaded')).toBeVisible()
+    await expect.poll(() => uploads).toEqual(['maas-a'])
   })
 
   test('template CRUD remains write-only and OS Images preserves partial provider results', async ({ page }) => {

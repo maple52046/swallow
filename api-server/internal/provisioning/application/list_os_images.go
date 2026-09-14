@@ -87,18 +87,7 @@ func (uc *ListOSImagesUseCase) Execute(ctx context.Context, integrationID string
 
 	items := make([]OSImageItem, 0, len(images))
 	for _, image := range images {
-		item := OSImageItem{
-			ID:               image.ID,
-			Name:             image.Name,
-			ProviderName:     image.Name,
-			OSSystem:         image.OSSystem,
-			ProviderOSSystem: image.OSSystem,
-			Release:          image.Release,
-			ProviderRelease:  image.Release,
-			Tags:             []string{},
-			Architecture:     image.Architecture,
-			SizeBytes:        image.SizeBytes,
-		}
+		item := newOSImageItem(image)
 		// Overlay precedence is one-directional and per field: a non-empty swallow value becomes
 		// the effective value while the provider value stays visible as provider*. Tags have no
 		// provider counterpart, so they are taken from the overlay as-is when present.
@@ -128,4 +117,23 @@ func (uc *ListOSImagesUseCase) Execute(ctx context.Context, integrationID string
 // cannot appear in an image ID or architecture, so distinct pairs never collide in the lookup.
 func osImageOverlayKey(imageID, architecture string) string {
 	return imageID + "\x00" + architecture
+}
+
+// newOSImageItem projects a provider image onto the API item with the provider's own values as
+// the effective values and no swallow override. ListOSImagesUseCase layers overlay values on top
+// of this base; a freshly uploaded image has no overlay, so this bare projection is already its
+// full representation.
+func newOSImageItem(image *provisioningdomain.OSImage) OSImageItem {
+	return OSImageItem{
+		ID:               image.ID,
+		Name:             image.Name,
+		ProviderName:     image.Name,
+		OSSystem:         image.OSSystem,
+		ProviderOSSystem: image.OSSystem,
+		Release:          image.Release,
+		ProviderRelease:  image.Release,
+		Tags:             []string{},
+		Architecture:     image.Architecture,
+		SizeBytes:        image.SizeBytes,
+	}
 }

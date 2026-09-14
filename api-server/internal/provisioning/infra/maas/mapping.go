@@ -118,9 +118,20 @@ type bootResourceJSON struct {
 // bootResourceSetJSON is the deployable file set MAAS nests only in a boot-resource
 // detail response. Size is MAAS's total_size for every file in the set, in bytes.
 type bootResourceSetJSON struct {
-	Version   string `json:"version"`
-	SizeBytes int64  `json:"size"`
+	Version   string                          `json:"version"`
+	SizeBytes int64                           `json:"size"`
+	Complete  bool                            `json:"complete"`
+	Files     map[string]bootResourceFileJSON `json:"files"`
+}
+
+// bootResourceFileJSON is one file within a boot-resource set. UploadURI is populated by a
+// boot-resource create response for a file that still needs its bytes: it is the host-absolute
+// path a chunked upload PUTs to until the file is complete. It is absent for synced resources
+// and for files MAAS already holds.
+type bootResourceFileJSON struct {
+	Filename  string `json:"filename"`
 	Complete  bool   `json:"complete"`
+	UploadURI string `json:"upload_uri"`
 }
 
 type versionJSON struct {

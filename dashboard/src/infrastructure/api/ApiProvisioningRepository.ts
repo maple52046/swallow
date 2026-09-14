@@ -1,6 +1,7 @@
 import type {
   OSImageOverlayInput,
   ProvisioningRepository,
+  UploadOSImageInput,
 } from "@/application/ports/ProvisioningRepository";
 import type {
   CreateDeploymentTemplateInput,
@@ -14,7 +15,7 @@ import type {
   UpdateDeploymentTemplateInput,
 } from "@/domain/provisioning/types";
 import type { OSImage } from "@/domain/site/types";
-import { ApiRequestError, apiRequest } from "./client";
+import { ApiRequestError, apiRequest, apiUpload, type UploadProgress } from "./client";
 
 /**
  * HTTP adapter for the active provider-owned provisioning contract.
@@ -142,6 +143,26 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
   async listOSImages(integrationId: string): Promise<OSImage[]> {
     const query = new URLSearchParams({ integrationId });
     return apiRequest<OSImage[]>(`/api/v1/provisioning/images?${query}`);
+  }
+
+  async uploadOSImage(
+    integrationId: string,
+    input: UploadOSImageInput,
+    onProgress?: (progress: UploadProgress) => void,
+  ): Promise<OSImage> {
+    // multipart/form-data: the browser sets the Content-Type boundary, and the file streams as
+    // the `content` part. Optional fields are omitted rather than sent blank so the backend
+    // applies provider defaults.
+    const form = new FormData();
+    form.set("integrationId", integrationId);
+    form.set("name", input.name);
+    form.set("architecture", input.architecture);
+    if (input.title) form.set("title", input.title);
+    if (input.filetype) form.set("filetype", input.filetype);
+    form.set("content", input.file);
+    return apiUpload<OSImage>("/api/v1/provisioning/images", form, {
+      onProgress,
+    });
   }
 
   async deleteOSImage(

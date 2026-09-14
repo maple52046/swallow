@@ -228,6 +228,7 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo),
+		provisioningapp.NewUploadOSImageUseCase(providerFactory),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo),
 	)
 
@@ -327,6 +328,12 @@ func RunAPI(cfg config.APIConfig) error {
 	// Historical schema-v2 records remain readable through ExecutionService.
 
 	fiberApp := fiber.New(fiber.Config{
+		// OS image upload (POST /provisioning/images) streams a potentially multi-gigabyte
+		// artifact, so the body is read as a stream and the limit is raised well past the 4 MiB
+		// default. StreamRequestBody keeps the large body off the heap; fasthttp spools the
+		// multipart file part to a temp file the handler then streams to the provider.
+		StreamRequestBody: true,
+		BodyLimit:         int(cfg.ImageUploadMaxBytes),
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			slog.Error("unhandled HTTP error",
 				"requestId", c.GetRespHeader(fiber.HeaderXRequestID), "error", err)
@@ -559,6 +566,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)
+	// Multipart upload of a provider-owned OS image. Streamed and spooled by the handler; the
+	// provider decides whether it becomes a custom image (docs/decisions/027).
+	provisioning.Post("/images", deps.provisioning.UploadImage)
 	provisioning.Delete("/images", deps.provisioning.DeleteImage)
 	// Swallow-owned OS Image overlay: set or clear the display overrides (name, OS, release)
 	// merged over the provider values. Same query-parameter identity as DELETE /images

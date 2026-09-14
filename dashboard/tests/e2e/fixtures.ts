@@ -154,7 +154,10 @@ export interface FixtureOptions {
   serverActionFailureIds?: string[]
   deploymentReadinessIssues?: Record<string, string>
   onOSImageCatalogRequest?: (integrationId: string) => void
+  /** Called with the target integration when the OS image upload endpoint receives a POST. */
+  onOSImageUploadRequest?: (integrationId: string) => void
   onDeploymentRequest?: (body: Record<string, unknown>) => void
+  onPlatformDeploymentRequest?: (body: Record<string, unknown>) => void
   onServerReleaseRequest?: (serverId: string, body: Record<string, unknown> | null) => void
   onServerRefreshRequest?: (serverId: string) => void
   onPlatformUninstallRequest?: (platformId: string, body: Record<string, unknown> | null) => void
@@ -618,6 +621,29 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
 
     if (path === '/api/v1/provisioning/images') {
+      if (request.method() === 'POST') {
+        // Upload is multipart, so the integration id is a form field rather than a query param.
+        // The provider classifies an uploaded artifact (here as the custom osystem), which is what
+        // the created row reflects.
+        const uploadedIntegrationId = request.postData()?.match(/name="integrationId"\r?\n\r?\n([^\r\n]+)/)?.[1] ?? ''
+        options.onOSImageUploadRequest?.(uploadedIntegrationId)
+        return json(
+          route,
+          {
+            id: 'ubuntu-24.04-rocm',
+            name: 'Ubuntu 24.04 ROCm',
+            providerName: 'Ubuntu 24.04 ROCm',
+            osSystem: 'custom',
+            providerOsSystem: 'custom',
+            release: 'ubuntu-24.04-rocm',
+            providerRelease: 'ubuntu-24.04-rocm',
+            tags: [],
+            architecture: 'amd64',
+            sizeBytes: 16,
+          },
+          201,
+        )
+      }
       const integrationId = url.searchParams.get('integrationId') ?? ''
       options.onOSImageCatalogRequest?.(integrationId)
       if (options.failImageIntegrationIds?.includes(integrationId)) {
@@ -1013,7 +1039,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
 
     if (path === '/api/v1/platforms/deploy' && request.method() === 'POST') {
-      const body = request.postDataJSON() as {
+      const rawBody = request.postDataJSON() as Record<string, unknown>
+      options.onPlatformDeploymentRequest?.(rawBody)
+      const body = rawBody as {
         name: string
         type?: 'kubernetes' | 'slurm'
         gpuStackOwner?: string

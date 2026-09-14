@@ -2,9 +2,13 @@ package delivery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -33,6 +37,7 @@ type ProvisioningHandler struct {
 	actions         *application.MachineActionsUseCase
 	deleteServer    *application.DeleteServerUseCase
 	deleteImage     *application.DeleteOSImageUseCase
+	uploadImage     *application.UploadOSImageUseCase
 	imageOverlay    *application.SetOSImageOverlayUseCase
 	durable         application.DurableOperationLauncher
 }
@@ -53,6 +58,7 @@ func NewProvisioningHandler(
 	actions *application.MachineActionsUseCase,
 	deleteServer *application.DeleteServerUseCase,
 	deleteImage *application.DeleteOSImageUseCase,
+	uploadImage *application.UploadOSImageUseCase,
 	imageOverlay *application.SetOSImageOverlayUseCase,
 	durable ...application.DurableOperationLauncher,
 ) *ProvisioningHandler {
@@ -72,6 +78,7 @@ func NewProvisioningHandler(
 		actions:         actions,
 		deleteServer:    deleteServer,
 		deleteImage:     deleteImage,
+		uploadImage:     uploadImage,
 		imageOverlay:    imageOverlay,
 	}
 	if len(durable) > 0 {
@@ -323,6 +330,83 @@ func (h *ProvisioningHandler) DeleteImage(c *fiber.Ctx) error {
 		return RespondError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// uploadFieldMaxLen bounds each small text field on an image upload so a malformed multipart
+// part cannot carry an unbounded string. The file content is bounded by the server body limit,
+// not by this.
+const uploadFieldMaxLen = 200
+
+// UploadImage creates a new provider-owned OS image on one provisioner from an uploaded file.
+//
+// This is the only multipart/form-data endpoint on this surface because it carries a potentially
+// multi-gigabyte artifact. fasthttp spools the file part to a temporary file, so the file handle
+// is seekable and the handler streams from disk rather than holding the artifact in memory: the
+// size comes from the multipart header and the sha256 is computed once over the spooled file,
+// both of which the provider (MAAS) requires before it will accept the bytes. Swallow keeps no
+// copy once the provider accepts it. Whether the uploaded image is a custom image is decided by
+// the provider, not by this request. Errors follow the shared provisioning mapper: an unsupported
+// provisioner or a provider refusal is a 400, an unknown integration is a 404, and a provider
+// transport failure during upload is a 503.
+func (h *ProvisioningHandler) UploadImage(c *fiber.Ctx) error {
+	integrationID := strings.TrimSpace(c.FormValue("integrationId"))
+	if integrationID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
+	}
+	name := strings.TrimSpace(c.FormValue("name"))
+	if name == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "name is required."))
+	}
+	architecture := strings.TrimSpace(c.FormValue("architecture"))
+	if architecture == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "architecture is required."))
+	}
+	title := strings.TrimSpace(c.FormValue("title"))
+	fileType := strings.TrimSpace(c.FormValue("filetype"))
+	if len(name) > uploadFieldMaxLen || len(architecture) > uploadFieldMaxLen ||
+		len(title) > uploadFieldMaxLen || len(fileType) > uploadFieldMaxLen {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "An upload field exceeds the maximum length."))
+	}
+
+	fileHeader, err := c.FormFile("content")
+	if err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "content file is required."))
+	}
+	if fileHeader.Size <= 0 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "content file is empty."))
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "The uploaded file could not be read."))
+	}
+	defer file.Close()
+
+	// The sha256 is hashed over the spooled file first, then the handle is rewound so the same
+	// bytes stream to the provider. MAAS needs the digest and size up front, and verifies the
+	// digest on completion, so hashing here turns a corrupt transfer into an early, clear error.
+	sum := sha256.New()
+	if _, err := io.Copy(sum, file); err != nil {
+		return RespondError(c, err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return RespondError(c, err)
+	}
+
+	item, err := h.uploadImage.Execute(c.Context(), application.UploadOSImageInput{
+		IntegrationID: integrationID,
+		Name:          name,
+		Architecture:  architecture,
+		Title:         title,
+		FileType:      fileType,
+		Size:          fileHeader.Size,
+		SHA256:        hex.EncodeToString(sum.Sum(nil)),
+		Content:       file,
+	})
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(item)
 }
 
 // imageOverlayRequest carries the swallow-owned display overrides and tags for an OS Image

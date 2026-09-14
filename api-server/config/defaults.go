@@ -32,6 +32,9 @@ func DefaultConfig() Config {
 			JobRuntimeDir:             "/tmp/swallow/jobs",
 			JobArtifactDir:            "./var/jobs",
 			JobArtifactRetention:      30 * 24 * time.Hour,
+			// 64 GiB accommodates a large custom OS image; the body is streamed and spooled,
+			// not buffered, so this is a ceiling on a single upload rather than memory use.
+			ImageUploadMaxBytes: 64 * 1024 * 1024 * 1024,
 		},
 	}
 }

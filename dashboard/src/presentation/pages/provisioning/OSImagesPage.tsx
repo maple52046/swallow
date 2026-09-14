@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge, Button, Field, HStack, IconButton, Input, Menu, Portal, Stack, Table } from '@chakra-ui/react'
-import { Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, Trash2, X } from 'lucide-react'
+import { Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { loadOSImageCatalog, type OSImageCatalog, type OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
+import type { Integration } from '@/domain/site/types'
 import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -19,9 +20,11 @@ import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { formatBytes } from '@/shared/utils/bytes'
 import { formatDateTime } from '@/shared/utils/time'
 import { BulkImageActionDialog } from './BulkImageActionDialog'
 import { ProvisioningTabs } from './ProvisioningTabs'
+import { UploadImageDialog } from './UploadImageDialog'
 import type { OSImageBulkAction, OSImageBulkTarget } from './useOSImageBulkActions'
 
 type CatalogState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: OSImageCatalog }
@@ -70,13 +73,7 @@ function hasOverride(image: OSImageCatalogRow): boolean {
 /** Formats provider bytes with binary units while preserving an explicit unknown state. */
 function formatImageSize(sizeBytes?: number): string {
   if (sizeBytes === undefined || !Number.isFinite(sizeBytes) || sizeBytes <= 0) return '—'
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
-  const unitIndex = Math.min(Math.floor(Math.log(sizeBytes) / Math.log(1024)), units.length - 1)
-  const value = sizeBytes / 1024 ** unitIndex
-  const formatted = new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: value >= 10 || unitIndex === 0 ? 0 : 1,
-  }).format(value)
-  return `${formatted} ${units[unitIndex]}`
+  return formatBytes(sizeBytes)
 }
 
 type ImageColumnKey = 'name' | 'osSystem' | 'release' | 'tags' | 'architecture' | 'size' | 'site' | 'integration' | 'refreshed'
@@ -124,6 +121,11 @@ export function OSImagesPage() {
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [deleting, setDeleting] = useState<OSImageCatalogRow | null>(null)
   const [editing, setEditing] = useState<OSImageCatalogRow | null>(null)
+  const [uploading, setUploading] = useState(false)
+  // Scoped provisioner integrations, captured while loading the catalog so the upload dialog can
+  // offer them without a second fetch. Upload targets a provisioner, so it is disabled until one
+  // exists in scope; the backend still enforces which provisioners actually support upload.
+  const [provisioners, setProvisioners] = useState<Integration[]>([])
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<OSImageBulkAction | null>(null)
   const [visibleColumns, setVisibleColumns] = useState<Set<ImageColumnKey>>(loadVisibleColumns)
@@ -149,15 +151,21 @@ export function OSImagesPage() {
     })
   }
 
+  // Load the scoped provisioner integrations and their live catalogs together, returning both so
+  // callers set React state in their own callback rather than inside this async body (which would
+  // trigger the set-state-in-effect lint) and so the upload dialog reuses the same integrations.
   const fetchCatalog = useCallback(async () => {
     const integrations = await siteRepository.listIntegrations({ siteId, kind: 'provisioner' })
-    return loadOSImageCatalog(provisioning, integrations)
+    const catalog = await loadOSImageCatalog(provisioning, integrations)
+    return { catalog, integrations }
   }, [provisioning, siteId, siteRepository])
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      setState({ status: 'ready', data: await fetchCatalog() })
+      const { catalog, integrations } = await fetchCatalog()
+      setProvisioners(integrations)
+      setState({ status: 'ready', data: catalog })
     } catch (error) {
       setState({ status: 'error', message: error instanceof Error ? error.message : 'Could not load OS images.' })
     }
@@ -166,8 +174,11 @@ export function OSImagesPage() {
   useEffect(() => {
     let cancelled = false
     fetchCatalog()
-      .then((data) => {
-        if (!cancelled) setState({ status: 'ready', data })
+      .then(({ catalog, integrations }) => {
+        if (!cancelled) {
+          setProvisioners(integrations)
+          setState({ status: 'ready', data: catalog })
+        }
       })
       .catch((error: Error) => {
         if (!cancelled) setState({ status: 'error', message: error.message })
@@ -285,6 +296,14 @@ export function OSImagesPage() {
             <Button variant="outline" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>
               Manage integrations
             </Button>
+            <Tooltip content={provisioners.length === 0 ? 'Add a provisioner integration before uploading an image' : 'Upload a new OS image to a provisioner'}>
+              <span>
+                <Button colorPalette="brand" disabled={provisioners.length === 0} onClick={() => setUploading(true)}>
+                  <Upload size={16} />
+                  Upload image
+                </Button>
+              </span>
+            </Tooltip>
             <Button variant="outline" onClick={() => setRefreshNonce((value) => value + 1)}>
               <RefreshCw size={16} />
               Refresh
@@ -508,6 +527,18 @@ export function OSImagesPage() {
           onClose={() => setEditing(null)}
           onSaved={(title) => {
             setEditing(null)
+            showToast({ tone: 'success', title })
+            setRefreshNonce((value) => value + 1)
+          }}
+        />
+      )}
+      {uploading && (
+        <UploadImageDialog
+          integrations={provisioners}
+          repository={provisioning}
+          onClose={() => setUploading(false)}
+          onUploaded={(title) => {
+            setUploading(false)
             showToast({ tone: 'success', title })
             setRefreshNonce((value) => value + 1)
           }}

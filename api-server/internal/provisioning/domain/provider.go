@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // MachineFilter narrows a machine listing. Zero values mean "no constraint".
 type MachineFilter struct {
@@ -78,6 +81,8 @@ type ProviderCapabilities struct {
 	ReleaseOptions bool
 	// ImageRemoval reports that OSImageRemover is implemented.
 	ImageRemoval bool
+	// ImageUpload reports that OSImageUploader is implemented.
+	ImageUpload bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -183,6 +188,48 @@ type ConfigurableMachineReleaser interface {
 // architectures.
 type OSImageRemover interface {
 	DeleteOSImage(ctx context.Context, imageID, architecture string) error
+}
+
+// UploadOSImageRequest describes a new provider-owned OS image to create from
+// operator-supplied content.
+//
+// Name and Architecture are the operator's intent in swallow-neutral form; the adapter maps
+// them into the provider's own vocabulary (for MAAS, the custom-image namespace and a
+// "<arch>/generic" architecture). The uploaded artifact is provider-owned exactly like a
+// synced one, and whether it is classified as a custom image is provider-determined, never
+// chosen here.
+type UploadOSImageRequest struct {
+	// Name is the operator-chosen image name, before any provider namespacing.
+	Name string
+	// Architecture is the CPU architecture, e.g. "amd64".
+	Architecture string
+	// Title is an optional human-readable label; empty means the provider derives one.
+	Title string
+	// FileType is the provider-validated artifact format, e.g. "tgz". Empty means the
+	// provider's own default.
+	FileType string
+	// Size is the exact byte length of Content. Providers that reserve a resource before the
+	// bytes arrive (MAAS) require it up front, so callers must supply the real size.
+	Size int64
+	// SHA256 is the lowercase hex digest of Content, computed by the caller. Providers verify
+	// it on completion, so a mismatch is the provider's rejection, not swallow's.
+	SHA256 string
+	// Content streams the artifact bytes. The adapter reads it once, sequentially, and must
+	// not assume it is seekable; swallow keeps no copy after the provider accepts it.
+	Content io.Reader
+}
+
+// OSImageUploader creates a new provider-owned OS image from operator-supplied content, such
+// as a MAAS uploaded custom image.
+//
+// It is the creation counterpart to OSImageRemover: swallow drives the provider to store the
+// artifact but does not own, mirror, or keep a copy of it (see ADR 027). An adapter that sets
+// ProviderCapabilities.ImageUpload must implement this. Implementations map a provider refusal
+// (a duplicate name, an unsupported file type) onto *ProviderError{Kind: ProviderErrorRejected}
+// and transport or 5xx failures onto ProviderErrorUnavailable, and return the created image as
+// the provider reports it so the caller can show the new catalog row without a second read.
+type OSImageUploader interface {
+	UploadOSImage(ctx context.Context, req UploadOSImageRequest) (*OSImage, error)
 }
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled

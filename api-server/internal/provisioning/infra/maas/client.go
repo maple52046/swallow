@@ -133,6 +133,69 @@ func (c *Client) postOperation(ctx context.Context, path, operation string, fiel
 	return c.do(req, out)
 }
 
+// postMultipart issues an authenticated POST whose parameters are multipart/form-data fields,
+// used for MAAS collection creates that are not named operations (no op= query), such as
+// reserving a boot resource before its content is uploaded. Empty values are dropped by
+// multipartBody so an unset optional parameter is absent rather than sent as "".
+func (c *Client) postMultipart(ctx context.Context, path string, fields map[string]string, out any) error {
+	body, contentType, err := multipartBody(fields)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, path, nil, body, contentType)
+	if err != nil {
+		return err
+	}
+	return c.do(req, out)
+}
+
+// putUpload streams one raw chunk to a MAAS boot-resource upload target.
+//
+// rawURL is the upload_uri MAAS returns for an incomplete boot-resource file: a host-absolute
+// path resolved against the configured API root so the request keeps the same scheme, host, and
+// OAuth PLAINTEXT authentication (which signs neither the URL nor the body). Each call sends one
+// chunk with an explicit content length; MAAS accumulates chunks until it has received the
+// declared size, then verifies the sha256, so a corrupt or short upload surfaces as a provider
+// error here or on the following read. The body is not retried: the caller owns a
+// forward-only stream.
+func (c *Client) putUpload(ctx context.Context, rawURL string, body io.Reader, contentLength int64) error {
+	endpoint, err := c.resolveURL(rawURL)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, body)
+	if err != nil {
+		return fmt.Errorf("build maas upload request: %w", err)
+	}
+	req.ContentLength = contentLength
+
+	nonce, err := newNonce()
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", c.key.authorizationHeader(nonce, time.Now().Unix()))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/octet-stream")
+	return c.do(req, nil)
+}
+
+// resolveURL resolves a MAAS-returned reference (typically a host-absolute upload path) against
+// the configured API root, so a path such as "/MAAS/api/2.0/boot-resources/1/upload/2/" becomes a
+// full URL on the same host without assuming the API root's own path prefix.
+func (c *Client) resolveURL(rawURL string) (string, error) {
+	base, err := url.Parse(c.apiRoot)
+	if err != nil {
+		return "", fmt.Errorf("parse maas api root: %w", err)
+	}
+	ref, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse maas upload uri: %w", err)
+	}
+	return base.ResolveReference(ref).String(), nil
+}
+
 // getOperation invokes a read-only MAAS named operation, e.g. op=query_power_state.
 //
 // MAAS exposes these as GET with an op query parameter; using POST for a read would be

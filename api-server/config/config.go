@@ -73,6 +73,11 @@ type APIConfig struct {
 	JobArtifactRetention time.Duration `yaml:"jobArtifactRetention"`
 	// AllowedOrigins is a comma-separated development exception.
 	AllowedOrigins string `yaml:"allowedOrigins"`
+	// ImageUploadMaxBytes caps the request body the server accepts, sized for OS image
+	// uploads (POST /provisioning/images streams a potentially multi-gigabyte artifact).
+	// It becomes the Fiber body limit; because the body is streamed, this bounds a single
+	// upload rather than being buffered. Must be positive.
+	ImageUploadMaxBytes int64 `yaml:"imageUploadMaxBytes"`
 	// MachineToken is a static bearer token accepted by the endpoints whose callers
 	// are other systems, such as Prometheus scraping discovery. Those hold one
 	// credential in their configuration and cannot

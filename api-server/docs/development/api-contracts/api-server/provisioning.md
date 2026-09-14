@@ -14,8 +14,8 @@ Active
 
 ## Purpose
 
-List provider-owned OS Images, manage Swallow-owned Deployment Templates, and
-submit one OS deployment configuration to one or more eligible Servers.
+List, upload, and delete provider-owned OS Images, manage Swallow-owned Deployment
+Templates, and submit one OS deployment configuration to one or more eligible Servers.
 
 ## Related Glossary Terms
 
@@ -39,6 +39,7 @@ timestamps, and authentication behavior follow [conventions.md](conventions.md).
 
 ```text
 GET    /api/v1/provisioning/images?integrationId={integrationId}
+POST   /api/v1/provisioning/images                                              (multipart/form-data)
 DELETE /api/v1/provisioning/images?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 PATCH  /api/v1/provisioning/images/overlay?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 DELETE /api/v1/provisioning/images/overlay?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
@@ -129,6 +130,58 @@ does not implement image deletion is refused the same way. Any missing query par
 also `400 validation_error`; an unknown integration is `404 not_found`; a provider
 transport failure is `503 provider_unavailable`. Deleting an image also removes any
 Swallow overlay for it, so a deleted image leaves no orphan override behind.
+
+## OS Image Upload
+
+`POST /images` uploads a new provider-owned OS Image to one provisioner. It is the only
+endpoint on this surface that uses `multipart/form-data` rather than JSON, because it carries
+a potentially multi-gigabyte image artifact. Swallow drives the provider upload but does not
+own, mirror, or keep a durable copy of the artifact: the uploaded image is provider-owned
+exactly like a synced one, and **whether it is classified as a custom image is determined by the
+provisioner, not by the caller** (see ADR 027). Upload is an optional provider capability, so a
+provisioner whose adapter does not implement it is refused.
+
+The request is `multipart/form-data` with these parts:
+
+- `integrationId` (required): the target provisioner Integration.
+- `name` (required): the operator-chosen image name. The adapter maps it into the provider's
+  own namespace (for MAAS, the custom-image namespace).
+- `architecture` (required): the CPU architecture, e.g. `amd64`. The adapter expands it to the
+  provider's form (for MAAS, `amd64/generic`).
+- `title` (optional): a human-readable label.
+- `filetype` (optional): the artifact format, validated by the provider. When omitted the
+  provider's default is used (for MAAS, `tgz`).
+- `content` (required): the image file. It is streamed; Swallow never buffers the whole artifact
+  in memory and keeps no copy after the provider accepts it.
+
+On success it returns `201` with the created image in the same shape as one `GET /images` row:
+
+```json
+{
+  "id": "custom/ubuntu-24.04-rocm",
+  "name": "Ubuntu 24.04 ROCm",
+  "providerName": "Ubuntu 24.04 ROCm",
+  "osSystem": "custom",
+  "providerOsSystem": "custom",
+  "release": "ubuntu-24.04-rocm",
+  "providerRelease": "ubuntu-24.04-rocm",
+  "tags": [],
+  "architecture": "amd64",
+  "sizeBytes": 5368709120
+}
+```
+
+`providerOsSystem` reflects the provider's classification of the uploaded artifact (for MAAS,
+`custom`); the caller never sends it. A freshly uploaded image has no Swallow overlay, so its
+`custom*` fields are absent and each effective field equals its provider value. `sizeBytes` is
+present when the provider reports the completed artifact size.
+
+A missing `integrationId`, `name`, `architecture`, or `content`, an unsupported `filetype`, a
+name that duplicates an existing provider image, or a provisioner whose adapter does not
+implement upload is `400 validation_error` — the provider's own wording is preserved for a
+provider-side refusal. An unknown integration is `404 not_found`. A provider transport failure
+or 5xx during upload is `503 provider_unavailable`. Because the artifact can be large, this
+endpoint is not bounded by the short provider read timeout used for catalog reads.
 
 ## OS Image Overlay
 

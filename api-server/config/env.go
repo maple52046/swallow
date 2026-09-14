@@ -117,6 +117,11 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SWALLOW_API_ALLOWED_ORIGINS"); v != "" {
 		cfg.API.AllowedOrigins = v
 	}
+	if v := os.Getenv("SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.API.ImageUploadMaxBytes = n
+		}
+	}
 	if v := getSecretEnv("SWALLOW_API_MACHINE_TOKEN", ""); v != "" {
 		cfg.API.MachineToken = v
 	}

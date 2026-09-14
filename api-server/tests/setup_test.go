@@ -115,6 +115,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
 		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays),
+		provisioningapp.NewUploadOSImageUseCase(factory),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlays),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
@@ -188,6 +189,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	provisioningGroup := v1.Group("/provisioning", admin...)
 	provisioningGroup.Get("/images", provisioningHandler.ListImages)
+	provisioningGroup.Post("/images", provisioningHandler.UploadImage)
 	provisioningGroup.Delete("/images", provisioningHandler.DeleteImage)
 	provisioningGroup.Patch("/images/overlay", provisioningHandler.SetImageOverlay)
 	provisioningGroup.Delete("/images/overlay", provisioningHandler.ClearImageOverlay)

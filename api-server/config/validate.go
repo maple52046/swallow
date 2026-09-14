@@ -58,5 +58,8 @@ func Validate(cfg *Config) error {
 	if cfg.API.JobArtifactRetention <= 0 {
 		return fmt.Errorf("api.jobArtifactRetention must be > 0")
 	}
+	if cfg.API.ImageUploadMaxBytes <= 0 {
+		return fmt.Errorf("api.imageUploadMaxBytes must be > 0")
+	}
 	return nil
 }

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -431,6 +432,8 @@ type fakeProvider struct {
 	deleteCalls           []string
 	deleteImageErr        error
 	deletedImages         [][2]string
+	uploadImageErr        error
+	uploadedImages        []provisioningdomain.UploadOSImageRequest
 	// actions records every capability action taken, as "op machineID", so a test can
 	// assert the provider was driven correctly.
 	actions []string
@@ -459,6 +462,7 @@ func newFakeProvider() *fakeProvider {
 			ReleaseOptions:       true,
 			NetworkConfiguration: true,
 			ImageRemoval:         true,
+			ImageUpload:          true,
 		},
 	}
 }
@@ -617,6 +621,32 @@ func (p *fakeProvider) DeleteOSImage(_ context.Context, imageID, architecture st
 	}
 	p.deletedImages = append(p.deletedImages, [2]string{imageID, architecture})
 	return nil
+}
+
+// UploadOSImage records the upload and returns the created image as MAAS would classify it: an
+// uploaded resource surfaces with osystem "custom", so the delivery test can assert the provider
+// — not the caller — decides the classification. The content is drained like a real adapter
+// streams it once.
+func (p *fakeProvider) UploadOSImage(_ context.Context, req provisioningdomain.UploadOSImageRequest) (*provisioningdomain.OSImage, error) {
+	if req.Content != nil {
+		_, _ = io.Copy(io.Discard, req.Content)
+	}
+	if p.uploadImageErr != nil {
+		return nil, p.uploadImageErr
+	}
+	p.uploadedImages = append(p.uploadedImages, req)
+	name := req.Title
+	if name == "" {
+		name = req.Name
+	}
+	return &provisioningdomain.OSImage{
+		ID:           req.Name,
+		Name:         name,
+		OSSystem:     "custom",
+		Release:      req.Name,
+		Architecture: req.Architecture,
+		SizeBytes:    req.Size,
+	}, nil
 }
 
 // minimalProvider implements only the base OSProvisioningProvider, standing in for a
