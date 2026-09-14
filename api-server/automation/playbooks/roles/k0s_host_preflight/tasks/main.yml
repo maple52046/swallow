@@ -1,0 +1,105 @@
+---
+# This gate runs against the kernel MAAS actually booted, after the requested k0s binary exists
+# but before any node writes cluster state. Its stdout is retained with the Ansible Step artifacts.
+
+- name: Read the root filesystem type
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - FSTYPE
+      - /
+  register: k0s_preflight_root_fstype
+  changed_when: false
+
+- name: Require a memory-backed root for an ephemeral Kubernetes deployment
+  ansible.builtin.assert:
+    that:
+      - k0s_preflight_root_fstype.stdout | trim in ['overlay', 'tmpfs']
+    fail_msg: >-
+      ephemeral Kubernetes requires a MAAS overlay or tmpfs root, but / is
+      {{ k0s_preflight_root_fstype.stdout | trim | default('unknown', true) }}
+  when: swallow_k0s_ephemeral_root | default(false) | bool
+
+- name: Create the k0s containerd drop-in directory for an ephemeral root
+  ansible.builtin.file:
+    path: /etc/k0s/containerd.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: swallow_k0s_ephemeral_root | default(false) | bool
+
+- name: Use the native containerd snapshotter on a memory-backed root
+  ansible.builtin.copy:
+    dest: /etc/k0s/containerd.d/ephemeral-snapshotter.toml
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      version = 3
+
+      [plugins."io.containerd.cri.v1.images"]
+        snapshotter = "native"
+        use_local_image_pull = true
+  become: true
+  when: swallow_k0s_ephemeral_root | default(false) | bool
+
+- name: Verify required host commands
+  ansible.builtin.shell:
+    cmd: "command -v {{ item }}"
+  args:
+    executable: /bin/sh
+  loop:
+    - mount
+    - umount
+    - modprobe
+    - conntrack
+  changed_when: false
+
+- name: Verify cgroup v2 is mounted
+  ansible.builtin.stat:
+    path: /sys/fs/cgroup/cgroup.controllers
+  register: k0s_cgroup_v2
+
+- name: Fail when cgroup v2 is unavailable
+  ansible.builtin.assert:
+    that:
+      - k0s_cgroup_v2.stat.exists
+      - k0s_cgroup_v2.stat.isreg | default(false)
+    fail_msg: >-
+      k0s requires cgroup v2, but /sys/fs/cgroup/cgroup.controllers is unavailable
+
+- name: Load required Kubernetes kernel modules
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - "{{ item }}"
+  become: true
+  loop:
+    - overlay
+    - br_netfilter
+    - nf_tables
+    - nf_conntrack
+    - x_tables
+    - xt_comment
+    - xt_REDIRECT
+    - ip_tables
+    - iptable_nat
+    - vxlan
+  changed_when: false
+
+- name: Run the k0s host compatibility report
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k0s
+      - sysinfo
+  become: true
+  register: k0s_sysinfo
+  changed_when: false
+
+- name: Record the complete k0s host compatibility report
+  ansible.builtin.debug:
+    var: k0s_sysinfo.stdout_lines

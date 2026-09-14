@@ -372,24 +372,37 @@ func TestDeployProvisionOSRejectsUnconvergeableState(t *testing.T) {
 	}
 }
 
-// A provision_os Kubernetes deploy must reject an ephemeral (run-from-RAM) OS: it leaves the
-// disks untouched and its in-memory image lacks kernel modules k0s needs, so it can never
-// host a cluster. The rejection is up front, not a deep k0s-install failure.
-func TestDeployProvisionOSRejectsEphemeral(t *testing.T) {
+// TestDeployProvisionOSAcceptsEphemeral verifies that volatile OS intent reaches the launcher
+// unchanged. Host compatibility is checked later by the k0s preflight role, where the actual
+// booted kernel and image are available.
+func TestDeployProvisionOSAcceptsEphemeral(t *testing.T) {
 	servers := haServers()
 	servers[1].Provisioning.State = "ready"
-	service, launcher, _ := newDeployHarness(servers...)
-	service.AttachMachinePreparationValidator(&stubMachinePrep{})
+	service, launcher, platforms := newDeployHarness(servers...)
+	prep := &stubMachinePrep{}
+	service.AttachMachinePreparationValidator(prep)
 	input := provisionOSInput()
 	ephemeral := true
 	input.MachinePreparation.Ephemeral = &ephemeral
 
-	_, err := service.Deploy(context.Background(), input)
-	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
-		t.Fatalf("expected ephemeral provision_os to be rejected, got %v", err)
+	result, err := service.Deploy(context.Background(), input)
+	if err != nil {
+		t.Fatalf("ephemeral provision_os Kubernetes deploy should be accepted, got %v", err)
 	}
-	if launcher.launched != nil {
-		t.Fatal("no deployment should be launched for an ephemeral Kubernetes deploy")
+	if launcher.launched == nil {
+		t.Fatal("ephemeral Kubernetes deployment was not launched")
+	}
+	if launcher.launched.MachinePreparation.Ephemeral == nil || !*launcher.launched.MachinePreparation.Ephemeral {
+		t.Fatalf("launcher preparation lost ephemeral intent: %#v", launcher.launched.MachinePreparation)
+	}
+	if got, ok := launcher.launched.TrustedVars[varK0sEphemeralRoot].(bool); !ok || !got {
+		t.Fatalf("trusted vars did not enable ephemeral runtime storage: %#v", launcher.launched.TrustedVars)
+	}
+	if len(prep.ids) != 1 || prep.ids[0] != "c2" {
+		t.Fatalf("only the Ready target should be provisioned, got %v", prep.ids)
+	}
+	if _, ok := platforms.platforms[result.PlatformID]; !ok {
+		t.Error("platform was not created")
 	}
 }
 

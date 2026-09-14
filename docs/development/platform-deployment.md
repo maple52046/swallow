@@ -253,8 +253,12 @@ operator 維護 `knownHosts`。
   消失」的 Operation，將其標為 `requires_attention`（lifecycle 顯示 `deploy_failed` 可 repair）。它
   只標記、不自動 rerun；rerun 一律是明確的 operator 動作。dashboard 的 Repair 會先試單一 Task 重試，
   遇 409（execution 已消失）或無可重試 Step 時改走 rerun。
-- **Kubernetes deploy 禁止 ephemeral OS**：ephemeral（跑在 RAM、磁碟不動）無法承載持久叢集，於
-  `DeployService.validate` 直接擋下。
+- **Kubernetes deploy 支援 disposable ephemeral OS**：既有 `machinePreparation.settings.ephemeral`
+  可要求 provider 以 RAM-backed root 啟動且不碰磁碟。k0s binary 安裝後、任何 controller/worker
+  啟動前，playbook fail-closed 驗證 cgroup v2、host commands、必要 kernel modules 與 `k0s sysinfo`；
+  `/` 可為 MAAS 所提供的 overlayfs 或直接 tmpfs；兩者都改用 containerd `native` snapshotter，
+  避免 overlayroot 上 nested overlayfs 的 `EINVAL`。
+  節點重開後 OS、etcd、container runtime 與 workload state 都會消失；此模式不提供持久叢集。
 
 ---
 
@@ -360,7 +364,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   page 的 tmpfs（controller state 預設 1 GiB）；一般 disk filesystem 不變。Swallow-managed 的
   standalone export 明確使用 NFSv3，避免 NFSv4 pseudo-root namespace 無法解析絕對 export path。
   client role 也會相容於 image 未預建 `/etc/fstab` 的情況。
-- **不套 ephemeral 防呆**：k0s 禁止 ephemeral OS，Slurm 首版不沿用（k8s 的 ephemeral 問題另議）。
+- **支援 ephemeral OS**：與 Kubernetes 共用 provider intent；Slurm 的 package 與 runtime
+  相容性仍由自己的 image contract 和 playbook preflight 負責。
 - **minimum resource policy**：Slurm 可啟用一份 system-wide CPU cores、memory MiB、storage GB
   eligibility floor（[ADR 026](../decisions/026-slurm-minimum-resource-policy.md)）。controller、compute、
   login 套用同一門檻；Dashboard 顯示但禁選不足節點，backend 在建立 Platform／Workflow 前以

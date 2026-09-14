@@ -38,6 +38,7 @@
   roles:
     - role: k0s_prereq
     - role: k0s_binary
+    - role: k0s_host_preflight
 
 - name: Bootstrap the initial controller
   hosts: k0s_initial_controller

@@ -4,7 +4,10 @@
 
 - name: Install conntrack on Debian or Ubuntu
   ansible.builtin.apt:
-    name: conntrack
+    name:
+      - conntrack
+      - kmod
+      - util-linux
     state: present
     update_cache: true
   become: true
@@ -12,7 +15,10 @@
 
 - name: Install conntrack on RHEL-family hosts
   ansible.builtin.dnf:
-    name: conntrack-tools
+    name:
+      - conntrack-tools
+      - kmod
+      - util-linux
     state: present
   become: true
   when: ansible_facts['os_family'] == 'RedHat'

@@ -122,6 +122,19 @@ function WizardSection({ title, children }: { title: string; children: ReactNode
 }
 
 /**
+ * Warns operators that an ephemeral Kubernetes Platform has no durable node-local state.
+ * It is repeated at configuration and review so template-owned ephemeral intent cannot be
+ * submitted without an explicit, text-based warning.
+ */
+function EphemeralKubernetesWarning() {
+  return (
+    <Alert status="warning" title="Ephemeral Kubernetes is disposable">
+      The operating system, control-plane state, container runtime, and workloads are held in memory and are lost when a Server reboots. Use this only for disposable clusters.
+    </Alert>
+  )
+}
+
+/**
  * Platform deployment workflow.
  *
  * Machine selection intentionally precedes networking: the selected topology and observed
@@ -945,6 +958,7 @@ export function DeployPlatformWizardPage() {
                 </Checkbox>
                 <Field.HelperText>Disks remain untouched and operating-system changes are lost after reboot.</Field.HelperText>
               </Field.Root>
+              {!isSlurm && effectiveEphemeral && <EphemeralKubernetesWarning />}
               {!selectedTemplate && (
                 <Field.Root>
                   <Field.Label>Cloud-init user data</Field.Label>
@@ -1206,6 +1220,7 @@ export function DeployPlatformWizardPage() {
           <Alert status="info" title="Submitting creates a Platform and starts its deployment">
             You will continue on the Platform page. Open detailed Operation output only when you need automation-level troubleshooting.
           </Alert>
+          {!isSlurm && needsProvisioning && effectiveEphemeral && <EphemeralKubernetesWarning />}
         </WizardSection>
       ),
     })

@@ -12,7 +12,7 @@ import (
 
 // Slurm deployment validation is the load-bearing part of the Slurm path: it must accept the
 // per-daemon role model (a Server may run slurmctld, slurmd, or both), reject topologies that
-// cannot form a cluster, and — unlike Kubernetes — allow an ephemeral OS. These tests exercise
+// cannot form a cluster, and allow an ephemeral OS. These tests exercise
 // it against the same in-memory fakes as the Kubernetes deploy tests.
 
 func slurmServers() []*serverdomain.Server {
@@ -339,8 +339,8 @@ func TestDeploySlurmWorkloadRejectsInvalidStorage(t *testing.T) {
 	}
 }
 
-// Unlike Kubernetes, a Slurm deployment must accept an ephemeral (run-from-RAM) provision_os
-// OS: the k0s ephemeral guard is deliberately not reused for Slurm.
+// A Slurm deployment accepts an ephemeral (run-from-RAM) provision_os OS and preserves that
+// provider intent in the launch request.
 func TestDeploySlurmAllowsEphemeralProvisionOS(t *testing.T) {
 	servers := slurmServers()
 	servers[0].Provisioning.State = "ready" // needs an OS provisioned first

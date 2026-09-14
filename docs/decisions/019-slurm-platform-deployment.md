@@ -65,8 +65,9 @@ shared storage. More than one controller is high availability and requires an op
 shared `StateSaveLocation` (validated, not defaulted), because a backup `slurmctld` can only
 recover state from shared storage that swallow does not provision.
 
-**No ephemeral guard for Slurm.** k0s forbids an ephemeral (run-from-RAM) OS. Slurm does not
-reuse that guard in this cut; the separate question of k0s and ephemeral is left for later.
+**No ephemeral guard for Slurm.** Slurm accepts an ephemeral (run-from-RAM) OS. Kubernetes did
+not support that mode when this decision was accepted; ADR 028 later adds it with a booted-host
+compatibility gate.
 
 ## Alternatives considered
 

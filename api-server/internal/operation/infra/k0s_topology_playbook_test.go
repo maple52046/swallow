@@ -18,6 +18,22 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 			required: []string{
 				"swallow_k0s_workload_controller_ids | default([])",
 				"k0s_runs_workloads",
+				"role: k0s_host_preflight",
+			},
+		},
+		{
+			path: filepath.Join("roles", "k0s_host_preflight", "tasks", "main.yml"),
+			required: []string{
+				"/sys/fs/cgroup/cgroup.controllers",
+				"xt_REDIRECT",
+				"iptable_nat",
+				"/usr/local/bin/k0s",
+				"sysinfo",
+				"k0s_sysinfo.stdout_lines",
+				"swallow_k0s_ephemeral_root | default(false) | bool",
+				"ephemeral-snapshotter.toml",
+				"snapshotter = \"native\"",
+				"use_local_image_pull = true",
 			},
 		},
 		{

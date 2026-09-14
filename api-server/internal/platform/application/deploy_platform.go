@@ -39,6 +39,7 @@ const (
 	varK0sWorkloadIDs           = "swallow_k0s_workload_ids"
 	varK0sWorkloadControllerIDs = "swallow_k0s_workload_controller_ids"
 	varK0sInitialController     = "swallow_k0s_initial_controller_id"
+	varK0sEphemeralRoot         = "swallow_k0s_ephemeral_root"
 	// varK0sVRRPAuthPass is sealed at rest and materialised only for an HA run.
 	varK0sVRRPAuthPass = "swallow_k0s_vrrp_auth_pass"
 )
@@ -215,10 +216,17 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 		secretVars[varK0sVRRPAuthPass] = authPass
 	}
 
+	trustedVars := buildDeploymentVars(platform, validated.spec, validated.apiAddress)
+	if validated.machinePreparation.Mode == platformdomain.MachinePreparationProvisionOS &&
+		validated.machinePreparation.Ephemeral != nil && *validated.machinePreparation.Ephemeral {
+		// An overlayfs containerd snapshotter cannot reliably nest inside MAAS overlayroot.
+		// Pass only the derived, trusted boolean; clients cannot inject playbook variables.
+		trustedVars[varK0sEphemeralRoot] = true
+	}
 	launch := platformdomain.DeploymentLaunch{
 		Platform:        platform,
 		TargetServerIDs: serverIDs(validated.targets),
-		TrustedVars:     buildDeploymentVars(platform, validated.spec, validated.apiAddress),
+		TrustedVars:     trustedVars,
 		SecretVars:      secretVars,
 		RequestedBy:     input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 		MachinePreparation: validated.machinePreparation,
@@ -287,8 +295,8 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 // validateSlurm resolves and checks the Slurm topology and targets before any record exists.
 // It returns a normalized SlurmDeploymentSpec (ClusterName defaulted, values trimmed) and the
 // resolved machine-preparation mode. It reuses the same per-target site/absent/state/lock/
-// claim/membership checks as the Kubernetes path, but deliberately applies no ephemeral guard:
-// a Slurm deployment may run from an ephemeral OS in this first cut.
+// claim/membership checks as the Kubernetes path. Both platform types may use an ephemeral OS;
+// their platform-specific automation owns the booted host compatibility checks.
 func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformInput) (validatedDeployment, error) {
 	var invalid validatedDeployment
 	spec := input.SlurmSpec
@@ -510,13 +518,6 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 	}
 	if !preparation.Mode.Valid() {
 		return validatedDeployment{}, fmt.Errorf("%w: machinePreparation.mode must be existing_os or provision_os", platformdomain.ErrInvalidDeployment)
-	}
-	// An ephemeral deployment runs the OS from memory and leaves the disks untouched, so it
-	// cannot host a persistent Kubernetes cluster: etcd/containerd have no durable storage
-	// and the in-memory image lacks kernel modules (e.g. nf_tables) k0s needs. Reject it up
-	// front rather than let a provision_os deploy fail deep inside the k0s install.
-	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && preparation.Ephemeral != nil && *preparation.Ephemeral {
-		return validatedDeployment{}, fmt.Errorf("%w: ephemeral deployment runs the OS from memory and cannot host a Kubernetes cluster; set machinePreparation.settings.ephemeral to false", platformdomain.ErrInvalidDeployment)
 	}
 	var invalid validatedDeployment
 

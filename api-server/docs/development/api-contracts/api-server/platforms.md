@@ -201,8 +201,13 @@ types):
 
 `mode` is `existing_os` (default) or `provision_os`. In `provision_os` a target that is
 already `deployed` is reused as-is while a `ready` target is provisioned first, so one
-deploy may mix both. A Kubernetes deployment rejects `provision_os` with an ephemeral OS; a
-Slurm deployment does not.
+deploy may mix both. A Kubernetes or Slurm deployment may set `ephemeral=true`. Ephemeral means the provider boots a
+memory-backed root filesystem and leaves disks untouched; all OS and platform-local state is
+lost when a Server reboots. Kubernetes automation performs a booted-host compatibility gate
+before starting any controller or worker. It also selects containerd's `native` snapshotter
+for a memory-backed root, because an `overlayfs` snapshotter cannot reliably nest inside a
+MAAS overlay root. MAAS custom `root.tgz` boots may expose `/` as either overlayfs or tmpfs;
+both are volatile and leave physical disks untouched.
 
 A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
 defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
