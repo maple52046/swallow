@@ -78,6 +78,11 @@ export interface OperationStep {
   id: string;
   kind: string;
   name: string;
+  /**
+   * The Job this Step belongs to (ADR 017), e.g. "ensure-os" or "configure-k0s". Empty for a
+   * legacy/flat operation that has no Jobs. The detail view groups Steps by this value.
+   */
+  job?: string;
   executor: "internal" | "ansible" | "maas" | string;
   dependsOn: string[];
   targets: OperationResourceReference[];

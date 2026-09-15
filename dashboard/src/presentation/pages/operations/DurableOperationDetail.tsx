@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Button, HStack, IconButton, Stack, Table, Tabs, Text, VisuallyHidden } from '@chakra-ui/react'
-import { Ban, Check, CircleDot, Redo, RefreshCw, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { Ban, Check, ChevronDown, ChevronRight, CircleDot, Redo, RefreshCw, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import {
   isTerminalStatus,
@@ -9,6 +9,7 @@ import {
   type OperationArtifact,
   type OperationEvents,
   type OperationStep,
+  type OperationStepStatus,
   type OperationTimelineEvent,
 } from '@/domain/operation/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -60,6 +61,16 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
   useEffect(() => {
     if (!steps.some((step) => step.id === selectedStepId)) setSelectedStepId(preferredStep?.id ?? '')
   }, [preferredStep?.id, selectedStepId, steps])
+
+  // Steps are grouped by Job so a deployment reads proportionally: the many provisioning Steps fold
+  // under one group while the configure Job stays visible. jobOverrides holds explicit user
+  // toggles; a Job with no override uses the smart default (collapse only when every Step is
+  // terminal-good), so active or failed work is always shown and a user can still open any Job.
+  const groups = useMemo(() => groupStepsByJob(steps), [steps])
+  const [jobOverrides, setJobOverrides] = useState<Record<string, boolean>>({})
+  const toggleJob = useCallback((job: string, currentlyCollapsed: boolean) => {
+    setJobOverrides((previous) => ({ ...previous, [job]: !currentlyCollapsed }))
+  }, [])
 
   const cancel = useCallback(async () => {
     setControlling(true)
@@ -117,6 +128,81 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
     { label: 'Updated', value: formatDateTime(operation.updatedAt) },
   ]
 
+  // Renders one Step row. Extracted so the flat (no-Job) and Job-grouped paths share one row, and
+  // so a grouped row can be indented under its Job header.
+  const renderStepRow = (step: OperationStep, indented: boolean) => {
+    const retryable = (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable
+    return (
+      <Table.Row key={step.id} bg={selectedStep?.id === step.id ? 'bg.subtle' : undefined}>
+        <Table.Cell className={indented ? 'sw-operation-step-nested' : undefined}>
+          <Button
+            variant="plain"
+            size="sm"
+            px="0"
+            h="auto"
+            colorPalette="brand"
+            onClick={() => {
+              setSelectedStepId(step.id)
+              setTab(step.error ? 'stderr' : 'stdout')
+            }}
+          >
+            {step.name}
+          </Button>
+          <Text as="small" display="block" color="fg.muted" className="mono">
+            {step.kind}
+          </Text>
+        </Table.Cell>
+        <Table.Cell>{formatTargets(step)}</Table.Cell>
+        <Table.Cell>
+          <Badge variant="outline">{step.executor}</Badge>
+        </Table.Cell>
+        <Table.Cell>
+          <StatusBadge status={step.status} />
+        </Table.Cell>
+        <Table.Cell>{step.attempt}</Table.Cell>
+        <Table.Cell>{formatDuration(step.startedAt, step.finishedAt)}</Table.Cell>
+        <Table.Cell>
+          {step.error?.message ? (
+            <span className="sw-reason-cell" title={step.error.message}>
+              {firstLine(step.error.message)}
+            </span>
+          ) : step.live?.currentTask ? (
+            <span className="sw-reason-cell" title={step.live.currentTask}>
+              {step.live.currentTask}
+            </span>
+          ) : (
+            step.waitingReason ?? '-'
+          )}
+        </Table.Cell>
+        <Table.Cell textAlign="end">
+          {retryable && (
+            <Tooltip
+              content={
+                retryDisabledReason ??
+                (step.kind === 'provision-os'
+                  ? 'Retry verification; a target with no provider address will be released and redeployed'
+                  : 'Retry this failed Step without repeating completed Steps')
+              }
+            >
+              <IconButton
+                variant="ghost"
+                size="sm"
+                aria-label={retryDisabledReason ? `Retry: ${retryDisabledReason}` : `Retry ${step.name}`}
+                disabled={controlling || Boolean(retryDisabledReason)}
+                onClick={() => {
+                  if (step.kind === 'provision-os') setRetryCandidate(step)
+                  else void retryStep(step)
+                }}
+              >
+                <Redo size={16} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Table.Cell>
+      </Table.Row>
+    )
+  }
+
   return (
     <div className="operator-page">
       <PageHeader
@@ -153,89 +239,50 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
         <SectionHeader title="Steps" />
         <StickyTableFrame>
           <Table.Root size="sm" aria-label="Workflow steps" className="sw-operation-steps-table">
-            <Table.Header>
-              <Table.Row>
-                <Table.ColumnHeader>Step</Table.ColumnHeader>
-                <Table.ColumnHeader>Targets</Table.ColumnHeader>
-                <Table.ColumnHeader>Executor</Table.ColumnHeader>
-                <Table.ColumnHeader>Status</Table.ColumnHeader>
-                <Table.ColumnHeader>Attempt</Table.ColumnHeader>
-                <Table.ColumnHeader>Duration</Table.ColumnHeader>
-                <Table.ColumnHeader>Reason</Table.ColumnHeader>
-                <Table.ColumnHeader><VisuallyHidden>Actions</VisuallyHidden></Table.ColumnHeader>
-              </Table.Row>
-            </Table.Header>
             <Table.Body>
-              {steps.map((step) => {
-                const retryable = (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable
+              {groups.map((group) => {
+                // Legacy/flat operations carry no Job: render a header plus their Steps as plain rows.
+                if (!group.job) {
+                  return (
+                    <Fragment key="__ungrouped__">
+                      {stepColumnsRow('__ungrouped-columns', false)}
+                      {group.steps.map((step) => renderStepRow(step, false))}
+                    </Fragment>
+                  )
+                }
+                const collapsed = jobOverrides[group.job] ?? defaultCollapsed(group.steps)
+                const progress = jobProgress(group.steps)
                 return (
-                  <Table.Row key={step.id} bg={selectedStep?.id === step.id ? 'bg.subtle' : undefined}>
-                    <Table.Cell>
-                      <Button
-                        variant="plain"
-                        size="sm"
-                        px="0"
-                        h="auto"
-                        colorPalette="brand"
-                        onClick={() => {
-                          setSelectedStepId(step.id)
-                          setTab(step.error ? 'stderr' : 'stdout')
-                        }}
-                      >
-                        {step.name}
-                      </Button>
-                      <Text as="small" display="block" color="fg.muted" className="mono">
-                        {step.kind}
-                      </Text>
-                    </Table.Cell>
-                    <Table.Cell>{formatTargets(step)}</Table.Cell>
-                    <Table.Cell>
-                      <Badge variant="outline">{step.executor}</Badge>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <StatusBadge status={step.status} />
-                    </Table.Cell>
-                    <Table.Cell>{step.attempt}</Table.Cell>
-                    <Table.Cell>{formatDuration(step.startedAt, step.finishedAt)}</Table.Cell>
-                    <Table.Cell>
-                      {step.error?.message ? (
-                        <span className="sw-reason-cell" title={step.error.message}>
-                          {firstLine(step.error.message)}
-                        </span>
-                      ) : step.live?.currentTask ? (
-                        <span className="sw-reason-cell" title={step.live.currentTask}>
-                          {step.live.currentTask}
-                        </span>
-                      ) : (
-                        step.waitingReason ?? '-'
-                      )}
-                    </Table.Cell>
-                    <Table.Cell textAlign="end">
-                      {retryable && (
-                        <Tooltip
-                          content={
-                            retryDisabledReason ??
-                            (step.kind === 'provision-os'
-                              ? 'Retry verification; a target with no provider address will be released and redeployed'
-                              : 'Retry this failed Step without repeating completed Steps')
-                          }
-                        >
+                  <Fragment key={group.job}>
+                    <Table.Row className="sw-operation-job-row">
+                      <Table.Cell colSpan={8}>
+                        <HStack gap="3" wrap="wrap">
                           <IconButton
                             variant="ghost"
-                            size="sm"
-                            aria-label={retryDisabledReason ? `Retry: ${retryDisabledReason}` : `Retry ${step.name}`}
-                            disabled={controlling || Boolean(retryDisabledReason)}
-                            onClick={() => {
-                              if (step.kind === 'provision-os') setRetryCandidate(step)
-                              else void retryStep(step)
-                            }}
+                            size="xs"
+                            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${jobLabel(group.job)}`}
+                            onClick={() => toggleJob(group.job, collapsed)}
                           >
-                            <Redo size={16} />
+                            {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                           </IconButton>
-                        </Tooltip>
-                      )}
-                    </Table.Cell>
-                  </Table.Row>
+                          <strong>{jobLabel(group.job)}</strong>
+                          <StatusBadge status={rollupStatus(group.steps)} />
+                          <Text as="span" color="fg.muted">
+                            {progress.done}/{progress.total} done
+                          </Text>
+                          <Text as="span" color="fg.muted">
+                            {jobGroupDuration(group.steps)}
+                          </Text>
+                        </HStack>
+                      </Table.Cell>
+                    </Table.Row>
+                    {!collapsed && (
+                      <Fragment>
+                        {stepColumnsRow(`${group.job}-columns`, true)}
+                        {group.steps.map((step) => renderStepRow(step, true))}
+                      </Fragment>
+                    )}
+                  </Fragment>
                 )
               })}
             </Table.Body>
@@ -382,6 +429,112 @@ function formatDuration(start: string | null, finish: string | null): string {
   if (milliseconds < 1000) return '<1s'
   const seconds = Math.floor(milliseconds / 1000)
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+/** One Job and the Steps that belong to it, in workflow order. */
+interface StepGroup {
+  job: string
+  steps: OperationStep[]
+}
+
+// Human labels for the Jobs a platform deployment emits; an unknown Job id is humanized.
+const JOB_LABELS: Record<string, string> = {
+  'ensure-os': 'Provision OS',
+  'configure-k0s': 'Configure Kubernetes',
+  'configure-slurm': 'Configure Slurm',
+}
+
+function jobLabel(job: string): string {
+  return (
+    JOB_LABELS[job] ??
+    job
+      .split('-')
+      .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+      .join(' ')
+  )
+}
+
+/**
+ * Groups Steps by their Job, preserving order and first-appearance sequence (which is dependency
+ * order: ensure-os before the configure Job). Steps with no Job collapse into a single '' group the
+ * caller renders flat, so legacy operations look unchanged.
+ */
+function groupStepsByJob(steps: OperationStep[]): StepGroup[] {
+  const order: string[] = []
+  const byJob = new Map<string, OperationStep[]>()
+  for (const step of steps) {
+    const job = step.job ?? ''
+    const existing = byJob.get(job)
+    if (existing) {
+      existing.push(step)
+    } else {
+      byJob.set(job, [step])
+      order.push(job)
+    }
+  }
+  return order.map((job) => ({ job, steps: byJob.get(job) ?? [] }))
+}
+
+function jobProgress(steps: OperationStep[]): { done: number; total: number } {
+  const done = steps.filter((step) => step.status === 'succeeded' || step.status === 'skipped').length
+  return { done, total: steps.length }
+}
+
+/**
+ * A Job folds by default only when every Step is terminal-good, so any running, waiting, pending,
+ * failed, or attention Step keeps it open — problems and active work are never hidden by default.
+ */
+function defaultCollapsed(steps: OperationStep[]): boolean {
+  return steps.length > 0 && steps.every((step) => step.status === 'succeeded' || step.status === 'skipped')
+}
+
+/** Reduces a Job's Steps to one badge status by severity, then activity, then completion. */
+function rollupStatus(steps: OperationStep[]): OperationStepStatus {
+  const has = (status: OperationStepStatus) => steps.some((step) => step.status === status)
+  if (has('failed')) return 'failed'
+  if (has('requires_attention')) return 'requires_attention'
+  if (has('canceled')) return 'canceled'
+  if (has('running')) return 'running'
+  if (has('waiting_external')) return 'waiting_external'
+  if (has('waiting_dependency')) return 'waiting_dependency'
+  if (steps.every((step) => step.status === 'succeeded' || step.status === 'skipped')) return 'succeeded'
+  return 'pending'
+}
+
+/**
+ * Spans a Job from its earliest Step start to its latest finish. While any Step is unfinished it
+ * passes a null finish so formatDuration measures to now (an in-progress Job keeps ticking).
+ */
+function jobGroupDuration(steps: OperationStep[]): string {
+  const starts = steps.map((step) => step.startedAt).filter((value): value is string => Boolean(value))
+  if (starts.length === 0) return '-'
+  const start = starts.reduce((earliest, value) => (value < earliest ? value : earliest))
+  const allFinished = steps.every((step) => step.finishedAt)
+  const finishes = steps.map((step) => step.finishedAt).filter((value): value is string => Boolean(value))
+  const finish = allFinished && finishes.length > 0 ? finishes.reduce((latest, value) => (value > latest ? value : latest)) : null
+  return formatDuration(start, finish)
+}
+
+/**
+ * The Step table's column header, emitted once per Job group (and once for ungrouped legacy Steps)
+ * instead of once at the top, so each Job reads as its own labelled block. `indented` lines the
+ * first column up with a Job's nested Step names.
+ */
+function stepColumnsRow(key: string, indented: boolean) {
+  return (
+    <Table.Row key={key} className="sw-operation-columns-row">
+      <Table.ColumnHeader className={indented ? 'sw-operation-step-nested' : undefined}>Step</Table.ColumnHeader>
+      <Table.ColumnHeader>Targets</Table.ColumnHeader>
+      <Table.ColumnHeader>Executor</Table.ColumnHeader>
+      <Table.ColumnHeader>Status</Table.ColumnHeader>
+      <Table.ColumnHeader>Attempt</Table.ColumnHeader>
+      <Table.ColumnHeader>Duration</Table.ColumnHeader>
+      <Table.ColumnHeader>Reason</Table.ColumnHeader>
+      <Table.ColumnHeader>
+        <VisuallyHidden>Actions</VisuallyHidden>
+      </Table.ColumnHeader>
+    </Table.Row>
+  )
 }
 
 function StepEvents({ operation, step }: { operation: Operation; step: OperationStep }) {
