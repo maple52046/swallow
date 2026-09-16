@@ -9,6 +9,7 @@ import { serverDisplayName } from '@/domain/server/list'
 import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerPlacementDialog } from './ServerPlacementDialog'
+import { ServerTagEditor } from './ServerTagEditor'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { SERVER_ACTION_GROUPS, actionLabel, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
@@ -34,6 +35,7 @@ export function ServerActionMenu({
   deployDisabledReason,
   onActed,
   onPlacementChanged,
+  onTagsChanged,
 }: {
   server: Server
   capabilities: ProvisionerCapabilities | null
@@ -47,6 +49,8 @@ export function ServerActionMenu({
   ) => void
   /** Called after a zone/pool placement change so the caller can reload the projection. */
   onPlacementChanged?: () => void
+  /** Called after a tag edit so the caller can reload the projection (tags drive Server Type). */
+  onTagsChanged?: () => void
 }) {
   const serverId = server.id
   const serverName = serverDisplayName(server)
@@ -61,6 +65,7 @@ export function ServerActionMenu({
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
   const [lockAction, setLockAction] = useState<'lock' | 'unlock' | null>(null)
   const [placementOpen, setPlacementOpen] = useState(false)
+  const [tagEditorOpen, setTagEditorOpen] = useState(false)
 
   const run = async (action: ServerMenuAction, releaseInput?: ReleaseServerInput) => {
     if (action === 'delete') {
@@ -151,6 +156,11 @@ export function ServerActionMenu({
               <Menu.Item value="set-placement" onClick={() => setPlacementOpen(true)}>
                 Set zone / pool
               </Menu.Item>
+              {/* Editing tags is swallow-owned metadata (it is not gated on Server Lock); the backend
+                  drives the provisioner when it owns tags and stores them in swallow otherwise. */}
+              <Menu.Item value="edit-tags" onClick={() => setTagEditorOpen(true)}>
+                Edit tags
+              </Menu.Item>
               {groups.map((group) => (
                 <Menu.ItemGroup key={group.label}>
                   <Menu.ItemGroupLabel>{group.label}</Menu.ItemGroupLabel>
@@ -231,6 +241,13 @@ export function ServerActionMenu({
             showToast({ tone: 'success', title: 'Placement updated', description: 'Reconciliation will confirm the new zone/pool.' })
             onPlacementChanged?.()
           }}
+        />
+      )}
+      {tagEditorOpen && (
+        <ServerTagEditor
+          servers={[server]}
+          onClose={() => setTagEditorOpen(false)}
+          onSaved={() => onTagsChanged?.()}
         />
       )}
     </>

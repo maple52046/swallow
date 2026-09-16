@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge, Box, Button, HStack, IconButton, Menu, Popover, Portal, Table, Text } from '@chakra-ui/react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Filter, Lock, MoreVertical, UploadCloud } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Filter, Lock, MoreVertical, Tags, UploadCloud } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
@@ -45,6 +45,7 @@ import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { ServerPowerDialog } from './ServerPowerDialog'
 import { useServerWorkingSet } from './useServerWorkingSet'
 import { useServerBulkActions } from './useServerBulkActions'
+import { ServerTagEditor } from './ServerTagEditor'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
 import { failedServerActionOutcomes, type ServerActionRunResult, type ServerActionTarget } from './serverActionResults'
 
@@ -199,6 +200,8 @@ export function ServersPage() {
   const [provisioners, setProvisioners] = useState<Integration[]>([])
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null)
   const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
+  // The Servers whose tags are being edited in batch; null while the editor is closed.
+  const [tagEditorTargets, setTagEditorTargets] = useState<Server[] | null>(null)
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
   const [pendingLockAction, setPendingLockAction] = useState<{
@@ -552,6 +555,12 @@ export function ServersPage() {
               </Button>
             </span>
           </Tooltip>
+          <Tooltip content="Edit tags across the selected Servers">
+            <Button variant="outline" size="sm" onClick={() => setTagEditorTargets(actionTargets)}>
+              <Tags size={16} />
+              Edit tags
+            </Button>
+          </Tooltip>
           <BulkActionMenu targets={actionTargets} running={bulk.running} onAction={(action) => void runAction(action, [...selected])} />
           {deployDisabledReason && <span className="sw-action-reason">{deployDisabledReason}</span>}
         </SelectionToolbar>
@@ -688,6 +697,18 @@ export function ServersPage() {
         </>
       )}
       {releaseTargets && <ServerReleaseDialog targets={releaseTargets} onClose={() => setReleaseTargets(null)} onRelease={confirmRelease} />}
+      {tagEditorTargets && (
+        <ServerTagEditor
+          servers={tagEditorTargets}
+          onClose={() => setTagEditorTargets(null)}
+          onSaved={() => {
+            // Reload so the tags column and Server Type-derived badges reflect the edit; the SSE
+            // stream also patches the affected rows, but reloading converges even if it is offline.
+            clearSelection()
+            reload()
+          }}
+        />
+      )}
       {lastActionResult && resultDialogOpen && <ServerActionResultDialog result={lastActionResult} onClose={() => setResultDialogOpen(false)} />}
       {deleteTarget && (
         <ServerDeleteDialog

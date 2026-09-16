@@ -209,6 +209,35 @@ export interface NetworkLinkInput {
   defaultGateway: boolean;
 }
 
+/**
+ * One tag known for a Site, as offered by the tag editor. `editable` is false for a
+ * provider-computed automatic tag (a MAAS tag with a definition, e.g. one that may back
+ * `amd-gpu`): it is real and meaningful but swallow cannot assign or unassign it, so the editor
+ * shows it disabled. See swallow's `Tag` glossary term and decision 031.
+ */
+export interface ServerTagOption {
+  name: string;
+  editable: boolean;
+}
+
+/**
+ * A tri-state tag edit applied to one or more Servers, like email labels. `add` is the set of tags
+ * to apply to every listed Server and `remove` the set to unapply from every listed Server; any tag
+ * not named is left untouched on each Server. The editor computes this diff from each tag's
+ * all/some/none state across the selection, so only changed tags are sent.
+ */
+export interface EditServerTagsInput {
+  serverIds: string[];
+  add: string[];
+  remove: string[];
+}
+
+/** The effective tags of one Server after an edit, so callers can update rows without a re-read. */
+export interface ServerTagsResult {
+  serverId: string;
+  tags: string[];
+}
+
 /** Durable release follow-up shown in Server Activity. */
 export interface ProvisioningTask {
   id: string;

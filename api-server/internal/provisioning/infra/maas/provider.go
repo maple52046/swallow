@@ -373,6 +373,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		ImageRemoval:         true,
 		ImageUpload:          true,
 		Grouping:             true,
+		Tagging:              true,
 	}
 }
 

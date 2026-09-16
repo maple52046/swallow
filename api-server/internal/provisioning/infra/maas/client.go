@@ -133,6 +133,26 @@ func (c *Client) postOperation(ctx context.Context, path, operation string, fiel
 	return c.do(req, out)
 }
 
+// postOperationValues invokes a MAAS named operation whose parameters may repeat under one name,
+// such as tag update_nodes with several add / remove system ids. Like postOperation it puts op= in
+// the query and the parameters in a multipart body, but it takes url.Values so a repeated field is
+// sent as several parts rather than one — the single-value multipartBody cannot express that shape.
+func (c *Client) postOperationValues(ctx context.Context, path, operation string, values url.Values, out any) error {
+	query := url.Values{}
+	query.Set("op", operation)
+
+	body, contentType, err := multipartValuesBody(values)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, path, query, body, contentType)
+	if err != nil {
+		return err
+	}
+	return c.do(req, out)
+}
+
 // postMultipart issues an authenticated POST whose parameters are multipart/form-data fields,
 // used for MAAS collection creates that are not named operations (no op= query), such as
 // reserving a boot resource before its content is uploaded. Empty values are dropped by
@@ -309,6 +329,42 @@ func multipartBody(fields map[string]string) (io.Reader, string, error) {
 		return nil, "", fmt.Errorf("encode maas request: %w", err)
 	}
 
+	return &buf, writer.FormDataContentType(), nil
+}
+
+// multipartValuesBody encodes url.Values as multipart/form-data, emitting one part per value so a
+// repeated field is sent as several parts under the same name. This is the shape MAAS's batch
+// operations require — tag update_nodes carries the machine system ids as repeated add / remove
+// fields — which the one-value-per-key multipartBody cannot produce. Empty values are skipped and
+// keys are sorted so the encoded body is deterministic, which is what lets tests assert on it. A
+// nil body is returned when no value remains, matching multipartBody.
+func multipartValuesBody(values url.Values) (io.Reader, string, error) {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	wrote := false
+	for _, name := range names {
+		for _, value := range values[name] {
+			if value == "" {
+				continue
+			}
+			if err := writer.WriteField(name, value); err != nil {
+				return nil, "", fmt.Errorf("encode maas request field %q: %w", name, err)
+			}
+			wrote = true
+		}
+	}
+	if !wrote {
+		return nil, "", nil
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("encode maas request: %w", err)
+	}
 	return &buf, writer.FormDataContentType(), nil
 }
 

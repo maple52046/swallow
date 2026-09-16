@@ -24,7 +24,7 @@
 - Examples: "tainan-ci.maas carries the `amd-gpu` tag, so it is an AMD GPU server and runs
   both node-exporter and the RDC exporter." / "A `lab-` VM has no GPU tag, so it is a CPU
   server and runs node-exporter only."
-- Related terms: Server, Exporter Ownership, Server Status.
+- Related terms: Server, Tag, Exporter Ownership, Server Status.
 - Change note: Added for the Prometheus monitoring integration, which installs node-exporter
   on every server and the AMD RDC exporter on `amd-gpu`-tagged servers. NVIDIA is listed as
   reserved because the first iteration implements CPU and AMD GPU only.

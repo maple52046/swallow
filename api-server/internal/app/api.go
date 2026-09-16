@@ -138,6 +138,13 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("os image overlay repo init: %w", err)
 	}
+	// Swallow-owned Server tag overlays: the fallback half of the capability-first tag rule
+	// (docs/decisions/031), merged into Observed.Tags by reconcile only when a provisioner cannot
+	// own tags. Owned data, so no sealing or staleness applies; inert while MAAS is tagging-capable.
+	serverTagOverlayRepo, err := provisioninginfra.NewMongoServerTagOverlayRepo(db)
+	if err != nil {
+		return fmt.Errorf("server tag overlay repo init: %w", err)
+	}
 	taskRepo, err := provisioninginfra.NewMongoProvisioningTaskRepo(db)
 	if err != nil {
 		return fmt.Errorf("provisioning task repo init: %w", err)
@@ -213,7 +220,7 @@ func RunAPI(cfg config.APIConfig) error {
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo, serverTagOverlayRepo)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
@@ -233,6 +240,8 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo),
 		provisioningapp.NewUploadOSImageUseCase(providerFactory),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo),
+		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverTagOverlayRepo),
+		provisioningapp.NewEditServerTagsUseCase(serverRepo, providerFactory, serverTagOverlayRepo),
 	)
 
 	// Infrastructure: swallow-owned Zones and Pools (decision 029). The grouping realizer reuses
@@ -611,6 +620,11 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// (docs/decisions/025).
 	provisioning.Patch("/images/overlay", deps.provisioning.SetImageOverlay)
 	provisioning.Delete("/images/overlay", deps.provisioning.ClearImageOverlay)
+	// Server tags: list the Site's known tags for the editor, and apply a tri-state add/remove edit
+	// to one or more Servers. Under /provisioning to avoid the GET /servers/:id route collision, and
+	// capability-first — MAAS-driven or swallow-owned fallback (docs/decisions/031).
+	provisioning.Get("/tags", deps.provisioning.ListServerTags)
+	provisioning.Post("/tags", deps.provisioning.EditServerTags)
 	provisioning.Get("/templates", deps.provisioning.ListTemplates)
 	provisioning.Post("/templates", deps.provisioning.CreateTemplate)
 	provisioning.Get("/templates/:id", deps.provisioning.GetTemplate)

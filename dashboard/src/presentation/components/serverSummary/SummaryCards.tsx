@@ -1,4 +1,5 @@
-import { Card, Heading, HStack, Table, Text } from '@chakra-ui/react'
+import { Badge, Button, Card, Heading, HStack, Table, Text } from '@chakra-ui/react'
+import { Tags } from 'lucide-react'
 import { HealthBadge, LockBadge, MembershipBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import type { Server } from '@/domain/server/types'
@@ -71,22 +72,49 @@ export function StatusCard({ server }: { server: Server }) {
   )
 }
 
-/** Provider placement and inventory labels kept separate from Swallow-owned identity. */
-export function DetailsCard({ server }: { server: Server }) {
+/**
+ * Provider placement and inventory labels kept separate from Swallow-owned identity.
+ *
+ * `onEditTags`, when provided, adds an inline "Edit tags" affordance in the header so tags can be
+ * changed from where they are read on the detail page, not only through the action menu. Ownership
+ * of the tags themselves is resolved by the backend (provider-driven or swallow-owned; decision 031).
+ */
+export function DetailsCard({ server, onEditTags }: { server: Server; onEditTags?: () => void }) {
   return (
     <Card.Root>
       <Card.Body gap="4">
-        <Heading size="sm">Provider details</Heading>
+        <HStack justify="space-between" gap="2">
+          <Heading size="sm">Provider details</Heading>
+          {onEditTags && (
+            <Button size="xs" variant="ghost" onClick={onEditTags}>
+              <Tags size={14} />
+              Edit tags
+            </Button>
+          )}
+        </HStack>
         <DescriptionList
           items={[
             { label: 'Zone', value: server.providerZone },
             { label: 'Resource pool', value: server.providerResourcePool },
             { label: 'VM host', value: server.providerPod },
-            { label: 'Tags', value: server.tags.length ? server.tags.join(', ') : null },
+            { label: 'Tags', value: server.tags.length ? <TagBadges tags={server.tags} /> : null },
           ]}
         />
       </Card.Body>
     </Card.Root>
+  )
+}
+
+/** Renders a Server's tags as wrapping badges; status is carried by the label text, not colour. */
+function TagBadges({ tags }: { tags: string[] }) {
+  return (
+    <HStack gap="1" wrap="wrap">
+      {tags.map((tag) => (
+        <Badge key={tag} colorPalette="blue" variant="subtle">
+          {tag}
+        </Badge>
+      ))}
+    </HStack>
   )
 }
 

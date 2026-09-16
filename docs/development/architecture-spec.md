@@ -141,6 +141,10 @@ Generic subdomain 不應吸走 core domain 的設計注意力。若通用機制�
 
 新增概念前必須先確認：glossary 是否已有、API contract 是否已定義、程式碼中是否已存在。能延伸就延伸，不新增平行概念。
 
+## Provider ownership：capability-first with swallow-owned fallback
+
+對任何「provisioner *可能* 擁有」的事實（tag、name、zone/pool、image 等），ownership 不是二選一，而是依 concrete provider 的能力決定，且規則固定：**capability-first with a swallow-owned fallback**。swallow 以 `ProviderCapabilities` 宣告該能力並以 optional provider interface（type assertion）取得；provider 有能力時，provider 就是 source of truth，swallow 驅動 provider 執行寫入、並透過既有 reconcile 把結果鏡射回來（此 fact 為 mirrored fact，swallow 不另存 owned 副本以免 drift）；provider 沒有能力時，swallow 自行 own 該 fact（以 provider/entity 身分為 key 的 owned collection），並沿用 [ADR 025](../decisions/025-provider-data-overlay.md) 的 overlay 機制於讀取時合併（owned data：無 staleness、永不回寫 provider、隨 owning entity 刪除）。capable/non-capable 分支與讀時合併集中在單一位置，讓所有 consumer 看到相同的 effective value；fallback 一律建成同形狀，即使目前唯一 provider 已 capable（例如 MAAS tags 使 fallback inert）。此為上位規則，完整脈絡與替代方案見 [ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（收斂 ADR 025 與 [ADR 029](../decisions/029-infrastructure-zone-pool-ownership.md)，refine ADR 001）。新功能碰到這類 fact 時，直接套用本規則，不再逐案重新爭論 ownership。
+
 ## Large-scale Structure
 
 Root spec 提供跨 repository 的大尺度結構：

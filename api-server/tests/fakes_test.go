@@ -434,6 +434,12 @@ type fakeProvider struct {
 	deletedImages         [][2]string
 	uploadImageErr        error
 	uploadedImages        []provisioningdomain.UploadOSImageRequest
+	// autoTags marks tag names reported by ListTags as non-editable (a MAAS automatic tag) and
+	// refused by AddTag, so the auto-tag path can be exercised. ensuredTags records EnsureTag calls
+	// and tagErr forces every tag call to fail.
+	autoTags    map[string]bool
+	ensuredTags []string
+	tagErr      error
 	// actions records every capability action taken, as "op machineID", so a test can
 	// assert the provider was driven correctly.
 	actions []string
@@ -448,6 +454,7 @@ func newFakeProvider() *fakeProvider {
 		gpus:                  make(map[string][]provisioningdomain.GPU),
 		deployErrByMachine:    make(map[string]error),
 		readinessErrByMachine: make(map[string]error),
+		autoTags:              make(map[string]bool),
 		// The full set, matching the MAAS adapter, so capability assertions succeed by
 		// default; a test that needs an incapable provisioner uses minimalProvider.
 		capabilities: provisioningdomain.ProviderCapabilities{
@@ -463,6 +470,7 @@ func newFakeProvider() *fakeProvider {
 			NetworkConfiguration: true,
 			ImageRemoval:         true,
 			ImageUpload:          true,
+			Tagging:              true,
 		},
 	}
 }
@@ -613,6 +621,104 @@ func (p *fakeProvider) DeleteMachine(_ context.Context, machineID string) error 
 	p.deleteCalls = append(p.deleteCalls, machineID)
 	delete(p.machines, machineID)
 	return nil
+}
+
+// ListTags reports the union of every machine's tags plus any ensured tags, flagging a tag as not
+// editable when it is registered as an automatic tag.
+func (p *fakeProvider) ListTags(_ context.Context) ([]provisioningdomain.MachineTag, error) {
+	if p.tagErr != nil {
+		return nil, p.tagErr
+	}
+	seen := map[string]bool{}
+	var tags []provisioningdomain.MachineTag
+	add := func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		tags = append(tags, provisioningdomain.MachineTag{Name: name, Editable: !p.autoTags[name]})
+	}
+	for _, machine := range p.machines {
+		for _, tag := range machine.Tags {
+			add(tag)
+		}
+	}
+	for _, tag := range p.ensuredTags {
+		add(tag)
+	}
+	for tag := range p.autoTags {
+		add(tag)
+	}
+	return tags, nil
+}
+
+// EnsureTag records the ensured manual tag; a repeated ensure is harmless.
+func (p *fakeProvider) EnsureTag(_ context.Context, name string) error {
+	if p.tagErr != nil {
+		return p.tagErr
+	}
+	p.ensuredTags = append(p.ensuredTags, name)
+	return nil
+}
+
+// AddTag assigns the tag to each machine (idempotently), refusing an automatic tag the way MAAS
+// refuses update_nodes on a tag with a definition.
+func (p *fakeProvider) AddTag(_ context.Context, name string, machineIDs []string) error {
+	if p.tagErr != nil {
+		return p.tagErr
+	}
+	if p.autoTags[name] {
+		return &provisioningdomain.ProviderError{
+			Kind:   provisioningdomain.ProviderErrorRejected,
+			Detail: "Cannot add nodes to a tag that has a definition.",
+		}
+	}
+	p.actions = append(p.actions, "addTag "+name)
+	for _, id := range machineIDs {
+		machine, ok := p.machines[id]
+		if !ok {
+			return provisioningdomain.ErrMachineNotFound
+		}
+		if !containsTag(machine.Tags, name) {
+			machine.Tags = append(machine.Tags, name)
+		}
+	}
+	return nil
+}
+
+// RemoveTag unassigns the tag from each machine.
+func (p *fakeProvider) RemoveTag(_ context.Context, name string, machineIDs []string) error {
+	if p.tagErr != nil {
+		return p.tagErr
+	}
+	p.actions = append(p.actions, "removeTag "+name)
+	for _, id := range machineIDs {
+		machine, ok := p.machines[id]
+		if !ok {
+			return provisioningdomain.ErrMachineNotFound
+		}
+		machine.Tags = withoutTag(machine.Tags, name)
+	}
+	return nil
+}
+
+func containsTag(tags []string, name string) bool {
+	for _, tag := range tags {
+		if tag == name {
+			return true
+		}
+	}
+	return false
+}
+
+func withoutTag(tags []string, name string) []string {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if tag != name {
+			out = append(out, tag)
+		}
+	}
+	return out
 }
 
 func (p *fakeProvider) DeleteOSImage(_ context.Context, imageID, architecture string) error {

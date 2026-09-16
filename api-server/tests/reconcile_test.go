@@ -24,6 +24,7 @@ type reconcileFixture struct {
 	integrations *fakeIntegrationRepo
 	provider     *fakeProvider
 	factory      *fakeProviderFactory
+	tagOverlays  *fakeServerTagOverlayRepo
 }
 
 func setupReconcile(t *testing.T) *reconcileFixture {
@@ -48,12 +49,14 @@ func setupReconcile(t *testing.T) *reconcileFixture {
 		UpdatedAt:    now,
 	}, "ck:tk:ts")
 
+	tagOverlays := newFakeServerTagOverlayRepo()
 	return &reconcileFixture{
-		uc:           provisioningapp.NewReconcileUseCase(integrations, servers, factory, newFakeOSImageOverlayRepo()),
+		uc:           provisioningapp.NewReconcileUseCase(integrations, servers, factory, newFakeOSImageOverlayRepo(), tagOverlays),
 		servers:      servers,
 		integrations: integrations,
 		provider:     provider,
 		factory:      factory,
+		tagOverlays:  tagOverlays,
 	}
 }
 
@@ -70,6 +73,52 @@ func testMachine(id, hostname string) *provisioningdomain.Machine {
 		MemoryMiB:      131072,
 		StorageGB:      512,
 		IPAddresses:    []string{"10.0.1.10"},
+	}
+}
+
+// A provisioner that cannot own tags leaves the tags to swallow: reconcile unions the swallow-owned
+// overlay into the Server's Observed.Tags at projection, so every consumer sees the owned tags
+// (decision 031). This is inert for MAAS (tagging-capable); here the provider is made non-capable.
+func TestReconcile_MergesSwallowOwnedTagsWhenProviderNotTaggingCapable(t *testing.T) {
+	f := setupReconcile(t)
+	f.provider.capabilities.Tagging = false
+
+	machine := testMachine("m1", "host-1")
+	machine.Tags = []string{"provider-tag"}
+	f.provider.withMachine(machine)
+
+	// An existing Server for this machine, plus a swallow-owned overlay keyed by its id.
+	now := time.Now().UTC()
+	f.servers.servers["s1"] = &serverdomain.Server{
+		ID:         "s1",
+		Source:     serverdomain.Source{SiteID: testSiteID, IntegrationID: testIntegrationID, ProviderMachineID: "m1"},
+		LastSeenAt: now,
+		CreatedAt:  now,
+	}
+	if err := f.tagOverlays.Upsert(context.Background(), &provisioningdomain.ServerTagOverlay{
+		ServerID:      "s1",
+		IntegrationID: testIntegrationID,
+		Tags:          []string{"owned-tag"},
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("seed overlay: %v", err)
+	}
+
+	if _, err := f.uc.Execute(context.Background(), testIntegrationID); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	got := f.servers.servers["s1"].Observed.Tags
+	want := []string{"provider-tag", "owned-tag"}
+	if len(got) != len(want) {
+		t.Fatalf("merged tags: got %v, want %v", got, want)
+	}
+	seen := map[string]bool{}
+	for _, tag := range got {
+		seen[tag] = true
+	}
+	if !seen["provider-tag"] || !seen["owned-tag"] {
+		t.Errorf("merged tags: got %v, want both provider-tag and owned-tag", got)
 	}
 }
 

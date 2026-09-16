@@ -86,6 +86,10 @@ type ProviderCapabilities struct {
 	// Grouping reports that GroupingController is implemented, i.e. the provider can
 	// realize swallow-owned Zone and Pool intent and assign a machine to them.
 	Grouping bool
+	// Tagging reports that MachineTagController is implemented, i.e. the provider owns machine
+	// tags and swallow drives it to create, assign, and unassign them. When false, swallow owns
+	// a Server's tags itself (the ServerTagOverlay fallback). See docs/decisions/031.
+	Tagging bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -272,6 +276,35 @@ type GroupingController interface {
 	// SetMachinePool assigns machineID to the named resource pool; an empty name is refused
 	// for the same reason as SetMachineZone.
 	SetMachinePool(ctx context.Context, machineID, poolName string) (*Machine, error)
+}
+
+// MachineTagController lets swallow drive a provider that owns machine tags: it lists the
+// provider's tags, creates a manual tag, and assigns or unassigns a tag across a batch of
+// machines. It is the provider side of decision 031's capability-first rule for tags — when a
+// provisioner advertises Tagging, swallow drives it here; when it does not, swallow owns the tags
+// itself through the ServerTagOverlay fallback.
+//
+// The controller speaks tag names, swallow's currency, not any provider-internal identifier.
+// EnsureTag is idempotent create of a *manual* tag: a tag the provider already holds is treated
+// as satisfied. Add/Remove are batch-native (they take every machine id at once) because a
+// provider that owns tags globally — MAAS assigns one tag to many machines in a single
+// update_nodes call — must not be walked one machine at a time. A provider tag that is computed
+// from a definition (a MAAS automatic tag) is read-only: it is reported with Editable=false by
+// ListTags, and an attempt to Add/Remove it is refused by the provider and surfaced as a
+// *ProviderError{Kind: ProviderErrorRejected} rather than silently dropped. An adapter that sets
+// ProviderCapabilities.Tagging must implement this.
+type MachineTagController interface {
+	// ListTags returns every tag the provider knows, each flagged Editable when swallow may
+	// assign or unassign it (a manual tag with no definition).
+	ListTags(ctx context.Context) ([]MachineTag, error)
+	// EnsureTag creates the named manual tag, treating an existing tag as already satisfied.
+	EnsureTag(ctx context.Context, name string) error
+	// AddTag assigns the named tag to every machine in machineIDs in one provider call. An empty
+	// machineIDs is a no-op.
+	AddTag(ctx context.Context, name string, machineIDs []string) error
+	// RemoveTag unassigns the named tag from every machine in machineIDs in one provider call.
+	// An empty machineIDs is a no-op.
+	RemoveTag(ctx context.Context, name string, machineIDs []string) error
 }
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled

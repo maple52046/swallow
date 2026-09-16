@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { Card, Heading, SimpleGrid } from '@chakra-ui/react'
 import { DetailSectionView, DetailTableCard } from '@/presentation/components/serverSummary/DetailViews'
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { DetailsCard, GpuCard, StatusCard, SummaryStatCard } from '@/presentation/components/serverSummary/SummaryCards'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Alert } from '@/presentation/components/ui/alert'
+import { ServerTagEditor } from './ServerTagEditor'
 import { useServerDetailContext } from './useServerDetail'
 
 /** Backend identity and inspection facts, kept separate from provider lifecycle. */
@@ -33,7 +35,10 @@ function IdentityCard() {
  * detail fails, making that failure partial rather than page-wide.
  */
 export function ServerSummaryTab() {
-  const { server, detail, detailError } = useServerDetailContext()
+  const { server, detail, detailError, reload } = useServerDetailContext()
+  // Owns the inline tag editor opened from the Provider details card, so tags can be changed from
+  // where they are shown; on save the detail projection reloads (tags also drive Server Type).
+  const [tagEditorOpen, setTagEditorOpen] = useState(false)
   const system = detail?.sections.find((section) => section.title === 'System')
   const numa = detail ? findTable(detail.tables, 'NUMA') : undefined
   const network = detail ? findTable(detail.tables, 'Network') : undefined
@@ -43,7 +48,7 @@ export function ServerSummaryTab() {
     <div className="sw-server-summary">
       <SimpleGrid minChildWidth="320px" gap="4">
         <StatusCard server={server} />
-        <DetailsCard server={server} />
+        <DetailsCard server={server} onEditTags={() => setTagEditorOpen(true)} />
       </SimpleGrid>
       <SimpleGrid minChildWidth="220px" gap="4">
         <SummaryStatCard title="CPU" value={server.cpuCores ? `${server.cpuCores} cores` : 'Unknown'} sub={cpuSub || undefined} />
@@ -69,6 +74,13 @@ export function ServerSummaryTab() {
         <GpuCard server={server} />
       </SimpleGrid>
       <IdentityCard />
+      {tagEditorOpen && (
+        <ServerTagEditor
+          servers={[server]}
+          onClose={() => setTagEditorOpen(false)}
+          onSaved={reload}
+        />
+      )}
     </div>
   )
 }

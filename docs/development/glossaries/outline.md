@@ -27,6 +27,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server Status](terms/server-status.md): Not a single value but three independent status axes — `provisioning`, `membership`, and `health` — each owned by a different system and absent until observed.
 - [Server Lock](terms/server-lock.md): Provider-owned protection that blocks Server, provisioner, and host mutations without hiding the Server or stopping monitoring.
 - [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
+- [Tag](terms/tag.md): An operator-facing label on a Server, provider-owned when the provisioner supports tagging (MAAS) and swallow-owned otherwise; drives Server Type and discovery filters.
 
 ### Platform Management
 

@@ -79,6 +79,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	integrations := newFakeIntegrationRepo()
 	templates := newFakeDeploymentTemplateRepo()
 	osImageOverlays := newFakeOSImageOverlayRepo()
+	serverTagOverlays := newFakeServerTagOverlayRepo()
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
 	factory.providers[testIntegrationID] = provider
@@ -109,7 +110,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
 		provisioningapp.NewRefreshServerUseCase(servers, factory),
 		provisioningapp.NewListOSImagesUseCase(factory, osImageOverlays),
-		provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageOverlays),
+		provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageOverlays, serverTagOverlays),
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
 		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
@@ -117,6 +118,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays),
 		provisioningapp.NewUploadOSImageUseCase(factory),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlays),
+		provisioningapp.NewListServerTagsUseCase(integrations, factory, serverTagOverlays),
+		provisioningapp.NewEditServerTagsUseCase(servers, factory, serverTagOverlays),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
@@ -193,6 +196,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup.Delete("/images", provisioningHandler.DeleteImage)
 	provisioningGroup.Patch("/images/overlay", provisioningHandler.SetImageOverlay)
 	provisioningGroup.Delete("/images/overlay", provisioningHandler.ClearImageOverlay)
+	provisioningGroup.Get("/tags", provisioningHandler.ListServerTags)
+	provisioningGroup.Post("/tags", provisioningHandler.EditServerTags)
 	provisioningGroup.Get("/templates", provisioningHandler.ListTemplates)
 	provisioningGroup.Post("/templates", provisioningHandler.CreateTemplate)
 	provisioningGroup.Get("/templates/:id", provisioningHandler.GetTemplate)

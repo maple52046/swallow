@@ -9,9 +9,12 @@ import type {
   DeploymentTargetPreflightResult,
   DeployServersInput,
   DeployServersResult,
+  EditServerTagsInput,
   ProvisioningOperationReference,
   ReleaseServersOperationInput,
   NetworkInspectionResult,
+  ServerTagOption,
+  ServerTagsResult,
   UpdateDeploymentTemplateInput,
 } from "@/domain/provisioning/types";
 import type { OSImage } from "@/domain/site/types";
@@ -198,5 +201,25 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     await apiRequest<void>(`/api/v1/provisioning/images/overlay?${query}`, {
       method: "DELETE",
     });
+  }
+
+  async listServerTags(siteId: string): Promise<ServerTagOption[]> {
+    const query = new URLSearchParams({ siteId });
+    // The endpoint wraps the list in a `tags` envelope; unwrap to the port's flat array.
+    const response = await apiRequest<{ tags: ServerTagOption[] }>(
+      `/api/v1/provisioning/tags?${query}`,
+    );
+    return response.tags ?? [];
+  }
+
+  async editServerTags(
+    input: EditServerTagsInput,
+  ): Promise<ServerTagsResult[]> {
+    // The endpoint wraps the per-Server results in a `servers` envelope; unwrap to the port's array.
+    const response = await apiRequest<{ servers: ServerTagsResult[] }>(
+      "/api/v1/provisioning/tags",
+      { method: "POST", body: JSON.stringify(input) },
+    );
+    return response.servers ?? [];
   }
 }

@@ -39,6 +39,8 @@ type ProvisioningHandler struct {
 	deleteImage     *application.DeleteOSImageUseCase
 	uploadImage     *application.UploadOSImageUseCase
 	imageOverlay    *application.SetOSImageOverlayUseCase
+	serverTagsList  *application.ListServerTagsUseCase
+	serverTagsEdit  *application.EditServerTagsUseCase
 	durable         application.DurableOperationLauncher
 }
 
@@ -60,6 +62,8 @@ func NewProvisioningHandler(
 	deleteImage *application.DeleteOSImageUseCase,
 	uploadImage *application.UploadOSImageUseCase,
 	imageOverlay *application.SetOSImageOverlayUseCase,
+	serverTagsList *application.ListServerTagsUseCase,
+	serverTagsEdit *application.EditServerTagsUseCase,
 	durable ...application.DurableOperationLauncher,
 ) *ProvisioningHandler {
 	handler := &ProvisioningHandler{
@@ -80,6 +84,8 @@ func NewProvisioningHandler(
 		deleteImage:     deleteImage,
 		uploadImage:     uploadImage,
 		imageOverlay:    imageOverlay,
+		serverTagsList:  serverTagsList,
+		serverTagsEdit:  serverTagsEdit,
 	}
 	if len(durable) > 0 {
 		handler.durable = durable[0]
@@ -473,6 +479,59 @@ func (h *ProvisioningHandler) ClearImageOverlay(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+// ListServerTags returns the tags known for a Site, each flagged whether swallow may assign it, so
+// the tag editor can offer existing names and disable the provider-computed (automatic) ones. It is
+// under /provisioning rather than /servers to avoid colliding with GET /servers/:id, and scoped to a
+// Site because tags are provisioner-owned per Site (docs/decisions/031).
+func (h *ProvisioningHandler) ListServerTags(c *fiber.Ctx) error {
+	siteID := c.Query("siteId")
+	if siteID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
+	}
+
+	options, err := h.serverTagsList.Execute(c.Context(), siteID)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(fiber.Map{"tags": options})
+}
+
+// editServerTagsRequest is a tri-state tag edit: the tags to add to every listed Server and the tags
+// to remove from every listed Server. The editor sends only the tags whose all/some/none state
+// changed, so any tag not named here is left untouched on each Server.
+type editServerTagsRequest struct {
+	ServerIDs []string `json:"serverIds"`
+	Add       []string `json:"add"`
+	Remove    []string `json:"remove"`
+}
+
+// EditServerTags applies a tag edit to one or more Servers and returns each Server's effective tags.
+// It drives the provisioner when it owns tags (MAAS) and writes swallow-owned tags otherwise, all
+// behind one endpoint (docs/decisions/031). Editing tags is metadata, so it is not gated on Server
+// Lock; a provider refusal (an automatic tag) is surfaced as a 400 by the shared error mapper.
+func (h *ProvisioningHandler) EditServerTags(c *fiber.Ctx) error {
+	var req editServerTagsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if len(req.ServerIDs) == 0 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "serverIds is required."))
+	}
+	if len(req.Add) == 0 && len(req.Remove) == 0 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "At least one tag to add or remove is required."))
+	}
+
+	items, err := h.serverTagsEdit.Execute(c.Context(), application.EditServerTagsInput{
+		ServerIDs: req.ServerIDs,
+		Add:       req.Add,
+		Remove:    req.Remove,
+	})
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(fiber.Map{"servers": items})
+}
+
 // Reconcile runs a projection pass immediately instead of waiting for the interval.
 //
 // The report is returned rather than just an acknowledgement, because the interesting
@@ -528,7 +587,8 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch),
 		errors.Is(err, provisioningdomain.ErrInvalidReleaseRequest),
 		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration),
-		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid):
+		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid),
+		errors.Is(err, provisioningdomain.ErrInvalidTag):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	case errors.Is(err, sitedomain.ErrSiteNotFound):

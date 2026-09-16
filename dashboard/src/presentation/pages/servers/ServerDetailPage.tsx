@@ -149,6 +149,7 @@ export function ServerDetailPage() {
               }
             }}
             onPlacementChanged={reload}
+            onTagsChanged={reload}
           />
         }
       />
