@@ -276,13 +276,75 @@ a:focus-visible {
 }
 
 .sw-selection-toolbar {
-  width: 100%;
-  min-height: 2.75rem;
-  padding: 0.5rem 0.75rem;
-  color: var(--chakra-colors-brand-fg);
-  background: var(--chakra-colors-brand-subtle);
-  border: 1px solid var(--chakra-colors-brand-emphasized);
-  border-radius: var(--chakra-radii-lg);
+  position: fixed;
+  inset-block-end: max(1rem, env(safe-area-inset-bottom));
+  inset-inline-start: 50%;
+  z-index: 20;
+  width: max-content;
+  max-width: calc(100vw - 2rem);
+  min-height: 3.5rem;
+  max-height: min(50vh, 22rem);
+  padding: 0.5rem;
+  overflow: auto;
+  color: var(--chakra-colors-fg);
+  background: color-mix(in srgb, var(--chakra-colors-bg-raised) 96%, transparent);
+  border: 1px solid var(--chakra-colors-border);
+  border-radius: var(--chakra-radii-xl);
+  box-shadow: var(--chakra-shadows-floating);
+  backdrop-filter: blur(16px);
+  transform: translateX(-50%);
+  animation: sw-selection-toolbar-enter 160ms ease-out both;
+}
+
+.sw-selection-toolbar__status {
+  flex: none;
+  padding-inline: 0.375rem 0.5rem;
+}
+
+.sw-selection-toolbar__count {
+  display: inline-flex;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0.375rem;
+  color: var(--chakra-colors-brand-contrast);
+  background: var(--chakra-colors-brand-solid);
+  border-radius: var(--chakra-radii-full);
+  font-size: var(--chakra-font-sizes-sm);
+  font-weight: var(--chakra-font-weights-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.sw-selection-toolbar__divider {
+  width: 1px;
+  height: 1.75rem;
+  flex: none;
+  background: var(--chakra-colors-border);
+}
+
+.sw-selection-toolbar__actions {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.sw-selection-toolbar__clear { flex: none; }
+
+/* The dock is portalled to body; :has lets it follow the desktop rail without
+   coupling the shared component to shell state. Unsupported browsers retain viewport centering. */
+@media (min-width: 62rem) {
+  body:has(.sw-operator-shell[data-navigation-collapsed='false']) .sw-selection-toolbar {
+    inset-inline-start: calc(50% + 6.5rem);
+  }
+
+  body:has(.sw-operator-shell[data-navigation-collapsed='true']) .sw-selection-toolbar {
+    inset-inline-start: calc(50% + 2rem);
+  }
+}
+
+@keyframes sw-selection-toolbar-enter {
+  from { opacity: 0; transform: translate(-50%, 0.5rem) scale(0.98); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
 .sw-workspace-toolbar {
@@ -820,8 +882,33 @@ tbody .sw-sticky-selection { z-index: 2; }
     width: 100% !important;
     min-width: 0;
   }
-  .sw-data-toolbar.sw-data-toolbar--plain > .sw-selection-toolbar {
-    grid-column: 1 / -1;
+  .sw-selection-toolbar {
+    inset-block-end: max(0.75rem, env(safe-area-inset-bottom));
+    width: calc(100vw - 1.5rem);
+    max-width: none;
+    align-items: center;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    border-radius: var(--chakra-radii-lg);
+  }
+  .sw-selection-toolbar__status {
+    padding-inline: 0.25rem;
+  }
+  .sw-selection-toolbar__actions {
+    min-width: 0;
+    flex: 1;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+  .sw-selection-toolbar__actions::-webkit-scrollbar { display: none; }
+  .sw-selection-toolbar__actions > * { flex: none; }
+  .sw-selection-toolbar__actions > .sw-action-reason { display: none; }
+  .sw-selection-toolbar__divider { display: none; }
+  .sw-selection-toolbar__clear {
+    margin-inline-start: 0;
+    padding-inline: 0.5rem;
   }
   .sw-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sw-two-column { gap: 1rem; }

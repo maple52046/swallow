@@ -257,6 +257,55 @@ test.describe('operator interactions', () => {
     await expect(navigation).toBeHidden()
     await expect(toggle).toBeFocused()
   })
+  test('multi-select action docks do not reflow their tables', async ({ page }) => {
+    const cases = [
+      { path: '/servers?site=site-a', table: 'Servers', selectAll: 'Select all on this page' },
+      { path: '/provisioning/images?site=site-a', table: 'OS images', selectAll: 'Select all shown images' },
+      { path: '/platforms?site=site-a', table: 'Platforms', selectAll: 'Select all platforms' },
+    ]
+
+    for (const entry of cases) {
+      await page.goto(entry.path)
+      const table = page.getByRole('table', { name: entry.table })
+      await expect(table).toBeVisible()
+      const before = await table.boundingBox()
+      expect(before).not.toBeNull()
+
+      await page.getByLabel(entry.selectAll, { exact: true }).click()
+      const actionDock = page.getByRole('region', { name: 'Selection actions' })
+      await expect(actionDock).toBeVisible()
+      await expect(actionDock).toHaveCSS('position', 'fixed')
+      await expect(actionDock.getByRole('status')).toContainText(/\d+ selected/)
+      const after = await table.boundingBox()
+      const dockBox = await actionDock.boundingBox()
+      const mainBox = await page.locator('#swallow-main-content').boundingBox()
+      expect(after).not.toBeNull()
+      expect(dockBox).not.toBeNull()
+      expect(mainBox).not.toBeNull()
+      expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(1)
+      expect(Math.abs(
+        ((dockBox?.x ?? 0) + (dockBox?.width ?? 0) / 2)
+          - ((mainBox?.x ?? 0) + (mainBox?.width ?? 0) / 2),
+      )).toBeLessThan(1)
+
+      await actionDock.getByRole('button', { name: 'Clear', exact: true }).click()
+      await expect(actionDock).toHaveCount(0)
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/servers?site=site-a')
+    await page.getByLabel('Mobile selection: gpu-node-01', { exact: true }).click()
+    const mobileDock = page.getByRole('region', { name: 'Selection actions' })
+    await expect(mobileDock).toBeVisible()
+    await expect(mobileDock.getByRole('button', { name: 'Deploy OS' })).toBeInViewport()
+    await expect(mobileDock).toHaveCSS('opacity', '1')
+    const mobileBox = await mobileDock.boundingBox()
+    expect(mobileBox).not.toBeNull()
+    expect(mobileBox?.x ?? -1).toBeGreaterThanOrEqual(0)
+    expect((mobileBox?.x ?? 390) + (mobileBox?.width ?? 1)).toBeLessThanOrEqual(390)
+    expect(mobileBox?.height ?? 844).toBeLessThanOrEqual(72)
+  })
+
   test('NetBox views, columns, selection, and MAAS actions work together', async ({ page }) => {
     await page.goto('/servers?site=site-a')
     await page.getByLabel('Select all on this page').click()

@@ -1,4 +1,5 @@
-import { Box, Button, Flex, Heading, HStack, Text } from '@chakra-ui/react'
+import { Box, Button, Flex, Heading, HStack, Portal, Text } from '@chakra-ui/react'
+import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 /** One current-state metric. Tone supplements the visible label and value. */
@@ -114,19 +115,32 @@ interface SelectionToolbarProps {
 }
 
 /**
- * Shared bulk-selection banner for list pages.
+ * Shared floating bulk-action dock for list pages.
  *
- * It appears only when selection exists, announces the count as text, and keeps
- * the clear action last so keyboard order matches the visual workflow.
+ * The dock is portalled outside each page toolbar so appearing selection actions
+ * never reflow the table beneath them. The count remains a live text status, and
+ * the clear action stays last so keyboard order matches the visual workflow.
  */
 export function SelectionToolbar({ count, onClear, children }: SelectionToolbarProps) {
   if (count === 0) return null
   return (
-    <HStack className="sw-selection-toolbar" gap="2" wrap="wrap" aria-live="polite">
-      <Text fontWeight="semibold">{count} selected</Text>
-      {children}
-      <Button variant="plain" size="sm" onClick={onClear}>Clear</Button>
-    </HStack>
+    <Portal>
+      <HStack className="sw-selection-toolbar" gap="2" role="region" aria-label="Selection actions">
+        <HStack className="sw-selection-toolbar__status" gap="2" role="status" aria-atomic="true">
+          <Box as="span" className="sw-selection-toolbar__count">{count}</Box>
+          {' '}
+          <Text as="span" fontWeight="semibold">selected</Text>
+        </HStack>
+        <span className="sw-selection-toolbar__divider" aria-hidden />
+        <HStack className="sw-selection-toolbar__actions" gap="2">
+          {children}
+        </HStack>
+        <Button className="sw-selection-toolbar__clear" variant="plain" size="sm" onClick={onClear}>
+          <X size={16} />
+          Clear
+        </Button>
+      </HStack>
+    </Portal>
   )
 }
 

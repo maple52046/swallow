@@ -562,6 +562,11 @@ export function ServersPage() {
             </Button>
           </Tooltip>
           <BulkActionMenu targets={actionTargets} running={bulk.running} onAction={(action) => void runAction(action, [...selected])} />
+          {selected.size < filtered.length && (
+            <Button variant="plain" size="sm" onClick={() => setMany(filtered.map((server) => server.id), true)}>
+              Select all {filtered.length} matches
+            </Button>
+          )}
           {deployDisabledReason && <span className="sw-action-reason">{deployDisabledReason}</span>}
         </SelectionToolbar>
       </DataToolbar>
@@ -585,11 +590,6 @@ export function ServersPage() {
       )}
       {state.status === 'ready' && sorted.length > 0 && (
         <>
-          {selected.size > 0 && selected.size < filtered.length && (
-            <Button variant="plain" size="sm" alignSelf="flex-start" onClick={() => setMany(filtered.map((server) => server.id), true)}>
-              Select all {filtered.length} matching Servers
-            </Button>
-          )}
           <ResponsiveDataView
             desktop={
               <StickyTableFrame>

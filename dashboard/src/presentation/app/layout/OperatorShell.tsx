@@ -58,8 +58,15 @@ export function OperatorShell({
   onOpenMobileNav,
   onToggleSidebar,
 }: OperatorShellProps) {
+  // The portalled selection dock lives outside this subtree, so CSS reads this
+  // rail state to center the dock in the workspace instead of the full viewport.
   return (
-    <Flex minH="100dvh" bg="transparent">
+    <Flex
+      className="sw-operator-shell"
+      data-navigation-collapsed={collapsed}
+      minH="100dvh"
+      bg="transparent"
+    >
       <SkipToContent />
 
       <Box
