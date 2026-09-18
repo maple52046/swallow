@@ -60,6 +60,18 @@ Provisioner detail is a live provider-neutral view with a capability set. The
 `releaseOptions` tells clients whether release can carry disk-erasure controls. Power
 state is read-only.
 
+For a physical Machine, the live detail may include a `BMC` section. MAAS-backed
+detail reads its connection configuration from the admin-only `power_parameters`
+operation rather than expecting it in the ordinary Machine response. Its allowlisted
+fields are `Protocol`, `Address`, `Username`, `Password`, `Node ID`, `Driver`, `Boot type`,
+`Privilege level`, `Cipher suite`, and `Power MAC`; absent provider facts are omitted.
+`Connection details` communicates an unavailable or empty parameter response. `Password`
+is the only allowlisted secret and exists solely for manual administration through this
+admin-only live-detail route. Consumers must mask it by default, reveal it only on an
+explicit operator action, and must not persist or log it. Provisioner adapters must never
+return K_g values, tokens, keys, private keys, or unrecognised power parameters through this
+endpoint. URL userinfo, query parameters, and fragments are removed from `Address`.
+
 `POST /servers/{id}/refresh` performs one targeted live read from the Server's
 provisioner and updates its provisioning axis plus observed addresses. It returns `200`
 with the same `ProvisioningStateItem` shape used by accepted lifecycle actions. Clients

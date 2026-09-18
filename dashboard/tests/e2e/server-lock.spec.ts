@@ -52,8 +52,10 @@ test('Unlock is the only mutation offered for a protected Server', async ({ page
 
   await expect(page.getByText('Locked', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Take action' }).click()
+  await page.getByRole('menuitem', { name: 'Power', exact: true }).hover()
   await expect(page.getByRole('menuitem', { name: /^Power on/ })).toBeDisabled()
   await expect(page.getByRole('menuitem', { name: /^Release/ })).toBeDisabled()
+  await page.getByRole('menuitem', { name: 'State & recovery', exact: true }).hover()
   await page.getByRole('menuitem', { name: /^Unlock/ }).click()
 
   const confirmation = page.getByRole('dialog', { name: 'Unlock Servers' })

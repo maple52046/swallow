@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
-import { RefreshCw } from 'lucide-react'
+import { Button, IconButton, Table, Text, VisuallyHidden } from '@chakra-ui/react'
+import { Eye, RefreshCw, RotateCcw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Operation } from '@/domain/operation/types'
 import type { ProvisioningTask } from '@/domain/provisioning/types'
@@ -9,6 +9,7 @@ import { useApp } from '@/di/AppProvider'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
+import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
@@ -124,9 +125,16 @@ export function ServerActivityTab() {
                       <Table.Cell>{outcome.message ?? '-'}</Table.Cell>
                       <Table.Cell className="mono">{outcome.requestId ?? '-'}</Table.Cell>
                       <Table.Cell textAlign="end">
-                        <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => setSelectedResult(result)}>
-                          View details
-                        </Button>
+                        <Tooltip content={`View ${actionLabel(result.action)} details`}>
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`View ${actionLabel(result.action)} details`}
+                            onClick={() => setSelectedResult(result)}
+                          >
+                            <Eye size={18} />
+                          </IconButton>
+                        </Tooltip>
                       </Table.Cell>
                     </Table.Row>
                   )
@@ -172,6 +180,7 @@ export function ServerActivityTab() {
                     <Table.Cell textAlign="end">
                       {task.retryable && (
                         <Button variant="outline" size="sm" loading={retryingTaskId === task.id} disabled={Boolean(retryingTaskId)} onClick={() => void retryCleanup(task.id)}>
+                          <RotateCcw size={16} />
                           Retry cleanup
                         </Button>
                       )}

@@ -26,7 +26,7 @@ Consumer: `dashboard`.
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List complete Server projections with filtering and pagination. |
 | [servers-stream.md](servers-stream.md) | Active | `GET /api/v1/servers/stream` | Live Server projection changes as Server-Sent Events, so the list is patched per row instead of re-read. |
-| [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server and run provider-backed machine actions. |
+| [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server, allowlisted live BMC connection detail, and provider-backed actions. |
 | [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List, upload, and delete provider-owned OS Images, manage Deployment Templates, and submit multi-Server OS Deployments. |
 | [infrastructure.md](infrastructure.md) | Active | `/api/v1/infrastructure`, `PUT /api/v1/servers/{id}/placement` | Manage swallow-owned Zones and Pools and assign a Server to them, realized in the provisioner when grouping-capable. |
 | [server-tags.md](server-tags.md) | Active | `GET/POST /api/v1/provisioning/tags` | List a Site's known tags and edit Server tags (single or batch, tri-state), driving the provisioner when it owns tags and swallow-owned otherwise. |

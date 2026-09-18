@@ -1,79 +1,75 @@
 import { useState } from 'react'
-import { Card, Heading, SimpleGrid } from '@chakra-ui/react'
-import { DetailSectionView, DetailTableCard } from '@/presentation/components/serverSummary/DetailViews'
-import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
-import { DetailsCard, GpuCard, StatusCard, SummaryStatCard } from '@/presentation/components/serverSummary/SummaryCards'
-import { DescriptionList } from '@/presentation/components/ui/description-list'
+import type { Server } from '@/domain/server/types'
 import { Alert } from '@/presentation/components/ui/alert'
+import {
+  CapacityCard,
+  DetailsCard,
+  HardwareProfileCard,
+  ManagementControllerCard,
+  StatusCard,
+} from '@/presentation/components/serverSummary/SummaryCards'
+import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
+import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { ServerTagEditor } from './ServerTagEditor'
 import { useServerDetailContext } from './useServerDetail'
 
-/** Backend identity and inspection facts, kept separate from provider lifecycle. */
-function IdentityCard() {
-  const { server } = useServerDetailContext()
-  const items = [
-    { label: 'Server ID', value: server.id },
-    { label: 'Provisioner machine ID', value: server.source.providerMachineId },
-    { label: 'System UUID', value: server.hardware.systemUuid },
-    { label: 'Serial number', value: server.hardware.serialNumber },
-    { label: 'MAC addresses', value: server.hardware.macAddresses.length ? server.hardware.macAddresses.join(', ') : null },
-    { label: 'Last seen', value: server.lastSeenAt },
-  ]
-  return (
-    <Card.Root>
-      <Card.Body gap="4">
-        <Heading size="sm">Identity and inspection</Heading>
-        <DescriptionList items={items} />
-      </Card.Body>
-    </Card.Root>
-  )
+/**
+ * Builds a catalog deep link only for an OS deployment Swallow completed successfully. The
+ * effective image name is paired with its integration and primary architecture; OS Images
+ * applies those identities before falling back to the observed OS/release tuple.
+ */
+function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => string): string | undefined {
+  const axis = server.provisioning
+  if (
+    server.deployment?.state !== 'succeeded' ||
+    axis?.state !== 'deployed' ||
+    !axis.deployedImageName ||
+    !axis.integrationId
+  ) {
+    return undefined
+  }
+
+  const target = new URL(scopedHref('/provisioning/images'), window.location.origin)
+  target.searchParams.set('integrationId', axis.integrationId)
+  target.searchParams.set('imageName', axis.deployedImageName)
+  if (server.architecture) target.searchParams.set('architecture', server.architecture)
+  if (axis.osSystem) target.searchParams.set('osSystem', axis.osSystem)
+  if (axis.distroSeries) target.searchParams.set('release', axis.distroSeries)
+  return `${target.pathname}${target.search}`
 }
 
 /**
- * Cockpit-style Summary scan: power/provisioning first, then resources, live hardware,
- * provider details, and identity. Projection sections remain available when live provisioner
- * detail fails, making that failure partial rather than page-wide.
+ * Operator-first overview for one Server. Projection-backed state and capacity remain useful
+ * when live provider detail fails; dedicated tabs own large Network, Storage, and PCI tables so
+ * the overview stays a fast scan rather than a second inventory page.
  */
 export function ServerSummaryTab() {
   const { server, detail, detailError, reload } = useServerDetailContext()
-  // Owns the inline tag editor opened from the Provider details card, so tags can be changed from
-  // where they are shown; on save the detail projection reloads (tags also drive Server Type).
+  const { scopedHref } = useSiteScope()
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
   const system = detail?.sections.find((section) => section.title === 'System')
-  const numa = detail ? findTable(detail.tables, 'NUMA') : undefined
-  const network = detail ? findTable(detail.tables, 'Network') : undefined
+  const management = detail?.sections.find((section) => section.title === 'BMC')
   const storage = detail ? findTable(detail.tables, 'Storage') : undefined
-  const cpuSub = [server.cpuModel, server.architecture].filter(Boolean).join(' - ')
+  const deployedImageHref = deployedImageCatalogHref(server, scopedHref)
+  const physical = !server.providerPod
   return (
     <div className="sw-server-summary">
-      <SimpleGrid minChildWidth="320px" gap="4">
-        <StatusCard server={server} />
-        <DetailsCard server={server} onEditTags={() => setTagEditorOpen(true)} />
-      </SimpleGrid>
-      <SimpleGrid minChildWidth="220px" gap="4">
-        <SummaryStatCard title="CPU" value={server.cpuCores ? `${server.cpuCores} cores` : 'Unknown'} sub={cpuSub || undefined} />
-        <SummaryStatCard title="Memory" value={server.memoryMiB ? `${Math.round(server.memoryMiB / 1024)} GiB` : 'Unknown'} />
-        <SummaryStatCard title="Storage" value={server.storageGB ? `${Math.round(server.storageGB)} GB` : 'Unknown'} sub={storage?.rows.length ? `${storage.rows.length} devices` : undefined} />
-      </SimpleGrid>
+      <div className="sw-server-summary-grid sw-server-summary-grid--lead">
+        <StatusCard server={server} deployedImageHref={deployedImageHref} />
+        <CapacityCard server={server} storageDeviceCount={storage?.rows.length} />
+      </div>
       {detailError && (
         <Alert status="warning" title="Live hardware detail unavailable">
           {detailError}
         </Alert>
       )}
-      <SimpleGrid minChildWidth="340px" gap="4">
-        {system && (
-          <Card.Root>
-            <Card.Body gap="4">
-              <Heading size="sm">Hardware inventory</Heading>
-              <DetailSectionView section={system} />
-            </Card.Body>
-          </Card.Root>
-        )}
-        {numa && <DetailTableCard table={numa} />}
-        {network && <DetailTableCard table={network} />}
-        <GpuCard server={server} />
-      </SimpleGrid>
-      <IdentityCard />
+      <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
+        {physical && <ManagementControllerCard management={management} />}
+        <HardwareProfileCard server={server} system={system} />
+      </div>
+      <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
+        <DetailsCard server={server} onEditTags={() => setTagEditorOpen(true)} />
+      </div>
       {tagEditorOpen && (
         <ServerTagEditor
           servers={[server]}

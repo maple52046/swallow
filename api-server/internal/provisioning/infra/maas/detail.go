@@ -2,7 +2,9 @@ package maas
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -79,6 +81,7 @@ type detailMachineJSON struct {
 	FQDN         string `json:"fqdn"`
 	StatusName   string `json:"status_name"`
 	PowerState   string `json:"power_state"`
+	PowerType    string `json:"power_type"`
 	Architecture string `json:"architecture"`
 	CPUCount     int    `json:"cpu_count"`
 	CPUSpeed     int    `json:"cpu_speed"`
@@ -100,6 +103,34 @@ type detailMachineJSON struct {
 	PhysicalBlockDevices []blockDeviceJSON     `json:"physicalblockdevice_set"`
 	Interfaces           []detailInterfaceJSON `json:"interface_set"`
 	NUMANodes            []numaNodeJSON        `json:"numanode_set"`
+}
+
+// powerParametersJSON deliberately decodes only the connection facts approved for the
+// admin-only live-detail response. PowerPass is the sole secret required for manual BMC
+// administration; K_g values, tokens, private keys, and unknown JSON fields are discarded
+// before they can cross the API boundary.
+type powerParametersJSON struct {
+	PowerAddress   string `json:"power_address"`
+	PowerUser      string `json:"power_user"`
+	PowerPass      string `json:"power_pass"`
+	NodeID         string `json:"node_id"`
+	PowerDriver    string `json:"power_driver"`
+	PowerBootType  string `json:"power_boot_type"`
+	PrivilegeLevel string `json:"privilege_level"`
+	CipherSuiteID  string `json:"cipher_suite_id"`
+	MACAddress     string `json:"mac_address"`
+}
+
+func (p powerParametersJSON) hasDisplayValues() bool {
+	return cleanField(p.PowerAddress) != "" ||
+		cleanField(p.PowerUser) != "" ||
+		cleanField(p.PowerPass) != "" ||
+		cleanField(p.NodeID) != "" ||
+		cleanField(p.PowerDriver) != "" ||
+		cleanField(p.PowerBootType) != "" ||
+		cleanField(p.PrivilegeLevel) != "" ||
+		cleanField(p.CipherSuiteID) != "" ||
+		cleanField(p.MACAddress) != ""
 }
 
 type blockDeviceJSON struct {
@@ -125,8 +156,10 @@ type numaNodeJSON struct {
 }
 
 // GetMachineDetail proxies MAAS live for one machine and shapes the answer into the
-// provider-neutral MachineDetail. Two reads: the machine object for its nested hardware,
-// and the device inventory for the PCI table.
+// provider-neutral MachineDetail. The machine object and device inventory are mandatory;
+// a physical machine with a power type also gets an admin-only power_parameters read. That
+// optional read degrades to an explicit section status so BMC permission does not hide the
+// rest of the hardware detail.
 //
 // It is not cached: this is read one machine at a time, so a live read is always fresh
 // and swallow needs no schema for MAAS's disk and NUMA shapes.
@@ -136,15 +169,30 @@ func (p *Provider) GetMachineDetail(ctx context.Context, machineID string) (*pro
 		return nil, translateError(err, machineID)
 	}
 
+	powerParameters := powerParametersJSON{}
+	powerParametersStatus := ""
+	if nameOf(m.Pod) == "" && cleanField(m.PowerType) != "" {
+		if err := p.client.getOperation(ctx, machinePath(machineID), "power_parameters", &powerParameters); err != nil {
+			powerParametersStatus = powerParametersUnavailableStatus(err)
+		} else if !powerParameters.hasDisplayValues() {
+			powerParametersStatus = "No connection parameters reported by MAAS"
+		}
+	}
+
 	var devices []nodeDeviceJSON
 	if err := p.client.get(ctx, devicesPath(machineID), nil, &devices); err != nil {
 		return nil, translateError(err, machineID)
 	}
 
-	return buildMachineDetail(&m, devices), nil
+	return buildMachineDetail(&m, powerParameters, powerParametersStatus, devices), nil
 }
 
-func buildMachineDetail(m *detailMachineJSON, devices []nodeDeviceJSON) *provisioningdomain.MachineDetail {
+func buildMachineDetail(
+	m *detailMachineJSON,
+	powerParameters powerParametersJSON,
+	powerParametersStatus string,
+	devices []nodeDeviceJSON,
+) *provisioningdomain.MachineDetail {
 	detail := &provisioningdomain.MachineDetail{}
 
 	provisioning := provisioningdomain.DetailSection{Title: "Provisioning", Fields: []provisioningdomain.DetailField{
@@ -174,6 +222,25 @@ func buildMachineDetail(m *detailMachineJSON, devices []nodeDeviceJSON) *provisi
 		)
 	}
 	detail.Sections = append(detail.Sections, dropEmptyFields(compute))
+
+	if nameOf(m.Pod) == "" {
+		bmc := dropEmptyFields(provisioningdomain.DetailSection{Title: "BMC", Fields: []provisioningdomain.DetailField{
+			{Label: "Protocol", Value: managementProtocol(m.PowerType)},
+			{Label: "Address", Value: safePowerAddress(powerParameters.PowerAddress)},
+			{Label: "Username", Value: cleanField(powerParameters.PowerUser)},
+			{Label: "Password", Value: cleanField(powerParameters.PowerPass)},
+			{Label: "Node ID", Value: cleanField(powerParameters.NodeID)},
+			{Label: "Driver", Value: cleanField(powerParameters.PowerDriver)},
+			{Label: "Boot type", Value: cleanField(powerParameters.PowerBootType)},
+			{Label: "Privilege level", Value: cleanField(powerParameters.PrivilegeLevel)},
+			{Label: "Cipher suite", Value: cleanField(powerParameters.CipherSuiteID)},
+			{Label: "Power MAC", Value: cleanField(powerParameters.MACAddress)},
+			{Label: "Connection details", Value: powerParametersStatus},
+		}})
+		if len(bmc.Fields) > 0 {
+			detail.Sections = append(detail.Sections, bmc)
+		}
+	}
 
 	if hw := m.HardwareInfo; hw != nil {
 		system := provisioningdomain.DetailSection{Title: "System", Fields: []provisioningdomain.DetailField{
@@ -271,6 +338,49 @@ func nameOf(n *namedJSON) string {
 		return ""
 	}
 	return n.Name
+}
+
+// powerParametersUnavailableStatus keeps the optional admin-only read from hiding all
+// machine detail while making a permission or provider failure explicit to the operator.
+func powerParametersUnavailableStatus(err error) string {
+	var apiErr *apiError
+	if errors.As(err, &apiErr) &&
+		(apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {
+		return "Unavailable to the configured integration credential"
+	}
+	return "Unavailable from MAAS"
+}
+
+// safePowerAddress keeps the useful BMC endpoint while removing URL userinfo, query
+// parameters, and fragments that could carry credentials or access tokens.
+func safePowerAddress(value string) string {
+	address := cleanField(value)
+	if address == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(address); err == nil && parsed.Host != "" {
+		parsed.User = nil
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	address, _, _ = strings.Cut(address, "?")
+	address, _, _ = strings.Cut(address, "#")
+	if at := strings.LastIndexByte(address, '@'); at >= 0 {
+		address = address[at+1:]
+	}
+	return address
+}
+
+func managementProtocol(powerType string) string {
+	switch strings.ToLower(cleanField(powerType)) {
+	case "ipmi":
+		return "IPMI"
+	case "redfish":
+		return "Redfish"
+	default:
+		return cleanField(powerType)
+	}
 }
 
 func boolLabel(b bool) string {

@@ -21,6 +21,22 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
+func TestProvisionerDetailDisablesCaching(t *testing.T) {
+	app := fiber.New()
+	handler := &ProvisioningHandler{}
+	app.Get("/provisioner-detail", handler.ProvisionerDetail)
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/provisioner-detail", nil))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get(fiber.HeaderCacheControl); got != "no-store" {
+		t.Fatalf("Cache-Control: got %q, want %q", got, "no-store")
+	}
+}
+
 func TestRespondErrorLogsCorrelatedClientSafeProviderDetail(t *testing.T) {
 	var output bytes.Buffer
 	previousLogger := slog.Default()

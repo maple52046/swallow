@@ -1,17 +1,41 @@
 import { useState } from 'react'
-import { Box, Button, Menu, Portal, Text } from '@chakra-ui/react'
-import { ChevronDown } from 'lucide-react'
+import { Box, Button, HStack, Menu, Portal, Text } from '@chakra-ui/react'
+import {
+  BadgeCheck,
+  ChevronDown,
+  ChevronRight,
+  CircleStop,
+  ClipboardCheck,
+  FlaskConical,
+  Gauge,
+  LifeBuoy,
+  ListChecks,
+  Lock,
+  LockOpen,
+  LogOut,
+  MapPinned,
+  Pencil,
+  Power,
+  PowerOff,
+  RefreshCw,
+  Rocket,
+  Tags,
+  Trash2,
+  TriangleAlert,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
+import { serverDisplayName } from '@/domain/server/list'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { serverDisplayName } from '@/domain/server/list'
-import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerPlacementDialog } from './ServerPlacementDialog'
 import { ServerTagEditor } from './ServerTagEditor'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
-import { SERVER_ACTION_GROUPS, actionLabel, serverActionAvailability, type ServerMenuAction } from './serverActions'
+import { SERVER_ACTION_GROUPS, actionLabel, serverActionAvailability, type ServerActionDef, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
 import {
@@ -21,13 +45,54 @@ import {
   type ServerActionRunResult,
 } from './serverActionResults'
 
+const ACTION_ICONS: Record<ServerMenuAction, LucideIcon> = {
+  release: RefreshCw,
+  delete: Trash2,
+  'power-on': Power,
+  'power-off': PowerOff,
+  commission: ClipboardCheck,
+  test: FlaskConical,
+  abort: CircleStop,
+  'override-failed-testing': BadgeCheck,
+  lock: Lock,
+  unlock: LockOpen,
+  'mark-broken': TriangleAlert,
+  'mark-fixed': Wrench,
+  'rescue-mode': LifeBuoy,
+  'exit-rescue-mode': LogOut,
+}
+
+// The shared action catalogue keeps domain grouping; this map changes only detail-page labels and glyphs.
+const GROUP_PRESENTATION: Partial<Record<string, { label: string; icon: LucideIcon }>> = {
+  Power: { label: 'Power', icon: Power },
+  'Hardware validation': { label: 'Hardware checks', icon: ClipboardCheck },
+  'Operator state': { label: 'State & recovery', icon: Wrench },
+}
+
 /**
- * Capability-gated machine action menu for one Server.
+ * One compact menu row. Disabled reasons remain visible under the command and every icon is
+ * decorative, leaving the text as the stable accessible name used by keyboard and test flows.
+ */
+function ActionMenuRow({ icon: Icon, label, reason, nested = false }: { icon: LucideIcon; label: string; reason?: string; nested?: boolean }) {
+  return (
+    <HStack width="full" align="flex-start" gap="3">
+      <Box color="fg.muted" mt="0.5" aria-hidden><Icon size={16} /></Box>
+      <Box flex="1" minW="0">
+        <Text>{label}</Text>
+        {reason && <Text fontSize="xs" color="fg.muted">{reason}</Text>}
+      </Box>
+      {nested && <ChevronRight size={16} aria-hidden />}
+    </HStack>
+  )
+}
+
+/**
+ * Capability-gated command surface for one Server.
  *
- * Accepted asynchronous actions refresh the current projection. Permanent deletion opens the
- * shared typed-confirmation dialog and navigates back to the Server list only after the backend
- * has removed both the provider Machine and the Swallow projection. Gated actions (locked
- * Server, missing capability) stay visible but disabled, with the reason shown beneath the item.
+ * Swallow-owned placement and tags live in a separate Edit menu. Provider operations are
+ * grouped into nested Power, Hardware checks, and State & recovery menus so the first level
+ * stays short without hiding disabled reasons. Destructive lifecycle commands remain visible
+ * at the bottom and keep their existing confirmation, diagnostics, and refresh contracts.
  */
 export function ServerActionMenu({
   server,
@@ -43,8 +108,6 @@ export function ServerActionMenu({
   onActed: (
     action: ServerMenuAction,
     input: ReleaseServerInput | undefined,
-    // Optional: an accepted release creates a durable Operation rather than returning a
-    // synchronous provisioning result, so it reloads without one.
     result?: ProvisioningActionResult,
   ) => void
   /** Called after a zone/pool placement change so the caller can reload the projection. */
@@ -86,7 +149,6 @@ export function ServerActionMenu({
           title: 'Release Operation created',
           description: 'Swallow will observe the provider until the Server is ready.',
         })
-        // Stay on the Server detail page and reload so its projection converges in place.
         onActed(action, releaseInput)
         return
       }
@@ -130,75 +192,119 @@ export function ServerActionMenu({
   }
 
   const groups = SERVER_ACTION_GROUPS.filter((group) => group.capability === null || capabilities?.[group.capability])
+  const operationGroups = groups.filter((group) => group.label !== 'Lifecycle' && group.label !== 'Removal')
+  const lifecycleActions = groups.filter((group) => group.label === 'Lifecycle' || group.label === 'Removal').flatMap((group) => group.actions)
   const deployHref = () => {
     const target = new URL(scopedHref('/provisioning/deploy'), window.location.origin)
     target.searchParams.append('serverId', serverId)
     navigate(`${target.pathname}${target.search}`)
   }
+  const chooseAction = (entry: ServerActionDef) => {
+    if (entry.action === 'lock' || entry.action === 'unlock') setLockAction(entry.action)
+    else void run(entry.action)
+  }
 
   return (
     <>
-      <Menu.Root>
-        <Menu.Trigger asChild>
-          <Button colorPalette="brand" disabled={busy}>
-            {busy ? 'Working...' : 'Take action'}
-            <ChevronDown size={16} />
-          </Button>
-        </Menu.Trigger>
-        <Portal>
-          <Menu.Positioner>
-            <Menu.Content minW="14rem">
-              <Menu.Item value="deploy" disabled={Boolean(deployDisabledReason)} onClick={deployHref}>
-                {deployDisabledReason ? `Deploy OS - ${deployDisabledReason}` : 'Deploy OS'}
-              </Menu.Item>
-              {/* Placement is a swallow-owned assignment, not a provisioner capability action, so it
-                  is always offered; the backend refuses if the provisioner cannot group. */}
-              <Menu.Item value="set-placement" onClick={() => setPlacementOpen(true)}>
-                Set zone / pool
-              </Menu.Item>
-              {/* Editing tags is swallow-owned metadata (it is not gated on Server Lock); the backend
-                  drives the provisioner when it owns tags and stores them in swallow otherwise. */}
-              <Menu.Item value="edit-tags" onClick={() => setTagEditorOpen(true)}>
-                Edit tags
-              </Menu.Item>
-              {groups.map((group) => (
-                <Menu.ItemGroup key={group.label}>
-                  <Menu.ItemGroupLabel>{group.label}</Menu.ItemGroupLabel>
-                  {group.actions.map((entry) => {
-                    const availability = serverActionAvailability(entry.action, [server])
-                    return (
-                      <Menu.Item
-                        key={entry.action}
-                        value={entry.action}
-                        disabled={Boolean(availability.disabledReason)}
-                        color={entry.destructive ? 'red.fg' : undefined}
-                        onClick={() => {
-                          if (entry.action === 'lock' || entry.action === 'unlock') setLockAction(entry.action)
-                          else void run(entry.action)
-                        }}
-                      >
-                        <Box>
-                          <Text>{entry.label}</Text>
-                          {availability.disabledReason && (
-                            <Text fontSize="xs" color="fg.muted">
-                              {availability.disabledReason}
-                            </Text>
-                          )}
-                        </Box>
-                      </Menu.Item>
-                    )
-                  })}
-                </Menu.ItemGroup>
-              ))}
-              {capabilities?.power && (
-                <Menu.Item value="query-power" onClick={() => void queryPower()}>
-                  Query power state
+      <HStack gap="2" className="sw-server-header-actions">
+        <Menu.Root positioning={{ placement: 'bottom-end' }}>
+          <Menu.Trigger asChild>
+            <Button variant="outline" disabled={busy}>
+              <Pencil size={16} />
+              Edit
+              <ChevronDown size={16} />
+            </Button>
+          </Menu.Trigger>
+          <Portal>
+            <Menu.Positioner>
+              <Menu.Content minW="13rem">
+                <Menu.Item value="set-placement" onSelect={() => setPlacementOpen(true)}>
+                  <ActionMenuRow icon={MapPinned} label="Set zone / pool" />
                 </Menu.Item>
-              )}
-            </Menu.Content>
-          </Menu.Positioner>
-        </Portal>
-      </Menu.Root>
+                <Menu.Item value="edit-tags" onSelect={() => setTagEditorOpen(true)}>
+                  <ActionMenuRow icon={Tags} label="Edit tags" />
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Positioner>
+          </Portal>
+        </Menu.Root>
+
+        <Menu.Root positioning={{ placement: 'bottom-end' }}>
+          <Menu.Trigger asChild>
+            <Button colorPalette="brand" disabled={busy}>
+              <ListChecks size={16} />
+              {busy ? 'Working...' : 'Take action'}
+              <ChevronDown size={16} />
+            </Button>
+          </Menu.Trigger>
+          <Portal>
+            <Menu.Positioner>
+              <Menu.Content minW="17rem">
+                <Menu.Item value="deploy" disabled={Boolean(deployDisabledReason)} onSelect={deployHref}>
+                  <ActionMenuRow icon={Rocket} label="Deploy OS" reason={deployDisabledReason} />
+                </Menu.Item>
+                <Menu.Separator />
+                {operationGroups.map((group) => {
+                  const presentation = GROUP_PRESENTATION[group.label] ?? { label: group.label, icon: ListChecks }
+                  return (
+                    <Menu.Root key={group.label} positioning={{ placement: 'right-start', gutter: 4 }}>
+                      <Menu.TriggerItem>
+                        <ActionMenuRow icon={presentation.icon} label={presentation.label} nested />
+                      </Menu.TriggerItem>
+                      <Portal>
+                        <Menu.Positioner>
+                          <Menu.Content minW="18rem">
+                            {group.actions.map((entry) => {
+                              const availability = serverActionAvailability(entry.action, [server])
+                              const Icon = ACTION_ICONS[entry.action]
+                              return (
+                                <Menu.Item
+                                  key={entry.action}
+                                  value={entry.action}
+                                  disabled={Boolean(availability.disabledReason)}
+                                  color={entry.destructive ? 'red.fg' : undefined}
+                                  onSelect={() => chooseAction(entry)}
+                                >
+                                  <ActionMenuRow icon={Icon} label={entry.label} reason={availability.disabledReason} />
+                                </Menu.Item>
+                              )
+                            })}
+                            {group.label === 'Power' && capabilities?.power && (
+                              <>
+                                <Menu.Separator />
+                                <Menu.Item value="query-power" onSelect={() => void queryPower()}>
+                                  <ActionMenuRow icon={Gauge} label="Query power state" />
+                                </Menu.Item>
+                              </>
+                            )}
+                          </Menu.Content>
+                        </Menu.Positioner>
+                      </Portal>
+                    </Menu.Root>
+                  )
+                })}
+                {lifecycleActions.length > 0 && <Menu.Separator />}
+                {lifecycleActions.map((entry) => {
+                  const availability = serverActionAvailability(entry.action, [server])
+                  const Icon = ACTION_ICONS[entry.action]
+                  return (
+                    <Menu.Item
+                      key={entry.action}
+                      value={entry.action}
+                      disabled={Boolean(availability.disabledReason)}
+                      color={entry.destructive ? 'red.fg' : undefined}
+                      onSelect={() => chooseAction(entry)}
+                    >
+                      <ActionMenuRow icon={Icon} label={entry.label} reason={availability.disabledReason} />
+                    </Menu.Item>
+                  )
+                })}
+              </Menu.Content>
+            </Menu.Positioner>
+          </Portal>
+        </Menu.Root>
+      </HStack>
+
       {releaseOpen && (
         <ServerReleaseDialog
           targets={[{ serverId, serverName }]}

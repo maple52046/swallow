@@ -3,6 +3,7 @@ package maas
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
@@ -10,6 +11,24 @@ import (
 
 func (f *fakeMAAS) onNodeDevices(statusCode int, body string) {
 	f.respond("GET "+apiPrefix+"/nodes/{id}/devices/{$}", statusCode, body)
+}
+
+func (f *fakeMAAS) onMachineDetail(
+	machineStatus int,
+	machineBody string,
+	powerParametersStatus int,
+	powerParametersBody string,
+) {
+	f.mux.HandleFunc("GET "+apiPrefix+"/machines/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("op") == "power_parameters" {
+			w.WriteHeader(powerParametersStatus)
+			_, _ = w.Write([]byte(powerParametersBody))
+			return
+		}
+		w.WriteHeader(machineStatus)
+		_, _ = w.Write([]byte(machineBody))
+	})
 }
 
 const gpuDevicesJSON = `[
@@ -67,6 +86,7 @@ const detailMachineJSONBody = `{
   "fqdn": "gpu-node-01.maas",
   "status_name": "Deployed",
   "power_state": "on",
+  "power_type": "ipmi",
   "architecture": "amd64/generic",
   "cpu_count": 64,
   "cpu_speed": 2600,
@@ -80,7 +100,7 @@ const detailMachineJSONBody = `{
   "ephemeral_deploy": false,
   "zone": {"name": "dc-east"},
   "pool": {"name": "gpu-pool"},
-  "pod": {"name": "kvm-host-3"},
+  "pod": null,
   "hardware_info": {
     "system_vendor": "Dell Inc.",
     "system_product": "PowerEdge R760xa",
@@ -104,9 +124,22 @@ const detailMachineJSONBody = `{
   ]
 }`
 
+const powerParametersJSONBody = `{
+  "power_address": "192.0.2.20",
+  "power_user": "bmc-admin",
+  "power_driver": "LAN_2_0",
+  "power_boot_type": "efi",
+  "privilege_level": "OPERATOR",
+  "cipher_suite_id": "17",
+  "mac_address": "aa:bb:cc:dd:ee:ff",
+  "power_pass": "bmc-secret",
+  "k_g": "also-must-not-leak",
+  "unrecognised_secret": "never-decode-this"
+}`
+
 func TestGetMachineDetail_ShapesSectionsAndTables(t *testing.T) {
 	fake := newFakeMAAS(t)
-	fake.onGetMachine(http.StatusOK, detailMachineJSONBody)
+	fake.onMachineDetail(http.StatusOK, detailMachineJSONBody, http.StatusOK, powerParametersJSONBody)
 	fake.onNodeDevices(http.StatusOK, gpuDevicesJSON)
 	provider := newTestProvider(t, fake)
 
@@ -138,6 +171,39 @@ func TestGetMachineDetail_ShapesSectionsAndTables(t *testing.T) {
 		t.Errorf("CPU model: got %q", fieldValue(compute, "CPU model"))
 	}
 
+	bmc, ok := sections["BMC"]
+	if !ok {
+		t.Fatal("expected a BMC section for a physical machine")
+	}
+	if fieldValue(bmc, "Protocol") != "IPMI" {
+		t.Errorf("BMC protocol: got %q", fieldValue(bmc, "Protocol"))
+	}
+	if fieldValue(bmc, "Address") != "192.0.2.20" {
+		t.Errorf("BMC address: got %q", fieldValue(bmc, "Address"))
+	}
+	if fieldValue(bmc, "Username") != "bmc-admin" {
+		t.Errorf("BMC username: got %q", fieldValue(bmc, "Username"))
+	}
+	if fieldValue(bmc, "Password") != "bmc-secret" {
+		t.Errorf("BMC password was not exposed through the explicit allowlist")
+	}
+	if fieldValue(bmc, "Driver") != "LAN_2_0" || fieldValue(bmc, "Boot type") != "efi" {
+		t.Errorf("BMC driver fields: got %+v", bmc.Fields)
+	}
+	if fieldValue(bmc, "Privilege level") != "OPERATOR" || fieldValue(bmc, "Cipher suite") != "17" {
+		t.Errorf("BMC access fields: got %+v", bmc.Fields)
+	}
+	if fieldValue(bmc, "Power MAC") != "aa:bb:cc:dd:ee:ff" {
+		t.Errorf("BMC power MAC: got %q", fieldValue(bmc, "Power MAC"))
+	}
+	for _, field := range bmc.Fields {
+		for _, forbidden := range []string{"also-must-not-leak", "never-decode-this"} {
+			if strings.Contains(field.Value, forbidden) {
+				t.Errorf("non-allowlisted BMC secret crossed the detail boundary: %+v", bmc.Fields)
+			}
+		}
+	}
+
 	tables := tablesByTitle(detail.Tables)
 	if _, ok := tables["Storage"]; !ok {
 		t.Error("expected a Storage table")
@@ -152,6 +218,76 @@ func TestGetMachineDetail_ShapesSectionsAndTables(t *testing.T) {
 	pci, ok := tables["PCI devices"]
 	if !ok || len(pci.Rows) != 3 {
 		t.Errorf("expected a PCI table with 3 devices, got %+v", pci)
+	}
+}
+
+func TestGetMachineDetail_PowerParametersPermissionFailureIsExplicit(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onMachineDetail(
+		http.StatusOK,
+		`{"system_id":"abc123","power_type":"redfish","pod":null}`,
+		http.StatusForbidden,
+		`{"detail":"Forbidden"}`,
+	)
+	fake.onNodeDevices(http.StatusOK, `[]`)
+	provider := newTestProvider(t, fake)
+
+	detail, err := provider.GetMachineDetail(context.Background(), "abc123")
+	if err != nil {
+		t.Fatalf("GetMachineDetail: %v", err)
+	}
+
+	bmc := sectionsByTitle(detail.Sections)["BMC"]
+	if fieldValue(bmc, "Protocol") != "Redfish" {
+		t.Errorf("BMC protocol: got %q", fieldValue(bmc, "Protocol"))
+	}
+	if want := "Unavailable to the configured integration credential"; fieldValue(bmc, "Connection details") != want {
+		t.Errorf("connection detail status: got %q, want %q", fieldValue(bmc, "Connection details"), want)
+	}
+}
+
+func TestBuildMachineDetail_ShapesRedfishNodeIdentity(t *testing.T) {
+	detail := buildMachineDetail(
+		&detailMachineJSON{PowerType: "redfish"},
+		powerParametersJSON{
+			PowerAddress: "https://192.0.2.21/redfish/v1",
+			PowerUser:    "redfish-operator",
+			PowerPass:    "redfish-secret",
+			NodeID:       "System.Embedded.1",
+		},
+		"",
+		nil,
+	)
+
+	bmc := sectionsByTitle(detail.Sections)["BMC"]
+	if fieldValue(bmc, "Protocol") != "Redfish" || fieldValue(bmc, "Node ID") != "System.Embedded.1" {
+		t.Errorf("Redfish identity: got %+v", bmc.Fields)
+	}
+	if fieldValue(bmc, "Password") != "redfish-secret" {
+		t.Error("Redfish password was not exposed through the explicit allowlist")
+	}
+}
+
+func TestSafePowerAddress_RemovesEmbeddedCredentials(t *testing.T) {
+	got := safePowerAddress("https://bmc-admin:must-not-leak@192.0.2.20/redfish/v1?token=also-secret#session")
+	if want := "https://192.0.2.20/redfish/v1"; got != want {
+		t.Fatalf("safePowerAddress: got %q, want %q", got, want)
+	}
+}
+
+func TestBuildMachineDetail_OmitsBMCForVirtualMachine(t *testing.T) {
+	detail := buildMachineDetail(
+		&detailMachineJSON{
+			Pod:       &namedJSON{Name: "kvm-host-3"},
+			PowerType: "redfish",
+		},
+		powerParametersJSON{PowerAddress: "https://192.0.2.21/redfish/v1"},
+		"",
+		nil,
+	)
+
+	if _, ok := sectionsByTitle(detail.Sections)["BMC"]; ok {
+		t.Fatal("virtual-machine detail must not expose a BMC section")
 	}
 }
 

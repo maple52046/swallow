@@ -515,6 +515,60 @@ a.sw-attention-row:hover { background: var(--chakra-colors-bg-muted); transform:
   gap: 1.5rem;
 }
 
+.sw-server-header-actions { flex-wrap: wrap; }
+
+.sw-server-summary-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.sw-server-summary-grid--lead { grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr); }
+.sw-server-summary-grid--expand-single > :only-child { grid-column: 1 / -1; }
+.sw-server-summary-card { height: 100%; }
+
+.sw-server-capacity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  overflow: hidden;
+  background: var(--chakra-colors-bg-subtle);
+  border: 1px solid var(--chakra-colors-border-muted);
+  border-radius: var(--chakra-radii-lg);
+}
+
+.sw-server-capacity-item {
+  min-width: 0;
+  padding: 1rem;
+  border-inline-end: 1px solid var(--chakra-colors-border-muted);
+  border-block-end: 1px solid var(--chakra-colors-border-muted);
+}
+
+.sw-server-capacity-item:nth-child(2n) { border-inline-end: 0; }
+.sw-server-capacity-item:nth-last-child(-n + 2) { border-block-end: 0; }
+.sw-server-capacity-icon { display: inline-flex; color: var(--chakra-colors-brand-fg); }
+.sw-server-capacity-value {
+  margin: 0.75rem 0 0;
+  font-size: var(--chakra-font-sizes-xl);
+  font-weight: var(--chakra-font-weights-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.sw-server-capacity-detail {
+  margin-block-start: 0.25rem;
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-xs);
+  overflow-wrap: anywhere;
+}
+
+.sw-monitoring-panel [aria-label='Loading content'] {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
 .sw-server-table { min-width: 2520px; }
 .sw-server-table .sw-sticky-selection {
   position: sticky;
@@ -911,6 +965,8 @@ tbody .sw-sticky-selection { z-index: 2; }
     padding-inline: 0.5rem;
   }
   .sw-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sw-server-summary-grid,
+  .sw-server-summary-grid--lead { grid-template-columns: 1fr; }
   .sw-two-column { gap: 1rem; }
   .sw-key-value-grid,
   .sw-form-grid,
@@ -926,6 +982,8 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 @media (max-width: 480px) {
   .sw-metric-grid { grid-template-columns: 1fr 1fr; }
+  .sw-server-header-actions { width: 100%; }
+  .sw-server-header-actions > button { min-width: 0; flex: 1; }
   .sw-metric-card { padding: 0.875rem; }
   .sw-metric-card dd { font-size: var(--chakra-font-sizes-xl); }
   .sw-key-value-grid > div { grid-template-columns: 1fr; gap: 0.25rem; padding-inline: 1rem; }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Badge, HStack, Tabs } from '@chakra-ui/react'
+import { Activity, ChartLine, CircuitBoard, HardDrive, LayoutDashboard, Network, type LucideIcon } from 'lucide-react'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -8,19 +9,27 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useApp } from '@/di/AppProvider'
-import { DeploymentBadge, HealthBadge, LockBadge } from '@/presentation/components/AxisBadge'
+import { DeploymentBadge, HealthBadge, LockBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
 import { serverDisplayName } from '@/domain/server/list'
 import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
 import { useServerDetail } from './useServerDetail'
 
-const TABS = [
-  { value: 'summary', label: 'Summary' },
-  { value: 'activity', label: 'Activity' },
-  { value: 'monitoring', label: 'Monitoring' },
-  { value: 'network', label: 'Network' },
-  { value: 'storage', label: 'Storage' },
-  { value: 'pci', label: 'PCI devices' },
+/** One persistent deep-link tab; the glyph supplements its visible accessible label. */
+interface ServerDetailTab {
+  value: string
+  label: string
+  icon: LucideIcon
+}
+
+// Icons supplement persistent text labels; the route segment remains the stable deep-link key.
+const TABS: readonly ServerDetailTab[] = [
+  { value: 'summary', label: 'Summary', icon: LayoutDashboard },
+  { value: 'activity', label: 'Activity', icon: Activity },
+  { value: 'monitoring', label: 'Monitoring', icon: ChartLine },
+  { value: 'network', label: 'Networking', icon: Network },
+  { value: 'storage', label: 'Storage', icon: HardDrive },
+  { value: 'pci', label: 'PCI devices', icon: CircuitBoard },
 ]
 
 const RELEASE_FOLLOW_INTERVAL_MS = 2_000
@@ -28,8 +37,8 @@ const RELEASE_FOLLOW_MAX_ATTEMPTS = 150
 
 /**
  * Cockpit-style single-machine route shell. Projection and live provider detail are loaded
- * once and shared through outlet context; every tab remains deep-linkable and horizontally
- * scrollable on narrow screens.
+ * once and shared through outlet context; every tab remains deep-linkable and swipeable on
+ * narrow screens while the native scrollbar stays hidden.
  */
 export function ServerDetailPage() {
   const { servers } = useApp()
@@ -115,6 +124,7 @@ export function ServerDetailPage() {
   const { server, detail, reload } = state.data
   const segment = location.pathname.split('/').pop() ?? ''
   const current = TABS.some((tab) => tab.value === segment) ? segment : 'summary'
+  const headerContext = [server.fqdn || server.addresses[0], server.architecture, server.providerZone].filter(Boolean).join(' · ')
   const deployDisabledReason = server.absent
     ? 'Server is absent'
     : server.provisioning?.locked
@@ -126,16 +136,19 @@ export function ServerDetailPage() {
     <div className="operator-page">
       <PageHeader
         title={serverDisplayName(server)}
+        subtitle={headerContext || `Server ID ${server.id}`}
         breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]}
         metadata={
           <HStack gap="2" wrap="wrap">
             <DeploymentBadge axis={server.deployment} provider={server.provisioning} stateOnly />
             <LockBadge locked={server.provisioning?.locked ?? false} />
+            <MembershipBadge axis={server.membership} />
             <HealthBadge axis={server.health} />
             {activeProjection && <Badge colorPalette="blue" variant="subtle">Updating…</Badge>}
             {server.absent && <Badge colorPalette="gray" variant="subtle">absent</Badge>}
           </HStack>
         }
+        stackActionsOnMobile
         actions={
           <ServerActionMenu
             server={server}
@@ -169,12 +182,22 @@ export function ServerDetailPage() {
         onValueChange={(details) => navigate(scopedHref(`/servers/${server.id}/${details.value}`))}
         aria-label="Server details"
       >
-        <Tabs.List>
-          {TABS.map((tab) => (
-            <Tabs.Trigger key={tab.value} value={tab.value}>
-              {tab.label}
-            </Tabs.Trigger>
-          ))}
+        <Tabs.List
+          maxW="full"
+          overflowX="auto"
+          overscrollBehaviorX="contain"
+          scrollbarWidth="none"
+          css={{ '&::-webkit-scrollbar': { display: 'none' } }}
+        >
+          {TABS.map((tab) => {
+            const Icon = tab.icon
+            return (
+              <Tabs.Trigger key={tab.value} value={tab.value} flex="none">
+                <Icon size={16} aria-hidden />
+                {tab.label}
+              </Tabs.Trigger>
+            )
+          })}
         </Tabs.List>
       </Tabs.Root>
       <Outlet context={state.data} />

@@ -381,14 +381,71 @@ test.describe('operator interactions', () => {
   })
   test('Cockpit machine detail retains tabs and real action controls', async ({ page }) => {
     await page.goto('/servers/srv-1/summary?site=site-a')
-    await expect(page.getByText('Power and provisioning')).toBeVisible()
-    await expect(page.getByText('Hardware inventory')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Take action' })).toBeVisible()
-    await page.getByRole('tab', { name: 'Network' }).click()
+    await expect(page.getByText('Current state', { exact: true })).toBeVisible()
+    await expect(page.getByText('Hardware profile', { exact: true })).toBeVisible()
+    const currentState = page.getByRole('heading', { name: 'Current state' }).locator('xpath=../../..')
+    const power = currentState.locator('dl > div').filter({ hasText: 'Power' }).first()
+    await expect(power).toContainText('Powered on')
+    await expect(power.locator('svg')).toBeVisible()
+    const deployedOS = currentState.getByRole('link', { name: 'Ubuntu 24.04 LTS' })
+    await expect(deployedOS).toHaveAttribute('href', /\/provisioning\/images\?.*integrationId=maas-a/)
+    const management = page.getByRole('heading', { name: 'Management controller' }).locator('xpath=../../..')
+    await expect(management).toContainText('IPMI')
+    await expect(management).toContainText('192.0.2.20')
+    await expect(management).toContainText('bmc-admin')
+    await expect(management).toContainText('LAN_2_0')
+    await expect(management).toContainText('OPERATOR')
+    await expect(management.getByRole('button', { name: 'Copy address' })).toBeVisible()
+    await expect(management.getByRole('button', { name: 'Copy username' })).toBeVisible()
+    await expect(management.getByText('bmc-secret', { exact: true })).toHaveCount(0)
+    await expect(management.getByText('••••••••', { exact: true })).toBeVisible()
+    await expect(management.getByRole('button', { name: 'Copy password' })).toBeVisible()
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          (window as unknown as { __e2eCopiedText?: string }).__e2eCopiedText = value
+        },
+      },
+    }))
+    await management.getByRole('button', { name: 'Copy password' }).click()
+    await expect.poll(() => page.evaluate(
+      () => (window as unknown as { __e2eCopiedText?: string }).__e2eCopiedText,
+    )).toBe('bmc-secret')
+    await management.getByRole('button', { name: 'Show password' }).click()
+    await expect(management.getByText('bmc-secret', { exact: true })).toBeVisible()
+    await management.getByRole('button', { name: 'Hide password' }).click()
+    await expect(management.getByText('bmc-secret', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Identity and inspection' })).toHaveCount(0)
+    const summaryTab = page.getByRole('tab', { name: 'Summary' })
+    await expect(summaryTab.locator('svg')).toBeVisible()
+    const tabList = page.getByRole('tablist')
+    await expect(tabList).toHaveCSS('scrollbar-width', 'none')
+    await page.setViewportSize({ width: 390, height: 844 })
+    expect(await tabList.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Take action' }).click()
+    for (const category of ['Power', 'Hardware checks', 'State & recovery']) {
+      await expect(page.getByRole('menuitem', { name: category, exact: true })).toBeVisible()
+    }
+    await expect(page.getByRole('menuitem', { name: 'Commission', exact: true })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await page.getByRole('tab', { name: 'Monitoring' }).click()
+    await expect(page.getByRole('heading', { name: 'Current metrics' })).toBeVisible()
+    await page.getByRole('tab', { name: 'Networking' }).click()
     await expect(page).toHaveURL('/servers/srv-1/network?site=site-a')
     await expect(page.getByText('eno1')).toBeVisible()
     await page.getByRole('tab', { name: 'PCI devices' }).click()
     await expect(page.getByText('03:00.0')).toBeVisible()
+
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await page.getByRole('link', { name: 'Ubuntu 24.04 LTS' }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('imageName')).toBe('Ubuntu 24.04 LTS')
+    await expect(page.getByRole('textbox', { name: 'Search OS images' })).toHaveValue('Ubuntu 24.04 LTS')
+    const imageTable = page.getByRole('table', { name: 'OS images' })
+    await expect(imageTable.getByRole('row', { name: /Ubuntu 24.04 LTS/ })).toHaveCount(1)
+    await expect(imageTable.getByRole('row', { name: /Ubuntu 22.04 LTS/ })).toHaveCount(0)
   })
 
   test('Server headline reports failed verification while retaining provider OS detail', async ({ page }) => {
@@ -405,10 +462,12 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('No provider address was observed after OS installation.')).not.toBeVisible()
     await page.getByRole('button', { name: 'Show details' }).click()
     await expect(page.getByText('No provider address was observed after OS installation.')).toBeVisible()
-    const statusCard = page.getByRole('heading', { name: 'Power and provisioning' }).locator('..')
-    await expect(statusCard.getByText('deployed', { exact: true })).toBeVisible()
+    const statusCard = page.getByRole('heading', { name: 'Current state' }).locator('xpath=../../..')
+    await expect(statusCard.getByText('deployed', { exact: true }).first()).toBeVisible()
     await expect(statusCard.getByText('Power', { exact: true })).toBeVisible()
     await expect(statusCard.getByText('Deployed OS', { exact: true })).toBeVisible()
+    await expect(statusCard.getByText('Ubuntu 24.04 LTS', { exact: true })).toBeVisible()
+    await expect(statusCard.getByRole('link', { name: 'Ubuntu 24.04 LTS' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'View operation' })).toBeVisible()
   })
 

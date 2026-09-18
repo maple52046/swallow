@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, Field, Input, SegmentGroup, Stack, Table, VisuallyHidden } from '@chakra-ui/react'
+import { Badge, Button, Field, IconButton, Input, SegmentGroup, Stack, Table, VisuallyHidden } from '@chakra-ui/react'
+import { Link2, Pencil, RefreshCw, Unlink } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { ManualNetworkMode, NetworkInterface, NetworkLink, NetworkTarget } from '@/domain/provisioning/types'
 import { DetailTableView, DetailUnavailable } from '@/presentation/components/serverSummary/DetailViews'
@@ -12,11 +13,20 @@ import { SectionHeader, StickyTableFrame } from '@/presentation/components/Opera
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
+import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { Select } from '@/presentation/components/ui/select'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useServerDetailContext } from './useServerDetail'
 
-/** Shared provider-detail table tab used by Storage and PCI routes. */
+const DETAIL_TABLE_DESCRIPTIONS: Record<string, string> = {
+  Storage: 'Provider-reported block devices and capacity for this Server.',
+  'PCI devices': 'Provider-reported PCI addresses, devices, and vendors.',
+}
+
+/**
+ * Shared provider-detail table tab used by Storage and PCI routes. The provider owns the
+ * columns and rows; this wrapper contributes route-level context and exactly one scroll frame.
+ */
 export function ServerDetailTableTab({ title }: { title: string }) {
   const { detail, detailError } = useServerDetailContext()
   if (!detail) return <DetailUnavailable message={detailError ?? 'The provisioner did not return detail.'} />
@@ -24,10 +34,8 @@ export function ServerDetailTableTab({ title }: { title: string }) {
   if (!table) return <DetailUnavailable message={`This provisioner reported no ${title.toLowerCase()} detail.`} />
   return (
     <div className="sw-section">
-      <SectionHeader title={table.title} />
-      <StickyTableFrame>
-        <DetailTableView table={table} />
-      </StickyTableFrame>
+      <SectionHeader title={table.title} description={DETAIL_TABLE_DESCRIPTIONS[title]} />
+      <DetailTableView table={table} />
     </div>
   )
 }
@@ -157,6 +165,7 @@ export function ServerNetworkTab() {
           description="Address configuration and physical link state are reported separately. Changes are available only while the Server is Ready and unlocked."
           actions={
             <Button variant="outline" onClick={() => void load()}>
+              <RefreshCw size={16} />
               Refresh
             </Button>
           }
@@ -188,13 +197,30 @@ export function ServerNetworkTab() {
                     <Table.Cell className="sw-mono">{link?.rawProviderMode || iface.rawProviderMode || '-'}</Table.Cell>
                     <Table.Cell textAlign="end">
                       <span className="sw-row-actions">
-                        <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" disabled={!state.target.editable} onClick={() => openEditor(iface, link)}>
-                          {link ? 'Configure' : 'Add link'}
-                        </Button>
+                        <Tooltip content={link ? `Configure ${iface.name}` : `Add link to ${iface.name}`}>
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            aria-label={link ? `Configure ${iface.name}` : `Add link to ${iface.name}`}
+                            disabled={!state.target.editable}
+                            onClick={() => openEditor(iface, link)}
+                          >
+                            {link ? <Pencil size={18} /> : <Link2 size={18} />}
+                          </IconButton>
+                        </Tooltip>
                         {link && (
-                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" disabled={!state.target.editable} onClick={() => setUnbind({ iface, link })}>
-                            Unbind
-                          </Button>
+                          <Tooltip content={`Unbind ${iface.name}`}>
+                            <IconButton
+                              variant="ghost"
+                              size="sm"
+                              colorPalette="red"
+                              aria-label={`Unbind ${iface.name}`}
+                              disabled={!state.target.editable}
+                              onClick={() => setUnbind({ iface, link })}
+                            >
+                              <Unlink size={18} />
+                            </IconButton>
+                          </Tooltip>
                         )}
                       </span>
                     </Table.Cell>

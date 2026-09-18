@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge, Button, Field, HStack, IconButton, Input, Menu, Portal, Stack, Table } from '@chakra-ui/react'
 import { Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, Trash2, Upload, X } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { loadOSImageCatalog, type OSImageCatalog, type OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
 import type { Integration } from '@/domain/site/types'
@@ -33,6 +33,11 @@ function provisioningHref(path: string, params: Record<string, string>, scopedHr
   const target = new URL(scopedHref(path), window.location.origin)
   for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value)
   return `${target.pathname}${target.search}`
+}
+
+/** Normalizes a provider subarchitecture suffix so machine and image identities can be compared. */
+function primaryArchitecture(architecture: string): string {
+  return architecture.split('/', 1)[0]
 }
 
 /**
@@ -116,8 +121,14 @@ export function OSImagesPage() {
   const { sites, siteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const focusedIntegrationId = searchParams.get('integrationId') ?? ''
+  const focusedImageName = searchParams.get('imageName') ?? ''
+  const focusedArchitecture = searchParams.get('architecture') ?? ''
+  const focusedOSSystem = searchParams.get('osSystem') ?? ''
+  const focusedRelease = searchParams.get('release') ?? ''
+  const query = searchParams.get('query') ?? focusedImageName
   const [state, setState] = useState<CatalogState>({ status: 'loading' })
-  const [query, setQuery] = useState('')
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [deleting, setDeleting] = useState<OSImageCatalogRow | null>(null)
   const [editing, setEditing] = useState<OSImageCatalogRow | null>(null)
@@ -190,6 +201,24 @@ export function OSImagesPage() {
 
   const items = useMemo(() => (state.status === 'ready' ? state.data.images : []), [state])
   const filtered = useMemo(() => {
+    if (focusedIntegrationId && focusedImageName) {
+      const architecture = primaryArchitecture(focusedArchitecture)
+      const scoped = items.filter(
+        (item) =>
+          item.integrationId === focusedIntegrationId &&
+          (!architecture || primaryArchitecture(item.architecture) === architecture),
+      )
+      const expectedID = focusedOSSystem && focusedRelease ? `${focusedOSSystem}/${focusedRelease}` : ''
+      const byID = expectedID ? scoped.filter((item) => item.id === expectedID) : []
+      if (byID.length > 0) return byID
+      const byOSRelease =
+        focusedOSSystem && focusedRelease
+          ? scoped.filter((item) => item.osSystem === focusedOSSystem && item.release === focusedRelease)
+          : []
+      if (byOSRelease.length > 0) return byOSRelease
+      return scoped.filter((item) => item.name === focusedImageName)
+    }
+
     const needle = query.trim().toLowerCase()
     if (!needle) return items
     return items.filter((item) =>
@@ -197,7 +226,29 @@ export function OSImagesPage() {
         value.toLowerCase().includes(needle),
       ),
     )
-  }, [items, query])
+  }, [
+    focusedArchitecture,
+    focusedImageName,
+    focusedIntegrationId,
+    focusedOSSystem,
+    focusedRelease,
+    items,
+    query,
+  ])
+
+  /**
+   * Editing the visible search leaves the focused-image mode and makes the URL-backed query
+   * authoritative, so operators can broaden a Server deep link without a hidden exact filter.
+   */
+  const updateQuery = useCallback((value: string) => {
+    const next = new URLSearchParams(searchParams)
+    for (const key of ['integrationId', 'imageName', 'architecture', 'osSystem', 'release']) {
+      next.delete(key)
+    }
+    if (value) next.set('query', value)
+    else next.delete('query')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const siteName = (id: string) => sites.find((site) => site.id === id)?.name ?? id
 
@@ -313,7 +364,7 @@ export function OSImagesPage() {
       />
       <ProvisioningTabs />
       <DataToolbar variant="plain">
-        <SearchInput value={query} onChange={setQuery} placeholder="Search image, OS, release, or integration" aria-label="Search OS images" />
+        <SearchInput value={query} onChange={updateQuery} placeholder="Search image, OS, release, or integration" aria-label="Search OS images" />
         <Menu.Root closeOnSelect={false}>
           <Menu.Trigger asChild>
             <Button variant="outline" size="sm" ms="auto">

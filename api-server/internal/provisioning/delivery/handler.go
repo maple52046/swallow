@@ -206,6 +206,10 @@ func (h *ProvisioningHandler) DeleteServer(c *fiber.Ctx) error {
 // capabilities that tell a client which actions to offer. Read live, so it reflects the
 // provisioner exactly and swallow keeps no schema for it.
 func (h *ProvisioningHandler) ProvisionerDetail(c *fiber.Ctx) error {
+	// The optional live BMC section can contain an operator-requested password. Keep the
+	// response out of browser and intermediary caches even though the route is admin-only.
+	c.Set(fiber.HeaderCacheControl, "no-store")
+
 	id := c.Params("id")
 	if id == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
