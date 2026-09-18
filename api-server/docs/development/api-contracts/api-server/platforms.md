@@ -14,10 +14,14 @@ Active
 
 ## Purpose
 
-Register Kubernetes and Slurm platforms, read observed membership, deploy Kubernetes (k0s) and
-Slurm platforms, uninstall Swallow-deployed platforms, and delete Swallow records. Swallow owns registration, policy, and
-durable lifecycle intent. It does not own externally registered hosts or platform
-membership.
+Deploy Kubernetes (k0s) and Slurm platforms, read observed membership, uninstall
+Swallow-deployed platforms, and delete Swallow records. Swallow owns policy and durable
+lifecycle intent for the platforms it deploys. It does not own platform membership, and — per
+[decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) — it
+manages only self-deployed platforms: the public API no longer registers an existing platform.
+
+The in-cluster management of a deployed Kubernetes platform (namespaces, applications, pods,
+apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platforms-kubernetes.md).
 
 ## Related Glossary Terms
 
@@ -32,7 +36,6 @@ membership.
 ## Endpoints
 
 ```text
-POST   /api/v1/platforms/
 GET    /api/v1/platforms/
 GET    /api/v1/platforms/deployment-requirements/slurm
 PUT    /api/v1/platforms/deployment-requirements/slurm
@@ -45,6 +48,12 @@ POST   /api/v1/platforms/{platformId}/sync
 POST   /api/v1/platforms/sync
 GET    /api/v1/platforms/{platformId}/slurm
 ```
+
+There is **no** `POST /api/v1/platforms/`. A Platform is created only by
+`POST /api/v1/platforms/deploy`; registering an existing platform was removed in
+[decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md). The
+Kubernetes cluster explorer routes under `/api/v1/platforms/{platformId}/kubernetes/...` are
+specified in [platforms-kubernetes.md](platforms-kubernetes.md).
 
 All endpoints require an admin JWT according to [conventions](conventions.md).
 
@@ -83,11 +92,13 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 `type` is `kubernetes` or `slurm`. `gpuStackOwner` is `provisioning` or
 `gpu-operator` and has no default. `exporterOwner` is `ansible` (default) or `k8s`.
 
-`origin` is `registered | deployed`. `lifecycleState` is exactly
-`registered | deploying | deploy_failed | active | uninstalling | uninstall_failed |
-uninstalled`. `lifecycleOperationId` is the newest deployment or uninstall Operation ID,
-or `null`. These fields are derived by the API in a batch from durable Operation history;
-clients must not infer them from `integrationId`, membership, or sync freshness.
+`origin` is `registered | deployed`. New Platforms are always `deployed`; `origin=registered`
+is a one-release compatibility value for records created before the register-existing path was
+removed ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)).
+`lifecycleState` is exactly `registered | deploying | deploy_failed | active | uninstalling |
+uninstall_failed | uninstalled`. `lifecycleOperationId` is the newest deployment or uninstall
+Operation ID, or `null`. These fields are derived by the API in a batch from durable Operation
+history; clients must not infer them from `integrationId`, membership, or sync freshness.
 
 `deployment` is the non-secret topology intent recovered from the latest durable
 `deploy-kubernetes` or `configure-slurm` Operation. It contains `topology` as `standalone`,
@@ -102,28 +113,20 @@ projected completely. A control-plane assignment with `runWorkloads=true` retain
 number of worker-only assignments as total workload capacity.
 
 `integrationId` is `null` before a deployment produces a credential and again after a
-successful uninstall removes the Swallow-owned credential Integration. A registered
+successful uninstall removes the Swallow-owned credential Integration. A legacy `registered`
 platform may also have no Integration. `sync.matchedCount` is how many reported members
 matched a Server.
 
-## Register An Existing Platform
+## Registering An Existing Platform Is Removed
 
-`POST /api/v1/platforms/` registers a platform that already exists.
-
-```json
-{
-  "siteId": "site-id",
-  "name": "lab-k0s",
-  "type": "kubernetes",
-  "integrationId": "platform-integration-id",
-  "gpuStackOwner": "provisioning",
-  "exporterOwner": "ansible"
-}
-```
-
-`siteId`, `name`, `type`, and `gpuStackOwner` are required. `integrationId` and
-`exporterOwner` are optional; `exporterOwner` defaults to `ansible`. Success is
-`201 Created` returning the resource with `origin=registered`.
+There is no public route to register an existing platform. Swallow manages only self-deployed
+platforms; a Platform record and its credential Integration are produced only by
+`POST /api/v1/platforms/deploy`
+([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)). A
+`platform`-kind Integration is likewise created only by a successful deployment, so
+`POST /api/v1/integrations` with `kind=platform` (or the `cluster` alias) is rejected — see
+[sites-integrations.md](sites-integrations.md). Existing `origin=registered` records remain
+readable and deletable for one release but cannot be uninstalled and have no cluster explorer.
 
 ## Manage The Slurm Deployment Requirement
 
@@ -392,8 +395,11 @@ the uninstall.
 `GET /api/v1/platforms/{platformId}` returns one. Lifecycle history is fetched in one batch
 for list requests; the API does not fan out one Operation query per Platform.
 
-`PATCH /api/v1/platforms/{platformId}` updates `name`, `integrationId`,
-`gpuStackOwner`, or `exporterOwner`; omitted fields do not change.
+`PATCH /api/v1/platforms/{platformId}` updates `name`, `gpuStackOwner`, or `exporterOwner`;
+omitted fields do not change. It does not accept `integrationId`: a Platform's credential
+Integration is set only by its deployment, and repointing it at an operator-owned Integration
+would be a register-existing back door, which
+[decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) removes.
 
 `DELETE /api/v1/platforms/{platformId}` returns `{"success":true}` on success. It first
 cancels the Platform's in-flight durable Operations so their resource leases are released

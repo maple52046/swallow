@@ -18,6 +18,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { KubernetesPlatformView } from './KubernetesPlatformView'
+import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
 import { SlurmPlatformView } from './SlurmPlatformView'
 import { usePlatformDetail } from './usePlatformDetail'
@@ -85,6 +86,11 @@ export function PlatformDetailPage() {
 
   const { platform, members, loginNodes, operations, reload } = state.data
   const isKubernetes = platform.type === 'kubernetes'
+  // The live cluster explorer is available only for a Swallow-deployed Kubernetes Platform with
+  // a recorded credential; a legacy registered record or a still-deploying one degrades to just
+  // Overview and Activity. This mirrors the backend eligibility (decision 032) so the explorer
+  // tabs never make a call that can only fail.
+  const explorerEnabled = isKubernetes && platform.origin === 'deployed' && Boolean(platform.integrationId)
   const lifecycleOperation =
     operations.find((operation) => operation.id === platform.lifecycleOperationId) ??
     operations.find((operation) => operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm')
@@ -118,6 +124,9 @@ export function PlatformDetailPage() {
       <Tabs.Root defaultValue="overview" aria-label="Platform details">
         <Tabs.List>
           <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
+          {explorerEnabled && <Tabs.Trigger value="applications">Applications</Tabs.Trigger>}
+          {explorerEnabled && <Tabs.Trigger value="namespaces">Namespaces</Tabs.Trigger>}
+          {explorerEnabled && <Tabs.Trigger value="cluster">Cluster</Tabs.Trigger>}
           <Tabs.Trigger value="activity">Activity</Tabs.Trigger>
         </Tabs.List>
         <Tabs.Content value="overview">
@@ -140,6 +149,21 @@ export function PlatformDetailPage() {
             <PlatformConfiguration platform={platform} />
           </div>
         </Tabs.Content>
+        {explorerEnabled && (
+          <Tabs.Content value="applications">
+            <KubernetesApplicationsTab platform={platform} />
+          </Tabs.Content>
+        )}
+        {explorerEnabled && (
+          <Tabs.Content value="namespaces">
+            <KubernetesNamespacesTab platform={platform} />
+          </Tabs.Content>
+        )}
+        {explorerEnabled && (
+          <Tabs.Content value="cluster">
+            <KubernetesClusterTab platform={platform} onOpenServer={openServer} />
+          </Tabs.Content>
+        )}
         <Tabs.Content value="activity">
           <section className="sw-section">
             <SectionHeader

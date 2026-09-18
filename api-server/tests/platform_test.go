@@ -11,7 +11,8 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
-// seedPlatform registers a platform directly, standing in for the create endpoint.
+// seedPlatform inserts a platform record directly through the repository, standing in for a
+// deployment-created record so membership and lifecycle reads have something to project.
 func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner string) *platformdomain.Platform {
 	t.Helper()
 	now := time.Now().UTC()
@@ -31,28 +32,10 @@ func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner stri
 	return platform
 }
 
-// gpuStackOwner has no safe default: guessing would silently pick a side in a conflict
-// that breaks hosts.
-func TestCreatePlatform_RequiresGPUStackOwner(t *testing.T) {
-	f := setupPlatform(t)
-	siteID := createSite(t, f, "dc-east")
-
-	resp := doRequest(t, f.app, "POST", "/api/v1/platforms/", map[string]any{
-		"siteId": siteID,
-		"name":   "prod-k8s",
-		"type":   "kubernetes",
-	}, f.adminAuth(t))
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
-	}
-	message, _ := parseBody(t, resp)["error"].(map[string]any)["message"].(string)
-	if !strings.Contains(message, "gpu-operator") || !strings.Contains(message, "provisioning") {
-		t.Errorf("the error should name both options, got %q", message)
-	}
-}
-
-func TestCreatePlatform_Success(t *testing.T) {
+// Registering an existing platform was removed in decision 032: Swallow manages only
+// self-deployed platforms, so a Platform record is produced only by a deployment. The former
+// POST /api/v1/platforms/ route no longer exists.
+func TestRegisterPlatform_RouteRemoved(t *testing.T) {
 	f := setupPlatform(t)
 	siteID := createSite(t, f, "dc-east")
 
@@ -63,38 +46,8 @@ func TestCreatePlatform_Success(t *testing.T) {
 		"gpuStackOwner": "gpu-operator",
 	}, f.adminAuth(t))
 
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, rawBody(t, resp))
-	}
-	body := parseBody(t, resp)
-	if body["gpuStackOwner"] != "gpu-operator" {
-		t.Errorf("gpuStackOwner: got %v", body["gpuStackOwner"])
-	}
-	// Registered but not yet reachable is a normal state.
-	if body["integrationId"] != nil {
-		t.Errorf("expected a null integrationId, got %v", body["integrationId"])
-	}
-}
-
-func TestCreatePlatform_RejectsUnknownTypeAndDuplicateName(t *testing.T) {
-	f := setupPlatform(t)
-	siteID := createSite(t, f, "dc-east")
-	auth := f.adminAuth(t)
-
-	resp := doRequest(t, f.app, "POST", "/api/v1/platforms/", map[string]any{
-		"siteId": siteID, "name": "x", "type": "mesos", "gpuStackOwner": "provisioning",
-	}, auth)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("unknown type: expected 400, got %d", resp.StatusCode)
-	}
-
-	create := map[string]any{
-		"siteId": siteID, "name": "prod-k8s", "type": "kubernetes", "gpuStackOwner": "provisioning",
-	}
-	doRequest(t, f.app, "POST", "/api/v1/platforms/", create, auth)
-	resp = doRequest(t, f.app, "POST", "/api/v1/platforms/", create, auth)
-	if resp.StatusCode != http.StatusConflict {
-		t.Errorf("duplicate name: expected 409, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("register-existing should be gone, got %d", resp.StatusCode)
 	}
 }
 

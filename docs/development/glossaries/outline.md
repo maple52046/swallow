@@ -38,6 +38,9 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Node Role](terms/node-role.md): The part a server plays in a Platform — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a Platform.
 - [Kubernetes Topology](terms/kubernetes-topology.md): The supported placement and availability
   shape of a Kubernetes deployment — standalone, non-HA multi-node, or high availability.
+- [Kubernetes Application](terms/kubernetes-application.md): A live workload grouping (Deployment,
+  DaemonSet, StatefulSet, or owner-less Pod) the cluster explorer aggregates on demand; never a
+  stored entity.
 - [Minimum Resource Requirement](terms/minimum-resource-requirement.md): An optional system-wide deployment eligibility floor for observed Server CPU, memory, and storage; not a reservation or capacity promise.
 
 ### OS Provisioning
@@ -112,7 +115,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Provisioning and Management Planes
 
-- `Plane`（Kubernetes / Slurm 管理平面）。
+- ~~`Plane`（Kubernetes / Slurm 管理平面）~~：已由 [decision 032](../../decisions/032-self-deployed-platform-management.md) supersede。管理平面不再是可註冊的外部物件；受管 runtime 一律是 Swallow 自部的 `Platform`，Kubernetes 的叢集內管理走 Platform explorer，不需要獨立的 `Plane` term。
 
 > `Agent`（節點端 runtime）與其 `Node ID` / `Inventory` / `Agent Info` 概念已依
 > [decision 001](../decisions/001-system-ownership-boundaries.md) 退場，不再是 pending term。

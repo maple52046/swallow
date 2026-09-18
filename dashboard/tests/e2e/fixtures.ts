@@ -1142,6 +1142,87 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       return json(route, { error: { code: 'validation_error', message: 'no live Slurm state' } }, 422)
     }
+    // Live Kubernetes cluster explorer. Answers for the deployed Kubernetes fixture (platform-a)
+    // with canned live data so the explorer tabs render; any other platform 404s so the tabs are
+    // hidden (matching the deployed + credential eligibility gate).
+    const kubernetesMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/kubernetes(\/.*)?$/)
+    if (kubernetesMatch) {
+      const platformId = kubernetesMatch[1]
+      const sub = kubernetesMatch[2] ?? ''
+      if (platformId !== 'platform-a') {
+        return json(route, { error: { code: 'not_found', message: 'no cluster explorer' } }, 404)
+      }
+      if (sub === '' && request.method() === 'GET') {
+        return json(route, { version: 'v1.30.2+k0s', nodeCount: 3, readyNodeCount: 3, namespaceCount: 6 })
+      }
+      if (sub === '/nodes' && request.method() === 'GET') {
+        return json(route, {
+          items: [
+            { name: 'gpu-node-01', role: 'control-plane', ready: true, unschedulable: false, serverId: 'srv-1', addresses: ['192.168.40.21'], kubeletVersion: 'v1.30.2+k0s' },
+            { name: 'gpu-node-02', role: 'worker', ready: true, unschedulable: false, serverId: 'srv-2', addresses: ['192.168.40.22'], kubeletVersion: 'v1.30.2+k0s' },
+          ],
+        })
+      }
+      const cordonMatch = sub.match(/^\/nodes\/([^/]+)\/(cordon|uncordon)$/)
+      if (cordonMatch && request.method() === 'POST') {
+        return json(route, { name: cordonMatch[1], role: 'worker', ready: true, unschedulable: cordonMatch[2] === 'cordon', serverId: null, addresses: [], kubeletVersion: 'v1.30.2+k0s' })
+      }
+      if (sub === '/namespaces' && request.method() === 'GET') {
+        return json(route, {
+          items: [
+            { name: 'default', phase: 'Active', system: false },
+            { name: 'web', phase: 'Active', system: false },
+            { name: 'kube-system', phase: 'Active', system: true },
+          ],
+        })
+      }
+      if (sub === '/namespaces' && request.method() === 'POST') {
+        const body = request.postDataJSON() as { name: string }
+        return json(route, { name: body.name, phase: 'Active', system: false }, 201)
+      }
+      if (/^\/namespaces\/[^/]+$/.test(sub) && request.method() === 'DELETE') {
+        return json(route, { success: true })
+      }
+      if (sub === '/applications' && request.method() === 'GET') {
+        return json(route, {
+          items: [
+            { namespace: 'web', name: 'nginx', kind: 'Deployment', images: ['nginx:1.27'], replicas: 3, readyReplicas: 3, createdAt: now },
+            { namespace: 'web', name: 'debug', kind: 'Pod', images: ['busybox'], replicas: 1, readyReplicas: 1, createdAt: now },
+          ],
+        })
+      }
+      const appMatch = sub.match(/^\/applications\/([^/]+)\/([^/]+)\/([^/]+)(\/(scale|restart))?$/)
+      if (appMatch) {
+        if (appMatch[5] === 'scale' && request.method() === 'POST') {
+          const body = request.postDataJSON() as { replicas: number }
+          return json(route, { namespace: appMatch[1], name: appMatch[3], kind: appMatch[2], images: [], replicas: body.replicas, readyReplicas: body.replicas, createdAt: now })
+        }
+        if (appMatch[5] === 'restart' && request.method() === 'POST') {
+          return json(route, { success: true })
+        }
+        if (!appMatch[5] && request.method() === 'DELETE') {
+          return json(route, { success: true })
+        }
+        if (!appMatch[5] && request.method() === 'GET') {
+          return json(route, {
+            namespace: appMatch[1], name: appMatch[3], kind: appMatch[2], images: ['nginx:1.27'], replicas: 3, readyReplicas: 3, createdAt: now,
+            pods: [{ namespace: appMatch[1], name: `${appMatch[3]}-abcde`, phase: 'Running', ready: true, nodeName: 'gpu-node-02', restarts: 0, containers: ['nginx'], startedAt: now }],
+          })
+        }
+      }
+      const logsMatch = sub.match(/^\/pods\/([^/]+)\/([^/]+)\/logs$/)
+      if (logsMatch && request.method() === 'GET') {
+        return json(route, { container: 'nginx', logs: 'listening on :80\nready' })
+      }
+      if (sub === '/apply' && request.method() === 'POST') {
+        return json(route, { results: [{ kind: 'Deployment', namespace: 'web', name: 'nginx', action: 'configured' }] })
+      }
+      // Subsidiary resource lists default to empty in the fixture.
+      if (['/services', '/ingresses', '/configmaps', '/secrets', '/persistentvolumeclaims', '/pods'].includes(sub) && request.method() === 'GET') {
+        return json(route, { items: [] })
+      }
+      return json(route, { items: [] })
+    }
     const uninstallMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/uninstall$/)
     if (uninstallMatch && request.method() === 'POST') {
       options.onPlatformUninstallRequest?.(

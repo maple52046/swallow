@@ -26,6 +26,20 @@ const PROVIDERS: Record<IntegrationKind, Array<{ value: string; label: string }>
   ],
 }
 
+/** Every integration role, with labels, for display. */
+const ROLE_OPTIONS: Array<{ value: IntegrationKind; label: string }> = [
+  { value: 'provisioner', label: 'Provisioner' },
+  { value: 'metrics', label: 'Metrics' },
+  { value: 'platform', label: 'Platform' },
+]
+
+/**
+ * Roles an operator may create. `platform` is intentionally excluded: a platform Integration is
+ * created only by deploying a platform (decision 032), so it can be edited but never registered
+ * here. Editing keeps the full list so an existing platform Integration still displays its role.
+ */
+const CREATABLE_ROLE_OPTIONS = ROLE_OPTIONS.filter((option) => option.value !== 'platform')
+
 function replaceSetting(settings: Record<string, string>, key: string, value: string): Record<string, string> {
   const next = { ...settings }
   if (value) next[key] = value
@@ -164,11 +178,7 @@ export function IntegrationDialog({
               disabled={editing}
               aria-label="Role"
               onChange={(value) => changeKind(value as IntegrationKind)}
-              options={[
-                { value: 'provisioner', label: 'Provisioner' },
-                { value: 'metrics', label: 'Metrics' },
-                { value: 'platform', label: 'Platform' },
-              ]}
+              options={editing ? ROLE_OPTIONS : CREATABLE_ROLE_OPTIONS}
             />
           </Field.Root>
           <Field.Root required>

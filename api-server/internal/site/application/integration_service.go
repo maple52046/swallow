@@ -97,6 +97,13 @@ func (s *IntegrationService) Create(ctx context.Context, input CreateIntegration
 	if !kind.Valid() {
 		return nil, fmt.Errorf("%w: kind must be one of %v", ErrInvalidIntegration, sitedomain.ValidIntegrationKinds)
 	}
+	// A platform Integration reads a Kubernetes/Slurm runtime's live state, and Swallow
+	// creates it only from a successful deployment because it manages only self-deployed
+	// platforms (decision 032). The deployment completion hook writes the Integration through
+	// the repository directly, so this rule constrains only the operator-facing create route.
+	if kind == sitedomain.IntegrationKindPlatform {
+		return nil, fmt.Errorf("%w: a platform integration is created by deploying a platform, not registered", ErrInvalidIntegration)
+	}
 	if !sitedomain.ValidProviderKind(kind, input.ProviderKind) {
 		return nil, fmt.Errorf("%w: providerKind for kind %q must be one of %v",
 			ErrInvalidIntegration, kind, sitedomain.ProviderKindsFor(kind))

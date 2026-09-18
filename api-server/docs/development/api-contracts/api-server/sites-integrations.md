@@ -43,3 +43,11 @@ Create returns `201`; reads and updates return `200`. Deletes and credential
 replacement return `{"success": true}`. Missing resources return
 `404 not_found`; dependency conflicts return `409 conflict`; invalid
 kind/provider pairs return `400 validation_error`.
+
+`POST /api/v1/integrations` accepts `kind` of `provisioner` or `metrics` only. `kind=platform`
+(and its `cluster` deprecated alias) is rejected with `400 validation_error`: a `platform`
+Integration reads a Kubernetes/Slurm runtime's live state, and Swallow creates it only from a
+successful deployment because it manages only self-deployed platforms
+([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)).
+Existing `platform` Integrations remain readable, updatable, and deletable; only creating a new
+one through this route is refused.

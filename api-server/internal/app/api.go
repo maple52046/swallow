@@ -277,6 +277,10 @@ func RunAPI(cfg config.APIConfig) error {
 	// On-demand Slurm cluster read: reuses the same reader factory but never writes the
 	// membership axis or sync counters. It powers the Slurm-specific management view.
 	slurmClusterRead := platformapp.NewGetSlurmClusterUseCase(platformRepo, platformReaderFactory)
+	// Live Kubernetes cluster explorer: a read/write client factory for a deployed Kubernetes
+	// Platform's own API. Like the Slurm read it never writes Swallow state; eligibility
+	// (deployed Kubernetes with a recorded credential) is enforced by the use case below.
+	kubernetesClientFactory := platforminfra.NewKubernetesClientFactory(integrationRepo)
 
 	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
@@ -349,8 +353,11 @@ func RunAPI(cfg config.APIConfig) error {
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
 	)
+	kubernetesExplorer := platformapp.NewKubernetesExplorerUseCase(
+		platformRepo, lifecycleReader, kubernetesClientFactory, serverRepo)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService, slurmClusterRead, requirementService)
+		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
+		kubernetesExplorer, requirementService)
 
 	// Auto-install exporters when a server reaches the deployed state and its effective
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
@@ -475,7 +482,8 @@ type routeDeps struct {
 // registerPlatformRoutes keeps the canonical and one-release compatibility routes on
 // the same handlers, so deprecated URLs cannot drift from Platform behavior.
 func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler) {
-	routes.Post("/", handler.Create)
+	// There is no POST "/": a Platform is created only by a deployment (decision 032);
+	// registering an existing one was removed.
 	routes.Get("/", handler.List)
 	routes.Post("/deploy", handler.Deploy)
 	routes.Post("/sync", handler.SyncAllMembership)
@@ -485,6 +493,40 @@ func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.Platf
 	routes.Post("/:id/uninstall", handler.Uninstall)
 	routes.Post("/:id/sync", handler.SyncMembership)
 	routes.Get("/:id/slurm", handler.GetSlurmCluster)
+	registerKubernetesExplorerRoutes(routes, handler)
+}
+
+// registerKubernetesExplorerRoutes mounts the live Kubernetes cluster explorer under a
+// deployed Platform. These routes read and write the deployed cluster's own API on demand and
+// persist nothing (decision 032); the contract is platforms-kubernetes.md.
+func registerKubernetesExplorerRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler) {
+	routes.Get("/:id/kubernetes", handler.GetKubernetesCluster)
+
+	routes.Get("/:id/kubernetes/nodes", handler.ListKubernetesNodes)
+	routes.Post("/:id/kubernetes/nodes/:node/cordon", handler.CordonKubernetesNode)
+	routes.Post("/:id/kubernetes/nodes/:node/uncordon", handler.UncordonKubernetesNode)
+
+	routes.Get("/:id/kubernetes/namespaces", handler.ListKubernetesNamespaces)
+	routes.Post("/:id/kubernetes/namespaces", handler.CreateKubernetesNamespace)
+	routes.Delete("/:id/kubernetes/namespaces/:namespace", handler.DeleteKubernetesNamespace)
+
+	routes.Get("/:id/kubernetes/applications", handler.ListKubernetesApplications)
+	routes.Get("/:id/kubernetes/applications/:namespace/:kind/:name", handler.GetKubernetesApplication)
+	routes.Delete("/:id/kubernetes/applications/:namespace/:kind/:name", handler.DeleteKubernetesApplication)
+	routes.Post("/:id/kubernetes/applications/:namespace/:kind/:name/scale", handler.ScaleKubernetesApplication)
+	routes.Post("/:id/kubernetes/applications/:namespace/:kind/:name/restart", handler.RestartKubernetesApplication)
+
+	routes.Get("/:id/kubernetes/pods", handler.ListKubernetesPods)
+	routes.Get("/:id/kubernetes/pods/:namespace/:name/logs", handler.GetKubernetesPodLogs)
+	routes.Delete("/:id/kubernetes/pods/:namespace/:name", handler.DeleteKubernetesPod)
+
+	routes.Get("/:id/kubernetes/services", handler.ListKubernetesServices)
+	routes.Get("/:id/kubernetes/ingresses", handler.ListKubernetesIngresses)
+	routes.Get("/:id/kubernetes/configmaps", handler.ListKubernetesConfigMaps)
+	routes.Get("/:id/kubernetes/secrets", handler.ListKubernetesSecrets)
+	routes.Get("/:id/kubernetes/persistentvolumeclaims", handler.ListKubernetesPersistentVolumeClaims)
+
+	routes.Post("/:id/kubernetes/apply", handler.ApplyKubernetesManifest)
 }
 
 // markDeprecatedPlatformRoute identifies the former Cluster resource without changing

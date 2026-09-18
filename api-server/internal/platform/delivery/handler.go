@@ -22,6 +22,7 @@ type PlatformHandler struct {
 	membership   *application.MembershipSyncUseCase
 	deploy       *application.DeployService
 	slurmCluster *application.GetSlurmClusterUseCase
+	kubernetes   *application.KubernetesExplorerUseCase
 	requirements *application.DeploymentRequirementService
 }
 
@@ -31,11 +32,13 @@ func NewPlatformHandler(
 	deploy *application.DeployService,
 	uninstall *application.UninstallService,
 	slurmCluster *application.GetSlurmClusterUseCase,
+	kubernetes *application.KubernetesExplorerUseCase,
 	requirements *application.DeploymentRequirementService,
 ) *PlatformHandler {
 	return &PlatformHandler{
 		platforms: platforms, membership: membership, deploy: deploy,
-		uninstall: uninstall, slurmCluster: slurmCluster, requirements: requirements,
+		uninstall: uninstall, slurmCluster: slurmCluster, kubernetes: kubernetes,
+		requirements: requirements,
 	}
 }
 
@@ -66,38 +69,6 @@ func membershipResponse(report application.MembershipReport) membershipReportRes
 		Matched: report.Matched, Cleared: report.Cleared,
 		Unmatched: report.Unmatched, Error: report.Error,
 	}
-}
-
-type createPlatformRequest struct {
-	SiteID        string `json:"siteId"`
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	IntegrationID string `json:"integrationId"`
-	GPUStackOwner string `json:"gpuStackOwner"`
-	ExporterOwner string `json:"exporterOwner"`
-}
-
-func (h *PlatformHandler) Create(c *fiber.Ctx) error {
-	var req createPlatformRequest
-	if err := c.BodyParser(&req); err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
-	}
-	if req.SiteID == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
-	}
-
-	item, err := h.platforms.Create(c.Context(), application.CreatePlatformInput{
-		SiteID:        req.SiteID,
-		Name:          req.Name,
-		Type:          req.Type,
-		IntegrationID: req.IntegrationID,
-		GPUStackOwner: req.GPUStackOwner,
-		ExporterOwner: req.ExporterOwner,
-	})
-	if err != nil {
-		return respondError(c, err)
-	}
-	return c.Status(fiber.StatusCreated).JSON(item)
 }
 
 // roleAssignmentRequest keeps workload co-location additive: an omitted JSON boolean maps
@@ -328,9 +299,11 @@ func (h *PlatformHandler) Get(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
+// updatePlatformRequest omits integrationId on purpose: a Platform's credential Integration is
+// set only by its deployment. Accepting it here would let an operator repoint a Platform at an
+// arbitrary Integration, a register-existing back door removed by decision 032.
 type updatePlatformRequest struct {
 	Name          *string `json:"name"`
-	IntegrationID *string `json:"integrationId"`
 	GPUStackOwner *string `json:"gpuStackOwner"`
 	ExporterOwner *string `json:"exporterOwner"`
 }
@@ -343,7 +316,6 @@ func (h *PlatformHandler) Update(c *fiber.Ctx) error {
 
 	item, err := h.platforms.Update(c.Context(), c.Params("id"), application.UpdatePlatformInput{
 		Name:          req.Name,
-		IntegrationID: req.IntegrationID,
 		GPUStackOwner: req.GPUStackOwner,
 		ExporterOwner: req.ExporterOwner,
 	})
@@ -509,6 +481,17 @@ func respondError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, platformdomain.ErrPlatformNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Platform not found."))
+
+	case errors.Is(err, platformdomain.ErrPlatformNotKubernetes):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound,
+			"This platform is not a Kubernetes platform, so it has no cluster explorer."))
+
+	case errors.Is(err, platformdomain.ErrClusterExplorerUnavailable):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"The cluster explorer is available only for a Swallow-deployed Kubernetes platform with a recorded credential."))
+
+	case errors.Is(err, platformdomain.ErrInvalidKubernetesRequest):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	case errors.Is(err, sitedomain.ErrSiteNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))

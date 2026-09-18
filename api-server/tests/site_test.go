@@ -109,6 +109,29 @@ func TestCreateIntegration_RejectsUnknownKind(t *testing.T) {
 	}
 }
 
+// A platform integration is created only by deploying a platform (decision 032), so operators
+// cannot register one through the public integrations route. This closes the register-existing
+// back door while leaving the deployment completion hook (which writes through the repository)
+// unaffected.
+func TestCreateIntegration_RejectsPlatformKind(t *testing.T) {
+	f := setupPlatform(t)
+	siteID := createSite(t, f, "dc-east")
+
+	for _, kind := range []string{"platform", "cluster"} {
+		resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", map[string]any{
+			"siteId":       siteID,
+			"kind":         kind,
+			"providerKind": "kubernetes",
+			"name":         "prod-k8s",
+			"endpoint":     "https://10.0.0.1:6443",
+			"credential":   "token",
+		}, f.adminAuth(t))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("kind %q: expected 400, got %d", kind, resp.StatusCode)
+		}
+	}
+}
+
 func TestCreateIntegration_RejectsUnknownSite(t *testing.T) {
 	f := setupPlatform(t)
 

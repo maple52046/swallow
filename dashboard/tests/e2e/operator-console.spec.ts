@@ -759,6 +759,43 @@ test.describe('operator interactions', () => {
     await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).not.toContainText('host on')
   })
 
+  test('deployed Kubernetes platform exposes the live cluster explorer (applications, namespaces, cluster)', async ({ page }) => {
+    await page.goto('/platforms/platform-a?site=site-a')
+
+    // The explorer tabs appear only for a Swallow-deployed Kubernetes platform with a credential.
+    await expect(page.getByRole('tab', { name: 'Applications' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Namespaces' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Cluster' })).toBeVisible()
+
+    // Applications aggregate workloads and bare pods from the live cluster.
+    await page.getByRole('tab', { name: 'Applications' }).click()
+    const applications = page.getByRole('table', { name: 'Kubernetes applications' })
+    await expect(applications.getByRole('row', { name: /nginx/ })).toContainText('Deployment')
+    await expect(applications.getByRole('row', { name: /debug/ })).toContainText('Pod')
+
+    // Cluster tab shows the live summary and node table with cordon controls.
+    await page.getByRole('tab', { name: 'Cluster' }).click()
+    await expect(page.locator('.sw-metric-grid').getByText('Version', { exact: true })).toBeVisible()
+    const nodes = page.getByRole('table', { name: 'Kubernetes nodes' })
+    await expect(nodes.getByRole('row', { name: /gpu-node-01/ })).toContainText('control-plane')
+    await expect(nodes.getByRole('row', { name: /gpu-node-02/ }).getByRole('button', { name: 'Cordon' })).toBeVisible()
+
+    // Namespaces flag system namespaces and block their deletion.
+    await page.getByRole('tab', { name: 'Namespaces' }).click()
+    const namespaces = page.getByRole('table', { name: 'Kubernetes namespaces' })
+    const systemRow = namespaces.getByRole('row', { name: /kube-system/ })
+    await expect(systemRow.getByRole('button', { name: 'Delete' })).toBeDisabled()
+  })
+
+  test('registered platform hides the Kubernetes cluster explorer', async ({ page }) => {
+    // research-slurm is a Slurm platform, and platform-b is a deploy-failed Kubernetes platform
+    // with no credential; neither is an eligible deployed Kubernetes cluster, so the explorer
+    // tabs must not appear.
+    await page.goto('/platforms/platform-b?site=site-a')
+    await expect(page.getByRole('tab', { name: 'Applications' })).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: 'Cluster' })).toHaveCount(0)
+  })
+
   test('standalone Platform summary shows one control-plane is workload-capable', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
     const stats = page.locator('.sw-metric-grid')

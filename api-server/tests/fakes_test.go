@@ -1103,6 +1103,139 @@ func (f *fakeReaderFactory) For(_ context.Context, platform *platformdomain.Plat
 	return reader, nil
 }
 
+// fakeKubernetesClient records explorer writes and answers reads with canned data so the HTTP
+// explorer routes can be exercised without a live cluster.
+type fakeKubernetesClient struct {
+	summary      platformdomain.KubernetesClusterSummary
+	nodes        []platformdomain.KubernetesNode
+	namespaces   []platformdomain.KubernetesNamespace
+	applications []platformdomain.KubernetesApplication
+	application  *platformdomain.KubernetesApplication
+	pods         []platformdomain.KubernetesPod
+	logs         string
+	applyResults []platformdomain.KubernetesApplyResult
+	deletedNS    []string
+	cordoned     map[string]bool
+	scaledTo     map[string]int
+	restarted    []string
+	deletedApps  []string
+	deletedPods  []string
+	createdNS    []string
+}
+
+func newFakeKubernetesClient() *fakeKubernetesClient {
+	return &fakeKubernetesClient{cordoned: map[string]bool{}, scaledTo: map[string]int{}}
+}
+
+func (c *fakeKubernetesClient) Summary(context.Context) (*platformdomain.KubernetesClusterSummary, error) {
+	summary := c.summary
+	return &summary, nil
+}
+
+func (c *fakeKubernetesClient) ListNodes(context.Context) ([]platformdomain.KubernetesNode, error) {
+	return c.nodes, nil
+}
+
+func (c *fakeKubernetesClient) SetNodeSchedulable(_ context.Context, name string, schedulable bool) (*platformdomain.KubernetesNode, error) {
+	c.cordoned[name] = !schedulable
+	return &platformdomain.KubernetesNode{Name: name, Role: "worker", Ready: true, Unschedulable: !schedulable}, nil
+}
+
+func (c *fakeKubernetesClient) ListNamespaces(context.Context) ([]platformdomain.KubernetesNamespace, error) {
+	return c.namespaces, nil
+}
+
+func (c *fakeKubernetesClient) CreateNamespace(_ context.Context, name string) (*platformdomain.KubernetesNamespace, error) {
+	c.createdNS = append(c.createdNS, name)
+	return &platformdomain.KubernetesNamespace{Name: name, Phase: "Active"}, nil
+}
+
+func (c *fakeKubernetesClient) DeleteNamespace(_ context.Context, name string) error {
+	c.deletedNS = append(c.deletedNS, name)
+	return nil
+}
+
+func (c *fakeKubernetesClient) ListApplications(context.Context, string, bool) ([]platformdomain.KubernetesApplication, error) {
+	return c.applications, nil
+}
+
+func (c *fakeKubernetesClient) GetApplication(_ context.Context, _, _, _ string) (*platformdomain.KubernetesApplication, error) {
+	if c.application == nil {
+		return &platformdomain.KubernetesApplication{}, nil
+	}
+	return c.application, nil
+}
+
+func (c *fakeKubernetesClient) DeleteApplication(_ context.Context, _, kind, name string) error {
+	c.deletedApps = append(c.deletedApps, kind+"/"+name)
+	return nil
+}
+
+func (c *fakeKubernetesClient) ScaleApplication(_ context.Context, _, kind, name string, replicas int) (*platformdomain.KubernetesApplication, error) {
+	c.scaledTo[kind+"/"+name] = replicas
+	return &platformdomain.KubernetesApplication{Kind: kind, Name: name, Replicas: replicas}, nil
+}
+
+func (c *fakeKubernetesClient) RestartApplication(_ context.Context, _, kind, name string) error {
+	c.restarted = append(c.restarted, kind+"/"+name)
+	return nil
+}
+
+func (c *fakeKubernetesClient) ListPods(context.Context, string, bool) ([]platformdomain.KubernetesPod, error) {
+	return c.pods, nil
+}
+
+func (c *fakeKubernetesClient) PodLogs(_ context.Context, _, _, container string, _ int) (string, string, error) {
+	return container, c.logs, nil
+}
+
+func (c *fakeKubernetesClient) DeletePod(_ context.Context, _, name string) error {
+	c.deletedPods = append(c.deletedPods, name)
+	return nil
+}
+
+func (c *fakeKubernetesClient) ListServices(context.Context, string, bool) ([]platformdomain.KubernetesService, error) {
+	return nil, nil
+}
+
+func (c *fakeKubernetesClient) ListIngresses(context.Context, string, bool) ([]platformdomain.KubernetesIngress, error) {
+	return nil, nil
+}
+
+func (c *fakeKubernetesClient) ListConfigMaps(context.Context, string, bool) ([]platformdomain.KubernetesConfigResource, error) {
+	return nil, nil
+}
+
+func (c *fakeKubernetesClient) ListSecrets(context.Context, string, bool) ([]platformdomain.KubernetesConfigResource, error) {
+	return nil, nil
+}
+
+func (c *fakeKubernetesClient) ListPersistentVolumeClaims(context.Context, string, bool) ([]platformdomain.KubernetesPersistentVolumeClaim, error) {
+	return nil, nil
+}
+
+func (c *fakeKubernetesClient) Apply(context.Context, string, bool) ([]platformdomain.KubernetesApplyResult, error) {
+	return c.applyResults, nil
+}
+
+// fakeKubernetesClientFactory resolves platforms to a single shared fake client (or an error),
+// so a test can assert the explorer wiring without a live cluster.
+type fakeKubernetesClientFactory struct {
+	client *fakeKubernetesClient
+	err    error
+}
+
+func newFakeKubernetesClientFactory() *fakeKubernetesClientFactory {
+	return &fakeKubernetesClientFactory{client: newFakeKubernetesClient()}
+}
+
+func (f *fakeKubernetesClientFactory) For(context.Context, *platformdomain.Platform) (platformdomain.KubernetesClusterClient, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.client, nil
+}
+
 // --- monitoring ---
 
 type fakeQuerier struct {

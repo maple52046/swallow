@@ -101,12 +101,15 @@ type PlatformSyncItem struct {
 	MatchedCount int `json:"matchedCount"`
 }
 
-// CreatePlatformInput is the validated input for a registered platform.
+// CreatePlatformInput is the validated input for creating a Platform record.
+//
+// It is internal-only: the deploy use case calls it to create the record before launching the
+// build Operation. There is no public register-existing route (decision 032), so it carries no
+// integrationId — a Platform's credential Integration is attached later by its deployment.
 type CreatePlatformInput struct {
 	SiteID        string
 	Name          string
 	Type          string
-	IntegrationID string
 	GPUStackOwner string
 	// ExporterOwner is optional; empty defaults to ansible.
 	ExporterOwner string
@@ -115,7 +118,9 @@ type CreatePlatformInput struct {
 // ErrInvalidPlatform covers validation failures the delivery layer turns into a 400.
 var ErrInvalidPlatform = errors.New("invalid platform")
 
-// Create registers a platform without deployment provenance.
+// Create persists a Platform record without deployment provenance. Its origin becomes
+// `deployed` once the caller launches a deploy Operation for it; a record left without an
+// Operation would read as the legacy `registered` state, which no public route now produces.
 func (s *PlatformService) Create(ctx context.Context, input CreatePlatformInput) (*PlatformItem, error) {
 	platformType := platformdomain.PlatformType(strings.TrimSpace(input.Type))
 	if !platformType.Valid() {
@@ -145,7 +150,7 @@ func (s *PlatformService) Create(ctx context.Context, input CreatePlatformInput)
 	now := time.Now().UTC()
 	platform := &platformdomain.Platform{
 		ID: uuid.NewString(), SiteID: input.SiteID, Name: strings.TrimSpace(input.Name),
-		Type: platformType, IntegrationID: input.IntegrationID,
+		Type:          platformType,
 		GPUStackOwner: owner, ExporterOwner: exporterOwner,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -189,10 +194,11 @@ func (s *PlatformService) Get(ctx context.Context, id string) (*PlatformItem, er
 	return &item, nil
 }
 
-// UpdatePlatformInput contains mutable registration fields.
+// UpdatePlatformInput contains the mutable policy fields. It intentionally excludes the
+// credential Integration: that is set only by deployment, and letting it be repointed here
+// would be a register-existing back door removed by decision 032.
 type UpdatePlatformInput struct {
 	Name          *string
-	IntegrationID *string
 	GPUStackOwner *string
 	ExporterOwner *string
 }
@@ -209,9 +215,6 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 			return nil, fmt.Errorf("%w: name cannot be empty", ErrInvalidPlatform)
 		}
 		platform.Name = strings.TrimSpace(*input.Name)
-	}
-	if input.IntegrationID != nil {
-		platform.IntegrationID = *input.IntegrationID
 	}
 	if input.GPUStackOwner != nil {
 		owner := platformdomain.GPUStackOwner(strings.TrimSpace(*input.GPUStackOwner))

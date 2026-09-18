@@ -66,6 +66,7 @@ type platformFixture struct {
 	monitoring        *fakeMonitoringFactory
 	platformRepo      *fakePlatformRepo
 	platformReader    *fakeReaderFactory
+	kubernetesClient  *fakeKubernetesClientFactory
 	requirementRepo   *fakeDeploymentRequirementRepo
 }
 
@@ -144,9 +145,12 @@ func setupPlatform(t *testing.T) *platformFixture {
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, servers, lifecycle, uninstallLauncher)
 	slurmClusterRead := platformapp.NewGetSlurmClusterUseCase(platformRepo, readerFactory)
+	kubernetesFactory := newFakeKubernetesClientFactory()
+	kubernetesExplorer := platformapp.NewKubernetesExplorerUseCase(platformRepo, lifecycle, kubernetesFactory, servers)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService, slurmClusterRead, requirementService)
+		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
+		kubernetesExplorer, requirementService)
 
 	app := fiber.New()
 	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
@@ -213,7 +217,6 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformGroup := v1.Group("/platforms", admin...)
 	platformGroup.Get("/deployment-requirements/slurm", platformHandler.GetSlurmDeploymentRequirement)
 	platformGroup.Put("/deployment-requirements/slurm", platformHandler.PutSlurmDeploymentRequirement)
-	platformGroup.Post("/", platformHandler.Create)
 	platformGroup.Get("/", platformHandler.List)
 	platformGroup.Post("/deploy", platformHandler.Deploy)
 	platformGroup.Post("/sync", platformHandler.SyncAllMembership)
@@ -222,6 +225,28 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformGroup.Delete("/:id", platformHandler.Delete)
 	platformGroup.Post("/:id/sync", platformHandler.SyncMembership)
 	platformGroup.Post("/:id/uninstall", platformHandler.Uninstall)
+	platformGroup.Get("/:id/slurm", platformHandler.GetSlurmCluster)
+	platformGroup.Get("/:id/kubernetes", platformHandler.GetKubernetesCluster)
+	platformGroup.Get("/:id/kubernetes/nodes", platformHandler.ListKubernetesNodes)
+	platformGroup.Post("/:id/kubernetes/nodes/:node/cordon", platformHandler.CordonKubernetesNode)
+	platformGroup.Post("/:id/kubernetes/nodes/:node/uncordon", platformHandler.UncordonKubernetesNode)
+	platformGroup.Get("/:id/kubernetes/namespaces", platformHandler.ListKubernetesNamespaces)
+	platformGroup.Post("/:id/kubernetes/namespaces", platformHandler.CreateKubernetesNamespace)
+	platformGroup.Delete("/:id/kubernetes/namespaces/:namespace", platformHandler.DeleteKubernetesNamespace)
+	platformGroup.Get("/:id/kubernetes/applications", platformHandler.ListKubernetesApplications)
+	platformGroup.Get("/:id/kubernetes/applications/:namespace/:kind/:name", platformHandler.GetKubernetesApplication)
+	platformGroup.Delete("/:id/kubernetes/applications/:namespace/:kind/:name", platformHandler.DeleteKubernetesApplication)
+	platformGroup.Post("/:id/kubernetes/applications/:namespace/:kind/:name/scale", platformHandler.ScaleKubernetesApplication)
+	platformGroup.Post("/:id/kubernetes/applications/:namespace/:kind/:name/restart", platformHandler.RestartKubernetesApplication)
+	platformGroup.Get("/:id/kubernetes/pods", platformHandler.ListKubernetesPods)
+	platformGroup.Get("/:id/kubernetes/pods/:namespace/:name/logs", platformHandler.GetKubernetesPodLogs)
+	platformGroup.Delete("/:id/kubernetes/pods/:namespace/:name", platformHandler.DeleteKubernetesPod)
+	platformGroup.Get("/:id/kubernetes/services", platformHandler.ListKubernetesServices)
+	platformGroup.Get("/:id/kubernetes/ingresses", platformHandler.ListKubernetesIngresses)
+	platformGroup.Get("/:id/kubernetes/configmaps", platformHandler.ListKubernetesConfigMaps)
+	platformGroup.Get("/:id/kubernetes/secrets", platformHandler.ListKubernetesSecrets)
+	platformGroup.Get("/:id/kubernetes/persistentvolumeclaims", platformHandler.ListKubernetesPersistentVolumeClaims)
+	platformGroup.Post("/:id/kubernetes/apply", platformHandler.ApplyKubernetesManifest)
 
 	// Deprecated one-release /clusters alias mirrors the Platform routes with a
 	// Deprecation header, matching internal/app route registration.
@@ -231,7 +256,6 @@ func setupPlatform(t *testing.T) *platformFixture {
 		c.Set("Link", "</api/v1/platforms>; rel=\"successor-version\"")
 		return c.Next()
 	})
-	legacyPlatformGroup.Post("/", platformHandler.Create)
 	legacyPlatformGroup.Get("/", platformHandler.List)
 	legacyPlatformGroup.Post("/deploy", platformHandler.Deploy)
 	legacyPlatformGroup.Post("/sync", platformHandler.SyncAllMembership)
@@ -267,6 +291,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		monitoring:        monitoringFactory,
 		platformRepo:      platformRepo,
 		platformReader:    readerFactory,
+		kubernetesClient:  kubernetesFactory,
 		requirementRepo:   requirementRepo,
 		platformLifecycle: lifecycle,
 		uninstallLauncher: uninstallLauncher,
