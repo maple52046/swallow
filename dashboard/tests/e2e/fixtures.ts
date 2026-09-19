@@ -148,6 +148,9 @@ export interface FixtureOptions {
   networkSubnetName?: string
   ephemeralServerIds?: string[]
   lockedServerIds?: string[]
+  failedServerIds?: string[]
+  brokenServerIds?: string[]
+  rescueServerIds?: string[]
   secondReadyServerIntegrationId?: string
   failImageIntegrationIds?: string[]
   deploymentFailureIds?: string[]
@@ -159,6 +162,7 @@ export interface FixtureOptions {
   onDeploymentRequest?: (body: Record<string, unknown>) => void
   onPlatformDeploymentRequest?: (body: Record<string, unknown>) => void
   onServerReleaseRequest?: (serverId: string, body: Record<string, unknown> | null) => void
+  onServerRecoverRequest?: (serverId: string, body: Record<string, unknown> | null) => void
   onServerRefreshRequest?: (serverId: string) => void
   onPlatformUninstallRequest?: (platformId: string, body: Record<string, unknown> | null) => void
   releaseConvergesAfterRefreshes?: number
@@ -236,6 +240,20 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.provisioning.locked = true
   }
+  // Seed the not-usable provider states the recovery policy acts on (decision 033), so tests
+  // can exercise Recover / Release gating and the Failed vs Broken vs Rescue badges.
+  const seedProviderState = (ids: string[] | undefined, state: string, providerState: string) => {
+    for (const serverId of ids ?? []) {
+      const server = fleet.find((item) => item.id === serverId)
+      if (server) {
+        server.provisioning.state = state
+        server.provisioning.providerState = providerState
+      }
+    }
+  }
+  seedProviderState(options.failedServerIds, 'failed', 'Failed deployment')
+  seedProviderState(options.brokenServerIds, 'broken', 'Broken')
+  seedProviderState(options.rescueServerIds, 'rescue', 'Rescue mode')
   if (options.secondReadyServerIntegrationId && fleet[1]) {
     fleet[1].source.integrationId = options.secondReadyServerIntegrationId
     fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId
@@ -776,6 +794,26 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         }
       }
       const operationId = createProvisioningOperation('release-os', serverIds, body)
+      return json(route, { operationId }, 202)
+    }
+
+    if (path === '/api/v1/provisioning/recover-operations' && request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      const serverIds = body.serverIds as string[]
+      const recoverBody = { ...body }
+      delete recoverBody.serverIds
+      for (const serverId of serverIds) {
+        options.onServerRecoverRequest?.(serverId, recoverBody)
+        const server = fleet.find((item) => item.id === serverId)
+        if (server) {
+          // Recovery converges to the ready pool; model the same releasing -> ready path a
+          // real Recover Operation drives so the list can follow the Server in place.
+          server.provisioning.state = 'releasing'
+          server.provisioning.providerState = 'Releasing'
+          releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
+        }
+      }
+      const operationId = createProvisioningOperation('recover-server', serverIds, body)
       return json(route, { operationId }, 202)
     }
 

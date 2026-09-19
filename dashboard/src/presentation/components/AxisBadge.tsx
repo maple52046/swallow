@@ -142,8 +142,15 @@ export function DeploymentBadge({
     }
   } else if (provider?.state === 'deploying') {
     state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is installing an operating system; no verified Swallow result exists yet.">Deploying</AxisLabel>
-  } else if (provider?.state === 'failed' || provider?.state === 'broken') {
-    state = <AxisLabel color="red" tooltip={`Provider lifecycle: ${provider.providerState}`}>Failed</AxisLabel>
+  } else if (provider?.state === 'broken') {
+    // Broken and Failed are distinct recovery cases (decision 033) and must stay
+    // distinguishable at a glance: Broken is a provider-marked unusable Machine (cleared with
+    // Mark fixed or Recover), Failed is a last-lifecycle failure (Recover or Release).
+    state = <AxisLabel color="red" tooltip={`Provider marked this Machine broken. Provider lifecycle: ${provider.providerState}. Recover or Release returns it to Ready.`}>Broken</AxisLabel>
+  } else if (provider?.state === 'failed') {
+    state = <AxisLabel color="red" tooltip={`Provider lifecycle failed: ${provider.providerState}. Recover or Release returns it to Ready.`}>Failed</AxisLabel>
+  } else if (provider?.state === 'rescue') {
+    state = <AxisLabel color="purple" tooltip={`Diagnostic rescue environment. Provider lifecycle: ${provider.providerState}. Exit rescue restores the previous state; Recover returns it to Ready.`}>Rescue</AxisLabel>
   } else if (provider?.state === 'ready') {
     // A released machine is back in the provider's available pool. Show it as "Ready"
     // (the provider's own term) rather than "Not deployed", which reads like a fault.

@@ -54,6 +54,7 @@ POST   /api/v1/provisioning/deployments/preflight
 POST   /api/v1/provisioning/deployments
 POST   /api/v1/provisioning/deployment-operations
 POST   /api/v1/provisioning/release-operations
+POST   /api/v1/provisioning/recover-operations
 POST   /api/v1/provisioning/networks/inspect
 GET    /api/v1/provisioning/tasks/{id}
 POST   /api/v1/provisioning/tasks/{id}/retry
@@ -528,23 +529,54 @@ encrypted opaque Step reference.
 }
 ```
 
-It performs complete presence, deployed-state, Site, duplicate-target, active-work, and
+It performs complete presence, recoverable-state, Site, duplicate-target, active-work, and
 live lock validation before persistence, then creates one `release-os` MAAS Step per
 Server. A Step succeeds only after Ready is observed. When static cleanup is requested,
 the same Step also waits for its durable Provisioning Task; Step Retry after a cleanup
 failure retries cleanup only and never sends Release again. Provider cancellation is
 best-effort and confirmed prior effects are preserved.
 
+Release is the primary provider-recovery path and is not restricted to `deployed`. The
+Swallow-owned recovery policy (decision 033) allows Release from `deployed`, `failed`,
+`broken`, and `rescue`, always converging the Machine to `ready`. A target in any other
+state (for example `releasing`, `deploying`, `new`, or already `ready`) is rejected with a
+Swallow-authored reason rather than the provider's message.
+
 Both endpoints return `202` with an Operation reference and preserve the request ID as
 `requestCorrelation`. Progress, target-specific normalized errors, Cancel, and safe Retry
 are read and controlled through the [Operations](operations.md) contract.
 
 Acceptance-time rejection is reported with the shared error envelope, never as an opaque
-`500 internal_error`: malformed input (missing or out-of-range `serverIds`, an
-undeployed target, a duplicate target, or a cross-Site batch) is `400 validation_error`;
-a Server unknown to Swallow is `404 not_found`; a target already inside an unfinished
-Operation or a locked target is `409 conflict`; and a build without durable provisioning
-wired up is `503 provider_unavailable`.
+`500 internal_error`: malformed input (missing or out-of-range `serverIds`, a target in a
+state Release is not allowed from, a duplicate target, or a cross-Site batch) is
+`400 validation_error`; a Server unknown to Swallow is `404 not_found`; a target already
+inside an unfinished Operation or a locked target is `409 conflict`; and a build without
+durable provisioning wired up is `503 provider_unavailable`.
+
+`POST /recover-operations` returns a Server to `ready` from a not-usable state and accepts
+the same bounded batch shape as Release, without the disk-erase controls:
+
+```json
+{
+  "serverIds": ["server-1"],
+  "comment": "Return failed nodes to the ready pool",
+  "unbindStaticIPs": true
+}
+```
+
+It performs the same presence, Site, duplicate-target, active-work, and live lock
+validation, then creates one `recover-server` MAAS Step per Server. Recover is allowed
+from `failed`, `broken`, `rescue`, and `deployed`; a target already `ready` is accepted as
+an immediate success (no-op) and any other state is a `400 validation_error` with a
+Swallow reason. Each Step chooses the provider primitive by observed state — `broken` is
+returned with Mark fixed, `rescue` exits rescue and then Releases if it is still not
+`ready`, and `failed` (or `deployed`) is Released — and succeeds only after `ready` is
+observed. A Machine that fails to leave rescue (a settled "failed to exit rescue" state, or
+one that hangs in the transition past a grace period) is escalated to Mark broken and then
+Mark fixed, which returns it to `ready` without a disk erase; this is the only path out for
+a Machine whose exit-rescue and disk-erase both fail on the provider. `unbindStaticIPs`
+behaves as it does for Release when the recovery path performs a Release. Error mapping
+matches `/release-operations`.
 
 ## Provisioning Tasks
 

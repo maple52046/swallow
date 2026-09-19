@@ -136,8 +136,14 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 		} else if siteID != server.Source.SiteID {
 			return nil, fmt.Errorf("%w: all Servers must belong to one Site", provisioningdomain.ErrInvalidReleaseRequest)
 		}
-		if server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed" {
-			return nil, fmt.Errorf("%w: Server %s is not deployed", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())
+		// Release is the primary provider-recovery path, so its allowed source states come
+		// from the Swallow-owned recovery policy (deployed, failed, broken, rescue) rather
+		// than a hardcoded deployed-only rule. An absent Server has no live state to act on.
+		if server.Absent || server.Provisioning == nil {
+			return nil, fmt.Errorf("%w: Server %s has no observed provisioning state to release", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())
+		}
+		if decision := provisioningdomain.EvaluateRecovery(provisioningdomain.RecoveryIntentRelease, provisioningdomain.MachineStatus(server.Provisioning.State)); !decision.Allowed {
+			return nil, fmt.Errorf("%w: Server %s %s", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName(), decision.Reason)
 		}
 		targetIDs[index] = input.ServerID
 		steps[index] = operationdomain.Task{
@@ -161,6 +167,72 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 		return nil, err
 	}
 	return &provisioningapp.OperationReference{OperationID: created.ID}, nil
+}
+
+// LaunchRecover validates a bounded batch of "Return to Ready" intents and persists one
+// recover-server Step per Server. Gating mirrors LaunchRelease (presence, single Site,
+// duplicate target, recovery-state, and live lock) so Recover and Release cannot diverge
+// on which targets they accept. A Server already ready is accepted and recorded as an
+// immediate success by its Step rather than rejected, so a mixed batch converges.
+func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs []provisioningapp.RecoverServerInput, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
+	if len(inputs) == 0 || len(inputs) > 100 {
+		return nil, fmt.Errorf("%w: recover requires between 1 and 100 Servers", provisioningdomain.ErrInvalidReleaseRequest)
+	}
+	seen := map[string]bool{}
+	siteID := ""
+	steps := make([]operationdomain.Task, len(inputs))
+	targetIDs := make([]string, len(inputs))
+	for index, input := range inputs {
+		if seen[input.ServerID] {
+			return nil, fmt.Errorf("%w: duplicate Server %s", provisioningdomain.ErrInvalidReleaseRequest, input.ServerID)
+		}
+		seen[input.ServerID] = true
+		server, err := l.servers.FindByID(ctx, input.ServerID)
+		if err != nil {
+			return nil, err
+		}
+		if siteID == "" {
+			siteID = server.Source.SiteID
+		} else if siteID != server.Source.SiteID {
+			return nil, fmt.Errorf("%w: all Servers must belong to one Site", provisioningdomain.ErrInvalidReleaseRequest)
+		}
+		if server.Absent || server.Provisioning == nil {
+			return nil, fmt.Errorf("%w: Server %s has no observed provisioning state to recover", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())
+		}
+		if decision := provisioningdomain.EvaluateRecovery(provisioningdomain.RecoveryIntentRecover, provisioningdomain.MachineStatus(server.Provisioning.State)); !decision.Allowed {
+			return nil, fmt.Errorf("%w: Server %s %s", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName(), decision.Reason)
+		}
+		targetIDs[index] = input.ServerID
+		steps[index] = operationdomain.Task{
+			ID: "recover-" + input.ServerID, Kind: "recover-server", Name: "Recover " + server.DisplayName(),
+			Executor:   operationdomain.RunnerKindProvisioner,
+			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
+			Parameters: map[string]any{"request": structToMap(input)},
+		}
+	}
+	if l.protection != nil {
+		if err := l.protection.RequireUnlocked(ctx, targetIDs); err != nil {
+			return nil, err
+		}
+	}
+	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
+		Kind: operationdomain.WorkflowKindRecoverServer, IntentSummary: fmt.Sprintf("Recover %d Server(s) to Ready", len(inputs)),
+		IntentSnapshot: map[string]any{"requests": recoverInputsToMaps(inputs)}, Definition: "server-recovery", DefinitionVersion: 1,
+		SiteID: siteID, TargetServerIDs: targetIDs, Steps: steps, RequestedBy: requestedBy, RequestCorrelation: requestID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &provisioningapp.OperationReference{OperationID: created.ID}, nil
+}
+
+func recoverInputsToMaps(values []provisioningapp.RecoverServerInput) []map[string]any {
+	result := make([]map[string]any, len(values))
+	for index, value := range values {
+		value.RequestID = strings.TrimSpace(value.RequestID)
+		result[index] = structToMap(value)
+	}
+	return result
 }
 
 func structToMap(value any) map[string]any {

@@ -267,6 +267,12 @@ func TestListMachines_NormalizesStatusCodes(t *testing.T) {
 		{12, provisioningdomain.MachineStatusReleasing},
 		{14, provisioningdomain.MachineStatusReleasing},
 		{16, provisioningdomain.MachineStatusRescue},
+		// Rescue transitions, including their failed variants, normalize to `rescue` so
+		// recovery treats them as a rescue problem (exit then release). See decision 033.
+		{17, provisioningdomain.MachineStatusRescue},
+		{18, provisioningdomain.MachineStatusRescue},
+		{19, provisioningdomain.MachineStatusRescue},
+		{20, provisioningdomain.MachineStatusRescue},
 		{21, provisioningdomain.MachineStatusTesting},
 		{22, provisioningdomain.MachineStatusFailed},
 		// A status this version has never heard of must not be guessed at.

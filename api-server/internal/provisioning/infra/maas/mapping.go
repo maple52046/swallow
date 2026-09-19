@@ -167,11 +167,17 @@ var maasStatusToDomain = map[int]provisioningdomain.MachineStatus{
 	15: provisioningdomain.MachineStatusFailed,        // FAILED_DISK_ERASING
 	16: provisioningdomain.MachineStatusRescue,        // RESCUE_MODE
 	17: provisioningdomain.MachineStatusRescue,        // ENTERING_RESCUE_MODE
-	18: provisioningdomain.MachineStatusFailed,        // FAILED_ENTERING_RESCUE_MODE
-	19: provisioningdomain.MachineStatusRescue,        // EXITING_RESCUE_MODE
-	20: provisioningdomain.MachineStatusFailed,        // FAILED_EXITING_RESCUE_MODE
-	21: provisioningdomain.MachineStatusTesting,       // TESTING
-	22: provisioningdomain.MachineStatusFailed,        // FAILED_TESTING
+	// A failed rescue transition leaves the Machine inside the rescue subsystem: MAAS refuses
+	// Release from this state ("cannot be released ... 'Failed to exit rescue mode'") and the
+	// resolution is to (re)issue exit rescue. Normalizing to `rescue` (not `failed`) makes the
+	// recovery policy and UI treat it as the rescue problem it is, so Recover exits rescue and
+	// then releases, and the operator's Exit rescue action is available. The provider label is
+	// preserved in ProviderStatus for diagnostics. See docs/decisions/033.
+	18: provisioningdomain.MachineStatusRescue,  // FAILED_ENTERING_RESCUE_MODE
+	19: provisioningdomain.MachineStatusRescue,  // EXITING_RESCUE_MODE
+	20: provisioningdomain.MachineStatusRescue,  // FAILED_EXITING_RESCUE_MODE
+	21: provisioningdomain.MachineStatusTesting, // TESTING
+	22: provisioningdomain.MachineStatusFailed,  // FAILED_TESTING
 }
 
 var maasPowerStateToDomain = map[string]provisioningdomain.PowerState{

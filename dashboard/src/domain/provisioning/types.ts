@@ -122,6 +122,17 @@ export interface ReleaseServersOperationInput {
   unbindStaticIPs?: boolean;
 }
 
+/**
+ * A bounded batch "Return to Ready" intent executed by one durable Operation. Recover
+ * converges a failed, broken, or rescue Server back to `ready`; unlike Release it chooses
+ * the provider primitive by state, so it carries no disk-erase controls.
+ */
+export interface RecoverServersOperationInput {
+  serverIds: string[];
+  comment?: string;
+  unbindStaticIPs?: boolean;
+}
+
 /** Session-safe result shape. It intentionally has nowhere to store cloud-init. */
 export interface StoredDeploymentResult extends DeployServersResult {
   serverIds: string[];

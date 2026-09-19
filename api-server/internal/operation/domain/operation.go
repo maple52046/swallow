@@ -16,6 +16,10 @@ const (
 	WorkflowKindInstallGPUDriver WorkflowKind = "install-gpu-driver"
 	WorkflowKindDeployOS         WorkflowKind = "deploy-os"
 	WorkflowKindReleaseOS        WorkflowKind = "release-os"
+	// WorkflowKindRecoverServer returns a Server whose provisioning axis is not usable
+	// (failed, broken, or in rescue) to the provider's ready pool. Its provider Step
+	// chooses the primitive by observed state per the recovery policy (decision 033).
+	WorkflowKindRecoverServer    WorkflowKind = "recover-server"
 	WorkflowKindDeployKubernetes WorkflowKind = "deploy-kubernetes"
 	// WorkflowKindUninstallKubernetes removes the k0s installation created by a
 	// deploy-kubernetes operation while preserving the host operating system.
@@ -51,6 +55,7 @@ const (
 var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindDeployOS,
 	WorkflowKindReleaseOS,
+	WorkflowKindRecoverServer,
 	WorkflowKindInstallGPUDriver,
 	WorkflowKindDeployKubernetes,
 	WorkflowKindUninstallKubernetes,

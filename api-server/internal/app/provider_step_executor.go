@@ -68,6 +68,17 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 			}
 		}
 		return result
+	case "recover-server":
+		result := e.recoverServer(ctx, input)
+		if result.Status == operationdomain.TaskSucceeded {
+			serverID := firstTargetServer(input.Step)
+			if serverID != "" {
+				if err := e.servers.SetDeployment(ctx, serverID, nil); err != nil {
+					return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
+				}
+			}
+		}
+		return result
 	default:
 		return providerFailed("unsupported_step", "The provider Step kind is not supported.", false).StepExecutionResult
 	}
@@ -447,6 +458,259 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 		return normalizeProviderError(err, "release")
 	}
 	return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+}
+
+// recoverServer converges a Server whose provisioning axis is not usable back to ready by
+// choosing the provider primitive for its observed state per the recovery policy: broken is
+// cleared with Mark fixed, rescue is exited and then, if still not ready, released, and
+// failed or deployed is released. It is state-driven rather than plan-fixed so a Machine
+// that changes state between primitives (rescue -> failed after exit) is re-evaluated. Each
+// primitive is issued at most once so a stuck state fails for attention rather than looping.
+func (e providerStepExecutor) recoverServer(ctx context.Context, step temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	var input provisioningapp.RecoverServerInput
+	if err := decodeStepRequest(step.Step.Parameters, &input); err != nil {
+		return providerFailed("invalid_step", err.Error(), false).StepExecutionResult
+	}
+	serverID := firstTargetServer(step.Step)
+	if serverID == "" {
+		return providerFailed("invalid_step", "The recovery Step has no Server target.", false).StepExecutionResult
+	}
+	deadline := time.NewTimer(2 * time.Hour)
+	defer deadline.Stop()
+	ticker := time.NewTicker(e.pollInterval())
+	defer ticker.Stop()
+	// Operator-state primitives (Mark fixed, exit rescue) are not instantaneous, and a failed
+	// rescue transition can leave the Machine back in the rescue subsystem. Two failure modes
+	// must be told apart: the Machine actively transitioning (MAAS "Entering/Exiting rescue
+	// mode") is progress and must be waited out patiently, while a settled stuck state ("Rescue
+	// mode" or "Failed to exit/enter rescue mode") needs the primitive (re)issued. Only settled
+	// observations consume the retry budget, so slow but real hardware exits are not aborted.
+	const recoverSettle = 60 * time.Second
+	const maxExitAttempts = 5
+	const maxMarkFixedAttempts = 3
+	// A Machine that reports a settled failed rescue transition ("Failed to exit rescue mode")
+	// will not leave rescue on its own, so recovery escalates to Mark broken (which the provider
+	// still accepts from rescue) and then Mark fixes it to ready — the only path out for a
+	// Machine whose exit-rescue and disk-erase both fail, and without a disk wipe. escalateGrace
+	// bounds how long we wait for the escalation itself to take effect before pausing.
+	const escalateGrace = 4 * time.Minute
+	// Hard cap on total time in the rescue subsystem. A healthy exit leaves rescue (to a
+	// non-rescue state) well within this window; a Machine that hangs in "Exiting rescue mode"
+	// or keeps failing the transition exceeds it and is escalated to Mark broken. Without this
+	// cap a provider that never settles the transition would hold the step until the 2h deadline.
+	const rescueOverallGrace = 4 * time.Minute
+	var exitAttempts, markFixedAttempts int
+	var escalatedToBroken bool
+	var escalatedAt, rescueSince, nextBrokenAt time.Time
+	var nextExitAt, nextMarkFixedAt time.Time
+	for {
+		state, err := e.refresh.Execute(ctx, serverID)
+		if err == nil {
+			now := time.Now()
+			switch provisioningdomain.MachineStatus(state.State) {
+			case provisioningdomain.MachineStatusReady:
+				return providerSucceeded()
+			case provisioningdomain.MachineStatusReleasing:
+				// A Release is already converging this Server; follow it to Ready and reuse
+				// the same static-IP cleanup contract as a direct Release.
+				return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+			case provisioningdomain.MachineStatusFailed, provisioningdomain.MachineStatusDeployed:
+				return e.recoverViaRelease(ctx, step, serverID, input)
+			case provisioningdomain.MachineStatusBroken:
+				if !nextMarkFixedAt.IsZero() && now.Before(nextMarkFixedAt) {
+					break // still within the settle window from the last Mark fixed
+				}
+				if markFixedAttempts >= maxMarkFixedAttempts {
+					return providerAttention("recover_mark_fixed_unsettled", "Mark fixed did not return the Server to Ready. Inspect the provider before retrying.", "recover")
+				}
+				if r := e.recoverOperatorPrimitive(ctx, serverID, provisioningdomain.RecoverPrimitiveMarkFixed); r != nil {
+					return *r
+				}
+				markFixedAttempts++
+				nextMarkFixedAt = now.Add(recoverSettle)
+			case provisioningdomain.MachineStatusRescue:
+				if rescueSince.IsZero() {
+					rescueSince = now
+				}
+				// Escalate to Mark broken when the exit has settled into a failure, or when the
+				// Machine has been anywhere in the rescue subsystem past the overall grace (it is
+				// hung in a transition or repeatedly failing). Mark broken is best-effort: a
+				// transient provider rejection is retried rather than failing the recovery.
+				failedExit := rescueTransitionFailed(state.ProviderState)
+				overGrace := now.Sub(rescueSince) >= rescueOverallGrace
+				if !escalatedToBroken && (failedExit || overGrace) {
+					if !nextBrokenAt.IsZero() && now.Before(nextBrokenAt) {
+						break
+					}
+					ok, fatal := e.escalateMarkBroken(ctx, serverID)
+					if fatal != nil {
+						return *fatal
+					}
+					if ok {
+						escalatedToBroken = true
+						escalatedAt = now
+					} else {
+						nextBrokenAt = now.Add(recoverSettle) // provider refused for now; retry
+					}
+					break
+				}
+				if escalatedToBroken {
+					if now.Sub(escalatedAt) >= escalateGrace {
+						return providerAttention("recover_rescue_unsettled", "The Server did not leave rescue mode after escalation. Inspect the provider before retrying.", "recover")
+					}
+					break // wait for Mark broken to move it out of rescue, then the broken branch runs
+				}
+				if rescueTransitionInProgress(state.ProviderState) {
+					break // actively entering/exiting rescue within grace: wait it out
+				}
+				if !nextExitAt.IsZero() && now.Before(nextExitAt) {
+					break // settle window from the last exit attempt has not elapsed
+				}
+				if exitAttempts >= maxExitAttempts {
+					break // grace-based escalation above will take over
+				}
+				if r := e.recoverOperatorPrimitive(ctx, serverID, provisioningdomain.RecoverPrimitiveExitRescue); r != nil {
+					return *r
+				}
+				exitAttempts++
+				nextExitAt = now.Add(recoverSettle)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+		case <-deadline.C:
+			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "recover")
+		case <-ticker.C:
+		}
+	}
+}
+
+// rescueTransitionInProgress reports that the provider is actively moving a Machine into or
+// out of rescue, as opposed to sitting in a settled rescue state. Both normalize to `rescue`,
+// but only a settled state should have the exit primitive (re)issued; an in-flight transition
+// is progress to wait out. It reads the provider's own label because the normalized state
+// deliberately collapses these; the MAAS labels are stable ("Entering/Exiting rescue mode"),
+// and a "failed" transition is treated as settled (needs a fresh exit), not in progress.
+func rescueTransitionInProgress(providerState string) bool {
+	label := strings.ToLower(providerState)
+	if strings.Contains(label, "failed") {
+		return false
+	}
+	return strings.Contains(label, "entering rescue") || strings.Contains(label, "exiting rescue")
+}
+
+// rescueTransitionFailed reports a settled failed rescue transition (the provider tried and
+// failed to enter or exit rescue). Unlike an in-progress transition this will not resolve on
+// its own, so recovery escalates rather than waiting. It reads the provider label because the
+// normalized state deliberately collapses every rescue substate to `rescue`.
+func rescueTransitionFailed(providerState string) bool {
+	label := strings.ToLower(providerState)
+	return strings.Contains(label, "failed") && strings.Contains(label, "rescue")
+}
+
+// recoverViaRelease performs the Release leg of a recovery and follows it to Ready. It
+// re-checks the lock immediately before the mutation and reuses observeRelease so a
+// recovery Release and a direct Release share one convergence and cleanup path.
+func (e providerStepExecutor) recoverViaRelease(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string, input provisioningapp.RecoverServerInput) temporalworkflow.StepExecutionResult {
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return *locked
+	}
+	comment := fmt.Sprintf("Swallow recovery operation %s step %s attempt %d", step.OperationID, step.Step.ID, step.Step.Attempt)
+	if input.Comment != "" {
+		comment = input.Comment + " | " + comment
+	}
+	_, err := e.release.ExecuteWithOptions(ctx, provisioningapp.ReleaseServerInput{
+		ServerID:        serverID,
+		Comment:         comment,
+		UnbindStaticIPs: input.UnbindStaticIPs,
+		RequestID:       step.OperationID,
+	})
+	if err != nil {
+		var providerErr *provisioningdomain.ProviderError
+		if errors.As(err, &providerErr) && providerErr.Kind == provisioningdomain.ProviderErrorUnavailable {
+			return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, false)
+		}
+		return normalizeProviderError(err, "recover_release")
+	}
+	return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+}
+
+// escalateMarkBroken issues Mark broken as a recovery escalation and reports whether it was
+// accepted. It is best-effort: a provider that transiently refuses Mark broken (for example
+// during a rescue transition) or is briefly unavailable yields ok=false with a nil result so
+// the caller retries, rather than failing the whole recovery. A non-nil result means the Step
+// must stop (missing capability, auth failure, or an unknown provider outcome).
+func (e providerStepExecutor) escalateMarkBroken(ctx context.Context, serverID string) (bool, *temporalworkflow.StepExecutionResult) {
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return false, locked
+	}
+	server, err := e.servers.FindByID(ctx, serverID)
+	if err != nil {
+		result := normalizeProviderError(err, "recover")
+		return false, &result
+	}
+	provider, err := e.providers.For(ctx, server.Source.IntegrationID)
+	if err != nil {
+		result := normalizeProviderError(err, "recover")
+		return false, &result
+	}
+	controller, ok := provider.(provisioningdomain.OperatorStateController)
+	if !ok {
+		result := providerFailed("recover_unsupported", "This provisioner cannot recover the Server through operator-state actions.", false).withStage("recover")
+		return false, &result
+	}
+	if _, err := controller.MarkBroken(ctx, server.Source.ProviderMachineID); err != nil {
+		var providerErr *provisioningdomain.ProviderError
+		if errors.As(err, &providerErr) &&
+			(providerErr.Kind == provisioningdomain.ProviderErrorRejected || providerErr.Kind == provisioningdomain.ProviderErrorUnavailable) {
+			return false, nil // transient refusal; caller retries after a backoff
+		}
+		result := normalizeProviderError(err, "recover")
+		return false, &result
+	}
+	return true, nil
+}
+
+// recoverOperatorPrimitive issues one operator-state provider action (Mark fixed or exit
+// rescue) during recovery. It re-checks the lock first and returns a non-nil result only
+// when the recovery Step must stop; a nil result means the primitive was issued and the
+// caller should keep observing.
+func (e providerStepExecutor) recoverOperatorPrimitive(ctx context.Context, serverID string, primitive provisioningdomain.RecoverPrimitive) *temporalworkflow.StepExecutionResult {
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return locked
+	}
+	server, err := e.servers.FindByID(ctx, serverID)
+	if err != nil {
+		result := normalizeProviderError(err, "recover")
+		return &result
+	}
+	provider, err := e.providers.For(ctx, server.Source.IntegrationID)
+	if err != nil {
+		result := normalizeProviderError(err, "recover")
+		return &result
+	}
+	controller, ok := provider.(provisioningdomain.OperatorStateController)
+	if !ok {
+		result := providerFailed("recover_unsupported", "This provisioner cannot recover the Server through operator-state actions.", false).withStage("recover")
+		return &result
+	}
+	switch primitive {
+	case provisioningdomain.RecoverPrimitiveMarkFixed:
+		_, err = controller.MarkFixed(ctx, server.Source.ProviderMachineID)
+	case provisioningdomain.RecoverPrimitiveMarkBroken:
+		_, err = controller.MarkBroken(ctx, server.Source.ProviderMachineID)
+	case provisioningdomain.RecoverPrimitiveExitRescue:
+		_, err = controller.ExitRescueMode(ctx, server.Source.ProviderMachineID)
+	default:
+		result := providerFailed("recover_unsupported", "Unsupported recovery primitive.", false).withStage("recover")
+		return &result
+	}
+	if err != nil {
+		result := normalizeProviderError(err, "recover")
+		return &result
+	}
+	return nil
 }
 
 func (e providerStepExecutor) observeRelease(ctx context.Context, serverID, operationID string, cleanupRequested, accepted bool) temporalworkflow.StepExecutionResult {

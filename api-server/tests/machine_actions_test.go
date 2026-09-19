@@ -20,27 +20,31 @@ func TestServerActions_DriveTheProvisioner(t *testing.T) {
 	cases := []struct {
 		path   string
 		wantOp string
+		// state, when set, is the provider status the recovery policy requires before the
+		// operator-state primitive is accepted (decision 033); an empty value uses the
+		// default Ready fixture.
+		state provisioningdomain.MachineStatus
 	}{
-		{"power-on", "power_on machine-srv-1"},
-		{"power-off", "power_off machine-srv-1"},
-		{"commission", "commission machine-srv-1"},
-		{"test", "test machine-srv-1"},
-		{"abort", "abort machine-srv-1"},
-		{"override-failed-testing", "override_failed_testing machine-srv-1"},
-		{"lock", "lock machine-srv-1"},
-		{"unlock", "unlock machine-srv-1"},
-		{"mark-broken", "mark_broken machine-srv-1"},
-		{"mark-fixed", "mark_fixed machine-srv-1"},
-		{"rescue-mode", "rescue_mode machine-srv-1"},
-		{"exit-rescue-mode", "exit_rescue_mode machine-srv-1"},
+		{path: "power-on", wantOp: "power_on machine-srv-1"},
+		{path: "power-off", wantOp: "power_off machine-srv-1"},
+		{path: "commission", wantOp: "commission machine-srv-1"},
+		{path: "test", wantOp: "test machine-srv-1"},
+		{path: "abort", wantOp: "abort machine-srv-1"},
+		{path: "override-failed-testing", wantOp: "override_failed_testing machine-srv-1"},
+		{path: "lock", wantOp: "lock machine-srv-1", state: provisioningdomain.MachineStatusDeployed},
+		{path: "unlock", wantOp: "unlock machine-srv-1"},
+		{path: "mark-broken", wantOp: "mark_broken machine-srv-1"},
+		{path: "mark-fixed", wantOp: "mark_fixed machine-srv-1", state: provisioningdomain.MachineStatusBroken},
+		{path: "rescue-mode", wantOp: "rescue_mode machine-srv-1", state: provisioningdomain.MachineStatusDeployed},
+		{path: "exit-rescue-mode", wantOp: "exit_rescue_mode machine-srv-1", state: provisioningdomain.MachineStatusRescue},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
 			f := setupPlatform(t)
 			seedActionableServer(t, f)
-			if tc.path == "lock" {
-				f.provider.machines["machine-srv-1"].Status = provisioningdomain.MachineStatusDeployed
+			if tc.state != "" {
+				f.provider.machines["machine-srv-1"].Status = tc.state
 			}
 
 			resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-1/"+tc.path, nil, f.adminAuth(t))

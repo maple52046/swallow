@@ -24,6 +24,7 @@ import {
   PowerOff,
   RefreshCw,
   Rocket,
+  RotateCcw,
   Trash2,
   TriangleAlert,
   Wrench,
@@ -38,6 +39,7 @@ import {
 } from './serverActions'
 
 const ACTION_ICONS: Record<ServerMenuAction, LucideIcon> = {
+  recover: RotateCcw,
   release: RefreshCw,
   delete: Trash2,
   'power-on': Power,
@@ -52,6 +54,15 @@ const ACTION_ICONS: Record<ServerMenuAction, LucideIcon> = {
   'mark-fixed': Wrench,
   'rescue-mode': LifeBuoy,
   'exit-rescue-mode': LogOut,
+}
+
+// Always-on operator guidance shown under an action even when it is enabled. Rescue is a
+// diagnostic environment, not a recovery path, so the menu states that up front rather than
+// letting an operator learn it by exiting rescue back into Failed. See the rescue-mode glossary.
+const ACTION_HINTS: Partial<Record<ServerMenuAction, string>> = {
+  recover: 'Returns the Server to Ready (Mark fixed, exit rescue, or Release by state).',
+  'rescue-mode': 'Ephemeral diagnostic boot. Exit returns to the previous state; use Recover or Release to reach Ready.',
+  'exit-rescue-mode': 'Restores the pre-rescue state (often still Failed or Broken); use Recover to reach Ready.',
 }
 
 /** Detail-oriented labels/glyphs for catalogue groups; list reuses the same map. */
@@ -208,7 +219,7 @@ export function ServerTakeActionMenu({
                               color={entry.destructive ? 'red.fg' : undefined}
                               onSelect={() => chooseAction(entry)}
                             >
-                              <ServerActionMenuRow icon={Icon} label={entry.label} reason={availability.disabledReason} />
+                              <ServerActionMenuRow icon={Icon} label={entry.label} reason={availability.disabledReason ?? ACTION_HINTS[entry.action]} />
                             </Menu.Item>
                           )
                         })}
@@ -238,7 +249,7 @@ export function ServerTakeActionMenu({
                   color={entry.destructive ? 'red.fg' : undefined}
                   onSelect={() => chooseAction(entry)}
                 >
-                  <ServerActionMenuRow icon={Icon} label={entry.label} reason={availability.disabledReason} />
+                  <ServerActionMenuRow icon={Icon} label={entry.label} reason={availability.disabledReason ?? ACTION_HINTS[entry.action]} />
                 </Menu.Item>
               )
             })}

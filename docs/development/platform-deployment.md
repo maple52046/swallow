@@ -260,6 +260,30 @@ operator 維護 `knownHosts`。
   避免 overlayroot 上 nested overlayfs 的 `EINVAL`。
   節點重開後 OS、etcd、container runtime 與 workload state 都會消失；此模式不提供持久叢集。
 
+### 4.8 錯誤節點的復原（Provider Recovery）
+
+Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它停在 `requires_attention`／
+`deploy_failed`，交由 operator 收斂。收斂時必須分清兩種失敗層級，並用對應機制：
+
+- **provider 層失敗（Server 的 `provisioning` 軸不是 `ready`）**：`ensure-os`／`provision-os`
+  失敗會讓該 Server 落在 `failed`（或 `broken`／`rescue`）。這類「錯誤節點」用 Swallow 的
+  **provider recovery**（decision 033）收斂：**Recover**（Return to Ready）或 **Release** 把 Server
+  收斂回 `ready`，再對該 Task 重試或對 Workflow rerun。不要用 Mark fixed 去修一個 `failed` 節點
+  （Mark fixed 只清 `broken`），也不要期待 Rescue 讓它變 `ready`——Rescue 是診斷環境，Exit 只會
+  回到進入前狀態（見 glossary [Rescue Mode](glossaries/terms/rescue-mode.md)、
+  [Provider Recovery](glossaries/terms/provider-recovery.md)）。Platform Repair 對「`provision-os`
+  失敗且 Server 仍非 `ready`」的節點，應把 operator 導向 Recover，而不是重試一個必然再撞
+  `ready` preflight 的 Task。
+- **ansible 層失敗（OS 已 `deployed`、平台軟體未就緒）**：Server 的 `provisioning` 仍是
+  `deployed`，**不要**對節點做 Recover／Release；改用既有 **Repair／Rerun**（§4.7）或
+  **Uninstall**。節點可留在池中供重配。
+
+**claim 與 `deploy_failed`**：部分失敗的 deploy 仍以完整 `targetServerIds` 快照 claim 目標，
+故 `deploy_failed` 期間目標受保護。要把這些節點放回可用池，先對錯誤節點 Recover／Release，再以
+**Uninstall（可勾 release servers）** 或 **Delete** 結束保護。Uninstall+release（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）
+對非 `deployed` 的 failed 目標**沿用同一條 Release 政策**（與 Server 的 Release 一致，見
+decision 033），不另立門檻，避免捷徑與獨立 Release 規則分裂。
+
 ---
 
 ## 5. 規範：撰寫 platform playbook 的硬規則

@@ -54,6 +54,30 @@ operator to Unlock it. An unavailable lock read fails closed with
 available. Delete also retains its compatible stale-record behavior when the provider
 explicitly reports that its Machine is already absent.
 
+## Operator State and Provider Recovery
+
+`mark-broken`, `mark-fixed`, `rescue-mode`, and `exit-rescue-mode` are advanced provider
+primitives. Swallow gates each on the Server's live provisioning state before calling the
+provisioner and returns a Swallow-authored `409 conflict` when the state does not allow it,
+instead of forwarding the provider's own rejection text (decision 033):
+
+- `mark-fixed` is accepted only from `broken`. From `failed` or any other state it is
+  refused with a reason directing the operator to Recover or Release.
+- `mark-broken` is accepted only when the Machine is not already `broken` and has no
+  active provider lifecycle work.
+- `rescue-mode` (enter) is a diagnostic action accepted from `deployed`, `broken`, and
+  `failed`. Rescue Mode does not converge the Server to `ready`.
+- `exit-rescue-mode` is accepted only from `rescue`, and restores the state the Machine
+  had before entering rescue (commonly still `deployed`, `broken`, or `failed`); it is not
+  a path to `ready`.
+
+The two operator-facing recovery verbs are the durable Operations documented in
+[provisioning.md](provisioning.md): `release-operations` (allowed from `deployed`,
+`failed`, `broken`, `rescue`) and `recover-operations` ("Return to Ready"). A client
+should present Recover and Release as the primary way to make a `failed`, `broken`, or
+`rescue` Server usable again, and keep the raw operator-state primitives as advanced
+controls.
+
 `GET /servers/{id}` returns the same complete Server projection documented in [servers-list.md](servers-list.md).
 Provisioner detail is a live provider-neutral view with a capability set. The
 `machineRemoval` flag tells clients whether provider-backed deletion is available, and

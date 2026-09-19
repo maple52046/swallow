@@ -678,6 +678,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/deployments", markDeprecatedProvisioningCommand("/api/v1/provisioning/deployment-operations"), deps.provisioning.DeployServers)
 	provisioning.Post("/deployment-operations", deps.provisioning.CreateDeploymentOperation)
 	provisioning.Post("/release-operations", deps.provisioning.CreateReleaseOperation)
+	provisioning.Post("/recover-operations", deps.provisioning.CreateRecoverOperation)
 	provisioning.Post("/networks/inspect", deps.provisioning.InspectNetworks)
 	provisioning.Get("/tasks/:id", deps.provisioning.GetProvisioningTask)
 	provisioning.Post("/tasks/:id/retry", deps.provisioning.RetryProvisioningTask)

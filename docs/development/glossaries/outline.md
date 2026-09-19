@@ -54,7 +54,9 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [OS Deployment](terms/os-deployment.md): Asynchronous provider-backed OS
   installation whose progress is observed on each Server provisioning axis.
 - [Release](terms/release.md): Returning a Machine to the provider's available pool
-  (`ready` again) without removing the Server.
+  (`ready` again) without removing the Server; allowed from deployed, failed, broken, or rescue.
+- [Provider Recovery](terms/provider-recovery.md): Swallow-owned policy and the Recover/Release intents that return a `failed`, `broken`, or `rescue` Server to `ready`.
+- [Rescue Mode](terms/rescue-mode.md): A provider diagnostic environment; exiting restores the prior state and does not by itself reach `ready`.
 - [Deployment Template](terms/deployment-template.md): Reusable,
   integration-scoped Swallow-owned deployment intent without automation content.
 - [Network Configuration](terms/network-configuration.md): Typed NIC subnet-link

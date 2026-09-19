@@ -248,6 +248,7 @@ export type ServerAction =
   | 'mark-fixed'
   | 'rescue-mode'
   | 'exit-rescue-mode'
+  | 'recover'
 
 /**
  * What a provisioner offers. A client shows exactly the actions that exist rather than

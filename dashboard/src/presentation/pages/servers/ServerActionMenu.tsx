@@ -87,6 +87,19 @@ export function ServerActionMenu({
         onActed(action, releaseInput)
         return
       }
+      if (action === 'recover') {
+        // Recover is a Swallow-owned durable Operation, not a single provider action: it
+        // chooses the primitive by state (Mark fixed / exit rescue / Release) and converges to
+        // Ready. It reuses the same accepted-and-followed contract as Release.
+        await provisioning.createRecoverOperation({ serverIds: [serverId] })
+        showToast({
+          tone: 'success',
+          title: 'Recover Operation created',
+          description: 'Swallow will return the Server to the ready pool.',
+        })
+        onActed(action, releaseInput)
+        return
+      }
       const result = await servers.runServerAction(serverId, action)
       persistServerActionResult(
         serverActionRunResult(action, [

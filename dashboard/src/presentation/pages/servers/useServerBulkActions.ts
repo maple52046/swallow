@@ -104,5 +104,28 @@ export function useServerBulkActions() {
     [provisioning, showToast],
   );
 
-  return { run, release, running };
+  // Recover mirrors release: it starts one durable "Return to Ready" Operation for the batch
+  // and returns immediately so the list can follow the targets. Recover carries no erase
+  // options, so unlike release it needs no confirmation dialog.
+  const recover = useCallback(
+    async (targets: readonly ServerActionTarget[]) => {
+      setRunning(true);
+      try {
+        const operation = await provisioning.createRecoverOperation({
+          serverIds: targets.map((target) => target.serverId),
+        });
+        showToast({
+          tone: "success",
+          title: "Recover Operation created",
+          description: `Swallow is returning ${targets.length} Server${targets.length === 1 ? "" : "s"} to Ready.`,
+        });
+        return operation;
+      } finally {
+        setRunning(false);
+      }
+    },
+    [provisioning, showToast],
+  );
+
+  return { run, release, recover, running };
 }

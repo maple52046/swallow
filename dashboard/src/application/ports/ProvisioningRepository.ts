@@ -7,6 +7,7 @@ import type {
   DeployServersResult,
   EditServerTagsInput,
   ProvisioningOperationReference,
+  RecoverServersOperationInput,
   ReleaseServersOperationInput,
   NetworkInspectionResult,
   ServerTagOption,
@@ -49,6 +50,14 @@ export interface ProvisioningRepository {
   ): Promise<ProvisioningOperationReference>;
   createReleaseOperation(
     input: ReleaseServersOperationInput,
+  ): Promise<ProvisioningOperationReference>;
+  /**
+   * Starts a durable "Return to Ready" recovery for a bounded batch of Servers whose
+   * provisioning axis is not usable (failed, broken, or rescue). The backend gates each
+   * target on the recovery policy and chooses the provider primitive by state.
+   */
+  createRecoverOperation(
+    input: RecoverServersOperationInput,
   ): Promise<ProvisioningOperationReference>;
   listOSImages(integrationId: string): Promise<OSImage[]>;
   /**

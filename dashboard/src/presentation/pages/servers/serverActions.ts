@@ -36,7 +36,13 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
   {
     label: 'Lifecycle',
     capability: null,
-    actions: [{ action: 'release', label: 'Release', destructive: true }],
+    // Recover ("Return to Ready") and Release are the two primary provider-recovery verbs
+    // for a Server whose provisioning axis is not usable; both converge the Server to `ready`.
+    // See docs/decisions/033 and the provider-recovery glossary term.
+    actions: [
+      { action: 'recover', label: 'Recover' },
+      { action: 'release', label: 'Release', destructive: true },
+    ],
   },
   {
     label: 'Removal',
@@ -87,10 +93,48 @@ export function actionLabel(action: ServerMenuAction): string {
 
 const ACTIVE_PROVIDER_STATES = new Set(['commissioning', 'deploying', 'releasing', 'testing'])
 
+// State gates mirroring the Swallow-owned recovery policy (docs/decisions/033). The dashboard
+// gates on the same normalized `provisioning.state` the backend does, so an operator sees a
+// disabled control with a Swallow reason instead of a provider rejection after the fact.
+const RELEASE_SOURCE_STATES = new Set(['deployed', 'failed', 'broken', 'rescue'])
+// Recover is offered only for the not-usable states it is meant to fix. The backend also
+// tolerates `deployed`/`ready` (for internal and uninstall reuse), but offering Recover on a
+// healthy deployed Server would release it — a footgun — so the operator menu excludes those.
+const RECOVER_SOURCE_STATES = new Set(['failed', 'broken', 'rescue'])
+const RESCUE_ENTER_STATES = new Set(['deployed', 'broken', 'failed'])
+
 export interface ServerActionAvailability {
   eligible: readonly Server[]
   skipped: readonly Server[]
   disabledReason?: string
+}
+
+/** The normalized provisioning state to branch on, or '' when the axis is unobserved. */
+function provisioningState(server: Server): string {
+  return server.provisioning?.state ?? ''
+}
+
+/**
+ * All-or-nothing state gate shared by the recovery-related actions. A locked target blocks
+ * the action (recovery mutations require an unlocked Server); otherwise the action is offered
+ * only when every target is in an allowed state, matching the backend's batch rejection so the
+ * UI never offers a control the Operation would refuse.
+ */
+function stateGatedAvailability(
+  targets: readonly Server[],
+  allows: (server: Server) => boolean,
+  reason: string,
+): ServerActionAvailability {
+  const locked = targets.filter((server) => server.provisioning?.locked)
+  if (locked.length > 0) {
+    const name = locked[0].hostname ?? locked[0].id
+    return { eligible: [], skipped: locked, disabledReason: `${name} is locked. Unlock it before starting this action.` }
+  }
+  const ineligible = targets.filter((server) => !allows(server))
+  if (ineligible.length > 0) {
+    return { eligible: [], skipped: ineligible, disabledReason: reason }
+  }
+  return { eligible: [...targets], skipped: [] }
 }
 
 /**
@@ -142,6 +186,34 @@ export function serverActionAvailability(
       skipped: targets.filter((server) => !server.provisioning?.locked),
       disabledReason: eligible.length === 0 ? 'Every selected Server is already unlocked.' : undefined,
     }
+  }
+  // Provider-recovery gating (decision 033). Recover and Release are the primary "make it
+  // usable again" verbs; the raw operator-state primitives are gated to their real source
+  // states so the menu explains why, rather than forwarding a later provider rejection.
+  if (action === 'recover') {
+    return stateGatedAvailability(targets, (server) => RECOVER_SOURCE_STATES.has(provisioningState(server)),
+      'Recover returns a failed, broken, or rescue Server to Ready.')
+  }
+  if (action === 'release') {
+    return stateGatedAvailability(targets, (server) => RELEASE_SOURCE_STATES.has(provisioningState(server)),
+      'Release is available from deployed, failed, broken, or rescue.')
+  }
+  if (action === 'mark-fixed') {
+    return stateGatedAvailability(targets, (server) => provisioningState(server) === 'broken',
+      'Mark fixed only clears a Broken Server. Use Recover or Release to return a failed Server to Ready.')
+  }
+  if (action === 'mark-broken') {
+    return stateGatedAvailability(targets,
+      (server) => provisioningState(server) !== 'broken' && !ACTIVE_PROVIDER_STATES.has(provisioningState(server)),
+      'Mark broken is unavailable while the Server is already broken or has active provider work.')
+  }
+  if (action === 'rescue-mode') {
+    return stateGatedAvailability(targets, (server) => RESCUE_ENTER_STATES.has(provisioningState(server)),
+      'Rescue mode is a diagnostic environment, available from deployed, broken, or failed.')
+  }
+  if (action === 'exit-rescue-mode') {
+    return stateGatedAvailability(targets, (server) => provisioningState(server) === 'rescue',
+      'Exit rescue is available only while the Server is in rescue mode.')
   }
   const locked = targets.filter((server) => server.provisioning?.locked)
   if (locked.length > 0) {

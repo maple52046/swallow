@@ -320,3 +320,39 @@ func (h *ProvisioningHandler) CreateReleaseOperation(c *fiber.Ctx) error {
 	}
 	return c.Status(fiber.StatusAccepted).JSON(result)
 }
+
+type recoverOperationsRequest struct {
+	ServerIDs       []string `json:"serverIds"`
+	Comment         string   `json:"comment"`
+	UnbindStaticIPs bool     `json:"unbindStaticIPs"`
+}
+
+// CreateRecoverOperation accepts a bounded batch of "Return to Ready" intents for Servers
+// whose provisioning axis is not usable. The durable launcher gates each target on the
+// recovery policy before persisting one recover-server Step per Server.
+func (h *ProvisioningHandler) CreateRecoverOperation(c *fiber.Ctx) error {
+	if h.durable == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "Durable provisioning is unavailable."))
+	}
+	var req recoverOperationsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if len(req.ServerIDs) == 0 || len(req.ServerIDs) > 100 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "serverIds must contain between 1 and 100 Servers."))
+	}
+	inputs := make([]application.RecoverServerInput, len(req.ServerIDs))
+	for index, serverID := range req.ServerIDs {
+		inputs[index] = application.RecoverServerInput{ServerID: serverID, Comment: req.Comment,
+			UnbindStaticIPs: req.UnbindStaticIPs, RequestID: c.GetRespHeader(fiber.HeaderXRequestID)}
+	}
+	requestedBy := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		requestedBy = claims.Username
+	}
+	result, err := h.durable.LaunchRecover(c.Context(), inputs, requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(result)
+}

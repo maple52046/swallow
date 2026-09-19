@@ -156,7 +156,9 @@ export function ServerDetailPage() {
             deployDisabledReason={deployDisabledReason}
             onActed={(action) => {
               reload()
-              if (action === 'release') {
+              // Release and Recover both start a durable Operation that converges the Server
+              // back to `ready`; follow the Server in place until it settles.
+              if (action === 'release' || action === 'recover') {
                 releaseHandedOffRef.current = false
                 setReleaseFollow({ id: server.id, token: Date.now() })
               }
@@ -176,6 +178,24 @@ export function ServerDetailPage() {
           deployment={server.deployment}
           onViewOperation={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
         />
+      )}
+      {['failed', 'broken', 'rescue'].includes(server.provisioning?.state ?? '') && (
+        <Alert
+          status={server.provisioning?.state === 'rescue' ? 'info' : 'warning'}
+          title={
+            server.provisioning?.state === 'broken'
+              ? 'Provider marked this Server broken'
+              : server.provisioning?.state === 'rescue'
+                ? 'Server is in rescue mode'
+                : 'Provider lifecycle failed'
+          }
+        >
+          {server.provisioning?.state === 'rescue'
+            ? 'Rescue mode is a diagnostic environment. Exiting rescue restores the previous state; use Recover (Take action) to return the Server to Ready.'
+            : server.provisioning?.state === 'broken'
+              ? 'Use Recover (Take action) to return the Server to Ready, which clears the broken flag; Release also returns it to the ready pool.'
+              : 'Use Recover (Take action) to return the Server to Ready. Mark fixed does not apply to a failed Server — it only clears a Broken one.'}
+        </Alert>
       )}
       <Tabs.Root
         value={current}

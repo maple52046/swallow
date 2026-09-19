@@ -11,6 +11,7 @@ import type {
   DeployServersResult,
   EditServerTagsInput,
   ProvisioningOperationReference,
+  RecoverServersOperationInput,
   ReleaseServersOperationInput,
   NetworkInspectionResult,
   ServerTagOption,
@@ -139,6 +140,15 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
   ): Promise<ProvisioningOperationReference> {
     return apiRequest<ProvisioningOperationReference>(
       "/api/v1/provisioning/release-operations",
+      { method: "POST", body: JSON.stringify(input) },
+    );
+  }
+
+  async createRecoverOperation(
+    input: RecoverServersOperationInput,
+  ): Promise<ProvisioningOperationReference> {
+    return apiRequest<ProvisioningOperationReference>(
+      "/api/v1/provisioning/recover-operations",
       { method: "POST", body: JSON.stringify(input) },
     );
   }

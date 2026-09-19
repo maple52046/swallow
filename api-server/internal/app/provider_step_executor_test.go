@@ -14,6 +14,33 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
+// TestRescueTransitionClassification pins how the recover Step reads MAAS rescue labels:
+// an in-progress entering/exiting transition is waited out, while a settled "failed" rescue
+// transition triggers the Mark broken escalation instead of another doomed exit. Both are
+// normalized to `rescue`, so the provider label is the only signal (decision 033).
+func TestRescueTransitionClassification(t *testing.T) {
+	cases := []struct {
+		label      string
+		inProgress bool
+		failed     bool
+	}{
+		{"Entering rescue mode", true, false},
+		{"Exiting rescue mode", true, false},
+		{"Rescue mode", false, false},
+		{"Failed to exit rescue mode", false, true},
+		{"Failed to enter rescue mode", false, true},
+		{"Deployed", false, false},
+	}
+	for _, tc := range cases {
+		if got := rescueTransitionInProgress(tc.label); got != tc.inProgress {
+			t.Errorf("rescueTransitionInProgress(%q) = %v, want %v", tc.label, got, tc.inProgress)
+		}
+		if got := rescueTransitionFailed(tc.label); got != tc.failed {
+			t.Errorf("rescueTransitionFailed(%q) = %v, want %v", tc.label, got, tc.failed)
+		}
+	}
+}
+
 type cancellationProvider struct {
 	aborts     int
 	machine    *provisioningdomain.Machine

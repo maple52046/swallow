@@ -372,6 +372,15 @@ export function ServersPage() {
         setReleaseTargets(targets)
         return
       }
+      if (action === 'recover') {
+        // Recover starts a durable "Return to Ready" Operation and stays on the list, following
+        // the recovered Servers so their state converges in place (like an accepted Release).
+        await bulk.recover(targets)
+        clearSelection()
+        setFollowedServerIds(ids)
+        reload()
+        return
+      }
       const result = await bulk.run(action, targets)
       setLastActionResult(result)
       setResultDialogOpen(failedServerActionOutcomes(result).length > 0)

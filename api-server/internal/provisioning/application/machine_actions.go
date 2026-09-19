@@ -250,31 +250,36 @@ func (uc *MachineActionsUseCase) Unlock(ctx context.Context, serverID string) (*
 }
 
 func (uc *MachineActionsUseCase) MarkBroken(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	return uc.operatorState(ctx, serverID, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
+	return uc.operatorState(ctx, serverID, provisioningdomain.RecoveryIntentMarkBroken, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
 		return c.MarkBroken(ctx, id)
 	})
 }
 
 func (uc *MachineActionsUseCase) MarkFixed(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	return uc.operatorState(ctx, serverID, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
+	return uc.operatorState(ctx, serverID, provisioningdomain.RecoveryIntentMarkFixed, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
 		return c.MarkFixed(ctx, id)
 	})
 }
 
 func (uc *MachineActionsUseCase) RescueMode(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	return uc.operatorState(ctx, serverID, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
+	return uc.operatorState(ctx, serverID, provisioningdomain.RecoveryIntentRescueEnter, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
 		return c.EnterRescueMode(ctx, id)
 	})
 }
 
 func (uc *MachineActionsUseCase) ExitRescueMode(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	return uc.operatorState(ctx, serverID, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
+	return uc.operatorState(ctx, serverID, provisioningdomain.RecoveryIntentRescueExit, func(c provisioningdomain.OperatorStateController, id string) (*provisioningdomain.Machine, error) {
 		return c.ExitRescueMode(ctx, id)
 	})
 }
 
+// operatorState dispatches one operator-state primitive after gating it on the Server's
+// live provisioning state through the Swallow-owned recovery policy. resolveMutable has
+// already refreshed the projection from a live provider read (its lock check reads the
+// Machine), so gating on server.Provisioning.State reflects the current provider state and
+// lets Swallow refuse with its own reason before the provisioner would reject the call.
 func (uc *MachineActionsUseCase) operatorState(
-	ctx context.Context, serverID string,
+	ctx context.Context, serverID string, intent provisioningdomain.RecoveryIntent,
 	call func(provisioningdomain.OperatorStateController, string) (*provisioningdomain.Machine, error),
 ) (*ProvisioningStateItem, error) {
 	server, provider, err := uc.resolveMutable(ctx, serverID)
@@ -284,6 +289,13 @@ func (uc *MachineActionsUseCase) operatorState(
 	controller, ok := provider.(provisioningdomain.OperatorStateController)
 	if !ok {
 		return nil, unsupported("operator state changes")
+	}
+	state := provisioningdomain.MachineStatusUnknown
+	if server.Provisioning != nil {
+		state = provisioningdomain.MachineStatus(server.Provisioning.State)
+	}
+	if decision := provisioningdomain.EvaluateRecovery(intent, state); !decision.Allowed {
+		return nil, lockConflict(server, decision.Reason)
 	}
 	machine, err := call(controller, server.Source.ProviderMachineID)
 	if err != nil {
