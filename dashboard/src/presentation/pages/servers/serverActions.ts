@@ -1,11 +1,11 @@
 /**
  * The catalogue of provisioner actions the UI offers, grouped as MAAS groups them.
  *
- * Single source of truth reused by the list row menu, the bulk-action bar, and the detail
- * page, so the three never drift. Each group maps to a provisioner capability flag; the
- * detail page (which has the live capability set) hides unsupported groups, while the list
- * shows them all and lets the backend refuse per server — matching MAAS, where bulk menus
- * always appear and the server validates.
+ * Single source of truth reused by the shared `ServerTakeActionMenu` on the list row menu,
+ * the bulk-action bar, and the detail page, so the three never drift. Each group maps to a
+ * provisioner capability flag; detail hides unsupported groups via live capabilities, while
+ * the list shows them all and lets the backend refuse per server — matching MAAS, where bulk
+ * menus always appear and the server validates.
  */
 import type { ProvisionerCapabilities, Server, ServerAction } from '@/domain/server/types'
 

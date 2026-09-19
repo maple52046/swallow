@@ -36,6 +36,7 @@ test('locked Servers are visible, filterable, and mixed Lock converges with skip
   await expect(page.getByText('Unlock every selected Server before deployment.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Take action' }).click()
+  await page.getByRole('menuitem', { name: 'State & recovery', exact: true }).hover()
   await page.getByRole('menuitem', { name: /^Lock/ }).click()
   const confirmation = page.getByRole('dialog', { name: 'Lock Servers' })
   await expect(confirmation).toContainText('1 Server will be locked.')

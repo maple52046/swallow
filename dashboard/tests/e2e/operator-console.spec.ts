@@ -356,6 +356,7 @@ test.describe('operator interactions', () => {
     }
     await expect(page.getByText('4 selected')).toBeVisible()
     await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Power', exact: true }).hover()
     await expect(page.getByRole('menuitem', { name: 'Power on' })).toBeVisible()
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Clear', exact: true }).click()

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Badge, Box, Button, HStack, IconButton, Menu, Popover, Portal, Table, Text } from '@chakra-ui/react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Filter, Lock, MoreVertical, Tags, UploadCloud } from 'lucide-react'
+import { Badge, Box, Button, HStack, IconButton, Popover, Portal, Table, Text } from '@chakra-ui/react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Filter, Lock, Tags, UploadCloud } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
@@ -38,7 +38,7 @@ import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { SERVER_ACTION_GROUPS, actionLabel, serverActionAvailability, type BulkAction, type ServerMenuAction } from './serverActions'
+import { actionLabel, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
@@ -47,6 +47,7 @@ import { useServerWorkingSet } from './useServerWorkingSet'
 import { useServerBulkActions } from './useServerBulkActions'
 import { ServerTagEditor } from './ServerTagEditor'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
+import { ServerTakeActionMenu } from './ServerTakeActionMenu'
 import { failedServerActionOutcomes, type ServerActionRunResult, type ServerActionTarget } from './serverActionResults'
 
 /** Table row density for the server list; controls compact vs comfortable row spacing. */
@@ -561,7 +562,16 @@ export function ServersPage() {
               Edit tags
             </Button>
           </Tooltip>
-          <BulkActionMenu targets={actionTargets} running={bulk.running} onAction={(action) => void runAction(action, [...selected])} />
+          <ServerTakeActionMenu
+            targets={actionTargets}
+            includeSingleOnly={false}
+            busy={bulk.running}
+            trigger="take-action"
+            size="sm"
+            onAction={(action) => {
+              if (action !== 'delete') void runAction(action, [...selected])
+            }}
+          />
           {selected.size < filtered.length && (
             <Button variant="plain" size="sm" onClick={() => setMany(filtered.map((server) => server.id), true)}>
               Select all {filtered.length} matches
@@ -879,97 +889,6 @@ function ColumnPanel({
   )
 }
 
-function ActionMenu({
-  label,
-  icon,
-  targets,
-  running,
-  includeSingleOnly = true,
-  onAction,
-}: {
-  label: string
-  icon?: ReactNode
-  targets: readonly Server[]
-  running?: boolean
-  includeSingleOnly?: boolean
-  onAction: (action: ServerMenuAction) => void
-}) {
-  const groups = SERVER_ACTION_GROUPS.map((group) => ({
-    ...group,
-    actions: group.actions.filter((entry) => includeSingleOnly || entry.bulk !== false),
-  })).filter((group) => group.actions.length > 0)
-  return (
-    <Menu.Root>
-      <Menu.Trigger asChild>
-        {label ? (
-          <Button variant="outline" size="sm" disabled={running}>
-            {label}
-            <ChevronDown size={16} />
-          </Button>
-        ) : (
-          <IconButton variant="ghost" size="sm" aria-label="Actions" disabled={running}>
-            {icon ?? <MoreVertical size={16} />}
-          </IconButton>
-        )}
-      </Menu.Trigger>
-      <Portal>
-        <Menu.Positioner>
-          <Menu.Content minW="12rem">
-            {groups.map((group) => (
-              <Menu.ItemGroup key={group.label}>
-                <Menu.ItemGroupLabel>{group.label}</Menu.ItemGroupLabel>
-                {group.actions.map((entry) => {
-                  const availability = serverActionAvailability(entry.action, targets)
-                  return (
-                    <Menu.Item
-                      key={entry.action}
-                      value={entry.action}
-                      color={entry.destructive ? 'red.fg' : undefined}
-                      disabled={Boolean(availability.disabledReason)}
-                      onClick={() => onAction(entry.action)}
-                    >
-                      <Box>
-                        <Text>{entry.label}</Text>
-                        {availability.disabledReason && (
-                          <Text fontSize="xs" color="fg.muted">
-                            {availability.disabledReason}
-                          </Text>
-                        )}
-                      </Box>
-                    </Menu.Item>
-                  )
-                })}
-              </Menu.ItemGroup>
-            ))}
-          </Menu.Content>
-        </Menu.Positioner>
-      </Portal>
-    </Menu.Root>
-  )
-}
-
-function BulkActionMenu({
-  targets,
-  running,
-  onAction,
-}: {
-  targets: readonly Server[]
-  running: boolean
-  onAction: (action: BulkAction) => void
-}) {
-  return (
-    <ActionMenu
-      label={running ? 'Working...' : 'Take action'}
-      targets={targets}
-      running={running}
-      includeSingleOnly={false}
-      onAction={(action) => {
-        if (action !== 'delete') onAction(action)
-      }}
-    />
-  )
-}
-
 function GroupRows({
   group,
   grouped,
@@ -1076,7 +995,7 @@ function ServerMobileCard({
                 Power · {powerStateLabel(server.provisioning.powerState)}
               </Button>
             )}
-            <ActionMenu label="Actions" targets={[server]} onAction={onAction} />
+            <ServerTakeActionMenu targets={[server]} trigger="actions" onAction={onAction} />
           </>
         }
         details={
@@ -1219,7 +1138,7 @@ function ServerRow({
         {visible('platform') && <Table.Cell data-label="Platform">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Table.Cell>}
         {visible('health') && <Table.Cell data-label="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</Table.Cell>}
         <Table.Cell data-label="Actions" className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}>
-          <ActionMenu label="" icon={<MoreVertical size={16} />} targets={[server]} onAction={onAction} />
+          <ServerTakeActionMenu targets={[server]} trigger="kebab" onAction={onAction} />
         </Table.Cell>
       </Table.Row>
       {powerDialogOpen && (
