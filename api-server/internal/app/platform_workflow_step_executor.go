@@ -48,6 +48,8 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 		return e.completeUninstall(ctx, input.PlatformID)
 	case "record-image-verification":
 		return e.recordImageVerification(ctx, input)
+	case "record-image-verification-failure":
+		return e.recordImageVerificationFailure(ctx, input)
 	default:
 		return internalStepFailed("unsupported_internal_step", "The internal Step kind is not supported.", false)
 	}
@@ -76,6 +78,40 @@ func (e platformWorkflowStepExecutor) recordImageVerification(ctx context.Contex
 		ServerID:    firstTargetServer(input.Step),
 	}
 	if err := e.imageVerifications.RecordTarget(ctx, integrationID, imageID, architecture, target, evidence); err != nil {
+		return internalStepFailed("image_verification_write_failed", err.Error(), true)
+	}
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+}
+
+// recordImageVerificationFailure is the failure-path finalize step of a verify-os-image Workflow:
+// it runs when the proving deploy failed and records the swallow-owned fact that the image did not
+// deploy for the target, so the catalog can show a failed verification distinctly from a
+// never-attempted one. The provider's reason lives on the failed provision Task; this records the
+// Operation and Server for the operator to open, plus an optional short reason. A write failure is
+// retryable: the failure fact is worth persisting so the operator is not misled into thinking the
+// run never happened. This step succeeding does not mean the image is usable — it means the failure
+// was recorded — so it returns TaskSucceeded and lets the return-to-ready step run next.
+func (e platformWorkflowStepExecutor) recordImageVerificationFailure(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	if e.imageVerifications == nil {
+		return internalStepFailed("image_verification_unavailable", "Image verification recording is unavailable.", false)
+	}
+	params := input.Step.Parameters
+	integrationID, _ := params["integrationId"].(string)
+	imageID, _ := params["imageId"].(string)
+	architecture, _ := params["architecture"].(string)
+	targetRaw, _ := params["deployTarget"].(string)
+	reason, _ := params["reason"].(string)
+	target, ok := provisioningdomain.ParseDeployTarget(targetRaw)
+	if integrationID == "" || imageID == "" || architecture == "" || !ok {
+		return internalStepFailed("image_verification_invalid", "The image verification Step is missing an image identity or deploy target.", false)
+	}
+	failure := provisioningdomain.OSImageVerificationFailure{
+		FailedAt:    time.Now().UTC(),
+		OperationID: input.OperationID,
+		ServerID:    firstTargetServer(input.Step),
+		Reason:      reason,
+	}
+	if err := e.imageVerifications.RecordFailedTarget(ctx, integrationID, imageID, architecture, target, failure); err != nil {
 		return internalStepFailed("image_verification_write_failed", err.Error(), true)
 	}
 	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}

@@ -282,8 +282,15 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 
 	provisionStepID := "provision-" + input.ServerID
 	recordStepID := "record-verification"
-	releaseStepID := "release-" + input.ServerID
+	recordFailureStepID := "record-verification-failure"
+	returnStepID := "return-" + input.ServerID
 	target := []operationdomain.ResourceReference{{Kind: "server", ID: input.ServerID}}
+	verificationIdentity := map[string]any{
+		"integrationId": input.IntegrationID,
+		"imageId":       input.ImageID,
+		"architecture":  input.Architecture,
+		"deployTarget":  string(input.DeployTarget),
+	}
 	steps := []operationdomain.Task{
 		{
 			ID: provisionStepID, Kind: "provision-os",
@@ -293,23 +300,40 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			Parameters: map[string]any{"request": structToMap(resolvedInput)},
 		},
 		{
+			// Records the attestation only when the proving deploy succeeded. If provision fails,
+			// its default continueOn leaves this step unsatisfied, so the engine skips it and the
+			// failure-record step below runs instead.
 			ID: recordStepID, Kind: "record-image-verification", Name: "Record image verification",
-			Executor:  operationdomain.RunnerKindInternal,
-			Targets:   target,
-			DependsOn: []string{provisionStepID},
-			Parameters: map[string]any{
-				"integrationId": input.IntegrationID,
-				"imageId":       input.ImageID,
-				"architecture":  input.Architecture,
-				"deployTarget":  string(input.DeployTarget),
-			},
+			Executor:   operationdomain.RunnerKindInternal,
+			Targets:    target,
+			DependsOn:  []string{provisionStepID},
+			Parameters: verificationIdentity,
 		},
 		{
-			ID: releaseStepID, Kind: "release-os", Name: "Release " + server.DisplayName(),
+			// Records the failure only when the proving deploy failed (continueOn: failed), so a
+			// failed verification is a durable, visible fact rather than looking identical to a
+			// never-attempted one. On success this step is skipped.
+			ID: recordFailureStepID, Kind: "record-image-verification-failure",
+			Name:       "Record image verification failure",
+			Executor:   operationdomain.RunnerKindInternal,
+			Targets:    target,
+			DependsOn:  []string{provisionStepID},
+			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskFailed},
+			Parameters: verificationIdentity,
+		},
+		{
+			// Return-to-ready compensation: it runs after whichever record step ran (the other is
+			// skipped), because a borrowed Server must be given back whether the proving deploy
+			// succeeded or failed. recover-server converges the Server to ready from
+			// deployed/failed/allocated, so it doubles as the success-path release and the
+			// failure-path cleanup, replacing the former success-only release-os step.
+			ID: returnStepID, Kind: "recover-server",
+			Name:       "Return " + server.DisplayName() + " to Ready",
 			Executor:   operationdomain.RunnerKindProvisioner,
 			Targets:    target,
-			DependsOn:  []string{recordStepID},
-			Parameters: map[string]any{"request": structToMap(provisioningapp.ReleaseServerInput{ServerID: input.ServerID})},
+			DependsOn:  []string{recordStepID, recordFailureStepID},
+			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped},
+			Parameters: map[string]any{"request": structToMap(provisioningapp.RecoverServerInput{ServerID: input.ServerID})},
 		},
 	}
 	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{

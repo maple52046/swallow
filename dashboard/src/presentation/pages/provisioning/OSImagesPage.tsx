@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge, Box, Button, Field, HStack, IconButton, Input, Menu, Portal, Spinner, Stack, Table } from '@chakra-ui/react'
-import { Ban, Check, Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, ShieldCheck, Trash2, Upload, X } from 'lucide-react'
+import { AlertTriangle, Ban, Check, Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, ShieldCheck, Trash2, Upload, X, XCircle } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { loadOSImageCatalog, type OSImageCatalog, type OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
 import type { Integration } from '@/domain/site/types'
-import { isTerminalStatus, operationStatus } from '@/domain/operation/types'
+import { isInFlightStatus, operationStatus } from '@/domain/operation/types'
 import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -93,26 +93,33 @@ function verifyKey(imageId: string, architecture: string, target: string): strin
 }
 
 /**
- * One deploy-mode tag: the mode name plus a status icon — a loading spinner while that mode is
- * verifying, a green check when the image supports it (a verified custom image, or any synced
- * provider image which is trusted and needs no verification), and a grey ban when a normal deploy in
- * that mode is still blocked.
+ * One deploy-mode tag: the mode name plus a status icon that distinguishes every verification
+ * state — a loading spinner while that mode is actively verifying; a green check when supported (a
+ * verified custom image, or any synced provider image, which is trusted and needs no verification);
+ * an amber warning when a verification for that mode is parked awaiting the operator
+ * (requires_attention); a red cross when the most recent verification for that mode failed (proven
+ * not to deploy this way); and a grey ban when a normal deploy in that mode was simply never
+ * attempted. The red-vs-grey split is the key point: a failed verification must not look identical
+ * to a never-run one, so the operator can see that a run happened and failed.
  */
 function DeployModeTag({
   image,
   target,
   verifying,
+  attention,
 }: {
   image: OSImageCatalogRow
   target: 'disk' | 'ram'
   verifying: ReadonlySet<string>
+  attention: ReadonlySet<string>
 }) {
   const label = target === 'disk' ? 'Disk' : 'RAM'
   const isCustom = image.providerOsSystem === 'custom'
+  const key = verifyKey(image.id, image.architecture, target)
 
   let icon: ReactNode
   let tooltip: string
-  if (isCustom && verifying.has(verifyKey(image.id, image.architecture, target))) {
+  if (isCustom && verifying.has(key)) {
     icon = <Spinner size="xs" color="blue.400" />
     tooltip = `Verifying ${label} deploy now…`
   } else if (!isCustom || image.verifiedDeployTargets.includes(target)) {
@@ -122,6 +129,20 @@ function DeployModeTag({
       </Box>
     )
     tooltip = isCustom ? `Verified for ${label} deploy` : `Provider image — trusted for ${label} deploy`
+  } else if (attention.has(key)) {
+    icon = (
+      <Box as="span" color="orange.500" display="inline-flex">
+        <AlertTriangle size={14} />
+      </Box>
+    )
+    tooltip = `A ${label} verification needs attention — open Operations to retry or cancel it`
+  } else if (image.failedDeployTargets.includes(target)) {
+    icon = (
+      <Box as="span" color="red.500" display="inline-flex">
+        <XCircle size={14} />
+      </Box>
+    )
+    tooltip = `${label} verification failed — this image did not deploy in ${label} mode. Open Operations for the provider reason; the ${label} deploy stays blocked.`
   } else {
     icon = (
       <Box as="span" color="gray.500" display="inline-flex">
@@ -142,11 +163,19 @@ function DeployModeTag({
 }
 
 /** The Deploy Mode cell: a Disk tag and a RAM tag, each carrying its own support/verifying icon. */
-function DeployModeCell({ image, verifying }: { image: OSImageCatalogRow; verifying: ReadonlySet<string> }) {
+function DeployModeCell({
+  image,
+  verifying,
+  attention,
+}: {
+  image: OSImageCatalogRow
+  verifying: ReadonlySet<string>
+  attention: ReadonlySet<string>
+}) {
   return (
     <HStack gap="1" wrap="wrap">
-      <DeployModeTag image={image} target="disk" verifying={verifying} />
-      <DeployModeTag image={image} target="ram" verifying={verifying} />
+      <DeployModeTag image={image} target="disk" verifying={verifying} attention={attention} />
+      <DeployModeTag image={image} target="ram" verifying={verifying} attention={attention} />
     </HStack>
   )
 }
@@ -228,6 +257,10 @@ export function OSImagesPage() {
   // "verifying…" live. When a verification finishes, the catalog is refreshed so the new verified
   // badge replaces the spinner without an operator action.
   const [verifying, setVerifying] = useState<ReadonlySet<string>>(new Set())
+  // Deploy-target keys whose verify Operation is parked awaiting the operator (requires_attention),
+  // shown as a distinct amber warning rather than a spinner (not progressing) or a ban (not merely
+  // unverified). Polled alongside the verifying set from the same active-operations read.
+  const [attention, setAttention] = useState<ReadonlySet<string>>(new Set())
   const [verifyNonce, setVerifyNonce] = useState(0)
 
   useEffect(() => {
@@ -236,26 +269,34 @@ export function OSImagesPage() {
     const poll = async () => {
       try {
         const page = await operations.listOperations({ kind: 'verify-os-image', active: true, pageSize: 100 })
-        const next = new Set<string>()
+        const nextVerifying = new Set<string>()
+        const nextAttention = new Set<string>()
         for (const op of page.items) {
-          if (isTerminalStatus(operationStatus(op))) continue
           const request = (op.intentSnapshot?.request ?? {}) as Record<string, unknown>
           // The snapshot is camelCase going forward; tolerate the earlier PascalCase in-flight ops.
           const imageId = String(request.imageId ?? request.ImageID ?? '')
           const architecture = String(request.architecture ?? request.Architecture ?? '')
           const target = String(request.deployTarget ?? request.DeployTarget ?? '')
-          if (imageId && target) next.add(verifyKey(imageId, architecture, target))
+          if (!imageId || !target) continue
+          const key = verifyKey(imageId, architecture, target)
+          const status = operationStatus(op)
+          // Only a genuinely in-flight verification reads as "verifying". A parked
+          // (requires_attention) verification is surfaced separately; a terminal one has already
+          // left the active list, so on failure the target simply reverts to "not verified".
+          if (isInFlightStatus(status)) nextVerifying.add(key)
+          else if (status === 'requires_attention') nextAttention.add(key)
         }
         if (cancelled) return
         let completed = false
         for (const key of previous) {
-          if (!next.has(key)) {
+          if (!nextVerifying.has(key)) {
             completed = true
             break
           }
         }
-        previous = next
-        setVerifying(next)
+        previous = nextVerifying
+        setVerifying(nextVerifying)
+        setAttention(nextAttention)
         // A target that was verifying is no longer running: pull the catalog so its verified badge shows.
         if (completed) setRefreshNonce((value) => value + 1)
       } catch {
@@ -422,7 +463,7 @@ export function OSImagesPage() {
       ),
     },
     { key: 'osSystem', label: 'OS', render: (image) => image.osSystem || '-' },
-    { key: 'deployMode', label: 'Deploy Mode', render: (image) => <DeployModeCell image={image} verifying={verifying} /> },
+    { key: 'deployMode', label: 'Deploy Mode', render: (image) => <DeployModeCell image={image} verifying={verifying} attention={attention} /> },
     { key: 'release', label: 'Release', render: (image) => image.release || '-' },
     {
       key: 'tags',

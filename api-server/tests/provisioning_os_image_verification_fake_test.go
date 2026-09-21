@@ -64,6 +64,32 @@ func (r *fakeOSImageVerificationRepo) RecordTarget(
 		r.verifications[key] = verification
 	}
 	verification.Targets[target] = evidence
+	delete(verification.FailedTargets, target) // success clears any prior failure for the target
+	verification.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (r *fakeOSImageVerificationRepo) RecordFailedTarget(
+	_ context.Context, integrationID, imageID, architecture string,
+	target provisioningdomain.DeployTarget,
+	failure provisioningdomain.OSImageVerificationFailure,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := fakeOSImageOverlayKey(integrationID, imageID, architecture)
+	verification, ok := r.verifications[key]
+	if !ok {
+		verification = &provisioningdomain.OSImageVerification{
+			IntegrationID: integrationID, ImageID: imageID, Architecture: architecture,
+			Targets: map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationEvidence{},
+		}
+		r.verifications[key] = verification
+	}
+	if verification.FailedTargets == nil {
+		verification.FailedTargets = map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationFailure{}
+	}
+	verification.FailedTargets[target] = failure
+	delete(verification.Targets, target) // failure clears any prior success for the target
 	verification.UpdatedAt = time.Now().UTC()
 	return nil
 }
@@ -91,8 +117,15 @@ func cloneVerification(v *provisioningdomain.OSImageVerification) *provisioningd
 	for target, evidence := range v.Targets {
 		targets[target] = evidence
 	}
+	var failedTargets map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationFailure
+	if len(v.FailedTargets) > 0 {
+		failedTargets = make(map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationFailure, len(v.FailedTargets))
+		for target, failure := range v.FailedTargets {
+			failedTargets[target] = failure
+		}
+	}
 	return &provisioningdomain.OSImageVerification{
 		IntegrationID: v.IntegrationID, ImageID: v.ImageID, Architecture: v.Architecture,
-		Targets: targets, UpdatedAt: v.UpdatedAt,
+		Targets: targets, FailedTargets: failedTargets, UpdatedAt: v.UpdatedAt,
 	}
 }

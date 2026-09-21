@@ -21,14 +21,20 @@
   (no provider counterpart), and the artifact and its deployable `id` stay
   provider-owned. Provider-reported artifact metadata such as its current complete
   resource-set size may accompany the live catalog but remains provider-owned and
-  is never part of the overlay. Swallow may additionally hold a swallow-owned
+  is never part of the overlay.   Swallow may additionally hold a swallow-owned
   **verification** for a custom image — a per-[Deploy Target](deploy-target.md)
-  attestation that a real deploy in that mode succeeded, keyed by the same
+  outcome of a real proving deploy in that mode, keyed by the same
   `integrationId` + `imageId` + `architecture` identity and stored separately from
-  the overlay. The catalog projects it as `verifiedDeployTargets`; an absent record
-  means unverified, and a custom image must be verified for a Deploy Target before a
-  normal deploy in that target is allowed. Synced provider images are
-  provider-trusted and are never gated on verification.
+  the overlay. Each Deploy Target records the latest run's outcome, which is one of
+  three states: verified (a proving deploy succeeded), failed (the most recent
+  proving deploy failed), or absent (never attempted). The catalog projects these as
+  `verifiedDeployTargets` and `failedDeployTargets`; a Deploy Target appears in at
+  most one of them because recording one outcome clears the other. A custom image
+  must be verified for a Deploy Target before a normal deploy in that target is
+  allowed — a failed or absent target is blocked the same way, so `failedDeployTargets`
+  affects only display, letting an operator tell "proven not to deploy this way" apart
+  from "not yet tried". Synced provider images are provider-trusted and are never
+  gated on verification.
 - Disallowed meaning: A Swallow release, container image, package bundle,
   post-install script collection, or durable Swallow-owned copy of the image
   artifact. Driving a provider upload does not make Swallow the owner of the
@@ -52,6 +58,10 @@
   [decision 027](../../../decisions/027-os-image-upload.md). Updated 2026-09-13 to
   clarify that live image size metadata remains provider-owned. Updated 2026-09-12
   for the swallow-owned display overlay (name, OS, release) per
-  [decision 025](../../../decisions/025-provider-data-overlay.md). Updated 2026-09-21
+  [decision 025](../../../decisions/025-provider-data-overlay.md).   Updated 2026-09-21
   for the swallow-owned per-Deploy-Target verification and the custom-image deploy
   gate per [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md).
+  Updated 2026-09-21 so per-Deploy-Target verification records a failed outcome as well
+  as a verified one (`failedDeployTargets`), making a failed verification visible and
+  distinct from a never-attempted one, per
+  [decision 036](../../../decisions/036-provisioning-lifecycle-integrity.md).

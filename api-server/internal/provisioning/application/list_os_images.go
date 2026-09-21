@@ -37,6 +37,11 @@ type OSImageItem struct {
 	// for disk/RAM" indicator without a null check. Swallow-owned attestation keyed by the same
 	// image identity; empty means the image has not been verified for any target.
 	VerifiedDeployTargets []string `json:"verifiedDeployTargets"`
+	// FailedDeployTargets are the deploy targets whose most recent Swallow verification run failed,
+	// always a (possibly empty) array. It lets a client show a failed verification distinctly from a
+	// never-attempted one; a target is in VerifiedDeployTargets or FailedDeployTargets but never
+	// both, since recording one outcome clears the other.
+	FailedDeployTargets []string `json:"failedDeployTargets"`
 }
 
 // ListOSImagesUseCase reads the images one provisioner can currently deploy and merges the
@@ -111,6 +116,9 @@ func (uc *ListOSImagesUseCase) Execute(ctx context.Context, integrationID string
 			for _, target := range verification.VerifiedTargets() {
 				item.VerifiedDeployTargets = append(item.VerifiedDeployTargets, string(target))
 			}
+			for _, target := range verification.FailedTargetsList() {
+				item.FailedDeployTargets = append(item.FailedDeployTargets, string(target))
+			}
 		}
 		// Overlay precedence is one-directional and per field: a non-empty swallow value becomes
 		// the effective value while the provider value stays visible as provider*. Tags have no
@@ -160,5 +168,6 @@ func newOSImageItem(image *provisioningdomain.OSImage) OSImageItem {
 		Architecture:          image.Architecture,
 		SizeBytes:             image.SizeBytes,
 		VerifiedDeployTargets: []string{},
+		FailedDeployTargets:   []string{},
 	}
 }

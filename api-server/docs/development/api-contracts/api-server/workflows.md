@@ -99,10 +99,12 @@ explicit release-manifest playbook is supplied by a trusted use case. Some built
 are launched only through their owning feature endpoint rather than this generic create —
 for example `verify-os-image` is created by `POST /provisioning/image-verifications` and
 appears here in listings and timelines. A `verify-os-image` Workflow runs
-`provision-os` (the real proving deploy) → `record-image-verification` (an internal
-finalize Task that records the Swallow-owned per-Deploy-Target attestation) → `release-os`
-(auto-release), per
-[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md). Targets are frozen,
+`provision-os` (the real proving deploy) → one of two mutually exclusive internal finalize
+Tasks (`record-image-verification` on success, `record-image-verification-failure` on
+failure, recording the Swallow-owned per-Deploy-Target outcome) → `recover-server` (return
+the borrowed Server to `ready`, run whether the proving deploy succeeded or failed), per
+[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md)
+and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md). Targets are frozen,
 must belong to one Site, and must pass current provisioning, Platform policy, active-work,
 and live Server Lock checks. Success is `202 Accepted` after intent is persisted; Temporal
 may start after the response through starter reconciliation.

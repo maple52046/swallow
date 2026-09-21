@@ -318,9 +318,38 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	retryChannel := workflow.GetSignalChannel(ctx, RetryStepSignal)
 	for {
 		if ctx.Err() != nil {
+			compensateVerifyCancel(ctx, input, steps, leases)
 			return finishCanceled(ctx, input.OperationID, steps)
 		}
-		ready := readySteps(steps)
+		// Resolve each pending Task against the settled outcomes of its dependencies: run it, skip
+		// it (a dependency settled in a way its continueOn does not permit), or leave it waiting. A
+		// skip can settle a dependency and unblock a downstream compensation Task, so if this pass
+		// only skipped, loop again to re-resolve before deciding the Operation is finished.
+		byID := make(map[string]int, len(steps))
+		for index := range steps {
+			byID[steps[index].ID] = index
+		}
+		ready := []int{}
+		skippedAny := false
+		for index := range steps {
+			if steps[index].Status != operationdomain.TaskPending && steps[index].Status != operationdomain.TaskWaitingDependency {
+				continue
+			}
+			switch scheduleStep(steps[index], byID, steps) {
+			case stepRun:
+				ready = append(ready, index)
+			case stepSkip:
+				finished := workflow.Now(ctx).UTC()
+				steps[index].Status = operationdomain.TaskSkipped
+				steps[index].FinishedAt = &finished
+				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
+				skippedAny = true
+			}
+		}
+		sort.Ints(ready)
+		if len(ready) == 0 && skippedAny {
+			continue
+		}
 		if len(ready) == 0 {
 			if allSucceeded(steps) {
 				finished := workflow.Now(ctx).UTC()
@@ -345,6 +374,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 			}).Get(projectionCtx, nil)
 			command, err := awaitRetryStep(ctx, retryChannel, leases, input.LeaseDuration)
 			if err != nil {
+				compensateVerifyCancel(ctx, input, steps, leases)
 				return finishCanceled(ctx, input.OperationID, steps)
 			}
 			for index := range steps {
@@ -714,28 +744,71 @@ func readyJobTasks(tasks []operationdomain.Task, known map[string]bool) []int {
 	return ready
 }
 
-func readySteps(steps []operationdomain.Task) []int {
-	succeeded := map[string]bool{}
-	for _, step := range steps {
-		if step.Status == operationdomain.TaskSucceeded || step.Status == operationdomain.TaskSkipped {
-			succeeded[step.ID] = true
+// stepSchedule is the resolution for one pending Task given the current outcomes of its
+// dependencies.
+type stepSchedule int
+
+const (
+	// stepWait means at least one dependency has not settled, so the Task is not yet decidable.
+	stepWait stepSchedule = iota
+	// stepRun means every dependency settled and each is permitted by the Task's continueOn.
+	stepRun
+	// stepSkip means every dependency settled but at least one is not permitted, so the Task is
+	// skipped (letting a downstream compensation Task that permits "skipped" still run).
+	stepSkip
+)
+
+// stepSettled reports whether a Task has reached an outcome that will not change on its own, so
+// a dependent may make a run/skip decision from it. A retryable failure (or requires_attention)
+// is deliberately not settled: it parks for operator retry and may yet succeed, so dependents
+// wait through the retry instead of skipping past a failure that could be recovered. This keeps
+// the pre-existing "retryable failure pauses the whole Operation for retry" behaviour intact.
+func stepSettled(step operationdomain.Task) bool {
+	switch step.Status {
+	case operationdomain.TaskSucceeded, operationdomain.TaskSkipped, operationdomain.TaskCanceled:
+		return true
+	case operationdomain.TaskFailed:
+		return step.Error == nil || !step.Error.Retryable
+	default:
+		return false
+	}
+}
+
+// dependencySatisfies reports whether a settled dependency outcome permits a dependent Task to
+// run under its continueOn policy. The default (empty continueOn) permits only a succeeded or
+// skipped-as-satisfied dependency; a Task widens it by listing extra permitted outcomes.
+func dependencySatisfies(depStatus operationdomain.TaskStatus, continueOn []operationdomain.TaskStatus) bool {
+	if len(continueOn) == 0 {
+		return depStatus == operationdomain.TaskSucceeded || depStatus == operationdomain.TaskSkipped
+	}
+	for _, allowed := range continueOn {
+		if depStatus == allowed {
+			return true
 		}
 	}
-	ready := []int{}
-	for index, step := range steps {
-		if step.Status != operationdomain.TaskPending && step.Status != operationdomain.TaskWaitingDependency {
-			continue
+	return false
+}
+
+// scheduleStep resolves whether a pending Task waits, runs, or is skipped. A Task is decidable
+// only once every dependency has settled; it then runs when each settled dependency is permitted
+// by its continueOn policy, and is skipped otherwise. A dependency absent from the set is treated
+// as unsettled (wait), matching the flat path's invariant that every dependency id resolves to a
+// Task in the same Workflow.
+func scheduleStep(step operationdomain.Task, byID map[string]int, steps []operationdomain.Task) stepSchedule {
+	permitted := true
+	for _, depID := range step.DependsOn {
+		index, known := byID[depID]
+		if !known || !stepSettled(steps[index]) {
+			return stepWait
 		}
-		all := true
-		for _, dependency := range step.DependsOn {
-			all = all && succeeded[dependency]
-		}
-		if all {
-			ready = append(ready, index)
+		if !dependencySatisfies(steps[index].Status, step.ContinueOn) {
+			permitted = false
 		}
 	}
-	sort.Ints(ready)
-	return ready
+	if permitted {
+		return stepRun
+	}
+	return stepSkip
 }
 
 func allSucceeded(steps []operationdomain.Task) bool {
@@ -833,6 +906,45 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 		Reason: "Canceled by operator.", FinishedAt: &finished,
 	}).Get(disconnected, nil)
 	return nil
+}
+
+// compensateVerifyCancel best-effort returns a verification-borrowed Server to Ready when its
+// verify-os-image Workflow is canceled. A verification borrows a ready Server under the contract
+// that it is given back; on cancel the provision activity already aborts the in-flight provider
+// deploy, and this runs the Workflow's own recover-server Task on a disconnected context so the
+// borrowed Server is released rather than stranded. It is strictly best-effort — bounded to a
+// short window and with every error ignored (the operator can still Recover manually, and any
+// state left behind is a Recover/Release source) — and only ever runs the already-defined recover
+// Task, never an invented one. It is a no-op for every other Workflow kind and for an already
+// succeeded recover.
+func compensateVerifyCancel(ctx workflow.Context, input WorkflowInput, steps []operationdomain.Task, leases []operationdomain.ResourceLease) {
+	if input.Kind != operationdomain.WorkflowKindVerifyOSImage {
+		return
+	}
+	for index := range steps {
+		step := steps[index]
+		if step.Kind != "recover-server" || step.Status == operationdomain.TaskSucceeded {
+			continue
+		}
+		disconnected, _ := workflow.NewDisconnectedContext(ctx)
+		// Bound the compensation so a slow provider cannot hold the canceled Operation open on the
+		// 7-day step timeout; the provider Release is issued early in the executor, so the Machine
+		// still converges to Ready even if we stop watching at the cap.
+		execCtx := workflow.WithActivityOptions(disconnected, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Minute,
+			HeartbeatTimeout:    30 * time.Second,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		})
+		// Present the recover Task as a fresh run so its executor acts now rather than
+		// short-circuiting on a pending/canceled projection; the outcome is intentionally not
+		// projected back onto the Operation, which finishCanceled records as canceled.
+		step.Status = operationdomain.TaskRunning
+		var result StepExecutionResult
+		_ = workflow.ExecuteActivity(execCtx, ActivityExecuteStep, StepExecutionInput{
+			OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
+			Step: step, Leases: leases, LeaseDuration: input.LeaseDuration,
+		}).Get(disconnected, &result)
+	}
 }
 
 // Controller sends controls to an existing Temporal workflow.

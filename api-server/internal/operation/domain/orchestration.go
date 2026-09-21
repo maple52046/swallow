@@ -113,9 +113,18 @@ type Task struct {
 	// Job groups Tasks into a reusable, convergent unit (ADR 017). When set, the
 	// Workflow runs each Job as a Temporal child workflow; empty means the Task runs in
 	// the flat, single-workflow path. Cross-Job dependencies order the child workflows.
-	Job               string                      `json:"job,omitempty" bson:"job,omitempty"`
-	Executor          RunnerKind                  `json:"executor" bson:"runner"`
-	DependsOn         []string                    `json:"dependsOn" bson:"dependsOn"`
+	Job       string     `json:"job,omitempty" bson:"job,omitempty"`
+	Executor  RunnerKind `json:"executor" bson:"runner"`
+	DependsOn []string   `json:"dependsOn" bson:"dependsOn"`
+	// ContinueOn lists the dependency outcomes that still let this Task run. Empty is the
+	// default and preserves the original behaviour: the Task runs only when every dependency is
+	// satisfied (succeeded, or skipped as already-satisfied) and is otherwise skipped. A Task
+	// widens this — typically a compensation/cleanup Task that must run even when the work it
+	// follows was skipped because an earlier Task failed — by listing the extra permitted
+	// outcomes (for example "skipped"). A retryable dependency failure is never treated as
+	// settled, so a dependent still waits through operator retries rather than skipping past a
+	// failure that may yet succeed.
+	ContinueOn        []TaskStatus                `json:"continueOn,omitempty" bson:"continueOn,omitempty"`
 	Targets           []ResourceReference         `json:"targets" bson:"targets"`
 	Parameters        map[string]any              `json:"parameters,omitempty" bson:"parameters,omitempty"`
 	SecretRefs        map[string]string           `json:"secretRefs,omitempty" bson:"secretRefs,omitempty"`

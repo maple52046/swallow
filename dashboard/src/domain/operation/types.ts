@@ -205,3 +205,18 @@ export function isTerminalStatus(status: OperationStatus): boolean {
     status === "indeterminate"
   );
 }
+
+/**
+ * Whether a workflow is actively making progress, as opposed to terminal or parked awaiting an
+ * operator (`requires_attention`) or tearing down (`canceling`). Use this — not merely "not
+ * terminal" — to decide when to show an in-progress affordance such as the OS Images "verifying"
+ * spinner: a parked or canceling workflow is not progressing and must not read as still working.
+ */
+export function isInFlightStatus(status: OperationStatus): boolean {
+  return (
+    status === "pending" ||
+    status === "running" ||
+    status === "waiting_external" ||
+    status === "waiting_dependency"
+  );
+}

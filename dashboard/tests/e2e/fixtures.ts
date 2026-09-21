@@ -123,9 +123,9 @@ const integrations = [
   { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
 ]
 const osImages = [
-  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', providerName: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'jammy', providerRelease: 'jammy', tags: [], architecture: 'amd64', sizeBytes: 4294967296 },
-  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', providerName: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'noble', providerRelease: 'noble', tags: [], architecture: 'amd64', sizeBytes: 5368709120 },
-  { id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', providerName: 'Ubuntu 24.04 ROCm', osSystem: 'custom', providerOsSystem: 'custom', release: 'ubuntu-24.04-rocm', providerRelease: 'ubuntu-24.04-rocm', tags: [], architecture: 'amd64' },
+  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', providerName: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'jammy', providerRelease: 'jammy', tags: [], architecture: 'amd64', sizeBytes: 4294967296, verifiedDeployTargets: [], failedDeployTargets: [] },
+  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', providerName: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'noble', providerRelease: 'noble', tags: [], architecture: 'amd64', sizeBytes: 5368709120, verifiedDeployTargets: [], failedDeployTargets: [] },
+  { id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', providerName: 'Ubuntu 24.04 ROCm', osSystem: 'custom', providerOsSystem: 'custom', release: 'ubuntu-24.04-rocm', providerRelease: 'ubuntu-24.04-rocm', tags: [], architecture: 'amd64', verifiedDeployTargets: ['ram'], failedDeployTargets: ['disk'] },
 ]
 const baseDeploymentTemplates = [
   { id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true, createdAt: now, updatedAt: now },

@@ -80,4 +80,12 @@ export interface OSImage {
    * is allowed, while synced provider images are trusted and never require verification.
    */
   verifiedDeployTargets: string[]
+  /**
+   * Deploy targets whose most recent Swallow verification run failed. Always present (possibly
+   * empty). A target here was proven not to deploy in that mode, as opposed to never attempted — it
+   * lets the UI show a failed verification distinctly from an unverified one. A target is in
+   * verifiedDeployTargets or failedDeployTargets but never both (recording one outcome clears the
+   * other); a failed target is still gate-blocked exactly like an unverified one.
+   */
+  failedDeployTargets: string[]
 }

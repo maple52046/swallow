@@ -126,6 +126,30 @@ func (r *osImageVerificationRepoFake) RecordTarget(
 		r.rows[key] = verification
 	}
 	verification.Targets[target] = evidence
+	delete(verification.FailedTargets, target) // success clears any prior failure for the target
+	return nil
+}
+
+func (r *osImageVerificationRepoFake) RecordFailedTarget(
+	_ context.Context, integrationID, imageID, architecture string,
+	target provisioningdomain.DeployTarget, failure provisioningdomain.OSImageVerificationFailure,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := osImageOverlayStoreKey(integrationID, imageID, architecture)
+	verification, ok := r.rows[key]
+	if !ok {
+		verification = &provisioningdomain.OSImageVerification{
+			IntegrationID: integrationID, ImageID: imageID, Architecture: architecture,
+			Targets: map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationEvidence{},
+		}
+		r.rows[key] = verification
+	}
+	if verification.FailedTargets == nil {
+		verification.FailedTargets = map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationFailure{}
+	}
+	verification.FailedTargets[target] = failure
+	delete(verification.Targets, target) // failure clears any prior success for the target
 	return nil
 }
 

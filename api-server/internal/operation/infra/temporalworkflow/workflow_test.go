@@ -334,6 +334,117 @@ func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T
 	}
 }
 
+// TestScheduleStepResolvesContinueOn pins the dependency-outcome resolution the flat workflow
+// uses: a Task waits until every dependency settles, runs when each settled dependency is
+// permitted by its continueOn, and is skipped otherwise. A retryable failure is not settled, so a
+// dependent waits through the retry rather than skipping past a recoverable failure.
+func TestScheduleStepResolvesContinueOn(t *testing.T) {
+	steps := []operationdomain.Task{
+		{ID: "provision", Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{Retryable: false}},
+		{ID: "record", DependsOn: []string{"provision"}, Status: operationdomain.TaskPending},
+		{ID: "recover", DependsOn: []string{"record"}, Status: operationdomain.TaskPending,
+			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped}},
+	}
+	byID := map[string]int{"provision": 0, "record": 1, "recover": 2}
+
+	// record depends on a non-retryable failure it does not permit -> skip.
+	if got := scheduleStep(steps[1], byID, steps); got != stepSkip {
+		t.Fatalf("record schedule = %v, want stepSkip", got)
+	}
+	// recover depends on record, still pending (unsettled) -> wait.
+	if got := scheduleStep(steps[2], byID, steps); got != stepWait {
+		t.Fatalf("recover schedule (record pending) = %v, want stepWait", got)
+	}
+	// Once record is skipped, recover permits skipped -> run.
+	steps[1].Status = operationdomain.TaskSkipped
+	if got := scheduleStep(steps[2], byID, steps); got != stepRun {
+		t.Fatalf("recover schedule (record skipped) = %v, want stepRun", got)
+	}
+	// A retryable provision failure is not settled, so record must wait (park for retry), not skip.
+	steps[0].Status = operationdomain.TaskFailed
+	steps[0].Error = &operationdomain.NormalizedError{Retryable: true}
+	steps[1].Status = operationdomain.TaskPending
+	if got := scheduleStep(steps[1], byID, steps); got != stepWait {
+		t.Fatalf("record schedule (provision retryable) = %v, want stepWait", got)
+	}
+}
+
+// TestOperationWorkflowV1SkipsFinalizeAndRunsCompensation models the verify-os-image shape:
+// provision -> record (default continueOn) -> recover (continueOn succeeded|skipped). When the
+// proving deploy fails terminally, record must be skipped (never executed) and the compensating
+// recover must still run so the borrowed Server is returned, ending partially_succeeded rather
+// than parking forever.
+func TestOperationWorkflowV1SkipsFinalizeAndRunsCompensation(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var mu sync.Mutex
+	executed := []string{}
+	stepStatus := map[string]operationdomain.TaskStatus{}
+	states := []operationdomain.WorkflowStatus{}
+
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
+		return []operationdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
+	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRenewal) error { return nil },
+		activity.RegisterOptions{Name: ActivityRenewLeases})
+	env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+		activity.RegisterOptions{Name: ActivityReleaseLeases})
+	env.RegisterActivityWithOptions(func(_ context.Context, input StepUpdate) error {
+		mu.Lock()
+		stepStatus[input.Step.ID] = input.Step.Status
+		mu.Unlock()
+		return nil
+	}, activity.RegisterOptions{Name: ActivityUpdateStep})
+	env.RegisterActivityWithOptions(func(_ context.Context, input StateUpdate) error {
+		mu.Lock()
+		states = append(states, input.Status)
+		mu.Unlock()
+		return nil
+	}, activity.RegisterOptions{Name: ActivityUpdateState})
+	env.RegisterActivityWithOptions(func(_ context.Context, input StepExecutionInput) (StepExecutionResult, error) {
+		mu.Lock()
+		executed = append(executed, input.Step.ID)
+		mu.Unlock()
+		if input.Step.ID == "provision" {
+			return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+				Code: "deployment_failed", Message: "proof failed", Retryable: false,
+			}}, nil
+		}
+		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}, nil
+	}, activity.RegisterOptions{Name: ActivityExecuteStep})
+
+	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
+		OperationID: "operation-verify-fail", Kind: operationdomain.WorkflowKindVerifyOSImage,
+		SiteID: "site-a", Definition: "os-image-verification", DefinitionVersion: 1,
+		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:a"},
+		Steps: []operationdomain.Task{
+			{ID: "provision", Kind: "provision-os", Name: "Verify", Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1},
+			{ID: "record", Kind: "record-image-verification", Name: "Record", Executor: operationdomain.RunnerKindInternal, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
+			{ID: "recover", Kind: "recover-server", Name: "Return", Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"record"},
+				ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped}},
+		},
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow returned an error: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range executed {
+		if id == "record" {
+			t.Fatalf("record must be skipped when provision failed, but it executed; executed=%v", executed)
+		}
+	}
+	if len(executed) != 2 || executed[0] != "provision" || executed[1] != "recover" {
+		t.Fatalf("executed = %v, want [provision recover]", executed)
+	}
+	if stepStatus["record"] != operationdomain.TaskSkipped {
+		t.Fatalf("record status = %v, want skipped", stepStatus["record"])
+	}
+	if len(states) == 0 || states[len(states)-1] != operationdomain.WorkflowPartiallySucceeded {
+		t.Fatalf("final state = %v, want partially_succeeded", states)
+	}
+}
+
 func registerWorkflowActivityMocks(
 	env *testsuite.TestWorkflowEnvironment,
 	execute func(StepExecutionInput) StepExecutionResult,

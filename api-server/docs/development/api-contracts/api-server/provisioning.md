@@ -86,7 +86,8 @@ returns:
     "tags": ["gpu", "ml"],
     "architecture": "amd64",
     "sizeBytes": 5368709120,
-    "verifiedDeployTargets": ["disk", "ram"]
+    "verifiedDeployTargets": ["disk", "ram"],
+    "failedDeployTargets": []
   }
 ]
 ```
@@ -119,6 +120,16 @@ image verification gate"); synced provider images are provider-trusted and are
 never gated regardless of this array. It is keyed by the same
 `integrationId` + `imageId` + `architecture` identity as the overlay but stored
 separately, so clearing an overlay never clears verification.
+
+`failedDeployTargets` is the mirror Swallow-owned array of deploy targets whose
+most recent verification run failed. It is always present, defaulting to an empty
+array. It lets a client show a failed verification distinctly from a
+never-attempted one — a custom image with `"disk"` in `failedDeployTargets` was
+proven not to deploy to disk, as opposed to simply not yet tried. A Deploy Target
+is in `verifiedDeployTargets` or `failedDeployTargets` but never both: recording one
+outcome clears the other, so the arrays reflect the latest run. A failed target is
+still blocked by the verification gate exactly like an unverified one; the array
+only affects display, not the gate.
 
 The catalog contains only resources the provisioner accepts for OS deployment.
 For MAAS this includes synced operating systems and uploaded custom images, but
@@ -635,14 +646,21 @@ preflight requires the Server to exist, be `ready`, be unlocked, belong to the
 image's Integration, and match the image architecture. It responds `202` with
 `{ "operationId": "..." }`.
 
-The Operation runs three Steps: `provision-os` (the real deploy in the target
-mode; this proving deploy is exempt from the custom-image verification gate),
-`record-image-verification` (an internal finalize Step that upserts the per-target
-evidence and can retry without re-deploying), and `release-os` (auto-release back
-to `ready`). On success the image's `verifiedDeployTargets` gains the target and
-the Server returns to `ready`. A failed proving deploy surfaces the provider's
-reason and leaves the target unverified. See
-[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md).
+The Operation runs Steps: `provision-os` (the real deploy in the target mode; this
+proving deploy is exempt from the custom-image verification gate), one of two
+mutually exclusive internal finalize Steps — `record-image-verification` when the
+proving deploy succeeded, or `record-image-verification-failure` when it failed —
+and `recover-server` (return the borrowed Server to `ready`). Verification is a
+borrow-and-return contract: the return Step runs whether the proving deploy
+succeeded or failed, so the borrowed Server is always given back. Exactly one record
+Step runs; the other is skipped. A failed proving deploy is terminal (not a
+retry-park), so the Operation reaches `partially_succeeded` after the Server is
+returned, rather than holding the Server and showing a perpetual "verifying". On
+success the image's `verifiedDeployTargets` gains the target; on failure its
+`failedDeployTargets` gains the target and the provider's reason is on the failed
+`provision-os` Step. See
+[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md)
+and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md).
 
 ## Provisioning Tasks
 

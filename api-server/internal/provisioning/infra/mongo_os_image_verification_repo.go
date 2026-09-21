@@ -22,6 +22,7 @@ type osImageVerificationDoc struct {
 	ImageID       string                                    `bson:"imageId"`
 	Architecture  string                                    `bson:"architecture"`
 	Targets       map[string]osImageVerificationEvidenceDoc `bson:"targets"`
+	FailedTargets map[string]osImageVerificationFailureDoc  `bson:"failedTargets,omitempty"`
 	UpdatedAt     time.Time                                 `bson:"updatedAt"`
 }
 
@@ -29,6 +30,13 @@ type osImageVerificationEvidenceDoc struct {
 	VerifiedAt  time.Time `bson:"verifiedAt"`
 	OperationID string    `bson:"operationId,omitempty"`
 	ServerID    string    `bson:"serverId,omitempty"`
+}
+
+type osImageVerificationFailureDoc struct {
+	FailedAt    time.Time `bson:"failedAt"`
+	OperationID string    `bson:"operationId,omitempty"`
+	ServerID    string    `bson:"serverId,omitempty"`
+	Reason      string    `bson:"reason,omitempty"`
 }
 
 // MongoOSImageVerificationRepo stores swallow-owned OS Image verification attestations in the
@@ -103,7 +111,9 @@ func (r *MongoOSImageVerificationRepo) Find(
 
 // RecordTarget marks one deploy target verified. It sets only that target's evidence field, so
 // verifying RAM never clears a previously verified disk; SetUpsert makes the first verification an
-// insert and later ones updates against the same unique key.
+// insert and later ones updates against the same unique key. Recording a success also unsets any
+// prior failure for the same target, so verified and failed stay mutually exclusive and the record
+// reflects the latest run.
 func (r *MongoOSImageVerificationRepo) RecordTarget(
 	ctx context.Context,
 	integrationID, imageID, architecture string,
@@ -125,6 +135,43 @@ func (r *MongoOSImageVerificationRepo) RecordTarget(
 			},
 			"updatedAt": now,
 		},
+		"$unset": bson.M{"failedTargets." + string(target): ""},
+		"$setOnInsert": bson.M{
+			"integrationId": integrationID,
+			"imageId":       imageID,
+			"architecture":  architecture,
+		},
+	}
+	_, err := r.col.UpdateOne(ctx, filter, update, options.Update().SetUpsert(true))
+	return err
+}
+
+// RecordFailedTarget marks one deploy target's latest verification as failed. It is the mirror of
+// RecordTarget: it sets only that target's failure entry and unsets any prior success, so a target
+// that stops deploying is no longer shown as verified, while other targets keep their outcome.
+func (r *MongoOSImageVerificationRepo) RecordFailedTarget(
+	ctx context.Context,
+	integrationID, imageID, architecture string,
+	target provisioningdomain.DeployTarget,
+	failure provisioningdomain.OSImageVerificationFailure,
+) error {
+	now := time.Now().UTC()
+	filter := bson.M{
+		"integrationId": integrationID,
+		"imageId":       imageID,
+		"architecture":  architecture,
+	}
+	update := bson.M{
+		"$set": bson.M{
+			"failedTargets." + string(target): osImageVerificationFailureDoc{
+				FailedAt:    failure.FailedAt,
+				OperationID: failure.OperationID,
+				ServerID:    failure.ServerID,
+				Reason:      failure.Reason,
+			},
+			"updatedAt": now,
+		},
+		"$unset": bson.M{"targets." + string(target): ""},
 		"$setOnInsert": bson.M{
 			"integrationId": integrationID,
 			"imageId":       imageID,
@@ -164,11 +211,24 @@ func toOSImageVerification(doc *osImageVerificationDoc) *provisioningdomain.OSIm
 			ServerID:    evidence.ServerID,
 		}
 	}
+	var failedTargets map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationFailure
+	if len(doc.FailedTargets) > 0 {
+		failedTargets = make(map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationFailure, len(doc.FailedTargets))
+		for key, failure := range doc.FailedTargets {
+			failedTargets[provisioningdomain.DeployTarget(key)] = provisioningdomain.OSImageVerificationFailure{
+				FailedAt:    failure.FailedAt,
+				OperationID: failure.OperationID,
+				ServerID:    failure.ServerID,
+				Reason:      failure.Reason,
+			}
+		}
+	}
 	return &provisioningdomain.OSImageVerification{
 		IntegrationID: doc.IntegrationID,
 		ImageID:       doc.ImageID,
 		Architecture:  doc.Architecture,
 		Targets:       targets,
+		FailedTargets: failedTargets,
 		UpdatedAt:     doc.UpdatedAt,
 	}
 }

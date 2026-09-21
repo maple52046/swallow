@@ -79,3 +79,11 @@ Implemented. Deploy-target mapping, the verification model + Mongo repo, the
 place. Pruning verification on Integration delete is a small follow-up (orphan
 rows are harmless); the deprecated single-server deploy endpoint is not
 separately gated (superseded by the gated durable path).
+
+Refined by [decision 036](036-provisioning-lifecycle-integrity.md): the
+`verify-os-image` Workflow now returns the borrowed Server toward `ready` on
+failure or cancel (not only on success), records the attestation only on a
+successful proving deploy, and treats a proving install/SSH failure as a
+non-retryable proof failure so the Workflow terminates instead of parking at
+`requires_attention`. A failed verification therefore no longer strands the
+borrowed Server or shows a perpetual "verifying" badge.

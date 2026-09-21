@@ -53,6 +53,11 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 		if temporalworkflow.IsActivityWorkerStopping(ctx) {
 			return result
 		}
+		// A verification borrow must reach a terminal outcome so its Workflow returns the borrowed
+		// Server; harden a retryable proving-deploy failure into a terminal one before it is
+		// projected, so the verify Workflow does not park at requires_attention and strand the
+		// Server. A normal deploy is unaffected.
+		result = e.hardenVerificationResult(input.Step, result)
 		if err := e.finishDeployment(ctx, input, serverID, result); err != nil {
 			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
 		}
@@ -82,6 +87,32 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 	default:
 		return providerFailed("unsupported_step", "The provider Step kind is not supported.", false).StepExecutionResult
 	}
+}
+
+// hardenVerificationResult turns a retryable proving-deploy outcome into a terminal, non-retryable
+// failure when the deploy is a verification borrow (VerificationRun). A verification must reach a
+// terminal state so its Workflow's return-to-ready step runs and the borrowed Server is given back,
+// instead of parking at requires_attention — which strands the Server behind a busy lock and shows
+// a perpetual "verifying" on the OS Images list. A provider-unavailable outcome that never reached
+// the Machine is left retryable: retrying it is safe and a transient provider outage must not be
+// recorded as a proof failure. Non-verification deploys and success/attention-for-other-reasons are
+// returned unchanged.
+func (e providerStepExecutor) hardenVerificationResult(step operationdomain.Task, result temporalworkflow.StepExecutionResult) temporalworkflow.StepExecutionResult {
+	if result.Status != operationdomain.TaskRequiresAttention && result.Status != operationdomain.TaskFailed {
+		return result
+	}
+	if result.Error != nil && result.Error.Code == "provider_unavailable" {
+		return result
+	}
+	var input provisioningapp.DeployServersInput
+	if err := decodeStepRequest(step.Parameters, &input); err != nil || !input.VerificationRun {
+		return result
+	}
+	if result.Error != nil {
+		result.Error.Retryable = false
+	}
+	result.Status = operationdomain.TaskFailed
+	return result
 }
 
 func (e providerStepExecutor) finishDeployment(ctx context.Context, input temporalworkflow.StepExecutionInput, serverID string, result temporalworkflow.StepExecutionResult) error {
