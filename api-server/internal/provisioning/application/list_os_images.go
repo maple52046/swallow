@@ -32,6 +32,11 @@ type OSImageItem struct {
 	// SizeBytes is live provider metadata and is omitted when no complete image size is
 	// available. It is never read from or written to the swallow overlay.
 	SizeBytes int64 `json:"sizeBytes,omitempty"`
+	// VerifiedDeployTargets are the deploy targets ("disk"/"ram") a Swallow verification has proven
+	// this image can deploy in, always a (possibly empty) array so a client can render a "verified
+	// for disk/RAM" indicator without a null check. Swallow-owned attestation keyed by the same
+	// image identity; empty means the image has not been verified for any target.
+	VerifiedDeployTargets []string `json:"verifiedDeployTargets"`
 }
 
 // ListOSImagesUseCase reads the images one provisioner can currently deploy and merges the
@@ -43,17 +48,19 @@ type OSImageItem struct {
 // catalog; the overlay only supplies swallow-chosen display values where they exist
 // (docs/decisions/025).
 type ListOSImagesUseCase struct {
-	providers provisioningdomain.ProviderFactory
-	overlays  provisioningdomain.OSImageOverlayRepository
+	providers     provisioningdomain.ProviderFactory
+	overlays      provisioningdomain.OSImageOverlayRepository
+	verifications provisioningdomain.OSImageVerificationRepository
 }
 
-// NewListOSImagesUseCase wires the provider factory and the swallow overlay store the catalog
-// read merges together.
+// NewListOSImagesUseCase wires the provider factory, the swallow display overlay, and the swallow
+// verification store the catalog read merges together.
 func NewListOSImagesUseCase(
 	providers provisioningdomain.ProviderFactory,
 	overlays provisioningdomain.OSImageOverlayRepository,
+	verifications provisioningdomain.OSImageVerificationRepository,
 ) *ListOSImagesUseCase {
-	return &ListOSImagesUseCase{providers: providers, overlays: overlays}
+	return &ListOSImagesUseCase{providers: providers, overlays: overlays, verifications: verifications}
 }
 
 // Execute lists the provider catalog and overlays swallow display values on it.
@@ -85,9 +92,26 @@ func (uc *ListOSImagesUseCase) Execute(ctx context.Context, integrationID string
 		byKey[osImageOverlayKey(overlay.ImageID, overlay.Architecture)] = overlay
 	}
 
+	// Verification is a separate swallow-owned store keyed by the same identity; a read failure is
+	// returned rather than silently dropping attestations, which would misreport a verified image
+	// as unverified.
+	verifications, err := uc.verifications.ListByIntegration(ctx, integrationID)
+	if err != nil {
+		return nil, err
+	}
+	verificationByKey := make(map[string]*provisioningdomain.OSImageVerification, len(verifications))
+	for _, verification := range verifications {
+		verificationByKey[osImageOverlayKey(verification.ImageID, verification.Architecture)] = verification
+	}
+
 	items := make([]OSImageItem, 0, len(images))
 	for _, image := range images {
 		item := newOSImageItem(image)
+		if verification := verificationByKey[osImageOverlayKey(image.ID, image.Architecture)]; verification != nil {
+			for _, target := range verification.VerifiedTargets() {
+				item.VerifiedDeployTargets = append(item.VerifiedDeployTargets, string(target))
+			}
+		}
 		// Overlay precedence is one-directional and per field: a non-empty swallow value becomes
 		// the effective value while the provider value stays visible as provider*. Tags have no
 		// provider counterpart, so they are taken from the overlay as-is when present.
@@ -125,15 +149,16 @@ func osImageOverlayKey(imageID, architecture string) string {
 // full representation.
 func newOSImageItem(image *provisioningdomain.OSImage) OSImageItem {
 	return OSImageItem{
-		ID:               image.ID,
-		Name:             image.Name,
-		ProviderName:     image.Name,
-		OSSystem:         image.OSSystem,
-		ProviderOSSystem: image.OSSystem,
-		Release:          image.Release,
-		ProviderRelease:  image.Release,
-		Tags:             []string{},
-		Architecture:     image.Architecture,
-		SizeBytes:        image.SizeBytes,
+		ID:                    image.ID,
+		Name:                  image.Name,
+		ProviderName:          image.Name,
+		OSSystem:              image.OSSystem,
+		ProviderOSSystem:      image.OSSystem,
+		Release:               image.Release,
+		ProviderRelease:       image.Release,
+		Tags:                  []string{},
+		Architecture:          image.Architecture,
+		SizeBytes:             image.SizeBytes,
+		VerifiedDeployTargets: []string{},
 	}
 }

@@ -8,6 +8,34 @@ import type { ProvisioningActionResult } from "@/domain/server/types";
  */
 export type DeploymentNetworkMode = "automatic" | "static";
 
+/**
+ * Where an OS deployment runs. `disk` installs to the machine's disk; `ram` runs from memory
+ * (the fact the backend still calls "ephemeral"). This is the canonical operator-facing
+ * vocabulary; the dashboard sends `deployTarget` and the label for `ram` is "RAM deploy
+ * (ephemeral)". A `ram` target maps to `ephemeral=true` at the API boundary.
+ */
+export type DeployTarget = "disk" | "ram";
+
+/**
+ * Operator-facing labels for the deploy targets. `ram` is the fact the backend still calls
+ * "ephemeral" (the OS runs from memory and leaves the disks untouched), surfaced with an explicit
+ * "(ephemeral)" hint so the vocabulary shift does not lose the old meaning.
+ */
+export const DEPLOY_TARGET_LABELS: Record<DeployTarget, string> = {
+  disk: "Disk deploy",
+  ram: "RAM deploy (ephemeral)",
+};
+
+/** Maps the deploy target onto the legacy ephemeral boolean the read models still expose. */
+export function deployTargetIsEphemeral(target: DeployTarget): boolean {
+  return target === "ram";
+}
+
+/** Names the deploy target a stored ephemeral flag corresponds to, for rendering a selector. */
+export function deployTargetForEphemeral(ephemeral: boolean): DeployTarget {
+  return ephemeral ? "ram" : "disk";
+}
+
 /** Reusable network intent; target NICs and static addresses are deliberately excluded. */
 export interface DeploymentNetworkSettings {
   mode: DeploymentNetworkMode;
@@ -36,7 +64,12 @@ export interface CreateDeploymentTemplateInput {
   name: string;
   description?: string;
   imageId: string;
-  ephemeral: boolean;
+  /**
+   * Preferred deploy-mode vocabulary; maps onto the stored ephemeral flag at the API. `ephemeral`
+   * remains accepted for backward compatibility; the dashboard sends `deployTarget`.
+   */
+  deployTarget?: DeployTarget;
+  ephemeral?: boolean;
   network?: DeploymentNetworkSettings;
   userData?: string;
 }
@@ -46,6 +79,7 @@ export interface UpdateDeploymentTemplateInput {
   name?: string;
   description?: string;
   imageId?: string;
+  deployTarget?: DeployTarget;
   ephemeral?: boolean;
   network?: DeploymentNetworkSettings;
 }
@@ -67,6 +101,8 @@ export interface DeployServersInput {
   templateId?: string;
   settings?: {
     imageId?: string;
+    /** Preferred deploy-mode vocabulary; maps onto `ephemeral` at the API boundary. */
+    deployTarget?: DeployTarget;
     ephemeral?: boolean;
   };
   userData?: {
@@ -110,6 +146,19 @@ export interface DeployServersResult {
 /** Reference returned after a durable provisioning workflow is accepted. */
 export interface ProvisioningOperationReference {
   operationId: string;
+}
+
+/**
+ * Operator intent to prove one custom OS Image works for one deploy target by deploying it on a
+ * chosen ready Server. On success the image is marked verified for the target and the Server is
+ * auto-released back to ready. Only custom (uploaded) images need verification.
+ */
+export interface CreateImageVerificationInput {
+  integrationId: string;
+  imageId: string;
+  architecture: string;
+  deployTarget: DeployTarget;
+  serverId: string;
 }
 
 /** A bounded batch release intent executed by one durable Operation. */

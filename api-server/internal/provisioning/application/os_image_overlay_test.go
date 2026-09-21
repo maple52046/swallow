@@ -74,6 +74,85 @@ func (r *osImageOverlayRepoFake) seed(overlay *provisioningdomain.OSImageOverlay
 	r.overlays[osImageOverlayStoreKey(overlay.IntegrationID, overlay.ImageID, overlay.Architecture)] = overlay
 }
 
+// osImageVerificationRepoFake is an in-memory OSImageVerificationRepository for use-case tests.
+type osImageVerificationRepoFake struct {
+	mu      sync.Mutex
+	rows    map[string]*provisioningdomain.OSImageVerification
+	listErr error
+}
+
+func newOSImageVerificationRepoFake() *osImageVerificationRepoFake {
+	return &osImageVerificationRepoFake{rows: map[string]*provisioningdomain.OSImageVerification{}}
+}
+
+func (r *osImageVerificationRepoFake) ListByIntegration(
+	_ context.Context, integrationID string,
+) ([]*provisioningdomain.OSImageVerification, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	var out []*provisioningdomain.OSImageVerification
+	for _, verification := range r.rows {
+		if verification.IntegrationID == integrationID {
+			out = append(out, verification)
+		}
+	}
+	return out, nil
+}
+
+func (r *osImageVerificationRepoFake) Find(
+	_ context.Context, integrationID, imageID, architecture string,
+) (*provisioningdomain.OSImageVerification, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rows[osImageOverlayStoreKey(integrationID, imageID, architecture)], nil
+}
+
+func (r *osImageVerificationRepoFake) RecordTarget(
+	_ context.Context, integrationID, imageID, architecture string,
+	target provisioningdomain.DeployTarget, evidence provisioningdomain.OSImageVerificationEvidence,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := osImageOverlayStoreKey(integrationID, imageID, architecture)
+	verification, ok := r.rows[key]
+	if !ok {
+		verification = &provisioningdomain.OSImageVerification{
+			IntegrationID: integrationID, ImageID: imageID, Architecture: architecture,
+			Targets: map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationEvidence{},
+		}
+		r.rows[key] = verification
+	}
+	verification.Targets[target] = evidence
+	return nil
+}
+
+func (r *osImageVerificationRepoFake) Delete(_ context.Context, integrationID, imageID, architecture string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.rows, osImageOverlayStoreKey(integrationID, imageID, architecture))
+	return nil
+}
+
+func (r *osImageVerificationRepoFake) DeleteByIntegration(_ context.Context, integrationID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, verification := range r.rows {
+		if verification.IntegrationID == integrationID {
+			delete(r.rows, key)
+		}
+	}
+	return nil
+}
+
+func (r *osImageVerificationRepoFake) seed(verification *provisioningdomain.OSImageVerification) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rows[osImageOverlayStoreKey(verification.IntegrationID, verification.ImageID, verification.Architecture)] = verification
+}
+
 // osImageBaseProvider implements the minimum OSProvisioningProvider with no optional
 // capability, so a type assertion for OSImageRemover fails against it.
 type osImageBaseProvider struct {
@@ -136,6 +215,34 @@ func (f osImageTestFactory) For(context.Context, string) (provisioningdomain.OSP
 	return f.provider, nil
 }
 
+func TestListOSImagesProjectsVerifiedDeployTargets(t *testing.T) {
+	provider := &osImageBaseProvider{images: []*provisioningdomain.OSImage{
+		{ID: "custom/rocky", Name: "Rocky", OSSystem: "custom", Release: "rocky", Architecture: "amd64"},
+		{ID: "ubuntu/noble", Name: "Ubuntu 24.04", OSSystem: "ubuntu", Release: "noble", Architecture: "amd64"},
+	}}
+	verifications := newOSImageVerificationRepoFake()
+	verifications.seed(&provisioningdomain.OSImageVerification{
+		IntegrationID: "integration-1", ImageID: "custom/rocky", Architecture: "amd64",
+		Targets: map[provisioningdomain.DeployTarget]provisioningdomain.OSImageVerificationEvidence{
+			provisioningdomain.DeployTargetRAM:  {},
+			provisioningdomain.DeployTargetDisk: {},
+		},
+	})
+
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, newOSImageOverlayRepoFake(), verifications)
+	items, err := uc.Execute(context.Background(), "integration-1")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	rocky, noble := items[0], items[1]
+	if len(rocky.VerifiedDeployTargets) != 2 || rocky.VerifiedDeployTargets[0] != "disk" || rocky.VerifiedDeployTargets[1] != "ram" {
+		t.Errorf("rocky verifiedDeployTargets = %v, want [disk ram] (sorted)", rocky.VerifiedDeployTargets)
+	}
+	if noble.VerifiedDeployTargets == nil || len(noble.VerifiedDeployTargets) != 0 {
+		t.Errorf("noble verifiedDeployTargets = %v, want an empty (non-nil) array for an unverified image", noble.VerifiedDeployTargets)
+	}
+}
+
 func TestListOSImagesMergesOverlay(t *testing.T) {
 	provider := &osImageBaseProvider{images: []*provisioningdomain.OSImage{
 		{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64", SizeBytes: 5 * 1024 * 1024 * 1024},
@@ -156,7 +263,7 @@ func TestListOSImagesMergesOverlay(t *testing.T) {
 		IntegrationID: "integration-1", ImageID: "ubuntu/focal", Architecture: "amd64", DisplayName: "Ghost",
 	})
 
-	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, overlays)
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, overlays, newOSImageVerificationRepoFake())
 	items, err := uc.Execute(context.Background(), "integration-1")
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -205,7 +312,7 @@ func TestListOSImagesMergesOverlay(t *testing.T) {
 func TestListOSImagesReturnsOverlayError(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
 	overlays.listErr = errors.New("overlay store unavailable")
-	uc := NewListOSImagesUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, overlays)
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, overlays, newOSImageVerificationRepoFake())
 	if _, err := uc.Execute(context.Background(), "integration-1"); err == nil {
 		t.Fatal("Execute() expected an error when the overlay store fails, got nil")
 	}
@@ -296,7 +403,7 @@ func TestDeleteOSImagePrunesOverlay(t *testing.T) {
 	overlays.seed(&provisioningdomain.OSImageOverlay{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64", DisplayName: "Golden Ubuntu",
 	})
-	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: provider}, overlays)
+	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: provider}, overlays, newOSImageVerificationRepoFake())
 	if err := uc.Execute(context.Background(), "integration-1", "ubuntu/jammy", "amd64"); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -310,7 +417,7 @@ func TestDeleteOSImagePrunesOverlay(t *testing.T) {
 
 func TestDeleteOSImageUnsupportedProviderIsRejected(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
-	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, overlays)
+	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, overlays, newOSImageVerificationRepoFake())
 	err := uc.Execute(context.Background(), "integration-1", "ubuntu/jammy", "amd64")
 	var provErr *provisioningdomain.ProviderError
 	if !errors.As(err, &provErr) || provErr.Kind != provisioningdomain.ProviderErrorRejected {

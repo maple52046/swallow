@@ -21,7 +21,14 @@
   (no provider counterpart), and the artifact and its deployable `id` stay
   provider-owned. Provider-reported artifact metadata such as its current complete
   resource-set size may accompany the live catalog but remains provider-owned and
-  is never part of the overlay.
+  is never part of the overlay. Swallow may additionally hold a swallow-owned
+  **verification** for a custom image — a per-[Deploy Target](deploy-target.md)
+  attestation that a real deploy in that mode succeeded, keyed by the same
+  `integrationId` + `imageId` + `architecture` identity and stored separately from
+  the overlay. The catalog projects it as `verifiedDeployTargets`; an absent record
+  means unverified, and a custom image must be verified for a Deploy Target before a
+  normal deploy in that target is allowed. Synced provider images are
+  provider-trusted and are never gated on verification.
 - Disallowed meaning: A Swallow release, container image, package bundle,
   post-install script collection, or durable Swallow-owned copy of the image
   artifact. Driving a provider upload does not make Swallow the owner of the
@@ -37,7 +44,7 @@
   operator relabels that image; the catalog returns the effective `name`/`osSystem`/
   `release`, the provider's `provider*` values, and the swallow `custom*` overrides,
   and can reset to the provider values.
-- Related terms: OS Deployment, Deployment Template, Server, Provider Data Overlay.
+- Related terms: OS Deployment, Deploy Target, Deployment Template, Server, Provider Data Overlay.
 - Change note: Added to make the provider ownership and integration scope used by
   the OS provisioning API explicit. Updated 2026-09-13 to allow Swallow to drive a
   provider-owned image upload as an optional capability (the artifact stays
@@ -45,4 +52,6 @@
   [decision 027](../../../decisions/027-os-image-upload.md). Updated 2026-09-13 to
   clarify that live image size metadata remains provider-owned. Updated 2026-09-12
   for the swallow-owned display overlay (name, OS, release) per
-  [decision 025](../../../decisions/025-provider-data-overlay.md).
+  [decision 025](../../../decisions/025-provider-data-overlay.md). Updated 2026-09-21
+  for the swallow-owned per-Deploy-Target verification and the custom-image deploy
+  gate per [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md).

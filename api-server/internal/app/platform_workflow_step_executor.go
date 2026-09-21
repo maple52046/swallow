@@ -12,6 +12,7 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
@@ -27,11 +28,12 @@ type platformUninstallFinalizer interface {
 // It exposes only normalized outcomes to Temporal; provider and socket details remain in
 // the adapters that own them.
 type platformWorkflowStepExecutor struct {
-	servers        serverdomain.ServerRepository
-	configurations operationdomain.AutomationConfigurationRepository
-	membership     *platformapp.MembershipSyncUseCase
-	finalizer      platformUninstallFinalizer
-	poll           time.Duration
+	servers            serverdomain.ServerRepository
+	configurations     operationdomain.AutomationConfigurationRepository
+	membership         *platformapp.MembershipSyncUseCase
+	finalizer          platformUninstallFinalizer
+	imageVerifications provisioningdomain.OSImageVerificationRepository
+	poll               time.Duration
 }
 
 func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
@@ -44,9 +46,39 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 		return e.validatePlatform(ctx, input.PlatformID, input.Step)
 	case "complete-uninstall":
 		return e.completeUninstall(ctx, input.PlatformID)
+	case "record-image-verification":
+		return e.recordImageVerification(ctx, input)
 	default:
 		return internalStepFailed("unsupported_internal_step", "The internal Step kind is not supported.", false)
 	}
+}
+
+// recordImageVerification is the finalize step of a verify-os-image Workflow: after the proving
+// deploy succeeded, it writes the swallow-owned attestation that the image works for the deploy
+// target. Separated from the deploy so the attestation write can retry without re-deploying. A
+// write failure is retryable because the deploy already succeeded; only the record is missing.
+func (e platformWorkflowStepExecutor) recordImageVerification(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	if e.imageVerifications == nil {
+		return internalStepFailed("image_verification_unavailable", "Image verification recording is unavailable.", false)
+	}
+	params := input.Step.Parameters
+	integrationID, _ := params["integrationId"].(string)
+	imageID, _ := params["imageId"].(string)
+	architecture, _ := params["architecture"].(string)
+	targetRaw, _ := params["deployTarget"].(string)
+	target, ok := provisioningdomain.ParseDeployTarget(targetRaw)
+	if integrationID == "" || imageID == "" || architecture == "" || !ok {
+		return internalStepFailed("image_verification_invalid", "The image verification Step is missing an image identity or deploy target.", false)
+	}
+	evidence := provisioningdomain.OSImageVerificationEvidence{
+		VerifiedAt:  time.Now().UTC(),
+		OperationID: input.OperationID,
+		ServerID:    firstTargetServer(input.Step),
+	}
+	if err := e.imageVerifications.RecordTarget(ctx, integrationID, imageID, architecture, target, evidence); err != nil {
+		return internalStepFailed("image_verification_write_failed", err.Error(), true)
+	}
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 }
 
 // completeUninstall finalizes a release-and-uninstall Operation by clearing the Platform's

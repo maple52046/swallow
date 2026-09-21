@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Badge, Button, Field, HStack, IconButton, Input, Menu, Portal, Stack, Table } from '@chakra-ui/react'
-import { Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, Trash2, Upload, X } from 'lucide-react'
+import { Badge, Box, Button, Field, HStack, IconButton, Input, Menu, Portal, Spinner, Stack, Table } from '@chakra-ui/react'
+import { Ban, Check, Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, ShieldCheck, Trash2, Upload, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { loadOSImageCatalog, type OSImageCatalog, type OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
 import type { Integration } from '@/domain/site/types'
+import { isTerminalStatus, operationStatus } from '@/domain/operation/types'
 import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -25,6 +26,7 @@ import { formatDateTime } from '@/shared/utils/time'
 import { BulkImageActionDialog } from './BulkImageActionDialog'
 import { ProvisioningTabs } from './ProvisioningTabs'
 import { UploadImageDialog } from './UploadImageDialog'
+import { VerifyImageDialog } from './VerifyImageDialog'
 import type { OSImageBulkAction, OSImageBulkTarget } from './useOSImageBulkActions'
 
 type CatalogState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: OSImageCatalog }
@@ -81,7 +83,75 @@ function formatImageSize(sizeBytes?: number): string {
   return formatBytes(sizeBytes)
 }
 
-type ImageColumnKey = 'name' | 'osSystem' | 'release' | 'tags' | 'architecture' | 'size' | 'site' | 'integration' | 'refreshed'
+/**
+ * Stable key for one (image, deploy target) verification cell, matching a running verify Operation's
+ * intent to a catalog row. Architecture is normalized so an "amd64/generic" Server subarch and an
+ * "amd64" image line up.
+ */
+function verifyKey(imageId: string, architecture: string, target: string): string {
+  return `${imageId}\u0000${primaryArchitecture(architecture)}\u0000${target}`
+}
+
+/**
+ * One deploy-mode tag: the mode name plus a status icon — a loading spinner while that mode is
+ * verifying, a green check when the image supports it (a verified custom image, or any synced
+ * provider image which is trusted and needs no verification), and a grey ban when a normal deploy in
+ * that mode is still blocked.
+ */
+function DeployModeTag({
+  image,
+  target,
+  verifying,
+}: {
+  image: OSImageCatalogRow
+  target: 'disk' | 'ram'
+  verifying: ReadonlySet<string>
+}) {
+  const label = target === 'disk' ? 'Disk' : 'RAM'
+  const isCustom = image.providerOsSystem === 'custom'
+
+  let icon: ReactNode
+  let tooltip: string
+  if (isCustom && verifying.has(verifyKey(image.id, image.architecture, target))) {
+    icon = <Spinner size="xs" color="blue.400" />
+    tooltip = `Verifying ${label} deploy now…`
+  } else if (!isCustom || image.verifiedDeployTargets.includes(target)) {
+    icon = (
+      <Box as="span" color="green.500" display="inline-flex">
+        <Check size={14} />
+      </Box>
+    )
+    tooltip = isCustom ? `Verified for ${label} deploy` : `Provider image — trusted for ${label} deploy`
+  } else {
+    icon = (
+      <Box as="span" color="gray.500" display="inline-flex">
+        <Ban size={14} />
+      </Box>
+    )
+    tooltip = `Not verified for ${label} deploy — a normal ${label} deploy is blocked until verified`
+  }
+
+  return (
+    <Tooltip content={tooltip}>
+      <Badge variant="subtle" colorPalette="gray" display="inline-flex" alignItems="center" gap="1">
+        {label}
+        {icon}
+      </Badge>
+    </Tooltip>
+  )
+}
+
+/** The Deploy Mode cell: a Disk tag and a RAM tag, each carrying its own support/verifying icon. */
+function DeployModeCell({ image, verifying }: { image: OSImageCatalogRow; verifying: ReadonlySet<string> }) {
+  return (
+    <HStack gap="1" wrap="wrap">
+      <DeployModeTag image={image} target="disk" verifying={verifying} />
+      <DeployModeTag image={image} target="ram" verifying={verifying} />
+    </HStack>
+  )
+}
+
+type ImageColumnKey = 'name' | 'osSystem' | 'deployMode' | 'release' | 'tags' | 'architecture' | 'size' | 'site' | 'integration' | 'refreshed'
 
 /** One toggleable data column. Actions are always rendered and are not part of this set. */
 interface ImageColumn {
@@ -94,30 +164,43 @@ interface ImageColumn {
 
 // Every toggleable column, used to validate a saved choice. Kept separate from the default
 // visible set so a column can exist (and be toggled on) without being shown by default.
-const ALL_COLUMN_KEYS: ImageColumnKey[] = ['name', 'osSystem', 'release', 'tags', 'architecture', 'size', 'site', 'integration', 'refreshed']
-// Release, Architecture, and Refreshed stay available from the Columns menu but are hidden by
-// default; Tags and Size remain visible for at-a-glance catalog comparison.
-const DEFAULT_VISIBLE_COLUMNS: ImageColumnKey[] = ['name', 'osSystem', 'tags', 'size', 'site', 'integration']
-const COLUMNS_STORAGE_KEY = 'sw.osImages.visibleColumns'
+const ALL_COLUMN_KEYS: ImageColumnKey[] = ['name', 'osSystem', 'deployMode', 'release', 'tags', 'architecture', 'size', 'site', 'integration', 'refreshed']
+// Columns hidden by default: available from the Columns menu but not shown until toggled on. Every
+// other column (including the Deploy Mode support column) is visible by default.
+const DEFAULT_HIDDEN_COLUMNS: ImageColumnKey[] = ['release', 'architecture', 'refreshed']
+// Persist the columns the operator has explicitly hidden, not the visible ones. Storing hides means
+// any newly added default-visible column appears for everyone without a storage-key bump, and a
+// stale saved list can never hide a new column.
+const COLUMNS_STORAGE_KEY = 'sw.osImages.hiddenColumns'
 
-/** Reads the operator's saved column choice, falling back to the default visible set. */
-function loadVisibleColumns(): Set<ImageColumnKey> {
+// Reads the operator's hidden-column choice. A stored value — even an empty list, meaning "show
+// everything" — is authoritative; only a missing value falls back to the default hidden set.
+function loadHiddenColumns(): Set<ImageColumnKey> {
   try {
     const raw = localStorage.getItem(COLUMNS_STORAGE_KEY)
-    if (raw) {
+    if (raw !== null) {
       const allowed = new Set<ImageColumnKey>(ALL_COLUMN_KEYS)
-      const saved = (JSON.parse(raw) as ImageColumnKey[]).filter((key) => allowed.has(key))
-      if (saved.length > 0) return new Set(saved)
+      return new Set((JSON.parse(raw) as ImageColumnKey[]).filter((key) => allowed.has(key)))
     }
   } catch {
-    // Malformed or unavailable storage should never hide the catalog: show the default set.
+    // Malformed or unavailable storage should never hide the catalog: use the default hidden set.
   }
-  return new Set(DEFAULT_VISIBLE_COLUMNS)
+  return new Set(DEFAULT_HIDDEN_COLUMNS)
+}
+
+// Persist only on an explicit toggle (never on mount) so a re-render can never rewrite the stored
+// choice — the bug that let a mount-time write pin a stale column list.
+function persistHiddenColumns(hidden: Set<ImageColumnKey>) {
+  try {
+    localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify([...hidden]))
+  } catch {
+    // Persisting the choice is best-effort; a storage failure must not break the page.
+  }
 }
 
 /** Read-only live image catalog across scoped provisioner integrations. */
 export function OSImagesPage() {
-  const { sites: siteRepository, provisioning } = useApp()
+  const { sites: siteRepository, provisioning, servers: serverRepository, operations } = useApp()
   const { sites, siteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -132,6 +215,7 @@ export function OSImagesPage() {
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [deleting, setDeleting] = useState<OSImageCatalogRow | null>(null)
   const [editing, setEditing] = useState<OSImageCatalogRow | null>(null)
+  const [verifyingImage, setVerifyingImage] = useState<OSImageCatalogRow | null>(null)
   const [uploading, setUploading] = useState(false)
   // Scoped provisioner integrations, captured while loading the catalog so the upload dialog can
   // offer them without a second fetch. Upload targets a provisioner, so it is disabled until one
@@ -139,25 +223,63 @@ export function OSImagesPage() {
   const [provisioners, setProvisioners] = useState<Integration[]>([])
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<OSImageBulkAction | null>(null)
-  const [visibleColumns, setVisibleColumns] = useState<Set<ImageColumnKey>>(loadVisibleColumns)
+  const [hiddenColumns, setHiddenColumns] = useState<Set<ImageColumnKey>>(loadHiddenColumns)
+  // Deploy-target keys of images with a verify Operation currently running, polled so the list shows
+  // "verifying…" live. When a verification finishes, the catalog is refreshed so the new verified
+  // badge replaces the spinner without an operator action.
+  const [verifying, setVerifying] = useState<ReadonlySet<string>>(new Set())
+  const [verifyNonce, setVerifyNonce] = useState(0)
 
   useEffect(() => {
-    try {
-      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify([...visibleColumns]))
-    } catch {
-      // Persisting the choice is best-effort; a storage failure must not break the page.
+    let cancelled = false
+    let previous = new Set<string>()
+    const poll = async () => {
+      try {
+        const page = await operations.listOperations({ kind: 'verify-os-image', active: true, pageSize: 100 })
+        const next = new Set<string>()
+        for (const op of page.items) {
+          if (isTerminalStatus(operationStatus(op))) continue
+          const request = (op.intentSnapshot?.request ?? {}) as Record<string, unknown>
+          // The snapshot is camelCase going forward; tolerate the earlier PascalCase in-flight ops.
+          const imageId = String(request.imageId ?? request.ImageID ?? '')
+          const architecture = String(request.architecture ?? request.Architecture ?? '')
+          const target = String(request.deployTarget ?? request.DeployTarget ?? '')
+          if (imageId && target) next.add(verifyKey(imageId, architecture, target))
+        }
+        if (cancelled) return
+        let completed = false
+        for (const key of previous) {
+          if (!next.has(key)) {
+            completed = true
+            break
+          }
+        }
+        previous = next
+        setVerifying(next)
+        // A target that was verifying is no longer running: pull the catalog so its verified badge shows.
+        if (completed) setRefreshNonce((value) => value + 1)
+      } catch {
+        // Verifying badges are advisory; a transient operations read failure must not break the page.
+      }
     }
-  }, [visibleColumns])
+    void poll()
+    const timer = setInterval(() => void poll(), 8000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [operations, verifyNonce])
 
   const toggleColumn = (key: ImageColumnKey) => {
-    setVisibleColumns((prev) => {
+    setHiddenColumns((prev) => {
       const next = new Set(prev)
       if (next.has(key)) {
-        if (next.size === 1) return prev // keep at least one data column visible
-        next.delete(key)
+        next.delete(key) // reveal the column
       } else {
-        next.add(key)
+        if (next.size + 1 >= ALL_COLUMN_KEYS.length) return prev // keep at least one column visible
+        next.add(key) // hide the column
       }
+      persistHiddenColumns(next)
       return next
     })
   }
@@ -300,6 +422,7 @@ export function OSImagesPage() {
       ),
     },
     { key: 'osSystem', label: 'OS', render: (image) => image.osSystem || '-' },
+    { key: 'deployMode', label: 'Deploy Mode', render: (image) => <DeployModeCell image={image} verifying={verifying} /> },
     { key: 'release', label: 'Release', render: (image) => image.release || '-' },
     {
       key: 'tags',
@@ -335,7 +458,7 @@ export function OSImagesPage() {
     },
     { key: 'refreshed', label: 'Refreshed', className: 'sw-col-refreshed', render: (image) => formatDateTime(image.refreshedAt) },
   ]
-  const activeColumns = columns.filter((column) => visibleColumns.has(column.key))
+  const activeColumns = columns.filter((column) => !hiddenColumns.has(column.key))
 
   return (
     <div className="operator-page">
@@ -376,7 +499,7 @@ export function OSImagesPage() {
             <Menu.Positioner>
               <Menu.Content>
                 {columns.map((column) => (
-                  <Menu.CheckboxItem key={column.key} value={column.key} checked={visibleColumns.has(column.key)} onCheckedChange={() => toggleColumn(column.key)}>
+                  <Menu.CheckboxItem key={column.key} value={column.key} checked={!hiddenColumns.has(column.key)} onCheckedChange={() => toggleColumn(column.key)}>
                     {column.label}
                     <Menu.ItemIndicator />
                   </Menu.CheckboxItem>
@@ -488,6 +611,18 @@ export function OSImagesPage() {
                           <FilePlus2 size={18} />
                         </IconButton>
                       </Tooltip>
+                      {image.providerOsSystem === 'custom' && (
+                        <Tooltip content="Verify this custom image on a ready Server">
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Verify ${image.name || image.id}`}
+                            onClick={() => setVerifyingImage(image)}
+                          >
+                            <ShieldCheck size={18} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Tooltip content="Edit image labels (stored by swallow)">
                         <IconButton
                           variant="ghost"
@@ -543,6 +678,11 @@ export function OSImagesPage() {
                       <Button size="sm" variant="outline" onClick={() => navigate(provisioningHref('/provisioning/templates', { create: '1', integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
                         Create template
                       </Button>
+                      {image.providerOsSystem === 'custom' && (
+                        <Button size="sm" variant="outline" onClick={() => setVerifyingImage(image)}>
+                          Verify image
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" onClick={() => setEditing(image)}>
                         Edit
                       </Button>
@@ -580,6 +720,20 @@ export function OSImagesPage() {
             setEditing(null)
             showToast({ tone: 'success', title })
             setRefreshNonce((value) => value + 1)
+          }}
+        />
+      )}
+      {verifyingImage && (
+        <VerifyImageDialog
+          image={verifyingImage}
+          provisioning={provisioning}
+          servers={serverRepository}
+          onClose={() => setVerifyingImage(null)}
+          onLaunched={(title) => {
+            setVerifyingImage(null)
+            showToast({ tone: 'success', title })
+            // Re-poll immediately so the "verifying…" badge appears without waiting for the interval.
+            setVerifyNonce((value) => value + 1)
           }}
         />
       )}

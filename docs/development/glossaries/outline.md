@@ -53,6 +53,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   available to one provisioner Integration.
 - [OS Deployment](terms/os-deployment.md): Asynchronous provider-backed OS
   installation whose progress is observed on each Server provisioning axis.
+- [Deploy Target](terms/deploy-target.md): Where an OS Deployment runs — `disk` or `ram` (memory-backed, the fact still called `ephemeral` at the boundary); the canonical deploy-mode vocabulary and the axis a custom OS Image is verified against.
 - [Release](terms/release.md): Returning a Machine to the provider's available pool
   (`ready` again) without removing the Server; allowed from deployed, failed, broken, or rescue.
 - [Provider Recovery](terms/provider-recovery.md): Swallow-owned policy and the Recover/Release intents that return a `failed`, `broken`, or `rescue` Server to `ready`.

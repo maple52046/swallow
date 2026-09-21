@@ -95,7 +95,14 @@ must accept both during the window.
 ```
 
 `playbookName` is required for `custom`; built-in kinds use the Site mapping unless an
-explicit release-manifest playbook is supplied by a trusted use case. Targets are frozen,
+explicit release-manifest playbook is supplied by a trusted use case. Some built-in kinds
+are launched only through their owning feature endpoint rather than this generic create —
+for example `verify-os-image` is created by `POST /provisioning/image-verifications` and
+appears here in listings and timelines. A `verify-os-image` Workflow runs
+`provision-os` (the real proving deploy) → `record-image-verification` (an internal
+finalize Task that records the Swallow-owned per-Deploy-Target attestation) → `release-os`
+(auto-release), per
+[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md). Targets are frozen,
 must belong to one Site, and must pass current provisioning, Platform policy, active-work,
 and live Server Lock checks. Success is `202 Accepted` after intent is persisted; Temporal
 may start after the response through starter reconciliation.

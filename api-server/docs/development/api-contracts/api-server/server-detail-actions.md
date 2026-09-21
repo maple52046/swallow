@@ -171,8 +171,13 @@ Server state is `409 conflict`; provider unavailability is
 `503 provider_unavailable`.
 
 Deploy requires `distroSeries` and accepts `osSystem`, `userData`,
-`comment`, and `ephemeral`. Other provider actions return `202` with the accepted
-provisioning snapshot. Unsupported capabilities and provider refusals use
+`comment`, and the deploy mode — `deployTarget` (`"disk"` | `"ram"`, preferred)
+or its deprecated `ephemeral` boolean alias (`disk ↔ false`, `ram ↔ true`;
+`deployTarget` wins when both are sent, and an unknown value is a `400`). This
+single-server endpoint is deprecated in favour of
+`POST /provisioning/deployment-operations`, which additionally applies the
+custom-image verification gate. Other provider actions return `202` with the
+accepted provisioning snapshot. Unsupported capabilities and provider refusals use
 `400 validation_error`; unavailable providers use
 `503 provider_unavailable`; missing resources use `404 not_found`. Every error
 uses the shared envelope's `requestId`, which correlates the client-visible

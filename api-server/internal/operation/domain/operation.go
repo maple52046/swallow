@@ -19,7 +19,11 @@ const (
 	// WorkflowKindRecoverServer returns a Server whose provisioning axis is not usable
 	// (failed, broken, or in rescue) to the provider's ready pool. Its provider Step
 	// chooses the primitive by observed state per the recovery policy (decision 033).
-	WorkflowKindRecoverServer    WorkflowKind = "recover-server"
+	WorkflowKindRecoverServer WorkflowKind = "recover-server"
+	// WorkflowKindVerifyOSImage proves an OS Image deploys for a deploy target by running a real
+	// deploy on an operator-chosen ready Server, recording the verification on success, then
+	// auto-releasing the Server (decision 035).
+	WorkflowKindVerifyOSImage    WorkflowKind = "verify-os-image"
 	WorkflowKindDeployKubernetes WorkflowKind = "deploy-kubernetes"
 	// WorkflowKindUninstallKubernetes removes the k0s installation created by a
 	// deploy-kubernetes operation while preserving the host operating system.
@@ -56,6 +60,7 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindDeployOS,
 	WorkflowKindReleaseOS,
 	WorkflowKindRecoverServer,
+	WorkflowKindVerifyOSImage,
 	WorkflowKindInstallGPUDriver,
 	WorkflowKindDeployKubernetes,
 	WorkflowKindUninstallKubernetes,

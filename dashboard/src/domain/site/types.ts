@@ -73,4 +73,11 @@ export interface OSImage {
   architecture: string
   /** Provider-reported bytes for the current complete artifact; absent when unavailable. */
   sizeBytes?: number
+  /**
+   * Deploy targets ("disk"/"ram") a Swallow verification has proven this image can deploy in.
+   * Always present (possibly empty). Empty means the image has not been verified for any target;
+   * custom (uploaded) images must be verified for a target before a normal deploy in that target
+   * is allowed, while synced provider images are trusted and never require verification.
+   */
+  verifiedDeployTargets: string[]
 }

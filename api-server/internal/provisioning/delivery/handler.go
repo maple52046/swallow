@@ -117,6 +117,9 @@ type deployRequest struct {
 	// Ephemeral runs the OS from memory and leaves the disks untouched. Refused, not
 	// ignored, when the provisioner cannot do it.
 	Ephemeral bool `json:"ephemeral"`
+	// DeployTarget is the preferred deploy-mode vocabulary ("disk"/"ram"); when present it is
+	// authoritative and maps onto Ephemeral. Ephemeral stays accepted as a deprecated alias.
+	DeployTarget *string `json:"deployTarget"`
 }
 
 type releaseRequest struct {
@@ -144,6 +147,14 @@ func (h *ProvisioningHandler) Deploy(c *fiber.Ctx) error {
 	if req.DistroSeries == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "distroSeries is required."))
 	}
+	ephemeral := req.Ephemeral
+	if req.DeployTarget != nil {
+		target, valid := provisioningdomain.ParseDeployTarget(*req.DeployTarget)
+		if !valid {
+			return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
+		}
+		ephemeral = target.Ephemeral()
+	}
 
 	item, err := h.deploy.Execute(c.Context(), application.DeployServerInput{
 		ServerID:     id,
@@ -151,7 +162,7 @@ func (h *ProvisioningHandler) Deploy(c *fiber.Ctx) error {
 		DistroSeries: req.DistroSeries,
 		UserData:     req.UserData,
 		Comment:      req.Comment,
-		Ephemeral:    req.Ephemeral,
+		Ephemeral:    ephemeral,
 	})
 	if err != nil {
 		return RespondError(c, err)

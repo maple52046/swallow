@@ -92,9 +92,13 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
+	osImageVerifications, err := provisioninginfra.NewMongoOSImageVerificationRepo(db)
+	if err != nil {
+		return err
+	}
 	providers := provisioninginfra.NewProviderFactory(integrations)
 	providerExecutor := providerStepExecutor{
-		deployments: provisioningapp.NewDeployServersUseCase(servers, templates, providers),
+		deployments: provisioningapp.NewDeployServersUseCase(servers, templates, providers, osImageVerifications),
 		release:     provisioningapp.NewReleaseServerUseCase(servers, providers, tasks),
 		refresh:     provisioningapp.NewRefreshServerUseCase(servers, providers),
 		servers:     servers, providers: providers, secrets: operationSecrets, tasks: tasks, poll: 5 * time.Second,
@@ -128,7 +132,7 @@ func RunWorker(cfg config.APIConfig) error {
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership,
-			finalizer: platformFinalizer, poll: 5 * time.Second,
+			finalizer: platformFinalizer, imageVerifications: osImageVerifications, poll: 5 * time.Second,
 		},
 		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,

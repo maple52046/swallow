@@ -441,7 +441,7 @@ func setupNetworkWorkflow(count int) (*DeployServersUseCase, *networkWorkflowPro
 		repo.servers[id] = server
 		provider.networks[server.Source.ProviderMachineID] = workflowNetwork(server.Source.ProviderMachineID, false)
 	}
-	return NewDeployServersUseCase(repo, nil, networkWorkflowFactory{provider: provider}), provider
+	return NewDeployServersUseCase(repo, nil, networkWorkflowFactory{provider: provider}, nil), provider
 }
 
 func TestDeployServersDefaultsToAutomaticAndReportsFailureStage(t *testing.T) {
@@ -480,7 +480,7 @@ func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 		},
 		userData: "#cloud-config\nhostname: frozen",
 	}
-	uc := NewDeployServersUseCase(base.servers, templates, base.providers)
+	uc := NewDeployServersUseCase(base.servers, templates, base.providers, nil)
 
 	frozen, secret, err := uc.ResolveOperationInput(context.Background(), DeployServersInput{
 		ServerIDs: []string{"a"}, TemplateID: "template-a",
@@ -508,6 +508,28 @@ func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 	}
 	if len(provider.configureRequests) != 0 || len(provider.deployRequests) != 0 {
 		t.Fatal("resolving durable intent performed provider writes")
+	}
+}
+
+// TestResolveOperationInputPreservesVerificationRun guards the verify-os-image workflow: the
+// VerificationRun bypass must survive into the frozen durable input, or the executor's re-resolve
+// of the proving deploy re-applies the unverified-custom gate and blocks the very run that would
+// establish the verification.
+func TestResolveOperationInputPreservesVerificationRun(t *testing.T) {
+	base, _ := setupNetworkWorkflow(1)
+	uc := NewDeployServersUseCase(base.servers, nil, base.providers, nil)
+	imageID := "ubuntu/noble"
+
+	frozen, _, err := uc.ResolveOperationInput(context.Background(), DeployServersInput{
+		ServerIDs:       []string{"a"},
+		Settings:        DeploymentSettingsInput{ImageID: &imageID},
+		VerificationRun: true,
+	})
+	if err != nil {
+		t.Fatalf("resolve operation input: %v", err)
+	}
+	if !frozen.VerificationRun {
+		t.Error("VerificationRun must be frozen into the durable input so the executor's re-resolve bypasses the unverified-custom gate")
 	}
 }
 

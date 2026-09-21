@@ -226,6 +226,115 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 	return &provisioningapp.OperationReference{OperationID: created.ID}, nil
 }
 
+// LaunchImageVerification proves one OS Image works for one deploy target by deploying it on an
+// operator-chosen ready Server, recording the swallow-owned attestation on success, then
+// auto-releasing the Server. The proving deploy reuses the ordinary provision-os executor, so a
+// success already means the provider installed the requested image in the requested target and SSH
+// came up; VerificationRun bypasses the unverified-custom-image gate for this one establishing run.
+func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context, input provisioningapp.ImageVerificationInput, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
+	if strings.TrimSpace(input.ServerID) == "" || strings.TrimSpace(input.ImageID) == "" ||
+		strings.TrimSpace(input.IntegrationID) == "" || strings.TrimSpace(input.Architecture) == "" {
+		return nil, fmt.Errorf("%w: integrationId, imageId, architecture, and serverId are required", provisioningdomain.ErrInvalidDeploymentBatch)
+	}
+	if !input.DeployTarget.Valid() {
+		return nil, fmt.Errorf("%w: deployTarget must be disk or ram", provisioningdomain.ErrInvalidDeploymentBatch)
+	}
+	server, err := l.servers.FindByID(ctx, input.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	if server.Absent || server.Provisioning == nil {
+		return nil, fmt.Errorf("%w: Server %s has no observed provisioning state to verify on", provisioningdomain.ErrInvalidDeploymentBatch, server.DisplayName())
+	}
+	// The chosen Server must belong to the image's Integration; otherwise the image is not in that
+	// Server's provider catalog and verifying on it would prove nothing about this image.
+	if server.Source.IntegrationID != input.IntegrationID {
+		return nil, fmt.Errorf("%w: Server %s does not belong to the image's Integration", provisioningdomain.ErrInvalidDeploymentBatch, server.DisplayName())
+	}
+	// Verify only on a ready Server so verification never disturbs one carrying real work; the
+	// Server is auto-released back to ready afterwards.
+	if provisioningdomain.MachineStatus(server.Provisioning.State) != provisioningdomain.MachineStatusReady {
+		return nil, fmt.Errorf("%w: Server %s must be ready to verify an image (it is %s)", provisioningdomain.ErrInvalidDeploymentBatch, server.DisplayName(), server.Provisioning.State)
+	}
+	if !architectureMatches(server.Observed.Architecture, input.Architecture) {
+		return nil, fmt.Errorf("%w: Server %s architecture %q cannot verify a %q image", provisioningdomain.ErrInvalidDeploymentBatch, server.DisplayName(), server.Observed.Architecture, input.Architecture)
+	}
+	if l.protection != nil {
+		if err := l.protection.RequireUnlocked(ctx, []string{input.ServerID}); err != nil {
+			return nil, err
+		}
+	}
+
+	// Resolve the proving deploy through the ordinary path so it inherits the server-ready, image
+	// completeness, and ephemeral-capability preflight; VerificationRun keeps the unverified-custom
+	// gate from blocking the very run that will establish the verification.
+	imageID := input.ImageID
+	ephemeral := input.DeployTarget.Ephemeral()
+	resolvedInput, _, err := l.deployments.ResolveOperationInput(ctx, provisioningapp.DeployServersInput{
+		ServerIDs:       []string{input.ServerID},
+		Settings:        provisioningapp.DeploymentSettingsInput{ImageID: &imageID, Ephemeral: &ephemeral},
+		UserData:        provisioningapp.DeploymentUserDataInput{Mode: "omit"},
+		VerificationRun: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	provisionStepID := "provision-" + input.ServerID
+	recordStepID := "record-verification"
+	releaseStepID := "release-" + input.ServerID
+	target := []operationdomain.ResourceReference{{Kind: "server", ID: input.ServerID}}
+	steps := []operationdomain.Task{
+		{
+			ID: provisionStepID, Kind: "provision-os",
+			Name:       fmt.Sprintf("Verify %s (%s deploy) on %s", imageID, input.DeployTarget, server.DisplayName()),
+			Executor:   operationdomain.RunnerKindProvisioner,
+			Targets:    target,
+			Parameters: map[string]any{"request": structToMap(resolvedInput)},
+		},
+		{
+			ID: recordStepID, Kind: "record-image-verification", Name: "Record image verification",
+			Executor:  operationdomain.RunnerKindInternal,
+			Targets:   target,
+			DependsOn: []string{provisionStepID},
+			Parameters: map[string]any{
+				"integrationId": input.IntegrationID,
+				"imageId":       input.ImageID,
+				"architecture":  input.Architecture,
+				"deployTarget":  string(input.DeployTarget),
+			},
+		},
+		{
+			ID: releaseStepID, Kind: "release-os", Name: "Release " + server.DisplayName(),
+			Executor:   operationdomain.RunnerKindProvisioner,
+			Targets:    target,
+			DependsOn:  []string{recordStepID},
+			Parameters: map[string]any{"request": structToMap(provisioningapp.ReleaseServerInput{ServerID: input.ServerID})},
+		},
+	}
+	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
+		Kind:           operationdomain.WorkflowKindVerifyOSImage,
+		IntentSummary:  fmt.Sprintf("Verify OS Image %s for %s deployment", imageID, input.DeployTarget),
+		IntentSnapshot: map[string]any{"request": structToMap(input)},
+		Definition:     "os-image-verification", DefinitionVersion: 1,
+		SiteID: server.Source.SiteID, TargetServerIDs: []string{input.ServerID}, Steps: steps,
+		RequestedBy: requestedBy, RequestCorrelation: requestID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
+	return &provisioningapp.OperationReference{OperationID: created.ID}, nil
+}
+
+// architectureMatches compares a provider-reported Server architecture against an OS Image
+// architecture so the verify preflight neither rejects a valid pairing nor accepts a
+// cross-architecture one. It delegates to the domain rule so the launcher and the deploy gate share
+// one definition of architecture compatibility.
+func architectureMatches(serverArch, imageArch string) bool {
+	return provisioningdomain.ArchitecturesCompatible(serverArch, imageArch)
+}
+
 func recoverInputsToMaps(values []provisioningapp.RecoverServerInput) []map[string]any {
 	result := make([]map[string]any, len(values))
 	for index, value := range values {

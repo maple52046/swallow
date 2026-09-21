@@ -204,9 +204,13 @@ types):
 
 `mode` is `existing_os` (default) or `provision_os`. In `provision_os` a target that is
 already `deployed` is reused as-is while a `ready` target is provisioned first, so one
-deploy may mix both. A Kubernetes or Slurm deployment may set `ephemeral=true`. Ephemeral means the provider boots a
+deploy may mix both. The deploy mode is the `ram` Deploy Target — `settings.ephemeral=true`,
+the platform contract's boundary field (the dashboard's Deploy Target selector maps
+"RAM deploy (ephemeral)" onto it). RAM/ephemeral means the provider boots a
 memory-backed root filesystem and leaves disks untouched; all OS and platform-local state is
-lost when a Server reboots. Kubernetes automation performs a booted-host compatibility gate
+lost when a Server reboots. A platform `provision_os` deploy of a *custom* image is subject
+to the same custom-image verification gate as an OS deployment: the image must be verified
+for the requested Deploy Target (see the provisioning contract), synced images bypass. Kubernetes automation performs a booted-host compatibility gate
 before starting any controller or worker. It also selects containerd's `native` snapshotter
 for a memory-backed root, because an `overlayfs` snapshotter cannot reliably nest inside a
 MAAS overlay root. MAAS custom `root.tgz` boots may expose `/` as either overlayfs or tmpfs;

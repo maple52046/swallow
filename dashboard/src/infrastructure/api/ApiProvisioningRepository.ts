@@ -5,6 +5,7 @@ import type {
 } from "@/application/ports/ProvisioningRepository";
 import type {
   CreateDeploymentTemplateInput,
+  CreateImageVerificationInput,
   DeploymentTemplate,
   DeploymentTargetPreflightResult,
   DeployServersInput,
@@ -149,6 +150,15 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
   ): Promise<ProvisioningOperationReference> {
     return apiRequest<ProvisioningOperationReference>(
       "/api/v1/provisioning/recover-operations",
+      { method: "POST", body: JSON.stringify(input) },
+    );
+  }
+
+  async createImageVerification(
+    input: CreateImageVerificationInput,
+  ): Promise<ProvisioningOperationReference> {
+    return apiRequest<ProvisioningOperationReference>(
+      "/api/v1/provisioning/image-verifications",
       { method: "POST", body: JSON.stringify(input) },
     );
   }

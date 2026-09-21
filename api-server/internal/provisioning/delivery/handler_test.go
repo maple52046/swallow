@@ -174,7 +174,7 @@ func TestNetworkTargetResponseIncludesDeploymentSuggestion(t *testing.T) {
 }
 
 func TestDeploymentNetworkInputPreservesStaticIntent(t *testing.T) {
-	input := deployServersInput(deployServersRequest{
+	input, ok := deployServersInput(deployServersRequest{
 		Network: &deploymentNetworkRequest{
 			Mode: "static", SubnetID: "subnet-1", DefaultGateway: true,
 			Assignments: []deploymentNetworkAssignmentRequest{{
@@ -183,6 +183,9 @@ func TestDeploymentNetworkInputPreservesStaticIntent(t *testing.T) {
 			}},
 		},
 	})
+	if !ok {
+		t.Fatal("deployServersInput rejected a request with no deploy target")
+	}
 
 	network := input.Network
 	if network == nil {

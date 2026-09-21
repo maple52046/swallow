@@ -1,6 +1,7 @@
 import type { OSImage } from "@/domain/site/types";
 import type {
   CreateDeploymentTemplateInput,
+  CreateImageVerificationInput,
   DeploymentTemplate,
   DeploymentTargetPreflightResult,
   DeployServersInput,
@@ -58,6 +59,14 @@ export interface ProvisioningRepository {
    */
   createRecoverOperation(
     input: RecoverServersOperationInput,
+  ): Promise<ProvisioningOperationReference>;
+  /**
+   * Launches a verify-os-image Operation that proves a custom OS Image works for one deploy target
+   * by deploying it on the chosen ready Server, recording the swallow-owned verification, and
+   * auto-releasing the Server. Returns the operation reference.
+   */
+  createImageVerification(
+    input: CreateImageVerificationInput,
   ): Promise<ProvisioningOperationReference>;
   listOSImages(integrationId: string): Promise<OSImage[]>;
   /**

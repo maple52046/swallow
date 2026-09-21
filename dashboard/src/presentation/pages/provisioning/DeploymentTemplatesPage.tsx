@@ -14,6 +14,8 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Select } from '@/presentation/components/ui/select'
+import { deployTargetForEphemeral, deployTargetIsEphemeral } from '@/domain/provisioning/types'
+import { DeployTargetField } from './DeployTargetField'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -152,7 +154,7 @@ export function DeploymentTemplatesPage() {
           name: draft.name.trim(),
           description: draft.description.trim(),
           imageId: draft.imageId,
-          ephemeral: draft.ephemeral,
+          deployTarget: deployTargetForEphemeral(draft.ephemeral),
           network: { mode: draft.networkMode, subnetId: draft.subnetId.trim() || undefined, defaultGateway: draft.defaultGateway },
         })
         showToast({ tone: 'success', title: 'Deployment template updated' })
@@ -162,7 +164,7 @@ export function DeploymentTemplatesPage() {
           name: draft.name.trim(),
           description: draft.description.trim(),
           imageId: draft.imageId,
-          ephemeral: draft.ephemeral,
+          deployTarget: deployTargetForEphemeral(draft.ephemeral),
           network: { mode: draft.networkMode, subnetId: draft.subnetId.trim() || undefined, defaultGateway: draft.defaultGateway },
         })
         showToast({ tone: 'success', title: 'Deployment template created' })
@@ -293,11 +295,11 @@ export function DeploymentTemplatesPage() {
                 <Field.Label>Description</Field.Label>
                 <Input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
               </Field.Root>
-              <Field.Root>
-                <Checkbox id="template-ephemeral" checked={draft.ephemeral} onCheckedChange={(checked) => setDraft((current) => ({ ...current, ephemeral: checked }))}>
-                  Ephemeral deployment
-                </Checkbox>
-              </Field.Root>
+              <DeployTargetField
+                value={deployTargetForEphemeral(draft.ephemeral)}
+                onChange={(nextTarget) => setDraft((current) => ({ ...current, ephemeral: deployTargetIsEphemeral(nextTarget) }))}
+                helperText="Disk installs the OS to the machine's disk; RAM runs it from memory (ephemeral)."
+              />
               <Field.Root required>
                 <Field.Label>Network mode</Field.Label>
                 <SegmentGroup.Root

@@ -80,6 +80,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	integrations := newFakeIntegrationRepo()
 	templates := newFakeDeploymentTemplateRepo()
 	osImageOverlays := newFakeOSImageOverlayRepo()
+	osImageVerifications := newFakeOSImageVerificationRepo()
 	serverTagOverlays := newFakeServerTagOverlayRepo()
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
@@ -99,7 +100,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(servers, factory),
-		provisioningapp.NewDeployServersUseCase(servers, templates, factory),
+		provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications),
 		provisioningapp.NewDeploymentTargetPreflightService(servers, factory),
 		provisioningapp.NewDeploymentTemplateService(
 			templates,
@@ -110,13 +111,13 @@ func setupPlatform(t *testing.T) *platformFixture {
 		nil,
 		provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
 		provisioningapp.NewRefreshServerUseCase(servers, factory),
-		provisioningapp.NewListOSImagesUseCase(factory, osImageOverlays),
+		provisioningapp.NewListOSImagesUseCase(factory, osImageOverlays, osImageVerifications),
 		provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageOverlays, serverTagOverlays),
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
 		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
-		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays),
+		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays, osImageVerifications),
 		provisioningapp.NewUploadOSImageUseCase(factory),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlays),
 		provisioningapp.NewListServerTagsUseCase(integrations, factory, serverTagOverlays),

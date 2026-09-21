@@ -55,6 +55,7 @@ POST   /api/v1/provisioning/deployments
 POST   /api/v1/provisioning/deployment-operations
 POST   /api/v1/provisioning/release-operations
 POST   /api/v1/provisioning/recover-operations
+POST   /api/v1/provisioning/image-verifications
 POST   /api/v1/provisioning/networks/inspect
 GET    /api/v1/provisioning/tasks/{id}
 POST   /api/v1/provisioning/tasks/{id}/retry
@@ -84,7 +85,8 @@ returns:
     "customRelease": "22.04",
     "tags": ["gpu", "ml"],
     "architecture": "amd64",
-    "sizeBytes": 5368709120
+    "sizeBytes": 5368709120,
+    "verifiedDeployTargets": ["disk", "ram"]
   }
 ]
 ```
@@ -106,6 +108,17 @@ unavailable. Providers may expose multiple kernel or subarchitecture variants th
 collapse into the same `id` + `architecture` row; in that case the catalog returns
 the largest current complete-set size rather than summing mutually exclusive
 variants. Size is provider-owned live metadata and cannot be changed by the overlay.
+
+`verifiedDeployTargets` is a Swallow-owned array of the deploy targets (`"disk"`
+and/or `"ram"`) a Swallow verification has proven this image can deploy in. It is
+always present, defaulting to an empty array, so a client can render a per-mode
+"verified" indicator without a null check. An empty array means the image has not
+been verified for any target. For a custom image (`providerOsSystem: "custom"`) a
+Deploy Target absent from this array is blocked for a normal deploy (see "Custom
+image verification gate"); synced provider images are provider-trusted and are
+never gated regardless of this array. It is keyed by the same
+`integrationId` + `imageId` + `architecture` identity as the overlay but stored
+separately, so clearing an overlay never clears verification.
 
 The catalog contains only resources the provisioner accepts for OS deployment.
 For MAAS this includes synced operating systems and uploaded custom images, but
@@ -246,8 +259,11 @@ A template response contains:
 ```
 
 `POST /templates` accepts `integrationId`, required `name`, optional
-`description`, required `imageId`, optional `ephemeral`, optional `network`,
-and optional write-only `userData`. `network.mode` is `automatic` or `static`;
+`description`, required `imageId`, optional `deployTarget` (`"disk"` | `"ram"`,
+the preferred deploy-mode field) or its deprecated `ephemeral` boolean alias,
+optional `network`, and optional write-only `userData`. The stored template
+carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
+`ram ↔ true`) and wins when both are sent. `network.mode` is `automatic` or `static`;
 missing network intent defaults to Automatic. `dhcp` is accepted as a deprecated
 one-release alias of `automatic` and is normalized on write. Automatic addressing is
 realized by provider auto-assign (a stable, provider-recorded address), not raw DHCP
@@ -256,7 +272,8 @@ realized by provider auto-assign (a stable, provider-recorded address), not raw 
 gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
 
 `PATCH /templates/{id}` accepts any subset of `name`, `description`,
-`imageId`, `ephemeral`, and `network`. It cannot change `integrationId` and
+`imageId`, the deploy mode (`deployTarget` or its deprecated `ephemeral` alias),
+and `network`. It cannot change `integrationId` and
 never accepts `userData`. Image or network changes validate the live provider
 catalog before persistence. Templates never store a provider interface ID or a
 target-specific static IP. Historical records without `network` read as Automatic.
@@ -389,7 +406,7 @@ empty or duplicate target list, or a list longer than 100, is
   "templateId": "template-id",
   "settings": {
     "imageId": "ubuntu/noble",
-    "ephemeral": false
+    "deployTarget": "disk"
   },
   "userData": {
     "mode": "inherit",
@@ -410,9 +427,26 @@ empty or duplicate target list, or a list longer than 100, is
 ```
 
 `serverIds` must contain 1-100 unique values. Without `templateId`,
-`settings.imageId` is required, `ephemeral` defaults to false, and user data
-defaults to `omit`. With a template, omitted settings use the template and
+`settings.imageId` is required, the deploy target defaults to `disk`, and user
+data defaults to `omit`. With a template, omitted settings use the template and
 omitted user data defaults to `inherit`.
+
+`settings.deployTarget` (`"disk"` | `"ram"`) is the preferred way to choose the
+deploy mode; `"ram"` runs the OS from memory (what the provider calls ephemeral).
+`settings.ephemeral` (boolean) remains accepted as a deprecated alias and maps
+one-to-one (`disk ↔ false`, `ram ↔ true`); when both are sent, `deployTarget`
+wins. An unknown `deployTarget` value is a `400`. This applies identically to
+`POST /deployment-operations` and, through the platform contract, to platform
+deploys.
+
+**Custom image verification gate.** When the resolved image is a *custom* image
+(`providerOsSystem: "custom"`) that has not been verified for the requested
+Deploy Target, the deploy is refused at acceptance with `409` and a Swallow
+reason ("this custom image is not verified for `<disk|ram>` deployment; verify it
+on a ready Server first"). Synced provider images bypass this gate. A known
+Server/image architecture mismatch is likewise refused with `409`. The gate is
+applied by the shared deploy resolve, so it covers `POST /deployments`,
+`POST /deployment-operations`, and platform deploys. See "Image Verification".
 
 
 Missing `network` resolves to Swallow's Automatic default. `network.mode` accepts
@@ -577,6 +611,38 @@ Mark fixed, which returns it to `ready` without a disk erase; this is the only p
 a Machine whose exit-rescue and disk-erase both fail on the provider. `unbindStaticIPs`
 behaves as it does for Release when the recovery path performs a Release. Error mapping
 matches `/release-operations`.
+
+## Image Verification
+
+`POST /image-verifications` launches a durable `verify-os-image` Operation that
+proves one custom OS Image works for one Deploy Target by running a real deploy on
+an operator-chosen ready Server, recording the Swallow-owned verification on
+success, then auto-releasing the Server. It accepts:
+
+```json
+{
+  "integrationId": "integration-id",
+  "imageId": "custom/rocky-10.2",
+  "architecture": "amd64",
+  "deployTarget": "ram",
+  "serverId": "server-1"
+}
+```
+
+`integrationId`, `imageId`, `architecture`, and `serverId` are required;
+`deployTarget` is `"disk"` or `"ram"` (an unknown value is a `400`). Acceptance
+preflight requires the Server to exist, be `ready`, be unlocked, belong to the
+image's Integration, and match the image architecture. It responds `202` with
+`{ "operationId": "..." }`.
+
+The Operation runs three Steps: `provision-os` (the real deploy in the target
+mode; this proving deploy is exempt from the custom-image verification gate),
+`record-image-verification` (an internal finalize Step that upserts the per-target
+evidence and can retry without re-deploying), and `release-os` (auto-release back
+to `ready`). On success the image's `verifiedDeployTargets` gains the target and
+the Server returns to `ready`. A failed proving deploy surfaces the provider's
+reason and leaves the target unverified. See
+[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md).
 
 ## Provisioning Tasks
 

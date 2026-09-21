@@ -54,6 +54,11 @@ type DeployServersInput struct {
 	Settings   DeploymentSettingsInput
 	UserData   DeploymentUserDataInput
 	Network    *DeploymentNetworkInput
+	// VerificationRun marks this deploy as the proving deploy of an image verification. It is not
+	// set from the HTTP API; the verify-os-image launcher sets it so the unverified-custom-image
+	// deploy gate is bypassed for the very run that establishes the verification. It is frozen into
+	// the durable snapshot so the executor's re-resolve also bypasses the gate.
+	VerificationRun bool
 }
 
 // DeploymentFailureItem reports which dispatch stage refused one target after
@@ -74,20 +79,24 @@ type DeployServersResult struct {
 
 // DeployServersUseCase validates a whole target set, then dispatches with bounded concurrency.
 type DeployServersUseCase struct {
-	servers   serverdomain.ServerRepository
-	templates provisioningdomain.DeploymentTemplateRepository
-	providers provisioningdomain.ProviderFactory
-	targets   *DeploymentTargetPreflightService
+	servers       serverdomain.ServerRepository
+	templates     provisioningdomain.DeploymentTemplateRepository
+	providers     provisioningdomain.ProviderFactory
+	verifications provisioningdomain.OSImageVerificationRepository
+	targets       *DeploymentTargetPreflightService
 }
 
-// NewDeployServersUseCase creates the batch deployment use case.
+// NewDeployServersUseCase creates the batch deployment use case. The verification repository gates
+// unverified custom images per deploy target; a nil repository disables the gate (used by tests
+// that do not exercise verification).
 func NewDeployServersUseCase(
 	servers serverdomain.ServerRepository,
 	templates provisioningdomain.DeploymentTemplateRepository,
 	providers provisioningdomain.ProviderFactory,
+	verifications provisioningdomain.OSImageVerificationRepository,
 ) *DeployServersUseCase {
 	return &DeployServersUseCase{
-		servers: servers, templates: templates, providers: providers,
+		servers: servers, templates: templates, providers: providers, verifications: verifications,
 		targets: NewDeploymentTargetPreflightService(servers, providers),
 	}
 }
@@ -347,6 +356,28 @@ func (uc *DeployServersUseCase) preflight(
 			provisioningdomain.ErrDeploymentBatchConflict,
 		)
 	}
+	// An image built for one architecture cannot boot on a Server of another; reject the batch
+	// rather than letting the provider fail the install opaquely later. Only a known-mismatch is
+	// blocked: a Server whose provider has not reported an architecture yet is left to the provider
+	// to validate at install, so an un-commissioned Server is not refused on missing data.
+	for _, server := range servers {
+		serverArch := server.Observed.Architecture
+		if serverArch != "" && !provisioningdomain.ArchitecturesCompatible(serverArch, image.Architecture) {
+			return nil, fmt.Errorf(
+				"%w: Server %s architecture %q cannot run the %q image",
+				provisioningdomain.ErrDeploymentBatchConflict,
+				server.DisplayName(), serverArch, image.Architecture,
+			)
+		}
+	}
+	// Unverified custom images are blocked for the requested deploy target. VerificationRun is the
+	// one exception: the verify-os-image Workflow's own proving deploy must be allowed to run the
+	// image that is not yet verified. Synced provider images are provider-trusted and bypass.
+	if !input.VerificationRun {
+		if err := uc.requireCustomImageVerified(ctx, integrationID, image, provisioningdomain.DeployTargetForEphemeral(ephemeral)); err != nil {
+			return nil, err
+		}
+	}
 	networkProvider, err := requireNetworkProvider(provider)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", provisioningdomain.ErrDeploymentBatchConflict, err)
@@ -597,6 +628,39 @@ func deploymentFailure(err error) (string, string) {
 	return "provider_error", "The provisioner could not accept this deployment."
 }
 
+// requireCustomImageVerified blocks deploying an unverified custom image for the requested deploy
+// target. Verification is a Swallow-owned attestation that a real deploy in that target succeeded;
+// a custom (uploaded) image that has not been proven is refused with a Swallow reason that names
+// the target and points the operator at verification. Synced provider images are trusted and are
+// never gated. A nil repository disables the gate for tests that do not exercise verification.
+func (uc *DeployServersUseCase) requireCustomImageVerified(
+	ctx context.Context,
+	integrationID string,
+	image *provisioningdomain.OSImage,
+	target provisioningdomain.DeployTarget,
+) error {
+	if uc.verifications == nil || image == nil || !isCustomImage(image) {
+		return nil
+	}
+	verification, err := uc.verifications.Find(ctx, integrationID, image.ID, image.Architecture)
+	if err != nil {
+		return err
+	}
+	if verification.IsVerified(target) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: this custom image is not verified for %s deployment; verify it on a ready Server first",
+		provisioningdomain.ErrDeploymentBatchConflict, target,
+	)
+}
+
+// isCustomImage reports whether an image is a user-uploaded custom image (provider osSystem
+// "custom"), which is the only kind gated by verification; synced provider images are trusted.
+func isCustomImage(image *provisioningdomain.OSImage) bool {
+	return strings.EqualFold(strings.TrimSpace(image.OSSystem), "custom")
+}
+
 // Validate performs the complete deployment preflight without changing provider or
 // repository state. Durable workflows call it before persisting an Operation.
 func (uc *DeployServersUseCase) Validate(ctx context.Context, input DeployServersInput) error {
@@ -623,6 +687,10 @@ func (uc *DeployServersUseCase) ResolveOperationInput(ctx context.Context, input
 			Mode: string(resolved.networkMode), DefaultGateway: resolved.defaultGateway,
 			Assignments: make([]DeploymentNetworkAssignmentInput, len(resolved.assignments)),
 		},
+		// Preserve the verification-run bypass into the frozen snapshot so the durable executor's
+		// re-resolve of this deploy does not re-apply the unverified-custom gate to the very run
+		// that establishes the verification.
+		VerificationRun: input.VerificationRun,
 	}
 	for index, assignment := range resolved.assignments {
 		frozen.Network.Assignments[index] = DeploymentNetworkAssignmentInput{

@@ -138,6 +138,13 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("os image overlay repo init: %w", err)
 	}
+	// Swallow-owned OS Image verification attestations: which deploy targets (disk/ram) a real
+	// verification deploy has proven for an image. Owned data keyed by the provider image identity,
+	// kept separate from the display overlay so pruning one never erases the other.
+	osImageVerificationRepo, err := provisioninginfra.NewMongoOSImageVerificationRepo(db)
+	if err != nil {
+		return fmt.Errorf("os image verification repo init: %w", err)
+	}
 	// Swallow-owned Server tag overlays: the fallback half of the capability-first tag rule
 	// (docs/decisions/031), merged into Observed.Tags by reconcile only when a provisioner cannot
 	// own tags. Owned data, so no sealing or staleness applies; inert while MAAS is tagging-capable.
@@ -217,7 +224,7 @@ func RunAPI(cfg config.APIConfig) error {
 		templateRepo, integrationReader, providerFactory)
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, serverProtection)
-	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory)
+	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo, serverTagOverlayRepo)
@@ -231,13 +238,13 @@ func RunAPI(cfg config.APIConfig) error {
 		taskService,
 		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo),
 		provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory),
-		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageOverlayRepo),
+		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
 		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
-		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo),
+		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
 		provisioningapp.NewUploadOSImageUseCase(providerFactory),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo),
 		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverTagOverlayRepo),
@@ -678,6 +685,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/deployments", markDeprecatedProvisioningCommand("/api/v1/provisioning/deployment-operations"), deps.provisioning.DeployServers)
 	provisioning.Post("/deployment-operations", deps.provisioning.CreateDeploymentOperation)
 	provisioning.Post("/release-operations", deps.provisioning.CreateReleaseOperation)
+	// Prove a custom OS Image works for a deploy target by deploying it on a chosen ready Server,
+	// recording the swallow-owned verification, and auto-releasing the Server (docs/decisions/035).
+	provisioning.Post("/image-verifications", deps.provisioning.CreateImageVerification)
 	provisioning.Post("/recover-operations", deps.provisioning.CreateRecoverOperation)
 	provisioning.Post("/networks/inspect", deps.provisioning.InspectNetworks)
 	provisioning.Get("/tasks/:id", deps.provisioning.GetProvisioningTask)

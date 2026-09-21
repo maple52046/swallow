@@ -17,6 +17,8 @@ import { SectionHeader, StickyTableFrame } from '@/presentation/components/Opera
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
+import { deployTargetForEphemeral, deployTargetIsEphemeral } from '@/domain/provisioning/types'
+import { DeployTargetField } from '@/presentation/pages/provisioning/DeployTargetField'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Select } from '@/presentation/components/ui/select'
 import { formatSubnetOptionLabel } from '@/presentation/utils/network'
@@ -952,12 +954,12 @@ export function DeployPlatformWizardPage() {
                   </IconButton>
                 </HStack>
               </Field.Root>
-              <Field.Root>
-                <Checkbox id="platform-ephemeral" checked={effectiveEphemeral} disabled={Boolean(selectedTemplate)} onCheckedChange={(checked) => setEphemeral(checked)}>
-                  Run the operating system from memory
-                </Checkbox>
-                <Field.HelperText>Disks remain untouched and operating-system changes are lost after reboot.</Field.HelperText>
-              </Field.Root>
+              <DeployTargetField
+                value={deployTargetForEphemeral(effectiveEphemeral)}
+                disabled={Boolean(selectedTemplate)}
+                onChange={(nextTarget) => setEphemeral(deployTargetIsEphemeral(nextTarget))}
+                helperText="RAM runs the OS from memory: disks remain untouched and operating-system changes are lost after reboot."
+              />
               {!isSlurm && effectiveEphemeral && <EphemeralKubernetesWarning />}
               {!selectedTemplate && (
                 <Field.Root>

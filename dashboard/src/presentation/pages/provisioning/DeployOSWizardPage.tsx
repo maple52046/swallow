@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Card, Field, Heading, HStack, Input, SegmentGroup, Table, Text, Textarea } from '@chakra-ui/react'
 import { RefreshCw } from 'lucide-react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type {
   DeploymentTemplate,
@@ -10,6 +10,7 @@ import type {
   NetworkInspectionResult,
   DeploymentUserDataMode,
 } from '@/domain/provisioning/types'
+import { deployTargetForEphemeral, deployTargetIsEphemeral, DEPLOY_TARGET_LABELS } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import type { Integration, OSImage } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -28,6 +29,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useServerWorkingSet } from '@/presentation/pages/servers/useServerWorkingSet'
 import { ProvisioningTabs } from './ProvisioningTabs'
+import { DeployTargetField } from './DeployTargetField'
 
 const MAX_TARGETS = 100
 
@@ -262,6 +264,18 @@ export function DeployOSWizardPage() {
   const effectiveNetworkMode = selectedTemplate && !customized ? selectedTemplate.network?.mode ?? 'automatic' : networkMode
   const effectiveNetworkSubnetId = selectedTemplate && !customized ? selectedTemplate.network?.subnetId ?? '' : networkSubnetId
   const effectiveDefaultGateway = selectedTemplate && !customized ? selectedTemplate.network?.defaultGateway ?? false : defaultGateway
+  const effectiveDeployTarget = deployTargetForEphemeral(effectiveEphemeral)
+  const selectedImage = images.find((image) => image.id === effectiveImageId)
+  // Custom (uploaded) images must be verified for the chosen deploy target before a normal deploy
+  // is allowed; synced provider images are trusted. This mirrors the backend gate so an operator is
+  // warned here rather than surprised by a 409 at submit. The provider osSystem is authoritative for
+  // "custom" (a display overlay can rename the effective osSystem). When the image is not in the
+  // fetched catalog we do not block, leaving the backend as the source of truth.
+  const customImageNeedsVerification = Boolean(
+    selectedImage &&
+      selectedImage.providerOsSystem === 'custom' &&
+      !selectedImage.verifiedDeployTargets.includes(effectiveDeployTarget),
+  )
   const assignedStaticIPs = selectedServers.map((server) => networkAssignments[server.id]?.ipAddress.trim() ?? '').filter(Boolean)
   const networkAssignmentsValid =
     Boolean(networkInspection) &&
@@ -282,7 +296,13 @@ export function DeployOSWizardPage() {
     selectedServers.length === selected.size &&
     selectedServers.every((server) => serverIsDeployable(server) && server.source.integrationId === integrationId)
   const configurationValid = Boolean(
-    integrationId && effectiveImageId && !catalogError && !catalogLoading && (userDataMode !== 'replace' || userData) && networkAssignmentsValid,
+    integrationId &&
+      effectiveImageId &&
+      !catalogError &&
+      !catalogLoading &&
+      (userDataMode !== 'replace' || userData) &&
+      networkAssignmentsValid &&
+      !customImageNeedsVerification,
   )
   const inheritedSecretCannotBeSaved = Boolean(saveTemplate && selectedTemplate?.hasUserData && customized && userDataMode === 'inherit')
   const reviewValid =
@@ -414,7 +434,7 @@ export function DeployOSWizardPage() {
           integrationId,
           name: templateName.trim(),
           imageId: effectiveImageId,
-          ephemeral: effectiveEphemeral,
+          deployTarget: effectiveDeployTarget,
           network: { mode: effectiveNetworkMode, subnetId: reusableSubnetId || undefined, defaultGateway: effectiveDefaultGateway },
           userData: userDataMode === 'replace' ? userData : undefined,
         })
@@ -423,7 +443,7 @@ export function DeployOSWizardPage() {
       const response = await provisioning.createDeploymentOperation({
         serverIds: [...selected],
         templateId: selectedTemplate?.id,
-        settings: !selectedTemplate || customized ? { imageId: effectiveImageId, ephemeral: effectiveEphemeral } : undefined,
+        settings: !selectedTemplate || customized ? { imageId: effectiveImageId, deployTarget: effectiveDeployTarget } : undefined,
         userData: {
           mode: selectedTemplate ? userDataMode : userDataMode === 'replace' ? 'replace' : 'omit',
           value: userDataMode === 'replace' ? userData : undefined,
@@ -627,11 +647,20 @@ export function DeployOSWizardPage() {
                 </Text>
               )}
             </Field.Root>
-            <Field.Root>
-              <Checkbox id="deploy-ephemeral" checked={effectiveEphemeral} disabled={Boolean(selectedTemplate && !customized)} onCheckedChange={(checked) => setEphemeral(checked)}>
-                Ephemeral deployment
-              </Checkbox>
-            </Field.Root>
+            <DeployTargetField
+              value={effectiveDeployTarget}
+              disabled={Boolean(selectedTemplate && !customized)}
+              onChange={(nextTarget) => setEphemeral(deployTargetIsEphemeral(nextTarget))}
+              helperText="Disk installs the OS to the machine's disk; RAM runs it from memory and leaves the disks untouched."
+            />
+            {customImageNeedsVerification && (
+              <Alert status="warning" title="This custom image is not verified for this deploy target">
+                A normal {DEPLOY_TARGET_LABELS[effectiveDeployTarget]} of{' '}
+                <strong>{selectedImage?.name || effectiveImageId}</strong> is blocked until it is verified. Verify it on
+                a ready Server from the{' '}
+                <Link to={scopedHref('/provisioning/images')}>OS images</Link> page, then return here.
+              </Alert>
+            )}
             <Field.Root required>
               <Field.Label>Cloud-init</Field.Label>
               <Select
@@ -802,7 +831,7 @@ export function DeployOSWizardPage() {
           )}
           {selectedTemplate && !customized && (
             <Alert status="info" title="Template settings are locked">
-              Choose Customize to override the image or ephemeral setting.
+              Choose Customize to override the image or deploy target.
             </Alert>
           )}
         </WizardSection>
@@ -825,7 +854,7 @@ export function DeployOSWizardPage() {
                   { label: 'Integration', value: integrations.find((item) => item.id === integrationId)?.name ?? integrationId },
                   { label: 'Configuration', value: selectedTemplate ? `${selectedTemplate.name}${customized ? ' (customized)' : ''}` : 'Custom' },
                   { label: 'Image', value: effectiveImageId },
-                  { label: 'Ephemeral', value: effectiveEphemeral ? 'Yes' : 'No' },
+                  { label: 'Deploy target', value: DEPLOY_TARGET_LABELS[effectiveDeployTarget] },
                   {
                     label: 'Cloud-init',
                     value: userDataMode === 'inherit' ? 'Inherit from template' : userDataMode === 'replace' ? 'Replace for this deployment' : 'Omit',
