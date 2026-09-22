@@ -81,9 +81,13 @@ type DeploymentAxisItem struct {
 type ProvisioningAxisItem struct {
 	State         string `json:"state"`
 	ProviderState string `json:"providerState"`
-	PowerState    string `json:"powerState"`
-	OSSystem      string `json:"osSystem"`
-	DistroSeries  string `json:"distroSeries"`
+	// ErrorDescription is the provisioner's own machine-level failure reason, present only for
+	// failure states and omitted otherwise. Display and diagnostics only; it lets a client show
+	// why a lifecycle action failed (e.g. "Failed to erase disks.") without a separate event read.
+	ErrorDescription string `json:"errorDescription,omitempty"`
+	PowerState       string `json:"powerState"`
+	OSSystem         string `json:"osSystem"`
+	DistroSeries     string `json:"distroSeries"`
 	// DeployedImageName is the effective display name of the deployed OS image (provider
 	// catalog name overlaid with any swallow custom name), mirrored during reconcile. Empty
 	// when nothing is deployed or the image could not be resolved from the catalog.
@@ -180,6 +184,7 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 		item.Provisioning = &ProvisioningAxisItem{
 			State:               p.State,
 			ProviderState:       p.ProviderState,
+			ErrorDescription:    p.ErrorDescription,
 			PowerState:          p.PowerState,
 			OSSystem:            p.OSSystem,
 			DistroSeries:        p.DistroSeries,

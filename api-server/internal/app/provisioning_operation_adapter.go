@@ -21,6 +21,25 @@ type durableProvisioningLauncher struct {
 	operations  *operationapp.WorkflowService
 	servers     serverdomain.ServerRepository
 	protection  serverdomain.MutationGuard
+	// refresh live-syncs one Server's provisioning projection from its provisioner right before
+	// a Release/Recover decision, so the allowed-source gate branches on current provider state
+	// rather than a stale cache (the drift behind "shows Deployed but cannot Release"). It is
+	// optional: when nil, or when a provider read fails, the gate falls back to the stored state.
+	refresh *provisioningapp.RefreshServerUseCase
+}
+
+// refreshTarget best-effort advances one Server's provisioning projection from its provisioner
+// immediately before a recovery decision. A provider read failure is non-fatal: recovery falls
+// back to the stored projection, and the executor re-reads live provider state before any host
+// mutation anyway, so this only tightens the acceptance-time gate and never blocks on a transient
+// provider hiccup.
+func (l durableProvisioningLauncher) refreshTarget(ctx context.Context, serverID string) {
+	if l.refresh == nil {
+		return
+	}
+	if _, err := l.refresh.Execute(ctx, serverID); err != nil {
+		slog.Warn("refresh Server before recovery decision", "serverId", serverID, "error", err)
+	}
 }
 
 func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input provisioningapp.DeployServersInput, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
@@ -127,6 +146,9 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			return nil, fmt.Errorf("%w: duplicate Server %s", provisioningdomain.ErrInvalidReleaseRequest, input.ServerID)
 		}
 		seen[input.ServerID] = true
+		// Sync from the provisioner before the allowed-source gate so a stale cache cannot make a
+		// machine look Deployed (releasable) or Ready (not) when the provider says otherwise.
+		l.refreshTarget(ctx, input.ServerID)
 		server, err := l.servers.FindByID(ctx, input.ServerID)
 		if err != nil {
 			return nil, err
@@ -136,9 +158,9 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 		} else if siteID != server.Source.SiteID {
 			return nil, fmt.Errorf("%w: all Servers must belong to one Site", provisioningdomain.ErrInvalidReleaseRequest)
 		}
-		// Release is the primary provider-recovery path, so its allowed source states come
-		// from the Swallow-owned recovery policy (deployed, failed, broken, rescue) rather
-		// than a hardcoded deployed-only rule. An absent Server has no live state to act on.
+		// Release is the primary provider-recovery path, so its allowed source states come from the
+		// Swallow-owned recovery policy (deployed, allocated, failed, broken, rescue) rather than a
+		// hardcoded deployed-only rule. An absent Server has no live state to act on.
 		if server.Absent || server.Provisioning == nil {
 			return nil, fmt.Errorf("%w: Server %s has no observed provisioning state to release", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())
 		}
@@ -187,6 +209,9 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 			return nil, fmt.Errorf("%w: duplicate Server %s", provisioningdomain.ErrInvalidReleaseRequest, input.ServerID)
 		}
 		seen[input.ServerID] = true
+		// Same live sync as Release: recover must decide on current provider state so an
+		// allocated/failed machine is not misjudged from a stale projection.
+		l.refreshTarget(ctx, input.ServerID)
 		server, err := l.servers.FindByID(ctx, input.ServerID)
 		if err != nil {
 			return nil, err
@@ -227,10 +252,12 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 }
 
 // LaunchImageVerification proves one OS Image works for one deploy target by deploying it on an
-// operator-chosen ready Server, recording the swallow-owned attestation on success, then
-// auto-releasing the Server. The proving deploy reuses the ordinary provision-os executor, so a
-// success already means the provider installed the requested image in the requested target and SSH
-// came up; VerificationRun bypasses the unverified-custom-image gate for this one establishing run.
+// operator-chosen ready Server, recording the swallow-owned attestation on success (or a failure
+// fact on failure), then, unless input.KeepServer is set, returning the Server to the ready pool.
+// The proving deploy reuses the ordinary provision-os executor, so a success already means the
+// provider installed the requested image in the requested target and SSH came up; VerificationRun
+// bypasses the unverified-custom-image gate for this one establishing run. KeepServer leaves the
+// Server deployed instead of returning it, for an operator who wants to keep the verified deployment.
 func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context, input provisioningapp.ImageVerificationInput, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
 	if strings.TrimSpace(input.ServerID) == "" || strings.TrimSpace(input.ImageID) == "" ||
 		strings.TrimSpace(input.IntegrationID) == "" || strings.TrimSpace(input.Architecture) == "" {
@@ -321,7 +348,13 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskFailed},
 			Parameters: verificationIdentity,
 		},
-		{
+	}
+	// By default the borrowed Server is returned to the ready pool after the verification, whether
+	// the proving deploy succeeded or failed. KeepServer omits that return step, leaving the Server
+	// deployed on success (for an operator who wants to keep and use the verified deployment) and in
+	// its failed state on failure, which the operator can Recover from the Server detail page.
+	if !input.KeepServer {
+		steps = append(steps, operationdomain.Task{
 			// Return-to-ready compensation: it runs after whichever record step ran (the other is
 			// skipped), because a borrowed Server must be given back whether the proving deploy
 			// succeeded or failed. recover-server converges the Server to ready from
@@ -334,7 +367,7 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			DependsOn:  []string{recordStepID, recordFailureStepID},
 			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped},
 			Parameters: map[string]any{"request": structToMap(provisioningapp.RecoverServerInput{ServerID: input.ServerID})},
-		},
+		})
 	}
 	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
 		Kind:           operationdomain.WorkflowKindVerifyOSImage,

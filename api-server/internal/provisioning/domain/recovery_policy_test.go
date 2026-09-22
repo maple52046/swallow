@@ -13,6 +13,7 @@ func TestEvaluateRecovery_AllowedSources(t *testing.T) {
 		noop    bool
 	}{
 		{RecoveryIntentRelease, MachineStatusDeployed, true, false},
+		{RecoveryIntentRelease, MachineStatusAllocated, true, false},
 		{RecoveryIntentRelease, MachineStatusFailed, true, false},
 		{RecoveryIntentRelease, MachineStatusBroken, true, false},
 		{RecoveryIntentRelease, MachineStatusRescue, true, false},
@@ -23,6 +24,7 @@ func TestEvaluateRecovery_AllowedSources(t *testing.T) {
 		{RecoveryIntentRecover, MachineStatusBroken, true, false},
 		{RecoveryIntentRecover, MachineStatusRescue, true, false},
 		{RecoveryIntentRecover, MachineStatusDeployed, true, false},
+		{RecoveryIntentRecover, MachineStatusAllocated, true, false},
 		{RecoveryIntentRecover, MachineStatusReady, true, true},
 		{RecoveryIntentRecover, MachineStatusReleasing, false, false},
 
@@ -69,6 +71,7 @@ func TestRecoverPlan_PrimitivesByState(t *testing.T) {
 		{MachineStatusRescue, []RecoverPrimitive{RecoverPrimitiveExitRescue, RecoverPrimitiveRelease}},
 		{MachineStatusFailed, []RecoverPrimitive{RecoverPrimitiveRelease}},
 		{MachineStatusDeployed, []RecoverPrimitive{RecoverPrimitiveRelease}},
+		{MachineStatusAllocated, []RecoverPrimitive{RecoverPrimitiveRelease}},
 		{MachineStatusReady, nil},
 	}
 	for _, tc := range cases {

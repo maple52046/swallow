@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Button, HStack, IconButton, Stack, Table, Tabs, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Ban, Check, ChevronDown, ChevronRight, CircleDot, Redo, RefreshCw, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import type { ProviderEvents } from '@/domain/server/types'
 import { useApp } from '@/di/AppProvider'
 import {
   isTerminalStatus,
@@ -319,17 +320,31 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
             </Tabs.List>
             <Tabs.Content value="stdout">
               <div className="sw-tab-content">
-                <OperationLogWorkspace operationId={operation.id} stepId={selectedStep.id} />
+                {selectedStep.executor === 'ansible' ? (
+                  <OperationLogWorkspace operationId={operation.id} stepId={selectedStep.id} />
+                ) : (
+                  <ProviderStepNote hasServerTarget={Boolean(stepServerTarget(selectedStep))} />
+                )}
               </div>
             </Tabs.Content>
             <Tabs.Content value="stderr">
               <div className="sw-tab-content">
-                <OperationLogWorkspace operationId={operation.id} stepId={selectedStep.id} variant="stderr" />
+                {selectedStep.executor === 'ansible' ? (
+                  <OperationLogWorkspace operationId={operation.id} stepId={selectedStep.id} variant="stderr" />
+                ) : (
+                  <StepErrorReport step={selectedStep} />
+                )}
               </div>
             </Tabs.Content>
             <Tabs.Content value="events">
               <div className="sw-tab-content">
-                <StepEvents operation={operation} step={selectedStep} />
+                {selectedStep.executor === 'ansible' ? (
+                  <StepEvents operation={operation} step={selectedStep} />
+                ) : stepServerTarget(selectedStep) ? (
+                  <StepProviderEvents serverId={stepServerTarget(selectedStep) as string} />
+                ) : (
+                  <ProviderStepNote hasServerTarget={false} />
+                )}
               </div>
             </Tabs.Content>
             <Tabs.Content value="artifacts">
@@ -602,6 +617,146 @@ function StepArtifacts({ operationId, step }: { operationId: string; step: Opera
         value: `${artifact.mediaType} - ${artifact.sizeBytes.toLocaleString()} bytes - ${formatDateTime(artifact.createdAt)}`,
       }))}
     />
+  )
+}
+
+/**
+ * The failure report for a provisioner or internal Step, which produces no Ansible stdout/stderr:
+ * its outcome is the normalized error (code, stage, retryable, and the full operator-facing
+ * message). Shown on the Stderr tab in place of the Ansible log workspace so a failed provider Step
+ * reads its cause here instead of the misleading "No errors" empty state. A Step with no error
+ * completed its provider work; its timing is on the Details tab and the provider's own event log is
+ * on the Server (see the Stdout/Events note).
+ */
+function StepErrorReport({ step }: { step: OperationStep }) {
+  if (!step.error) {
+    return (
+      <EmptyState
+        title="No error reported"
+        message="This step completed its provider work without a recorded error. Provider and internal steps produce no command output — see Details for timing, and the Server's Activity tab for the provisioner's own event log."
+      />
+    )
+  }
+  return (
+    <Stack gap="3" p="4">
+      <KeyValueGrid
+        items={[
+          { label: 'Code', value: <span className="mono">{step.error.code || '-'}</span> },
+          { label: 'Stage', value: step.error.stage || '-' },
+          { label: 'Retryable', value: step.error.retryable ? 'Yes' : 'No' },
+        ]}
+      />
+      <Text whiteSpace="pre-wrap" className="sw-error-detail">
+        {step.error.message}
+      </Text>
+    </Stack>
+  )
+}
+
+/** The first server-target id of a Step, used to fetch the provisioner's event log for it. */
+function stepServerTarget(step: OperationStep): string | undefined {
+  return step.targets?.find((target) => target.kind === 'server')?.id
+}
+
+/**
+ * Explains that a provisioner/internal Step drives the provider (or records a Swallow fact) through
+ * API calls and therefore has no Ansible stdout — so the Stdout tab is not blank by accident. It
+ * points to the sibling tabs (Stderr for the outcome, Events for the provider's event timeline) on
+ * this same page; it deliberately does not link back to the Server, which would loop the operator
+ * between the Server and the Operation they navigated in from.
+ */
+function ProviderStepNote({ hasServerTarget }: { hasServerTarget: boolean }) {
+  return (
+    <EmptyState
+      title="No command output"
+      message={
+        'This step drives the provider (or records a Swallow fact) through API calls, so it has no stdout. Its outcome is on the Stderr tab' +
+        (hasServerTarget ? ", and the provider's own event timeline is on the Events tab" : '') +
+        '; timing is on Details.'
+      }
+    />
+  )
+}
+
+/**
+ * The target Server's provider event log, rendered inline on the Operation step for a provisioner
+ * Step (for example the MAAS PXE-boot / deploying / disk-erasing / marking-failed timeline). This is
+ * the closest thing to "what happened" for a step that runs no Ansible, and it is shown here — on
+ * the Operation the operator is already looking at — rather than linking back to the Server, so
+ * there is no Server-to-Operation-to-Server navigation loop. It is provider-retained history, not a
+ * complete Swallow audit log.
+ */
+function StepProviderEvents({ serverId }: { serverId: string }) {
+  const { servers } = useApp()
+  const [state, setState] = useState<
+    { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: ProviderEvents }
+  >({ status: 'loading' })
+  const [nonce, setNonce] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    servers
+      .getProviderEvents(serverId, 50)
+      .then((data) => {
+        if (!cancelled) setState({ status: 'ready', data })
+      })
+      .catch((error: Error) => {
+        if (!cancelled) setState({ status: 'error', message: error.message })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [serverId, servers, nonce])
+  return (
+    <Stack gap="3" p="4">
+      <HStack justify="space-between" align="start" gap="4" wrap="wrap">
+        <Text color="fg.muted">
+          The provisioner&apos;s own event log for this Server — the closest thing to &quot;what happened&quot; for a
+          provider step. Provider-retained history, not a complete Swallow audit log.
+        </Text>
+        <Button variant="outline" size="sm" onClick={() => setNonce((value) => value + 1)}>
+          <RefreshCw size={14} />
+          Refresh
+        </Button>
+      </HStack>
+      {state.status === 'loading' && <Text color="fg.muted">Loading provider events…</Text>}
+      {state.status === 'error' && (
+        <Alert status="warning" title="Provider events are unavailable">
+          {state.message}
+        </Alert>
+      )}
+      {state.status === 'ready' && !state.data.supported && (
+        <EmptyState title="Not supported" message="This provisioner does not expose machine events." />
+      )}
+      {state.status === 'ready' && state.data.supported && state.data.events.length === 0 && (
+        <EmptyState title="No provider events" message="No provider events are retained for this Server." />
+      )}
+      {state.status === 'ready' && state.data.events.length > 0 && (
+        <StickyTableFrame>
+          <Table.Root size="sm" aria-label="Provider events for the target Server">
+            <Table.Header>
+              <Table.Row>
+                <Table.ColumnHeader>Time</Table.ColumnHeader>
+                <Table.ColumnHeader>Level</Table.ColumnHeader>
+                <Table.ColumnHeader>Type</Table.ColumnHeader>
+                <Table.ColumnHeader>Message</Table.ColumnHeader>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {state.data.events.map((event) => (
+                <Table.Row key={event.id}>
+                  <Table.Cell>{formatDateTime(event.occurredAt)}</Table.Cell>
+                  <Table.Cell>
+                    <StatusBadge status={event.level} />
+                  </Table.Cell>
+                  <Table.Cell>{event.type || '-'}</Table.Cell>
+                  <Table.Cell>{event.message || '-'}</Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table.Root>
+        </StickyTableFrame>
+      )}
+    </Stack>
   )
 }
 

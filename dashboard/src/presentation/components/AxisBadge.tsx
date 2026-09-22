@@ -70,6 +70,16 @@ function observedAtLabel(observedAt: string): string {
 }
 
 /**
+ * Appends the provisioner's machine-level failure reason to a failure tooltip when one is present,
+ * so a failed/broken/rescue badge carries the "why" (e.g. "Failed to erase disks.") inline instead
+ * of only the coarse provider lifecycle label. Returns an empty string when there is no reason.
+ */
+function reasonSuffix(errorDescription?: string): string {
+  const reason = errorDescription?.trim()
+  return reason ? ` Reason: ${reason}.` : ''
+}
+
+/**
  * Marks an ephemeral (run-from-RAM) deployment with a memory-stick glyph beside the
  * state badge. Meaning is carried by the tooltip and `aria-label`, not colour alone;
  * the warning tint is only a supplementary cue.
@@ -146,15 +156,21 @@ export function DeploymentBadge({
     // Broken and Failed are distinct recovery cases (decision 033) and must stay
     // distinguishable at a glance: Broken is a provider-marked unusable Machine (cleared with
     // Mark fixed or Recover), Failed is a last-lifecycle failure (Recover or Release).
-    state = <AxisLabel color="red" tooltip={`Provider marked this Machine broken. Provider lifecycle: ${provider.providerState}. Recover or Release returns it to Ready.`}>Broken</AxisLabel>
+    state = <AxisLabel color="red" tooltip={`Provider marked this Machine broken. Provider lifecycle: ${provider.providerState}.${reasonSuffix(provider.errorDescription)} Recover or Release returns it to Ready.`}>Broken</AxisLabel>
   } else if (provider?.state === 'failed') {
-    state = <AxisLabel color="red" tooltip={`Provider lifecycle failed: ${provider.providerState}. Recover or Release returns it to Ready.`}>Failed</AxisLabel>
+    state = <AxisLabel color="red" tooltip={`Provider lifecycle failed: ${provider.providerState}.${reasonSuffix(provider.errorDescription)} Recover or Release returns it to Ready.`}>Failed</AxisLabel>
   } else if (provider?.state === 'rescue') {
-    state = <AxisLabel color="purple" tooltip={`Diagnostic rescue environment. Provider lifecycle: ${provider.providerState}. Exit rescue restores the previous state; Recover returns it to Ready.`}>Rescue</AxisLabel>
+    state = <AxisLabel color="purple" tooltip={`Diagnostic rescue environment. Provider lifecycle: ${provider.providerState}.${reasonSuffix(provider.errorDescription)} Exit rescue restores the previous state; Recover returns it to Ready.`}>Rescue</AxisLabel>
   } else if (provider?.state === 'ready') {
     // A released machine is back in the provider's available pool. Show it as "Ready"
     // (the provider's own term) rather than "Not deployed", which reads like a fault.
     state = <AxisLabel color="blue" tooltip="The Server is in the provider's available pool, ready to be deployed.">Ready</AxisLabel>
+  } else if (provider?.state === 'allocated') {
+    // Reserved but not deployed. This is a live provider state, so it must be shown here —
+    // before the succeeded fallback below — otherwise a leftover succeeded deployment record
+    // (for example a reservation that never finished deploying) would paint a stale "Deployed"
+    // on a Machine that the provider is not actually running, which then reads as un-releasable.
+    state = <AxisLabel color="blue" tooltip="The Server is reserved (allocated) but not deployed. Recover or Release returns it to the ready pool.">Allocated</AxisLabel>
   } else if (axis?.state === 'succeeded') {
     // A verified swallow deployment with no current provisioning projection still reads as
     // deployed; the image name is unavailable without the provider axis, so fall back to a label.

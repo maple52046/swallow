@@ -96,11 +96,16 @@ const ACTIVE_PROVIDER_STATES = new Set(['commissioning', 'deploying', 'releasing
 // State gates mirroring the Swallow-owned recovery policy (docs/decisions/033). The dashboard
 // gates on the same normalized `provisioning.state` the backend does, so an operator sees a
 // disabled control with a Swallow reason instead of a provider rejection after the fact.
-const RELEASE_SOURCE_STATES = new Set(['deployed', 'failed', 'broken', 'rescue'])
+// `allocated` is included because MAAS parks a machine there when a deployment was reserved
+// but never finished (a failed/canceled deploy, or a verification borrow that ended early);
+// the provider allows Release from it, so it is a real "return it to the pool" source, not a
+// dead end (decision 033/036).
+const RELEASE_SOURCE_STATES = new Set(['deployed', 'allocated', 'failed', 'broken', 'rescue'])
 // Recover is offered only for the not-usable states it is meant to fix. The backend also
 // tolerates `deployed`/`ready` (for internal and uninstall reuse), but offering Recover on a
 // healthy deployed Server would release it — a footgun — so the operator menu excludes those.
-const RECOVER_SOURCE_STATES = new Set(['failed', 'broken', 'rescue'])
+// `allocated` is offered: it means "stuck reserved", and Recover returns it to Ready.
+const RECOVER_SOURCE_STATES = new Set(['allocated', 'failed', 'broken', 'rescue'])
 const RESCUE_ENTER_STATES = new Set(['deployed', 'broken', 'failed'])
 
 export interface ServerActionAvailability {
@@ -192,11 +197,11 @@ export function serverActionAvailability(
   // states so the menu explains why, rather than forwarding a later provider rejection.
   if (action === 'recover') {
     return stateGatedAvailability(targets, (server) => RECOVER_SOURCE_STATES.has(provisioningState(server)),
-      'Recover returns a failed, broken, or rescue Server to Ready.')
+      'Recover returns an allocated, failed, broken, or rescue Server to Ready.')
   }
   if (action === 'release') {
     return stateGatedAvailability(targets, (server) => RELEASE_SOURCE_STATES.has(provisioningState(server)),
-      'Release is available from deployed, failed, broken, or rescue.')
+      'Release is available from deployed, allocated, failed, broken, or rescue.')
   }
   if (action === 'mark-fixed') {
     return stateGatedAvailability(targets, (server) => provisioningState(server) === 'broken',

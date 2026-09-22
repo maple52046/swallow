@@ -157,6 +157,7 @@ func updateProvisioningProjection(
 	server.Provisioning = &serverdomain.ProvisioningStatus{
 		State:               string(machine.Status),
 		ProviderState:       machine.ProviderStatus,
+		ErrorDescription:    machine.ErrorDescription,
 		PowerState:          string(machine.PowerState),
 		OSSystem:            machine.OSSystem,
 		DistroSeries:        machine.DistroSeries,

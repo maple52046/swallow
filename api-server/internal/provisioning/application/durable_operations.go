@@ -23,15 +23,20 @@ type RecoverServerInput struct {
 }
 
 // ImageVerificationInput carries the intent to prove one OS Image works for one deploy target by
-// deploying it on an operator-chosen ready Server. The Server is auto-released after a successful
-// verification, so the image identity, target, and chosen Server are all that is needed.
+// deploying it on an operator-chosen ready Server. By default the Server is returned to the ready
+// pool after the verification (success or failure), so a verification consumes the Server only
+// briefly; KeepServer leaves the Server deployed instead, for an operator who wants to keep and use
+// (or inspect) the verified deployment.
 type ImageVerificationInput struct {
 	IntegrationID string       `json:"integrationId"`
 	ImageID       string       `json:"imageId"`
 	Architecture  string       `json:"architecture"`
 	DeployTarget  DeployTarget `json:"deployTarget"`
 	ServerID      string       `json:"serverId"`
-	RequestID     string       `json:"requestId,omitempty"`
+	// KeepServer leaves the chosen Server deployed after the verification instead of returning it
+	// to the ready pool. Default false: the verification borrows the Server and gives it back.
+	KeepServer bool   `json:"keepServer,omitempty"`
+	RequestID  string `json:"requestId,omitempty"`
 }
 
 // DurableOperationLauncher adapts provisioning intent into Operation Steps without making
@@ -44,8 +49,8 @@ type DurableOperationLauncher interface {
 	// persisting one recover-server Step per Server.
 	LaunchRecover(ctx context.Context, inputs []RecoverServerInput, requestedBy, requestID string) (*OperationReference, error)
 	// LaunchImageVerification proves an image for a deploy target: a provision-os step in the
-	// target mode, a record-image-verification finalize step on success, then a release-os step
-	// that returns the chosen Server to the ready pool.
+	// target mode, a record finalize step (success or failure), then — unless the input keeps the
+	// Server — a recover-server step that returns the chosen Server to the ready pool.
 	LaunchImageVerification(ctx context.Context, input ImageVerificationInput, requestedBy, requestID string) (*OperationReference, error)
 }
 

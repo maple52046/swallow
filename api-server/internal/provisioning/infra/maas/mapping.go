@@ -10,24 +10,29 @@ import (
 // more (block devices, NUMA topology, power parameters); anything not listed here is
 // deliberately ignored.
 type machineJSON struct {
-	SystemID     string     `json:"system_id"`
-	Hostname     string     `json:"hostname"`
-	FQDN         string     `json:"fqdn"`
-	Status       int        `json:"status"`
-	StatusName   string     `json:"status_name"`
-	Architecture string     `json:"architecture"`
-	CPUCount     int        `json:"cpu_count"`
-	Memory       int64      `json:"memory"`
-	Storage      float64    `json:"storage"`
-	PowerState   string     `json:"power_state"`
-	OSystem      string     `json:"osystem"`
-	DistroSeries string     `json:"distro_series"`
-	IPAddresses  []string   `json:"ip_addresses"`
-	TagNames     []string   `json:"tag_names"`
-	Zone         *namedJSON `json:"zone"`
-	Pool         *namedJSON `json:"pool"`
-	Pod          *namedJSON `json:"pod"`
-	Locked       bool       `json:"locked"`
+	SystemID   string `json:"system_id"`
+	Hostname   string `json:"hostname"`
+	FQDN       string `json:"fqdn"`
+	Status     int    `json:"status"`
+	StatusName string `json:"status_name"`
+	// ErrorDescription is MAAS's own machine-level failure reason (e.g. "Failed to erase
+	// disks."), populated while the machine is in a failure state. It is the detail an
+	// operator needs to tell why a deploy or release failed and is otherwise buried only in
+	// the provider event log; carried through so Swallow can surface it on the failed state.
+	ErrorDescription string     `json:"error_description"`
+	Architecture     string     `json:"architecture"`
+	CPUCount         int        `json:"cpu_count"`
+	Memory           int64      `json:"memory"`
+	Storage          float64    `json:"storage"`
+	PowerState       string     `json:"power_state"`
+	OSystem          string     `json:"osystem"`
+	DistroSeries     string     `json:"distro_series"`
+	IPAddresses      []string   `json:"ip_addresses"`
+	TagNames         []string   `json:"tag_names"`
+	Zone             *namedJSON `json:"zone"`
+	Pool             *namedJSON `json:"pool"`
+	Pod              *namedJSON `json:"pod"`
+	Locked           bool       `json:"locked"`
 
 	CommissioningStatusName string `json:"commissioning_status_name"`
 	TestingStatusName       string `json:"testing_status_name"`
@@ -220,6 +225,16 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 		TestingStatus:       m.TestingStatusName,
 		IPAddresses:         m.IPAddresses,
 		Tags:                m.TagNames,
+	}
+
+	// Carry the provider's error reason only for the failure states where it is meaningful.
+	// MAAS keeps a stale error_description on a machine long after it recovers, so mirroring it
+	// on a healthy machine would show a resolved error as if it were current.
+	switch status {
+	case provisioningdomain.MachineStatusFailed,
+		provisioningdomain.MachineStatusBroken,
+		provisioningdomain.MachineStatusRescue:
+		machine.ErrorDescription = strings.TrimSpace(m.ErrorDescription)
 	}
 
 	if m.EphemeralDeploy != nil {

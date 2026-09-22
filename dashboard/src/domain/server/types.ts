@@ -75,6 +75,12 @@ export interface DeploymentAxis {
 export interface ProvisioningAxis {
   state: ProvisioningState
   providerState: string
+  /**
+   * The provisioner's own machine-level failure reason (e.g. "Failed to erase disks."), present
+   * only for failure states (failed/broken/rescue) and absent otherwise. Display and diagnostics
+   * only: it surfaces why a lifecycle action failed without reading the provider event log.
+   */
+  errorDescription?: string
   powerState: 'on' | 'off' | 'error' | 'unknown'
   osSystem: string
   distroSeries: string

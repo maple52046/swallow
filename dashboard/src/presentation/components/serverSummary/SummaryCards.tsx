@@ -51,6 +51,9 @@ export function StatusCard({ server, deployedImageHref }: { server: Server; depl
                 ),
               },
               { label: 'Provider state', value: axis.providerState },
+              // The machine-level failure reason (e.g. "Failed to erase disks.") is shown only when
+              // the provider reported one, so a healthy Server does not carry an empty "Reason" row.
+              ...(axis.errorDescription?.trim() ? [{ label: 'Provider reason', value: axis.errorDescription.trim() }] : []),
               {
                 label: 'Deployed OS',
                 value: axis.deployedImageName

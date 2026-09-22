@@ -148,7 +148,12 @@ type ProvisioningStatus struct {
 	State string
 	// ProviderState is the provisioner's own label. Display only.
 	ProviderState string
-	PowerState    string
+	// ErrorDescription is the provisioner's own machine-level failure reason (e.g. "Failed to
+	// erase disks."), mirrored only for failure states and empty otherwise. Display and
+	// diagnostics only; it surfaces why a lifecycle action failed on the failed/broken axis so
+	// an operator does not have to read the provider event log to find the reason.
+	ErrorDescription string
+	PowerState       string
 	// OSSystem and DistroSeries describe what is currently deployed.
 	OSSystem     string
 	DistroSeries string

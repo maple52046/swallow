@@ -51,8 +51,13 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 		current.Attempt == step.Attempt {
 		startedAt = current.StartedAt
 	}
-	stage, reason := "", ""
+	// Carry the stable error code onto the axis alongside stage and message: it is the
+	// machine-readable reason a client keys guidance off (for example
+	// deployment_ssh_unreachable), and dropping it left the deployment failure with only a
+	// human message and no code to branch on.
+	code, stage, reason := "", "", ""
 	if step.Error != nil {
+		code = step.Error.Code
 		stage = step.Error.Stage
 		reason = step.Error.Message
 	}
@@ -65,7 +70,7 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 	}
 	return o.servers.SetDeployment(ctx, serverID, &serverdomain.DeploymentStatus{
 		State: state, OperationID: operationID, StepID: step.ID, Attempt: step.Attempt,
-		Stage: stage, StatusReason: reason, StartedAt: startedAt,
+		Code: code, Stage: stage, StatusReason: reason, StartedAt: startedAt,
 		FinishedAt: finishedAt, UpdatedAt: now,
 	})
 }

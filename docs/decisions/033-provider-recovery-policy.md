@@ -88,3 +88,8 @@ three never drift.
 Implemented: domain policy, relaxed durable Release, Recover Operation and its
 provider Step, operator-state gating, dashboard intents and gating, and the
 contract/glossary/platform-deployment documentation.
+
+Refined by [decision 036](036-provisioning-lifecycle-integrity.md): the
+allowed-source set adds `allocated` (reserved but not deployed), so Recover and
+Release converge it to `ready` instead of dead-ending; the recovery matrix and
+dashboard gate are otherwise unchanged.

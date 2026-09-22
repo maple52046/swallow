@@ -346,6 +346,9 @@ type imageVerificationRequest struct {
 	Architecture  string `json:"architecture"`
 	DeployTarget  string `json:"deployTarget"`
 	ServerID      string `json:"serverId"`
+	// KeepServer, when true, leaves the Server deployed after verification instead of returning it
+	// to the ready pool. Optional; defaults to false (the Server is given back).
+	KeepServer bool `json:"keepServer"`
 }
 
 // CreateImageVerification launches a verify-os-image Operation that proves a custom OS Image works
@@ -377,6 +380,7 @@ func (h *ProvisioningHandler) CreateImageVerification(c *fiber.Ctx) error {
 		Architecture:  req.Architecture,
 		DeployTarget:  target,
 		ServerID:      req.ServerID,
+		KeepServer:    req.KeepServer,
 		RequestID:     c.GetRespHeader(fiber.HeaderXRequestID),
 	}, requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
 	if err != nil {

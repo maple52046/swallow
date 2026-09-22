@@ -5,6 +5,7 @@ import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { DeployTarget } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import { Alert } from '@/presentation/components/ui/alert'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 import { Button } from '@chakra-ui/react'
@@ -44,6 +45,9 @@ export function VerifyImageDialog({
   const [loadError, setLoadError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // Default false: a verification borrows the Server and returns it to the ready pool when done.
+  // When kept, the Server is left deployed (on success) for the operator to use or inspect.
+  const [keepServer, setKeepServer] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -84,8 +88,13 @@ export function VerifyImageDialog({
         architecture: image.architecture,
         deployTarget: target,
         serverId,
+        keepServer,
       })
-      onLaunched(`Verifying ${image.name || image.id} — the Server will auto-release when done`)
+      onLaunched(
+        keepServer
+          ? `Verifying ${image.name || image.id} — the Server will stay deployed when done`
+          : `Verifying ${image.name || image.id} — the Server will auto-release when done`,
+      )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The verification could not be started.')
       setSubmitting(false)
@@ -153,7 +162,7 @@ export function VerifyImageDialog({
           )}
           <Field.HelperText>
             Only ready Servers of the {primaryArchitecture(image.architecture)} architecture are shown. The Server is
-            deployed to, verified, then automatically released back to ready.
+            deployed to and verified{keepServer ? ' and left deployed afterwards.' : ', then returned to ready afterwards.'}
           </Field.HelperText>
         </Field.Root>
         {noReadyServers && (
@@ -161,9 +170,18 @@ export function VerifyImageDialog({
             Release or add a ready Server on this provisioner before verifying this image.
           </Alert>
         )}
+        <Stack gap="1">
+          <Checkbox id="verify-keep-server" checked={keepServer} disabled={submitting} onCheckedChange={setKeepServer}>
+            Keep the Server deployed after verification
+          </Checkbox>
+          <Text fontSize="sm" color="fg.muted">
+            By default the Server returns to the ready pool when the run finishes. Keep it deployed to use or inspect the
+            verified deployment — you can Release it later. On failure the Server is left as-is for you to recover.
+          </Text>
+        </Stack>
         <Text fontSize="sm" color="fg.muted">
           Verification runs a real deployment. It can take several minutes and the Server is unavailable for other work
-          until it auto-releases.
+          until it {keepServer ? 'finishes' : 'auto-releases'}.
         </Text>
       </Stack>
     </Modal>

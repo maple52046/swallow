@@ -582,8 +582,10 @@ failure retries cleanup only and never sends Release again. Provider cancellatio
 best-effort and confirmed prior effects are preserved.
 
 Release is the primary provider-recovery path and is not restricted to `deployed`. The
-Swallow-owned recovery policy (decision 033) allows Release from `deployed`, `failed`,
-`broken`, and `rescue`, always converging the Machine to `ready`. A target in any other
+Swallow-owned recovery policy (decision 033, extended by decision 036) allows Release from
+`deployed`, `allocated`, `failed`, `broken`, and `rescue`, always converging the Machine to
+`ready`. `allocated` is included because MAAS parks a machine there when a deployment was
+reserved but never finished, and the provider allows Release from it. A target in any other
 state (for example `releasing`, `deploying`, `new`, or already `ready`) is rejected with a
 Swallow-authored reason rather than the provider's message.
 
@@ -611,12 +613,12 @@ the same bounded batch shape as Release, without the disk-erase controls:
 
 It performs the same presence, Site, duplicate-target, active-work, and live lock
 validation, then creates one `recover-server` MAAS Step per Server. Recover is allowed
-from `failed`, `broken`, `rescue`, and `deployed`; a target already `ready` is accepted as
-an immediate success (no-op) and any other state is a `400 validation_error` with a
-Swallow reason. Each Step chooses the provider primitive by observed state — `broken` is
-returned with Mark fixed, `rescue` exits rescue and then Releases if it is still not
-`ready`, and `failed` (or `deployed`) is Released — and succeeds only after `ready` is
-observed. A Machine that fails to leave rescue (a settled "failed to exit rescue" state, or
+from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target already `ready` is
+accepted as an immediate success (no-op) and any other state is a `400 validation_error`
+with a Swallow reason. Each Step chooses the provider primitive by observed state — `broken`
+is returned with Mark fixed, `rescue` exits rescue and then Releases if it is still not
+`ready`, and `failed` (or `deployed`/`allocated`) is Released — and succeeds only after
+`ready` is observed. A Machine that fails to leave rescue (a settled "failed to exit rescue" state, or
 one that hangs in the transition past a grace period) is escalated to Mark broken and then
 Mark fixed, which returns it to `ready` without a disk erase; this is the only path out for
 a Machine whose exit-rescue and disk-erase both fail on the provider. `unbindStaticIPs`
@@ -636,24 +638,30 @@ success, then auto-releasing the Server. It accepts:
   "imageId": "custom/rocky-10.2",
   "architecture": "amd64",
   "deployTarget": "ram",
-  "serverId": "server-1"
+  "serverId": "server-1",
+  "keepServer": false
 }
 ```
 
 `integrationId`, `imageId`, `architecture`, and `serverId` are required;
-`deployTarget` is `"disk"` or `"ram"` (an unknown value is a `400`). Acceptance
-preflight requires the Server to exist, be `ready`, be unlocked, belong to the
-image's Integration, and match the image architecture. It responds `202` with
-`{ "operationId": "..." }`.
+`deployTarget` is `"disk"` or `"ram"` (an unknown value is a `400`). `keepServer`
+is optional and defaults to `false`: when `false` the borrowed Server is returned
+to the ready pool after the verification (see the return Step below); when `true`
+the return Step is omitted, leaving the Server deployed on success (for an operator
+who wants to keep the verified deployment) and in its failed state on failure.
+Acceptance preflight requires the Server to exist, be `ready`, be unlocked, belong
+to the image's Integration, and match the image architecture. It responds `202`
+with `{ "operationId": "..." }`.
 
 The Operation runs Steps: `provision-os` (the real deploy in the target mode; this
 proving deploy is exempt from the custom-image verification gate), one of two
 mutually exclusive internal finalize Steps — `record-image-verification` when the
 proving deploy succeeded, or `record-image-verification-failure` when it failed —
-and `recover-server` (return the borrowed Server to `ready`). Verification is a
-borrow-and-return contract: the return Step runs whether the proving deploy
-succeeded or failed, so the borrowed Server is always given back. Exactly one record
-Step runs; the other is skipped. A failed proving deploy is terminal (not a
+and, unless `keepServer` is `true`, `recover-server` (return the borrowed Server to
+`ready`). Verification is a borrow-and-return contract: by default the return Step
+runs whether the proving deploy succeeded or failed, so the borrowed Server is
+always given back; with `keepServer: true` the return Step is omitted and the Server
+is left deployed. Exactly one record Step runs; the other is skipped. A failed proving deploy is terminal (not a
 retry-park), so the Operation reaches `partially_succeeded` after the Server is
 returned, rather than holding the Server and showing a perpetual "verifying". On
 success the image's `verifiedDeployTargets` gains the target; on failure its

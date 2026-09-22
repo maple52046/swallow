@@ -48,6 +48,9 @@ func TestServerDeploymentObserverKeepsProviderFactSeparateFromVerifiedFailure(t 
 	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentFailed {
 		t.Fatalf("deployment = %+v, want failed", server.Deployment)
 	}
+	if server.Deployment.Code != "deployment_ssh_unreachable" {
+		t.Fatalf("deployment code = %q, want the stable code carried onto the axis", server.Deployment.Code)
+	}
 	if server.Deployment.Stage != "ssh_readiness" || server.Deployment.StatusReason != "SSH could not be reached." {
 		t.Fatalf("deployment diagnostics = %+v", server.Deployment)
 	}

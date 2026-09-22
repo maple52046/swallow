@@ -287,6 +287,32 @@ func TestListMachines_NormalizesStatusCodes(t *testing.T) {
 	}
 }
 
+// TestToDomainMachineErrorDescription pins that the provider's machine-level failure reason is
+// carried only for the failure states where it is current, so a stale error MAAS keeps on a
+// recovered machine is never mirrored onto a healthy one.
+func TestToDomainMachineErrorDescription(t *testing.T) {
+	cases := []struct {
+		name string
+		code int // MAAS status
+		want string
+	}{
+		{"failed carries the reason", 11, "Failed to erase disks."},              // FAILED_DEPLOYMENT
+		{"failed disk erasing carries the reason", 15, "Failed to erase disks."}, // FAILED_DISK_ERASING
+		{"broken carries the reason", 8, "Failed to erase disks."},               // BROKEN
+		{"rescue carries the reason", 20, "Failed to erase disks."},              // FAILED_EXITING_RESCUE_MODE
+		{"ready drops the stale reason", 4, ""},                                  // READY
+		{"deployed drops the stale reason", 6, ""},                               // DEPLOYED
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := toDomainMachine(&machineJSON{Status: tc.code, ErrorDescription: "Failed to erase disks."}).ErrorDescription
+			if got != tc.want {
+				t.Errorf("errorDescription = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestListMachines_AppliesFilters(t *testing.T) {
 	body := `[` + readyMachineJSON + `,` + deployingMachineJSON + `]`
 

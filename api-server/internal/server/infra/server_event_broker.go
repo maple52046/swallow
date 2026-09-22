@@ -140,9 +140,9 @@ func (s *brokerSubscription) Close() { s.broker.remove(s.id) }
 // fingerprint render identically in the list, so the broker can safely suppress the second.
 func serverFingerprintJSON(s *serverdomain.Server) string {
 	type provisioning struct {
-		State, ProviderState, PowerState, OSSystem, DistroSeries string
-		Ephemeral, Locked                                        bool
-		HWEKernel, CommissioningStatus, TestingStatus            string
+		State, ProviderState, ErrorDescription, PowerState, OSSystem, DistroSeries string
+		Ephemeral, Locked                                                          bool
+		HWEKernel, CommissioningStatus, TestingStatus                              string
 	}
 	type membership struct{ PlatformID, NodeName, Role, State string }
 	type deployment struct {
@@ -163,7 +163,8 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 	if s.Provisioning != nil {
 		fp.Provisioning = &provisioning{
 			State: s.Provisioning.State, ProviderState: s.Provisioning.ProviderState,
-			PowerState: s.Provisioning.PowerState, OSSystem: s.Provisioning.OSSystem,
+			ErrorDescription: s.Provisioning.ErrorDescription,
+			PowerState:       s.Provisioning.PowerState, OSSystem: s.Provisioning.OSSystem,
 			DistroSeries: s.Provisioning.DistroSeries, Ephemeral: s.Provisioning.Ephemeral,
 			Locked: s.Provisioning.Locked, HWEKernel: s.Provisioning.HWEKernel,
 			CommissioningStatus: s.Provisioning.CommissioningStatus, TestingStatus: s.Provisioning.TestingStatus,

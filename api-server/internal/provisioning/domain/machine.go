@@ -78,9 +78,14 @@ type Machine struct {
 	// normalized Status is intentionally coarse. Display and diagnostics only —
 	// never branch on this value.
 	ProviderStatus string
-	PowerState     PowerState
-	Architecture   string
-	CPUCores       int
+	// ErrorDescription is the provider's own machine-level failure reason (e.g. "Failed to
+	// erase disks."), populated only for failure states (failed/broken/rescue) and empty
+	// otherwise. Display and diagnostics only; it exists so an operator can see why a lifecycle
+	// action failed without digging through the provider event log. Never branch on it.
+	ErrorDescription string
+	PowerState       PowerState
+	Architecture     string
+	CPUCores         int
 	// MemoryMiB is usable RAM in mebibytes. Mebibytes rather than megabytes
 	// because that is the unit providers report and operators see in the
 	// provider's own UI; converting would make the two screens disagree.

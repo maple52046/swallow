@@ -159,6 +159,11 @@ export interface CreateImageVerificationInput {
   architecture: string;
   deployTarget: DeployTarget;
   serverId: string;
+  /**
+   * Leave the Server deployed after verification instead of returning it to the ready pool.
+   * Optional; defaults to false (the verification borrows the Server and gives it back).
+   */
+  keepServer?: boolean;
 }
 
 /** A bounded batch release intent executed by one durable Operation. */

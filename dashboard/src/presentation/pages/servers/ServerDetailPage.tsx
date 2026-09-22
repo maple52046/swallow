@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Badge, HStack, Tabs } from '@chakra-ui/react'
+import { Badge, Button, HStack, Stack, Tabs, Text } from '@chakra-ui/react'
 import { Activity, ChartLine, CircuitBoard, HardDrive, LayoutDashboard, Network, type LucideIcon } from 'lucide-react'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { LoadingState } from '@/presentation/components/LoadingState'
@@ -13,6 +13,7 @@ import { DeploymentBadge, HealthBadge, LockBadge, MembershipBadge } from '@/pres
 import { serverDisplayName } from '@/domain/server/list'
 import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
+import { ProviderFailureAlert } from './ProviderFailureAlert'
 import { useServerDetail } from './useServerDetail'
 
 /** One persistent deep-link tab; the glyph supplements its visible accessible label. */
@@ -179,22 +180,40 @@ export function ServerDetailPage() {
           onViewOperation={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
         />
       )}
-      {['failed', 'broken', 'rescue'].includes(server.provisioning?.state ?? '') && (
+      {server.provisioning && ['failed', 'broken', 'rescue'].includes(server.provisioning.state) && (
+        <ProviderFailureAlert
+          serverId={server.id}
+          provisioning={server.provisioning}
+          onRecoverStarted={() => {
+            reload()
+            releaseHandedOffRef.current = false
+            setReleaseFollow({ id: server.id, token: Date.now() })
+          }}
+        />
+      )}
+      {server.deployment?.operationId && ['deploying', 'verifying'].includes(server.deployment.state) && (
         <Alert
-          status={server.provisioning?.state === 'rescue' ? 'info' : 'warning'}
-          title={
-            server.provisioning?.state === 'broken'
-              ? 'Provider marked this Server broken'
-              : server.provisioning?.state === 'rescue'
-                ? 'Server is in rescue mode'
-                : 'Provider lifecycle failed'
-          }
+          status="info"
+          title={server.deployment.state === 'verifying' ? 'Verifying the deployment' : 'Deploying an operating system'}
         >
-          {server.provisioning?.state === 'rescue'
-            ? 'Rescue mode is a diagnostic environment. Exiting rescue restores the previous state; use Recover (Take action) to return the Server to Ready.'
-            : server.provisioning?.state === 'broken'
-              ? 'Use Recover (Take action) to return the Server to Ready, which clears the broken flag; Release also returns it to the ready pool.'
-              : 'Use Recover (Take action) to return the Server to Ready. Mark fixed does not apply to a failed Server — it only clears a Broken one.'}
+          <Stack gap="1">
+            <Text>
+              {server.deployment.state === 'verifying'
+                ? 'The provider installed the OS; Swallow is waiting for the host to become reachable over SSH before confirming it. This can take several minutes and times out if the host never comes up — for example an image that boots from RAM but not from disk.'
+                : 'The provisioner is installing the operating system. This can take several minutes.'}
+            </Text>
+            <Button
+              variant="plain"
+              size="sm"
+              px="0"
+              h="auto"
+              colorPalette="brand"
+              alignSelf="flex-start"
+              onClick={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
+            >
+              View operation
+            </Button>
+          </Stack>
         </Alert>
       )}
       <Tabs.Root

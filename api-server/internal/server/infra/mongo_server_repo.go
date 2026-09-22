@@ -92,6 +92,7 @@ type deploymentDoc struct {
 type provisioningDoc struct {
 	State               string    `bson:"state"`
 	ProviderState       string    `bson:"providerState"`
+	ErrorDescription    string    `bson:"errorDescription,omitempty"`
 	PowerState          string    `bson:"powerState"`
 	OSSystem            string    `bson:"osSystem,omitempty"`
 	DistroSeries        string    `bson:"distroSeries,omitempty"`
@@ -554,6 +555,7 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 		doc.Provisioning = &provisioningDoc{
 			State:               p.State,
 			ProviderState:       p.ProviderState,
+			ErrorDescription:    p.ErrorDescription,
 			PowerState:          p.PowerState,
 			OSSystem:            p.OSSystem,
 			DistroSeries:        p.DistroSeries,
@@ -645,6 +647,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 		s.Provisioning = &serverdomain.ProvisioningStatus{
 			State:               p.State,
 			ProviderState:       p.ProviderState,
+			ErrorDescription:    p.ErrorDescription,
 			PowerState:          p.PowerState,
 			OSSystem:            p.OSSystem,
 			DistroSeries:        p.DistroSeries,

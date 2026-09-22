@@ -93,17 +93,21 @@ func EvaluateRecovery(intent RecoveryIntent, state MachineStatus) RecoveryDecisi
 }
 
 // releaseAllowedStates and recoverAllowedStates are the states Release and Recover may
-// start from. Recover additionally treats ready as a no-op success.
+// start from. Recover additionally treats ready as a no-op success. `allocated` is a
+// recovery source because MAAS holds a machine there when a deployment was reserved but
+// never completed (a failed or canceled deploy, or a verification borrow that ended
+// early); the provider allows Release from it, so leaving it out stranded such machines
+// as an un-actionable "reserved" dead end.
 func releaseDecision(state MachineStatus) RecoveryDecision {
 	switch state {
-	case MachineStatusDeployed, MachineStatusFailed, MachineStatusBroken, MachineStatusRescue:
+	case MachineStatusDeployed, MachineStatusAllocated, MachineStatusFailed, MachineStatusBroken, MachineStatusRescue:
 		return RecoveryDecision{Allowed: true}
 	case MachineStatusReleasing:
 		return RecoveryDecision{Allowed: false, Reason: "is already releasing."}
 	case MachineStatusReady:
 		return RecoveryDecision{Allowed: false, Reason: "is already in the ready pool; Release is not needed."}
 	default:
-		return RecoveryDecision{Allowed: false, Reason: "is " + string(state) + ". Release is available from deployed, failed, broken, or rescue."}
+		return RecoveryDecision{Allowed: false, Reason: "is " + string(state) + ". Release is available from deployed, allocated, failed, broken, or rescue."}
 	}
 }
 
@@ -111,10 +115,10 @@ func recoverDecision(state MachineStatus) RecoveryDecision {
 	switch state {
 	case MachineStatusReady:
 		return RecoveryDecision{Allowed: true, Noop: true}
-	case MachineStatusDeployed, MachineStatusFailed, MachineStatusBroken, MachineStatusRescue:
+	case MachineStatusDeployed, MachineStatusAllocated, MachineStatusFailed, MachineStatusBroken, MachineStatusRescue:
 		return RecoveryDecision{Allowed: true}
 	default:
-		return RecoveryDecision{Allowed: false, Reason: "is " + string(state) + ". Recover is available from deployed, failed, broken, or rescue."}
+		return RecoveryDecision{Allowed: false, Reason: "is " + string(state) + ". Recover is available from deployed, allocated, failed, broken, or rescue."}
 	}
 }
 
@@ -169,7 +173,7 @@ func RecoverPlan(state MachineStatus) []RecoverPrimitive {
 		return []RecoverPrimitive{RecoverPrimitiveMarkFixed}
 	case MachineStatusRescue:
 		return []RecoverPrimitive{RecoverPrimitiveExitRescue, RecoverPrimitiveRelease}
-	case MachineStatusFailed, MachineStatusDeployed:
+	case MachineStatusFailed, MachineStatusDeployed, MachineStatusAllocated:
 		return []RecoverPrimitive{RecoverPrimitiveRelease}
 	default:
 		return nil

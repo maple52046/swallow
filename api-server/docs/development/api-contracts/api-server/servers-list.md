@@ -120,6 +120,13 @@ custom name — mirrored during reconcile. It is display only and is empty when
 nothing is deployed or the image cannot be resolved from the catalog; clients fall
 back to `osSystem`/`distroSeries` in that case.
 
+Also on the provisioning axis, `errorDescription` is the provisioner's own
+machine-level failure reason (for example `"Failed to erase disks."`), mirrored
+only for the failure states (`failed`, `broken`, `rescue`) and **omitted** for every
+other state so a healthy Server never carries a stale error. It is display and
+diagnostics only — never branch on it — and lets a client show why a lifecycle
+action failed without reading the provider event log.
+
 ### Error Response
 
 See [`conventions.md`](conventions.md) for the envelope.

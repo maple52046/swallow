@@ -233,12 +233,14 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 	defer ticker.Stop()
 	var readinessDeadline time.Time
 	var deployingSince time.Time
+	var allocatedSince time.Time
 	var lastReadiness deploymentReadiness
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil {
 			switch state.State {
 			case string(provisioningdomain.MachineStatusDeploying):
+				allocatedSince = time.Time{}
 				now := time.Now()
 				if deployingSince.IsZero() {
 					deployingSince = now
@@ -257,11 +259,38 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 					// outer two-hour deployment observation remains authoritative.
 					deployingSince = now
 				}
+			case string(provisioningdomain.MachineStatusAllocated):
+				// ALLOCATED is the brief reserved state MAAS passes through on its way to
+				// DEPLOYING. Lingering here after an accepted deploy means the provider reserved
+				// the Machine but never started installing (for example a power or scheduling
+				// stall), so surface it for operator attention past a grace window instead of
+				// silently waiting out the two-hour observation. The Machine is left allocated,
+				// which is now a Recover/Release source, so the operator can return it to ready.
+				now := time.Now()
+				if allocatedSince.IsZero() {
+					allocatedSince = now
+				} else if !now.Before(allocatedSince.Add(e.powerOnTimeout())) {
+					return providerAttention(
+						"deployment_reserved_not_started",
+						"The provisioner reserved the Server (allocated) but did not start the OS installation. Check the provider deployment before retrying.",
+						"deployment",
+					)
+				}
 			case string(provisioningdomain.MachineStatusDeployed):
 				deployingSince = time.Time{}
+				allocatedSince = time.Time{}
 				if imageMatches(state, input) {
 					if readinessDeadline.IsZero() {
-						if err := e.setDeployment(ctx, step, serverID, serverdomain.DeploymentVerifying, nil, false); err != nil {
+						// Record why the deployment sits in "verifying": the provider installed the
+						// OS but Swallow has not yet confirmed the host is reachable over SSH. Carrying
+						// this as a non-terminal reason (empty code, so it is not a failure) gives the
+						// UI something better than a silent, frozen "verifying" during the readiness
+						// wait — which can be minutes for an image that boots from RAM but not disk.
+						waiting := &operationdomain.NormalizedError{
+							Stage:   "ssh_readiness",
+							Message: "The provider installed the OS; waiting for the host to become reachable over SSH before confirming the deployment.",
+						}
+						if err := e.setDeployment(ctx, step, serverID, serverdomain.DeploymentVerifying, waiting, false); err != nil {
 							return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
 						}
 						readinessDeadline = time.Now().Add(e.readinessTimeout())
@@ -285,6 +314,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 				return providerFailed("deployment_failed", "The provisioner reported that OS deployment failed.", true).withStage("deployment")
 			case string(provisioningdomain.MachineStatusReady):
 				deployingSince = time.Time{}
+				allocatedSince = time.Time{}
 				if !accepted {
 					return providerAttention("provider_outcome_unknown", "The provider response was lost before Swallow could prove whether deployment started. Verify MAAS before retrying.", "deployment")
 				}
@@ -534,6 +564,13 @@ func (e providerStepExecutor) recoverServer(ctx context.Context, step temporalwo
 	var escalatedToBroken bool
 	var escalatedAt, rescueSince, nextBrokenAt time.Time
 	var nextExitAt, nextMarkFixedAt time.Time
+	// The failed/deployed/allocated path returns to ready with a plain Release, but a Release can
+	// itself fail — most importantly when a disk erase cannot complete ("Failed disk erasing"),
+	// which leaves the Machine failed again with no progress on retry. When that happens, recovery
+	// escalates to Mark broken -> Mark fixed, which returns the Machine to ready without a disk
+	// erase, the same escape used for a stuck rescue. These track that one-shot escalation.
+	var releaseAttempted, escalatedFailedToBroken bool
+	var failedEscalatedAt, nextFailedBrokenAt time.Time
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil {
@@ -545,8 +582,49 @@ func (e providerStepExecutor) recoverServer(ctx context.Context, step temporalwo
 				// A Release is already converging this Server; follow it to Ready and reuse
 				// the same static-IP cleanup contract as a direct Release.
 				return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
-			case provisioningdomain.MachineStatusFailed, provisioningdomain.MachineStatusDeployed:
-				return e.recoverViaRelease(ctx, step, serverID, input)
+			case provisioningdomain.MachineStatusFailed, provisioningdomain.MachineStatusDeployed,
+				provisioningdomain.MachineStatusAllocated:
+				// First, return to Ready with a plain Release (no erase). `allocated` (reserved but
+				// not deployed) uses the same primitive as `failed`/`deployed`; without it a Server
+				// parked at allocated — for example a verification borrow whose proving deploy never
+				// finished — would loop here until the observation deadline instead of being released.
+				if !releaseAttempted {
+					releaseAttempted = true
+					result := e.recoverViaRelease(ctx, step, serverID, input)
+					if result.Status == operationdomain.TaskSucceeded {
+						return result
+					}
+					// Only a Release that ran and left the Machine failed (typically a disk erase that
+					// cannot complete) is escalated; a locked/auth/timeout/cancel outcome is returned as
+					// is so recovery does not mask an unrelated problem behind Mark broken.
+					if result.Error == nil || result.Error.Code != "release_failed" {
+						return result
+					}
+					break // Machine is still failed; escalate on the next iterations.
+				}
+				// Release already tried and the Machine is still failed: escalate to Mark broken, which
+				// moves it to broken so the broken branch above Mark fixes it back to ready without a
+				// disk erase. Bounded and one-shot, like the rescue escalation, so a truly stuck
+				// provider pauses for attention rather than looping.
+				if escalatedFailedToBroken {
+					if now.Sub(failedEscalatedAt) >= escalateGrace {
+						return providerAttention("recover_release_unsettled", "Release did not return the Server to Ready and Mark broken did not take effect. Inspect the provider before retrying.", "recover")
+					}
+					break // wait for Mark broken to move it to broken, then the broken branch runs
+				}
+				if !nextFailedBrokenAt.IsZero() && now.Before(nextFailedBrokenAt) {
+					break // settle window from the last Mark broken attempt has not elapsed
+				}
+				ok, fatal := e.escalateMarkBroken(ctx, serverID)
+				if fatal != nil {
+					return *fatal
+				}
+				if ok {
+					escalatedFailedToBroken = true
+					failedEscalatedAt = now
+				} else {
+					nextFailedBrokenAt = now.Add(recoverSettle) // provider refused for now; retry
+				}
 			case provisioningdomain.MachineStatusBroken:
 				if !nextMarkFixedAt.IsZero() && now.Before(nextMarkFixedAt) {
 					break // still within the settle window from the last Mark fixed

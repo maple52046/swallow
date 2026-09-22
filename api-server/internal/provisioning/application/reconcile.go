@@ -464,20 +464,21 @@ func primaryArch(architecture string) string {
 }
 
 // clearStaleDeployment recovers a Server whose deployment record no longer reflects
-// reality. When a machine is observed back in the provider's Ready pool, any finished
-// deployment outcome (succeeded, failed, or canceled) is stale: the machine has no
-// installed OS. Such a record only lingers when a run was canceled or ended without the
-// release-os step that normally clears it, and it otherwise sticks a "Failed" badge on an
-// available machine and confuses recovery. Reconcile clears it so the Server returns to a
-// clean, deployable state without any manual data fix. It is a no-op for an active
-// deployment (deploying/verifying) or an operator-pending one (requires_attention), so it
-// never races an in-flight Operation.
+// reality. When a machine is observed back in a not-deployed provider state — `ready`
+// (released to the pool) or `allocated` (reserved but carrying no running OS) — any
+// finished deployment outcome (succeeded, failed, or canceled) is stale: the machine has
+// no installed OS. Such a record only lingers when a run was canceled, failed, or ended
+// without the release-os step that normally clears it, and it otherwise paints a stale
+// "Deployed"/"Failed" badge on an available machine and confuses recovery. Reconcile clears
+// it so the Server returns to a clean, deployable state without any manual data fix. It is a
+// no-op for an active deployment (deploying/verifying) or an operator-pending one
+// (requires_attention), so it never races an in-flight Operation.
 func (uc *ReconcileUseCase) clearStaleDeployment(
 	ctx context.Context,
 	server *serverdomain.Server,
 	machine *provisioningdomain.Machine,
 ) error {
-	if !staleDeploymentOnReady(machine, server.Deployment) {
+	if !staleFinishedDeployment(machine, server.Deployment) {
 		return nil
 	}
 	if err := uc.servers.SetDeployment(ctx, server.ID, nil); err != nil {
@@ -487,10 +488,20 @@ func (uc *ReconcileUseCase) clearStaleDeployment(
 	return nil
 }
 
-// staleDeploymentOnReady reports whether a deployment record is a finished outcome that a
-// machine now back in the provider's Ready pool has outlived.
-func staleDeploymentOnReady(machine *provisioningdomain.Machine, deployment *serverdomain.DeploymentStatus) bool {
-	if machine == nil || deployment == nil || machine.Status != provisioningdomain.MachineStatusReady {
+// staleFinishedDeployment reports whether a deployment record is a finished outcome that a
+// machine now back in a not-deployed provider state has outlived. Only `ready` and
+// `allocated` qualify: a machine actually running an OS reports `deployed`, so clearing on
+// those two never erases a live result, while it does clear the leftover record that would
+// otherwise mask a reserved/available machine as still deployed. Only terminal deployment
+// states are cleared, so an in-flight deploy (deploying/verifying/requires_attention) is
+// never touched.
+func staleFinishedDeployment(machine *provisioningdomain.Machine, deployment *serverdomain.DeploymentStatus) bool {
+	if machine == nil || deployment == nil {
+		return false
+	}
+	switch machine.Status {
+	case provisioningdomain.MachineStatusReady, provisioningdomain.MachineStatusAllocated:
+	default:
 		return false
 	}
 	switch deployment.State {
@@ -541,6 +552,7 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 	server.Provisioning = &serverdomain.ProvisioningStatus{
 		State:               string(machine.Status),
 		ProviderState:       machine.ProviderStatus,
+		ErrorDescription:    machine.ErrorDescription,
 		PowerState:          string(machine.PowerState),
 		OSSystem:            machine.OSSystem,
 		DistroSeries:        machine.DistroSeries,

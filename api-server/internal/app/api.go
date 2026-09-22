@@ -229,6 +229,9 @@ func RunAPI(cfg config.APIConfig) error {
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo, serverTagOverlayRepo)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
+	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
+	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
+	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
 		deploymentsUC,
@@ -237,7 +240,7 @@ func RunAPI(cfg config.APIConfig) error {
 		networkService,
 		taskService,
 		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo),
-		provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory),
+		refreshServerUC,
 		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
@@ -324,7 +327,8 @@ func RunAPI(cfg config.APIConfig) error {
 	// released and the member servers are freed rather than left blocked by orphaned work.
 	platformService.AttachOperationCanceler(platformOperationCanceler{orchestrations: orchestrationService})
 	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
-		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo, protection: serverProtection,
+		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo,
+		protection: serverProtection, refresh: refreshServerUC,
 	})
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 	orchestrationStarter := temporalworkflow.NewStarter(
