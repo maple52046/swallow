@@ -11,7 +11,7 @@ the root codebase structure document; it explains how components map to
 top-level directories.
 
 This repository is the swallow monorepo. Every component lives in its
-own top-level directory (`api-server/`, `dashboard/`); the repository root also
+own top-level directory (`api-server/`, `dashboard/`, `cli/`); the repository root also
 owns the shared model — the ubiquitous language and the contracts between
 contexts — under `docs/`.
 
@@ -47,10 +47,12 @@ component, then read that component's local `AGENTS.md`:
 
 - `api-server/AGENTS.md` — the Go backend / Data Center API Service.
 - `dashboard/AGENTS.md` — the React + TypeScript frontend.
+- `cli/AGENTS.md` — the Go operator CLI (`swallow` binary), an HTTP consumer of the api-server contract.
 
 Component boundaries are logical: sharing one repository never means sharing a
 component boundary. Cross-component interaction goes through the provider-owned
 API contract and the shared `docs/`, not through another component's internals.
+Both `dashboard` and `cli` are consumers of the `api-server` HTTP contract.
 
 Component-local `AGENTS.md` files define that component's own required documents
 using paths relative to that component. Each component uses **Clean

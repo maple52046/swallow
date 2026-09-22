@@ -3,8 +3,12 @@
 //
 // The binary refuses to serve any database whose recorded schema version differs
 // from CurrentSchemaVersion (see Check). Upgrades are applied only by the explicit
-// `swallow migrate` command, never implicitly at startup, so an operator always
+// `swallow-api migrate` command, never implicitly at startup, so an operator always
 // decides when a destructive schema change runs.
+//
+// Note on naming: the command is invoked as `swallow-api migrate`; the service
+// binary was renamed from `swallow` to `swallow-api` so the CLI binary can own
+// the `swallow` name (see repository codebase-structure).
 //
 // Recovery model: every upgrade step is written to be idempotent and safe to retry.
 // A step's version marker is advanced only after its data changes complete, so an
@@ -88,7 +92,7 @@ func Check(ctx context.Context, db *mongo.Database) error {
 	var state metadata
 	err := db.Collection("schema_metadata").FindOne(ctx, bson.M{"_id": "database"}).Decode(&state)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return fmt.Errorf("database schema is not initialized; run swallow migrate")
+		return fmt.Errorf("database schema is not initialized; run swallow-api migrate")
 	}
 	if err != nil {
 		return err

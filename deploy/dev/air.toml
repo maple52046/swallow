@@ -6,8 +6,8 @@ root = "/app"
 tmp_dir = "/tmp/air"
 
 [build]
-  cmd = "go build -o /tmp/air/swallow ./cmd/swallow"
-  bin = "/tmp/air/swallow"
+  cmd = "go build -o /tmp/air/swallow-api ./cmd/swallow-api"
+  bin = "/tmp/air/swallow-api"
   args_bin = ["api"]
   include_ext = ["go", "yaml", "yml"]
   exclude_dir = ["bin", "docs", "tests"]

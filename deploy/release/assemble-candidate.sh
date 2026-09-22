@@ -38,7 +38,7 @@ cleanup_containers() {
 trap cleanup_containers EXIT
 api_container="$(docker create "${api_image}")"
 dashboard_container="$(docker create "${dashboard_image}")"
-docker cp "${api_container}:/usr/local/bin/swallow" "${out}/native/bin/swallow"
+docker cp "${api_container}:/usr/local/bin/swallow-api" "${out}/native/bin/swallow-api"
 docker cp "${api_container}:/opt/swallow/automation/." "${out}/native/automation/"
 docker cp "${dashboard_container}:/usr/share/nginx/html/." "${out}/native/dashboard/"
 docker rm "${api_container}" "${dashboard_container}" >/dev/null

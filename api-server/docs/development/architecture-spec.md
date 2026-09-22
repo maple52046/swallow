@@ -116,7 +116,7 @@ Frameworks and drivers 是最外層，負責具體工具與執行環境。
 
 這一層可以包含：
 
-- `cmd/swallow`：Cobra CLI entry point。
+- `cmd/swallow-api`：Cobra CLI entry point（binary `swallow-api`）。
 - `internal/app`：composition root（`RunAPI`、`RunAgent`），負責組裝與啟動。
 - `config`：config 組裝與驗證（file、env、flag、default 的優先順序）。
 - `bootstrap`：一次性啟動任務（例如 admin seeding）。
@@ -129,7 +129,7 @@ Frameworks and drivers 是最外層，負責具體工具與執行環境。
 
 ```text
 .
-├── cmd/swallow/                     # CLI entry point (Cobra): api, agent
+├── cmd/swallow-api/                 # CLI entry point (Cobra): api, worker, migrate, ansible-executor
 ├── bootstrap/                       # 一次性啟動任務（admin seeding）
 ├── config/                          # config 組裝 + 驗證，單一擁有者
 ├── internal/

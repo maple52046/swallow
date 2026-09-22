@@ -58,8 +58,8 @@ api:
 
   # Operation orchestration. The embedded dispatcher drains legacy schema-v2 work; new
   # automation runs as durable schema-v3 Operations coordinated by Temporal. The same
-  # config serves three commands: `swallow api` (HTTP + reconcile), `swallow worker`
-  # (Temporal workflow/activity worker + start reconciler), and `swallow ansible-executor`
+  # config serves three commands: `swallow-api api` (HTTP + reconcile), `swallow-api worker`
+  # (Temporal workflow/activity worker + start reconciler), and `swallow-api ansible-executor`
   # (owns the ansible-runner subprocesses via the Mongo-backed execution queue).
   operationDispatchInterval: "1s"
   operationLeaseDuration: "90s"

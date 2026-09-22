@@ -111,14 +111,14 @@ export SWALLOW_API_MONGO_URI="mongodb://localhost:27017"
 export SWALLOW_API_JWT_SECRET="your-secret"
 export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
 
-swallow api
+swallow-api api
 ```
 
 Or with a config file:
 
 ```bash
 cp docs/config-example.yaml swallow.yaml
-swallow api --config swallow.yaml
+swallow-api api --config swallow.yaml
 ```
 
 ## Configuration priority (highest → lowest)
@@ -165,7 +165,7 @@ Ansible inventory diagnostics. It is not a second way into the operator API.
 ## Building
 
 ```bash
-go build -o bin/swallow ./cmd/swallow
+go build -o bin/swallow-api ./cmd/swallow-api
 ```
 
 ## Further reading

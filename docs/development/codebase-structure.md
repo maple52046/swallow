@@ -23,8 +23,14 @@ Repository 以頂層目錄承載每個 component，目錄名即 component 的角
 
 - `api-server` — 目錄 `api-server/`。Data Center API Service：平台後端 HTTP API 與背景
   reconcile / poll 迴圈，是平台唯一的 API-owning component。以 Go module
-  `github.com/maple52046/swallow` 建置，binary 為 `swallow`。
+  `github.com/maple52046/swallow` 建置，binary 為 `swallow-api`。
 - `dashboard` — 目錄 `dashboard/`。前端 dashboard：React + TypeScript + Vite。
+- `cli` — 目錄 `cli/`。Operator CLI：命令列客戶端，是 `api-server` HTTP API 的 consumer
+  （與 `dashboard` 同級）。以獨立 Go module `github.com/maple52046/swallow/cli` 建置，
+  binary 為 `swallow`。
+
+> Note：`swallow` 與 `swallow-api` 是 **binary 名稱**，不是 component 目錄名。頂層目錄名
+> 一律以 component 角色命名（`api-server/`、`cli/`），binary 由對應 component 建置產生。
 
 每個 component 目錄是一個獨立的 build / test 單位（`api-server` 為 Go module，
 `dashboard` 為 npm project），並帶有自己的 `AGENTS.md`、`docs/` 與 coding style。
@@ -42,6 +48,7 @@ Repository 以頂層目錄承載每個 component，目錄名即 component 的角
 .
 ├── api-server/     # Go backend (component)
 ├── dashboard/      # TypeScript frontend (component)
+├── cli/            # Go operator CLI (component)
 ├── deploy/         # dev/testing/production、release 與 third-party installation assets
 ├── docs/           # swallow 共通約束文件（shared model）
 ├── skills/         # 任務導向操作指南
@@ -56,13 +63,16 @@ flowchart LR
     subgraph repo [swallow monorepo]
         apiServer["api-server/ (Go backend)"]
         dashboard["dashboard/ (TS frontend)"]
+        cli["cli/ (Go operator CLI)"]
         docs["docs/ (shared model)"]
         deploy["deploy/ (orchestration)"]
     end
 
     docs -.->|defines contracts for| apiServer
     docs -.->|defines contracts for| dashboard
+    docs -.->|defines contracts for| cli
     apiServer -->|published API contract| dashboard
+    apiServer -->|published API contract| cli
     deploy -.->|runs| apiServer
     deploy -.->|runs| dashboard
 ```

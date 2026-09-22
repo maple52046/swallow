@@ -16,7 +16,8 @@ contract before implementing or integrating against it.
 
 ## HTTP REST API
 
-Consumer: `dashboard`.
+Consumers: `dashboard` and the `cli` operator client (`../../../../../cli/`). Both are
+conformist HTTP consumers of this surface; neither owns any contract here.
 
 | Contract | Status | Endpoint | Purpose |
 | --- | --- | --- | --- |

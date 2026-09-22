@@ -42,7 +42,7 @@ run_migrate() {
   SWALLOW_API_MACHINE_TOKEN_FILE="${config_root}/secrets/machine-token" \
   SWALLOW_API_PLAYBOOK_MANIFEST="${install_root}/current/automation/manifest.json" \
   SWALLOW_API_PLAYBOOK_DIR="${install_root}/current/automation/playbooks" \
-    "${install_root}/current/bin/swallow" migrate "$@"
+    "${install_root}/current/bin/swallow-api" migrate "$@"
 }
 
 require_runtime_tools() {
@@ -130,7 +130,7 @@ install_release() {
     { printf 'release manifest version is not SemVer\n' >&2; exit 1; }
   release_dir="${install_root}/releases/${version}"
   install -d -m 0755 "${release_dir}/bin" "${release_dir}/dashboard" "${release_dir}/automation"
-  install -m 0755 "${bundle_dir}/native/bin/swallow" "${release_dir}/bin/swallow"
+  install -m 0755 "${bundle_dir}/native/bin/swallow-api" "${release_dir}/bin/swallow-api"
   for media_dir in "${bundle_dir}/third-party/mongodb" "${bundle_dir}/third-party/native-runtime"; do
     [[ -s "${media_dir}/SHA256SUMS" && -d "${media_dir}/packages" ]] ||
       { printf 'missing checksummed native media: %s\n' "${media_dir}" >&2; exit 1; }

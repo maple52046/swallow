@@ -1,0 +1,5 @@
+# Build output: the compiled `swallow` binary (see README build command).
+/bin/
+
+# Local overrides
+.env

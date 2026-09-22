@@ -11,9 +11,9 @@ import (
 var rootConfigFile string
 
 var rootCmd = &cobra.Command{
-	Use:   "swallow",
+	Use:   "swallow-api",
 	Short: "GPU Datacenter Management backend",
-	Long:  "swallow is the backend service for the Swallow platform. Run 'swallow api' to start the API server.",
+	Long:  "swallow-api is the backend service for the Swallow platform. Run 'swallow-api api' to start the API server.",
 }
 
 func init() {
@@ -28,7 +28,7 @@ func init() {
 // logStartup prints non-sensitive effective config values at startup so that the
 // active configuration is observable without exposing credentials in logs.
 func logStartup(configFile, addr, mongoURI, mongoDB string) {
-	log.Printf("[swallow] addr=%s mongo-host=%s mongo-db=%s config-file=%q",
+	log.Printf("[swallow-api] addr=%s mongo-host=%s mongo-db=%s config-file=%q",
 		addr, redactURI(mongoURI), mongoDB, configFile)
 }
 

@@ -28,7 +28,7 @@ Environment=SWALLOW_API_PLAYBOOK_DIR=/opt/swallow/current/automation/playbooks
 Environment=SWALLOW_API_JOB_RUNTIME_DIR=/run/swallow/jobs
 Environment=SWALLOW_API_JOB_ARTIFACT_DIR=/var/lib/swallow/jobs
 Environment=SWALLOW_API_JOB_ARTIFACT_RETENTION=720h
-ExecStart=/opt/swallow/current/bin/swallow api
+ExecStart=/opt/swallow/current/bin/swallow-api api
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true

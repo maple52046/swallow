@@ -1,7 +1,7 @@
 # Native Ubuntu 24.04 amd64 installation
 
 The release workflow assembles this template into a self-contained native bundle with
-`bin/swallow`, dashboard assets, automation, an offline Python wheelhouse, systemd and
+`bin/swallow-api`, dashboard assets, automation, an offline Python wheelhouse, systemd and
 Nginx files, and separately checksummed MongoDB/Nginx packages.
 
 Merge the checksummed MongoDB and native runtime media as
@@ -23,12 +23,12 @@ sudo ./swallowctl doctor
 
 swallow's sole execution engine is Temporal ([ADR 016](../../../docs/decisions/016-temporal-operation-orchestration.md),
 [ADR 017](../../../docs/decisions/017-workflow-job-task-runner-model.md)). The former
-embedded automation dispatcher was removed, so `swallow api` has **no** in-process fallback:
+embedded automation dispatcher was removed, so `swallow-api api` has **no** in-process fallback:
 a Workflow cannot execute without the orchestration topology.
 
-A native installation must therefore run the full topology alongside `swallow api`: Temporal
-Server, its PostgreSQL datastore, the workflow worker (`swallow worker`), and the Ansible
-executor (`swallow ansible-executor`). For air-gapped installs the release bundle already
+A native installation must therefore run the full topology alongside `swallow-api api`: Temporal
+Server, its PostgreSQL datastore, the workflow worker (`swallow-api worker`), and the Ansible
+executor (`swallow-api ansible-executor`). For air-gapped installs the release bundle already
 carries the Temporal Server, UI, and PostgreSQL images with checksums (see
 [`../../release/`](../../release) and `release-manifest`); the native installer provisions
 them as additional systemd-managed services from that offline media.

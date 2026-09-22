@@ -11,7 +11,7 @@ RUN go mod download
 COPY api-server/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
     -ldflags="-s -w -X github.com/maple52046/swallow/internal/version.Version=${VERSION} -X github.com/maple52046/swallow/internal/version.Commit=${COMMIT} -X github.com/maple52046/swallow/internal/version.BuiltAt=${BUILT_AT}" \
-    -o /out/swallow ./cmd/swallow
+    -o /out/swallow-api ./cmd/swallow-api
 
 FROM ${EXECUTION_ENVIRONMENT}
 USER 0
@@ -24,7 +24,7 @@ RUN apt-get update \
  && useradd --uid 10001 --gid 10001 --no-create-home --shell /sbin/nologin swallow \
  && install -d -o 10001 -g 10001 -m 0750 /var/lib/swallow/jobs \
  && install -d -o 10001 -g 10001 -m 0700 /run/swallow/jobs
-COPY --from=build /out/swallow /usr/local/bin/swallow
+COPY --from=build /out/swallow-api /usr/local/bin/swallow-api
 COPY --chown=10001:10001 api-server/automation /opt/swallow/automation
 ENV SWALLOW_API_PLAYBOOK_MANIFEST=/opt/swallow/automation/manifest.json \
     SWALLOW_API_PLAYBOOK_DIR=/opt/swallow/automation/playbooks \
@@ -34,5 +34,5 @@ ENV SWALLOW_API_PLAYBOOK_MANIFEST=/opt/swallow/automation/manifest.json \
 USER 10001:10001
 WORKDIR /opt/swallow
 EXPOSE 30051
-ENTRYPOINT ["/usr/local/bin/swallow"]
+ENTRYPOINT ["/usr/local/bin/swallow-api"]
 CMD ["api"]
