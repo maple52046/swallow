@@ -449,7 +449,7 @@ func newFakeProvider() *fakeProvider {
 	return &fakeProvider{
 		machines: make(map[string]*provisioningdomain.Machine),
 		images: []*provisioningdomain.OSImage{
-			{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64"},
+			{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64", Complete: true},
 		},
 		gpus:                  make(map[string][]provisioningdomain.GPU),
 		deployErrByMachine:    make(map[string]error),

@@ -740,6 +740,9 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	if jammy.SizeBytes != 5368709120 {
 		t.Errorf("SizeBytes: got %d, want the largest newest complete kernel variant", jammy.SizeBytes)
 	}
+	if !jammy.Complete {
+		t.Error("Complete: jammy has a complete kernel variant and must be deployable")
+	}
 
 	noble := images[1]
 	if noble.Name != "ubuntu/noble" {
@@ -747,6 +750,9 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	}
 	if noble.SizeBytes != 0 {
 		t.Errorf("noble SizeBytes: got %d, want unknown when MAAS has no complete set", noble.SizeBytes)
+	}
+	if noble.Complete {
+		t.Error("Complete: noble has no complete set and must not be reported as deployable")
 	}
 
 	custom := images[2]
@@ -765,6 +771,9 @@ func TestListOSImages_SplitsNameAndDedupesByArchitecture(t *testing.T) {
 	}
 	if custom.SizeBytes != 3221225472 {
 		t.Errorf("custom SizeBytes: got %d, want 3221225472", custom.SizeBytes)
+	}
+	if !custom.Complete {
+		t.Error("Complete: the uploaded custom image has a complete set and must be deployable")
 	}
 }
 

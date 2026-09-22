@@ -180,6 +180,11 @@ type OSImage struct {
 	// SizeBytes is the provider-reported size of the current complete image artifact.
 	// Zero means the provider did not report a usable size.
 	SizeBytes int64
+	// Complete reports whether the provider has fully staged this image so it can be
+	// deployed. An incomplete image — for example a custom upload whose boot or kernel
+	// resources are still missing — is refused by the deploy preflight with a clear reason
+	// instead of being handed to the provider only to fail opaquely mid-install.
+	Complete bool
 }
 
 // ProviderInfo identifies a configured provider and reports what it advertises

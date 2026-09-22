@@ -344,6 +344,50 @@ func TestDeployServers_PreflightIsAllOrNothing(t *testing.T) {
 	}
 }
 
+// An image the provisioner has not fully staged cannot be deployed; Swallow refuses it up
+// front with a clear reason instead of letting the provider fail mid-install.
+func TestDeployServers_RejectsIncompleteImage(t *testing.T) {
+	f := setupPlatform(t)
+	seedProvisionerIntegration(t, f)
+	seedReadyServer(t, f, "srv-1")
+	f.provider.images = []*provisioningdomain.OSImage{
+		{ID: "ubuntu/jammy", Name: "Ubuntu", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64", Complete: false},
+	}
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+		"serverIds": []string{"srv-1"},
+		"settings":  map[string]any{"imageId": "ubuntu/jammy"},
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("incomplete image: expected 409, got %d", resp.StatusCode)
+	}
+	if len(f.provider.deployRequests) != 0 {
+		t.Fatalf("an incomplete image must dispatch nothing, got %d", len(f.provider.deployRequests))
+	}
+}
+
+// An image built for a different CPU architecture than the target Server is refused before
+// any provider write, naming both architectures.
+func TestDeployServers_RejectsArchitectureMismatch(t *testing.T) {
+	f := setupPlatform(t)
+	seedProvisionerIntegration(t, f)
+	seedReadyServer(t, f, "srv-1")
+	f.provider.images = []*provisioningdomain.OSImage{
+		{ID: "custom/arm", Name: "ARM image", OSSystem: "custom", Release: "arm", Architecture: "arm64", Complete: true},
+	}
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+		"serverIds": []string{"srv-1"},
+		"settings":  map[string]any{"imageId": "custom/arm"},
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("architecture mismatch: expected 409, got %d", resp.StatusCode)
+	}
+	if len(f.provider.deployRequests) != 0 {
+		t.Fatalf("an architecture mismatch must dispatch nothing, got %d", len(f.provider.deployRequests))
+	}
+}
+
 func TestDeployServers_BoundsConcurrencyAndReturnsPartialFailures(t *testing.T) {
 	f := setupPlatform(t)
 	seedProvisionerIntegration(t, f)

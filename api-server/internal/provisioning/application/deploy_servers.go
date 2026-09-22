@@ -356,6 +356,16 @@ func (uc *DeployServersUseCase) preflight(
 			provisioningdomain.ErrDeploymentBatchConflict,
 		)
 	}
+	// An image the provisioner has not fully staged cannot be deployed: handing it to the
+	// provider only produces an opaque mid-install failure. Refuse the batch up front with a
+	// clear reason so operators fix the image (finish the upload or re-sync) before retrying.
+	if !image.Complete {
+		return nil, fmt.Errorf(
+			"%w: the %q image is not fully staged by the provisioner and cannot be deployed",
+			provisioningdomain.ErrDeploymentBatchConflict,
+			image.Name,
+		)
+	}
 	// An image built for one architecture cannot boot on a Server of another; reject the batch
 	// rather than letting the provider fail the install opaquely later. Only a known-mismatch is
 	// blocked: a Server whose provider has not reported an architecture yet is left to the provider

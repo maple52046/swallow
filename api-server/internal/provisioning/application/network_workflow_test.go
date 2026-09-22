@@ -185,6 +185,7 @@ func (p *networkWorkflowProvider) ListOSImages(context.Context) ([]*provisioning
 		OSSystem:     "ubuntu",
 		Release:      "noble",
 		Architecture: "amd64",
+		Complete:     true,
 	}}, nil
 }
 

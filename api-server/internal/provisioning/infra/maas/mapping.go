@@ -334,6 +334,19 @@ func latestCompleteBootResourceSize(sets map[string]bootResourceSetJSON) int64 {
 	return sizeBytes
 }
 
+// hasCompleteBootResourceSet reports whether any of a boot resource's sets has finished
+// staging. MAAS marks a set complete once all of its files have synced or uploaded, so this
+// is the provider's own "deployable" signal — independent of the display size, which a
+// complete set may still report as zero.
+func hasCompleteBootResourceSet(sets map[string]bootResourceSetJSON) bool {
+	for _, set := range sets {
+		if set.Complete {
+			return true
+		}
+	}
+	return false
+}
+
 // toDomainOSImages converts MAAS boot resources into deployable images.
 //
 // MAAS reports one boot resource per name and architecture, where the architecture
@@ -356,11 +369,16 @@ func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImag
 
 		key := imageID + "|" + arch
 		sizeBytes := latestCompleteBootResourceSize(r.Sets)
+		complete := hasCompleteBootResourceSet(r.Sets)
 		if index, duplicate := byKey[key]; duplicate {
 			// Kernel subarchitecture variants are alternatives, not additive files. Use
-			// the largest current set as a deterministic conservative display value.
+			// the largest current set as a deterministic conservative display value, and
+			// treat the image as deployable if any variant has finished staging.
 			if sizeBytes > images[index].SizeBytes {
 				images[index].SizeBytes = sizeBytes
+			}
+			if complete {
+				images[index].Complete = true
 			}
 			continue
 		}
@@ -378,6 +396,7 @@ func toDomainOSImages(resources []bootResourceJSON) []*provisioningdomain.OSImag
 			Release:      release,
 			Architecture: arch,
 			SizeBytes:    sizeBytes,
+			Complete:     complete,
 		})
 	}
 

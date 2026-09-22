@@ -14,6 +14,10 @@ const DEPLOYMENT_FAILURE_SUMMARIES: Record<string, string> = {
   deployment_ssh_unreachable:
     'The OS was installed but the server’s SSH endpoint was not reachable.',
   deployment_failed: 'The provisioner reported that the OS deployment failed.',
+  deployment_install_failed:
+    'The OS installation failed on the server — the image or its install failed, not a transient error. Check the image.',
+  deployment_image_unusable:
+    'The provider could not use this OS image for the deployment (missing boot or kernel resources). Check the image.',
   deployment_recovery_unavailable: 'Automated deployment recovery is unavailable.',
   deployment_readiness_unavailable: 'Swallow could not check the server’s readiness.',
   deployment_projection_unavailable: 'Swallow could not record the deployment state.',

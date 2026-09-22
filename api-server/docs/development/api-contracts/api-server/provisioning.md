@@ -455,9 +455,14 @@ deploys.
 Deploy Target, the deploy is refused at acceptance with `409` and a Swallow
 reason ("this custom image is not verified for `<disk|ram>` deployment; verify it
 on a ready Server first"). Synced provider images bypass this gate. A known
-Server/image architecture mismatch is likewise refused with `409`. The gate is
-applied by the shared deploy resolve, so it covers `POST /deployments`,
-`POST /deployment-operations`, and platform deploys. See "Image Verification".
+Server/image architecture mismatch is likewise refused with `409`. An image the
+provisioner has not fully staged — for example a custom upload whose boot or kernel
+resources are still missing — is also refused at acceptance with `409` and a Swallow
+reason ("the `<name>` image is not fully staged by the provisioner and cannot be
+deployed"), so an incomplete image is never handed to the provider only to fail
+opaquely mid-install. These gates are applied by the shared deploy resolve, so they
+cover `POST /deployments`, `POST /deployment-operations`, and platform deploys. See
+"Image Verification".
 
 
 Missing `network` resolves to Swallow's Automatic default. `network.mode` accepts
