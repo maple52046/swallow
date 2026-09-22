@@ -86,8 +86,10 @@ export interface ProvisioningAxis {
   distroSeries: string
   /**
    * Effective display name of the currently deployed OS image (provider catalog name overlaid
-   * with any swallow custom name), mirrored during reconcile. Empty when nothing is deployed or
-   * the image could not be resolved from the catalog.
+   * with any swallow custom name). Mirrored when a deploy completes and refreshed by reconcile
+   * (and by an image rename), so a freshly deployed Server shows the friendly name promptly.
+   * Empty when nothing is deployed or the image could not be resolved from the catalog, in which
+   * case the UI falls back to `osSystem`/`distroSeries`.
    */
   deployedImageName: string
   /**

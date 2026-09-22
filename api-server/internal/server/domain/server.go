@@ -158,12 +158,14 @@ type ProvisioningStatus struct {
 	OSSystem     string
 	DistroSeries string
 	// DeployedImageName is the effective display name of the currently deployed OS image,
-	// mirrored during reconcile by resolving OSSystem/DistroSeries against the provider's
-	// image catalog and applying any swallow overlay (custom) name. It is a mirrored fact
+	// resolved by matching OSSystem/DistroSeries against the provider's image catalog and applying
+	// any swallow overlay (custom) name. It is mirrored when a deploy completes (RefreshServer) and
+	// refreshed by reconcile and by an image rename, so a freshly deployed Server shows the
+	// friendly name promptly rather than only after the next reconcile pass. A mirrored fact
 	// carried alongside the other provider observations here, refreshed with ObservedAt, and
-	// is display only: empty when nothing is deployed or the image cannot be resolved. It
-	// exists so the fleet list can show a meaningful image name without a per-request catalog
-	// fan-out (see docs/decisions/001 and 009).
+	// display only: empty when nothing is deployed or the image cannot be resolved. It exists so
+	// the fleet list can show a meaningful image name without a per-request catalog fan-out (see
+	// docs/decisions/001 and 009).
 	DeployedImageName string
 	// Ephemeral reports that the deployed OS runs from memory, so anything written to
 	// the root filesystem is lost on reboot.

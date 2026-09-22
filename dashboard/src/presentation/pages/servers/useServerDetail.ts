@@ -29,7 +29,7 @@ export type ServerDetailState =
  * out-of-order responses. `reload` (exposed on ready data) refetches after an action.
  */
 export function useServerDetail(id: string | undefined): ServerDetailState {
-  const { servers } = useApp()
+  const { servers, serverEvents } = useApp()
   // Seed from id so the no-id case needs no synchronous setState inside the effect: a
   // detail route with no id is a not-found from the first render.
   const [state, setState] = useState<ServerDetailState>(
@@ -84,6 +84,37 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
       cancelled = true
     }
   }, [servers, id, nonce, reload])
+
+  // Reflect live projection changes for this server without a manual page refresh — for example
+  // an OS Image rename re-mirrored onto its deployed-image name, or a provisioning transition. The
+  // stream is Site-scoped server-side, so it only subscribes once the server has loaded and its
+  // Site is known; deriving siteId from the loaded server (not from every patch) keeps the
+  // subscription stable across patches. onReset refetches once after a reconnect to resync any
+  // events missed while disconnected.
+  const siteId = state.status === 'ready' ? state.data.server.source.siteId : undefined
+  useEffect(() => {
+    if (!id || !siteId) return
+    return serverEvents.subscribe(
+      { siteId },
+      {
+        onEvent: (event) => {
+          if (event.kind === 'removed' || event.server.id !== id) return
+          setState((current) => {
+            if (current.status !== 'ready' || current.data.server.id !== id) return current
+            const incoming = event.server
+            // Health is resolved at read time and not carried on the stream, so keep the
+            // last-known value rather than blanking it until the next full reload.
+            const server =
+              !incoming.health && current.data.server.health
+                ? { ...incoming, health: current.data.server.health }
+                : incoming
+            return { status: 'ready', data: { ...current.data, server } }
+          })
+        },
+        onReset: reload,
+      },
+    )
+  }, [serverEvents, siteId, id, reload])
 
   return state
 }

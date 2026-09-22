@@ -231,7 +231,7 @@ func RunAPI(cfg config.APIConfig) error {
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
-	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory)
+	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory, osImageOverlayRepo)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
 		deploymentsUC,
@@ -249,7 +249,7 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
 		provisioningapp.NewUploadOSImageUseCase(providerFactory),
-		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo),
+		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverTagOverlayRepo),
 		provisioningapp.NewEditServerTagsUseCase(serverRepo, providerFactory, serverTagOverlayRepo),
 	)

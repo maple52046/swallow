@@ -62,6 +62,39 @@ func TestServerEventBrokerFanoutAndDedup(t *testing.T) {
 	}
 }
 
+// An OS Image rename changes only the mirrored deployed-image name, so the fingerprint must
+// include it: otherwise the broker would treat the re-published projection as unchanged and the
+// fleet list would not update live after a rename.
+func TestServerEventBrokerDeliversDeployedImageNameChange(t *testing.T) {
+	broker := NewServerEventBroker()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sub := broker.Subscribe(ctx, "")
+	defer sub.Close()
+
+	first := brokerTestServer("a", "s1", "deployed")
+	first.Provisioning.DeployedImageName = "Ubuntu 22.04 LTS"
+	broker.PublishServerEvent(upsertEvent(first))
+	select {
+	case <-sub.Events():
+	default:
+		t.Fatal("expected the initial upsert to be delivered")
+	}
+
+	// Same projection except the swallow-owned display name: must still be delivered.
+	renamed := brokerTestServer("a", "s1", "deployed")
+	renamed.Provisioning.DeployedImageName = "Golden Ubuntu"
+	broker.PublishServerEvent(upsertEvent(renamed))
+	select {
+	case event := <-sub.Events():
+		if event.Server == nil || event.Server.Provisioning.DeployedImageName != "Golden Ubuntu" {
+			t.Fatalf("changed event = %#v, want deployed image name Golden Ubuntu", event)
+		}
+	default:
+		t.Fatal("expected a deployed-image-name-only change to be delivered, not deduped")
+	}
+}
+
 // A Site-scoped subscriber must ignore another Site's upserts but still receive unscoped
 // removals, which carry no Site.
 func TestServerEventBrokerSiteScope(t *testing.T) {

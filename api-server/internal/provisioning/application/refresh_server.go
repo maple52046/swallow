@@ -14,13 +14,19 @@ import (
 type RefreshServerUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
+	// overlays lets a deploy completion fill the mirrored OS image display name immediately, so
+	// the fleet list shows the friendly name instead of the raw OS/release id until the next
+	// reconcile pass. Optional: a nil repository skips that resolution (the name is still carried
+	// forward and reconcile fills it), which the app-layer executor unit tests rely on.
+	overlays provisioningdomain.OSImageOverlayRepository
 }
 
 func NewRefreshServerUseCase(
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
+	overlays provisioningdomain.OSImageOverlayRepository,
 ) *RefreshServerUseCase {
-	return &RefreshServerUseCase{servers: servers, providers: providers}
+	return &RefreshServerUseCase{servers: servers, providers: providers, overlays: overlays}
 }
 
 func (uc *RefreshServerUseCase) Execute(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
@@ -41,8 +47,40 @@ func (uc *RefreshServerUseCase) Execute(ctx context.Context, serverID string) (*
 
 	server.Observed.Addresses = append([]string(nil), machine.IPAddresses...)
 	item := updateProvisioningProjection(server, machine)
+	uc.fillDeployedImageName(ctx, server, machine, provider)
 	if err := uc.servers.Upsert(ctx, server); err != nil {
 		return nil, err
 	}
 	return item, nil
+}
+
+// fillDeployedImageName resolves the effective OS image display name onto a freshly deployed
+// machine so the fleet list shows the friendly name the moment a deploy completes, instead of the
+// raw OS/release id until the next reconcile pass. It only acts when the machine is deployed and
+// the mirrored name is still blank — the fresh-deploy case — so the deploy-observe poll does not
+// re-read the provider catalog on every tick, and a redeploy's stale name is left to reconcile
+// (matching updateProvisioningProjection's documented one-interval lag). A nil overlay repository
+// or a catalog read failure leaves the carried-forward value untouched.
+func (uc *RefreshServerUseCase) fillDeployedImageName(
+	ctx context.Context,
+	server *serverdomain.Server,
+	machine *provisioningdomain.Machine,
+	provider provisioningdomain.OSProvisioningProvider,
+) {
+	if uc.overlays == nil || server.Provisioning == nil {
+		return
+	}
+	if machine.Status != provisioningdomain.MachineStatusDeployed || server.Provisioning.DeployedImageName != "" {
+		return
+	}
+	resolver, ok := buildDeployedImageNameResolver(ctx, provider, uc.overlays, server.Source.IntegrationID)
+	if !ok {
+		return
+	}
+	server.Provisioning.DeployedImageName = resolver.resolve(
+		machine.OSSystem,
+		machine.DistroSeries,
+		machine.Architecture,
+		true,
+	)
 }

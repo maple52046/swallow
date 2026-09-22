@@ -8,10 +8,18 @@ import {
 import type { ServerStreamEvent } from '@/application/ports/ServerEventStream'
 import type { Server } from '@/domain/server/types'
 
-/** Discriminated state so loading/ready/error cannot contradict each other. */
+/**
+ * Discriminated state for the servers working set.
+ *
+ * `loading` is only the first load with no rows yet, and `error` is only a first load that failed
+ * so there is nothing to show. Once rows exist the hook stays `ready` even when a later background
+ * refresh or SSE-reconnect refetch fails: it keeps the last-good rows and reports the failure
+ * through `refreshError`, so the list stays browsable and SSE patches keep applying instead of the
+ * whole page collapsing to an error that only a manual reload can escape.
+ */
 export type WorkingSetState =
   | { status: 'loading' }
-  | { status: 'ready'; data: ServerWorkingSet }
+  | { status: 'ready'; data: ServerWorkingSet; refreshError?: string }
   | { status: 'error'; message: string }
 
 /**
@@ -25,15 +33,20 @@ export type WorkingSetState =
 export function useServerWorkingSet(query: WorkingSetQuery): {
   state: WorkingSetState
   reload: () => void
+  /** True while a manual reload (via `reload`) is in flight, for a refresh control's busy state. */
+  isRefreshing: boolean
 } {
   const { servers, serverEvents } = useApp()
   const [state, setState] = useState<WorkingSetState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
+  // Reactive mirror of reloadInFlight, exposed so a manual refresh control can show a busy spinner.
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const reloadInFlight = useRef(false)
 
   const reload = useCallback(() => {
     if (reloadInFlight.current) return
     reloadInFlight.current = true
+    setIsRefreshing(true)
     setNonce((value) => value + 1)
   }, [])
 
@@ -55,13 +68,24 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
 
     loadServerWorkingSet(servers, { siteId, keyword, includeAbsent })
       .then((data) => {
+        // A successful (re)load replaces the rows and clears any prior refresh error.
         if (!cancelled) setState({ status: 'ready', data })
       })
       .catch((err: Error) => {
-        if (!cancelled) setState({ status: 'error', message: err.message })
+        if (cancelled) return
+        setState((current) => {
+          // Only the first load (no rows yet) becomes a full-page error. A failed background
+          // refresh or reconnect refetch keeps the last-good rows and surfaces a non-blocking
+          // refresh error, so the list stays usable and SSE patches keep flowing.
+          if (current.status === 'ready') {
+            return { ...current, refreshError: err.message }
+          }
+          return { status: 'error', message: err.message }
+        })
       })
       .finally(() => {
         reloadInFlight.current = false
+        setIsRefreshing(false)
       })
 
     return () => {
@@ -87,7 +111,7 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
     return unsubscribe
   }, [serverEvents, siteId, reload])
 
-  return { state, reload }
+  return { state, reload, isRefreshing }
 }
 
 /**

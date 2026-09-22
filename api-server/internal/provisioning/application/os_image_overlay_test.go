@@ -344,7 +344,7 @@ func TestListOSImagesReturnsOverlayError(t *testing.T) {
 
 func TestSetOSImageOverlayStoresTrimmedOverrides(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
-	uc := NewSetOSImageOverlayUseCase(overlays)
+	uc := NewSetOSImageOverlayUseCase(overlays, nil)
 	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "  Golden Ubuntu  ", "", "  22.04  ", nil); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
@@ -365,7 +365,7 @@ func TestSetOSImageOverlayStoresTrimmedOverrides(t *testing.T) {
 
 func TestSetOSImageOverlayNormalizesTags(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
-	uc := NewSetOSImageOverlayUseCase(overlays)
+	uc := NewSetOSImageOverlayUseCase(overlays, nil)
 	// Tags are trimmed, blanks dropped, and duplicates removed while preserving first order.
 	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "", "", "", []string{" gpu ", "gpu", "", "ml"}); err != nil {
 		t.Fatalf("Set() error = %v", err)
@@ -381,7 +381,7 @@ func TestSetOSImageOverlayNormalizesTags(t *testing.T) {
 
 func TestSetOSImageOverlayRejectsOverLongField(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
-	uc := NewSetOSImageOverlayUseCase(overlays)
+	uc := NewSetOSImageOverlayUseCase(overlays, nil)
 	err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", strings.Repeat("x", maxOSImageOverlayFieldLength+1), "", "", nil)
 	if !errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid) {
 		t.Fatalf("Set(over-long) error = %v, want %v", err, provisioningdomain.ErrOSImageOverlayInvalid)
@@ -396,7 +396,7 @@ func TestSetOSImageOverlayClearsWhenAllBlank(t *testing.T) {
 	overlays.seed(&provisioningdomain.OSImageOverlay{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64", DisplayName: "Golden Ubuntu",
 	})
-	uc := NewSetOSImageOverlayUseCase(overlays)
+	uc := NewSetOSImageOverlayUseCase(overlays, nil)
 	// An all-blank edit means "use the provider values everywhere", so the overlay is removed
 	// rather than persisted as an empty record.
 	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "  ", "", "", []string{"  "}); err != nil {
@@ -412,12 +412,58 @@ func TestClearOSImageOverlayRemovesOverlay(t *testing.T) {
 	overlays.seed(&provisioningdomain.OSImageOverlay{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64", DisplayName: "Golden Ubuntu",
 	})
-	uc := NewSetOSImageOverlayUseCase(overlays)
+	uc := NewSetOSImageOverlayUseCase(overlays, nil)
 	if err := uc.Clear(context.Background(), "integration-1", "ubuntu/jammy", "amd64"); err != nil {
 		t.Fatalf("Clear() error = %v", err)
 	}
 	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); ok {
 		t.Error("Clear() left the overlay in place")
+	}
+}
+
+// recordingRefresher captures the integrations passed to RefreshDeployedImageNames and can be
+// primed to fail, so a test can assert an overlay write propagates the rename and that a
+// propagation failure never fails the write.
+type recordingRefresher struct {
+	calls []string
+	err   error
+}
+
+func (r *recordingRefresher) RefreshDeployedImageNames(_ context.Context, integrationID string) error {
+	r.calls = append(r.calls, integrationID)
+	return r.err
+}
+
+// A successful overlay Set and Clear each trigger the deployed-image-name refresh, so a rename is
+// mirrored onto the affected integration's servers immediately instead of at the next reconcile.
+func TestSetOSImageOverlayPropagatesNameToServers(t *testing.T) {
+	overlays := newOSImageOverlayRepoFake()
+	refresher := &recordingRefresher{}
+	uc := NewSetOSImageOverlayUseCase(overlays, refresher)
+
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "Golden Ubuntu", "", "", nil); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+	if err := uc.Clear(context.Background(), "integration-1", "ubuntu/jammy", "amd64"); err != nil {
+		t.Fatalf("Clear() error = %v", err)
+	}
+	if len(refresher.calls) != 2 || refresher.calls[0] != "integration-1" || refresher.calls[1] != "integration-1" {
+		t.Errorf("refresh calls = %v, want [integration-1 integration-1] for one Set and one Clear", refresher.calls)
+	}
+}
+
+// The refresh is best-effort: a failing refresher must not turn a committed overlay write into a
+// failed request, because the periodic reconcile still re-mirrors the name.
+func TestSetOSImageOverlayIgnoresRefresherFailure(t *testing.T) {
+	overlays := newOSImageOverlayRepoFake()
+	refresher := &recordingRefresher{err: errors.New("catalog unavailable")}
+	uc := NewSetOSImageOverlayUseCase(overlays, refresher)
+
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "Golden Ubuntu", "", "", nil); err != nil {
+		t.Fatalf("Set() with a failing refresher must still succeed, got %v", err)
+	}
+	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); !ok {
+		t.Error("Set() must persist the overlay even when propagation fails")
 	}
 }
 

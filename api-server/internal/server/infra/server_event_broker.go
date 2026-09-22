@@ -141,8 +141,13 @@ func (s *brokerSubscription) Close() { s.broker.remove(s.id) }
 func serverFingerprintJSON(s *serverdomain.Server) string {
 	type provisioning struct {
 		State, ProviderState, ErrorDescription, PowerState, OSSystem, DistroSeries string
-		Ephemeral, Locked                                                          bool
-		HWEKernel, CommissioningStatus, TestingStatus                              string
+		// DeployedImageName is part of the fingerprint because an OS Image rename changes only
+		// this mirrored field: without it a rename's eager re-mirror (SetOSImageOverlayUseCase)
+		// would collide with the prior fingerprint and be suppressed, so the fleet list would not
+		// update live until an unrelated field changed.
+		DeployedImageName                             string
+		Ephemeral, Locked                             bool
+		HWEKernel, CommissioningStatus, TestingStatus string
 	}
 	type membership struct{ PlatformID, NodeName, Role, State string }
 	type deployment struct {
@@ -165,8 +170,10 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 			State: s.Provisioning.State, ProviderState: s.Provisioning.ProviderState,
 			ErrorDescription: s.Provisioning.ErrorDescription,
 			PowerState:       s.Provisioning.PowerState, OSSystem: s.Provisioning.OSSystem,
-			DistroSeries: s.Provisioning.DistroSeries, Ephemeral: s.Provisioning.Ephemeral,
-			Locked: s.Provisioning.Locked, HWEKernel: s.Provisioning.HWEKernel,
+			DistroSeries:      s.Provisioning.DistroSeries,
+			DeployedImageName: s.Provisioning.DeployedImageName,
+			Ephemeral:         s.Provisioning.Ephemeral,
+			Locked:            s.Provisioning.Locked, HWEKernel: s.Provisioning.HWEKernel,
 			CommissioningStatus: s.Provisioning.CommissioningStatus, TestingStatus: s.Provisioning.TestingStatus,
 		}
 	}

@@ -116,9 +116,11 @@ state. No BMC, SSH, integration, or automation credential is returned.
 
 On the provisioning axis, `deployedImageName` is the effective display name of the
 currently deployed OS image — the provider catalog name overlaid with any Swallow
-custom name — mirrored during reconcile. It is display only and is empty when
-nothing is deployed or the image cannot be resolved from the catalog; clients fall
-back to `osSystem`/`distroSeries` in that case.
+custom name. It is mirrored when a deploy completes and refreshed by reconcile (and by
+an image rename), so a freshly deployed Server shows the friendly name promptly rather
+than only after the next reconcile pass. It is display only and is empty when nothing is
+deployed or the image cannot be resolved from the catalog; clients fall back to
+`osSystem`/`distroSeries` in that case.
 
 Also on the provisioning axis, `errorDescription` is the provisioner's own
 machine-level failure reason (for example `"Failed to erase disks."`), mirrored

@@ -245,6 +245,16 @@ catalog: an overlay for an image that later disappears is simply not merged, so 
 endpoints stay Swallow-local with no provider round trip and do not return
 `503 provider_unavailable`.
 
+A successful `PATCH` or `DELETE` propagates the new effective name to the Server
+projections immediately: the effective display name mirrored onto each deployed Server
+of that integration (the `provisioning.deployedImageName` field on the Servers List and
+Server detail) is re-resolved and updated for any server whose deployed image is the one
+that was renamed, and each updated server emits a change on the Servers event stream. So
+a rename is reflected on the fleet list and Server detail without waiting for the next
+reconcile pass. This propagation is best-effort and does not affect the endpoint result:
+it never changes the `204 No Content` outcome or the provider, and if it cannot run the
+periodic reconcile still re-mirrors the name.
+
 ## Deployment Templates
 
 A template response contains:

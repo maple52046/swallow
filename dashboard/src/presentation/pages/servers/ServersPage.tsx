@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge, Box, Button, HStack, IconButton, Popover, Portal, Table, Text } from '@chakra-ui/react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Filter, Lock, Tags, UploadCloud } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Filter, Lock, RefreshCw, Tags, UploadCloud } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
@@ -38,11 +38,12 @@ import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { actionLabel, serverActionAvailability, type ServerMenuAction } from './serverActions'
+import { actionLabel, isRamDeploy, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { ServerPowerDialog } from './ServerPowerDialog'
+import { ServerPowerOffWarningDialog } from './ServerPowerOffWarningDialog'
 import { useServerWorkingSet } from './useServerWorkingSet'
 import { useServerBulkActions } from './useServerBulkActions'
 import { ServerTagEditor } from './ServerTagEditor'
@@ -210,6 +211,12 @@ export function ServersPage() {
     targets: readonly Server[]
     skipped: readonly Server[]
   } | null>(null)
+  // A power off is held here for a warning + acknowledgement when any eligible target is a RAM
+  // (ephemeral) deployment, because it has no persistent disk so anything written to it is lost.
+  const [pendingPowerOff, setPendingPowerOff] = useState<{
+    targets: readonly Server[]
+    ramTargets: readonly Server[]
+  } | null>(null)
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -219,7 +226,7 @@ export function ServersPage() {
     return () => clearTimeout(id)
   }, [searchInput])
   const query = useMemo(() => ({ siteId, keyword: coarseKeyword || undefined, includeAbsent }), [coarseKeyword, includeAbsent, siteId])
-  const { state, reload } = useServerWorkingSet(query)
+  const { state, reload, isRefreshing } = useServerWorkingSet(query)
   // Servers whose release we just accepted. A durable release Operation runs asynchronously,
   // so the Server is not yet in an active provisioning axis and the active-projection poll
   // below will not pick it up. Follow these Servers for a bounded window so the list reflects
@@ -381,6 +388,16 @@ export function ServersPage() {
         reload()
         return
       }
+      // Powering off a RAM (ephemeral) deployment loses anything written to it (no persistent disk),
+      // so hold the action for an explicit warning + acknowledgement when any eligible target is
+      // RAM. A disk-only power off keeps its one-click behaviour; the second pass carries confirmed.
+      if (action === 'power-off' && !confirmed) {
+        const ramTargets = availability.eligible.filter(isRamDeploy)
+        if (ramTargets.length > 0) {
+          setPendingPowerOff({ targets: availability.eligible, ramTargets })
+          return
+        }
+      }
       const result = await bulk.run(action, targets)
       setLastActionResult(result)
       setResultDialogOpen(failedServerActionOutcomes(result).length > 0)
@@ -448,6 +465,22 @@ export function ServersPage() {
         title="Servers"
         metadata={activeProjectionTargetKey ? <Badge colorPalette="blue" variant="subtle">Updating servers…</Badge> : undefined}
       />
+      {state.status === 'ready' && state.refreshError && (
+        // A background refresh (or SSE-reconnect refetch) failed, but the last-good rows are still
+        // shown and live updates keep applying, so this is a non-blocking notice with a retry
+        // rather than a full-page error that would hide the fleet.
+        <Alert
+          status="warning"
+          title="Couldn't refresh the server list"
+          actions={
+            <Button variant="plain" size="sm" onClick={reload}>
+              Retry
+            </Button>
+          }
+        >
+          Showing the last loaded servers. Live updates are still applied; retry to refetch the full list.
+        </Alert>
+      )}
       {staleProvisioners.map((item) => (
         <div key={item.id} className="sw-inline-warning">
           <strong>{item.name} sync failed</strong>
@@ -532,6 +565,28 @@ export function ServersPage() {
         >
           <ColumnPanel columns={OPTIONAL_COLUMNS} hidden={hiddenColumns} onToggle={toggleColumn} />
         </PopoverButton>
+        <Tooltip content="Refresh the server list">
+          <IconButton
+            variant="outline"
+            size="sm"
+            aria-label="Refresh servers"
+            loading={isRefreshing}
+            onClick={reload}
+          >
+            <RefreshCw size={16} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip content="Refresh the server list">
+          <IconButton
+            variant="outline"
+            size="sm"
+            aria-label="Refresh servers"
+            loading={isRefreshing}
+            onClick={reload}
+          >
+            <RefreshCw size={16} />
+          </IconButton>
+        </Tooltip>
         <Select
           value={density}
           aria-label="Table density"
@@ -752,6 +807,19 @@ export function ServersPage() {
             const pending = pendingLockAction
             setPendingLockAction(null)
             void runAction(pending.action, pending.targets.map((server) => server.id), true)
+          }}
+        />
+      )}
+      {pendingPowerOff && (
+        <ServerPowerOffWarningDialog
+          ramTargets={pendingPowerOff.ramTargets}
+          totalTargets={pendingPowerOff.targets.length}
+          busy={bulk.running}
+          onClose={() => setPendingPowerOff(null)}
+          onConfirm={() => {
+            const pending = pendingPowerOff
+            setPendingPowerOff(null)
+            void runAction('power-off', pending.targets.map((server) => server.id), true)
           }}
         />
       )}

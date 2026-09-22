@@ -11,8 +11,9 @@ import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerPlacementDialog } from './ServerPlacementDialog'
 import { ServerTagEditor } from './ServerTagEditor'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
-import { actionLabel, serverActionAvailability, type ServerMenuAction } from './serverActions'
+import { actionLabel, isRamDeploy, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
+import { ServerPowerOffWarningDialog } from './ServerPowerOffWarningDialog'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
 import { ServerActionMenuRow, ServerTakeActionMenu } from './ServerTakeActionMenu'
 import {
@@ -62,6 +63,9 @@ export function ServerActionMenu({
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
   const [lockAction, setLockAction] = useState<'lock' | 'unlock' | null>(null)
+  // Gates a power off on this Server behind a warning + acknowledgement when it is a RAM
+  // (ephemeral) deployment, which has no persistent disk so anything written to it is lost.
+  const [powerOffWarnOpen, setPowerOffWarnOpen] = useState(false)
   const [placementOpen, setPlacementOpen] = useState(false)
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
 
@@ -147,6 +151,7 @@ export function ServerActionMenu({
 
   const chooseAction = (action: ServerMenuAction) => {
     if (action === 'lock' || action === 'unlock') setLockAction(action)
+    else if (action === 'power-off' && isRamDeploy(server)) setPowerOffWarnOpen(true)
     else void run(action)
   }
 
@@ -210,6 +215,18 @@ export function ServerActionMenu({
             const action = lockAction
             setLockAction(null)
             void run(action)
+          }}
+        />
+      )}
+      {powerOffWarnOpen && (
+        <ServerPowerOffWarningDialog
+          ramTargets={[server]}
+          totalTargets={1}
+          busy={busy}
+          onClose={() => setPowerOffWarnOpen(false)}
+          onConfirm={() => {
+            setPowerOffWarnOpen(false)
+            void run('power-off')
           }}
         />
       )}

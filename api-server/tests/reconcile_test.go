@@ -24,6 +24,7 @@ type reconcileFixture struct {
 	integrations *fakeIntegrationRepo
 	provider     *fakeProvider
 	factory      *fakeProviderFactory
+	overlays     *fakeOSImageOverlayRepo
 	tagOverlays  *fakeServerTagOverlayRepo
 }
 
@@ -49,13 +50,15 @@ func setupReconcile(t *testing.T) *reconcileFixture {
 		UpdatedAt:    now,
 	}, "ck:tk:ts")
 
+	overlays := newFakeOSImageOverlayRepo()
 	tagOverlays := newFakeServerTagOverlayRepo()
 	return &reconcileFixture{
-		uc:           provisioningapp.NewReconcileUseCase(integrations, servers, factory, newFakeOSImageOverlayRepo(), tagOverlays),
+		uc:           provisioningapp.NewReconcileUseCase(integrations, servers, factory, overlays, tagOverlays),
 		servers:      servers,
 		integrations: integrations,
 		provider:     provider,
 		factory:      factory,
+		overlays:     overlays,
 		tagOverlays:  tagOverlays,
 	}
 }
@@ -188,6 +191,88 @@ func TestReconcile_MirrorsDeployedImageName(t *testing.T) {
 	}
 	if server.Provisioning.DeployedImageName != "Ubuntu 22.04 LTS" {
 		t.Errorf("DeployedImageName = %q, want the catalog name %q", server.Provisioning.DeployedImageName, "Ubuntu 22.04 LTS")
+	}
+}
+
+// Renaming an OS Image re-mirrors the effective name onto that image's deployed servers at once,
+// without a reconcile pass: RefreshDeployedImageNames reads the catalog + overlay and updates the
+// projection so the fleet list shows the swallow name immediately.
+func TestReconcile_RefreshDeployedImageNamesAfterRename(t *testing.T) {
+	f := setupReconcile(t)
+	machine := testMachine("abc123", "gpu-node-01")
+	machine.Status = provisioningdomain.MachineStatusDeployed
+	machine.ProviderStatus = "Deployed"
+	machine.OSSystem = "ubuntu"
+	machine.DistroSeries = "jammy"
+	machine.Architecture = "amd64/generic"
+	f.provider.withMachine(machine)
+
+	if _, err := f.uc.Execute(context.Background(), testIntegrationID); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// The operator renames the image via the overlay; the provider catalog title is
+	// "Ubuntu 22.04 LTS", and the overlay's architecture matches the catalog's primary arch.
+	if err := f.overlays.Upsert(context.Background(), &provisioningdomain.OSImageOverlay{
+		IntegrationID: testIntegrationID,
+		ImageID:       "ubuntu/jammy",
+		Architecture:  "amd64",
+		DisplayName:   "Golden Ubuntu",
+	}); err != nil {
+		t.Fatalf("seed overlay: %v", err)
+	}
+
+	if err := f.uc.RefreshDeployedImageNames(context.Background(), testIntegrationID); err != nil {
+		t.Fatalf("RefreshDeployedImageNames: %v", err)
+	}
+
+	var server *serverdomain.Server
+	for _, s := range f.servers.servers {
+		server = s
+	}
+	if server == nil || server.Provisioning == nil {
+		t.Fatal("expected a projected server with a provisioning axis")
+	}
+	if server.Provisioning.DeployedImageName != "Golden Ubuntu" {
+		t.Errorf("DeployedImageName = %q, want the renamed %q", server.Provisioning.DeployedImageName, "Golden Ubuntu")
+	}
+}
+
+// Right after a deploy completes, the single-machine RefreshServer fills the mirrored OS image
+// name so the fleet list shows the friendly name immediately, instead of the raw OS/release id
+// until the next reconcile pass.
+func TestRefreshServer_FillsDeployedImageNameOnFreshDeploy(t *testing.T) {
+	f := setupReconcile(t)
+	machine := testMachine("abc123", "gpu-node-01")
+	machine.Status = provisioningdomain.MachineStatusDeployed
+	machine.ProviderStatus = "Deployed"
+	machine.OSSystem = "ubuntu"
+	machine.DistroSeries = "jammy"
+	machine.Architecture = "amd64/generic"
+	f.provider.withMachine(machine)
+
+	// Seed the projection as a just-completed deploy: deployed, but the mirrored name is still
+	// blank because reconcile has not run yet — the exact gap the fleet list was showing an id for.
+	if err := f.servers.Upsert(context.Background(), &serverdomain.Server{
+		ID:           "srv-1",
+		Source:       serverdomain.Source{SiteID: testSiteID, IntegrationID: testIntegrationID, ProviderMachineID: "abc123"},
+		Observed:     serverdomain.Observed{Architecture: "amd64/generic"},
+		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed", OSSystem: "ubuntu", DistroSeries: "jammy"},
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+
+	uc := provisioningapp.NewRefreshServerUseCase(f.servers, f.factory, f.overlays)
+	if _, err := uc.Execute(context.Background(), "srv-1"); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	got := f.servers.servers["srv-1"]
+	if got == nil || got.Provisioning == nil {
+		t.Fatal("expected the refreshed server projection")
+	}
+	if got.Provisioning.DeployedImageName != "Ubuntu 22.04 LTS" {
+		t.Errorf("DeployedImageName = %q, want the catalog name filled on refresh", got.Provisioning.DeployedImageName)
 	}
 }
 

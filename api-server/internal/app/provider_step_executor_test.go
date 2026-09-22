@@ -231,7 +231,7 @@ func TestProviderStepDeploymentPowerOnTimeout(t *testing.T) {
 	}
 	factory := cancellationProviderFactory{provider: provider}
 	executor := providerStepExecutor{
-		refresh:     provisioningapp.NewRefreshServerUseCase(repository, factory),
+		refresh:     provisioningapp.NewRefreshServerUseCase(repository, factory, nil),
 		servers:     repository,
 		providers:   factory,
 		poll:        time.Millisecond,
@@ -295,7 +295,7 @@ func TestProviderCancellationAbortsOnlyForWorkflowCancellation(t *testing.T) {
 	executor := providerStepExecutor{
 		servers:   repository,
 		providers: factory,
-		refresh:   provisioningapp.NewRefreshServerUseCase(repository, factory),
+		refresh:   provisioningapp.NewRefreshServerUseCase(repository, factory, nil),
 		poll:      time.Hour,
 	}
 	image := "ubuntu/custom-image"

@@ -122,6 +122,14 @@ deployed Server's image to its effective name (provider title overlaid with the 
 and mirrors that string onto the Server provisioning axis so the fleet list shows the swallow name
 without a per-request catalog fan-out (see [ADR 009](009-deployment-template-ownership.md)).
 
+To keep that mirror honest without abandoning the no-fan-out design, an overlay write now
+propagates eagerly: after a successful set or clear, the overlay use case re-mirrors the effective
+name onto the affected integration's deployed Server projections with a single catalog + overlay
+read (no provider machine poll), Upserting only the servers whose mirrored name actually changed so
+each change emits one Server event. The propagation is best-effort — a failure does not roll back
+the authoritative overlay write, and the periodic reconcile still re-mirrors the name — so a rename
+shows on the fleet list and detail immediately instead of lagging until the next reconcile pass.
+
 ## Related
 
 - [ADR 001](001-system-ownership-boundaries.md) — owned data vs mirrored facts (refined here:

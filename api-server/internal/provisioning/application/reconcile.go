@@ -119,6 +119,58 @@ func (uc *ReconcileUseCase) Execute(ctx context.Context, integrationID string) (
 	return &report, nil
 }
 
+// RefreshDeployedImageNames re-mirrors the effective OS image display name onto one
+// integration's Server projections so an OS Image rename (a swallow overlay write) shows on the
+// fleet list and detail immediately, instead of waiting for the next reconcile pass. It does a
+// single catalog + overlay read and no provider machine poll — a rename's effective name is fully
+// determined by the overlay and the catalog title — then Upserts only the servers whose mirrored
+// name actually changed, so each change publishes exactly one server event.
+//
+// This is the DeployedImageNameRefresher the overlay use case invokes best-effort: a returned
+// error means some names could not be refreshed now (the next reconcile still corrects them), so
+// the caller must not treat it as a failed overlay write. Absent servers are intentionally
+// skipped — they are excluded from the fleet list and Upsert would revive them (it forces
+// absent=false) — and are refreshed when the provider next reports them.
+func (uc *ReconcileUseCase) RefreshDeployedImageNames(ctx context.Context, integrationID string) error {
+	provider, err := uc.providers.For(ctx, integrationID)
+	if err != nil {
+		return fmt.Errorf("refresh deployed image names: resolve provider for %q: %w", integrationID, err)
+	}
+	// A catalog read failure must not blank every mirrored name: skip this refresh and let the
+	// next reconcile pass recompute once the catalog is readable again.
+	resolver, ok := buildDeployedImageNameResolver(ctx, provider, uc.overlays, integrationID)
+	if !ok {
+		return fmt.Errorf("refresh deployed image names: read image catalog for %q", integrationID)
+	}
+
+	result, err := uc.servers.List(ctx, serverdomain.ListFilter{IntegrationID: integrationID})
+	if err != nil {
+		return fmt.Errorf("refresh deployed image names: list servers for %q: %w", integrationID, err)
+	}
+
+	var errs []error
+	for _, server := range result.Servers {
+		if server.Provisioning == nil {
+			continue
+		}
+		deployed := server.Provisioning.State == string(provisioningdomain.MachineStatusDeployed)
+		name := resolver.resolve(
+			server.Provisioning.OSSystem,
+			server.Provisioning.DistroSeries,
+			server.Observed.Architecture,
+			deployed,
+		)
+		if name == server.Provisioning.DeployedImageName {
+			continue
+		}
+		server.Provisioning.DeployedImageName = name
+		if err := uc.servers.Upsert(ctx, server); err != nil {
+			errs = append(errs, fmt.Errorf("server %q: %w", server.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (uc *ReconcileUseCase) reconcile(ctx context.Context, integration *sitedomain.Integration) ReconcileReport {
 	report := ReconcileReport{
 		IntegrationID:   integration.ID,
@@ -326,72 +378,112 @@ func (uc *ReconcileUseCase) create(
 	return outcomeCreated, nil, uc.servers.Upsert(ctx, server)
 }
 
-// buildDeployedImageNamer reads the integration's image catalog once and returns a resolver
-// from a machine's observed OSSystem/DistroSeries to the effective image display name. The
-// effective name is the provider's catalog title overlaid with any swallow custom name, so a
-// renamed image shows its swallow name on every server deployed with it.
+// deployedImageNameResolver maps a deployed item's observed OSSystem/DistroSeries and CPU
+// architecture to the effective OS image display name — the provider catalog title overlaid
+// with any swallow custom name. It is built once from a single catalog + overlay read so the
+// same lookup serves both a reconcile pass (per machine) and the eager refresh an overlay
+// write triggers (per Server projection), never a per-item provider round trip.
 //
-// Failures degrade rather than abort: if the catalog cannot be read this pass, the resolver
-// returns "" for every machine, and the mirrored name simply stays empty until a later pass.
-func (uc *ReconcileUseCase) buildDeployedImageNamer(
+// The lookup tolerates MAAS reporting a machine's architecture with a subarch
+// (e.g. "amd64/generic") while the catalog lists only the primary arch (e.g. "amd64"): keys
+// use the primary arch on both sides, with a no-arch fallback for the rare catalog whose
+// names differ only by subarch. A zero-value resolver (empty maps) resolves every item to ""
+// and is what a failed catalog read degrades to.
+type deployedImageNameResolver struct {
+	byIDArch        map[string]string
+	byOSReleaseArch map[string]string
+	byID            map[string]string
+}
+
+// resolve returns the effective display name for the OS image identified by the observed
+// OSSystem/DistroSeries and CPU architecture, or "" when the item is not deployed or cannot be
+// matched to the catalog. The deployed flag gates the lookup so an item in any other lifecycle
+// state is never mislabeled with whatever it last ran.
+func (r deployedImageNameResolver) resolve(osSystem, distroSeries, architecture string, deployed bool) string {
+	if !deployed {
+		return ""
+	}
+	// A synced image's catalog ID is "<osSystem>/<distroSeries>"; match that first, then fall
+	// back to matching the OS family and release, and finally the ID without arch.
+	imageID := osSystem + "/" + distroSeries
+	arch := primaryArch(architecture)
+	if name, ok := r.byIDArch[imageArchKey(imageID, arch)]; ok {
+		return name
+	}
+	if name, ok := r.byOSReleaseArch[osReleaseArchKey(osSystem, distroSeries, arch)]; ok {
+		return name
+	}
+	if name, ok := r.byID[imageID]; ok {
+		return name
+	}
+	return ""
+}
+
+// buildDeployedImageNameResolver reads one integration's image catalog and overlay set once and
+// returns a resolver from an observed OSSystem/DistroSeries/architecture to the effective image
+// display name. The bool reports whether the catalog could be read: on a read failure it returns
+// a zero-value resolver (every lookup yields "") and false, so a mirrored name stays empty rather
+// than aborting the caller. The overlay read is best effort — a failure there means no custom
+// names this pass, not a failure — and only the display-name override matters here.
+//
+// It is a package function (not a ReconcileUseCase method) so the single-server RefreshServer path
+// can reuse the exact same resolution at deploy completion, filling the mirrored name immediately
+// instead of only on the next reconcile pass. Callers must pass a non-nil overlay repository.
+func buildDeployedImageNameResolver(
 	ctx context.Context,
 	provider provisioningdomain.OSProvisioningProvider,
+	overlays provisioningdomain.OSImageOverlayRepository,
 	integrationID string,
-) deployedImageNamer {
+) (deployedImageNameResolver, bool) {
 	images, err := provider.ListOSImages(ctx)
 	if err != nil {
-		return func(*provisioningdomain.Machine) string { return "" }
+		return deployedImageNameResolver{}, false
 	}
 
-	// Overlay lookup is best effort: a failure here means no custom names this pass, not a
-	// failed reconcile. Only the display-name override matters for the deployed-image label.
 	custom := map[string]string{}
-	if overlays, err := uc.overlays.ListByIntegration(ctx, integrationID); err == nil {
-		for _, overlay := range overlays {
+	if list, err := overlays.ListByIntegration(ctx, integrationID); err == nil {
+		for _, overlay := range list {
 			if overlay.DisplayName != "" {
 				custom[imageArchKey(overlay.ImageID, overlay.Architecture)] = overlay.DisplayName
 			}
 		}
 	}
 
-	// Matching a machine to a catalog image must tolerate MAAS reporting a machine's
-	// architecture with a subarch (e.g. "amd64/generic") while the image lists only the
-	// primary arch (e.g. "amd64"). Keys therefore use the primary arch on both sides, plus a
-	// no-arch fallback for the rare catalog whose names differ only by subarch.
-	byIDArch := make(map[string]string, len(images))
-	byOSReleaseArch := make(map[string]string, len(images))
-	byID := make(map[string]string, len(images))
+	resolver := deployedImageNameResolver{
+		byIDArch:        make(map[string]string, len(images)),
+		byOSReleaseArch: make(map[string]string, len(images)),
+		byID:            make(map[string]string, len(images)),
+	}
 	for _, image := range images {
 		effective := image.Name
 		if name, ok := custom[imageArchKey(image.ID, image.Architecture)]; ok {
 			effective = name
 		}
 		arch := primaryArch(image.Architecture)
-		byIDArch[imageArchKey(image.ID, arch)] = effective
-		byOSReleaseArch[osReleaseArchKey(image.OSSystem, image.Release, arch)] = effective
-		byID[image.ID] = effective
+		resolver.byIDArch[imageArchKey(image.ID, arch)] = effective
+		resolver.byOSReleaseArch[osReleaseArchKey(image.OSSystem, image.Release, arch)] = effective
+		resolver.byID[image.ID] = effective
 	}
+	return resolver, true
+}
 
+// buildDeployedImageNamer adapts the shared resolver to the per-machine namer the reconcile pass
+// applies. The effective name is the provider's catalog title overlaid with any swallow custom
+// name, so a renamed image shows its swallow name on every server deployed with it; a catalog
+// read failure degrades to "" for every machine until a later pass.
+func (uc *ReconcileUseCase) buildDeployedImageNamer(
+	ctx context.Context,
+	provider provisioningdomain.OSProvisioningProvider,
+	integrationID string,
+) deployedImageNamer {
+	resolver, _ := buildDeployedImageNameResolver(ctx, provider, uc.overlays, integrationID)
 	return func(machine *provisioningdomain.Machine) string {
-		// Only a deployed machine has a meaningful "deployed image"; other lifecycle states
-		// would otherwise mislabel a machine with whatever it last ran.
-		if machine.Status != provisioningdomain.MachineStatusDeployed {
-			return ""
-		}
-		// A synced image's catalog ID is "<osSystem>/<distroSeries>"; match that first, then
-		// fall back to matching the OS family and release, and finally the ID without arch.
-		imageID := machine.OSSystem + "/" + machine.DistroSeries
-		arch := primaryArch(machine.Architecture)
-		if name, ok := byIDArch[imageArchKey(imageID, arch)]; ok {
-			return name
-		}
-		if name, ok := byOSReleaseArch[osReleaseArchKey(machine.OSSystem, machine.DistroSeries, arch)]; ok {
-			return name
-		}
-		if name, ok := byID[imageID]; ok {
-			return name
-		}
-		return ""
+		return resolver.resolve(
+			machine.OSSystem,
+			machine.DistroSeries,
+			machine.Architecture,
+			machine.Status == provisioningdomain.MachineStatusDeployed,
+		)
 	}
 }
 

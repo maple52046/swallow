@@ -91,6 +91,18 @@ export function actionLabel(action: ServerMenuAction): string {
   return action
 }
 
+/**
+ * Reports whether a Server is currently running a RAM (ephemeral) deployment: the OS runs from
+ * memory and the disks are left untouched, so anything written to the Server is lost on power off
+ * or reboot (provisioning re-provides the same OS, so only the data is lost). "RAM deploy" is the
+ * operator term for the `ephemeral` provisioning fact (see the Deploy Target glossary). The list,
+ * detail, and power dialogs use this to gate a destructive-power-off warning + confirmation, since
+ * a disk deployment keeps its data across a power cycle but a RAM one does not.
+ */
+export function isRamDeploy(server: Server): boolean {
+  return server.provisioning?.ephemeral === true
+}
+
 const ACTIVE_PROVIDER_STATES = new Set(['commissioning', 'deploying', 'releasing', 'testing'])
 
 // State gates mirroring the Swallow-owned recovery policy (docs/decisions/033). The dashboard
