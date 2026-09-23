@@ -130,3 +130,81 @@ func TestLegacyPlatformReadinessFailureProjectsPerServerDeploymentFailure(t *tes
 		t.Fatalf("provider state = %q, want installed OS fact preserved", server.Provisioning.State)
 	}
 }
+
+// TestServerDeploymentObserverKeepsSucceededDeploymentOnWorkflowCancel verifies the core
+// invariant: a completed OS deployment (provision-os) is not un-done by cancelling the
+// enclosing Workflow. Cancelling a platform deploy re-emits the already-succeeded provision-os
+// as canceled from the parent's stale step snapshot; the per-Server deployment axis (its own OS
+// deployment result) must keep succeeded, since the cancellation belongs to the Workflow and
+// Platform lifecycle, not this axis.
+func TestServerDeploymentObserverKeepsSucceededDeploymentOnWorkflowCancel(t *testing.T) {
+	started := time.Now().Add(-time.Hour).UTC()
+	server := &serverdomain.Server{
+		ID: "server-id",
+		Deployment: &serverdomain.DeploymentStatus{
+			State: serverdomain.DeploymentSucceeded, OperationID: "operation-id",
+			StepID: "provision-server-id", Attempt: 1, StartedAt: started,
+		},
+	}
+	observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
+	err := observer.ObserveStep(context.Background(), "operation-id", operationdomain.Task{
+		ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
+		Status:  operationdomain.TaskCanceled,
+		Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentSucceeded {
+		t.Fatalf("deployment = %+v, want succeeded preserved after workflow cancel", server.Deployment)
+	}
+}
+
+// TestServerDeploymentObserverCancelsInFlightDeploy verifies a genuinely in-flight deploy still
+// cancels: the guard only protects a terminal outcome, not a deploying/verifying one.
+func TestServerDeploymentObserverCancelsInFlightDeploy(t *testing.T) {
+	server := &serverdomain.Server{
+		ID: "server-id",
+		Deployment: &serverdomain.DeploymentStatus{
+			State: serverdomain.DeploymentDeploying, OperationID: "operation-id",
+			StepID: "provision-server-id", Attempt: 1,
+		},
+	}
+	observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
+	err := observer.ObserveStep(context.Background(), "operation-id", operationdomain.Task{
+		ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
+		Status:  operationdomain.TaskCanceled,
+		Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentCanceled {
+		t.Fatalf("deployment = %+v, want canceled for an in-flight deploy", server.Deployment)
+	}
+}
+
+// TestServerDeploymentObserverCancelAppliesToNewerAttempt verifies the guard is scoped to the
+// same attempt: a cancel for a later attempt of the same Step still applies, so a re-run that is
+// canceled is not masked by an older succeeded attempt.
+func TestServerDeploymentObserverCancelAppliesToNewerAttempt(t *testing.T) {
+	server := &serverdomain.Server{
+		ID: "server-id",
+		Deployment: &serverdomain.DeploymentStatus{
+			State: serverdomain.DeploymentSucceeded, OperationID: "operation-id",
+			StepID: "provision-server-id", Attempt: 1,
+		},
+	}
+	observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
+	err := observer.ObserveStep(context.Background(), "operation-id", operationdomain.Task{
+		ID: "provision-server-id", Kind: "provision-os", Attempt: 2,
+		Status:  operationdomain.TaskCanceled,
+		Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentCanceled || server.Deployment.Attempt != 2 {
+		t.Fatalf("deployment = %+v, want canceled for the newer attempt", server.Deployment)
+	}
+}

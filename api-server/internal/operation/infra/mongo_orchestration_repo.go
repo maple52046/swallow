@@ -200,17 +200,59 @@ func (r *MongoWorkflowRepo) UpdateState(ctx context.Context, id string, status o
 }
 
 func (r *MongoWorkflowRepo) UpdateStep(ctx context.Context, operationID string, step operationdomain.Task) error {
-	result, err := r.operations.UpdateOne(ctx,
-		bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": step.ID},
+	filter := bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": step.ID}
+	// Monotonic guard: a `canceled` write must never regress a Task that already reached a
+	// terminal outcome (succeeded/failed/skipped). Cancelling the enclosing Workflow finalizes
+	// from a step snapshot that, in the jobbed path, can be stale (the parent never merges child
+	// Job outcomes), so without this a completed provision-os would be flipped to canceled in the
+	// durable step list and cascade onto the Server deployment axis. Non-terminal Tasks
+	// (pending/running/waiting) still cancel normally.
+	if step.Status == operationdomain.TaskCanceled {
+		filter = bson.M{
+			"_id":           operationID,
+			"schemaVersion": 4,
+			"tasks": bson.M{"$elemMatch": bson.M{
+				"id":     step.ID,
+				"status": bson.M{"$nin": bson.A{operationdomain.TaskSucceeded, operationdomain.TaskFailed, operationdomain.TaskSkipped}},
+			}},
+		}
+	}
+	result, err := r.operations.UpdateOne(ctx, filter,
 		bson.M{"$set": bson.M{"tasks.$": step, "updatedAt": time.Now().UTC()}},
 	)
 	if err != nil {
 		return err
 	}
 	if result.MatchedCount == 0 {
+		// For a guarded `canceled` write, zero matches can mean the Task is already terminal (a
+		// monotonic no-op, not an error) rather than genuinely missing; distinguish the two so a
+		// real missing Task still surfaces ErrTaskNotFound.
+		if step.Status == operationdomain.TaskCanceled {
+			exists, existErr := r.taskExists(ctx, operationID, step.ID)
+			if existErr != nil {
+				return existErr
+			}
+			if exists {
+				return nil
+			}
+		}
 		return operationdomain.ErrTaskNotFound
 	}
 	return nil
+}
+
+// taskExists reports whether the Operation still carries a Task with this id, used to tell a
+// monotonic-guard no-op (the Task is present but already terminal) apart from a genuinely
+// missing Task when a guarded update matches nothing.
+func (r *MongoWorkflowRepo) taskExists(ctx context.Context, operationID, stepID string) (bool, error) {
+	count, err := r.operations.CountDocuments(ctx,
+		bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": stepID},
+		options.Count().SetLimit(1),
+	)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // UpdateStepLive sets only the live fields of a running step via a positional $set, so a mid-run

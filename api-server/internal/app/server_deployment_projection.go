@@ -44,6 +44,23 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 	if err != nil {
 		return err
 	}
+	// A completed OS deployment must not be un-done by cancelling the enclosing Workflow. The
+	// deployment axis is this Server's own OS deployment (provision-os) outcome, separate from
+	// the platform: a platform deploy that is canceled after this Server's provision-os already
+	// reached a terminal outcome (for example the jobbed parent finalizing cancellation from a
+	// stale step snapshot) would otherwise regress deployment succeeded/failed to canceled and
+	// hide the real OS result. The cancellation is carried by the Workflow status and the
+	// Platform lifecycle, not by this per-Server axis. The guard is scoped to the same
+	// operation/step/attempt, so a fresh attempt or a different operation still applies, and a
+	// genuinely in-flight (deploying/verifying) or attention-pending deploy can still be canceled.
+	if step.Status == operationdomain.TaskCanceled || step.Status == operationdomain.TaskSkipped {
+		if current := server.Deployment; current != nil &&
+			current.OperationID == operationID && current.StepID == step.ID &&
+			current.Attempt == step.Attempt &&
+			(current.State == serverdomain.DeploymentSucceeded || current.State == serverdomain.DeploymentFailed) {
+			return nil
+		}
+	}
 	if step.StartedAt != nil && !step.StartedAt.IsZero() {
 		startedAt = *step.StartedAt
 	} else if current := server.Deployment; current != nil &&

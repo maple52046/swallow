@@ -316,6 +316,14 @@ operator 維護 `knownHosts`。
 Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它停在 `requires_attention`／
 `deploy_failed`，交由 operator 收斂。收斂時必須分清兩種失敗層級，並用對應機制：
 
+> **取消 ≠ 回退已完成的 OS 佈署**：取消一個 platform deploy Workflow **不會**把成員 Server 已
+> `succeeded` 的 `provision-os`（OS 佈署）改成 `canceled`。Server 的 `deployment` 軸是它**自身的
+> OS 佈署結果**，與 platform 分離；platform 的取消由 Workflow 狀態與 `Platform.lifecycleState`
+> 表達，不寫進各 Server 的 deployment 軸（見 glossary [Server](glossaries/terms/server.md) 的
+> Deployment result 定義）。此不變式由 `UpdateStep` 的 monotonic guard 與 deployment observer 的
+> regression guard 共同保證：已終態（`succeeded`／`failed`）的 `provision-os` 不會被 workflow 取消
+> 覆寫成 `canceled`。
+
 - **provider 層失敗（Server 的 `provisioning` 軸不是 `ready`）**：`ensure-os`／`provision-os`
   失敗會讓該 Server 落在 `failed`（或 `broken`／`rescue`）。這類「錯誤節點」用 Swallow 的
   **provider recovery**（decision 033）收斂：**Recover**（Return to Ready）或 **Release** 把 Server
