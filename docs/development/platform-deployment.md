@@ -112,6 +112,57 @@ flowchart TB
 
 ---
 
+### 2.3 OS 支援：Ubuntu 與 Rocky/RHEL 同一套流程
+
+`configure-k0s` 的 `deploy-kubernetes.yml` 是**單一 OS-conditional 流程**，同時 fulfill Debian
+家族（Ubuntu）與 RHEL 家族（Rocky Linux）host，分支一律以 `ansible_facts['os_family']` 判斷，
+Debian 路徑維持不變。RHEL 專屬行為集中在 `k0s_prereq`、`k0s_host_preflight`、`k0s_worker_join`
+（皆 gated on `RedHat`），OS 中立的 kernel 網路前置（modules-load、bridge/forward sysctl）對兩族
+都持久化。
+
+RHEL（Rocky）額外處理（Ubuntu 不需要）：
+
+- **套件**：`dnf` 安裝 `conntrack-tools`、`iproute`、`iptables-nft`、`firewalld`；worker 另裝
+  `container-selinux`、`policycoreutils-python-utils`（`semanage`）。
+- **SELinux（Enforcing，不關閉）**：preflight 斷言 `getenforce == Enforcing`；worker 寫入
+  containerd v3 `enable_selinux` drop-in、以 `semanage fcontext` 標記 k0s 的 containerd/runc/CNI
+  路徑、建立並 `restorecon` CNI 目錄；worker join 後對 k0s 解壓出的 `/var/lib/k0s/bin`、
+  containerd 目錄 `restorecon` 再 `restart k0sworker`（僅新 worker）。
+- **firewalld（nftables backend）**：在 k0s 啟動前開 control-plane（2380/6443/8132/9443）與
+  worker（10250/179 tcp、4789 udp）埠、把 pod/service CIDR 加入 trusted zone、HA controller 開
+  `protocol vrrp`（供 k0s CPLB keepalived 廣播 API VIP）、worker 開 masquerade，最後 `--reload`
+  一次（此時尚無 kube-router 的 nft 規則，reload 安全）。
+
+**節點命名契約（跨 OS 一致）**：worker（與 `--enable-worker` 的 workload controller）以
+`--kubelet-extra-args=--hostname-override=<swallow node name>` 安裝，把 Kubernetes node 名固定為
+swallow 的短 hostname。這是必要的：RHEL/Rocky 的 OS hostname 是 FQDN（如 `lab-compute-1.maas`），
+若不覆寫，kubelet 會以 FQDN 註冊，而 readiness 等待與 membership sync 都以短名為 key，會誤判節點
+`NotFound`。Ubuntu 短名一致故行為不變。
+
+此流程已在 lab 以全 Rocky 10.2 的 3 controller + 4 worker HA k0s 驗證（platform active、4 worker
+Ready、membership matched 7/7）。cgroup v1 fallback、cri-dockerd、RHEL DNS nmcli fallback 與「單一
+cluster 內混合 OS」不在目前範圍。
+
+### 2.4 Uninstall 的 Job 分組（對稱於 deploy）
+
+Uninstall 與 deploy 一樣把 Task 以 `Task.Job` 分組，因此 API 的 `steps[].job` 與 dashboard 會用
+同一套 Job 分組（以及 per-Task events）呈現 uninstall，不再是扁平單一 step。分組由
+[`platform_deployment_adapter.go`](../../api-server/internal/app/platform_deployment_adapter.go)
+的 `uninstallSteps` 指派：
+
+| 情境 | Job | Task | Runner |
+| --- | --- | --- | --- |
+| 保留主機 | `uninstall-platform` | `uninstall-platform`（跑 `uninstall-<type>` playbook） | `ansible` |
+| Release 主機 | `release-servers` | 每台 `release-<serverId>`（Job 內並行） | `provisioner` |
+| Release 主機 | `finalize-uninstall` | `complete-uninstall`（`DependsOn` 全部 `release-*`） | `internal` |
+
+與 deploy 相同，Job 順序由 **cross-Job 的 `DependsOn`** 推導（`finalize-uninstall` 依賴
+`release-servers` 的全部 Task，故在其整包成功後才跑），執行時每個 Job 為一個 Temporal child
+workflow。events/live 本來就是 per-Task，故分組後即與 deploy 一致，無需另外處理。**一旦任一
+Task 帶 Job，所有 Task 都必須帶 Job**（Temporal 只要偵測到任一 Job 就切換到 child-Job 執行路徑，
+混用會把無 Job 的 Task 落到未命名桶）。Release 捷徑（略過 ansible）仍依 [ADR 022](../decisions/022-uninstall-release-shortcut.md)，
+此處只加 Job 邊界，不改步驟語意；legacy（無 Temporal）單步 uninstall 無 v3 Job。
+
 ## 3. Runners（執行機制）
 
 | Runner（glossary） | code 值 | 負責的 Task kind | 行為 |

@@ -35,8 +35,15 @@
   when: not k0s_worker_unit.stat.exists
 
 - name: Install the worker with the join token
+  # Pin the Kubernetes node name to the swallow node name (the MAAS short hostname) via
+  # --hostname-override. Without it the kubelet registers under the OS hostname, which on
+  # RHEL/Rocky is the FQDN (e.g. lab-compute-1.maas) rather than the short name Ubuntu uses;
+  # the readiness wait and membership sync both key on the short name, so the node would
+  # otherwise be reported NotFound. This makes node naming deterministic across OS families.
   ansible.builtin.command:
-    cmd: /usr/local/bin/k0s install worker --token-file /etc/k0s/join-token
+    cmd: >-
+      /usr/local/bin/k0s install worker --token-file /etc/k0s/join-token
+      --kubelet-extra-args=--hostname-override={{ k0s_node_name | default(inventory_hostname) }}
   become: true
   when: not k0s_worker_unit.stat.exists
   changed_when: true
@@ -48,6 +55,60 @@
     enabled: true
     daemon_reload: true
   become: true
+
+# On RHEL/Rocky, k0s extracts its bundled containerd/runc into /var/lib/k0s/bin at first
+# start; those files land unlabeled, so SELinux blocks containerd until they are relabeled.
+# The fcontext rules were installed during preflight; here we relabel the now-extracted
+# paths and restart the worker once. Only a brand-new worker needs this (idempotent).
+
+- name: Wait for embedded containerd extraction on new RHEL workers
+  ansible.builtin.wait_for:
+    path: /var/lib/k0s/bin/containerd
+    timeout: 120
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not k0s_worker_unit.stat.exists
+
+- name: Stat k0s paths that need SELinux relabeling on new RHEL workers
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /var/lib/k0s/bin
+    - /var/lib/k0s/containerd
+    - /etc/cni
+    - /opt/cni
+  register: k0s_worker_selinux_paths
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not k0s_worker_unit.stat.exists
+
+- name: Restore SELinux labels on the extracted k0s paths
+  ansible.builtin.command:
+    argv:
+      - restorecon
+      - -R
+      - -v
+      - "{{ item.item }}"
+  loop: "{{ k0s_worker_selinux_paths.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('skipped') }}"
+  become: true
+  register: k0s_worker_restorecon
+  changed_when: k0s_worker_restorecon.stdout | length > 0
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not k0s_worker_unit.stat.exists
+    - not (item.skipped | default(false))
+    - item.stat.exists | default(false)
+
+- name: Restart the new RHEL worker after labeling containerd
+  ansible.builtin.systemd:
+    name: k0sworker
+    state: restarted
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not k0s_worker_unit.stat.exists
 
 - name: Wait for the node to become Ready
   # k0s kubectl wait avoids the jsonpath-quote trap and tolerates the first CNI image pull,

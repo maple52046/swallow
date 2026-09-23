@@ -56,9 +56,9 @@ export function OperatorOperationDetailPage() {
   if (state.status === 'loading') return <LoadingState rows={7} />
   if (state.status === 'error') return <ErrorState message={state.message} />
   if (state.status === 'not-found') return <EmptyState title="Operation not found" />
-  const { operation, events, reload } = state.data
+  const { operation, events, reload, refreshError } = state.data
   if (isOrchestrationOperation(operation)) {
-    return <DurableOperationDetail operation={operation} reload={reload} />
+    return <DurableOperationDetail operation={operation} reload={reload} refreshError={refreshError} />
   }
   const terminal = isTerminalStatus(operation.execution.status)
   const details = (

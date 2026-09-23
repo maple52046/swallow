@@ -46,6 +46,23 @@ const (
 	jobConfigureSlurm = "configure-slurm"
 )
 
+// Uninstall Jobs group the uninstall Workflow's Tasks the same way the deploy Jobs group a
+// deployment (ADR 017), so the API `steps[].job` and the dashboard present uninstall with the
+// same Job grouping (and per-Task events) as deploy. Keeping the servers is a single
+// `uninstall-platform` Job that removes the platform software; releasing the servers is a
+// per-server `release-servers` Job followed by a `finalize-uninstall` Job that cleans the
+// Platform projections once every release succeeds. As with deploy, cross-Job `DependsOn`
+// (the finalize Task depending on all releases) drives the Job order at execution time.
+//
+// Assigning a Job to every uninstall Task is required, not cosmetic: the Temporal orchestrator
+// switches to the child-Job execution path as soon as any Task carries a Job, so a mix of
+// jobbed and job-less Tasks would place the job-less ones in an unnamed bucket.
+const (
+	jobUninstallPlatform = "uninstall-platform"
+	jobReleaseServers    = "release-servers"
+	jobFinalizeUninstall = "finalize-uninstall"
+)
+
 // platformDeploymentLauncher composes optional MAAS preparation and k0s automation into
 // one durable Operation while retaining the legacy launcher for unavailable Temporal.
 type platformDeploymentLauncher struct {
@@ -497,6 +514,7 @@ func uninstallSteps(
 	if !launch.ReleaseServers {
 		return []operationdomain.Task{{
 			ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: stepName,
+			Job:      jobUninstallPlatform,
 			Executor: operationdomain.RunnerKindAnsible, Targets: prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		}}
@@ -517,6 +535,7 @@ func uninstallSteps(
 		stepID := "release-" + serverID
 		steps = append(steps, operationdomain.Task{
 			ID: stepID, Kind: "release-os", Name: "Release " + serverID,
+			Job:        jobReleaseServers,
 			Executor:   operationdomain.RunnerKindProvisioner,
 			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(releaseInput)},
@@ -529,6 +548,7 @@ func uninstallSteps(
 	// restoration stays off (a released host is wiped).
 	steps = append(steps, operationdomain.Task{
 		ID: completeUninstallStepID, Kind: "complete-uninstall", Name: "Finalize platform uninstall",
+		Job:      jobFinalizeUninstall,
 		Executor: operationdomain.RunnerKindInternal, DependsOn: releaseDeps,
 		Targets: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 	})

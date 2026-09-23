@@ -31,10 +31,16 @@ import { OperationLogWorkspace } from './OperationLogWorkspace'
 interface DurableOperationDetailProps {
   operation: Operation
   reload: () => void
+  /**
+   * Set when a background poll failed while this last-good operation is still shown. Rendered as a
+   * non-blocking banner: the view keeps polling and recovers on its own, so a transient blip no
+   * longer collapses the page into an error that only a manual refresh escapes.
+   */
+  refreshError?: string
 }
 
 /** Unified, Step-first debugger for schema-v3 Operations. */
-export function DurableOperationDetail({ operation, reload }: DurableOperationDetailProps) {
+export function DurableOperationDetail({ operation, reload, refreshError }: DurableOperationDetailProps) {
   const { operations } = useApp()
   const { scopedHref } = useSiteScope()
   const { showToast } = useToast()
@@ -230,6 +236,12 @@ export function DurableOperationDetail({ operation, reload }: DurableOperationDe
           </>
         }
       />
+
+      {refreshError && (
+        <Alert status="warning" title="Live updates interrupted">
+          {refreshError} — retrying automatically; the data below may be briefly out of date.
+        </Alert>
+      )}
 
       <section className="sw-section">
         <SectionHeader title="Operation details" />
@@ -452,11 +464,16 @@ interface StepGroup {
   steps: OperationStep[]
 }
 
-// Human labels for the Jobs a platform deployment emits; an unknown Job id is humanized.
+// Human labels for the Jobs a platform deployment or uninstall emits; an unknown Job id is
+// humanized. Deploy Jobs provision then configure; uninstall Jobs either remove the platform
+// software (servers kept) or release every server in parallel and then finalize.
 const JOB_LABELS: Record<string, string> = {
   'ensure-os': 'Provision OS',
   'configure-k0s': 'Configure Kubernetes',
   'configure-slurm': 'Configure Slurm',
+  'uninstall-platform': 'Remove Platform Software',
+  'release-servers': 'Release Servers',
+  'finalize-uninstall': 'Finalize Uninstall',
 }
 
 function jobLabel(job: string): string {
@@ -470,15 +487,37 @@ function jobLabel(job: string): string {
 }
 
 /**
- * Groups Steps by their Job, preserving order and first-appearance sequence (which is dependency
- * order: ensure-os before the configure Job). Steps with no Job collapse into a single '' group the
- * caller renders flat, so legacy operations look unchanged.
+ * Resolves the group a Step belongs to. It prefers the backend-assigned `job`, but when a Step
+ * carries none it derives one from the Step id/kind, so operations whose Steps were persisted
+ * before Jobs were tagged still group in the UI exactly like a freshly-tagged one. This is what
+ * makes an uninstall group its Steps (release / finalize / remove-software) the same way a deploy
+ * groups its provision / configure Steps, without depending on the backend having tagged them.
+ */
+function stepJob(step: OperationStep): string {
+  if (step.job) return step.job
+  const { id, kind } = step
+  if (id.startsWith('provision-') || kind === 'provision-os') return 'ensure-os'
+  if (id === 'wait-for-ssh' || kind === 'wait-for-ssh') return 'ensure-os'
+  if (id === 'install-platform' || id === 'validate-platform' || kind === 'validate-platform-health') {
+    return 'configure-platform'
+  }
+  if (id.startsWith('release-') || kind === 'release-os') return 'release-servers'
+  if (id === 'complete-uninstall' || kind === 'complete-uninstall') return 'finalize-uninstall'
+  if (id === 'uninstall-platform') return 'uninstall-platform'
+  return ''
+}
+
+/**
+ * Groups Steps by their Job, preferring the backend Job and otherwise deriving it (see stepJob),
+ * preserving order and first-appearance sequence (which is dependency order: ensure-os before the
+ * configure Job; release before finalize). A Step whose group cannot be resolved collapses into a
+ * single '' group the caller renders flat.
  */
 function groupStepsByJob(steps: OperationStep[]): StepGroup[] {
   const order: string[] = []
   const byJob = new Map<string, OperationStep[]>()
   for (const step of steps) {
-    const job = step.job ?? ''
+    const job = stepJob(step)
     const existing = byJob.get(job)
     if (existing) {
       existing.push(step)

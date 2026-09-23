@@ -14,11 +14,31 @@
   when: ansible_facts['os_family'] == 'Debian'
 
 - name: Install conntrack on RHEL-family hosts
+  # conntrack-tools provides the `conntrack` CLI kube-proxy needs; iptables-nft and iproute
+  # give the userspace kube-router/kubelet rely on; firewalld is RHEL's managed firewall and
+  # is configured (not disabled) below so the node stays protected while k0s ports open.
   ansible.builtin.dnf:
     name:
       - conntrack-tools
       - kmod
       - util-linux
+      - iproute
+      - iptables-nft
+      - firewalld
     state: present
   become: true
   when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Install worker SELinux prerequisites on RHEL-family hosts
+  # container-selinux ships the container policy; policycoreutils-python-utils provides
+  # `semanage`, used later to label the k0s-managed containerd/CNI paths. Only workers run
+  # containers, so only they need these.
+  ansible.builtin.dnf:
+    name:
+      - container-selinux
+      - policycoreutils-python-utils
+    state: present
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - swallow_k0s_roles[inventory_hostname] | default('') == 'worker'

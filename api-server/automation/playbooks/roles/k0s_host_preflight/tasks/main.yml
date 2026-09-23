@@ -91,6 +91,293 @@
     - vxlan
   changed_when: false
 
+# ---- Persist kernel networking prerequisites (both OS families) ----
+# The modprobe loop above loads modules for this boot; these files make the module set and
+# the bridge/forwarding sysctls survive a reboot, which matters for a persistent-disk host.
+
+- name: Persist the required kernel modules
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k0s.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      overlay
+      br_netfilter
+      nf_tables
+      nf_conntrack
+      x_tables
+      xt_comment
+      xt_REDIRECT
+      ip_tables
+      iptable_nat
+      vxlan
+  become: true
+
+- name: Persist the required Kubernetes sysctls
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/90-k0s.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+  become: true
+
+- name: Apply the required Kubernetes sysctls
+  # br_netfilter was loaded by the modprobe task above, so the bridge-nf-call keys exist.
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - --load
+      - /etc/sysctl.d/90-k0s.conf
+  become: true
+  changed_when: true
+
+# ---- RHEL-family (Rocky) host hardening: SELinux + firewalld ----
+# Every task below is gated on the RedHat family, so the Debian/Ubuntu path is unchanged.
+# The role is taken from the swallow trusted var, which keys serverId -> role.
+
+- name: Resolve this host's k0s role and HA flag for RHEL hardening
+  ansible.builtin.set_fact:
+    k0s_pf_role: "{{ swallow_k0s_roles[inventory_hostname] | default('') }}"
+    k0s_pf_ha: "{{ swallow_k0s_high_availability | default(false) | bool }}"
+
+- name: Require SELinux Enforcing on RHEL-family hosts
+  # k0s runs with SELinux enabled on RHEL; a permissive/disabled host is a misconfiguration
+  # we refuse early rather than debugging denials after containerd starts.
+  ansible.builtin.command:
+    argv:
+      - getenforce
+  register: k0s_pf_selinux
+  changed_when: false
+  failed_when: k0s_pf_selinux.stdout | trim != 'Enforcing'
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Ensure the k0s containerd drop-in directory exists on RHEL workers
+  ansible.builtin.file:
+    path: /etc/k0s/containerd.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+- name: Enable containerd SELinux support on RHEL workers
+  ansible.builtin.copy:
+    dest: /etc/k0s/containerd.d/20-selinux.toml
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      version = 3
+
+      [plugins."io.containerd.cri.v1.runtime"]
+        enable_selinux = true
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+- name: Define the required SELinux file contexts for k0s worker paths
+  ansible.builtin.set_fact:
+    k0s_pf_fcontexts:
+      - {type: container_runtime_exec_t, path: "/var/lib/k0s/bin/containerd.*"}
+      - {type: container_runtime_exec_t, path: "/var/lib/k0s/bin/runc"}
+      - {type: container_var_lib_t, path: "/var/lib/k0s/containerd(/.*)?"}
+      - {type: container_ro_file_t, path: "/var/lib/k0s/containerd/io.containerd.snapshotter.*/snapshots(/.*)?"}
+      - {type: container_file_t, path: "/etc/cni/.*"}
+      - {type: container_file_t, path: "/opt/cni/.*"}
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+- name: Query existing SELinux file contexts
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    semanage fcontext -l -C |
+    awk '$1 == "{{ item.path }}" && $4 ~ ":{{ item.type }}:" { found=1 }
+    END { exit !found }'
+  args:
+    executable: /bin/bash
+  loop: "{{ k0s_pf_fcontexts | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: k0s_pf_fcontext_q
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+- name: Add missing SELinux file contexts
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - -a
+      - -t
+      - "{{ item.item.type }}"
+      - "{{ item.item.path }}"
+  loop: "{{ k0s_pf_fcontext_q.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.path | default('skipped') }}"
+  become: true
+  changed_when: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+    - not (item.skipped | default(false))
+    - item.rc != 0
+
+- name: Create CNI host paths on RHEL workers
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/cni/net.d
+    - /opt/cni/bin
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+- name: Apply SELinux labels to CNI host paths before the worker starts
+  ansible.builtin.command:
+    argv:
+      - restorecon
+      - -R
+      - -v
+      - "{{ item }}"
+  loop:
+    - /etc/cni
+    - /opt/cni
+  become: true
+  register: k0s_pf_cni_restorecon
+  changed_when: k0s_pf_cni_restorecon.stdout | length > 0
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+# firewalld is RHEL's managed firewall. Configure and open k0s ports here, before k0s
+# starts, so a single reload is safe: no kube-router nft rules exist yet to be flushed.
+
+- name: Force firewalld to use the nftables backend on RHEL hosts
+  ansible.builtin.lineinfile:
+    path: /etc/firewalld/firewalld.conf
+    regexp: '^FirewallBackend='
+    line: FirewallBackend=nftables
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Ensure firewalld is enabled and restarted to pick up the backend
+  ansible.builtin.systemd:
+    name: firewalld
+    state: restarted
+    enabled: true
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Open k0s control-plane ports (permanent)
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --zone=public
+      - "--add-port={{ item }}"
+  loop:
+    - 2380/tcp
+    - 6443/tcp
+    - 8132/tcp
+    - 9443/tcp
+  become: true
+  register: k0s_pf_fw_ctrl_ports
+  changed_when: "'ALREADY_ENABLED' not in k0s_pf_fw_ctrl_ports.stderr"
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'control-plane'
+
+- name: Open k0s worker ports (permanent)
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --zone=public
+      - "--add-port={{ item }}"
+  loop:
+    - 10250/tcp
+    - 179/tcp
+    - 4789/udp
+  become: true
+  register: k0s_pf_fw_wrk_ports
+  changed_when: "'ALREADY_ENABLED' not in k0s_pf_fw_wrk_ports.stderr"
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+- name: Trust the pod and service CIDRs (permanent)
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --zone=trusted
+      - "--add-source={{ item }}"
+  loop:
+    - "{{ swallow_k0s_pod_cidr }}"
+    - "{{ swallow_k0s_service_cidr }}"
+  become: true
+  register: k0s_pf_fw_sources
+  changed_when: "'ALREADY_ENABLED' not in k0s_pf_fw_sources.stderr"
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Allow VRRP on HA control-plane hosts (permanent)
+  # keepalived (k0s control-plane load balancing) advertises the API VIP over VRRP.
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --zone=public
+      - --add-protocol=vrrp
+  become: true
+  register: k0s_pf_fw_vrrp
+  changed_when: "'ALREADY_ENABLED' not in k0s_pf_fw_vrrp.stderr"
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'control-plane'
+    - k0s_pf_ha
+
+- name: Enable masquerade on workers (permanent)
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --zone=public
+      - --add-masquerade
+  become: true
+  register: k0s_pf_fw_masq
+  changed_when: "'ALREADY_ENABLED' not in k0s_pf_fw_masq.stderr"
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - k0s_pf_role == 'worker'
+
+- name: Reload firewalld to apply the k0s rules before start
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --reload
+  become: true
+  changed_when: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
 - name: Run the k0s host compatibility report
   ansible.builtin.command:
     argv:

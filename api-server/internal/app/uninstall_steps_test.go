@@ -19,7 +19,9 @@ func stepByID(steps []operationdomain.Task, id string) (operationdomain.Task, bo
 
 // TestUninstallStepsReleaseSkipsUninstall verifies the release path releases every server
 // directly (no uninstall-platform ansible step) and finalizes with an internal
-// complete-uninstall step that depends on all releases.
+// complete-uninstall step that depends on all releases. It also verifies the Job grouping
+// that mirrors deploy: every release Task is in the release-servers Job and the finalize Task
+// is in the finalize-uninstall Job, so the ordering is driven by cross-Job dependency.
 func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 	launch := platformdomain.UninstallLaunch{
 		Platform:        &platformdomain.Platform{ID: "platform-a", Name: "lab", Type: platformdomain.PlatformTypeSlurm},
@@ -42,6 +44,9 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 		if release.Kind != "release-os" || release.Executor != operationdomain.RunnerKindProvisioner {
 			t.Errorf("release step = %+v, want release-os/provisioner", release)
 		}
+		if release.Job != jobReleaseServers {
+			t.Errorf("release step Job = %q, want %q", release.Job, jobReleaseServers)
+		}
 		if len(release.DependsOn) != 0 {
 			t.Errorf("release step depends on %v, want no dependency (parallel)", release.DependsOn)
 		}
@@ -52,6 +57,9 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 	}
 	if finalize.Kind != "complete-uninstall" || finalize.Executor != operationdomain.RunnerKindInternal {
 		t.Errorf("finalize step = %+v, want complete-uninstall/internal", finalize)
+	}
+	if finalize.Job != jobFinalizeUninstall {
+		t.Errorf("finalize step Job = %q, want %q", finalize.Job, jobFinalizeUninstall)
 	}
 	if len(finalize.DependsOn) != len(launch.TargetServerIDs) {
 		t.Fatalf("finalize dependsOn = %v, want one per release", finalize.DependsOn)
@@ -69,8 +77,9 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 	}
 }
 
-// TestUninstallStepsKeepServersUsesAnsibleStep verifies the keep-servers path is unchanged: a
-// single uninstall-platform ansible step and no release or finalize steps.
+// TestUninstallStepsKeepServersUsesAnsibleStep verifies the keep-servers path is a single
+// uninstall-platform ansible step grouped in the uninstall-platform Job (so it is grouped like
+// deploy), with no release or finalize steps.
 func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	launch := platformdomain.UninstallLaunch{
 		Platform:        &platformdomain.Platform{ID: "platform-a", Name: "lab", Type: platformdomain.PlatformTypeKubernetes},
@@ -88,6 +97,9 @@ func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	}
 	if steps[0].ID != uninstallPlatformStepID || steps[0].Executor != operationdomain.RunnerKindAnsible {
 		t.Fatalf("step = %+v, want the uninstall-platform ansible step", steps[0])
+	}
+	if steps[0].Job != jobUninstallPlatform {
+		t.Errorf("keep-servers step Job = %q, want %q", steps[0].Job, jobUninstallPlatform)
 	}
 	if _, ok := stepByID(steps, completeUninstallStepID); ok {
 		t.Error("keep-servers uninstall must not add a finalize step")

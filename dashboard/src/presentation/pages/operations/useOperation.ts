@@ -5,6 +5,7 @@ import {
   isTerminalStatus,
   type Operation,
   type OperationEvents,
+  type OperationStatus,
 } from "@/domain/operation/types";
 
 /**
@@ -20,6 +21,13 @@ export interface OperationDetailData {
   events: OperationEvents | null;
   /** Manual refetch, e.g. after a retry navigates back to this view. */
   reload: () => void;
+  /**
+   * Set when a background poll failed while the last-good operation is still shown. The view
+   * keeps the previous data and keeps polling, so this is a non-blocking "live updates
+   * interrupted, retrying" notice rather than a page-replacing error. Cleared on the next
+   * successful poll.
+   */
+  refreshError?: string;
 }
 
 export type OperationDetailState =
@@ -47,13 +55,25 @@ export function useOperation(id: string | undefined): OperationDetailState {
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
   // Kept in a ref so the polling effect can read the latest status without re-subscribing.
-  const statusRef = useRef<string>("pending");
+  const statusRef = useRef<OperationStatus>("pending");
+  // The operation id we currently hold good data for. A poll failure only "keeps the last-good
+  // view" when it is for the operation already on screen; navigating to a different operation
+  // falls back to first-load semantics (loading, then error/not-found).
+  const loadedIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!id) return;
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+
+    // Reschedule the next poll while the run can still change, so a live view keeps updating and,
+    // after a failed poll, keeps trying until it recovers. A terminal run stops polling on its own.
+    const scheduleNext = () => {
+      if (!cancelled && !isTerminalStatus(statusRef.current)) {
+        timer = setTimeout(load, POLL_INTERVAL_MS);
+      }
+    };
 
     const load = () => {
       operations
@@ -67,21 +87,36 @@ export function useOperation(id: string | undefined): OperationDetailState {
         .then(({ operation, events }) => {
           if (cancelled) return;
           if (operation === null) {
+            // A 404 for an operation we are already showing is treated as a transient read gap:
+            // keep the last-good view and keep polling. Only an initial 404 is "not found".
+            if (loadedIdRef.current === id) {
+              scheduleNext();
+              return;
+            }
             setState({ status: "not-found" });
             return;
           }
           statusRef.current = operation.status ?? operation.execution.status;
+          loadedIdRef.current = id;
+          // A successful read replaces the data and clears any prior transient refresh error.
           setState({ status: "ready", data: { operation, events, reload } });
-          // Reschedule only while the run can still change, so a finished operation stops
-          // polling on its own.
-          if (
-            !isTerminalStatus(operation.status ?? operation.execution.status)
-          ) {
-            timer = setTimeout(load, POLL_INTERVAL_MS);
-          }
+          scheduleNext();
         })
         .catch((err: Error) => {
           if (cancelled) return;
+          // Once the operation has loaded, a failed poll (an expiring token, a backend restart, a
+          // network hiccup) must not collapse the live view into an error screen that only a manual
+          // refresh escapes. Keep the last-good data, surface a non-blocking notice, and keep
+          // polling so the page recovers on its own. Only a failed first load fails hard.
+          if (loadedIdRef.current === id) {
+            setState((current) =>
+              current.status === "ready"
+                ? { status: "ready", data: { ...current.data, refreshError: err.message } }
+                : current,
+            );
+            scheduleNext();
+            return;
+          }
           setState({ status: "error", message: err.message });
         });
     };
