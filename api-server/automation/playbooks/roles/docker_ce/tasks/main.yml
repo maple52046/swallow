@@ -1,0 +1,157 @@
+---
+# Install or remove Docker CE. OS-aware and builtin-only: Debian/Ubuntu use apt + the Docker apt
+# repository; RHEL family (Rocky/RHEL/Alibaba Cloud Linux) use dnf + the Docker CE yum repository.
+# Idempotent: a converged host produces no changes. os_family branching mirrors the platform
+# playbooks, so one software kind serves both image families under one Site.
+#
+# This role is the single source of the Docker CE install path so the standalone software deploy and
+# any future platform composition (for example a Kubernetes Docker runtime) share one implementation.
+
+- name: Install Docker CE (Debian family)
+  when: docker_ce_state == 'present' and ansible_facts['os_family'] == 'Debian'
+  become: true
+  block:
+    - name: Ensure prerequisite packages are present
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 300
+      register: docker_ce_prereqs
+      until: docker_ce_prereqs is succeeded
+      retries: 60
+      delay: 5
+
+    - name: Ensure the apt keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the Docker CE apt GPG key
+      # Idempotent: only writes when the dearmored key differs. The key is fetched once and
+      # dearmored into the keyring the apt source below references by signed-by.
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+
+    - name: Register the Docker CE apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ docker_ce_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_distribution | lower }}
+          {{ ansible_distribution_release }} stable
+        filename: docker
+        state: present
+        update_cache: true
+
+    - name: Install Docker CE packages (apt)
+      # An empty docker_ce_version installs the latest available; a pinned version applies the
+      # "=<version>" apt selector to every package so a redeploy converges to that version.
+      ansible.builtin.apt:
+        name: >-
+          {{ docker_ce_packages
+             if (docker_ce_version | length == 0)
+             else (docker_ce_packages | map('regex_replace', '$', '=' ~ docker_ce_version) | list) }}
+        state: present
+        update_cache: true
+        lock_timeout: 300
+      register: docker_ce_apt_install
+      until: docker_ce_apt_install is succeeded
+      retries: 60
+      delay: 5
+
+- name: Install Docker CE (RHEL family)
+  when: docker_ce_state == 'present' and ansible_facts['os_family'] == 'RedHat'
+  become: true
+  block:
+    - name: Ensure dnf config-manager is available
+      ansible.builtin.dnf:
+        name: dnf-plugins-core
+        state: present
+      register: docker_ce_dnf_plugins
+      until: docker_ce_dnf_plugins is succeeded
+      retries: 60
+      delay: 5
+
+    - name: Register the Docker CE yum repository
+      # The centos repo serves the RHEL-compatible packages Rocky/RHEL use; $releasever/$basearch
+      # resolve to this host's major version and architecture so the right el<N> packages are pulled.
+      ansible.builtin.yum_repository:
+        name: docker-ce-stable
+        description: Docker CE Stable - $basearch
+        baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://download.docker.com/linux/centos/gpg
+
+    - name: Install Docker CE packages (dnf)
+      # Version pinning is honoured for apt; on dnf the latest available in the repo is installed,
+      # which is sufficient for the supported first-cut cases.
+      ansible.builtin.dnf:
+        name: "{{ docker_ce_packages }}"
+        state: present
+      register: docker_ce_dnf_install
+      until: docker_ce_dnf_install is succeeded
+      retries: 60
+      delay: 5
+
+- name: Enable and start the Docker service
+  when: docker_ce_state == 'present'
+  become: true
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Remove Docker CE (Debian family)
+  when: docker_ce_state == 'absent' and ansible_facts['os_family'] == 'Debian'
+  become: true
+  block:
+    - name: Stop and disable the Docker service
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Remove Docker CE packages (apt)
+      ansible.builtin.apt:
+        name: "{{ docker_ce_packages }}"
+        state: absent
+        purge: false
+        lock_timeout: 300
+      register: docker_ce_apt_remove
+      until: docker_ce_apt_remove is succeeded
+      retries: 60
+      delay: 5
+
+- name: Remove Docker CE (RHEL family)
+  when: docker_ce_state == 'absent' and ansible_facts['os_family'] == 'RedHat'
+  become: true
+  block:
+    - name: Stop and disable the Docker service
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Remove Docker CE packages (dnf)
+      ansible.builtin.dnf:
+        name: "{{ docker_ce_packages }}"
+        state: absent
+      register: docker_ce_dnf_remove
+      until: docker_ce_dnf_remove is succeeded
+      retries: 60
+      delay: 5

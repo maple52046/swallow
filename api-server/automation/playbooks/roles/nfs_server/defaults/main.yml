@@ -1,0 +1,14 @@
+---
+# nfs_server role defaults. state=present installs the NFS server and exports the configured
+# path; state=absent removes the export (leaving the OS and any data intact).
+nfs_server_state: present
+
+# Exported directory and its options. Resolved from trusted vars by the playbook; sane export
+# defaults keep a remote root squashed.
+nfs_server_export_path: "{{ swallow_nfs_export_path | default('/export/data', true) }}"
+nfs_server_export_options: "{{ swallow_nfs_export_options | default('rw,sync,no_subtree_check,root_squash', true) }}"
+
+# Every client's connection address, derived from the serverIds carrying the client role so the
+# export is scoped to the batch rather than the world.
+nfs_server_client_hosts: >-
+  {{ groups['nfs_client_True'] | default([]) | map('extract', hostvars, 'ansible_host') | list }}

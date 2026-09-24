@@ -14,6 +14,18 @@ Workflow / Job / Task / Runner 語言，落成「swallow 如何佈署一個 plat
 > 與 trusted-vars 契約、並在 manifest 註冊**；OS 佈署、SSH 就緒、credential 記錄等骨架由
 > swallow 提供並重用，不必為每個 platform 重寫。
 
+> **與 software deployment 的分界**：platform 的 deploy target 是**由多個 component 組成的 runtime
+> 整體**；單一軟體（Docker CE、Podman、NFS…）的安裝屬於 **software deployment**（見
+> [software-deployment.md](software-deployment.md) 與 [decision 038](../decisions/038-software-deployment.md)）。
+> 分界是 deploy target 的粒度，不是有沒有碰 OS provisioning。platform 需要某個軟體 component 時，
+> **把該 software 的 Job 組入自己的 parent Workflow**（cross-Job `DependsOn`、共用 roles），
+> **不得** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow，也不得只靠 `include_role` 連動。
+>
+> **Slurm NFS 現況（過渡）**：Slurm 的 HA state 與 workload NFS 目前仍內嵌在 `slurm_*` roles
+> （`slurm_state_server`、`slurm_controller_state`、`slurm_workload_storage_*`），**尚未**改用 generic
+> software NFS。把它抽成可被 Slurm 組入的 `configure-nfs` Job 是後續 slice；在那之前，**generic NFS
+> ≠ Slurm managed state NFS**，兩者不可混為一談。
+
 ## 讀者與使用方式
 
 - **開發者**：理解 deployment pipeline、擴充或除錯 orchestration、撰寫新的 platform playbook。
@@ -167,7 +179,7 @@ Task 帶 Job，所有 Task 都必須帶 Job**（Temporal 只要偵測到任一 J
 
 | Runner（glossary） | code 值 | 負責的 Task kind | 行為 |
 | --- | --- | --- | --- |
-| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`noop` | swallow 自身邏輯：TCP 探測 SSH 就緒（20 分鐘上限）、輪詢 membership 驗證 |
+| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`noop` | swallow 自身邏輯：**驗證式 SSH 就緒**（以站台 automation 金鑰對每台 target 實際完成 SSH 認證、SSH 使用者為 per-host candidate 解析，非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
 | `ansible` | `ansible` | `ansible-playbook` | 在遠端主機跑一支 manifest 註冊的 idempotent playbook |
 | `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 vendor adapter（MAAS/Ironic）驅動 OS provisioning，含佈署後 SSH 就緒 |
 
@@ -278,6 +290,32 @@ host-key 驗證**不可關閉**。workflow 於 ansible run 前**自行 `ssh-keys
 host key、與站台靜態 `knownHosts` 合併後釘住當次執行（bounded trust-on-first-use，範圍限於本次
 操作自己的 targets）。因此 `provision_os`（重裝產生全新 host key）與 `existing_os` 一致，且無需
 operator 維護 `knownHosts`。
+
+### 4.6.1 SSH readiness 是「驗證式」，SSH 使用者為 per-host 解析
+
+`wait-for-ssh`（`internal` runner）**不只**確認 22 埠可連，而是以站台 automation 私鑰對每台 target
+**實際完成一次 SSH 認證**。目的：把「埠通」與「登得進去」分開——一台 host 若其登入帳號未授權
+automation 公鑰，readiness 會直接失敗，而不是讓 ansible step 稍後才以 `Permission denied (publickey)`
+失敗。
+
+**per-host SSH 使用者（candidate 解析）**：不同 OS image 的預設登入帳號不同（ubuntu image 用
+`ubuntu`、swallow 自訂 image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線帳號改為
+**per-host 解析**：以候選清單 `[站台 sshUser, cloud-user, ubuntu]`（站台值優先、去重）逐一用金鑰嘗試
+登入，第一個成功者即該台帳號。inventory 本來就是 per-host（`ansible_user` 寫在每台 hostvar），所以
+混用不同 image family 的機群可在同一 site、甚至同一批次部署，不需手動切換 `sshUser`（單一 image 的
+既有站台行為不變，因為站台值仍為第一候選）。實作見
+[`sshprobe`](../../api-server/internal/shared/sshprobe/sshprobe.go)，套用點為 ansible 執行前的
+[`local_runner`](../../api-server/internal/operation/infra/local_runner.go) 與 `wait-for-ssh`。
+
+- **auth 失敗會 fail fast**：所有候選帳號都被拒（publickey）不會靠等待自行修好，因此在一段短暫的
+  grace（約 45 秒，容忍剛佈署後 cloud-init 尚未寫入 `authorized_keys` 的競態）後就以
+  `ssh_authentication_failed`（stage `ssh_authentication`，retryable）結束，訊息列出被拒的 host 與試過
+  的候選帳號，並提示「授權 automation 公鑰給該 image 的登入帳號後重試」。
+- **still-booting 仍用完整 readiness window**：純連線層失敗（TCP、handshake 前）或尚未觀測到位址者，
+  沿用 20 分鐘上限持續輪詢。
+- 認證探測只送出**簽章、不送私鑰**；host-key 的權威驗證仍由 ansible run（§4.6）負責，故此探測本身
+  不做 host-key 驗證。此行為對 platform 的 `ensure-os` 與 software deployment 的 `prepare-hosts`
+  一致。
 
 ### 4.7 冪等、失敗與重試語意
 

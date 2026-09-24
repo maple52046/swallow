@@ -1,0 +1,32 @@
+---
+# Install or remove Podman from the distribution repository. builtin-only. Idempotent: a
+# converged host produces no changes. Podman is daemonless, so unlike Docker there is no
+# service to enable — installing the package is the whole install.
+
+- name: Install Podman
+  when: podman_state == 'present'
+  become: true
+  ansible.builtin.apt:
+    name: >-
+      {{ 'podman' if (podman_version | length == 0) else ('podman=' ~ podman_version) }}
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  register: podman_install
+  until: podman_install is succeeded
+  retries: 60
+  delay: 5
+
+- name: Remove Podman
+  when: podman_state == 'absent'
+  become: true
+  ansible.builtin.apt:
+    name: podman
+    state: absent
+    purge: false
+    lock_timeout: 300
+  register: podman_remove
+  until: podman_remove is succeeded
+  retries: 60
+  delay: 5

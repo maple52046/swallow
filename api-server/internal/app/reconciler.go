@@ -8,6 +8,7 @@ import (
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	softwareapp "github.com/maple52046/swallow/internal/software/application"
 )
 
 // runReconciler polls every enabled provisioner on an interval until ctx is cancelled.
@@ -132,6 +133,31 @@ func runMembershipSync(ctx context.Context, membership *platformapp.MembershipSy
 			return
 		case <-ticker.C:
 			syncMembershipOnce(ctx, membership)
+		}
+	}
+}
+
+// runSoftwareAssignmentSweep enforces the OS-lifecycle invariant that a Software Assignment must
+// not outlive the software on disk (decision 038): when a Server leaves `deployed`, its assignments
+// are marked absent. It shares the reconcile cadence because an assignment only needs revisiting
+// after a reconcile pass changed a Server's provisioning state.
+func runSoftwareAssignmentSweep(ctx context.Context, sweeper *softwareapp.SoftwareAssignmentSweeper, interval time.Duration) {
+	sweepOnce := func() {
+		if err := sweeper.Execute(ctx); err != nil {
+			log.Printf("software assignments: sweep failed: %v", err)
+		}
+	}
+
+	sweepOnce()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("software assignment sweep stopped")
+			return
+		case <-ticker.C:
+			sweepOnce()
 		}
 	}
 }

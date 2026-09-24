@@ -1,0 +1,13 @@
+---
+# Remove Docker CE that swallow installed as Managed Software, leaving the host OS intact
+# (docs/development/software-deployment.md). Idempotent: a host without Docker reruns with no
+# changes. It stops and disables the daemon and removes the Docker CE packages; swallow marks
+# the Software Assignment absent on success.
+
+- name: Uninstall Docker CE
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: docker_ce
+      vars:
+        docker_ce_state: absent

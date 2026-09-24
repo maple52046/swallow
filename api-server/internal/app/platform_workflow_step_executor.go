@@ -2,18 +2,24 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/sshprobe"
+	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
 // platformUninstallFinalizer clears a Platform's projections after a successful uninstall.
@@ -33,7 +39,16 @@ type platformWorkflowStepExecutor struct {
 	membership         *platformapp.MembershipSyncUseCase
 	finalizer          platformUninstallFinalizer
 	imageVerifications provisioningdomain.OSImageVerificationRepository
-	poll               time.Duration
+	// software marks Software Assignments installed/absent from the software Workflow's internal
+	// record step (decision 038). Nil disables the software record kinds.
+	software softwaredomain.AssignmentRepository
+	// sshProber performs the authenticated SSH readiness probe for wait-for-ssh. Nil uses the
+	// x/crypto/ssh client; tests inject a fake to exercise readiness without a live SSH server.
+	sshProber sshprobe.Prober
+	// sshAuthGrace overrides how long a reachable-but-rejecting host is tolerated before failing
+	// fast on authentication. Zero uses sshAuthGracePeriod; tests set it small.
+	sshAuthGrace time.Duration
+	poll         time.Duration
 }
 
 func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
@@ -50,6 +65,10 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 		return e.recordImageVerification(ctx, input)
 	case "record-image-verification-failure":
 		return e.recordImageVerificationFailure(ctx, input)
+	case "record-software-assignment":
+		return e.recordSoftwareAssignment(ctx, input, softwaredomain.StateInstalled)
+	case "clear-software-assignment":
+		return e.recordSoftwareAssignment(ctx, input, softwaredomain.StateAbsent)
 	default:
 		return internalStepFailed("unsupported_internal_step", "The internal Step kind is not supported.", false)
 	}
@@ -132,8 +151,56 @@ func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, pla
 	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 }
 
+// recordSoftwareAssignment is the software Workflow's internal record step (decision 038): on a
+// successful install it marks each target's Software Assignment installed, and on a successful
+// uninstall it marks it absent. It is idempotent — a retried step re-applies the same terminal
+// state — and it tolerates a missing assignment (a not-yet-written pending record) as a no-op so a
+// benign race cannot fail the run. A write failure is retryable because the software work already
+// succeeded; only the record is missing.
+func (e platformWorkflowStepExecutor) recordSoftwareAssignment(ctx context.Context, input temporalworkflow.StepExecutionInput, state softwaredomain.AssignmentState) temporalworkflow.StepExecutionResult {
+	if e.software == nil {
+		return internalStepFailed("software_record_unavailable", "Software assignment recording is unavailable.", false)
+	}
+	kind, _ := input.Step.Parameters["softwareKind"].(string)
+	if kind == "" {
+		return internalStepFailed("software_record_invalid", "The software record Step is missing its software kind.", false)
+	}
+	var appliedAt *time.Time
+	if state == softwaredomain.StateInstalled {
+		now := time.Now().UTC()
+		appliedAt = &now
+	}
+	for _, serverID := range coerceStringSlice(input.Step.Parameters["serverIds"]) {
+		err := e.software.SetState(ctx, serverID, softwaredomain.Kind(kind), state, input.OperationID, appliedAt)
+		if err != nil && !errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
+			return internalStepFailed("software_record_write_failed", err.Error(), true)
+		}
+	}
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+}
+
+// sshAuthGracePeriod is how long a reachable-but-rejecting host is tolerated before wait-for-ssh
+// fails fast on authentication. A freshly provisioned host can briefly answer on port 22 before
+// cloud-init has written the automation key to authorized_keys, so a transient publickey rejection
+// is not treated as fatal immediately; a rejection that persists past this window is a real
+// credential problem (the key is not authorized for the SSH user) that will never fix itself by
+// waiting, so it is surfaced now instead of at the far slower playbook timeout.
+const sshAuthGracePeriod = 45 * time.Second
+
+// waitForSSH blocks until every target host is not just reachable on the SSH port but actually
+// accepts the site automation key as one of the candidate login users. Authenticating here (rather
+// than only probing TCP) closes the gap where "SSH verified" meant only "port open": a host whose
+// SSH user does not authorize the automation key now fails at this step with a clear credential
+// message, instead of connecting far later in the Ansible Step and failing with a raw
+// "Permission denied (publickey)". Because OS images use different default users, it tries a
+// candidate list (site user first, then swallow's built-ins) so a mixed-image fleet still passes
+// readiness. A rejected key is failed fast (after a short grace for cloud-init), while a
+// still-booting host keeps the full readiness window. When no automation credential is wired (only
+// in tests), it degrades to a TCP-reachability probe.
 func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	port := 22
+	user := ""
+	var signer ssh.Signer
 	if e.configurations != nil {
 		configuration, err := e.configurations.FindBySiteID(ctx, input.SiteID)
 		if err != nil {
@@ -142,26 +209,69 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 		if configuration.SSHPort > 0 {
 			port = configuration.SSHPort
 		}
+		user = configuration.SSHUser
+		credential, err := e.configurations.Credential(ctx, input.SiteID)
+		if err != nil {
+			return internalStepFailed("ssh_credential_unavailable", err.Error(), true)
+		}
+		if strings.TrimSpace(credential.SSHPrivateKey) != "" {
+			parsed, parseErr := sshprobe.ParseSigner(credential.SSHPrivateKey)
+			if parseErr != nil {
+				// A malformed key can never authenticate, so waiting is pointless; fail with a clear,
+				// non-retryable reason pointing at the site automation credential.
+				return internalStepFailed("ssh_key_invalid",
+					"The site automation SSH private key could not be parsed: "+parseErr.Error(), false)
+			}
+			signer = parsed
+		}
 	}
-	poll := e.pollInterval()
-	ticker := time.NewTicker(poll)
+	// Authenticated readiness needs a usable key; without one (unconfigured automation, reached only
+	// in tests) the probe degrades to TCP reachability.
+	authenticate := signer != nil
+	candidates := sshprobe.Candidates(user)
+	prober := e.sshProber
+	if prober == nil {
+		prober = sshprobe.DefaultProber{}
+	}
+
+	grace := e.sshAuthGrace
+	if grace <= 0 {
+		grace = sshAuthGracePeriod
+	}
+	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
 	deadline := time.NewTimer(20 * time.Minute)
 	defer deadline.Stop()
 
+	var firstAuthFailureAt time.Time
 	for {
-		missingAddresses, unreachable, err := e.unreachableTargets(ctx, input.Step, port)
+		observation, err := e.probeReadiness(ctx, input.Step, port, signer, prober, candidates, authenticate)
 		if err != nil {
 			return internalStepFailed("ssh_readiness_unavailable", err.Error(), true)
 		}
-		if len(missingAddresses) == 0 && len(unreachable) == 0 {
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+		if len(observation.authFailed) > 0 {
+			if firstAuthFailureAt.IsZero() {
+				firstAuthFailureAt = time.Now()
+			}
+			// Fail fast once the rejection has outlasted the cloud-init grace: the key is genuinely
+			// not authorized for any candidate user, so waiting the full readiness window would only
+			// delay the same result.
+			if time.Since(firstAuthFailureAt) >= grace {
+				failure := internalStepFailed("ssh_authentication_failed", sshAuthFailedMessage(observation.authFailed, candidates), true)
+				failure.Error.Stage = "ssh_authentication"
+				return failure
+			}
+		} else {
+			firstAuthFailureAt = time.Time{}
+			if len(observation.missing) == 0 && len(observation.unreachable) == 0 {
+				return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+			}
 		}
 		select {
 		case <-ctx.Done():
 			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
-			failure := internalStepFailed("ssh_readiness_timeout", sshReadinessTimeoutMessage(missingAddresses, unreachable, port), true)
+			failure := internalStepFailed("ssh_readiness_timeout", sshReadinessTimeoutMessage(observation, port, candidates), true)
 			failure.Error.Stage = "ssh_readiness"
 			return failure
 		case <-ticker.C:
@@ -169,15 +279,34 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 	}
 }
 
-// unreachableTargets probes the latest Server projections and keeps absent provider
-// addresses separate from failed TCP probes. Calls are bounded to eight concurrent dials;
-// repository failures abort the observation instead of being misreported as host failures.
-func (e platformWorkflowStepExecutor) unreachableTargets(ctx context.Context, step operationdomain.Task, port int) ([]string, []string, error) {
+// readinessObservation buckets one polling pass over the targets so the caller can decide whether to
+// keep waiting (missing address or still booting), fail fast (authentication rejected), or succeed.
+type readinessObservation struct {
+	missing     []string
+	unreachable []string
+	authFailed  []string
+}
+
+// probeReadiness classifies every target in one pass. It reads the latest Server projection for each
+// target (so a target that became deployed since the last pass is now probed) and then, for a
+// deployed target with an address, resolves the SSH login user from the candidate list. Calls are
+// bounded to eight concurrent probes; a repository failure aborts the pass rather than being
+// misreported as a host failure. When authenticate is false the probe degrades to TCP reachability
+// and never reports an auth failure.
+func (e platformWorkflowStepExecutor) probeReadiness(
+	ctx context.Context,
+	step operationdomain.Task,
+	port int,
+	signer ssh.Signer,
+	prober sshprobe.Prober,
+	candidates []string,
+	authenticate bool,
+) (readinessObservation, error) {
+	// bucket labels: "ready" needs no tracking; the rest map to the observation fields.
 	type probe struct {
-		name           string
-		reachable      bool
-		missingAddress bool
-		err            error
+		name   string
+		bucket string
+		err    error
 	}
 	results := make(chan probe, len(step.Targets))
 	semaphore := make(chan struct{}, 8)
@@ -188,16 +317,16 @@ func (e platformWorkflowStepExecutor) unreachableTargets(ctx context.Context, st
 		}
 		server, err := e.servers.FindByID(ctx, target.ID)
 		if err != nil {
-			return nil, nil, err
+			return readinessObservation{}, err
 		}
 		name := server.DisplayName()
 		address := server.PrimaryAddress()
 		if address == "" {
-			results <- probe{name: name, missingAddress: true}
+			results <- probe{name: name, bucket: "missing"}
 			continue
 		}
 		if server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed" {
-			results <- probe{name: name}
+			results <- probe{name: name, bucket: "unreachable"}
 			continue
 		}
 		wait.Add(1)
@@ -210,43 +339,83 @@ func (e platformWorkflowStepExecutor) unreachableTargets(ctx context.Context, st
 				results <- probe{name: name, err: ctx.Err()}
 				return
 			}
-			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-			defer cancel()
-			connection, dialErr := (&net.Dialer{}).DialContext(probeCtx, "tcp", net.JoinHostPort(address, fmt.Sprintf("%d", port)))
-			if connection != nil {
-				_ = connection.Close()
+			if !authenticate {
+				probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+				defer cancel()
+				connection, dialErr := (&net.Dialer{}).DialContext(probeCtx, "tcp", net.JoinHostPort(address, strconv.Itoa(port)))
+				if connection != nil {
+					_ = connection.Close()
+				}
+				if dialErr != nil {
+					results <- probe{name: name, bucket: "unreachable"}
+				} else {
+					results <- probe{name: name, bucket: "ready"}
+				}
+				return
 			}
-			results <- probe{name: name, reachable: dialErr == nil}
+			// Trying every candidate can take a few handshakes, so allow a wider timeout than a
+			// single probe.
+			probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			_, outcome := sshprobe.Resolve(probeCtx, prober, address, port, signer, candidates)
+			switch outcome {
+			case sshprobe.Ready:
+				results <- probe{name: name, bucket: "ready"}
+			case sshprobe.AuthFailed:
+				results <- probe{name: name, bucket: "authFailed"}
+			default:
+				results <- probe{name: name, bucket: "unreachable"}
+			}
 		}()
 	}
 	wait.Wait()
 	close(results)
-	missingAddresses := []string{}
-	unreachable := []string{}
+
+	observation := readinessObservation{missing: []string{}, unreachable: []string{}, authFailed: []string{}}
 	for result := range results {
 		if result.err != nil && ctx.Err() != nil {
-			return nil, nil, result.err
+			return readinessObservation{}, result.err
 		}
-		if result.missingAddress {
-			missingAddresses = append(missingAddresses, result.name)
-		} else if !result.reachable {
-			unreachable = append(unreachable, result.name)
+		switch result.bucket {
+		case "ready":
+			// Ready targets need no bucket.
+		case "authFailed":
+			observation.authFailed = append(observation.authFailed, result.name)
+		case "missing":
+			observation.missing = append(observation.missing, result.name)
+		default:
+			observation.unreachable = append(observation.unreachable, result.name)
 		}
 	}
-	sort.Strings(missingAddresses)
-	sort.Strings(unreachable)
-	return missingAddresses, unreachable, nil
+	sort.Strings(observation.missing)
+	sort.Strings(observation.unreachable)
+	sort.Strings(observation.authFailed)
+	return observation, nil
 }
 
-// sshReadinessTimeoutMessage separates missing provider observations from a closed or
-// unreachable SSH port so operators know whether to inspect DHCP/addressing or the host.
-func sshReadinessTimeoutMessage(missingAddresses, unreachable []string, port int) string {
-	parts := make([]string, 0, 2)
-	if len(missingAddresses) > 0 {
-		parts = append(parts, fmt.Sprintf("No provider address was observed after OS deployment for: %s.", strings.Join(missingAddresses, ", ")))
+// sshAuthFailedMessage explains a fail-fast authentication rejection so the operator fixes the
+// credential rather than the network: the host is reachable but does not authorize the automation
+// key for any candidate login user.
+func sshAuthFailedMessage(authFailed []string, candidates []string) string {
+	return fmt.Sprintf(
+		"SSH authentication failed for: %s. The host is reachable but rejected the site automation SSH key (publickey) for every candidate login user (%s). "+
+			"Authorize the site automation public key for the image's login user on the target (via the deployment template's cloud-init or the provisioner's SSH keys), then retry this Step.",
+		strings.Join(authFailed, ", "), strings.Join(candidates, ", "))
+}
+
+// sshReadinessTimeoutMessage separates missing provider observations from a host that never became
+// reachable so operators know whether to inspect DHCP/addressing or the host itself. Any host still
+// failing authentication at the deadline is reported as a credential problem.
+func sshReadinessTimeoutMessage(observation readinessObservation, port int, candidates []string) string {
+	parts := make([]string, 0, 3)
+	if len(observation.missing) > 0 {
+		parts = append(parts, fmt.Sprintf("No provider address was observed after OS deployment for: %s.", strings.Join(observation.missing, ", ")))
 	}
-	if len(unreachable) > 0 {
-		parts = append(parts, fmt.Sprintf("SSH port %d did not become reachable for: %s.", port, strings.Join(unreachable, ", ")))
+	if len(observation.unreachable) > 0 {
+		parts = append(parts, fmt.Sprintf("SSH port %d did not become reachable for: %s.", port, strings.Join(observation.unreachable, ", ")))
+	}
+	if len(observation.authFailed) > 0 {
+		parts = append(parts, fmt.Sprintf("SSH authentication was rejected (tried %s) for: %s.", strings.Join(candidates, ", "), strings.Join(observation.authFailed, ", ")))
 	}
 	return strings.Join(parts, " ")
 }

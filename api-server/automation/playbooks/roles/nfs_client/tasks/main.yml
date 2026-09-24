@@ -1,0 +1,85 @@
+---
+# Mount or unmount a generic NFS share on this client. builtin-only, fail-closed on mount
+# (fstab entry + guarded mount + mountpoint verify), mirroring slurm_workload_storage_client but
+# without any daemon guard. Idempotent: an already-mounted share reruns with no changes.
+
+- name: Mount the NFS share
+  when: nfs_client_state == 'present'
+  become: true
+  block:
+    - name: Validate the NFS source is set
+      ansible.builtin.fail:
+        msg: "nfs client on {{ inventory_hostname }} has no source (host:/path)"
+      when: nfs_client_source | length == 0
+
+    - name: Ensure NFS client support is present
+      ansible.builtin.apt:
+        name: nfs-common
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 300
+      register: nfs_client_package
+      until: nfs_client_package is succeeded
+      retries: 60
+      delay: 5
+
+    - name: Ensure the mount directory exists
+      ansible.builtin.file:
+        path: "{{ nfs_client_mount_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Register the mount in fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^[^ \t]+[ \t]+{{ nfs_client_mount_path | regex_escape }}[ \t]'
+        line: "{{ nfs_client_source }} {{ nfs_client_mount_path }} nfs {{ nfs_client_mount_options }} 0 0"
+        state: present
+        create: true
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Check whether the share is already mounted
+      ansible.builtin.command:
+        argv: [mountpoint, -q, "{{ nfs_client_mount_path }}"]
+      register: nfs_client_mountcheck
+      changed_when: false
+      failed_when: false
+
+    - name: Mount the share
+      ansible.builtin.command:
+        argv: [mount, "{{ nfs_client_mount_path }}"]
+      when: nfs_client_mountcheck.rc != 0
+      changed_when: true
+
+    - name: Verify the share is mounted
+      ansible.builtin.command:
+        argv: [mountpoint, -q, "{{ nfs_client_mount_path }}"]
+      changed_when: false
+
+- name: Unmount the NFS share
+  when: nfs_client_state == 'absent'
+  become: true
+  block:
+    - name: Check whether the share is mounted
+      ansible.builtin.command:
+        argv: [mountpoint, -q, "{{ nfs_client_mount_path }}"]
+      register: nfs_client_mountcheck_remove
+      changed_when: false
+      failed_when: false
+
+    - name: Unmount the share
+      ansible.builtin.command:
+        argv: [umount, "{{ nfs_client_mount_path }}"]
+      when: nfs_client_mountcheck_remove.rc == 0
+      changed_when: true
+
+    - name: Remove the fstab entry
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^[^ \t]+[ \t]+{{ nfs_client_mount_path | regex_escape }}[ \t]'
+        state: absent

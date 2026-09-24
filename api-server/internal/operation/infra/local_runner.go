@@ -14,7 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	"github.com/maple52046/swallow/internal/shared/sshprobe"
 )
 
 // LocalRunner executes the pinned ansible-runner binary without a shell.
@@ -23,6 +26,11 @@ type LocalRunner struct {
 	projectRoot  string
 	runtimeRoot  string
 	artifactRoot string
+	// userProber, when set, resolves each host's SSH login user by probing candidate users with the
+	// automation key, so a fleet mixing OS image families (which use different default users, e.g.
+	// "ubuntu" vs "cloud-user") connects per host instead of being forced to one Site user. Nil keeps
+	// the single-user behaviour (ansible_user = Site sshUser), which unit tests rely on.
+	userProber sshprobe.Prober
 }
 
 // NewLocalRunner constructs a runner whose mutable and persistent roots are explicit.
@@ -32,6 +40,10 @@ func NewLocalRunner(command, projectRoot, runtimeRoot, artifactRoot string) *Loc
 		runtimeRoot: runtimeRoot, artifactRoot: artifactRoot,
 	}
 }
+
+// AttachUserProber enables per-host SSH-user resolution. Production wires the default x/crypto/ssh
+// prober; tests leave it nil (single-user) or inject a fake so they need no live SSH server.
+func (r *LocalRunner) AttachUserProber(prober sshprobe.Prober) { r.userProber = prober }
 
 // resultFileVar names the extra var that tells a playbook where to write its captured
 // result. The path is inside the private runtime directory, so a credential written there
@@ -67,7 +79,7 @@ func (r *LocalRunner) Run(ctx context.Context, input operationdomain.RunnerInput
 	}
 
 	inventory := cloneInventory(input.Inventory)
-	setConnectionVars(inventory, input.Configuration)
+	r.setConnectionVars(ctx, inventory, input.Configuration, input.Credential)
 	envDir := filepath.Join(privateDir, "env")
 	if err := os.Mkdir(envDir, 0o700); err != nil {
 		return result, err
@@ -687,7 +699,13 @@ func cloneInventory(source map[string]any) map[string]any {
 	return cloned
 }
 
-func setConnectionVars(inventory map[string]any, configuration *operationdomain.AutomationConfiguration) {
+// setConnectionVars sets each host's ansible_port and ansible_user. The user is resolved per host:
+// when a prober is attached and the automation key parses, it tries the candidate login users
+// (Site user first, then swallow's built-ins) against the host's address and uses the first that
+// authenticates; otherwise it falls back to the Site sshUser. An ansible_user already present on a
+// host is preserved. Resolution is per host because OS images use different default users, and the
+// inventory is per host; the actual host-key verification still happens in the run's known_hosts.
+func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[string]any, configuration *operationdomain.AutomationConfiguration, credential operationdomain.AutomationCredential) {
 	meta, ok := inventory["_meta"].(map[string]any)
 	if !ok {
 		return
@@ -696,13 +714,36 @@ func setConnectionVars(inventory map[string]any, configuration *operationdomain.
 	if !ok {
 		return
 	}
+	probePort := configuration.SSHPort
+	if probePort <= 0 {
+		probePort = 22
+	}
+	var signer ssh.Signer
+	if r.userProber != nil && strings.TrimSpace(credential.SSHPrivateKey) != "" {
+		if parsed, err := sshprobe.ParseSigner(credential.SSHPrivateKey); err == nil {
+			signer = parsed
+		}
+	}
+	candidates := sshprobe.Candidates(configuration.SSHUser)
 	for _, raw := range hostvars {
 		vars, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		vars["ansible_user"] = configuration.SSHUser
 		vars["ansible_port"] = configuration.SSHPort
+		if _, present := vars["ansible_user"]; present {
+			// A per-host user set upstream wins; do not overwrite it.
+			continue
+		}
+		user := configuration.SSHUser
+		if signer != nil {
+			if address, _ := vars["ansible_host"].(string); strings.TrimSpace(address) != "" {
+				if resolved, outcome := sshprobe.Resolve(ctx, r.userProber, address, probePort, signer, candidates); outcome == sshprobe.Ready {
+					user = resolved
+				}
+			}
+		}
+		vars["ansible_user"] = user
 	}
 }
 

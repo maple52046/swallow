@@ -38,7 +38,15 @@ If the task involves platform deployment orchestration, the Workflow/Job/Task/Ru
 model, or integrating a new platform type (for example Slurm), also read:
 
 1. `docs/development/platform-deployment.md` — the platform deployment design, the
-   inventory / trusted-vars / manifest integration contract, and how to add a platform.
+ inventory / trusted-vars / manifest integration contract, and how to add a platform.
+
+If the task involves software deployment (installing a single piece of host software such
+as Docker CE, Podman, or NFS onto deployed Servers), or composing such software into a
+platform deploy, also read:
+
+1. `docs/development/software-deployment.md` — the software deployment design, its authoritative
+ deploy-target boundary versus platform deployment, and the inventory / trusted-vars / manifest
+ integration contract.
 
 ## Component Work
 

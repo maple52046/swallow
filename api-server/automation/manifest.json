@@ -36,6 +36,30 @@
     {
       "name": "remove-k8s-exporters",
       "path": "remove-k8s-exporters.yml"
+    },
+    {
+      "name": "deploy-docker-ce",
+      "path": "deploy-docker-ce.yml"
+    },
+    {
+      "name": "uninstall-docker-ce",
+      "path": "uninstall-docker-ce.yml"
+    },
+    {
+      "name": "deploy-podman",
+      "path": "deploy-podman.yml"
+    },
+    {
+      "name": "uninstall-podman",
+      "path": "uninstall-podman.yml"
+    },
+    {
+      "name": "deploy-nfs",
+      "path": "deploy-nfs.yml"
+    },
+    {
+      "name": "uninstall-nfs",
+      "path": "uninstall-nfs.yml"
     }
   ]
 }

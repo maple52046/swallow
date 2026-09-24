@@ -1,0 +1,9 @@
+---
+# nfs_client role defaults. state=present installs client support and mounts the share;
+# state=absent unmounts it and removes the fstab entry.
+nfs_client_state: present
+
+# NFS source ("host:/path"), local mount point, and mount options. Resolved from trusted vars.
+nfs_client_source: "{{ swallow_nfs_client_source | default('', true) }}"
+nfs_client_mount_path: "{{ swallow_nfs_client_mount_path | default('/mnt/nfs', true) }}"
+nfs_client_mount_options: "{{ swallow_nfs_client_mount_options | default('rw,_netdev', true) }}"

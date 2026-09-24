@@ -10,6 +10,7 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/platform/application"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 	"github.com/maple52046/swallow/internal/shared/middleware"
@@ -509,6 +510,10 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrTargetLocked),
 		errors.Is(err, operationdomain.ErrPolicyConflict),
+		// A platform deploy runs the provisioning preflight, so its batch conflicts (for example a
+		// custom OS image not yet verified for the requested deploy target) surface here. Map it to
+		// 409 with the actionable message instead of leaking a generic 500 to the dashboard.
+		errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 

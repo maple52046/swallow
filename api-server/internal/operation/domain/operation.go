@@ -54,6 +54,17 @@ const (
 	// WorkflowKindCustom runs a named playbook with no swallow-side expectations
 	// about what it does, which is the escape hatch for anything not yet modelled.
 	WorkflowKindCustom WorkflowKind = "custom"
+
+	// Software deployment kinds install or uninstall a single piece of host software (Managed
+	// Software) on already-deployed Servers, distinct from a platform deploy whose target is a
+	// multi-component runtime (decision 038). Each pairs a configure-<kind> deploy with an
+	// uninstall-<kind> removal, both run by the ansible Runner against a hardcoded playbook.
+	WorkflowKindConfigureDockerCE WorkflowKind = "configure-docker-ce"
+	WorkflowKindUninstallDockerCE WorkflowKind = "uninstall-docker-ce"
+	WorkflowKindConfigurePodman   WorkflowKind = "configure-podman"
+	WorkflowKindUninstallPodman   WorkflowKind = "uninstall-podman"
+	WorkflowKindConfigureNFS      WorkflowKind = "configure-nfs"
+	WorkflowKindUninstallNFS      WorkflowKind = "uninstall-nfs"
 )
 
 var ValidWorkflowKinds = []WorkflowKind{
@@ -70,6 +81,12 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindUninstallExporters,
 	WorkflowKindDeployK8sExporters,
 	WorkflowKindRemoveK8sExporters,
+	WorkflowKindConfigureDockerCE,
+	WorkflowKindUninstallDockerCE,
+	WorkflowKindConfigurePodman,
+	WorkflowKindUninstallPodman,
+	WorkflowKindConfigureNFS,
+	WorkflowKindUninstallNFS,
 	WorkflowKindCustom,
 }
 
@@ -90,7 +107,13 @@ func (k WorkflowKind) Valid() bool {
 func (k WorkflowKind) RequiredProvisioningState() string {
 	switch k {
 	case WorkflowKindInstallGPUDriver, WorkflowKindDeployKubernetes, WorkflowKindConfigureSlurm,
-		WorkflowKindInstallExporters, WorkflowKindDeployK8sExporters:
+		WorkflowKindInstallExporters, WorkflowKindDeployK8sExporters,
+		// Software deployment reaches a host over SSH via Ansible, so both install and uninstall
+		// require a booted, deployed OS. A Server that has left `deployed` has its assignments
+		// swept to `absent`, so uninstall is never the path for a wiped host.
+		WorkflowKindConfigureDockerCE, WorkflowKindUninstallDockerCE,
+		WorkflowKindConfigurePodman, WorkflowKindUninstallPodman,
+		WorkflowKindConfigureNFS, WorkflowKindUninstallNFS:
 		return "deployed"
 	default:
 		// Uninstalling exporters intentionally has no state requirement: a machine

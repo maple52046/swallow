@@ -1,0 +1,6 @@
+---
+# podman role defaults. state=present installs Podman from the distribution repository;
+# state=absent removes it. podman_version optionally pins the apt package version (empty
+# installs the distribution default).
+podman_state: present
+podman_version: ""

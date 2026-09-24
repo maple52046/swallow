@@ -1,0 +1,13 @@
+---
+# Install Podman on already-provisioned Servers as a standalone Managed Software
+# (docs/development/software-deployment.md). The deploy target is one software (Podman), not a
+# platform. Idempotent: a converged host reruns with no changes. An optional pinned version
+# arrives as swallow_podman_version.
+
+- name: Install Podman
+  hosts: all
+  gather_facts: true
+  vars:
+    podman_version: "{{ swallow_podman_version | default('', true) }}"
+  roles:
+    - role: podman

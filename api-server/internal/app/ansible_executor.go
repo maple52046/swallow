@@ -22,6 +22,7 @@ import (
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverinfra "github.com/maple52046/swallow/internal/server/infra"
 	"github.com/maple52046/swallow/internal/shared/secret"
+	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	siteinfra "github.com/maple52046/swallow/internal/site/infra"
 )
 
@@ -83,6 +84,9 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	configurations := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	runner := operationinfra.NewLocalRunner(cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
+	// Resolve each host's SSH login user per host (images use different default users), so a fleet
+	// mixing image families deploys and is managed under one Site without hand-switching sshUser.
+	runner.AttachUserProber(sshprobe.DefaultProber{})
 	providers := provisioninginfra.NewProviderFactory(integrations)
 	protection := providerServerMutationGuard{servers: servers, providers: providers}
 	discovery := discoveryapp.NewDiscoveryUseCase(servers)

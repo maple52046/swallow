@@ -1,0 +1,51 @@
+---
+# Install NFS as a standalone Managed Software (docs/development/software-deployment.md). NFS
+# server and client are two variants (roles) of one software, not two platforms: one Workflow
+# may make some Servers a `server` and others a `client`. Topology arrives only through trusted
+# variables, keyed by serverId:
+#   swallow_software_roles       map of serverId -> [ "server" | "client" ]
+#   swallow_nfs_export_path      server: the exported directory
+#   swallow_nfs_export_options   server: export options (default rw,sync,no_subtree_check,root_squash)
+#   swallow_nfs_client_source    client: NFS source "host:/path"
+#   swallow_nfs_client_mount_path client: local mount point
+#   swallow_nfs_client_mount_options client: mount options (default rw,_netdev)
+#
+# This role set is the generic NFS software. It is intentionally NOT the Slurm-managed state
+# NFS (slurm_state_server / slurm_controller_state / slurm_workload_storage_*), which remains
+# embedded in the slurm_* roles until a later slice extracts a composable configure-nfs Job.
+
+- name: Classify NFS nodes by assigned role
+  hosts: all
+  gather_facts: true
+  pre_tasks:
+    - name: Resolve this host's NFS roles
+      ansible.builtin.set_fact:
+        nfs_is_server: "{{ 'server' in (swallow_software_roles[inventory_hostname] | default([])) }}"
+        nfs_is_client: "{{ 'client' in (swallow_software_roles[inventory_hostname] | default([])) }}"
+
+    - name: Fail on a host with no NFS role
+      ansible.builtin.fail:
+        msg: "server {{ inventory_hostname }} has no NFS role (server or client)"
+      when:
+        - not (nfs_is_server | bool)
+        - not (nfs_is_client | bool)
+
+    - name: Group NFS servers
+      ansible.builtin.group_by:
+        key: "nfs_server_{{ nfs_is_server | bool }}"
+
+    - name: Group NFS clients
+      ansible.builtin.group_by:
+        key: "nfs_client_{{ nfs_is_client | bool }}"
+
+- name: Configure NFS servers
+  hosts: nfs_server_True
+  gather_facts: true
+  roles:
+    - role: nfs_server
+
+- name: Configure NFS clients
+  hosts: nfs_client_True
+  gather_facts: true
+  roles:
+    - role: nfs_client

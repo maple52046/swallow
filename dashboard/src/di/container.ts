@@ -8,6 +8,7 @@ import { ApiMonitoringRepository } from '@/infrastructure/api/ApiMonitoringRepos
 import { ApiOverviewRepository } from '@/infrastructure/api/ApiOverviewRepository'
 import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningRepository'
 import { ApiInfrastructureRepository } from '@/infrastructure/api/ApiInfrastructureRepository'
+import { ApiSoftwareRepository } from '@/infrastructure/api/ApiSoftwareRepository'
 import type { AuthRepository } from '@/application/ports/AuthRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { ServerEventStream } from '@/application/ports/ServerEventStream'
@@ -18,6 +19,7 @@ import type { MonitoringRepository } from '@/application/ports/MonitoringReposit
 import type { OverviewRepository } from '@/application/ports/OverviewRepository'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import type { InfrastructureRepository } from '@/application/ports/InfrastructureRepository'
+import type { SoftwareRepository } from '@/application/ports/SoftwareRepository'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
 export interface AppContainer {
@@ -31,6 +33,8 @@ export interface AppContainer {
   /** swallow-owned Zone/Pool management and Server placement (decision 029). */
   infrastructure: InfrastructureRepository
   platforms: PlatformRepository
+  /** Managed Software install/uninstall and Software Assignment reads (decision 038). */
+  software: SoftwareRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
 }
@@ -46,6 +50,7 @@ export function createContainer(): AppContainer {
     sites: new ApiSiteRepository(),
     infrastructure: new ApiInfrastructureRepository(),
     platforms: new ApiPlatformRepository(),
+    software: new ApiSoftwareRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
   }

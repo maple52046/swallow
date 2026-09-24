@@ -1,0 +1,38 @@
+---
+# Remove the generic NFS software swallow installed (docs/development/software-deployment.md),
+# leaving the host OS intact. Symmetric to deploy-nfs: it unmounts the client share and removes
+# its fstab entry, and removes the server export. Idempotent: a host without the mount/export
+# reruns with no changes. swallow marks the Software Assignment absent on success.
+
+- name: Classify NFS nodes by assigned role
+  hosts: all
+  gather_facts: true
+  pre_tasks:
+    - name: Resolve this host's NFS roles
+      ansible.builtin.set_fact:
+        nfs_is_server: "{{ 'server' in (swallow_software_roles[inventory_hostname] | default([])) }}"
+        nfs_is_client: "{{ 'client' in (swallow_software_roles[inventory_hostname] | default([])) }}"
+
+    - name: Group NFS servers
+      ansible.builtin.group_by:
+        key: "nfs_server_{{ nfs_is_server | bool }}"
+
+    - name: Group NFS clients
+      ansible.builtin.group_by:
+        key: "nfs_client_{{ nfs_is_client | bool }}"
+
+- name: Remove NFS client mounts
+  hosts: nfs_client_True
+  gather_facts: true
+  roles:
+    - role: nfs_client
+      vars:
+        nfs_client_state: absent
+
+- name: Remove NFS server exports
+  hosts: nfs_server_True
+  gather_facts: true
+  roles:
+    - role: nfs_server
+      vars:
+        nfs_server_state: absent

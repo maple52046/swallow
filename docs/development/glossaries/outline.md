@@ -81,6 +81,11 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - [Exporter Ownership](terms/exporter-ownership.md): Which subsystem installs a host's Prometheus exporters — `ansible`, `k8s`, or `unmanaged` — resolved per host so exactly one owner exists and exporters never contend for a fixed port.
 
+### Software Deployment
+
+- [Managed Software](terms/managed-software.md): A single piece of host software and its variants that Swallow installs on / uninstalls from already-deployed Servers; the deploy target is one software, not a multi-component platform.
+- [Software Assignment](terms/software-assignment.md): A swallow-owned durable record, keyed by `(serverId, kind)`, of the desired and last-applied state of one Managed Software on one Server; not a fourth Server status axis.
+
 ### Automation
 
 - [Workflow](terms/workflow.md): An operator intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; code/API still say "Operation").

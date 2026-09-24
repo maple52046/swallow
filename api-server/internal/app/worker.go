@@ -29,6 +29,7 @@ import (
 	serverinfra "github.com/maple52046/swallow/internal/server/infra"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	siteinfra "github.com/maple52046/swallow/internal/site/infra"
+	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
 )
 
 // RunWorker starts the Temporal workflow/activity worker. It owns orchestration only;
@@ -96,6 +97,12 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
+	// Software Assignments back the software Workflow's internal record step (installed/absent) and
+	// the step observer's failure marking (decision 038).
+	softwareAssignments, err := softwareinfra.NewMongoAssignmentRepo(db)
+	if err != nil {
+		return err
+	}
 	// The overlay repo lets a deploy completion fill the mirrored OS image display name at once
 	// (RefreshServer), so the fleet list shows the friendly name instead of the raw id while the
 	// worker observes the deploy, rather than waiting for the next reconcile pass.
@@ -139,11 +146,12 @@ func RunWorker(cfg config.APIConfig) error {
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership,
-			finalizer: platformFinalizer, imageVerifications: osImageVerifications, poll: 5 * time.Second,
+			finalizer: platformFinalizer, imageVerifications: osImageVerifications,
+			software: softwareAssignments, poll: 5 * time.Second,
 		},
 		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,
-	}, serverDeploymentStepObserver{servers: servers})
+	}, serverDeploymentStepObserver{servers: servers}, softwareAssignmentObserver{assignments: softwareAssignments})
 	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{WorkerStopTimeout: 10 * time.Second})
 	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.OperationWorkflowV1,
 		workflowregister.RegisterOptions{Name: temporalworkflow.WorkflowNameV1})

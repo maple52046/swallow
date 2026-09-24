@@ -1,0 +1,9 @@
+---
+- name: Reload nfs exports
+  # exportfs -ra re-reads /etc/exports and /etc/exports.d after the drop-in changes. failed_when
+  # false so a reload on a host where the export was already removed does not fail the run.
+  ansible.builtin.command:
+    argv: [exportfs, -ra]
+  changed_when: true
+  failed_when: false
+  become: true

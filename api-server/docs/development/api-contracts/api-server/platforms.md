@@ -210,7 +210,10 @@ the platform contract's boundary field (the dashboard's Deploy Target selector m
 memory-backed root filesystem and leaves disks untouched; all OS and platform-local state is
 lost when a Server reboots. A platform `provision_os` deploy of a *custom* image is subject
 to the same custom-image verification gate as an OS deployment: the image must be verified
-for the requested Deploy Target (see the provisioning contract), synced images bypass. Kubernetes automation performs a booted-host compatibility gate
+for the requested Deploy Target (see the provisioning contract), synced images bypass. An
+unverified custom image is rejected with `409 conflict` and an actionable message
+("this custom image is not verified for <target> deployment; verify it on a ready Server
+first"), not a generic error. Kubernetes automation performs a booted-host compatibility gate
 before starting any controller or worker. It also selects containerd's `native` snapshotter
 for a memory-backed root, because an `overlayfs` snapshotter cannot reliably nest inside a
 MAAS overlay root. MAAS custom `root.tgz` boots may expose `/` as either overlayfs or tmpfs;

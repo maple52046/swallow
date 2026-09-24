@@ -55,9 +55,13 @@ import (
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/shared/secret"
+	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	siteapp "github.com/maple52046/swallow/internal/site/application"
 	sitedelivery "github.com/maple52046/swallow/internal/site/delivery"
 	siteinfra "github.com/maple52046/swallow/internal/site/infra"
+	softwareapp "github.com/maple52046/swallow/internal/software/application"
+	softwaredelivery "github.com/maple52046/swallow/internal/software/delivery"
+	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
 	"github.com/maple52046/swallow/internal/version"
 )
 
@@ -304,6 +308,9 @@ func RunAPI(cfg config.APIConfig) error {
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
+	// Per-host SSH-user resolution: images use different default login users, so the runner probes
+	// candidate users per host with the automation key instead of forcing one Site sshUser.
+	runner.AttachUserProber(sshprobe.DefaultProber{})
 	// Live Ansible task events, streamed by the executor and read here to serve a durable Step's
 	// task list during a run rather than only after it finishes (decision: live progress).
 	ansibleEventRepo, err := operationinfra.NewMongoAnsibleEventRepo(db)
@@ -370,6 +377,24 @@ func RunAPI(cfg config.APIConfig) error {
 		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
 		kubernetesExplorer, requirementService)
 
+	// Software deployment (Managed Software, decision 038): install/uninstall a single piece of
+	// host software on deployed Servers, tracked by a swallow-owned Software Assignment. It reuses
+	// the operation orchestration (PrepareAnsibleStep + WorkflowService) through a launcher, so it
+	// shares the platform deployment engine rather than owning a second one.
+	softwareAssignmentRepo, err := softwareinfra.NewMongoAssignmentRepo(db)
+	if err != nil {
+		return fmt.Errorf("software assignment repo init: %w", err)
+	}
+	softwareService := softwareapp.NewSoftwareService(
+		softwareAssignmentRepo, serverRepo,
+		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
+	)
+	softwareService.AttachLauncher(softwareDeploymentLauncher{
+		operations: operationService, orchestrations: orchestrationService,
+	})
+	softwareHandler := softwaredelivery.NewSoftwareHandler(softwareService)
+	softwareSweeper := softwareapp.NewSoftwareAssignmentSweeper(softwareAssignmentRepo, serverRepo)
+
 	// Auto-install exporters when a server reaches the deployed state and its effective
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
 	// policy so the operation context stays free of platform types.
@@ -434,6 +459,7 @@ func RunAPI(cfg config.APIConfig) error {
 		operations:     operationHandler,
 		monitoring:     monitoringHandler,
 		platforms:      platformHandler,
+		software:       softwareHandler,
 		infrastructure: infrastructureHandler,
 		discovery:      discoveryHandler,
 		releaseVersion: releaseVersion,
@@ -450,6 +476,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go taskWorker.Run(ctx)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
+	go runSoftwareAssignmentSweep(ctx, softwareSweeper, cfg.ReconcileInterval)
 	go orchestrationStarter.Run(ctx)
 	go orchestrationReconciler.Run(ctx)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
@@ -484,6 +511,7 @@ type routeDeps struct {
 	operations     *operationdelivery.ExecutionHandler
 	monitoring     *monitoringdelivery.MonitoringHandler
 	platforms      *platformdelivery.PlatformHandler
+	software       *softwaredelivery.SoftwareHandler
 	infrastructure *infrastructuredelivery.InfrastructureHandler
 	discovery      *discoverydelivery.DiscoveryHandler
 	readiness      func(context.Context) error
@@ -708,6 +736,14 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	legacyPlatforms := v1.Group("/clusters", admin...)
 	legacyPlatforms.Use(markDeprecatedPlatformRoute)
 	registerPlatformRoutes(legacyPlatforms, deps.platforms)
+
+	// Managed Software: install/uninstall a single piece of host software on deployed Servers and
+	// read the swallow-owned Software Assignment records (contract: software.md, decision 038).
+	software := v1.Group("/software", admin...)
+	software.Get("/catalog", deps.software.Catalog)
+	software.Get("/assignments", deps.software.ListAssignments)
+	software.Post("/assignments", deps.software.Install)
+	software.Post("/uninstall", deps.software.Uninstall)
 
 	// Swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
 	// realized in the Site's provisioner when it is grouping-capable (decision 029).

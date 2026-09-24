@@ -1,0 +1,70 @@
+---
+# Configure or remove a generic NFS export. builtin-only. Idempotent: a converged export reruns
+# with no changes. The export is scoped to the batch's client addresses; when the batch has no
+# client, it exports to the export path with no host list is avoided — an empty client list
+# yields a wildcard-free, host-scoped line only when clients exist.
+
+- name: Configure the NFS server export
+  when: nfs_server_state == 'present'
+  become: true
+  block:
+    - name: Ensure the NFS server package is present
+      ansible.builtin.apt:
+        name: nfs-kernel-server
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 300
+      register: nfs_server_package
+      until: nfs_server_package is succeeded
+      retries: 60
+      delay: 5
+
+    - name: Create the export directory
+      ansible.builtin.file:
+        path: "{{ nfs_server_export_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure the NFS exports drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/exports.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Export the filesystem to the batch clients
+      # One line: the export path followed by each client's connection address with the export
+      # options. When the batch declares no client, the export path is written with no host,
+      # which exportfs treats as no access — safe until a client is added.
+      ansible.builtin.copy:
+        dest: /etc/exports.d/swallow-nfs.exports
+        content: >-
+          {{ nfs_server_export_path }}{% for host in nfs_server_client_hosts %} {{ host }}({{ nfs_server_export_options }}){% endfor %}
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload nfs exports
+
+    - name: Enable and start the NFS server
+      ansible.builtin.systemd_service:
+        name: nfs-server
+        enabled: true
+        state: started
+
+    - name: Apply export changes before clients mount
+      ansible.builtin.meta: flush_handlers
+
+- name: Remove the NFS server export
+  when: nfs_server_state == 'absent'
+  become: true
+  block:
+    - name: Remove the swallow export drop-in
+      ansible.builtin.file:
+        path: /etc/exports.d/swallow-nfs.exports
+        state: absent
+      notify: Reload nfs exports
+
+    - name: Apply export removal
+      ansible.builtin.meta: flush_handlers

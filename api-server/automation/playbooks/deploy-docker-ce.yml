@@ -1,0 +1,17 @@
+---
+# Install Docker CE on already-provisioned Servers as a standalone Managed Software
+# (docs/development/software-deployment.md). The deploy target is one software (Docker CE),
+# not a platform: this play installs and starts the Docker Engine and returns nothing to
+# record beyond the assignment swallow writes on success. It is idempotent — a converged host
+# reruns with no changes.
+#
+# Addresses, not DNS: every host is keyed by serverId (inventory_hostname); the connection
+# address is ansible_host. An optional pinned version arrives as swallow_docker_version.
+
+- name: Install Docker CE
+  hosts: all
+  gather_facts: true
+  vars:
+    docker_ce_version: "{{ swallow_docker_version | default('', true) }}"
+  roles:
+    - role: docker_ce
