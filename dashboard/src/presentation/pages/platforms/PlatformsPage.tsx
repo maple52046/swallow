@@ -16,7 +16,7 @@ import type { Platform, PlatformLifecycleState, PlatformType } from '@/domain/pl
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -431,67 +431,59 @@ export function PlatformsPage() {
         <>
           <PlatformFleetOverview platforms={allPlatforms} />
 
-          <Box as="section" className="sw-platform-inventory" aria-labelledby="platform-inventory-title">
-            <div className="sw-platform-inventory__heading">
-              <div>
-                <Text className="sw-platform-eyebrow">Runtime inventory</Text>
-                <Heading as="h2" id="platform-inventory-title" size="lg">Platform runtimes</Heading>
-              </div>
-              <Text
-                className="sw-platform-result-count"
-                color="fg.muted"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                Showing {platforms.length} of {allPlatforms.length} platforms
-              </Text>
-            </div>
-
-            <div className="sw-platform-filter-bar">
-              <SearchInput
-                value={query}
-                onChange={(value) => setQueryParam('q', value, true)}
-                placeholder="Search platforms"
-                aria-label="Search platforms"
-                maxW="24rem"
-                size="md"
-              />
-              <Flex className="sw-platform-filter-groups" align="center" gap="2" wrap="wrap">
-                <Flex as="div" className="sw-platform-filter-group" role="group" aria-label="Filter by platform type">
-                  {PLATFORM_TYPE_FILTERS.map((filter) => (
-                    <Button
-                      key={filter.label}
-                      className="sw-platform-filter-chip"
-                      variant="plain"
-                      size="sm"
-                      aria-pressed={typeFilter === filter.value}
-                      data-active={typeFilter === filter.value || undefined}
-                      onClick={() => setQueryParam('type', filter.value)}
-                    >
-                      {filter.label}
-                    </Button>
-                  ))}
+          <InventorySurface
+            headingId="platform-inventory-title"
+            eyebrow="Runtime inventory"
+            title="Platform runtimes"
+            className="sw-platform-inventory"
+            summary={<>Showing {platforms.length} of {allPlatforms.length} platforms</>}
+            toolbar={
+              <>
+                <SearchInput
+                  value={query}
+                  onChange={(value) => setQueryParam('q', value, true)}
+                  placeholder="Search platforms"
+                  aria-label="Search platforms"
+                  maxW="24rem"
+                  size="md"
+                />
+                <Flex className="sw-platform-filter-groups" align="center" gap="2" wrap="wrap">
+                  <Flex as="div" className="sw-platform-filter-group" role="group" aria-label="Filter by platform type">
+                    {PLATFORM_TYPE_FILTERS.map((filter) => (
+                      <Button
+                        key={filter.label}
+                        className="sw-platform-filter-chip"
+                        variant="plain"
+                        size="sm"
+                        aria-pressed={typeFilter === filter.value}
+                        data-active={typeFilter === filter.value || undefined}
+                        onClick={() => setQueryParam('type', filter.value)}
+                      >
+                        {filter.label}
+                      </Button>
+                    ))}
+                  </Flex>
+                  <Flex as="div" className="sw-platform-filter-group" role="group" aria-label="Filter by operational state">
+                    {PLATFORM_STATUS_FILTERS.map((filter) => (
+                      <Button
+                        key={filter.label}
+                        className="sw-platform-filter-chip"
+                        variant="plain"
+                        size="sm"
+                        aria-pressed={statusFilter === filter.value}
+                        data-active={statusFilter === filter.value || undefined}
+                        onClick={() => setQueryParam('status', filter.value)}
+                      >
+                        {filter.value === 'attention' && <TriangleAlert size={14} />}
+                        {filter.value === 'in_progress' && <LoaderCircle size={14} />}
+                        {filter.label}
+                      </Button>
+                    ))}
+                  </Flex>
                 </Flex>
-                <Flex as="div" className="sw-platform-filter-group" role="group" aria-label="Filter by operational state">
-                  {PLATFORM_STATUS_FILTERS.map((filter) => (
-                    <Button
-                      key={filter.label}
-                      className="sw-platform-filter-chip"
-                      variant="plain"
-                      size="sm"
-                      aria-pressed={statusFilter === filter.value}
-                      data-active={statusFilter === filter.value || undefined}
-                      onClick={() => setQueryParam('status', filter.value)}
-                    >
-                      {filter.value === 'attention' && <TriangleAlert size={14} />}
-                      {filter.value === 'in_progress' && <LoaderCircle size={14} />}
-                      {filter.label}
-                    </Button>
-                  ))}
-                </Flex>
-              </Flex>
-            </div>
+              </>
+            }
+          >
 
             <SelectionToolbar count={selected.size} onClear={clearSelection}>
               <Tooltip content={uninstallDisabledReason ?? 'Uninstall selected platforms'}>
@@ -608,7 +600,7 @@ export function PlatformsPage() {
                 }
               />
             )}
-          </Box>
+          </InventorySurface>
         </>
       )}
 

@@ -90,6 +90,63 @@ export function SectionSurface({ title, description, actions, children, flush = 
   )
 }
 
+/** Shared inventory frame for resource lists without prescribing their row content. */
+interface InventorySurfaceProps {
+  /** Stable heading id used by the section's accessible name. */
+  headingId: string
+  /** Small domain label above the inventory title. */
+  eyebrow: string
+  title: string
+  /** Live result or refresh metadata announced as one atomic status. */
+  summary: ReactNode
+  /** Optional URL-owned discovery controls rendered above the working set. */
+  toolbar?: ReactNode
+  children: ReactNode
+  /** Feature modifier for layout differences that do not belong in the shared chrome. */
+  className?: string
+}
+
+/**
+ * Shared control-plane inventory chrome for resource and execution lists.
+ *
+ * The heading, result status, filter band, border, and elevation are composed
+ * once so Platform and Workflow inventories retain the same visual hierarchy.
+ * Consumers continue to own their filters, loading states, responsive rows,
+ * and domain-specific actions.
+ */
+export function InventorySurface({
+  headingId,
+  eyebrow,
+  title,
+  summary,
+  toolbar,
+  children,
+  className,
+}: InventorySurfaceProps) {
+  const classes = ['sw-inventory-surface', className].filter(Boolean).join(' ')
+  return (
+    <Box as="section" className={classes} aria-labelledby={headingId}>
+      <div className="sw-inventory-surface__heading">
+        <div>
+          <Text className="sw-inventory-surface__eyebrow">{eyebrow}</Text>
+          <Heading as="h2" id={headingId} size="lg">{title}</Heading>
+        </div>
+        <Box
+          className="sw-inventory-surface__summary"
+          color="fg.muted"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {summary}
+        </Box>
+      </div>
+      {toolbar && <div className="sw-inventory-surface__toolbar">{toolbar}</div>}
+      {children}
+    </Box>
+  )
+}
+
 /**
  * Toolbar pinned above a large working set.
  * Consumers own filtering state while this component standardizes wrapping,

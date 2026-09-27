@@ -185,10 +185,13 @@ test.describe('operator interactions', () => {
     await expect(link).toBeFocused()
     await expect(link).toHaveCSS('outline-style', 'solid')
 
-    for (const route of ['/servers?site=site-a', '/workflows?site=site-a', '/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
+    for (const route of ['/servers?site=site-a', '/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
       await page.goto(route)
       await expect(page.locator('.sw-data-toolbar').first()).toHaveClass(/sw-data-toolbar--plain/)
     }
+
+    await page.goto('/workflows?site=site-a')
+    await expect(page.locator('.sw-workflow-inventory')).toBeVisible()
   })
   test('Monitoring is alert-first and keeps history in Grafana', async ({ page }) => {
     await page.goto('/monitoring?site=site-a')
@@ -1017,9 +1020,189 @@ test.describe('operator interactions', () => {
   })
 
 
+  test('Workflow list behaves as a live orchestration console', async ({ page }) => {
+    await page.goto('/workflows?site=site-a')
+
+    const inventory = page.locator('.sw-workflow-inventory')
+    const results = inventory.getByRole('status').first()
+    await expect(page.getByRole('heading', { name: 'Workflow activity', exact: true })).toBeVisible()
+    await expect(results).toContainText('Showing 1–4 of 4 workflows')
+    await expect(results).toContainText('Live updates every 5s')
+
+    const table = page.getByRole('table', { name: 'Workflows' })
+    await expect(table.getByRole('columnheader', { name: 'Action' })).toBeVisible()
+    const rows = table.locator('tbody tr')
+    await expect(rows).toHaveCount(4)
+    await expect(rows.first()).toContainText('Deploy production k0s platform')
+
+    const running = table.getByRole('row', { name: /Deploy production k0s platform/ })
+    await expect(running).toContainText('running')
+    await expect(running).toContainText('deploy-k0s.yml')
+    await expect(running).toContainText('Legacy execution')
+    await expect(running.getByRole('link', { name: 'Monitor workflow' }))
+      .toHaveAttribute('href', '/workflows/op-running?site=site-a')
+
+    const attention = table.getByRole('row', { name: /Deploy edge-staging k0s platform/ })
+    await expect(attention).toContainText('requires attention')
+    await expect(attention).toContainText('Provision and verify operating system on srv-4')
+    await expect(attention).toContainText('2 Tasks')
+    await expect(attention).toContainText('1 failed')
+    await expect(attention.getByRole('link', { name: 'Review workflow' }))
+      .toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
+    await expect(attention.getByRole('link', { name: 'Open Platform platform-b' }))
+      .toHaveAttribute('href', '/platforms/platform-b?site=site-a')
+
+    const failed = table.getByRole('row', { name: /Install GPU exporters/ })
+    await expect(failed).toContainText('Host unreachable')
+    await expect(failed.getByRole('link', { name: 'Review workflow' })).toBeVisible()
+
+    const succeeded = table.getByRole('row', { name: /Reconcile accelerator inventory/ })
+    await expect(succeeded).toContainText('succeeded')
+    await expect(succeeded).toContainText('1 Task')
+    await expect(succeeded).toContainText('1 succeeded')
+    await expect(succeeded.getByRole('link', { name: 'View workflow' })).toBeVisible()
+
+    const workflowName = running.getByRole('link', { name: 'Deploy production k0s platform' })
+    await workflowName.focus()
+    await expect(workflowName).toBeFocused()
+    const workflowAction = running.getByRole('link', { name: 'Monitor workflow' })
+    await workflowAction.focus()
+    await expect(workflowAction).toBeFocused()
+
+    await page.getByLabel('Filter by Workflow kind').fill('inventory.reconcile')
+    await expect.poll(() => new URL(page.url()).searchParams.get('kind')).toBe('inventory.reconcile')
+    await expect(results).toContainText('Showing 1–1 of 1 workflows')
+    await expect(table.getByRole('row', { name: /Reconcile accelerator inventory/ })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Clear search' }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('kind')).toBeNull()
+    await page.goto('/workflows?page=1&site=site-a')
+    await page.getByRole('button', { name: 'Active', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('active')).toBe('true')
+    await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBeNull()
+    await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBeNull()
+    await expect.poll(() => new URL(page.url()).searchParams.get('site')).toBe('site-a')
+    await expect(results).toContainText('Showing 1–2 of 2 workflows')
+
+    await page.getByRole('button', { name: 'Needs attention', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBe('requires_attention')
+    await expect.poll(() => new URL(page.url()).searchParams.get('active')).toBeNull()
+    await expect(results).toContainText('Showing 1–1 of 1 workflows')
+
+    await page.getByRole('button', { name: 'Failed', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBe('failed')
+    await expect(table.getByRole('row', { name: /Install GPU exporters/ })).toBeVisible()
+
+    await chooseSingleSelectOption(page, 'Filter by another Workflow status', 'Succeeded')
+    await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBe('succeeded')
+    await expect(table.getByRole('row', { name: /Reconcile accelerator inventory/ })).toBeVisible()
+
+    await page.goto('/workflows?active=active&site=site-a')
+    await expect(page.getByRole('button', { name: 'Active', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(results).toContainText('Showing 1–2 of 2 workflows')
+
+    await page.goto('/workflows?status=not-a-status&site=site-a')
+    await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBeNull()
+    await expect(results).toContainText('Showing 1–4 of 4 workflows')
+
+    await page.goto('/workflows?page=99&site=site-a')
+    await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBe('1')
+    await expect(results).toContainText('Showing 1–4 of 4 workflows')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/workflows?site=site-a')
+    const cards = page.locator('.sw-workflow-runtime-card')
+    await expect(cards).toHaveCount(4)
+    await expect(cards.first().getByRole('link', { name: 'Monitor workflow' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+
+  test('Workflow list distinguishes filtered and true empty histories', async ({ page }) => {
+    await page.route('**/api/v1/workflows*', async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname !== '/api/v1/workflows') {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 30 }),
+      })
+    })
+
+    await page.goto('/workflows?kind=does-not-exist&site=site-a')
+    await expect(page.getByRole('heading', { name: 'No workflows match this view' })).toBeVisible()
+    await page.getByRole('button', { name: 'Clear filters' }).click()
+    await expect(page).toHaveURL('/workflows?site=site-a')
+    await expect(page.getByRole('heading', { name: 'No workflows yet' })).toBeVisible()
+    await expect(page.getByRole('link', { name: /create workflow/i })).toHaveCount(0)
+  })
+
+  test('Workflow list polling preserves last-good data and stops after convergence', async ({ page }) => {
+    let requests = 0
+    await page.clock.install({ time: new Date('2026-08-27T03:05:00Z') })
+    await page.route('**/api/v1/workflows*', async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname !== '/api/v1/workflows') {
+        await route.fallback()
+        return
+      }
+      requests += 1
+      if (requests === 3) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: { code: 'provider_unavailable', message: 'Workflow refresh unavailable' } }),
+        })
+        return
+      }
+      const succeeded = requests >= 4
+      const status = succeeded ? 'succeeded' : 'running'
+      const operation = {
+        id: 'op-polling', kind: 'custom', intent: 'Observe polling convergence',
+        siteId: 'site-a', platformId: null, targetServerIds: [], retryOfOperationId: null,
+        execution: {
+          runId: 'run-polling', playbook: 'observe.yml', status, statusReason: null,
+          startedAt: '2026-08-27T03:00:00Z', finishedAt: succeeded ? '2026-08-27T03:05:00Z' : null,
+        },
+        requestedBy: 'admin', requestedAt: '2026-08-27T02:59:00Z',
+        updatedAt: '2026-08-27T03:05:00Z',
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [operation], total: 1, page: 1, pageSize: 30 }),
+      })
+    })
+
+    await page.goto('/workflows?site=site-a')
+    const row = page.getByRole('table', { name: 'Workflows' })
+      .getByRole('row', { name: /Observe polling convergence/ })
+    await expect(row).toContainText('running')
+    await expect(page.getByText('Live updates every 5s')).toBeVisible()
+
+    await page.clock.fastForward(5000)
+    await expect.poll(() => requests).toBe(3)
+    await expect(page.getByText('Live updates interrupted')).toBeVisible()
+    await expect(row).toContainText('running')
+
+    await page.clock.fastForward(5000)
+    await expect.poll(() => requests).toBe(4)
+    await expect(row).toContainText('succeeded')
+    await expect(page.getByText('Live updates interrupted')).toHaveCount(0)
+    await expect(page.getByText(/Updated/).first()).toBeVisible()
+
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect.poll(() => requests).toBe(5)
+
+    await page.clock.fastForward(6000)
+    expect(requests).toBe(5)
+  })
+
   test('AWX stdout is first and supports search, navigation, copy, download, events, and retry', async ({ page }) => {
     await page.goto('/workflows?site=site-a')
-    await chooseSingleSelectOption(page, 'Filter by status', 'failed')
+    await page.getByRole('button', { name: 'Failed', exact: true }).click()
     await expect(page).toHaveURL(/status=failed/)
     await page.goto('/workflows/op-running?site=site-a')
     await expect(page.getByRole('tab', { name: 'Stdout' })).toHaveAttribute('aria-selected', 'true')
@@ -1039,8 +1222,9 @@ test.describe('operator interactions', () => {
     await page.getByLabel('Download stdout').click()
     expect((await download).suggestedFilename()).toBe('swallow-operation-op-running-stdout.log')
     await page.getByRole('tab', { name: 'Events' }).click()
-    await chooseSingleSelectOption(page, 'Filter events by status', 'failed')
-    await expect(page.getByRole('cell', { name: 'Start controller' })).toBeVisible()
+    await page.getByText('Errors only', { exact: true }).click()
+    await expect(page.getByRole('button', { name: /Start controller/ })).toBeVisible()
+    await expect(page.getByText('Gather facts', { exact: true })).toHaveCount(0)
     await page.goto('/workflows/op-failed?site=site-a')
     await page.getByRole('button', { name: 'Retry' }).click()
     await expect(page).toHaveURL('/workflows/op-retry?site=site-a')

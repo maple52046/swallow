@@ -6,6 +6,7 @@ const visualCases = [
   { name: 'overview', path: '/?site=site-a', heading: 'Overview', authenticated: true },
   { name: 'servers', path: '/servers?site=site-a', heading: 'Servers', authenticated: true },
   { name: 'platform-list', path: '/platforms?site=site-a', heading: 'Platforms', authenticated: true },
+  { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true },
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true },

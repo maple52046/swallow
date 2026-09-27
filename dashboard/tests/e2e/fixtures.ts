@@ -72,6 +72,33 @@ const operations = [
     requestedBy: 'admin', requestedAt: '2026-08-27T00:29:00Z',
     startedAt: '2026-08-27T00:30:00Z', finishedAt: null, updatedAt: '2026-08-27T00:35:00Z',
   },
+  {
+    id: 'op-succeeded', schemaVersion: 3, kind: 'inventory.reconcile',
+    intent: 'Reconcile accelerator inventory', intentSnapshot: {},
+    definition: 'inventory-reconciliation', definitionVersion: 1,
+    status: 'succeeded', statusReason: null,
+    startState: 'started', temporal: { workflowId: 'swallow-operation/op-succeeded', runId: 'run-succeeded' },
+    siteId: 'site-a', platformId: null,
+    targetResources: [{ kind: 'server', id: 'srv-2' }],
+    targetServerIds: ['srv-2'], retryOfOperationId: null,
+    steps: [
+      {
+        id: 'reconcile-inventory', kind: 'internal', name: 'Reconcile accelerator inventory',
+        executor: 'internal', dependsOn: [], targets: [{ kind: 'server', id: 'srv-2' }],
+        status: 'succeeded', attempt: 1, progress: 100, error: null,
+        externalExecution: null, artifacts: [],
+        startedAt: '2026-08-26T23:30:00Z', finishedAt: '2026-08-26T23:31:00Z',
+      },
+    ],
+    leases: [], requestCorrelation: 'req-op-succeeded',
+    execution: {
+      runId: 'run-succeeded', playbook: '', status: 'succeeded', statusReason: null,
+      startedAt: '2026-08-26T23:30:00Z', finishedAt: '2026-08-26T23:31:00Z',
+    },
+    requestedBy: 'system', requestedAt: '2026-08-26T23:29:00Z',
+    startedAt: '2026-08-26T23:30:00Z', finishedAt: '2026-08-26T23:31:00Z',
+    updatedAt: '2026-08-26T23:31:00Z',
+  },
 ]
 const platforms = [
   {
@@ -1284,17 +1311,29 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     // The dashboard reads a single Operation as a Workflow (ADR 017 rename). Serve it by id so
     // deployment claim resolution can read a Platform's target history.
-    // The dashboard lists Operations through the canonical /workflows surface (ADR 017 rename),
-    // so the detail and operations pages depend on this list; without it they render empty.
+    // Canonical Workflow listing: filtering and pagination stay server-owned so dashboard
+    // behavior tests exercise the same contract as production rather than client-side narrowing.
     if (path === '/api/v1/workflows' && request.method() === 'GET') {
       let items = [...operationItems]
+      const siteId = url.searchParams.get('siteId')
       const status = url.searchParams.get('status')
       const platformId = url.searchParams.get('platformId')
       const serverId = url.searchParams.get('serverId')
+      const kind = url.searchParams.get('kind')
+      const active = url.searchParams.get('active') === 'true'
+      const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled', 'indeterminate'])
+      if (siteId) items = items.filter((item) => item.siteId === siteId)
       if (status) items = items.filter((item) => (item.status ?? item.execution.status) === status)
       if (platformId) items = items.filter((item) => item.platformId === platformId)
       if (serverId) items = items.filter((item) => item.targetServerIds.includes(serverId))
-      return json(route, { items, total: items.length, page: 1, pageSize: 30 })
+      if (kind) items = items.filter((item) => item.kind === kind)
+      if (active) items = items.filter((item) => !terminal.has(item.status ?? item.execution.status))
+      items.sort((left, right) => right.requestedAt.localeCompare(left.requestedAt))
+      const total = items.length
+      const page = Math.max(1, Number(url.searchParams.get('page')) || 1)
+      const pageSize = Math.max(1, Number(url.searchParams.get('pageSize')) || 30)
+      const offset = (page - 1) * pageSize
+      return json(route, { items: items.slice(offset, offset + pageSize), total, page, pageSize })
     }
     const workflowByIdMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)$/)
     if (workflowByIdMatch && request.method() === 'GET') {
