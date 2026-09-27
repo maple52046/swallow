@@ -32,13 +32,14 @@ Repository 以頂層目錄承載每個 component，目錄名即 component 的角
 > Note：`swallow` 與 `swallow-api` 是 **binary 名稱**，不是 component 目錄名。頂層目錄名
 > 一律以 component 角色命名（`api-server/`、`cli/`），binary 由對應 component 建置產生。
 
-每個 component 目錄是一個獨立的 build / test 單位（`api-server` 為 Go module，
-`dashboard` 為 npm project），並帶有自己的 `AGENTS.md`、`docs/` 與 coding style。
+每個 component 目錄是一個獨立的 build / test 單位（`api-server` 與 `cli` 各自是
+Go module，`dashboard` 為 npm project），並帶有自己的 `AGENTS.md`、`docs/` 與
+coding style。
 
 > Note：早期設計曾規劃節點端 `agent` component，並以 `src/<project>` git submodule 搭配
 > root component symlink 承載程式碼。`agent` 已依
 > [ADR-001](../decisions/001-system-ownership-boundaries.md) 退場（node control 交由
-> Swallow embedded Ansible execution），submodule 架構亦已依
+> swallow 的 versioned Ansible execution），submodule 架構亦已依
 > [ADR-005](../decisions/005-monorepo-consolidation.md) 收斂為本 monorepo。若在舊文件或
 > 討論中看到 `src/swallow`、`src/dashboard` 或 component symlink，一律以本檔為準。
 
@@ -91,10 +92,12 @@ flowchart LR
 
 ## Docs Layout
 
-`docs/` 只保存跨 component 共通的**定義性文件 (definitional documents)**；各 component 的
-內部設計文件留在自己的目錄中（例如 `api-server/docs/`、`dashboard/docs/`）。
+`docs/` 同時承載跨 component 的 definitional documents 與對外公開文件；各 component 的
+內部設計文件仍留在自己的目錄中（例如 `api-server/docs/`、`dashboard/docs/`、`cli/docs/`）。
 
-- [`docs/development/`](.) — 平台層級的開發規範：
+- `docs/en/` 與 `docs/zh-TW/` — path 對等的英文／繁體中文公開文件。公開文件可引用
+  development source of truth；development、ADR、AGENTS 與 skills 不得反向連結公開文件。
+- [`docs/development/`](.) — swallow 層級的開發規範：
   - [`architecture-spec.md`](architecture-spec.md) — Strategic DDD architecture constitution。
   - [`codebase-structure.md`](codebase-structure.md) — 本檔，結構契約。
   - [`api-contracts.md`](api-contracts.md) — API contract 的 provider-first discovery workflow。
@@ -117,7 +120,8 @@ component 的內部實作細節。
   實作；跨 component 只透過 provider-owned API contract 與 `docs/` 的共通定義互動。
 - 業務原始碼一律位於某個 component 目錄之內；repository root 只放跨 component 的 `docs/`、
   `deploy/`、`skills/` 與 `.cursor/` harness。
-- `docs/` 內**只**保存跨 component 共通的契約與定義。
+- `docs/` 的 development/decisions/plans 與公開語系樹責任不同；不得把 user guide 當成
+  implementation contract，也不得讓 agent-oriented 文件反向依賴公開文件。
 
 ## Operating Conventions
 

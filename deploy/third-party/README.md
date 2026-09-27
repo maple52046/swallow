@@ -1,5 +1,7 @@
 # Third-party services
 
+[繁體中文](README.zh-TW.md) · [Installation choices](../../docs/en/installation.md)
+
 Third-party media is versioned separately from the Swallow core bundle.
 
 | Component | Supported production topology |

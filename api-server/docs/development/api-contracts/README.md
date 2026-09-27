@@ -1,105 +1,60 @@
-# Swallow API Contracts
+# swallow API Contracts
 
-This is the starting point for API contract work in this codebase.
+This is the starting point for contract work owned by the `api-server`
+component.
 
-API contracts are owned by the component that provides the API. Callers must use
-the provider's contract and must not infer behavior from provider implementation
-details.
-
-## Reading Workflow
+## Reading workflow
 
 For any API reading, creation, modification, deprecation, deletion, consumption,
 or validation:
 
-1. Read this `README.md`.
-2. Read `outline.md`.
-3. Follow the index path from `outline.md` to the relevant API contract.
-4. Use only active contracts as implementation-ready sources of truth.
+1. Read this file.
+2. Read [outline.md](outline.md).
+3. Open the [api-server outline](api-server/outline.md).
+4. Read only the relevant contract.
+5. Use only contracts marked Active as implementation-ready.
 
-Do not infer routes, fields, status codes, error formats, authentication,
-authorization, or behavior semantics from code.
+Do not infer routes, fields, statuses, errors, authentication, authorization, or
+semantics from private implementation.
 
-## Contract Status
+## Ownership
 
-- Active: the contract document exists and is the current source of truth.
-- Planned: the API area is expected, but the contract document does not yet
-  exist or is not authoritative.
-- Deprecated: the contract remains only for compatibility or migration.
+`api-server` owns one HTTP REST surface consumed by `dashboard`, `cli`, and
+external integrators. This tree contains no other public protocol.
 
-Only active contracts are implementation-ready. A planned API must be created or
-promoted to an active contract before implementation or integration depends on
-that API behavior.
-
-## Maintenance Workflow
-
-For any API addition, behavior change, deprecation, or deletion, update the
-provider-owned API contract before or together with implementation.
-
-API contracts are stored by provider component:
+Contracts live under:
 
 ```text
 docs/development/api-contracts/
-  README.md
-  outline.md
-  template.md
-  {component}/
-    outline.md
-    {api}.md
+├── README.md
+├── outline.md
+├── template.md
+└── api-server/
+    ├── outline.md
+    └── <area>.md
 ```
 
-The only API-owning component in this source project is `api-server`. It owns two
-surfaces: the HTTP REST API consumed by `dashboard`, and the gRPC service
-consumed by `agent`. The `agent` component is a consumer and does not own API
-contracts.
+## Status
 
-When writing a new API contract:
+- **Active:** current source of truth and implementation-ready.
+- **Deprecated:** compatibility/migration surface only.
+- **Planned:** design direction without an implementation-ready contract.
 
-1. Start from `template.md`.
-2. Place the new contract under
-   `docs/development/api-contracts/{component}/{api}.md`.
-3. Use kebab-case for `{api}.md`.
-4. Update the component `outline.md`.
-5. Update the top-level `outline.md` only if this introduces a new API-owning
-   component or changes a component outline path.
+Planned behavior must be promoted into a complete Active contract before
+implementation or consumer integration.
 
-When maintaining existing contracts:
+## Authoring and maintenance
 
-- Update the component `outline.md` whenever an API contract is added, changed,
-  deprecated, deleted, renamed, promoted from planned to active, or moved.
-- Update the top-level `outline.md` only when the set of API-owning components or
-  component outline paths changes.
+Start new contracts from [template.md](template.md). Every contract defines
+owner, consumers, purpose, endpoints, request/response, errors, auth,
+compatibility, glossary terms, and relevant implementation constraints.
 
-Each API contract should define:
+Update `api-server/outline.md` whenever a contract is added, changed,
+deprecated, deleted, renamed, or promoted. Update the top-level outline only
+when the set of provider components or outline paths changes.
 
-1. API owner component
-2. API consumers
-3. API purpose
-4. Endpoint or RPC definition
-5. Request schema
-6. Response schema
-7. Error schema
-8. Authentication and authorization requirements
-9. Versioning or compatibility notes
-10. Related glossary terms
-11. Implementation notes, if needed
+Contract field names and enums use the repository glossary. Resolve missing or
+ambiguous domain language in the glossary before defining the wire behavior.
 
-Implementation must not define new API behavior that is absent from the
-provider-owned contract.
-
-## Domain Language
-
-Field names, enum values, and resource names in a contract must match
-swallow's ubiquitous language owned by swallow's glossary at the repository
-root (`docs/development/glossaries/`). A contract must
-not introduce a domain term or status value that the glossary does not define. If
-a needed term is missing or ambiguous, resolve it in the glossary first, then
-write the contract.
-
-## Cross-Component API Consumption
-
-When one component calls another component's API, the caller must follow the
-provider's API contract. `dashboard` consumes the `api-server` HTTP API and must
-integrate according to the published contract, not according to this component's
-implementation. (An earlier gRPC contract between a node-side `agent` and
-`api-server` was retired; see the repository root's
-`docs/decisions/001-system-ownership-boundaries.md`.)
+Provider and consumers update together in this monorepo, but ownership does not
+move: the provider contract remains the shared boundary.

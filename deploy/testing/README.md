@@ -1,7 +1,10 @@
 # Testing environment
 
-Testing never builds or bind-mounts source. Copy the three exact image references from a
-candidate release manifest into `.env`, then run:
+[繁體中文](README.zh-TW.md) · [Installation choices](../../docs/en/installation.md)
+
+Testing never builds or bind-mounts source. Copy all six exact image references
+(API, Dashboard, MongoDB, Temporal PostgreSQL, Temporal Server, and Temporal UI)
+from a candidate release manifest into `.env`, then run:
 
 ```bash
 ./prepare.sh

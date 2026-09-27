@@ -1,5 +1,7 @@
 # MongoDB 8 media
 
+[繁體中文](README.zh-TW.md) · [Third-party overview](../README.md)
+
 The Compose path consumes the exact MongoDB OCI digest recorded in
 `release-manifest.json`. Load the core OCI archive with `docker load`; production
 must not pull implicitly.

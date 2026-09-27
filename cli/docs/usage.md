@@ -1,14 +1,14 @@
 # swallow CLI Usage Manual
 
 This is the usage manual for the `swallow` operator command-line client (the
-`cli` component). It is written for **both human operators and AI agents**: an
-operator can follow it top-to-bottom, and an agent can use it as a task-oriented
-reference for constructing commands.
+`cli` component). It is written for operators and external developers who need interactive commands or stable JSON/YAML output for scripts.
 
-The CLI is a conformist HTTP consumer of the `api-server` contract. It covers the
-full **Active** API surface and deliberately omits deprecated aliases
-(`/operations`, `/clusters`, single-server `deploy`/`release`). When a detail
-here is ambiguous, the source of truth is the provider contract under
+The CLI is a conformist HTTP consumer of the `api-server` contract. It covers
+its implemented operator surfaces and deliberately omits Managed Software,
+deprecated aliases (`/operations`, `/clusters`, single-server
+`deploy`/`release`), and Planned endpoints. Use the Dashboard or HTTP API for
+Managed Software. When a detail here is ambiguous, the source of truth is the
+provider contract under
 [`../../api-server/docs/development/api-contracts/api-server/`](../../api-server/docs/development/api-contracts/api-server).
 
 ## Contents
@@ -23,7 +23,6 @@ here is ambiguous, the source of truth is the provider contract under
 - [Exit codes and errors](#exit-codes-and-errors)
 - [Command reference](#command-reference)
 - [Recipes](#recipes)
-- [Notes for agents](#notes-for-agents)
 
 ## Install and build
 
@@ -98,7 +97,7 @@ preserved.
 # Interactive login. Prefer --password-stdin so the secret is not in shell history.
 swallow --endpoint https://swallow.example login -u admin --password-stdin < password.txt
 # Or pass it directly (less safe):
-swallow login -u admin -p 's3cret'
+swallow login -u admin -p 'REDACTED'
 
 swallow auth me      # show the caller identity and role
 swallow logout       # clear the stored token locally (JWT is stateless; no server call)
@@ -220,7 +219,7 @@ playbookMappings:
 sshPrivateKey: |
   -----BEGIN OPENSSH PRIVATE KEY-----
   ...
-becomePassword: optional
+becomePassword: REDACTED
 ```
 
 ### integrations
@@ -244,7 +243,7 @@ name: lab-maas
 endpoint: https://maas.lab:5240/MAAS
 settings: {}
 credential:
-  apiKey: "consumer:token:secret"
+  apiKey: "REDACTED-MAAS-API-KEY"
 ```
 
 ### servers
@@ -491,23 +490,8 @@ jq -n '{serverIds:["srv1"],settings:{imageId:"ubuntu/noble",deployTarget:"disk"}
   | swallow provisioning deploy -f -
 ```
 
-## Notes for agents
-
-- **Contract is the source of truth.** For any request body, read the endpoint's
-  contract under
-  [`../../api-server/docs/development/api-contracts/api-server/`](../../api-server/docs/development/api-contracts/api-server)
-  and construct the `--file` payload from it. Do not invent fields.
-- **Active surface only.** There are no commands for deprecated aliases
-  (`/operations`, `/clusters`, single-server `deploy`/`release`) or for Planned
-  endpoints. If a capability is missing, confirm the contract status before
-  assuming the CLI should have it.
-- **No `servers create`.** Servers come from reconciling provisioner inventory;
-  use provisioning/platform operations to change their state.
-- **Scripting.** Use `-o json` and parse with `jq`. Check the process exit code
-  (`0` success, `1` error); parse the `Error:` line on stderr for the envelope
-  `code` and `requestId`.
-- **Scoping.** Prefer the explicit per-command `--site-id`; it falls back to the
-  global `--site`/profile `site` when omitted.
-- **Machine endpoints.** `discovery` uses machine auth; set `--machine-token`
-  when acting as a machine rather than an operator.
-```
+Servers come from provisioner reconciliation, so there is no `servers create`.
+For scripts, prefer `-o json`, check the process exit code, preserve error
+request IDs, pass an explicit `--site-id`, and derive structured body fields
+from the
+[provider-owned contract](../../api-server/docs/development/api-contracts/api-server/outline.md).

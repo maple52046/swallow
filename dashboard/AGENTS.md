@@ -78,9 +78,9 @@ must not integrate against an endpoint whose contract is only Planned. If a
 needed contract is missing, ambiguous, or contradicts what the UI needs, raise it
 against the provider's contract instead of coding around it.
 
-Mock repositories under `src/infrastructure/mock/` exist so screens can be built
-before a contract is active. A mock must still follow the same port as the real
-adapter, and must never become the de-facto definition of API behavior.
+The production container binds real HTTP adapters only. Deterministic API fixtures
+live in Playwright tests for verification; they are test drivers, never an
+implementation path or de-facto definition of API behavior.
 
 ## Domain Language
 
@@ -98,11 +98,11 @@ API payloads, and persistence.
 ## Plans
 
 When creating or updating an implementation plan for this project, store the
-manuscript under `docs/plans/manuscripts/` as `YYYYMMDD-<short-topic>.md` (see
-`docs/plans/manuscripts/README.md`), and update an existing plan for the same
-topic instead of creating a duplicate.
+manuscript under the repository root `../docs/plans/manuscripts/` as
+`YYYYMMDD-<short-topic>.md`, and update an existing plan for the same topic
+instead of creating a duplicate. Do not create a component-local plan tree.
 
-Do not proactively read files directly under `docs/plans/`. They are historical
+Do not proactively read files directly under `../docs/plans/`. They are historical
 records, and should only be read when the user asks for planning history or plan
 consolidation.
 

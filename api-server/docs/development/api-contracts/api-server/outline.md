@@ -52,12 +52,6 @@ Server detail, machine actions, Sites, Integrations, and monitoring alerts are
 published as Active contracts above. Provider-specific capabilities remain optional and
 are advertised by `provisioner-detail`.
 
-## Agent Service
-
-The `agent` component and its gRPC service were **removed** in the refoundation
-([decision 001](../../../../../docs/decisions/001-system-ownership-boundaries.md)):
-inventory and liveness are read from the provisioner and from `node_exporter`, so there
-is no bespoke agent protocol. `proto/agent/v1/agent.proto` no longer exists.
 
 ## Planned HTTP Surface
 

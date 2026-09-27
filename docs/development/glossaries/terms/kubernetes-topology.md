@@ -21,6 +21,6 @@
 - Examples: A single lab Server is `standalone`; one control-plane Server and six workers
   is `multi-node`; three dedicated control-plane Servers and four workers is
   `high-availability`.
-- Related terms: Platform, Node Role, Server, Operation.
+- Related terms: Platform, Node Role, Server, Workflow.
 - Change note: Added on 2026-08-30 when Kubernetes deployment was expanded beyond the
   original fixed high-availability shape.

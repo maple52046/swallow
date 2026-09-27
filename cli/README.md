@@ -1,82 +1,70 @@
 # swallow CLI
 
-`swallow` is the operator command-line client for the Swallow GPU datacenter
-platform. It talks to the `api-server` HTTP API and covers the full active
-contract surface: auth, sites, integrations, servers, provisioning,
-infrastructure, platforms (including the live Kubernetes explorer and Slurm
-views), workflows, monitoring, and discovery.
+[繁體中文](README.zh-TW.md) · [Full usage manual](docs/usage.md) ·
+[Project documentation](../docs/en/README.md)
 
-This is the `cli` component of the swallow monorepo — an HTTP consumer of the
-`api-server` contract. It is a separate Go module and builds a binary named
-`swallow`, distinct from the `api-server` service binary `swallow-api`.
+`swallow` is the operator command-line client for the swallow system. It is a
+separate Go module from `api-server` and consumes the published HTTP API. It
+covers the operator surfaces listed below; Managed Software currently uses the
+Dashboard or HTTP API.
 
-> **Full usage manual:** [`docs/usage.md`](docs/usage.md) — configuration,
-> authentication, every command group with examples, request-body files, output
-> formats, and scripting recipes. This README is a quick overview.
+## Build and verify
 
-## Build
+No stable packaged release is currently published.
 
 ```bash
 go build -o bin/swallow ./cmd/swallow
+gofmt -l .
+go vet ./...
+go test ./...
 ```
 
 ## Configure and log in
 
-The CLI reads a profile from `$SWALLOW_CONFIG` or, by default,
-`<user-config-dir>/swallow/config.yaml` (on Linux, `~/.config/swallow/config.yaml`).
-Environment variables (`SWALLOW_ENDPOINT`, `SWALLOW_TOKEN`, `SWALLOW_SITE`,
-`SWALLOW_MACHINE_TOKEN`, `SWALLOW_INSECURE`) override the file, and global flags
-override those.
-
 ```bash
-# First login writes the endpoint and access token to the profile.
-swallow --endpoint https://swallow.example login -u admin --password-stdin < pw.txt
+printf '%s\n' "$PASSWORD" |
+  bin/swallow --endpoint https://swallow.example \
+  login -u admin --password-stdin
 
-swallow auth me
-swallow logout   # clears the stored token locally
+bin/swallow auth me
 ```
 
-## Global flags
+The profile lives under the user configuration directory unless
+`$SWALLOW_CONFIG` or `--config` selects another path. Resolution order is
+profile, `SWALLOW_*` environment variables, then global flags.
 
-| Flag | Meaning |
-| --- | --- |
-| `--endpoint` | api-server base URL (overrides the profile) |
-| `--token` | access token for this invocation |
-| `--site` | default Site scope for commands that accept `siteId` |
-| `--machine-token` | machine bearer token for discovery endpoints |
-| `-o, --output` | `table` (default), `json`, or `yaml` |
-| `--insecure` | skip TLS verification (lab endpoints only) |
-| `--request-timeout` | per-request timeout; `0` disables it |
-| `--config` | profile file path |
+## Output and bodies
+
+- `table` is the human-readable default.
+- `-o json` and `-o yaml` preserve the full response for scripts.
+- `servers watch` emits Server-Sent Events as JSON lines.
+- Structured mutations accept `-f/--file` with JSON, YAML, or `-` for stdin.
+
+Request files intentionally track the API contract without copied CLI structs.
 
 ## Command groups
 
-Run `swallow <group> --help` for the full verb list.
+- `auth`, `login`, `logout` — session.
+- `overview` — Site-scoped operational summary.
+- `sites`, `integrations` — infrastructure identity and Site automation.
+- `servers` — inventory, stream, detail, protection, provider actions.
+- `provisioning` — images, verification, templates, tags, deploy/release/recovery.
+- `infrastructure` — Zones and Pools.
+- `platforms` — Kubernetes/Slurm deployment, lifecycle, settings, and live views.
+- `workflows` — durable Workflow observation and control.
+- `monitoring` — alerts and fixed Server metrics.
+- `discovery` — Prometheus HTTP service discovery using machine auth.
 
-- `auth`, `login`, `logout` — session
-- `overview` — site-scoped operational summary
-- `sites`, `integrations` — Site identity, provider integrations, site automation
-- `servers` — inventory list/stream, detail, lifecycle actions, network, placement
-- `provisioning` — OS images, templates, tags, deploy/release/recover operations,
-  image verification, network inspection, provisioning tasks
-- `infrastructure` — Zones and Pools
-- `platforms` — Kubernetes/Slurm deploy, lifecycle, sync, Slurm state and
-  requirements, and the live `kubernetes` explorer
-- `workflows` — durable Workflow create/observe/control and per-Task diagnostics
-- `monitoring` — alerts and server metrics
-- `discovery` — Prometheus service discovery (machine auth)
+Run `swallow <group> --help` or read the
+[usage manual](docs/usage.md) for every verb, flag, exit code, and recipe.
 
-## Request bodies
+## Compatibility and safety
 
-Read commands use flags for path and query parameters. Create/update/action
-commands that carry a structured payload accept `-f/--file <path>` (a JSON or
-YAML document, or `-` for stdin) so the body tracks the API contract exactly.
-Common simple cases also have convenience flags (for example
-`provisioning release --server ... --erase`).
+The CLI targets canonical Active routes and does not expose deprecated
+`/operations`, `/clusters`, or legacy single-Server provisioning aliases.
+Tokens are never logged and the profile is owner-only. `--insecure` is for
+controlled labs only.
 
-## Output
-
-`table` renders a human-readable table for lists (flattening one level of nested
-fields into dotted columns) and a key/value table for single objects; `json` and
-`yaml` are the lossless formats. `servers watch` streams SSE frames as JSON lines
-regardless of `--output`.
+See [AGENTS.md](AGENTS.md), the
+[architecture specification](docs/development/architecture-spec.md), and
+[coding style](docs/development/coding-style.md) before changing the component.

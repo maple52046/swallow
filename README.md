@@ -1,143 +1,120 @@
-# swallow — GPU Datacenter Management
+# swallow
 
-## Overview
+[繁體中文](README.zh-TW.md) · [Documentation](docs/en/README.md) ·
+[Contributing](CONTRIBUTING.md)
 
-本 repository 是 **swallow**（GPU Datacenter Management）的 monorepo。
-swallow 的所有 component 原始碼，以及跨 component 共通的約束文件，都集中在這一個
-repository 內。
+> **Project status: active development.** Interfaces and installation assets are
+> evolving, and the repository does not currently publish a stable SemVer
+> release. Evaluate upgrades and operational procedures before production use.
 
-## Why this repository
+swallow is a GPU datacenter management system for operators who need one place
+to correlate physical servers, operating-system provisioning, Kubernetes or
+Slurm Platforms, host software, automation progress, and monitoring signals.
+It owns intent, policy, and identity mapping while external systems continue to
+own the facts they are best at producing.
 
-swallow 由多個 component 組成（後端 API、前端 dashboard，未來還會加入更多）。
-若各 component 各自為政，容易出現以下問題：
+![The swallow operator overview](docs/assets/overview.png)
 
-- 領域術語在不同 component 中產生語意漂移。
-- API 與資料契約沒有單一事實來源 (single source of truth)，整合時反覆對焦。
-- 缺乏全局 vision，難以掌握整個 swallow 的演進方向。
+## What swallow does
 
-本 repository 透過兩個機制解決上述問題：
+- Reconciles MAAS machine inventory into stable Server identities.
+- Deploys and releases operating systems, including image upload and
+  verification, templates, disk/RAM targets, and recovery workflows.
+- Deploys and manages self-deployed Kubernetes and Slurm Platforms.
+- Installs and removes managed host software such as Docker CE, Podman, and NFS.
+- Runs durable automation as Workflows, Jobs, and Tasks through Temporal and
+  pinned Ansible content.
+- Correlates Prometheus metrics and Alertmanager alerts with Server and Platform
+  identities without storing metrics itself.
+- Provides complementary operator access through a browser Dashboard and the
+  `swallow` CLI; Managed Software is currently available through the Dashboard
+  and HTTP API.
 
-- **以單一 monorepo 承載所有 component**：
-  每個 component 是一個頂層目錄（如 [`api-server/`](api-server/)、
-  [`dashboard/`](dashboard/)），跨 component 的變更可以在一次 commit 內完成。
-- **以 [`docs/`](docs/) 收納 swallow 共通約束文件**：
-  glossary、API contract、共通資料模型等定義性文件，
-  作為跨 component 開發與維護的單一事實來源。
+## How it fits together
 
-如此一來，整個 swallow 的開發與維護皆在可控範圍內進行。
-
-> swallow 原先以 git submodule superproject（`src/<project>` + component symlink）組織，
-> 後依 [ADR-005](docs/decisions/005-monorepo-consolidation.md) 收斂為本 monorepo；節點端
-> `agent` 亦已依 [ADR-001](docs/decisions/001-system-ownership-boundaries.md) 退場。
-
-## Repository Composition
-
-- [`api-server/`](api-server/) — Go 後端 control plane（component）。
-- [`dashboard/`](dashboard/) — React + TypeScript + Vite 前端（component）。
-- [`docs/`](docs/) — swallow 共通約束文件，包含結構契約、glossary、API contract 等。
-- [`deploy/`](deploy/) — 跨 component 的環境編排與 Swallow installation assets，例如本機開發環境。
-
-## Repository Layout
-
-```text
-.
-├── api-server/                     # Go backend (component)
-├── dashboard/                      # TS frontend (component)
-├── AGENTS.md                       # AI agent 入口導引
-├── deploy/                         # 跨 component 環境編排與 installation assets
-│   ├── dev/                        # 唯一開發 golden path
-│   ├── testing/                    # production image + isolated test data
-│   ├── production/                 # Compose 與 native installation lifecycle
-│   ├── release/                    # candidate / SemVer promotion tooling
-│   └── third-party/                # 第三方 installation media contract
-├── docs/                           # swallow 共通約束文件
-│   ├── development/                # swallow 層級開發規範
-│   │   ├── architecture-spec.md    # Strategic DDD 架構憲法
-│   │   ├── codebase-structure.md   # repo 結構契約
-│   │   ├── api-contracts.md        # API contract discovery workflow
-│   │   ├── commit-spec.md          # commit message 規範
-│   │   └── glossaries/             # 共通領域術語（ubiquitous language）
-│   ├── decisions/                  # 輕量 ADR
-│   └── plans/                      # 歷史計畫紀錄
-├── skills/                         # 任務導向操作指南
-└── .cursor/                        # Cursor rules / hooks / skills
+```mermaid
+flowchart LR
+    operator[Operator] --> dashboard[Dashboard]
+    operator --> cli[swallow CLI]
+    integrator[API integrator] --> api[swallow-api]
+    dashboard --> api
+    cli --> api
+    api --> mongo[(MongoDB)]
+    api --> temporal[Temporal]
+    temporal --> worker[Workflow worker]
+    worker --> ansible[Ansible executor]
+    api <--> maas[MAAS]
+    api <--> monitoring[Prometheus / Alertmanager]
+    api <--> platforms[Kubernetes / Slurm]
+    ansible --> servers[Managed Servers]
 ```
 
-## Components
+MAAS owns machine and provisioning facts. Kubernetes and Slurm own live runtime
+state. Prometheus and Alertmanager own metrics and alerts. swallow owns the
+operator's desired state and the stable relationships between those systems.
 
-目前已註冊的 components：
+## Try it locally
 
-- **api-server** → [`api-server/`](api-server/)
-  — Data Center API Service，提供 swallow 的後端 HTTP API。
-- **dashboard** → [`dashboard/`](dashboard/)
-  — 前端 dashboard，採 React + TypeScript + Vite。
-
-完整 component 註冊規則與新增流程請見
-[`docs/development/codebase-structure.md`](docs/development/codebase-structure.md)。
-
-## Documentation
-
-開發（含 AI agent 協作）一律從 [`AGENTS.md`](AGENTS.md) 進入，它會依任務類型指出最小必讀集合。
-
-- [`AGENTS.md`](AGENTS.md) — agent 入口導引（必讀起點）。
-- [`docs/development/codebase-structure.md`](docs/development/codebase-structure.md) —
-  repo 結構契約：component 目錄與 docs 分類。
-- [`docs/development/architecture-spec.md`](docs/development/architecture-spec.md) —
-  Strategic DDD 架構憲法：bounded context、context map、distillation 與跨 context 規則。
-- [`docs/development/glossaries/`](docs/development/glossaries/README.md) —
-  跨 component 共通的領域術語，定義 swallow 的 ubiquitous language。
-- [`docs/development/api-contracts.md`](docs/development/api-contracts.md) —
-  API contract 的 provider-first discovery workflow；實際 contract 由 provider component 擁有。
-- [`docs/development/commit-spec.md`](docs/development/commit-spec.md) — commit message 規範。
-- [`docs/decisions/`](docs/decisions/README.md) — 影響面廣的架構決策紀錄（ADR）。
-
-各 component 採用完整 Clean Architecture，內部架構與 coding style 見其
-`AGENTS.md` 與 `docs/development/`。
-
-## Getting Started
-
-### 初次 clone
+The development stack requires Docker Engine with the Compose plugin; Go, Node,
+MongoDB, Temporal, and Ansible tooling run in containers.
 
 ```bash
-git clone <repo-url>
-```
-
-### 啟動本機開發環境
-
-MongoDB 與所有 component 以 Docker Compose 一次啟動，host 只需要 Docker：
-
-```bash
-cd deploy/dev
+git clone git@github.com:maple52046/swallow.git
+cd swallow/deploy/dev
 docker compose up -d
 ```
 
-dashboard 位於 <http://localhost:5173>，API 位於 <http://localhost:30051>，
-預設 admin 帳號為 `admin` / `admin`。
-完整說明（設定、hot reload、遠端存取）見 [`deploy/dev/README.md`](deploy/dev/README.md)。
+Open <http://localhost:5173> and sign in with `admin` / `admin`. These
+credentials and the bundled secrets are for local development only. The API is
+available at <http://localhost:30051>.
 
-### Testing 與 Production installation
+Continue with the [getting-started guide](docs/en/getting-started.md) to create a
+Site, register integrations, configure automation, and use the CLI.
 
-- [Testing](deploy/testing/README.md) 只接受 candidate manifest 的 exact image digests，
-  不 build 且不掛 source。
-- [Production Compose installation](deploy/production/README.md) 與
-  [Ubuntu native installation](deploy/production/native/README.md) 共用同一 binary、dashboard dist、
-  playbook bundle 與 migration。
-- [Third-party services](deploy/third-party/README.md) 與 Swallow core 分開交付；MAAS
-  必須在獨立 host/VM。
+## Interfaces
 
-各 component 單獨的 build、run、test 指令請見其對應目錄的 README
-（[`api-server/`](api-server/)、[`dashboard/`](dashboard/)）。
+| Interface | Purpose | Entry point |
+| --- | --- | --- |
+| Dashboard | Daily operator workflows and diagnostics | [Dashboard guide](docs/en/guides/dashboard.md) |
+| `swallow` CLI | Interactive operation and automation-friendly output | [CLI guide](docs/en/reference/cli.md) |
+| HTTP API | External integrations against the active `/api/v1` contract | [API integration](docs/en/reference/api-integration.md) |
+
+## Repository components
+
+| Component | Role | Artifact |
+| --- | --- | --- |
+| [`api-server/`](api-server/) | HTTP API, reconciliation, durable workflow activities, and automation execution | `swallow-api` |
+| [`dashboard/`](dashboard/) | React operator console | static web application |
+| [`cli/`](cli/) | HTTP operator client | `swallow` |
+| [`deploy/`](deploy/) | Development, testing, installation, release, and third-party assets | Compose/native bundles |
+
+For the complete repository map, see the
+[codebase structure contract](docs/development/codebase-structure.md).
+
+## Documentation
+
+- [Documentation home](docs/en/README.md)
+- [Product introduction](docs/en/introduction.md)
+- [Installation choices](docs/en/installation.md)
+- [Core concepts](docs/en/concepts.md)
+- [Troubleshooting](docs/en/troubleshooting.md)
+- [Contributor guide](CONTRIBUTING.md)
+
+The public guides link to provider-owned API contracts, glossary terms, and
+architecture decisions where precise implementation or compatibility details
+matter. Those development documents remain the source of truth.
+
+## Current limitations
+
+- No stable SemVer release has been published from this repository.
+- Native Ubuntu packaging is a preview because native Temporal and PostgreSQL
+  systemd packaging is not complete. Use the Compose topology for functional
+  Workflow execution.
+- User management, Teams, physical rack topology, and GPU-specific observability
+  are planned concepts, not active product capabilities.
 
 ## Contributing
 
-- **新增 / 移除 component**：請依
-  [`docs/development/codebase-structure.md`](docs/development/codebase-structure.md)
-  的 Operating Conventions 流程執行（建立頂層目錄 → 在 Components 章節登錄）。
-- **新增跨 component 共通概念**：請依
-  [`docs/development/glossaries/README.md`](docs/development/glossaries/README.md)
-  的流程增補 term，並更新 outline，讓所有 component 共享同一份事實。
-- **新增 / 修改 API 行為**：請依
-  [`docs/development/api-contracts.md`](docs/development/api-contracts.md)
-  找到 provider component，並更新該 provider 擁有的 contract 後再實作。
-- **component 內部實作**：build、test、run、installation、模組結構等細節
-  在對應的 component 目錄中處理，本文件不重複描述。
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). Changes must preserve component
+boundaries, use the provider-owned API contract, follow the shared glossary, and
+include the required tests and documentation updates.

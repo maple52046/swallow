@@ -15,6 +15,20 @@ own top-level directory (`api-server/`, `dashboard/`, `cli/`); the repository ro
 owns the shared model — the ubiquitous language and the contracts between
 contexts — under `docs/`.
 
+## Documentation Audiences
+
+Public documentation is English-first with an equivalent Traditional Chinese
+version. Cross-project public guides live in the mirrored `docs/en/` and
+`docs/zh-TW/` trees; colocated component and installation references use a
+`.zh-TW.md` companion.
+
+Agent-oriented files — this guide, component AGENTS files, development specs,
+API contracts, glossaries, ADRs, and skills — stay single-source. They must not
+link to public documentation, because doing so expands agent reading paths and
+context unnecessarily. Public documentation may link inward to these
+authoritative development sources. Read public guides only when the task itself
+creates, reviews, or explains public documentation.
+
 ## Always Read
 
 Before planning, editing, reviewing, or explaining repository work, read:

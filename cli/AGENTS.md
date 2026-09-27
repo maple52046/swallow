@@ -40,15 +40,6 @@ Before adding or modifying any code, also read:
    add or change. The contract is the source of truth for paths, methods,
    fields, status codes, and auth.
 
-## Usage Manual
-
-`docs/usage.md` is the user- and agent-facing usage manual: configuration,
-authentication, global flags, output formats, `--file` request bodies, and every
-command group with concrete examples and recipes. Read it when a task needs to
-*run* the CLI (constructing commands, request bodies, or scripting against it),
-and keep it in sync when you add, rename, or change a command's flags or
-behavior. It complements `README.md` (a quick overview); neither replaces the
-per-endpoint contracts, which remain the source of truth for payload fields.
 
 ## API Consumption
 

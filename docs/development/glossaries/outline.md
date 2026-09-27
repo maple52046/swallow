@@ -88,13 +88,13 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Automation
 
-- [Workflow](terms/workflow.md): An operator intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; code/API still say "Operation").
+- [Workflow](terms/workflow.md): An operator intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; compatibility code and wire fields still contain "Operation").
 - [Job](terms/job.md): A reusable, convergent unit of Tasks that brings resources to a sub-goal (e.g. `ensure-os`), composable into Workflows and runnable on its own.
 - [Task](terms/task.md): The atomic, idempotent ("ensure") unit of work run by exactly one Runner (code/API still say "Step").
 - [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` / `internal` (named by purpose; code still says "executor", and `maas` → `provisioner`).
 - [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for Swallow-owned Ansible execution.
 
-> Deprecated aliases kept for the [decision 017](../decisions/017-workflow-job-task-runner-model.md) rename window: [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
+> Deprecated aliases kept for the [decision 017](../../decisions/017-workflow-job-task-runner-model.md) rename window: [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
 
 ## Pending Terms
 
@@ -126,4 +126,4 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - ~~`Plane`（Kubernetes / Slurm 管理平面）~~：已由 [decision 032](../../decisions/032-self-deployed-platform-management.md) supersede。管理平面不再是可註冊的外部物件；受管 runtime 一律是 Swallow 自部的 `Platform`，Kubernetes 的叢集內管理走 Platform explorer，不需要獨立的 `Plane` term。
 
 > `Agent`（節點端 runtime）與其 `Node ID` / `Inventory` / `Agent Info` 概念已依
-> [decision 001](../decisions/001-system-ownership-boundaries.md) 退場，不再是 pending term。
+> [decision 001](../../decisions/001-system-ownership-boundaries.md) 退場，不再是 pending term。

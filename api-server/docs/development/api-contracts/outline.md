@@ -1,24 +1,17 @@
-# Swallow API Contract Outline
+# swallow API Contract Outline
 
-This file is the project-wide outline for API contracts owned by components
-in the swallow monorepo. Use it after [README.md](README.md) to locate
-the provider component's API contract outline.
+This file routes readers to provider-owned contract outlines in the swallow
+monorepo. Read it after [README.md](README.md).
 
-## Component Outlines
+## Provider outlines
 
-| Component | Outline | Purpose |
+| Provider component | Outline | Surface |
 | --- | --- | --- |
-| `api-server` | [api-server/outline.md](api-server/outline.md) | Contracts for the HTTP REST API and the gRPC agent service owned by the API Server component. |
-
-The `agent` component is a consumer of the `api-server` gRPC service and does not
-own API contracts, so it has no outline here.
+| `api-server` | [api-server/outline.md](api-server/outline.md) | HTTP REST API consumed by Dashboard, CLI, and external integrators |
 
 ## Rules
 
-- This file only routes readers to component API contract outlines.
-- Each component directory owns its own `outline.md`.
-- Component `outline.md` files list the API contracts, statuses, paths, and
-  purposes for APIs owned by that component.
-- When adding, changing, deprecating, or deleting an API contract, update the
-  relevant component `outline.md`. Update this file only when the set of
-  API-owning components or component outline paths changes.
+- Contracts remain under their provider component's development documentation.
+- The provider outline lists status, route area, purpose, and consumers.
+- Update this file only when provider ownership or outline paths change.
+- Do not add consumer-owned copies of provider contracts.

@@ -11,6 +11,6 @@
 - Deprecated terms: Provisioning Job.
 - Examples: After MAAS accepts Release, a Provisioning Task waits until the
   Server is Ready and removes only the unchanged static links captured earlier.
-- Related terms: IP Binding, OS Deployment, Operation, Server Status.
+- Related terms: IP Binding, OS Deployment, Workflow, Server Status.
 - Change note: Added because release cleanup must survive process restarts but
   does not execute a playbook and therefore cannot be represented as Operation.

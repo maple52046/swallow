@@ -38,10 +38,8 @@ For swallow today, these components provide APIs and own API contracts:
 `api-server` owns one API surface: the HTTP REST API consumed by `dashboard` and
 the `cli` operator client.
 
-The `dashboard` and `cli` components are consumers of the `api-server` HTTP API and
-do not own API contracts. (An earlier `agent` component and its gRPC surface were
-removed in [decision 001](../decisions/001-system-ownership-boundaries.md); swallow
-reads inventory and liveness from the provisioner and from `node_exporter` instead.)
+The `dashboard` and `cli` components are consumers of the `api-server` HTTP API
+and do not own API contracts.
 
 If a future component provides APIs, its contracts should be discovered through
 the same component-first workflow and stored under that provider component's own
@@ -72,4 +70,4 @@ The consumer component must integrate according to the contract.
 Neither side should rely on private implementation details from the other side.
 
 This rule applies whenever different components call each other, should
-such a case arise; today `api-server` and `dashboard` are the only components.
+such a case arise; today `dashboard` and `cli` are the HTTP consumers of `api-server`.

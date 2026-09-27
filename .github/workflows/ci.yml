@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Validate documentation
+        run: python3 scripts/check-docs.py
       - uses: actions/setup-go@v5
         with:
           go-version-file: api-server/go.mod

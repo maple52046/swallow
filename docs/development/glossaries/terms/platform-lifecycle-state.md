@@ -7,5 +7,5 @@
 - Synonyms: None.
 - Deprecated terms: Waiting for deployment, when used for every Platform without an Integration.
 - Examples: A failed initial deployment is `deploy_failed` even if some hosts contain k0s state. A retrying uninstall is `uninstalling`. A successfully cleaned Platform remains addressable with state `uninstalled` until Delete.
-- Related terms: Platform, Operation, Membership, Integration.
+- Related terms: Platform, Workflow, Membership, Integration.
 - Change note: Added on 2026-08-29 to make Platform lifecycle a provider-owned aggregate read model. On 2026-09-19, `registered` was narrowed to a one-release compatibility state after the public register-existing path was removed ([decision 032](../../../decisions/032-self-deployed-platform-management.md)).

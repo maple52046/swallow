@@ -1,176 +1,137 @@
-# swallow
+# swallow api-server
 
-Backend control plane for swallow.
+[繁體中文](README.zh-TW.md) · [Project documentation](../docs/en/README.md)
 
-## What this service is
+`api-server` is swallow's API-owning backend component. It builds the
+`swallow-api` binary and owns HTTP contracts, intent, policy, stable identity
+mapping, reconciliation, durable Workflow activities, and embedded Ansible
+content.
 
-swallow owns **intent, policy, and identity mapping**. It owns no facts about the
-physical or runtime world.
+## Runtime processes
 
-Facts about hardware, operating systems, metrics, and platform state are owned by external
-systems. Swallow owns automation intent and embedded execution. The unique value it keeps
-that nothing else can is the mapping between them: this server, at this site, provisioned
-by that MAAS, currently a worker in that Kubernetes platform, emitting these metrics, last
-touched by this versioned operation.
+The same binary provides separate processes:
 
-That correlation is the product. Everything else is someone else's job.
+| Command | Responsibility |
+| --- | --- |
+| `swallow-api api` | HTTP API, authentication, queries, reconciliation, and Workflow start/control |
+| `swallow-api worker` | Temporal Workflow and activity worker |
+| `swallow-api ansible-executor` | Executes idempotent Ansible attempts and publishes task events |
+| `swallow-api migrate` | Explicit schema/data migration before service startup |
 
-Read [`docs/decisions/001-system-ownership-boundaries.md`](../../docs/decisions/001-system-ownership-boundaries.md)
-in the swallow repository before adding anything that stores state. Most feature ideas
-for this service are already ruled out there, because something else owns the facts.
+Temporal is the sole durable orchestration engine. A runnable topology also
+requires Temporal Server/PostgreSQL and MongoDB; there is no in-process
+dispatcher fallback.
 
-## Integrations
+## External systems and ownership
 
-What swallow talks to is **registered at runtime, not configured**: a fleet has one
-provisioner per site and they change without a redeploy.
+Integrations are registered per Site at runtime:
 
-| Kind | Product | Used for |
-|------|---------|----------|
-| `provisioner` | Ubuntu MAAS | Machine inventory, OS deploy and release |
-| `metrics` | Prometheus-compatible store | Metric queries; Alertmanager for alerts |
-| `platform` | Kubernetes API, Slurm (slurmrestd) | Live platform state and membership |
+| Kind | Current provider | Used for |
+| --- | --- | --- |
+| `provisioner` | Ubuntu MAAS | Machine inventory, power, OS images, deploy/release, grouping, tags |
+| `metrics` | Prometheus/Alertmanager/Grafana | Fixed metric queries, alerts/silences, links |
+| Platform runtime | Kubernetes, Slurm | Live membership and runtime management for self-deployed Platforms |
 
-Registering a provisioner:
+swallow stores intent and identity relationships. It does not copy hardware
+facts, live Platform state, metrics, or alerts into a competing source of truth.
+See the [ownership decision](../docs/decisions/001-system-ownership-boundaries.md).
 
-```bash
-curl -X POST $API/api/v1/sites -H "$AUTH" \
-  -d '{"name": "dc-east"}'
+## Build and verify
 
-curl -X POST $API/api/v1/integrations -H "$AUTH" -d '{
-  "siteId":       "<site-id>",
-  "kind":         "provisioner",
-  "providerKind": "maas",
-  "name":         "maas-east",
-  "endpoint":     "http://10.0.0.5:5240/MAAS",
-  "credential":   "<consumer>:<token>:<secret>"
-}'
-```
-
-A credential is **write-only**. No endpoint returns one, in any form, including redacted;
-`hasCredential` tells you whether one is stored. Credentials are sealed with AES-256-GCM
-using `api.credentialKey`.
-
-## Servers
-
-A server is a **projection** of a machine in a provisioner's inventory. Operators do not
-create servers: a reconciler polls each enabled provisioner and produces them, which is
-why there is no `POST /servers`.
-
-Identity has three layers, because each answers a question the others cannot:
-
-- `serverId` — swallow-issued, stable for the machine's life in the platform. Every
-  reference uses this.
-- `source` — `(siteId, integrationId, providerMachineId)`. Unique. How the reconciler
-  finds a record.
-- `hardware` — system UUID, serial, MACs. Recognises the same machine after re-enrollment.
-
-`hostname` and IP addresses are **observed attributes**: nullable, mutable, and not
-unique. Two sites may both have `gpu-node-01` at `10.0.1.10`.
-
-Status is **three independent axes**, each with its own owner and `observedAt`:
-
-| Axis | Owner |
-|------|-------|
-| `provisioning` | The provisioner |
-| `membership` | The platform's own API |
-| `health` | The metrics store, resolved at query time and never stored |
-
-An axis that has never been observed is `null`. That matters: "we do not know" must never
-be presentable as "we know it is bad".
-
-## Operations
-
-Long-running work is executed by the embedded dispatcher through pinned
-`ansible-runner`. Intent is stored as `pending` before execution. A MongoDB lease
-enforces one job per site while allowing different sites to run concurrently.
-
-Each site owns SSH settings, mandatory known-hosts, write-only encrypted credentials, and
-operation-kind mappings. Only playbooks registered in the release manifest can run.
-Temporary credentials are removed after the job; persistent local artifacts serve the
-logs API. An expired run becomes `indeterminate` and is never retried automatically.
-
-The dynamic Ansible inventory remains available for diagnostics and external tools. The
-embedded runner calls the same use case directly rather than making an HTTP round trip.
-
-## Monitoring
-
-swallow stores no metrics and no alerts. It serves the scrape target list
-(`GET /api/v1/discovery/prometheus`, Prometheus `http_sd` format) with `server_id` and
-`site` labels attached, which is what makes the metrics join key impossible to drift.
-
-Alerts are read from Alertmanager on demand; acknowledging an alert creates a silence
-there rather than setting a field here.
-
-Metric queries are a **fixed, named set** rather than a PromQL passthrough. Exploration
-belongs in Grafana, which swallow deep-links to.
-
-## Running
-
-```bash
-export SWALLOW_API_MONGO_URI="mongodb://localhost:27017"
-export SWALLOW_API_JWT_SECRET="your-secret"
-export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
-
-swallow-api api
-```
-
-Or with a config file:
-
-```bash
-cp docs/config-example.yaml swallow.yaml
-swallow-api api --config swallow.yaml
-```
-
-## Configuration priority (highest → lowest)
-
-1. Environment variables (`SWALLOW_API_*`)
-2. CLI flags (`--addr`, `--mongo-uri`, …)
-3. Config file (`--config path/to/swallow.yaml`)
-4. Default values
-
-## Environment variables
-
-| Variable | Config field | Default |
-|----------|--------------|---------|
-| `SWALLOW_API_ADDR` | `api.addr` | `:30051` |
-| `SWALLOW_API_MONGO_URI` | `api.mongoUri` | `mongodb://localhost:27017` |
-| `SWALLOW_API_MONGO_DB` | `api.mongoDb` | `swallow` |
-| `SWALLOW_API_JWT_SECRET` | `api.jwtSecret` | *(required in prod)* |
-| `SWALLOW_API_JWT_EXPIRY_HOURS` | `api.jwtExpiryHours` | `24` |
-| `SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME` | `api.bootstrapAdminUsername` | `admin` |
-| `SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD` | `api.bootstrapAdminPassword` | `admin` |
-| `SWALLOW_API_CREDENTIAL_KEY` | `api.credentialKey` | **required, no default** |
-| `SWALLOW_API_MACHINE_TOKEN` | `api.machineToken` | *(unset: those endpoints need an admin JWT)* |
-| `SWALLOW_API_RECONCILE_INTERVAL` | `api.reconcileInterval` | `60s` |
-| `SWALLOW_API_INVENTORY_INTERVAL` | `api.inventoryInterval` | `15m` |
-| `SWALLOW_API_OPERATION_DISPATCH_INTERVAL` | `api.operationDispatchInterval` | `1s` |
-| `SWALLOW_API_OPERATION_LEASE_DURATION` | `api.operationLeaseDuration` | `90s` |
-| `SWALLOW_API_PLAYBOOK_MANIFEST` | `api.playbookManifest` | `automation/manifest.json` |
-| `SWALLOW_API_JOB_ARTIFACT_DIR` | `api.jobArtifactDir` | `./var/jobs` |
-
-`credentialKey` has no default on purpose: a shipped default encryption key looks like
-protection and is not. Starting without one would defer the failure to the first operator
-who tries to register an integration.
-
-`machineToken` is a static bearer token for Prometheus metrics/discovery and external
-Ansible inventory diagnostics. It is not a second way into the operator API.
-
-## Background loops
-
-- **Reconciler** — polls each enabled provisioner and each registered platform.
-- **Inventory sweep** — refreshes expensive attached-hardware observations.
-- **Embedded dispatcher** — claims durable pending operations, renews site leases, and
-  records a terminal or indeterminate result.
-
-## Building
+Go 1.25 is declared by `go.mod`.
 
 ```bash
 go build -o bin/swallow-api ./cmd/swallow-api
+gofmt -l .
+go vet ./...
+go test ./...
 ```
 
-## Further reading
+For the complete runnable development topology, use
+[deploy/dev](../deploy/dev/README.md) rather than starting only the API.
 
-- [`docs/apis.md`](docs/apis.md) — implemented endpoints.
-- [`docs/config-example.yaml`](docs/config-example.yaml) — annotated config.
-- [`docs/decisions/`](../../docs/decisions) in the swallow repository — the binding
-  decisions this service implements, including what was rejected and why.
+## Run with explicit dependencies
+
+```bash
+export SWALLOW_API_MONGO_URI=mongodb://localhost:27017
+export SWALLOW_API_JWT_SECRET='replace-me'
+export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
+export SWALLOW_API_TEMPORAL_ADDRESS=localhost:7233
+
+bin/swallow-api migrate
+bin/swallow-api api
+```
+
+In separate processes, start:
+
+```bash
+bin/swallow-api worker
+bin/swallow-api ansible-executor
+```
+
+The commands need the automation manifest, playbook directory, Ansible runner
+environment, MongoDB, and Temporal topology configured for the current working
+directory. The Compose stack supplies those details.
+
+## Configuration
+
+Precedence, highest first:
+
+1. `SWALLOW_API_*` environment variables.
+2. command flags;
+3. `--config` YAML file;
+4. defaults.
+
+Use the annotated [config example](docs/config-example.yaml) as the complete
+field reference. Important groups include:
+
+- API address, MongoDB, JWT, bootstrap admin, credential encryption, and
+  machine authentication;
+- reconcile and attached-inventory intervals;
+- Temporal address, namespace, task queue, start polling, and parallelism;
+- Ansible runner command, manifest/playbook directories, runtime/artifact
+  storage, retention, and upload limits.
+
+`api.credentialKey` is required and must decode to 32 bytes. It encrypts
+write-only integration and automation credentials. Back it up with MongoDB;
+changing it makes existing ciphertext unreadable.
+
+Development defaults such as `admin` / `admin` and
+`changeme-in-production` are unsafe outside local development.
+
+## API contracts
+
+The provider-owned [contract outline](docs/development/api-contracts/api-server/outline.md)
+lists every Active, Deprecated, and Planned area. Only Active contracts are
+implementation-ready.
+
+Shared behavior:
+
+- base path `/api/v1`;
+- opaque bearer tokens and role-based authorization;
+- one JSON error envelope with a request ID;
+- ISO 8601 UTC timestamps;
+- consistent pagination for large collections.
+
+`dashboard` and `cli` are conformist consumers. They must not infer behavior
+from this component's private code.
+
+## Reconciliation and execution
+
+- Provisioner reconciliation creates and updates Server projections.
+- Inventory sweeps refresh expensive attached-hardware observations.
+- Platform sync reads runtime-owned membership.
+- Temporal Workflows execute versioned Jobs and Tasks.
+- Ansible execution is restricted to playbooks in
+  [automation/manifest.json](automation/manifest.json).
+
+An expired execution may become `indeterminate` and is not retried
+automatically because its external side effect cannot be proven.
+
+## Development architecture
+
+Before changing code, read [AGENTS.md](AGENTS.md), the component
+[architecture specification](docs/development/architecture-spec.md), and
+[coding style](docs/development/coding-style.md). Domain/application packages
+must remain independent of Fiber, MongoDB, Temporal, Ansible, and provider SDK
+implementations.

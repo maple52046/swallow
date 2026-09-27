@@ -11,6 +11,7 @@ Active
 ## Consumer Components
 
 - Prometheus (per-site), via `http_sd_config`
+- `cli` (the `swallow` operator command-line client)
 - Swallow installation tooling
 
 ## Purpose

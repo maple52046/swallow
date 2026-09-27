@@ -1,5 +1,7 @@
 # Ubuntu MAAS 3.6
 
+[繁體中文](README.zh-TW.md) · [Third-party overview](../README.md)
+
 MAAS runs on a dedicated Ubuntu 24.04 host or VM. It is never co-located with the
 Swallow control plane. Production requires PostgreSQL plus region and rack controllers;
 `maas-test-db` is prohibited.

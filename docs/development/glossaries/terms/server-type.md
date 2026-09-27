@@ -1,7 +1,7 @@
 # Server Type
 
 - Bounded context: Platform-wide, spanning provisioning and observability; used by
-  `api-server` (exporter targeting, discovery filters) and `dashboard` (metric display).
+  `api-server` (exporter targeting and discovery filters), `dashboard` (metric display), and `cli` (Server and monitoring output).
 - Definition: A coarse classification of a managed server by GPU capability, used to
   decide which exporters a host should run and which GPU metrics to display. It is a
   **derived** classification, not a stored server field.

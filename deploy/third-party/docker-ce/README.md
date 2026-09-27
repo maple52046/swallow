@@ -1,5 +1,7 @@
 # Docker CE prerequisite
 
+[繁體中文](README.zh-TW.md) · [Third-party overview](../README.md)
+
 Docker CE is a host prerequisite for the Compose installation, never a service in the
 Swallow project. On connected Ubuntu 24.04 hosts, install Docker Engine and the Compose
 plugin from Docker's signed apt repository; do not use the convenience script.

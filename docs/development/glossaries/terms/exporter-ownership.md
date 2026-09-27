@@ -32,7 +32,7 @@
   is switched to `k8s`, its members' Ansible exporters are removed and a DaemonSet takes
   over on the same ports." / "The three locked physical servers are `unmanaged`; swallow
   never installs, removes, or otherwise changes them."
-- Related terms: Server Type, Server Status, Operation, Automation Configuration.
+- Related terms: Server Type, Server Status, Workflow, Automation Configuration.
 - Change note: Added for the Prometheus monitoring integration, generalising the
   per-platform `gpuStackOwner` idea into a single switchable exporter owner per host so
   Ansible and Kubernetes deployment can coexist without duplicating exporters.

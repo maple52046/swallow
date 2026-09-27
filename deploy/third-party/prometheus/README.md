@@ -1,5 +1,7 @@
 # Per-site Prometheus
 
+[繁體中文](README.zh-TW.md) · [Third-party overview](../README.md)
+
 Create one independent Compose project or native systemd installation per site. Replace
 the Swallow URL, create `secrets/` with mode 0700, and install both
 `secrets/machine-token` and the issuing CA certificate

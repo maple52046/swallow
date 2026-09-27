@@ -11,6 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
+- `cli` (the `swallow` operator command-line client)
 
 ## Purpose
 
@@ -29,7 +30,7 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 - [Platform Lifecycle State](../../../../../docs/development/glossaries/terms/platform-lifecycle-state.md)
 - [Operation](../../../../../docs/development/glossaries/terms/operation.md)
 - [Node Role](../../../../../docs/development/glossaries/terms/node-role.md)
-- [Platform Topology](../../../../../docs/development/glossaries/terms/platform-topology.md)
+- [Kubernetes Topology](../../../../../docs/development/glossaries/terms/kubernetes-topology.md)
 - [Minimum Resource Requirement](../../../../../docs/development/glossaries/terms/minimum-resource-requirement.md)
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
 

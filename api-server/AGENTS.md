@@ -31,10 +31,10 @@ The review must specifically verify high-maintenance documentation quality:
    obligations, error semantics, lifecycle, concurrency, security, or
    compatibility where relevant.
 2. Important unexported boundaries also have valuable comments. This includes
-   use cases, repository interfaces, Fiber and gRPC adapters, config loaders,
-   Mongo adapters, token/credential code, middleware, long-running workers,
-   goroutine lifecycles, stream handling, agent identity resolution, and
-   cross-component integration points.
+   use cases, repository interfaces, Fiber adapters, config loaders, Mongo
+   adapters, Temporal workers and activities, Ansible execution, token/credential
+   code, middleware, long-running loops, goroutine lifecycles, stream handling,
+   and cross-component integration points.
 3. Comments that only restate an identifier, type, or obvious code behavior are
    treated as missing comments and must be rewritten before continuing.
 4. Code involving JWTs, passwords or credential storage, admin authorization,
@@ -78,11 +78,9 @@ This directory is the `api-server` component: the Data Center API
 Service — an HTTP REST API plus the background reconcile / poll loops that own
 intent, policy, and identity mapping.
 
-Keep the component boundary clear even inside the monorepo: `dashboard` consumes
-the `api-server` HTTP API through its published contract and must not reach into
-`api-server` internals; `api-server` owns the API contracts. (An earlier
-node-side `agent` component and its gRPC surface were retired; see the repository
-root's `docs/decisions/001-system-ownership-boundaries.md`.)
+Keep the component boundary clear even inside the monorepo: `dashboard` and
+`cli` consume the `api-server` HTTP API through its published contract and must
+not reach into `api-server` internals; `api-server` owns the API contracts.
 
 ## Domain Language
 
@@ -96,11 +94,11 @@ resolve it there before implementing.
 ## Plans
 
 When creating or updating an implementation plan for this project, store the
-manuscript under `docs/plans/manuscripts/` as `YYYYMMDD-<short-topic>.md` (see
-`docs/plans/manuscripts/README.md`), and update an existing plan for the same
-topic instead of creating a duplicate.
+manuscript under the repository root `../docs/plans/manuscripts/` as
+`YYYYMMDD-<short-topic>.md`, and update an existing plan for the same topic
+instead of creating a duplicate. Do not create a component-local plan tree.
 
-Do not proactively read files directly under `docs/plans/`. They are historical
+Do not proactively read files directly under `../docs/plans/`. They are historical
 records, and should only be read when the user asks for planning history or plan
 consolidation.
 

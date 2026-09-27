@@ -14,7 +14,7 @@
 ## 基準環境
 
 - Go 1.25，module `github.com/maple52046/swallow`。
-- 主要相依：Fiber v2（HTTP）、gRPC + protobuf（agent 通道）、MongoDB driver、Cobra（CLI）、golang-jwt。
+- 主要相依：Fiber v2（HTTP）、MongoDB driver、Temporal Go SDK、Cobra（process commands）、golang-jwt。
 - 提交前必須執行：`gofmt -l .`（必須無輸出）、`go vet ./...`、`go build ./...`、`go test ./...`。若環境有 `golangci-lint`，一併執行並修正回報，不得以 nolint 掩蓋。
 
 ## 核心原則
@@ -55,11 +55,11 @@ Go 程式碼必須優先滿足以下目標，順序不可顛倒：
 - 所有 exported package、type、interface、func、method、const、var 必須有 doc comment。
 - Package comment 必須直接位於 `package` 宣告上方；若內容較長，可放在 `doc.go`。
 - Unexported type、function、method、const、var 只要行為、用途或限制不直覺，也必須撰寫註解。
-- 即使未 export，只要是 use case、repository interface、transaction boundary、Fiber handler、gRPC handler、config loader、Mongo adapter、JWT/token issuer、middleware、long-running worker，或跨 component/shared package boundary，也必須撰寫有維護價值的註解。
+- 即使未 export，只要是 use case、repository interface、transaction boundary、Fiber handler、Temporal Workflow/activity、config loader、Mongo adapter、JWT/token issuer、middleware、long-running worker，或跨 component/shared package boundary，也必須撰寫有維護價值的註解。
 - 任何業務規則、權限判斷、資料一致性假設、效能取捨、相容性考量或特殊 edge case 必須註解說明。
 - API 若涉及 context cancellation、concurrency safety、resource cleanup、error sentinel、特定 error type、goroutine lifetime、stream ownership 或 reconnect 行為，必須在 doc comment 中說明契約。
 - 忽略 error、刻意使用空 identifier、非典型條件判斷、複雜型別轉換或容易被誤讀的程式碼，必須在旁註說明原因。
-- 涉及 JWT / access token、password 或 credential storage、admin 授權判斷、Mongo 寫入與唯一性約束、config default/override 優先順序、resource cleanup、goroutine lifecycle、agent 身分解析、gRPC stream 生命週期、跨 component shared infrastructure 時，必須註解安全假設與維護限制。
+- 涉及 JWT / access token、password 或 credential storage、admin 授權判斷、Mongo 寫入與唯一性約束、config default/override 優先順序、resource cleanup、goroutine lifecycle、Temporal replay/activity retry、Ansible credential 與 artifact handling、跨 component shared infrastructure 時，必須註解安全假設與維護限制。
 
 ### Doc Comment 最低審查標準
 
@@ -78,7 +78,7 @@ Exported API 與重要 internal boundary 的 doc comment 必須能回答與該 s
 - Entity/domain type：註解必須描述 domain meaning、invariant、allowed/disallowed state，不得只描述 Mongo 欄位或 JSON shape。
 - Port interface：註解必須描述實作者必須保證什麼、哪些錯誤是 domain miss、哪些實作限制只適用於測試。
 - Use case/application service：註解必須描述 application flow、port dependency、授權假設，以及回傳錯誤的語意。
-- Interface adapter（`delivery` / `infra`）：註解必須描述外部 contract 如何映射到內層 model，包括 HTTP/gRPC status、DTO、Mongo document 或 error mapping 的邊界。
+- Interface adapter（`delivery` / `infra`）：註解必須描述外部 contract 如何映射到內層 model，包括 HTTP status、DTO、Temporal payload、Mongo document 或 error mapping 的邊界。
 - Framework/driver（`internal/app`、`config`、`bootstrap`）：註解必須描述 config source、resource lifecycle、startup/shutdown、network、secret 或 external dependency 的 operational assumption。
 - Shared internal package（`internal/shared/*`）：註解必須描述哪些 component 可以依賴它、哪些行為是 shared contract，以及不得放入 component-specific rule 的限制。
 
@@ -95,7 +95,7 @@ Exported API 與重要 internal boundary 的 doc comment 必須能回答與該 s
 // ServerRepository defines the persistence contract for Server entities.
 //
 // Implementations must be safe for concurrent use and must not create nodes
-// implicitly: inventory and agent updates must validate that the node already
+// implicitly: inventory updates must validate that the Server already
 // exists before writing. Callers should treat ErrServerNotFound as a domain
 // miss, not as an infrastructure failure. Production implementations must use
 // durable storage; in-memory implementations are limited to tests.
@@ -126,8 +126,8 @@ func Create(ctx context.Context, s Server) error {
 撰寫有維護價值的註解：
 
 ```go
-// Service coordinates server use cases without depending on HTTP, gRPC, or
-// MongoDB.
+// Service coordinates server use cases without depending on HTTP, Temporal,
+// or MongoDB.
 //
 // Service owns registration policy and application error semantics. Persistence
 // and clock access are supplied through ports so use cases can be tested
@@ -173,13 +173,13 @@ return server, nil
 - Receiver 型別依 method set 決定：會變動狀態、含不可複製欄位、含指向可變物件的指標，或 struct 較大時使用 pointer；同一型別的 method 全部 pointer 或全部 value。
 - 啟動 goroutine 的程式碼必須清楚說明其生命週期、停止條件與錯誤處理方式。
 - `context.Context` 應作為第一個參數傳入，命名為 `ctx`；不得存入 struct 作為長期狀態，也不得自訂 context 型別。`context.Background()` 只出現在 entry point。
-- 重連與重試迴圈（例如 agent 的 stream loop）必須使用有上限的 exponential backoff，並區分 fatal 與 transient error。
+- Provider polling、Temporal activity 與其他重試迴圈必須使用有上限的 exponential backoff，並區分 fatal 與 transient error。
 - 產生 token、secret 或 ID 必須使用 `crypto/rand`，不得使用 `math/rand`。
 
 ## Imports 與 Package 組織
 
-- Imports 應分組為 standard library、第三方、本專案套件、generated protobuf、side-effect import，並交由 `goimports` 排序。
-- 避免 import rename；只有在避免衝突、generated package、慣例縮寫或改善可讀性時才使用（例如 `agentv1`）。
+- Imports 應分組為 standard library、第三方、本專案套件與 side-effect import，並交由 `goimports` 排序。
+- 避免 import rename；只有在避免衝突、generated package、慣例縮寫或改善可讀性時才使用（例如兩個第三方 package 名稱衝突）。
 - 禁止 dot import。Blank import 必須加註用途，且只允許出現在 `main` package 或測試。
 - Package 應聚焦單一領域；若名稱變得含糊，通常代表邊界需要重新整理。
 - 不得為了共用方便建立 `common`、`util`、`model` 等模糊 package；跨 feature 共用物放 `internal/shared/<concern>`，並在 package comment 說明可依賴它的範圍。

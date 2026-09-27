@@ -2,7 +2,7 @@
 
 本文件是 root project 的 architecture constitution，定義所有開發人員與 AI agent 在本 repository 內進行需求分析、設計、實作、重構與文件更新時必須遵守的 Strategic Domain-Driven Design 規範。
 
-本文整理自 Eric Evans 的 [Domain-Driven Design Reference: Definitions and Pattern Summaries](https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf)。本文件定義全 swallow 共同規則；各 component（`api-server/`、`dashboard/`）可以有自己的 architecture spec，但不得違反本文件。
+本文整理自 Eric Evans 的 [Domain-Driven Design Reference: Definitions and Pattern Summaries](https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf)。本文件定義全 swallow 共同規則；各 component（`api-server/`、`dashboard/`、`cli/`）可以有自己的 architecture spec，但不得違反本文件。
 
 ## 憲法層級
 
@@ -10,7 +10,7 @@
 - Component spec 定義特定 bounded context 內的架構、分層、資料流、API contract 與實作限制。
 - 當 root spec 與 component spec 都適用時，必須同時遵守；若有衝突，先停止並釐清，不得自行選擇性忽略。
 - Root spec 不取代 component spec。進入任一 component 目錄前，必須依 root [`AGENTS.md`](../../AGENTS.md) 讀取該 component 的 `AGENTS.md`。
-- 業務原始碼一律位於某個 component 目錄之內（`api-server/`、`dashboard/`）；因此 root spec 只規範跨 context 的語言、契約與邊界，不規範任何 component 的內部分層。
+- 業務原始碼一律位於某個 component 目錄之內（`api-server/`、`dashboard/`、`cli/`）；因此 root spec 只規範跨 context 的語言、契約與邊界，不規範任何 component 的內部分層。
 
 ## Strategic DDD 核心原則
 
@@ -104,7 +104,7 @@ Context map 至少要描述：
 - Separate Ways：若整合價值低，應明確不整合，各自演進。
 - Big Ball of Mud：若既有區域沒有清楚邊界，必須標記並隔離，不得假裝已有精準 model。
 
-目前 swallow 的關係現況：`api-server` 是 open-host service（上游），對所有 client 發佈同一組協定；`dashboard` 是下游 consumer。跨 context 的 published language 是 `api-server` 所擁有的 API contract，不是任何一方的內部 model。下游必須明確表態採 conformist 或自建 anticorruption layer，並在該 component 的 architecture spec 中寫清楚。
+目前 swallow 的關係現況：`api-server` 是 open-host service（上游），對所有 client 發佈同一組協定；`dashboard` 與 `cli` 是下游 conformist consumers。跨 context 的 published language 是 `api-server` 所擁有的 API contract，不是任何一方的內部 model。新增 consumer 必須明確表態採 conformist 或自建 anticorruption layer，並在該 component 的 architecture spec 中寫清楚。
 
 ## Distillation
 
@@ -178,6 +178,7 @@ flowchart TB
 
 - `api-server` — [`api-server/docs/development/architecture-spec.md`](../../api-server/docs/development/architecture-spec.md)
 - `dashboard` — [`dashboard/docs/development/architecture-spec.md`](../../dashboard/docs/development/architecture-spec.md)
+- `cli` — [`cli/docs/development/architecture-spec.md`](../../cli/docs/development/architecture-spec.md)
 
 若 component-local `AGENTS.md` 不存在，才依下列路徑尋找 architecture spec，並將缺漏視為需要補齊的 component 入口問題：
 

@@ -34,7 +34,7 @@ machine-readable history and maps cleanly onto SemVer.
 An optional noun in parentheses describing the affected area. In this repository
 the natural scopes are the component or the shared document category:
 
-- Platform component: `api-server`, `dashboard`.
+- Platform component: `api-server`, `dashboard`, `cli`.
 - Shared documents / areas: `glossary`, `contracts`, `docs`, `standards`, `deploy`.
 
 Examples: `docs(glossary): define allocation state`, `chore(deploy): update the

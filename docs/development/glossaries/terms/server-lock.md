@@ -7,5 +7,5 @@
 - Synonyms: Machine lock when referring specifically to the MAAS provider concept.
 - Deprecated terms: None.
 - Examples: "Unlock `tainan-node01` before deploying an OS." / "The Server is locked, but its metrics and events remain available."
-- Related terms: Server, Server Status, Exporter Ownership, OS Deployment, Operation, Provisioning Task.
+- Related terms: Server, Server Status, Exporter Ownership, OS Deployment, Workflow, Provisioning Task.
 - Change note: Added when provider lock became the common mutation guard rather than a display-only provisioning attribute.

@@ -1,105 +1,86 @@
-# dashboard
+# swallow dashboard
 
-Frontend for the Swallow operator console. React, TypeScript, Vite, and Chakra UI v3
-provide one shared design system across every domain workflow.
+[繁體中文](README.zh-TW.md) · [Project documentation](../docs/en/README.md)
 
-## What is here
+`dashboard` is the React operator console for swallow. It is a conformist
+consumer of the provider-owned HTTP contract and binds only real API adapters.
 
-Only screens backed by a real endpoint:
+## Active routes
 
-| Route | Shows |
-|-------|-------|
-| `/login` | Authentication |
-| `/` | Fleet health, attention items, integrations, platforms, and recent operations |
-| `/servers` | NetBox-style inventory filters and saved views with MAAS-style actions |
-| `/servers/:id/*` | Cockpit-style machine summary, monitoring, network, storage, and PCI views |
-| `/platforms` | Multi-platform readiness and membership issues (legacy `/clusters` redirects here) |
-| `/platforms/:id` | Platform members, roles, issues, and related operations |
-| `/platforms/deploy` | Validated four-step platform deployment wizard |
-| `/operations` | Compact jobs list with URL-owned filters |
-| `/operations/:id` | Stdout-first job detail, events, search, download, and retry |
-| `/monitoring` | Current alerts, acknowledgement, fleet health, metrics, and Grafana link |
-| `/sites`, `/integrations` | Scoped resource management |
+| Route | Purpose |
+| --- | --- |
+| `/login` | Authenticate |
+| `/` | Site-scoped overview and attention items |
+| `/servers`, `/servers/:id/*` | Inventory, actions, activity, monitoring, network, storage, PCI |
+| `/provisioning/deploy` | OS deployment wizard |
+| `/provisioning/templates` | Deployment Templates |
+| `/provisioning/images` | OS images, upload, delete, and verification |
+| `/platforms`, `/platforms/:id` | Kubernetes/Slurm Platform inventory and detail |
+| `/platforms/deploy`, `/platforms/settings` | Platform deployment and Slurm requirements |
+| `/software` | Managed Software assignments and actions |
+| `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
+| `/monitoring` | Alerts, silences, metrics, health, and Grafana |
+| `/infrastructure/*` | Sites, Integrations, Zones, and Pools |
 
-Screens expose only behavior backed by the provider-owned API contracts. Chakra UI owns
-the visual language; Cockpit, NetBox, MAAS, Headlamp, Rancher, AWX, and Grafana inform the
-information architecture without contributing their CSS, components, assets, or branding.
+`/clusters` and `/operations` are compatibility redirects.
 
-There are no mock repositories and no flag to switch to them. Every binding in
-[`src/di/container.ts`](src/di/container.ts) is a real HTTP implementation.
+## Model rules visible in the UI
 
-## Three things to get right
-
-**Null means unknown.** A server's status is three independent axes — `provisioning`,
-`membership`, `health` — each owned by a different system and each `null` until observed.
-Rendering `null` as a negative state is the most common way to get this model wrong: a
-provisioner being unreachable does not make its servers unhealthy, and a server with no
-metrics is not down.
-
-For the same reason there is no combined status badge. A server that is deployed, in no
-cluster, and not reporting metrics is either a spare awaiting allocation or a broken server,
-and no rule can tell which.
-
-**Show staleness.** The backend caches provisioner inventory and mirrors external state.
-Integrations carry a `sync` object and every status axis carries `observedAt`. When a
-sync has failed, say so and say how old the data is — the components already do this, and
-new screens should too.
-
-**`id` is the only identifier.** `hostname` and addresses are observed, mutable, and not
-unique: two sites may both have `gpu-node-01` at `10.0.1.10`. Never key on them.
-
-## Layout
-
-```
-src/
-├── domain/           entities and their invariants; no framework imports
-├── application/
-│   └── ports/        repository interfaces the UI depends on
-├── infrastructure/
-│   ├── api/          HTTP implementations of the ports
-│   └── persistence/  browser storage, for UI preferences only
-├── presentation/     pages, components, layout, contexts
-└── di/               container wiring the ports to implementations
-```
-
-Repositories are exposed from the container directly rather than behind pass-through use
-cases. The boundary that matters is the port interface; a use case earns its own type when
-it has logic of its own.
+- Server provisioning, Platform membership, and health are separate status
+  axes; there is no combined status badge.
+- `null` means unknown, never implicitly bad.
+- Provider sync and every observed axis can be stale and must show its age.
+- Opaque IDs are identity; hostnames and addresses are not unique.
+- Screens expose only behavior backed by an Active provider contract.
 
 ## Development
 
-The dashboard runs as part of the swallow dev stack rather than on its own, so that it
-has an API to talk to:
+The recommended path runs the complete stack:
 
 ```bash
-cd ../../deploy/dev
+cd ../deploy/dev
 docker compose up -d
 ```
 
-Then open <http://localhost:5173>. See
-[`deploy/dev/README.md`](../../deploy/dev/README.md).
-
-Standalone, against an API you are running yourself:
+Open <http://localhost:5173>. For a standalone dev server against an existing
+API:
 
 ```bash
-npm install
+npm ci
 VITE_API_BASE_URL=http://127.0.0.1:30051 npm run dev
 ```
 
+## Verify
+
 ```bash
-npm run build    # tsc -b && vite build
 npm run lint
+npm run build
+npm run test:e2e
 ```
 
-## Contract
+Playwright includes deterministic operator journeys and light/dark,
+desktop/mobile visual baselines. The tests use synthetic fixture data; do not
+replace it with captured customer data.
 
-Request and response shapes are defined in
-[`docs/development/api-contracts.md`](../../docs/development/api-contracts.md), and the
-provider component's contract lists what changed from the previous model. The concepts
-behind the shapes are in
-[`docs/development/glossaries/`](../../docs/development/glossaries), and the reasoning is in
-[`docs/decisions/`](../../docs/decisions).
+## Architecture
 
-Read the decisions before adding a screen that stores or derives state. Several obvious
-features — an alert acknowledged flag, stored metrics, a provisioning profile editor — are
-ruled out there because another system owns them.
+```text
+src/
+├── domain/           framework-free concepts and invariants
+├── application/      ports and use cases with real logic
+├── infrastructure/   HTTP and browser-persistence adapters
+├── presentation/     routes, pages, components, hooks, contexts
+└── di/               composition root
+```
+
+Presentation code must not import infrastructure implementations. API DTOs stay
+in infrastructure and are mapped before crossing inward. See [AGENTS.md](AGENTS.md),
+the [architecture specification](docs/development/architecture-spec.md), and
+[coding style](docs/development/coding-style.md).
+
+## Contracts
+
+The [api-server contract outline](../api-server/docs/development/api-contracts/api-server/outline.md)
+defines routes, fields, errors, auth, and compatibility. Domain language comes
+from the root [glossary](../docs/development/glossaries/README.md). The Dashboard
+must not turn private backend behavior or mocks into a de-facto contract.

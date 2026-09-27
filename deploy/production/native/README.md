@@ -1,5 +1,7 @@
 # Native Ubuntu 24.04 amd64 installation
 
+[繁體中文](README.zh-TW.md) · [Installation choices](../../../docs/en/installation.md)
+
 The release workflow assembles this template into a self-contained native bundle with
 `bin/swallow-api`, dashboard assets, automation, an offline Python wheelhouse, systemd and
 Nginx files, and separately checksummed MongoDB/Nginx packages.
@@ -19,26 +21,19 @@ sudo ./swallowctl install
 sudo ./swallowctl doctor
 ```
 
-## Durable orchestration requires Temporal (no embedded fallback)
+## Durable orchestration requires Temporal
 
 swallow's sole execution engine is Temporal ([ADR 016](../../../docs/decisions/016-temporal-operation-orchestration.md),
-[ADR 017](../../../docs/decisions/017-workflow-job-task-runner-model.md)). The former
-embedded automation dispatcher was removed, so `swallow-api api` has **no** in-process fallback:
-a Workflow cannot execute without the orchestration topology.
+[ADR 017](../../../docs/decisions/017-workflow-job-task-runner-model.md)). A Workflow cannot
+execute without Temporal Server, its PostgreSQL datastore, the Workflow worker
+(`swallow-api worker`), and the Ansible executor (`swallow-api ansible-executor`).
 
-A native installation must therefore run the full topology alongside `swallow-api api`: Temporal
-Server, its PostgreSQL datastore, the workflow worker (`swallow-api worker`), and the Ansible
-executor (`swallow-api ansible-executor`). For air-gapped installs the release bundle already
-carries the Temporal Server, UI, and PostgreSQL images with checksums (see
-[`../../release/`](../../release) and `release-manifest`); the native installer provisions
-them as additional systemd-managed services from that offline media.
+The release archive carries checksummed Temporal Server, UI, and PostgreSQL OCI images,
+but this native installer does not yet provision them as native systemd services. Until
+that packaging lands, use the [Compose topology](../compose.yaml), which runs the complete
+orchestration topology. A native install without those services cannot execute Workflows.
 
-Until the native Temporal systemd packaging lands, use the Compose topology in
-[`../`](../compose.yaml), which runs Temporal, the worker, and the ansible-executor. A native
-install without Temporal cannot execute any Workflow. Packaging Temporal + PostgreSQL as
-native systemd units from the release media is the remaining deploy work for air-gapped sites.
-
-`upgrade` refuses active operations unless `--force` is explicit and always takes a
+`upgrade` refuses active Workflows unless `--force` is explicit and always takes a
 backup first. `uninstall` retains data and backups; only `uninstall --purge-data`
 removes them. The installer initializes authenticated localhost-only MongoDB, runs the
 explicit schema migration before starting the API, and enables
