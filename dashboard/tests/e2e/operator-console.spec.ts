@@ -807,12 +807,61 @@ test.describe('operator interactions', () => {
       .toContainText('1')
   })
 
-  test('Platform list uses backend lifecycle labels and keeps registered-platform uninstall disabled', async ({ page }) => {
+  test('Platform list behaves as a PaaS runtime control plane', async ({ page }) => {
     await page.goto('/platforms?site=site-a')
+
+    const overview = page.locator('.sw-platform-fleet-overview')
+    await expect(overview).toContainText('2 platforms need attention')
+    await expect(overview).toContainText('Total3')
+    await expect(overview).toContainText('Active1')
+    await expect(overview).toContainText('Failed1')
+    await expect(overview).toContainText('Unmatched1')
+
     const table = page.getByRole('table', { name: 'Platforms' })
-    await expect(table.getByRole('row', { name: /production-k0s/ })).toContainText('Active')
-    await expect(table.getByRole('row', { name: /edge-staging/ })).toContainText('Deployment failed')
-    await expect(table.getByRole('row', { name: /research-slurm/ })).toContainText('Registered')
+    const production = table.getByRole('row', { name: /production-k0s/ })
+    const failed = table.getByRole('row', { name: /edge-staging/ })
+    const registered = table.getByRole('row', { name: /research-slurm/ })
+    await expect(production).toContainText('Active')
+    await expect(production).toContainText('1 unmatched')
+    await expect(production.getByRole('link', { name: 'Open platform' })).toBeVisible()
+    await expect(production.getByRole('link', { name: 'View workflow' })).toHaveCount(0)
+    await expect(failed).toContainText('Deployment failed')
+    await expect(failed).toContainText('Unreachable')
+    await expect(failed.getByRole('link', { name: 'Review platform' })).toBeVisible()
+    await expect(failed.getByRole('link', { name: 'View workflow' }))
+      .toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
+    await expect(registered).toContainText('Registered')
+    await expect(registered).toContainText('External record')
+
+    const resultCount = page.getByRole('status').filter({ hasText: /Showing .* platforms/ })
+    await page.getByLabel('Search platforms', { exact: true }).fill('research')
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('research')
+    await expect(resultCount).toHaveText('Showing 1 of 3 platforms')
+    await expect(table.getByRole('row', { name: /research-slurm/ })).toBeVisible()
+    await expect(table.getByRole('row', { name: /production-k0s/ })).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Clear search' }).click()
+    await page.getByRole('button', { name: 'Kubernetes', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('type')).toBe('kubernetes')
+    await expect(resultCount).toHaveText('Showing 2 of 3 platforms')
+
+    await table.getByLabel('Select edge-staging', { exact: true }).click()
+    await expect(page.getByRole('region', { name: 'Selection actions' })).toBeVisible()
+    await page.getByRole('button', { name: 'Needs attention', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBe('attention')
+    await expect(page.getByRole('region', { name: 'Selection actions' })).toHaveCount(0)
+    await expect(resultCount).toHaveText('Showing 2 of 3 platforms')
+
+    await page.getByRole('button', { name: 'In progress', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'No matching platforms' })).toBeVisible()
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.toString()).toBe('site=site-a')
+    await expect(resultCount).toHaveText('Showing 3 of 3 platforms')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('.sw-platform-runtime-card').first()).toBeVisible()
+    await expect(page.locator('.sw-platform-runtime-card').first().getByRole('link', { name: 'Review platform' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
     await page.goto('/platforms/platform-slurm?site=site-a')
     await page.getByRole('button', { name: 'Platform actions' }).click()
@@ -856,6 +905,17 @@ test.describe('operator interactions', () => {
         .getByRole('row', { name: /Deploy edge-staging k0s platform/ })
         .first(),
     ).toContainText('running')
+
+    await page.goto('/platforms?site=site-a')
+    const inProgressRow = page.getByRole('table', { name: 'Platforms' })
+      .getByRole('row', { name: /edge-staging/ })
+    await expect(inProgressRow).toContainText('Deploying')
+    await expect(inProgressRow.locator('.sw-platform-lifecycle__spinner')).toBeVisible()
+    await expect(inProgressRow.getByRole('link', { name: 'View workflow' }))
+      .toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
+    await page.getByRole('button', { name: 'In progress', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: /Showing .* platforms/ }))
+      .toHaveText('Showing 1 of 3 platforms')
   })
 
   test('failed Platform repair recovers via rerun when the workflow execution was lost', async ({ page }) => {
