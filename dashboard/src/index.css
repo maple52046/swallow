@@ -614,30 +614,6 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 /* Compact square trigger for the power-state icon button in dense rows. */
 .sw-power-button { padding: 0; block-size: 1.75em; inline-size: 1.75em; min-inline-size: 0; min-block-size: 0; }
-.sw-server-power-indicator {
-  position: relative;
-  display: inline-grid;
-  width: 1rem;
-  height: 1rem;
-  place-items: center;
-  flex: none;
-}
-
-.sw-server-ram-badge {
-  position: absolute;
-  inset-block-start: -0.45rem;
-  inset-inline-end: -0.55rem;
-  display: grid;
-  width: 0.8rem;
-  height: 0.8rem;
-  place-items: center;
-  color: var(--chakra-colors-orange-fg);
-  background: var(--chakra-colors-orange-subtle);
-  border-radius: var(--chakra-radii-full);
-  box-shadow: 0 0 0 1px var(--chakra-colors-bg-panel);
-}
-
-
 /* ---- Power-actions dialog tiles ------------------------------------------ */
 
 .sw-power-action-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; justify-items: center; }
@@ -2336,16 +2312,17 @@ tbody .sw-sticky-selection { z-index: 2; }
 }
 
 .sw-server-inventory-table .sw-col-select { width: 3rem; }
+.sw-server-inventory-table .sw-col-details { width: 2.5rem; }
 .sw-server-inventory-table .sw-server-col--identity { width: 18%; }
-.sw-server-inventory-table .sw-server-col--power { width: 5rem; }
-.sw-server-inventory-table .sw-server-col--network { width: 15rem; }
+.sw-server-inventory-table .sw-server-col--power { width: 4rem; }
+.sw-server-inventory-table .sw-server-col--network { width: 14rem; }
 .sw-server-inventory-table .sw-server-col--deployment { width: 13%; }
 .sw-server-inventory-table .sw-server-col--hardware { width: 14%; }
-.sw-server-inventory-table .sw-server-col--zone { width: 7rem; }
-.sw-server-inventory-table .sw-server-col--pool { width: 7rem; }
+.sw-server-inventory-table .sw-server-col--zone { width: 6rem; }
+.sw-server-inventory-table .sw-server-col--pool { width: 6rem; }
 .sw-server-inventory-table .sw-server-col--health { width: 7rem; }
 .sw-server-inventory-table .sw-server-col--platform { width: 10rem; }
-.sw-server-inventory-table .sw-server-row-actions { width: 11.5rem; }
+.sw-server-inventory-table .sw-server-row-actions { width: 12rem; }
 
 .sw-server-inventory-table .sw-server-col--health,
 .sw-server-inventory-table .sw-server-col--platform {
@@ -2358,15 +2335,19 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 .sw-server-inventory-table th {
   height: 2.75rem;
-  padding-inline: 1rem;
+  padding-inline: 0.625rem;
   white-space: nowrap;
 }
 
 .sw-server-inventory-table td {
   height: 4.75rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 0.625rem;
   border-color: color-mix(in srgb, var(--chakra-colors-border-muted) 78%, transparent);
   vertical-align: middle;
+}
+
+.sw-server-inventory-table .sw-col-details {
+  padding-inline: 0;
 }
 
 .sw-server-inventory-table tbody tr {
@@ -2436,7 +2417,8 @@ tbody .sw-sticky-selection { z-index: 2; }
   text-underline-offset: 0.2em;
 }
 
-.sw-server-lock-icon {
+.sw-server-lock-icon,
+.sw-server-ram-icon {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -2532,7 +2514,9 @@ tbody .sw-sticky-selection { z-index: 2; }
 }
 
 .sw-server-hardware-summary strong {
-  max-width: 12.5rem;
+  display: block;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   font-size: var(--chakra-font-sizes-sm);
   font-weight: var(--chakra-font-weights-semibold);
@@ -2544,10 +2528,42 @@ tbody .sw-sticky-selection { z-index: 2; }
   max-width: 100%;
 }
 
+.sw-server-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border-radius: 4px;
+}
+
 .sw-server-row-actions {
   width: 1%;
+  overflow: hidden;
   text-align: end;
   white-space: nowrap;
+}
+
+.sw-server-hardware-summary {
+  width: 100%;
+  overflow: hidden;
+}
+
+.sw-server-row-actions__content {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sw-server-context-action {
+  flex: none;
+}
+
+.sw-server-context-action > span {
+  white-space: nowrap;
+}
+
+.sw-server-row-actions__content > :not(.sw-server-context-action) {
+  flex: none;
 }
 
 .sw-server-detail-row:hover {

@@ -20,6 +20,8 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await installApiFixtures(page, {
     readyServerCount: 1,
     changingServerIds: ['srv-2'],
+    ephemeralServerIds: ['srv-2'],
+    lockedServerIds: ['srv-2'],
     failedServerIds: ['srv-3'],
     absentServerIds: ['srv-4'],
     unobservedHealthServerIds: ['srv-3'],
@@ -44,10 +46,29 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   const changing = table.getByRole('row').filter({ hasText: 'gpu-node-02' })
   await expect(table.getByText('Provider', { exact: true })).toHaveCount(0)
   const issue = table.getByRole('row').filter({ hasText: 'gpu-node-03' })
-  await expect(ready.getByRole('link', { name: 'Deploy OS' })).toHaveAttribute('href', /serverId=srv-1.*site=site-a|site=site-a.*serverId=srv-1/)
-  await expect(changing.getByRole('link', { name: 'Monitor workflow' })).toHaveAttribute('href', '/workflows/op-running?site=site-a')
+  const deployAction = ready.getByRole('link', { name: 'Deploy OS' })
+  const monitorAction = changing.getByRole('link', { name: 'Monitor workflow' })
+  await expect(deployAction).toHaveAttribute('href', /serverId=srv-1.*site=site-a|site=site-a.*serverId=srv-1/)
+  await expect(monitorAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
+  for (const action of [deployAction, monitorAction]) {
+    expect(await action.locator('span').evaluate((label) => label.scrollWidth <= label.clientWidth)).toBe(true)
+  }
+  const identityOrder = await changing.locator('.sw-server-identity__copy > div').first().evaluate((line) => (
+    Array.from(line.children).map((child) => child.getAttribute('aria-label') ?? child.textContent?.trim())
+  ))
+  expect(identityOrder.slice(0, 3)).toEqual(['Locked', 'RAM deployment', 'gpu-node-02'])
+  await expect(changing.locator('.sw-server-col--power').getByLabel('RAM deployment', { exact: true })).toHaveCount(0)
   await expect(issue.getByRole('link', { name: 'Review server' })).toHaveAttribute('href', '/servers/srv-3/activity?site=site-a')
   await expect(ready.getByLabel('2 more tags')).toHaveText('+2')
+  const visibleTag = ready.getByText('east', { exact: true })
+  await expect(visibleTag).toHaveCSS('border-radius', '4px')
+  await expect(visibleTag).toHaveCSS('align-items', 'center')
+  await expect(visibleTag).toHaveCSS('justify-content', 'center')
+  await ready.getByRole('button', { name: 'Edit tags for gpu-node-01' }).click()
+  const tagEditor = page.getByRole('dialog', { name: 'Edit tags' })
+  await expect(tagEditor).toContainText('Edit the tags on gpu-node-01.')
+  await tagEditor.getByRole('button', { name: 'Cancel' }).click()
+  await expect(tagEditor).toHaveCount(0)
 
   await ready.getByRole('button', { name: 'Show details for gpu-node-01' }).click()
   const details = table.getByRole('row').filter({ hasText: 'SN0001' })
@@ -241,6 +262,7 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
   await expect(card.getByText('rack-a', { exact: true }).first()).toBeVisible()
   await expect(card.getByText('Pool', { exact: true })).toBeVisible()
   await expect(card.getByText('accelerators', { exact: true }).first()).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Edit tags for gpu-node-01' })).toBeVisible()
   await card.locator('summary', { hasText: 'More details' }).click()
   await expect(card).toContainText('Operational context · Health')
   await expect(card).toContainText('platform-a')
@@ -259,7 +281,11 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
 })
 
 test('13-inch layout prioritizes core columns and reveals context when space permits', async ({ page }) => {
-  await installApiFixtures(page, { failedServerIds: ['srv-1'] })
+  await installApiFixtures(page, {
+    failedServerIds: ['srv-1'],
+    changingServerIds: ['srv-3'],
+    multiGpuServerIds: ['srv-1'],
+  })
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/servers?site=site-a')
 
@@ -277,6 +303,15 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   }
 
   const providerFailed = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
+  const detailsButton = providerFailed.getByRole('button', { name: 'Show details for gpu-node-01' })
+  const detailsHeader = table.getByRole('columnheader', { name: 'Row details' })
+  await expect(detailsHeader).toBeVisible()
+  await expect(providerFailed.locator('.sw-col-details').getByRole('button', { name: 'Show details for gpu-node-01' })).toBeVisible()
+  await expect(providerFailed.locator('.sw-server-col--identity').getByRole('button', { name: 'Show details for gpu-node-01' })).toHaveCount(0)
+  await expect(providerFailed.locator('.sw-server-row-actions').getByRole('button', { name: 'Show details for gpu-node-01' })).toHaveCount(0)
+  expect(await detailsHeader.evaluate((header) => header.previousElementSibling?.getAttribute('aria-label'))).toBe('Row selection')
+  expect(await detailsHeader.evaluate((header) => header.nextElementSibling?.textContent?.trim())).toBe('Server')
+  await expect(detailsButton).toBeVisible()
   await expect(providerFailed).toContainText('192.168.40.21')
   await expect(providerFailed).toContainText('02:00:00:00:00:01')
   for (const value of ['192.168.40.21', '02:00:00:00:00:01']) {
@@ -298,6 +333,26 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   await expect(providerFailed).not.toContainText('gpu-node-01.lab.example')
   await expect(providerFailed.getByText('Failed', { exact: true })).toHaveCount(0)
   await expect(providerFailed.getByText('Not deployed', { exact: true })).toBeVisible()
+  const hardwareGeometry = await providerFailed.locator('.sw-server-col--hardware').evaluate((cell) => {
+    const content = cell.querySelector('strong')
+    if (!(content instanceof HTMLElement)) throw new Error('Hardware summary is missing')
+    return {
+      cellRight: cell.getBoundingClientRect().right,
+      contentRight: content.getBoundingClientRect().right,
+      clientWidth: content.clientWidth,
+      scrollWidth: content.scrollWidth,
+    }
+  })
+  expect(hardwareGeometry.contentRight).toBeLessThanOrEqual(hardwareGeometry.cellRight)
+  expect(hardwareGeometry.scrollWidth).toBeGreaterThan(hardwareGeometry.clientWidth)
+  const changing = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
+  await expect(changing.getByRole('link', { name: 'Monitor workflow' })).toBeVisible()
+  const actionGeometry = await changing.locator('.sw-server-row-actions').evaluate((cell) => {
+    const cellRight = cell.getBoundingClientRect().right
+    const childRights = Array.from(cell.querySelectorAll(':scope > div > *')).map((child) => child.getBoundingClientRect().right)
+    return { cellRight, childRight: Math.max(...childRights) }
+  })
+  expect(actionGeometry.childRight).toBeLessThanOrEqual(actionGeometry.cellRight)
   const deployed = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).first()
   const deployedImage = deployed.getByText('Ubuntu 24.04 LTS', { exact: true })
   await expect(deployedImage).toBeVisible()

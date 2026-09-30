@@ -8,6 +8,7 @@ import {
   Filter,
   Lock,
   MemoryStick,
+  PenLine,
   RefreshCw,
   SlidersHorizontal,
   Tags,
@@ -906,6 +907,7 @@ export function ServersPage() {
                                 onCheckedChange={() => setMany(pageIds, !allPageSelected)}
                               />
                             </Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-cell-center sw-col-details" aria-label="Row details" />
                             <Table.ColumnHeader className="sw-server-col--identity">Server</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--power sw-cell-center">Power</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--network">Network</Table.ColumnHeader>
@@ -938,6 +940,7 @@ export function ServersPage() {
                               onToggleOne={toggleOne}
                               onToggleGroup={setMany}
                               onAction={(action, id) => void runAction(action, [id])}
+                              onEditTags={(server) => setTagEditorTargets([server])}
                             />
                           ))}
                         </Table.Body>
@@ -964,6 +967,7 @@ export function ServersPage() {
                                 scopedHref={scopedHref}
                                 onToggle={() => toggleOne(server.id)}
                                 onAction={(action) => void runAction(action, [server.id])}
+                                onEditTags={() => setTagEditorTargets([server])}
                               />
                             ))}
                           </div>
@@ -1241,6 +1245,7 @@ function ServerGroupRows({
   onToggleOne,
   onToggleGroup,
   onAction,
+  onEditTags,
 }: {
   group: RenderGroup
   grouped: boolean
@@ -1253,6 +1258,7 @@ function ServerGroupRows({
   onToggleOne: (id: string) => void
   onToggleGroup: (ids: string[], checked: boolean) => void
   onAction: (action: ServerMenuAction, id: string) => void
+  onEditTags: (server: Server) => void
 }) {
   const ids = group.items.map((server) => server.id)
   const all = ids.length > 0 && ids.every((id) => selected.has(id))
@@ -1261,7 +1267,7 @@ function ServerGroupRows({
     <>
       {grouped && (
         <Table.Row className="sw-server-group-row">
-          <Table.Cell colSpan={11}>
+          <Table.Cell colSpan={12}>
             <HStack gap="2">
               <IconButton variant="ghost" size="xs" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label}`} onClick={onCollapse}>
                 {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
@@ -1282,13 +1288,22 @@ function ServerGroupRows({
           scopedHref={scopedHref}
           onToggle={() => onToggleOne(server.id)}
           onAction={(action) => onAction(action, server.id)}
+          onEditTags={() => onEditTags(server)}
         />
       ))}
     </>
   )
 }
 
-function ServerIdentity({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
+function ServerIdentity({
+  server,
+  scopedHref,
+  onEditTags,
+}: {
+  server: Server
+  scopedHref: (path: string) => string
+  onEditTags: () => void
+}) {
   const name = serverDisplayName(server)
   return (
     <div className="sw-server-identity">
@@ -1299,10 +1314,15 @@ function ServerIdentity({ server, scopedHref }: { server: Server; scopedHref: (p
               <span className="sw-server-lock-icon" role="img" aria-label="Locked"><Lock size={14} /></span>
             </Tooltip>
           )}
+          {server.provisioning?.ephemeral && (
+            <Tooltip content="RAM deployment · Data written to this Server is lost on power off or reboot">
+              <span className="sw-server-ram-icon" role="img" aria-label="RAM deployment"><MemoryStick size={13} aria-hidden /></span>
+            </Tooltip>
+          )}
           <RouterLink className="sw-server-name" to={scopedHref(`/servers/${server.id}/summary`)}>{name}</RouterLink>
           <CopyButton value={name} label="Copy Server name" />
         </HStack>
-        <TagSummary server={server} />
+        <TagSummary server={server} onEdit={onEditTags} />
         {server.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
       </div>
     </div>
@@ -1333,19 +1353,9 @@ function ServerNetworkIdentity({ server }: { server: Server }) {
   )
 }
 
-/** Power-state glyph with the volatile root-filesystem qualifier anchored as a badge. */
+/** Power state only; RAM deployment risk is presented with Server identity. */
 function ServerPowerIndicator({ server }: { server: Server }) {
-  const ephemeral = server.provisioning?.ephemeral === true
-  return (
-    <span className="sw-server-power-indicator">
-      <PowerBadge powerState={server.provisioning?.powerState ?? null} decorative={Boolean(server.provisioning)} />
-      {ephemeral && (
-        <span className="sw-server-ram-badge" role="img" aria-label="RAM deployment">
-          <MemoryStick size={8} aria-hidden />
-        </span>
-      )}
-    </span>
-  )
+  return <PowerBadge powerState={server.provisioning?.powerState ?? null} decorative={Boolean(server.provisioning)} />
 }
 
 /**
@@ -1375,15 +1385,29 @@ function ServerDeployment({ server, scopedHref }: { server: Server; scopedHref: 
   )
 }
 
-function TagSummary({ server }: { server: Server }) {
+/** Compact discovery tags with a direct, keyboard-accessible editing shortcut. */
+function TagSummary({ server, onEdit }: { server: Server; onEdit: () => void }) {
   const tags = sortedServerTags(server)
-  if (tags.length === 0) return <Text as="span" color="fg.muted">No tags</Text>
   return (
     <HStack className="sw-server-tag-summary" gap="1" wrap="wrap">
-      {tags.slice(0, 2).map((tag) => <Badge key={tag} colorPalette="blue" variant="subtle">{tag}</Badge>)}
+      {tags.length === 0 && <Text as="span" color="fg.muted">No tags</Text>}
+      {tags.slice(0, 2).map((tag) => <Badge key={tag} className="sw-server-tag-badge" colorPalette="blue" variant="subtle">{tag}</Badge>)}
       {tags.length > 2 && (
-        <Tooltip content={tags.join(', ')}><Badge variant="subtle" aria-label={`${tags.length - 2} more tags`}>+{tags.length - 2}</Badge></Tooltip>
+        <Tooltip content={tags.join(', ')}><Badge className="sw-server-tag-badge" variant="subtle" aria-label={`${tags.length - 2} more tags`}>+{tags.length - 2}</Badge></Tooltip>
       )}
+      <Tooltip content={`Edit tags for ${serverDisplayName(server)}`}>
+        <IconButton
+          variant="ghost"
+          size="2xs"
+          aria-label={`Edit tags for ${serverDisplayName(server)}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onEdit()
+          }}
+        >
+          <PenLine size={13} aria-hidden />
+        </IconButton>
+      </Tooltip>
     </HStack>
   )
 }
@@ -1419,8 +1443,8 @@ function ContextualActionLink({ server, scopedHref }: { server: Server; scopedHr
   else href = scopedHref(`/servers/${server.id}/summary`)
   const prominent = action.kind === 'deploy' || action.label === 'Review server'
   return (
-    <Button asChild colorPalette={prominent ? 'brand' : undefined} variant={prominent ? 'solid' : 'outline'} size="sm">
-      <RouterLink to={href}>{action.label}<ArrowUpRight size={14} aria-hidden /></RouterLink>
+    <Button asChild className="sw-server-context-action" colorPalette={prominent ? 'brand' : undefined} variant={prominent ? 'solid' : 'outline'} size="sm">
+      <RouterLink to={href}><span>{action.label}</span></RouterLink>
     </Button>
   )
 }
@@ -1448,6 +1472,7 @@ function ServerRow({
   scopedHref,
   onToggle,
   onAction,
+  onEditTags,
 }: {
   server: Server
   checked: boolean
@@ -1456,6 +1481,7 @@ function ServerRow({
   scopedHref: (path: string) => string
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
+  onEditTags: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
@@ -1467,7 +1493,12 @@ function ServerRow({
         <Table.Cell className="sw-cell-center sw-col-select">
           <Checkbox id={`select-${server.id}`} aria-label={`Select ${serverDisplayName(server)}`} checked={checked} onCheckedChange={onToggle} />
         </Table.Cell>
-        <Table.Cell className="sw-server-col--identity"><ServerIdentity server={server} scopedHref={scopedHref} /></Table.Cell>
+        <Table.Cell className="sw-cell-center sw-col-details">
+          <IconButton variant="ghost" size="xs" aria-label={`${expanded ? 'Hide' : 'Show'} details for ${serverDisplayName(server)}`} aria-expanded={expanded} aria-controls={detailId} onClick={() => setExpanded((value) => !value)}>
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </IconButton>
+        </Table.Cell>
+        <Table.Cell className="sw-server-col--identity"><ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} /></Table.Cell>
         <Table.Cell className="sw-server-col--power sw-cell-center" onClick={(event) => event.stopPropagation()}>
           {server.provisioning ? (
             <Tooltip content={`Power actions (${powerStateLabel(server.provisioning.powerState)})${server.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
@@ -1490,18 +1521,15 @@ function ServerRow({
         <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.health} /></Table.Cell>
         <Table.Cell className="sw-server-col--platform"><ServerPlatform server={server} scopedHref={scopedHref} /></Table.Cell>
         <Table.Cell className="sw-server-row-actions">
-          <HStack gap="1.5" justify="flex-end" wrap="nowrap">
+          <HStack className="sw-server-row-actions__content" gap="1" justify="flex-end" wrap="nowrap">
             <ContextualActionLink server={server} scopedHref={scopedHref} />
-            <IconButton variant="ghost" size="sm" aria-label={`${expanded ? 'Hide' : 'Show'} details for ${serverDisplayName(server)}`} aria-expanded={expanded} aria-controls={detailId} onClick={() => setExpanded((value) => !value)}>
-              {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-            </IconButton>
             <ServerTakeActionMenu targets={[server]} trigger="kebab" onAction={onAction} />
           </HStack>
         </Table.Cell>
       </Table.Row>
       {expanded && (
         <Table.Row id={detailId} className="sw-server-detail-row">
-          <Table.Cell colSpan={11}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations)} /></Table.Cell>
+          <Table.Cell colSpan={12}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations)} /></Table.Cell>
         </Table.Row>
       )}
       {powerDialogOpen && (
@@ -1527,6 +1555,7 @@ function ServerMobileCard({
   scopedHref,
   onToggle,
   onAction,
+  onEditTags,
 }: {
   server: Server
   checked: boolean
@@ -1535,6 +1564,7 @@ function ServerMobileCard({
   scopedHref: (path: string) => string
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
+  onEditTags: () => void
 }) {
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
   const details = serverDetailFacts(server, sites, integrations).flatMap((group) => (
@@ -1543,7 +1573,7 @@ function ServerMobileCard({
   return (
     <div className="sw-server-runtime-card" data-tone={server.absent ? 'absent' : isServerDeploymentChanging(server) ? 'changing' : hasServerDeploymentIssue(server) ? 'issue' : undefined}>
       <ResourceCard
-        title={<ServerIdentity server={server} scopedHref={scopedHref} />}
+        title={<ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} />}
         selected={checked}
         status={server.absent ? <Badge variant="subtle">Absent</Badge> : undefined}
         details={details.map((fact) => <ResourceCardField key={fact.label} label={fact.label}>{fact.value}</ResourceCardField>)}

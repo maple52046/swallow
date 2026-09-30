@@ -33,7 +33,9 @@ test.describe('dashboard visual regression', () => {
     for (const viewport of viewports) {
       for (const appearance of appearances) {
         test(`${visualCase.name} · ${viewport.name} · ${appearance}`, async ({ page }) => {
-          await installApiFixtures(page)
+          await installApiFixtures(page, visualCase.name === 'servers'
+            ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
+            : {})
           await page.setViewportSize({ width: viewport.width, height: viewport.height })
           await page.addInitScript(({ authenticated, appearance }) => {
             Date.now = () => Date.parse('2026-08-27T03:05:00Z')
