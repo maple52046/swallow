@@ -1,0 +1,424 @@
+import type { ProvisioningState, Server } from '@/domain/server/types'
+
+/** Quick operational lens applied before the advanced Server facets. */
+export type ServerView = 'all' | 'ready' | 'changing' | 'issues'
+
+/** Grouping modes that keep every Server in exactly one visible group. */
+export type ServerInventoryGroup =
+  | 'none'
+  | 'provisioning'
+  | 'zone'
+  | 'pool'
+  | 'architecture'
+  | 'power'
+  | 'gpu-profile'
+  | 'system-model'
+
+/** Sort keys exposed by the compact Server inventory display controls. */
+export type ServerInventorySort =
+  | 'priority'
+  | 'name'
+  | 'provisioning'
+  | 'power'
+  | 'cores'
+  | 'memory'
+  | 'storage'
+  | 'gpus'
+  | 'zone'
+  | 'pool'
+
+export type ServerInventoryDirection = 'asc' | 'desc'
+export type ServerHealthFilter = 'any' | 'up' | 'down' | 'unobserved'
+export type ServerMembershipFilter = 'any' | 'assigned' | 'unassigned'
+export type ServerGpuFilter = 'any' | 'present' | 'none'
+export type ServerLockFilter = 'any' | 'locked' | 'unlocked'
+
+/** Parsed, shareable discovery state for the Server inventory. */
+export interface ServerInventoryQuery {
+  q: string
+  view: ServerView
+  provisioning: readonly ProvisioningState[]
+  health: ServerHealthFilter
+  membership: ServerMembershipFilter
+  gpu: ServerGpuFilter
+  gpuVendors: readonly string[]
+  gpuModels: readonly string[]
+  architectures: readonly string[]
+  systemVendors: readonly string[]
+  systemProducts: readonly string[]
+  zones: readonly string[]
+  pools: readonly string[]
+  tags: readonly string[]
+  lock: ServerLockFilter
+  includeAbsent: boolean
+  group: ServerInventoryGroup
+  sort: ServerInventorySort
+  direction: ServerInventoryDirection
+  page: number
+}
+
+/** Scope-wide facts rendered without collapsing the independent Server axes. */
+export interface ServerFleetFacts {
+  total: number
+  absent: number
+  deploymentVerified: number
+  deploymentActive: number
+  deploymentAttention: number
+  assigned: number
+  unassigned: number
+  healthUp: number
+  healthDown: number
+  healthUnobserved: number
+}
+
+/** Navigation priority for the visible row CTA; none of these choices performs a mutation. */
+export type ServerContextAction =
+  | { kind: 'deploy'; label: 'Deploy OS' }
+  | { kind: 'workflow'; label: 'Monitor workflow'; operationId: string }
+  | { kind: 'activity'; label: 'Monitor server' | 'Review server' }
+  | { kind: 'summary'; label: 'Open server' }
+
+const PROVISIONING_STATES: readonly ProvisioningState[] = [
+  'new',
+  'commissioning',
+  'ready',
+  'allocated',
+  'deploying',
+  'deployed',
+  'releasing',
+  'testing',
+  'rescue',
+  'broken',
+  'failed',
+  'retired',
+  'unknown',
+]
+
+const PROVISIONING_STATE_SET = new Set<string>(PROVISIONING_STATES)
+const CHANGING_PROVIDER_STATES = new Set<ProvisioningState>([
+  'commissioning',
+  'deploying',
+  'releasing',
+  'testing',
+])
+const ISSUE_PROVIDER_STATES = new Set<ProvisioningState>(['failed', 'broken', 'rescue'])
+const VIEWS = new Set<ServerView>(['all', 'ready', 'changing', 'issues'])
+const HEALTH_FILTERS = new Set<ServerHealthFilter>(['any', 'up', 'down', 'unobserved'])
+const MEMBERSHIP_FILTERS = new Set<ServerMembershipFilter>(['any', 'assigned', 'unassigned'])
+const GPU_FILTERS = new Set<ServerGpuFilter>(['any', 'present', 'none'])
+const LOCK_FILTERS = new Set<ServerLockFilter>(['any', 'locked', 'unlocked'])
+const GROUPS = new Set<ServerInventoryGroup>([
+  'none',
+  'provisioning',
+  'zone',
+  'pool',
+  'architecture',
+  'power',
+  'gpu-profile',
+  'system-model',
+])
+const SORTS = new Set<ServerInventorySort>([
+  'priority',
+  'name',
+  'provisioning',
+  'power',
+  'cores',
+  'memory',
+  'storage',
+  'gpus',
+  'zone',
+  'pool',
+])
+
+function enumValue<T extends string>(value: string | null, values: ReadonlySet<T>, fallback: T): T {
+  return value !== null && values.has(value as T) ? value as T : fallback
+}
+
+function distinctValues(params: URLSearchParams, key: string): string[] {
+  return [...new Set(params.getAll(key).map((value) => value.trim()).filter(Boolean))]
+}
+
+/** Parses canonical URL discovery state; malformed values fail to least-surprising defaults. */
+export function parseServerInventoryQuery(params: URLSearchParams): ServerInventoryQuery {
+  const view = enumValue(params.get('view'), VIEWS, 'all')
+  const provisioning = view === 'all'
+    ? distinctValues(params, 'provisioning').filter((value): value is ProvisioningState => PROVISIONING_STATE_SET.has(value))
+    : []
+  const pageValue = Number(params.get('page'))
+  const sort = enumValue(params.get('sort'), SORTS, 'priority')
+
+  return {
+    q: params.get('q') ?? '',
+    view,
+    provisioning,
+    health: enumValue(params.get('health'), HEALTH_FILTERS, 'any'),
+    membership: enumValue(params.get('membership'), MEMBERSHIP_FILTERS, 'any'),
+    gpu: enumValue(params.get('gpu'), GPU_FILTERS, 'any'),
+    gpuVendors: distinctValues(params, 'gpuVendor'),
+    gpuModels: distinctValues(params, 'gpuModel'),
+    architectures: distinctValues(params, 'architecture'),
+    systemVendors: distinctValues(params, 'systemVendor'),
+    systemProducts: distinctValues(params, 'systemProduct'),
+    zones: distinctValues(params, 'zone'),
+    pools: distinctValues(params, 'pool'),
+    tags: distinctValues(params, 'tag'),
+    lock: enumValue(params.get('lock'), LOCK_FILTERS, 'any'),
+    includeAbsent: params.get('includeAbsent') === 'true',
+    group: enumValue(params.get('group'), GROUPS, 'none'),
+    sort,
+    direction: sort === 'priority'
+      ? 'asc'
+      : enumValue(params.get('dir'), new Set<ServerInventoryDirection>(['asc', 'desc']), 'asc'),
+    page: Number.isInteger(pageValue) && pageValue > 1 ? pageValue : 1,
+  }
+}
+
+function normalizeRepeated(next: URLSearchParams, key: string): void {
+  const values = distinctValues(next, key)
+  next.delete(key)
+  values.forEach((value) => next.append(key, value))
+}
+
+/** Canonicalizes Server-list parameters while preserving Site scope and unrelated route state. */
+export function normalizeServerInventoryParams(params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params)
+  const view = enumValue(next.get('view'), VIEWS, 'all')
+  if (view === 'all') next.delete('view')
+  else next.set('view', view)
+
+  normalizeRepeated(next, 'provisioning')
+  const provisioning = next.getAll('provisioning').filter((value) => PROVISIONING_STATE_SET.has(value))
+  next.delete('provisioning')
+  if (view === 'all') provisioning.forEach((value) => next.append('provisioning', value))
+
+  const singleEnums: ReadonlyArray<[string, ReadonlySet<string>, string]> = [
+    ['health', HEALTH_FILTERS, 'any'],
+    ['membership', MEMBERSHIP_FILTERS, 'any'],
+    ['gpu', GPU_FILTERS, 'any'],
+    ['lock', LOCK_FILTERS, 'any'],
+    ['group', GROUPS, 'none'],
+    ['sort', SORTS, 'priority'],
+  ]
+  singleEnums.forEach(([key, values, fallback]) => {
+    const value = next.get(key)
+    if (!value || !values.has(value) || value === fallback) next.delete(key)
+  })
+
+  for (const key of ['gpuVendor', 'gpuModel', 'architecture', 'systemVendor', 'systemProduct', 'zone', 'pool', 'tag']) {
+    normalizeRepeated(next, key)
+  }
+
+  if (next.get('includeAbsent') !== 'true') next.delete('includeAbsent')
+  const page = Number(next.get('page'))
+  if (!Number.isInteger(page) || page <= 1) next.delete('page')
+
+  if (!next.has('sort')) next.delete('dir')
+  else if (next.get('dir') !== 'desc') next.delete('dir')
+  return next
+}
+
+/** True while either the provisioner or the durable OS deployment is actively changing. */
+export function isServerChanging(server: Server): boolean {
+  return Boolean(
+    (server.provisioning && CHANGING_PROVIDER_STATES.has(server.provisioning.state)) ||
+    server.deployment?.state === 'deploying' ||
+    server.deployment?.state === 'verifying',
+  )
+}
+
+/** True only while a Swallow-owned operating-system deployment is changing. */
+export function isServerDeploymentChanging(server: Server): boolean {
+  return server.deployment?.state === 'deploying' || server.deployment?.state === 'verifying'
+}
+
+/** Explicit provisioning/deployment conditions that require review, without reading Health. */
+export function hasServerProvisioningIssue(server: Server): boolean {
+  return Boolean(
+    (server.provisioning && ISSUE_PROVIDER_STATES.has(server.provisioning.state)) ||
+    server.deployment?.state === 'failed' ||
+    server.deployment?.state === 'requires_attention',
+  )
+}
+
+/** True only when the latest Swallow-owned deployment requires operator review. */
+export function hasServerDeploymentIssue(server: Server): boolean {
+  return server.deployment?.state === 'failed' || server.deployment?.state === 'requires_attention'
+}
+
+/** A deterministic accelerator signature derived from hardware inventory, never from tags. */
+export function serverGpuProfile(server: Server): string {
+  if (server.gpus.length === 0) return 'CPU only'
+  return [...server.gpus]
+    .sort((left, right) => (
+      left.vendor.localeCompare(right.vendor) ||
+      left.model.localeCompare(right.model) ||
+      left.count - right.count
+    ))
+    .map((gpu) => `${gpu.count} × ${[gpu.vendor, gpu.model].filter(Boolean).join(' ')}`)
+    .join(' + ')
+}
+
+/** Total physical GPU count reported for one Server. */
+export function serverGpuCount(server: Server): number {
+  return server.gpus.reduce((total, gpu) => total + gpu.count, 0)
+}
+
+/** Stable effective tags; provenance is intentionally unavailable in the current projection. */
+export function sortedServerTags(server: Server): string[] {
+  return [...server.tags].sort((left, right) => left.localeCompare(right))
+}
+
+/** Resource-discovery search over identity, effective tags, and accelerator inventory. */
+export function matchesServerDiscovery(server: Server, query: string): boolean {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return true
+  const searchable = [
+    server.hostname,
+    server.fqdn,
+    ...server.addresses,
+    server.hardware.serialNumber,
+    server.hardware.systemUuid,
+    server.source.providerMachineId,
+    ...server.tags,
+    ...server.gpus.flatMap((gpu) => [gpu.vendor, gpu.model]),
+  ]
+  return searchable.some((value) => value?.toLocaleLowerCase().includes(needle))
+}
+
+/** Applies every URL-owned facet. Dimensions AND together; repeated values OR within one facet. */
+export function matchesServerInventoryQuery(server: Server, query: ServerInventoryQuery): boolean {
+  if (!query.includeAbsent && server.absent) return false
+  if (!matchesServerDiscovery(server, query.q)) return false
+  if (query.view === 'ready' && (server.absent || server.provisioning?.locked || server.provisioning?.state !== 'ready')) return false
+  if (query.view === 'changing' && !isServerDeploymentChanging(server)) return false
+  if (query.view === 'issues' && !hasServerDeploymentIssue(server)) return false
+  if (query.provisioning.length > 0 && (!server.provisioning || !query.provisioning.includes(server.provisioning.state))) return false
+  if (query.health === 'unobserved' && server.health !== null) return false
+  if ((query.health === 'up' || query.health === 'down') && server.health?.state !== query.health) return false
+  if (query.membership === 'assigned' && server.membership === null) return false
+  if (query.membership === 'unassigned' && server.membership !== null) return false
+  if (query.gpu === 'present' && server.gpus.length === 0) return false
+  if (query.gpu === 'none' && server.gpus.length > 0) return false
+  if (query.gpuVendors.length > 0 && !server.gpus.some((gpu) => query.gpuVendors.includes(gpu.vendor))) return false
+  if (query.gpuModels.length > 0 && !server.gpus.some((gpu) => query.gpuModels.includes(gpu.model))) return false
+  if (query.architectures.length > 0 && !query.architectures.includes(server.architecture || 'unknown')) return false
+  if (query.systemVendors.length > 0 && !query.systemVendors.includes(server.systemVendor || 'unknown')) return false
+  if (query.systemProducts.length > 0 && !query.systemProducts.includes(server.systemProduct || 'unknown')) return false
+  if (query.zones.length > 0 && !query.zones.includes(server.providerZone || 'unknown')) return false
+  if (query.pools.length > 0 && !query.pools.includes(server.providerResourcePool || 'unknown')) return false
+  if (query.tags.length > 0 && !query.tags.some((tag) => server.tags.includes(tag))) return false
+
+  const locked = server.provisioning?.locked === true
+  if (query.lock === 'locked' && !locked) return false
+  if (query.lock === 'unlocked' && locked) return false
+  return true
+}
+
+/** Stable group label for the selected one-to-one grouping dimension. */
+export function serverInventoryGroupValue(server: Server, group: ServerInventoryGroup): string {
+  switch (group) {
+    case 'provisioning': return server.deployment?.state ?? 'not deployed'
+    case 'zone': return server.providerZone || 'unknown'
+    case 'pool': return server.providerResourcePool || 'unknown'
+    case 'architecture': return server.architecture || 'unknown'
+    case 'power': return server.provisioning?.powerState ?? 'unknown'
+    case 'gpu-profile': return serverGpuProfile(server)
+    case 'system-model': return [server.systemVendor, server.systemProduct].filter(Boolean).join(' ') || 'unknown'
+    case 'none':
+    default: return ''
+  }
+}
+
+/** Swallow-deployment-first operational rank used by the default list order. */
+export function serverOperationalPriority(server: Server): number {
+  if (server.absent) return 5
+  if (isServerDeploymentChanging(server)) return 0
+  if (hasServerDeploymentIssue(server)) return 1
+  if (server.provisioning?.state === 'ready') return 2
+  if (server.deployment?.state === 'succeeded') return 3
+  return 4
+}
+
+function displayName(server: Server): string {
+  return server.hostname ?? server.fqdn ?? server.source.providerMachineId ?? server.id
+}
+
+function sortValue(server: Server, sort: Exclude<ServerInventorySort, 'priority'>): string | number {
+  switch (sort) {
+    case 'name': return displayName(server).toLocaleLowerCase()
+    case 'provisioning': return server.deployment?.state ?? ''
+    case 'power': return server.provisioning?.powerState ?? ''
+    case 'cores': return server.cpuCores
+    case 'memory': return server.memoryMiB
+    case 'storage': return server.storageGB
+    case 'gpus': return serverGpuCount(server)
+    case 'zone': return server.providerZone.toLocaleLowerCase()
+    case 'pool': return server.providerResourcePool.toLocaleLowerCase()
+  }
+}
+
+/** Compares rows by explicit sort or operational priority, then by display name for stability. */
+export function compareServerInventory(
+  left: Server,
+  right: Server,
+  sort: ServerInventorySort,
+  direction: ServerInventoryDirection,
+): number {
+  let result = 0
+  if (sort === 'priority') {
+    result = serverOperationalPriority(left) - serverOperationalPriority(right)
+  } else {
+    const leftValue = sortValue(left, sort)
+    const rightValue = sortValue(right, sort)
+    result = typeof leftValue === 'number' && typeof rightValue === 'number'
+      ? leftValue - rightValue
+      : String(leftValue).localeCompare(String(rightValue))
+    if (direction === 'desc') result *= -1
+  }
+  return result || displayName(left).localeCompare(displayName(right))
+}
+
+/** Computes scope-wide facts; absent projections are excluded from live external axes. */
+export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
+  const observed = servers.filter((server) => !server.absent)
+  return {
+    total: servers.length,
+    absent: servers.length - observed.length,
+    deploymentVerified: observed.filter((server) => server.deployment?.state === 'succeeded').length,
+    deploymentActive: observed.filter(isServerDeploymentChanging).length,
+    deploymentAttention: observed.filter(hasServerDeploymentIssue).length,
+    assigned: observed.filter((server) => server.membership !== null).length,
+    unassigned: observed.filter((server) => server.membership === null).length,
+    healthUp: observed.filter((server) => server.health?.state === 'up').length,
+    healthDown: observed.filter((server) => server.health?.state === 'down').length,
+    healthUnobserved: observed.filter((server) => server.health === null).length,
+  }
+}
+
+/** Chooses the most useful, non-mutating next-step link for one row. */
+export function serverContextAction(server: Server): ServerContextAction {
+  if (!server.absent && !server.provisioning?.locked && server.provisioning?.state === 'ready') {
+    return { kind: 'deploy', label: 'Deploy OS' }
+  }
+  if (isServerChanging(server)) {
+    if (server.deployment?.operationId) {
+      return { kind: 'workflow', label: 'Monitor workflow', operationId: server.deployment.operationId }
+    }
+    return { kind: 'activity', label: 'Monitor server' }
+  }
+  if (server.absent || hasServerProvisioningIssue(server)) {
+    return { kind: 'activity', label: 'Review server' }
+  }
+  return { kind: 'summary', label: 'Open server' }
+}
+
+/** Whether any discovery facet, search, or quick lens constrains the visible working set. */
+export function hasServerInventoryFilters(query: ServerInventoryQuery): boolean {
+  return Boolean(
+    query.q || query.view !== 'all' || query.provisioning.length || query.health !== 'any' ||
+    query.membership !== 'any' || query.gpu !== 'any' || query.gpuVendors.length ||
+    query.gpuModels.length || query.architectures.length || query.systemVendors.length ||
+    query.systemProducts.length || query.zones.length || query.pools.length || query.tags.length ||
+    query.lock !== 'any' || query.includeAbsent
+  )
+}

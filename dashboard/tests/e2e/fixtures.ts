@@ -171,6 +171,16 @@ export interface FixtureOptions {
   failMetricsBatchIndex?: number
   acknowledgeFails?: boolean
   readyServerCount?: number
+  changingServerIds?: string[]
+  deploymentAttentionServerIds?: string[]
+  absentServerIds?: string[]
+  unobservedHealthServerIds?: string[]
+  cpuOnlyServerIds?: string[]
+  multiGpuServerIds?: string[]
+  extraTags?: Record<string, string[]>
+  serverListFailuresAfterInitial?: number
+  serverListFailureRequestNumbers?: number[]
+  onServerListRequest?: (requestCount: number) => void
   staticNetworkServerIds?: string[]
   networkSubnetName?: string
   ephemeralServerIds?: string[]
@@ -239,8 +249,51 @@ function json(route: Route, body: unknown, status = 200) {
 
 /** Installs deterministic network fixtures; no backend or provider is contacted. */
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
+  await page.addInitScript(() => {
+    class FixtureEventSource {
+      static readonly CONNECTING = 0
+      static readonly OPEN = 1
+      static readonly CLOSED = 2
+      readonly url: string
+      readonly withCredentials = false
+      readyState = FixtureEventSource.CONNECTING
+      onopen: ((event: Event) => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: Event) => void) | null = null
+
+      constructor(url: string) {
+        this.url = url
+        const sources = (window as typeof window & { __serverEventSources?: FixtureEventSource[] }).__serverEventSources ?? []
+        sources.push(this)
+        ;(window as typeof window & { __serverEventSources?: FixtureEventSource[] }).__serverEventSources = sources
+        setTimeout(() => this.emitOpen(), 0)
+      }
+
+      close() {
+        this.readyState = FixtureEventSource.CLOSED
+      }
+
+      emitOpen() {
+        this.readyState = FixtureEventSource.OPEN
+        this.onopen?.(new Event('open'))
+      }
+
+      emitError(closed = false) {
+        this.readyState = closed ? FixtureEventSource.CLOSED : FixtureEventSource.CONNECTING
+        this.onerror?.(new Event('error'))
+      }
+
+      emitMessage(data: string) {
+        this.onmessage?.(new MessageEvent('message', { data }))
+      }
+    }
+
+    Object.defineProperty(window, 'EventSource', { configurable: true, value: FixtureEventSource })
+  })
   await page.unroute('**/api/v1/**')
   const fleet = Array.from({ length: options.fleetSize ?? 4 }, (_, index) => makeServer(index))
+  let serverListRequestCount = 0
+  let serverListFailuresRemaining = options.serverListFailuresAfterInitial ?? 0
   if (options.freePlatformCandidates) {
     for (const server of fleet) {
       server.membership = null
@@ -256,6 +309,51 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     fleet[index].provisioning.osSystem = ''
     fleet[index].provisioning.distroSeries = ''
     fleet[index].deployment = null
+  }
+  for (const serverId of options.changingServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) {
+      server.provisioning.state = 'commissioning'
+      server.provisioning.providerState = 'Commissioning'
+      server.deployment = {
+        state: 'deploying', operationId: 'op-running', stepId: `provision-${server.id}`,
+        attempt: 1, code: '', stage: 'provisioning', statusReason: 'Provisioning operating system.',
+        startedAt: now, finishedAt: null, updatedAt: now,
+      }
+    }
+  }
+  for (const serverId of options.deploymentAttentionServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) {
+      server.deployment = {
+        state: 'requires_attention', operationId: 'op-deploy-failed', stepId: `provision-${server.id}`,
+        attempt: 1, code: 'deployment_failed', stage: 'verification', statusReason: 'Swallow could not verify the deployment.',
+        startedAt: now, finishedAt: null, updatedAt: now,
+      }
+    }
+  }
+  for (const serverId of options.absentServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.absent = true
+  }
+  for (const serverId of options.unobservedHealthServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.health = null
+  }
+  for (const serverId of options.cpuOnlyServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.gpus = []
+  }
+  for (const serverId of options.multiGpuServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.gpus = [
+      { vendor: 'AMD', model: 'MI300X', count: 8 },
+      { vendor: 'NVIDIA', model: 'H100', count: 4 },
+    ]
+  }
+  for (const [serverId, tags] of Object.entries(options.extraTags ?? {})) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.tags = [...server.tags, ...tags]
   }
   for (const serverId of options.ephemeralServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
@@ -898,8 +996,19 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
 
     if (path === '/api/v1/servers') {
+      serverListRequestCount += 1
+      options.onServerListRequest?.(serverListRequestCount)
+      if (options.serverListFailureRequestNumbers?.includes(serverListRequestCount)) {
+        return json(route, { error: { code: 'unavailable', message: 'Server inventory refresh failed.' } }, 503)
+      }
+      if (serverListRequestCount > 1 && serverListFailuresRemaining > 0) {
+        serverListFailuresRemaining -= 1
+        return json(route, { error: { code: 'unavailable', message: 'Server inventory refresh failed.' } }, 503)
+      }
       let items = [...fleet]
       const siteId = url.searchParams.get('siteId'); const platformId = url.searchParams.get('platformId'); const provisioningState = url.searchParams.get('provisioningState'); const keyword = url.searchParams.get('keyword')?.toLowerCase()
+      const includeAbsent = url.searchParams.get('includeAbsent') === 'true'
+      if (!includeAbsent) items = items.filter((item) => !item.absent)
       if (siteId) items = items.filter((item) => item.source.siteId === siteId)
       if (platformId) items = items.filter((item) => item.membership?.platformId === platformId)
       if (provisioningState) items = items.filter((item) => item.provisioning?.state === provisioningState)

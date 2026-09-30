@@ -1,35 +1,38 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Badge, Box, Button, HStack, IconButton, Popover, Portal, Table, Text } from '@chakra-ui/react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Filter, Lock, RefreshCw, Tags, UploadCloud } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Badge, Box, Button, Flex, Heading, HStack, IconButton, Popover, Portal, Table, Text } from '@chakra-ui/react'
+import {
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  CircleCheckBig,
+  Filter,
+  Lock,
+  MemoryStick,
+  RefreshCw,
+  SlidersHorizontal,
+  Tags,
+  TriangleAlert,
+  UploadCloud,
+} from 'lucide-react'
+import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
-import type { Integration } from '@/domain/site/types'
+import type { Integration, Site } from '@/domain/site/types'
 import type { ReleaseServerInput, Server } from '@/domain/server/types'
-import {
-  EMPTY_SERVER_FILTERS,
-  compareServers,
-  countByDimension,
-  groupValueOf,
-  matchesServerFilters,
-  serverDisplayName,
-  serverMacAddress,
-  serverPrimaryAddress,
-  type ServerDimension,
-  type ServerFilters,
-  type ServerGroupBy,
-  type ServerSortKey,
-  type SortDirection,
-} from '@/domain/server/list'
+import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/list'
 import { PageHeader } from '@/presentation/components/PageHeader'
-import { DataToolbar, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
-import { GpuVendorLogo } from '@/presentation/components/GpuVendorLogo'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { Pagination } from '@/presentation/components/Pagination'
-import { DeploymentBadge, HealthBadge, MembershipBadge, PowerBadge } from '@/presentation/components/AxisBadge'
+import {
+  DeploymentBadge,
+  HealthBadge,
+  MembershipBadge,
+  PowerBadge,
+} from '@/presentation/components/AxisBadge'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -38,6 +41,7 @@ import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { actionLabel, isRamDeploy, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
@@ -50,113 +54,46 @@ import { ServerTagEditor } from './ServerTagEditor'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
 import { ServerTakeActionMenu } from './ServerTakeActionMenu'
 import { failedServerActionOutcomes, type ServerActionRunResult, type ServerActionTarget } from './serverActionResults'
+import {
+  compareServerInventory,
+  hasServerInventoryFilters,
+  hasServerDeploymentIssue,
+  isServerDeploymentChanging,
+  isServerChanging,
+  matchesServerInventoryQuery,
+  normalizeServerInventoryParams,
+  parseServerInventoryQuery,
+  serverContextAction,
+  serverFleetFacts,
+  serverGpuProfile,
+  serverInventoryGroupValue,
+  sortedServerTags,
+  type ServerInventoryDirection,
+  type ServerInventoryGroup,
+  type ServerInventoryQuery,
+  type ServerInventorySort,
+  type ServerView,
+} from './serverListPresentation'
 
-/** Table row density for the server list; controls compact vs comfortable row spacing. */
+/** Table density is a local readability preference, not shareable fleet state. */
 type ServerDensity = 'compact' | 'comfortable'
 
-interface ColumnToggle {
-  key: string
-  label: string
-}
 interface FilterOption {
   value: string
   label: string
   count: number
 }
-interface ServerFilterOptions {
-  provisioningState: FilterOption[]
+
+interface ServerFacetOptions {
+  provisioning: FilterOption[]
+  gpuVendor: FilterOption[]
+  gpuModel: FilterOption[]
+  architecture: FilterOption[]
+  systemVendor: FilterOption[]
+  systemProduct: FilterOption[]
   zone: FilterOption[]
   pool: FilterOption[]
   tag: FilterOption[]
-}
-
-/** Independent provider observations that replace the former composed Hardware cell. */
-const HARDWARE_COLUMNS: ColumnToggle[] = [
-  { key: 'architecture', label: 'Architecture' },
-  { key: 'cpuCores', label: 'CPU cores' },
-  { key: 'cpuModel', label: 'CPU model' },
-  { key: 'memory', label: 'Memory' },
-  { key: 'storage', label: 'Storage' },
-  { key: 'systemVendor', label: 'System vendor' },
-  { key: 'systemProduct', label: 'System product' },
-]
-const OPTIONAL_COLUMNS: ColumnToggle[] = [
-  { key: 'power', label: 'Power' },
-  { key: 'status', label: 'Deployment' },
-  { key: 'address', label: 'Address' },
-  { key: 'mac', label: 'MAC address' },
-  { key: 'zone', label: 'Zone' },
-  { key: 'pool', label: 'Pool' },
-  { key: 'tags', label: 'Tags' },
-  ...HARDWARE_COLUMNS,
-  { key: 'gpus', label: 'GPUs' },
-  { key: 'platform', label: 'Platform' },
-  { key: 'health', label: 'Health' },
-]
-const DEFAULT_PAGE_SIZE = 50
-const EMPTY_SERVERS: Server[] = []
-const GROUP_KEY = 'swallow.servers.group-by'
-const COLUMNS_KEY = 'swallow.servers.hidden-columns'
-const PAGE_SIZE_KEY = 'swallow.servers.page-size'
-const DEPLOYMENT_POLL_INTERVAL_MS = 2_000
-const MAX_DEPLOYMENT_POLL_ATTEMPTS = 150
-// How long to keep polling a just-released Server that is not yet in an active provisioning
-// axis, so the list reflects the release once the durable Operation dispatches.
-const RELEASE_FOLLOW_WINDOW_MS = 180_000
-
-function readPreference<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw === null ? fallback : (JSON.parse(raw) as T)
-  } catch {
-    return fallback
-  }
-}
-function writePreference<T>(key: string, value: T): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // Browser policy can block persistence; the active view remains fully usable.
-  }
-}
-function toFilterOptions(counts: Map<string, number>): FilterOption[] {
-  return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([value, count]) => ({ value, label: value, count }))
-}
-function filtersAreEmpty(filters: ServerFilters, keyword: string): boolean {
-  return (
-    keyword === '' &&
-    filters.provisioningStates.length === 0 &&
-    filters.zones.length === 0 &&
-    filters.pools.length === 0 &&
-    filters.tags.length === 0 &&
-    filters.hasGpu === null &&
-    filters.lockState === 'any'
-  )
-}
-
-/** Preserves visibility choices when a composed legacy column becomes independent fields. */
-function normalizeHiddenColumns(columns: readonly string[]): string[] {
-  const normalized = new Set(columns)
-  if (normalized.delete('placement')) {
-    normalized.add('zone')
-    normalized.add('pool')
-  }
-  if (normalized.delete('hardware')) {
-    HARDWARE_COLUMNS.forEach((column) => normalized.add(column.key))
-  }
-  return [...normalized]
-}
-
-/** Uses one quiet placeholder for provider text that has not been observed. */
-function textOrDash(value: string | null | undefined): string {
-  return value?.trim() || '-'
-}
-
-/** Formats positive hardware quantities while treating zero as an absent observation. */
-function quantityOrDash(value: number, unit = '', divisor = 1): string {
-  if (!Number.isFinite(value) || value <= 0) return '-'
-  const quantity = Math.round(value / divisor)
-  return unit ? `${quantity} ${unit}` : String(quantity)
 }
 
 interface RenderGroup {
@@ -164,45 +101,297 @@ interface RenderGroup {
   label: string
   items: Server[]
 }
-function renderGroups(items: Server[], groupBy: ServerGroupBy): RenderGroup[] {
-  if (groupBy === 'none') return [{ key: '', label: '', items }]
-  const groups = new Map<string, Server[]>()
-  for (const server of items) {
-    const key = groupValueOf(server, groupBy)
-    groups.set(key, [...(groups.get(key) ?? []), server])
+
+interface DetailFactGroup {
+  title: string
+  facts: Array<{ label: string; value: string }>
+}
+
+interface ServerSelectionState {
+  filterKey: string
+  ids: ReadonlySet<string>
+}
+
+const DEFAULT_PAGE_SIZE = 50
+const EMPTY_SERVERS: Server[] = []
+const EMPTY_SERVER_IDS: readonly string[] = []
+const LEGACY_GROUP_KEY = 'swallow.servers.group-by'
+const DENSITY_KEY = 'swallow.servers.density'
+const PAGE_SIZE_KEY = 'swallow.servers.page-size'
+const DEPLOYMENT_POLL_INTERVAL_MS = 2_000
+const MAX_DEPLOYMENT_POLL_ATTEMPTS = 150
+const RELEASE_FOLLOW_WINDOW_MS = 180_000
+
+const SERVER_VIEWS: ReadonlyArray<{ value: ServerView; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'ready', label: 'Deployable' },
+  { value: 'changing', label: 'Active deployments' },
+  { value: 'issues', label: 'Needs attention' },
+]
+
+const GROUP_OPTIONS: ReadonlyArray<{ value: ServerInventoryGroup; label: string }> = [
+  { value: 'none', label: 'No grouping' },
+  { value: 'provisioning', label: 'OS deployment' },
+  { value: 'zone', label: 'Zone' },
+  { value: 'pool', label: 'Pool' },
+  { value: 'architecture', label: 'Architecture' },
+  { value: 'power', label: 'Power' },
+  { value: 'gpu-profile', label: 'GPU profile' },
+  { value: 'system-model', label: 'System model' },
+]
+
+const SORT_OPTIONS: ReadonlyArray<{ value: ServerInventorySort; label: string }> = [
+  { value: 'priority', label: 'Operational priority' },
+  { value: 'name', label: 'Server name' },
+  { value: 'provisioning', label: 'OS deployment' },
+  { value: 'power', label: 'Power' },
+  { value: 'cores', label: 'CPU cores' },
+  { value: 'memory', label: 'Memory' },
+  { value: 'storage', label: 'Storage' },
+  { value: 'gpus', label: 'GPU count' },
+  { value: 'zone', label: 'Zone' },
+  { value: 'pool', label: 'Pool' },
+]
+
+function readPreference<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw === null ? fallback : JSON.parse(raw) as T
+  } catch {
+    return fallback
   }
+}
+
+function writePreference<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Browser policy may block preferences; the current view remains fully usable.
+  }
+}
+function readDensityPreference(): ServerDensity {
+  const value = readPreference<string>(DENSITY_KEY, 'compact')
+  return value === 'comfortable' ? value : 'compact'
+}
+
+function readPageSizePreference(): number {
+  const value = readPreference<number>(PAGE_SIZE_KEY, DEFAULT_PAGE_SIZE)
+  return [25, 50, 100].includes(value) ? value : DEFAULT_PAGE_SIZE
+}
+
+
+function textOrDash(value: string | null | undefined): string {
+  return value?.trim() || '—'
+}
+
+function quantityOrDash(value: number, unit = '', divisor = 1): string {
+  if (!Number.isFinite(value) || value <= 0) return '—'
+  const quantity = Math.round(value / divisor)
+  return unit ? `${quantity} ${unit}` : String(quantity)
+}
+/** Encodes arbitrary provider facts into stable, whitespace-free control ids. */
+function controlId(value: string): string {
+  return encodeURIComponent(value).replaceAll('%', '-')
+}
+
+
+function renderGroups(items: Server[], group: ServerInventoryGroup): RenderGroup[] {
+  if (group === 'none') return [{ key: '', label: '', items }]
+  const groups = new Map<string, Server[]>()
+  items.forEach((server) => {
+    const value = serverInventoryGroupValue(server, group)
+    groups.set(value, [...(groups.get(value) ?? []), server])
+  })
   return [...groups.entries()].map(([key, grouped]) => ({ key, label: key, items: grouped }))
 }
 
+function facetOptions(
+  servers: readonly Server[],
+  valuesOf: (server: Server) => readonly string[],
+  selected: readonly string[],
+): FilterOption[] {
+  const counts = new Map<string, number>()
+  servers.forEach((server) => {
+    new Set(valuesOf(server).filter(Boolean)).forEach((value) => {
+      counts.set(value, (counts.get(value) ?? 0) + 1)
+    })
+  })
+  selected.forEach((value) => {
+    if (!counts.has(value)) counts.set(value, 0)
+  })
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([value, count]) => ({ value, label: value, count }))
+}
+
+function activeAdvancedFilterCount(query: ServerInventoryQuery): number {
+  return [
+    query.provisioning.length > 0,
+    query.health !== 'any',
+    query.membership !== 'any',
+    query.gpu !== 'any',
+    query.gpuVendors.length > 0,
+    query.gpuModels.length > 0,
+    query.architectures.length > 0,
+    query.systemVendors.length > 0,
+    query.systemProducts.length > 0,
+    query.zones.length > 0,
+    query.pools.length > 0,
+    query.tags.length > 0,
+    query.lock !== 'any',
+    query.includeAbsent,
+  ].filter(Boolean).length
+}
+
+function appendQuery(href: string, key: string, value: string): string {
+  const target = new URL(href, window.location.origin)
+  target.searchParams.append(key, value)
+  return `${target.pathname}${target.search}${target.hash}`
+}
+
+function siteNameOf(server: Server, sites: readonly Site[]): string {
+  return sites.find((site) => site.id === server.source.siteId)?.name ?? server.source.siteId
+}
+
+function integrationNameOf(server: Server, integrations: readonly Integration[]): string {
+  return integrations.find((integration) => integration.id === server.source.integrationId)?.name ?? server.source.integrationId
+}
+
+/** Complete mirrored Server facts shared by desktop disclosure and mobile card details. */
+function serverDetailFacts(
+  server: Server,
+  sites: readonly Site[],
+  integrations: readonly Integration[],
+): DetailFactGroup[] {
+  const provisioning = server.provisioning
+  return [
+    {
+      title: 'Identity',
+      facts: [
+        { label: 'FQDN', value: textOrDash(server.fqdn) },
+        { label: 'Server ID', value: server.id },
+        { label: 'Site', value: siteNameOf(server, sites) },
+        { label: 'Provisioner', value: integrationNameOf(server, integrations) },
+        { label: 'Provider machine ID', value: server.source.providerMachineId },
+        { label: 'Addresses', value: server.addresses.length ? server.addresses.join(', ') : '—' },
+        { label: 'Serial number', value: textOrDash(server.hardware.serialNumber) },
+        { label: 'System UUID', value: textOrDash(server.hardware.systemUuid) },
+        { label: 'MAC addresses', value: server.hardware.macAddresses.length ? server.hardware.macAddresses.join(', ') : '—' },
+      ],
+    },
+    {
+      title: 'Hardware',
+      facts: [
+        { label: 'GPU inventory', value: serverGpuProfile(server) },
+        { label: 'Architecture', value: textOrDash(server.architecture) },
+        { label: 'CPU cores', value: quantityOrDash(server.cpuCores) },
+        { label: 'CPU model', value: textOrDash(server.cpuModel) },
+        { label: 'Memory', value: quantityOrDash(server.memoryMiB, 'GiB', 1024) },
+        { label: 'Storage', value: quantityOrDash(server.storageGB, 'GB') },
+        { label: 'System vendor', value: textOrDash(server.systemVendor) },
+        { label: 'System product', value: textOrDash(server.systemProduct) },
+      ],
+    },
+    {
+      title: 'Resource organization',
+      facts: [
+        { label: 'Zone', value: textOrDash(server.providerZone) },
+        { label: 'Pool', value: textOrDash(server.providerResourcePool) },
+        { label: 'Pod', value: textOrDash(server.providerPod) },
+        { label: 'Tags', value: sortedServerTags(server).join(', ') || '—' },
+      ],
+    },
+    {
+      title: 'Operating system',
+      facts: [
+        { label: 'Installed image', value: textOrDash(provisioning?.deployedImageName) },
+        { label: 'Reported OS', value: textOrDash([provisioning?.osSystem, provisioning?.distroSeries].filter(Boolean).join(' ')) },
+        { label: 'Kernel', value: textOrDash(provisioning?.hweKernel) },
+        { label: 'Root filesystem', value: provisioning ? (provisioning.ephemeral ? 'RAM (ephemeral)' : 'Disk') : '—' },
+      ],
+    },
+    {
+      title: 'Operational context',
+      facts: [
+        { label: 'Power', value: powerStateLabel(provisioning?.powerState ?? null) },
+        { label: 'Health', value: server.health?.state ?? 'Unobserved' },
+        { label: 'Platform ID', value: textOrDash(server.membership?.platformId) },
+        { label: 'Platform node', value: textOrDash(server.membership?.nodeName) },
+        { label: 'Platform role', value: textOrDash(server.membership?.role) },
+        { label: 'Membership', value: server.membership?.state ?? 'Unassigned' },
+      ],
+    },
+    {
+      title: 'Freshness',
+      facts: [
+        { label: 'Last seen', value: server.lastSeenAt ? formatDateTime(server.lastSeenAt) : 'Never' },
+        { label: 'Provisioning observed', value: provisioning?.observedAt ? formatDateTime(provisioning.observedAt) : 'Unobserved' },
+        { label: 'Membership observed', value: server.membership?.observedAt ? formatDateTime(server.membership.observedAt) : 'Unobserved' },
+        { label: 'Health observed', value: server.health?.observedAt ? formatDateTime(server.health.observedAt) : 'Unobserved' },
+      ],
+    },
+  ]
+}
+
+/** Scope-wide fleet summary that stays independent from inventory discovery filters. */
+function ServerFleetOverview({ servers }: { servers: readonly Server[] }) {
+  const facts = serverFleetFacts(servers)
+  const hasAttention = facts.deploymentAttention > 0 || facts.healthDown > 0
+  const groups = [
+    { label: 'Inventory', values: [['Total', facts.total], ['Absent', facts.absent]] },
+    { label: 'OS deployment', values: [['Verified', facts.deploymentVerified], ['Active', facts.deploymentActive], ['Attention', facts.deploymentAttention]] },
+    { label: 'Membership', values: [['Assigned', facts.assigned], ['Unassigned', facts.unassigned]] },
+    { label: 'Health', values: [['Up', facts.healthUp], ['Down', facts.healthDown], ['Unobserved', facts.healthUnobserved]] },
+  ]
+  const OverviewIcon = hasAttention ? TriangleAlert : CircleCheckBig
+  return (
+    <Box as="section" className="sw-server-fleet-overview" data-tone={hasAttention ? 'attention' : 'normal'} aria-labelledby="server-fleet-title">
+      <div className="sw-server-fleet-overview__lead">
+        <span className="sw-server-fleet-overview__icon" aria-hidden><OverviewIcon size={20} /></span>
+        <div>
+          <Text className="sw-inventory-surface__eyebrow">Infrastructure fleet</Text>
+          <Heading as="h2" id="server-fleet-title" size="lg">{facts.total} managed server{facts.total === 1 ? '' : 's'} in scope</Heading>
+          <Text color="fg.muted">Independent inventory, Swallow deployment, membership, and health facts.</Text>
+        </div>
+      </div>
+      <div className="sw-server-fleet-overview__axes">
+        {groups.map((group) => (
+          <section key={group.label} className="sw-server-fleet-axis" aria-label={group.label}>
+            <Text className="sw-server-fleet-axis__label">{group.label}</Text>
+            <dl>
+              {group.values.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+      </div>
+    </Box>
+  )
+}
+
 /**
- * NetBox-style fleet inventory with MAAS lifecycle axes and selection-driven actions.
- * All API pages are loaded before client grouping/filtering, so counts, saved views, and
- * select-all operate over the complete scoped working set rather than the first 100 rows.
+ * GPU-datacenter fleet console. The complete Site snapshot owns overview counts while URL-owned
+ * discovery state derives the visible inventory without additional API reads.
  */
 export function ServersPage() {
-  const { sites, servers } = useApp()
+  const { sites: siteRepository, servers: serverRepository } = useApp()
+  const { sites, siteId, scopedHref } = useSiteScope()
   const navigate = useNavigate()
-  const { siteId, scopedHref } = useSiteScope()
-  const bulk = useServerBulkActions()
-  const [searchInput, setSearchInput] = useState('')
-  const [coarseKeyword, setCoarseKeyword] = useState('')
-  const [includeAbsent, setIncludeAbsent] = useState(false)
-  const [filters, setFilters] = useState<ServerFilters>(EMPTY_SERVER_FILTERS)
-  const [groupBy, setGroupBy] = useState<ServerGroupBy>(() => readPreference(GROUP_KEY, 'none'))
-  const [sortKey, setSortKey] = useState<ServerSortKey>('name')
-  const [sortDir, setSortDir] = useState<SortDirection>('asc')
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => readPreference(PAGE_SIZE_KEY, DEFAULT_PAGE_SIZE))
-  const [density, setDensity] = useState<ServerDensity>('compact')
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const paramsKey = searchParams.toString()
+  const query = useMemo(() => parseServerInventoryQuery(searchParams), [searchParams])
+  const normalizedParams = useMemo(() => normalizeServerInventoryParams(searchParams), [searchParams])
+  const [density, setDensity] = useState<ServerDensity>(readDensityPreference)
+  const [pageSize, setPageSize] = useState(readPageSizePreference)
+  const [selectionState, setSelectionState] = useState<ServerSelectionState>({ filterKey: '', ids: new Set() })
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set())
-  const [hiddenColumns, setHiddenColumns] = useState<ReadonlySet<string>>(
-    () => new Set(normalizeHiddenColumns(readPreference<string[]>(COLUMNS_KEY, []))),
-  )
   const [provisioners, setProvisioners] = useState<Integration[]>([])
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null)
   const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
-  // The Servers whose tags are being edited in batch; null while the editor is closed.
   const [tagEditorTargets, setTagEditorTargets] = useState<Server[] | null>(null)
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
@@ -211,61 +400,87 @@ export function ServersPage() {
     targets: readonly Server[]
     skipped: readonly Server[]
   } | null>(null)
-  // A power off is held here for a warning + acknowledgement when any eligible target is a RAM
-  // (ephemeral) deployment, because it has no persistent disk so anything written to it is lost.
   const [pendingPowerOff, setPendingPowerOff] = useState<{
     targets: readonly Server[]
     ramTargets: readonly Server[]
   } | null>(null)
+  const siteKey = siteId ?? ''
+  const [followedServers, setFollowedServers] = useState<{ siteKey: string; ids: readonly string[] }>({ siteKey, ids: [] })
+  const followedServerIds = followedServers.siteKey === siteKey ? followedServers.ids : EMPTY_SERVER_IDS
+  const legacyGroupChecked = useRef(false)
+
+  const updateParams = useCallback((
+    update: (next: URLSearchParams) => void,
+    options: { replace?: boolean; clearSelection?: boolean } = {},
+  ) => {
+    const next = new URLSearchParams(paramsKey)
+    update(next)
+    setSearchParams(next, { replace: options.replace })
+    if (options.clearSelection) setSelectionState({ filterKey: '', ids: new Set() })
+  }, [paramsKey, setSearchParams])
 
   useEffect(() => {
-    const id = setTimeout(() => {
-      setCoarseKeyword(searchInput)
-      setPage(1)
-    }, 300)
-    return () => clearTimeout(id)
-  }, [searchInput])
-  const query = useMemo(() => ({ siteId, keyword: coarseKeyword || undefined, includeAbsent }), [coarseKeyword, includeAbsent, siteId])
-  const { state, reload, isRefreshing } = useServerWorkingSet(query)
-  // Servers whose release we just accepted. A durable release Operation runs asynchronously,
-  // so the Server is not yet in an active provisioning axis and the active-projection poll
-  // below will not pick it up. Follow these Servers for a bounded window so the list reflects
-  // the release (deployed -> releasing -> ready) in place, without a manual refresh.
-  const [followedServerIds, setFollowedServerIds] = useState<readonly string[]>([])
+    if (normalizedParams.toString() === paramsKey) return
+    setSearchParams(normalizedParams, { replace: true })
+  }, [normalizedParams, paramsKey, setSearchParams])
+
+  useEffect(() => {
+    if (legacyGroupChecked.current) return
+    if (searchParams.has('group')) {
+      legacyGroupChecked.current = true
+      return
+    }
+    const legacy = readPreference<string>(LEGACY_GROUP_KEY, 'none')
+    if (!GROUP_OPTIONS.some((option) => option.value === legacy) || legacy === 'none') {
+      legacyGroupChecked.current = true
+      return
+    }
+    const handle = setTimeout(() => {
+      legacyGroupChecked.current = true
+      updateParams((next) => next.set('group', legacy), { replace: true })
+    }, 0)
+    return () => clearTimeout(handle)
+  }, [searchParams, updateParams])
+
+  const commitSearch = useCallback((value: string) => {
+    const q = value.trim()
+    updateParams((next) => {
+      if (q) next.set('q', q)
+      else next.delete('q')
+      next.delete('page')
+    }, { replace: true, clearSelection: true })
+  }, [updateParams])
+
+  const workingSetQuery = useMemo(() => ({ siteId, includeAbsent: true }), [siteId])
+  const { state, reload, isRefreshing, streamStatus } = useServerWorkingSet(workingSetQuery)
+  const workingSet = state.status === 'ready' ? state.data.servers : EMPTY_SERVERS
+  const bulk = useServerBulkActions()
+
   useEffect(() => {
     let cancelled = false
-    sites
-      .listIntegrations({ siteId, kind: 'provisioner' })
+    siteRepository.listIntegrations({ siteId, kind: 'provisioner' })
       .then((items) => {
         if (!cancelled) setProvisioners(items)
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (!cancelled) setProvisioners([])
+      })
     return () => {
       cancelled = true
     }
-  }, [siteId, sites])
+  }, [siteId, siteRepository])
 
-  const workingSet = state.status === 'ready' ? state.data.servers : EMPTY_SERVERS
-  const activeProjectionTargetKey = useMemo(
-    () =>
-      workingSet
-        .filter(
-          (server) =>
-            ['deploying', 'releasing', 'commissioning', 'testing'].includes(server.provisioning?.state ?? '') ||
-            ['deploying', 'verifying'].includes(server.deployment?.state ?? ''),
-        )
-        .map((server) => server.id)
-        .sort()
-        .join(','),
-    [workingSet],
-  )
-  // The set of Servers to poll: those already in an active axis, plus recently released
-  // Servers we are following until the durable Operation moves them into one. Deduped so a
-  // Server that becomes active while followed is polled once, not twice.
+
+  const activeProjectionTargetKey = useMemo(() => workingSet
+    .filter((server) => isServerChanging(server))
+    .map((server) => server.id)
+    .sort()
+    .join(','), [workingSet])
   const pollTargetKey = useMemo(() => {
     const active = activeProjectionTargetKey ? activeProjectionTargetKey.split(',') : []
     return Array.from(new Set([...active, ...followedServerIds])).sort().join(',')
   }, [activeProjectionTargetKey, followedServerIds])
+
   useEffect(() => {
     if (!pollTargetKey) return
     const targetIds = pollTargetKey.split(',')
@@ -273,13 +488,8 @@ export function ServersPage() {
     let attempts = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     const tick = async () => {
-      // Nudge the backend to re-observe each active Server live; the resulting projection
-      // write is delivered back through the SSE stream and patched into the list by
-      // useServerWorkingSet, so this no longer refetches the whole list.
-      await refreshServerProjections(servers, targetIds)
+      await refreshServerProjections(serverRepository, targetIds)
       if (cancelled) return
-      // SSE is the primary update path. A recently accepted Release also reloads the
-      // working set so the row still converges if stream delivery is delayed or offline.
       if (followedServerIds.length > 0) reload()
       attempts += 1
       if (attempts < MAX_DEPLOYMENT_POLL_ATTEMPTS) {
@@ -291,200 +501,235 @@ export function ServersPage() {
       cancelled = true
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [followedServerIds.length, pollTargetKey, reload, servers])
-  // Stop following released Servers after a bounded window so the list does not poll forever.
+  }, [followedServerIds.length, pollTargetKey, reload, serverRepository])
+
   useEffect(() => {
     if (followedServerIds.length === 0) return
-    const handle = setTimeout(() => setFollowedServerIds([]), RELEASE_FOLLOW_WINDOW_MS)
+    const handle = setTimeout(() => {
+      setFollowedServers({ siteKey, ids: [] })
+    }, RELEASE_FOLLOW_WINDOW_MS)
     return () => clearTimeout(handle)
-  }, [followedServerIds])
-  const filtered = useMemo(() => workingSet.filter((server) => matchesServerFilters(server, filters)), [filters, workingSet])
-  const sorted = useMemo(() => [...filtered].sort((a, b) => compareServers(a, b, sortKey, sortDir)), [filtered, sortDir, sortKey])
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const pageItems = useMemo(() => sorted.slice((safePage - 1) * pageSize, safePage * pageSize), [pageSize, safePage, sorted])
-  const filterOptions = useMemo<ServerFilterOptions>(
-    () => ({
-      provisioningState: toFilterOptions(countByDimension(workingSet, 'provisioningState')),
-      zone: toFilterOptions(countByDimension(workingSet, 'zone')),
-      pool: toFilterOptions(countByDimension(workingSet, 'pool')),
-      tag: toFilterOptions(countByDimension(workingSet, 'tag' as ServerDimension)),
-    }),
-    [workingSet],
-  )
+  }, [followedServerIds, siteKey])
 
-  const toggleOne = useCallback(
-    (id: string) =>
-      setSelected((current) => {
-        const next = new Set(current)
-        if (next.has(id)) next.delete(id)
-        else next.add(id)
-        return next
-      }),
-    [],
-  )
-  const setMany = useCallback(
-    (ids: string[], checked: boolean) =>
-      setSelected((current) => {
-        const next = new Set(current)
-        ids.forEach((id) => {
-          if (checked) next.add(id)
-          else next.delete(id)
-        })
-        return next
-      }),
-    [],
-  )
-  const clearSelection = useCallback(() => setSelected(new Set()), [])
+  const visibleServers = useMemo(() => workingSet.filter((server) => matchesServerInventoryQuery(server, query)), [query, workingSet])
+  const sortedServers = useMemo(() => [...visibleServers].sort((left, right) => (
+    compareServerInventory(left, right, query.sort, query.direction)
+  )), [query.direction, query.sort, visibleServers])
+  const totalPages = Math.max(1, Math.ceil(sortedServers.length / pageSize))
+  const safePage = Math.min(query.page, totalPages)
+  const pageItems = useMemo(() => sortedServers.slice((safePage - 1) * pageSize, safePage * pageSize), [pageSize, safePage, sortedServers])
+
+  useEffect(() => {
+    if (state.status !== 'ready' || query.page === safePage) return
+    const handle = setTimeout(() => {
+      updateParams((next) => {
+        if (safePage > 1) next.set('page', String(safePage))
+        else next.delete('page')
+      }, { replace: true })
+    }, 0)
+    return () => clearTimeout(handle)
+  }, [query.page, safePage, state.status, updateParams])
+
+  const facets = useMemo<ServerFacetOptions>(() => ({
+    provisioning: facetOptions(workingSet, (server) => server.provisioning ? [server.provisioning.state] : [], query.provisioning),
+    gpuVendor: facetOptions(workingSet, (server) => server.gpus.map((gpu) => gpu.vendor), query.gpuVendors),
+    gpuModel: facetOptions(workingSet, (server) => server.gpus.map((gpu) => gpu.model), query.gpuModels),
+    architecture: facetOptions(workingSet, (server) => [server.architecture || 'unknown'], query.architectures),
+    systemVendor: facetOptions(workingSet, (server) => [server.systemVendor || 'unknown'], query.systemVendors),
+    systemProduct: facetOptions(workingSet, (server) => [server.systemProduct || 'unknown'], query.systemProducts),
+    zone: facetOptions(workingSet, (server) => [server.providerZone || 'unknown'], query.zones),
+    pool: facetOptions(workingSet, (server) => [server.providerResourcePool || 'unknown'], query.pools),
+    tag: facetOptions(workingSet, (server) => server.tags, query.tags),
+  }), [query, workingSet])
+
+  const filterParams = new URLSearchParams(paramsKey)
+  for (const key of ['group', 'sort', 'dir', 'page']) filterParams.delete(key)
+  const filterKey = `${siteId ?? ''}|${filterParams.toString()}`
+  const selected = selectionState.filterKey === filterKey ? selectionState.ids : new Set<string>()
+  const updateSelection = useCallback((update: (current: ReadonlySet<string>) => ReadonlySet<string>) => {
+    setSelectionState((previous) => ({
+      filterKey,
+      ids: update(previous.filterKey === filterKey ? previous.ids : new Set()),
+    }))
+  }, [filterKey])
+  const toggleOne = useCallback((id: string) => {
+    updateSelection((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [updateSelection])
+  const setMany = useCallback((ids: string[], checked: boolean) => {
+    updateSelection((current) => {
+      const next = new Set(current)
+      ids.forEach((id) => checked ? next.add(id) : next.delete(id))
+      return next
+    })
+  }, [updateSelection])
+  const clearSelection = useCallback(() => setSelectionState({ filterKey, ids: new Set() }), [filterKey])
+
   const pageIds = pageItems.map((server) => server.id)
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
   const somePageSelected = pageIds.some((id) => selected.has(id))
-  const changeFilters = useCallback((next: ServerFilters) => {
-    setFilters(next)
-    setPage(1)
-    setSelected(new Set())
-  }, [])
-  const toggleColumn = useCallback(
-    (key: string) =>
-      setHiddenColumns((current) => {
-        const next = new Set(current)
-        if (next.has(key)) next.delete(key)
-        else next.add(key)
-        writePreference(COLUMNS_KEY, [...next])
-        return next
-      }),
-    [],
-  )
-  const runAction = useCallback(
-    async (action: ServerMenuAction, ids: string[], confirmed = false) => {
-      if (!ids.length) return
-      const selectedServers = ids.map((id) => workingSet.find((server) => server.id === id)).filter((server): server is Server => Boolean(server))
-      const availability = serverActionAvailability(action, selectedServers)
-      if (availability.disabledReason) return
-      if ((action === 'lock' || action === 'unlock') && !confirmed) {
-        setPendingLockAction({ action, targets: availability.eligible, skipped: availability.skipped })
-        return
-      }
-      ids = availability.eligible.map((server) => server.id)
-      if (action === 'delete') {
-        const target = workingSet.find((server) => server.id === ids[0])
-        if (target) setDeleteTarget(target)
-        return
-      }
-      const targets = ids.map((id) => {
-        const server = workingSet.find((item) => item.id === id)
-        return { serverId: id, serverName: server ? serverDisplayName(server) : id }
-      })
-      if (action === 'release') {
-        setReleaseTargets(targets)
-        return
-      }
-      if (action === 'recover') {
-        // Recover starts a durable "Return to Ready" Operation and stays on the list, following
-        // the recovered Servers so their state converges in place (like an accepted Release).
-        await bulk.recover(targets)
-        clearSelection()
-        setFollowedServerIds(ids)
-        reload()
-        return
-      }
-      // Powering off a RAM (ephemeral) deployment loses anything written to it (no persistent disk),
-      // so hold the action for an explicit warning + acknowledgement when any eligible target is
-      // RAM. A disk-only power off keeps its one-click behaviour; the second pass carries confirmed.
-      if (action === 'power-off' && !confirmed) {
-        const ramTargets = availability.eligible.filter(isRamDeploy)
-        if (ramTargets.length > 0) {
-          setPendingPowerOff({ targets: availability.eligible, ramTargets })
-          return
-        }
-      }
-      const result = await bulk.run(action, targets)
-      setLastActionResult(result)
-      setResultDialogOpen(failedServerActionOutcomes(result).length > 0)
-      clearSelection()
-      reload()
-    },
-    [bulk, clearSelection, reload, workingSet],
-  )
-  const confirmRelease = useCallback(
-    async (input: ReleaseServerInput) => {
-      if (!releaseTargets?.length) return
-      const releasedIds = releaseTargets.map((target) => target.serverId)
-      // Stay on the Server list after accepting the release; the toast confirms the durable
-      // Operation. Follow the released Servers so the list converges in place.
-      await bulk.release(releaseTargets, input)
-      clearSelection()
-      setFollowedServerIds(releasedIds)
-      reload()
-    },
-    [bulk, clearSelection, releaseTargets, reload],
-  )
-  const visible = useCallback((key: string) => !hiddenColumns.has(key), [hiddenColumns])
-  const columnSpan = 3 + OPTIONAL_COLUMNS.filter((column) => visible(column.key)).length
-  const staleProvisioners = provisioners.filter((item) => item.sync.lastError !== null)
-  const lastActionFailures = lastActionResult ? failedServerActionOutcomes(lastActionResult) : []
   const actionTargets = workingSet.filter((server) => selected.has(server.id))
   const targetIntegrations = new Set(actionTargets.map((server) => server.source.integrationId))
-  const deployDisabledReason =
-    selected.size > 100
-      ? 'Deploy OS supports at most 100 Servers.'
-      : actionTargets.some((server) => server.absent)
-        ? 'Absent Servers cannot be deployed.'
-        : actionTargets.some((server) => server.provisioning?.locked)
-          ? 'Unlock every selected Server before deployment.'
-          : actionTargets.some((server) => server.provisioning?.state !== 'ready')
-            ? 'Every selected Server must be ready.'
-            : targetIntegrations.size > 1
-              ? 'Selected Servers must use the same provisioner integration.'
-              : undefined
+  const deployDisabledReason = selected.size > 100
+    ? 'Deploy OS supports at most 100 Servers.'
+    : actionTargets.some((server) => server.absent)
+      ? 'Absent Servers cannot be deployed.'
+      : actionTargets.some((server) => server.provisioning?.locked)
+        ? 'Unlock every selected Server before deployment.'
+        : actionTargets.some((server) => server.provisioning?.state !== 'ready')
+          ? 'Every selected Server must be ready.'
+          : targetIntegrations.size > 1
+            ? 'Selected Servers must use the same provisioner integration.'
+            : undefined
+
   const deploySelected = () => {
     const target = new URL(scopedHref('/provisioning/deploy'), window.location.origin)
-    ;[...selected].forEach((id) => target.searchParams.append('serverId', id))
+    selected.forEach((id) => target.searchParams.append('serverId', id))
     navigate(`${target.pathname}${target.search}`)
   }
 
-  const sort = (key: ServerSortKey) => {
-    if (key === sortKey) setSortDir((direction) => (direction === 'asc' ? 'desc' : 'asc'))
-    else {
-      setSortKey(key)
-      setSortDir('asc')
+  const runAction = useCallback(async (action: ServerMenuAction, ids: string[], confirmed = false) => {
+    if (!ids.length) return
+    const targets = ids
+      .map((id) => workingSet.find((server) => server.id === id))
+      .filter((server): server is Server => Boolean(server))
+    const availability = serverActionAvailability(action, targets)
+    if (availability.disabledReason) return
+    if ((action === 'lock' || action === 'unlock') && !confirmed) {
+      setPendingLockAction({ action, targets: availability.eligible, skipped: availability.skipped })
+      return
     }
+    const eligibleIds = availability.eligible.map((server) => server.id)
+    if (action === 'delete') {
+      const target = workingSet.find((server) => server.id === eligibleIds[0])
+      if (target) setDeleteTarget(target)
+      return
+    }
+    const actionTargets = eligibleIds.map((id) => {
+      const server = workingSet.find((item) => item.id === id)
+      return { serverId: id, serverName: server ? serverDisplayName(server) : id }
+    })
+    if (action === 'release') {
+      setReleaseTargets(actionTargets)
+      return
+    }
+    if (action === 'recover') {
+      await bulk.recover(actionTargets)
+      clearSelection()
+      setFollowedServers({ siteKey, ids: eligibleIds })
+      reload()
+      return
+    }
+    if (action === 'power-off' && !confirmed) {
+      const ramTargets = availability.eligible.filter(isRamDeploy)
+      if (ramTargets.length > 0) {
+        setPendingPowerOff({ targets: availability.eligible, ramTargets })
+        return
+      }
+    }
+    const result = await bulk.run(action, actionTargets)
+    setLastActionResult(result)
+    setResultDialogOpen(failedServerActionOutcomes(result).length > 0)
+    clearSelection()
+    reload()
+  }, [bulk, clearSelection, reload, siteKey, workingSet])
+
+  const confirmRelease = useCallback(async (input: ReleaseServerInput) => {
+    if (!releaseTargets?.length) return
+    const releasedIds = releaseTargets.map((target) => target.serverId)
+    await bulk.release(releaseTargets, input)
+    clearSelection()
+    setFollowedServers({ siteKey, ids: releasedIds })
+    reload()
+  }, [bulk, clearSelection, releaseTargets, reload, siteKey])
+
+  const setLens = (view: ServerView) => {
+    updateParams((next) => {
+      if (view === 'all') next.delete('view')
+      else next.set('view', view)
+      next.delete('provisioning')
+      next.delete('page')
+    }, { clearSelection: true })
   }
+  const setSingleFilter = (key: string, value: string, fallback = 'any') => {
+    updateParams((next) => {
+      if (value === fallback) next.delete(key)
+      else next.set(key, value)
+      next.delete('page')
+    }, { clearSelection: true })
+  }
+  const setMultiFilter = (key: string, values: readonly string[]) => {
+    updateParams((next) => {
+      next.delete(key)
+      values.forEach((value) => next.append(key, value))
+      if (key === 'provisioning') next.delete('view')
+      next.delete('page')
+    }, { clearSelection: true })
+  }
+  const clearFilters = () => {
+    updateParams((next) => {
+      for (const key of [
+        'q', 'view', 'provisioning', 'health', 'membership', 'gpu', 'gpuVendor', 'gpuModel',
+        'architecture', 'systemVendor', 'systemProduct', 'zone', 'pool', 'tag', 'lock',
+        'includeAbsent', 'page',
+      ]) next.delete(key)
+    }, { clearSelection: true })
+  }
+
+  const staleProvisioners = provisioners.filter((integration) => integration.sync.lastError !== null)
+  const lastActionFailures = lastActionResult ? failedServerActionOutcomes(lastActionResult) : []
+  const rangeStart = pageItems.length > 0 ? (safePage - 1) * pageSize + 1 : 0
+  const rangeEnd = pageItems.length > 0 ? rangeStart + pageItems.length - 1 : 0
+  const summary = state.status === 'ready' ? (
+    <div className="sw-server-inventory-summary">
+      <span>{sortedServers.length === 0 ? 'Showing 0 servers' : `Showing ${rangeStart}–${rangeEnd} of ${sortedServers.length} servers`}</span>
+      <span className="sw-server-live-state" data-state={streamStatus}>
+        <span className="sw-server-live-dot" aria-hidden />
+        {streamStatus === 'connected'
+          ? 'Live'
+          : streamStatus === 'closed'
+            ? `Live updates unavailable · refreshed ${formatRelative(state.refreshedAt)}`
+            : `${streamStatus === 'connecting' ? 'Connecting' : 'Reconnecting'} · refreshed ${formatRelative(state.refreshedAt)}`}
+      </span>
+    </div>
+  ) : state.status === 'error' ? 'Server inventory unavailable' : 'Loading Server inventory'
 
   if (state.status === 'error') {
     return (
-      <>
-        <PageHeader title="Servers" />
+      <div className="operator-page sw-servers-page">
+        <PageHeader title="Servers" subtitle="Discover hardware inventory and operate Server lifecycle across the datacenter." />
         <ErrorState message={state.message} onRetry={reload} />
-      </>
+      </div>
     )
   }
+
   return (
-    <div className="operator-page">
+    <div className="operator-page sw-servers-page">
       <PageHeader
         title="Servers"
+        subtitle="Discover GPU and hardware inventory, then operate provisioning and runtime signals from one fleet control plane."
         metadata={activeProjectionTargetKey ? <Badge colorPalette="blue" variant="subtle">Updating servers…</Badge> : undefined}
+        actions={
+          <Button variant="outline" loading={isRefreshing} onClick={reload}>
+            <RefreshCw size={16} />
+            Refresh
+          </Button>
+        }
       />
+
       {state.status === 'ready' && state.refreshError && (
-        // A background refresh (or SSE-reconnect refetch) failed, but the last-good rows are still
-        // shown and live updates keep applying, so this is a non-blocking notice with a retry
-        // rather than a full-page error that would hide the fleet.
-        <Alert
-          status="warning"
-          title="Couldn't refresh the server list"
-          actions={
-            <Button variant="plain" size="sm" onClick={reload}>
-              Retry
-            </Button>
-          }
-        >
-          Showing the last loaded servers. Live updates are still applied; retry to refetch the full list.
+        <Alert status="warning" title="Couldn't refresh the Server inventory" actions={<Button variant="plain" size="sm" onClick={reload}>Retry</Button>}>
+          Showing the last complete snapshot while live patches remain available.
         </Alert>
       )}
-      {staleProvisioners.map((item) => (
-        <div key={item.id} className="sw-inline-warning">
-          <strong>{item.name} sync failed</strong>
-          <span>{item.sync.lastError}</span>
+      {staleProvisioners.map((integration) => (
+        <div key={integration.id} className="sw-inline-warning">
+          <strong>{integration.name} sync failed</strong>
+          <span>{integration.sync.lastError}</span>
         </div>
       ))}
       {lastActionResult && lastActionFailures.length > 0 && (
@@ -493,291 +738,262 @@ export function ServersPage() {
           title={actionLabel(lastActionResult.action) + (lastActionResult.succeeded > 0 ? ' partially accepted' : ' failed')}
           actions={
             <HStack gap="1">
-              <Button variant="plain" size="sm" onClick={() => setResultDialogOpen(true)}>
-                View details
-              </Button>
-              <Button variant="plain" size="sm" onClick={() => setLastActionResult(null)}>
-                Dismiss
-              </Button>
+              <Button variant="plain" size="sm" onClick={() => setResultDialogOpen(true)}>View details</Button>
+              <Button variant="plain" size="sm" onClick={() => setLastActionResult(null)}>Dismiss</Button>
             </HStack>
           }
         >
           {lastActionFailures.length === 1
-            ? lastActionFailures[0].serverName + ': ' + lastActionFailures[0].message
-            : lastActionResult.succeeded + ' accepted; ' + lastActionFailures.length + ' failed.'}
+            ? `${lastActionFailures[0].serverName}: ${lastActionFailures[0].message}`
+            : `${lastActionResult.succeeded} accepted; ${lastActionFailures.length} failed.`}
         </Alert>
       )}
-      <DataToolbar variant="plain">
-        <SearchInput
-          value={searchInput}
-          onChange={setSearchInput}
-          placeholder="Search hostname, serial, address, or ID"
-          aria-label="Search Servers"
-        />
-        <Checkbox
-          id="include-absent"
-          checked={includeAbsent}
-          onCheckedChange={(checked) => {
-            setIncludeAbsent(checked)
-            setPage(1)
-            setSelected(new Set())
-          }}
-        >
-          Include absent
-        </Checkbox>
-        <Select
-          value={groupBy}
-          aria-label="Group Servers"
-          size="sm"
-          width="auto"
-          onChange={(value) => {
-            setGroupBy(value as ServerGroupBy)
-            writePreference(GROUP_KEY, value)
-            setCollapsedGroups(new Set())
-          }}
-          options={[
-            { value: 'none', label: 'No grouping' },
-            { value: 'provisioning', label: 'Provisioning' },
-            { value: 'zone', label: 'Zone' },
-            { value: 'pool', label: 'Pool' },
-            { value: 'architecture', label: 'Architecture' },
-            { value: 'power', label: 'Power' },
-          ]}
-        />
-        <PopoverButton
-          title="Filters"
-          trigger={
-            <Button variant="outline" size="sm">
-              <Filter size={16} />
-              Filters {!filtersAreEmpty(filters, '') && <Badge variant="subtle">Active</Badge>}
-            </Button>
-          }
-        >
-          <FilterPanel filters={filters} options={filterOptions} onChange={changeFilters} />
-        </PopoverButton>
-        <PopoverButton
-          title="Visible columns"
-          trigger={
-            <IconButton variant="outline" size="sm" aria-label="Configure columns">
-              <Columns3 size={16} />
-            </IconButton>
-          }
-        >
-          <ColumnPanel columns={OPTIONAL_COLUMNS} hidden={hiddenColumns} onToggle={toggleColumn} />
-        </PopoverButton>
-        <Tooltip content="Refresh the server list">
-          <IconButton
-            variant="outline"
-            size="sm"
-            aria-label="Refresh servers"
-            loading={isRefreshing}
-            onClick={reload}
-          >
-            <RefreshCw size={16} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip content="Refresh the server list">
-          <IconButton
-            variant="outline"
-            size="sm"
-            aria-label="Refresh servers"
-            loading={isRefreshing}
-            onClick={reload}
-          >
-            <RefreshCw size={16} />
-          </IconButton>
-        </Tooltip>
-        <Select
-          value={density}
-          aria-label="Table density"
-          size="sm"
-          width="auto"
-          onChange={(value) => setDensity(value as ServerDensity)}
-          options={[
-            { value: 'compact', label: 'Compact' },
-            { value: 'comfortable', label: 'Comfortable' },
-          ]}
-        />
-        <Select
-          value={String(pageSize)}
-          aria-label="Rows per page"
-          size="sm"
-          width="auto"
-          onChange={(value) => {
-            const size = Number(value)
-            setPageSize(size)
-            writePreference(PAGE_SIZE_KEY, size)
-            setPage(1)
-          }}
-          options={[25, 50, 100].map((size) => ({ value: String(size), label: `${size} rows` }))}
-        />
-        <SelectionToolbar count={selected.size} onClear={clearSelection}>
-          <Tooltip content={deployDisabledReason ?? 'Deploy one OS configuration to the selected Servers'}>
-            <span>
-              <Button colorPalette="brand" size="sm" disabled={Boolean(deployDisabledReason)} onClick={deploySelected}>
-                <UploadCloud size={16} />
-                Deploy OS
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip content="Edit tags across the selected Servers">
-            <Button variant="outline" size="sm" onClick={() => setTagEditorTargets(actionTargets)}>
-              <Tags size={16} />
-              Edit tags
-            </Button>
-          </Tooltip>
-          <ServerTakeActionMenu
-            targets={actionTargets}
-            includeSingleOnly={false}
-            busy={bulk.running}
-            trigger="take-action"
-            size="sm"
-            onAction={(action) => {
-              if (action !== 'delete') void runAction(action, [...selected])
-            }}
-          />
-          {selected.size < filtered.length && (
-            <Button variant="plain" size="sm" onClick={() => setMany(filtered.map((server) => server.id), true)}>
-              Select all {filtered.length} matches
-            </Button>
-          )}
-          {deployDisabledReason && <span className="sw-action-reason">{deployDisabledReason}</span>}
-        </SelectionToolbar>
-      </DataToolbar>
+
       {state.status === 'loading' && <LoadingState rows={8} />}
-      {state.status === 'ready' && sorted.length === 0 && (
+      {state.status === 'ready' && workingSet.length === 0 && (
         <EmptyState
-          title="No Servers"
-          message="Nothing matches this working view."
-          action={
-            !filtersAreEmpty(filters, coarseKeyword)
-              ? {
-                  label: 'Clear filters',
-                  onClick: () => {
-                    changeFilters(EMPTY_SERVER_FILTERS)
-                    setSearchInput('')
-                  },
-                }
-              : undefined
-          }
+          title="No Servers discovered"
+          message="Servers appear after a provisioner integration observes its inventory in this scope."
+          action={{ label: 'Review integrations', onClick: () => navigate(scopedHref('/infrastructure/integrations')) }}
         />
       )}
-      {state.status === 'ready' && sorted.length > 0 && (
+      {state.status === 'ready' && workingSet.length > 0 && (
         <>
-          <ResponsiveDataView
-            desktop={
-              <StickyTableFrame>
-            <Table.Root size={density === 'compact' ? 'sm' : 'md'} aria-label="Servers" className="sw-server-table">
-              <Table.Header>
-                <Table.Row>
-                  <Table.ColumnHeader className="sw-sticky-selection sw-cell-center">
-                    <Checkbox
-                      id="select-page"
-                      aria-label="Select all on this page"
-                      checked={allPageSelected ? true : somePageSelected ? 'indeterminate' : false}
-                      onCheckedChange={() => setMany(pageIds, !allPageSelected)}
-                    />
-                  </Table.ColumnHeader>
-                  <Table.ColumnHeader className="sw-sticky-name">
-                    <SortableHeader label="Machine" active={sortKey === 'name'} direction={sortDir} onClick={() => sort('name')} />
-                  </Table.ColumnHeader>
-                  {visible('power') && (
-                    <Table.ColumnHeader className="sw-cell-center sw-power-cell">
-                      <SortableHeader label="Power" active={sortKey === 'power'} direction={sortDir} onClick={() => sort('power')} />
-                    </Table.ColumnHeader>
-                  )}
-                  {visible('status') && (
-                    <Table.ColumnHeader>
-                      <SortableHeader label="Deployment" active={sortKey === 'provisioning'} direction={sortDir} onClick={() => sort('provisioning')} />
-                    </Table.ColumnHeader>
-                  )}
-                  {visible('address') && <Table.ColumnHeader>Address</Table.ColumnHeader>}
-                  {visible('mac') && <Table.ColumnHeader>MAC address</Table.ColumnHeader>}
-                  {visible('zone') && <Table.ColumnHeader>Zone</Table.ColumnHeader>}
-                  {visible('pool') && <Table.ColumnHeader>Pool</Table.ColumnHeader>}
-                  {visible('tags') && <Table.ColumnHeader className="sw-column-tags">Tags</Table.ColumnHeader>}
-                  {visible('architecture') && <Table.ColumnHeader className="sw-hardware-column sw-column-architecture">Architecture</Table.ColumnHeader>}
-                  {visible('cpuCores') && <Table.ColumnHeader className="sw-hardware-column sw-column-cpu-cores sw-cell-center">CPU cores</Table.ColumnHeader>}
-                  {visible('cpuModel') && <Table.ColumnHeader className="sw-hardware-column sw-column-cpu-model">CPU model</Table.ColumnHeader>}
-                  {visible('memory') && <Table.ColumnHeader className="sw-hardware-column sw-column-memory">Memory</Table.ColumnHeader>}
-                  {visible('storage') && <Table.ColumnHeader className="sw-hardware-column sw-column-storage">Storage</Table.ColumnHeader>}
-                  {visible('systemVendor') && <Table.ColumnHeader className="sw-hardware-column sw-column-system-vendor">System vendor</Table.ColumnHeader>}
-                  {visible('systemProduct') && <Table.ColumnHeader className="sw-hardware-column sw-column-system-product">System product</Table.ColumnHeader>}
-                  {visible('gpus') && <Table.ColumnHeader>GPUs</Table.ColumnHeader>}
-                  {visible('platform') && <Table.ColumnHeader>Platform</Table.ColumnHeader>}
-                  {visible('health') && <Table.ColumnHeader>Health</Table.ColumnHeader>}
-                  <Table.ColumnHeader className="sw-sticky-actions" />
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {renderGroups(pageItems, groupBy).map((group) => (
-                  <GroupRows
-                    key={group.key || 'all'}
-                    group={group}
-                    grouped={groupBy !== 'none'}
-                    columnSpan={columnSpan}
-                    collapsed={collapsedGroups.has(group.key)}
-                    onCollapse={() =>
-                      setCollapsedGroups((current) => {
-                        const next = new Set(current)
-                        if (next.has(group.key)) next.delete(group.key)
-                        else next.add(group.key)
-                        return next
-                      })
+          <ServerFleetOverview servers={workingSet} />
+          <InventorySurface
+            headingId="server-inventory-title"
+            eyebrow="Infrastructure inventory"
+            title="Server fleet"
+            summary={summary}
+            className="sw-server-inventory"
+            toolbar={
+              <div className="sw-server-toolbar-layout">
+                <ServerDiscoverySearch key={query.q} value={query.q} onCommit={commitSearch} />
+                <Flex className="sw-server-view-filters" align="center" gap="2" wrap="wrap">
+                  <Flex as="div" className="sw-platform-filter-group" role="group" aria-label="Filter Server operational view">
+                    {SERVER_VIEWS.map((view) => (
+                      <Button
+                        key={view.value}
+                        className="sw-platform-filter-chip"
+                        variant="plain"
+                        size="sm"
+                        aria-pressed={query.view === view.value}
+                        data-active={query.view === view.value || undefined}
+                        onClick={() => setLens(view.value)}
+                      >
+                        {view.label}
+                      </Button>
+                    ))}
+                  </Flex>
+                  <PopoverButton
+                    title="Server filters"
+                    trigger={
+                      <Button variant="outline" size="sm">
+                        <Filter size={16} />
+                        Filters
+                        {activeAdvancedFilterCount(query) > 0 && <Badge variant="subtle">{activeAdvancedFilterCount(query)}</Badge>}
+                      </Button>
                     }
-                    selected={selected}
-                    onToggleOne={toggleOne}
-                    onToggleGroup={setMany}
-                    onNavigate={(id) => navigate(scopedHref(`/servers/${id}`))}
-                    onAction={(action, id) => void runAction(action, [id])}
-                    visible={visible}
-                  />
-                ))}
-              </Table.Body>
-            </Table.Root>
-              </StickyTableFrame>
+                  >
+                    <ServerFilterPanel
+                      query={query}
+                      options={facets}
+                      onSingle={setSingleFilter}
+                      onMulti={setMultiFilter}
+                      onIncludeAbsent={(checked) => setSingleFilter('includeAbsent', checked ? 'true' : '', '')}
+                      onClear={clearFilters}
+                    />
+                  </PopoverButton>
+                  <PopoverButton
+                    title="Display options"
+                    trigger={<Button variant="outline" size="sm"><SlidersHorizontal size={16} />Display</Button>}
+                  >
+                    <DisplayPanel
+                      group={query.group}
+                      sort={query.sort}
+                      direction={query.direction}
+                      density={density}
+                      pageSize={pageSize}
+                      onGroup={(value) => {
+                        updateParams((next) => {
+                          if (value === 'none') next.delete('group')
+                          else next.set('group', value)
+                          next.delete('page')
+                        })
+                        setCollapsedGroups(new Set())
+                      }}
+                      onSort={(value) => updateParams((next) => {
+                        if (value === 'priority') {
+                          next.delete('sort')
+                          next.delete('dir')
+                        } else {
+                          next.set('sort', value)
+                        }
+                        next.delete('page')
+                      })}
+                      onDirection={(value) => updateParams((next) => {
+                        if (value === 'desc') next.set('dir', 'desc')
+                        else next.delete('dir')
+                        next.delete('page')
+                      })}
+                      onDensity={(value) => {
+                        setDensity(value)
+                        writePreference(DENSITY_KEY, value)
+                      }}
+                      onPageSize={(value) => {
+                        setPageSize(value)
+                        writePreference(PAGE_SIZE_KEY, value)
+                        updateParams((next) => next.delete('page'))
+                      }}
+                    />
+                  </PopoverButton>
+                </Flex>
+              </div>
             }
-            mobile={
-              <Box className="sw-resource-card-list">
-                {renderGroups(pageItems, groupBy).map((group) => (
-                  <Box key={group.key || 'all'}>
-                    {groupBy !== 'none' && (
-                      <HStack mb="2" gap="2">
-                        <Text fontWeight="semibold">{group.label}</Text>
-                        <Badge variant="subtle">{group.items.length}</Badge>
-                      </HStack>
-                    )}
-                    <Box className="sw-resource-card-list">
-                      {group.items.map((server) => (
-                        <ServerMobileCard
-                          key={server.id}
-                          server={server}
-                          checked={selected.has(server.id)}
-                          onToggle={() => toggleOne(server.id)}
-                          onNavigate={() => navigate(scopedHref(`/servers/${server.id}`))}
-                          onAction={(action) => void runAction(action, [server.id])}
-                          visible={visible}
-                        />
+          >
+            <SelectionToolbar count={selected.size} onClear={clearSelection}>
+              <Tooltip content={deployDisabledReason ?? 'Deploy one OS configuration to the selected Servers'}>
+                <span>
+                  <Button colorPalette="brand" size="sm" disabled={Boolean(deployDisabledReason)} onClick={deploySelected}>
+                    <UploadCloud size={16} />Deploy OS
+                  </Button>
+                </span>
+              </Tooltip>
+              <Button variant="outline" size="sm" onClick={() => setTagEditorTargets(actionTargets)}><Tags size={16} />Edit tags</Button>
+              <ServerTakeActionMenu
+                targets={actionTargets}
+                includeSingleOnly={false}
+                busy={bulk.running}
+                trigger="take-action"
+                size="sm"
+                onAction={(action) => {
+                  if (action !== 'delete') void runAction(action, [...selected])
+                }}
+              />
+              {selected.size < visibleServers.length && (
+                <Button variant="plain" size="sm" onClick={() => setMany(visibleServers.map((server) => server.id), true)}>
+                  Select all {visibleServers.length} matches
+                </Button>
+              )}
+              {deployDisabledReason && <span className="sw-action-reason">{deployDisabledReason}</span>}
+            </SelectionToolbar>
+
+            {sortedServers.length === 0 ? (
+              <div className="sw-server-filter-empty">
+                <EmptyState
+                  title={!hasServerInventoryFilters(query) && workingSet.every((server) => server.absent) ? 'No current Servers' : 'No matching Servers'}
+                  message={!hasServerInventoryFilters(query) && workingSet.every((server) => server.absent)
+                    ? 'Every retained projection is currently absent from provider inventory.'
+                    : 'Adjust the discovery search or operational facets to see other Servers.'}
+                  action={!hasServerInventoryFilters(query) && workingSet.every((server) => server.absent)
+                    ? { label: 'Include absent', onClick: () => setSingleFilter('includeAbsent', 'true', '') }
+                    : { label: 'Clear filters', onClick: clearFilters }}
+                />
+              </div>
+            ) : (
+              <>
+                <ResponsiveDataView
+                  desktop={
+                    <StickyTableFrame>
+                      <Table.Root size={density === 'compact' ? 'sm' : 'md'} aria-label="Servers" className="sw-server-inventory-table">
+                        <Table.Header>
+                          <Table.Row>
+                            <Table.ColumnHeader className="sw-cell-center sw-col-select" aria-label="Row selection">
+                              <Checkbox
+                                id="select-page"
+                                aria-label="Select all on this page"
+                                checked={allPageSelected ? true : somePageSelected ? 'indeterminate' : false}
+                                onCheckedChange={() => setMany(pageIds, !allPageSelected)}
+                              />
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--identity">Server</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--power sw-cell-center">Power</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--network">Network</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--deployment">Deployment</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--hardware">Hardware</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--zone">Zone</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--pool">Pool</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--health">Health</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--platform">Platform</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-row-actions" aria-label="Server actions" />
+                          </Table.Row>
+                        </Table.Header>
+                        <Table.Body>
+                          {renderGroups(pageItems, query.group).map((group) => (
+                            <ServerGroupRows
+                              key={group.key || 'all'}
+                              group={group}
+                              grouped={query.group !== 'none'}
+                              collapsed={collapsedGroups.has(group.key)}
+                              selected={selected}
+                              sites={sites}
+                              integrations={provisioners}
+                              scopedHref={scopedHref}
+                              onCollapse={() => setCollapsedGroups((current) => {
+                                const next = new Set(current)
+                                if (next.has(group.key)) next.delete(group.key)
+                                else next.add(group.key)
+                                return next
+                              })}
+                              onToggleOne={toggleOne}
+                              onToggleGroup={setMany}
+                              onAction={(action, id) => void runAction(action, [id])}
+                            />
+                          ))}
+                        </Table.Body>
+                      </Table.Root>
+                    </StickyTableFrame>
+                  }
+                  mobile={
+                    <div className="sw-server-card-list" aria-label="Servers">
+                      {renderGroups(pageItems, query.group).map((group) => (
+                        <section key={group.key || 'all'}>
+                          {query.group !== 'none' && (
+                            <HStack className="sw-server-mobile-group" gap="2">
+                              <Text fontWeight="semibold">{group.label}</Text><Badge variant="subtle">{group.items.length}</Badge>
+                            </HStack>
+                          )}
+                          <div className="sw-resource-card-list">
+                            {group.items.map((server) => (
+                              <ServerMobileCard
+                                key={server.id}
+                                server={server}
+                                checked={selected.has(server.id)}
+                                sites={sites}
+                                integrations={provisioners}
+                                scopedHref={scopedHref}
+                                onToggle={() => toggleOne(server.id)}
+                                onAction={(action) => void runAction(action, [server.id])}
+                              />
+                            ))}
+                          </div>
+                        </section>
                       ))}
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            }
-          />
-          <div className="sw-pagination">
-            <Pagination total={totalPages} value={safePage} onChange={setPage} />
-          </div>
+                    </div>
+                  }
+                />
+                <div className="sw-server-pagination">
+                  <Pagination
+                    total={totalPages}
+                    value={safePage}
+                    onChange={(page) => updateParams((next) => {
+                      if (page > 1) next.set('page', String(page))
+                      else next.delete('page')
+                    })}
+                  />
+                </div>
+              </>
+            )}
+          </InventorySurface>
         </>
       )}
+
       {releaseTargets && <ServerReleaseDialog targets={releaseTargets} onClose={() => setReleaseTargets(null)} onRelease={confirmRelease} />}
       {tagEditorTargets && (
         <ServerTagEditor
           servers={tagEditorTargets}
           onClose={() => setTagEditorTargets(null)}
           onSaved={() => {
-            // Reload so the tags column and Server Type-derived badges reflect the edit; the SSE
-            // stream also patches the affected rows, but reloading converges even if it is offline.
             clearSelection()
             reload()
           }}
@@ -827,14 +1043,34 @@ export function ServersPage() {
   )
 }
 
-/** Popover-backed toolbar button used for the Filters and Columns panels. */
+/** Debounced dashboard-owned discovery search; URL changes remount it with canonical input. */
+function ServerDiscoverySearch({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => {
+    if (draft === value) return
+    const handle = setTimeout(() => onCommit(draft), 300)
+    return () => clearTimeout(handle)
+  }, [draft, onCommit, value])
+  return (
+    <SearchInput
+      value={draft}
+      onChange={setDraft}
+      placeholder="Search name, address, tag, or GPU"
+      aria-label="Search Servers"
+      maxW="28rem"
+      size="md"
+    />
+  )
+}
+
+/** Popover-backed toolbar control shared by the filter and display panels. */
 function PopoverButton({ title, trigger, children }: { title: string; trigger: ReactNode; children: ReactNode }) {
   return (
-    <Popover.Root positioning={{ placement: 'bottom-start' }}>
+    <Popover.Root positioning={{ placement: 'bottom-end' }}>
       <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       <Portal>
         <Popover.Positioner>
-          <Popover.Content>
+          <Popover.Content className="sw-server-popover">
             <Popover.Arrow />
             <Popover.Header fontWeight="semibold">{title}</Popover.Header>
             <Popover.Body>{children}</Popover.Body>
@@ -845,49 +1081,34 @@ function PopoverButton({ title, trigger, children }: { title: string; trigger: R
   )
 }
 
-function SortableHeader({
-  label,
-  active,
-  direction,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  direction: SortDirection
-  onClick: () => void
-}) {
-  return (
-    <Button variant="plain" size="sm" className="sw-sort-button" onClick={onClick} aria-label={`Sort by ${label}`}>
-      {label}
-      {active && (direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
-    </Button>
-  )
-}
-
 function updateValues(values: readonly string[], value: string, checked: boolean): string[] {
   return checked ? [...values, value] : values.filter((item) => item !== value)
 }
 
+/** One exact multi-select facet with stable occurrence counts. */
 function FilterOptions({
   title,
+  param,
   values,
   selected,
   onChange,
 }: {
   title: string
+  param: string
   values: FilterOption[]
   selected: readonly string[]
-  onChange: (next: string[]) => void
+  onChange: (key: string, next: readonly string[]) => void
 }) {
+  if (values.length === 0) return null
   return (
     <fieldset className="sw-filter-group">
       <legend>{title}</legend>
       {values.map((option) => (
         <Checkbox
           key={option.value}
-          id={`filter-${title}-${option.value}`}
+          id={`server-filter-${param}-${controlId(option.value)}`}
           checked={selected.includes(option.value)}
-          onCheckedChange={(checked) => onChange(updateValues(selected, option.value, checked))}
+          onCheckedChange={(checked) => onChange(param, updateValues(selected, option.value, checked))}
         >
           {`${option.label} (${option.count})`}
         </Checkbox>
@@ -896,206 +1117,459 @@ function FilterOptions({
   )
 }
 
-function FilterPanel({
-  filters,
+/** Advanced operational and hardware facets; quick lenses remain in the main toolbar. */
+function ServerFilterPanel({
+  query,
   options,
-  onChange,
+  onSingle,
+  onMulti,
+  onIncludeAbsent,
+  onClear,
 }: {
-  filters: ServerFilters
-  options: ServerFilterOptions
-  onChange: (next: ServerFilters) => void
+  query: ServerInventoryQuery
+  options: ServerFacetOptions
+  onSingle: (key: string, value: string, fallback?: string) => void
+  onMulti: (key: string, values: readonly string[]) => void
+  onIncludeAbsent: (checked: boolean) => void
+  onClear: () => void
 }) {
   return (
-    <div className="sw-filter-panel">
-      <fieldset className="sw-filter-group">
-        <legend>Protection</legend>
-        <Select
-          value={filters.lockState}
-          aria-label="Filter Server lock"
-          size="sm"
-          onChange={(value) => onChange({ ...filters, lockState: value as ServerFilters['lockState'] })}
-          options={[
-            { value: 'any', label: 'Any' },
+    <div className="sw-server-filter-panel">
+      <div className="sw-server-filter-panel__selects">
+        <fieldset className="sw-filter-group">
+          <legend>Health</legend>
+          <Select value={query.health} aria-label="Filter Server health" size="sm" onChange={(value) => onSingle('health', value)} options={[
+            { value: 'any', label: 'Any health' },
+            { value: 'up', label: 'Up' },
+            { value: 'down', label: 'Down' },
+            { value: 'unobserved', label: 'Unobserved' },
+          ]} />
+        </fieldset>
+        <fieldset className="sw-filter-group">
+          <legend>Membership</legend>
+          <Select value={query.membership} aria-label="Filter Platform membership" size="sm" onChange={(value) => onSingle('membership', value)} options={[
+            { value: 'any', label: 'Any membership' },
+            { value: 'assigned', label: 'Assigned' },
+            { value: 'unassigned', label: 'Unassigned' },
+          ]} />
+        </fieldset>
+        <fieldset className="sw-filter-group">
+          <legend>GPU presence</legend>
+          <Select value={query.gpu} aria-label="Filter GPU presence" size="sm" onChange={(value) => onSingle('gpu', value)} options={[
+            { value: 'any', label: 'Any hardware' },
+            { value: 'present', label: 'GPU equipped' },
+            { value: 'none', label: 'CPU only' },
+          ]} />
+        </fieldset>
+        <fieldset className="sw-filter-group">
+          <legend>Protection</legend>
+          <Select value={query.lock} aria-label="Filter Server lock" size="sm" onChange={(value) => onSingle('lock', value)} options={[
+            { value: 'any', label: 'Any protection' },
             { value: 'locked', label: 'Locked' },
             { value: 'unlocked', label: 'Unlocked' },
-          ]}
-        />
-      </fieldset>
-      <FilterOptions title="Provisioning" values={options.provisioningState} selected={filters.provisioningStates} onChange={(values) => onChange({ ...filters, provisioningStates: values })} />
-      <FilterOptions title="Zone" values={options.zone} selected={filters.zones} onChange={(values) => onChange({ ...filters, zones: values })} />
-      <FilterOptions title="Pool" values={options.pool} selected={filters.pools} onChange={(values) => onChange({ ...filters, pools: values })} />
-      <FilterOptions title="Tags" values={options.tag} selected={filters.tags} onChange={(values) => onChange({ ...filters, tags: values })} />
-      <fieldset className="sw-filter-group">
-        <legend>GPU</legend>
-        <Select
-          value={filters.hasGpu === null ? 'any' : filters.hasGpu ? 'yes' : 'no'}
-          aria-label="Filter GPU presence"
-          size="sm"
-          onChange={(value) => onChange({ ...filters, hasGpu: value === 'any' ? null : value === 'yes' })}
-          options={[
-            { value: 'any', label: 'Any' },
-            { value: 'yes', label: 'Has GPU' },
-            { value: 'no', label: 'No GPU' },
-          ]}
-        />
-      </fieldset>
-      <Button variant="plain" size="sm" onClick={() => onChange(EMPTY_SERVER_FILTERS)}>
-        Clear filters
-      </Button>
+          ]} />
+        </fieldset>
+      </div>
+      <Checkbox id="include-absent" checked={query.includeAbsent} onCheckedChange={onIncludeAbsent}>Include absent projections</Checkbox>
+      <FilterOptions title="GPU vendor" param="gpuVendor" values={options.gpuVendor} selected={query.gpuVendors} onChange={onMulti} />
+      <FilterOptions title="GPU model" param="gpuModel" values={options.gpuModel} selected={query.gpuModels} onChange={onMulti} />
+      <FilterOptions title="Architecture" param="architecture" values={options.architecture} selected={query.architectures} onChange={onMulti} />
+      <FilterOptions title="System vendor" param="systemVendor" values={options.systemVendor} selected={query.systemVendors} onChange={onMulti} />
+      <FilterOptions title="System product" param="systemProduct" values={options.systemProduct} selected={query.systemProducts} onChange={onMulti} />
+      <FilterOptions title="Zone" param="zone" values={options.zone} selected={query.zones} onChange={onMulti} />
+      <FilterOptions title="Pool" param="pool" values={options.pool} selected={query.pools} onChange={onMulti} />
+      <FilterOptions title="Tags" param="tag" values={options.tag} selected={query.tags} onChange={onMulti} />
+      <Button variant="plain" size="sm" onClick={onClear}>Clear filters</Button>
     </div>
   )
 }
 
-function ColumnPanel({
-  columns,
-  hidden,
-  onToggle,
+/** Local readability and URL-owned grouping/sorting controls. */
+function DisplayPanel({
+  group,
+  sort,
+  direction,
+  density,
+  pageSize,
+  onGroup,
+  onSort,
+  onDirection,
+  onDensity,
+  onPageSize,
 }: {
-  columns: ColumnToggle[]
-  hidden: ReadonlySet<string>
-  onToggle: (key: string) => void
+  group: ServerInventoryGroup
+  sort: ServerInventorySort
+  direction: ServerInventoryDirection
+  density: ServerDensity
+  pageSize: number
+  onGroup: (value: ServerInventoryGroup) => void
+  onSort: (value: ServerInventorySort) => void
+  onDirection: (value: ServerInventoryDirection) => void
+  onDensity: (value: ServerDensity) => void
+  onPageSize: (value: number) => void
 }) {
   return (
-    <div className="sw-column-panel">
-      {columns.map((column) => (
-        <Checkbox key={column.key} id={`column-${column.key}`} checked={!hidden.has(column.key)} onCheckedChange={() => onToggle(column.key)}>
-          {column.label}
-        </Checkbox>
-      ))}
+    <div className="sw-server-display-panel">
+      <Select value={group} aria-label="Group Servers" size="sm" onChange={(value) => onGroup(value as ServerInventoryGroup)} options={GROUP_OPTIONS} />
+      <Select value={sort} aria-label="Sort Servers" size="sm" onChange={(value) => onSort(value as ServerInventorySort)} options={SORT_OPTIONS} />
+      {sort !== 'priority' && (
+        <Select value={direction} aria-label="Sort direction" size="sm" onChange={(value) => onDirection(value as ServerInventoryDirection)} options={[
+          { value: 'asc', label: 'Ascending' },
+          { value: 'desc', label: 'Descending' },
+        ]} />
+      )}
+      <Select value={density} aria-label="Table density" size="sm" onChange={(value) => onDensity(value as ServerDensity)} options={[
+        { value: 'compact', label: 'Compact rows' },
+        { value: 'comfortable', label: 'Comfortable rows' },
+      ]} />
+      <Select value={String(pageSize)} aria-label="Rows per page" size="sm" onChange={(value) => onPageSize(Number(value))} options={
+        [25, 50, 100].map((size) => ({ value: String(size), label: `${size} rows` }))
+      } />
     </div>
   )
 }
 
-function GroupRows({
+function ServerGroupRows({
   group,
   grouped,
-  columnSpan,
   collapsed,
-  onCollapse,
   selected,
+  sites,
+  integrations,
+  scopedHref,
+  onCollapse,
   onToggleOne,
   onToggleGroup,
-  onNavigate,
   onAction,
-  visible,
 }: {
   group: RenderGroup
   grouped: boolean
-  columnSpan: number
   collapsed: boolean
-  onCollapse: () => void
   selected: ReadonlySet<string>
+  sites: readonly Site[]
+  integrations: readonly Integration[]
+  scopedHref: (path: string) => string
+  onCollapse: () => void
   onToggleOne: (id: string) => void
   onToggleGroup: (ids: string[], checked: boolean) => void
-  onNavigate: (id: string) => void
   onAction: (action: ServerMenuAction, id: string) => void
-  visible: (key: string) => boolean
 }) {
-  const ids = group.items.map((item) => item.id)
+  const ids = group.items.map((server) => server.id)
   const all = ids.length > 0 && ids.every((id) => selected.has(id))
   const some = ids.some((id) => selected.has(id))
   return (
     <>
       {grouped && (
-        <Table.Row className="sw-group-row">
-          <Table.Cell colSpan={columnSpan}>
-            <span>
+        <Table.Row className="sw-server-group-row">
+          <Table.Cell colSpan={11}>
+            <HStack gap="2">
               <IconButton variant="ghost" size="xs" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label}`} onClick={onCollapse}>
                 {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
               </IconButton>
-              <Checkbox
-                id={`group-${group.key}`}
-                aria-label={`Select all in ${group.label}`}
-                checked={all ? true : some ? 'indeterminate' : false}
-                onCheckedChange={() => onToggleGroup(ids, !all)}
-              />
-              <strong>{group.label}</strong>
-              <Badge variant="subtle">{group.items.length}</Badge>
-            </span>
+              <Checkbox id={`server-group-${controlId(group.key)}`} aria-label={`Select all in ${group.label}`} checked={all ? true : some ? 'indeterminate' : false} onCheckedChange={() => onToggleGroup(ids, !all)} />
+              <strong>{group.label}</strong><Badge variant="subtle">{group.items.length}</Badge>
+            </HStack>
           </Table.Cell>
         </Table.Row>
       )}
-      {!collapsed &&
-        group.items.map((server) => (
-          <ServerRow
-            key={server.id}
-            server={server}
-            checked={selected.has(server.id)}
-            onToggle={() => onToggleOne(server.id)}
-            onNavigate={() => onNavigate(server.id)}
-            onAction={(action) => onAction(action, server.id)}
-            visible={visible}
-          />
-        ))}
+      {!collapsed && group.items.map((server) => (
+        <ServerRow
+          key={server.id}
+          server={server}
+          checked={selected.has(server.id)}
+          sites={sites}
+          integrations={integrations}
+          scopedHref={scopedHref}
+          onToggle={() => onToggleOne(server.id)}
+          onAction={(action) => onAction(action, server.id)}
+        />
+      ))}
     </>
   )
 }
 
-/** Mobile server row with the same state axes, selection, and actions as the desktop table. */
-function ServerMobileCard({
+function ServerIdentity({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
+  const name = serverDisplayName(server)
+  return (
+    <div className="sw-server-identity">
+      <div className="sw-server-identity__copy">
+        <HStack gap="1.5" minW="0">
+          {server.provisioning?.locked && (
+            <Tooltip content="Locked">
+              <span className="sw-server-lock-icon" role="img" aria-label="Locked"><Lock size={14} /></span>
+            </Tooltip>
+          )}
+          <RouterLink className="sw-server-name" to={scopedHref(`/servers/${server.id}/summary`)}>{name}</RouterLink>
+          <CopyButton value={name} label="Copy Server name" />
+        </HStack>
+        <TagSummary server={server} />
+        {server.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
+      </div>
+    </div>
+  )
+}
+
+/** High-value network identifiers kept together so they scan as one fact. */
+function ServerNetworkIdentity({ server }: { server: Server }) {
+  const primaryAddress = serverPrimaryAddress(server)
+  const primaryMac = server.hardware.macAddresses[0]
+  return (
+    <div className="sw-server-network-identity">
+      <div>
+        <span>IP</span>
+        <span className="sw-server-network-value">
+          <span className="mono">{textOrDash(primaryAddress)}</span>
+          {primaryAddress && <CopyButton value={primaryAddress} label="Copy IP address" />}
+        </span>
+      </div>
+      <div>
+        <span>MAC</span>
+        <span className="sw-server-network-value">
+          <span className="mono">{textOrDash(primaryMac)}</span>
+          {primaryMac && <CopyButton value={primaryMac} label="Copy MAC address" />}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Power-state glyph with the volatile root-filesystem qualifier anchored as a badge. */
+function ServerPowerIndicator({ server }: { server: Server }) {
+  const ephemeral = server.provisioning?.ephemeral === true
+  return (
+    <span className="sw-server-power-indicator">
+      <PowerBadge powerState={server.provisioning?.powerState ?? null} decorative={Boolean(server.provisioning)} />
+      {ephemeral && (
+        <span className="sw-server-ram-badge" role="img" aria-label="RAM deployment">
+          <MemoryStick size={8} aria-hidden />
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * Presents the current Swallow OS deployment without leaking provider lifecycle labels.
+ * A succeeded workflow is only current while the inventory still reports an installed OS;
+ * otherwise it is historical and the list reads “Not deployed” instead of stale “Deployed”.
+ */
+function ServerDeploymentBadge({ server }: { server: Server }) {
+  const installed = !server.absent && server.provisioning?.state === 'deployed' ? server.provisioning : null
+  const deployment = server.deployment?.state === 'succeeded' && !installed ? null : server.deployment
+  return <DeploymentBadge axis={deployment} provider={installed} showEphemeral={false} />
+}
+
+function ServerDeployment({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
+  const workflowVisible = server.deployment?.operationId && (
+    isServerDeploymentChanging(server) || hasServerDeploymentIssue(server)
+  )
+  return (
+    <div className="sw-server-axis-stack">
+      <ServerDeploymentBadge server={server} />
+      {workflowVisible && server.deployment && (
+        <RouterLink className="sw-server-workflow-link" to={scopedHref(`/workflows/${server.deployment.operationId}`)}>
+          View workflow<ArrowUpRight size={13} aria-hidden />
+        </RouterLink>
+      )}
+    </div>
+  )
+}
+
+function TagSummary({ server }: { server: Server }) {
+  const tags = sortedServerTags(server)
+  if (tags.length === 0) return <Text as="span" color="fg.muted">No tags</Text>
+  return (
+    <HStack className="sw-server-tag-summary" gap="1" wrap="wrap">
+      {tags.slice(0, 2).map((tag) => <Badge key={tag} colorPalette="blue" variant="subtle">{tag}</Badge>)}
+      {tags.length > 2 && (
+        <Tooltip content={tags.join(', ')}><Badge variant="subtle" aria-label={`${tags.length - 2} more tags`}>+{tags.length - 2}</Badge></Tooltip>
+      )}
+    </HStack>
+  )
+}
+
+function ServerHardware({ server }: { server: Server }) {
+  return (
+    <div className="sw-server-hardware-summary">
+      <strong>{serverGpuProfile(server)}</strong>
+      <span>{quantityOrDash(server.cpuCores, 'cores')} · {quantityOrDash(server.memoryMiB, 'GiB', 1024)}</span>
+    </div>
+  )
+}
+
+function ServerPlatform({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
+  if (!server.membership) return <Text as="span" color="fg.muted">Unassigned</Text>
+  return (
+    <div className="sw-server-platform">
+      <MembershipBadge axis={server.membership} />
+      <RouterLink to={scopedHref(`/platforms/${server.membership.platformId}`)}>
+        Open platform<ArrowUpRight size={12} aria-hidden />
+      </RouterLink>
+      <span>{server.membership.role || server.membership.nodeName}</span>
+    </div>
+  )
+}
+
+function ContextualActionLink({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
+  const action = serverContextAction(server)
+  let href: string
+  if (action.kind === 'deploy') href = appendQuery(scopedHref('/provisioning/deploy'), 'serverId', server.id)
+  else if (action.kind === 'workflow') href = scopedHref(`/workflows/${action.operationId}`)
+  else if (action.kind === 'activity') href = scopedHref(`/servers/${server.id}/activity`)
+  else href = scopedHref(`/servers/${server.id}/summary`)
+  const prominent = action.kind === 'deploy' || action.label === 'Review server'
+  return (
+    <Button asChild colorPalette={prominent ? 'brand' : undefined} variant={prominent ? 'solid' : 'outline'} size="sm">
+      <RouterLink to={href}>{action.label}<ArrowUpRight size={14} aria-hidden /></RouterLink>
+    </Button>
+  )
+}
+
+function ServerDetailsPanel({ groups }: { groups: readonly DetailFactGroup[] }) {
+  return (
+    <div className="sw-server-details-panel">
+      {groups.map((group) => (
+        <section key={group.title}>
+          <Heading as="h3" size="sm">{group.title}</Heading>
+          <dl>
+            {group.facts.map((fact) => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}
+          </dl>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function ServerRow({
   server,
   checked,
+  sites,
+  integrations,
+  scopedHref,
   onToggle,
-  onNavigate,
   onAction,
-  visible,
 }: {
   server: Server
   checked: boolean
+  sites: readonly Site[]
+  integrations: readonly Integration[]
+  scopedHref: (path: string) => string
   onToggle: () => void
-  onNavigate: () => void
   onAction: (action: ServerMenuAction) => void
-  visible: (key: string) => boolean
 }) {
+  const [expanded, setExpanded] = useState(false)
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
-  const name = serverDisplayName(server)
+  const detailId = `server-details-${server.id}`
+  const tone = server.absent ? 'absent' : isServerDeploymentChanging(server) ? 'changing' : hasServerDeploymentIssue(server) ? 'issue' : undefined
   return (
     <>
-      <ResourceCard
-        title={name}
-        description={server.hardware.serialNumber || server.source.providerMachineId}
-        status={
-          <HStack gap="1" wrap="wrap" justify="flex-end">
-            {server.provisioning?.locked && <Badge colorPalette="orange" variant="subtle"><Lock size={12} /> Locked</Badge>}
-            {server.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
+      <Table.Row data-selected={checked || undefined} data-tone={tone}>
+        <Table.Cell className="sw-cell-center sw-col-select">
+          <Checkbox id={`select-${server.id}`} aria-label={`Select ${serverDisplayName(server)}`} checked={checked} onCheckedChange={onToggle} />
+        </Table.Cell>
+        <Table.Cell className="sw-server-col--identity"><ServerIdentity server={server} scopedHref={scopedHref} /></Table.Cell>
+        <Table.Cell className="sw-server-col--power sw-cell-center" onClick={(event) => event.stopPropagation()}>
+          {server.provisioning ? (
+            <Tooltip content={`Power actions (${powerStateLabel(server.provisioning.powerState)})${server.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
+              <Button
+                variant="plain"
+                className="sw-power-button"
+                aria-label={`Power actions for ${serverDisplayName(server)}${server.provisioning.ephemeral ? '; RAM deployment' : ''}`}
+                onClick={() => setPowerDialogOpen(true)}
+              >
+                <ServerPowerIndicator server={server} />
+              </Button>
+            </Tooltip>
+          ) : <ServerPowerIndicator server={server} />}
+        </Table.Cell>
+        <Table.Cell className="sw-server-col--network"><ServerNetworkIdentity server={server} /></Table.Cell>
+        <Table.Cell className="sw-server-col--deployment"><ServerDeployment server={server} scopedHref={scopedHref} /></Table.Cell>
+        <Table.Cell className="sw-server-col--hardware"><ServerHardware server={server} /></Table.Cell>
+        <Table.Cell className="sw-server-col--zone">{textOrDash(server.providerZone)}</Table.Cell>
+        <Table.Cell className="sw-server-col--pool">{textOrDash(server.providerResourcePool)}</Table.Cell>
+        <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.health} /></Table.Cell>
+        <Table.Cell className="sw-server-col--platform"><ServerPlatform server={server} scopedHref={scopedHref} /></Table.Cell>
+        <Table.Cell className="sw-server-row-actions">
+          <HStack gap="1.5" justify="flex-end" wrap="nowrap">
+            <ContextualActionLink server={server} scopedHref={scopedHref} />
+            <IconButton variant="ghost" size="sm" aria-label={`${expanded ? 'Hide' : 'Show'} details for ${serverDisplayName(server)}`} aria-expanded={expanded} aria-controls={detailId} onClick={() => setExpanded((value) => !value)}>
+              {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </IconButton>
+            <ServerTakeActionMenu targets={[server]} trigger="kebab" onAction={onAction} />
           </HStack>
-        }
+        </Table.Cell>
+      </Table.Row>
+      {expanded && (
+        <Table.Row id={detailId} className="sw-server-detail-row">
+          <Table.Cell colSpan={11}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations)} /></Table.Cell>
+        </Table.Row>
+      )}
+      {powerDialogOpen && (
+        <ServerPowerDialog
+          server={server}
+          onClose={() => setPowerDialogOpen(false)}
+          onSelect={(action) => {
+            setPowerDialogOpen(false)
+            onAction(action)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+/** Mobile card with the same axes, discovery facts, details, and navigation as a desktop row. */
+function ServerMobileCard({
+  server,
+  checked,
+  sites,
+  integrations,
+  scopedHref,
+  onToggle,
+  onAction,
+}: {
+  server: Server
+  checked: boolean
+  sites: readonly Site[]
+  integrations: readonly Integration[]
+  scopedHref: (path: string) => string
+  onToggle: () => void
+  onAction: (action: ServerMenuAction) => void
+}) {
+  const [powerDialogOpen, setPowerDialogOpen] = useState(false)
+  const details = serverDetailFacts(server, sites, integrations).flatMap((group) => (
+    group.facts.map((fact) => ({ ...fact, label: `${group.title} · ${fact.label}` }))
+  ))
+  return (
+    <div className="sw-server-runtime-card" data-tone={server.absent ? 'absent' : isServerDeploymentChanging(server) ? 'changing' : hasServerDeploymentIssue(server) ? 'issue' : undefined}>
+      <ResourceCard
+        title={<ServerIdentity server={server} scopedHref={scopedHref} />}
         selected={checked}
+        status={server.absent ? <Badge variant="subtle">Absent</Badge> : undefined}
+        details={details.map((fact) => <ResourceCardField key={fact.label} label={fact.label}>{fact.value}</ResourceCardField>)}
         actions={
           <>
-            <Checkbox id={'server-mobile-' + server.id} aria-label={'Mobile selection: ' + name} checked={checked} onCheckedChange={onToggle}>
-              Select
-            </Checkbox>
-            <Button colorPalette="brand" variant="outline" size="sm" onClick={onNavigate}>Open server</Button>
-            {visible('power') && server.provisioning && (
-              <Button variant="outline" size="sm" onClick={() => setPowerDialogOpen(true)}>
-                Power · {powerStateLabel(server.provisioning.powerState)}
+            <Checkbox id={`server-mobile-${server.id}`} aria-label={`Mobile selection: ${serverDisplayName(server)}`} checked={checked} onCheckedChange={onToggle}>Select</Checkbox>
+            <ContextualActionLink server={server} scopedHref={scopedHref} />
+            {server.provisioning && (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={`Power actions for ${serverDisplayName(server)}${server.provisioning.ephemeral ? '; RAM deployment' : ''}`}
+                onClick={() => setPowerDialogOpen(true)}
+              >
+                <ServerPowerIndicator server={server} /> Power · {powerStateLabel(server.provisioning.powerState)}
               </Button>
             )}
             <ServerTakeActionMenu targets={[server]} trigger="actions" onAction={onAction} />
           </>
         }
-        details={
-          <>
-            {visible('mac') && <ResourceCardField label="MAC address"><span className="mono">{textOrDash(serverMacAddress(server))}</span></ResourceCardField>}
-            {visible('pool') && <ResourceCardField label="Pool">{textOrDash(server.providerResourcePool)}</ResourceCardField>}
-            {visible('tags') && <ResourceCardField label="Tags">{server.tags.length ? server.tags.join(', ') : '-'}</ResourceCardField>}
-            {visible('architecture') && <ResourceCardField label="Architecture">{textOrDash(server.architecture)}</ResourceCardField>}
-            {visible('cpuCores') && <ResourceCardField label="CPU cores">{quantityOrDash(server.cpuCores)}</ResourceCardField>}
-            {visible('cpuModel') && <ResourceCardField label="CPU model">{textOrDash(server.cpuModel)}</ResourceCardField>}
-            {visible('memory') && <ResourceCardField label="Memory">{quantityOrDash(server.memoryMiB, 'GiB', 1024)}</ResourceCardField>}
-            {visible('storage') && <ResourceCardField label="Storage">{quantityOrDash(server.storageGB, 'GB')}</ResourceCardField>}
-            {visible('systemVendor') && <ResourceCardField label="System vendor">{textOrDash(server.systemVendor)}</ResourceCardField>}
-            {visible('systemProduct') && <ResourceCardField label="System product">{textOrDash(server.systemProduct)}</ResourceCardField>}
-            {visible('gpus') && <ResourceCardField label="GPUs"><GpuInventory server={server} /></ResourceCardField>}
-          </>
-        }
       >
-        {visible('status') && <ResourceCardField label="Deployment"><DeploymentBadge axis={server.deployment} provider={server.provisioning} /></ResourceCardField>}
-        {visible('health') && <ResourceCardField label="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</ResourceCardField>}
-        {visible('platform') && <ResourceCardField label="Platform">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</ResourceCardField>}
-        {visible('address') && <ResourceCardField label="Address"><span className="mono">{textOrDash(serverPrimaryAddress(server))}</span></ResourceCardField>}
-        {visible('zone') && <ResourceCardField label="Zone">{textOrDash(server.providerZone)}</ResourceCardField>}
+        <ResourceCardField label="Network"><ServerNetworkIdentity server={server} /></ResourceCardField>
+        <ResourceCardField label="Deployment"><ServerDeploymentBadge server={server} /></ResourceCardField>
+        <ResourceCardField label="Hardware"><ServerHardware server={server} /></ResourceCardField>
+        <ResourceCardField label="Zone">{textOrDash(server.providerZone)}</ResourceCardField>
+        <ResourceCardField label="Pool">{textOrDash(server.providerResourcePool)}</ResourceCardField>
       </ResourceCard>
       {powerDialogOpen && (
         <ServerPowerDialog
@@ -1107,145 +1581,6 @@ function ServerMobileCard({
           }}
         />
       )}
-    </>
-  )
-}
-
-function ServerRow({
-  server,
-  checked,
-  onToggle,
-  onNavigate,
-  onAction,
-  visible,
-}: {
-  server: Server
-  checked: boolean
-  onToggle: () => void
-  onNavigate: () => void
-  onAction: (action: ServerMenuAction) => void
-  visible: (key: string) => boolean
-}) {
-  // The power cell doubles as a shortcut to power actions; the dialog lives on the row so each
-  // row owns its own open state without lifting it into the (already large) page component.
-  const [powerDialogOpen, setPowerDialogOpen] = useState(false)
-  return (
-    <>
-      <Table.Row cursor="pointer" _hover={{ bg: 'bg.subtle' }} onClick={onNavigate}>
-        <Table.Cell data-label="Selection" className="sw-sticky-selection sw-cell-center" onClick={(event) => event.stopPropagation()}>
-          <Checkbox id={'server-' + server.id} aria-label={'Select ' + serverDisplayName(server)} checked={checked} onCheckedChange={onToggle} />
-        </Table.Cell>
-        <Table.Cell data-label="Machine" className="sw-sticky-name">
-          <span className="sw-machine-name">
-            {(server.provisioning?.locked ?? false) && (
-              <Tooltip content="This Server is protected. Unlock it before making changes.">
-                <span className="sw-lock-indicator" role="img" aria-label="Locked">
-                  <Lock size={14} />
-                </span>
-              </Tooltip>
-            )}
-            <strong>{serverDisplayName(server)}</strong>
-            <CopyButton value={serverDisplayName(server)} label="Copy hostname" />
-            {server.absent && <Badge colorPalette="gray" variant="subtle">absent</Badge>}
-          </span>
-        </Table.Cell>
-        {visible('power') && (
-          <Table.Cell data-label="Power" className="sw-cell-center sw-power-cell" onClick={(event) => event.stopPropagation()}>
-            {server.provisioning ? (
-              <Tooltip content={`Power actions (${powerStateLabel(server.provisioning.powerState)})`}>
-                <Button variant="plain" className="sw-power-button" aria-label={`Power actions for ${serverDisplayName(server)}`} onClick={() => setPowerDialogOpen(true)}>
-                  <PowerBadge powerState={server.provisioning.powerState} decorative />
-                </Button>
-              </Tooltip>
-            ) : (
-              <PowerBadge powerState={null} />
-            )}
-          </Table.Cell>
-        )}
-        {visible('status') && (
-          <Table.Cell data-label="Deployment">
-            <DeploymentBadge axis={server.deployment} provider={server.provisioning} />
-          </Table.Cell>
-        )}
-        {visible('address') && (
-          <Table.Cell data-label="Address" className="mono">
-            <span className="sw-copyable">
-              {textOrDash(serverPrimaryAddress(server))}
-              <CopyButton value={serverPrimaryAddress(server) ?? ''} label="Copy IP address" />
-            </span>
-          </Table.Cell>
-        )}
-        {visible('mac') && (
-          <Table.Cell data-label="MAC address" className="mono">
-            <span className="sw-copyable">
-              {textOrDash(serverMacAddress(server))}
-              <CopyButton value={serverMacAddress(server) ?? ''} label="Copy MAC address" />
-            </span>
-          </Table.Cell>
-        )}
-        {visible('zone') && <Table.Cell data-label="Zone">{textOrDash(server.providerZone)}</Table.Cell>}
-        {visible('pool') && <Table.Cell data-label="Pool">{textOrDash(server.providerResourcePool)}</Table.Cell>}
-        {visible('tags') && (
-          <Table.Cell data-label="Tags" className="sw-column-tags">
-            {server.tags.length ? (
-              <span className="sw-tag-list">
-                {server.tags.slice(0, 3).map((tag) => (
-                  <Badge key={tag} colorPalette="blue" variant="subtle">
-                    {tag}
-                  </Badge>
-                ))}
-              </span>
-            ) : (
-              '-'
-            )}
-          </Table.Cell>
-        )}
-        {visible('architecture') && <Table.Cell data-label="Architecture" className="sw-hardware-column sw-column-architecture">{textOrDash(server.architecture)}</Table.Cell>}
-        {visible('cpuCores') && <Table.Cell data-label="CPU cores" className="sw-hardware-column sw-column-cpu-cores sw-cell-center">{quantityOrDash(server.cpuCores)}</Table.Cell>}
-        {visible('cpuModel') && <Table.Cell data-label="CPU model" className="sw-hardware-column sw-column-cpu-model">{textOrDash(server.cpuModel)}</Table.Cell>}
-        {visible('memory') && <Table.Cell data-label="Memory" className="sw-hardware-column sw-column-memory">{quantityOrDash(server.memoryMiB, 'GiB', 1024)}</Table.Cell>}
-        {visible('storage') && <Table.Cell data-label="Storage" className="sw-hardware-column sw-column-storage">{quantityOrDash(server.storageGB, 'GB')}</Table.Cell>}
-        {visible('systemVendor') && <Table.Cell data-label="System vendor" className="sw-hardware-column sw-column-system-vendor">{textOrDash(server.systemVendor)}</Table.Cell>}
-        {visible('systemProduct') && <Table.Cell data-label="System product" className="sw-hardware-column sw-column-system-product">{textOrDash(server.systemProduct)}</Table.Cell>}
-        {visible('gpus') && (
-          <Table.Cell data-label="GPUs">
-            <GpuInventory server={server} />
-          </Table.Cell>
-        )}
-        {visible('platform') && <Table.Cell data-label="Platform">{server.membership ? <MembershipBadge axis={server.membership} /> : '-'}</Table.Cell>}
-        {visible('health') && <Table.Cell data-label="Health">{server.health ? <HealthBadge axis={server.health} /> : '-'}</Table.Cell>}
-        <Table.Cell data-label="Actions" className="sw-sticky-actions" onClick={(event) => event.stopPropagation()}>
-          <ServerTakeActionMenu targets={[server]} trigger="kebab" onAction={onAction} />
-        </Table.Cell>
-      </Table.Row>
-      {powerDialogOpen && (
-        <ServerPowerDialog
-          server={server}
-          onClose={() => setPowerDialogOpen(false)}
-          onSelect={(action) => {
-            setPowerDialogOpen(false)
-            onAction(action)
-          }}
-        />
-      )}
-    </>
-  )
-}
-
-/**
- * Presents physical GPU inventory by vendor without implying utilization or health.
- * Model details remain available through each accessible vendor-mark tooltip.
- */
-function GpuInventory({ server }: { server: Server }) {
-  if (server.gpus.length === 0) return <>-</>
-  return (
-    <span className="sw-gpu-inventory">
-      {server.gpus.map((gpu, index) => (
-        <span key={[gpu.vendor, gpu.model, index].join('-')}>
-          <span className="sw-gpu-count">{gpu.count} x</span>
-          <GpuVendorLogo vendor={gpu.vendor} model={gpu.model} />
-        </span>
-      ))}
-    </span>
+    </div>
   )
 }

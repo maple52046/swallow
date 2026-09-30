@@ -5,42 +5,55 @@ import {
   type ServerWorkingSet,
   type WorkingSetQuery,
 } from '@/application/usecases/servers/loadServerWorkingSet'
-import type { ServerStreamEvent } from '@/application/ports/ServerEventStream'
+import type {
+  ServerStreamConnectionState,
+  ServerStreamEvent,
+} from '@/application/ports/ServerEventStream'
 import type { Server } from '@/domain/server/types'
 
 /**
- * Discriminated state for the servers working set.
+ * Discriminated state for the Servers working set.
  *
- * `loading` is only the first load with no rows yet, and `error` is only a first load that failed
- * so there is nothing to show. Once rows exist the hook stays `ready` even when a later background
- * refresh or SSE-reconnect refetch fails: it keeps the last-good rows and reports the failure
- * through `refreshError`, so the list stays browsable and SSE patches keep applying instead of the
- * whole page collapsing to an error that only a manual reload can escape.
+ * `loading` is only a load with no rows for the current query signature, and `error` is only a
+ * current-signature load that failed. Once rows exist, background refresh failures keep the
+ * last-good data and surface through `refreshError`; `refreshedAt` remains the last successful
+ * complete read rather than advancing for individual SSE patches.
  */
 export type WorkingSetState =
   | { status: 'loading' }
-  | { status: 'ready'; data: ServerWorkingSet; refreshError?: string }
+  | { status: 'ready'; data: ServerWorkingSet; refreshedAt: string; refreshError?: string }
   | { status: 'error'; message: string }
 
+interface StoredWorkingSetState {
+  queryKey: string
+  value: WorkingSetState
+}
+
 /**
- * Loads the servers working set for the list and re-runs when the coarse query changes.
+ * Loads a complete Server working set and layers best-effort SSE patches over the snapshot.
  *
- * The coarse query (`keyword`, `includeAbsent`) is what the API filters server-side; the
- * page applies grouping and the multi-dimension filter to the returned set. A stale-guard
- * ignores out-of-order responses so fast typing cannot let an earlier result overwrite a
- * later one, and `reload` refetches after an action changes the fleet.
+ * Query changes expose `loading` immediately so a previous Site cannot remain visible. Stale
+ * requests are discarded, reconnects request one complete resync, and an SSE removal reloads
+ * an include-absent working set because the frame cannot distinguish deletion from absence.
  */
 export function useServerWorkingSet(query: WorkingSetQuery): {
   state: WorkingSetState
   reload: () => void
-  /** True while a manual reload (via `reload`) is in flight, for a refresh control's busy state. */
+  /** True while a manual reload is in flight, for a refresh control's busy state. */
   isRefreshing: boolean
+  /** Best-effort SSE connectivity; list reads remain usable in every state. */
+  streamStatus: ServerStreamConnectionState
 } {
   const { servers, serverEvents } = useApp()
-  const [state, setState] = useState<WorkingSetState>({ status: 'loading' })
+  const { siteId, keyword, includeAbsent } = query
+  const queryKey = [siteId ?? '', keyword ?? '', includeAbsent ? 'absent' : 'current'].join('|')
+  const [storedState, setStoredState] = useState<StoredWorkingSetState>({
+    queryKey,
+    value: { status: 'loading' },
+  })
   const [nonce, setNonce] = useState(0)
-  // Reactive mirror of reloadInFlight, exposed so a manual refresh control can show a busy spinner.
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [streamStatus, setStreamStatus] = useState<ServerStreamConnectionState>('connecting')
   const reloadInFlight = useRef(false)
 
   const reload = useCallback(() => {
@@ -50,14 +63,8 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
     setNonce((value) => value + 1)
   }, [])
 
-  // Destructured so the effect depends on the primitive query fields, not a fresh object
-  // identity each render.
-  const { siteId, keyword, includeAbsent } = query
-
   // The stream is scoped by Site server-side; the remaining coarse filters are applied to a
-  // patch through this ref so changing them never tears down and rebuilds the connection. The
-  // ref is updated in an effect (not during render) and one commit behind is harmless because
-  // events are applied asynchronously.
+  // patch through this ref so changing them never tears down and rebuilds the connection.
   const filterRef = useRef<WorkingSetQuery>(query)
   useEffect(() => {
     filterRef.current = { siteId, keyword, includeAbsent }
@@ -65,60 +72,76 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
 
   useEffect(() => {
     let cancelled = false
-
     loadServerWorkingSet(servers, { siteId, keyword, includeAbsent })
       .then((data) => {
-        // A successful (re)load replaces the rows and clears any prior refresh error.
-        if (!cancelled) setState({ status: 'ready', data })
+        if (!cancelled) {
+          setStoredState({
+            queryKey,
+            value: { status: 'ready', data, refreshedAt: new Date().toISOString() },
+          })
+        }
       })
       .catch((err: Error) => {
         if (cancelled) return
-        setState((current) => {
-          // Only the first load (no rows yet) becomes a full-page error. A failed background
-          // refresh or reconnect refetch keeps the last-good rows and surfaces a non-blocking
-          // refresh error, so the list stays usable and SSE patches keep flowing.
-          if (current.status === 'ready') {
-            return { ...current, refreshError: err.message }
+        setStoredState((current) => {
+          if (current.queryKey === queryKey && current.value.status === 'ready') {
+            return {
+              queryKey,
+              value: { ...current.value, refreshError: err.message },
+            }
           }
-          return { status: 'error', message: err.message }
+          return { queryKey, value: { status: 'error', message: err.message } }
         })
       })
       .finally(() => {
         reloadInFlight.current = false
-        setIsRefreshing(false)
+        if (!cancelled) setIsRefreshing(false)
       })
 
     return () => {
       cancelled = true
     }
-  }, [servers, siteId, keyword, includeAbsent, nonce])
+  }, [servers, siteId, keyword, includeAbsent, nonce, queryKey])
 
   useEffect(() => {
     const unsubscribe = serverEvents.subscribe(
       { siteId },
       {
         onEvent: (event) => {
-          setState((current) => {
-            if (current.status !== 'ready') return current
-            const next = applyServerEvent(current.data.servers, event, filterRef.current)
-            if (next === current.data.servers) return current
-            return { status: 'ready', data: { ...current.data, servers: next } }
+          // `removed` means either deletion or transition to absent. When absent projections
+          // belong to the snapshot, only a complete read can tell which result is correct.
+          if (event.kind === 'removed' && includeAbsent) {
+            reload()
+            return
+          }
+          setStoredState((current) => {
+            if (current.queryKey !== queryKey || current.value.status !== 'ready') return current
+            const next = applyServerEvent(current.value.data.servers, event, filterRef.current)
+            if (next === current.value.data.servers) return current
+            return {
+              queryKey,
+              value: {
+                ...current.value,
+                data: { ...current.value.data, servers: next, total: next.length },
+              },
+            }
           })
         },
         onReset: reload,
+        onConnectionChange: setStreamStatus,
       },
     )
     return unsubscribe
-  }, [serverEvents, siteId, reload])
+  }, [includeAbsent, queryKey, reload, serverEvents, siteId])
 
-  return { state, reload, isRefreshing }
+  const state = storedState.queryKey === queryKey ? storedState.value : { status: 'loading' as const }
+  return { state, reload, isRefreshing, streamStatus }
 }
 
 /**
- * Applies one stream event to the working set, returning the same array reference when
- * nothing changed so React can skip the re-render. A removal drops the row; an upsert
- * replaces or inserts the row when it still matches the coarse scope, or drops it when a
- * change moved it out of scope (for example it became absent while absent rows are hidden).
+ * Applies one stream event to the working set, returning the same array reference when nothing
+ * changed. Upserts that leave the coarse scope remove their former row; matching upserts replace
+ * or append the complete projection.
  */
 function applyServerEvent(
   current: Server[],
@@ -133,7 +156,6 @@ function applyServerEvent(
 
   const incoming = event.server
   const existingIndex = current.findIndex((server) => server.id === incoming.id)
-
   if (!matchesWorkingSetScope(incoming, filter)) {
     return existingIndex === -1
       ? current
@@ -141,45 +163,36 @@ function applyServerEvent(
   }
 
   const merged = preserveHealth(incoming, existingIndex === -1 ? undefined : current[existingIndex])
-  if (existingIndex === -1) {
-    return [...current, merged]
-  }
+  if (existingIndex === -1) return [...current, merged]
   const next = current.slice()
   next[existingIndex] = merged
   return next
 }
 
-/**
- * Mirrors the coarse, server-side working-set filters so a patched row stays consistent with
- * what the initial load would have returned. `siteId` is already enforced by the stream
- * scope; `keyword` matches the same fields as the list endpoint; absent rows are excluded
- * unless requested.
- */
+/** Mirrors the coarse Server API filters for a streamed projection. */
 function matchesWorkingSetScope(server: Server, filter: WorkingSetQuery): boolean {
   if (filter.siteId && server.source.siteId !== filter.siteId) return false
   if (!filter.includeAbsent && server.absent) return false
   const needle = filter.keyword?.trim().toLowerCase()
   if (needle) {
-    const haystacks = [
+    const searchable = [
       server.hostname ?? '',
       server.fqdn ?? '',
       ...server.addresses,
       server.hardware.serialNumber ?? '',
       server.hardware.systemUuid ?? '',
     ]
-    if (!haystacks.some((value) => value.toLowerCase().includes(needle))) return false
+    if (!searchable.some((value) => value.toLowerCase().includes(needle))) return false
   }
   return true
 }
 
 /**
- * Keeps the last-known health axis when the stream omits it. Health is resolved from the
- * metrics backend at list-query time and is not carried on the change stream, so a naive
- * replace would blank a row's health until the next full reload.
+ * Preserves the last-known Health axis when the stream omits it. Health is resolved from the
+ * metrics backend at list-query time and is not carried on the Server event stream.
  */
 function preserveHealth(incoming: Server, existing: Server | undefined): Server {
-  if (!incoming.health && existing?.health) {
-    return { ...incoming, health: existing.health }
-  }
-  return incoming
+  return !incoming.health && existing?.health
+    ? { ...incoming, health: existing.health }
+    : incoming
 }

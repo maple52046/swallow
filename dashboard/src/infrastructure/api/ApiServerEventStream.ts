@@ -34,10 +34,12 @@ export class ApiServerEventStream implements ServerEventStream {
     if (token) params.set('access_token', token)
     const suffix = params.toString() ? `?${params.toString()}` : ''
 
+    handlers.onConnectionChange?.('connecting')
     const source = new EventSource(`${API_BASE_URL}/api/v1/servers/stream${suffix}`)
     let openedBefore = false
 
     source.onopen = () => {
+      handlers.onConnectionChange?.('connected')
       // The first open follows a fresh list load, so there is nothing to resync; a later
       // open is a reconnect after a gap, so ask the consumer to reload once.
       if (openedBefore) {
@@ -54,7 +56,11 @@ export class ApiServerEventStream implements ServerEventStream {
     }
 
     // Transient drops are retried by EventSource itself; onReset fires on the next onopen.
-    source.onerror = () => {}
+    source.onerror = () => {
+      handlers.onConnectionChange?.(
+        source.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting',
+      )
+    }
 
     return () => source.close()
   }

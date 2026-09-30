@@ -22,16 +22,19 @@ test('locked Servers are visible, filterable, and mixed Lock converges with skip
 
   const first = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
   const second = page.getByRole('row').filter({ hasText: 'gpu-node-02' })
-  await expect(first.getByRole('img', { name: 'Locked' })).toBeVisible()
+  await expect(first.getByRole('img', { name: 'Locked', exact: true })).toBeVisible()
+  const lockIcon = first.getByRole('img', { name: 'Locked', exact: true })
+  await expect(lockIcon.locator('xpath=following-sibling::a[1]')).toHaveText('gpu-node-01')
 
   await page.getByRole('button', { name: /Filters/ }).click()
   await chooseSingleSelectOption(page, 'Filter Server lock', 'Locked')
   await expect(first).toBeVisible()
   await expect(second).toHaveCount(0)
-  await chooseSingleSelectOption(page, 'Filter Server lock', 'Any')
+  await chooseSingleSelectOption(page, 'Filter Server lock', 'Any protection')
+  await expect(second).toBeVisible()
 
-  await page.getByLabel('Select gpu-node-01').check()
-  await page.getByLabel('Select gpu-node-02').check()
+  await page.getByLabel('Select gpu-node-01').click()
+  await page.getByLabel('Select gpu-node-02').click()
   await expect(page.getByRole('button', { name: 'Deploy OS' })).toBeDisabled()
   await expect(page.getByText('Unlock every selected Server before deployment.')).toBeVisible()
 
@@ -44,7 +47,7 @@ test('locked Servers are visible, filterable, and mixed Lock converges with skip
   await expect(confirmation).toContainText('Monitoring and diagnostics remain available')
   await confirmation.getByRole('button', { name: 'Lock', exact: true }).click()
 
-  await expect(second.getByRole('img', { name: 'Locked' })).toBeVisible()
+  await expect(second.getByRole('img', { name: 'Locked', exact: true })).toBeVisible()
 })
 
 test('Unlock is the only mutation offered for a protected Server', async ({ page }) => {

@@ -15,6 +15,9 @@ export interface ServerStreamQuery {
   readonly siteId?: string
 }
 
+/** Browser connection lifecycle exposed without leaking the concrete EventSource adapter. */
+export type ServerStreamConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'closed'
+
 /** Callbacks a subscriber provides. */
 export interface ServerStreamHandlers {
   /** Called once per change. */
@@ -25,6 +28,8 @@ export interface ServerStreamHandlers {
    * the first successful connect, when the caller has already loaded a fresh snapshot.
    */
   readonly onReset?: () => void
+  /** Reports whether live patches are connected, retrying, or no longer available. */
+  readonly onConnectionChange?: (state: ServerStreamConnectionState) => void
 }
 
 /**

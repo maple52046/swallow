@@ -66,8 +66,8 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   const updating = page.getByText(/Updating servers/)
   await expect(updating).toBeVisible()
   const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
-  await expect(row).toContainText(/releasing/i)
-  await expect(row).toContainText(/ready/i, { timeout: 7_000 })
+  await expect(row.getByText('Releasing', { exact: true })).toHaveCount(0)
+  await expect(row).toContainText('Not deployed', { timeout: 7_000 })
   await expect.poll(() => refreshes.filter((serverId) => serverId === 'srv-1').length).toBeGreaterThanOrEqual(2)
   await expect(updating).toBeHidden({ timeout: 7_000 })
 })
@@ -112,9 +112,14 @@ test('Server list waits for release cleanup and refreshes addresses and Ephemera
     releaseConvergesAfterRefreshes: 1,
   })
   await page.goto('/servers?site=site-a')
-  const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
+  const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
   await expect(row).toContainText('192.168.40.21')
-  await expect(row.getByRole('img', { name: 'Ephemeral deployment' })).toBeVisible()
+  const power = row.getByRole('button', { name: 'Power actions for gpu-node-01; RAM deployment' })
+  await expect(power.getByRole('img', { name: 'RAM deployment' })).toBeVisible()
+  await expect(row.getByRole('img', { name: 'Ephemeral deployment' })).toHaveCount(0)
+  await row.getByRole('button', { name: 'Show details for gpu-node-01' }).click()
+  const details = page.getByRole('row').filter({ hasText: 'Root filesystem' })
+  await expect(details).toContainText('RAM (ephemeral)')
 
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByRole('button', { name: 'Take action' }).click()
@@ -123,14 +128,13 @@ test('Server list waits for release cleanup and refreshes addresses and Ephemera
   await confirmation.getByLabel('Remove static IP bindings after release').locator('..').click()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
-  // Stay on the list and converge in place. With a single-refresh convergence the transient
-  // "Updating active Servers..." flash is too brief to assert reliably, so verify the
-  // observable outcome: the row refreshes to ready and drops the released address/Ephemeral.
+  // Stay on the list and converge in place. The default row remains Swallow-owned;
+  // provider OS qualifiers are verified through the expanded facts instead.
   await expect(page).toHaveURL(/\/servers(\?|$)/)
-  await expect(row).toContainText('ready', { timeout: 7_000 })
+  await expect(row).toContainText('Not deployed', { timeout: 7_000 })
   await expect(row).not.toContainText('192.168.40.21', { timeout: 7_000 })
-  await expect(row.getByRole('img', { name: 'Ephemeral deployment' })).toHaveCount(0)
-  await expect(row).not.toContainText('in memory')
+  await expect(details).not.toContainText('RAM (ephemeral)')
+  await expect(row.getByRole('img', { name: 'RAM deployment' })).toHaveCount(0)
   await expect(page.getByText(/Updating servers/)).toBeHidden({ timeout: 7_000 })
 })
 
@@ -143,7 +147,7 @@ test('Server list follows a released server that starts deployed until it conver
   })
   await page.goto('/servers?site=site-a')
   const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
-  await expect(row.locator('td[data-label="Deployment"]')).toContainText('Deployed')
+  await expect(row.getByText('Ubuntu 24.04 LTS', { exact: true })).toBeVisible()
 
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByRole('button', { name: 'Take action' }).click()
@@ -152,9 +156,9 @@ test('Server list follows a released server that starts deployed until it conver
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
   await expect(page).toHaveURL(/\/servers(\?|$)/)
-  // The Server stayed "deployed" at accept time, so only the follow-after-release polling
-  // can drive the row to its released state.
-  await expect(row.locator('td[data-label="Deployment"]')).toContainText('Ready', { timeout: 10_000 })
+  // The Server kept its installed-image fact at accept time, so only the
+  // follow-after-release polling can drive the row to its current undeployed state.
+  await expect(row.getByText('Not deployed', { exact: true })).toBeVisible({ timeout: 10_000 })
 })
 
 test('Server detail follows Release until the projection becomes ready', async ({ page }) => {

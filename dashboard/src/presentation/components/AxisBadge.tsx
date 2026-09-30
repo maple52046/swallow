@@ -61,6 +61,18 @@ function AxisLabel({ color, tooltip, icon, className, children }: AxisLabelProps
   )
 }
 
+/**
+ * Displays the installed OS/image name as an inventory fact rather than a lifecycle badge.
+ * The tooltip keeps deployment provenance available without making the value look like state.
+ */
+function DeploymentImageValue({ tooltip, children }: { tooltip: string; children: ReactNode }) {
+  return (
+    <Tooltip content={tooltip}>
+      <Box as="span" color="fg" fontSize="sm" fontWeight="medium">{children}</Box>
+    </Tooltip>
+  )
+}
+
 function UnknownBadge({ tooltip }: { tooltip: string }) {
   return <AxisLabel color="gray" tooltip={tooltip}>unknown</AxisLabel>
 }
@@ -97,20 +109,22 @@ function EphemeralIndicator() {
 /**
  * Swallow-owned deployment outcome; this is the primary deployability result.
  *
- * Two presentations. The default "merged" mode (used in the dense Server list) folds the
- * deployed OS image name and the ephemeral qualifier into the one badge, so an operator scans
- * both the state and the image in a single column. Pass `stateOnly` for the detail page, where
- * deployment state, deployed OS, and ephemeral each get their own field: the badge then shows
- * only the state and never the image name or the ephemeral icon.
+ * Two presentations. The default "merged" mode folds the deployed OS image name and,
+ * unless `showEphemeral` is false, the ephemeral qualifier into one composed value. Pass
+ * `stateOnly` for detail views where deployment state, deployed OS, and ephemeral each get
+ * their own field.
  */
 export function DeploymentBadge({
   axis,
   provider,
   stateOnly = false,
+  showEphemeral = true,
 }: {
   axis: DeploymentAxis | null
   provider: ProvisioningAxis | null
   stateOnly?: boolean
+  /** False when the composed view presents RAM deployment beside another axis. */
+  showEphemeral?: boolean
 }) {
   let state: ReactNode
   // The releasing / commissioning / testing / deploying provider states and the in-progress
@@ -130,11 +144,11 @@ export function DeploymentBadge({
     const stripes = IN_PROGRESS_DEPLOYMENT_STATES.has(axis.state) ? IN_PROGRESS_LABEL_CLASS : undefined
     state = <AxisLabel color={presentation.color} className={stripes} tooltip={detail}>{presentation.label}</AxisLabel>
   } else if (provider?.state === 'deployed') {
-    // A deployed machine. In state-only mode the badge shows just the deployment state; in
-    // merged mode it shows the OS image name (the effective name mirrored by reconcile: provider
-    // catalog title overlaid with any swallow custom name), falling back to OS + release so the
-    // list cell is never blank. Either way a swallow-verified deployment reads green while an
-    // externally deployed machine reads neutral, since swallow has no verification result for it.
+    // A deployed machine. State-only mode uses a badge because it presents lifecycle outcome.
+    // Merged mode presents the effective OS image name (provider catalog title overlaid with any
+    // Swallow custom name) as neutral inventory text; its tooltip carries verification provenance.
+    // If no image or OS/release name can be derived, the lifecycle label remains a badge so the
+    // list cell is never blank.
     const swallowVerified = axis?.state === 'succeeded'
     if (stateOnly) {
       state = swallowVerified ? (
@@ -144,11 +158,15 @@ export function DeploymentBadge({
       )
     } else {
       const fallback = [provider.osSystem, provider.distroSeries].filter(Boolean).join(' ')
-      const label = provider.deployedImageName || fallback || 'Deployed'
+      const label = provider.deployedImageName || fallback
       const tooltip = swallowVerified
         ? 'Swallow deployed and verified this OS image.'
         : 'Operating system reported by the provider; not deployed by swallow.'
-      state = <AxisLabel color={swallowVerified ? 'green' : 'gray'} tooltip={tooltip}>{label}</AxisLabel>
+      state = label ? (
+        <DeploymentImageValue tooltip={tooltip}>{label}</DeploymentImageValue>
+      ) : (
+        <AxisLabel color={swallowVerified ? 'green' : 'gray'} tooltip={tooltip}>Deployed</AxisLabel>
+      )
     }
   } else if (provider?.state === 'deploying') {
     state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is installing an operating system; no verified Swallow result exists yet.">Deploying</AxisLabel>
@@ -182,7 +200,7 @@ export function DeploymentBadge({
 
   // In state-only mode the ephemeral qualifier is shown as its own field by the caller, so the
   // badge never appends the icon; the merged list badge keeps it as a compact supplementary cue.
-  if (stateOnly || !provider?.ephemeral) return state
+  if (stateOnly || !showEphemeral || !provider?.ephemeral) return state
   return (
     <HStack gap="1" flexWrap="nowrap">
       {state}
@@ -235,14 +253,21 @@ export function DeploymentNetworkBadge({ axis }: { axis: DeploymentAxis | null }
 }
 
 /** Provisioner-owned lifecycle state, including its Ephemeral deployment qualifier. */
-export function ProvisioningBadge({ axis }: { axis: ProvisioningAxis | null }) {
+export function ProvisioningBadge({
+  axis,
+  showEphemeral = true,
+}: {
+  axis: ProvisioningAxis | null
+  /** False when another badge in the same composed cell already owns the qualifier. */
+  showEphemeral?: boolean
+}) {
   if (!axis) return <UnknownBadge tooltip="Provisioning state has never been observed" />
   const state = (
     <AxisLabel color={PROVISIONING_COLORS[axis.state] ?? 'gray'} tooltip={`${axis.providerState} - ${observedAtLabel(axis.observedAt)}`}>
       {axis.state}
     </AxisLabel>
   )
-  if (!axis.ephemeral) return state
+  if (!axis.ephemeral || !showEphemeral) return state
   return (
     <HStack gap="1" flexWrap="nowrap">
       {state}

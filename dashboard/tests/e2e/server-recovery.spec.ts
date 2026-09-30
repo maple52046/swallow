@@ -16,9 +16,10 @@ test('a failed Server offers Recover and Release, but Mark fixed is gated to Bro
   })
   await page.goto('/servers?site=site-a')
 
-  // Failed is its own badge, distinct from Broken (decision 033).
+  // Provider lifecycle remains an internal action-policy input; the list shows current OS deployment.
   const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
-  await expect(row.locator('td[data-label="Deployment"]')).toContainText('Failed')
+  await expect(row.getByText('Failed', { exact: true })).toHaveCount(0)
+  await expect(row.getByText('Not deployed', { exact: true })).toBeVisible()
 
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByRole('button', { name: 'Take action' }).click()
@@ -49,7 +50,7 @@ test('the detail page explains recovery for failed and rescue Servers', async ({
   await expect(page.getByText(/Restores the pre-rescue state/)).toBeVisible()
 })
 
-test('a broken Server reads Broken and clears with Recover', async ({ page }) => {
+test('a broken Server keeps recovery actions without exposing provider state', async ({ page }) => {
   const recovered: string[] = []
   await installApiFixtures(page, {
     brokenServerIds: ['srv-1'],
@@ -57,7 +58,8 @@ test('a broken Server reads Broken and clears with Recover', async ({ page }) =>
   })
   await page.goto('/servers?site=site-a')
   const row = page.getByRole('row').filter({ hasText: 'gpu-node-01' })
-  await expect(row.locator('td[data-label="Deployment"]')).toContainText('Broken')
+  await expect(row.getByText('Broken', { exact: true })).toHaveCount(0)
+  await expect(row.getByText('Not deployed', { exact: true })).toBeVisible()
 
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByRole('button', { name: 'Take action' }).click()

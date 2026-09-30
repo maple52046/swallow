@@ -185,7 +185,10 @@ test.describe('operator interactions', () => {
     await expect(link).toBeFocused()
     await expect(link).toHaveCSS('outline-style', 'solid')
 
-    for (const route of ['/servers?site=site-a', '/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
+    await page.goto('/servers?site=site-a')
+    await expect(page.locator('.sw-server-inventory')).toBeVisible()
+
+    for (const route of ['/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
       await page.goto(route)
       await expect(page.locator('.sw-data-toolbar').first()).toHaveClass(/sw-data-toolbar--plain/)
     }
@@ -309,80 +312,60 @@ test.describe('operator interactions', () => {
     expect(mobileBox?.height ?? 844).toBeLessThanOrEqual(72)
   })
 
-  test('NetBox views, columns, selection, and MAAS actions work together', async ({ page }) => {
+  test('Server fleet keeps discovery summaries concise and exposes full hardware details', async ({ page }) => {
     await page.goto('/servers?site=site-a')
-    await page.getByLabel('Select all on this page').click()
     const table = page.getByRole('table', { name: 'Servers' })
-    await expect(table.getByRole('columnheader', { name: 'Deployment' })).toBeVisible()
-    await expect(table.getByRole('columnheader', { name: 'MAC address' })).toBeVisible()
-    await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toBeVisible()
-    await expect(table.getByRole('columnheader', { name: 'Pool', exact: true })).toBeVisible()
-    for (const heading of ['Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product']) {
-      await expect(table.getByRole('columnheader', { name: heading, exact: true })).toHaveCount(1)
+    for (const heading of ['Server', 'Power', 'Network', 'Deployment', 'Hardware', 'Placement']) {
+      await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeVisible()
     }
-    for (const [heading, minimumWidth] of Object.entries({ 'CPU cores': 112, Memory: 104, Storage: 112, 'System vendor': 160 })) {
-      expect((await table.getByRole('columnheader', { name: heading, exact: true }).boundingBox())?.width).toBeGreaterThanOrEqual(minimumWidth)
-    }
-    await expect(table.getByRole('columnheader', { name: 'Hardware', exact: true })).toHaveCount(0)
+    await expect(table.getByRole('columnheader', { name: 'Signals', exact: true })).toHaveCount(0)
+    await expect(table.getByRole('columnheader', { name: 'MAC address' })).toHaveCount(0)
+
     const firstRow = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
-    await expect(firstRow.locator('td[data-label="Deployment"]')).toHaveText('Deployed')
-    const selectionCell = firstRow.locator('td[data-label="Selection"]')
-    const powerCell = firstRow.locator('td[data-label="Power"]')
-    await expect(selectionCell).toHaveCSS('text-align', 'center')
-    await expect(selectionCell).toHaveCSS('vertical-align', 'middle')
-    await expect(selectionCell).toHaveCSS('position', 'sticky')
-    await expect(powerCell).toHaveCSS('text-align', 'center')
-    expect((await powerCell.boundingBox())?.width).toBeGreaterThanOrEqual(96)
-    await expect(powerCell).toHaveCSS('vertical-align', 'middle')
-    expect(await firstRow.locator('td').evaluateAll((cells) => cells.every((cell) => getComputedStyle(cell).verticalAlign === 'middle'))).toBe(true)
-    await expect(firstRow.locator('td[data-label="Machine"]')).not.toContainText('02:00:00:00:00:01')
-    await expect(firstRow.locator('td[data-label="MAC address"]')).toHaveText('02:00:00:00:00:01')
-    await expect(firstRow.locator('td[data-label="Zone"]')).toHaveText('rack-a')
-    await expect(firstRow.locator('td[data-label="Pool"]')).toHaveText('accelerators')
-    await expect(firstRow.locator('td[data-label="Architecture"]')).toHaveText('amd64/generic')
-    await expect(firstRow.locator('td[data-label="CPU cores"]')).toHaveText('64')
-    await expect(firstRow.locator('td[data-label="CPU model"]')).toHaveText('AMD EPYC 9554')
-    await expect(firstRow.locator('td[data-label="Memory"]')).toHaveText('512 GiB')
-    await expect(firstRow.locator('td[data-label="Storage"]')).toHaveText('3840 GB')
-    await expect(firstRow.locator('td[data-label="System vendor"]')).toHaveText('Supermicro')
-    await expect(firstRow.locator('td[data-label="System product"]')).toHaveText('AS-8125GS-TNHR')
-    expect(parseFloat(await firstRow.locator('.sw-tag-list').evaluate((element) => getComputedStyle(element).columnGap))).toBeGreaterThan(0)
-    await expect(firstRow.locator('td[data-label="GPUs"]')).toContainText('8 x')
-    const vendorLogo = firstRow.getByRole('img', { name: 'AMD GPU vendor logo' })
-    await expect(vendorLogo).toBeVisible()
-    await vendorLogo.focus()
-    await expect(page.getByRole('tooltip')).toHaveText('AMD MI300X')
-    const missingRow = table.getByRole('row').filter({ hasText: 'gpu-node-04' }).first()
-    await expect(missingRow.locator('td[data-label="Deployment"]')).toHaveText('Failed')
-    for (const label of ['Address', 'MAC address', 'Zone', 'Pool', 'Tags', 'Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product', 'GPUs']) {
-      await expect(missingRow.locator(`td[data-label="${label}"]`)).toHaveText('-')
+    await expect(firstRow).toContainText('8 × AMD MI300X')
+    await expect(firstRow).toContainText('64 cores · 512 GiB')
+    await expect(firstRow.getByText('Zone', { exact: true })).toBeVisible()
+    await expect(firstRow.getByText('rack-a', { exact: true })).toBeVisible()
+    await expect(firstRow.getByText('Pool', { exact: true })).toBeVisible()
+    await expect(firstRow.getByText('accelerators', { exact: true })).toBeVisible()
+    const identity = firstRow.locator('.sw-server-col--identity')
+    await expect(identity.getByText('gpu', { exact: true })).toBeVisible()
+    await expect(identity.getByText('production', { exact: true })).toBeVisible()
+    await expect(firstRow.getByRole('link', { name: 'gpu-node-01' })).toHaveAttribute('href', '/servers/srv-1/summary?site=site-a')
+    await expect(firstRow).toContainText('192.168.40.21')
+    await expect(firstRow).toContainText('02:00:00:00:00:01')
+    await expect(firstRow).not.toContainText('gpu-node-01.lab.example')
+    await expect(firstRow.getByText('Ubuntu 24.04 LTS', { exact: true })).toBeVisible()
+    await page.setViewportSize({ width: 1800, height: 900 })
+    for (const heading of ['Health', 'Power', 'Platform']) {
+      await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeVisible()
     }
+    await expect(firstRow.getByRole('link', { name: 'Open platform' })).toHaveAttribute('href', '/platforms/platform-a?site=site-a')
+
+    await firstRow.getByRole('button', { name: 'Show details for gpu-node-01' }).click()
+    const details = table.getByRole('row').filter({ hasText: 'SN0001' })
+    await expect(details).toContainText('02:00:00:00:00:01')
+    await expect(details).toContainText('AMD EPYC 9554')
+    await expect(details).toContainText('3840 GB')
+
+    await page.getByLabel('Select all on this page').click()
     await expect(page.getByText('4 selected')).toBeVisible()
     await page.getByRole('button', { name: 'Take action' }).click()
     await page.getByRole('menuitem', { name: 'Power', exact: true }).hover()
     await expect(page.getByRole('menuitem', { name: 'Power on' })).toBeVisible()
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Clear', exact: true }).click()
-
-    await page.getByLabel('Configure columns').click()
-    await page.getByRole('checkbox', { name: 'GPUs' }).locator('..').click()
-    await page.keyboard.press('Escape')
-    await expect(page.getByRole('columnheader', { name: 'GPUs' })).toHaveCount(0)
-
   })
 
-
-  test('legacy composed visibility migrates to independent columns', async ({ page }) => {
+  test('legacy hidden-column preference no longer changes the canonical inventory', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('swallow.servers.hidden-columns', JSON.stringify(['placement', 'hardware'])))
     await page.goto('/servers?site=site-a')
     const table = page.getByRole('table', { name: 'Servers' })
-    await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toHaveCount(0)
-    await expect(table.getByRole('columnheader', { name: 'Pool', exact: true })).toHaveCount(0)
-    for (const heading of ['Architecture', 'CPU cores', 'CPU model', 'Memory', 'Storage', 'System vendor', 'System product']) {
-      await expect(table.getByRole('columnheader', { name: heading, exact: true })).toHaveCount(0)
-    }
-    await expect(table.getByRole('columnheader', { name: 'Address', exact: true })).toBeVisible()
+    await expect(table.getByRole('columnheader', { name: 'Hardware', exact: true })).toBeVisible()
+    await expect(table.getByRole('columnheader', { name: 'Placement', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Configure columns')).toHaveCount(0)
   })
+
   test('Cockpit machine detail retains tabs and real action controls', async ({ page }) => {
     await page.goto('/servers/srv-1/summary?site=site-a')
     await expect(page.getByText('Current state', { exact: true })).toBeVisible()
