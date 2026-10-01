@@ -10,10 +10,13 @@ migration note。
 
 ## Supported development 與 installation target
 
-- Development Compose 是建議的 evaluation／contributor path。
-- Installation assets 目標是 Ubuntu 24.04 amd64。
-- Production-style Compose 需要 immutable image digest、CA-supplied TLS、
-  restricted secret 與分開管理的 third-party prerequisite。
+- Production installation 目標是一台 Ubuntu 24.04 amd64 VM：以 Docker Compose 執行
+  swallow，並共置 MAAS 3.6 region+rack。它使用 immutable image digest、產生權限受限的
+  secrets，並在 port 80 提供 plain HTTP；需要 TLS 時在前面終結。需要能連到 GHCR 與
+  `images.maas.io`。
+- Installation 只同步官方 `ubuntu/noble` amd64 OS Image；第三方 image 與 MAAS image 的
+  離線 media 尚未自動化。
+- Development Compose 是 contributor path。
 - Native Ubuntu packaging 是 incomplete preview，因為 native Temporal／PostgreSQL
   systemd packaging 尚未完成。沒有完整 orchestration topology 的 native API
   無法執行 Workflow。

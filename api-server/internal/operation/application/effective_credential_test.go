@@ -10,8 +10,17 @@ import (
 
 type stubConfigurations struct {
 	operationdomain.AutomationConfigurationRepository
-	credential operationdomain.AutomationCredential
-	err        error
+	configuration *operationdomain.AutomationConfiguration
+	credential    operationdomain.AutomationCredential
+	err           error
+}
+
+func (s stubConfigurations) FindBySiteID(context.Context, string) (*operationdomain.AutomationConfiguration, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	copied := *s.configuration
+	return &copied, nil
 }
 
 func (s stubConfigurations) Credential(context.Context, string) (operationdomain.AutomationCredential, error) {
@@ -32,6 +41,9 @@ func (s stubDeploymentKeys) HasDeploymentKey(context.Context) (bool, error) {
 	return s.ok, s.err
 }
 
+// TestEffectiveAutomationConfigurations_Credential covers decision 041: every Site's run uses
+// the Deployment Key, even if the repository were to hand back a key, and keeps the Site's
+// become password.
 func TestEffectiveAutomationConfigurations_Credential(t *testing.T) {
 	deployment := stubDeploymentKeys{privateKey: "DEPLOYMENT", ok: true}
 	tests := []struct {
@@ -43,14 +55,14 @@ func TestEffectiveAutomationConfigurations_Credential(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name:     "site private key overrides the deployment key",
+			name:     "a stored key never replaces the deployment key",
 			site:     stubConfigurations{credential: operationdomain.AutomationCredential{SSHPrivateKey: "SITE", BecomePassword: "pw"}},
 			keys:     deployment,
-			wantKey:  "SITE",
+			wantKey:  "DEPLOYMENT",
 			wantPass: "pw",
 		},
 		{
-			name:     "site without a private key uses the deployment key and keeps its become password",
+			name:     "site with a become password uses the deployment key and keeps the password",
 			site:     stubConfigurations{credential: operationdomain.AutomationCredential{BecomePassword: "pw"}},
 			keys:     deployment,
 			wantKey:  "DEPLOYMENT",
@@ -63,7 +75,7 @@ func TestEffectiveAutomationConfigurations_Credential(t *testing.T) {
 			wantKey: "DEPLOYMENT",
 		},
 		{
-			name:    "no override and no deployment key is a missing credential",
+			name:    "no deployment key is a missing credential",
 			site:    stubConfigurations{err: operationdomain.ErrAutomationCredentialMissing},
 			keys:    stubDeploymentKeys{},
 			wantErr: operationdomain.ErrAutomationCredentialMissing,
@@ -83,9 +95,62 @@ func TestEffectiveAutomationConfigurations_Credential(t *testing.T) {
 				t.Fatalf("Credential() error = %v, want %v", err, tc.wantErr)
 			}
 			if got.SSHPrivateKey != tc.wantKey || got.BecomePassword != tc.wantPass {
-				t.Errorf("Credential() = %+v, want key %q and become password %q", got, tc.wantKey, tc.wantPass)
+				t.Errorf("Credential() = key %q, become password %q; want key %q, become password %q",
+					got.SSHPrivateKey, got.BecomePassword, tc.wantKey, tc.wantPass)
 			}
 		})
+	}
+}
+
+// TestEffectiveAutomationConfigurations_FindBySiteIDGatesOnDeploymentKey is the regression test
+// for the stale gate: a Site that never stored a credential record is runnable as soon as the
+// Deployment Key exists, and is not runnable without it.
+func TestEffectiveAutomationConfigurations_FindBySiteIDGatesOnDeploymentKey(t *testing.T) {
+	tests := []struct {
+		name       string
+		enabled    bool
+		keys       stubDeploymentKeys
+		wantSource operationdomain.CredentialSource
+		wantErr    error
+	}{
+		{name: "enabled with deployment key runs", enabled: true, keys: stubDeploymentKeys{ok: true},
+			wantSource: operationdomain.CredentialSourceDeploymentKey},
+		{name: "enabled without deployment key is missing a credential", enabled: true,
+			wantSource: operationdomain.CredentialSourceNone, wantErr: operationdomain.ErrAutomationCredentialMissing},
+		{name: "disabled automation is disabled", keys: stubDeploymentKeys{ok: true},
+			wantSource: operationdomain.CredentialSourceDeploymentKey, wantErr: operationdomain.ErrAutomationDisabled},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			site := stubConfigurations{configuration: &operationdomain.AutomationConfiguration{SiteID: "site-1", Enabled: tc.enabled}}
+			got, err := NewEffectiveAutomationConfigurations(site, tc.keys).FindBySiteID(context.Background(), "site-1")
+			if err != nil {
+				t.Fatalf("FindBySiteID: %v", err)
+			}
+			if got.HasCredential {
+				t.Errorf("HasCredential = true, want false: the Site never stored a become password")
+			}
+			if got.CredentialSource != tc.wantSource {
+				t.Errorf("CredentialSource = %q, want %q", got.CredentialSource, tc.wantSource)
+			}
+			if err := got.CheckRunnable(); !errors.Is(err, tc.wantErr) {
+				t.Errorf("CheckRunnable() = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestEffectiveAutomationConfigurations_FindBySiteIDPropagatesErrors(t *testing.T) {
+	site := stubConfigurations{err: operationdomain.ErrAutomationConfigNotFound}
+	if _, err := NewEffectiveAutomationConfigurations(site, stubDeploymentKeys{ok: true}).
+		FindBySiteID(context.Background(), "site-1"); !errors.Is(err, operationdomain.ErrAutomationConfigNotFound) {
+		t.Errorf("FindBySiteID() error = %v, want ErrAutomationConfigNotFound", err)
+	}
+	keyErr := errors.New("credential key mismatch")
+	site = stubConfigurations{configuration: &operationdomain.AutomationConfiguration{Enabled: true}}
+	if _, err := NewEffectiveAutomationConfigurations(site, stubDeploymentKeys{err: keyErr}).
+		FindBySiteID(context.Background(), "site-1"); !errors.Is(err, keyErr) {
+		t.Errorf("FindBySiteID() error = %v, want the Deployment Key lookup error", err)
 	}
 }
 
@@ -107,19 +172,20 @@ func (s *stubAutomationRepo) ReplaceCredential(_ context.Context, _ string, cred
 
 func TestAutomationConfigurationService_CredentialSource(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		override bool
-		keys     DeploymentKeySource
-		want     operationdomain.CredentialSource
+		name string
+		keys DeploymentKeySource
+		want operationdomain.CredentialSource
 	}{
-		{name: "site override", override: true, keys: stubDeploymentKeys{ok: true}, want: operationdomain.CredentialSourceSite},
 		{name: "deployment key", keys: stubDeploymentKeys{ok: true}, want: operationdomain.CredentialSourceDeploymentKey},
-		{name: "none", keys: stubDeploymentKeys{}, want: operationdomain.CredentialSourceNone},
+		{name: "no deployment key", keys: stubDeploymentKeys{}, want: operationdomain.CredentialSourceNone},
+		{name: "deployment keys not wired", want: operationdomain.CredentialSourceNone},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := &stubAutomationRepo{configuration: operationdomain.AutomationConfiguration{HasPrivateKeyOverride: tc.override}}
+			repo := &stubAutomationRepo{configuration: operationdomain.AutomationConfiguration{HasCredential: true}}
 			service := NewAutomationConfigurationService(repo, nil, nil)
-			service.AttachDeploymentKeys(tc.keys)
+			if tc.keys != nil {
+				service.AttachDeploymentKeys(tc.keys)
+			}
 			got, err := service.Get(context.Background(), "site-1")
 			if err != nil {
 				t.Fatalf("Get: %v", err)
@@ -131,23 +197,13 @@ func TestAutomationConfigurationService_CredentialSource(t *testing.T) {
 	}
 }
 
-func TestAutomationConfigurationService_ReplaceCredential(t *testing.T) {
+func TestAutomationConfigurationService_ReplaceCredentialStoresOnlyBecomePassword(t *testing.T) {
 	repo := &stubAutomationRepo{}
 	service := NewAutomationConfigurationService(repo, nil, nil)
-
-	if err := service.ReplaceCredential(context.Background(), "site-1",
-		operationdomain.AutomationCredential{SSHPrivateKey: "not a key"}); !errors.Is(err, ErrInvalidOperation) {
-		t.Errorf("unparseable key error = %v, want ErrInvalidOperation", err)
-	}
-	if repo.stored != nil {
-		t.Errorf("an unparseable key must not be stored")
-	}
-
-	if err := service.ReplaceCredential(context.Background(), "site-1",
-		operationdomain.AutomationCredential{SSHPrivateKey: "   ", BecomePassword: "pw"}); err != nil {
-		t.Fatalf("become-password-only credential: %v", err)
+	if err := service.ReplaceCredential(context.Background(), "site-1", "pw"); err != nil {
+		t.Fatalf("ReplaceCredential: %v", err)
 	}
 	if repo.stored == nil || repo.stored.SSHPrivateKey != "" || repo.stored.BecomePassword != "pw" {
-		t.Errorf("stored credential = %+v, want no key override and the become password", repo.stored)
+		t.Errorf("stored credential = %+v, want only the become password", repo.stored)
 	}
 }

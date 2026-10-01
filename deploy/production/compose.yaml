@@ -1,5 +1,14 @@
 name: swallow-production
 
+# Single-VM production installation. Dashboard/Nginx is the only public listener (plain
+# HTTP). MongoDB and Temporal stay on the internal `control` network. The API, worker, and
+# Ansible executor also join `egress` so they can reach the co-located MAAS (through
+# host.docker.internal) and the Servers they deploy and configure.
+
+x-backend-hosts: &backend-hosts
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
 services:
   mongo:
     image: ${SWALLOW_MONGO_IMAGE:?set a digest-pinned SWALLOW_MONGO_IMAGE}
@@ -25,6 +34,10 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
 
+  # One PostgreSQL instance serves Temporal (temporal_core, temporal_visibility) and, on the
+  # single-VM installation, the co-located MAAS region (role `maas`, database `maasdb`,
+  # created by local-maas.sh). Each has its own database and role; nothing is shared below
+  # the instance. The port is published on loopback only, for the MAAS snap on this host.
   temporal-postgresql:
     image: ${SWALLOW_TEMPORAL_POSTGRES_IMAGE:?set a digest-pinned SWALLOW_TEMPORAL_POSTGRES_IMAGE}
     restart: unless-stopped
@@ -35,7 +48,9 @@ services:
       - temporal_db_password
     volumes:
       - temporal-postgres-data:/var/lib/postgresql/data
-    networks: [control]
+    ports:
+      - "127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}:5432"
+    networks: [control, host-postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U temporal"]
       interval: 10s
@@ -74,8 +89,11 @@ services:
       start_period: 30s
     security_opt: [no-new-privileges:true]
 
+  # Optional diagnostics UI: start it with `docker compose --profile diagnostics up -d`
+  # after setting SWALLOW_TEMPORAL_UI_IMAGE. It listens on loopback only.
   temporal-ui:
-    image: ${SWALLOW_TEMPORAL_UI_IMAGE:?set a digest-pinned SWALLOW_TEMPORAL_UI_IMAGE}
+    image: ${SWALLOW_TEMPORAL_UI_IMAGE:-}
+    profiles: [diagnostics]
     restart: unless-stopped
     depends_on:
       temporal:
@@ -93,6 +111,7 @@ services:
   api-server:
     image: ${SWALLOW_API_IMAGE:?set a digest-pinned SWALLOW_API_IMAGE}
     restart: unless-stopped
+    <<: *backend-hosts
     depends_on:
       mongo:
         condition: service_healthy
@@ -125,7 +144,7 @@ services:
     tmpfs:
       - /run/swallow/jobs:uid=10001,gid=10001,mode=0700
       - /tmp:uid=10001,gid=10001,mode=1777
-    networks: [control]
+    networks: [control, egress]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:30051/livez', timeout=2)"]
       interval: 10s
@@ -139,6 +158,7 @@ services:
     image: ${SWALLOW_API_IMAGE:?set a digest-pinned SWALLOW_API_IMAGE}
     command: ["worker"]
     restart: unless-stopped
+    <<: *backend-hosts
     depends_on:
       mongo:
         condition: service_healthy
@@ -170,7 +190,7 @@ services:
       - job-artifacts:/var/lib/swallow/jobs:ro
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777
-    networks: [control]
+    networks: [control, egress]
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -179,6 +199,7 @@ services:
     image: ${SWALLOW_API_IMAGE:?set a digest-pinned SWALLOW_API_IMAGE}
     command: ["ansible-executor"]
     restart: unless-stopped
+    <<: *backend-hosts
     depends_on:
       mongo:
         condition: service_healthy
@@ -211,7 +232,7 @@ services:
     tmpfs:
       - /run/swallow/jobs:uid=10001,gid=10001,mode=0700
       - /tmp:uid=10001,gid=10001,mode=1777
-    networks: [control]
+    networks: [control, egress]
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -224,10 +245,6 @@ services:
         condition: service_healthy
     ports:
       - "${SWALLOW_HTTP_PORT:-80}:8080"
-      - "${SWALLOW_HTTPS_PORT:-443}:8443"
-    secrets:
-      - tls_certificate
-      - tls_private_key
     networks: [edge, control]
     read_only: true
     tmpfs:
@@ -239,6 +256,8 @@ networks:
   edge:
   control:
     internal: true
+  egress:
+  host-postgres:
 
 volumes:
   mongo-data:
@@ -263,7 +282,3 @@ secrets:
     file: ./secrets/credential-key
   machine_token:
     file: ./secrets/machine-token
-  tls_certificate:
-    file: ./secrets/tls.crt
-  tls_private_key:
-    file: ./secrets/tls.key

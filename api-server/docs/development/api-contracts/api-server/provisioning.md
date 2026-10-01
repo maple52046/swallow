@@ -12,6 +12,7 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
+- Swallow installation tooling (reads the OS Image catalog to confirm `ubuntu/noble`)
 
 ## Purpose
 

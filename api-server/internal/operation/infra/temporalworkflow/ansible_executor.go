@@ -74,12 +74,17 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 			targets = append(targets, target.ID)
 		}
 	}
+	// e.configurations is the EffectiveAutomationConfigurations wrapper, which derives the
+	// credential source CheckRunnable gates on: the Site needs enabled automation and the
+	// installation needs its Deployment Key (decision 041). Both are fixed outside the
+	// Workflow, so the failure is retryable.
 	configuration, err := e.configurations.FindBySiteID(ctx, input.SiteID)
 	if err != nil {
 		return failedStep("automation_configuration_unavailable", err.Error(), true)
 	}
-	if !configuration.Enabled || !configuration.HasCredential {
-		return failedStep("automation_configuration_unavailable", "Site automation must be enabled and have a credential before this Step can run.", true)
+	if err := configuration.CheckRunnable(); err != nil {
+		return failedStep("automation_configuration_unavailable",
+			"Site automation must be enabled and the installation's Deployment Key must exist before this Step can run: "+err.Error(), true)
 	}
 	inventory, err := e.inventory.Inventory(ctx, input.SiteID)
 	if err != nil {

@@ -13,8 +13,9 @@ operation dispatcher ──> ansible-runner ──> managed hosts
 
 The `sshkey` feature (Access context, decision 039) is upstream of automation for key
 material only: `operation` reads the Deployment Key's private key through its own
-`DeploymentKeySource` port (an `internal/app` adapter), and the site credential, when it
-carries a private key, overrides it. `operation` never sees SSH Key records. The login user
+`DeploymentKeySource` port (an `internal/app` adapter) and uses it for every Site; the site
+credential carries only the become password (decision 041). `operation` never sees SSH Key
+records. The login user
 comes from the Server projection's mirrored OS Image default user (provisioning), exposed
 to the runner as the `image_default_user` inventory hostvar; the site `sshUser` and
 built-in candidates are the fallback.

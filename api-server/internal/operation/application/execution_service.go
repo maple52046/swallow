@@ -12,7 +12,6 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/pagination"
-	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/internal/shared/wire"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
@@ -142,15 +141,14 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 			return nil, err
 		}
 	}
+	// s.configurations is the EffectiveAutomationConfigurations wrapper, which derives the
+	// credential source CheckRunnable gates on.
 	configuration, err := s.configurations.FindBySiteID(ctx, siteID)
 	if err != nil {
 		return nil, err
 	}
-	if !configuration.Enabled {
-		return nil, operationdomain.ErrAutomationDisabled
-	}
-	if !configuration.HasCredential {
-		return nil, operationdomain.ErrAutomationCredentialMissing
+	if err := configuration.CheckRunnable(); err != nil {
+		return nil, err
 	}
 
 	playbook := strings.TrimSpace(input.PlaybookName)
@@ -472,37 +470,22 @@ func NewAutomationConfigurationService(configurations operationdomain.Automation
 	return &AutomationConfigurationService{configurations: configurations, sites: sites, catalog: catalog}
 }
 
-// AttachDeploymentKeys lets reads report CredentialSource deploymentKey for a Site without a
-// private-key override. Without it such a Site reports none.
+// AttachDeploymentKeys lets reads report CredentialSource deploymentKey once the Deployment Key
+// exists. Without it every Site reports none.
 func (s *AutomationConfigurationService) AttachDeploymentKeys(keys DeploymentKeySource) {
 	s.deploymentKeys = keys
 }
 
-// Get returns settings, credential presence, and the effective credential source; never secrets.
+// Get returns settings, become-password presence, and the credential source; never secrets.
+// The source uses the same derivation as EffectiveAutomationConfigurations, so a Site reported
+// as deploymentKey is one automation can run.
 func (s *AutomationConfigurationService) Get(ctx context.Context, siteID string) (*operationdomain.AutomationConfiguration, error) {
 	configuration, err := s.configurations.FindBySiteID(ctx, siteID)
 	if err != nil {
 		return nil, err
 	}
-	return s.withCredentialSource(ctx, configuration)
-}
-
-// withCredentialSource derives the Site's effective credential source with the same precedence
-// EffectiveAutomationConfigurations applies at run time: a site private key overrides, else the
-// Deployment Key.
-func (s *AutomationConfigurationService) withCredentialSource(ctx context.Context, configuration *operationdomain.AutomationConfiguration) (*operationdomain.AutomationConfiguration, error) {
-	configuration.CredentialSource = operationdomain.CredentialSourceNone
-	switch {
-	case configuration.HasPrivateKeyOverride:
-		configuration.CredentialSource = operationdomain.CredentialSourceSite
-	case s.deploymentKeys != nil:
-		exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			configuration.CredentialSource = operationdomain.CredentialSourceDeploymentKey
-		}
+	if configuration.CredentialSource, err = credentialSource(ctx, s.deploymentKeys); err != nil {
+		return nil, err
 	}
 	return configuration, nil
 }
@@ -540,20 +523,12 @@ func (s *AutomationConfigurationService) Put(ctx context.Context, configuration 
 	return s.Get(ctx, configuration.SiteID)
 }
 
-// ReplaceCredential validates and writes encrypted secrets, replacing the whole site credential.
-// An empty private key clears the site override so the Site uses the Deployment Key; a non-empty
-// one must parse as an unencrypted private key, because automation uses it unattended and a key
-// that cannot be parsed would only fail later, deep inside a Workflow.
-func (s *AutomationConfigurationService) ReplaceCredential(ctx context.Context, siteID string, credential operationdomain.AutomationCredential) error {
-	if strings.TrimSpace(credential.SSHPrivateKey) != "" {
-		credential.SSHPrivateKey = strings.TrimSpace(credential.SSHPrivateKey) + "\n"
-		if _, err := sshprobe.ParseSigner(credential.SSHPrivateKey); err != nil {
-			return fmt.Errorf("%w: sshPrivateKey is not a usable unencrypted private key", ErrInvalidOperation)
-		}
-	} else {
-		credential.SSHPrivateKey = ""
-	}
-	return s.configurations.ReplaceCredential(ctx, siteID, credential)
+// ReplaceCredential seals becomePassword as the Site's whole credential, replacing what it
+// stored before; an empty password clears it. It never accepts SSH key material: the Deployment
+// Key is the only automation key (decision 041), and delivery refuses a request that carries
+// one. An unconfigured Site is ErrAutomationConfigNotFound.
+func (s *AutomationConfigurationService) ReplaceCredential(ctx context.Context, siteID, becomePassword string) error {
+	return s.configurations.ReplaceCredential(ctx, siteID, operationdomain.AutomationCredential{BecomePassword: becomePassword})
 }
 
 // LogsForRun reads retained output for a durable Ansible Step by its external run ID.
@@ -659,11 +634,8 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 	if err != nil {
 		return nil, err
 	}
-	if !configuration.Enabled {
-		return nil, operationdomain.ErrAutomationDisabled
-	}
-	if !configuration.HasCredential {
-		return nil, operationdomain.ErrAutomationCredentialMissing
+	if err := configuration.CheckRunnable(); err != nil {
+		return nil, err
 	}
 	playbook := strings.TrimSpace(input.PlaybookName)
 	if playbook == "" {

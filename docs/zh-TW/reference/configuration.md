@@ -36,8 +36,9 @@
 Compose 將它留空並使用 Vite same-origin proxy。更改 Vite environment variable
 後需 restart／rebuild Dashboard。
 
-Production 透過同一個 Nginx/TLS origin 提供 Dashboard 與 API；MongoDB、Temporal、
-worker 與 executor 保持 internal。
+Production 透過同一個 Nginx origin 以 plain HTTP（預設 port 80）提供 Dashboard 與 API；
+MongoDB 與 Temporal 保持 internal，API、worker 與 executor 經 `egress` network 連 MAAS 與
+Server。Installation 開放到受信任網路之外時，請在前面終結 TLS。
 
 ## CLI configuration
 
@@ -54,5 +55,6 @@ CLI resolution order：
 ## Installation secrets
 
 Compose／native assets 會定義 exact secret file contract。Secret directory 不得進
-source control；credential key 必須與 MongoDB、artifact 一起備份，CA material
-依選定 installation path 安裝。
+source control；credential key 必須與 MongoDB、artifact 一起備份。Production installation
+會在 `production/secrets/` 產生所有 secrets，包含共置 MAAS 的 database password、admin
+password 與 API key。

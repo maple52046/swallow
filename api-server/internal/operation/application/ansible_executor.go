@@ -161,7 +161,7 @@ func (w *AnsibleQueueWorker) execute(ctx context.Context, execution *operationdo
 	var configuration *operationdomain.AutomationConfiguration
 	if execution.Configuration != nil {
 		configuration = &operationdomain.AutomationConfiguration{
-			SiteID: execution.SiteID, Enabled: true, HasCredential: true,
+			SiteID: execution.SiteID, Enabled: true,
 			SSHUser: execution.Configuration.SSHUser, SSHPort: execution.Configuration.SSHPort,
 			KnownHosts: execution.Configuration.KnownHosts,
 		}

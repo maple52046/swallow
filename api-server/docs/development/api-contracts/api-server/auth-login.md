@@ -12,6 +12,7 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
+- Swallow installation tooling (post-install bootstrap and `swallowctl doctor`)
 
 ## Purpose
 

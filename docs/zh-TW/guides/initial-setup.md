@@ -5,6 +5,9 @@
 初始設定會建立 Site boundary、external Integration，以及 swallow 管理 Server 前
 所需的 automation policy。
 
+[Production installation](../installation.md) 已經為 Site `default` 與共置的 MAAS 完成
+步驟 1、2、4。本指南可用來檢查該結果、新增其他 Site，或設定 development stack。
+
 ## 1. 建立 Site
 
 在 **Infrastructure → Sites** 建立簡短的 operator-facing name 與 optional
@@ -43,11 +46,11 @@ Site automation 定義：
 
 - SSH port，以及選填的退回用 SSH user（會先使用每個 OS image 的 default user）。
 - Mandatory known-host entries。
-- Write-only credentials：選填、可覆寫安裝層級 deployment key 的私鑰，以及 become password。
+- 選填的 write-only become password。
 - Allowlisted manifest playbook mappings。
 
-Deployment key 會在安裝時（`swallowctl install`）產生，並由 API 自動註冊到 MAAS，因此大多數 Site 不需要自己的私鑰。
-見 [SSH key 與 image 登入帳號](ssh-keys.md)。
+Automation 一律以安裝層級的 deployment key 登入；它在安裝時（`swallowctl install`）產生，並由 API
+自動註冊到 MAAS，Site 沒有自己的私鑰。見 [SSH key 與 image 登入帳號](ssh-keys.md)。
 
 只有 shipped manifest 內的 playbook 可以執行。Automation 不是 external
 Integration，而是 Site-scoped swallow capability。

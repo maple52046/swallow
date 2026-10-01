@@ -14,8 +14,8 @@
   Deployments through that provisioner authorize it, and records a per-Integration sync
   state (`synced`, `pending`, `failed`, `unsupported`).
 - Disallowed meaning: Not a login credential swallow holds for a person — swallow never
-  stores an Access Key's private key. Not the Site Automation Configuration's optional
-  private-key override. Not a provider-owned fact: the provisioner's own key list is a
+  stores an Access Key's private key. Not a per-Site automation key: Sites have none and
+  automation always uses the Deployment Key. Not a provider-owned fact: the provisioner's own key list is a
   realization target, and keys an operator added there directly are not SSH Keys and are
   never removed by swallow. Not a guarantee that already-deployed Servers change: a
   provisioner injects keys at OS Deployment time only.

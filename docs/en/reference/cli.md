@@ -5,10 +5,18 @@
 The `swallow` binary is the operator command-line client. It is a separate Go
 module from `swallow-api` and communicates only through the published HTTP API.
 
-## Install from source
+## Install
 
-No stable packaged release is currently published. Build the active-development
-binary from the repository:
+The production installation installs the CLI at `/usr/local/bin/swallow`. On another
+Linux amd64 host, download the `swallow-linux-amd64` release asset (listed in the release
+`SHA256SUMS`) or run the `cli-<version>` image from `ghcr.io/<owner>/swallow`:
+
+```bash
+sudo install -m 0755 swallow-linux-amd64 /usr/local/bin/swallow
+swallow --help
+```
+
+To build the active-development binary from the repository instead:
 
 ```bash
 cd cli
@@ -20,7 +28,7 @@ bin/swallow --help
 
 ```bash
 printf '%s\n' "$PASSWORD" |
-  swallow --endpoint https://swallow.example \
+  swallow --endpoint http://swallow.example \
   login -u admin --password-stdin
 swallow auth me
 ```

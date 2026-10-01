@@ -9,7 +9,9 @@ COPY dashboard/ ./
 RUN npm run build
 
 FROM ${NGINX_IMAGE}
+LABEL org.opencontainers.image.source="https://github.com/maple52046/swallow" \
+      org.opencontainers.image.description="swallow Dashboard and API reverse proxy"
 COPY deploy/production/nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /src/dist /usr/share/nginx/html
 USER 101:101
-EXPOSE 8080 8443
+EXPOSE 8080

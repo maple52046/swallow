@@ -188,8 +188,8 @@ func (e platformWorkflowStepExecutor) recordSoftwareAssignment(ctx context.Conte
 const sshAuthGracePeriod = 45 * time.Second
 
 // waitForSSH blocks until every target host is not just reachable on the SSH port but actually
-// accepts the automation key (the Site override, else the Deployment Key — the configurations
-// repository is the effective-credential decorator) as the host's login user. Authenticating here
+// accepts the automation key (the Deployment Key, decision 041 — the configurations repository is
+// the effective-credential decorator) as the host's login user. Authenticating here
 // (rather than only probing TCP) closes the gap where "SSH verified" meant only "port open": a host
 // whose login user does not authorize the key now fails at this step with a clear credential
 // message, instead of connecting far later in the Ansible Step and failing with a raw
@@ -221,7 +221,7 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 				// A malformed key can never authenticate, so waiting is pointless; fail with a clear,
 				// non-retryable reason pointing at the automation credential.
 				return internalStepFailed("ssh_key_invalid",
-					"The automation SSH private key (site override or Deployment Key) could not be parsed: "+parseErr.Error(), false)
+					"The Deployment Key's SSH private key could not be parsed: "+parseErr.Error(), false)
 			}
 			signer = parsed
 		}

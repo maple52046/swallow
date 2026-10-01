@@ -12,6 +12,7 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
+- Swallow installation tooling (registers the co-located MAAS and waits for its sync)
 
 ## Purpose
 
@@ -36,9 +37,25 @@ DELETE /api/v1/integrations/{id}
 ```
 
 A Site response contains `id`, `name`, `description`, `createdAt`, and
-`updatedAt`. An Integration response contains identity, `siteId`, `kind`,
-`providerKind`, `name`, `endpoint`, `settings`, `enabled`, sync status,
-and timestamps. Credentials are write-only and never appear in a response.
+`updatedAt`. An Integration response contains `id`, `siteId`, `kind`,
+`providerKind`, `name`, `endpoint`, `settings`, `enabled`, `hasCredential`, `sync`,
+`createdAt`, and `updatedAt`. Credentials are write-only and never appear in a response;
+`hasCredential` only reports whether one is stored.
+
+`sync` reports provider freshness so a reader can tell "last synced 14 minutes ago" from
+"up to date":
+
+```json
+{
+  "lastStartedAt": "2026-10-01T00:00:00Z",
+  "lastSucceededAt": "2026-10-01T00:00:01Z",
+  "lastError": null
+}
+```
+
+Each field is `null` until it first applies. A failed sync sets `lastError` and keeps the
+previous `lastSucceededAt`, so a reader sees both that the last attempt failed and how old
+the data is; the next successful sync clears `lastError` back to `null`.
 
 Create returns `201`; reads and updates return `200`. Deletes and credential
 replacement return `{"success": true}`. Missing resources return

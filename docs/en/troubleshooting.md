@@ -16,11 +16,25 @@ docker compose logs api-server worker ansible-executor temporal
 - A healthy API with stuck Workflows usually means Temporal, the worker, or the
   Ansible executor is unavailable.
 
+## `swallowctl doctor` reports a failure
+
+Run `sudo ./swallowctl doctor` in `production/`; each `FAIL` line names one connection.
+
+- **Image pull denied:** the GHCR package is private. Make it public or run
+  `docker login ghcr.io` before installing.
+- **Worker does not poll the task queue:** read `docker compose logs worker`; it needs
+  MongoDB, the database schema, and Temporal.
+- **MAAS has no complete `ubuntu/noble`:** the VM cannot reach `images.maas.io`, or the
+  import is still running. Rerun `sudo ./local-maas.sh ensure-image`.
+- **MAAS Integration not synced:** the line shows the Integration's last error. The API
+  reaches MAAS at `http://host.docker.internal:5240/MAAS`; confirm MAAS answers on port
+  5240 and that `secrets/maas-api-key` is current, then rerun `sudo ./bootstrap.sh apply`.
+
 ## Login fails
 
 - Confirm the endpoint points to the API root, not `/api/v1` twice.
-- Development defaults are `admin` / `admin`; other installations use their
-  bootstrap configuration.
+- Development defaults are `admin` / `admin`. The production installation generates the
+  admin password in `production/secrets/bootstrap-admin-password`.
 - A CLI profile can be overridden by environment variables or flags. Run with
   an explicit `--endpoint` while diagnosing.
 - An expired token requires login again; consumers must not decode JWT expiry.
@@ -52,8 +66,8 @@ credential again.
 ## Monitoring is empty
 
 - Confirm the metrics Integration is configured for the selected Site.
-- Verify Prometheus can call service discovery with the machine token and trust
-  the swallow CA.
+- Verify Prometheus can call service discovery with the machine token (and trusts the
+  CA of any TLS terminator in front of swallow).
 - Confirm exporters are installed and reachable at the discovered targets.
 - Missing metric data is unknown, not proof of failure.
 

@@ -10,9 +10,10 @@
 要求 MAAS 等 provisioner 在 managed Server 安裝 OS。
 
 - `dev/` — source-based development golden path。
-- `testing/` — digest-pinned candidate installation 與 isolated test data。
-- `production/` — Compose installation lifecycle 與 native preview。
-- `release/` — candidate assembly 與 SemVer promotion tooling。
+- `testing/` — digest-pinned release validation 與 isolated test data。
+- `production/` — 單一 VM production installation（`swallowctl install`：Compose stack、
+  共置 MAAS 與 bootstrap）與 native preview。
+- `release/` — 在工作機發佈 release 的工具（`publish.sh`）；專案沒有 CI。
 - `third-party/` — 分開 version 的 prerequisite 與 offline media contract。
 
 swallow 正在積極開發，尚無 stable SemVer release。Native path 在 Temporal／

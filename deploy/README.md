@@ -12,9 +12,10 @@ asking a provisioner such as MAAS to install an operating system on a managed
 Server.
 
 - `dev/` — source-based development golden path.
-- `testing/` — digest-pinned candidate installations with isolated data.
-- `production/` — Compose installation lifecycle and native preview assets.
-- `release/` — candidate assembly and SemVer promotion tooling.
+- `testing/` — digest-pinned release validation with isolated data.
+- `production/` — the single-VM production installation (`swallowctl install`: Compose
+  stack, co-located MAAS, and bootstrap) and native preview assets.
+- `release/` — workstation release publication (`publish.sh`); the project has no CI.
 - `third-party/` — separately versioned prerequisites and offline media contracts.
 
 swallow is in active development and has no stable SemVer release. The native

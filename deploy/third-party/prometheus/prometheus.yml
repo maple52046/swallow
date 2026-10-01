@@ -2,23 +2,21 @@ global:
   scrape_interval: 30s
   evaluation_interval: 30s
 
+# The production installation serves swallow over plain HTTP on port 80. When a TLS
+# terminator fronts it, switch each URL to https and add a tls_config with its CA.
 scrape_configs:
   - job_name: swallow-api
-    scheme: https
+    scheme: http
     static_configs:
       - targets: [swallow.example.internal]
     metrics_path: /metrics
-    tls_config:
-      ca_file: /run/secrets/swallow-ca.crt
     authorization:
       credentials_file: /run/secrets/swallow-machine-token
 
   - job_name: site-node-exporter
     http_sd_configs:
-      - url: https://swallow.example.internal/api/v1/discovery/prometheus?port=9100
+      - url: http://swallow.example.internal/api/v1/discovery/prometheus?port=9100
         refresh_interval: 60s
-        tls_config:
-          ca_file: /run/secrets/swallow-ca.crt
         authorization:
           credentials_file: /run/secrets/swallow-machine-token
 
@@ -26,10 +24,8 @@ scrape_configs:
   # never produces a failing target on a CPU-only host. The RDC exporter listens on 5000.
   - job_name: site-rdc-exporter
     http_sd_configs:
-      - url: https://swallow.example.internal/api/v1/discovery/prometheus?port=5000&tag=amd-gpu
+      - url: http://swallow.example.internal/api/v1/discovery/prometheus?port=5000&tag=amd-gpu
         refresh_interval: 60s
-        tls_config:
-          ca_file: /run/secrets/swallow-ca.crt
         authorization:
           credentials_file: /run/secrets/swallow-machine-token
 

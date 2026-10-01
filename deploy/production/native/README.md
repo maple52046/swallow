@@ -2,7 +2,7 @@
 
 [繁體中文](README.zh-TW.md) · [Installation choices](../../../docs/en/installation.md)
 
-The release workflow assembles this template into a self-contained native bundle with
+[`publish.sh`](../../release/publish.sh) assembles this template into a self-contained native bundle with
 `bin/swallow-api`, dashboard assets, automation, an offline Python wheelhouse, systemd and
 Nginx files, and separately checksummed MongoDB/Nginx packages.
 

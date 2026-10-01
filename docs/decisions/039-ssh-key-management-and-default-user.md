@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-10-01
 
+> The Site private-key override in "Effective credential" below is superseded by
+> [ADR 041](041-deployment-key-only-automation.md): automation now uses only the Deployment Key.
+
 ## Context
 
 swallow logs in to the Servers it deploys for SSH readiness (`wait-for-ssh`) and Ansible

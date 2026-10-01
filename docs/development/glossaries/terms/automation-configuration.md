@@ -5,12 +5,12 @@ Swallow's embedded Ansible executor. It owns the SSH user and port, verified kno
 and the mapping from each operation kind to a playbook name registered in the release
 manifest.
 
-The SSH private key and optional become password are write-only credentials. They are
-encrypted at rest and are represented to API consumers only by `hasCredential`.
-
-The site SSH private key is an optional override. When it is absent, automation uses the
-installation's Deployment Key; the effective source is reported as `credentialSource`
-(`site`, `deploymentKey`, or `none`). The become password is always site-scoped.
+Automation always logs in with the installation's Deployment Key; a Site cannot carry its
+own SSH private key. The Site's only secret is the optional write-only become password,
+encrypted at rest and represented to API consumers only by `hasCredential`. The effective
+key source is reported as `credentialSource` (`deploymentKey`, or `none` before the
+installation step has created the Deployment Key). Ansible may run for a Site when
+automation is enabled and the Deployment Key exists.
 
 The login user is resolved per host: when the Server's deployed OS Image has an effective
 default user, that user is used exclusively; otherwise the site SSH user is tried first,
@@ -27,4 +27,7 @@ See also: [Operation](operation.md), [Server Lock](server-lock.md),
 
 Change note: Updated 2026-10-01 so the site private key is an optional override of the
 Deployment Key and the login user prefers the OS Image default user, per
-[decision 039](../../../decisions/039-ssh-key-management-and-default-user.md).
+[decision 039](../../../decisions/039-ssh-key-management-and-default-user.md). Updated
+2026-10-02 to remove the site private-key override: automation uses only the Deployment
+Key and a Site stores only its become password, per
+[decision 041](../../../decisions/041-deployment-key-only-automation.md).

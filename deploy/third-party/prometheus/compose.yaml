@@ -12,7 +12,6 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./secrets/machine-token:/run/secrets/swallow-machine-token:ro
-      - ./secrets/swallow-ca.crt:/run/secrets/swallow-ca.crt:ro
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"

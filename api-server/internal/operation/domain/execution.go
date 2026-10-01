@@ -44,43 +44,62 @@ type ExecutionOperation struct {
 // AutomationConfiguration is the single embedded-runner configuration for a site.
 //
 // SSHUser is a fallback login user: automation first uses each Server's deployed OS Image
-// default user (decision 039). HasCredential reports that a site credential record exists;
-// HasPrivateKeyOverride reports that it carries an SSH private key overriding the Deployment
-// Key. CredentialSource is derived for reads by AutomationConfigurationService and is never
-// persisted.
+// default user (decision 039). Every Site logs in with the installation's Deployment Key and
+// cannot carry its own SSH key (decision 041). HasCredential reports that the Site stores a
+// become password. CredentialSource is derived by the reader (AutomationConfigurationService
+// for API reads, EffectiveAutomationConfigurations for automation) and is never persisted; a
+// configuration read straight from the repository leaves it empty.
 type AutomationConfiguration struct {
-	SiteID                string
-	Enabled               bool
-	SSHUser               string
-	SSHPort               int
-	KnownHosts            string
-	PlaybookMappings      map[WorkflowKind]string
-	HasCredential         bool
-	HasPrivateKeyOverride bool
-	CredentialSource      CredentialSource
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	SiteID           string
+	Enabled          bool
+	SSHUser          string
+	SSHPort          int
+	KnownHosts       string
+	PlaybookMappings map[WorkflowKind]string
+	HasCredential    bool
+	CredentialSource CredentialSource
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// CheckRunnable reports whether Ansible may run for the Site: automation must be enabled and
+// the Deployment Key, the only automation SSH key, must exist. It returns ErrAutomationDisabled
+// or ErrAutomationCredentialMissing otherwise, both of which an operator fixes outside the
+// Workflow (enable automation, or run the installation step that creates the key).
+//
+// The configuration must come from a reader that derives CredentialSource; one read straight
+// from the repository has an empty source and is reported as missing a credential.
+func (c *AutomationConfiguration) CheckRunnable() error {
+	if !c.Enabled {
+		return ErrAutomationDisabled
+	}
+	if c.CredentialSource != CredentialSourceDeploymentKey {
+		return ErrAutomationCredentialMissing
+	}
+	return nil
 }
 
 // CredentialSource is the closed set of places a Site's effective automation SSH key comes from
-// (glossary Automation Configuration).
+// (glossary Automation Configuration). Since decision 041 the only key is the Deployment Key, so
+// the set says whether it exists.
 type CredentialSource string
 
 const (
-	// CredentialSourceSite means the site credential's private key overrides the Deployment Key.
-	CredentialSourceSite CredentialSource = "site"
-	// CredentialSourceDeploymentKey means the Site has no override and uses the Deployment Key.
+	// CredentialSourceDeploymentKey means the Deployment Key exists and automation uses it.
 	CredentialSourceDeploymentKey CredentialSource = "deploymentKey"
-	// CredentialSourceNone means neither exists, which only happens when the installation step
-	// that creates the Deployment Key has not run.
+	// CredentialSourceNone means no Deployment Key exists, which only happens when the
+	// installation step that creates it has not run.
 	CredentialSourceNone CredentialSource = "none"
 )
 
-// AutomationCredential is write-only API input and encrypted repository output. An empty
-// SSHPrivateKey means the Site has no private-key override and uses the Deployment Key.
+// AutomationCredential is the secret material one automation run needs: the SSH private key it
+// authenticates with and the Site's become password. Only BecomePassword is ever stored per
+// Site; SSHPrivateKey is filled from the Deployment Key by EffectiveAutomationConfigurations
+// and is empty in anything the repository returns. Neither value may be logged or persisted
+// outside the sealed credential and the run's private directory.
 type AutomationCredential struct {
-	SSHPrivateKey  string `json:"sshPrivateKey"`
-	BecomePassword string `json:"becomePassword,omitempty"`
+	SSHPrivateKey  string
+	BecomePassword string
 }
 
 var (

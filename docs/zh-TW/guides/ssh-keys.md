@@ -42,10 +42,11 @@ Server 上登入所用的帳號。
 
 Image 沒有 default user 時，swallow 會退回 Site 的 SSH user，再依序嘗試 `cloud-user` 與 `ubuntu`。
 
-## Site override
+## 所有 Site 使用同一把 key
 
-Site 的 automation credential 仍可帶自己的私鑰；有設定時，該 Site 會用它取代 deployment key。
-留空即使用 deployment key。Site 的 SSH user 為選填，只作為上述的退回選項。
+每個 Site 的 automation 都以 deployment key 登入；Site 不能另帶自己的私鑰。要全面改用另一把 key，
+請替換 deployment key（本頁的 **Replace**，或 `swallow ssh-keys deployment replace`）。Site 的
+automation credential 只保存選填的 become password；Site 的 SSH user 為選填，只作為上述的退回選項。
 
 ## 備份
 

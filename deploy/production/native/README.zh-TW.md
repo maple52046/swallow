@@ -2,7 +2,7 @@
 
 [English](README.md) · [Installation 選擇](../../../docs/zh-TW/installation.md)
 
-Release workflow 會將此 template 組成 self-contained native bundle，包含
+[`publish.sh`](../../release/publish.sh) 會將此 template 組成 self-contained native bundle，包含
 `bin/swallow-api`、Dashboard assets、automation、offline Python wheelhouse、
 systemd／Nginx files，以及 separately checksummed MongoDB/Nginx packages。
 

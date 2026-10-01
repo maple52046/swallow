@@ -6,13 +6,13 @@
 #     post-install seed runs `swallow-api deployment-key ensure` inside the api container),
 #   - registers a site,
 #   - (optional) a MAAS provisioner integration, so lab machines reconcile into servers,
-#   - site automation settings (and an optional site SSH key override; by default the
-#     API-generated Deployment Key is used), so exporter playbooks can run,
+#   - site automation settings (automation always logs in with the Deployment Key) and an
+#     optional become password, so exporter playbooks can run,
 #   - the install/uninstall-exporters playbook mappings,
 #   - a metrics integration pointing at the in-compose Prometheus, so the dashboard can
 #     read metrics.
 #
-# Everything site- or environment-specific (MAAS URL/key, SSH key, known_hosts) comes from
+# Everything site- or environment-specific (MAAS URL/key, become password, known_hosts) comes from
 # the environment or a .env file, so nothing secret is committed. Values left unset skip
 # the step that needs them, with a printed note.
 set -euo pipefail
@@ -43,7 +43,6 @@ grafana_url="${SWALLOW_GRAFANA_URL:-}"
 ssh_user="${SWALLOW_SSH_USER:-ubuntu}"
 ssh_port="${SWALLOW_SSH_PORT:-22}"
 ssh_known_hosts="${SWALLOW_SSH_KNOWN_HOSTS:-}"
-ssh_private_key="${SWALLOW_SSH_PRIVATE_KEY:-}"
 become_password="${SWALLOW_BECOME_PASSWORD:-}"
 
 maas_url="${SWALLOW_MAAS_URL:-}"
@@ -120,20 +119,17 @@ curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/automa
   >/dev/null
 printf 'automation configured (enabled=%s), exporter playbooks mapped\n' "${automation_enabled}"
 
-# --- site automation credential (optional) ---
-# The Deployment Key created above is registered in MAAS by the API, so a Site needs
-# no key of its own. SWALLOW_SSH_PRIVATE_KEY overrides it for this Site (for hosts deployed
-# outside swallow); SWALLOW_BECOME_PASSWORD alone is stored without a key override.
-if [[ -n "${ssh_private_key}" || -n "${become_password}" ]]; then
+# --- site become password (optional) ---
+# Automation always logs in with the Deployment Key created above, which the API registers in
+# MAAS (decision 041); a Site stores only its become password.
+if [[ -n "${become_password}" ]]; then
   curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/automation/credential" \
     -H 'Content-Type: application/json' \
-    --data-binary "$(jq -nc --arg key "${ssh_private_key}" --arg become "${become_password}" \
-      '(if $key == "" then {} else {sshPrivateKey:$key} end) + (if $become == "" then {} else {becomePassword:$become} end)')" \
+    --data-binary "$(jq -nc --arg become "${become_password}" '{becomePassword:$become}')" \
     >/dev/null
-  printf 'automation site credential stored\n'
-else
-  printf 'using the Deployment Key for automation (set SWALLOW_SSH_PRIVATE_KEY to override it for this Site)\n'
+  printf 'site become password stored\n'
 fi
+printf 'automation logs in with the Deployment Key\n'
 
 cat <<EOF
 

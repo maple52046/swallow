@@ -56,12 +56,13 @@ one swallow logs in as on Servers deployed with it.
 When an image has no default user, swallow falls back to the Site's SSH user and
 then tries `cloud-user` and `ubuntu`.
 
-## Site overrides
+## One key for every Site
 
-A Site's automation credential can still carry its own private key; when it does,
-that Site uses it instead of the deployment key. Leave it empty to use the
-deployment key. The Site's SSH user is optional and is only the fallback described
-above.
+Every Site's automation logs in with the deployment key; a Site cannot carry its own
+private key. To use another key everywhere, replace the deployment key (**Replace**
+on this page, or `swallow ssh-keys deployment replace`). A Site's automation
+credential holds only the optional become password, and its SSH user is optional and
+only the fallback described above.
 
 ## Backups
 

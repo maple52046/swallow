@@ -5,12 +5,13 @@
   "platforms": ["linux-amd64", "ubuntu-24.04-amd64"],
   "schemaVersions": {"mongo": 3, "playbookManifest": 1},
   "images": {
-    "api": "ghcr.io/example/swallow-api@sha256:REPLACE",
-    "dashboard": "ghcr.io/example/swallow-dashboard@sha256:REPLACE",
-    "mongo": "mongo@sha256:REPLACE",
-    "temporalPostgres": "postgres@sha256:REPLACE",
-    "temporalServer": "temporalio/auto-setup@sha256:REPLACE",
-    "temporalUI": "temporalio/ui@sha256:REPLACE"
+    "api": "ghcr.io/maple52046/swallow@sha256:REPLACE",
+    "dashboard": "ghcr.io/maple52046/swallow@sha256:REPLACE",
+    "cli": "ghcr.io/maple52046/swallow@sha256:REPLACE",
+    "mongo": "ghcr.io/maple52046/swallow@sha256:REPLACE",
+    "temporalPostgres": "ghcr.io/maple52046/swallow@sha256:REPLACE",
+    "temporalServer": "ghcr.io/maple52046/swallow@sha256:REPLACE",
+    "temporalUI": "ghcr.io/maple52046/swallow@sha256:REPLACE"
   },
   "compatibility": {
     "host": "ubuntu-24.04-amd64",
@@ -23,6 +24,7 @@
     "ociArchive": "swallow-oci-1.0.0.tar",
     "nativeBundle": "swallow-native-1.0.0.tar.zst",
     "composeBundle": "swallow-compose-1.0.0.tar.zst",
+    "cliBinary": "swallow-linux-amd64",
     "thirdPartyMediaManifest": "offline-media-manifest.json"
   },
   "upgrade": {

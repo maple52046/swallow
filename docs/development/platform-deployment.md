@@ -179,7 +179,7 @@ Task 帶 Job，所有 Task 都必須帶 Job**（Temporal 只要偵測到任一 J
 
 | Runner（glossary） | code 值 | 負責的 Task kind | 行為 |
 | --- | --- | --- | --- |
-| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`noop` | swallow 自身邏輯：**驗證式 SSH 就緒**（以 automation 金鑰——站台 override，否則 Deployment Key——對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
+| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`noop` | swallow 自身邏輯：**驗證式 SSH 就緒**（以 Deployment Key 對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
 | `ansible` | `ansible` | `ansible-playbook` | 在遠端主機跑一支 manifest 註冊的 idempotent playbook |
 | `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 vendor adapter（MAAS/Ironic）驅動 OS provisioning，含佈署後 SSH 就緒；佈署前先確保 provisioner 持有 swallow 的 SSH Keys（見 §4.6.1） |
 
@@ -294,12 +294,13 @@ operator 維護 `knownHosts`。
 
 ### 4.6.1 SSH readiness 是「驗證式」，SSH 使用者為 per-host 解析
 
-**automation 金鑰來源**（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)）：站台
-Automation Configuration 若設有 `sshPrivateKey` 則以它為準（override），否則使用安裝時自動產生的
+**automation 金鑰來源**（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)、
+[decision 041](../decisions/041-deployment-key-only-automation.md)）：所有站台一律使用安裝時自動產生的
 **Deployment Key**（ed25519，私鑰加密存於 MongoDB；由 `swallow-api deployment-key ensure` 建立，`swallowctl
-install`／`upgrade` 於 migrate 後執行，API 啟動不建立也不依賴它）。Platform deploy 與 OS 佈署在受理時先確認
-Deployment Key 存在，缺少時以 `409 conflict` 拒絕並指出該指令。此優先序集中在 `EffectiveAutomationConfigurations`，
-`wait-for-ssh`、ansible executor 與 host-user prober 皆經由它取得金鑰。Deployment Key 與使用者的 Access Keys
+install`／`upgrade` 於 migrate 後執行，API 啟動不建立也不依賴它），站台不能另設私鑰。Platform deploy 與 OS 佈署
+在受理時先確認 Deployment Key 存在，缺少時以 `409 conflict` 拒絕並指出該指令；Ansible 可執行的條件是站台
+automation 已啟用且 Deployment Key 存在。金鑰集中由 `EffectiveAutomationConfigurations` 提供，
+`wait-for-ssh`、ansible executor 與 host-user prober 皆經由它取得。Deployment Key 與使用者的 Access Keys
 會依 capability-first 註冊到 provisioner（MAAS 的 API-key 使用者 SSH keys），MAAS 佈署時由 cloud-init 寫入
 image 的 default user；每次 OS 佈署前 swallow 會先確保 provisioner 持有 Deployment Key，失敗時 `provision-os`
 以 retryable 的 `ssh_key_registration_failed` 停下，而不是佈出無法管理的主機。
@@ -324,7 +325,7 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
 - **auth 失敗會 fail fast**：所有候選帳號都被拒（publickey）不會靠等待自行修好，因此在一段短暫的
   grace（約 45 秒，容忍剛佈署後 cloud-init 尚未寫入 `authorized_keys` 的競態）後就以
   `ssh_authentication_failed`（stage `ssh_authentication`，retryable）結束，訊息列出被拒的 host 與各自試過
-  的帳號，並提示檢查 OS Image 的 default user 以及 Deployment Key（或站台 override）是否已授權。
+  的帳號，並提示檢查 OS Image 的 default user 以及 Deployment Key 是否已授權。
 - **still-booting 仍用完整 readiness window**：純連線層失敗（TCP、handshake 前）或尚未觀測到位址者，
   沿用 20 分鐘上限持續輪詢。
 - 認證探測只送出**簽章、不送私鑰**；host-key 的權威驗證仍由 ansible run（§4.6）負責，故此探測本身

@@ -12,6 +12,7 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
+- Swallow installation tooling (checks that the Deployment Key exists)
 
 ## Purpose
 

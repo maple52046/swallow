@@ -37,8 +37,10 @@ stored credentials unreadable.
 development Compose stack leaves it empty and uses Vite's same-origin proxy.
 Restart/rebuild the Dashboard after changing a Vite environment variable.
 
-Production serves Dashboard and API through the same Nginx/TLS origin; MongoDB,
-Temporal, worker, and executor stay internal.
+Production serves Dashboard and API through the same Nginx origin over plain HTTP
+(port 80 by default); MongoDB and Temporal stay internal, and the API, worker, and executor
+reach MAAS and Servers through the `egress` network. Terminate TLS in front of it when the
+installation is exposed beyond a trusted network.
 
 ## CLI configuration
 
@@ -56,5 +58,6 @@ outside a controlled lab.
 ## Installation secrets
 
 Compose and native assets document their exact secret file contract. Keep secret
-directories out of source control, back up the credential key with MongoDB and
-artifacts, and install CA material according to the selected installation path.
+directories out of source control and back up the credential key with MongoDB and
+artifacts. The production installation generates every secret, including the co-located
+MAAS database password, admin password, and API key, under `production/secrets/`.

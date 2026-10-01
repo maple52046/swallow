@@ -216,14 +216,13 @@ playbookMappings:
 `sshUser` 為選填：automation 會先以每台 Server 所佈署 OS Image 的 default user 登入，
 只有 image 沒有 default user 時才退回 `sshUser`。
 
-`credential.yaml`：兩個欄位皆為選填，request 會取代整份 site credential。`sshPrivateKey`
-會覆寫此 Site 使用的 Deployment Key；省略它（例如只設定 `becomePassword`）則使用 Deployment
-Key。`sites automation get` 的 `credentialSource` 欄位會顯示實際生效的是哪一把 key。
+`credential.yaml` 只有選填的 `becomePassword`，request 會取代整份 Site credential（`{}`
+代表清除）。Automation 一律使用安裝層級的 Deployment Key 登入；帶 `sshPrivateKey` 的 body 會以
+`validation_error` 拒絕。要改用另一把 key，請以
+`swallow ssh-keys deployment replace --private-key-file <path>` 替換 Deployment Key。
+Deployment Key 存在後，`sites automation get` 的 `credentialSource` 欄位會顯示 `deploymentKey`。
 
 ```yaml
-sshPrivateKey: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  ...
 becomePassword: REDACTED
 ```
 

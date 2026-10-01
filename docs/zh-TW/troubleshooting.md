@@ -14,11 +14,25 @@ docker compose logs api-server worker ansible-executor temporal
 - API restart loop 通常是 build 或 config validation error。
 - API healthy 但 Workflow 卡住時，通常是 Temporal、worker 或 Ansible executor 不可用。
 
+## `swallowctl doctor` 回報失敗
+
+在 `production/` 執行 `sudo ./swallowctl doctor`；每一行 `FAIL` 代表一個串接。
+
+- **Image pull 被拒：** GHCR package 是 private。請設為 public，或安裝前先
+  `docker login ghcr.io`。
+- **Worker 沒有 poll task queue：** 查看 `docker compose logs worker`；它需要 MongoDB、
+  database schema 與 Temporal。
+- **MAAS 沒有 complete 的 `ubuntu/noble`：** VM 連不到 `images.maas.io`，或仍在匯入中。
+  請重新執行 `sudo ./local-maas.sh ensure-image`。
+- **MAAS Integration 未同步：** 該行會顯示 Integration 最後的錯誤。API 透過
+  `http://host.docker.internal:5240/MAAS` 連 MAAS；請確認 MAAS 在 port 5240 有回應、
+  `secrets/maas-api-key` 是最新的，再重新執行 `sudo ./bootstrap.sh apply`。
+
 ## Login 失敗
 
 - 確認 endpoint 指向 API root，沒有重複附加 `/api/v1`。
-- Development default 是 `admin` / `admin`；其他 installation 使用自己的
-  bootstrap configuration。
+- Development default 是 `admin` / `admin`。Production installation 產生的 admin
+  password 在 `production/secrets/bootstrap-admin-password`。
 - CLI profile 可被 environment variable 或 flag 覆寫；診斷時先明確指定
   `--endpoint`。
 - Token 過期後需重新 login；consumer 不應解析 JWT expiry。
@@ -48,7 +62,8 @@ affected credential。
 ## Monitoring 是空的
 
 - 確認 selected Site 已設定 metrics Integration。
-- 驗證 Prometheus 可使用 machine token 呼叫 service discovery，並信任 swallow CA。
+- 驗證 Prometheus 可使用 machine token 呼叫 service discovery（若 swallow 前面有 TLS
+  terminator，也要信任它的 CA）。
 - 確認 exporter 已安裝，且 discovered target 可連線。
 - Missing metric data 是 unknown，不是 failure 證據。
 

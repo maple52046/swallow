@@ -14,6 +14,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
     -o /out/swallow-api ./cmd/swallow-api
 
 FROM ${EXECUTION_ENVIRONMENT}
+LABEL org.opencontainers.image.source="https://github.com/maple52046/swallow" \
+      org.opencontainers.image.description="swallow API, worker, and Ansible executor"
 USER 0
 COPY api-server/automation/requirements.txt /tmp/swallow-ansible-requirements.txt
 RUN apt-get update \

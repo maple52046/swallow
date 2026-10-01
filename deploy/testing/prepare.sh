@@ -25,10 +25,5 @@ write_secret "${secrets_dir}/credential-key" "$(openssl rand -base64 32)"
 write_secret "${secrets_dir}/machine-token" "$(openssl rand -hex 32)"
 write_secret "${secrets_dir}/temporal-db-password" "$(openssl rand -hex 24)"
 
-if [[ ! -s "${secrets_dir}/tls.key" || ! -s "${secrets_dir}/tls.crt" ]]; then
-  openssl req -x509 -newkey rsa:3072 -nodes -days 30 \
-    -subj "/CN=swallow-testing.local" \
-    -keyout "${secrets_dir}/tls.key" -out "${secrets_dir}/tls.crt"
-fi
 chmod 0444 "${secrets_dir}"/*
 printf 'testing secrets prepared in %s\n' "${secrets_dir}"

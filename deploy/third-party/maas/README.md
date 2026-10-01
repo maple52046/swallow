@@ -2,18 +2,28 @@
 
 [繁體中文](README.zh-TW.md) · [Third-party overview](../README.md)
 
-MAAS runs on a dedicated Ubuntu 24.04 host or VM. It is never co-located with the
-Swallow control plane. Production requires PostgreSQL plus region and rack controllers;
-`maas-test-db` is prohibited.
+The production installation co-locates MAAS with swallow on one Ubuntu 24.04 VM.
+`swallowctl install` installs and owns it through
+[`local-maas.sh`](../../production/local-maas.sh); do not install MAAS by hand first,
+because the installer refuses a MAAS snap it did not create.
 
-For connected installations, follow the official MAAS 3.6 snap/channel procedure and
-record the selected revision in the site compatibility record. For air-gapped
-installations, deliver the pinned packages through the local repository described by
-`../offline-media-manifest.json`, validate its checksums and signing metadata, and
-pre-synchronize all required boot resources before network isolation.
+What the installer does:
 
-DNS, L2/DHCP/PXE routing, BMC access, and the PostgreSQL backup policy are MAAS
-installation inputs owned by the site operator.
+- installs the MAAS `3.6/stable` snap and initializes it as `region+rack`;
+- stores MAAS state in the Compose PostgreSQL instance under its own `maas` role and
+  `maasdb` database (loopback only; `maas-test-db` is never used);
+- creates the MAAS `admin` account (`secrets/maas-admin-password`) and stores its API key in
+  `secrets/maas-api-key`;
+- selects the official `images.maas.io` image `ubuntu/noble` amd64 and waits until the boot
+  resource is complete;
+- registers this MAAS as the Site's provisioner Integration at
+  `http://host.docker.internal:5240/MAAS`.
+
+Machines reach MAAS at `http://<primary IPv4>:5240/MAAS`; set `SWALLOW_MAAS_URL` before the
+first install to choose another address. Third-party or custom OS images are not installed.
+
+DNS, L2/DHCP/PXE routing, and BMC access remain Site-owned inputs: enable DHCP on the PXE
+network in MAAS before commissioning machines.
 
 Official references:
 

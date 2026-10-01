@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# Lifecycle tool for the single-VM production installation: swallow on Docker Compose plus the
+# co-located MAAS region+rack (decision 040). Run it from the Compose bundle's production/
+# directory (or deploy/production in a checkout).
+#
+#   swallowctl install [--profile production] [--release-manifest PATH]
+#   swallowctl upgrade [--force] [--release-manifest PATH]
+#   swallowctl preflight | doctor | backup | restore BACKUP_DIRECTORY
+#   swallowctl uninstall [--purge-data]
+#
+# install, upgrade, backup, restore, and uninstall need root: they install host packages and
+# the MAAS snap, and the secrets directory is root-owned (mode 0700).
 set -euo pipefail
 
 command_name="${1:-}"
@@ -6,29 +17,150 @@ shift || true
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 compose=(docker compose --project-directory "${script_dir}" -f "${script_dir}/compose.yaml")
 backup_root="${SWALLOW_BACKUP_DIR:-${script_dir}/backups}"
+env_file="${script_dir}/.env"
+maas_marker="${script_dir}/state/local-maas"
+default_manifest="${script_dir}/../release-manifest.json"
+required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
+  SWALLOW_TEMPORAL_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE)
+managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}" SWALLOW_TEMPORAL_UI_IMAGE)
+required_secrets=(mongo-root-username mongo-root-password mongo-uri temporal-db-password jwt-secret
+  bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
+
+log() { printf '[swallowctl] %s\n' "$*"; }
+die() { printf '[swallowctl] %s\n' "$*" >&2; exit 1; }
+
+require_root() {
+  [[ "${EUID}" -eq 0 ]] || die "'swallowctl ${command_name}' must run as root (sudo)"
+}
+
+# shellcheck source=env.sh
+source "${script_dir}/env.sh"
+
+load_env() {
+  load_installation_env "${env_file}"
+}
+
+# write_env_from_manifest copies the release version and exact image digests from a release
+# manifest into .env, keeping every other operator setting. The manifest is the only source of
+# image references: the installer never substitutes tags.
+write_env_from_manifest() {
+  local manifest="$1" tmp key
+  [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
+  jq -e '.version and .images.api and .images.dashboard and .images.mongo and
+    .images.temporalPostgres and .images.temporalServer' "${manifest}" >/dev/null ||
+    die "not a swallow release manifest: ${manifest}"
+  tmp="$(mktemp "${script_dir}/.env.XXXXXX")"
+  if [[ -f "${env_file}" ]]; then
+    grep -Ev "^($(IFS='|'; printf '%s' "${managed_env_keys[*]}"))=" "${env_file}" >"${tmp}" || true
+  fi
+  jq -r '"SWALLOW_RELEASE_VERSION=\(.version)",
+    "SWALLOW_API_IMAGE=\(.images.api)",
+    "SWALLOW_DASHBOARD_IMAGE=\(.images.dashboard)",
+    "SWALLOW_MONGO_IMAGE=\(.images.mongo)",
+    "SWALLOW_TEMPORAL_POSTGRES_IMAGE=\(.images.temporalPostgres)",
+    "SWALLOW_TEMPORAL_SERVER_IMAGE=\(.images.temporalServer)",
+    (if .images.temporalUI then "SWALLOW_TEMPORAL_UI_IMAGE=\(.images.temporalUI)" else empty end)' \
+    "${manifest}" >>"${tmp}"
+  chmod 0600 "${tmp}"
+  mv -- "${tmp}" "${env_file}"
+  # The manifest wins over stale values exported in the caller's shell.
+  for key in "${managed_env_keys[@]}"; do
+    unset "${key}"
+  done
+  log "wrote $(jq -r '.version' "${manifest}") image digests to ${env_file}"
+}
+
+# ensure_host_packages installs what a clean Ubuntu 24.04 lacks. Docker comes from Docker's
+# signed apt repository, never the convenience script.
+ensure_host_packages() {
+  local -a missing=()
+  local tool codename
+  for tool in curl jq openssl; do
+    command -v "${tool}" >/dev/null 2>&1 || missing+=("${tool}")
+  done
+  command -v snap >/dev/null 2>&1 || missing+=(snapd)
+  command -v ip >/dev/null 2>&1 || missing+=(iproute2)
+  if ((${#missing[@]} > 0)); then
+    log "installing host packages: ${missing[*]}"
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates "${missing[@]}"
+  fi
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+  log 'installing Docker Engine and the Compose plugin from the Docker apt repository'
+  codename="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME}")"
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' \
+    "$(dpkg --print-architecture)" "${codename}" >/etc/apt/sources.list.d/docker.list
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  systemctl enable --now docker
+}
 
 preflight() {
-  [[ "$(uname -m)" == "x86_64" ]] || { printf 'amd64 is required\n' >&2; exit 1; }
+  local variable value secret
+  [[ "$(uname -m)" == "x86_64" ]] || die 'amd64 is required'
+  # shellcheck disable=SC1091
   source /etc/os-release
-  [[ "${ID}" == "ubuntu" && "${VERSION_ID}" == "24.04" ]] ||
-    { printf 'Ubuntu 24.04 is required\n' >&2; exit 1; }
+  [[ "${ID}" == "ubuntu" && "${VERSION_ID}" == "24.04" ]] || die 'Ubuntu 24.04 is required'
   docker version >/dev/null
   docker compose version >/dev/null
+  for variable in curl jq openssl snap ip; do
+    command -v "${variable}" >/dev/null 2>&1 || die "missing prerequisite: ${variable}"
+  done
   [[ "${SWALLOW_RELEASE_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] ||
-    { printf 'SWALLOW_RELEASE_VERSION must be SemVer\n' >&2; exit 1; }
-  for variable in SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE SWALLOW_TEMPORAL_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE SWALLOW_TEMPORAL_UI_IMAGE; do
+    die 'SWALLOW_RELEASE_VERSION must be SemVer'
+  for variable in "${required_images[@]}"; do
     value="${!variable:-}"
-    [[ "${value}" =~ @sha256:[0-9a-f]{64}$ ]] ||
-      { printf '%s must be an exact OCI digest reference\n' "${variable}" >&2; exit 1; }
+    [[ "${value}" =~ @sha256:[0-9a-f]{64}$ ]] || die "${variable} must be an exact OCI digest reference"
   done
-  for secret in mongo-root-username mongo-root-password mongo-uri temporal-db-password jwt-secret     bootstrap-admin-password credential-key machine-token tls.crt tls.key; do
-    [[ -s "${script_dir}/secrets/${secret}" ]] ||
-      { printf 'missing secret: %s\n' "${secret}" >&2; exit 1; }
+  if [[ -n "${SWALLOW_TEMPORAL_UI_IMAGE:-}" && ! "${SWALLOW_TEMPORAL_UI_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
+    die 'SWALLOW_TEMPORAL_UI_IMAGE must be an exact OCI digest reference when set'
+  fi
+  for secret in "${required_secrets[@]}"; do
+    [[ -s "${script_dir}/secrets/${secret}" ]] || die "missing secret: ${secret} (run prepare-secrets.sh)"
   done
-  [[ "$(stat -c %a "${script_dir}/secrets")" == "700" ]] ||
-    { printf 'secrets directory must be mode 0700\n' >&2; exit 1; }
+  [[ "$(stat -c %a "${script_dir}/secrets")" == "700" ]] || die 'secrets directory must be mode 0700'
   "${compose[@]}" config --quiet
-  printf 'preflight passed\n'
+  log 'preflight passed'
+}
+
+# check_ports runs only on a first install: a running stack or an installed local MAAS already
+# owns its ports.
+check_ports() {
+  local port
+  local -a ports=("${SWALLOW_HTTP_PORT:-80}" "${SWALLOW_POSTGRES_HOST_PORT:-5432}")
+  [[ -z "$("${compose[@]}" ps -q 2>/dev/null)" ]] || return 0
+  [[ -f "${maas_marker}" ]] || ports+=(5240)
+  for port in "${ports[@]}"; do
+    [[ -z "$(ss -Hltn "sport = :${port}" 2>/dev/null)" ]] || die "TCP port ${port} is already in use on this host"
+  done
+}
+
+# pull_images fetches only images not already present, so an air-gapped host that ran
+# `docker load` on the release OCI archive installs without registry access.
+pull_images() {
+  local variable image
+  for variable in "${required_images[@]}"; do
+    image="${!variable}"
+    docker image inspect "${image}" >/dev/null 2>&1 && continue
+    log "pulling ${image}"
+    docker pull --quiet "${image}" >/dev/null ||
+      die "cannot pull ${image}: make the GHCR package public or run 'docker login ghcr.io'; an air-gapped host must 'docker load' the release OCI archive"
+  done
+}
+
+wait_for_ready() {
+  local url="http://127.0.0.1:${SWALLOW_HTTP_PORT:-80}/readyz"
+  for _ in $(seq 1 60); do
+    curl -fsS --max-time 3 "${url}" >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  die "the API did not become ready at ${url}"
 }
 
 active_operations() {
@@ -54,8 +186,12 @@ prune_backups() {
   done
 }
 
+# backup captures MongoDB, the job artifacts, the credential key that unseals stored secrets,
+# and, when the co-located MAAS exists, its database (boot images re-sync from images.maas.io).
 backup() {
   local stamp target user password
+  require_root
+  load_env
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   target="${backup_root}/daily-${stamp}"
   user="$(<"${script_dir}/secrets/mongo-root-username")"
@@ -66,6 +202,9 @@ backup() {
   "${compose[@]}" run --rm --no-deps --entrypoint tar api-server \
     -C /var/lib/swallow/jobs -czf - . >"${target}/job-artifacts.tar.gz"
   install -m 0600 "${script_dir}/secrets/credential-key" "${target}/credential-key"
+  if [[ -f "${maas_marker}" ]]; then
+    "${compose[@]}" exec -T temporal-postgresql pg_dump -U temporal -Fc maasdb >"${target}/maas.pgdump"
+  fi
   sha256sum "${target}"/* >"${target}/SHA256SUMS"
   if [[ "$(date -u +%u)" == "7" ]]; then
     cp -al -- "${target}" "${backup_root}/weekly-${stamp}"
@@ -82,33 +221,107 @@ ensure_deployment_key() {
   "${compose[@]}" run --rm --no-deps api-server deployment-key ensure
 }
 
+install_cli() {
+  if [[ -x "${script_dir}/bin/swallow" ]]; then
+    install -m 0755 "${script_dir}/bin/swallow" /usr/local/bin/swallow
+    log 'installed the swallow CLI to /usr/local/bin/swallow'
+  fi
+}
+
+primary_address() {
+  ip -4 route get 1.1.1.1 2>/dev/null |
+    awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}'
+}
+
+print_summary() {
+  local address port url maas_url
+  address="$(primary_address)"
+  port="${SWALLOW_HTTP_PORT:-80}"
+  url="http://${address:-<this-host>}"
+  [[ "${port}" == "80" ]] || url+=":${port}"
+  maas_url="$(sed -n 's/^MAAS_URL=//p' "${maas_marker}" 2>/dev/null || true)"
+  cat <<EOF
+
+swallow ${SWALLOW_RELEASE_VERSION} is installed.
+
+  Dashboard   ${url}/
+  Login       admin, password: sudo cat ${script_dir}/secrets/bootstrap-admin-password
+  MAAS        ${maas_url:-not installed}/  (admin, password: sudo cat ${script_dir}/secrets/maas-admin-password)
+
+Next: sign in and add your own SSH Access Key from the account menu (SSH keys).
+EOF
+}
+
 install_stack() {
+  local manifest="" profile="production"
+  while (($# > 0)); do
+    case "$1" in
+      --profile) profile="${2:?--profile needs a value}"; shift 2 ;;
+      --release-manifest) manifest="${2:?--release-manifest needs a path}"; shift 2 ;;
+      *) die "unknown install option: $1" ;;
+    esac
+  done
+  [[ "${profile}" == "production" ]] ||
+    die "unsupported profile '${profile}': the installation profile is 'production' (single VM)"
+  require_root
+  ensure_host_packages
+  if [[ -z "${manifest}" && ! -f "${env_file}" && -f "${default_manifest}" ]]; then
+    manifest="${default_manifest}"
+  fi
+  [[ -z "${manifest}" ]] || write_env_from_manifest "${manifest}"
+  [[ -f "${env_file}" ]] || die 'no .env: pass --release-manifest <release-manifest.json>'
+  load_env
+  "${script_dir}/prepare-secrets.sh"
+  check_ports
   preflight
-  "${compose[@]}" up -d mongo
+  pull_images
+  "${compose[@]}" up -d mongo temporal-postgresql
   "${compose[@]}" run --rm --no-deps api-server migrate
   ensure_deployment_key
   "${compose[@]}" up -d
+  wait_for_ready
+  install_cli
+  "${script_dir}/local-maas.sh" install
+  "${script_dir}/local-maas.sh" ensure-image
+  "${script_dir}/bootstrap.sh" apply
+  doctor
+  print_summary
 }
 
 upgrade() {
-  local force=false active
-  [[ "${1:-}" == "--force" ]] && force=true
+  local force=false manifest="" active
+  while (($# > 0)); do
+    case "$1" in
+      --force) force=true; shift ;;
+      --release-manifest) manifest="${2:?--release-manifest needs a path}"; shift 2 ;;
+      *) die "unknown upgrade option: $1" ;;
+    esac
+  done
+  require_root
+  load_env
   active="$(active_operations)"
   if [[ "${active}" != "0" && "${force}" != true ]]; then
-    printf 'refusing upgrade: %s operation(s) active; wait or pass --force\n' "${active}" >&2
-    exit 1
+    die "refusing upgrade: ${active} operation(s) active; wait or pass --force"
   fi
   backup >/dev/null
+  [[ -z "${manifest}" ]] || write_env_from_manifest "${manifest}"
+  load_env
+  "${script_dir}/prepare-secrets.sh"
   preflight
-  "${compose[@]}" up -d mongo
+  pull_images
+  "${compose[@]}" up -d mongo temporal-postgresql
   "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
   ensure_deployment_key
   "${compose[@]}" up -d
+  wait_for_ready
+  install_cli
   doctor
 }
 
 restore() {
   local source="${1:?usage: swallowctl restore BACKUP_DIRECTORY}" user password
+  require_root
+  load_env
   (cd "${source}" && sha256sum -c SHA256SUMS)
   user="$(<"${script_dir}/secrets/mongo-root-username")"
   password="$(<"${script_dir}/secrets/mongo-root-password")"
@@ -117,33 +330,111 @@ restore() {
     --authenticationDatabase admin --archive --gzip --drop <"${source}/mongo.archive.gz"
   "${compose[@]}" run --rm --no-deps --entrypoint tar api-server \
     -C /var/lib/swallow/jobs -xzf - <"${source}/job-artifacts.tar.gz"
-  install -m 0600 "${source}/credential-key" "${script_dir}/secrets/credential-key"
+  # Same mode prepare-secrets.sh uses: containers read secrets as non-root, and the 0700
+  # secrets directory keeps other host users out.
+  install -m 0444 "${source}/credential-key" "${script_dir}/secrets/credential-key"
+  if [[ -f "${source}/maas.pgdump" && -f "${maas_marker}" ]]; then
+    snap stop maas
+    "${compose[@]}" exec -T temporal-postgresql pg_restore -U temporal --clean --if-exists \
+      -d maasdb <"${source}/maas.pgdump"
+    snap start maas
+  fi
   "${compose[@]}" up -d --force-recreate api-server dashboard
 }
 
+# check prints one ok/FAIL line and returns the probe's status; the probe's own output is
+# kept only when it fails.
+check() {
+  local description="$1" output
+  shift
+  if output="$("$@" 2>&1)"; then
+    printf 'ok    %s\n' "${description}"
+  else
+    printf 'FAIL  %s\n' "${description}"
+    [[ -z "${output}" ]] || printf '%s\n' "${output}" | tail -n 15 | sed 's/^/      /'
+    return 1
+  fi
+}
+
+dashboard_ready() {
+  curl -fsS --max-time 5 "http://127.0.0.1:${SWALLOW_HTTP_PORT:-80}/readyz"
+}
+
+temporal_healthy() {
+  "${compose[@]}" exec -T temporal temporal operator cluster health --address temporal:7233
+}
+
+# worker_polls_task_queue proves the worker is connected to Temporal: both a workflow and an
+# activity poller must be registered on the operations task queue.
+worker_polls_task_queue() {
+  "${compose[@]}" exec -T temporal temporal task-queue describe \
+    --task-queue swallow-operations --address temporal:7233 -o json |
+    jq -e '[.. | objects | .pollers? // empty | .[]? | (.taskQueueType // "" | ascii_downcase)] as $types
+      | ($types | any(contains("workflow"))) and ($types | any(contains("activity")))'
+}
+
+# grep reads its whole input (no -q) so pipefail never sees the producer die of SIGPIPE.
+ansible_executor_started() {
+  "${compose[@]}" ps --status running --services | grep -x ansible-executor >/dev/null &&
+    "${compose[@]}" logs --no-log-prefix ansible-executor | grep -c 'Ansible executor started' >/dev/null
+}
+
+# ansible_runner_works runs the shipped diagnostic-ping playbook against the executor container
+# itself, proving the pinned ansible-runner toolchain and the playbook tree without a Server.
+# The local connection derives its temp dir from the passwd home, which does not exist in the
+# read-only image, so the check points it at the writable /tmp.
+ansible_runner_works() {
+  "${compose[@]}" exec -T ansible-executor ansible-runner --version &&
+    "${compose[@]}" exec -T -e ANSIBLE_REMOTE_TMP=/tmp/.ansible-doctor ansible-executor \
+      ansible-playbook -i localhost, -c local /opt/swallow/automation/playbooks/diagnostic-ping.yml
+}
+
 doctor() {
+  local failed=0
+  load_env
   "${compose[@]}" ps
-  curl --fail --silent --show-error --cacert "${script_dir}/secrets/tls.crt" \
-    https://127.0.0.1:"${SWALLOW_HTTPS_PORT:-443}"/readyz
+  printf '\n'
+  check "Dashboard and API answer on HTTP port ${SWALLOW_HTTP_PORT:-80}" dashboard_ready || failed=1
+  check 'Temporal cluster is healthy' temporal_healthy || failed=1
+  check 'worker polls the swallow-operations task queue' worker_polls_task_queue || failed=1
+  check 'Ansible executor is running' ansible_executor_started || failed=1
+  check 'ansible-runner runs the shipped diagnostic-ping playbook' ansible_runner_works || failed=1
+  "${script_dir}/local-maas.sh" check || failed=1
+  "${script_dir}/bootstrap.sh" verify || failed=1
+  if ((failed)); then
+    printf '\ndoctor found problems\n' >&2
+    return 1
+  fi
+  printf '\nall checks passed\n'
 }
 
 uninstall_stack() {
+  local -a profile_args=()
+  require_root
+  load_env
+  [[ -z "${SWALLOW_TEMPORAL_UI_IMAGE:-}" ]] || profile_args=(--profile diagnostics)
   if [[ "${1:-}" == "--purge-data" ]]; then
-    "${compose[@]}" down --volumes
+    [[ ! -f "${maas_marker}" ]] || "${script_dir}/local-maas.sh" purge
+    "${compose[@]}" "${profile_args[@]}" down --volumes --remove-orphans
     rm -rf -- "${backup_root}"
   else
-    "${compose[@]}" down
-    printf 'named volumes, secrets, and backups were retained\n'
+    # MAAS keeps its database in the swallow PostgreSQL instance, so it stops with the stack.
+    [[ ! -f "${maas_marker}" ]] || "${script_dir}/local-maas.sh" stop
+    "${compose[@]}" "${profile_args[@]}" down --remove-orphans
+    printf 'named volumes, secrets, backups, and the stopped MAAS snap were retained\n'
   fi
 }
 
 case "${command_name}" in
-  preflight) preflight ;;
-  install) install_stack ;;
+  preflight) load_env; preflight ;;
+  install) install_stack "$@" ;;
   upgrade) upgrade "$@" ;;
   backup) backup ;;
   restore) restore "$@" ;;
   doctor) doctor ;;
   uninstall) uninstall_stack "$@" ;;
-  *) printf 'usage: swallowctl {preflight|install|upgrade|backup|restore|doctor|uninstall}\n' >&2; exit 2 ;;
+  *)
+    printf 'usage: swallowctl {preflight|install|upgrade|backup|restore|doctor|uninstall}\n' >&2
+    exit 2
+    ;;
 esac

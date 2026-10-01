@@ -216,15 +216,14 @@ playbookMappings:
 `sshUser` is optional: automation first logs in as each Server's OS Image default user
 and falls back to `sshUser` only when the image has none.
 
-`credential.yaml` — both fields are optional and the request replaces the whole site
-credential. `sshPrivateKey` overrides the installation's Deployment Key for this Site;
-omit it (for example to set only `becomePassword`) to use the Deployment Key. The
-`credentialSource` field of `sites automation get` shows which key is in effect.
+`credential.yaml` holds only the optional `becomePassword` and replaces the Site's whole
+credential (`{}` clears it). Automation always logs in with the installation's Deployment
+Key; a body with `sshPrivateKey` is refused with `validation_error`. To use another key, replace
+the Deployment Key with `swallow ssh-keys deployment replace --private-key-file <path>`. The
+`credentialSource` field of
+`sites automation get` reports `deploymentKey` once that key exists.
 
 ```yaml
-sshPrivateKey: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  ...
 becomePassword: REDACTED
 ```
 

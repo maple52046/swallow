@@ -296,8 +296,10 @@ type automationResponse struct {
 	SSHPort          int               `json:"sshPort"`
 	KnownHosts       string            `json:"knownHosts"`
 	PlaybookMappings map[string]string `json:"playbookMappings"`
-	HasCredential    bool              `json:"hasCredential"`
-	// CredentialSource is the key automation uses for the Site: site, deploymentKey, or none.
+	// HasCredential reports that the Site stores a become password.
+	HasCredential bool `json:"hasCredential"`
+	// CredentialSource is the key automation uses for the Site: deploymentKey, or none before
+	// the Deployment Key exists (decision 041).
 	CredentialSource string `json:"credentialSource"`
 	CreatedAt        string `json:"createdAt"`
 	UpdatedAt        string `json:"updatedAt"`
@@ -332,13 +334,28 @@ func (h *ExecutionHandler) PutAutomation(c *fiber.Ctx) error {
 	return c.JSON(toAutomationResponse(configuration))
 }
 
-// PutAutomationCredential stores secrets and never returns them.
+// automationCredentialRequest is the body of PUT /sites/{id}/automation/credential. Only the
+// become password is accepted. SSHPrivateKey exists solely to detect callers that still send the
+// Site key removed by decision 041: any non-null value is refused rather than ignored, so no
+// caller believes an override took effect.
+type automationCredentialRequest struct {
+	SSHPrivateKey  *string `json:"sshPrivateKey"`
+	BecomePassword string  `json:"becomePassword"`
+}
+
+// PutAutomationCredential replaces the Site's write-only become password (204, never echoed).
+// A body carrying sshPrivateKey is 400 validation_error pointing at the Deployment Key, the only
+// automation key; an unknown Site configuration is 404 not_found.
 func (h *ExecutionHandler) PutAutomationCredential(c *fiber.Ctx) error {
-	var credential operationdomain.AutomationCredential
-	if err := c.BodyParser(&credential); err != nil {
+	var req automationCredentialRequest
+	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	if err := h.automation.ReplaceCredential(c.Context(), c.Params("id"), credential); err != nil {
+	if req.SSHPrivateKey != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
+			"sshPrivateKey is not accepted: automation always uses the Deployment Key. Replace it with PUT /api/v1/ssh-keys/deployment."))
+	}
+	if err := h.automation.ReplaceCredential(c.Context(), c.Params("id"), req.BecomePassword); err != nil {
 		return respondExecutionError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)

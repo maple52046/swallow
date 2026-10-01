@@ -323,8 +323,9 @@ func RunAPI(cfg config.APIConfig) error {
 		platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
 	)
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
-	// Automation readers get the effective credential (site override, else Deployment Key); the
-	// configuration service reads the plain repository because it reports what is stored.
+	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
+	// derived credential source; the configuration service reads the plain repository and derives
+	// the same source itself, because it reports what is stored and never needs key material.
 	effectiveAutomation := operationapp.NewEffectiveAutomationConfigurations(automationRepo, deploymentKeys)
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)

@@ -3,7 +3,6 @@ package infra
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -22,15 +21,24 @@ type automationConfigurationDoc struct {
 	KnownHosts       string            `bson:"knownHosts"`
 	PlaybookMappings map[string]string `bson:"playbookMappings"`
 	SealedCredential string            `bson:"sealedCredential,omitempty"`
-	// CredentialHasPrivateKey records, unsealed, whether the sealed credential carries an SSH
-	// private key, so reads can report the override without decrypting. It is absent on
-	// credentials written before decision 039, which always carried a private key.
-	CredentialHasPrivateKey *bool     `bson:"credentialHasPrivateKey,omitempty"`
-	CreatedAt               time.Time `bson:"createdAt"`
-	UpdatedAt               time.Time `bson:"updatedAt"`
+	CreatedAt        time.Time         `bson:"createdAt"`
+	UpdatedAt        time.Time         `bson:"updatedAt"`
 }
 
-// MongoAutomationConfigurationRepo seals site SSH credentials with AES-GCM.
+// sealedAutomationCredential is the JSON document sealed into sealedCredential. It holds only
+// the become password (decision 041). Credentials written by earlier releases may also carry
+// an "sshPrivateKey" member; decoding into this type drops it, so a stored Site key can never
+// reach a run, and the next ReplaceCredential overwrites it.
+type sealedAutomationCredential struct {
+	BecomePassword string `json:"becomePassword,omitempty"`
+}
+
+// credentialHasPrivateKeyField is the unsealed marker earlier releases wrote beside the sealed
+// credential. ReplaceCredential removes it so no document keeps claiming a Site key exists.
+const credentialHasPrivateKeyField = "credentialHasPrivateKey"
+
+// MongoAutomationConfigurationRepo stores Site automation settings and seals the Site's
+// become password with AES-GCM. It never stores SSH key material.
 type MongoAutomationConfigurationRepo struct {
 	col    *mongo.Collection
 	sealer *secret.Sealer
@@ -55,13 +63,11 @@ func (r *MongoAutomationConfigurationRepo) FindBySiteID(ctx context.Context, sit
 	for kind, playbook := range doc.PlaybookMappings {
 		mappings[operationdomain.WorkflowKind(kind)] = playbook
 	}
-	hasCredential := doc.SealedCredential != ""
 	return &operationdomain.AutomationConfiguration{
 		SiteID: doc.SiteID, Enabled: doc.Enabled, SSHUser: doc.SSHUser, SSHPort: doc.SSHPort,
 		KnownHosts: doc.KnownHosts, PlaybookMappings: mappings,
-		HasCredential:         hasCredential,
-		HasPrivateKeyOverride: hasCredential && (doc.CredentialHasPrivateKey == nil || *doc.CredentialHasPrivateKey),
-		CreatedAt:             doc.CreatedAt, UpdatedAt: doc.UpdatedAt,
+		HasCredential: doc.SealedCredential != "",
+		CreatedAt:     doc.CreatedAt, UpdatedAt: doc.UpdatedAt,
 	}, nil
 }
 
@@ -83,9 +89,12 @@ func (r *MongoAutomationConfigurationRepo) Upsert(ctx context.Context, configura
 	return err
 }
 
-// ReplaceCredential encrypts the whole credential document as one authenticated value.
+// ReplaceCredential seals the Site's become password as one authenticated value, replacing
+// whatever credential the Site stored before. credential.SSHPrivateKey is never stored: the
+// Deployment Key is the only automation key (decision 041), and callers reject a Site key
+// before reaching this port.
 func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context, siteID string, credential operationdomain.AutomationCredential) error {
-	raw, err := json.Marshal(credential)
+	raw, err := json.Marshal(sealedAutomationCredential{BecomePassword: credential.BecomePassword})
 	if err != nil {
 		return err
 	}
@@ -93,11 +102,10 @@ func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context
 	if err != nil {
 		return err
 	}
-	result, err := r.col.UpdateOne(ctx, bson.M{"_id": siteID}, bson.M{"$set": bson.M{
-		"sealedCredential":        sealed,
-		"credentialHasPrivateKey": strings.TrimSpace(credential.SSHPrivateKey) != "",
-		"updatedAt":               time.Now().UTC(),
-	}})
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": siteID}, bson.M{
+		"$set":   bson.M{"sealedCredential": sealed, "updatedAt": time.Now().UTC()},
+		"$unset": bson.M{credentialHasPrivateKeyField: ""},
+	})
 	if err != nil {
 		return err
 	}
@@ -107,9 +115,11 @@ func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context
 	return nil
 }
 
-// Credential is used only by the dispatcher immediately before a run. It returns the site
-// credential as stored; resolving the Deployment Key fallback is the job of
-// operationapp.EffectiveAutomationConfigurations, which wraps this repository for automation.
+// Credential is used only by automation immediately before a run. It returns the Site's
+// become password and never an SSH private key, even when an earlier release sealed one;
+// operationapp.EffectiveAutomationConfigurations, which wraps this repository for automation,
+// adds the Deployment Key. A configured Site without a stored credential is
+// ErrAutomationCredentialMissing; an unconfigured Site is ErrAutomationConfigNotFound.
 func (r *MongoAutomationConfigurationRepo) Credential(ctx context.Context, siteID string) (operationdomain.AutomationCredential, error) {
 	var doc automationConfigurationDoc
 	err := r.col.FindOne(ctx, bson.M{"_id": siteID},
@@ -127,9 +137,9 @@ func (r *MongoAutomationConfigurationRepo) Credential(ctx context.Context, siteI
 	if err != nil {
 		return operationdomain.AutomationCredential{}, err
 	}
-	var credential operationdomain.AutomationCredential
-	if err := json.Unmarshal([]byte(raw), &credential); err != nil {
+	var stored sealedAutomationCredential
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
 		return operationdomain.AutomationCredential{}, err
 	}
-	return credential, nil
+	return operationdomain.AutomationCredential{BecomePassword: stored.BecomePassword}, nil
 }

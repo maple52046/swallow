@@ -83,8 +83,8 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	providers := provisioninginfra.NewProviderFactory(integrations)
-	// Every run authenticates with the effective credential: the site key override when set,
-	// otherwise the Deployment Key (decision 039).
+	// Every run authenticates with the Deployment Key, the only automation key (decision 041),
+	// through the effective-credential decorator built below.
 	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
 	if err != nil {
 		return err

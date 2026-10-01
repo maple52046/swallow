@@ -19,7 +19,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### swallow Delivery
 
 - [Installation](terms/installation.md): Installing and managing the swallow control
-  plane; never the MAAS-owned deployment of an OS to a managed server.
+  plane (single-VM production, including the co-located MAAS and its official `ubuntu/noble`
+  image); never the MAAS-owned deployment of an OS to a managed server.
 
 ### Compute Resource
 
@@ -75,7 +76,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### Access
 
 - [SSH Key](terms/ssh-key.md): A swallow-owned public key realized into key-capable provisioners, purpose `deployment` (the Deployment Key) or `access` (a User's public-key-only Access Key).
-- [Deployment Key](terms/deployment-key.md): The single system-owned key pair, created as ed25519 by the installation step (not at API start), whose sealed private key swallow uses for SSH readiness and Ansible unless a Site overrides it; OS and Platform deployment require it.
+- [Deployment Key](terms/deployment-key.md): The single system-owned key pair, created as ed25519 by the installation step (not at API start), whose sealed private key swallow uses for every Site's SSH readiness and Ansible (no Site override); OS and Platform deployment require it.
 
 ### Tenancy
 

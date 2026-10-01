@@ -6,16 +6,18 @@ Third-party media is versioned separately from the Swallow core bundle.
 
 | Component | Supported production topology |
 | --- | --- |
-| Docker CE | Host prerequisite from Docker's Ubuntu apt repository, or verified offline deb media. Never the convenience script. |
+| Docker CE | Host prerequisite. `swallowctl install` adds it from Docker's Ubuntu apt repository when missing; never the convenience script. |
 | MongoDB 8 | Managed by the Swallow Compose or native bundle. |
-| Ubuntu MAAS 3.6 | Dedicated Ubuntu 24.04 host/VM with production PostgreSQL and region+rack controllers. Never co-located with Swallow and never `maas-test-db`. |
+| PostgreSQL | One Compose instance: Temporal databases plus the co-located MAAS `maasdb`, each with its own role. |
+| Ubuntu MAAS 3.6 | Co-located on the single production VM, installed and owned by `swallowctl` (region+rack snap). Never `maas-test-db`. |
 | Ansible | Embedded in the API Execution Environment or native offline venv; not a service. |
 | Prometheus | One independent project per site, using persistent storage and Swallow HTTP service discovery. |
 
-Connected and air-gap procedures must consume versions and checksums from
-`offline-media-manifest.json`. MAAS boot resources must be synchronized before a site
-is disconnected. DNS, DHCP/PXE/BMC networking, CA certificates, and target hardware are
-site-provided installation inputs rather than Swallow-managed resources.
+The installation pulls images from GHCR and the official `ubuntu/noble` boot resource from
+`images.maas.io`, so it needs outbound access to both. DNS, DHCP/PXE/BMC networking and
+target hardware are site-provided inputs rather than Swallow-managed resources.
+`offline-media-manifest.json` describes the media an air-gapped site would mirror; offline
+installation of MAAS images is not automated yet.
 
 References:
 

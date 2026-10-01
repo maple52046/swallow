@@ -5,6 +5,10 @@
 Initial setup establishes the Site boundary, external Integrations, and the
 automation policy required before swallow can manage Servers.
 
+The [production installation](../installation.md) already performs steps 1, 2, and 4 for the
+Site `default` with its co-located MAAS. Use this guide to review that result, to add more
+Sites, or to set up a development stack.
+
 ## 1. Create the Site
 
 Create a short operator-facing name and an optional description under
@@ -45,13 +49,12 @@ Site automation defines:
 - the SSH port and an optional fallback SSH user (each OS image's default user
   is tried first);
 - mandatory known-host entries;
-- write-only credentials: an optional private key that overrides the
-  installation's deployment key, and the become password;
+- the optional write-only become password;
 - allowlisted manifest playbook mappings.
 
-The deployment key is created during installation (`swallowctl install`) and is registered in
-MAAS automatically, so most Sites need no private key of their own. See
-[SSH keys and image login users](ssh-keys.md).
+Automation always logs in with the installation's deployment key, which is created during
+installation (`swallowctl install`) and registered in MAAS automatically; a Site has no
+private key of its own. See [SSH keys and image login users](ssh-keys.md).
 
 Only playbooks in the shipped manifest can execute. Automation is not an
 external Integration; it is a Site-scoped swallow capability.

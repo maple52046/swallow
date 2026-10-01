@@ -87,47 +87,52 @@ valid.
   "knownHosts": "host ssh-ed25519 AAAA...",
   "playbookMappings": {},
   "hasCredential": true,
-  "credentialSource": "site",
+  "credentialSource": "deploymentKey",
   "createdAt": "2026-08-25T00:00:00Z",
   "updatedAt": "2026-08-25T00:00:00Z"
 }
 ```
 
+`credentialSource` is the key automation uses for this Site. Every Site uses the
+installation's Deployment Key ([decision 041](../../../../../docs/decisions/041-deployment-key-only-automation.md)):
+
+- `deploymentKey` — the Deployment Key exists and is used.
+- `none` — no Deployment Key exists (the installation step that creates it has not run).
+
+`hasCredential` reports that the Site stores a become password.
+
+Ansible Tasks for a Site run only when `enabled` is `true` and `credentialSource` is
+`deploymentKey`; otherwise acceptance fails with `503 provider_unavailable` and a running
+Task fails with `automation_configuration_unavailable`.
+
 ## Credential Request
 
 ```json
 {
-  "sshPrivateKey": "-----BEGIN OPENSSH PRIVATE KEY-----...",
   "becomePassword": "optional"
 }
 ```
 
-Both fields are optional; the request replaces the whole site credential. A non-empty
-`sshPrivateKey` must parse as an unencrypted private key (`400 validation_error`
-otherwise) and overrides the installation's Deployment Key for this Site. Omitting it (for
-example sending only `becomePassword`) clears the override, so the Site uses the
-Deployment Key (see [ssh-keys.md](ssh-keys.md)). The become password is always
-site-scoped.
+The request replaces the Site's whole credential, which holds only the write-only become
+password; sending `{}` clears it. A request that contains `sshPrivateKey` (with any value)
+is `400 validation_error`: automation always logs in with the Deployment Key, so replace
+that key with `PUT /api/v1/ssh-keys/deployment` instead (see [ssh-keys.md](ssh-keys.md)).
 
-Success is `204 No Content`. No API returns either secret; configuration reads expose
-only `hasCredential` (a site credential record exists) and `credentialSource`, the key
-automation uses for this Site:
-
-- `site` — the site `sshPrivateKey` override.
-- `deploymentKey` — no override; the Deployment Key is used.
-- `none` — no override and no Deployment Key exists (the installation step that creates it has not run).
+Success is `204 No Content`. No API returns the secret.
 
 ## Errors
 
 The common error envelope applies. Unknown sites/configurations return `not_found`;
-invalid ports, missing required fields, and unregistered playbooks return
-`validation_error`.
+invalid ports, missing required fields, unregistered playbooks, and a credential request
+carrying `sshPrivateKey` return `validation_error`.
 
 ## Compatibility Notes
 
 [Decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md)
-made `sshUser` and `sshPrivateKey` optional and added `credentialSource`; both are
-backward compatible (existing Sites keep their user and key, which still take effect).
-New schema-v3 Operations
-consume it through the standalone Ansible executor; legacy schema-v2 Operations may still
-consume it through the compatibility dispatcher while that queue drains.
+made `sshUser` optional and added `credentialSource`.
+[Decision 041](../../../../../docs/decisions/041-deployment-key-only-automation.md) removed
+the Site private-key override (breaking): `sshPrivateKey` is refused, `credentialSource`
+no longer reports `site`, and a key stored by an earlier release is ignored. New schema-v3
+Operations consume this configuration through the standalone Ansible executor; legacy
+schema-v2 Operations may still consume it through the compatibility dispatcher while that
+queue drains.

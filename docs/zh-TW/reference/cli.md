@@ -5,9 +5,18 @@
 `swallow` binary 是 operator CLI。它與 `swallow-api` 是不同 Go module，
 只透過 published HTTP API 溝通。
 
-## 從 source 安裝
+## 安裝
 
-目前沒有穩定 packaged release。請從 repository 建置 active-development binary：
+Production installation 會把 CLI 安裝到 `/usr/local/bin/swallow`。其他 Linux amd64
+主機可下載 release asset `swallow-linux-amd64`（列在 release `SHA256SUMS`），或執行
+`ghcr.io/<owner>/swallow` 的 `cli-<version>` image：
+
+```bash
+sudo install -m 0755 swallow-linux-amd64 /usr/local/bin/swallow
+swallow --help
+```
+
+也可從 repository 建置 active-development binary：
 
 ```bash
 cd cli
@@ -19,7 +28,7 @@ bin/swallow --help
 
 ```bash
 printf '%s\n' "$PASSWORD" |
-  swallow --endpoint https://swallow.example \
+  swallow --endpoint http://swallow.example \
   login -u admin --password-stdin
 swallow auth me
 ```

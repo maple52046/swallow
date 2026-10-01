@@ -2,9 +2,10 @@
 
 [繁體中文](README.zh-TW.md) · [Installation choices](../../docs/en/installation.md)
 
-Testing never builds or bind-mounts source. Copy all six exact image references
-(API, Dashboard, MongoDB, Temporal PostgreSQL, Temporal Server, and Temporal UI)
-from a candidate release manifest into `.env`, then run:
+Testing never builds or bind-mounts source. Copy the exact image references (API,
+Dashboard, MongoDB, Temporal PostgreSQL, and Temporal Server; Temporal UI only for the
+`diagnostics` profile) from a `release-manifest.json` written by
+[`publish.sh`](../release/publish.sh) into `.env`, then run:
 
 ```bash
 ./prepare.sh
@@ -12,15 +13,16 @@ docker compose --env-file .env up -d
 ./seed.sh
 ```
 
-The same file is used for the shared environment and CI. CI supplies a unique project
-name with `docker compose -p "swallow-ci-${GITHUB_RUN_ID}"` and always removes its
-volumes afterward. Self-signed TLS is limited to testing; production requires CA
-material supplied for the installation.
+The topology is the production Compose file with isolated secrets, served over plain HTTP
+on `SWALLOW_HTTP_PORT` (default 18080). PostgreSQL is published on loopback
+`SWALLOW_POSTGRES_HOST_PORT` (15432 in `.env.example`) so it never collides with a production
+installation on the same host. Testing does not install MAAS.
+
+Set `COMPOSE_PROJECT_NAME` to run several isolated stacks on one host, and remove a stack with
+`docker compose down --volumes` when you are done.
 
 Generated testing secrets stay under `deploy/testing/secrets/`; they never reuse
 production paths. `prepare.sh` is idempotent, and `seed.sh` can be run repeatedly. `seed.sh`
 first creates the deployment key (`swallow-api deployment-key ensure`, the step `swallowctl
-install` runs in production) in a one-shot API container; it honors `COMPOSE_PROJECT_NAME`.
-The candidate workflow starts this topology from the API and Dashboard digests it just
-built, waits for readiness, seeds it, verifies the reported candidate version, and
-removes the project and volumes.
+install` runs in production) in a one-shot API container, honors `COMPOSE_PROJECT_NAME`, and
+checks the write-only automation credential contract.
