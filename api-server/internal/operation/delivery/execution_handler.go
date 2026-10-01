@@ -297,8 +297,10 @@ type automationResponse struct {
 	KnownHosts       string            `json:"knownHosts"`
 	PlaybookMappings map[string]string `json:"playbookMappings"`
 	HasCredential    bool              `json:"hasCredential"`
-	CreatedAt        string            `json:"createdAt"`
-	UpdatedAt        string            `json:"updatedAt"`
+	// CredentialSource is the key automation uses for the Site: site, deploymentKey, or none.
+	CredentialSource string `json:"credentialSource"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
 }
 
 // GetAutomation returns non-secret site settings.
@@ -351,8 +353,9 @@ func toAutomationResponse(configuration *operationdomain.AutomationConfiguration
 		SiteID: configuration.SiteID, Enabled: configuration.Enabled,
 		SSHUser: configuration.SSHUser, SSHPort: configuration.SSHPort,
 		KnownHosts: configuration.KnownHosts, PlaybookMappings: mappings,
-		HasCredential: configuration.HasCredential,
-		CreatedAt:     wire.Time(configuration.CreatedAt), UpdatedAt: wire.Time(configuration.UpdatedAt),
+		HasCredential:    configuration.HasCredential,
+		CredentialSource: string(configuration.CredentialSource),
+		CreatedAt:        wire.Time(configuration.CreatedAt), UpdatedAt: wire.Time(configuration.UpdatedAt),
 	}
 }
 

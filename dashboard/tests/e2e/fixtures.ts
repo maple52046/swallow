@@ -196,6 +196,12 @@ export interface FixtureOptions {
   onOSImageCatalogRequest?: (integrationId: string) => void
   /** Called with the target integration when the OS image upload endpoint receives a POST. */
   onOSImageUploadRequest?: (integrationId: string) => void
+  /** Called with the multipart `defaultUser` field (or '') of an OS image upload. */
+  onOSImageUploadDefaultUser?: (defaultUser: string) => void
+  /** Called with the body of an OS image overlay PATCH. */
+  onOSImageOverlayRequest?: (body: Record<string, unknown>) => void
+  /** Called for every SSH Keys request with its method, path, and JSON body (if any). */
+  onSSHKeyRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
   onDeploymentRequest?: (body: Record<string, unknown>) => void
   onPlatformDeploymentRequest?: (body: Record<string, unknown>) => void
   onServerReleaseRequest?: (serverId: string, body: Record<string, unknown> | null) => void
@@ -247,8 +253,39 @@ function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 }
 
+/** Builds one SSH Key fixture in the `ssh-keys.md` shape, synced to MAAS Taipei and failed on MAAS Edge. */
+function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publicKey: string) {
+  return {
+    id,
+    name,
+    purpose,
+    keyType: 'ssh-ed25519',
+    fingerprint: `SHA256:${id}`,
+    publicKey,
+    ...(purpose === 'access' ? { ownerUserId: 'admin-1' } : {}),
+    createdAt: now,
+    updatedAt: now,
+    providerSync: [
+      { integrationId: 'maas-a', siteId: 'site-a', state: 'synced', syncedAt: now },
+      { integrationId: 'maas-b', siteId: 'site-a', state: 'failed', error: 'Could not reach MAAS.' },
+    ],
+  }
+}
+
 /** Installs deterministic network fixtures; no backend or provider is contacted. */
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
+  // Per-page SSH Key state so one test's changes never leak into another.
+  let sshKeyItems = [
+    sshKey('deploy-1', 'swallow-deployment', 'deployment', 'ssh-ed25519 AAAADEPLOY swallow-deployment'),
+    sshKey('key-laptop', 'work-laptop', 'access', 'ssh-ed25519 AAAALAPTOP alice@laptop'),
+  ]
+  // A newly created key starts pending in every provisioner and settles on its first single-key
+  // read, modelling the backend sync pass that finishes moments after the create returns.
+  const settlingKeyIds = new Set<string>()
+  const pendingKey = (key: ReturnType<typeof sshKey>) => {
+    settlingKeyIds.add(key.id)
+    return { ...key, providerSync: key.providerSync.map(({ integrationId, siteId }) => ({ integrationId, siteId, state: 'pending' })) }
+  }
   await page.addInitScript(() => {
     class FixtureEventSource {
       static readonly CONNECTING = 0
@@ -770,6 +807,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         // the created row reflects.
         const uploadedIntegrationId = request.postData()?.match(/name="integrationId"\r?\n\r?\n([^\r\n]+)/)?.[1] ?? ''
         options.onOSImageUploadRequest?.(uploadedIntegrationId)
+        options.onOSImageUploadDefaultUser?.(request.postData()?.match(/name="defaultUser"\r?\n\r?\n([^\r\n]+)/)?.[1] ?? '')
         return json(
           route,
           {
@@ -793,6 +831,54 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return json(route, { error: { code: 'provider_unavailable', message: 'Image provider is unavailable' } }, 503)
       }
       return json(route, osImages)
+    }
+    if (path === '/api/v1/provisioning/images/overlay' && request.method() === 'PATCH') {
+      options.onOSImageOverlayRequest?.(request.postDataJSON() as Record<string, unknown>)
+      return route.fulfill({ status: 204 })
+    }
+    if (path.startsWith('/api/v1/ssh-keys')) {
+      const body = request.postData() ? (request.postDataJSON() as Record<string, unknown>) : null
+      options.onSSHKeyRequest?.(request.method(), path, body)
+      if (path === '/api/v1/ssh-keys' && request.method() === 'GET') return json(route, sshKeyItems)
+      if (path === '/api/v1/ssh-keys' && request.method() === 'POST') {
+        const publicKey = String(body?.publicKey ?? '')
+        if (!publicKey.startsWith('ssh-')) {
+          return json(route, { error: { code: 'validation_error', message: 'invalid ssh key: not a public key' } }, 400)
+        }
+        const created = pendingKey(sshKey(`key-${sshKeyItems.length + 1}`, String(body?.name ?? ''), 'access', publicKey))
+        sshKeyItems.push(created)
+        return json(route, created, 201)
+      }
+      if (path === '/api/v1/ssh-keys/generate' && request.method() === 'POST') {
+        const created = pendingKey(sshKey(`key-${sshKeyItems.length + 1}`, String(body?.name ?? ''), 'access', `ssh-ed25519 AAAAGENERATED ${String(body?.name ?? '')}`))
+        sshKeyItems.push(created)
+        return json(route, { key: created, privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\nFIXTURE\n-----END OPENSSH PRIVATE KEY-----\n' }, 201)
+      }
+      if (path === '/api/v1/ssh-keys/sync' && request.method() === 'POST') return route.fulfill({ status: 202 })
+      if (path === '/api/v1/ssh-keys/deployment/regenerate' && request.method() === 'POST') {
+        sshKeyItems[0] = { ...sshKeyItems[0], fingerprint: 'SHA256:regenerated', publicKey: 'ssh-ed25519 AAAAREGENERATED swallow-deployment', providerSync: sshKeyItems[0].providerSync.map((entry) => ({ ...entry, state: 'pending' })) }
+        return json(route, sshKeyItems[0])
+      }
+      const keyMatch = path.match(/^\/api\/v1\/ssh-keys\/([^/]+)$/)
+      if (keyMatch && request.method() === 'GET') {
+        const index = sshKeyItems.findIndex((item) => item.id === keyMatch[1])
+        if (index < 0) return json(route, { error: { code: 'not_found', message: 'SSH key not found.' } }, 404)
+        if (settlingKeyIds.delete(sshKeyItems[index].id)) {
+          sshKeyItems[index] = {
+            ...sshKeyItems[index],
+            providerSync: sshKeyItems[index].providerSync.map(({ integrationId, siteId }) => ({ integrationId, siteId, state: 'synced', syncedAt: now })),
+          }
+        }
+        return json(route, sshKeyItems[index])
+      }
+      if (keyMatch && request.method() === 'DELETE') {
+        const target = sshKeyItems.find((item) => item.id === keyMatch[1])
+        if (target?.purpose === 'deployment') {
+          return json(route, { error: { code: 'conflict', message: 'The deployment key cannot be deleted; replace or regenerate it instead.' } }, 409)
+        }
+        sshKeyItems = sshKeyItems.filter((item) => item.id !== keyMatch[1])
+        return route.fulfill({ status: 204 })
+      }
     }
     if (path === '/api/v1/provisioning/templates' && request.method() === 'GET') {
       const siteId = url.searchParams.get('siteId')

@@ -20,6 +20,7 @@ CLI、API、automation 與 installation assets。
 - [OS provisioning](guides/os-provisioning.md)
 - [Platform](guides/platforms.md)
 - [Managed Software](guides/managed-software.md)
+- [SSH key 與 image 登入帳號](guides/ssh-keys.md)
 - [Workflow](guides/workflows.md)
 - [Monitoring](guides/monitoring.md)
 - [疑難排解](troubleshooting.md)

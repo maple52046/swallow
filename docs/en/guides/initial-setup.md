@@ -42,10 +42,16 @@ series receive stable `server_id`, `site`, and Platform labels.
 
 Site automation defines:
 
-- SSH user and connection policy;
+- the SSH port and an optional fallback SSH user (each OS image's default user
+  is tried first);
 - mandatory known-host entries;
-- write-only SSH credentials;
+- write-only credentials: an optional private key that overrides the
+  installation's deployment key, and the become password;
 - allowlisted manifest playbook mappings.
+
+The deployment key is created during installation (`swallowctl install`) and is registered in
+MAAS automatically, so most Sites need no private key of their own. See
+[SSH keys and image login users](ssh-keys.md).
 
 Only playbooks in the shipped manifest can execute. Automation is not an
 external Integration; it is a Site-scoped swallow capability.

@@ -20,6 +20,10 @@ set -a; source .env; set +a
 ./swallowctl doctor
 ```
 
+`install` 會先執行資料庫 migration，再建立 deployment key（`swallow-api deployment-key ensure`），
+也就是 swallow 登入其佈署 Server 時使用的 SSH key；`upgrade` 會重複這兩步並保留既有 key。
+API 不需要它也能啟動，但它不存在時 OS 與 Platform 佈署會被拒絕。
+
 `upgrade` 會先 backup；有 active Workflow 時拒絕，除非明確 `--force`。
 Backup 包含 MongoDB、credential encryption key 與 job artifacts。Uninstall
 預設保留 state，只有 `--purge-data` 會刪除。

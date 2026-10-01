@@ -3,6 +3,8 @@ package domain
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -44,15 +46,56 @@ type OSImageOverlay struct {
 	// the other fields they have no provider counterpart to override — a provider image carries
 	// no tags — so they are purely additive owned data, not an override. Empty means no tags.
 	Tags []string
+	// DefaultUser is the image's default login user — the account its cloud-init creates and
+	// authorizes provisioner SSH keys for — which swallow automation logs in as on Servers
+	// deployed with this image (decision 039). Like Tags it has no provider counterpart; it is
+	// merged over a swallow built-in (BuiltinDefaultUser), not over a provider value, and never
+	// changes what the image deploys. Empty means "use the built-in, if any".
+	DefaultUser string
 	// UpdatedAt records when swallow last wrote this overlay. It is swallow's own write time,
 	// not a provider observation, so it is not a staleness signal.
 	UpdatedAt time.Time
 }
 
-// HasOverride reports whether the overlay carries at least one override or tag. An overlay with
-// nothing set is meaningless and callers delete it rather than storing it.
+// HasOverride reports whether the overlay carries at least one override, tag, or default user.
+// An overlay with nothing set is meaningless and callers delete it rather than storing it.
 func (o *OSImageOverlay) HasOverride() bool {
-	return o.DisplayName != "" || o.OSSystem != "" || o.Release != "" || len(o.Tags) > 0
+	return o.DisplayName != "" || o.OSSystem != "" || o.Release != "" || len(o.Tags) > 0 || o.DefaultUser != ""
+}
+
+// defaultUserPattern is the portable POSIX login-name shape (the useradd default): it keeps the
+// value safe to pass as an SSH and Ansible user without quoting.
+var defaultUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+
+// ValidDefaultUser reports whether user is an acceptable OS Image default user.
+func ValidDefaultUser(user string) bool {
+	return defaultUserPattern.MatchString(user)
+}
+
+// builtinDefaultUsers maps a provider OS family to the default user its official cloud images
+// create. It is swallow's convention for synced images; a custom image (OS family "custom") has
+// no reliable default, so an operator sets one on the overlay.
+var builtinDefaultUsers = map[string]string{
+	"ubuntu": "ubuntu",
+	"centos": "centos",
+	"rhel":   "cloud-user",
+}
+
+// BuiltinDefaultUser returns swallow's built-in default user for a provider OS family, or "".
+// providerOSSystem must be the provider's own value, never an overlay label: relabeling an image's
+// OS for display must not change which account automation logs in as.
+func BuiltinDefaultUser(providerOSSystem string) string {
+	return builtinDefaultUsers[strings.ToLower(strings.TrimSpace(providerOSSystem))]
+}
+
+// EffectiveDefaultUser is the single precedence rule for an image's default user: the overlay
+// value, else the built-in for the provider OS family, else "" (automation then falls back to the
+// Site SSH user and built-in candidates).
+func EffectiveDefaultUser(overlayDefaultUser, providerOSSystem string) string {
+	if overlayDefaultUser != "" {
+		return overlayDefaultUser
+	}
+	return BuiltinDefaultUser(providerOSSystem)
 }
 
 // OSImageOverlayRepository persists swallow-owned OS Image overlays.

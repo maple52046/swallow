@@ -17,6 +17,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
 | Monitoring | Alert、silence、fixed metrics、fleet health 與 Grafana link |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
+| SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 
 `/clusters` 與 `/operations` 下的 route 是 compatibility redirect；canonical
 navigation 使用 Platforms 與 Workflows。

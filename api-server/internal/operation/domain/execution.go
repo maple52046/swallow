@@ -42,19 +42,42 @@ type ExecutionOperation struct {
 }
 
 // AutomationConfiguration is the single embedded-runner configuration for a site.
+//
+// SSHUser is a fallback login user: automation first uses each Server's deployed OS Image
+// default user (decision 039). HasCredential reports that a site credential record exists;
+// HasPrivateKeyOverride reports that it carries an SSH private key overriding the Deployment
+// Key. CredentialSource is derived for reads by AutomationConfigurationService and is never
+// persisted.
 type AutomationConfiguration struct {
-	SiteID           string
-	Enabled          bool
-	SSHUser          string
-	SSHPort          int
-	KnownHosts       string
-	PlaybookMappings map[WorkflowKind]string
-	HasCredential    bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	SiteID                string
+	Enabled               bool
+	SSHUser               string
+	SSHPort               int
+	KnownHosts            string
+	PlaybookMappings      map[WorkflowKind]string
+	HasCredential         bool
+	HasPrivateKeyOverride bool
+	CredentialSource      CredentialSource
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
-// AutomationCredential is write-only API input and encrypted repository output.
+// CredentialSource is the closed set of places a Site's effective automation SSH key comes from
+// (glossary Automation Configuration).
+type CredentialSource string
+
+const (
+	// CredentialSourceSite means the site credential's private key overrides the Deployment Key.
+	CredentialSourceSite CredentialSource = "site"
+	// CredentialSourceDeploymentKey means the Site has no override and uses the Deployment Key.
+	CredentialSourceDeploymentKey CredentialSource = "deploymentKey"
+	// CredentialSourceNone means neither exists, which only happens when the installation step
+	// that creates the Deployment Key has not run.
+	CredentialSourceNone CredentialSource = "none"
+)
+
+// AutomationCredential is write-only API input and encrypted repository output. An empty
+// SSHPrivateKey means the Site has no private-key override and uses the Deployment Key.
 type AutomationCredential struct {
 	SSHPrivateKey  string `json:"sshPrivateKey"`
 	BecomePassword string `json:"becomePassword,omitempty"`

@@ -71,6 +71,9 @@ Ansible event、provider SDK response 或 YAML node。
 - `provisioning` — MAAS adapter、images、templates、tags、network、deploy/release/recovery。
 - `platform` — Kubernetes／Slurm deployment policy、credentials、membership、live APIs。
 - `software` — Managed Software catalog、Assignments 與 lifecycle intent。
+- `sshkey` — SSH Keys（Deployment Key 與 Access Keys）、provisioner 同步；Deployment Key 由安裝步驟
+  `swallow-api deployment-key ensure` 建立（API 啟動不建立也不檢查），operation 經 `DeploymentKeySource`
+  port 取得、OS／Platform 佈署受理前檢查其存在（decision 039）。
 - `operation` — Workflow/Job/Task domain、execution records、artifacts 與 runners。
 - `monitoring`／`overview`／`discovery` — read models 與 external live queries。
 - `migration` — explicit schema/data evolution。

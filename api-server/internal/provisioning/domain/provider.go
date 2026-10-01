@@ -90,6 +90,11 @@ type ProviderCapabilities struct {
 	// tags and swallow drives it to create, assign, and unassign them. When false, swallow owns
 	// a Server's tags itself (the ServerTagOverlay fallback). See docs/decisions/031.
 	Tagging bool
+	// SSHKeyRegistration reports that SSHKeyRegistrar is implemented, i.e. the provider holds SSH
+	// public keys for the account swallow authenticates as and authorizes them on machines it
+	// deploys. When false, swallow's SSH Keys are recorded as unsupported for this provisioner.
+	// See docs/decisions/039.
+	SSHKeyRegistration bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -305,6 +310,36 @@ type MachineTagController interface {
 	// RemoveTag unassigns the named tag from every machine in machineIDs in one provider call.
 	// An empty machineIDs is a no-op.
 	RemoveTag(ctx context.Context, name string, machineIDs []string) error
+}
+
+// ProviderSSHKey is one SSH public key a provisioner holds for the account swallow authenticates
+// as. ID is the provider's own opaque identifier, needed to remove the key later; PublicKey is the
+// authorized_keys line exactly as the provider reports it, which callers compare by key material
+// (type and base64 blob) rather than by comment.
+type ProviderSSHKey struct {
+	ID        string
+	PublicKey string
+}
+
+// SSHKeyRegistrar lets swallow realize its SSH Keys in a provisioner that injects account SSH keys
+// into the machines it deploys (for MAAS, the API-key owner's keys under /account/prefs/sshkeys/,
+// written into the deployed image's default user by cloud-init). It is the provider side of
+// decision 039: swallow owns the key records; this capability makes a provider deployment
+// authorize them.
+//
+// The registrar affects only deployments the provider starts after a key is added; it never
+// changes machines already deployed. RemoveSSHKey treats a key the provider no longer holds as
+// already satisfied. A provider refusal (a malformed or duplicate key) maps to
+// *ProviderError{Kind: ProviderErrorRejected} and transport failures to ProviderErrorUnavailable.
+// An adapter that sets ProviderCapabilities.SSHKeyRegistration must implement this.
+type SSHKeyRegistrar interface {
+	// ListSSHKeys returns every SSH key the provider holds for swallow's account, including keys
+	// an operator added outside swallow.
+	ListSSHKeys(ctx context.Context) ([]ProviderSSHKey, error)
+	// AddSSHKey registers one authorized_keys line and returns the provider's record of it.
+	AddSSHKey(ctx context.Context, publicKey string) (ProviderSSHKey, error)
+	// RemoveSSHKey deletes the provider key with this identifier; a missing key is satisfied.
+	RemoveSSHKey(ctx context.Context, keyID string) error
 }
 
 // MachineDetail is a provider-neutral, display-oriented view of one machine: labelled

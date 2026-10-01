@@ -23,11 +23,16 @@
   non-empty field over the provider value at read." / "An operator relabels an image; the catalog
   returns the effective `name`/`osSystem`/`release`, the provider's `provider*` values, and the
   swallow `custom*` overrides." / "If the image disappears from the provider catalog the overlay
-  is simply not merged; deleting the image also deletes its overlay."
+  is simply not merged; deleting the image also deletes its overlay." / "An OS Image overlay's
+  `defaultUser` is bookkeeping with no provider counterpart (like tags): it is merged over a
+  swallow built-in default rather than over a provider value, and never changes what the image
+  deploys."
 - Related terms: Integration, OS Image, OS Provisioning Provider, Machine, Server, Staleness,
   Deployment Template.
 - Change note: Added for the provider-data-overlay refactor to name the reusable pattern of
   merging swallow-owned display data onto provider-owned facts. See
   [decision 025](../../../decisions/025-provider-data-overlay.md), which refines
   [decision 001](../../../decisions/001-system-ownership-boundaries.md) and
-  [decision 009](../../../decisions/009-deployment-template-ownership.md).
+  [decision 009](../../../decisions/009-deployment-template-ownership.md). Updated 2026-10-01 for
+  the OS Image `defaultUser` bookkeeping field per
+  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md).

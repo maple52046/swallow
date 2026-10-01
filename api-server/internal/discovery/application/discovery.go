@@ -146,6 +146,11 @@ func (uc *DiscoveryUseCase) AnsibleInventory(ctx context.Context, input Discover
 			vars["provisioning_state"] = p.State
 			vars["os_system"] = p.OSSystem
 			vars["distro_series"] = p.DistroSeries
+			// The deployed image's default login user (decision 039). The runner turns it into
+			// ansible_user; it is emitted only when known so its absence means "fall back".
+			if p.DeployedImageDefaultUser != "" {
+				vars["image_default_user"] = p.DeployedImageDefaultUser
+			}
 			addGroup(groups, "provisioning_"+groupToken(p.State), server.ID)
 		}
 

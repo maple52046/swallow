@@ -38,7 +38,7 @@ software deployment 不新增編排引擎，直接沿用
 
 | Job | Task | Runner | 說明 |
 | --- | --- | --- | --- |
-| `prepare-hosts` | `wait-for-ssh` | `internal` | 獨立入口要求目標已 `deployed`；**驗證式 SSH 就緒**（以站台金鑰實際完成認證，非只探 TCP，見 [platform-deployment.md](platform-deployment.md) §4.6.1） |
+| `prepare-hosts` | `wait-for-ssh` | `internal` | 獨立入口要求目標已 `deployed`；**驗證式 SSH 就緒**（以 automation 金鑰——站台 override，否則 Deployment Key——實際完成認證，非只探 TCP，見 [platform-deployment.md](platform-deployment.md) §4.6.1） |
 | `configure-<kind>` | `ansible-playbook` | `ansible` | 一支 manifest 註冊的 idempotent playbook |
 | `record-software` | `record-software-assignment` | `internal` | 成功後把 Software Assignment 標為 `installed` |
 
@@ -48,9 +48,10 @@ uninstall 對稱：`prepare-hosts` → `configure-<kind>`（跑 `uninstall-<kind
 **失敗語意**：install 的 ansible step 若失敗，`record-software` 不會執行；此時由 step observer 依
 ansible step 上攜帶的 assignment 身分把 Software Assignment 標為 `failed`（見 §4.3）。
 
-**SSH 就緒是驗證式、帳號 per-host 解析**：`prepare-hosts` 的 `wait-for-ssh` 會以站台 automation 金鑰
-對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為 **per-host candidate 解析**
-（`[站台 sshUser, cloud-user, ubuntu]`，站台值優先），因此可在同一 site 混用 ubuntu（`ubuntu`）與自訂
+**SSH 就緒是驗證式、帳號 per-host 解析**：`prepare-hosts` 的 `wait-for-ssh` 會以 automation 金鑰
+（站台 override，否則 Deployment Key）對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為
+**per-host 解析**：所佈署 OS Image 有 default user 時只用它，否則以候選清單
+（`[站台 sshUser, cloud-user, ubuntu]`，站台值優先）探測，因此可在同一 site 混用 ubuntu（`ubuntu`）與自訂
 image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如被以未授權 automation 公鑰的 image 重裝過）
 會在此步驟就以清楚的 `ssh_authentication_failed` 失敗，而非拖到 ansible step 才報 `Permission denied
 (publickey)`。細節與 fail-fast/grace 語意見 [platform-deployment.md](platform-deployment.md) §4.6.1。

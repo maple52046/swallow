@@ -19,7 +19,14 @@
   offers no way to relabel or tag these and they have no external owner; each
   override is merged over the provider value at read, tags are purely additive
   (no provider counterpart), and the artifact and its deployable `id` stay
-  provider-owned. Provider-reported artifact metadata such as its current complete
+  provider-owned. The overlay may also carry the image's **default user** — the
+  login user the image's cloud-init configures and authorizes provisioner SSH
+  keys for (for example `ubuntu` or `cloud-user`). The effective default user is
+  the overlay value when set, otherwise a swallow built-in derived from the
+  provider OS family (`ubuntu` → `ubuntu`, `centos` → `centos`, `rhel` →
+  `cloud-user`), otherwise none; it can be set at upload or afterwards, and
+  swallow mirrors it onto each Server deployed with the image so automation logs
+  in as that user. Provider-reported artifact metadata such as its current complete
   resource-set size may accompany the live catalog but remains provider-owned and
   is never part of the overlay.   Swallow may additionally hold a swallow-owned
   **verification** for a custom image — a per-[Deploy Target](deploy-target.md)
@@ -65,3 +72,6 @@
   as a verified one (`failedDeployTargets`), making a failed verification visible and
   distinct from a never-attempted one, per
   [decision 036](../../../decisions/036-provisioning-lifecycle-integrity.md).
+  Updated 2026-10-01 for the swallow-owned default user used as the automation
+  login user, per
+  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md).

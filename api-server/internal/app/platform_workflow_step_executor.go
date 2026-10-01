@@ -188,15 +188,16 @@ func (e platformWorkflowStepExecutor) recordSoftwareAssignment(ctx context.Conte
 const sshAuthGracePeriod = 45 * time.Second
 
 // waitForSSH blocks until every target host is not just reachable on the SSH port but actually
-// accepts the site automation key as one of the candidate login users. Authenticating here (rather
-// than only probing TCP) closes the gap where "SSH verified" meant only "port open": a host whose
-// SSH user does not authorize the automation key now fails at this step with a clear credential
+// accepts the automation key (the Site override, else the Deployment Key — the configurations
+// repository is the effective-credential decorator) as the host's login user. Authenticating here
+// (rather than only probing TCP) closes the gap where "SSH verified" meant only "port open": a host
+// whose login user does not authorize the key now fails at this step with a clear credential
 // message, instead of connecting far later in the Ansible Step and failing with a raw
-// "Permission denied (publickey)". Because OS images use different default users, it tries a
-// candidate list (site user first, then swallow's built-ins) so a mixed-image fleet still passes
-// readiness. A rejected key is failed fast (after a short grace for cloud-init), while a
-// still-booting host keeps the full readiness window. When no automation credential is wired (only
-// in tests), it degrades to a TCP-reachability probe.
+// "Permission denied (publickey)". The login user is resolved per target (decision 039): the
+// deployed OS Image's default user when known, else the candidate list (site user first, then
+// swallow's built-ins), so a mixed-image fleet still passes readiness. A rejected key is failed
+// fast (after a short grace for cloud-init), while a still-booting host keeps the full readiness
+// window. When no automation credential is wired (only in tests), it degrades to a TCP probe.
 func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	port := 22
 	user := ""
@@ -218,9 +219,9 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 			parsed, parseErr := sshprobe.ParseSigner(credential.SSHPrivateKey)
 			if parseErr != nil {
 				// A malformed key can never authenticate, so waiting is pointless; fail with a clear,
-				// non-retryable reason pointing at the site automation credential.
+				// non-retryable reason pointing at the automation credential.
 				return internalStepFailed("ssh_key_invalid",
-					"The site automation SSH private key could not be parsed: "+parseErr.Error(), false)
+					"The automation SSH private key (site override or Deployment Key) could not be parsed: "+parseErr.Error(), false)
 			}
 			signer = parsed
 		}
@@ -228,7 +229,6 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 	// Authenticated readiness needs a usable key; without one (unconfigured automation, reached only
 	// in tests) the probe degrades to TCP reachability.
 	authenticate := signer != nil
-	candidates := sshprobe.Candidates(user)
 	prober := e.sshProber
 	if prober == nil {
 		prober = sshprobe.DefaultProber{}
@@ -245,7 +245,7 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 
 	var firstAuthFailureAt time.Time
 	for {
-		observation, err := e.probeReadiness(ctx, input.Step, port, signer, prober, candidates, authenticate)
+		observation, err := e.probeReadiness(ctx, input.Step, port, signer, prober, user, authenticate)
 		if err != nil {
 			return internalStepFailed("ssh_readiness_unavailable", err.Error(), true)
 		}
@@ -257,7 +257,7 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 			// not authorized for any candidate user, so waiting the full readiness window would only
 			// delay the same result.
 			if time.Since(firstAuthFailureAt) >= grace {
-				failure := internalStepFailed("ssh_authentication_failed", sshAuthFailedMessage(observation.authFailed, candidates), true)
+				failure := internalStepFailed("ssh_authentication_failed", sshAuthFailedMessage(observation.authFailed), true)
 				failure.Error.Stage = "ssh_authentication"
 				return failure
 			}
@@ -271,7 +271,7 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 		case <-ctx.Done():
 			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
-			failure := internalStepFailed("ssh_readiness_timeout", sshReadinessTimeoutMessage(observation, port, candidates), true)
+			failure := internalStepFailed("ssh_readiness_timeout", sshReadinessTimeoutMessage(observation, port), true)
 			failure.Error.Stage = "ssh_readiness"
 			return failure
 		case <-ticker.C:
@@ -281,6 +281,8 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 
 // readinessObservation buckets one polling pass over the targets so the caller can decide whether to
 // keep waiting (missing address or still booting), fail fast (authentication rejected), or succeed.
+// authFailed entries name the host together with the login users tried on it, because each target
+// resolves its own candidates.
 type readinessObservation struct {
 	missing     []string
 	unreachable []string
@@ -288,18 +290,18 @@ type readinessObservation struct {
 }
 
 // probeReadiness classifies every target in one pass. It reads the latest Server projection for each
-// target (so a target that became deployed since the last pass is now probed) and then, for a
-// deployed target with an address, resolves the SSH login user from the candidate list. Calls are
-// bounded to eight concurrent probes; a repository failure aborts the pass rather than being
-// misreported as a host failure. When authenticate is false the probe degrades to TCP reachability
-// and never reports an auth failure.
+// target (so a target that became deployed since the last pass is now probed, and its freshly
+// mirrored image default user is used) and then, for a deployed target with an address, resolves
+// the SSH login user from that target's candidates. Calls are bounded to eight concurrent probes; a
+// repository failure aborts the pass rather than being misreported as a host failure. When
+// authenticate is false the probe degrades to TCP reachability and never reports an auth failure.
 func (e platformWorkflowStepExecutor) probeReadiness(
 	ctx context.Context,
 	step operationdomain.Task,
 	port int,
 	signer ssh.Signer,
 	prober sshprobe.Prober,
-	candidates []string,
+	siteUser string,
 	authenticate bool,
 ) (readinessObservation, error) {
 	// bucket labels: "ready" needs no tracking; the rest map to the observation fields.
@@ -329,6 +331,7 @@ func (e platformWorkflowStepExecutor) probeReadiness(
 			results <- probe{name: name, bucket: "unreachable"}
 			continue
 		}
+		candidates := sshprobe.Candidates(server.Provisioning.DeployedImageDefaultUser, siteUser)
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
@@ -362,7 +365,7 @@ func (e platformWorkflowStepExecutor) probeReadiness(
 			case sshprobe.Ready:
 				results <- probe{name: name, bucket: "ready"}
 			case sshprobe.AuthFailed:
-				results <- probe{name: name, bucket: "authFailed"}
+				results <- probe{name: fmt.Sprintf("%s (tried %s)", name, strings.Join(candidates, ", ")), bucket: "authFailed"}
 			default:
 				results <- probe{name: name, bucket: "unreachable"}
 			}
@@ -394,19 +397,20 @@ func (e platformWorkflowStepExecutor) probeReadiness(
 }
 
 // sshAuthFailedMessage explains a fail-fast authentication rejection so the operator fixes the
-// credential rather than the network: the host is reachable but does not authorize the automation
-// key for any candidate login user.
-func sshAuthFailedMessage(authFailed []string, candidates []string) string {
+// credential or the image's default user rather than the network: the host is reachable but does
+// not authorize the automation key for the login users tried on it.
+func sshAuthFailedMessage(authFailed []string) string {
 	return fmt.Sprintf(
-		"SSH authentication failed for: %s. The host is reachable but rejected the site automation SSH key (publickey) for every candidate login user (%s). "+
-			"Authorize the site automation public key for the image's login user on the target (via the deployment template's cloud-init or the provisioner's SSH keys), then retry this Step.",
-		strings.Join(authFailed, ", "), strings.Join(candidates, ", "))
+		"SSH authentication failed for: %s. The host is reachable but rejected the automation SSH key (publickey) for the login users tried. "+
+			"Check that the OS Image's default user is correct and that the Deployment Key (or the site's key override) is authorized for it — "+
+			"swallow registers the Deployment Key in key-capable provisioners, so a Server deployed before a key change may need redeploying — then retry this Step.",
+		strings.Join(authFailed, ", "))
 }
 
 // sshReadinessTimeoutMessage separates missing provider observations from a host that never became
 // reachable so operators know whether to inspect DHCP/addressing or the host itself. Any host still
 // failing authentication at the deadline is reported as a credential problem.
-func sshReadinessTimeoutMessage(observation readinessObservation, port int, candidates []string) string {
+func sshReadinessTimeoutMessage(observation readinessObservation, port int) string {
 	parts := make([]string, 0, 3)
 	if len(observation.missing) > 0 {
 		parts = append(parts, fmt.Sprintf("No provider address was observed after OS deployment for: %s.", strings.Join(observation.missing, ", ")))
@@ -415,7 +419,7 @@ func sshReadinessTimeoutMessage(observation readinessObservation, port int, cand
 		parts = append(parts, fmt.Sprintf("SSH port %d did not become reachable for: %s.", port, strings.Join(observation.unreachable, ", ")))
 	}
 	if len(observation.authFailed) > 0 {
-		parts = append(parts, fmt.Sprintf("SSH authentication was rejected (tried %s) for: %s.", strings.Join(candidates, ", "), strings.Join(observation.authFailed, ", ")))
+		parts = append(parts, fmt.Sprintf("SSH authentication was rejected for: %s.", strings.Join(observation.authFailed, ", ")))
 	}
 	return strings.Join(parts, " ")
 }

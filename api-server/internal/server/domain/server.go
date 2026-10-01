@@ -167,6 +167,12 @@ type ProvisioningStatus struct {
 	// the fleet list can show a meaningful image name without a per-request catalog fan-out (see
 	// docs/decisions/001 and 009).
 	DeployedImageName string
+	// DeployedImageDefaultUser is the effective default login user of the currently deployed OS
+	// image (its swallow overlay value, else the built-in for its OS family), mirrored exactly
+	// like DeployedImageName. Automation logs in to the Server as this user exclusively; empty
+	// means no default user is known and automation falls back to the Site SSH user and built-in
+	// candidates (decision 039).
+	DeployedImageDefaultUser string
 	// Ephemeral reports that the deployed OS runs from memory, so anything written to
 	// the root filesystem is lost on reboot.
 	//

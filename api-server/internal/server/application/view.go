@@ -92,6 +92,9 @@ type ProvisioningAxisItem struct {
 	// catalog name overlaid with any swallow custom name), mirrored during reconcile. Empty
 	// when nothing is deployed or the image could not be resolved from the catalog.
 	DeployedImageName string `json:"deployedImageName"`
+	// DeployedImageDefaultUser is the deployed image's effective default login user, the account
+	// swallow automation logs in as (decision 039). Omitted when unknown.
+	DeployedImageDefaultUser string `json:"deployedImageDefaultUser,omitempty"`
 	// Ephemeral means the deployed OS runs from memory: anything written to it is
 	// lost on reboot. Clients must show it, because no other field distinguishes such
 	// a machine from one with the same OS installed on disk.
@@ -182,20 +185,21 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 
 	if p := s.Provisioning; p != nil {
 		item.Provisioning = &ProvisioningAxisItem{
-			State:               p.State,
-			ProviderState:       p.ProviderState,
-			ErrorDescription:    p.ErrorDescription,
-			PowerState:          p.PowerState,
-			OSSystem:            p.OSSystem,
-			DistroSeries:        p.DistroSeries,
-			DeployedImageName:   p.DeployedImageName,
-			Ephemeral:           p.Ephemeral,
-			HWEKernel:           p.HWEKernel,
-			Locked:              p.Locked,
-			CommissioningStatus: p.CommissioningStatus,
-			TestingStatus:       p.TestingStatus,
-			IntegrationID:       p.IntegrationID,
-			ObservedAt:          wire.Time(p.ObservedAt),
+			State:                    p.State,
+			ProviderState:            p.ProviderState,
+			ErrorDescription:         p.ErrorDescription,
+			PowerState:               p.PowerState,
+			OSSystem:                 p.OSSystem,
+			DistroSeries:             p.DistroSeries,
+			DeployedImageName:        p.DeployedImageName,
+			DeployedImageDefaultUser: p.DeployedImageDefaultUser,
+			Ephemeral:                p.Ephemeral,
+			HWEKernel:                p.HWEKernel,
+			Locked:                   p.Locked,
+			CommissioningStatus:      p.CommissioningStatus,
+			TestingStatus:            p.TestingStatus,
+			IntegrationID:            p.IntegrationID,
+			ObservedAt:               wire.Time(p.ObservedAt),
 		}
 	}
 

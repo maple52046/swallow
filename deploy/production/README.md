@@ -23,6 +23,11 @@ set -a; source .env; set +a
 ./swallowctl doctor
 ```
 
+`install` runs the database migration and then creates the deployment key
+(`swallow-api deployment-key ensure`), the SSH key swallow uses to log in to the
+Servers it deploys; `upgrade` repeats both and keeps an existing key. The API
+starts without it, but OS and Platform deployments are refused until it exists.
+
 `upgrade` takes a backup first and rejects active Workflows unless
 `--force` is explicit. Backups contain MongoDB, the credential-encryption key,
 and job artifacts. Uninstall retains state unless `--purge-data` is supplied.

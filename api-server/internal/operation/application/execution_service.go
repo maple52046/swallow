@@ -12,6 +12,7 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/pagination"
+	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/internal/shared/wire"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
@@ -463,6 +464,7 @@ type AutomationConfigurationService struct {
 	configurations operationdomain.AutomationConfigurationRepository
 	sites          sitedomain.SiteRepository
 	catalog        operationdomain.PlaybookCatalog
+	deploymentKeys DeploymentKeySource
 }
 
 // NewAutomationConfigurationService constructs site automation use cases.
@@ -470,9 +472,39 @@ func NewAutomationConfigurationService(configurations operationdomain.Automation
 	return &AutomationConfigurationService{configurations: configurations, sites: sites, catalog: catalog}
 }
 
-// Get returns settings and credential presence only.
+// AttachDeploymentKeys lets reads report CredentialSource deploymentKey for a Site without a
+// private-key override. Without it such a Site reports none.
+func (s *AutomationConfigurationService) AttachDeploymentKeys(keys DeploymentKeySource) {
+	s.deploymentKeys = keys
+}
+
+// Get returns settings, credential presence, and the effective credential source; never secrets.
 func (s *AutomationConfigurationService) Get(ctx context.Context, siteID string) (*operationdomain.AutomationConfiguration, error) {
-	return s.configurations.FindBySiteID(ctx, siteID)
+	configuration, err := s.configurations.FindBySiteID(ctx, siteID)
+	if err != nil {
+		return nil, err
+	}
+	return s.withCredentialSource(ctx, configuration)
+}
+
+// withCredentialSource derives the Site's effective credential source with the same precedence
+// EffectiveAutomationConfigurations applies at run time: a site private key overrides, else the
+// Deployment Key.
+func (s *AutomationConfigurationService) withCredentialSource(ctx context.Context, configuration *operationdomain.AutomationConfiguration) (*operationdomain.AutomationConfiguration, error) {
+	configuration.CredentialSource = operationdomain.CredentialSourceNone
+	switch {
+	case configuration.HasPrivateKeyOverride:
+		configuration.CredentialSource = operationdomain.CredentialSourceSite
+	case s.deploymentKeys != nil:
+		exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			configuration.CredentialSource = operationdomain.CredentialSourceDeploymentKey
+		}
+	}
+	return configuration, nil
 }
 
 // Put validates and replaces non-secret settings.
@@ -488,8 +520,11 @@ func (s *AutomationConfigurationService) Put(ctx context.Context, configuration 
 	if configuration.SSHPort < 1 || configuration.SSHPort > 65535 {
 		return nil, fmt.Errorf("%w: sshPort must be between 1 and 65535", ErrInvalidOperation)
 	}
-	if configuration.Enabled && (configuration.SSHUser == "" || configuration.KnownHosts == "") {
-		return nil, fmt.Errorf("%w: enabled automation requires sshUser and knownHosts", ErrInvalidOperation)
+	// sshUser is only a fallback login user since decision 039 (the OS Image default user comes
+	// first), so it is optional; known-hosts remains required because host-key verification
+	// cannot be disabled.
+	if configuration.Enabled && configuration.KnownHosts == "" {
+		return nil, fmt.Errorf("%w: enabled automation requires knownHosts", ErrInvalidOperation)
 	}
 	for kind, playbook := range configuration.PlaybookMappings {
 		if !kind.Valid() || kind == operationdomain.WorkflowKindCustom {
@@ -502,13 +537,21 @@ func (s *AutomationConfigurationService) Put(ctx context.Context, configuration 
 	if err := s.configurations.Upsert(ctx, configuration); err != nil {
 		return nil, err
 	}
-	return s.configurations.FindBySiteID(ctx, configuration.SiteID)
+	return s.Get(ctx, configuration.SiteID)
 }
 
-// ReplaceCredential validates and writes encrypted secrets.
+// ReplaceCredential validates and writes encrypted secrets, replacing the whole site credential.
+// An empty private key clears the site override so the Site uses the Deployment Key; a non-empty
+// one must parse as an unencrypted private key, because automation uses it unattended and a key
+// that cannot be parsed would only fail later, deep inside a Workflow.
 func (s *AutomationConfigurationService) ReplaceCredential(ctx context.Context, siteID string, credential operationdomain.AutomationCredential) error {
-	if strings.TrimSpace(credential.SSHPrivateKey) == "" {
-		return fmt.Errorf("%w: sshPrivateKey is required", ErrInvalidOperation)
+	if strings.TrimSpace(credential.SSHPrivateKey) != "" {
+		credential.SSHPrivateKey = strings.TrimSpace(credential.SSHPrivateKey) + "\n"
+		if _, err := sshprobe.ParseSigner(credential.SSHPrivateKey); err != nil {
+			return fmt.Errorf("%w: sshPrivateKey is not a usable unencrypted private key", ErrInvalidOperation)
+		}
+	} else {
+		credential.SSHPrivateKey = ""
 	}
 	return s.configurations.ReplaceCredential(ctx, siteID, credential)
 }

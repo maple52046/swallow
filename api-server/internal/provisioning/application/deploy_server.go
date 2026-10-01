@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
@@ -54,6 +55,7 @@ type DeployServerInput struct {
 type DeployServerUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
+	keys      DeploymentKeys
 }
 
 func NewDeployServerUseCase(
@@ -63,7 +65,16 @@ func NewDeployServerUseCase(
 	return &DeployServerUseCase{servers: servers, providers: providers}
 }
 
+// AttachDeploymentKeys makes the deploy require a Deployment Key and ensure the provisioner holds
+// swallow's SSH Keys before its provider write, exactly like DeployServersUseCase.
+func (uc *DeployServerUseCase) AttachDeploymentKeys(keys DeploymentKeys) {
+	uc.keys = keys
+}
+
 func (uc *DeployServerUseCase) Execute(ctx context.Context, input DeployServerInput) (*ProvisioningStateItem, error) {
+	if err := requireDeploymentKey(ctx, uc.keys); err != nil {
+		return nil, err
+	}
 	server, err := uc.servers.FindByID(ctx, input.ServerID)
 	if err != nil {
 		return nil, err
@@ -85,6 +96,11 @@ func (uc *DeployServerUseCase) Execute(ctx context.Context, input DeployServerIn
 			Kind: provisioningdomain.ProviderErrorRejected,
 			Detail: "This provisioner does not support ephemeral deployment, and " +
 				"silently deploying to disk would be the opposite of what was requested.",
+		}
+	}
+	if uc.keys != nil {
+		if err := uc.keys.EnsureRegistered(ctx, server.Source.IntegrationID); err != nil {
+			return nil, fmt.Errorf("%w: %v", provisioningdomain.ErrSSHKeyRegistration, err)
 		}
 	}
 
@@ -145,31 +161,36 @@ func updateProvisioningProjection(
 ) *ProvisioningStateItem {
 	now := time.Now().UTC()
 
-	// This projection carries the previously mirrored deployed-image name forward rather than
-	// blanking it, because resolving the effective name needs the image catalog. RefreshServer
-	// fills it from the catalog when a deploy completes (an empty name on a deployed machine), and
-	// reconcile refreshes it thereafter; a redeploy to a different image shows the old name for at
-	// most one reconcile interval, which the ObservedAt staleness already accounts for.
-	deployedImageName := ""
-	if server.Provisioning != nil {
-		deployedImageName = server.Provisioning.DeployedImageName
+	// This projection carries the previously mirrored deployed-image name and default user
+	// forward rather than blanking them, because resolving them needs the image catalog.
+	// RefreshServer fills them when a deploy completes (an empty name on a deployed machine), and
+	// reconcile refreshes them thereafter. They are carried forward only while the machine still
+	// reports the same OS and release: a redeploy to another image changes those at deploy start,
+	// and a stale default user would make automation log in to the new image as the old image's
+	// account.
+	deployedImageName, deployedImageDefaultUser := "", ""
+	if previous := server.Provisioning; previous != nil &&
+		previous.OSSystem == machine.OSSystem && previous.DistroSeries == machine.DistroSeries {
+		deployedImageName = previous.DeployedImageName
+		deployedImageDefaultUser = previous.DeployedImageDefaultUser
 	}
 
 	server.Provisioning = &serverdomain.ProvisioningStatus{
-		State:               string(machine.Status),
-		ProviderState:       machine.ProviderStatus,
-		ErrorDescription:    machine.ErrorDescription,
-		PowerState:          string(machine.PowerState),
-		OSSystem:            machine.OSSystem,
-		DistroSeries:        machine.DistroSeries,
-		DeployedImageName:   deployedImageName,
-		Ephemeral:           projectedEphemeral(machine),
-		HWEKernel:           machine.HWEKernel,
-		Locked:              machine.Locked,
-		CommissioningStatus: machine.CommissioningStatus,
-		TestingStatus:       machine.TestingStatus,
-		IntegrationID:       server.Source.IntegrationID,
-		ObservedAt:          now,
+		State:                    string(machine.Status),
+		ProviderState:            machine.ProviderStatus,
+		ErrorDescription:         machine.ErrorDescription,
+		PowerState:               string(machine.PowerState),
+		OSSystem:                 machine.OSSystem,
+		DistroSeries:             machine.DistroSeries,
+		DeployedImageName:        deployedImageName,
+		DeployedImageDefaultUser: deployedImageDefaultUser,
+		Ephemeral:                projectedEphemeral(machine),
+		HWEKernel:                machine.HWEKernel,
+		Locked:                   machine.Locked,
+		CommissioningStatus:      machine.CommissioningStatus,
+		TestingStatus:            machine.TestingStatus,
+		IntegrationID:            server.Source.IntegrationID,
+		ObservedAt:               now,
 	}
 	server.UpdatedAt = now
 

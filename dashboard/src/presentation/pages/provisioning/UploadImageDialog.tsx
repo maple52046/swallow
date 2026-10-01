@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button, Field, Input, Progress, Stack, Text } from '@chakra-ui/react'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
-import type { Integration } from '@/domain/site/types'
+import { isValidDefaultUser, type Integration } from '@/domain/site/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
@@ -32,7 +32,7 @@ const FILETYPE_OPTIONS = [
  * Uploads a new provider-owned OS image to one scoped provisioner.
  *
  * The dialog collects the swallow-neutral intent (target provisioner, name, architecture,
- * optional title and file type) plus the file, and streams it through the provisioning
+ * optional title, file type, and default login user) plus the file, and streams it through the provisioning
  * repository, showing upload progress for a potentially multi-gigabyte artifact. It never
  * decides whether the result is a custom image: that is the provisioner's classification,
  * surfaced afterwards in the catalog. A failure keeps the dialog open with the provider's own
@@ -56,6 +56,10 @@ export function UploadImageDialog({
   const [architecture, setArchitecture] = useState('amd64')
   const [title, setTitle] = useState('')
   const [filetype, setFiletype] = useState('')
+  // Optional; a custom image has no built-in default user, so the uploader is the one who knows
+  // the account its cloud-init creates. Validated locally so a typo never costs the upload.
+  const [defaultUser, setDefaultUser] = useState('')
+  const defaultUserInvalid = defaultUser.trim() !== '' && !isValidDefaultUser(defaultUser.trim())
   const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   // null while the total is unknown (before the first progress event or when the browser cannot
@@ -67,7 +71,7 @@ export function UploadImageDialog({
     if (!submitting) onClose()
   }
 
-  const canSubmit = Boolean(integrationId && name.trim() && architecture && file) && !submitting
+  const canSubmit = Boolean(integrationId && name.trim() && architecture && file) && !defaultUserInvalid && !submitting
 
   const submit = async () => {
     if (!canSubmit || !file) return
@@ -82,6 +86,7 @@ export function UploadImageDialog({
           architecture,
           title: title.trim() || undefined,
           filetype: filetype || undefined,
+          defaultUser: defaultUser.trim() || undefined,
           file,
         },
         ({ loaded, total }) => setPercent(total > 0 ? Math.round((loaded / total) * 100) : null),
@@ -183,6 +188,24 @@ export function UploadImageDialog({
             disabled={submitting}
           />
           <Field.HelperText>Leave as the provider default unless uploading a disk image.</Field.HelperText>
+        </Field.Root>
+        <Field.Root invalid={defaultUserInvalid}>
+          <Field.Label htmlFor="upload-image-default-user">Default user</Field.Label>
+          <Input
+            id="upload-image-default-user"
+            value={defaultUser}
+            onChange={(event) => setDefaultUser(event.target.value)}
+            maxLength={32}
+            placeholder="e.g. cloud-user"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={submitting}
+          />
+          {defaultUserInvalid ? (
+            <Field.ErrorText>Use a login name: lowercase letters, digits, "_" or "-", starting with a letter or "_".</Field.ErrorText>
+          ) : (
+            <Field.HelperText>The login user the image's cloud-init creates. Swallow automation logs in as this user; it can also be set later.</Field.HelperText>
+          )}
         </Field.Root>
         <Field.Root required>
           <Field.Label htmlFor="upload-image-file">

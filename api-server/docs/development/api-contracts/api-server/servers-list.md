@@ -89,6 +89,7 @@ query language. `includeAbsent=true` changes visibility only.
         "osSystem": "ubuntu",
         "distroSeries": "jammy",
         "deployedImageName": "Ubuntu 22.04 LTS",
+        "deployedImageDefaultUser": "ubuntu",
         "observedAt": "2026-05-02T15:00:00Z"
       },
       "membership": {
@@ -122,6 +123,14 @@ an image rename), so a freshly deployed Server shows the friendly name promptly 
 than only after the next reconcile pass. It is display only and is empty when nothing is
 deployed or the image cannot be resolved from the catalog; clients fall back to
 `osSystem`/`distroSeries` in that case.
+
+`deployedImageDefaultUser` is the effective default login user of the currently deployed
+OS image (the image's Swallow `defaultUser` overlay, else the built-in derived from the OS
+family), mirrored the same way as `deployedImageName`. Swallow automation logs in to the
+Server as this user; it is also the account an operator's Access Key authorizes on
+Servers the provisioner deployed. It is omitted when nothing is deployed or no default
+user applies, in which case automation falls back to the Site SSH user and built-in
+candidates.
 
 Also on the provisioning axis, `errorDescription` is the provisioner's own
 machine-level failure reason (for example `"Failed to erase disks."`), mirrored

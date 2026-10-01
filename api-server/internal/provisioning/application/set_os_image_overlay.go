@@ -66,19 +66,29 @@ func NewSetOSImageOverlayUseCase(
 	}
 }
 
-// Set stores the given display overrides and tags for the image identified by integrationID,
-// imageID, and architecture. Each value is trimmed; an empty value clears that field's override.
-// Tags are trimmed, blanks dropped, and duplicates removed while preserving order. When nothing
-// carries an override or tag after normalization, the whole overlay is deleted rather than
-// storing an empty record, so an all-blank edit reverts the image to its provider values. A
-// field or tag longer than the field limit, or more than the tag limit, is rejected with
-// ErrOSImageOverlayInvalid.
+// OSImageOverlayInput is the full set of swallow-owned values for one image's overlay. A Set
+// replaces the whole overlay, so an omitted (empty) field clears that value.
+type OSImageOverlayInput struct {
+	Name        string
+	OSSystem    string
+	Release     string
+	Tags        []string
+	DefaultUser string
+}
+
+// Set stores the given display overrides, tags, and default user for the image identified by
+// integrationID, imageID, and architecture. Each value is trimmed; an empty value clears that
+// field. Tags are trimmed, blanks dropped, and duplicates removed while preserving order. When
+// nothing remains after normalization, the whole overlay is deleted rather than storing an empty
+// record, so an all-blank edit reverts the image to its provider values. A field or tag longer
+// than the field limit, more than the tag limit, or a default user that is not a POSIX login name
+// is rejected with ErrOSImageOverlayInvalid.
 func (uc *SetOSImageOverlayUseCase) Set(
 	ctx context.Context,
-	integrationID, imageID, architecture, name, osSystem, release string,
-	tags []string,
+	integrationID, imageID, architecture string,
+	input OSImageOverlayInput,
 ) error {
-	normalizedTags, err := normalizeOSImageTags(tags)
+	normalizedTags, err := normalizeOSImageTags(input.Tags)
 	if err != nil {
 		return err
 	}
@@ -86,16 +96,20 @@ func (uc *SetOSImageOverlayUseCase) Set(
 		IntegrationID: integrationID,
 		ImageID:       imageID,
 		Architecture:  architecture,
-		DisplayName:   strings.TrimSpace(name),
-		OSSystem:      strings.TrimSpace(osSystem),
-		Release:       strings.TrimSpace(release),
+		DisplayName:   strings.TrimSpace(input.Name),
+		OSSystem:      strings.TrimSpace(input.OSSystem),
+		Release:       strings.TrimSpace(input.Release),
 		Tags:          normalizedTags,
+		DefaultUser:   strings.TrimSpace(input.DefaultUser),
 		UpdatedAt:     uc.now(),
 	}
 	for _, field := range []string{overlay.DisplayName, overlay.OSSystem, overlay.Release} {
 		if len([]rune(field)) > maxOSImageOverlayFieldLength {
 			return provisioningdomain.ErrOSImageOverlayInvalid
 		}
+	}
+	if overlay.DefaultUser != "" && !provisioningdomain.ValidDefaultUser(overlay.DefaultUser) {
+		return provisioningdomain.ErrOSImageOverlayInvalid
 	}
 	// An overlay with nothing set is meaningless: clear it instead of persisting an empty
 	// record, so read-back and bulk "reset" behave identically to never having set one.
@@ -113,8 +127,9 @@ func (uc *SetOSImageOverlayUseCase) Set(
 	return nil
 }
 
-// propagateName eagerly re-mirrors the effective display name onto the integration's deployed
-// Server projections so a rename is visible on the fleet list at once. It is best-effort: the
+// propagateName eagerly re-mirrors the effective display name and default user onto the
+// integration's deployed Server projections so an edit is visible on the fleet list, and used by
+// automation, at once. It is best-effort: the
 // overlay write has already succeeded and is authoritative, so a refresh failure is intentionally
 // not returned — the periodic reconcile re-mirrors the name — and a nil refresher (unit tests)
 // simply skips propagation.

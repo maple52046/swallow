@@ -47,6 +47,11 @@ type APIConfig struct {
 	// call per machine and changes only at commissioning, so polling it as often as
 	// lifecycle state would multiply request count for near-static data.
 	InventoryInterval time.Duration `yaml:"inventoryInterval"`
+	// SSHKeySyncInterval is how often the API process re-realizes every SSH Key in each
+	// key-capable provisioner (decision 039). Key changes and deployments already trigger a
+	// sync, so this periodic pass only repairs drift (a key an operator deleted in MAAS, a
+	// provisioner that was unreachable) and can be much longer than ReconcileInterval.
+	SSHKeySyncInterval time.Duration `yaml:"sshKeySyncInterval"`
 	// OperationDispatchInterval controls how quickly pending embedded runs are claimed.
 	OperationDispatchInterval time.Duration `yaml:"operationDispatchInterval"`
 	// OperationLeaseDuration is renewed while ansible-runner is alive.

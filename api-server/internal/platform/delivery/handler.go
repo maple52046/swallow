@@ -514,6 +514,10 @@ func respondError(c *fiber.Ctx, err error) error {
 		// custom OS image not yet verified for the requested deploy target) surface here. Map it to
 		// 409 with the actionable message instead of leaking a generic 500 to the dashboard.
 		errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict),
+		// No Deployment Key: an installation-state conflict the operator fixes by running the
+		// install step, reported with the command to run (decision 039).
+		errors.Is(err, platformdomain.ErrDeploymentKeyMissing),
+		errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 

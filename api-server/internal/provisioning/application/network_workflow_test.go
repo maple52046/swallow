@@ -472,6 +472,72 @@ func TestDeployServersDefaultsToAutomaticAndReportsFailureStage(t *testing.T) {
 	}
 }
 
+// stubDeploymentKeys records the Integration it was asked to register keys in and returns err;
+// missing makes HasDeploymentKey report that the installation has no Deployment Key.
+type stubDeploymentKeys struct {
+	integrations []string
+	err          error
+	missing      bool
+}
+
+func (s *stubDeploymentKeys) HasDeploymentKey(context.Context) (bool, error) {
+	return !s.missing, nil
+}
+
+func (s *stubDeploymentKeys) EnsureRegistered(_ context.Context, integrationID string) error {
+	s.integrations = append(s.integrations, integrationID)
+	return s.err
+}
+
+// TestDeployServersRequiresDeploymentKey guards decision 039: without a Deployment Key both the
+// durable acceptance and a direct batch are refused before any provider read or write.
+func TestDeployServersRequiresDeploymentKey(t *testing.T) {
+	imageID := "ubuntu/noble"
+	input := DeployServersInput{ServerIDs: []string{"a"}, Settings: DeploymentSettingsInput{ImageID: &imageID}}
+	uc, provider := setupNetworkWorkflow(1)
+	keys := &stubDeploymentKeys{missing: true}
+	uc.AttachDeploymentKeys(keys)
+
+	if _, _, err := uc.ResolveOperationInput(context.Background(), input); !errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing) {
+		t.Errorf("ResolveOperationInput() error = %v, want ErrDeploymentKeyMissing", err)
+	}
+	if _, err := uc.Execute(context.Background(), input); !errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing) {
+		t.Errorf("Execute() error = %v, want ErrDeploymentKeyMissing", err)
+	}
+	if len(keys.integrations) != 0 || len(provider.configureRequests) != 0 || len(provider.deployRequests) != 0 {
+		t.Errorf("a missing Deployment Key must stop the deployment before registration or any provider write")
+	}
+}
+
+// TestDeployServersEnsuresSSHKeysBeforeAnyWrite guards decision 039: a batch must make the
+// provisioner hold the Deployment Key before its first provider write, and must not deploy at all
+// when that fails, because the deployed Server would not authorize swallow.
+func TestDeployServersEnsuresSSHKeysBeforeAnyWrite(t *testing.T) {
+	imageID := "ubuntu/noble"
+	input := DeployServersInput{ServerIDs: []string{"a"}, Settings: DeploymentSettingsInput{ImageID: &imageID}}
+
+	uc, provider := setupNetworkWorkflow(1)
+	keys := &stubDeploymentKeys{err: errors.New("MAAS refused the key")}
+	uc.AttachDeploymentKeys(keys)
+	if _, err := uc.Execute(context.Background(), input); !errors.Is(err, provisioningdomain.ErrSSHKeyRegistration) {
+		t.Fatalf("Execute() error = %v, want ErrSSHKeyRegistration", err)
+	}
+	if len(provider.configureRequests) != 0 || len(provider.deployRequests) != 0 {
+		t.Fatalf("a failed key registration must stop the batch before any provider write")
+	}
+
+	keys.err = nil
+	if _, err := uc.Execute(context.Background(), input); err != nil {
+		t.Fatalf("Execute() after registration recovered: %v", err)
+	}
+	if len(keys.integrations) != 2 || keys.integrations[1] != "provider-a" {
+		t.Errorf("EnsureRegistered calls = %v, want the targets' integration provider-a", keys.integrations)
+	}
+	if len(provider.deployRequests) != 1 {
+		t.Errorf("deploy requests = %d, want 1 once the key is registered", len(provider.deployRequests))
+	}
+}
+
 func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 	base, provider := setupNetworkWorkflow(1)
 	templates := &networkWorkflowTemplateRepo{

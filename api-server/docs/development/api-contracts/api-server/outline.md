@@ -31,7 +31,8 @@ conformist HTTP consumers of this surface; neither owns any contract here.
 | [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List, upload, and delete provider-owned OS Images, manage Deployment Templates, and submit multi-Server OS Deployments. |
 | [infrastructure.md](infrastructure.md) | Active | `/api/v1/infrastructure`, `PUT /api/v1/servers/{id}/placement` | Manage swallow-owned Zones and Pools and assign a Server to them, realized in the provisioner when grouping-capable. |
 | [server-tags.md](server-tags.md) | Active | `GET/POST /api/v1/provisioning/tags` | List a Site's known tags and edit Server tags (single or batch, tri-state), driving the provisioner when it owns tags and swallow-owned otherwise. |
-| [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials. |
+| [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{siteId}/automation` | Configure embedded Ansible execution and write-only credentials (an optional override of the Deployment Key). |
+| [ssh-keys.md](ssh-keys.md) | Active | `/api/v1/ssh-keys` | Manage the system Deployment Key and the caller's public-key-only Access Keys, realized into key-capable provisioners. |
 | [workflows.md](workflows.md) | Active | `/api/v1/workflows` | Create, observe, and retry Swallow-owned Workflows (DAG of Tasks), with timeline, logs, and per-Task events. |
 | [operations.md](operations.md) | Deprecated | `/api/v1/operations` | One-release compatibility alias of `workflows.md`; served by the same handlers with a `Deprecation` header. |
 | [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Deploy Kubernetes and Slurm Platforms, manage Slurm deployment requirements, lifecycle, uninstall/delete, and observed state (self-deployed only). |
@@ -67,13 +68,12 @@ routes and no active contract:
 - Users (management)
 - Topology: Datacenter, Room, Rack
 - GPU Observability
-- Access and SSH Keys
 
 Note: some groups in `planned-surface.md` are no longer planned. Provisioning `Profile`
 and `Job` are retired (automation content belongs in a playbook; deployment progress is
 the provisioning axis). Server detail, platforms (Kubernetes/Slurm registration),
-operations, and monitoring alerts are now implemented rather than planned — see the
-tables above and swallow's current API surface.
+operations, monitoring alerts, and SSH Keys are now implemented rather than planned — see
+the tables above and swallow's current API surface.
 
 To implement any of them: extract that endpoint from `planned-surface.md` into
 its own contract file using [../template.md](../template.md), reconcile it with

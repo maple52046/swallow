@@ -72,6 +72,11 @@ export function StatusCard({ server, deployedImageHref }: { server: Server; depl
                     : axis.deployedImageName
                   : null,
               },
+              // The deployed image's default user is the SSH login for automation and for the
+              // operator's Access Keys; shown only when known so an unknown user is not implied.
+              ...(axis.deployedImageDefaultUser
+                ? [{ label: 'Login user', value: <Text as="span" className="sw-mono">{axis.deployedImageDefaultUser}</Text> }]
+                : []),
               {
                 label: 'Ephemeral',
                 value: axis.state === 'deployed' ? (axis.ephemeral ? 'Yes — disk changes are lost on reboot' : 'No') : null,

@@ -93,6 +93,14 @@ export interface ProvisioningAxis {
    */
   deployedImageName: string
   /**
+   * Effective default login user of the deployed OS image (decision 039), mirrored like
+   * `deployedImageName`. Swallow automation logs in to the Server as this user, and it is the
+   * account an operator's Access Key authorizes on Servers the provisioner deployed. Absent when
+   * nothing is deployed or no default user is known (automation then falls back to the Site SSH
+   * user).
+   */
+  deployedImageDefaultUser?: string
+  /**
    * The OS runs from memory and the disks are untouched, so everything on the root
    * filesystem is lost on reboot.
    *

@@ -699,11 +699,13 @@ func cloneInventory(source map[string]any) map[string]any {
 	return cloned
 }
 
-// setConnectionVars sets each host's ansible_port and ansible_user. The user is resolved per host:
-// when a prober is attached and the automation key parses, it tries the candidate login users
-// (Site user first, then swallow's built-ins) against the host's address and uses the first that
-// authenticates; otherwise it falls back to the Site sshUser. An ansible_user already present on a
-// host is preserved. Resolution is per host because OS images use different default users, and the
+// setConnectionVars sets each host's ansible_port and ansible_user. The user is resolved per host
+// (decision 039): a host whose inventory carries image_default_user — its deployed OS Image's
+// effective default user — uses exactly that user, with no probe. Otherwise, when a prober is
+// attached and the automation key parses, it tries the candidate login users (Site user first,
+// then swallow's built-ins) against the host's address and uses the first that authenticates; if
+// none does it falls back to the Site sshUser. An ansible_user already present on a host is
+// preserved. Resolution is per host because OS images use different default users, and the
 // inventory is per host; the actual host-key verification still happens in the run's known_hosts.
 func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[string]any, configuration *operationdomain.AutomationConfiguration, credential operationdomain.AutomationCredential) {
 	meta, ok := inventory["_meta"].(map[string]any)
@@ -724,7 +726,6 @@ func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[strin
 			signer = parsed
 		}
 	}
-	candidates := sshprobe.Candidates(configuration.SSHUser)
 	for _, raw := range hostvars {
 		vars, ok := raw.(map[string]any)
 		if !ok {
@@ -735,8 +736,14 @@ func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[strin
 			// A per-host user set upstream wins; do not overwrite it.
 			continue
 		}
+		imageUser, _ := vars["image_default_user"].(string)
+		if imageUser = strings.TrimSpace(imageUser); imageUser != "" {
+			vars["ansible_user"] = imageUser
+			continue
+		}
 		user := configuration.SSHUser
 		if signer != nil {
+			candidates := sshprobe.Candidates("", configuration.SSHUser)
 			if address, _ := vars["ansible_host"].(string); strings.TrimSpace(address) != "" {
 				if resolved, outcome := sshprobe.Resolve(ctx, r.userProber, address, probePort, signer, candidates); outcome == sshprobe.Ready {
 					user = resolved

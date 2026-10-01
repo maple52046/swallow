@@ -88,6 +88,7 @@ func provisioningImageUploadCmd() *cobra.Command {
 			architecture, _ := cmd.Flags().GetString("architecture")
 			title, _ := cmd.Flags().GetString("title")
 			filetype, _ := cmd.Flags().GetString("filetype")
+			defaultUser, _ := cmd.Flags().GetString("default-user")
 			path, _ := cmd.Flags().GetString("content")
 
 			f, err := os.Open(path)
@@ -111,6 +112,9 @@ func provisioningImageUploadCmd() *cobra.Command {
 			if filetype != "" {
 				fields["filetype"] = filetype
 			}
+			if defaultUser != "" {
+				fields["defaultUser"] = defaultUser
+			}
 			var out any
 			if err := c.Upload(ctx(cmd), "provisioning/images", fields, client.UploadFile{
 				Field:  "content",
@@ -127,6 +131,7 @@ func provisioningImageUploadCmd() *cobra.Command {
 	cmd.Flags().String("architecture", "", "CPU architecture, e.g. amd64")
 	cmd.Flags().String("title", "", "optional human-readable label")
 	cmd.Flags().String("filetype", "", "optional artifact format (provider default when omitted)")
+	cmd.Flags().String("default-user", "", "optional default login user the image's cloud-init creates, e.g. cloud-user")
 	cmd.Flags().String("content", "", "path to the image artifact file")
 	_ = cmd.MarkFlagRequired("integration")
 	_ = cmd.MarkFlagRequired("name")
@@ -138,12 +143,15 @@ func provisioningImageUploadCmd() *cobra.Command {
 func provisioningImageOverlayCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "overlay",
-		Short: "Set or clear the swallow-owned image display overlay",
+		Short: "Set or clear the swallow-owned image overlay (display labels, tags, default user)",
 	}
 
 	set := &cobra.Command{
 		Use:   "set",
-		Short: "Set the overlay (name, osSystem, release, tags) from a JSON/YAML body",
+		Short: "Replace the overlay (name, osSystem, release, tags, defaultUser) from a JSON/YAML body",
+		Long: "Replace the whole overlay from a JSON/YAML body. Omitted fields are cleared, so " +
+			"include every value to keep; defaultUser is the login user automation uses on Servers " +
+			"deployed with the image.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			body, err := requireBodyFile(cmd)
 			if err != nil {
@@ -153,7 +161,7 @@ func provisioningImageOverlayCmd() *cobra.Command {
 		},
 	}
 	addImageIdentityFlags(set)
-	addFileFlag(set, "overlay fields (name, osSystem, release, tags)")
+	addFileFlag(set, "overlay fields (name, osSystem, release, tags, defaultUser)")
 	cmd.AddCommand(set)
 
 	clear := &cobra.Command{

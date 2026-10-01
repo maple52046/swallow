@@ -42,7 +42,7 @@ for interactive work but can make automation ambiguous.
 ## Command groups
 
 `auth`, `login`, `logout`, `overview`, `sites`, `integrations`,
-`servers`, `provisioning`, `infrastructure`, `platforms`, `workflows`,
+`servers`, `provisioning`, `infrastructure`, `ssh-keys`, `platforms`, `workflows`,
 `monitoring`, and `discovery` expose the CLI's implemented operator surface.
 Managed Software currently uses the Dashboard or HTTP API. Deprecated aliases
 and Planned endpoints are intentionally absent.

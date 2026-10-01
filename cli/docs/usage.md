@@ -213,7 +213,13 @@ playbookMappings:
   install-exporters: install-exporters
 ```
 
-`credential.yaml`:
+`sshUser` is optional: automation first logs in as each Server's OS Image default user
+and falls back to `sshUser` only when the image has none.
+
+`credential.yaml` — both fields are optional and the request replaces the whole site
+credential. `sshPrivateKey` overrides the installation's Deployment Key for this Site;
+omit it (for example to set only `becomePassword`) to use the Deployment Key. The
+`credentialSource` field of `sites automation get` shows which key is in effect.
 
 ```yaml
 sshPrivateKey: |
@@ -298,7 +304,7 @@ swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 # OS images
 swallow provisioning images list --integration int1
 swallow provisioning images upload --integration int1 --name "Ubuntu ROCm" \
-  --architecture amd64 --content ./ubuntu-rocm.tgz [--title "..."] [--filetype tgz]
+  --architecture amd64 --content ./ubuntu-rocm.tgz [--title "..."] [--filetype tgz] [--default-user cloud-user]
 swallow provisioning images delete --integration int1 --image custom/ubuntu-rocm --architecture amd64
 swallow provisioning images overlay set --integration int1 --image ubuntu/jammy --architecture amd64 -f overlay.yaml
 swallow provisioning images overlay clear --integration int1 --image ubuntu/jammy --architecture amd64
@@ -331,7 +337,12 @@ swallow provisioning tasks get task1
 swallow provisioning tasks retry task1
 ```
 
-`overlay.yaml`: `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"] }`
+`overlay.yaml`: `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
+
+`overlay set` replaces the whole overlay, so include every value you want to keep.
+`defaultUser` is the login user automation uses on Servers deployed with the image
+(`images list` shows the effective `defaultUser`, including swallow's built-in for
+synced Ubuntu, CentOS, and RHEL images).
 
 `deploy.yaml` (see [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md)):
 
@@ -357,6 +368,31 @@ deployTarget: ram
 serverId: srv1
 keepServer: false
 ```
+
+### ssh-keys
+
+The Deployment Key (system-owned; swallow logs in to Servers with it) and your own
+Access Keys (public key only). swallow registers every key in each key-capable
+provisioner (MAAS), so Servers deployed afterwards authorize it. See
+[ssh-keys.md](../../api-server/docs/development/api-contracts/api-server/ssh-keys.md).
+
+```bash
+swallow ssh-keys list                                   # Deployment Key + your Access Keys
+swallow ssh-keys get <keyId>                            # one key with its provisioner sync status
+swallow ssh-keys import --name laptop --public-key-file ~/.ssh/id_ed25519.pub
+swallow ssh-keys generate --name jumpbox --private-key-out ~/.ssh/id_ed25519_jumpbox
+swallow ssh-keys delete <keyId>
+swallow ssh-keys sync                                   # request an immediate provisioner sync
+
+swallow ssh-keys deployment show
+swallow ssh-keys deployment regenerate
+swallow ssh-keys deployment replace --private-key-file ./deploy_key [--name ops-deploy]
+```
+
+`generate` returns the private key only once. With `--private-key-out` it is written to
+a new file with mode 0600 (an existing file is never overwritten); without it the
+private key is printed. Regenerating or replacing the Deployment Key does not change
+Servers deployed earlier: they authorize only the previous key.
 
 ### infrastructure (Zones and Pools)
 

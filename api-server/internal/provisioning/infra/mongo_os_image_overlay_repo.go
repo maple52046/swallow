@@ -24,6 +24,7 @@ type osImageOverlayDoc struct {
 	OSSystem      string    `bson:"osSystem,omitempty"`
 	Release       string    `bson:"release,omitempty"`
 	Tags          []string  `bson:"tags,omitempty"`
+	DefaultUser   string    `bson:"defaultUser,omitempty"`
 	UpdatedAt     time.Time `bson:"updatedAt"`
 }
 
@@ -103,6 +104,7 @@ func (r *MongoOSImageOverlayRepo) Upsert(
 		"osSystem":    overlay.OSSystem,
 		"release":     overlay.Release,
 		"tags":        overlay.Tags,
+		"defaultUser": overlay.DefaultUser,
 		"updatedAt":   overlay.UpdatedAt,
 	}}
 	_, err := r.col.UpdateOne(ctx, filter, update, options.Update().SetUpsert(true))
@@ -135,6 +137,7 @@ func toOSImageOverlay(doc *osImageOverlayDoc) *provisioningdomain.OSImageOverlay
 		OSSystem:      doc.OSSystem,
 		Release:       doc.Release,
 		Tags:          doc.Tags,
+		DefaultUser:   doc.DefaultUser,
 		UpdatedAt:     doc.UpdatedAt,
 	}
 }

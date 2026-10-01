@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Seed the dev stack for the Prometheus monitoring demo.
 #
-# Idempotently registers, against the running dev api-server:
-#   - a site,
+# Idempotently, against the running dev api-server:
+#   - creates the Deployment Key (the dev stack has no swallowctl install step, so this
+#     post-install seed runs `swallow-api deployment-key ensure` inside the api container),
+#   - registers a site,
 #   - (optional) a MAAS provisioner integration, so lab machines reconcile into servers,
-#   - site automation settings + SSH credential, so exporter playbooks can run,
+#   - site automation settings (and an optional site SSH key override; by default the
+#     API-generated Deployment Key is used), so exporter playbooks can run,
 #   - the install/uninstall-exporters playbook mappings,
 #   - a metrics integration pointing at the in-compose Prometheus, so the dashboard can
 #     read metrics.
@@ -24,6 +27,12 @@ if [[ -f "${script_dir}/.env" ]]; then
 fi
 
 base_url="${SWALLOW_DEV_URL:-http://127.0.0.1:30051/api/v1}"
+
+# --- Deployment Key (installation step; the API itself never creates it) ---
+# The dev container builds the binary with air at /tmp/air/swallow-api and already carries the
+# Mongo URI and credential key in its environment. Idempotent: an existing key is kept.
+docker compose --project-directory "${script_dir}" -f "${script_dir}/compose.yaml" \
+  exec -T api-server /tmp/air/swallow-api deployment-key ensure
 admin_user="${SWALLOW_API_BOOTSTRAP_ADMIN_USERNAME:-admin}"
 admin_pass="${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
 
@@ -111,16 +120,19 @@ curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/automa
   >/dev/null
 printf 'automation configured (enabled=%s), exporter playbooks mapped\n' "${automation_enabled}"
 
-# --- site automation credential (optional but required for exporter installs to run) ---
-if [[ -n "${ssh_private_key}" ]]; then
+# --- site automation credential (optional) ---
+# The Deployment Key created above is registered in MAAS by the API, so a Site needs
+# no key of its own. SWALLOW_SSH_PRIVATE_KEY overrides it for this Site (for hosts deployed
+# outside swallow); SWALLOW_BECOME_PASSWORD alone is stored without a key override.
+if [[ -n "${ssh_private_key}" || -n "${become_password}" ]]; then
   curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/automation/credential" \
     -H 'Content-Type: application/json' \
     --data-binary "$(jq -nc --arg key "${ssh_private_key}" --arg become "${become_password}" \
-      '{sshPrivateKey:$key} + (if $become == "" then {} else {becomePassword:$become} end)')" \
+      '(if $key == "" then {} else {sshPrivateKey:$key} end) + (if $become == "" then {} else {becomePassword:$become} end)')" \
     >/dev/null
-  printf 'automation SSH credential stored\n'
+  printf 'automation site credential stored\n'
 else
-  printf 'skipping SSH credential: set SWALLOW_SSH_PRIVATE_KEY to enable exporter installs\n'
+  printf 'using the Deployment Key for automation (set SWALLOW_SSH_PRIVATE_KEY to override it for this Site)\n'
 fi
 
 cat <<EOF

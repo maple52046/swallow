@@ -182,6 +182,7 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     form.set("architecture", input.architecture);
     if (input.title) form.set("title", input.title);
     if (input.filetype) form.set("filetype", input.filetype);
+    if (input.defaultUser) form.set("defaultUser", input.defaultUser);
     form.set("content", input.file);
     return apiUpload<OSImage>("/api/v1/provisioning/images", form, {
       onProgress,

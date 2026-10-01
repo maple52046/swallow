@@ -82,12 +82,19 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	configurations := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
+	providers := provisioninginfra.NewProviderFactory(integrations)
+	// Every run authenticates with the effective credential: the site key override when set,
+	// otherwise the Deployment Key (decision 039).
+	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
+	if err != nil {
+		return err
+	}
+	configurations := operationapp.NewEffectiveAutomationConfigurations(
+		operationinfra.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
 	runner := operationinfra.NewLocalRunner(cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Resolve each host's SSH login user per host (images use different default users), so a fleet
 	// mixing image families deploys and is managed under one Site without hand-switching sshUser.
 	runner.AttachUserProber(sshprobe.DefaultProber{})
-	providers := provisioninginfra.NewProviderFactory(integrations)
 	protection := providerServerMutationGuard{servers: servers, providers: providers}
 	discovery := discoveryapp.NewDiscoveryUseCase(servers)
 	sites, err := siteinfra.NewMongoSiteRepo(db)

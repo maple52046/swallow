@@ -62,6 +62,7 @@ import (
 	softwareapp "github.com/maple52046/swallow/internal/software/application"
 	softwaredelivery "github.com/maple52046/swallow/internal/software/delivery"
 	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
+	sshkeydelivery "github.com/maple52046/swallow/internal/sshkey/delivery"
 	"github.com/maple52046/swallow/internal/version"
 )
 
@@ -194,9 +195,10 @@ func RunAPI(cfg config.APIConfig) error {
 		authapp.NewMeUseCase(userRepo),
 	)
 
+	integrationService := siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo)
 	siteHandler := sitedelivery.NewSiteHandler(
 		siteapp.NewSiteService(siteRepo, integrationRepo),
-		siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo),
+		integrationService,
 	)
 
 	// The health axis is resolved from the metrics store at query time and never
@@ -222,6 +224,18 @@ func RunAPI(cfg config.APIConfig) error {
 	serverProtection := providerServerMutationGuard{
 		servers: serverRepo, providers: providerFactory,
 	}
+	// SSH Keys (decision 039). The Deployment Key is created by the installation step
+	// (`swallow-api deployment-key ensure`), never here: API startup neither creates nor requires
+	// it, and only OS and Platform deployment check that it exists. Every key is realized in
+	// key-capable provisioners by runSSHKeySync below, and a provisioner Integration write requests
+	// a sync so a new MAAS gets the keys promptly.
+	sshKeyService, err := newSSHKeyService(db, sealer, integrationRepo, providerFactory)
+	if err != nil {
+		return err
+	}
+	integrationService.AttachProvisionerChangeListener(sshKeySyncOnProvisionerChange{keys: sshKeyService})
+	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
+	deploymentKeys := deploymentKeySource{keys: sshKeyService}
 	activeWork := activeServerWorkReader{operations: operationRepo, orchestrations: orchestrationRepo, tasks: taskRepo}
 	integrationReader := provisioninginfra.NewIntegrationReader(integrationRepo, siteRepo)
 	templateService := provisioningapp.NewDeploymentTemplateService(
@@ -229,6 +243,9 @@ func RunAPI(cfg config.APIConfig) error {
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, serverProtection)
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
+	deploymentsUC.AttachDeploymentKeys(sshKeyService)
+	deployServerUC := provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory)
+	deployServerUC.AttachDeploymentKeys(sshKeyService)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo, serverTagOverlayRepo)
@@ -237,7 +254,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
 	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory, osImageOverlayRepo)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
-		provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory),
+		deployServerUC,
 		deploymentsUC,
 		provisioningapp.NewDeploymentTargetPreflightService(serverRepo, providerFactory),
 		templateService,
@@ -252,7 +269,7 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
 		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
-		provisioningapp.NewUploadOSImageUseCase(providerFactory),
+		provisioningapp.NewUploadOSImageUseCase(providerFactory, osImageOverlayRepo),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverTagOverlayRepo),
 		provisioningapp.NewEditServerTagsUseCase(serverRepo, providerFactory, serverTagOverlayRepo),
@@ -306,6 +323,9 @@ func RunAPI(cfg config.APIConfig) error {
 		platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
 	)
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
+	// Automation readers get the effective credential (site override, else Deployment Key); the
+	// configuration service reads the plain repository because it reports what is stored.
+	effectiveAutomation := operationapp.NewEffectiveAutomationConfigurations(automationRepo, deploymentKeys)
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Per-host SSH-user resolution: images use different default login users, so the runner probes
@@ -318,13 +338,14 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("ansible event repo init: %w", err)
 	}
 	operationService := operationapp.NewExecutionService(
-		operationRepo, serverRepo, automationRepo, catalog, runner, ansibleEventRepo,
+		operationRepo, serverRepo, effectiveAutomation, catalog, runner, ansibleEventRepo,
 		platformapp.NewPolicyChecker(platformRepo, serverRepo),
 		serverProtection,
 	)
 	automationService := operationapp.NewAutomationConfigurationService(
 		automationRepo, siteRepo, catalog,
 	)
+	automationService.AttachDeploymentKeys(deploymentKeys)
 	orchestrationService := operationapp.NewWorkflowService(
 		orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
 	)
@@ -367,6 +388,7 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	deployService.AttachMachinePreparationValidator(platformMachinePreparationValidator{deployments: deploymentsUC})
 	deployService.AttachDeploymentRequirementReader(requirementRepo)
+	deployService.AttachDeploymentKeyChecker(sshKeyService)
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
@@ -462,6 +484,7 @@ func RunAPI(cfg config.APIConfig) error {
 		software:       softwareHandler,
 		infrastructure: infrastructureHandler,
 		discovery:      discoveryHandler,
+		sshKeys:        sshKeyHandler,
 		releaseVersion: releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
@@ -477,6 +500,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go runSoftwareAssignmentSweep(ctx, softwareSweeper, cfg.ReconcileInterval)
+	go runSSHKeySync(ctx, sshKeyService, cfg.SSHKeySyncInterval)
 	go orchestrationStarter.Run(ctx)
 	go orchestrationReconciler.Run(ctx)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
@@ -514,6 +538,7 @@ type routeDeps struct {
 	software       *softwaredelivery.SoftwareHandler
 	infrastructure *infrastructuredelivery.InfrastructureHandler
 	discovery      *discoverydelivery.DiscoveryHandler
+	sshKeys        *sshkeydelivery.SSHKeyHandler
 	readiness      func(context.Context) error
 	releaseVersion string
 }
@@ -758,6 +783,18 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	infrastructure.Get("/pools/:id", deps.infrastructure.GetPool)
 	infrastructure.Patch("/pools/:id", deps.infrastructure.UpdatePool)
 	infrastructure.Delete("/pools/:id", deps.infrastructure.DeletePool)
+
+	// SSH Keys (contract ssh-keys.md, decision 039): the Deployment Key and the caller's Access
+	// Keys. Static deployment paths are registered before "/:keyId" so they are never read as ids.
+	sshKeys := v1.Group("/ssh-keys", admin...)
+	sshKeys.Get("/", deps.sshKeys.List)
+	sshKeys.Post("/", deps.sshKeys.Import)
+	sshKeys.Post("/generate", deps.sshKeys.Generate)
+	sshKeys.Post("/sync", deps.sshKeys.Sync)
+	sshKeys.Put("/deployment", deps.sshKeys.ReplaceDeployment)
+	sshKeys.Post("/deployment/regenerate", deps.sshKeys.RegenerateDeployment)
+	sshKeys.Get("/:keyId", deps.sshKeys.Get)
+	sshKeys.Delete("/:keyId", deps.sshKeys.Delete)
 
 	// Alerts and metrics are read straight from the monitoring stack: swallow stores
 	// neither, and acknowledging an alert creates a silence in Alertmanager.

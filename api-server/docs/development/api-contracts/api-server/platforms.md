@@ -189,6 +189,12 @@ Site. They must also be unlocked in a live provider read. The complete lock pref
 finishes before Swallow creates either the Platform or Operation; one locked target rejects
 the batch with `409 conflict`.
 
+Every deploy, with `existing_os` or `provision_os`, first requires the installation's
+Deployment Key, because Swallow logs in to the targets with it (see [ssh-keys.md](ssh-keys.md)).
+Without one the request is rejected with `409 conflict` before any validation, Platform, or
+Operation is created; the message names the installation command that creates it
+(`swallow-api deployment-key ensure`).
+
 By default the targets must already be `deployed`. To provision the operating system inside
 the same Operation, include an optional `machinePreparation` object (shared by both platform
 types):

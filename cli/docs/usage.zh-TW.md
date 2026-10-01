@@ -213,7 +213,12 @@ playbookMappings:
   install-exporters: install-exporters
 ```
 
-`credential.yaml`：
+`sshUser` 為選填：automation 會先以每台 Server 所佈署 OS Image 的 default user 登入，
+只有 image 沒有 default user 時才退回 `sshUser`。
+
+`credential.yaml`：兩個欄位皆為選填，request 會取代整份 site credential。`sshPrivateKey`
+會覆寫此 Site 使用的 Deployment Key；省略它（例如只設定 `becomePassword`）則使用 Deployment
+Key。`sites automation get` 的 `credentialSource` 欄位會顯示實際生效的是哪一把 key。
 
 ```yaml
 sshPrivateKey: |
@@ -299,7 +304,7 @@ swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 # OS images
 swallow provisioning images list --integration int1
 swallow provisioning images upload --integration int1 --name "Ubuntu ROCm" \
-  --architecture amd64 --content ./ubuntu-rocm.tgz [--title "..."] [--filetype tgz]
+  --architecture amd64 --content ./ubuntu-rocm.tgz [--title "..."] [--filetype tgz] [--default-user cloud-user]
 swallow provisioning images delete --integration int1 --image custom/ubuntu-rocm --architecture amd64
 swallow provisioning images overlay set --integration int1 --image ubuntu/jammy --architecture amd64 -f overlay.yaml
 swallow provisioning images overlay clear --integration int1 --image ubuntu/jammy --architecture amd64
@@ -333,7 +338,11 @@ swallow provisioning tasks retry task1
 ```
 
 `overlay.yaml`：
-`{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"] }`
+`{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
+
+`overlay set` 會取代整份 overlay，因此要保留的值都必須一併帶上。`defaultUser` 是 automation
+在以此 image 佈署的 Server 上使用的登入帳號（`images list` 會顯示實際生效的 `defaultUser`，
+包含 swallow 為 synced Ubuntu、CentOS、RHEL image 內建的預設值）。
 
 `deploy.yaml`（見 [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md)）：
 
@@ -359,6 +368,29 @@ deployTarget: ram
 serverId: srv1
 keepServer: false
 ```
+
+### ssh-keys
+
+Deployment Key（系統持有；swallow 以它登入 Server）以及你自己的 Access Keys（只存公鑰）。
+swallow 會把每一把 key 註冊到支援 SSH key 的 provisioner（MAAS），之後佈署的 Server 就會授權它。
+見 [ssh-keys.md](../../api-server/docs/development/api-contracts/api-server/ssh-keys.md)。
+
+```bash
+swallow ssh-keys list                                   # Deployment Key + 你的 Access Keys
+swallow ssh-keys get <keyId>                            # 單一 key 及其 provisioner sync 狀態
+swallow ssh-keys import --name laptop --public-key-file ~/.ssh/id_ed25519.pub
+swallow ssh-keys generate --name jumpbox --private-key-out ~/.ssh/id_ed25519_jumpbox
+swallow ssh-keys delete <keyId>
+swallow ssh-keys sync                                   # 要求立即同步到 provisioner
+
+swallow ssh-keys deployment show
+swallow ssh-keys deployment regenerate
+swallow ssh-keys deployment replace --private-key-file ./deploy_key [--name ops-deploy]
+```
+
+`generate` 只會回傳一次私鑰。指定 `--private-key-out` 時會寫入一個權限為 0600 的新檔案（絕不覆寫既有
+檔案）；未指定則直接印出私鑰。重新產生或替換 Deployment Key 不會改變先前已佈署的 Server：它們只授權
+舊的 key。
 
 ### infrastructure（Zones 與 Pools）
 

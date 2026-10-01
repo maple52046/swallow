@@ -181,3 +181,46 @@ func TestWaitForSSHRejectsUnparseableKey(t *testing.T) {
 		t.Errorf("error = %+v, want non-retryable ssh_key_invalid", result.Error)
 	}
 }
+
+// userAwareProber authenticates exactly one user per address, so a test can tell which login user
+// wait-for-ssh actually tried.
+type userAwareProber struct{ ready map[string]string }
+
+func (p userAwareProber) Probe(_ context.Context, address string, _ int, user string, _ ssh.Signer) sshprobe.Outcome {
+	if p.ready[address] == user {
+		return sshprobe.Ready
+	}
+	return sshprobe.AuthFailed
+}
+
+// TestWaitForSSHUsesEachTargetsImageDefaultUser guards decision 039: each target logs in as its own
+// deployed image's default user, exclusively, while a target without one still falls back to the
+// Site user and built-in candidates.
+func TestWaitForSSHUsesEachTargetsImageDefaultUser(t *testing.T) {
+	rocky := deployedReadinessServer("srv-a", "lab-a", "192.0.2.1")
+	rocky.Provisioning.DeployedImageDefaultUser = "rocky"
+	plain := deployedReadinessServer("srv-b", "lab-b", "192.0.2.2")
+	executor := platformWorkflowStepExecutor{
+		servers: fakeReadinessServerRepo{servers: map[string]*serverdomain.Server{"srv-a": rocky, "srv-b": plain}},
+		configurations: fakeAutomationConfigRepo{
+			config:     operationdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
+			credential: operationdomain.AutomationCredential{SSHPrivateKey: testAutomationKey(t)},
+		},
+		sshProber: userAwareProber{ready: map[string]string{"192.0.2.1": "rocky", "192.0.2.2": "cloud-user"}},
+		poll:      time.Millisecond,
+	}
+	if result := executor.waitForSSH(context.Background(), readinessInput()); result.Status != operationdomain.TaskSucceeded {
+		t.Fatalf("status = %v (err=%+v), want succeeded", result.Status, result.Error)
+	}
+
+	// The image user is exclusive: when it is rejected the Site user is not tried behind it.
+	executor.sshProber = userAwareProber{ready: map[string]string{"192.0.2.1": "ubuntu", "192.0.2.2": "cloud-user"}}
+	executor.sshAuthGrace = time.Nanosecond
+	result := executor.waitForSSH(context.Background(), readinessInput())
+	if result.Status != operationdomain.TaskFailed || result.Error == nil || result.Error.Code != "ssh_authentication_failed" {
+		t.Fatalf("result = %+v, want ssh_authentication_failed", result)
+	}
+	if !strings.Contains(result.Error.Message, "lab-a (tried rocky)") {
+		t.Errorf("message = %q, want it to name lab-a and the image user it tried", result.Error.Message)
+	}
+}

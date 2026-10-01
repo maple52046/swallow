@@ -16,6 +16,7 @@ reconciliation、durable Workflow activities 與 embedded Ansible content。
 | `swallow-api worker` | Temporal Workflow／activity worker |
 | `swallow-api ansible-executor` | 執行 idempotent Ansible attempt 並發布 task event |
 | `swallow-api migrate` | Service start 前的 explicit schema/data migration |
+| `swallow-api deployment-key ensure` | `migrate` 之後的安裝步驟：建立一次 Deployment Key（idempotent）；OS 與 Platform 佈署需要它 |
 
 Temporal 是唯一 durable orchestration engine。完整 topology 還需要 Temporal
 Server/PostgreSQL 與 MongoDB；不存在 in-process dispatcher fallback。
@@ -57,6 +58,7 @@ export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
 export SWALLOW_API_TEMPORAL_ADDRESS=localhost:7233
 
 bin/swallow-api migrate
+bin/swallow-api deployment-key ensure
 bin/swallow-api api
 ```
 

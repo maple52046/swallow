@@ -89,7 +89,8 @@ Vite trusts IP/localhost host headers by default. Add a deliberate
 
 ## Seed a demonstration Site
 
-The idempotent seed script logs in, creates a Site, registers the in-Compose
+The idempotent seed script creates the deployment key (`swallow-api deployment-key
+ensure`, the installation step; the API does not create it on start), logs in, creates a Site, registers the in-Compose
 Prometheus Integration, configures automation/playbook mappings, and optionally
 registers MAAS when values are present:
 

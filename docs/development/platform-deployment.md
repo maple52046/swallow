@@ -179,9 +179,9 @@ Task 帶 Job，所有 Task 都必須帶 Job**（Temporal 只要偵測到任一 J
 
 | Runner（glossary） | code 值 | 負責的 Task kind | 行為 |
 | --- | --- | --- | --- |
-| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`noop` | swallow 自身邏輯：**驗證式 SSH 就緒**（以站台 automation 金鑰對每台 target 實際完成 SSH 認證、SSH 使用者為 per-host candidate 解析，非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
+| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`noop` | swallow 自身邏輯：**驗證式 SSH 就緒**（以 automation 金鑰——站台 override，否則 Deployment Key——對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
 | `ansible` | `ansible` | `ansible-playbook` | 在遠端主機跑一支 manifest 註冊的 idempotent playbook |
-| `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 vendor adapter（MAAS/Ironic）驅動 OS provisioning，含佈署後 SSH 就緒 |
+| `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 vendor adapter（MAAS/Ironic）驅動 OS provisioning，含佈署後 SSH 就緒；佈署前先確保 provisioner 持有 swallow 的 SSH Keys（見 §4.6.1） |
 
 所有 Task 都必須 **idempotent**：重跑已收斂的 Task 為 no-op（`provisioner` 在已 `deployed`
 且 image 相符且 SSH 可達時直接成功；`ansible` 靠 playbook 本身冪等）。
@@ -213,11 +213,12 @@ swallow 的內部實作。資料流總覽見
 - **host key = serverId**（不是 IP）：playbook 與其輸出以 swallow 的穩定識別子為準，重裝後
   也不變。連線位址在 `ansible_host`。
 - `_meta.hostvars[serverId]` 提供的鍵（playbook 可依賴）：
-  - 連線：`ansible_host`；`ansible_user`、`ansible_port` 於**執行時**由 site Automation
-    Configuration 注入。
+  - 連線：`ansible_host`；`ansible_user`、`ansible_port` 於**執行時**注入：`ansible_user` 優先取
+    `image_default_user`（所佈署 OS Image 的 effective default user，[decision 039](../decisions/039-ssh-key-management-and-default-user.md)），
+    否則依 §4.6.1 的候選解析；`ansible_port` 來自 site Automation Configuration。
   - 身分：`server_id`、`site_id`、`integration_id`、`provider_machine_id`。
   - 觀測：`hostname`、`fqdn`、`architecture`、`cpu_cores`、`memory_mib`。
-  - 佈建：`provisioning_state`、`os_system`、`distro_series`。
+  - 佈建：`provisioning_state`、`os_system`、`distro_series`、`image_default_user`（僅在已知時出現）。
   - 成員：`platform_id`、`platform_role`、`platform_node_name`（若已加入 platform）。
   - 其他：`gpu_vendors`、`server_tags`（避開 Ansible 保留字 `tags`）。
 - 動態 group（非 `[a-z0-9_]` 的字元會被 tokenize 成 `_`）：`site_<id>`、
@@ -293,15 +294,28 @@ operator 維護 `knownHosts`。
 
 ### 4.6.1 SSH readiness 是「驗證式」，SSH 使用者為 per-host 解析
 
-`wait-for-ssh`（`internal` runner）**不只**確認 22 埠可連，而是以站台 automation 私鑰對每台 target
+**automation 金鑰來源**（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)）：站台
+Automation Configuration 若設有 `sshPrivateKey` 則以它為準（override），否則使用安裝時自動產生的
+**Deployment Key**（ed25519，私鑰加密存於 MongoDB；由 `swallow-api deployment-key ensure` 建立，`swallowctl
+install`／`upgrade` 於 migrate 後執行，API 啟動不建立也不依賴它）。Platform deploy 與 OS 佈署在受理時先確認
+Deployment Key 存在，缺少時以 `409 conflict` 拒絕並指出該指令。此優先序集中在 `EffectiveAutomationConfigurations`，
+`wait-for-ssh`、ansible executor 與 host-user prober 皆經由它取得金鑰。Deployment Key 與使用者的 Access Keys
+會依 capability-first 註冊到 provisioner（MAAS 的 API-key 使用者 SSH keys），MAAS 佈署時由 cloud-init 寫入
+image 的 default user；每次 OS 佈署前 swallow 會先確保 provisioner 持有 Deployment Key，失敗時 `provision-os`
+以 retryable 的 `ssh_key_registration_failed` 停下，而不是佈出無法管理的主機。
+
+`wait-for-ssh`（`internal` runner）**不只**確認 22 埠可連，而是以 automation 私鑰對每台 target
 **實際完成一次 SSH 認證**。目的：把「埠通」與「登得進去」分開——一台 host 若其登入帳號未授權
 automation 公鑰，readiness 會直接失敗，而不是讓 ansible step 稍後才以 `Permission denied (publickey)`
 失敗。
 
-**per-host SSH 使用者（candidate 解析）**：不同 OS image 的預設登入帳號不同（ubuntu image 用
-`ubuntu`、swallow 自訂 image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線帳號改為
-**per-host 解析**：以候選清單 `[站台 sshUser, cloud-user, ubuntu]`（站台值優先、去重）逐一用金鑰嘗試
-登入，第一個成功者即該台帳號。inventory 本來就是 per-host（`ansible_user` 寫在每台 hostvar），所以
+**per-host SSH 使用者**：不同 OS image 的預設登入帳號不同（ubuntu image 用 `ubuntu`、swallow 自訂
+image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線帳號為 **per-host 解析**：
+1. 若該 Server 所佈署 OS Image 有 effective **default user**（OS Image overlay 的 `defaultUser`，否則
+   依 provider OS family 的內建值：`ubuntu`→`ubuntu`、`centos`→`centos`、`rhel`→`cloud-user`），就**只**用它，
+   不再探測；它由 reconcile／佈署完成時鏡射到 `Server.provisioning.deployedImageDefaultUser`。
+2. 否則以候選清單 `[站台 sshUser, cloud-user, ubuntu]`（站台值優先、去重）逐一用金鑰嘗試登入，第一個
+   成功者即該台帳號。inventory 本來就是 per-host（`ansible_user` 寫在每台 hostvar），所以
 混用不同 image family 的機群可在同一 site、甚至同一批次部署，不需手動切換 `sshUser`（單一 image 的
 既有站台行為不變，因為站台值仍為第一候選）。實作見
 [`sshprobe`](../../api-server/internal/shared/sshprobe/sshprobe.go)，套用點為 ansible 執行前的
@@ -309,8 +323,8 @@ automation 公鑰，readiness 會直接失敗，而不是讓 ansible step 稍後
 
 - **auth 失敗會 fail fast**：所有候選帳號都被拒（publickey）不會靠等待自行修好，因此在一段短暫的
   grace（約 45 秒，容忍剛佈署後 cloud-init 尚未寫入 `authorized_keys` 的競態）後就以
-  `ssh_authentication_failed`（stage `ssh_authentication`，retryable）結束，訊息列出被拒的 host 與試過
-  的候選帳號，並提示「授權 automation 公鑰給該 image 的登入帳號後重試」。
+  `ssh_authentication_failed`（stage `ssh_authentication`，retryable）結束，訊息列出被拒的 host 與各自試過
+  的帳號，並提示檢查 OS Image 的 default user 以及 Deployment Key（或站台 override）是否已授權。
 - **still-booting 仍用完整 readiness window**：純連線層失敗（TCP、handshake 前）或尚未觀測到位址者，
   沿用 20 分鐘上限持續輪詢。
 - 認證探測只送出**簽章、不送私鑰**；host-key 的權威驗證仍由 ansible run（§4.6）負責，故此探測本身

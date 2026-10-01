@@ -18,7 +18,9 @@ volumes afterward. Self-signed TLS is limited to testing; production requires CA
 material supplied for the installation.
 
 Generated testing secrets stay under `deploy/testing/secrets/`; they never reuse
-production paths. `prepare.sh` is idempotent, and `seed.sh` can be run repeatedly.
+production paths. `prepare.sh` is idempotent, and `seed.sh` can be run repeatedly. `seed.sh`
+first creates the deployment key (`swallow-api deployment-key ensure`, the step `swallowctl
+install` runs in production) in a one-shot API container; it honors `COMPOSE_PROJECT_NAME`.
 The candidate workflow starts this topology from the API and Dashboard digests it just
 built, waits for readiness, seeds it, verifies the reported candidate version, and
 removes the project and volumes.

@@ -12,8 +12,12 @@ Under **Provisioning → Images**:
 
 1. Select the Site/provisioner catalog.
 2. Use an existing provider image or upload a supported custom image.
-3. Verify the image before deployment.
-4. Review verification failures and target compatibility.
+3. Set the image's default user if it is a custom image (the account its
+   cloud-init creates; synced Ubuntu, CentOS, and RHEL images have a built-in
+   one). swallow logs in to deployed Servers as this user — see
+   [SSH keys and image login users](ssh-keys.md).
+4. Verify the image before deployment.
+5. Review verification failures and target compatibility.
 
 Upload limits, content types, and provider requirements are defined by the
 [active provisioning contract](../../../api-server/docs/development/api-contracts/api-server/provisioning.md).

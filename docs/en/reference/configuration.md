@@ -22,7 +22,7 @@ Important production-sensitive values include:
 - bootstrap admin username/password;
 - base64 32-byte credential-encryption key;
 - machine bearer token;
-- reconcile/inventory intervals;
+- reconcile, inventory, and SSH key sync intervals (`sshKeySyncInterval`, default 5m);
 - Temporal address, namespace, task queue, and start interval;
 - Ansible runner command, playbook manifest/directory, runtime/artifact
   directories, retention, and parallelism;

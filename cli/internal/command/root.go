@@ -67,7 +67,7 @@ func NewRootCommand() *cobra.Command {
 		Short: "Operator CLI for the Swallow GPU datacenter platform",
 		Long: "swallow is the operator command-line client for the Swallow platform. " +
 			"It talks to the api-server HTTP API and covers the full active surface: " +
-			"auth, sites, integrations, servers, provisioning, infrastructure, platforms, " +
+			"auth, sites, integrations, servers, provisioning, infrastructure, ssh-keys, platforms, " +
 			"workflows, monitoring, and discovery.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -98,6 +98,7 @@ func NewRootCommand() *cobra.Command {
 		newServersCommand(),
 		newProvisioningCommand(),
 		newInfrastructureCommand(),
+		newSSHKeysCommand(),
 		newPlatformsCommand(),
 		newWorkflowsCommand(),
 		newMonitoringCommand(),

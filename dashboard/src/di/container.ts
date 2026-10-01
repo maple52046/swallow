@@ -9,6 +9,7 @@ import { ApiOverviewRepository } from '@/infrastructure/api/ApiOverviewRepositor
 import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningRepository'
 import { ApiInfrastructureRepository } from '@/infrastructure/api/ApiInfrastructureRepository'
 import { ApiSoftwareRepository } from '@/infrastructure/api/ApiSoftwareRepository'
+import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
 import type { AuthRepository } from '@/application/ports/AuthRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { ServerEventStream } from '@/application/ports/ServerEventStream'
@@ -20,6 +21,7 @@ import type { OverviewRepository } from '@/application/ports/OverviewRepository'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import type { InfrastructureRepository } from '@/application/ports/InfrastructureRepository'
 import type { SoftwareRepository } from '@/application/ports/SoftwareRepository'
+import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
 export interface AppContainer {
@@ -35,6 +37,8 @@ export interface AppContainer {
   platforms: PlatformRepository
   /** Managed Software install/uninstall and Software Assignment reads (decision 038). */
   software: SoftwareRepository
+  /** The Deployment Key and the signed-in admin's Access Keys (decision 039). */
+  sshKeys: SSHKeyRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
 }
@@ -51,6 +55,7 @@ export function createContainer(): AppContainer {
     infrastructure: new ApiInfrastructureRepository(),
     platforms: new ApiPlatformRepository(),
     software: new ApiSoftwareRepository(),
+    sshKeys: new ApiSSHKeyRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
   }

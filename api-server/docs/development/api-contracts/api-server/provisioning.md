@@ -85,6 +85,7 @@ returns:
     "providerRelease": "jammy",
     "customRelease": "22.04",
     "tags": ["gpu", "ml"],
+    "defaultUser": "ubuntu",
     "architecture": "amd64",
     "sizeBytes": 5368709120,
     "verifiedDeployTargets": ["disk", "ram"],
@@ -102,6 +103,15 @@ when that field has no override, in which case the effective value equals the
 provider value. `id` and `architecture` are never overridable — they identify the
 deployable artifact. `tags` is a Swallow-owned list of labels with no provider
 counterpart, always returned as an array (empty when the image has no tags).
+
+`defaultUser` is the effective login user Swallow automation uses on Servers deployed
+with this image (see the glossary OS Image and
+[decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md)):
+the Swallow overlay value when set (also returned as `customDefaultUser`), otherwise a
+Swallow built-in derived from `providerOsSystem` (`ubuntu` → `ubuntu`, `centos` →
+`centos`, `rhel` → `cloud-user`). Both fields are omitted when no value applies, which is
+the usual case for an uploaded custom image until an operator sets one; automation then
+falls back to the Site SSH user and built-in candidates.
 
 `sizeBytes`, when present, is a positive integer containing the provider-reported
 total bytes of the newest complete resource set that backs the image. It is omitted
@@ -177,6 +187,9 @@ The request is `multipart/form-data` with these parts:
 - `title` (optional): a human-readable label.
 - `filetype` (optional): the artifact format, validated by the provider. When omitted the
   provider's default is used (for MAAS, `tgz`).
+- `defaultUser` (optional): the image's default login user, stored as the Swallow overlay
+  `defaultUser` once the provider accepts the upload. It must be a POSIX login name
+  (`^[a-z_][a-z0-9_-]{0,31}$`); an invalid value is rejected before anything is uploaded.
 - `content` (required): the image file. It is streamed; Swallow never buffers the whole artifact
   in memory and keeps no copy after the provider accepts it.
 
@@ -200,7 +213,10 @@ On success it returns `201` with the created image in the same shape as one `GET
 `providerOsSystem` reflects the provider's classification of the uploaded artifact (for MAAS,
 `custom`); the caller never sends it. A freshly uploaded image has no Swallow overlay, so its
 `custom*` fields are absent and each effective field equals its provider value. `sizeBytes` is
-present when the provider reports the completed artifact size.
+present when the provider reports the completed artifact size. When `defaultUser` was sent, the
+response carries it as `defaultUser` and `customDefaultUser`. If the provider accepted the
+artifact but storing the default user failed, the endpoint returns `500 internal_error`; the
+image exists and the default user can be set afterwards with `PATCH /images/overlay`.
 
 A missing `integrationId`, `name`, `architecture`, or `content`, an unsupported `filetype`, a
 name that duplicates an existing provider image, or a provisioner whose adapter does not
@@ -219,19 +235,26 @@ identity, and it is keyed by the same `integrationId` + `imageId` + `architectur
 identity the catalog returns, passed as query parameters because an `imageId` can contain
 a slash and one image name can back several architectures.
 
-`PATCH /images/overlay` sets the overlay. The body carries the overridable display fields
-and the Swallow-owned tag list, each optional:
+`PATCH /images/overlay` sets the overlay. The body carries the overridable display fields,
+the Swallow-owned tag list, and the Swallow-owned default login user, each optional:
 
 ```json
-{ "name": "Golden Ubuntu", "osSystem": "Ubuntu LTS", "release": "22.04", "tags": ["gpu", "ml"] }
+{ "name": "Golden Ubuntu", "osSystem": "Ubuntu LTS", "release": "22.04", "tags": ["gpu", "ml"], "defaultUser": "ubuntu" }
 ```
+
+`defaultUser` follows the same set/clear rule as the display fields: a non-empty value
+becomes the effective `defaultUser` (and `customDefaultUser`); an empty or omitted value
+clears the override so the built-in default, if any, applies again. A non-empty value that
+is not a POSIX login name (`^[a-z_][a-z0-9_-]{0,31}$`) is `400 validation_error`. Like the
+other overlay fields, a `PATCH` replaces the whole overlay, so a client editing one field
+sends the current values of the others.
 
 Each override field is trimmed before storage. A non-empty field becomes the effective value
 on subsequent `GET /images` responses while the corresponding `provider*` field continues to
 show the provider value; an empty or omitted field clears that override so the image shows its
 provider value. `tags` are trimmed, blanks dropped, and duplicates removed while preserving
-order; an empty or omitted list clears them. When no override field and no tag remains after
-normalization, the overlay is removed entirely, so an all-empty `PATCH` reverts the image to
+order; an empty or omitted list clears them. When no override field, no tag, and no default
+user remains after normalization, the overlay is removed entirely, so an all-empty `PATCH` reverts the image to
 its provider values (the same effect as `DELETE`). It returns `204 No Content` on success. A
 field or tag longer than 200 characters, or more than 50 tags, is `400 validation_error`. Any
 missing query parameter or an invalid body is also `400 validation_error`.
@@ -252,9 +275,10 @@ of that integration (the `provisioning.deployedImageName` field on the Servers L
 Server detail) is re-resolved and updated for any server whose deployed image is the one
 that was renamed, and each updated server emits a change on the Servers event stream. So
 a rename is reflected on the fleet list and Server detail without waiting for the next
-reconcile pass. This propagation is best-effort and does not affect the endpoint result:
-it never changes the `204 No Content` outcome or the provider, and if it cannot run the
-periodic reconcile still re-mirrors the name.
+reconcile pass. The effective default user is propagated the same way, onto
+`provisioning.deployedImageDefaultUser`. This propagation is best-effort and does not
+affect the endpoint result: it never changes the `204 No Content` outcome or the provider,
+and if it cannot run the periodic reconcile still re-mirrors the name and default user.
 
 ## Deployment Templates
 
@@ -460,6 +484,13 @@ one-to-one (`disk ↔ false`, `ram ↔ true`); when both are sent, `deployTarget
 wins. An unknown `deployTarget` value is a `400`. This applies identically to
 `POST /deployment-operations` and, through the platform contract, to platform
 deploys.
+
+**Deployment Key gate.** Swallow logs in to deployed Servers with the installation's Deployment
+Key (see [ssh-keys.md](ssh-keys.md)), so every OS deployment — `POST /deployments`,
+`POST /deployment-operations`, `POST /image-verifications`, the deprecated
+`POST /servers/{id}/deploy`, and Platform deploys with `provision_os` — is refused at acceptance
+with `409 conflict` when no Deployment Key exists. The message names the installation command
+that creates it (`swallow-api deployment-key ensure`). Nothing is written to the provider.
 
 **Custom image verification gate.** When the resolved image is a *custom* image
 (`providerOsSystem: "custom"`) that has not been verified for the requested

@@ -16,7 +16,9 @@ docker compose --env-file .env up -d
 必須提供 CA material。
 
 Generated testing secrets 保存在 `deploy/testing/secrets/`，不重用 production
-path。`prepare.sh` 與 `seed.sh` 都可重複執行。
+path。`prepare.sh` 與 `seed.sh` 都可重複執行。`seed.sh` 會先在一次性 API container 中建立
+deployment key（`swallow-api deployment-key ensure`，即 production `swallowctl install` 的步驟），並遵循
+`COMPOSE_PROJECT_NAME`。
 
 Candidate workflow 會用剛 build 的 API／Dashboard exact digests 啟動 topology，
 等待 readiness、seed、驗證 reported candidate version，最後清除 project 與 volume。

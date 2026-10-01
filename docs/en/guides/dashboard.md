@@ -18,6 +18,7 @@ current session in the browser.
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
 | Monitoring | Alerts, silences, fixed metrics, fleet health, and Grafana links |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
+| SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 
 Routes under `/clusters` and `/operations` are compatibility redirects.
 Canonical navigation uses Platforms and Workflows.

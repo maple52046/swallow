@@ -75,10 +75,18 @@ backup() {
   printf '%s\n' "${target}"
 }
 
+# ensure_deployment_key creates the Deployment Key swallow uses to log in to the Servers it deploys
+# (decision 039). It is idempotent, so install and every upgrade run it after migrate; an existing
+# key is kept. It needs the same MongoDB and credential key as the API, which `run` provides.
+ensure_deployment_key() {
+  "${compose[@]}" run --rm --no-deps api-server deployment-key ensure
+}
+
 install_stack() {
   preflight
   "${compose[@]}" up -d mongo
   "${compose[@]}" run --rm --no-deps api-server migrate
+  ensure_deployment_key
   "${compose[@]}" up -d
 }
 
@@ -94,6 +102,7 @@ upgrade() {
   preflight
   "${compose[@]}" up -d mongo
   "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
+  ensure_deployment_key
   "${compose[@]}" up -d
   doctor
 }

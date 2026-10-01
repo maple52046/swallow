@@ -206,6 +206,18 @@ var (
 	// ErrMachineNotFound means the provider has no machine with the requested ID.
 	ErrMachineNotFound = errors.New("machine not found")
 
+	// ErrSSHKeyRegistration means swallow's Deployment Key could not be registered in a
+	// key-capable provisioner right before a deployment, so the deployment was not started: a
+	// Server deployed now would not authorize swallow (decision 039). It is retryable once the
+	// provisioner recovers.
+	ErrSSHKeyRegistration = errors.New("ssh key registration in the provisioner failed")
+
+	// ErrDeploymentKeyMissing means the installation has no Deployment Key, so an OS deployment
+	// would produce a Server swallow cannot log in to. The key is created at installation
+	// (`swallow-api deployment-key ensure`, run by swallowctl install/upgrade), never by the API
+	// process; the deployment is refused before any provider write (decision 039).
+	ErrDeploymentKeyMissing = errors.New("no deployment key exists; run `swallow-api deployment-key ensure` (swallowctl install and upgrade run it)")
+
 	// ErrIntegrationNotProvisioner means the referenced integration is registered as
 	// something other than a provisioner.
 	ErrIntegrationNotProvisioner = errors.New("integration is not a provisioner")

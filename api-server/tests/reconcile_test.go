@@ -192,6 +192,10 @@ func TestReconcile_MirrorsDeployedImageName(t *testing.T) {
 	if server.Provisioning.DeployedImageName != "Ubuntu 22.04 LTS" {
 		t.Errorf("DeployedImageName = %q, want the catalog name %q", server.Provisioning.DeployedImageName, "Ubuntu 22.04 LTS")
 	}
+	// No overlay default user: the built-in for the provider OS family applies (decision 039).
+	if server.Provisioning.DeployedImageDefaultUser != "ubuntu" {
+		t.Errorf("DeployedImageDefaultUser = %q, want the built-in %q", server.Provisioning.DeployedImageDefaultUser, "ubuntu")
+	}
 }
 
 // Renaming an OS Image re-mirrors the effective name onto that image's deployed servers at once,
@@ -218,6 +222,7 @@ func TestReconcile_RefreshDeployedImageNamesAfterRename(t *testing.T) {
 		ImageID:       "ubuntu/jammy",
 		Architecture:  "amd64",
 		DisplayName:   "Golden Ubuntu",
+		DefaultUser:   "ops",
 	}); err != nil {
 		t.Fatalf("seed overlay: %v", err)
 	}
@@ -235,6 +240,9 @@ func TestReconcile_RefreshDeployedImageNamesAfterRename(t *testing.T) {
 	}
 	if server.Provisioning.DeployedImageName != "Golden Ubuntu" {
 		t.Errorf("DeployedImageName = %q, want the renamed %q", server.Provisioning.DeployedImageName, "Golden Ubuntu")
+	}
+	if server.Provisioning.DeployedImageDefaultUser != "ops" {
+		t.Errorf("DeployedImageDefaultUser = %q, want the overlay default user %q", server.Provisioning.DeployedImageDefaultUser, "ops")
 	}
 }
 
@@ -273,6 +281,41 @@ func TestRefreshServer_FillsDeployedImageNameOnFreshDeploy(t *testing.T) {
 	}
 	if got.Provisioning.DeployedImageName != "Ubuntu 22.04 LTS" {
 		t.Errorf("DeployedImageName = %q, want the catalog name filled on refresh", got.Provisioning.DeployedImageName)
+	}
+	if got.Provisioning.DeployedImageDefaultUser != "ubuntu" {
+		t.Errorf("DeployedImageDefaultUser = %q, want it filled on refresh so wait-for-ssh can log in", got.Provisioning.DeployedImageDefaultUser)
+	}
+}
+
+// A redeploy to a different image must not carry the previous image's default user forward:
+// automation would otherwise log in to the new image as the old image's account (decision 039).
+func TestRefreshServer_DropsStaleDefaultUserOnRedeploy(t *testing.T) {
+	f := setupReconcile(t)
+	machine := testMachine("abc123", "gpu-node-01")
+	machine.Status = provisioningdomain.MachineStatusDeploying
+	machine.ProviderStatus = "Deploying"
+	machine.OSSystem = "custom"
+	machine.DistroSeries = "rocky-10"
+	f.provider.withMachine(machine)
+
+	if err := f.servers.Upsert(context.Background(), &serverdomain.Server{
+		ID:     "srv-1",
+		Source: serverdomain.Source{SiteID: testSiteID, IntegrationID: testIntegrationID, ProviderMachineID: "abc123"},
+		Provisioning: &serverdomain.ProvisioningStatus{
+			State: "deployed", OSSystem: "ubuntu", DistroSeries: "jammy",
+			DeployedImageName: "Ubuntu 22.04 LTS", DeployedImageDefaultUser: "ubuntu",
+		},
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+
+	uc := provisioningapp.NewRefreshServerUseCase(f.servers, f.factory, f.overlays)
+	if _, err := uc.Execute(context.Background(), "srv-1"); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	got := f.servers.servers["srv-1"].Provisioning
+	if got.DeployedImageDefaultUser != "" || got.DeployedImageName != "" {
+		t.Errorf("after a redeploy to another image, mirrored image = %q/%q, want both cleared", got.DeployedImageName, got.DeployedImageDefaultUser)
 	}
 }
 

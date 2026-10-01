@@ -45,5 +45,7 @@ packaging 尚未完成。缺少完整 Temporal topology 時 Workflow 無法執�
 - CA-issued TLS 與權限受限的 secret files。
 - 唯一的 JWT、machine-token、bootstrap-admin、MongoDB 與 credential-encryption secrets。
 - 含 immutable image digests 的 exact release/candidate manifest。
-- 涵蓋 MongoDB、credential key 與 Workflow artifacts 的 backup／restore drill。
+- 涵蓋 MongoDB、credential key 與 Workflow artifacts 的 backup／restore drill（deployment key 的私鑰
+  以 credential key 加密存於 MongoDB，兩者必須一起還原；`swallowctl install` 與 `upgrade` 會建立此 key，
+它不存在時 OS 與 Platform 佈署會被拒絕）。
 - Dedicated MAAS、per-Site monitoring，以及清楚的 network／retention ownership。

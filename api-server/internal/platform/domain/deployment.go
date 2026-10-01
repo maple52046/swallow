@@ -277,7 +277,17 @@ type DeploymentLauncher interface {
 var (
 	// ErrInvalidDeployment covers topology and network validation failures.
 	ErrInvalidDeployment = errors.New("invalid platform deployment")
+	// ErrDeploymentKeyMissing means the installation has no Deployment Key, so swallow could not
+	// log in to the targets to build the Platform. The key is created at installation, not by the
+	// API process, and the deploy is refused before any Platform or Workflow exists (decision 039).
+	ErrDeploymentKeyMissing = errors.New("no deployment key exists; run `swallow-api deployment-key ensure` (swallowctl install and upgrade run it)")
 )
+
+// DeploymentKeyChecker reports whether the installation has a Deployment Key. It is a port so
+// the platform context does not depend on the sshkey feature; the composition root supplies it.
+type DeploymentKeyChecker interface {
+	HasDeploymentKey(ctx context.Context) (bool, error)
+}
 
 // MachinePreparationMode controls whether Platform deployment uses an existing OS or
 // provisions all target Servers inside the same Operation first.

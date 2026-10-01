@@ -41,10 +41,13 @@ Prometheus 應使用 swallow HTTP service-discovery endpoint，使 scraped serie
 
 Site automation 定義：
 
-- SSH user 與 connection policy。
+- SSH port，以及選填的退回用 SSH user（會先使用每個 OS image 的 default user）。
 - Mandatory known-host entries。
-- Write-only SSH credentials。
+- Write-only credentials：選填、可覆寫安裝層級 deployment key 的私鑰，以及 become password。
 - Allowlisted manifest playbook mappings。
+
+Deployment key 會在安裝時（`swallowctl install`）產生，並由 API 自動註冊到 MAAS，因此大多數 Site 不需要自己的私鑰。
+見 [SSH key 與 image 登入帳號](ssh-keys.md)。
 
 只有 shipped manifest 內的 playbook 可以執行。Automation 不是 external
 Integration，而是 Site-scoped swallow capability。

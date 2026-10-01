@@ -384,9 +384,16 @@ func (h *ProvisioningHandler) UploadImage(c *fiber.Ctx) error {
 	}
 	title := strings.TrimSpace(c.FormValue("title"))
 	fileType := strings.TrimSpace(c.FormValue("filetype"))
+	defaultUser := strings.TrimSpace(c.FormValue("defaultUser"))
 	if len(name) > uploadFieldMaxLen || len(architecture) > uploadFieldMaxLen ||
 		len(title) > uploadFieldMaxLen || len(fileType) > uploadFieldMaxLen {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "An upload field exceeds the maximum length."))
+	}
+	// Checked before the artifact is hashed and streamed, so a typo never costs a multi-gigabyte
+	// upload that then fails.
+	if defaultUser != "" && !provisioningdomain.ValidDefaultUser(defaultUser) {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
+			"defaultUser must be a POSIX login name (lowercase letters, digits, '_' or '-', up to 32 characters)."))
 	}
 
 	fileHeader, err := c.FormFile("content")
@@ -423,6 +430,7 @@ func (h *ProvisioningHandler) UploadImage(c *fiber.Ctx) error {
 		Size:          fileHeader.Size,
 		SHA256:        hex.EncodeToString(sum.Sum(nil)),
 		Content:       file,
+		DefaultUser:   defaultUser,
 	})
 	if err != nil {
 		return RespondError(c, err)
@@ -430,15 +438,16 @@ func (h *ProvisioningHandler) UploadImage(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(item)
 }
 
-// imageOverlayRequest carries the swallow-owned display overrides and tags for an OS Image
-// overlay. Each override field is optional; an empty field clears that override so the image
-// shows its provider value. Tags are swallow-owned labels with no provider counterpart; an
-// empty or omitted list clears them.
+// imageOverlayRequest carries the swallow-owned display overrides, tags, and default user for an
+// OS Image overlay. Each field is optional; an empty field clears that value so the image shows
+// its provider value (or, for defaultUser, the built-in default). Tags and defaultUser are
+// swallow-owned with no provider counterpart; an empty or omitted value clears them.
 type imageOverlayRequest struct {
-	Name     string   `json:"name"`
-	OSSystem string   `json:"osSystem"`
-	Release  string   `json:"release"`
-	Tags     []string `json:"tags"`
+	Name        string   `json:"name"`
+	OSSystem    string   `json:"osSystem"`
+	Release     string   `json:"release"`
+	Tags        []string `json:"tags"`
+	DefaultUser string   `json:"defaultUser"`
 }
 
 // SetImageOverlay writes the swallow-owned display overlay (name, OS, release) for one OS Image,
@@ -465,7 +474,9 @@ func (h *ProvisioningHandler) SetImageOverlay(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
 
-	if err := h.imageOverlay.Set(c.Context(), integrationID, imageID, architecture, req.Name, req.OSSystem, req.Release, req.Tags); err != nil {
+	if err := h.imageOverlay.Set(c.Context(), integrationID, imageID, architecture, application.OSImageOverlayInput{
+		Name: req.Name, OSSystem: req.OSSystem, Release: req.Release, Tags: req.Tags, DefaultUser: req.DefaultUser,
+	}); err != nil {
 		return RespondError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -578,6 +589,12 @@ func (h *ProvisioningHandler) ReconcileAll(c *fiber.Ctx) error {
 // that routes mounted under other resources can share one translation.
 func RespondError(c *fiber.Ctx, err error) error {
 	switch {
+	case errors.Is(err, provisioningdomain.ErrSSHKeyRegistration):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
+
+	case errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+
 	case errors.Is(err, provisioningdomain.ErrDeploymentTemplateNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Deployment template not found."))
 

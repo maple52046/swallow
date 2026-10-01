@@ -11,6 +11,7 @@ import {
 } from '@chakra-ui/react'
 import {
   Check,
+  KeyRound,
   LogOut,
   MapPin,
   Menu as MenuIcon,
@@ -57,14 +58,14 @@ function accountInitials(displayName: string, username: string): string {
  * Sticky console masthead for viewport-level controls.
  *
  * Site scope remains URL-owned, appearance remains browser-owned, and account
- * actions remain session-owned. Compact outlined controls keep those global
+ * actions (SSH keys, sign out) remain session-owned. Compact outlined controls keep those global
  * choices distinct from page actions without consuming a second toolbar row.
  */
 export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHeaderProps) {
   const navigate = useNavigate()
   const { mode, setMode } = useAppearance()
   const { currentUser, logout } = useAuth()
-  const { sites, siteId, setSite } = useSiteScope()
+  const { sites, siteId, setSite, scopedHref } = useSiteScope()
 
   const selectedSite = sites.find((site) => site.id === siteId)?.name ?? 'All sites'
   const AppearanceIcon = APPEARANCE_ICON[mode]
@@ -186,6 +187,9 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
             positioning={{ placement: 'bottom-end' }}
             onSelect={(details) => {
               if (details.value === 'signout') signOut()
+              // SSH keys are account settings, not Site data; the scope is kept only so returning
+              // to a fleet page lands in the same Site.
+              if (details.value === 'ssh-keys') navigate(scopedHref('/account/ssh-keys'))
             }}
           >
             <Menu.Trigger asChild>
@@ -227,6 +231,10 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
                     </Menu.ItemGroupLabel>
                   </Menu.ItemGroup>
                   <Menu.Separator />
+                  <Menu.Item value="ssh-keys">
+                    <KeyRound size={16} />
+                    <Text flex="1">SSH keys</Text>
+                  </Menu.Item>
                   <Menu.Item value="signout">
                     <LogOut size={16} />
                     <Text flex="1">Sign out</Text>

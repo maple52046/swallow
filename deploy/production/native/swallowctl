@@ -34,7 +34,8 @@ preflight() {
   printf 'preflight passed\n'
 }
 
-run_migrate() {
+# run_swallow_api runs a one-shot swallow-api command with the same secrets as the service.
+run_swallow_api() {
   SWALLOW_API_MONGO_URI_FILE="${config_root}/secrets/mongo-uri" \
   SWALLOW_API_JWT_SECRET_FILE="${config_root}/secrets/jwt-secret" \
   SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE="${config_root}/secrets/bootstrap-admin-password" \
@@ -42,7 +43,17 @@ run_migrate() {
   SWALLOW_API_MACHINE_TOKEN_FILE="${config_root}/secrets/machine-token" \
   SWALLOW_API_PLAYBOOK_MANIFEST="${install_root}/current/automation/manifest.json" \
   SWALLOW_API_PLAYBOOK_DIR="${install_root}/current/automation/playbooks" \
-    "${install_root}/current/bin/swallow-api" migrate "$@"
+    "${install_root}/current/bin/swallow-api" "$@"
+}
+
+run_migrate() {
+  run_swallow_api migrate "$@"
+}
+
+# ensure_deployment_key creates the Deployment Key swallow uses to log in to the Servers it deploys
+# (decision 039). It is idempotent, so install and upgrade (which reinstalls) run it after migrate.
+ensure_deployment_key() {
+  run_swallow_api deployment-key ensure
 }
 
 require_runtime_tools() {
@@ -167,6 +178,7 @@ install_release() {
   systemctl enable --now mongod
   configure_mongodb
   run_migrate "$@"
+  ensure_deployment_key
   systemctl enable --now nginx swallow-api swallow-backup.timer
 }
 

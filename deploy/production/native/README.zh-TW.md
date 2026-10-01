@@ -19,6 +19,10 @@ sudo ./swallowctl install
 sudo ./swallowctl doctor
 ```
 
+`install`（以及會重新安裝的 `upgrade`）會先執行資料庫 migration，再以
+`swallow-api deployment-key ensure` 建立 deployment key；既有 key 會保留。它不存在時
+OS 與 Platform 佈署會被拒絕。
+
 ## 重要限制：Temporal native packaging 尚未完成
 
 Temporal 是 swallow 唯一 execution engine，不存在 embedded fallback。完整 native

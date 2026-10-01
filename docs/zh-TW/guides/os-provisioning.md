@@ -12,8 +12,11 @@ converge 到 requested result。
 
 1. 選擇 Site／provisioner catalog。
 2. 使用既有 provider image，或 upload supported custom image。
-3. 佈署前 verify image。
-4. 檢查 verification failure 與 target compatibility。
+3. 若為 custom image，設定它的 default user（其 cloud-init 建立的帳號；synced 的 Ubuntu、CentOS、
+   RHEL image 已有內建值）。swallow 會以此帳號登入已佈署的 Server，見
+   [SSH key 與 image 登入帳號](ssh-keys.md)。
+4. 佈署前 verify image。
+5. 檢查 verification failure 與 target compatibility。
 
 Upload limit、content type 與 provider requirement 定義於
 [active provisioning contract](../../../api-server/docs/development/api-contracts/api-server/provisioning.md)。

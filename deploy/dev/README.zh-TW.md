@@ -85,7 +85,7 @@ Vite 預設信任 IP／localhost host header。使用 development DNS name 前�
 
 ## Seed demonstration Site
 
-Idempotent seed script 會 login、建立 Site、註冊 in-Compose Prometheus Integration、
+Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、註冊 in-Compose Prometheus Integration、
 設定 automation/playbook mapping，並在有提供資料時註冊 MAAS：
 
 ```bash

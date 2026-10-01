@@ -23,6 +23,7 @@ an external integration. Secret material is write-only.
 
 - [Automation Configuration](../../../../../docs/development/glossaries/terms/automation-configuration.md)
 - [Operation](../../../../../docs/development/glossaries/terms/operation.md)
+- [Deployment Key](../../../../../docs/development/glossaries/terms/deployment-key.md)
 
 ## Endpoints
 
@@ -51,8 +52,14 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 ```
 
 Every mapped operation kind must be a built-in non-custom kind. Every playbook value must
-exist in the release manifest. Enabled configurations require a non-empty SSH user and
-known-hosts content; host-key verification cannot be disabled.
+exist in the release manifest. Enabled configurations require known-hosts content;
+host-key verification cannot be disabled.
+
+`sshUser` is optional. It is a fallback login user: for each host, automation first uses
+the effective default user of the OS Image the Server is deployed with
+(`provisioning.deployedImageDefaultUser`, see [provisioning.md](provisioning.md)) and uses
+it exclusively. Only a Server without one tries `sshUser` (when set) and then the built-in
+candidates `cloud-user` and `ubuntu`, using the first that authenticates.
 
 The `install-exporters` / `uninstall-exporters` mappings are what let swallow install the
 Prometheus exporter containers (node-exporter on every host, the RDC exporter on
@@ -80,6 +87,7 @@ valid.
   "knownHosts": "host ssh-ed25519 AAAA...",
   "playbookMappings": {},
   "hasCredential": true,
+  "credentialSource": "site",
   "createdAt": "2026-08-25T00:00:00Z",
   "updatedAt": "2026-08-25T00:00:00Z"
 }
@@ -94,8 +102,20 @@ valid.
 }
 ```
 
+Both fields are optional; the request replaces the whole site credential. A non-empty
+`sshPrivateKey` must parse as an unencrypted private key (`400 validation_error`
+otherwise) and overrides the installation's Deployment Key for this Site. Omitting it (for
+example sending only `becomePassword`) clears the override, so the Site uses the
+Deployment Key (see [ssh-keys.md](ssh-keys.md)). The become password is always
+site-scoped.
+
 Success is `204 No Content`. No API returns either secret; configuration reads expose
-only `hasCredential`.
+only `hasCredential` (a site credential record exists) and `credentialSource`, the key
+automation uses for this Site:
+
+- `site` — the site `sshPrivateKey` override.
+- `deploymentKey` — no override; the Deployment Key is used.
+- `none` — no override and no Deployment Key exists (the installation step that creates it has not run).
 
 ## Errors
 
@@ -105,6 +125,9 @@ invalid ports, missing required fields, and unregistered playbooks return
 
 ## Compatibility Notes
 
-The Site Automation Configuration wire contract is unchanged. New schema-v3 Operations
+[Decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md)
+made `sshUser` and `sshPrivateKey` optional and added `credentialSource`; both are
+backward compatible (existing Sites keep their user and key, which still take effect).
+New schema-v3 Operations
 consume it through the standalone Ansible executor; legacy schema-v2 Operations may still
 consume it through the compatibility dispatcher while that queue drains.

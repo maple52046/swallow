@@ -65,6 +65,12 @@ func applyEnv(cfg *Config) {
 		}
 	}
 
+	if v := os.Getenv("SWALLOW_API_SSH_KEY_SYNC_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.SSHKeySyncInterval = d
+		}
+	}
+
 	if v := os.Getenv("SWALLOW_API_OPERATION_DISPATCH_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.OperationDispatchInterval = d

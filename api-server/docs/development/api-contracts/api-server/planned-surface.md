@@ -1114,6 +1114,9 @@ Containers are accessed as a sub-resource of Server.
 
 ### 7.11 SSH Keys
 
+> Superseded by the Active [ssh-keys.md](ssh-keys.md) contract (decision 039). The design
+> below is kept for history only; do not implement against it.
+
 SSH Keys are user-scoped and managed via account settings.
 
 | Method | Path | Description |

@@ -20,3 +20,22 @@ model. `AUTO` is translated to the read-only `provider_managed` observation;
 Swallow applies DHCP or static intent when the operator deploys an OS or changes a
 Ready Server's Network. Release cleanup is coordinated through a durable
 Provisioning Task. No continuous network reconciliation runs on deployed hosts.
+
+## SSH Keys realized in the provisioner (decision 039)
+
+```text
+sshkey Service --ProvisionerKeys port--> sshkey infra adapter --ProviderFactory--> SSHKeyRegistrar --> MAAS account sshkeys
+OS Provisioning deploy --SSHKeyRegistration port--> sshkey EnsureRegistered (before any provider write)
+```
+
+The Access context owns SSH Key records; the provisioner's key list is only a
+realization target. The optional `SSHKeyRegistrar` capability (advertised as
+`SSHKeyRegistration`) keeps MAAS vocabulary (`/account/prefs/sshkeys/`, numeric key ids)
+inside the MAAS adapter. swallow removes only provider keys it registered or adopted, so
+keys an operator added in MAAS are untouched. A non-capable provisioner is recorded as
+`unsupported`; there is no cloud-init fallback yet.
+
+The OS Image default user is swallow-owned data on the OS Image Provider Data Overlay
+(`defaultUser`, with a built-in per provider OS family). Reconcile mirrors the effective
+value onto each deployed Server as `deployedImageDefaultUser`, alongside
+`deployedImageName`, so automation reads it from the projection without a catalog call.

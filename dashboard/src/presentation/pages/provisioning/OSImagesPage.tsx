@@ -4,7 +4,7 @@ import { AlertTriangle, Ban, Check, Columns3, FilePlus2, Pencil, RefreshCw, Rock
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { loadOSImageCatalog, type OSImageCatalog, type OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
-import type { Integration } from '@/domain/site/types'
+import { isValidDefaultUser, type Integration } from '@/domain/site/types'
 import { isInFlightStatus, operationStatus } from '@/domain/operation/types'
 import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
@@ -72,9 +72,26 @@ function toBulkTarget(image: OSImageCatalogRow): OSImageBulkTarget {
   }
 }
 
-/** Whether the image carries any swallow override or tag (name, OS, release, or tags). */
+/** Whether the image carries any swallow override (name, OS, release, tags, or default user). */
 function hasOverride(image: OSImageCatalogRow): boolean {
-  return Boolean(image.customName || image.customOsSystem || image.customRelease || image.tags.length)
+  return Boolean(image.customName || image.customOsSystem || image.customRelease || image.tags.length || image.customDefaultUser)
+}
+
+/**
+ * Renders the effective default login user and whether it was set by an operator or is swallow's
+ * built-in, so an operator can tell an explicit choice from a derived one without opening the
+ * editor. The source is always spelled out rather than implied by styling.
+ */
+function DefaultUserCell({ image }: { image: OSImageCatalogRow }) {
+  if (!image.defaultUser) return <>-</>
+  return (
+    <HStack gap="1" wrap="wrap">
+      <span className="sw-mono">{image.defaultUser}</span>
+      <Badge variant="subtle" size="sm">
+        {image.customDefaultUser ? 'Custom' : 'Built-in'}
+      </Badge>
+    </HStack>
+  )
 }
 
 /** Formats provider bytes with binary units while preserving an explicit unknown state. */
@@ -180,7 +197,7 @@ function DeployModeCell({
   )
 }
 
-type ImageColumnKey = 'name' | 'osSystem' | 'deployMode' | 'release' | 'tags' | 'architecture' | 'size' | 'site' | 'integration' | 'refreshed'
+type ImageColumnKey = 'name' | 'osSystem' | 'deployMode' | 'release' | 'tags' | 'defaultUser' | 'architecture' | 'size' | 'site' | 'integration' | 'refreshed'
 
 /** One toggleable data column. Actions are always rendered and are not part of this set. */
 interface ImageColumn {
@@ -193,7 +210,7 @@ interface ImageColumn {
 
 // Every toggleable column, used to validate a saved choice. Kept separate from the default
 // visible set so a column can exist (and be toggled on) without being shown by default.
-const ALL_COLUMN_KEYS: ImageColumnKey[] = ['name', 'osSystem', 'deployMode', 'release', 'tags', 'architecture', 'size', 'site', 'integration', 'refreshed']
+const ALL_COLUMN_KEYS: ImageColumnKey[] = ['name', 'osSystem', 'deployMode', 'release', 'tags', 'defaultUser', 'architecture', 'size', 'site', 'integration', 'refreshed']
 // Columns hidden by default: available from the Columns menu but not shown until toggled on. Every
 // other column (including the Deploy Mode support column) is visible by default.
 const DEFAULT_HIDDEN_COLUMNS: ImageColumnKey[] = ['release', 'architecture', 'refreshed']
@@ -481,6 +498,7 @@ export function OSImagesPage() {
           '-'
         ),
     },
+    { key: 'defaultUser', label: 'Default user', render: (image) => <DefaultUserCell image={image} /> },
     { key: 'architecture', label: 'Architecture', render: (image) => image.architecture || '-' },
     { key: 'size', label: 'Size', className: 'sw-col-size', render: (image) => formatImageSize(image.sizeBytes) },
     {
@@ -808,9 +826,11 @@ export function OSImagesPage() {
 }
 
 /**
- * Sets or clears the swallow-owned display overlay (name, OS, release) for one image. Each field
- * is stored by swallow and merged over the provider value at read; a blank field uses the
- * provider value. Saving or resetting never mutates the provider.
+ * Sets or clears the swallow-owned overlay (name, OS, release, tags, default user) for one image.
+ * Each field is stored by swallow and merged over the provider value at read; a blank field uses
+ * the provider value (for the default user, swallow's built-in). Saving sends every field because
+ * the backend replaces the whole overlay. Saving or resetting never mutates the provider, but the
+ * default user changes which account automation logs in as on Servers deployed with the image.
  */
 function EditImageDialog({
   image,
@@ -829,6 +849,11 @@ function EditImageDialog({
   const [release, setRelease] = useState(image.customRelease ?? '')
   const [tags, setTags] = useState<string[]>(image.tags)
   const [tagDraft, setTagDraft] = useState('')
+  const [defaultUser, setDefaultUser] = useState(image.customDefaultUser ?? '')
+  // A blank default user is valid (it means "use the built-in"); anything else must be a POSIX
+  // login name, checked here so the operator sees the problem beside the field.
+  const defaultUserInvalid = defaultUser.trim() !== '' && !isValidDefaultUser(defaultUser.trim())
+  const builtinDefaultUser = image.customDefaultUser ? '' : image.defaultUser ?? ''
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -849,7 +874,7 @@ function EditImageDialog({
   // as "use the provider value". An all-blank save therefore reverts every field, mirroring reset.
   // The in-progress tag text is folded in so a value typed but not yet committed is not lost.
   const save = async () => {
-    if (submitting) return
+    if (submitting || defaultUserInvalid) return
     const pending = tagDraft.trim()
     const finalTags = pending && !tags.includes(pending) ? [...tags, pending] : tags
     setSubmitting(true)
@@ -860,6 +885,7 @@ function EditImageDialog({
         osSystem: osSystem.trim(),
         release: release.trim(),
         tags: finalTags,
+        defaultUser: defaultUser.trim(),
       })
       onSaved('OS image updated')
     } catch (caught) {
@@ -890,7 +916,7 @@ function EditImageDialog({
       open
       onClose={close}
       closeOnInteractOutside={!submitting}
-      title="Edit OS image labels"
+      title="Edit OS image"
       description={`Swallow label overrides do not change the image in ${image.integrationName} or what it deploys.`}
       footer={
         <>
@@ -902,7 +928,7 @@ function EditImageDialog({
               Reset to provider values
             </Button>
           )}
-          <Button colorPalette="brand" onClick={() => void save()} loading={submitting} disabled={submitting}>
+          <Button colorPalette="brand" onClick={() => void save()} loading={submitting} disabled={submitting || defaultUserInvalid}>
             Save
           </Button>
         </>
@@ -979,9 +1005,37 @@ function EditImageDialog({
           )}
           <Field.HelperText>Swallow-owned labels for organizing and searching images.</Field.HelperText>
         </Field.Root>
+        <Field.Root invalid={defaultUserInvalid}>
+          <Field.Label htmlFor="os-image-default-user">Default user</Field.Label>
+          <Input
+            id="os-image-default-user"
+            value={defaultUser}
+            onChange={(event) => setDefaultUser(event.target.value)}
+            placeholder={builtinDefaultUser}
+            maxLength={32}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {defaultUserInvalid ? (
+            <Field.ErrorText>Use a login name: lowercase letters, digits, "_" or "-", starting with a letter or "_".</Field.ErrorText>
+          ) : (
+            <Field.HelperText>{defaultUserHelp(image, builtinDefaultUser)}</Field.HelperText>
+          )}
+        </Field.Root>
       </Stack>
     </Modal>
   )
+}
+
+/**
+ * Explains what a blank default user falls back to. The catalog reports only the effective value,
+ * so while a custom value is set the built-in is unknown here and is described generically.
+ */
+function defaultUserHelp(image: OSImageCatalogRow, builtinDefaultUser: string): string {
+  const purpose = 'The login user automation uses on Servers deployed with this image.'
+  if (image.customDefaultUser) return `${purpose} Leave blank to use swallow's built-in default for this OS family, if it has one.`
+  if (builtinDefaultUser) return `${purpose} Leave blank to use the built-in: ${builtinDefaultUser}.`
+  return `${purpose} For example cloud-user. Leave blank to fall back to the Site SSH user and built-in candidates.`
 }
 
 /** Confirms permanent provider-side OS Image deletion before the destructive request is sent. */

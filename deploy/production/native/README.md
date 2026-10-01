@@ -21,6 +21,10 @@ sudo ./swallowctl install
 sudo ./swallowctl doctor
 ```
 
+`install` (and `upgrade`, which reinstalls) runs the database migration and then
+creates the deployment key with `swallow-api deployment-key ensure`; an existing key
+is kept. OS and Platform deployments are refused until it exists.
+
 ## Durable orchestration requires Temporal
 
 swallow's sole execution engine is Temporal ([ADR 016](../../../docs/decisions/016-temporal-operation-orchestration.md),

@@ -54,13 +54,14 @@ func (uc *RefreshServerUseCase) Execute(ctx context.Context, serverID string) (*
 	return item, nil
 }
 
-// fillDeployedImageName resolves the effective OS image display name onto a freshly deployed
-// machine so the fleet list shows the friendly name the moment a deploy completes, instead of the
-// raw OS/release id until the next reconcile pass. It only acts when the machine is deployed and
-// the mirrored name is still blank — the fresh-deploy case — so the deploy-observe poll does not
-// re-read the provider catalog on every tick, and a redeploy's stale name is left to reconcile
-// (matching updateProvisioningProjection's documented one-interval lag). A nil overlay repository
-// or a catalog read failure leaves the carried-forward value untouched.
+// fillDeployedImageName resolves the effective OS image display name and default user onto a
+// freshly deployed machine the moment a deploy completes, instead of the raw OS/release id and no
+// login user until the next reconcile pass. The default user matters here: wait-for-ssh runs right
+// after the deploy and logs in as it. It only acts when the machine is deployed and the mirrored
+// name is still blank — the fresh-deploy case, which updateProvisioningProjection guarantees for a
+// redeploy to a different image — so the deploy-observe poll does not re-read the provider catalog
+// on every tick. A catalog read failure still fills the built-in default user for the observed OS
+// family; a nil overlay repository leaves the carried-forward values untouched.
 func (uc *RefreshServerUseCase) fillDeployedImageName(
 	ctx context.Context,
 	server *serverdomain.Server,
@@ -73,14 +74,10 @@ func (uc *RefreshServerUseCase) fillDeployedImageName(
 	if machine.Status != provisioningdomain.MachineStatusDeployed || server.Provisioning.DeployedImageName != "" {
 		return
 	}
-	resolver, ok := buildDeployedImageNameResolver(ctx, provider, uc.overlays, server.Source.IntegrationID)
-	if !ok {
-		return
-	}
-	server.Provisioning.DeployedImageName = resolver.resolve(
-		machine.OSSystem,
-		machine.DistroSeries,
-		machine.Architecture,
-		true,
-	)
+	// A failed catalog read yields the zero resolver, whose resolve still returns the built-in
+	// default user, so the bool is not needed here.
+	resolver, _ := buildDeployedImageResolver(ctx, provider, uc.overlays, server.Source.IntegrationID)
+	image := resolver.resolve(machine.OSSystem, machine.DistroSeries, machine.Architecture, true)
+	server.Provisioning.DeployedImageName = image.Name
+	server.Provisioning.DeployedImageDefaultUser = image.DefaultUser
 }

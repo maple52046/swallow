@@ -27,8 +27,13 @@ type OSImageItem struct {
 	CustomRelease    string `json:"customRelease,omitempty"`
 	// Tags are swallow-owned labels (no provider counterpart). Always a non-nil array so
 	// clients can iterate without a null check; empty when the image has no tags.
-	Tags         []string `json:"tags"`
-	Architecture string   `json:"architecture"`
+	Tags []string `json:"tags"`
+	// DefaultUser is the effective login user automation uses on Servers deployed with this
+	// image: CustomDefaultUser when set, else swallow's built-in for the provider OS family
+	// (provisioningdomain.EffectiveDefaultUser). Both are omitted when no value applies.
+	DefaultUser       string `json:"defaultUser,omitempty"`
+	CustomDefaultUser string `json:"customDefaultUser,omitempty"`
+	Architecture      string `json:"architecture"`
 	// SizeBytes is live provider metadata and is omitted when no complete image size is
 	// available. It is never read from or written to the swallow overlay.
 	SizeBytes int64 `json:"sizeBytes,omitempty"`
@@ -139,6 +144,10 @@ func (uc *ListOSImagesUseCase) Execute(ctx context.Context, integrationID string
 			if len(overlay.Tags) > 0 {
 				item.Tags = overlay.Tags
 			}
+			if overlay.DefaultUser != "" {
+				item.DefaultUser = overlay.DefaultUser
+				item.CustomDefaultUser = overlay.DefaultUser
+			}
 		}
 		items = append(items, item)
 	}
@@ -165,6 +174,7 @@ func newOSImageItem(image *provisioningdomain.OSImage) OSImageItem {
 		Release:               image.Release,
 		ProviderRelease:       image.Release,
 		Tags:                  []string{},
+		DefaultUser:           provisioningdomain.BuiltinDefaultUser(image.OSSystem),
 		Architecture:          image.Architecture,
 		SizeBytes:             image.SizeBytes,
 		VerifiedDeployTargets: []string{},

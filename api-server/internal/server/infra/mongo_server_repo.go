@@ -90,20 +90,23 @@ type deploymentDoc struct {
 }
 
 type provisioningDoc struct {
-	State               string    `bson:"state"`
-	ProviderState       string    `bson:"providerState"`
-	ErrorDescription    string    `bson:"errorDescription,omitempty"`
-	PowerState          string    `bson:"powerState"`
-	OSSystem            string    `bson:"osSystem,omitempty"`
-	DistroSeries        string    `bson:"distroSeries,omitempty"`
-	DeployedImageName   string    `bson:"deployedImageName,omitempty"`
-	Ephemeral           bool      `bson:"ephemeral"`
-	HWEKernel           string    `bson:"hweKernel,omitempty"`
-	Locked              bool      `bson:"locked"`
-	CommissioningStatus string    `bson:"commissioningStatus,omitempty"`
-	TestingStatus       string    `bson:"testingStatus,omitempty"`
-	IntegrationID       string    `bson:"integrationId"`
-	ObservedAt          time.Time `bson:"observedAt"`
+	State             string `bson:"state"`
+	ProviderState     string `bson:"providerState"`
+	ErrorDescription  string `bson:"errorDescription,omitempty"`
+	PowerState        string `bson:"powerState"`
+	OSSystem          string `bson:"osSystem,omitempty"`
+	DistroSeries      string `bson:"distroSeries,omitempty"`
+	DeployedImageName string `bson:"deployedImageName,omitempty"`
+	// DeployedImageDefaultUser mirrors the deployed image's effective default login user
+	// (decision 039); absent on documents written before it existed, which reads as unknown.
+	DeployedImageDefaultUser string    `bson:"deployedImageDefaultUser,omitempty"`
+	Ephemeral                bool      `bson:"ephemeral"`
+	HWEKernel                string    `bson:"hweKernel,omitempty"`
+	Locked                   bool      `bson:"locked"`
+	CommissioningStatus      string    `bson:"commissioningStatus,omitempty"`
+	TestingStatus            string    `bson:"testingStatus,omitempty"`
+	IntegrationID            string    `bson:"integrationId"`
+	ObservedAt               time.Time `bson:"observedAt"`
 }
 
 type membershipDoc struct {
@@ -553,20 +556,21 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 
 	if p := s.Provisioning; p != nil {
 		doc.Provisioning = &provisioningDoc{
-			State:               p.State,
-			ProviderState:       p.ProviderState,
-			ErrorDescription:    p.ErrorDescription,
-			PowerState:          p.PowerState,
-			OSSystem:            p.OSSystem,
-			DistroSeries:        p.DistroSeries,
-			DeployedImageName:   p.DeployedImageName,
-			Ephemeral:           p.Ephemeral,
-			HWEKernel:           p.HWEKernel,
-			Locked:              p.Locked,
-			CommissioningStatus: p.CommissioningStatus,
-			TestingStatus:       p.TestingStatus,
-			IntegrationID:       p.IntegrationID,
-			ObservedAt:          p.ObservedAt,
+			State:                    p.State,
+			ProviderState:            p.ProviderState,
+			ErrorDescription:         p.ErrorDescription,
+			PowerState:               p.PowerState,
+			OSSystem:                 p.OSSystem,
+			DistroSeries:             p.DistroSeries,
+			DeployedImageName:        p.DeployedImageName,
+			DeployedImageDefaultUser: p.DeployedImageDefaultUser,
+			Ephemeral:                p.Ephemeral,
+			HWEKernel:                p.HWEKernel,
+			Locked:                   p.Locked,
+			CommissioningStatus:      p.CommissioningStatus,
+			TestingStatus:            p.TestingStatus,
+			IntegrationID:            p.IntegrationID,
+			ObservedAt:               p.ObservedAt,
 		}
 	}
 
@@ -645,20 +649,21 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 
 	if p := doc.Provisioning; p != nil {
 		s.Provisioning = &serverdomain.ProvisioningStatus{
-			State:               p.State,
-			ProviderState:       p.ProviderState,
-			ErrorDescription:    p.ErrorDescription,
-			PowerState:          p.PowerState,
-			OSSystem:            p.OSSystem,
-			DistroSeries:        p.DistroSeries,
-			DeployedImageName:   p.DeployedImageName,
-			Ephemeral:           p.Ephemeral,
-			HWEKernel:           p.HWEKernel,
-			Locked:              p.Locked,
-			CommissioningStatus: p.CommissioningStatus,
-			TestingStatus:       p.TestingStatus,
-			IntegrationID:       p.IntegrationID,
-			ObservedAt:          p.ObservedAt,
+			State:                    p.State,
+			ProviderState:            p.ProviderState,
+			ErrorDescription:         p.ErrorDescription,
+			PowerState:               p.PowerState,
+			OSSystem:                 p.OSSystem,
+			DistroSeries:             p.DistroSeries,
+			DeployedImageName:        p.DeployedImageName,
+			DeployedImageDefaultUser: p.DeployedImageDefaultUser,
+			Ephemeral:                p.Ephemeral,
+			HWEKernel:                p.HWEKernel,
+			Locked:                   p.Locked,
+			CommissioningStatus:      p.CommissioningStatus,
+			TestingStatus:            p.TestingStatus,
+			IntegrationID:            p.IntegrationID,
+			ObservedAt:               p.ObservedAt,
 		}
 	}
 

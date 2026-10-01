@@ -345,7 +345,7 @@ func TestListOSImagesReturnsOverlayError(t *testing.T) {
 func TestSetOSImageOverlayStoresTrimmedOverrides(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
 	uc := NewSetOSImageOverlayUseCase(overlays, nil)
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "  Golden Ubuntu  ", "", "  22.04  ", nil); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "  Golden Ubuntu  ", OSSystem: "", Release: "  22.04  ", Tags: nil}); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 	stored, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64")
@@ -367,7 +367,7 @@ func TestSetOSImageOverlayNormalizesTags(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
 	uc := NewSetOSImageOverlayUseCase(overlays, nil)
 	// Tags are trimmed, blanks dropped, and duplicates removed while preserving first order.
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "", "", "", []string{" gpu ", "gpu", "", "ml"}); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "", OSSystem: "", Release: "", Tags: []string{" gpu ", "gpu", "", "ml"}}); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 	stored, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64")
@@ -382,7 +382,7 @@ func TestSetOSImageOverlayNormalizesTags(t *testing.T) {
 func TestSetOSImageOverlayRejectsOverLongField(t *testing.T) {
 	overlays := newOSImageOverlayRepoFake()
 	uc := NewSetOSImageOverlayUseCase(overlays, nil)
-	err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", strings.Repeat("x", maxOSImageOverlayFieldLength+1), "", "", nil)
+	err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: strings.Repeat("x", maxOSImageOverlayFieldLength+1)})
 	if !errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid) {
 		t.Fatalf("Set(over-long) error = %v, want %v", err, provisioningdomain.ErrOSImageOverlayInvalid)
 	}
@@ -399,7 +399,7 @@ func TestSetOSImageOverlayClearsWhenAllBlank(t *testing.T) {
 	uc := NewSetOSImageOverlayUseCase(overlays, nil)
 	// An all-blank edit means "use the provider values everywhere", so the overlay is removed
 	// rather than persisted as an empty record.
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "  ", "", "", []string{"  "}); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "  ", OSSystem: "", Release: "", Tags: []string{"  "}}); err != nil {
 		t.Fatalf("Set(all-blank) error = %v", err)
 	}
 	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); ok {
@@ -441,7 +441,7 @@ func TestSetOSImageOverlayPropagatesNameToServers(t *testing.T) {
 	refresher := &recordingRefresher{}
 	uc := NewSetOSImageOverlayUseCase(overlays, refresher)
 
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "Golden Ubuntu", "", "", nil); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "Golden Ubuntu", OSSystem: "", Release: "", Tags: nil}); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 	if err := uc.Clear(context.Background(), "integration-1", "ubuntu/jammy", "amd64"); err != nil {
@@ -459,7 +459,7 @@ func TestSetOSImageOverlayIgnoresRefresherFailure(t *testing.T) {
 	refresher := &recordingRefresher{err: errors.New("catalog unavailable")}
 	uc := NewSetOSImageOverlayUseCase(overlays, refresher)
 
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", "Golden Ubuntu", "", "", nil); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "Golden Ubuntu", OSSystem: "", Release: "", Tags: nil}); err != nil {
 		t.Fatalf("Set() with a failing refresher must still succeed, got %v", err)
 	}
 	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); !ok {
@@ -492,5 +492,59 @@ func TestDeleteOSImageUnsupportedProviderIsRejected(t *testing.T) {
 	var provErr *provisioningdomain.ProviderError
 	if !errors.As(err, &provErr) || provErr.Kind != provisioningdomain.ProviderErrorRejected {
 		t.Fatalf("Execute() error = %v, want a rejected ProviderError", err)
+	}
+}
+
+// The catalog reports an effective default user: the overlay value, else swallow's built-in for
+// the provider OS family. Relabeling the OS for display must not change the built-in.
+func TestListOSImagesProjectsDefaultUser(t *testing.T) {
+	provider := &osImageBaseProvider{images: []*provisioningdomain.OSImage{
+		{ID: "ubuntu/noble", Name: "Ubuntu 24.04", OSSystem: "ubuntu", Release: "noble", Architecture: "amd64"},
+		{ID: "custom/rocky", Name: "Rocky", OSSystem: "custom", Release: "rocky", Architecture: "amd64"},
+		{ID: "custom/plain", Name: "Plain", OSSystem: "custom", Release: "plain", Architecture: "amd64"},
+	}}
+	overlays := newOSImageOverlayRepoFake()
+	overlays.seed(&provisioningdomain.OSImageOverlay{
+		IntegrationID: "integration-1", ImageID: "ubuntu/noble", Architecture: "amd64", OSSystem: "Golden OS",
+	})
+	overlays.seed(&provisioningdomain.OSImageOverlay{
+		IntegrationID: "integration-1", ImageID: "custom/rocky", Architecture: "amd64", DefaultUser: "cloud-user",
+	})
+
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, overlays, newOSImageVerificationRepoFake())
+	items, err := uc.Execute(context.Background(), "integration-1")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, tc := range []struct {
+		index               int
+		wantEffective, want string
+	}{
+		{index: 0, wantEffective: "ubuntu"},
+		{index: 1, wantEffective: "cloud-user", want: "cloud-user"},
+		{index: 2},
+	} {
+		item := items[tc.index]
+		if item.DefaultUser != tc.wantEffective || item.CustomDefaultUser != tc.want {
+			t.Errorf("%s default user = %q/%q, want %q/%q", item.ID, item.DefaultUser, item.CustomDefaultUser, tc.wantEffective, tc.want)
+		}
+	}
+}
+
+func TestSetOSImageOverlayValidatesDefaultUser(t *testing.T) {
+	overlays := newOSImageOverlayRepoFake()
+	uc := NewSetOSImageOverlayUseCase(overlays, nil)
+
+	err := uc.Set(context.Background(), "integration-1", "custom/rocky", "amd64", OSImageOverlayInput{DefaultUser: "Cloud User"})
+	if !errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid) {
+		t.Fatalf("Set() error = %v, want ErrOSImageOverlayInvalid for a non-POSIX user", err)
+	}
+
+	if err := uc.Set(context.Background(), "integration-1", "custom/rocky", "amd64", OSImageOverlayInput{DefaultUser: " cloud-user "}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+	stored, _ := overlays.ListByIntegration(context.Background(), "integration-1")
+	if len(stored) != 1 || stored[0].DefaultUser != "cloud-user" {
+		t.Errorf("stored overlays = %+v, want a default-user-only overlay kept (not deleted as empty)", stored)
 	}
 }

@@ -21,6 +21,7 @@ func init() {
 
 	rootCmd.AddCommand(apiCmd)
 	rootCmd.AddCommand(migrateCmd)
+	rootCmd.AddCommand(deploymentKeyCmd)
 	rootCmd.AddCommand(workerCmd)
 	rootCmd.AddCommand(ansibleExecutorCmd)
 }

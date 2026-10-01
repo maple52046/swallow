@@ -85,3 +85,21 @@ func TestSetConnectionVarsFallsBackToSiteUserWithoutProber(t *testing.T) {
 		t.Errorf("host-a ansible_user = %v, want cloud-user (site fallback)", got)
 	}
 }
+
+// TestSetConnectionVarsUsesImageDefaultUserWithoutProbing guards decision 039: a host whose
+// deployed OS Image has a known default user logs in as exactly that user. The prober would accept
+// only "ubuntu" here, so probing would wrongly pick it; the image user must win without a probe.
+func TestSetConnectionVarsUsesImageDefaultUserWithoutProbing(t *testing.T) {
+	runner := NewLocalRunner("runner", "/root", "/run", "/artifacts")
+	runner.AttachUserProber(perHostFakeProber{ready: map[string]string{"10.0.0.1": "ubuntu"}})
+	inventory := inventoryWith(map[string]string{"host-a": "10.0.0.1"})
+	inventory["_meta"].(map[string]any)["hostvars"].(map[string]any)["host-a"].(map[string]any)["image_default_user"] = "rocky"
+
+	runner.setConnectionVars(context.Background(), inventory,
+		&operationdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
+		operationdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
+
+	if got := userOf(inventory, "host-a"); got != "rocky" {
+		t.Errorf("host-a ansible_user = %v, want the image default user rocky", got)
+	}
+}

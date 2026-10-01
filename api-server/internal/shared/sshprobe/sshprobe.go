@@ -1,13 +1,16 @@
 // Package sshprobe resolves the working SSH login user for a host by trying candidate users with
-// the site automation key.
+// the automation key (the Site override or the Deployment Key).
 //
 // It exists because different OS images use different default login users (ubuntu images use
 // "ubuntu", swallow's custom images use "cloud-user"), while a Site has a single configured SSH
-// user. swallow's dynamic inventory is already per-host, so the connection user must be resolved
-// per host rather than forced to one Site value; otherwise a fleet that mixes image families can
-// never be deployed or managed under one Site. The probe only sends a signature (never the private
-// key) and does not verify the host key — the authoritative host-key check is the Ansible run's
-// job (bounded trust-on-first-use over scanned keys); this probe answers only "which user logs in".
+// user. swallow's dynamic inventory is already per-host, so the connection user is resolved per
+// host rather than forced to one Site value. Since decision 039 a host whose deployed OS Image has
+// a known default user uses exactly that user; the probe over candidates remains the fallback for
+// hosts without one. The probe only sends a signature (never the private key) and does not verify
+// the host key — the authoritative host-key check is the Ansible run's job (bounded
+// trust-on-first-use over scanned keys); this probe answers only "which user logs in". It is
+// shared by the operation runner and the app-layer wait-for-ssh step and must stay free of
+// feature-specific rules beyond the candidate order.
 package sshprobe
 
 import (
@@ -37,9 +40,15 @@ const (
 // existing single-user setups behave identically.
 var builtinCandidates = []string{"cloud-user", "ubuntu"}
 
-// Candidates returns the ordered, de-duplicated candidate users to try: the Site user first (when
-// set), then the built-ins. Empty entries are dropped.
-func Candidates(siteUser string) []string {
+// Candidates returns the ordered, de-duplicated login users to try on one host. When the host's
+// deployed OS Image has a known default user, it is the only candidate: a known user is
+// deterministic, so a wrong value fails with a clear message instead of silently logging in as
+// another account. Otherwise the Site user comes first (when set), then the built-ins. Empty
+// entries are dropped.
+func Candidates(imageDefaultUser, siteUser string) []string {
+	if user := strings.TrimSpace(imageDefaultUser); user != "" {
+		return []string{user}
+	}
 	ordered := append([]string{strings.TrimSpace(siteUser)}, builtinCandidates...)
 	out := make([]string, 0, len(ordered))
 	seen := make(map[string]bool, len(ordered))

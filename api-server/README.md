@@ -17,6 +17,7 @@ The same binary provides separate processes:
 | `swallow-api worker` | Temporal Workflow and activity worker |
 | `swallow-api ansible-executor` | Executes idempotent Ansible attempts and publishes task events |
 | `swallow-api migrate` | Explicit schema/data migration before service startup |
+| `swallow-api deployment-key ensure` | Installation step after `migrate`: creates the Deployment Key once (idempotent); OS and Platform deployment require it |
 
 Temporal is the sole durable orchestration engine. A runnable topology also
 requires Temporal Server/PostgreSQL and MongoDB; there is no in-process
@@ -59,6 +60,7 @@ export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
 export SWALLOW_API_TEMPORAL_ADDRESS=localhost:7233
 
 bin/swallow-api migrate
+bin/swallow-api deployment-key ensure
 bin/swallow-api api
 ```
 

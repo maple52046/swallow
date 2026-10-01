@@ -1002,6 +1002,16 @@ func (e providerStepExecutor) requireUnlocked(ctx context.Context, serverID stri
 }
 
 func normalizeProviderError(err error, stage string) temporalworkflow.StepExecutionResult {
+	// The Deployment Key could not be registered before any provider write, so the outcome is
+	// known (nothing was deployed) and retrying once the provisioner recovers is safe.
+	if errors.Is(err, provisioningdomain.ErrSSHKeyRegistration) {
+		return providerAttention("ssh_key_registration_failed", err.Error(), stage)
+	}
+	// Reached only if the Deployment Key disappeared after acceptance; nothing was written to the
+	// provider, so the operator can create the key and retry the Task.
+	if errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing) {
+		return providerAttention("deployment_key_missing", err.Error(), stage)
+	}
 	var providerErr *provisioningdomain.ProviderError
 	if errors.As(err, &providerErr) {
 		switch providerErr.Kind {

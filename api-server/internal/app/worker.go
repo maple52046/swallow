@@ -19,6 +19,7 @@ import (
 	"github.com/maple52046/swallow/config"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	"github.com/maple52046/swallow/internal/migration"
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
 	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
@@ -79,7 +80,15 @@ func RunWorker(cfg config.APIConfig) error {
 		return err
 	}
 	inventory := executionInventoryAdapter{discovery: discoveryapp.NewDiscoveryUseCase(servers)}
-	automationConfigurations := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
+	providers := provisioninginfra.NewProviderFactory(integrations)
+	// The worker reads the Deployment Key for wait-for-ssh and ensures provisioner key registration
+	// before every OS deployment it drives (decision 039). It does not run the periodic sync loop.
+	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
+	if err != nil {
+		return err
+	}
+	automationConfigurations := operationapp.NewEffectiveAutomationConfigurations(
+		operationinfra.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
 	platforms, err := platforminfra.NewMongoPlatformRepo(db)
 	if err != nil {
 		return err
@@ -110,9 +119,10 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	providers := provisioninginfra.NewProviderFactory(integrations)
+	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, providers, osImageVerifications)
+	deployments.AttachDeploymentKeys(sshKeys)
 	providerExecutor := providerStepExecutor{
-		deployments: provisioningapp.NewDeployServersUseCase(servers, templates, providers, osImageVerifications),
+		deployments: deployments,
 		release:     provisioningapp.NewReleaseServerUseCase(servers, providers, tasks),
 		refresh:     provisioningapp.NewRefreshServerUseCase(servers, providers, osImageOverlays),
 		servers:     servers, providers: providers, secrets: operationSecrets, tasks: tasks, poll: 5 * time.Second,

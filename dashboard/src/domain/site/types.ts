@@ -70,6 +70,15 @@ export interface OSImage {
   customRelease?: string
   /** Swallow-owned labels for organizing and searching images; no provider counterpart. */
   tags: string[]
+  /**
+   * The effective default login user swallow automation uses on Servers deployed with this image
+   * (decision 039): `customDefaultUser` when an operator set one, otherwise swallow's built-in for
+   * the provider OS family (e.g. `ubuntu` → `ubuntu`). Absent when neither applies, which is
+   * typical for an uploaded custom image until an operator sets one.
+   */
+  defaultUser?: string
+  /** The swallow-owned default user override; absent when the built-in (or nothing) applies. */
+  customDefaultUser?: string
   architecture: string
   /** Provider-reported bytes for the current complete artifact; absent when unavailable. */
   sizeBytes?: number
@@ -88,4 +97,17 @@ export interface OSImage {
    * other); a failed target is still gate-blocked exactly like an unverified one.
    */
   failedDeployTargets: string[]
+}
+
+/**
+ * The POSIX login-name shape the backend accepts for an OS Image default user (provisioning.md):
+ * lowercase letter or underscore first, then up to 31 lowercase letters, digits, `_` or `-`.
+ * Mirrored here only so forms can flag a typo before a request (or a multi-gigabyte upload) is
+ * sent; the backend remains the validator of record.
+ */
+const DEFAULT_USER_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/
+
+/** Whether `value` is an acceptable OS Image default user. An empty value is not; callers treat blank as "not set". */
+export function isValidDefaultUser(value: string): boolean {
+  return DEFAULT_USER_PATTERN.test(value)
 }

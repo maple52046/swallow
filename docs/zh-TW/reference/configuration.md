@@ -21,7 +21,7 @@
 - Bootstrap admin username/password。
 - Base64 32-byte credential-encryption key。
 - Machine bearer token。
-- Reconcile/inventory interval。
+- Reconcile、inventory 與 SSH key sync interval（`sshKeySyncInterval`，預設 5m）。
 - Temporal address、namespace、task queue 與 start interval。
 - Ansible runner command、playbook manifest/directory、runtime/artifact
   directory、retention 與 parallelism。

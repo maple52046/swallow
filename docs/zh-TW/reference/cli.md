@@ -41,7 +41,7 @@ automation scope 不清楚。
 ## Command groups
 
 `auth`、`login`、`logout`、`overview`、`sites`、`integrations`、
-`servers`、`provisioning`、`infrastructure`、`platforms`、`workflows`、
+`servers`、`provisioning`、`infrastructure`、`ssh-keys`、`platforms`、`workflows`、
 `monitoring`、`discovery` 是 CLI 已實作的 operator surface。Managed Software
 目前使用 Dashboard 或 HTTP API。Deprecated aliases 與 Planned endpoint 刻意不提供。
 

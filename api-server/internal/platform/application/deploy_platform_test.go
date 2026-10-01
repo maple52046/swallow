@@ -253,6 +253,30 @@ func TestDeploySucceedsAndBuildsTrustedVars(t *testing.T) {
 	}
 }
 
+// deploymentKeyStub reports whether the installation has a Deployment Key.
+type deploymentKeyStub bool
+
+func (s deploymentKeyStub) HasDeploymentKey(context.Context) (bool, error) { return bool(s), nil }
+
+// TestDeployRequiresDeploymentKey guards decision 039: without a Deployment Key a Platform deploy
+// is refused before a Platform record or Workflow exists.
+func TestDeployRequiresDeploymentKey(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(haServers()...)
+	service.AttachDeploymentKeyChecker(deploymentKeyStub(false))
+
+	if _, err := service.Deploy(context.Background(), validDeployInput()); !errors.Is(err, platformdomain.ErrDeploymentKeyMissing) {
+		t.Fatalf("Deploy() error = %v, want ErrDeploymentKeyMissing", err)
+	}
+	if len(platforms.platforms) != 0 || launcher.launched != nil {
+		t.Errorf("a refused deploy must not create a Platform or launch a Workflow")
+	}
+
+	service.AttachDeploymentKeyChecker(deploymentKeyStub(true))
+	if _, err := service.Deploy(context.Background(), validDeployInput()); err != nil {
+		t.Errorf("Deploy() with a Deployment Key = %v, want nil", err)
+	}
+}
+
 func TestDeployRejectsEvenControllerCount(t *testing.T) {
 	service, _, platforms := newDeployHarness(haServers()...)
 	input := validDeployInput()

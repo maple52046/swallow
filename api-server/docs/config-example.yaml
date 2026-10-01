@@ -56,6 +56,11 @@ api:
   # count for near-static data.
   inventoryInterval: "15m"
 
+  # How often the API re-realizes every SSH Key (the Deployment Key and Access Keys) in each
+  # key-capable provisioner. Key changes and OS deployments already trigger a sync, so this
+  # pass only repairs drift. Env: SWALLOW_API_SSH_KEY_SYNC_INTERVAL.
+  sshKeySyncInterval: "5m"
+
   # Operation orchestration. The embedded dispatcher drains legacy schema-v2 work; new
   # automation runs as durable schema-v3 Operations coordinated by Temporal. The same
   # config serves three commands: `swallow-api api` (HTTP + reconcile), `swallow-api worker`

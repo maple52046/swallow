@@ -374,6 +374,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		ImageUpload:          true,
 		Grouping:             true,
 		Tagging:              true,
+		SSHKeyRegistration:   true,
 	}
 }
 

@@ -28,11 +28,33 @@ type DeploymentTemplateCounter interface {
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)
 }
 
+// ProvisionerChangeListener is told that a provisioner Integration was created or had its
+// endpoint, enabled flag, or credential changed, so contexts that realize swallow-owned state in
+// provisioners (SSH Keys, decision 039) can catch up without waiting for their periodic pass.
+// ProvisionerChanged must not block; it is called after the write succeeded.
+type ProvisionerChangeListener interface {
+	ProvisionerChanged()
+}
+
 type IntegrationService struct {
 	integrations sitedomain.IntegrationRepository
 	sites        sitedomain.SiteRepository
 	servers      ServerCounter
 	templates    DeploymentTemplateCounter
+	listener     ProvisionerChangeListener
+}
+
+// AttachProvisionerChangeListener registers the listener notified after provisioner writes.
+func (s *IntegrationService) AttachProvisionerChangeListener(listener ProvisionerChangeListener) {
+	s.listener = listener
+}
+
+// provisionerChanged notifies the listener after a successful write to a provisioner Integration;
+// other kinds are ignored because only provisioners hold realized swallow state.
+func (s *IntegrationService) provisionerChanged(kind sitedomain.IntegrationKind) {
+	if s.listener != nil && kind == sitedomain.IntegrationKindProvisioner {
+		s.listener.ProvisionerChanged()
+	}
 }
 
 func NewIntegrationService(
@@ -141,6 +163,7 @@ func (s *IntegrationService) Create(ctx context.Context, input CreateIntegration
 	if err := s.integrations.Create(ctx, integration, input.Credential); err != nil {
 		return nil, err
 	}
+	s.provisionerChanged(integration.Kind)
 
 	item := toIntegrationItem(integration, input.Credential != "")
 	return &item, nil
@@ -207,6 +230,7 @@ func (s *IntegrationService) Update(ctx context.Context, id string, input Update
 	if err := s.integrations.Update(ctx, integration); err != nil {
 		return nil, err
 	}
+	s.provisionerChanged(integration.Kind)
 
 	item := toIntegrationItem(integration, s.hasCredential(ctx, id))
 	return &item, nil
@@ -217,10 +241,15 @@ func (s *IntegrationService) ReplaceCredential(ctx context.Context, id, credenti
 	if credential == "" {
 		return fmt.Errorf("%w: credential cannot be empty", ErrInvalidIntegration)
 	}
-	if _, err := s.integrations.FindByID(ctx, id); err != nil {
+	integration, err := s.integrations.FindByID(ctx, id)
+	if err != nil {
 		return err
 	}
-	return s.integrations.ReplaceCredential(ctx, id, credential)
+	if err := s.integrations.ReplaceCredential(ctx, id, credential); err != nil {
+		return err
+	}
+	s.provisionerChanged(integration.Kind)
+	return nil
 }
 
 // Delete refuses while servers are still projected from this integration. Those

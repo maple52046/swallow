@@ -50,6 +50,9 @@ Never reuse development defaults. A real installation needs:
   secrets;
 - an exact release/candidate manifest with immutable image digests;
 - backup and restore drills covering MongoDB, the credential key, and Workflow
-  artifacts;
+  artifacts (the deployment key's private key is stored in MongoDB, encrypted
+  with the credential key, so both must be restored together; `swallowctl
+  install` and `upgrade` create the key, and OS and Platform deployments are
+  refused while it is missing);
 - dedicated MAAS and per-Site monitoring installations with documented network
   and retention ownership.

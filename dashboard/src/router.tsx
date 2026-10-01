@@ -30,6 +30,7 @@ import { InfrastructureRedirect } from './presentation/pages/infrastructure/Infr
 import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
 import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
 import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
+import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
 
 /** Stable Dashboard routes, each backed by active `/api/v1` provider contracts. */
 export const router = createBrowserRouter([
@@ -77,6 +78,8 @@ export const router = createBrowserRouter([
       { path: 'infrastructure/integrations', element: <IntegrationsPage /> },
       { path: 'infrastructure/zones', element: <GroupingPage kind="zone" /> },
       { path: 'infrastructure/pools', element: <GroupingPage kind="pool" /> },
+      // Account settings for the signed-in admin; not Site-scoped (SSH keys are per User).
+      { path: 'account/ssh-keys', element: <SSHKeysPage /> },
     ],
   },
   { path: '*', element: <ProtectedRoute><NotFoundPage /></ProtectedRoute> },

@@ -84,6 +84,7 @@ type DeployService struct {
 	protection         serverdomain.MutationGuard
 	machinePreparation platformdomain.MachinePreparationValidator
 	requirements       platformdomain.DeploymentRequirementReader
+	deploymentKeys     platformdomain.DeploymentKeyChecker
 }
 
 // NewDeployService constructs deployment preflight with both Server observations and the
@@ -161,6 +162,13 @@ func (s *DeployService) AttachMachinePreparationValidator(validator platformdoma
 	s.machinePreparation = validator
 }
 
+// AttachDeploymentKeyChecker makes every deploy, existing_os or provision_os, require the
+// installation's Deployment Key before any validation, Platform record, or Workflow is created.
+// Without it (tests) the check is skipped.
+func (s *DeployService) AttachDeploymentKeyChecker(checker platformdomain.DeploymentKeyChecker) {
+	s.deploymentKeys = checker
+}
+
 // AttachDeploymentRequirementReader enables authoritative resource eligibility checks for
 // Slurm. Repository failures are returned before any Platform or Workflow is created.
 func (s *DeployService) AttachDeploymentRequirementReader(reader platformdomain.DeploymentRequirementReader) {
@@ -171,6 +179,15 @@ func (s *DeployService) AttachDeploymentRequirementReader(reader platformdomain.
 // callers that predate the type field are unaffected; an unknown type is a domain error the
 // delivery layer turns into a 400.
 func (s *DeployService) Deploy(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
+	if s.deploymentKeys != nil {
+		exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, platformdomain.ErrDeploymentKeyMissing
+		}
+	}
 	platformType := input.Type
 	if platformType == "" {
 		platformType = platformdomain.PlatformTypeKubernetes

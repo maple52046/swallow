@@ -145,7 +145,10 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 		// this mirrored field: without it a rename's eager re-mirror (SetOSImageOverlayUseCase)
 		// would collide with the prior fingerprint and be suppressed, so the fleet list would not
 		// update live until an unrelated field changed.
-		DeployedImageName                             string
+		DeployedImageName string
+		// DeployedImageDefaultUser is included for the same reason: an overlay default-user edit
+		// changes only this mirrored field.
+		DeployedImageDefaultUser                      string
 		Ephemeral, Locked                             bool
 		HWEKernel, CommissioningStatus, TestingStatus string
 	}
@@ -170,10 +173,11 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 			State: s.Provisioning.State, ProviderState: s.Provisioning.ProviderState,
 			ErrorDescription: s.Provisioning.ErrorDescription,
 			PowerState:       s.Provisioning.PowerState, OSSystem: s.Provisioning.OSSystem,
-			DistroSeries:      s.Provisioning.DistroSeries,
-			DeployedImageName: s.Provisioning.DeployedImageName,
-			Ephemeral:         s.Provisioning.Ephemeral,
-			Locked:            s.Provisioning.Locked, HWEKernel: s.Provisioning.HWEKernel,
+			DistroSeries:             s.Provisioning.DistroSeries,
+			DeployedImageName:        s.Provisioning.DeployedImageName,
+			DeployedImageDefaultUser: s.Provisioning.DeployedImageDefaultUser,
+			Ephemeral:                s.Provisioning.Ephemeral,
+			Locked:                   s.Provisioning.Locked, HWEKernel: s.Provisioning.HWEKernel,
 			CommissioningStatus: s.Provisioning.CommissioningStatus, TestingStatus: s.Provisioning.TestingStatus,
 		}
 	}

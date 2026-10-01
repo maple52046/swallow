@@ -122,7 +122,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
 		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays, osImageVerifications),
-		provisioningapp.NewUploadOSImageUseCase(factory),
+		provisioningapp.NewUploadOSImageUseCase(factory, osImageOverlays),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlays, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrations, factory, serverTagOverlays),
 		provisioningapp.NewEditServerTagsUseCase(servers, factory, serverTagOverlays),

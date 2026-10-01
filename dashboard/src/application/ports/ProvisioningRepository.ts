@@ -87,10 +87,11 @@ export interface ProvisioningRepository {
     architecture: string,
   ): Promise<void>;
   /**
-   * Sets the swallow-owned display overlay (name, OS, release) for one image. Each provided,
+   * Sets the swallow-owned overlay (name, OS, release, tags, default user) for one image. Each
    * non-empty field becomes the effective value on the next catalog read while the provider
    * value is preserved; an empty field clears that override. When every field is empty the
-   * overlay is removed entirely. The provider is never changed.
+   * overlay is removed entirely. The provider is never changed. Rejects with `validation_error`
+   * for an over-long field or a non-POSIX default user.
    */
   setOSImageOverlay(
     integrationId: string,
@@ -134,16 +135,24 @@ export interface UploadOSImageInput {
   architecture: string;
   title?: string;
   filetype?: string;
+  /**
+   * Optional default login user stored on the new image's swallow overlay (decision 039). The
+   * backend rejects a non-POSIX value before any bytes are uploaded.
+   */
+  defaultUser?: string;
   file: File;
 }
 
 /**
- * The overridable display fields and tags of an OS image overlay. An empty field clears that
- * override; an empty `tags` list clears the tags.
+ * The complete swallow-owned overlay of an OS image: display overrides, tags, and default user.
+ * The backend replaces the whole overlay on every set, so callers editing one field must send the
+ * current values of the others. An empty field clears that override (for `defaultUser`, the
+ * built-in default applies again); an empty `tags` list clears the tags.
  */
 export interface OSImageOverlayInput {
   name: string;
   osSystem: string;
   release: string;
   tags: string[];
+  defaultUser: string;
 }
