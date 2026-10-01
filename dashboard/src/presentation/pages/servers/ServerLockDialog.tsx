@@ -4,6 +4,7 @@ import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/list'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 
 interface ServerLockDialogProps {
   action: 'lock' | 'unlock'
@@ -14,10 +15,18 @@ interface ServerLockDialogProps {
   onClose: () => void
 }
 
-/** Confirms provider-owned Server protection for both single and convergent bulk actions. */
+/**
+ * Confirms provider-owned Server protection for both single and convergent bulk actions.
+ * The reassurance about what stays readable names metrics and alerts only while the
+ * console offers monitoring, so a release build does not promise a surface it hides.
+ */
 export function ServerLockDialog({ action, targets, skipped, busy = false, onConfirm, onClose }: ServerLockDialogProps) {
+  const monitoring = useExperimentalFeature('monitoring')
   const locking = action === 'lock'
   const title = locking ? 'Lock Servers' : 'Unlock Servers'
+  const readOnlyViews = monitoring
+    ? 'Metrics, alerts, inventory refresh, events, and other read-only views remain available.'
+    : 'Inventory refresh, events, and other read-only views remain available.'
   return (
     <Modal
       open
@@ -39,10 +48,10 @@ export function ServerLockDialog({ action, targets, skipped, busy = false, onCon
       <Stack gap="3">
         <Alert
           status="info"
-          title={locking ? 'Monitoring and diagnostics remain available' : 'No work starts automatically'}
+          title={locking ? (monitoring ? 'Monitoring and diagnostics remain available' : 'Diagnostics remain available') : 'No work starts automatically'}
         >
           {locking
-            ? 'Lock blocks provisioning, power, network, platform, automation, and removal changes. Metrics, alerts, inventory refresh, events, and other read-only views remain available.'
+            ? `Lock blocks provisioning, power, network, platform, automation, and removal changes. ${readOnlyViews}`
             : 'Unlock removes protection only. It does not resume, retry, or create any work. Review the Server state and explicitly start the operation you need.'}
         </Alert>
         <Text>

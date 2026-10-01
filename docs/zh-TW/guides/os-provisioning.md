@@ -18,6 +18,9 @@ converge 到 requested result。
 4. 佈署前 verify image。
 5. 檢查 verification failure 與 target compatibility。
 
+從 Dashboard 上傳 image 仍在開發中，release build 會隱藏 Upload，見
+[開發中的功能](dashboard.md#開發中的功能)。
+
 Upload limit、content type 與 provider requirement 定義於
 [active provisioning contract](../../../api-server/docs/development/api-contracts/api-server/provisioning.md)。
 刪除 image 時會依 contract 操作 owning provider 或 overlay。
@@ -27,6 +30,9 @@ Upload limit、content type 與 provider requirement 定義於
 Deployment Template 保存可重用的 operator choice，不是 executable automation。
 它可以預選 image 與 settings，但 deployment request 仍會驗證每個 current target。
 Template 絕不繞過目前 eligibility。
+
+Dashboard 的 template 功能仍在開發中；release build 會隱藏它，佈署使用 custom configuration。
+API 與 CLI 不受影響。
 
 ## 佈署 OS
 

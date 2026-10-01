@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge, Table, Text } from '@chakra-ui/react'
 import { BellRing, Cpu, Server, Workflow } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -6,11 +6,13 @@ import { useApp } from '@/di/AppProvider'
 import type { Overview } from '@/domain/overview/types'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { MetricGrid, SectionSurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { MetricGrid, SectionSurface, StickyTableFrame, type MetricItem } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import { NOT_AVAILABLE_IN_RELEASE } from '@/presentation/components/releaseAvailability'
 import { formatRelative } from '@/shared/utils/time'
 
 type OverviewState =
@@ -28,9 +30,14 @@ interface AttentionItem {
   action: string
 }
 
-/** Builds one severity-ordered action queue without inventing state outside the overview aggregate. */
-function attentionItems(data: Overview): AttentionItem[] {
-  const items: AttentionItem[] = data.monitoring.firing.items.map((alert) => ({
+/**
+ * Builds one severity-ordered action queue without inventing state outside the overview aggregate.
+ * Firing alerts and down Servers are monitoring facts, so they are left out while monitoring is
+ * in development; the queue then covers integrations, platforms, and workflows only.
+ */
+function attentionItems(data: Overview, monitoring: boolean): AttentionItem[] {
+  const alerts = monitoring ? data.monitoring.firing.items : []
+  const items: AttentionItem[] = alerts.map((alert) => ({
     key: `alert-${alert.fingerprint}`,
     priority: alert.severity === 'critical' ? 0 : 1,
     kind: alert.severity,
@@ -74,7 +81,7 @@ function attentionItems(data: Overview): AttentionItem[] {
       action: 'Review',
     })
   }
-  if (data.inventory.health.down) {
+  if (monitoring && data.inventory.health.down) {
     items.push({
       key: 'servers-down',
       priority: 1,
@@ -101,14 +108,26 @@ function attentionItems(data: Overview): AttentionItem[] {
 }
 
 /**
+ * A metric card that keeps its place while its feature is in development. The dash is
+ * hidden from assistive technology so the card reads as its label and the note.
+ */
+function unavailableMetric(label: string, icon: ReactNode): MetricItem {
+  return { label, value: <span aria-hidden>—</span>, detail: NOT_AVAILABLE_IN_RELEASE, tone: 'neutral', icon }
+}
+
+/**
  * Operator landing page backed by the provider-owned overview aggregate.
  *
  * The page groups existing facts into four scan targets and derives only an
  * action queue; it never treats missing metrics as failure or invents trends.
+ * While monitoring is in development (always, in release builds) the Fleet health
+ * and Alerts cards keep their place with a "not available" note, and the
+ * monitoring-unavailable warning is not shown because nothing here relies on it.
  */
 export function OperatorOverviewPage() {
   const { overview } = useApp()
   const { siteId, scopedHref } = useSiteScope()
+  const monitoring = useExperimentalFeature('monitoring')
   const [state, setState] = useState<OverviewState>({ status: 'loading' })
 
   // A Site change invalidates the aggregate. Ignore late responses so an older
@@ -125,7 +144,10 @@ export function OperatorOverviewPage() {
     return () => { cancelled = true }
   }, [overview, siteId])
 
-  const attention = useMemo(() => state.status === 'ready' ? attentionItems(state.data) : [], [state])
+  const attention = useMemo(
+    () => state.status === 'ready' ? attentionItems(state.data, monitoring) : [],
+    [state, monitoring],
+  )
 
   if (state.status === 'loading') return <LoadingState />
   if (state.status === 'error') return <ErrorState message={state.message} />
@@ -139,19 +161,21 @@ export function OperatorOverviewPage() {
         title="Overview"
         metadata={<Text as="span" fontSize="sm" color="fg.muted">Updated {formatRelative(data.generatedAt)}</Text>}
       />
-      {!data.monitoring.available && (
+      {monitoring && !data.monitoring.available && (
         <Alert status="warning" title="Monitoring unavailable">
           Inventory and workflows are still current.
         </Alert>
       )}
       <MetricGrid items={[
-        {
-          label: 'Fleet health',
-          value: `${data.inventory.health.up} / ${data.inventory.servers}`,
-          detail: `${data.inventory.health.down} down · ${data.inventory.health.unknown} unknown · ${data.inventory.absent} absent`,
-          tone: data.inventory.health.down ? 'critical' : 'success',
-          icon: <Server size={16} />,
-        },
+        monitoring
+          ? {
+            label: 'Fleet health',
+            value: `${data.inventory.health.up} / ${data.inventory.servers}`,
+            detail: `${data.inventory.health.down} down · ${data.inventory.health.unknown} unknown · ${data.inventory.absent} absent`,
+            tone: data.inventory.health.down ? 'critical' : 'success',
+            icon: <Server size={16} />,
+          }
+          : unavailableMetric('Fleet health', <Server size={16} />),
         {
           label: 'Capacity',
           value: `${data.inventory.gpuDevices} GPUs`,
@@ -165,13 +189,15 @@ export function OperatorOverviewPage() {
           tone: data.operations.failedLast24Hours ? 'warning' : 'neutral',
           icon: <Workflow size={16} />,
         },
-        {
-          label: 'Alerts',
-          value: firingAlerts,
-          detail: `${data.monitoring.firing.critical} critical`,
-          tone: data.monitoring.firing.critical ? 'critical' : firingAlerts ? 'warning' : 'neutral',
-          icon: <BellRing size={16} />,
-        },
+        monitoring
+          ? {
+            label: 'Alerts',
+            value: firingAlerts,
+            detail: `${data.monitoring.firing.critical} critical`,
+            tone: data.monitoring.firing.critical ? 'critical' : firingAlerts ? 'warning' : 'neutral',
+            icon: <BellRing size={16} />,
+          }
+          : unavailableMetric('Alerts', <BellRing size={16} />),
       ]} />
 
       <SectionSurface

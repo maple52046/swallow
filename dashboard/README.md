@@ -24,6 +24,13 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 
 `/clusters` and `/operations` are compatibility redirects.
 
+Monitoring (`/monitoring`, the Server Monitoring tab, health on shared pages), OS
+image upload, and Deployment Templates are still in development. Release builds
+(`npm run build`) hide them: their routes show Not Found or redirect, and health
+values read "Not available in this release". The dev server shows everything; use
+**Account menu → Experimental features** there to switch each one off and preview
+the release view. The choice is stored per browser.
+
 ## Model rules visible in the UI
 
 - Server provisioning, Platform membership, and health are separate status
@@ -56,6 +63,7 @@ VITE_API_BASE_URL=http://127.0.0.1:30051 npm run dev
 npm run lint
 npm run build
 npm run test:e2e
+npm run test:e2e:production   # release build via vite preview: hidden features stay hidden
 ```
 
 Playwright includes deterministic operator journeys and light/dark,

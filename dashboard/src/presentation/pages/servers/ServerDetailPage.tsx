@@ -8,6 +8,8 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import type { ExperimentalFeature } from '@/application/ports/ExperimentalFeatureSettings'
 import { useApp } from '@/di/AppProvider'
 import { DeploymentBadge, HealthBadge, LockBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
 import { serverDisplayName } from '@/domain/server/list'
@@ -21,13 +23,15 @@ interface ServerDetailTab {
   value: string
   label: string
   icon: LucideIcon
+  /** In-development feature the tab belongs to; the tab is listed only while it is shown. */
+  feature?: ExperimentalFeature
 }
 
 // Icons supplement persistent text labels; the route segment remains the stable deep-link key.
 const TABS: readonly ServerDetailTab[] = [
   { value: 'summary', label: 'Summary', icon: LayoutDashboard },
   { value: 'activity', label: 'Activity', icon: Activity },
-  { value: 'monitoring', label: 'Monitoring', icon: ChartLine },
+  { value: 'monitoring', label: 'Monitoring', icon: ChartLine, feature: 'monitoring' },
   { value: 'network', label: 'Networking', icon: Network },
   { value: 'storage', label: 'Storage', icon: HardDrive },
   { value: 'pci', label: 'PCI devices', icon: CircuitBoard },
@@ -47,6 +51,7 @@ export function ServerDetailPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { scopedHref } = useSiteScope()
+  const { enabled: features } = useExperimentalFeatures()
   const state = useServerDetail(id)
   // A just-accepted release runs as an asynchronous durable Operation, so the Server is not
   // yet in an active provisioning axis and the active-projection poll below will not pick it
@@ -123,8 +128,9 @@ export function ServerDetailPage() {
   if (state.status === 'error') return <ErrorState message={state.message} />
   if (state.status === 'not-found') return <EmptyState title="Server not found" />
   const { server, detail, reload } = state.data
+  const tabs = TABS.filter((tab) => !tab.feature || features[tab.feature])
   const segment = location.pathname.split('/').pop() ?? ''
-  const current = TABS.some((tab) => tab.value === segment) ? segment : 'summary'
+  const current = tabs.some((tab) => tab.value === segment) ? segment : 'summary'
   const headerContext = [server.fqdn || server.addresses[0], server.architecture, server.providerZone].filter(Boolean).join(' · ')
   const deployDisabledReason = server.absent
     ? 'Server is absent'
@@ -228,7 +234,7 @@ export function ServerDetailPage() {
           scrollbarWidth="none"
           css={{ '&::-webkit-scrollbar': { display: 'none' } }}
         >
-          {TABS.map((tab) => {
+          {tabs.map((tab) => {
             const Icon = tab.icon
             return (
               <Tabs.Trigger key={tab.value} value={tab.value} flex="none">

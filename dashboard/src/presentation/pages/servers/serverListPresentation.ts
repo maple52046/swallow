@@ -138,8 +138,23 @@ function distinctValues(params: URLSearchParams, key: string): string[] {
   return [...new Set(params.getAll(key).map((value) => value.trim()).filter(Boolean))]
 }
 
+/**
+ * Discovery filters that depend on an in-development feature. A filter that is not
+ * offered is ignored when parsing and removed when canonicalizing, so a bookmarked
+ * `?health=down` can never narrow the list through a control the operator cannot see.
+ */
+export interface ServerInventoryFilterAvailability {
+  /** False while monitoring is in development (always, in release builds). */
+  readonly health: boolean
+}
+
+const ALL_FILTERS_AVAILABLE: ServerInventoryFilterAvailability = { health: true }
+
 /** Parses canonical URL discovery state; malformed values fail to least-surprising defaults. */
-export function parseServerInventoryQuery(params: URLSearchParams): ServerInventoryQuery {
+export function parseServerInventoryQuery(
+  params: URLSearchParams,
+  availability: ServerInventoryFilterAvailability = ALL_FILTERS_AVAILABLE,
+): ServerInventoryQuery {
   const view = enumValue(params.get('view'), VIEWS, 'all')
   const provisioning = view === 'all'
     ? distinctValues(params, 'provisioning').filter((value): value is ProvisioningState => PROVISIONING_STATE_SET.has(value))
@@ -151,7 +166,7 @@ export function parseServerInventoryQuery(params: URLSearchParams): ServerInvent
     q: params.get('q') ?? '',
     view,
     provisioning,
-    health: enumValue(params.get('health'), HEALTH_FILTERS, 'any'),
+    health: availability.health ? enumValue(params.get('health'), HEALTH_FILTERS, 'any') : 'any',
     membership: enumValue(params.get('membership'), MEMBERSHIP_FILTERS, 'any'),
     gpu: enumValue(params.get('gpu'), GPU_FILTERS, 'any'),
     gpuVendors: distinctValues(params, 'gpuVendor'),
@@ -180,8 +195,12 @@ function normalizeRepeated(next: URLSearchParams, key: string): void {
 }
 
 /** Canonicalizes Server-list parameters while preserving Site scope and unrelated route state. */
-export function normalizeServerInventoryParams(params: URLSearchParams): URLSearchParams {
+export function normalizeServerInventoryParams(
+  params: URLSearchParams,
+  availability: ServerInventoryFilterAvailability = ALL_FILTERS_AVAILABLE,
+): URLSearchParams {
   const next = new URLSearchParams(params)
+  if (!availability.health) next.delete('health')
   const view = enumValue(next.get('view'), VIEWS, 'all')
   if (view === 'all') next.delete('view')
   else next.set('view', view)

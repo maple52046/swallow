@@ -5,6 +5,10 @@
 swallow 將 monitoring data 與穩定 resource identity 關聯，但不儲存 metrics／alerts，
 也不提供任意 PromQL proxy。
 
+> Dashboard 的 monitoring 畫面仍在開發中。Dashboard release build 會隱藏它們，health 顯示
+> 「Not available in this release」，見[開發中的功能](dashboard.md#開發中的功能)。註冊 Integration、
+> API 與 CLI 依本文運作。
+
 ## 設定 integration
 
 註冊 Site-scoped Prometheus-compatible metrics Integration，設定 deployment 需要的

@@ -9,8 +9,10 @@ import {
   Spacer,
   Text,
 } from '@chakra-ui/react'
+import { useState } from 'react'
 import {
   Check,
+  FlaskConical,
   KeyRound,
   LogOut,
   MapPin,
@@ -26,6 +28,8 @@ import { useAppearance } from '@/presentation/app/theme/appearanceContext'
 import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import { ExperimentalFeaturesDialog } from './ExperimentalFeaturesDialog'
 
 interface OperatorHeaderProps {
   /** Collapses or expands the persisted desktop navigation rail. */
@@ -59,13 +63,17 @@ function accountInitials(displayName: string, username: string): string {
  *
  * Site scope remains URL-owned, appearance remains browser-owned, and account
  * actions (SSH keys, sign out) remain session-owned. Compact outlined controls keep those global
- * choices distinct from page actions without consuming a second toolbar row.
+ * choices distinct from page actions without consuming a second toolbar row. Development builds
+ * add an "Experimental features" account entry; release builds never render it or its dialog.
  */
 export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHeaderProps) {
   const navigate = useNavigate()
   const { mode, setMode } = useAppearance()
   const { currentUser, logout } = useAuth()
   const { sites, siteId, setSite, scopedHref } = useSiteScope()
+  // The experimental features entry exists only in development builds (adjustable settings).
+  const { adjustable: experimentsAdjustable } = useExperimentalFeatures()
+  const [experimentsOpen, setExperimentsOpen] = useState(false)
 
   const selectedSite = sites.find((site) => site.id === siteId)?.name ?? 'All sites'
   const AppearanceIcon = APPEARANCE_ICON[mode]
@@ -190,6 +198,7 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
               // SSH keys are account settings, not Site data; the scope is kept only so returning
               // to a fleet page lands in the same Site.
               if (details.value === 'ssh-keys') navigate(scopedHref('/account/ssh-keys'))
+              if (details.value === 'experimental-features') setExperimentsOpen(true)
             }}
           >
             <Menu.Trigger asChild>
@@ -235,6 +244,12 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
                     <KeyRound size={16} />
                     <Text flex="1">SSH keys</Text>
                   </Menu.Item>
+                  {experimentsAdjustable && (
+                    <Menu.Item value="experimental-features">
+                      <FlaskConical size={16} />
+                      <Text flex="1">Experimental features</Text>
+                    </Menu.Item>
+                  )}
                   <Menu.Item value="signout">
                     <LogOut size={16} />
                     <Text flex="1">Sign out</Text>
@@ -243,6 +258,9 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
               </Menu.Positioner>
             </Portal>
           </Menu.Root>
+        )}
+        {experimentsAdjustable && (
+          <ExperimentalFeaturesDialog open={experimentsOpen} onClose={() => setExperimentsOpen(false)} />
         )}
       </HStack>
     </Flex>

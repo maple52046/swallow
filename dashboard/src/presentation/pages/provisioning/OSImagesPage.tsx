@@ -26,6 +26,7 @@ import { formatDateTime } from '@/shared/utils/time'
 import { BulkImageActionDialog } from './BulkImageActionDialog'
 import { ProvisioningTabs } from './ProvisioningTabs'
 import { UploadImageDialog } from './UploadImageDialog'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { VerifyImageDialog } from './VerifyImageDialog'
 import type { OSImageBulkAction, OSImageBulkTarget } from './useOSImageBulkActions'
 
@@ -244,7 +245,14 @@ function persistHiddenColumns(hidden: Set<ImageColumnKey>) {
   }
 }
 
-/** Read-only live image catalog across scoped provisioner integrations. */
+/**
+ * Read-only live image catalog across scoped provisioner integrations.
+ *
+ * Uploading an image and creating a Deployment Template from one are in-development
+ * features: their actions are omitted while hidden (always, in release builds). Custom
+ * image verification, labels, and deletion stay, because a custom image already in the
+ * provisioner still has to be verified before it can be deployed.
+ */
 export function OSImagesPage() {
   const { sites: siteRepository, provisioning, servers: serverRepository, operations } = useApp()
   const { sites, siteId, scopedHref } = useSiteScope()
@@ -263,6 +271,8 @@ export function OSImagesPage() {
   const [editing, setEditing] = useState<OSImageCatalogRow | null>(null)
   const [verifyingImage, setVerifyingImage] = useState<OSImageCatalogRow | null>(null)
   const [uploading, setUploading] = useState(false)
+  const uploadEnabled = useExperimentalFeature('osImageUpload')
+  const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   // Scoped provisioner integrations, captured while loading the catalog so the upload dialog can
   // offer them without a second fetch. Upload targets a provisioner, so it is disabled until one
   // exists in scope; the backend still enforces which provisioners actually support upload.
@@ -529,14 +539,16 @@ export function OSImagesPage() {
             <Button variant="outline" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>
               Manage integrations
             </Button>
-            <Tooltip content={provisioners.length === 0 ? 'Add a provisioner integration before uploading an image' : 'Upload a new OS image to a provisioner'}>
-              <span>
-                <Button colorPalette="brand" disabled={provisioners.length === 0} onClick={() => setUploading(true)}>
-                  <Upload size={16} />
-                  Upload image
-                </Button>
-              </span>
-            </Tooltip>
+            {uploadEnabled && (
+              <Tooltip content={provisioners.length === 0 ? 'Add a provisioner integration before uploading an image' : 'Upload a new OS image to a provisioner'}>
+                <span>
+                  <Button colorPalette="brand" disabled={provisioners.length === 0} onClick={() => setUploading(true)}>
+                    <Upload size={16} />
+                    Upload image
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
             <Button variant="outline" onClick={() => setRefreshNonce((value) => value + 1)}>
               <RefreshCw size={16} />
               Refresh
@@ -658,18 +670,20 @@ export function OSImagesPage() {
                           <Rocket size={18} />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip content="Create a deployment template from this image">
-                        <IconButton
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`Create template from ${image.name || image.id}`}
-                          onClick={() =>
-                            navigate(provisioningHref('/provisioning/templates', { create: '1', integrationId: image.integrationId, imageId: image.id }, scopedHref))
-                          }
-                        >
-                          <FilePlus2 size={18} />
-                        </IconButton>
-                      </Tooltip>
+                      {templatesEnabled && (
+                        <Tooltip content="Create a deployment template from this image">
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Create template from ${image.name || image.id}`}
+                            onClick={() =>
+                              navigate(provisioningHref('/provisioning/templates', { create: '1', integrationId: image.integrationId, imageId: image.id }, scopedHref))
+                            }
+                          >
+                            <FilePlus2 size={18} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {image.providerOsSystem === 'custom' && (
                         <Tooltip content="Verify this custom image on a ready Server">
                           <IconButton
@@ -734,9 +748,11 @@ export function OSImagesPage() {
                       <Button size="sm" colorPalette="brand" onClick={() => navigate(provisioningHref('/provisioning/deploy', { integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
                         Deploy image
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => navigate(provisioningHref('/provisioning/templates', { create: '1', integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
-                        Create template
-                      </Button>
+                      {templatesEnabled && (
+                        <Button size="sm" variant="outline" onClick={() => navigate(provisioningHref('/provisioning/templates', { create: '1', integrationId: image.integrationId, imageId: image.id }, scopedHref))}>
+                          Create template
+                        </Button>
+                      )}
                       {image.providerOsSystem === 'custom' && (
                         <Button size="sm" variant="outline" onClick={() => setVerifyingImage(image)}>
                           Verify image
@@ -796,7 +812,7 @@ export function OSImagesPage() {
           }}
         />
       )}
-      {uploading && (
+      {uploadEnabled && uploading && (
         <UploadImageDialog
           integrations={provisioners}
           repository={provisioning}

@@ -19,6 +19,9 @@ Under **Provisioning → Images**:
 4. Verify the image before deployment.
 5. Review verification failures and target compatibility.
 
+Uploading an image from the Dashboard is in development, and release builds
+hide the Upload action; see [Features in development](dashboard.md#features-in-development).
+
 Upload limits, content types, and provider requirements are defined by the
 [active provisioning contract](../../../api-server/docs/development/api-contracts/api-server/provisioning.md).
 Deleting an image acts on its owning provider or overlay according to that
@@ -29,6 +32,9 @@ contract.
 A Deployment Template records reusable operator choices, not executable
 automation. It can preselect an image and settings while the deployment request
 still validates each current target. Templates never bypass current eligibility.
+
+Templates in the Dashboard are in development; release builds hide them and
+deploy with a custom configuration. The API and CLI are unaffected.
 
 ## Deploy an operating system
 

@@ -10,6 +10,10 @@ import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningR
 import { ApiInfrastructureRepository } from '@/infrastructure/api/ApiInfrastructureRepository'
 import { ApiSoftwareRepository } from '@/infrastructure/api/ApiSoftwareRepository'
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
+import {
+  DisabledExperimentalFeatureSettings,
+  LocalExperimentalFeatureSettings,
+} from '@/infrastructure/persistence/ExperimentalFeatureSettings'
 import type { AuthRepository } from '@/application/ports/AuthRepository'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { ServerEventStream } from '@/application/ports/ServerEventStream'
@@ -22,6 +26,7 @@ import type { ProvisioningRepository } from '@/application/ports/ProvisioningRep
 import type { InfrastructureRepository } from '@/application/ports/InfrastructureRepository'
 import type { SoftwareRepository } from '@/application/ports/SoftwareRepository'
 import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
+import type { ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
 export interface AppContainer {
@@ -41,9 +46,18 @@ export interface AppContainer {
   sshKeys: SSHKeyRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
+  /** Which in-development dashboard features are shown; adjustable only in development builds. */
+  experimentalFeatures: ExperimentalFeatureSettings
 }
 
-/** Builds the production HTTP adapters once at the React composition root. */
+/**
+ * Builds the production HTTP adapters once at the React composition root.
+ *
+ * This is the only place that reads the build mode: the Vite dev server (and the
+ * Playwright suite running on it) gets adjustable, browser-persisted experimental
+ * feature settings, while `vite build` output binds the fixed all-off settings so
+ * release builds hide unfinished features regardless of what a browser stored.
+ */
 export function createContainer(): AppContainer {
   return {
     auth: new ApiAuthRepository(),
@@ -58,5 +72,8 @@ export function createContainer(): AppContainer {
     sshKeys: new ApiSSHKeyRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
+    experimentalFeatures: import.meta.env.DEV
+      ? new LocalExperimentalFeatureSettings()
+      : new DisabledExperimentalFeatureSettings(),
   }
 }

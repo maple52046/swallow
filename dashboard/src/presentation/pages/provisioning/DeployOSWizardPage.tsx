@@ -27,6 +27,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { LockBadge, ProvisioningBadge, PowerBadge } from '@/presentation/components/AxisBadge'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useServerWorkingSet } from '@/presentation/pages/servers/useServerWorkingSet'
 import { ProvisioningTabs } from './ProvisioningTabs'
 import { DeployTargetField } from './DeployTargetField'
@@ -87,6 +88,9 @@ export function DeployOSWizardPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { siteId, loading: siteScopeLoading, scopedHref } = useSiteScope()
   const { showToast } = useToast()
+  // Deployment Templates are in development: while hidden, the wizard offers only a custom
+  // configuration, ignores `?templateId=`, never lists templates, and cannot save one.
+  const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   const workingSet = useServerWorkingSet({ siteId, includeAbsent: true })
   const initialTargetIds = useMemo(() => searchParams.getAll('serverId'), [searchParams])
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(initialTargetIds))
@@ -98,7 +102,7 @@ export function DeployOSWizardPage() {
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0)
   const [resourcesLoading, setResourcesLoading] = useState(true)
-  const [templateId, setTemplateId] = useState(searchParams.get('templateId') ?? '')
+  const [templateId, setTemplateId] = useState(templatesEnabled ? searchParams.get('templateId') ?? '' : '')
   const [customized, setCustomized] = useState(false)
   const [imageId, setImageId] = useState(searchParams.get('imageId') ?? '')
   const [ephemeral, setEphemeral] = useState(false)
@@ -122,7 +126,10 @@ export function DeployOSWizardPage() {
   useEffect(() => {
     let cancelled = false
     setResourcesLoading(true)
-    Promise.all([siteRepository.listIntegrations({ siteId, kind: 'provisioner' }), provisioning.listTemplates({ siteId })])
+    Promise.all([
+      siteRepository.listIntegrations({ siteId, kind: 'provisioner' }),
+      templatesEnabled ? provisioning.listTemplates({ siteId }) : Promise.resolve([]),
+    ])
       .then(([nextIntegrations, nextTemplates]) => {
         if (cancelled) return
         setIntegrations(nextIntegrations)
@@ -139,7 +146,7 @@ export function DeployOSWizardPage() {
     return () => {
       cancelled = true
     }
-  }, [provisioning, showToast, siteId, siteRepository])
+  }, [provisioning, showToast, siteId, siteRepository, templatesEnabled])
 
   // The image catalog is provider-owned live data. A changed integration cancels presentation
   // updates from the previous provider request; the nonce repeats the same read only when the
@@ -258,7 +265,7 @@ export function DeployOSWizardPage() {
     () => servers.filter((server) => serverIsReadyCandidate(server) && (!integrationId || server.source.integrationId === integrationId)),
     [integrationId, servers],
   )
-  const selectedTemplate = templates.find((item) => item.id === templateId)
+  const selectedTemplate = templatesEnabled ? templates.find((item) => item.id === templateId) : undefined
   const effectiveImageId = selectedTemplate && !customized ? selectedTemplate.imageId : imageId
   const effectiveEphemeral = selectedTemplate && !customized ? selectedTemplate.ephemeral : ephemeral
   const effectiveNetworkMode = selectedTemplate && !customized ? selectedTemplate.network?.mode ?? 'automatic' : networkMode
@@ -590,20 +597,22 @@ export function DeployOSWizardPage() {
       content: (
         <WizardSection title="Operating system configuration">
           <div className="sw-form-grid">
-            <Field.Root required>
-              <Field.Label>Configuration source</Field.Label>
-              <Select
-                value={templateId}
-                aria-label="Configuration source"
-                onChange={(value) => selectTemplate(value)}
-                options={[
-                  { value: '', label: 'Custom configuration' },
-                  ...templates
-                    .filter((template) => template.integrationId === integrationId)
-                    .map((template) => ({ value: template.id, label: template.name })),
-                ]}
-              />
-            </Field.Root>
+            {templatesEnabled && (
+              <Field.Root required>
+                <Field.Label>Configuration source</Field.Label>
+                <Select
+                  value={templateId}
+                  aria-label="Configuration source"
+                  onChange={(value) => selectTemplate(value)}
+                  options={[
+                    { value: '', label: 'Custom configuration' },
+                    ...templates
+                      .filter((template) => template.integrationId === integrationId)
+                      .map((template) => ({ value: template.id, label: template.name })),
+                  ]}
+                />
+              </Field.Root>
+            )}
             {selectedTemplate && (
               <Field.Root>
                 <Field.Label>Template</Field.Label>
@@ -904,7 +913,7 @@ export function DeployOSWizardPage() {
               </Table.Body>
             </Table.Root>
           </StickyTableFrame>
-          {(!selectedTemplate || customized) && (
+          {templatesEnabled && (!selectedTemplate || customized) && (
             <Card.Root size="sm">
               <Card.Body gap="4" className="sw-template-editor">
                 <Heading size="sm">Reuse this configuration</Heading>

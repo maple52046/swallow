@@ -31,8 +31,15 @@ import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
 import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
 import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
 import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
+import { FeatureRoute } from './presentation/components/FeatureRoute'
 
-/** Stable Dashboard routes, each backed by active `/api/v1` provider contracts. */
+/**
+ * Stable Dashboard routes, each backed by active `/api/v1` provider contracts.
+ *
+ * Routes of in-development features sit behind `FeatureRoute`: while a feature is hidden
+ * (always, in release builds) a typed or bookmarked URL shows Not Found or redirects to
+ * the nearest available page instead of mounting the unfinished screen.
+ */
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/403', element: <ProtectedRoute><ForbiddenPage /></ProtectedRoute> },
@@ -42,7 +49,10 @@ export const router = createBrowserRouter([
     errorElement: <UnexpectedErrorPage />,
     children: [
       { index: true, element: <OperatorOverviewPage /> },
-      { path: 'monitoring', element: <MonitoringPage /> },
+      {
+        path: 'monitoring',
+        element: <FeatureRoute feature="monitoring" fallback={<NotFoundPage />}><MonitoringPage /></FeatureRoute>,
+      },
       { path: 'servers', element: <ServersPage /> },
       {
         path: 'servers/:id',
@@ -51,7 +61,10 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="summary" replace /> },
           { path: 'summary', element: <ServerSummaryTab /> },
           { path: 'activity', element: <ServerActivityTab /> },
-          { path: 'monitoring', element: <ServerMonitoringTab /> },
+          {
+            path: 'monitoring',
+            element: <FeatureRoute feature="monitoring" redirectTo="../summary"><ServerMonitoringTab /></FeatureRoute>,
+          },
           { path: 'network', element: <ServerNetworkTab /> },
           { path: 'storage', element: <ServerStorageTab /> },
           { path: 'pci', element: <ServerPciTab /> },
@@ -71,7 +84,14 @@ export const router = createBrowserRouter([
       { path: 'operations/:id', element: <LegacyWorkflowRedirect /> },
       { path: 'provisioning', element: <ProvisioningRedirect /> },
       { path: 'provisioning/deploy', element: <DeployOSWizardPage /> },
-      { path: 'provisioning/templates', element: <DeploymentTemplatesPage /> },
+      {
+        path: 'provisioning/templates',
+        element: (
+          <FeatureRoute feature="deploymentTemplates" redirectTo="/provisioning/deploy">
+            <DeploymentTemplatesPage />
+          </FeatureRoute>
+        ),
+      },
       { path: 'provisioning/images', element: <OSImagesPage /> },
       { path: 'infrastructure', element: <InfrastructureRedirect /> },
       { path: 'infrastructure/sites', element: <SitesPage /> },

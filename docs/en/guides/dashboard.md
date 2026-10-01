@@ -23,6 +23,24 @@ current session in the browser.
 Routes under `/clusters` and `/operations` are compatibility redirects.
 Canonical navigation uses Platforms and Workflows.
 
+## Features in development
+
+Three Dashboard features are still in development. Release builds of the
+Dashboard hide them; the API and the `swallow` CLI are not affected.
+
+- **Monitoring**: the Monitoring page and the Server Monitoring tab are absent.
+  Health keeps its place on Overview, the Server list, and Server details but
+  reads "Not available in this release". You can still register a metrics
+  Integration.
+- **OS image upload**: OS images has no Upload action. Verifying an existing
+  custom image is still available.
+- **Deployment Templates**: the Templates workspace, Create template, and
+  choosing or saving a template while deploying are absent; deployments use a
+  custom configuration.
+
+Development builds show these features and offer **Account menu →
+Experimental features** to switch each one off.
+
 ## Site scope
 
 Choose a Site before interpreting inventory or monitoring results. Site scope is

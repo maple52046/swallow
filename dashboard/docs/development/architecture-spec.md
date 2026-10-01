@@ -96,6 +96,25 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
 - SSE ownership、reconnect/backoff、abort/cancellation 與 cleanup 必須集中且有註解。
 - Unknown enum 使用 least-privileged/safe presentation，不 fail open。
 
+## Experimental features
+
+開發中的 dashboard 功能（目前為 `monitoring`、`osImageUpload`、`deploymentTemplates`）只在
+development build（Vite dev server，含 Playwright）顯示；release build（`vite build`）一律隱藏。
+這只影響 presentation，不改 API、CLI 或後端行為。
+
+- Feature 清單與 `ExperimentalFeatureSettings` port 在 `src/application/ports/`。
+- `src/di/container.ts` 是唯一讀取 build mode（`import.meta.env.DEV`）的地方：development 綁定
+  localStorage 實作（`swallow.dev.experimentalFeatures`，預設全開、只存關閉的項目），release 綁定
+  永遠關閉且不可調整的實作。Presentation 不得自行判斷 `import.meta.env`。
+- Presentation 以 `useExperimentalFeature(feature)` 讀取。獨立入口（navigation、tab、action、
+  route）在關閉時移除；route 一律經 `FeatureRoute` 保護（Not Found 或保留 query string 的 redirect），
+  避免書籤或手打 URL 掛載未完成畫面並發出其 API request。
+- 共用頁面上的值（例如 health）在關閉時保留位置，統一使用 `NOT_AVAILABLE_IN_RELEASE` 文案，
+  不顯示成空值、unknown 或 failure；依賴該功能的 URL filter 在 parse 時忽略、在 canonicalize 時移除。
+- Development build 在帳號選單提供「Experimental features」對話框，逐項切換並即時重繪。
+- 新增實驗功能時：擴充 `ExperimentalFeature` 與對話框文案，gate 所有入口，並在
+  `tests/e2e/experimental-features.spec.ts` 與 `tests/production/` 補驗證。功能完成後移除 gate 與清單項目。
+
 ## Shared UI and DRY
 
 同一功能只有一個 canonical composed component。Server summary、status badges、
@@ -112,7 +131,8 @@ dialogs、release options、pagination、loading/error/empty states 等須 reuse
 
 ## Testing
 
-`npm run test:e2e` 使用 Playwright：
+`npm run test:e2e` 使用 Playwright（Vite dev server）；`npm run test:e2e:production` 以
+`vite build` + `vite preview` 驗證 release build 隱藏實驗功能：
 
 - deterministic API fixtures 驗證 operator journeys；
 - active route、auth、action、failure/recovery behavior；

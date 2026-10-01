@@ -1,9 +1,11 @@
-import { Badge, Box, HStack, type BadgeProps } from '@chakra-ui/react'
+import { Badge, Box, HStack, VisuallyHidden, type BadgeProps } from '@chakra-ui/react'
 import { Lock, MemoryStick } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { DeploymentAxis, DeploymentState, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
 import { POWER_PRESENTATION } from './axisBadgeUtils'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import { NOT_AVAILABLE_IN_RELEASE } from './releaseAvailability'
 
 /** Chakra colour palette used for axis badges; text always carries the state, colour supplements. */
 type AxisColor = 'green' | 'red' | 'orange' | 'blue' | 'gray' | 'purple'
@@ -341,8 +343,24 @@ export function MembershipBadge({ axis }: { axis: MembershipAxis | null }) {
   )
 }
 
-/** Metrics-owned liveness state resolved at query time rather than persisted. */
+/**
+ * Metrics-owned liveness state resolved at query time rather than persisted.
+ *
+ * While monitoring is in development (always, in release builds) every Server shows
+ * the same neutral "unavailable" label instead of its state: the badge keeps its
+ * place in tables, headers, and summary cards, but never suggests a Server is down
+ * or unobserved. The reason is part of the accessible text, not only the tooltip.
+ */
 export function HealthBadge({ axis }: { axis: HealthAxis | null }) {
+  const monitoring = useExperimentalFeature('monitoring')
+  if (!monitoring) {
+    return (
+      <AxisLabel color="gray" tooltip={NOT_AVAILABLE_IN_RELEASE}>
+        unavailable
+        <VisuallyHidden>{`: health is ${NOT_AVAILABLE_IN_RELEASE.toLowerCase()}`}</VisuallyHidden>
+      </AxisLabel>
+    )
+  }
   if (!axis) return <UnknownBadge tooltip="Health has never been observed" />
   return (
     <AxisLabel color={axis.state === 'up' ? 'green' : 'red'} tooltip={observedAtLabel(axis.observedAt)}>

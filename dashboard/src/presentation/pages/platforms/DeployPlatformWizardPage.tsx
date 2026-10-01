@@ -24,6 +24,7 @@ import { Select } from '@/presentation/components/ui/select'
 import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useDeployableServers } from './useDeployableServers'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
 
@@ -142,6 +143,8 @@ function EphemeralKubernetesWarning() {
  * Machine selection intentionally precedes networking: the selected topology and observed
  * addresses decide whether a VIP exists and give the operator concrete allocation context.
  * Accepted work stays on the Platform page; Operations remains a troubleshooting drill-down.
+ * While Deployment Templates are in development (always, in release builds) the OS step offers
+ * only a custom configuration and never lists templates.
  */
 export function DeployPlatformWizardPage() {
   const navigate = useNavigate()
@@ -172,6 +175,7 @@ export function DeployPlatformWizardPage() {
   const [workloadControllers, setWorkloadControllers] = useState<Record<string, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
   const [candidateRevision, setCandidateRevision] = useState(0)
+  const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
   const [templateId, setTemplateId] = useState('')
   const [images, setImages] = useState<OSImage[]>([])
@@ -190,7 +194,7 @@ export function DeployPlatformWizardPage() {
 
   // Deployment templates are per-Site; the OS step filters them to the derived provisioner.
   useEffect(() => {
-    if (!effectiveSiteId) return
+    if (!effectiveSiteId || !templatesEnabled) return
     let canceled = false
     provisioning
       .listTemplates({ siteId: effectiveSiteId })
@@ -203,7 +207,7 @@ export function DeployPlatformWizardPage() {
     return () => {
       canceled = true
     }
-  }, [effectiveSiteId, provisioning])
+  }, [effectiveSiteId, provisioning, templatesEnabled])
 
   const isSlurm = platformType === 'slurm'
   const slurmMinimumResources = slurmRequirementState.status === 'ready' ? slurmRequirementState.requirement.minimumResources : null
@@ -347,8 +351,11 @@ export function DeployPlatformWizardPage() {
   }, [needsProvisioning, preparationTargetKey, provisioning])
 
   // Ignore a template left selected from a previously derived provisioner so it can never leak
-  // another provisioner's image/network into this deploy.
-  const selectedTemplate = templates.find((template) => template.id === templateId && template.integrationId === integrationId)
+  // another provisioner's image/network into this deploy, or one selected before templates
+  // were hidden.
+  const selectedTemplate = templatesEnabled
+    ? templates.find((template) => template.id === templateId && template.integrationId === integrationId)
+    : undefined
   const effectiveImageId = selectedTemplate?.imageId ?? imageId
   const effectiveEphemeral = selectedTemplate?.ephemeral ?? ephemeral
   // Review the same resolved mode that deployment submits, including a template-owned setting.
@@ -447,9 +454,9 @@ export function DeployPlatformWizardPage() {
       ? { mode: 'existing_os' }
       : {
           mode: 'provision_os',
-          templateId: templateId || undefined,
-          settings: templateId ? undefined : { imageId: effectiveImageId, ephemeral: effectiveEphemeral },
-          userData: templateId ? { mode: 'inherit' } : cloudInit.trim() ? { mode: 'replace', value: cloudInit } : { mode: 'omit' },
+          templateId: selectedTemplate?.id,
+          settings: selectedTemplate ? undefined : { imageId: effectiveImageId, ephemeral: effectiveEphemeral },
+          userData: selectedTemplate ? { mode: 'inherit' } : cloudInit.trim() ? { mode: 'replace', value: cloudInit } : { mode: 'omit' },
           network: {
             mode: effectiveNetworkMode,
             subnetId: selectedTemplate?.network.subnetId,
@@ -906,20 +913,22 @@ export function DeployPlatformWizardPage() {
               </Alert>
             )}
             <div className="sw-form-grid">
-              <Field.Root required>
-                <Field.Label>Configuration source</Field.Label>
-                <Select
-                  value={templateId}
-                  aria-label="Configuration source"
-                  onChange={(value) => selectTemplate(value)}
-                  options={[
-                    { value: '', label: 'Custom configuration' },
-                    ...templates
-                      .filter((template) => template.integrationId === integrationId)
-                      .map((template) => ({ value: template.id, label: template.name })),
-                  ]}
-                />
-              </Field.Root>
+              {templatesEnabled && (
+                <Field.Root required>
+                  <Field.Label>Configuration source</Field.Label>
+                  <Select
+                    value={templateId}
+                    aria-label="Configuration source"
+                    onChange={(value) => selectTemplate(value)}
+                    options={[
+                      { value: '', label: 'Custom configuration' },
+                      ...templates
+                        .filter((template) => template.integrationId === integrationId)
+                        .map((template) => ({ value: template.id, label: template.name })),
+                    ]}
+                  />
+                </Field.Root>
+              )}
               <Field.Root required>
                 <Field.Label>OS image</Field.Label>
                 <HStack gap="2" align="stretch">

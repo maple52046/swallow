@@ -22,6 +22,20 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 `/clusters` 與 `/operations` 下的 route 是 compatibility redirect；canonical
 navigation 使用 Platforms 與 Workflows。
 
+## 開發中的功能
+
+以下三項 Dashboard 功能仍在開發中，Dashboard 的 release build 會隱藏它們；API 與 `swallow`
+CLI 不受影響。
+
+- **Monitoring**：沒有 Monitoring 頁面與 Server Monitoring tab。Overview、Server list 與
+  Server detail 上的 health 保留位置，但顯示「Not available in this release」。仍可註冊
+  metrics Integration。
+- **OS image upload**：OS images 沒有 Upload。既有 custom image 的 verification 仍可使用。
+- **Deployment Template**：沒有 Templates workspace、Create template，佈署時也不能選擇或保存
+  template；佈署使用 custom configuration。
+
+Development build 會顯示這些功能，並提供 **Account menu → Experimental features** 逐項關閉。
+
 ## Site scope
 
 判讀 inventory 或 monitoring 前先選擇 Site。Site scope 保存在 URL，可直接分享。

@@ -5,6 +5,11 @@
 swallow correlates monitoring data with stable resource identities. It does not
 store metrics or alerts and does not provide an arbitrary PromQL proxy.
 
+> The Dashboard's monitoring screens are in development. Release builds of the
+> Dashboard hide them and show health as "Not available in this release"; see
+> [Features in development](dashboard.md#features-in-development). Registering
+> the Integration, the API, and the CLI work as described here.
+
 ## Configure the integration
 
 Register a Site-scoped Prometheus-compatible metrics Integration. Configure the

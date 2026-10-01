@@ -14,11 +14,15 @@ import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import type { ExperimentalFeature } from '@/application/ports/ExperimentalFeatureSettings'
 
 interface NavEntry {
   label: string
   path: string
   icon: LucideIcon
+  /** In-development feature the destination belongs to; listed only while it is shown. */
+  feature?: ExperimentalFeature
 }
 
 /** Primary operator destinations in workflow order. */
@@ -29,7 +33,7 @@ const NAVIGATION: readonly NavEntry[] = [
   { label: 'Platforms', path: '/platforms', icon: Boxes },
   { label: 'Software', path: '/software', icon: Package },
   { label: 'Workflows', path: '/workflows', icon: Workflow },
-  { label: 'Monitoring', path: '/monitoring', icon: Activity },
+  { label: 'Monitoring', path: '/monitoring', icon: Activity, feature: 'monitoring' },
   { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network },
 ]
 
@@ -131,10 +135,14 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
  *
  * Every destination passes through `scopedHref`, so changing areas never drops the
  * Site query parameter. The rail may collapse visually without changing link order.
+ * Destinations of in-development features are omitted while they are hidden; their
+ * routes are guarded separately, so this only keeps navigation honest.
  */
 export function OperatorSideNav({ collapsed, onNavigate }: OperatorSideNavProps) {
   const location = useLocation()
   const { scopedHref } = useSiteScope()
+  const { enabled: features } = useExperimentalFeatures()
+  const entries = NAVIGATION.filter((entry) => !entry.feature || features[entry.feature])
 
   return (
     <Flex direction="column" h="100%" w="full" bg="bg.panel" px="2" py="3">
@@ -162,7 +170,7 @@ export function OperatorSideNav({ collapsed, onNavigate }: OperatorSideNavProps)
         </Text>
       )}
       <Stack as="nav" aria-label="Primary navigation" flex="1" gap="1" overflowY="auto">
-        {NAVIGATION.map((entry) => (
+        {entries.map((entry) => (
           <NavLink
             key={entry.path}
             entry={entry}

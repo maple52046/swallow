@@ -24,6 +24,11 @@
 
 `/clusters` 與 `/operations` 是 compatibility redirect。
 
+Monitoring（`/monitoring`、Server Monitoring tab、共用頁面上的 health）、OS image upload 與
+Deployment Template 仍在開發中。Release build（`npm run build`）會隱藏它們：route 顯示 Not Found
+或 redirect，health 顯示「Not available in this release」。Dev server 顯示全部功能；可在
+**Account menu → Experimental features** 逐項關閉以預覽 release 畫面，選擇保存在各瀏覽器。
+
 ## UI model rules
 
 - Server provisioning、Platform membership、health 是獨立 status axis，沒有
@@ -55,6 +60,7 @@ VITE_API_BASE_URL=http://127.0.0.1:30051 npm run dev
 npm run lint
 npm run build
 npm run test:e2e
+npm run test:e2e:production   # 以 vite preview 驗證 release build 隱藏開發中功能
 ```
 
 Playwright 包含 deterministic operator journey 與 light/dark、desktop/mobile
