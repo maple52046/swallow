@@ -888,6 +888,7 @@ tbody .sw-sticky-selection { z-index: 2; }
 .sw-provisioning-table .sw-col-selection { padding-inline-start: 1rem; width: 1%; white-space: nowrap; }
 .sw-provisioning-table .sw-col-name { min-inline-size: 16rem; }
 .sw-provisioning-table .sw-col-size { white-space: nowrap; }
+.sw-provisioning-table .sw-col-default-user { white-space: nowrap; }
 .sw-provisioning-table .sw-col-actions { inline-size: 8.5rem; text-align: start; }
 .sw-provisioning-table td.sw-col-actions .sw-row-actions { flex-wrap: nowrap; justify-content: flex-start; }
 .sw-provisioning-table .sw-col-refreshed { inline-size: 12rem; white-space: nowrap; }

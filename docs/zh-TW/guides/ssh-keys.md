@@ -37,8 +37,8 @@ Server 上登入所用的帳號。
 
 - Synced 的 Ubuntu、CentOS、RHEL image 有內建預設值（`ubuntu`、`centos`、`cloud-user`）。
 - 上傳的 custom image 可在上傳對話框設定，或之後在 OS Images 頁面用 **Edit** 設定（例如 `cloud-user`）。
-- **Default user** 欄會顯示其值，以及它是自訂（Custom）還是內建（Built-in）；Server 摘要會以
-  **Login user** 顯示。
+- **Default user** 欄顯示實際生效的帳號名稱。已佈署 Server 的摘要頁有 **Connection** 卡片，
+  顯示該登入帳號、位址，以及可直接複製的 `ssh <user>@<address>` 指令。
 
 Image 沒有 default user 時，swallow 會退回 Site 的 SSH user，再依序嘗試 `cloud-user` 與 `ubuntu`。
 

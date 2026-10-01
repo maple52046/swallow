@@ -2,7 +2,7 @@ import { Badge, Box, Card, Heading, HStack, IconButton, Link as ChakraLink, Text
 import { Cpu, Eye, EyeOff, HardDrive, MemoryStick, Microchip, Tags } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
-import type { DetailSection, Server } from '@/domain/server/types'
+import { serverPrimaryAddress, type DetailSection, type Server } from '@/domain/server/types'
 import { HealthBadge, LockBadge, MembershipBadge, PowerBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { CopyButton } from '@/presentation/components/CopyButton'
@@ -72,11 +72,6 @@ export function StatusCard({ server, deployedImageHref }: { server: Server; depl
                     : axis.deployedImageName
                   : null,
               },
-              // The deployed image's default user is the SSH login for automation and for the
-              // operator's Access Keys; shown only when known so an unknown user is not implied.
-              ...(axis.deployedImageDefaultUser
-                ? [{ label: 'Login user', value: <Text as="span" className="sw-mono">{axis.deployedImageDefaultUser}</Text> }]
-                : []),
               {
                 label: 'Ephemeral',
                 value: axis.state === 'deployed' ? (axis.ephemeral ? 'Yes — disk changes are lost on reboot' : 'No') : null,
@@ -251,6 +246,85 @@ export function ManagementControllerCard({ management }: { management?: DetailSe
         ) : (
           <Text color="fg.muted" fontSize="sm">
             No IPMI or Redfish controller details were reported by the provisioner.
+          </Text>
+        )}
+      </Card.Body>
+    </Card.Root>
+  )
+}
+
+/**
+ * In-band SSH access to a deployed Server, the counterpart of the out-of-band management
+ * controller card. It shows the login user swallow resolved from the deployed OS image (the
+ * image's default user, decision 039), the primary address, and the `ssh <user>@<address>`
+ * command an operator runs with one of their Access Keys.
+ *
+ * A command is offered only when every part is known; otherwise the missing fact is spelled
+ * out instead of producing a half-formed command: nothing deployed yet, no reported address, or
+ * no known default user (automation then probes fallback users, so the login cannot be
+ * predicted). `imageHref` deep-links to the deployed OS image, where the default user is set.
+ */
+export function ConnectionCard({ server, imageHref }: { server: Server; imageHref?: string }) {
+  const axis = server.provisioning
+  const deployed = axis?.state === 'deployed'
+  const user = axis?.deployedImageDefaultUser
+  const address = serverPrimaryAddress(server)
+  const command = deployed && user && address ? `ssh ${user}@${address}` : ''
+  const unknownUser = imageHref ? (
+    <Text as="span" color="fg.muted">
+      Unknown —{' '}
+      <ChakraLink asChild color="brand.fg" textDecoration="underline" textUnderlineOffset="3px">
+        <RouterLink to={imageHref}>set the OS image&apos;s default user</RouterLink>
+      </ChakraLink>
+    </Text>
+  ) : (
+    <Text as="span" color="fg.muted">Unknown — set the OS image&apos;s default user</Text>
+  )
+  const items: DescriptionItem[] = [
+    { label: 'Login user', value: user ? <Text as="span" className="sw-mono">{user}</Text> : unknownUser },
+    {
+      label: 'Address',
+      value: address ? (
+        <HStack gap="1">
+          <Text as="span" className="sw-mono">{address}</Text>
+          <CopyButton value={address} label="Copy address" />
+        </HStack>
+      ) : (
+        <Text as="span" color="fg.muted">Not reported by the provisioner yet</Text>
+      ),
+    },
+  ]
+
+  return (
+    // A named region, so assistive technology can jump straight to how to reach the Server.
+    <Card.Root as="section" className="sw-server-summary-card" aria-labelledby="server-connection-title">
+      <Card.Body gap="4">
+        <Box>
+          <Heading size="sm" id="server-connection-title">Connection</Heading>
+          <Text color="fg.muted" fontSize="sm" mt="1">
+            In-band SSH access to the deployed operating system.
+          </Text>
+        </Box>
+        {deployed ? (
+          <>
+            <DescriptionList items={items} />
+            {command && (
+              // The command is one unbroken line (it scrolls rather than wraps) so it reads and
+              // copies exactly as it is typed into a terminal.
+              <HStack gap="2" bg="bg.muted" rounded="md" ps="3" pe="1" py="1" justify="space-between">
+                <Text as="code" className="sw-mono" fontSize="sm" whiteSpace="nowrap" overflowX="auto">
+                  {command}
+                </Text>
+                <CopyButton value={command} label="Copy SSH command" />
+              </HStack>
+            )}
+            <Text color="fg.muted" fontSize="sm">
+              Authenticate with one of your access keys (account menu → SSH keys).
+            </Text>
+          </>
+        ) : (
+          <Text color="fg.muted" fontSize="sm">
+            SSH access is available after an operating system is deployed.
           </Text>
         )}
       </Card.Body>

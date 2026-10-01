@@ -22,7 +22,7 @@ function makeServer(index: number): Server {
     deployment: ordinal === 4
       ? { state: 'failed', operationId: 'op-deploy-failed', stepId: 'provision-srv-4', attempt: 1, code: 'deployment_address_unavailable', stage: 'ssh_readiness', statusReason: 'No provider address was observed after OS installation.', startedAt: now, finishedAt: now, updatedAt: now }
       : { state: 'succeeded', operationId: `op-os-${ordinal}`, stepId: `provision-srv-${ordinal}`, attempt: 1, code: '', stage: '', statusReason: '', startedAt: now, finishedAt: now, updatedAt: now },
-    provisioning: { state: 'deployed', providerState: 'deployed', powerState: 'on', osSystem: 'ubuntu', distroSeries: '24.04', deployedImageName: 'Ubuntu 24.04 LTS', ephemeral: false, hweKernel: 'ga-24.04', locked: false, commissioningStatus: 'passed', testingStatus: 'passed', integrationId: 'maas-a', observedAt: now },
+    provisioning: { state: 'deployed', providerState: 'deployed', powerState: 'on', osSystem: 'ubuntu', distroSeries: '24.04', deployedImageName: 'Ubuntu 24.04 LTS', deployedImageDefaultUser: 'ubuntu', ephemeral: false, hweKernel: 'ga-24.04', locked: false, commissioningStatus: 'passed', testingStatus: 'passed', integrationId: 'maas-a', observedAt: now },
     membership: ordinal <= 3 ? { platformId: 'platform-a', nodeName: `gpu-node-0${ordinal}`, role: 'control-plane', state: 'ready', observedAt: now } : null,
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
     absent: false, lastSeenAt: now, createdAt: '2026-08-01T00:00:00Z', updatedAt: now,
@@ -150,8 +150,8 @@ const integrations = [
   { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
 ]
 const osImages = [
-  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', providerName: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'jammy', providerRelease: 'jammy', tags: [], architecture: 'amd64', sizeBytes: 4294967296, verifiedDeployTargets: [], failedDeployTargets: [] },
-  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', providerName: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'noble', providerRelease: 'noble', tags: [], architecture: 'amd64', sizeBytes: 5368709120, verifiedDeployTargets: [], failedDeployTargets: [] },
+  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', providerName: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'jammy', providerRelease: 'jammy', tags: [], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 4294967296, verifiedDeployTargets: [], failedDeployTargets: [] },
+  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', providerName: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'noble', providerRelease: 'noble', tags: [], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 5368709120, verifiedDeployTargets: [], failedDeployTargets: [] },
   { id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', providerName: 'Ubuntu 24.04 ROCm', osSystem: 'custom', providerOsSystem: 'custom', release: 'ubuntu-24.04-rocm', providerRelease: 'ubuntu-24.04-rocm', tags: [], architecture: 'amd64', verifiedDeployTargets: ['ram'], failedDeployTargets: ['disk'] },
 ]
 const baseDeploymentTemplates = [

@@ -79,20 +79,13 @@ function hasOverride(image: OSImageCatalogRow): boolean {
 }
 
 /**
- * Renders the effective default login user and whether it was set by an operator or is swallow's
- * built-in, so an operator can tell an explicit choice from a derived one without opening the
- * editor. The source is always spelled out rather than implied by styling.
+ * Renders the effective default login user (an operator's override, else swallow's built-in for
+ * the OS family) as the plain user name. Whether it was overridden is shown in the edit dialog,
+ * which explains the built-in fallback, so the column stays a compact single-line value.
  */
 function DefaultUserCell({ image }: { image: OSImageCatalogRow }) {
   if (!image.defaultUser) return <>-</>
-  return (
-    <HStack gap="1" wrap="wrap">
-      <span className="sw-mono">{image.defaultUser}</span>
-      <Badge variant="subtle" size="sm">
-        {image.customDefaultUser ? 'Custom' : 'Built-in'}
-      </Badge>
-    </HStack>
-  )
+  return <span className="sw-mono">{image.defaultUser}</span>
 }
 
 /** Formats provider bytes with binary units while preserving an explicit unknown state. */
@@ -180,7 +173,11 @@ function DeployModeTag({
   )
 }
 
-/** The Deploy Mode cell: a Disk tag and a RAM tag, each carrying its own support/verifying icon. */
+/**
+ * The Deploy Mode cell: a Disk tag and a RAM tag, each carrying its own support/verifying icon.
+ * The pair never wraps, so every row scans as one line; on narrow viewports the table frame
+ * scrolls horizontally instead of stacking the tags.
+ */
 function DeployModeCell({
   image,
   verifying,
@@ -191,7 +188,7 @@ function DeployModeCell({
   attention: ReadonlySet<string>
 }) {
   return (
-    <HStack gap="1" wrap="wrap">
+    <HStack gap="1" wrap="nowrap">
       <DeployModeTag image={image} target="disk" verifying={verifying} attention={attention} />
       <DeployModeTag image={image} target="ram" verifying={verifying} attention={attention} />
     </HStack>
@@ -508,7 +505,7 @@ export function OSImagesPage() {
           '-'
         ),
     },
-    { key: 'defaultUser', label: 'Default user', render: (image) => <DefaultUserCell image={image} /> },
+    { key: 'defaultUser', label: 'Default user', className: 'sw-col-default-user', render: (image) => <DefaultUserCell image={image} /> },
     { key: 'architecture', label: 'Architecture', render: (image) => image.architecture || '-' },
     { key: 'size', label: 'Size', className: 'sw-col-size', render: (image) => formatImageSize(image.sizeBytes) },
     {

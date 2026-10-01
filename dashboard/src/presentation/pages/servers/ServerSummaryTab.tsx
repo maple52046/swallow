@@ -3,6 +3,7 @@ import type { Server } from '@/domain/server/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import {
   CapacityCard,
+  ConnectionCard,
   DetailsCard,
   HardwareProfileCard,
   ManagementControllerCard,
@@ -41,7 +42,8 @@ function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => 
 /**
  * Operator-first overview for one Server. Projection-backed state and capacity remain useful
  * when live provider detail fails; dedicated tabs own large Network, Storage, and PCI tables so
- * the overview stays a fast scan rather than a second inventory page.
+ * the overview stays a fast scan rather than a second inventory page. In-band SSH connection
+ * info sits beside the out-of-band management controller, so both ways in read as one row.
  */
 export function ServerSummaryTab() {
   const { server, detail, detailError, reload } = useServerDetailContext()
@@ -64,7 +66,10 @@ export function ServerSummaryTab() {
         </Alert>
       )}
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
+        <ConnectionCard server={server} imageHref={deployedImageHref} />
         {physical && <ManagementControllerCard management={management} />}
+      </div>
+      <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
         <HardwareProfileCard server={server} system={system} />
       </div>
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">

@@ -49,8 +49,9 @@ one swallow logs in as on Servers deployed with it.
   `centos`, `cloud-user`).
 - For an uploaded custom image, set it in the upload dialog or later with
   **Edit** on the OS Images page (for example `cloud-user`).
-- The **Default user** column shows the value and whether it is custom or
-  built-in; a Server's summary shows it as **Login user**.
+- The **Default user** column shows the effective user name. A deployed
+  Server's summary has a **Connection** card with that login user, its address,
+  and a ready-to-copy `ssh <user>@<address>` command.
 
 When an image has no default user, swallow falls back to the Site's SSH user and
 then tries `cloud-user` and `ubuntu`.

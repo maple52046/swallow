@@ -133,6 +133,9 @@ test('OS image default user is shown, validated, and saved with the rest of the 
   await installApiFixtures(page, { onOSImageOverlayRequest: (body) => overlays.push(body) })
   await page.goto('/provisioning/images?site=site-a')
   await expect(page.getByRole('columnheader', { name: 'Default user' })).toBeVisible()
+  // The column shows only the effective user name, with no source badge.
+  const builtIn = page.getByRole('row', { name: /Ubuntu 22\.04 LTS/ }).first()
+  await expect(builtIn.locator('td.sw-col-default-user')).toHaveText('ubuntu')
 
   const custom = page.getByRole('row', { name: /Ubuntu 24.04 ROCm/ }).first()
   await custom.getByRole('button', { name: /Edit/ }).first().click()
@@ -146,6 +149,18 @@ test('OS image default user is shown, validated, and saved with the rest of the 
   await expect(page.getByText('OS image updated')).toBeVisible()
   // The PATCH replaces the whole overlay, so every field is sent, including the default user.
   expect(overlays).toEqual([{ name: '', osSystem: '', release: '', tags: [], defaultUser: 'cloud-user' }])
+})
+
+test('Server summary shows how to connect with the deployed image login user', async ({ page }) => {
+  await installApiFixtures(page)
+  await page.goto('/servers/srv-1/summary?site=site-a')
+
+  const connection = page.getByRole('region', { name: 'Connection' })
+  await expect(connection).toContainText('Login user')
+  await expect(connection).toContainText('ubuntu')
+  await expect(connection).toContainText('192.168.40.21')
+  await expect(connection).toContainText('ssh ubuntu@192.168.40.21')
+  await expect(connection.getByRole('button', { name: 'Copy SSH command' })).toBeVisible()
 })
 
 test('OS image upload sends the optional default user', async ({ page }) => {
