@@ -79,8 +79,8 @@ func (h *MonitoringHandler) Acknowledge(c *fiber.Ctx) error {
 	}
 
 	actor := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		actor = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		actor = principal.Username
 	}
 
 	silenceID, err := h.alerts.Acknowledge(c.Context(), application.AcknowledgeInput{

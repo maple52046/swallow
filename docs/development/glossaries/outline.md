@@ -76,6 +76,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### Access
 
 - [SSH Key](terms/ssh-key.md): A swallow-owned public key realized into key-capable provisioners, purpose `deployment` (the Deployment Key) or `access` (a User's public-key-only Access Key).
+- [Session](terms/session.md): One password sign-in of a User, held by a short-lived access token and a rotating refresh token; ends at logout, idle expiry, or maximum age.
+- [API Key](terms/api-key.md): A named, long-lived secret a User creates so non-interactive clients (CLI, scripts) call the API as that User; shown once, stored hashed, optional expiry, revoked by deletion.
 - [Deployment Key](terms/deployment-key.md): The single system-owned key pair, created as ed25519 by the installation step (not at API start), whose sealed private key swallow uses for every Site's SSH readiness and Ansible (no Site override); OS and Platform deployment require it.
 
 ### Tenancy
@@ -110,7 +112,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - `Owner` — Server 的擁有關係（team 或 user）。由 `Server` 的 ownership 規則引用。
 - `Team` — Server 的可能擁有者之一。
-- `User` — swallow 身分；現有用法包含 `admin | owner | user` 三種角色，角色語意尚未定義。
+- `User` — swallow 身分；現有用法包含 `admin | owner | user` 三種角色，角色語意尚未定義。Session、API Key 與 Access Key 都屬於某個 User（目前只有 bootstrap admin）。
 - `SSH Connection`、`BMC` — Server 的遠端存取路徑（`SSH Key` 已定義於上方 Access）。
 
 ### Physical Topology

@@ -35,9 +35,25 @@ func applyEnv(cfg *Config) {
 		cfg.API.JWTSecret = v
 	}
 
+	// Deprecated: read only so RunAPI can warn that it is ignored.
 	if v := getEnvWithLegacy("SWALLOW_API_JWT_EXPIRY_HOURS", "JWT_EXPIRY_HOURS", nil); v != "" {
 		if h, err := strconv.Atoi(v); err == nil {
 			cfg.API.JWTExpiryHours = h
+		}
+	}
+	if v := os.Getenv("SWALLOW_API_ACCESS_TOKEN_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.AccessTokenTTL = d
+		}
+	}
+	if v := os.Getenv("SWALLOW_API_REFRESH_TOKEN_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.RefreshTokenTTL = d
+		}
+	}
+	if v := os.Getenv("SWALLOW_API_SESSION_MAX_AGE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.SessionMaxAge = d
 		}
 	}
 

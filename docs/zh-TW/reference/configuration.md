@@ -17,7 +17,8 @@
 正式環境需要特別注意：
 
 - MongoDB URI/database 與 migration access。
-- JWT signing secret 與 expiry。
+- JWT signing secret 與 Session 效期（`accessTokenTTL` 15m、`refreshTokenTTL` 168h、`sessionMaxAge`
+  720h；舊的 `jwtExpiryHours` 不再使用）。
 - Bootstrap admin username/password。
 - Base64 32-byte credential-encryption key。
 - Machine bearer token。

@@ -34,6 +34,7 @@ type globalFlags struct {
 	configPath   string
 	endpoint     string
 	token        string
+	apiKey       string
 	site         string
 	machineToken string
 	outputFormat string
@@ -82,6 +83,7 @@ func NewRootCommand() *cobra.Command {
 	pf.StringVar(&gf.configPath, "config", "", "path to the config file (default: $SWALLOW_CONFIG or <user-config-dir>/swallow/config.yaml)")
 	pf.StringVar(&gf.endpoint, "endpoint", "", "api-server base URL, e.g. https://swallow.example (overrides the stored profile)")
 	pf.StringVar(&gf.token, "token", "", "access token to use for this invocation (overrides the stored profile)")
+	pf.StringVar(&gf.apiKey, "api-key", "", "API key (swk_…) to use for this invocation (overrides the stored profile; prefer SWALLOW_API_KEY to keep it out of shell history)")
 	pf.StringVar(&gf.site, "site", "", "default Site scope applied to commands that accept siteId")
 	pf.StringVar(&gf.machineToken, "machine-token", "", "machine bearer token for discovery endpoints")
 	pf.StringVarP(&gf.outputFormat, "output", "o", "table", "output format: table, json, or yaml")
@@ -99,6 +101,7 @@ func NewRootCommand() *cobra.Command {
 		newProvisioningCommand(),
 		newInfrastructureCommand(),
 		newSSHKeysCommand(),
+		newAPIKeysCommand(),
 		newPlatformsCommand(),
 		newWorkflowsCommand(),
 		newMonitoringCommand(),
@@ -129,8 +132,18 @@ func resolveRuntime() error {
 	if gf.endpoint != "" {
 		cfg.Endpoint = gf.endpoint
 	}
+	// An explicit --token or --api-key decides the credential for this invocation.
+	// Without one, an API Key from the file or SWALLOW_API_KEY wins over a stored
+	// Session (see config.Config). A --token belongs to no stored Session, so the
+	// stored refresh token is not used to renew it.
 	if gf.token != "" {
 		cfg.Token = gf.token
+		cfg.APIKey = ""
+		cfg.RefreshToken = ""
+		cfg.TokenExpiresAt = time.Time{}
+	}
+	if gf.apiKey != "" {
+		cfg.APIKey = gf.apiKey
 	}
 	if gf.site != "" {
 		cfg.Site = gf.site
@@ -155,13 +168,43 @@ func resolveRuntime() error {
 // single construction point so credential and TLS handling stay consistent
 // across commands.
 func newClient() (*client.Client, error) {
-	return client.New(client.Options{
-		Endpoint:     rt.cfg.Endpoint,
-		Token:        rt.cfg.Token,
-		MachineToken: rt.cfg.MachineToken,
-		InsecureTLS:  rt.cfg.InsecureSkipTLS,
-		Timeout:      gf.timeout,
-	})
+	return client.New(clientOptions(gf.timeout))
+}
+
+// clientOptions maps the resolved profile onto client options, including the
+// hook that persists a renewed Session.
+func clientOptions(timeout time.Duration) client.Options {
+	return client.Options{
+		Endpoint:           rt.cfg.Endpoint,
+		Token:              rt.cfg.Token,
+		TokenExpiresAt:     rt.cfg.TokenExpiresAt,
+		RefreshToken:       rt.cfg.RefreshToken,
+		APIKey:             rt.cfg.APIKey,
+		MachineToken:       rt.cfg.MachineToken,
+		OnSessionRefreshed: persistSession,
+		InsecureTLS:        rt.cfg.InsecureSkipTLS,
+		Timeout:            timeout,
+	}
+}
+
+// persistSession saves a renewed Session to the profile file. It goes through
+// config.Update, which re-reads the file first, so a refresh token another
+// `swallow` process saved meanwhile is kept when this renewal did not rotate it
+// (the server's rotation grace), and environment-only values never leak into the
+// file. The resolved runtime is updated too, for commands that save rt.cfg.
+func persistSession(tokens client.SessionTokens) error {
+	apply := func(c *config.Config) {
+		c.Token = tokens.AccessToken
+		c.TokenExpiresAt = tokens.AccessTokenExpiresAt
+		if tokens.RefreshToken != "" {
+			c.RefreshToken = tokens.RefreshToken
+		}
+	}
+	apply(rt.cfg)
+	if err := config.Update(rt.path, apply); err != nil {
+		return fmt.Errorf("save renewed session: %w", err)
+	}
+	return nil
 }
 
 // printResult renders a decoded payload using the resolved output format to

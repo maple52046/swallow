@@ -25,8 +25,15 @@ api:
   # HMAC secret for signing JWT tokens. Must be kept private.
   jwtSecret: "dev-secret-change-in-production"
 
-  # JWT token validity window in hours.
-  jwtExpiryHours: 24
+  # Session lifetimes (decision 042). Access tokens are short-lived because logout cannot revoke
+  # one already issued; refresh tokens renew them until the Session is idle for refreshTokenTTL or
+  # reaches sessionMaxAge. accessTokenTTL must be shorter than refreshTokenTTL.
+  accessTokenTTL: 15m
+  refreshTokenTTL: 168h
+  sessionMaxAge: 720h
+
+  # Deprecated and ignored (it set the old single 24-hour token); the API warns when it is set.
+  # jwtExpiryHours: 24
 
   # Admin user seeded on first startup. Ignored if the user already exists.
   bootstrapAdminUsername: "admin"
@@ -85,5 +92,6 @@ api:
   jobRuntimeDir: "/tmp/swallow/jobs"
   jobArtifactDir: "./var/jobs"
 
-  # Empty means same-origin only. Dev may list explicit origins, comma-separated.
+  # Empty means same-origin only. Dev may list explicit origins, comma-separated; they may send
+  # credentials (the refresh cookie), so "*" is rejected.
   allowedOrigins: ""

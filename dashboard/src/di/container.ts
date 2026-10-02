@@ -10,6 +10,7 @@ import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningR
 import { ApiInfrastructureRepository } from '@/infrastructure/api/ApiInfrastructureRepository'
 import { ApiSoftwareRepository } from '@/infrastructure/api/ApiSoftwareRepository'
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
+import { ApiApiKeyRepository } from '@/infrastructure/api/ApiApiKeyRepository'
 import {
   DisabledExperimentalFeatureSettings,
   LocalExperimentalFeatureSettings,
@@ -26,6 +27,7 @@ import type { ProvisioningRepository } from '@/application/ports/ProvisioningRep
 import type { InfrastructureRepository } from '@/application/ports/InfrastructureRepository'
 import type { SoftwareRepository } from '@/application/ports/SoftwareRepository'
 import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
+import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
 import type { ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
@@ -44,6 +46,8 @@ export interface AppContainer {
   software: SoftwareRepository
   /** The Deployment Key and the signed-in admin's Access Keys (decision 039). */
   sshKeys: SSHKeyRepository
+  /** The signed-in user's API Keys for non-interactive clients (decision 042). */
+  apiKeys: ApiKeyRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
   /** Which in-development dashboard features are shown; adjustable only in development builds. */
@@ -70,6 +74,7 @@ export function createContainer(): AppContainer {
     platforms: new ApiPlatformRepository(),
     software: new ApiSoftwareRepository(),
     sshKeys: new ApiSSHKeyRepository(),
+    apiKeys: new ApiApiKeyRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
     experimentalFeatures: import.meta.env.DEV

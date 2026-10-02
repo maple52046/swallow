@@ -28,6 +28,13 @@ printf '%s\n' "$PASSWORD" |
 bin/swallow auth me
 ```
 
+以密碼登入會保留一個 session，CLI 會自動換發。Script 與 CI 可建立 API key 取代密碼：
+
+```bash
+bin/swallow api-keys create --name ci --expires-in 90d --secret-out ./ci.key
+bin/swallow login --api-key-stdin < ./ci.key    # 或設定 SWALLOW_API_KEY
+```
+
 Profile 預設位於 user configuration directory；`$SWALLOW_CONFIG` 或 `--config`
 可選擇其他 path。Resolution order 是 profile、`SWALLOW_*` environment variable、
 global flag。
@@ -43,7 +50,8 @@ Request file 刻意直接跟隨 API contract，不維護 copied CLI struct。
 
 ## Command groups
 
-- `auth`、`login`、`logout` — session。
+- `auth`、`login`、`logout` — session 或已保存的 API key。
+- `api-keys` — 供非互動使用的 API key。
 - `overview` — Site-scoped operational summary。
 - `sites`、`integrations` — infrastructure identity 與 Site automation。
 - `servers` — inventory、stream、detail、protection、provider action。

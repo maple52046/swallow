@@ -21,6 +21,7 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
 | `/monitoring` | Alerts, silences, metrics, health, and Grafana |
 | `/infrastructure/*` | Sites, Integrations, Zones, and Pools |
+| `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
 
 `/clusters` and `/operations` are compatibility redirects.
 

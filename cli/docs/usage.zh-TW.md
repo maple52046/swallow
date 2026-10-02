@@ -42,7 +42,7 @@ sudo install -m 0755 bin/swallow /usr/local/bin/swallow
 ## Quick start
 
 ```bash
-# 1. 登入，將 endpoint 與 token 寫入 profile。
+# 1. 登入，將 endpoint 與 session 寫入 profile。
 swallow --endpoint https://swallow.example login -u admin --password-stdin < password.txt
 
 # 2. 確認 session。
@@ -73,14 +73,18 @@ Default path 是 `$SWALLOW_CONFIG`，或
 ```yaml
 # ~/.config/swallow/config.yaml
 endpoint: https://swallow.example
-token: <access-token>          # 由 `swallow login` 寫入
+token: <access-token>          # 由 `swallow login` 寫入，會自動換發
+tokenExpiresAt: 2026-10-02T03:15:00Z
+refreshToken: <refresh-token>  # 用來換發 access token；每次換發都會更新
+# apiKey: swk_...              # 取代 session：`swallow login --api-key-stdin`
 site: site-abc123              # optional default Site scope
 machineToken: <machine-token>  # optional，供 discovery endpoint 使用
 insecureSkipTls: false         # 只適用有 self-signed certificate 的 lab
 ```
 
-Profile 含有 credential，因此以 owner-only permission（`0600`）寫入。`login`
-與 `logout` 只更新 `token` field，保留其他 fields。
+Profile 含有 credential，因此以 owner-only permission（`0600`）寫入。`login`、
+token 換發與 `logout` 只更新 credential 相關 field，保留其他 fields。Profile 只會保存
+session 或 API key 其中一種：存入一種時會移除另一種。
 
 ### Environment variables
 
@@ -88,24 +92,44 @@ Profile 含有 credential，因此以 owner-only permission（`0600`）寫入。
 | --- | --- |
 | `SWALLOW_CONFIG` | profile file path |
 | `SWALLOW_ENDPOINT` | `endpoint` |
-| `SWALLOW_TOKEN` | `token` |
+| `SWALLOW_TOKEN` | `token`（此次 invocation 使用的 access token，不會換發） |
+| `SWALLOW_API_KEY` | `apiKey`（優先於已保存的 session） |
 | `SWALLOW_SITE` | `site` |
 | `SWALLOW_MACHINE_TOKEN` | `machineToken` |
 | `SWALLOW_INSECURE` | `insecureSkipTls`（`1`／`true` 啟用） |
 
 ## Authentication
 
+CLI 使用以下兩種 credential 之一。
+
+**Session（帳號密碼）。** `login` 會保存短效的 access token 與 refresh token。CLI 會自動換發
+access token（到期前，以及收到 `401` 後換發一次），並把新的 token 存回 profile。Session 在 7 天未使用、
+登入 30 天後或 `logout` 時結束（server 預設值），之後重新執行 `login`。
+
 ```bash
-# 互動登入。建議使用 --password-stdin，避免 secret 留在 shell history。
+# 建議使用 --password-stdin，避免 secret 留在 shell history。
 swallow --endpoint https://swallow.example login -u admin --password-stdin < password.txt
 # 也可直接傳入，但較不安全：
 swallow login -u admin -p 'REDACTED'
-
-swallow auth me      # 顯示 caller identity 與 role
-swallow logout       # 只清除 local token；JWT 是 stateless，不呼叫 server
 ```
 
-- 多數 endpoints 需要 **admin** token。
+**API key（script 與 CI）。** 以密碼登入後建立 API key，之後不需要密碼即可使用。API key 以建立者的身分
+運作，在到期或被刪除前都有效。
+
+```bash
+swallow api-keys create --name ci --expires-in 90d --secret-out ./ci.key
+swallow login --api-key-stdin < ./ci.key          # 存入 profile
+SWALLOW_API_KEY="$(cat ./ci.key)" swallow servers list   # 或每次執行時傳入
+```
+
+```bash
+swallow auth me      # 顯示 identity、role 與 authMethod（session 或 api_key）
+swallow logout       # 在 server 結束 session，並移除已保存的 credential
+```
+
+- 同時有 API key 與 session 時使用 API key；明確指定 `--token` 或 `--api-key` 時以該次指定為準。
+- API key 不能建立其他 API key，需以密碼登入才能建立。
+- 多數 endpoints 需要 **admin** credential。
 - Discovery endpoints 使用 **machine authentication**：優先使用
   `--machine-token`（或 profile 的 `machineToken`），未設定時才 fallback 到
   session token。
@@ -118,7 +142,8 @@ swallow logout       # 只清除 local token；JWT 是 stateless，不呼叫 ser
 | --- | --- | --- |
 | `--config <path>` | 見上節 | profile file path |
 | `--endpoint <url>` | profile | api-server base URL，例如 `https://swallow.example` |
-| `--token <jwt>` | profile | 此次 invocation 使用的 access token |
+| `--token <jwt>` | profile | 此次 invocation 使用的 access token（不會換發） |
+| `--api-key <swk_…>` | profile | 此次 invocation 使用的 API key（建議改用 `SWALLOW_API_KEY`） |
 | `--site <id>` | profile | 接受 `siteId` command 的 default Site scope |
 | `--machine-token <tok>` | profile | discovery machine bearer token |
 | `-o, --output <fmt>` | `table` | `table`、`json` 或 `yaml` |
@@ -176,9 +201,25 @@ authoritative flag list。以下 examples 使用 placeholder IDs。
 
 ```bash
 swallow login -u admin --password-stdin < password.txt
+swallow login --api-key-stdin < ./ci.key
 swallow auth me
 swallow logout
 ```
+
+### api-keys
+
+你自己的 API key，供非互動使用。見
+[api-keys.md](../../api-server/docs/development/api-contracts/api-server/api-keys.md)。
+
+```bash
+swallow api-keys list                                   # 名稱、前綴、建立、到期、最後使用時間
+swallow api-keys create --name ci [--expires-in 90d] [--secret-out ./ci.key]
+swallow api-keys delete <keyId>                         # alias：revoke
+```
+
+`create` 只會回傳一次 secret。指定 `--secret-out` 時會寫入權限 0600 的新檔案（不會覆寫既有檔案）；
+否則直接印出。`--expires-in` 接受天數（`90d`）或 duration（`12h`）；省略則永不到期。建立 API key
+需要以密碼登入的 session。
 
 ### overview
 

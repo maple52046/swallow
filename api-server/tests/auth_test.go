@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,10 +60,99 @@ func (r *fakeUserRepo) ExistsByUsername(_ context.Context, username string) (boo
 	return false, nil
 }
 
+// fakeSessionRepo is an in-memory SessionRepository for testing. Rotate keeps the production
+// compare-and-swap semantics so concurrent-refresh behavior is exercised faithfully.
+type fakeSessionRepo struct {
+	mu       sync.Mutex
+	sessions map[string]*authdomain.Session
+}
+
+func newFakeSessionRepo() *fakeSessionRepo {
+	return &fakeSessionRepo{sessions: make(map[string]*authdomain.Session)}
+}
+
+func (r *fakeSessionRepo) Create(_ context.Context, s *authdomain.Session) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	copied := *s
+	r.sessions[s.ID] = &copied
+	return nil
+}
+
+func (r *fakeSessionRepo) find(match func(*authdomain.Session) bool) (*authdomain.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.sessions {
+		if match(s) {
+			copied := *s
+			return &copied, nil
+		}
+	}
+	return nil, authdomain.ErrSessionNotFound
+}
+
+func (r *fakeSessionRepo) FindByTokenHash(_ context.Context, hash string) (*authdomain.Session, error) {
+	return r.find(func(s *authdomain.Session) bool { return s.TokenHash == hash })
+}
+
+func (r *fakeSessionRepo) FindByPreviousTokenHash(_ context.Context, hash string) (*authdomain.Session, error) {
+	return r.find(func(s *authdomain.Session) bool { return s.PreviousTokenHash != "" && s.PreviousTokenHash == hash })
+}
+
+func (r *fakeSessionRepo) FindByID(_ context.Context, id string) (*authdomain.Session, error) {
+	return r.find(func(s *authdomain.Session) bool { return s.ID == id })
+}
+
+func (r *fakeSessionRepo) Rotate(_ context.Context, id, fromHash, toHash string, rotatedAt, expiresAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.sessions[id]
+	if !ok || s.TokenHash != fromHash || s.RevokedAt != nil {
+		return authdomain.ErrSessionNotFound
+	}
+	s.PreviousTokenHash, s.TokenHash = fromHash, toHash
+	s.RotatedAt, s.LastUsedAt, s.ExpiresAt = rotatedAt, rotatedAt, expiresAt
+	return nil
+}
+
+func (r *fakeSessionRepo) Touch(_ context.Context, id string, usedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.sessions[id]; ok {
+		s.LastUsedAt = usedAt
+	}
+	return nil
+}
+
+func (r *fakeSessionRepo) Revoke(_ context.Context, id string, revokedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.sessions[id]; ok && s.RevokedAt == nil {
+		at := revokedAt
+		s.RevokedAt = &at
+	}
+	return nil
+}
+
 func setupAuthApp(t *testing.T) (*fiber.App, *fakeUserRepo, *jwt.Service) {
+	t.Helper()
+	app, users, _, jwtSvc := setupAuthAppWithSessions(t, authapp.SessionConfig{})
+	return app, users, jwtSvc
+}
+
+// setupAuthAppWithSessions mounts the auth routes the way the API does. A zero cfg uses one-week
+// idle and 30-day maximum lifetimes; RotationGrace may be set to exercise the reuse rules.
+func setupAuthAppWithSessions(t *testing.T, cfg authapp.SessionConfig) (*fiber.App, *fakeUserRepo, *fakeSessionRepo, *jwt.Service) {
 	t.Helper()
 
 	repo := newFakeUserRepo()
+	sessions := newFakeSessionRepo()
+	if cfg.RefreshTokenTTL == 0 {
+		cfg.RefreshTokenTTL = 7 * 24 * time.Hour
+	}
+	if cfg.MaxAge == 0 {
+		cfg.MaxAge = 30 * 24 * time.Hour
+	}
 	jwtSvc := jwt.NewService("test-secret", time.Hour)
 
 	hash, err := authdomain.HashPassword("correct-pass")
@@ -77,15 +167,19 @@ func setupAuthApp(t *testing.T) (*fiber.App, *fakeUserRepo, *jwt.Service) {
 		CreatedAt:    time.Now(),
 	}
 
-	loginUC := authapp.NewLoginUseCase(repo, jwtSvc)
-	meUC := authapp.NewMeUseCase(repo)
-	handler := authdelivery.NewAuthHandler(loginUC, meUC)
+	handler := authdelivery.NewAuthHandler(
+		authapp.NewSessionService(repo, sessions, jwtSvc, cfg),
+		authapp.NewMeUseCase(repo),
+	)
+	authn := middleware.NewAuthenticator(jwtSvc, nil)
 
 	app := fiber.New()
 	app.Post("/api/v1/auth/login", handler.Login)
-	app.Get("/api/v1/auth/me", middleware.Auth(jwtSvc), handler.Me)
+	app.Post("/api/v1/auth/refresh", handler.Refresh)
+	app.Post("/api/v1/auth/logout", authn.Optional(), handler.Logout)
+	app.Get("/api/v1/auth/me", authn.Require(), handler.Me)
 
-	return app, repo, jwtSvc
+	return app, repo, sessions, jwtSvc
 }
 
 func doRequest(t *testing.T, app *fiber.App, method, path string, body any, headers map[string]string) *http.Response {

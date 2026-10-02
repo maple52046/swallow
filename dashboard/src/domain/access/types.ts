@@ -61,3 +61,36 @@ export interface GeneratedAccessKey {
   key: SSHKey
   privateKey: string
 }
+
+/**
+ * An API Key of the signed-in user as the `api-keys.md` contract returns it (glossary API Key,
+ * decision 042): a long-lived secret that lets scripts and the CLI call Swallow as this user. The
+ * secret itself is never part of it — swallow keeps only a hash — so `prefix` is what identifies a
+ * key to a person.
+ */
+export interface ApiKey {
+  id: string
+  /** Unique among the user's keys. */
+  name: string
+  /** The first characters of the secret (`swk_…`); it cannot authenticate. */
+  prefix: string
+  createdAt: string
+  /** `null` for a key that never expires. */
+  expiresAt: string | null
+  /** `null` until first use; updated at most once a minute, so it may lag slightly. */
+  lastUsedAt: string | null
+}
+
+/**
+ * The one-time result of creating an API Key. `secret` exists only in this response: the UI must
+ * let the operator copy it before discarding it, and must never persist or log it.
+ */
+export interface CreatedApiKey {
+  key: ApiKey
+  secret: string
+}
+
+/** Whether the key has passed its expiry at `now` (a key without expiry never has). */
+export function isApiKeyExpired(key: ApiKey, now: number): boolean {
+  return key.expiresAt !== null && Date.parse(key.expiresAt) <= now
+}

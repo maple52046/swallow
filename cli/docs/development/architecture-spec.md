@@ -50,7 +50,10 @@ Dependency direction:
   live in shared helpers (`helpers.go`) so a new command is a small, uniform
   addition rather than a fresh copy of request handling.
 - **client** — the single place that knows how to reach api-server: the
-  `/api/v1` base path, bearer/machine/none authentication, the shared JSON error
+  `/api/v1` base path, bearer (API Key or Session access token)/machine/none
+  authentication with Session renewal (refresh before expiry and once after a
+  `401`, handing renewed tokens to a caller-supplied persistence hook so the
+  package stays independent of `config`), the shared JSON error
   envelope decoded into a typed `APIError`, Server-Sent Events framing, and
   multipart upload. Payloads pass through as opaque values.
 - **output** — renders decoded JSON values (maps, slices, scalars) as a table,
@@ -58,7 +61,9 @@ Dependency direction:
   endpoint; table rendering is a best-effort convenience and JSON/YAML are the
   lossless formats.
 - **config** — resolves the connection profile from file, then `SWALLOW_*`
-  environment, then flags, and persists the token on login. It is the only
+  environment, then flags, and persists the credential: a Session's access and
+  refresh tokens (re-reading the file before each write so concurrent `swallow`
+  processes do not lose a rotated refresh token) or an API Key. It is the only
   durable client-side state.
 
 ## Design Constraints
@@ -66,8 +71,8 @@ Dependency direction:
 - The CLI targets the **Active** contract surface only. Deprecated compatibility
   aliases (`/operations`, `/clusters`, single-server `deploy`/`release`) are not
   exposed as first-class commands.
-- Credentials (access token, machine token) are never logged; the profile file
-  is written owner-only.
+- Credentials (access and refresh tokens, API Keys, machine token) are never
+  logged; the profile file is written owner-only.
 - A command must not invent API behavior. If an endpoint needs a body shape the
   CLI cannot express with simple flags, it accepts a `--file` document rather
   than guessing fields.

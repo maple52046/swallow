@@ -146,8 +146,8 @@ func (h *SoftwareHandler) Uninstall(c *fiber.Ctx) error {
 }
 
 func requestedBy(c *fiber.Ctx) string {
-	if claims := middleware.GetClaims(c); claims != nil {
-		return claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		return principal.Username
 	}
 	return ""
 }

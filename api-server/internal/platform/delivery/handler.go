@@ -254,8 +254,8 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 	}
 
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 
 	result, err := h.deploy.Deploy(c.Context(), application.DeployPlatformInput{
@@ -340,10 +340,14 @@ type uninstallPlatformRequest struct {
 	} `json:"releaseOptions"`
 }
 
+// Uninstall handles POST /platforms/{id}/uninstall (platforms.md): it starts the uninstall
+// Operation, optionally releasing the Platform's Servers with the requested erase options, records
+// the authenticated caller as the requester, and answers 202 with the Operation id. Refusals map
+// through respondError onto the contract's error codes.
 func (h *PlatformHandler) Uninstall(c *fiber.Ctx) error {
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	var req uninstallPlatformRequest
 	if len(c.Body()) > 0 {

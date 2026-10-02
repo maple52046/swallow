@@ -1,5 +1,5 @@
 // Package delivery exposes the SSH Key use cases over HTTP (Fiber), implementing the ssh-keys.md
-// contract. It resolves the caller's user id from the verified JWT claims (the routes are mounted
+// contract. It resolves the caller's user id from the authenticated Principal (the routes are mounted
 // behind Auth and AdminOnly), parses request bodies, and maps domain errors onto the shared API
 // error envelope. No key rule lives here, and no response ever carries a stored private key.
 package delivery
@@ -148,11 +148,11 @@ func (h *SSHKeyHandler) Sync(c *fiber.Ctx) error {
 // id means the route was mounted without it — treated as unauthenticated rather than as a user
 // with an empty id, which would otherwise address a shared bucket of keys.
 func callerID(c *fiber.Ctx) (string, bool) {
-	claims := middleware.GetClaims(c)
-	if claims == nil || claims.UserID == "" {
+	principal := middleware.GetPrincipal(c)
+	if principal == nil || principal.UserID == "" {
 		return "", false
 	}
-	return claims.UserID, true
+	return principal.UserID, true
 }
 
 func unauthorized(c *fiber.Ctx) error {

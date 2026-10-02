@@ -65,7 +65,10 @@ Ansible event、provider SDK response 或 YAML node。
 
 目前主要 vertical slices 包含：
 
-- `auth` — login 與 current identity。
+- `auth` — Session（password login、refresh token 換發與重用偵測、logout）與 current identity；
+  只存 refresh token 的 SHA-256 hash（decision 042）。
+- `apikey` — User 的 API Key（只存 SHA-256 hash 與顯示前綴）及每個請求的 key 驗證；owner 經
+  `OwnerDirectory` port 由 `internal/app` adapter 對接 auth 的 user store（decision 042）。
 - `site`／`infrastructure` — Sites、Integrations、Zones、Pools。
 - `server` — stable Server projection 與 event stream。
 - `provisioning` — MAAS adapter、images、templates、tags、network、deploy/release/recovery。
@@ -80,6 +83,10 @@ Ansible event、provider SDK response 或 YAML node。
 
 Feature 間不得直接 import 對方 infra implementation。Cross-feature coordination
 透過 application port 或 `internal/app` adapter 組合。
+
+認證由 `internal/shared/middleware` 的 `Authenticator` 統一處理：access JWT 與 API Key 都轉成
+framework-free 的 `internal/shared/identity.Principal`，handler 只透過 `GetPrincipal` 讀取呼叫者，
+不分辨 credential 類型（`SessionOnly` 是唯一例外，用於禁止以 API Key 建立 API Key）。
 
 ## Data Crossing Boundaries
 

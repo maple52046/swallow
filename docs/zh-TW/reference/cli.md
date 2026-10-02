@@ -34,8 +34,9 @@ swallow auth me
 ```
 
 Profile 會以 owner-only permission 儲存在 user config directory。Environment
-variable 覆寫 profile，flag 再覆寫 environment variable。使用 `logout` 清除 stored
-access token。
+variable 覆寫 profile，flag 再覆寫 environment variable。以密碼登入會保留一個 session，CLI 會自動
+換發；script 與 CI 可建立 API key（`swallow api-keys create`），以 `login --api-key-stdin` 存入或透過
+`SWALLOW_API_KEY` 傳入。使用 `logout` 結束 session 並移除已保存的 credential。
 
 ## Output 與 request body
 
@@ -50,7 +51,7 @@ automation scope 不清楚。
 ## Command groups
 
 `auth`、`login`、`logout`、`overview`、`sites`、`integrations`、
-`servers`、`provisioning`、`infrastructure`、`ssh-keys`、`platforms`、`workflows`、
+`servers`、`provisioning`、`infrastructure`、`ssh-keys`、`api-keys`、`platforms`、`workflows`、
 `monitoring`、`discovery` 是 CLI 已實作的 operator surface。Managed Software
 目前使用 Dashboard 或 HTTP API。Deprecated aliases 與 Planned endpoint 刻意不提供。
 

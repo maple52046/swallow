@@ -326,8 +326,8 @@ func (h *ProvisioningHandler) CreateDeploymentOperation(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	input, ok := deployServersInput(req)
 	if !ok {
@@ -371,8 +371,8 @@ func (h *ProvisioningHandler) CreateImageVerification(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
 	}
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	result, err := h.durable.LaunchImageVerification(c.Context(), application.ImageVerificationInput{
 		IntegrationID: req.IntegrationID,
@@ -417,8 +417,8 @@ func (h *ProvisioningHandler) CreateReleaseOperation(c *fiber.Ctx) error {
 			UnbindStaticIPs: req.UnbindStaticIPs, RequestID: c.GetRespHeader(fiber.HeaderXRequestID)}
 	}
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	result, err := h.durable.LaunchRelease(c.Context(), inputs, requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
 	if err != nil {
@@ -453,8 +453,8 @@ func (h *ProvisioningHandler) CreateRecoverOperation(c *fiber.Ctx) error {
 			UnbindStaticIPs: req.UnbindStaticIPs, RequestID: c.GetRespHeader(fiber.HeaderXRequestID)}
 	}
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	result, err := h.durable.LaunchRecover(c.Context(), inputs, requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
 	if err != nil {

@@ -30,16 +30,32 @@ the full path including the prefix.
 
 ## Authentication
 
-Endpoints that require authentication expect a bearer token issued by
-`POST /api/v1/auth/login`:
+Endpoints that require authentication expect one bearer credential:
 
 ```text
-Authorization: Bearer <accessToken>
+Authorization: Bearer <credential>
 ```
 
-- A missing, malformed, or expired token yields `401` with code `unauthorized`.
-- The token is a JWT. Consumers must treat it as opaque and must not parse or
-  depend on its claims.
+The credential is either:
+
+- an **access token** of a Session, issued by `POST /api/v1/auth/login` or
+  `POST /api/v1/auth/refresh` ([auth-login.md](auth-login.md),
+  [auth-refresh.md](auth-refresh.md)). It is short-lived (minutes, server-configured).
+- an **API Key** secret created through [api-keys.md](api-keys.md). API Key secrets always
+  start with `swk_`; access tokens never do.
+
+Rules:
+
+- A missing, malformed, expired, or revoked credential yields `401` with code
+  `unauthorized`. An API Key whose owner no longer exists is also `401`.
+- Both credentials act with the owning User's role; endpoint contracts state the role they
+  require, not the credential type, unless they say otherwise.
+- Access tokens are JWTs. Consumers must treat them as opaque and must not parse or depend
+  on their claims; `accessTokenExpiresAt` in the issuing response is the only expiry a
+  consumer may use.
+- A consumer holding a refresh token handles a `401` on an authenticated call by refreshing
+  once and retrying the call once; if the refresh also fails it re-authenticates. A consumer
+  without a refresh token (an API Key, or an older token) re-authenticates.
 
 ## Authorization
 

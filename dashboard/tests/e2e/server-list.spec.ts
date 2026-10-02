@@ -246,6 +246,31 @@ test('SSE reconnect resync keeps last-good rows through a refresh failure and re
   await expect(page.getByText(/Live updates unavailable/)).toBeVisible()
 })
 
+test('live updates reconnect with the current access token after the browser closes the stream', async ({ page }) => {
+  await installApiFixtures(page)
+  await page.goto('/servers?site=site-a')
+  await expect(page.getByText('Live', { exact: true })).toBeVisible()
+  const sourceCount = () => page.evaluate(() => (window as typeof window & { __serverEventSources?: unknown[] }).__serverEventSources?.length ?? 0)
+  const before = await sourceCount()
+
+  // A 401 for an expired access token makes the browser close the stream for good.
+  await page.evaluate(() => {
+    const sources = (window as typeof window & { __serverEventSources?: Array<{ emitError: (closed?: boolean) => void }> }).__serverEventSources
+    sources?.at(-1)?.emitError(true)
+  })
+  await expect(page.getByText(/Live updates unavailable/)).toBeVisible()
+
+  // The adapter opens a new stream after its backoff, carrying the Session's access token again.
+  await expect.poll(sourceCount, { timeout: 5_000 }).toBeGreaterThan(before)
+  const url = await page.evaluate(() => (window as typeof window & { __serverEventSources?: Array<{ url: string }> }).__serverEventSources?.at(-1)?.url ?? '')
+  expect(new URL(url, 'http://localhost').searchParams.get('access_token')).toBe('e2e-token')
+  await page.evaluate(() => {
+    const sources = (window as typeof window & { __serverEventSources?: Array<{ emitOpen: () => void }> }).__serverEventSources
+    sources?.at(-1)?.emitOpen()
+  })
+  await expect(page.getByText('Live', { exact: true })).toBeVisible()
+})
+
 test('mobile cards preserve operational and hardware facts without horizontal overflow', async ({ page }) => {
   await installApiFixtures(page, {
     readyServerCount: 1,

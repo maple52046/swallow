@@ -16,16 +16,23 @@ type APIError struct {
 	Code      string
 	Message   string
 	RequestID string
+	// Hint is a client-side next step appended to the message (for example "run
+	// `swallow login`"); it never comes from the server.
+	Hint string
 }
 
 // Error renders a stable, greppable single-line description. It always includes
 // the status and code; the request ID is appended only when present so a
 // transport-level failure without an envelope stays readable.
 func (e *APIError) Error() string {
-	if e.RequestID != "" {
-		return fmt.Sprintf("%s (HTTP %d, request %s): %s", e.Code, e.Status, e.RequestID, e.Message)
+	message := e.Message
+	if e.Hint != "" {
+		message += " (" + e.Hint + ")"
 	}
-	return fmt.Sprintf("%s (HTTP %d): %s", e.Code, e.Status, e.Message)
+	if e.RequestID != "" {
+		return fmt.Sprintf("%s (HTTP %d, request %s): %s", e.Code, e.Status, e.RequestID, message)
+	}
+	return fmt.Sprintf("%s (HTTP %d): %s", e.Code, e.Status, message)
 }
 
 // errorEnvelope mirrors the on-the-wire shape documented in conventions.md so a

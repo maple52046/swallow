@@ -35,7 +35,10 @@ swallow auth me
 
 The profile is stored in the user configuration directory with owner-only
 permissions. Environment variables override the profile and flags override
-environment variables. Use `logout` to clear the stored access token.
+environment variables. A password login keeps a session that the CLI renews
+automatically; for scripts and CI, create an API key (`swallow api-keys create`)
+and store it with `login --api-key-stdin` or pass it in `SWALLOW_API_KEY`. Use
+`logout` to end the session and remove stored credentials.
 
 ## Output and request bodies
 
@@ -50,7 +53,7 @@ for interactive work but can make automation ambiguous.
 ## Command groups
 
 `auth`, `login`, `logout`, `overview`, `sites`, `integrations`,
-`servers`, `provisioning`, `infrastructure`, `ssh-keys`, `platforms`, `workflows`,
+`servers`, `provisioning`, `infrastructure`, `ssh-keys`, `api-keys`, `platforms`, `workflows`,
 `monitoring`, and `discovery` expose the CLI's implemented operator surface.
 Managed Software currently uses the Dashboard or HTTP API. Deprecated aliases
 and Planned endpoints are intentionally absent.

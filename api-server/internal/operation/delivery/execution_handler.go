@@ -50,8 +50,8 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	item, err := h.operations.Create(c.Context(), application.CreateExecutionInput{
 		Kind: req.Kind, Intent: req.Intent, TargetServerIDs: req.TargetServerIDs,
@@ -251,8 +251,8 @@ func (h *ExecutionHandler) Rerun(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
 	}
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	item, err := h.orchestrations.Rerun(c.Context(), c.Params("id"), requestedBy)
 	if err != nil {
@@ -271,8 +271,8 @@ func (h *ExecutionHandler) Retry(c *fiber.Ctx) error {
 		}
 	}
 	requestedBy := ""
-	if claims := middleware.GetClaims(c); claims != nil {
-		requestedBy = claims.Username
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
 	}
 	item, err := h.operations.Retry(c.Context(), c.Params("id"), requestedBy)
 	if err != nil {

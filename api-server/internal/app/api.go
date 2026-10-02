@@ -24,6 +24,9 @@ import (
 
 	"github.com/maple52046/swallow/bootstrap"
 	"github.com/maple52046/swallow/config"
+	apikeyapp "github.com/maple52046/swallow/internal/apikey/application"
+	apikeydelivery "github.com/maple52046/swallow/internal/apikey/delivery"
+	apikeyinfra "github.com/maple52046/swallow/internal/apikey/infra"
 	authapp "github.com/maple52046/swallow/internal/auth/application"
 	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
 	authinfra "github.com/maple52046/swallow/internal/auth/infra"
@@ -188,12 +191,29 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("bootstrap admin: %w", err)
 	}
 
-	jwtSvc := jwt.NewService(cfg.JWTSecret, time.Duration(cfg.JWTExpiryHours)*time.Hour)
-
+	if cfg.JWTExpiryHours > 0 {
+		slog.Warn("api.jwtExpiryHours is deprecated and ignored; access tokens now live accessTokenTTL",
+			"jwtExpiryHours", cfg.JWTExpiryHours, "accessTokenTTL", cfg.AccessTokenTTL.String())
+	}
+	jwtSvc := jwt.NewService(cfg.JWTSecret, cfg.AccessTokenTTL)
+	sessionRepo, err := authinfra.NewMongoSessionRepo(db)
+	if err != nil {
+		return fmt.Errorf("session repo init: %w", err)
+	}
 	authHandler := authdelivery.NewAuthHandler(
-		authapp.NewLoginUseCase(userRepo, jwtSvc),
+		authapp.NewSessionService(userRepo, sessionRepo, jwtSvc, authapp.SessionConfig{
+			RefreshTokenTTL: cfg.RefreshTokenTTL,
+			MaxAge:          cfg.SessionMaxAge,
+		}),
 		authapp.NewMeUseCase(userRepo),
 	)
+	apiKeyRepo, err := apikeyinfra.NewMongoKeyRepo(db)
+	if err != nil {
+		return fmt.Errorf("api key repo init: %w", err)
+	}
+	apiKeyService := apikeyapp.NewService(apiKeyRepo, apiKeyOwners{users: userRepo})
+	apiKeyHandler := apikeydelivery.NewHandler(apiKeyService)
+	authenticator := middleware.NewAuthenticator(jwtSvc, apiKeyService)
 
 	integrationService := siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo)
 	siteHandler := sitedelivery.NewSiteHandler(
@@ -463,15 +483,20 @@ func RunAPI(cfg config.APIConfig) error {
 		return err
 	})
 	if cfg.AllowedOrigins != "" {
+		// Credentials are allowed so a dashboard served from a listed development origin can
+		// send the refresh cookie to /api/v1/auth. That is only safe with explicit origins,
+		// which config validation enforces (no "*").
 		fiberApp.Use(cors.New(cors.Config{
-			AllowOrigins: cfg.AllowedOrigins,
-			AllowMethods: "GET,POST,PATCH,PUT,DELETE,OPTIONS",
-			AllowHeaders: "Content-Type,Authorization",
+			AllowOrigins:     cfg.AllowedOrigins,
+			AllowMethods:     "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+			AllowHeaders:     "Content-Type,Authorization",
+			AllowCredentials: true,
 		}))
 	}
 
 	registerRoutes(fiberApp, routeDeps{
 		jwtSvc:         jwtSvc,
+		authenticator:  authenticator,
 		machineToken:   cfg.MachineToken,
 		auth:           authHandler,
 		overview:       overviewHandler,
@@ -486,6 +511,7 @@ func RunAPI(cfg config.APIConfig) error {
 		infrastructure: infrastructureHandler,
 		discovery:      discoveryHandler,
 		sshKeys:        sshKeyHandler,
+		apiKeys:        apiKeyHandler,
 		releaseVersion: releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
@@ -525,7 +551,10 @@ func RunAPI(cfg config.APIConfig) error {
 }
 
 type routeDeps struct {
-	jwtSvc         *jwt.Service
+	jwtSvc *jwt.Service
+	// authenticator verifies Session access tokens and API Keys for every authenticated route;
+	// jwtSvc remains only for the machine-token routes' admin fallback.
+	authenticator  *middleware.Authenticator
 	machineToken   string
 	auth           *authdelivery.AuthHandler
 	overview       *overviewdelivery.Handler
@@ -540,6 +569,7 @@ type routeDeps struct {
 	infrastructure *infrastructuredelivery.InfrastructureHandler
 	discovery      *discoverydelivery.DiscoveryHandler
 	sshKeys        *sshkeydelivery.SSHKeyHandler
+	apiKeys        *apikeydelivery.Handler
 	readiness      func(context.Context) error
 	releaseVersion string
 }
@@ -642,9 +672,11 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	auth := v1.Group("/auth")
 	auth.Post("/login", deps.auth.Login)
-	auth.Get("/me", middleware.Auth(deps.jwtSvc), deps.auth.Me)
+	auth.Post("/refresh", deps.auth.Refresh)
+	auth.Post("/logout", deps.authenticator.Optional(), deps.auth.Logout)
+	auth.Get("/me", deps.authenticator.Require(), deps.auth.Me)
 
-	admin := []fiber.Handler{middleware.Auth(deps.jwtSvc), middleware.AdminOnly()}
+	admin := []fiber.Handler{deps.authenticator.Require(), middleware.AdminOnly()}
 
 	overview := v1.Group("/overview", admin...)
 	overview.Get("/", deps.overview.Get)
@@ -676,7 +708,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// query parameter, which BearerTokenFromQuery promotes to a Bearer header before Auth.
 	v1.Get("/servers/stream",
 		middleware.BearerTokenFromQuery("access_token"),
-		middleware.Auth(deps.jwtSvc),
+		deps.authenticator.Require(),
 		middleware.AdminOnly(),
 		deps.serverStream.Stream)
 
@@ -784,6 +816,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	infrastructure.Get("/pools/:id", deps.infrastructure.GetPool)
 	infrastructure.Patch("/pools/:id", deps.infrastructure.UpdatePool)
 	infrastructure.Delete("/pools/:id", deps.infrastructure.DeletePool)
+
+	// API Keys (contract api-keys.md, decision 042): the caller's keys for non-interactive
+	// clients. Creating one needs a password Session, so a leaked key cannot mint replacements.
+	apiKeys := v1.Group("/api-keys", admin...)
+	apiKeys.Get("/", deps.apiKeys.List)
+	apiKeys.Post("/", middleware.SessionOnly(), deps.apiKeys.Create)
+	apiKeys.Delete("/:keyId", deps.apiKeys.Delete)
 
 	// SSH Keys (contract ssh-keys.md, decision 039): the Deployment Key and the caller's Access
 	// Keys. Static deployment paths are registered before "/:keyId" so they are never read as ids.

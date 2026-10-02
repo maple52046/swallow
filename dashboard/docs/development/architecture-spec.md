@@ -88,11 +88,22 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
 - URL owns shareable filters/scope；browser storage 只保存 UI preference/session。
 - Status、error、staleness 與 destructive consequence 必須文字化，不只靠色彩。
 
+## Session and credentials
+
+- Access token 只存在 `src/infrastructure/api/session.ts` 的記憶體中，不寫入 `localStorage`；refresh token
+  是網頁讀不到的 HttpOnly cookie（decision 042）。Presentation 永遠拿不到任何 token，只透過
+  `AuthRepository` 取得 domain User。
+- `apiRequest`／`apiRequestText`／`apiUpload` 在 token 即將到期時先換發，收到 `401` 時換發一次並重送；
+  換發本身是同分頁 single-flight、跨分頁以 Web Locks 排隊。換發失敗時 adapter 發出 session-ended
+  訊號，由 `AuthContext` 清除使用者並交給 `ProtectedRoute` 帶著原位置導回 login。
+- Event stream（SSE）以 access token query parameter 連線；瀏覽器放棄連線時由 adapter 換發後以
+  backoff 重連。API key 只供 CLI／script 使用，dashboard 不會以 API key 驗證。
+
 ## API and Error Boundary
 
 - Adapter 使用 Active provider contract，不從 backend code 猜測 behavior。
 - Shared error envelope 轉成 typed client error；UI 顯示 human message 與 request ID。
-- `401` 清除 invalid session；role visibility 不取代 server authorization。
+- `401` 先嘗試換發一次，失敗才結束 session；role visibility 不取代 server authorization。
 - SSE ownership、reconnect/backoff、abort/cancellation 與 cleanup 必須集中且有註解。
 - Unknown enum 使用 least-privileged/safe presentation，不 fail open。
 

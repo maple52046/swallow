@@ -18,6 +18,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Monitoring | Alert、silence、fixed metrics、fleet health 與 Grafana link |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
+| API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 Swallow 的 key |
 
 `/clusters` 與 `/operations` 下的 route 是 compatibility redirect；canonical
 navigation 使用 Platforms 與 Workflows。
@@ -50,9 +51,15 @@ Development build 會顯示這些功能，並提供 **Account menu → Experimen
 
 ## Session 與權限
 
-Dashboard 從 login endpoint 取得 opaque bearer token，再透過 `/auth/me` 讀取 caller。
-它不解析 JWT claims。Session 過期或 user 已刪除時會回到 login。Role-gated control
-只是 presentation guidance；authorization 仍以 API 為準。
+登入會建立一個 session。Dashboard 只在記憶體保存短效的 access token，並透過網頁無法讀取的 refresh
+cookie 自動換發，因此使用中不會被踢回登入頁。每個分頁載入時會延續同一個 session。Session 在登出、
+7 天未使用或登入 30 天後結束（server 預設值）；此時 Dashboard 回到登入頁並說明 session 已結束，重新
+登入後會回到原本的頁面。
+
+Script 與 CLI 可在 **Account menu → API keys** 建立 API key。Secret 只顯示一次；刪除 key 即撤銷。
+
+Dashboard 透過 `/auth/me` 讀取目前的 caller，不解析 token claims。Role-gated control 只是
+presentation guidance；authorization 仍以 API 為準。
 
 ## Error 與診斷
 

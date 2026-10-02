@@ -18,7 +18,8 @@ func init() {
 	apiCmd.Flags().String("mongo-uri", "", "MongoDB connection URI")
 	apiCmd.Flags().String("mongo-db", "", "MongoDB database name")
 	apiCmd.Flags().String("jwt-secret", "", "JWT signing secret")
-	apiCmd.Flags().Int("jwt-expiry", 0, "JWT token expiry in hours")
+	apiCmd.Flags().Int("jwt-expiry", 0, "deprecated and ignored; use accessTokenTTL in config or SWALLOW_API_ACCESS_TOKEN_TTL")
+	_ = apiCmd.Flags().MarkDeprecated("jwt-expiry", "it is ignored; set accessTokenTTL in config or SWALLOW_API_ACCESS_TOKEN_TTL")
 }
 
 func runAPI(cmd *cobra.Command, _ []string) error {

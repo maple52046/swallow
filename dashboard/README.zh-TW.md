@@ -21,6 +21,7 @@
 | `/workflows`、`/workflows/:id` | Durable Workflow list、event、log 與 control |
 | `/monitoring` | Alert、silence、metric、health 與 Grafana |
 | `/infrastructure/*` | Site、Integration、Zone、Pool |
+| `/account/ssh-keys`、`/account/api-keys` | 你的 SSH key 與 API key（account menu） |
 
 `/clusters` 與 `/operations` 是 compatibility redirect。
 

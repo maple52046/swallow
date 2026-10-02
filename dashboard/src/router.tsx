@@ -31,6 +31,7 @@ import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
 import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
 import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
 import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
+import { ApiKeysPage } from './presentation/pages/account/ApiKeysPage'
 import { FeatureRoute } from './presentation/components/FeatureRoute'
 
 /**
@@ -100,6 +101,8 @@ export const router = createBrowserRouter([
       { path: 'infrastructure/pools', element: <GroupingPage kind="pool" /> },
       // Account settings for the signed-in admin; not Site-scoped (SSH keys are per User).
       { path: 'account/ssh-keys', element: <SSHKeysPage /> },
+      // API Keys for non-interactive clients belong to the signed-in User (decision 042).
+      { path: 'account/api-keys', element: <ApiKeysPage /> },
     ],
   },
   { path: '*', element: <ProtectedRoute><NotFoundPage /></ProtectedRoute> },

@@ -1,36 +1,12 @@
-/**
- * Resolves the API address, preferring an explicit VITE_API_BASE_URL.
- *
- * The default is deliberately empty: both Vite in development and Nginx in production
- * proxy /api on the dashboard origin.
- */
-function resolveApiBaseUrl(): string {
-  const configured = import.meta.env.VITE_API_BASE_URL as string | undefined
-  if (configured) {
-    return configured.replace(/\/+$/, '')
-  }
-  return ''
-}
+import { API_BASE_URL } from './baseUrl'
+import {
+  accessTokenExpiresSoon,
+  currentAccessToken,
+  notifySessionEnded,
+  refreshSession,
+} from './session'
 
-/**
- * The resolved API origin, shared by fetch-based adapters and the SSE adapter. Empty means
- * same-origin (the dev proxy and production Nginx both serve /api on the dashboard origin).
- */
-export const API_BASE_URL = resolveApiBaseUrl()
-
-const TOKEN_KEY = 'access_token'
-
-export const tokenStore = {
-  get(): string | null {
-    return localStorage.getItem(TOKEN_KEY)
-  },
-  set(token: string): void {
-    localStorage.setItem(TOKEN_KEY, token)
-  },
-  clear(): void {
-    localStorage.removeItem(TOKEN_KEY)
-  },
-}
+export { API_BASE_URL }
 
 /** A client-safe API failure with an opaque server-log correlation ID. */
 export class ApiRequestError extends Error {
@@ -45,21 +21,53 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Auth endpoints answer 401 for their own reasons (wrong password, ended Session); renewing and
+ * retrying them would loop or mask the real error. */
+const AUTH_PATH = '/api/v1/auth/'
+
+/**
+ * Renews the access token before a request when it expires within the leeway. A refresh that
+ * ends the Session is reported to the presentation; the request then goes out without a token
+ * and fails with the server's 401.
+ */
+async function ensureFreshToken(path: string): Promise<void> {
+  if (path.startsWith(AUTH_PATH) || !accessTokenExpiresSoon()) return
+  if ((await refreshSession()) === 'ended') notifySessionEnded()
+}
+
+/**
+ * Sends one authenticated request and, when the server answers 401 to a request that carried an
+ * access token, refreshes the Session once and sends it again. `send` must be safe to call twice
+ * (JSON and text bodies are strings; uploads resend their FormData). A refresh that ends the
+ * Session notifies the presentation and returns the original 401 response.
+ */
+async function withSession<R extends { status: number }>(path: string, send: (token: string | null) => Promise<R>): Promise<R> {
+  await ensureFreshToken(path)
+  const token = currentAccessToken()
+  const first = await send(token)
+  if (first.status !== 401 || token === null || path.startsWith(AUTH_PATH)) return first
+  if ((await refreshSession()) === 'ended') {
+    notifySessionEnded()
+    return first
+  }
+  return send(currentAccessToken())
+}
+
+function authHeaders(token: string | null, base?: HeadersInit): Record<string, string> {
+  const headers: Record<string, string> = { ...(base as Record<string, string> | undefined) }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  return headers
+}
+
+/**
+ * Calls a JSON endpoint with the Session's access token, renewing it before expiry and once after
+ * a 401. Errors use the shared envelope and are thrown as {@link ApiRequestError}.
+ */
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = tokenStore.get()
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> | undefined),
-  }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await withSession(path, (token) => fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers,
-  })
+    headers: authHeaders(token, { 'Content-Type': 'application/json', ...(options.headers as Record<string, string> | undefined) }),
+  }))
 
   if (response.status === 204 || response.headers.get('content-length') === '0') {
     return undefined as T
@@ -89,8 +97,10 @@ export interface UploadProgress {
  *
  * It uses `XMLHttpRequest` rather than `fetch` because only XHR exposes upload progress events,
  * which the OS image upload dialog needs for a multi-gigabyte artifact. The browser sets the
- * multipart `Content-Type` (with boundary) itself, so this deliberately does not set it; the
- * bearer token is attached like {@link apiRequest}. On failure it parses the same JSON error
+ * multipart `Content-Type` (with boundary) itself, so this deliberately does not set it. The
+ * access token is renewed before the upload starts when it is about to expire, so a long upload
+ * rarely meets a 401; if it does, the upload restarts once with the renewed token (progress
+ * starts over). On failure it parses the same JSON error
  * envelope into an {@link ApiRequestError}; on success it returns the parsed JSON body, or
  * `undefined` for an empty (e.g. 204) response.
  */
@@ -99,9 +109,26 @@ export function apiUpload<T>(
   form: FormData,
   options: { method?: string; onProgress?: (progress: UploadProgress) => void } = {},
 ): Promise<T> {
-  const token = tokenStore.get()
+  return withSession(path, (token) => sendUpload(path, form, token, options)).then((outcome) => {
+    if (outcome.error) throw outcome.error
+    return outcome.value as T
+  })
+}
 
-  return new Promise<T>((resolve, reject) => {
+interface UploadOutcome {
+  status: number
+  value?: unknown
+  error?: ApiRequestError
+}
+
+/** One XHR upload attempt; it resolves (never rejects) so {@link withSession} can see the status. */
+function sendUpload(
+  path: string,
+  form: FormData,
+  token: string | null,
+  options: { method?: string; onProgress?: (progress: UploadProgress) => void },
+): Promise<UploadOutcome> {
+  return new Promise<UploadOutcome>((resolve) => {
     const xhr = new XMLHttpRequest()
     xhr.open(options.method ?? 'POST', `${API_BASE_URL}${path}`)
     if (token) {
@@ -117,14 +144,14 @@ export function apiUpload<T>(
       const text = xhr.responseText
       if (xhr.status >= 200 && xhr.status < 300) {
         if (!text) {
-          resolve(undefined as T)
+          resolve({ status: xhr.status })
           return
         }
         try {
-          resolve(JSON.parse(text) as T)
+          resolve({ status: xhr.status, value: JSON.parse(text) })
         } catch {
           // A success with an unparseable body is treated as no content rather than an error.
-          resolve(undefined as T)
+          resolve({ status: xhr.status })
         }
         return
       }
@@ -140,10 +167,10 @@ export function apiUpload<T>(
       } catch {
         // A non-JSON error body leaves the status-derived message in place.
       }
-      reject(new ApiRequestError(code, message, xhr.status, requestId))
+      resolve({ status: xhr.status, error: new ApiRequestError(code, message, xhr.status, requestId) })
     }
-    xhr.onerror = () => reject(new ApiRequestError('network_error', 'The upload could not reach the server.', 0))
-    xhr.onabort = () => reject(new ApiRequestError('aborted', 'The upload was cancelled.', 0))
+    xhr.onerror = () => resolve({ status: 0, error: new ApiRequestError('network_error', 'The upload could not reach the server.', 0) })
+    xhr.onabort = () => resolve({ status: 0, error: new ApiRequestError('aborted', 'The upload was cancelled.', 0) })
     xhr.send(form)
   })
 }
@@ -154,16 +181,10 @@ export function apiUpload<T>(
  * and returns the raw text on success. An empty body yields an empty string.
  */
 export async function apiRequestText(path: string, options: RequestInit = {}): Promise<string> {
-  const token = tokenStore.get()
-
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string> | undefined),
-  }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers })
+  const response = await withSession(path, (token) => fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: authHeaders(token, options.headers),
+  }))
   const text = await response.text()
 
   if (!response.ok) {

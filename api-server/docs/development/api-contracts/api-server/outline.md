@@ -21,8 +21,11 @@ conformist HTTP consumers of this surface; neither owns any contract here.
 
 | Contract | Status | Endpoint | Purpose |
 | --- | --- | --- | --- |
-| [auth-login.md](auth-login.md) | Active | `POST /api/v1/auth/login` | Exchange username and password for an access token. |
-| [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity and role. |
+| [auth-login.md](auth-login.md) | Active | `POST /api/v1/auth/login` | Exchange username and password for a Session: a short-lived access token and a refresh token (cookie for browsers, body for the CLI). |
+| [auth-refresh.md](auth-refresh.md) | Active | `POST /api/v1/auth/refresh` | Exchange a refresh token for a new access token, rotating the refresh token (30-second grace; reuse revokes the Session). |
+| [auth-logout.md](auth-logout.md) | Active | `POST /api/v1/auth/logout` | End a Session so its refresh token stops working; idempotent. |
+| [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity, role, and authentication method. |
+| [api-keys.md](api-keys.md) | Active | `/api/v1/api-keys` | Create, list, and delete the caller's API Keys for non-interactive clients (secret shown once, optional expiry). |
 | [overview.md](overview.md) | Active | `GET /api/v1/overview` | Site-scoped inventory, integration, platform, operation, and monitoring summary. |
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List complete Server projections with filtering and pagination. |

@@ -19,6 +19,7 @@ current session in the browser.
 | Monitoring | Alerts, silences, fixed metrics, fleet health, and Grafana links |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
+| API keys (account menu) | Keys that let scripts, CI, and the CLI call Swallow as you without a password |
 
 Routes under `/clusters` and `/operations` are compatibility redirects.
 Canonical navigation uses Platforms and Workflows.
@@ -58,10 +59,20 @@ configured integration naturally produces empty states.
 
 ## Sessions and permissions
 
-The Dashboard obtains an opaque bearer token from the login endpoint and reads
-the current caller from `/auth/me`. It does not decode JWT claims. An expired
-or deleted session returns to login. Role-gated controls are presentation
-guidance; the API remains authoritative for authorization.
+Signing in starts a session. The Dashboard keeps its short-lived access token in
+memory only and renews it automatically through a refresh cookie the page cannot
+read, so you are not sent back to the login page while you work. Each tab resumes
+the session on load. A session ends when you sign out, after 7 days without use,
+or 30 days after sign-in (server defaults); the Dashboard then returns to the
+login page, says the session ended, and brings you back to the same page after
+you sign in again.
+
+For scripts and the CLI, create an API key under **Account menu → API keys**. The
+secret is shown once; delete the key to revoke it.
+
+The Dashboard reads the current caller from `/auth/me` and does not decode token
+claims. Role-gated controls are presentation guidance; the API remains
+authoritative for authorization.
 
 ## Errors and diagnostics
 

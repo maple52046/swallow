@@ -28,8 +28,19 @@ type APIConfig struct {
 	MongoDB string `yaml:"mongoDb"`
 	// JWTSecret is the HMAC secret used to sign JWT tokens. Never log this.
 	JWTSecret string `yaml:"jwtSecret"`
-	// JWTExpiryHours is the number of hours before a JWT token expires.
+	// JWTExpiryHours is deprecated and ignored: it set the lifetime of the single 24-hour token
+	// that Sessions replaced (decision 042). It is still parsed so existing config files keep
+	// loading, and the API logs a warning when it is set. Use AccessTokenTTL.
 	JWTExpiryHours int `yaml:"jwtExpiryHours"`
+	// AccessTokenTTL is how long a Session access token is accepted. Keep it short (minutes):
+	// logout cannot revoke an access token already issued, so this bounds the exposure.
+	AccessTokenTTL time.Duration `yaml:"accessTokenTTL"`
+	// RefreshTokenTTL is a Session's idle limit: a Session not refreshed for this long ends.
+	// Every refresh restarts it, up to SessionMaxAge.
+	RefreshTokenTTL time.Duration `yaml:"refreshTokenTTL"`
+	// SessionMaxAge is the absolute lifetime of a Session from login; after it the user signs in
+	// again however active they were.
+	SessionMaxAge time.Duration `yaml:"sessionMaxAge"`
 	// BootstrapAdminUsername is the username seeded on first startup.
 	BootstrapAdminUsername string `yaml:"bootstrapAdminUsername"`
 	// BootstrapAdminPassword is the password for the bootstrap admin. Never log this.
@@ -76,7 +87,9 @@ type APIConfig struct {
 	JobArtifactDir string `yaml:"jobArtifactDir"`
 	// JobArtifactRetention controls automatic removal of local runner artifacts.
 	JobArtifactRetention time.Duration `yaml:"jobArtifactRetention"`
-	// AllowedOrigins is a comma-separated development exception.
+	// AllowedOrigins is a comma-separated development exception for a dashboard served from
+	// another origin. Listed origins may send credentials (the refresh cookie), so each must be
+	// explicit; "*" is rejected by validation.
 	AllowedOrigins string `yaml:"allowedOrigins"`
 	// ImageUploadMaxBytes caps the request body the server accepts, sized for OS image
 	// uploads (POST /provisioning/images streams a potentially multi-gigabyte artifact).

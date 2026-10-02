@@ -39,7 +39,7 @@ They are different programs built from different components.
 ## Quick start
 
 ```bash
-# 1. Log in (writes endpoint + token to the profile).
+# 1. Log in (writes the endpoint and a session to the profile).
 swallow --endpoint https://swallow.example login -u admin --password-stdin < password.txt
 
 # 2. Confirm the session.
@@ -70,15 +70,19 @@ Default path: `$SWALLOW_CONFIG`, or `<user-config-dir>/swallow/config.yaml`
 ```yaml
 # ~/.config/swallow/config.yaml
 endpoint: https://swallow.example
-token: <access-token>          # written by `swallow login`
+token: <access-token>          # written by `swallow login`, renewed automatically
+tokenExpiresAt: 2026-10-02T03:15:00Z
+refreshToken: <refresh-token>  # renews the access token; rotated on every renewal
+# apiKey: swk_...              # instead of a session: `swallow login --api-key-stdin`
 site: site-abc123              # optional default Site scope
 machineToken: <machine-token>  # optional, for discovery endpoints
 insecureSkipTls: false         # lab endpoints with self-signed certs only
 ```
 
 The file is written with owner-only permissions (`0600`) because it holds
-credentials. `login` and `logout` update the `token` field; other fields are
-preserved.
+credentials. `login`, token renewal, and `logout` update only the credential
+fields; other fields are preserved. A profile holds either a session or an API
+key: storing one removes the other.
 
 ### Environment variables
 
@@ -86,24 +90,48 @@ preserved.
 | --- | --- |
 | `SWALLOW_CONFIG` | profile file path |
 | `SWALLOW_ENDPOINT` | `endpoint` |
-| `SWALLOW_TOKEN` | `token` |
+| `SWALLOW_TOKEN` | `token` (an access token for this invocation; it is not renewed) |
+| `SWALLOW_API_KEY` | `apiKey` (takes precedence over a stored session) |
 | `SWALLOW_SITE` | `site` |
 | `SWALLOW_MACHINE_TOKEN` | `machineToken` |
 | `SWALLOW_INSECURE` | `insecureSkipTls` (`1`/`true` enables) |
 
 ## Authentication
 
+The CLI authenticates with one of two credentials.
+
+**A session (username and password).** `login` stores a short-lived access token
+and a refresh token. The CLI renews the access token automatically — shortly
+before it expires, and once after a `401` — and saves the renewed tokens to the
+profile. The session ends after 7 days without use, 30 days after login, or at
+`logout` (server defaults); then run `login` again.
+
 ```bash
-# Interactive login. Prefer --password-stdin so the secret is not in shell history.
+# Prefer --password-stdin so the secret is not in shell history.
 swallow --endpoint https://swallow.example login -u admin --password-stdin < password.txt
 # Or pass it directly (less safe):
 swallow login -u admin -p 'REDACTED'
-
-swallow auth me      # show the caller identity and role
-swallow logout       # clear the stored token locally (JWT is stateless; no server call)
 ```
 
-- Most endpoints require an **admin** token.
+**An API key (scripts and CI).** Create one while signed in with a password, then
+use it without a password. A key acts as the user who created it and works until
+it expires or is deleted.
+
+```bash
+swallow api-keys create --name ci --expires-in 90d --secret-out ./ci.key
+swallow login --api-key-stdin < ./ci.key          # store it in the profile
+SWALLOW_API_KEY="$(cat ./ci.key)" swallow servers list   # or pass it per run
+```
+
+```bash
+swallow auth me      # identity, role, and authMethod (session or api_key)
+swallow logout       # end the session on the server and remove stored credentials
+```
+
+- With both an API key and a session available, the API key is used. An explicit
+  `--token` or `--api-key` flag decides for that invocation.
+- An API key cannot create other API keys; sign in with a password for that.
+- Most endpoints require an **admin** credential.
 - Discovery endpoints use **machine authentication**: they accept the
   `--machine-token` (or `machineToken` profile field) and fall back to the
   session token when no machine token is set.
@@ -116,7 +144,8 @@ These persistent flags apply to every command:
 | --- | --- | --- |
 | `--config <path>` | see above | profile file path |
 | `--endpoint <url>` | from profile | api-server base URL, e.g. `https://swallow.example` |
-| `--token <jwt>` | from profile | access token for this invocation |
+| `--token <jwt>` | from profile | access token for this invocation (not renewed) |
+| `--api-key <swk_…>` | from profile | API key for this invocation (prefer `SWALLOW_API_KEY`) |
 | `--site <id>` | from profile | default Site scope for commands that accept `siteId` |
 | `--machine-token <tok>` | from profile | machine bearer token for discovery |
 | `-o, --output <fmt>` | `table` | `table`, `json`, or `yaml` |
@@ -176,9 +205,26 @@ authoritative flag list. Examples below use placeholder IDs.
 
 ```bash
 swallow login -u admin --password-stdin < password.txt
+swallow login --api-key-stdin < ./ci.key
 swallow auth me
 swallow logout
 ```
+
+### api-keys
+
+Your API keys for non-interactive use. See
+[api-keys.md](../../api-server/docs/development/api-contracts/api-server/api-keys.md).
+
+```bash
+swallow api-keys list                                   # name, prefix, created, expires, last used
+swallow api-keys create --name ci [--expires-in 90d] [--secret-out ./ci.key]
+swallow api-keys delete <keyId>                         # alias: revoke
+```
+
+`create` returns the secret only once. With `--secret-out` it is written to a new
+file with mode 0600 (an existing file is never overwritten); without it the secret is
+printed. `--expires-in` accepts days (`90d`) or a duration (`12h`); omit it for a key
+that never expires. Creating a key requires a password session.
 
 ### overview
 

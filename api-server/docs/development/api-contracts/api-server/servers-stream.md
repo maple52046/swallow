@@ -36,10 +36,17 @@ change and a periodic comment heartbeat.
 
 ## Authentication
 
-Bearer token required. Because a browser `EventSource` cannot set an `Authorization` header,
-this endpoint additionally accepts the access token in the `access_token` query parameter,
-which is promoted to the standard Bearer header before verification. A caller that can set
-headers SHOULD use `Authorization` instead. See [`conventions.md`](conventions.md).
+Bearer credential required (a Session access token or an API Key in the `Authorization`
+header). Because a browser `EventSource` cannot set an `Authorization` header, this endpoint
+additionally accepts a Session **access token** in the `access_token` query parameter, which
+is promoted to the standard Bearer header before verification. An API Key is never accepted
+in the query string, so key secrets do not appear in URLs or logs; a value starting with
+`swk_` there is ignored and the request is `401`. A caller that can set headers SHOULD use
+`Authorization` instead. See [`conventions.md`](conventions.md).
+
+The access token is checked when the stream opens. An open stream is not cut off when that
+token later expires; a client that reconnects must present a current access token (refresh
+first, see [auth-refresh.md](auth-refresh.md)).
 
 ## Authorization
 
@@ -51,7 +58,7 @@ headers SHOULD use `Authorization` instead. See [`conventions.md`](conventions.m
 
 | Name | Type | Required | Description |
 | --- | --- | -------: | --- |
-| `access_token` | string | No | Access token for `EventSource` callers that cannot send an `Authorization` header. Ignored when the header is present. |
+| `access_token` | string | No | Session access token for `EventSource` callers that cannot send an `Authorization` header. Ignored when the header is present. API Keys are not accepted here. |
 | `siteId` | string | No | Scope the stream to Servers at this Site. Omit to receive every Site. Removals may arrive unscoped and are safe to ignore for a Server the client is not showing. |
 
 ## Response

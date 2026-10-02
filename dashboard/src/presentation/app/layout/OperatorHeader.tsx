@@ -14,6 +14,7 @@ import {
   Check,
   FlaskConical,
   KeyRound,
+  KeySquare,
   LogOut,
   MapPin,
   Menu as MenuIcon,
@@ -62,7 +63,7 @@ function accountInitials(displayName: string, username: string): string {
  * Sticky console masthead for viewport-level controls.
  *
  * Site scope remains URL-owned, appearance remains browser-owned, and account
- * actions (SSH keys, sign out) remain session-owned. Compact outlined controls keep those global
+ * actions (SSH keys, API keys, sign out) remain session-owned. Compact outlined controls keep those global
  * choices distinct from page actions without consuming a second toolbar row. Development builds
  * add an "Experimental features" account entry; release builds never render it or its dialog.
  */
@@ -198,6 +199,7 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
               // SSH keys are account settings, not Site data; the scope is kept only so returning
               // to a fleet page lands in the same Site.
               if (details.value === 'ssh-keys') navigate(scopedHref('/account/ssh-keys'))
+              if (details.value === 'api-keys') navigate(scopedHref('/account/api-keys'))
               if (details.value === 'experimental-features') setExperimentsOpen(true)
             }}
           >
@@ -243,6 +245,10 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
                   <Menu.Item value="ssh-keys">
                     <KeyRound size={16} />
                     <Text flex="1">SSH keys</Text>
+                  </Menu.Item>
+                  <Menu.Item value="api-keys">
+                    <KeySquare size={16} />
+                    <Text flex="1">API keys</Text>
                   </Menu.Item>
                   {experimentsAdjustable && (
                     <Menu.Item value="experimental-features">

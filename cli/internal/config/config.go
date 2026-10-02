@@ -1,7 +1,8 @@
 // Package config owns how the swallow operator CLI resolves and persists its
-// connection profile: the API endpoint, the interactive access token, an
-// optional default Site scope, an optional machine token for discovery
-// endpoints, and TLS verification behavior.
+// connection profile: the API endpoint, the credential (a Session's access and
+// refresh tokens from `swallow login`, or an API Key), an optional default Site
+// scope, an optional machine token for discovery endpoints, and TLS
+// verification behavior.
 //
 // Component boundary: this package is part of the `cli` component, an HTTP
 // consumer of the api-server contract. It stores only client-side session
@@ -20,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,23 +36,40 @@ const EnvConfigPath = "SWALLOW_CONFIG"
 const (
 	envEndpoint     = "SWALLOW_ENDPOINT"
 	envToken        = "SWALLOW_TOKEN"
+	envAPIKey       = "SWALLOW_API_KEY"
 	envSite         = "SWALLOW_SITE"
 	envMachineToken = "SWALLOW_MACHINE_TOKEN"
 	envInsecure     = "SWALLOW_INSECURE"
 )
 
 // Config is the operator's persisted connection profile. Fields are serialized
-// to YAML so an operator can inspect and hand-edit the file. Token and
-// MachineToken are credential material: callers must not log them, and the file
-// is written with owner-only permissions (see Save).
+// to YAML so an operator can inspect and hand-edit the file. Token,
+// RefreshToken, APIKey, and MachineToken are credential material: callers must
+// not log them, and the file is written with owner-only permissions (see Save).
+//
+// A profile holds either a Session (Token, RefreshToken, TokenExpiresAt from a
+// password login) or an API Key; `swallow login` keeps only one of the two.
+// When both are present (for example an API Key from SWALLOW_API_KEY), the API
+// Key is used.
 type Config struct {
 	// Endpoint is the api-server base URL, for example https://swallow.example.
 	// It has no default because there is no safe default target.
 	Endpoint string `yaml:"endpoint,omitempty"`
-	// Token is the interactive JWT access token obtained from `swallow login`.
-	// It is opaque to the CLI, which re-authenticates on a 401 rather than
-	// predicting expiry.
+	// Token is the Session access token obtained from `swallow login` (or the
+	// last refresh). It is opaque to the CLI and short-lived; the client renews
+	// it with RefreshToken.
 	Token string `yaml:"token,omitempty"`
+	// TokenExpiresAt is the accessTokenExpiresAt the server reported for Token,
+	// so the client can refresh shortly before expiry. The CLI never decodes the
+	// token itself (the contract forbids parsing its claims).
+	TokenExpiresAt time.Time `yaml:"tokenExpiresAt,omitempty"`
+	// RefreshToken renews Token through POST /api/v1/auth/refresh. Every refresh
+	// replaces it, so it must be persisted after each refresh (see Update).
+	RefreshToken string `yaml:"refreshToken,omitempty"`
+	// APIKey is an API Key secret (`swk_…`) used instead of a Session. It does not
+	// expire on its own unless it was created with an expiry, and it cannot be
+	// refreshed.
+	APIKey string `yaml:"apiKey,omitempty"`
 	// Site is an optional default Site scope applied by commands that accept a
 	// siteId query parameter when the operator does not pass --site explicitly.
 	Site string `yaml:"site,omitempty"`
@@ -83,6 +102,19 @@ func DefaultPath() (string, error) {
 // A malformed file is an error, because silently ignoring it would hide a
 // misconfigured profile from the operator.
 func Load(path string) (*Config, error) {
+	cfg, err := LoadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	applyEnv(cfg)
+	return cfg, nil
+}
+
+// LoadFile reads only the stored profile, without the environment layer. A
+// missing file yields an empty Config. Commands use it when they must act on
+// what is saved — for example logout revoking the stored Session even when an
+// environment variable overrides the credential for this invocation.
+func LoadFile(path string) (*Config, error) {
 	cfg := &Config{}
 	data, err := os.ReadFile(path)
 	switch {
@@ -95,8 +127,6 @@ func Load(path string) (*Config, error) {
 	default:
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
-
-	applyEnv(cfg)
 	return cfg, nil
 }
 
@@ -108,7 +138,14 @@ func applyEnv(cfg *Config) {
 		cfg.Endpoint = v
 	}
 	if v, ok := os.LookupEnv(envToken); ok {
+		// An access token from the environment belongs to no stored Session, so the
+		// stored refresh token must not be used to "renew" it.
 		cfg.Token = v
+		cfg.RefreshToken = ""
+		cfg.TokenExpiresAt = time.Time{}
+	}
+	if v, ok := os.LookupEnv(envAPIKey); ok {
+		cfg.APIKey = v
 	}
 	if v, ok := os.LookupEnv(envSite); ok {
 		cfg.Site = v
@@ -123,10 +160,25 @@ func applyEnv(cfg *Config) {
 	}
 }
 
+// Update re-reads the profile file at path (without the environment layer),
+// applies mutate, and writes it back. It is how the client persists rotated
+// Session tokens: reading the file again first keeps changes another `swallow`
+// process wrote meanwhile (for example a newer refresh token) instead of
+// overwriting them with this process's stale copy, and keeps environment-only
+// values out of the file.
+func Update(path string, mutate func(*Config)) error {
+	cfg, err := LoadFile(path)
+	if err != nil {
+		return err
+	}
+	mutate(cfg)
+	return Save(path, cfg)
+}
+
 // Save writes cfg to path as YAML, creating the parent directory when needed.
 // The file is written with mode 0600 and the directory with 0700 because the
-// profile carries access and machine tokens; widening these permissions would
-// expose credentials to other local users.
+// profile carries Session tokens, API Keys, and machine tokens; widening these
+// permissions would expose credentials to other local users.
 func Save(path string, cfg *Config) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

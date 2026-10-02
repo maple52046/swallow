@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/identity"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 )
 
@@ -19,7 +20,8 @@ import (
 // not a second way into the rest of the API.
 //
 // When no token is configured the endpoints still work for an admin JWT, so that an
-// operator can inspect them without provisioning a credential first.
+// operator can inspect them without provisioning a credential first. API Keys are not accepted
+// here: the discovery contracts name only the machine token and an admin access token.
 func MachineAuth(jwtSvc *jwt.Service, machineToken string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		header := c.Get("Authorization")
@@ -41,7 +43,10 @@ func MachineAuth(jwtSvc *jwt.Service, machineToken string) fiber.Handler {
 			return apierror.Respond(c, apierror.New(apierror.CodeForbidden, "Admin access required."))
 		}
 
-		c.Locals(string(claimsKey), claims)
+		c.Locals(string(principalKey), &identity.Principal{
+			UserID: claims.UserID, Username: claims.Username, Role: claims.Role,
+			Method: identity.MethodSession, SessionID: claims.SessionID,
+		})
 		return c.Next()
 	}
 }

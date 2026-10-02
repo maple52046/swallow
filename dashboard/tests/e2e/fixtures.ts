@@ -166,6 +166,14 @@ const alerts = [
 
 /** Controls for large-fleet, concurrency, and failure-path browser fixtures. */
 export interface FixtureOptions {
+  /**
+   * Whether the browser starts with a Session (as if the HttpOnly refresh cookie were present), so
+   * the app's startup refresh succeeds. Defaults to true; sign-in specs pass false. Login and logout
+   * fixtures then flip it for the rest of the page, like the real cookie.
+   */
+  signedIn?: boolean
+  /** Called for every POST /auth/refresh, in order. */
+  onSessionRefresh?: () => void
   fleetSize?: number
   metricsDelayMs?: number
   failMetricsBatchIndex?: number
@@ -274,7 +282,14 @@ function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publ
 
 /** Installs deterministic network fixtures; no backend or provider is contacted. */
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
+  // Mirrors the refresh cookie: the startup refresh succeeds only while a Session exists.
+  let signedIn = options.signedIn ?? true
   // Per-page SSH Key state so one test's changes never leak into another.
+  // Per-page API Key state; secrets are fixture strings, never real keys.
+  let apiKeyItems = [
+    { id: 'api-1', name: 'laptop-cli', prefix: 'swk_Lap1op00', createdAt: '2026-08-01T00:00:00Z', expiresAt: null as string | null, lastUsedAt: '2026-08-27T02:00:00Z' as string | null },
+    { id: 'api-2', name: 'old-ci', prefix: 'swk_0ldC1000', createdAt: '2026-05-01T00:00:00Z', expiresAt: '2026-08-01T00:00:00Z' as string | null, lastUsedAt: null as string | null },
+  ]
   let sshKeyItems = [
     sshKey('deploy-1', 'swallow-deployment', 'deployment', 'ssh-ed25519 AAAADEPLOY swallow-deployment'),
     sshKey('key-laptop', 'work-laptop', 'access', 'ssh-ed25519 AAAALAPTOP alice@laptop'),
@@ -710,8 +725,36 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const url = new URL(request.url())
     const path = url.pathname
 
-    if (path === '/api/v1/auth/me') return json(route, { id: 'admin-1', username: 'admin', role: 'admin' })
-    if (path === '/api/v1/auth/login') return json(route, { accessToken: 'e2e-token' })
+    if (path === '/api/v1/auth/me') return json(route, { id: 'admin-1', username: 'admin', role: 'admin', authMethod: 'session' })
+    if (path === '/api/v1/auth/login') {
+      signedIn = true
+      return json(route, { accessToken: 'e2e-token', accessTokenExpiresAt: '2099-01-01T00:00:00Z' })
+    }
+    if (path === '/api/v1/auth/refresh' && request.method() === 'POST') {
+      options.onSessionRefresh?.()
+      if (!signedIn) return json(route, { error: { code: 'unauthorized', message: 'Session expired. Sign in again.', requestId: 'req-refresh' } }, 401)
+      return json(route, { accessToken: 'e2e-token', accessTokenExpiresAt: '2099-01-01T00:00:00Z' })
+    }
+    if (path === '/api/v1/auth/logout' && request.method() === 'POST') {
+      signedIn = false
+      return route.fulfill({ status: 204 })
+    }
+    if (path === '/api/v1/api-keys' && request.method() === 'GET') return json(route, apiKeyItems)
+    if (path === '/api/v1/api-keys' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { name?: string; expiresAt?: string } | null
+      const name = String(body?.name ?? '')
+      if (apiKeyItems.some((key) => key.name.toLowerCase() === name.toLowerCase())) {
+        return json(route, { error: { code: 'conflict', message: 'You already have an API key with this name.', requestId: 'req-api-key-conflict' } }, 409)
+      }
+      const key = { id: `api-${apiKeyItems.length + 1}`, name, prefix: 'swk_N3wK3y00', createdAt: now, expiresAt: body?.expiresAt ?? null, lastUsedAt: null }
+      apiKeyItems = [...apiKeyItems, key]
+      return json(route, { key, secret: 'swk_N3wK3y00FIXTURE-SECRET' }, 201)
+    }
+    const apiKeyMatch = path.match(/^\/api\/v1\/api-keys\/([^/]+)$/)
+    if (apiKeyMatch && request.method() === 'DELETE') {
+      apiKeyItems = apiKeyItems.filter((key) => key.id !== decodeURIComponent(apiKeyMatch[1]))
+      return route.fulfill({ status: 204 })
+    }
     if (path === '/api/v1/sites' && request.method() === 'GET') return json(route, siteItems)
     if (path === '/api/v1/sites' && request.method() === 'POST') {
       const body = request.postDataJSON() as { name: string; description: string }

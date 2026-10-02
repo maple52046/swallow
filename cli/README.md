@@ -29,6 +29,14 @@ printf '%s\n' "$PASSWORD" |
 bin/swallow auth me
 ```
 
+A password login keeps a session that the CLI renews automatically. For scripts
+and CI, create an API key and use it instead of a password:
+
+```bash
+bin/swallow api-keys create --name ci --expires-in 90d --secret-out ./ci.key
+bin/swallow login --api-key-stdin < ./ci.key    # or set SWALLOW_API_KEY
+```
+
 The profile lives under the user configuration directory unless
 `$SWALLOW_CONFIG` or `--config` selects another path. Resolution order is
 profile, `SWALLOW_*` environment variables, then global flags.
@@ -44,7 +52,8 @@ Request files intentionally track the API contract without copied CLI structs.
 
 ## Command groups
 
-- `auth`, `login`, `logout` — session.
+- `auth`, `login`, `logout` — session or stored API key.
+- `api-keys` — API keys for non-interactive use.
 - `overview` — Site-scoped operational summary.
 - `sites`, `integrations` — infrastructure identity and Site automation.
 - `servers` — inventory, stream, detail, protection, provider actions.

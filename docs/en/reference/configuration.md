@@ -18,7 +18,8 @@ field references.
 Important production-sensitive values include:
 
 - MongoDB URI/database and migration access;
-- JWT signing secret and expiry;
+- JWT signing secret and Session lifetimes (`accessTokenTTL` 15m, `refreshTokenTTL` 168h,
+  `sessionMaxAge` 720h; the old `jwtExpiryHours` is ignored);
 - bootstrap admin username/password;
 - base64 32-byte credential-encryption key;
 - machine bearer token;

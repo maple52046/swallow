@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Validate checks that all required fields are present in the final merged config.
 // Validation must run after all sources have been merged so that it reflects the
@@ -18,8 +21,26 @@ func Validate(cfg *Config) error {
 	if cfg.API.JWTSecret == "" {
 		return fmt.Errorf("api.jwtSecret is required")
 	}
-	if cfg.API.JWTExpiryHours <= 0 {
-		return fmt.Errorf("api.jwtExpiryHours must be > 0")
+	// CORS allows credentials (the refresh cookie) for listed origins, which browsers and Fiber
+	// refuse to combine with a wildcard.
+	for _, origin := range strings.Split(cfg.API.AllowedOrigins, ",") {
+		if strings.TrimSpace(origin) == "*" {
+			return fmt.Errorf("api.allowedOrigins must list explicit origins, not *")
+		}
+	}
+	if cfg.API.AccessTokenTTL <= 0 {
+		return fmt.Errorf("api.accessTokenTTL must be > 0")
+	}
+	if cfg.API.RefreshTokenTTL <= 0 {
+		return fmt.Errorf("api.refreshTokenTTL must be > 0")
+	}
+	if cfg.API.SessionMaxAge <= 0 {
+		return fmt.Errorf("api.sessionMaxAge must be > 0")
+	}
+	// A refresh token that dies before the access token it renews would make every Session end
+	// at its first access-token expiry.
+	if cfg.API.AccessTokenTTL >= cfg.API.RefreshTokenTTL {
+		return fmt.Errorf("api.accessTokenTTL must be shorter than api.refreshTokenTTL")
 	}
 	if cfg.API.CredentialKey == "" {
 		return fmt.Errorf(

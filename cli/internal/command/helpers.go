@@ -110,13 +110,7 @@ func sendNoContent(cmd *cobra.Command, method, path string, q url.Values, body a
 // streamed image upload whose artifact can be too large for the default
 // per-request deadline.
 func newUploadClient() (*client.Client, error) {
-	return client.New(client.Options{
-		Endpoint:     rt.cfg.Endpoint,
-		Token:        rt.cfg.Token,
-		MachineToken: rt.cfg.MachineToken,
-		InsecureTLS:  rt.cfg.InsecureSkipTLS,
-		Timeout:      0,
-	})
+	return client.New(clientOptions(0))
 }
 
 // nameFromPath returns the base filename for a multipart upload part.

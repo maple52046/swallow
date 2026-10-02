@@ -44,9 +44,9 @@ async function expectTableCellsVerticallyCentered(page: import('playwright/test'
 
 
 test.beforeEach(async ({ page }, testInfo) => {
-  await installApiFixtures(page)
-  const appearance = 'light'
   const authenticated = !testInfo.title.includes('login')
+  await installApiFixtures(page, { signedIn: authenticated })
+  const appearance = 'light'
   await page.addInitScript(({ appearance, authenticated }) => {
     Date.now = () => Date.parse('2026-08-27T03:05:00Z')
     if (!localStorage.getItem('swallow.appearance')) localStorage.setItem('swallow.appearance', appearance)

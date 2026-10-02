@@ -11,12 +11,19 @@ export interface LoginRequest {
   password: string
 }
 
+/**
+ * Login and refresh response (auth-login / auth-refresh contracts). The browser uses cookie
+ * delivery, so `refreshToken` never appears here; the refresh token stays in an HttpOnly cookie.
+ */
 export interface LoginResponse {
   accessToken: string
+  accessTokenExpiresAt: string
 }
 
 export interface MeResponse {
   id: string
   username: string
   role: 'admin' | 'owner' | 'user'
+  /** How this request authenticated; the dashboard always uses a Session. */
+  authMethod?: 'session' | 'api_key'
 }

@@ -12,6 +12,9 @@ interface LoginLocationState {
 /**
  * Sign-in route backed by the real authentication API.
  *
+ * When the Session ended on its own (expired or revoked) the form explains why the operator is
+ * here; after sign-in they return to the page they were on.
+ *
  * Only same-origin return paths are honoured. Authentication failures remain
  * anchored to the form, fields preserve native autocomplete, and the submit
  * action exposes its in-flight state without hiding the entered credentials.
@@ -19,7 +22,7 @@ interface LoginLocationState {
 export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { login, isAuthenticated } = useAuth()
+  const { login, isAuthenticated, sessionEnded } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -108,6 +111,9 @@ export function LoginPage() {
               <Text color="fg.muted">Continue to the operator console.</Text>
             </Stack>
             {error && <Alert status="error" title={error} />}
+            {!error && sessionEnded && (
+              <Alert status="info" title="Your session ended">Sign in again to continue where you left off.</Alert>
+            )}
             <chakra.form onSubmit={(event) => void submit(event)}>
               <Stack gap="5">
                 <Field.Root required>
