@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Button } from '@chakra-ui/react'
 import type { Server } from '@/domain/server/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import {
@@ -11,6 +12,7 @@ import {
 } from '@/presentation/components/serverSummary/SummaryCards'
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { ServerDefaultUserDialog } from './ServerDefaultUserDialog'
 import { ServerTagEditor } from './ServerTagEditor'
 import { useServerDetailContext } from './useServerDetail'
 
@@ -43,12 +45,15 @@ function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => 
  * Operator-first overview for one Server. Projection-backed state and capacity remain useful
  * when live provider detail fails; dedicated tabs own large Network, Storage, and PCI tables so
  * the overview stays a fast scan rather than a second inventory page. In-band SSH connection
- * info sits beside the out-of-band management controller, so both ways in read as one row.
+ * info sits beside the out-of-band management controller, so both ways in read as one row; its
+ * login user is the Server Default User, set or changed here through the Default user dialog, and
+ * the Server is re-read after a change so the card and SSH command follow it.
  */
 export function ServerSummaryTab() {
   const { server, detail, detailError, reload } = useServerDetailContext()
   const { scopedHref } = useSiteScope()
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
+  const [defaultUserOpen, setDefaultUserOpen] = useState(false)
   const system = detail?.sections.find((section) => section.title === 'System')
   const management = detail?.sections.find((section) => section.title === 'BMC')
   const storage = detail ? findTable(detail.tables, 'Storage') : undefined
@@ -66,7 +71,20 @@ export function ServerSummaryTab() {
         </Alert>
       )}
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
-        <ConnectionCard server={server} imageHref={deployedImageHref} />
+        <ConnectionCard
+          server={server}
+          imageHref={deployedImageHref}
+          loginUserAction={
+            <Button
+              size="xs"
+              variant="outline"
+              aria-label={server.defaultUser ? 'Change default user' : 'Set default user'}
+              onClick={() => setDefaultUserOpen(true)}
+            >
+              {server.defaultUser ? 'Change' : 'Set default user'}
+            </Button>
+          }
+        />
         {physical && <ManagementControllerCard management={management} />}
       </div>
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
@@ -81,6 +99,9 @@ export function ServerSummaryTab() {
           onClose={() => setTagEditorOpen(false)}
           onSaved={reload}
         />
+      )}
+      {defaultUserOpen && (
+        <ServerDefaultUserDialog server={server} onClose={() => setDefaultUserOpen(false)} onChanged={reload} />
       )}
     </div>
   )

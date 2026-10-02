@@ -7,11 +7,16 @@
 #
 # Addresses, not DNS: every host is keyed by serverId (inventory_hostname); the connection
 # address is ansible_host. An optional pinned version arrives as swallow_docker_version.
+# swallow_docker_enable_api / swallow_docker_api_port converge the Docker Engine API listener the
+# Docker Host Explorer dials (decision 043); swallow always sends both, so the defaults here only
+# keep a hand-run play closed.
 
 - name: Install Docker CE
   hosts: all
   gather_facts: true
   vars:
     docker_ce_version: "{{ swallow_docker_version | default('', true) }}"
+    docker_ce_api_enabled: "{{ swallow_docker_enable_api | default(false) | bool }}"
+    docker_ce_api_port: "{{ swallow_docker_api_port | default(2375) | int }}"
   roles:
     - role: docker_ce

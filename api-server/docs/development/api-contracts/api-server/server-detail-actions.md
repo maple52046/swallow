@@ -38,6 +38,8 @@ POST /api/v1/servers/{id}/release
 POST /api/v1/servers/{id}/{power-on|power-off|commission|test|abort}
 POST /api/v1/servers/{id}/{override-failed-testing|lock|unlock}
 POST /api/v1/servers/{id}/{mark-broken|mark-fixed|rescue-mode|exit-rescue-mode}
+PUT  /api/v1/servers/{id}/default-user
+DELETE /api/v1/servers/{id}/default-user
 ```
 
 All routes require an admin bearer token.
@@ -184,6 +186,72 @@ accepted provisioning snapshot. Unsupported capabilities and provider refusals u
 uses the shared envelope's `requestId`, which correlates the client-visible
 detail with the structured provisioning log entry without exposing provider
 credentials or request bodies.
+
+## Default User
+
+The Server Default User is the account swallow automation logs in as with the Deployment Key
+(wait-for-ssh, Ansible) and that Docker CE adds to the `docker` group. The Server projection
+reports the effective value as `defaultUser {user, source}` (see
+[servers-list.md](servers-list.md)). These routes set or clear the value on one Server; without
+one, the deployed OS Image's default user applies.
+
+### Set
+
+`PUT /api/v1/servers/{id}/default-user`
+
+```json
+{ "user": "amd", "password": "optional one-time password" }
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `user` | Yes | A POSIX login name: lowercase letters, digits, `_` or `-`, starting with a letter or `_`, up to 32 characters. `root` is allowed. |
+| `password` | No | The account's password, used once. api-server logs in over SSH with it (password or keyboard-interactive authentication) and appends the Deployment Key's public key to the account's `~/.ssh/authorized_keys` if it is not already there. It is never stored, logged, or returned. |
+
+The Server must exist, be `deployed` with a primary address, and not be locked, and the
+installation must have a Deployment Key. api-server connects to the primary address on the
+Site's SSH port (default `22`). Host keys are not verified (like the login-user probe). In
+every case — with or without a password — it then logs in **with the Deployment Key** as `user`
+and runs `sudo -n true`; the value is saved only after that login succeeds. Without a password
+the operator must have installed the key already, for example:
+
+```sh
+mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '<Deployment Key public key>' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+```
+
+On success the response is `200 OK`:
+
+```json
+{
+  "defaultUser": { "user": "amd", "source": "server" },
+  "keyInstalled": true,
+  "sudo": "passwordless"
+}
+```
+
+- `keyInstalled` is `true` when a password was given and the key was installed (or already
+  present); `false` when no password was given.
+- `sudo` is `passwordless` (`sudo -n` works), `password_required` (automation uses the Site
+  become password), or `unavailable` (the account cannot use sudo, so automation that needs
+  root fails).
+
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `validation_error` | `user` is missing or not a login name, or the host rejected the password. |
+| 404 | `not_found` | The Server does not exist. |
+| 409 | `conflict` | The Server is not `deployed`, has no address, or is locked; the installation has no Deployment Key; or the host rejected the Deployment Key for `user` (no password was given, or the key did not work after installing it). |
+| 503 | `provider_unavailable` | The host could not be reached over SSH, or the Server Lock state is unavailable. |
+
+### Clear
+
+`DELETE /api/v1/servers/{id}/default-user` removes the value set on the Server, so the deployed
+OS Image's default user applies again. It is `204 No Content`, also when nothing was set. It
+does not touch the host (the key stays authorized). An unknown Server is `404 not_found`; a
+locked Server is `409 conflict`.
+
+A value set on the Server belongs to one OS installation: it is cleared automatically when
+swallow starts a new OS deployment on the Server and when the Server is observed `ready` or
+`allocated`.
 
 ## Provider Events
 

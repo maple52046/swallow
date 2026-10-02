@@ -38,6 +38,11 @@ type ServerItem struct {
 	Membership   *MembershipAxisItem   `json:"membership"`
 	Health       *HealthAxisItem       `json:"health"`
 
+	// DefaultUser is the effective Server Default User (decision 045), omitted when unknown. It is
+	// what automation logs in as, so a client showing an SSH login or a docker-group account must
+	// read this rather than provisioning.deployedImageDefaultUser.
+	DefaultUser *DefaultUserItem `json:"defaultUser,omitempty"`
+
 	Absent     bool    `json:"absent"`
 	LastSeenAt *string `json:"lastSeenAt"`
 
@@ -121,6 +126,22 @@ type HealthAxisItem struct {
 	ObservedAt string `json:"observedAt"`
 }
 
+// DefaultUserItem is the published shape of the effective Server Default User: the account and
+// whether it was set on the Server (`server`) or comes from the deployed OS Image (`os_image`).
+type DefaultUserItem struct {
+	User   string `json:"user"`
+	Source string `json:"source"`
+}
+
+// ToDefaultUserItem maps the Server's effective default user, or nil when none is known.
+func ToDefaultUserItem(s *serverdomain.Server) *DefaultUserItem {
+	user, source := s.EffectiveDefaultUser()
+	if user == "" {
+		return nil
+	}
+	return &DefaultUserItem{User: user, Source: string(source)}
+}
+
 // ToServerItem maps a server projection onto its API shape.
 func ToServerItem(s *serverdomain.Server) ServerItem {
 	item := ServerItem{
@@ -150,10 +171,11 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 			SerialNumber: wire.String(s.Hardware.SerialNumber),
 			MACAddresses: wire.Strings(s.Hardware.MACAddresses),
 		},
-		Absent:     s.Absent,
-		LastSeenAt: wire.TimePtr(s.LastSeenAt),
-		CreatedAt:  wire.Time(s.CreatedAt),
-		UpdatedAt:  wire.Time(s.UpdatedAt),
+		DefaultUser: ToDefaultUserItem(s),
+		Absent:      s.Absent,
+		LastSeenAt:  wire.TimePtr(s.LastSeenAt),
+		CreatedAt:   wire.Time(s.CreatedAt),
+		UpdatedAt:   wire.Time(s.UpdatedAt),
 	}
 
 	for _, gpu := range s.Observed.GPUs {

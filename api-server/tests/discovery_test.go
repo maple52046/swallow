@@ -210,6 +210,39 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 	}
 }
 
+// default_user carries the effective Server Default User (decision 045) — the value set on the
+// Server over the image's — while image_default_user keeps the image's own value, and neither is
+// emitted when unknown so the runner falls back to probing.
+func TestAnsibleInventory_EmitsEffectiveDefaultUser(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-set", "tainan-ci", "10.0.1.11", func(s *serverdomain.Server) {
+		s.DefaultUser = "amd"
+		s.Provisioning.DeployedImageDefaultUser = "ubuntu"
+	})
+	f.seedServer("srv-image", "lab-compute-2", "10.0.1.12", func(s *serverdomain.Server) {
+		s.Provisioning.DeployedImageDefaultUser = "ubuntu"
+	})
+	f.seedServer("srv-unknown", "lab-custom", "10.0.1.13", nil)
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/discovery/ansible", nil, discoveryAuth())
+	hostvars := parseBody(t, resp)["_meta"].(map[string]any)["hostvars"].(map[string]any)
+	tests := []struct {
+		id, wantDefault, wantImage string
+	}{
+		{"srv-set", "amd", "ubuntu"},
+		{"srv-image", "ubuntu", "ubuntu"},
+		{"srv-unknown", "", ""},
+	}
+	for _, tc := range tests {
+		vars := hostvars[tc.id].(map[string]any)
+		gotDefault, _ := vars["default_user"].(string)
+		gotImage, _ := vars["image_default_user"].(string)
+		if gotDefault != tc.wantDefault || gotImage != tc.wantImage {
+			t.Errorf("%s default_user=%q image_default_user=%q, want %q and %q", tc.id, gotDefault, gotImage, tc.wantDefault, tc.wantImage)
+		}
+	}
+}
+
 // An inventory with no hosts is a normal early state, and "children" must still be
 // present as an array so that parsers do not treat the document as malformed.
 func TestAnsibleInventory_EmptyInventoryIsStillWellFormed(t *testing.T) {

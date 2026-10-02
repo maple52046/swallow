@@ -65,6 +65,7 @@ import (
 	softwareapp "github.com/maple52046/swallow/internal/software/application"
 	softwaredelivery "github.com/maple52046/swallow/internal/software/delivery"
 	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
+	"github.com/maple52046/swallow/internal/software/infra/dockerengine"
 	sshkeydelivery "github.com/maple52046/swallow/internal/sshkey/delivery"
 	"github.com/maple52046/swallow/internal/version"
 )
@@ -347,6 +348,13 @@ func RunAPI(cfg config.APIConfig) error {
 	// derived credential source; the configuration service reads the plain repository and derives
 	// the same source itself, because it reports what is stored and never needs key material.
 	effectiveAutomation := operationapp.NewEffectiveAutomationConfigurations(automationRepo, deploymentKeys)
+	// Server Default User (decision 045): setting one logs in to the host directly — once with an
+	// optional one-time password to install the Deployment Key, then with the key to verify — on the
+	// Site's SSH port, behind the live Server Lock guard.
+	defaultUserHandler := serverdelivery.NewDefaultUserHandler(serverapp.NewDefaultUserUseCase(
+		serverRepo, serverProtection,
+		serverinfra.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo}),
+	))
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Per-host SSH-user resolution: images use different default login users, so the runner probes
@@ -437,6 +445,22 @@ func RunAPI(cfg config.APIConfig) error {
 	})
 	softwareHandler := softwaredelivery.NewSoftwareHandler(softwareService)
 	softwareSweeper := softwareapp.NewSoftwareAssignmentSweeper(softwareAssignmentRepo, serverRepo)
+	// Docker Host Explorer (decision 043): live management of the Docker Engine on a Server where
+	// swallow installed Docker CE with enableApi. Eligibility reads the same assignment repository;
+	// writes go through the provider-backed lock guard; Docker objects are never persisted.
+	dockerExplorer := softwareapp.NewDockerExplorerUseCase(
+		softwareAssignmentRepo, serverRepo, dockerengine.NewFactory(), serverProtection,
+	)
+	// Registry Credentials (decision 044): installation-wide, sealed with the credential key, and
+	// attached to an explorer pull whose image reference resolves to their registry.
+	registryCredentialRepo, err := softwareinfra.NewMongoRegistryCredentialRepo(db, sealer)
+	if err != nil {
+		return fmt.Errorf("registry credential repo init: %w", err)
+	}
+	dockerExplorer.AttachRegistryCredentials(registryCredentialRepo)
+	dockerHandler := softwaredelivery.NewDockerHandler(dockerExplorer)
+	registryCredentialHandler := softwaredelivery.NewRegistryCredentialHandler(
+		softwareapp.NewRegistryCredentialService(registryCredentialRepo))
 
 	// Auto-install exporters when a server reaches the deployed state and its effective
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
@@ -502,12 +526,15 @@ func RunAPI(cfg config.APIConfig) error {
 		overview:       overviewHandler,
 		sites:          siteHandler,
 		servers:        serverHandler,
+		defaultUsers:   defaultUserHandler,
 		serverStream:   serverStreamHandler,
 		provisioning:   provisioningHandler,
 		operations:     operationHandler,
 		monitoring:     monitoringHandler,
 		platforms:      platformHandler,
 		software:       softwareHandler,
+		docker:         dockerHandler,
+		registryCreds:  registryCredentialHandler,
 		infrastructure: infrastructureHandler,
 		discovery:      discoveryHandler,
 		sshKeys:        sshKeyHandler,
@@ -560,12 +587,15 @@ type routeDeps struct {
 	overview       *overviewdelivery.Handler
 	sites          *sitedelivery.SiteHandler
 	servers        *serverdelivery.ServerHandler
+	defaultUsers   *serverdelivery.DefaultUserHandler
 	serverStream   *serverdelivery.ServerStreamHandler
 	provisioning   *provisioningdelivery.ProvisioningHandler
 	operations     *operationdelivery.ExecutionHandler
 	monitoring     *monitoringdelivery.MonitoringHandler
 	platforms      *platformdelivery.PlatformHandler
 	software       *softwaredelivery.SoftwareHandler
+	docker         *softwaredelivery.DockerHandler
+	registryCreds  *softwaredelivery.RegistryCredentialHandler
 	infrastructure *infrastructuredelivery.InfrastructureHandler
 	discovery      *discoverydelivery.DiscoveryHandler
 	sshKeys        *sshkeydelivery.SSHKeyHandler
@@ -622,6 +652,34 @@ func registerKubernetesExplorerRoutes(routes fiber.Router, handler *platformdeli
 	routes.Get("/:id/kubernetes/persistentvolumeclaims", handler.ListKubernetesPersistentVolumeClaims)
 
 	routes.Post("/:id/kubernetes/apply", handler.ApplyKubernetesManifest)
+}
+
+// registerDockerExplorerRoutes mounts the Docker Host Explorer under a Server (contract
+// servers-docker.md, decision 043). Mounted here because clients address a Server, but handled by
+// the software feature that owns the Docker CE assignment the explorer is gated on. These routes
+// call the host's Engine API on demand and persist nothing.
+func registerDockerExplorerRoutes(servers fiber.Router, handler *softwaredelivery.DockerHandler) {
+	servers.Get("/:id/docker", handler.Summary)
+
+	servers.Get("/:id/docker/images", handler.ListImages)
+	servers.Post("/:id/docker/images/pull", handler.PullImage)
+	servers.Delete("/:id/docker/images/:imageId", handler.RemoveImage)
+
+	servers.Get("/:id/docker/containers", handler.ListContainers)
+	servers.Post("/:id/docker/containers", handler.CreateContainer)
+	servers.Post("/:id/docker/containers/:containerId/start", handler.StartContainer)
+	servers.Post("/:id/docker/containers/:containerId/stop", handler.StopContainer)
+	servers.Post("/:id/docker/containers/:containerId/restart", handler.RestartContainer)
+	servers.Get("/:id/docker/containers/:containerId/logs", handler.ContainerLogs)
+	servers.Delete("/:id/docker/containers/:containerId", handler.RemoveContainer)
+
+	servers.Get("/:id/docker/volumes", handler.ListVolumes)
+	servers.Post("/:id/docker/volumes", handler.CreateVolume)
+	servers.Delete("/:id/docker/volumes/:volumeName", handler.RemoveVolume)
+
+	servers.Get("/:id/docker/networks", handler.ListNetworks)
+	servers.Post("/:id/docker/networks", handler.CreateNetwork)
+	servers.Delete("/:id/docker/networks/:networkId", handler.RemoveNetwork)
 }
 
 // markDeprecatedPlatformRoute identifies the former Cluster resource without changing
@@ -717,6 +775,8 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Get("/:id", deps.servers.Get)
 	servers.Post("/:id/refresh", deps.provisioning.RefreshServer)
 	servers.Delete("/:id", deps.provisioning.DeleteServer)
+	servers.Put("/:id/default-user", deps.defaultUsers.Set)
+	servers.Delete("/:id/default-user", deps.defaultUsers.Clear)
 	// The provisioner detail is a live proxy read one machine at a time, distinct from
 	// the mirrored projection the list and get return.
 	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)
@@ -747,6 +807,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// provisioner (decision 029). Mounted here because clients address a Server, but handled by
 	// the infrastructure feature that owns the Zone/Pool catalog.
 	servers.Put("/:id/placement", deps.infrastructure.AssignServerPlacement)
+	registerDockerExplorerRoutes(servers, deps.docker)
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)
@@ -802,6 +863,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	software.Get("/assignments", deps.software.ListAssignments)
 	software.Post("/assignments", deps.software.Install)
 	software.Post("/uninstall", deps.software.Uninstall)
+	// Docker CE Registry Credentials for private image pulls (contract registry-credentials.md,
+	// decision 044). Scoped under the kind they serve, so kind-specific settings of later software
+	// kinds get their own paths instead of sharing a software-wide namespace.
+	software.Get("/docker-ce/registry-credentials", deps.registryCreds.List)
+	software.Post("/docker-ce/registry-credentials", deps.registryCreds.Create)
+	software.Put("/docker-ce/registry-credentials/:credentialId", deps.registryCreds.Replace)
+	software.Delete("/docker-ce/registry-credentials/:credentialId", deps.registryCreds.Delete)
 
 	// Swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
 	// realized in the Site's provisioner when it is grouping-capable (decision 029).

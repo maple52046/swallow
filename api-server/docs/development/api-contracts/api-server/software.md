@@ -30,6 +30,7 @@ and progress is observed through the [workflows](workflows.md) surface.
 - [Software Assignment](../../../../../docs/development/glossaries/terms/software-assignment.md)
 - [Workflow](../../../../../docs/development/glossaries/terms/workflow.md)
 - [Server Status](../../../../../docs/development/glossaries/terms/server-status.md)
+- [Docker Host Explorer](../../../../../docs/development/glossaries/terms/docker-host-explorer.md)
 
 ## Endpoints
 
@@ -56,7 +57,7 @@ rules. The result is a small bounded array, not paginated.
       "roles": [],
       "mutuallyExclusiveWith": ["podman"],
       "refusedForKubernetesMembers": true,
-      "specFields": ["version"]
+      "specFields": ["version", "enableApi"]
     },
     {
       "kind": "podman",
@@ -102,6 +103,22 @@ keyed by `(serverId, kind)`.
   "lastAppliedAt": "2026-09-24T06:00:00Z",
   "createdAt": "2026-09-24T05:59:00Z",
   "updatedAt": "2026-09-24T06:00:00Z"
+}
+```
+
+A Docker CE assignment records the normalized spec (see [Docker CE spec](#docker-ce-spec)):
+
+```json
+{
+  "serverId": "srv-abc",
+  "kind": "docker-ce",
+  "roles": [],
+  "spec": { "enableApi": true },
+  "state": "installed",
+  "lastWorkflowId": "op-125",
+  "lastAppliedAt": "2026-10-02T03:00:00Z",
+  "createdAt": "2026-10-02T02:58:00Z",
+  "updatedAt": "2026-10-02T03:00:00Z"
 }
 ```
 
@@ -154,8 +171,38 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
   for a kind that declares roles (NFS) and must be a subset of that kind's roles, and must be
   empty/omitted for a role-less kind (Docker CE, Podman).
 - `spec` is kind-specific and optional per field. For NFS, at least one `server` role in the
-  batch requires `exportPath`, and a `client` role requires `source` and `mountPath`.
+  batch requires `exportPath`, and a `client` role requires `source` and `mountPath`. Docker CE
+  is described in [Docker CE spec](#docker-ce-spec).
 - Every target Server must be in provisioning state `deployed`.
+- Installing a kind that is already `installed` on a target is a convergent re-apply: the new
+  `spec` replaces the recorded one and the playbook ensures it. A client changing one field must
+  therefore send the complete spec it wants (for example the existing `version` together with a
+  changed `enableApi`). The record turns `pending` but keeps its previous `lastAppliedAt` until
+  the new ensure succeeds; an `absent` record starts over with `null`.
+
+### Docker CE spec
+
+```json
+{
+  "kind": "docker-ce",
+  "assignments": [{ "serverId": "srv-abc" }],
+  "spec": { "version": "5:27.3.1-1~ubuntu.24.04~noble", "enableApi": true }
+}
+```
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `version` | string | latest | Pins the apt package version (dnf installs the latest). |
+| `enableApi` | boolean | `true` | Makes the Docker Engine API listen on TCP port `2375` of every interface, unauthenticated plain HTTP, so the [Docker Host Explorer](servers-docker.md) can manage the host. `false` keeps only the local socket. |
+
+- A non-string `version` or a non-boolean `enableApi` is `400 validation_error`.
+- The recorded assignment `spec` always carries an explicit `enableApi` (an omitted value is
+  recorded as `true`). An assignment recorded before this field existed has no `enableApi`;
+  consumers must read that as **disabled**.
+- Changing `enableApi` on an installed Server restarts the Docker daemon; containers without a
+  restart policy stop. Uninstall removes swallow's listener configuration.
+- The listener is intended for internal networks only; it grants root-equivalent control of the
+  host to anyone who can reach the port. Consumers should warn before enabling it.
 
 On success the response is `202 Accepted`:
 
@@ -169,7 +216,7 @@ In addition to the shared codes in [conventions](conventions.md):
 
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |
-| `validation_error` | 400 | Unknown kind, missing/invalid roles for the kind, or missing required spec field. |
+| `validation_error` | 400 | Unknown kind, missing/invalid roles for the kind, missing required spec field, or a spec field of the wrong type. |
 | `conflict` | 409 | A target already has an active durable Workflow, a mutually exclusive software kind is already installed on a target, or a target is already a Kubernetes Platform member for a kind that refuses members. |
 | `not_found` | 404 | A target Server does not exist. |
 | `conflict` | 409 | A target Server is not in the required `deployed` provisioning state, or is locked. |

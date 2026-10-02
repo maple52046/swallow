@@ -265,6 +265,127 @@ func TestInstallNFSMixedRolesBuildsTrustedVarsAndPendingAssignments(t *testing.T
 	}
 }
 
+// Docker CE's enableApi defaults to true and is recorded explicitly, because the Docker Host
+// Explorer treats a missing key as a legacy (disabled) record; the playbook must receive the same
+// decision and the domain-owned port.
+func TestInstallDockerNormalizesEnableAPIIntoRecordAndTrustedVars(t *testing.T) {
+	tests := []struct {
+		name        string
+		spec        map[string]any
+		wantEnabled bool
+	}{
+		{name: "omitted spec enables the API", spec: nil, wantEnabled: true},
+		{name: "omitted key keeps version and enables the API", spec: map[string]any{"version": "5:27.3.1"}, wantEnabled: true},
+		{name: "explicit false disables the API", spec: map[string]any{"enableApi": false}, wantEnabled: false},
+		{name: "explicit true enables the API", spec: map[string]any{"enableApi": true}, wantEnabled: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+			if _, err := service.Install(context.Background(), InstallInput{
+				Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}}, Spec: tc.spec,
+			}); err != nil {
+				t.Fatalf("Install(%v) error = %v", tc.spec, err)
+			}
+			assignment, err := repo.FindByServerAndKind(context.Background(), "a", softwaredomain.KindDockerCE)
+			if err != nil {
+				t.Fatalf("assignment: %v", err)
+			}
+			if got, ok := assignment.Spec["enableApi"].(bool); !ok || got != tc.wantEnabled {
+				t.Errorf("recorded spec.enableApi = %v, want explicit %v", assignment.Spec["enableApi"], tc.wantEnabled)
+			}
+			if version, ok := tc.spec["version"]; ok && assignment.Spec["version"] != version {
+				t.Errorf("recorded spec.version = %v, want %v", assignment.Spec["version"], version)
+			}
+			vars := launcher.lastLaunch.TrustedVars
+			if got := vars["swallow_docker_enable_api"]; got != tc.wantEnabled {
+				t.Errorf("swallow_docker_enable_api = %v, want %v", got, tc.wantEnabled)
+			}
+			if got := vars["swallow_docker_api_port"]; got != softwaredomain.DockerEngineAPIPort {
+				t.Errorf("swallow_docker_api_port = %v, want %d", got, softwaredomain.DockerEngineAPIPort)
+			}
+		})
+	}
+}
+
+// Re-applying an installed kind (for example enabling the Docker Engine API) must not erase when it
+// was last applied; an absent record has nothing on disk, so it starts over.
+func TestInstallReapplyKeepsLastAppliedAtUnlessAbsent(t *testing.T) {
+	applied := time.Date(2026, 9, 25, 17, 6, 53, 0, time.UTC)
+	tests := []struct {
+		name  string
+		state softwaredomain.AssignmentState
+		want  *time.Time
+	}{
+		{name: "installed keeps last applied", state: softwaredomain.StateInstalled, want: &applied},
+		{name: "failed keeps last applied", state: softwaredomain.StateFailed, want: &applied},
+		{name: "absent starts over", state: softwaredomain.StateAbsent, want: nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service, repo, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+			_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{
+				ServerID: "a", Kind: softwaredomain.KindDockerCE, State: tc.state, LastAppliedAt: &applied,
+			})
+			if _, err := service.Install(context.Background(), InstallInput{
+				Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+				Spec: map[string]any{"enableApi": true},
+			}); err != nil {
+				t.Fatalf("Install error = %v", err)
+			}
+			assignment, _ := repo.FindByServerAndKind(context.Background(), "a", softwaredomain.KindDockerCE)
+			if assignment.State != softwaredomain.StatePending {
+				t.Errorf("state = %s, want pending", assignment.State)
+			}
+			got := assignment.LastAppliedAt
+			if (got == nil) != (tc.want == nil) || (got != nil && !got.Equal(*tc.want)) {
+				t.Errorf("lastAppliedAt = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInstallDockerRejectsMistypedSpec(t *testing.T) {
+	tests := []struct {
+		name string
+		spec map[string]any
+	}{
+		{name: "string enableApi", spec: map[string]any{"enableApi": "false"}},
+		{name: "numeric version", spec: map[string]any{"version": 27}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service, _, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+			_, err := service.Install(context.Background(), InstallInput{
+				Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}}, Spec: tc.spec,
+			})
+			if !errors.Is(err, softwaredomain.ErrSpecInvalid) {
+				t.Fatalf("Install(%v) error = %v, want ErrSpecInvalid", tc.spec, err)
+			}
+			if launcher.install {
+				t.Errorf("Install(%v) launched a Workflow for an invalid spec", tc.spec)
+			}
+		})
+	}
+}
+
+// A Docker CE assignment recorded before enableApi existed has no key; its uninstall must not
+// claim an enabled listener (the role removes swallow's listener either way).
+func TestUninstallLegacyDockerAssignmentSendsAPIDisabled(t *testing.T) {
+	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+	_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{
+		ServerID: "a", Kind: softwaredomain.KindDockerCE, State: softwaredomain.StateInstalled,
+	})
+	if _, err := service.Uninstall(context.Background(), UninstallInput{
+		Kind: softwaredomain.KindDockerCE, ServerIDs: []string{"a"},
+	}); err != nil {
+		t.Fatalf("Uninstall error = %v", err)
+	}
+	if got := launcher.lastLaunch.TrustedVars["swallow_docker_enable_api"]; got != false {
+		t.Errorf("swallow_docker_enable_api = %v, want false", got)
+	}
+}
+
 func TestUninstallMarksAssignmentsUninstalling(t *testing.T) {
 	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
 	_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{

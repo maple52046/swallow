@@ -10,6 +10,13 @@
 /** A single installable software. Values are domain language owned by swallow's glossary. */
 export type SoftwareKind = 'docker-ce' | 'podman' | 'nfs'
 
+const SOFTWARE_KINDS: ReadonlySet<string> = new Set<SoftwareKind>(['docker-ce', 'podman', 'nfs'])
+
+/** Narrows an untyped value (for example the kind inside a Workflow Job id) to a known SoftwareKind. */
+export function isSoftwareKind(value: string): value is SoftwareKind {
+  return SOFTWARE_KINDS.has(value)
+}
+
 /** A variant of one software. NFS is the only first-cut kind with roles. */
 export type SoftwareRole = 'server' | 'client'
 
@@ -79,4 +86,21 @@ export interface UninstallSoftwareInput {
 /** The accepted-Workflow reference returned by an install/uninstall command. */
 export interface SoftwareOperationReference {
   operationId: string
+}
+
+/**
+ * TCP port the Docker CE `enableApi` variant opens, as published by the `software.md` contract. It is
+ * shown to operators in the risk notice; the dashboard never dials it (api-server does).
+ */
+export const DOCKER_ENGINE_API_PORT = 2375
+
+/**
+ * Whether a Docker CE assignment spec records an enabled Docker Engine API (decision 043).
+ *
+ * Only an explicit `true` counts. Install always records the value, so a missing `enableApi` means
+ * the assignment predates the variant and no listener was ever configured — the contract requires
+ * consumers to read that as disabled rather than as the install default.
+ */
+export function dockerApiEnabled(spec: Record<string, unknown> | null): boolean {
+  return spec?.enableApi === true
 }

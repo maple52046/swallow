@@ -214,11 +214,14 @@ swallow 的內部實作。資料流總覽見
   也不變。連線位址在 `ansible_host`。
 - `_meta.hostvars[serverId]` 提供的鍵（playbook 可依賴）：
   - 連線：`ansible_host`；`ansible_user`、`ansible_port` 於**執行時**注入：`ansible_user` 優先取
-    `image_default_user`（所佈署 OS Image 的 effective default user，[decision 039](../decisions/039-ssh-key-management-and-default-user.md)），
-    否則依 §4.6.1 的候選解析；`ansible_port` 來自 site Automation Configuration。
+    `default_user`（Server 的 effective Server Default User：Server 上設定的值，否則所佈署 OS Image 的
+    default user，[decision 045](../decisions/045-server-default-user.md)／[039](../decisions/039-ssh-key-management-and-default-user.md)），
+    否則依 §4.6.1 的候選解析；`ansible_port` 來自 site Automation Configuration。playbook 可把
+    `ansible_user` 當成該 Server 的 default user（例如 Docker CE 把它加入 `docker` group）。
   - 身分：`server_id`、`site_id`、`integration_id`、`provider_machine_id`。
   - 觀測：`hostname`、`fqdn`、`architecture`、`cpu_cores`、`memory_mib`。
-  - 佈建：`provisioning_state`、`os_system`、`distro_series`、`image_default_user`（僅在已知時出現）。
+  - 佈建：`provisioning_state`、`os_system`、`distro_series`、`default_user`（effective Server Default
+    User）與 `image_default_user`（OS Image 的 default user），兩者都僅在已知時出現。
   - 成員：`platform_id`、`platform_role`、`platform_node_name`（若已加入 platform）。
   - 其他：`gpu_vendors`、`server_tags`（避開 Ansible 保留字 `tags`）。
 - 動態 group（非 `[a-z0-9_]` 的字元會被 tokenize 成 `_`）：`site_<id>`、

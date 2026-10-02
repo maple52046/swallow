@@ -122,6 +122,7 @@ func (r *deployFakeServerRepo) SetGPUs(context.Context, string, []serverdomain.G
 func (r *deployFakeServerRepo) SetDeployment(context.Context, string, *serverdomain.DeploymentStatus) error {
 	return nil
 }
+func (r *deployFakeServerRepo) SetDefaultUser(context.Context, string, string) error { return nil }
 func (r *deployFakeServerRepo) CountByIntegration(context.Context, string) (int, error) {
 	return 0, nil
 }

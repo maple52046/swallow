@@ -138,6 +138,9 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 	if err := validateSpec(entry, rolesByServer, input.Spec); err != nil {
 		return "", err
 	}
+	// The normalized spec is both what the playbook receives and what the assignment records, so
+	// the record never disagrees with what was applied (an omitted enableApi is recorded as true).
+	spec := normalizeSpec(entry.Kind, input.Spec)
 
 	// Precondition checks give clean, specific errors before a Workflow is created. The launcher's
 	// PrepareAnsibleStep re-checks the deployed state and lock at execution acceptance, so a race
@@ -166,7 +169,7 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 
 	launch := SoftwareLaunch{
 		Kind: input.Kind, ServerIDs: serverIDs, RolesByServer: rolesByServer,
-		TrustedVars: buildInstallVars(input.Kind, rolesByServer, input.Spec), RequestedBy: input.RequestedBy,
+		TrustedVars: buildInstallVars(input.Kind, rolesByServer, spec), RequestedBy: input.RequestedBy,
 	}
 	workflowID, err := s.launcher.LaunchInstall(ctx, launch)
 	if err != nil {
@@ -185,9 +188,10 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 		}
 		assignment := &softwaredomain.Assignment{
 			ServerID: serverID, SiteID: server.Source.SiteID, Kind: input.Kind,
-			Roles: rolesByServer[serverID], Spec: cloneSpec(input.Spec),
+			Roles: rolesByServer[serverID], Spec: cloneSpec(spec),
 			State: softwaredomain.StatePending, LastWorkflowID: workflowID,
-			CreatedAt: now, UpdatedAt: now,
+			LastAppliedAt: s.previousAppliedAt(ctx, serverID, input.Kind),
+			CreatedAt:     now, UpdatedAt: now,
 		}
 		if err := s.assignments.Upsert(ctx, assignment); err != nil {
 			return workflowID, err
@@ -250,6 +254,19 @@ func (s *SoftwareService) Uninstall(ctx context.Context, input UninstallInput) (
 	return workflowID, nil
 }
 
+// previousAppliedAt carries the last successful apply across a re-apply of an existing assignment
+// (for example turning Docker CE's enableApi on), so the record keeps saying the software was
+// applied while the new ensure is pending or if it fails. An absent record restarts from nil: the
+// software is gone from disk, so nothing was applied. A read failure also yields nil — losing the
+// timestamp is preferable to failing an install the launcher already accepted.
+func (s *SoftwareService) previousAppliedAt(ctx context.Context, serverID string, kind softwaredomain.Kind) *time.Time {
+	existing, err := s.assignments.FindByServerAndKind(ctx, serverID, kind)
+	if err != nil || existing.State == softwaredomain.StateAbsent {
+		return nil
+	}
+	return existing.LastAppliedAt
+}
+
 // checkMutualExclusion refuses installing a kind when a conflicting kind is already present
 // (non-absent) on the Server.
 func (s *SoftwareService) checkMutualExclusion(ctx context.Context, entry softwaredomain.CatalogEntry, serverID string) error {
@@ -286,12 +303,40 @@ func validateRoles(entry softwaredomain.CatalogEntry, roles []softwaredomain.Rol
 	return nil
 }
 
-// validateSpec enforces the kind-specific required fields. For NFS a server role requires an
-// export path and a client role requires a source and mount path.
+// validateSpec enforces the kind-specific required fields and types before a Workflow is created.
 func validateSpec(entry softwaredomain.CatalogEntry, rolesByServer map[string][]softwaredomain.Role, spec map[string]any) error {
-	if entry.Kind != softwaredomain.KindNFS {
+	switch entry.Kind {
+	case softwaredomain.KindDockerCE, softwaredomain.KindPodman:
+		return validateRuntimeSpec(entry.Kind, spec)
+	case softwaredomain.KindNFS:
+		return validateNFSSpec(rolesByServer, spec)
+	}
+	return nil
+}
+
+// validateRuntimeSpec checks the container-runtime spec types. A version must be a string, and
+// Docker CE's enableApi must be a real boolean: accepting a string such as "false" and reading it
+// as enabled would open the unauthenticated listener the operator declined.
+func validateRuntimeSpec(kind softwaredomain.Kind, spec map[string]any) error {
+	if value, ok := spec[softwaredomain.SpecVersion]; ok && value != nil {
+		if _, isString := value.(string); !isString {
+			return fmt.Errorf("%w: spec.%s must be a string", softwaredomain.ErrSpecInvalid, softwaredomain.SpecVersion)
+		}
+	}
+	if kind != softwaredomain.KindDockerCE {
 		return nil
 	}
+	if value, ok := spec[softwaredomain.SpecEnableAPI]; ok && value != nil {
+		if _, isBool := value.(bool); !isBool {
+			return fmt.Errorf("%w: spec.%s must be a boolean", softwaredomain.ErrSpecInvalid, softwaredomain.SpecEnableAPI)
+		}
+	}
+	return nil
+}
+
+// validateNFSSpec requires an export path when any target takes the server role, and a source and
+// mount path when any target takes the client role.
+func validateNFSSpec(rolesByServer map[string][]softwaredomain.Role, spec map[string]any) error {
 	hasServer, hasClient := false, false
 	for _, roles := range rolesByServer {
 		for _, role := range roles {
@@ -350,11 +395,33 @@ func buildInstallVars(kind softwaredomain.Kind, rolesByServer map[string][]softw
 		setIfPresent(vars, "swallow_nfs_client_mount_path", spec, "mountPath")
 		setIfPresent(vars, "swallow_nfs_client_mount_options", spec, "mountOptions")
 	case softwaredomain.KindDockerCE:
-		setIfPresent(vars, "swallow_docker_version", spec, "version")
+		setIfPresent(vars, "swallow_docker_version", spec, softwaredomain.SpecVersion)
+		// Always sent so the playbook converges the listener both ways: true adds it, false (and a
+		// legacy spec without the key) removes swallow's drop-in. The port comes from the domain so
+		// the playbook opens exactly what the explorer dials.
+		vars["swallow_docker_enable_api"] = softwaredomain.DockerAPIEnabled(spec)
+		vars["swallow_docker_api_port"] = softwaredomain.DockerEngineAPIPort
 	case softwaredomain.KindPodman:
-		setIfPresent(vars, "swallow_podman_version", spec, "version")
+		setIfPresent(vars, "swallow_podman_version", spec, softwaredomain.SpecVersion)
 	}
 	return vars
+}
+
+// normalizeSpec applies the kind-specific defaults to an already validated install spec and returns
+// a copy. Docker CE's enableApi defaults to true (decision 043), recorded explicitly so a later read
+// can tell "enabled by default" from a legacy record that predates the variant.
+func normalizeSpec(kind softwaredomain.Kind, spec map[string]any) map[string]any {
+	out := cloneSpec(spec)
+	if kind != softwaredomain.KindDockerCE {
+		return out
+	}
+	if out == nil {
+		out = map[string]any{}
+	}
+	if value, ok := out[softwaredomain.SpecEnableAPI]; !ok || value == nil {
+		out[softwaredomain.SpecEnableAPI] = true
+	}
+	return out
 }
 
 func setIfPresent(vars map[string]any, key string, spec map[string]any, specKey string) {

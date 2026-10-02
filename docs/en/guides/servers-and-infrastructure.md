@@ -10,7 +10,9 @@ organize, protect, and act on them; they do not create Server records.
 The Servers list supports Site scope, pagination, search, status and capability
 filters, saved views, live row updates, and bulk selection. A Server detail
 workspace separates summary, activity, monitoring, network, storage, and PCI
-observations.
+observations. A Server where swallow installed Docker CE also gets a
+**Containers** tab for its Docker images, containers, volumes, and networks (see
+[Managed Software](managed-software.md#docker-engine-api-and-the-containers-tab)).
 
 Always use the opaque Server ID in links and automation. Duplicate hostnames and
 addresses are valid across Sites.

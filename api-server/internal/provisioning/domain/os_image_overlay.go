@@ -3,9 +3,10 @@ package domain
 import (
 	"context"
 	"errors"
-	"regexp"
 	"strings"
 	"time"
+
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // OSImageOverlay is swallow-owned display data layered over a provider-owned OS Image.
@@ -63,13 +64,12 @@ func (o *OSImageOverlay) HasOverride() bool {
 	return o.DisplayName != "" || o.OSSystem != "" || o.Release != "" || len(o.Tags) > 0 || o.DefaultUser != ""
 }
 
-// defaultUserPattern is the portable POSIX login-name shape (the useradd default): it keeps the
-// value safe to pass as an SSH and Ansible user without quoting.
-var defaultUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-
-// ValidDefaultUser reports whether user is an acceptable OS Image default user.
+// ValidDefaultUser reports whether user is an acceptable OS Image default user. It is the Server
+// Default User rule (a POSIX login name, safe to pass as an SSH and Ansible user without quoting):
+// an image's default user becomes the default user of every Server deployed with it, so the two
+// must never disagree.
 func ValidDefaultUser(user string) bool {
-	return defaultUserPattern.MatchString(user)
+	return serverdomain.ValidDefaultUser(user)
 }
 
 // builtinDefaultUsers maps a provider OS family to the default user its official cloud images

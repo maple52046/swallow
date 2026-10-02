@@ -700,8 +700,9 @@ func cloneInventory(source map[string]any) map[string]any {
 }
 
 // setConnectionVars sets each host's ansible_port and ansible_user. The user is resolved per host
-// (decision 039): a host whose inventory carries image_default_user — its deployed OS Image's
-// effective default user — uses exactly that user, with no probe. Otherwise, when a prober is
+// (decisions 039 and 045): a host whose inventory carries default_user — its effective Server
+// Default User — uses exactly that user, with no probe; image_default_user is honoured the same way
+// for inventories frozen before default_user existed. Otherwise, when a prober is
 // attached and the automation key parses, it tries the candidate login users (Site user first,
 // then swallow's built-ins) against the host's address and uses the first that authenticates; if
 // none does it falls back to the Site sshUser. An ansible_user already present on a host is
@@ -736,9 +737,14 @@ func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[strin
 			// A per-host user set upstream wins; do not overwrite it.
 			continue
 		}
-		imageUser, _ := vars["image_default_user"].(string)
-		if imageUser = strings.TrimSpace(imageUser); imageUser != "" {
-			vars["ansible_user"] = imageUser
+		knownUser, _ := vars["default_user"].(string)
+		if strings.TrimSpace(knownUser) == "" {
+			// Inventories are frozen per Task; one frozen before default_user existed carries only
+			// the image value.
+			knownUser, _ = vars["image_default_user"].(string)
+		}
+		if knownUser = strings.TrimSpace(knownUser); knownUser != "" {
+			vars["ansible_user"] = knownUser
 			continue
 		}
 		user := configuration.SSHUser

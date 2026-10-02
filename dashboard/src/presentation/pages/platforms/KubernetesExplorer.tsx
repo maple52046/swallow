@@ -9,8 +9,6 @@ import type {
 } from '@/domain/platform/kubernetes'
 import { useApp } from '@/di/AppProvider'
 import { EmptyState } from '@/presentation/components/EmptyState'
-import { ErrorState } from '@/presentation/components/ErrorState'
-import { LoadingState } from '@/presentation/components/LoadingState'
 import { LogViewer } from '@/presentation/components/LogViewer'
 import { MetricGrid, SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -18,7 +16,9 @@ import { CopyButton } from '@/presentation/components/CopyButton'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useToast } from '@/presentation/components/toast/toastContext'
-import { useAsyncData, type AsyncData } from './useAsyncData'
+import { useAsyncData, type AsyncData } from '@/presentation/hooks/useAsyncData'
+import { AsyncSection as SharedAsyncSection } from '@/presentation/components/AsyncSection'
+import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 
 /**
  * The live Kubernetes cluster explorer, rendered as Platform-detail tabs for a Swallow-deployed
@@ -28,18 +28,17 @@ import { useAsyncData, type AsyncData } from './useAsyncData'
  * treat any eligibility API error as an unavailable-degrade rather than a routine state.
  */
 
-/** Renders the standard loading/error/unavailable envelope around ready content. */
+/** The shared async envelope with the cluster explorer's eligibility wording. */
 function AsyncSection<T>({ state, children }: { state: AsyncData<T>; children: (data: T) => ReactNode }) {
-  if (state.status === 'loading') return <LoadingState rows={4} />
-  if (state.status === 'error') return <ErrorState message={state.message} />
-  if (state.status === 'unavailable') {
-    return (
-      <Alert status="info" title="Cluster explorer is unavailable">
-        {state.message} The live cluster view appears once the platform is deployed and its credential is recorded.
-      </Alert>
-    )
-  }
-  return <>{children(state.data)}</>
+  return (
+    <SharedAsyncSection
+      state={state}
+      unavailableTitle="Cluster explorer is unavailable"
+      unavailableHint="The live cluster view appears once the platform is deployed and its credential is recorded."
+    >
+      {children}
+    </SharedAsyncSection>
+  )
 }
 
 // ---- Cluster tab: summary + nodes with cordon ----
@@ -601,45 +600,6 @@ function ApplyManifestDialog({ platformId, onClose, onApplied }: { platformId: s
         placeholder={'apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: nginx\n  namespace: web\n...'}
         autoFocus
       />
-    </Modal>
-  )
-}
-
-/** A minimal reusable confirmation dialog for destructive explorer actions. */
-function ConfirmDialog({
-  open,
-  title,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-  children,
-}: {
-  open: boolean
-  title: string
-  confirmLabel: string
-  onConfirm: () => void
-  onCancel: () => void
-  children: React.ReactNode
-}) {
-  if (!open) return null
-  return (
-    <Modal
-      open
-      onClose={onCancel}
-      title={title}
-      role="alertdialog"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button colorPalette="red" onClick={onConfirm}>
-            {confirmLabel}
-          </Button>
-        </>
-      }
-    >
-      {children}
     </Modal>
   )
 }

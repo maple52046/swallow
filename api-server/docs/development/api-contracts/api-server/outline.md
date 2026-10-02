@@ -30,7 +30,7 @@ conformist HTTP consumers of this surface; neither owns any contract here.
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
 | [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers/` | List complete Server projections with filtering and pagination. |
 | [servers-stream.md](servers-stream.md) | Active | `GET /api/v1/servers/stream` | Live Server projection changes as Server-Sent Events, so the list is patched per row instead of re-read. |
-| [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server, allowlisted live BMC connection detail, and provider-backed actions. |
+| [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}` | Read a Server, allowlisted live BMC connection detail, provider-backed actions, and set or clear its Server Default User (optionally installing the Deployment Key with a one-time password). |
 | [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List, upload, and delete provider-owned OS Images, manage Deployment Templates, and submit multi-Server OS Deployments. |
 | [infrastructure.md](infrastructure.md) | Active | `/api/v1/infrastructure`, `PUT /api/v1/servers/{id}/placement` | Manage swallow-owned Zones and Pools and assign a Server to them, realized in the provisioner when grouping-capable. |
 | [server-tags.md](server-tags.md) | Active | `GET/POST /api/v1/provisioning/tags` | List a Site's known tags and edit Server tags (single or batch, tri-state), driving the provisioner when it owns tags and swallow-owned otherwise. |
@@ -41,6 +41,8 @@ conformist HTTP consumers of this surface; neither owns any contract here.
 | [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Deploy Kubernetes and Slurm Platforms, manage Slurm deployment requirements, lifecycle, uninstall/delete, and observed state (self-deployed only). |
 | [software.md](software.md) | Active | `/api/v1/software` | Install and uninstall single host software (Docker CE, Podman, NFS) on deployed Servers, and read swallow-owned Software Assignment records. |
 | [platforms-kubernetes.md](platforms-kubernetes.md) | Active | `/api/v1/platforms/{id}/kubernetes` | Live in-cluster explorer for a deployed Kubernetes Platform: namespaces, applications, pods/logs, subsidiary resources, YAML apply, and node cordon. |
+| [registry-credentials.md](registry-credentials.md) | Active | `/api/v1/software/docker-ce/registry-credentials` | Manage the sealed, installation-wide Registry Credentials the Docker Host Explorer attaches to private image pulls (password write-only). |
+| [servers-docker.md](servers-docker.md) | Active | `/api/v1/servers/{id}/docker` | Live Docker Host Explorer for a Server where swallow installed Docker CE with `enableApi`: images (pull/remove), containers (create/start/stop/restart/logs/remove), volumes, and networks; nothing persisted. |
 | [server-metrics.md](server-metrics.md) | Active | `GET /api/v1/monitoring/metrics` | Read current metric values for servers from the metrics backend, and list the fixed metric-name set. |
 | [monitoring-alerts.md](monitoring-alerts.md) | Active | `/api/v1/monitoring/alerts` | List correlated alerts and create Alertmanager silences. |
 | [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus` | Prometheus `http_sd` target list with the metrics label contract; `tag` selects one server type. |

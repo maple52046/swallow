@@ -92,6 +92,58 @@ func TestNFSPlaybookClassifiesRolesFromTrustedVars(t *testing.T) {
 	}
 }
 
+// The Docker Host Explorer dials the Engine API listener the docker_ce role converges from the
+// trusted swallow_docker_enable_api / swallow_docker_api_port vars (decision 043). These assertions
+// keep the playbooks wired to those vars, the listener tied to state=present, the stock fd://
+// socket preserved, and uninstall closing what install opened.
+func TestDockerCEPlaybooksConvergeEngineAPIListener(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "automation", "playbooks")
+	cases := []struct {
+		path     string
+		required []string
+	}{
+		{
+			path:     "deploy-docker-ce.yml",
+			required: []string{"swallow_docker_enable_api", "swallow_docker_api_port", "role: docker_ce"},
+		},
+		{
+			path:     "uninstall-docker-ce.yml",
+			required: []string{"docker_ce_state: absent", "swallow_docker_api_port"},
+		},
+		{
+			path:     filepath.Join("roles", "docker_ce", "tasks", "main.yml"),
+			required: []string{"include_tasks: api.yml"},
+		},
+		{
+			path: filepath.Join("roles", "docker_ce", "tasks", "api.yml"),
+			required: []string{
+				"docker_ce_state == 'present' and (docker_ce_api_enabled | bool)",
+				"-H fd:// -H tcp://0.0.0.0:{{ docker_ce_api_port }}",
+				"state: absent",
+				"state: restarted",
+				"firewall-cmd",
+				"ansible.builtin.wait_for",
+			},
+		},
+		{
+			path:     filepath.Join("roles", "docker_ce", "defaults", "main.yml"),
+			required: []string{"docker_ce_api_enabled: false", "docker_ce_api_port: 2375"},
+		},
+	}
+	for _, tc := range cases {
+		raw, err := os.ReadFile(filepath.Join(root, tc.path))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.path, err)
+		}
+		content := string(raw)
+		for _, required := range tc.required {
+			if !strings.Contains(content, required) {
+				t.Errorf("%s missing %q", tc.path, required)
+			}
+		}
+	}
+}
+
 // The container-runtime roles must carry symmetric present/absent branches so uninstall is a real
 // removal path, not a no-op. Docker CE and Podman are mutually exclusive software kinds; each
 // owns one install implementation shared by any future platform composition.

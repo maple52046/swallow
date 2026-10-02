@@ -25,6 +25,7 @@ function makeServer(index: number): Server {
     provisioning: { state: 'deployed', providerState: 'deployed', powerState: 'on', osSystem: 'ubuntu', distroSeries: '24.04', deployedImageName: 'Ubuntu 24.04 LTS', deployedImageDefaultUser: 'ubuntu', ephemeral: false, hweKernel: 'ga-24.04', locked: false, commissioningStatus: 'passed', testingStatus: 'passed', integrationId: 'maas-a', observedAt: now },
     membership: ordinal <= 3 ? { platformId: 'platform-a', nodeName: `gpu-node-0${ordinal}`, role: 'control-plane', state: 'ready', observedAt: now } : null,
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
+    defaultUser: { user: 'ubuntu', source: 'os_image' },
     absent: false, lastSeenAt: now, createdAt: '2026-08-01T00:00:00Z', updatedAt: now,
   }
 }
@@ -255,6 +256,29 @@ export interface FixtureOptions {
    * managers and the controller merge in the member list. Opt-in so other tests are unaffected.
    */
   slurmDeployed?: boolean
+  /**
+   * Docker CE Software Assignments by serverId (decision 043): `enabled` records `enableApi: true`
+   * and serves the Docker Host Explorer routes; `disabled` models an installation without the API
+   * (a legacy record with no spec). Servers not listed have no Docker CE, so their Containers tab
+   * is not offered. Opt-in so other tests are unaffected.
+   */
+  dockerAssignments?: Record<string, 'enabled' | 'disabled'>
+  /** Called with the body of every POST /software/assignments (a Docker CE re-apply from the tab). */
+  onSoftwareInstallRequest?: (body: Record<string, unknown>) => void
+  /** Called for every Docker Host Explorer write with its method, explorer sub-path, and JSON body. */
+  onDockerRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
+  /** Holds every image pull response until it resolves, to exercise a long-running pull. */
+  dockerPullGate?: Promise<void>
+  /** Registry Credentials present at page load (decision 044); passwords are never part of a fixture. */
+  registryCredentials?: Array<{ registry: string; username: string }>
+  /** Called for every Registry Credential write with its method, path, and JSON body (passwords included). */
+  onRegistryCredentialRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
+  /** Called for every Server Default User write (decision 045) with its method and JSON body. */
+  onDefaultUserRequest?: (method: string, body: Record<string, unknown> | null) => void
+  /** Sudo access the default-user PUT reports; `passwordless` when omitted. */
+  defaultUserSudo?: 'passwordless' | 'password_required' | 'unavailable'
+  /** Makes the default-user PUT fail with this API error instead of saving. */
+  defaultUserError?: { status: number; code: string; message: string }
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -301,6 +325,39 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     settlingKeyIds.add(key.id)
     return { ...key, providerSync: key.providerSync.map(({ integrationId, siteId }) => ({ integrationId, siteId, state: 'pending' })) }
   }
+  // Per-page Docker CE assignments and Docker Engine objects (software.md, servers-docker.md).
+  const dockerAssignments = new Map(
+    Object.entries(options.dockerAssignments ?? {}).map(([serverId, mode]) => [serverId, {
+      serverId, kind: 'docker-ce', roles: [] as string[],
+      spec: mode === 'enabled' ? ({ enableApi: true } as Record<string, unknown>) : null,
+      state: 'installed', lastWorkflowId: 'op-docker-install', lastAppliedAt: '2026-08-20T00:00:00Z' as string | null,
+      createdAt: '2026-08-20T00:00:00Z', updatedAt: '2026-08-20T00:00:00Z',
+    }]),
+  )
+  let dockerImages = [
+    { id: 'sha256:1111111111111111111111111111111111111111111111111111111111111111', repoTags: ['nginx:1.27'], repoDigests: ['nginx@sha256:aaaa'], sizeBytes: 192004589, createdAt: '2026-08-20T00:00:00Z', dangling: false },
+    { id: 'sha256:2222222222222222222222222222222222222222222222222222222222222222', repoTags: [] as string[], repoDigests: [] as string[], sizeBytes: 5000000, createdAt: '2026-08-10T00:00:00Z', dangling: true },
+  ]
+  const dockerContainers = [
+    {
+      id: 'c0ffee000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', name: 'web', image: 'nginx:1.27',
+      imageId: 'sha256:1111111111111111111111111111111111111111111111111111111111111111', command: "/docker-entrypoint.sh nginx -g 'daemon off;'",
+      state: 'running', status: 'Up 2 hours', createdAt: '2026-08-27T01:00:00Z',
+      ports: [{ ip: '0.0.0.0', privatePort: 80, publicPort: 8080 as number | null, protocol: 'tcp' }],
+      networks: ['bridge'], mounts: [{ type: 'volume', source: 'web-data', destination: '/usr/share/nginx/html', readOnly: false }],
+    },
+  ]
+  let registryCredentialItems = (options.registryCredentials ?? []).map((item, index) => ({
+    id: `cred-${index + 1}`, registry: item.registry, username: item.username,
+    createdAt: '2026-08-20T00:00:00Z', updatedAt: '2026-08-20T00:00:00Z', updatedBy: 'admin',
+  }))
+  const dockerVolumes = [
+    { name: 'web-data', driver: 'local', mountpoint: '/var/lib/docker/volumes/web-data/_data', scope: 'local', createdAt: '2026-08-27T00:59:00Z' as string | null, labels: {} },
+  ]
+  const dockerNetworks = [
+    { id: 'net-bridge', name: 'bridge', driver: 'bridge', scope: 'local', internal: false, attachable: false, predefined: true, subnets: [{ subnet: '172.17.0.0/16', gateway: '172.17.0.1' }], createdAt: null as string | null },
+    { id: 'net-host', name: 'host', driver: 'host', scope: 'local', internal: false, attachable: false, predefined: true, subnets: [] as Array<{ subnet: string; gateway: string }>, createdAt: null as string | null },
+  ]
   await page.addInitScript(() => {
     class FixtureEventSource {
       static readonly CONNECTING = 0
@@ -754,6 +811,112 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (apiKeyMatch && request.method() === 'DELETE') {
       apiKeyItems = apiKeyItems.filter((key) => key.id !== decodeURIComponent(apiKeyMatch[1]))
       return route.fulfill({ status: 204 })
+    }
+    if (path === '/api/v1/software/catalog') {
+      return json(route, { items: [
+        { kind: 'docker-ce', label: 'Docker CE', roles: [], mutuallyExclusiveWith: ['podman'], refusedForKubernetesMembers: true, specFields: ['version', 'enableApi'] },
+        { kind: 'podman', label: 'Podman', roles: [], mutuallyExclusiveWith: ['docker-ce'], refusedForKubernetesMembers: true, specFields: ['version'] },
+        { kind: 'nfs', label: 'NFS', roles: ['server', 'client'], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, specFields: ['exportPath', 'exportOptions', 'source', 'mountPath', 'mountOptions'] },
+      ] })
+    }
+    // Registry Credentials (registry-credentials.md): responses never carry a password.
+    if (path === '/api/v1/software/docker-ce/registry-credentials' && request.method() === 'GET') {
+      return json(route, { items: [...registryCredentialItems].sort((a, b) => a.registry.localeCompare(b.registry)) })
+    }
+    if (path === '/api/v1/software/docker-ce/registry-credentials' && request.method() === 'POST') {
+      const body = (request.postDataJSON() ?? {}) as { registry?: string; username?: string; password?: string }
+      options.onRegistryCredentialRequest?.('POST', path, body as Record<string, unknown>)
+      const host = String(body.registry ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '')
+      const dockerHubNames = ['index.docker.io', 'registry-1.docker.io', 'hub.docker.com', 'registry.hub.docker.com', 'hub.docker.io', 'index.docker.io/v1']
+      const registry = dockerHubNames.includes(host) ? 'docker.io' : host
+      if (registryCredentialItems.some((item) => item.registry === registry)) {
+        return json(route, { error: { code: 'conflict', message: 'A credential for this registry already exists. Replace it instead.', requestId: 'req-cred-conflict' } }, 409)
+      }
+      const created = { id: `cred-${registryCredentialItems.length + 1}`, registry, username: String(body.username ?? ''), createdAt: now, updatedAt: now, updatedBy: 'admin' }
+      registryCredentialItems = [...registryCredentialItems, created]
+      return json(route, created, 201)
+    }
+    const registryCredentialMatch = path.match(/^\/api\/v1\/software\/docker-ce\/registry-credentials\/([^/]+)$/)
+    if (registryCredentialMatch && request.method() === 'PUT') {
+      const body = (request.postDataJSON() ?? {}) as { username?: string }
+      options.onRegistryCredentialRequest?.('PUT', path, body as Record<string, unknown>)
+      const item = registryCredentialItems.find((entry) => entry.id === decodeURIComponent(registryCredentialMatch[1]))
+      if (!item) return json(route, { error: { code: 'not_found', message: 'Registry credential not found.' } }, 404)
+      Object.assign(item, { username: String(body.username ?? ''), updatedAt: now })
+      return json(route, item)
+    }
+    if (registryCredentialMatch && request.method() === 'DELETE') {
+      options.onRegistryCredentialRequest?.('DELETE', path, null)
+      registryCredentialItems = registryCredentialItems.filter((entry) => entry.id !== decodeURIComponent(registryCredentialMatch[1]))
+      return route.fulfill({ status: 204 })
+    }
+    // Managed Software assignments: only the Docker CE records the explorer tests opt into.
+    if (path === '/api/v1/software/assignments' && request.method() === 'GET') {
+      const serverId = url.searchParams.get('serverId')
+      const kind = url.searchParams.get('kind')
+      const items = [...dockerAssignments.values()].filter((item) => (!serverId || item.serverId === serverId) && (!kind || item.kind === kind))
+      return json(route, { items })
+    }
+    if (path === '/api/v1/software/assignments' && request.method() === 'POST') {
+      const body = (request.postDataJSON() ?? {}) as { assignments?: Array<{ serverId: string }>; spec?: Record<string, unknown> }
+      options.onSoftwareInstallRequest?.(body as Record<string, unknown>)
+      for (const target of body.assignments ?? []) {
+        const existing = dockerAssignments.get(target.serverId)
+        if (existing) Object.assign(existing, { state: 'pending', spec: body.spec ?? null, lastWorkflowId: 'op-docker-reapply' })
+      }
+      return json(route, { operationId: 'op-docker-reapply' }, 202)
+    }
+    // Docker Host Explorer: eligible only for an installed Docker CE with enableApi (servers-docker.md).
+    const dockerMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/docker(\/.*)?$/)
+    if (dockerMatch) {
+      const assignment = dockerAssignments.get(decodeURIComponent(dockerMatch[1]))
+      if (!assignment || assignment.state !== 'installed' || assignment.spec?.enableApi !== true) {
+        return json(route, { error: { code: 'conflict', message: 'The Docker Engine API is not enabled for this Server.', requestId: 'req-docker-ineligible' } }, 409)
+      }
+      const sub = dockerMatch[2] ?? ''
+      const method = request.method()
+      const body = method === 'GET' ? null : ((request.postDataJSON() ?? null) as Record<string, unknown> | null)
+      if (method !== 'GET') options.onDockerRequest?.(method, sub, body)
+      if (sub === '') {
+        return json(route, {
+          endpoint: 'tcp://192.168.40.21:2375', serverVersion: '27.3.1', apiVersion: '1.47', operatingSystem: 'Ubuntu 24.04.1 LTS',
+          osType: 'linux', architecture: 'x86_64', kernelVersion: '6.8.0-45-generic', storageDriver: 'overlay2', cpus: 64,
+          memoryBytes: 549755813888, containers: dockerContainers.length, containersRunning: dockerContainers.filter((item) => item.state === 'running').length,
+          containersPaused: 0, containersStopped: dockerContainers.filter((item) => item.state !== 'running').length, images: dockerImages.length,
+        })
+      }
+      if (sub === '/images' && method === 'GET') return json(route, { items: dockerImages })
+      if (sub === '/images/pull' && method === 'POST') {
+        await options.dockerPullGate
+        const reference = String(body?.reference ?? '')
+        const canonical = reference.lastIndexOf(':') > reference.lastIndexOf('/') ? reference : `${reference}:latest`
+        const first = reference.split('/')[0]
+        const registry = reference.includes('/') && (/[.:]/.test(first) || first === 'localhost') ? first : 'docker.io'
+        dockerImages = [{ id: `sha256:${'3'.repeat(64)}`, repoTags: [canonical], repoDigests: [], sizeBytes: 25874, createdAt: now, dangling: false }, ...dockerImages]
+        return json(route, {
+          reference: canonical, status: `Status: Downloaded newer image for ${canonical}`,
+          registry, authenticated: registryCredentialItems.some((item) => item.registry === registry),
+        })
+      }
+      const imageMatch = sub.match(/^\/images\/([^/]+)$/)
+      if (imageMatch && method === 'DELETE') {
+        dockerImages = dockerImages.filter((item) => item.id !== decodeURIComponent(imageMatch[1]))
+        return json(route, { success: true })
+      }
+      if (sub === '/containers' && method === 'GET') return json(route, { items: dockerContainers })
+      const containerAction = sub.match(/^\/containers\/([^/]+)\/(start|stop|restart)$/)
+      if (containerAction && method === 'POST') {
+        const container = dockerContainers.find((item) => item.id === decodeURIComponent(containerAction[1]))
+        if (container) {
+          container.state = containerAction[2] === 'stop' ? 'exited' : 'running'
+          container.status = containerAction[2] === 'stop' ? 'Exited (0) 1 second ago' : 'Up 1 second'
+        }
+        return json(route, { success: true })
+      }
+      if (sub.match(/^\/containers\/[^/]+\/logs$/)) return json(route, { logs: 'nginx: ready\n' })
+      if (sub === '/volumes' && method === 'GET') return json(route, { items: dockerVolumes })
+      if (sub === '/networks' && method === 'GET') return json(route, { items: dockerNetworks })
+      return json(route, { error: { code: 'not_found', message: `No Docker fixture for ${method} ${sub}` } }, 404)
     }
     if (path === '/api/v1/sites' && request.method() === 'GET') return json(route, siteItems)
     if (path === '/api/v1/sites' && request.method() === 'POST') {
@@ -1300,6 +1463,29 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }, 202)
     }
     if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true, networkConfiguration: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }, { title: 'BMC', fields: [{ label: 'Protocol', value: 'IPMI' }, { label: 'Address', value: '192.0.2.20' }, { label: 'Username', value: 'bmc-admin' }, { label: 'Password', value: 'bmc-secret' }, { label: 'Driver', value: 'LAN_2_0' }, { label: 'Boot type', value: 'efi' }, { label: 'Privilege level', value: 'OPERATOR' }, { label: 'Cipher suite', value: '17' }, { label: 'Power MAC', value: 'aa:bb:cc:dd:ee:ff' }] }], tables: [{ title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
+    // Server Default User (server-detail-actions.md): PUT verifies on the host in the real API; the
+    // fixture just records the request and applies the result to the projection.
+    const defaultUserMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/default-user$/)
+    if (defaultUserMatch) {
+      const item = fleet.find((entry) => entry.id === decodeURIComponent(defaultUserMatch[1]))
+      if (!item) return json(route, { error: { code: 'not_found', message: 'Server not found.' } }, 404)
+      if (request.method() === 'PUT') {
+        const body = (request.postDataJSON() ?? {}) as { user?: string; password?: string }
+        options.onDefaultUserRequest?.('PUT', body)
+        if (options.defaultUserError) {
+          const { status, code, message } = options.defaultUserError
+          return json(route, { error: { code, message, requestId: 'req-default-user' } }, status)
+        }
+        item.defaultUser = { user: String(body.user ?? ''), source: 'server' }
+        return json(route, { defaultUser: item.defaultUser, keyInstalled: Boolean(body.password), sudo: options.defaultUserSudo ?? 'passwordless' })
+      }
+      if (request.method() === 'DELETE') {
+        options.onDefaultUserRequest?.('DELETE', null)
+        const imageUser = item.provisioning?.deployedImageDefaultUser
+        item.defaultUser = imageUser ? { user: imageUser, source: 'os_image' } : undefined
+        return route.fulfill({ status: 204 })
+      }
+    }
     const serverMatch = path.match(/^\/api\/v1\/servers\/([^/]+)$/)
     if (serverMatch) {
       const index = fleet.findIndex((item) => item.id === serverMatch[1])

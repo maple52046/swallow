@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
@@ -62,6 +63,25 @@ func (s deploymentKeySource) DeploymentPrivateKey(ctx context.Context) (string, 
 // HasDeploymentKey answers existence without opening secret material.
 func (s deploymentKeySource) HasDeploymentKey(ctx context.Context) (bool, error) {
 	return s.keys.HasDeploymentKey(ctx)
+}
+
+// siteSSHPorts adapts the Site Automation Configuration to the server feature's SSHPortResolver, so
+// the logins that set a Server Default User use the same port as automation. A Site without an
+// Automation Configuration reports 0 (the adapter then uses 22) rather than failing the request.
+type siteSSHPorts struct {
+	configurations operationdomain.AutomationConfigurationRepository
+}
+
+// SSHPort returns the Site's configured SSH port, or 0 when the Site has none.
+func (p siteSSHPorts) SSHPort(ctx context.Context, siteID string) (int, error) {
+	configuration, err := p.configurations.FindBySiteID(ctx, siteID)
+	if errors.Is(err, operationdomain.ErrAutomationConfigNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return configuration.SSHPort, nil
 }
 
 // sshKeySyncOnProvisionerChange turns a provisioner Integration write into a sync request, so a

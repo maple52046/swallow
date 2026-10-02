@@ -6,6 +6,7 @@ import { serverPrimaryAddress, type DetailSection, type Server } from '@/domain/
 import { HealthBadge, LockBadge, MembershipBadge, PowerBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { CopyButton } from '@/presentation/components/CopyButton'
+import { defaultUserSourceLabel } from '@/presentation/components/serverSummary/defaultUserLabels'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { DescriptionList, type DescriptionItem } from '@/presentation/components/ui/description-list'
 
@@ -255,33 +256,51 @@ export function ManagementControllerCard({ management }: { management?: DetailSe
 
 /**
  * In-band SSH access to a deployed Server, the counterpart of the out-of-band management
- * controller card. It shows the login user swallow resolved from the deployed OS image (the
- * image's default user, decision 039), the primary address, and the `ssh <user>@<address>`
- * command an operator runs with one of their Access Keys.
+ * controller card. It shows the login user — the effective Server Default User the API resolves
+ * (set on this Server, else the deployed OS image's default user; decisions 045 and 039) with
+ * where it comes from — the primary address, and the `ssh <user>@<address>` command an operator
+ * runs with one of their Access Keys.
  *
  * A command is offered only when every part is known; otherwise the missing fact is spelled
  * out instead of producing a half-formed command: nothing deployed yet, no reported address, or
  * no known default user (automation then probes fallback users, so the login cannot be
- * predicted). `imageHref` deep-links to the deployed OS image, where the default user is set.
+ * predicted). `imageHref` deep-links to the deployed OS image, where the image's default user is
+ * set. `loginUserAction` is the caller's control for setting the Server's own default user,
+ * rendered beside the login user so the card stays a shared, page-agnostic component.
  */
-export function ConnectionCard({ server, imageHref }: { server: Server; imageHref?: string }) {
+export function ConnectionCard({ server, imageHref, loginUserAction }: { server: Server; imageHref?: string; loginUserAction?: ReactNode }) {
   const axis = server.provisioning
   const deployed = axis?.state === 'deployed'
-  const user = axis?.deployedImageDefaultUser
+  const user = server.defaultUser?.user
   const address = serverPrimaryAddress(server)
   const command = deployed && user && address ? `ssh ${user}@${address}` : ''
   const unknownUser = imageHref ? (
     <Text as="span" color="fg.muted">
-      Unknown —{' '}
+      Unknown — set one here, or{' '}
       <ChakraLink asChild color="brand.fg" textDecoration="underline" textUnderlineOffset="3px">
         <RouterLink to={imageHref}>set the OS image&apos;s default user</RouterLink>
       </ChakraLink>
     </Text>
   ) : (
-    <Text as="span" color="fg.muted">Unknown — set the OS image&apos;s default user</Text>
+    <Text as="span" color="fg.muted">Unknown — set the default user</Text>
+  )
+  const loginUser = (
+    <HStack gap="2" wrap="wrap">
+      {user ? (
+        <>
+          <Text as="span" className="sw-mono">{user}</Text>
+          <Text as="span" color="fg.muted" fontSize="sm">
+            ({defaultUserSourceLabel(server.defaultUser?.source ?? 'os_image')})
+          </Text>
+        </>
+      ) : (
+        unknownUser
+      )}
+      {loginUserAction}
+    </HStack>
   )
   const items: DescriptionItem[] = [
-    { label: 'Login user', value: user ? <Text as="span" className="sw-mono">{user}</Text> : unknownUser },
+    { label: 'Login user', value: loginUser },
     {
       label: 'Address',
       value: address ? (

@@ -9,6 +9,8 @@ import type {
   ProvisioningActionResult,
   Server,
   ServerAction,
+  SetServerDefaultUserInput,
+  SetServerDefaultUserResult,
 } from '@/domain/server/types'
 
 export interface Paginated<T> {
@@ -62,4 +64,16 @@ export interface ServerRepository {
 
   /** Read the live BMC power state. Changes nothing. */
   queryPowerState(id: string): Promise<PowerStateResult>
+
+  /**
+   * Sets the Server Default User (contract server-detail-actions.md "Default User"). The API logs
+   * in to the host — once with `input.password` to install the Deployment Key when given, then with
+   * the key to verify — and saves only after that works, so the call takes a few seconds. Rejects
+   * with the API error: `validation_error` (bad name or rejected password), `conflict` (not
+   * deployed, locked, no Deployment Key, or the key is not authorized), `provider_unavailable`
+   * (host unreachable). The password must not be kept after the call.
+   */
+  setDefaultUser(id: string, input: SetServerDefaultUserInput): Promise<SetServerDefaultUserResult>
+  /** Clears the value set on the Server so the OS Image's default user applies; never touches the host. */
+  clearDefaultUser(id: string): Promise<void>
 }

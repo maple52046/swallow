@@ -49,6 +49,12 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 		if err := e.setDeployment(ctx, input, serverID, serverdomain.DeploymentDeploying, nil, false); err != nil {
 			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
 		}
+		// A Server Default User set on the Server belongs to the OS being replaced (decision 045).
+		// Clear it before the deploy so the new OS's readiness check and every later run log in as
+		// the new image's default user rather than an account that may not exist there.
+		if err := e.servers.SetDefaultUser(ctx, serverID, ""); err != nil {
+			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
+		}
 		result := e.deploy(ctx, input)
 		if temporalworkflow.IsActivityWorkerStopping(ctx) {
 			return result

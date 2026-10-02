@@ -78,6 +78,32 @@ type CatalogEntry struct {
 	SpecFields []string
 }
 
+// Spec keys shared by the catalog, validation, and the trusted-variable assembly. They are
+// published language of the software contract (software.md), so renaming one is a breaking change.
+const (
+	// SpecVersion optionally pins a container runtime's package version.
+	SpecVersion = "version"
+	// SpecEnableAPI is the Docker CE variant that makes the Docker Engine API listen on
+	// DockerEngineAPIPort. Install normalizes an omitted value to true, so a recorded Docker CE
+	// assignment always carries an explicit boolean (decision 043).
+	SpecEnableAPI = "enableApi"
+)
+
+// DockerEngineAPIPort is the TCP port the Docker CE playbook opens when SpecEnableAPI is true and
+// the port the Docker Host Explorer connects to. It is owned here and passed to the playbook as a
+// trusted variable so the listener and the explorer cannot disagree.
+const DockerEngineAPIPort = 2375
+
+// DockerAPIEnabled reports whether a Docker CE assignment spec records an enabled Engine API.
+//
+// Only an explicit boolean true counts. A spec recorded before the enableApi variant existed has no
+// key and reads as disabled, because no listener was ever configured on that host; treating the
+// absence as the install default (true) would point the explorer at a closed port.
+func DockerAPIEnabled(spec map[string]any) bool {
+	enabled, ok := spec[SpecEnableAPI].(bool)
+	return ok && enabled
+}
+
 // catalog is the fixed first-cut Managed Software catalog. Adding an entry is a model change
 // coordinated with the glossary and the software API contract.
 var catalog = []CatalogEntry{
@@ -87,7 +113,7 @@ var catalog = []CatalogEntry{
 		Roles:                       nil,
 		MutuallyExclusiveWith:       []Kind{KindPodman},
 		RefusedForKubernetesMembers: true,
-		SpecFields:                  []string{"version"},
+		SpecFields:                  []string{SpecVersion, SpecEnableAPI},
 	},
 	{
 		Kind:                        KindPodman,
@@ -95,7 +121,7 @@ var catalog = []CatalogEntry{
 		Roles:                       nil,
 		MutuallyExclusiveWith:       []Kind{KindDockerCE},
 		RefusedForKubernetesMembers: true,
-		SpecFields:                  []string{"version"},
+		SpecFields:                  []string{SpecVersion},
 	},
 	{
 		Kind:                        KindNFS,

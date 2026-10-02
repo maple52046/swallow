@@ -9,6 +9,7 @@ import type {
   SoftwareKind,
   SoftwareRole,
 } from '@/domain/software/types'
+import { DockerApiRiskNotice } from '@/presentation/components/DockerApiRiskNotice'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -29,11 +30,13 @@ interface InstallSoftwareDialogProps {
  * Installs one software kind on one or more deployed Servers.
  *
  * The operator picks a kind, selects target Servers, assigns per-Server roles for a kind that has
- * variants (NFS), and fills the kind-specific spec (NFS export/mount, or an optional runtime
- * version). Submit stays disabled until the selection satisfies the kind's role and spec rules, so
- * the obvious client-side mistakes are caught before a Workflow is created; the backend remains the
- * authority on state, mutual exclusion, and Kubernetes-member refusal, and its error is surfaced
- * inline. Dismissal is blocked while the request is in flight so a double submit cannot occur.
+ * variants (NFS), and fills the kind-specific spec (NFS export/mount, an optional runtime version,
+ * and for Docker CE the `enableApi` variant — checked by default to match the contract default, with
+ * the shared risk notice beside it). Submit stays disabled until the selection satisfies the kind's
+ * role and spec rules, so the obvious client-side mistakes are caught before a Workflow is created;
+ * the backend remains the authority on state, mutual exclusion, and Kubernetes-member refusal, and
+ * its error is surfaced inline. Dismissal is blocked while the request is in flight so a double
+ * submit cannot occur.
  */
 export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }: InstallSoftwareDialogProps) {
   const { software } = useApp()
@@ -41,6 +44,9 @@ export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }:
   // Selected targets keyed by serverId; the value is the chosen roles (empty for a role-less kind).
   const [selected, setSelected] = useState<Record<string, SoftwareRole[]>>({})
   const [spec, setSpec] = useState<Record<string, string>>({})
+  // Docker CE's enableApi is the only boolean spec field; it starts checked because the contract
+  // records an omitted value as true, so the form shows what will actually be applied.
+  const [enableApi, setEnableApi] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -93,6 +99,11 @@ export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }:
     if (!entry) return undefined
     const result: Record<string, unknown> = {}
     for (const field of entry.specFields) {
+      if (field === 'enableApi') {
+        // Sent explicitly (never omitted) so an unchecked box cannot fall back to the default.
+        result.enableApi = enableApi
+        continue
+      }
       const value = specValue(field).trim()
       if (value !== '') result[field] = value
     }
@@ -163,6 +174,7 @@ export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }:
               setKind(value as SoftwareKind)
               setSelected({})
               setSpec({})
+              setEnableApi(true)
             }}
             options={catalog.map((item) => ({ value: item.kind, label: softwareKindLabel(item.kind, item.label) }))}
           />
@@ -221,6 +233,15 @@ export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }:
         </Box>
 
         {entry && renderSpecFields(entry, specValue, (field, value) => setSpec((current) => ({ ...current, [field]: value })))}
+
+        {entry?.specFields.includes('enableApi') && (
+          <Stack gap="2">
+            <Checkbox checked={enableApi} onCheckedChange={setEnableApi}>
+              Enable the Docker Engine API (required for the Server&apos;s Containers tab)
+            </Checkbox>
+            <DockerApiRiskNotice context="option" />
+          </Stack>
+        )}
       </Stack>
     </Modal>
   )

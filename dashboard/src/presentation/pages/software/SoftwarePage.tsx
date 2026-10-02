@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
-import { Plus } from 'lucide-react'
+import { Badge, Button, HStack, Table, Text, VisuallyHidden } from '@chakra-ui/react'
+import { Plus, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerWorkingSet'
@@ -40,7 +40,8 @@ type SoftwareState =
  * so only in-scope records are shown, and only in-scope deployed Servers are offered as install
  * targets. Install and uninstall create Workflows; on acceptance the page navigates to the
  * Workflow's progress view so the operator follows the same per-Task Job timeline as every other
- * deployment.
+ * deployment. Settings that belong to one software kind (such as Docker CE's Registry credentials)
+ * live on the Settings page this one links to, never on this software-wide list.
  */
 export function SoftwarePage() {
   const { software, servers } = useApp()
@@ -151,10 +152,16 @@ export function SoftwarePage() {
         title="Software"
         description="Install a single piece of host software (Docker CE, Podman, NFS) on deployed Servers, separate from platform deployment."
         actions={
-          <Button colorPalette="brand" onClick={() => setInstalling(true)} disabled={state.status !== 'ready'}>
-            <Plus size={16} />
-            Install software
-          </Button>
+          <HStack gap="2">
+            <Button variant="outline" onClick={() => navigate(scopedHref('/software/settings'))}>
+              <Settings size={16} aria-hidden />
+              Settings
+            </Button>
+            <Button colorPalette="brand" onClick={() => setInstalling(true)} disabled={state.status !== 'ready'}>
+              <Plus size={16} />
+              Install software
+            </Button>
+          </HStack>
         }
       />
       <DataToolbar variant="plain">

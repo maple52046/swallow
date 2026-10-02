@@ -7,7 +7,9 @@
   Podman, or NFS), not a runtime composed of several components.
 - Allowed meaning: A named software kind such as `docker-ce`, `podman`, or `nfs`, each with
   kind-specific variants — for NFS the `server` and `client` roles are variants of the same
-  software; for a container runtime an optional pinned version is a variant. A Managed
+  software; for a container runtime an optional pinned version is a variant, and for Docker CE
+  whether the Docker Engine API listens on the network (`enableApi`, default on) is a variant
+  that makes the Server eligible for the Docker Host Explorer. A Managed
   Software install is a convergent Workflow (`configure-<kind>`) whose remote host work is one
   idempotent playbook; uninstall is the symmetric `uninstall-<kind>`. The same software kind
   can also be composed as a Job into a platform deployment (for example a future Slurm or
@@ -26,7 +28,10 @@
   Workflow." / "An NFS install can make one Server a `server` and others `client` in a single
   Workflow; each Server still gets its own Software Assignment." / "A future Slurm deploy
   composes the `nfs` software as a Job rather than duplicating its playbook."
-- Related terms: Software Assignment, Platform, Workflow, Job, Task, Runner, Server.
+- Related terms: Software Assignment, Docker Host Explorer, Platform, Workflow, Job, Task, Runner,
+  Server.
 - Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md))
   to name single-software deployment as distinct from platform deployment, with the deploy
-  target's granularity as the authoritative boundary.
+  target's granularity as the authoritative boundary. 2026-10-02
+  ([decision 043](../../../decisions/043-docker-host-management.md)): Docker CE gained the
+  `enableApi` variant.

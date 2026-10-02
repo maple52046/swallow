@@ -1,5 +1,17 @@
 import type { SoftwareAssignmentState, SoftwareKind } from '@/domain/software/types'
 
+/** The query parameter of `/software/settings` that selects one software kind's settings group. */
+export const SOFTWARE_SETTINGS_KIND_PARAM = 'kind'
+
+/**
+ * Path of one kind's group on the Software settings page, for links from elsewhere (for example the
+ * Pull image dialog pointing at Docker CE's Registry credentials). Callers add the Site scope with
+ * `scopedHref`.
+ */
+export function softwareSettingsPath(kind: SoftwareKind): string {
+  return `/software/settings?${SOFTWARE_SETTINGS_KIND_PARAM}=${encodeURIComponent(kind)}`
+}
+
 /**
  * Presentation helpers shared by the Software page and its dialogs so the assignment state and
  * software-kind labels are rendered identically everywhere (DRY). These map domain values to

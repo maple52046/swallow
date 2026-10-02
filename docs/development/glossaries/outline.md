@@ -27,6 +27,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server](terms/server.md): swallow's primary managed compute unit, projected from a provisioner's inventory, identified by a swallow-issued `serverId` (not by hostname or IP, which are observed and non-unique).
 - [Server Status](terms/server-status.md): Not a single value but three independent status axes — `provisioning`, `membership`, and `health` — each owned by a different system and absent until observed.
 - [Server Lock](terms/server-lock.md): Provider-owned protection that blocks Server, provisioner, and host mutations without hiding the Server or stopping monitoring.
+- [Server Default User](terms/server-default-user.md): The OS account automation logs in as with the Deployment Key — set on the Server (verified, optionally installing the key with a one-time password) or else the deployed OS Image's default user; Docker CE adds it to `docker`.
 - [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
 - [Tag](terms/tag.md): An operator-facing label on a Server, provider-owned when the provisioner supports tagging (MAAS) and swallow-owned otherwise; drives Server Type and discovery filters.
 
@@ -93,6 +94,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - [Managed Software](terms/managed-software.md): A single piece of host software and its variants that Swallow installs on / uninstalls from already-deployed Servers; the deploy target is one software, not a multi-component platform.
 - [Software Assignment](terms/software-assignment.md): A swallow-owned durable record, keyed by `(serverId, kind)`, of the desired and last-applied state of one Managed Software on one Server; not a fourth Server status axis.
+- [Docker Host Explorer](terms/docker-host-explorer.md): The live, api-server-mediated management of the Docker Engine on a Server where swallow installed Docker CE with `enableApi`; images, containers, volumes, and networks are Docker-owned and never stored.
+- [Registry Credential](terms/registry-credential.md): A swallow-owned, sealed, installation-wide credential for one image registry, attached to an explorer pull whose image reference resolves to that registry.
 
 ### Automation
 

@@ -103,3 +103,23 @@ func TestSetConnectionVarsUsesImageDefaultUserWithoutProbing(t *testing.T) {
 		t.Errorf("host-a ansible_user = %v, want the image default user rocky", got)
 	}
 }
+
+// TestSetConnectionVarsPrefersServerDefaultUser guards decision 045: default_user is the effective
+// Server Default User (a value set on the Server overrides the image's), so it wins over
+// image_default_user and over any probe.
+func TestSetConnectionVarsPrefersServerDefaultUser(t *testing.T) {
+	runner := NewLocalRunner("runner", "/root", "/run", "/artifacts")
+	runner.AttachUserProber(perHostFakeProber{ready: map[string]string{"10.0.0.1": "ubuntu"}})
+	inventory := inventoryWith(map[string]string{"host-a": "10.0.0.1"})
+	vars := inventory["_meta"].(map[string]any)["hostvars"].(map[string]any)["host-a"].(map[string]any)
+	vars["default_user"] = "amd"
+	vars["image_default_user"] = "ubuntu"
+
+	runner.setConnectionVars(context.Background(), inventory,
+		&operationdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
+		operationdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
+
+	if got := userOf(inventory, "host-a"); got != "amd" {
+		t.Errorf("host-a ansible_user = %v, want the Server Default User amd", got)
+	}
+}

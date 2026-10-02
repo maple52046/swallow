@@ -164,9 +164,13 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 		Membership   *membership
 		Deployment   *deployment
 		Health       string
+		// DefaultUser is the operator-set Server Default User: setting or clearing it changes only
+		// this field, so without it that write's live event would be suppressed.
+		DefaultUser string
 	}{
-		Absent:   s.Absent,
-		Observed: s.Observed,
+		Absent:      s.Absent,
+		Observed:    s.Observed,
+		DefaultUser: s.DefaultUser,
 	}
 	if s.Provisioning != nil {
 		fp.Provisioning = &provisioning{

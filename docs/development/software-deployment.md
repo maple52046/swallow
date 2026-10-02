@@ -60,7 +60,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 
 | kind | 變體 / roles | spec 欄位 | 互斥 / 前提 |
 | --- | --- | --- | --- |
-| `docker-ce` | 無 role；選用 `version` | `version`（選用，pin apt 套件版本） | 與 `podman` 互斥；拒絕已是 Kubernetes member 的 Server |
+| `docker-ce` | 無 role；選用 `version`；`enableApi` | `version`（選用，pin apt 套件版本）；`enableApi`（boolean，省略即 `true`，見 §4.6） | 與 `podman` 互斥；拒絕已是 Kubernetes member 的 Server |
 | `podman` | 無 role；選用 `version` | `version`（選用） | 與 `docker-ce` 互斥；拒絕已是 Kubernetes member 的 Server |
 | `nfs` | `server` / `client`（可同時） | server：`exportPath`、`exportOptions`；client：`source`（`host:/path`）、`mountPath`、`mountOptions` | 可與 Platform 共存 |
 
@@ -109,6 +109,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
     `swallow_nfs_export_options`、`swallow_nfs_client_source`、`swallow_nfs_client_mount_path`、
     `swallow_nfs_client_mount_options`
   - Docker/Podman：`swallow_docker_version` / `swallow_podman_version`（選用）
+  - Docker CE Engine API：`swallow_docker_enable_api`（boolean，每次 docker-ce run 都帶）、
+    `swallow_docker_api_port`（目前固定 `2375`；由 api-server domain 擁有，explorer 連線用同一值）
 
 ### 4.3 record / failure 契約
 
@@ -136,6 +138,38 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 4. 排序（handlers、host loop）留在 playbook。
 5. 於 manifest 註冊、依賴鎖定、不逃逸 project root。
 6. 可離線為目標（第一刀 lab 可走 distro / 官方 repo，但須 pin 版本；air-gap 為後續）。
+
+### 4.6 Docker CE 的 Engine API 與 Docker Host Explorer
+
+依 [decision 043](../decisions/043-docker-host-management.md)：
+
+- **Spec 正規化**：install 時 `enableApi` 省略即寫成 `true`，非 boolean 為 `validation_error`；
+  因此新紀錄的 assignment `spec` 一定帶明確值。043 之前寫入、沒有此鍵的紀錄視為**未啟用**
+  （當時主機上沒有 listener）。
+- **Playbook 行為**（`roles/docker_ce/tasks/api.yml`）：啟用時寫 systemd drop-in
+  `/etc/systemd/system/docker.service.d/swallow-api.conf`，在原本的 `-H fd://` 之外加
+  `-H tcp://0.0.0.0:<port>`（Docker 官方的 remote access 作法；不碰 `daemon.json`，避免與操作者自己的
+  `hosts` 設定衝突），daemon-reload 後重啟 dockerd 並等 port 開啟；停用或卸載時移除 drop-in 並確認
+  port 已關。RHEL family 若 firewalld 為 active，同步開/關該 port（runtime + permanent，不 reload）；
+  ufw 不處理（MAAS Ubuntu image 預設未啟用）。
+- **重啟代價**：drop-in 變更會重啟 dockerd，沒有 restart policy 的 container 會停止；dashboard 在切換處
+  明示。
+- **切換 = 重跑 ensure**：已安裝主機要開/關 API，就是同 kind 再送一次 install（spec 改變即再 ensure），
+  不另設 Job 或 Workflow kind。
+- **Explorer 邊界**：`/api/v1/servers/{id}/docker/...` 由 api-server 同步呼叫主機 Engine API，資格只看
+  swallow-owned 事實（Server `deployed` 且有 primary address、`docker-ce` assignment `installed`、
+  `enableApi: true`）；Docker 物件不寫入 Mongo；寫入受 Server Lock 管制。契約見
+  [servers-docker](../../api-server/docs/development/api-contracts/api-server/servers-docker.md)。
+- **安全**：listener 為無認證 plain HTTP，只適用內網；TLS／mTLS 為後續 hardening。
+- **Private registry**（[decision 044](../decisions/044-docker-registry-credentials.md)）：pull 依 image
+  reference 解析 registry，若有 swallow 保存的 Registry Credential（installation 級、加密、write-only）就以
+  `X-Registry-Auth` 隨該次請求送給 Engine；主機上的 `docker login` 對 Engine API 無效，不使用。契約見
+  [registry-credentials](../../api-server/docs/development/api-contracts/api-server/registry-credentials.md)。
+- **`docker` group**（[decision 045](../decisions/045-server-default-user.md)）：`roles/docker_ce` 把
+  `ansible_user`——也就是該 Server 的 effective Server Default User（Server 上設定的值，否則 OS Image 的
+  default user）——加入 `docker` group（`root` 除外），讓該帳號不需 sudo 就能用 Docker；新的 group 在該帳號
+  下次登入後生效。不另帶 trusted var；043 之前或本變更之前安裝的主機重跑 install 即補上。卸載不移除該帳號
+  的 group membership。
 
 ## 5. 與 Platform deployment 的連動（規範；第一刀只定契約）
 
@@ -165,16 +199,20 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 | Software launcher（Job 組裝） | `api-server/internal/app/software_deployment_adapter.go` |
 | record/clear internal step | `api-server/internal/app/platform_workflow_step_executor.go` |
 | 失敗標記 observer | `api-server/internal/app/software_assignment_observer.go` |
-| Playbooks 與 roles | `api-server/automation/playbooks/deploy-*.yml`、`roles/docker_ce`、`roles/podman`、`roles/nfs_server`、`roles/nfs_client` |
-| API 契約 | `api-server/docs/development/api-contracts/api-server/software.md` |
+| Playbooks 與 roles | `api-server/automation/playbooks/deploy-*.yml`、`roles/docker_ce`（Engine API listener：`tasks/api.yml`）、`roles/podman`、`roles/nfs_server`、`roles/nfs_client` |
+| Docker Host Explorer（port、use case、Engine client、handler） | `api-server/internal/software/domain/docker.go`、`application/docker_explorer.go`、`infra/dockerengine/`、`delivery/docker_handler.go` |
+| API 契約 | `api-server/docs/development/api-contracts/api-server/software.md`、`servers-docker.md` |
 
 ## 8. 相關文件
 
 - 決策：[decision 038 Software deployment](../decisions/038-software-deployment.md)、
+  [decision 043 Docker host management](../decisions/043-docker-host-management.md)、
   [decision 017 Workflow/Job/Task/Runner](../decisions/017-workflow-job-task-runner-model.md)、
   [decision 019 Slurm platform deployment](../decisions/019-slurm-platform-deployment.md)。
 - 語言：glossary [Managed Software](glossaries/terms/managed-software.md)、
-  [Software Assignment](glossaries/terms/software-assignment.md)、[Platform](glossaries/terms/platform.md)。
+  [Software Assignment](glossaries/terms/software-assignment.md)、
+  [Docker Host Explorer](glossaries/terms/docker-host-explorer.md)、[Platform](glossaries/terms/platform.md)。
 - 平行設計：[platform-deployment.md](platform-deployment.md)。
 - API 契約（`api-server` 擁有）：
-  [software](../../api-server/docs/development/api-contracts/api-server/software.md)。
+  [software](../../api-server/docs/development/api-contracts/api-server/software.md)、
+  [servers-docker](../../api-server/docs/development/api-contracts/api-server/servers-docker.md)。

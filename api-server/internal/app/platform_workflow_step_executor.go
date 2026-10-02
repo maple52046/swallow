@@ -193,9 +193,10 @@ const sshAuthGracePeriod = 45 * time.Second
 // (rather than only probing TCP) closes the gap where "SSH verified" meant only "port open": a host
 // whose login user does not authorize the key now fails at this step with a clear credential
 // message, instead of connecting far later in the Ansible Step and failing with a raw
-// "Permission denied (publickey)". The login user is resolved per target (decision 039): the
-// deployed OS Image's default user when known, else the candidate list (site user first, then
-// swallow's built-ins), so a mixed-image fleet still passes readiness. A rejected key is failed
+// "Permission denied (publickey)". The login user is resolved per target: the Server's effective
+// Server Default User when known (its own value, else the deployed OS Image's default user;
+// decisions 045 and 039), else the candidate list (site user first, then swallow's built-ins), so a
+// mixed-image fleet still passes readiness. A rejected key is failed
 // fast (after a short grace for cloud-init), while a still-booting host keeps the full readiness
 // window. When no automation credential is wired (only in tests), it degrades to a TCP probe.
 func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
@@ -331,7 +332,8 @@ func (e platformWorkflowStepExecutor) probeReadiness(
 			results <- probe{name: name, bucket: "unreachable"}
 			continue
 		}
-		candidates := sshprobe.Candidates(server.Provisioning.DeployedImageDefaultUser, siteUser)
+		defaultUser, _ := server.EffectiveDefaultUser()
+		candidates := sshprobe.Candidates(defaultUser, siteUser)
 		wait.Add(1)
 		go func() {
 			defer wait.Done()

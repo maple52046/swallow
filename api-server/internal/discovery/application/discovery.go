@@ -142,12 +142,19 @@ func (uc *DiscoveryUseCase) AnsibleInventory(ctx context.Context, input Discover
 
 		addGroup(groups, "site_"+groupToken(server.Source.SiteID), server.ID)
 
+		// The effective Server Default User (decision 045): the value set on the Server, else the
+		// image's. The runner turns it into ansible_user, so it is emitted only when known and its
+		// absence means "fall back to probing".
+		if defaultUser, _ := server.EffectiveDefaultUser(); defaultUser != "" {
+			vars["default_user"] = defaultUser
+		}
+
 		if p := server.Provisioning; p != nil {
 			vars["provisioning_state"] = p.State
 			vars["os_system"] = p.OSSystem
 			vars["distro_series"] = p.DistroSeries
-			// The deployed image's default login user (decision 039). The runner turns it into
-			// ansible_user; it is emitted only when known so its absence means "fall back".
+			// The deployed image's default login user (decision 039), kept for playbooks that want
+			// the image's value; emitted only when known.
 			if p.DeployedImageDefaultUser != "" {
 				vars["image_default_user"] = p.DeployedImageDefaultUser
 			}

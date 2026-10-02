@@ -9,7 +9,9 @@ Server 是 provisioner machine 的 reconciled projection。Operator 可以檢視
 
 Servers list 支援 Site scope、pagination、search、status／capability filter、
 saved view、live row update 與 bulk selection。Server detail workspace 將 summary、
-activity、monitoring、network、storage 與 PCI observations 分開。
+activity、monitoring、network、storage 與 PCI observations 分開。swallow 安裝過 Docker CE
+的 Server 另有 **Containers** tab，管理該 host 的 Docker images、containers、volumes 與
+networks（見 [Managed Software](managed-software.md#docker-engine-api-與-containers-tab)）。
 
 Link 與 automation 一律使用 opaque Server ID。不同 Site 擁有相同 hostname 或
 address 是合法狀況。

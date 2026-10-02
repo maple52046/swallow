@@ -1,6 +1,7 @@
-// Package infra provides the MongoDB adapter for Software Assignments. It is swallow-owned data
-// (not a provider mirror), so there is no sealing or staleness; the record is keyed by
-// (serverId, kind) and is the single source of truth for what software swallow installed where.
+// Package infra provides the MongoDB adapters of the software feature: Software Assignments, keyed
+// by (serverId, kind) and the single source of truth for what software swallow installed where, and
+// Registry Credentials, whose passwords are sealed. Both are swallow-owned data (not provider
+// mirrors), so there is no staleness. The Docker Engine client lives in the dockerengine subpackage.
 package infra
 
 import (

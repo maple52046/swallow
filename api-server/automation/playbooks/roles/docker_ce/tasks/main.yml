@@ -114,6 +114,26 @@
     enabled: true
     state: started
 
+# The Server's default user is the account operators use on this host, so granting it the docker
+# group lets them run Docker without sudo. append keeps its other groups; the membership applies
+# from the account's next login. Removal leaves the membership alone (the group may outlive the
+# packages, and the account is not swallow's to edit beyond this grant).
+- name: Add the Server's default user to the docker group
+  when:
+    - docker_ce_state == 'present'
+    - docker_ce_group_user | length > 0
+    - docker_ce_group_user != 'root'
+  become: true
+  ansible.builtin.user:
+    name: "{{ docker_ce_group_user }}"
+    groups: docker
+    append: true
+
+# Placed between the install and removal paths on purpose: on install the daemon is already running
+# so a listener change restarts it, and on removal swallow's listener is gone before the packages are.
+- name: Converge the Docker Engine API listener
+  ansible.builtin.include_tasks: api.yml
+
 - name: Remove Docker CE (Debian family)
   when: docker_ce_state == 'absent' and ansible_facts['os_family'] == 'Debian'
   become: true

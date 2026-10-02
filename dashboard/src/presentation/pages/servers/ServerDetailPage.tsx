@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Badge, Button, HStack, Stack, Tabs, Text } from '@chakra-ui/react'
-import { Activity, ChartLine, CircuitBoard, HardDrive, LayoutDashboard, Network, type LucideIcon } from 'lucide-react'
+import { Activity, ChartLine, CircuitBoard, Container, HardDrive, LayoutDashboard, Network, type LucideIcon } from 'lucide-react'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -13,10 +13,12 @@ import type { ExperimentalFeature } from '@/application/ports/ExperimentalFeatur
 import { useApp } from '@/di/AppProvider'
 import { DeploymentBadge, HealthBadge, LockBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
 import { serverDisplayName } from '@/domain/server/list'
+import { hasSwallowInstalledDocker } from '@/domain/software/docker'
 import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
 import { ProviderFailureAlert } from './ProviderFailureAlert'
 import { useServerDetail } from './useServerDetail'
+import { useServerDockerAssignment } from './useServerDockerAssignment'
 
 /** One persistent deep-link tab; the glyph supplements its visible accessible label. */
 interface ServerDetailTab {
@@ -25,6 +27,11 @@ interface ServerDetailTab {
   icon: LucideIcon
   /** In-development feature the tab belongs to; the tab is listed only while it is shown. */
   feature?: ExperimentalFeature
+  /**
+   * Listed only when swallow installed Docker CE on the Server (decision 043). The route itself stays
+   * reachable and explains why it is empty, so a bookmarked URL never breaks.
+   */
+  requiresDockerCE?: boolean
 }
 
 // Icons supplement persistent text labels; the route segment remains the stable deep-link key.
@@ -32,6 +39,7 @@ const TABS: readonly ServerDetailTab[] = [
   { value: 'summary', label: 'Summary', icon: LayoutDashboard },
   { value: 'activity', label: 'Activity', icon: Activity },
   { value: 'monitoring', label: 'Monitoring', icon: ChartLine, feature: 'monitoring' },
+  { value: 'containers', label: 'Containers', icon: Container, requiresDockerCE: true },
   { value: 'network', label: 'Networking', icon: Network },
   { value: 'storage', label: 'Storage', icon: HardDrive },
   { value: 'pci', label: 'PCI devices', icon: CircuitBoard },
@@ -53,6 +61,9 @@ export function ServerDetailPage() {
   const { scopedHref } = useSiteScope()
   const { enabled: features } = useExperimentalFeatures()
   const state = useServerDetail(id)
+  // Loaded beside the projection (not inside it) because a failed software read must only affect the
+  // Containers tab, and because the tab polls it while a Docker CE re-apply runs.
+  const docker = useServerDockerAssignment(id)
   // A just-accepted release runs as an asynchronous durable Operation, so the Server is not
   // yet in an active provisioning axis and the active-projection poll below will not pick it
   // up. Follow it until it transitions, then hand off to that poll.
@@ -128,7 +139,8 @@ export function ServerDetailPage() {
   if (state.status === 'error') return <ErrorState message={state.message} />
   if (state.status === 'not-found') return <EmptyState title="Server not found" />
   const { server, detail, reload } = state.data
-  const tabs = TABS.filter((tab) => !tab.feature || features[tab.feature])
+  const dockerInstalled = docker.status === 'ready' && hasSwallowInstalledDocker(docker.assignment)
+  const tabs = TABS.filter((tab) => (!tab.feature || features[tab.feature]) && (!tab.requiresDockerCE || dockerInstalled))
   const segment = location.pathname.split('/').pop() ?? ''
   const current = tabs.some((tab) => tab.value === segment) ? segment : 'summary'
   const headerContext = [server.fqdn || server.addresses[0], server.architecture, server.providerZone].filter(Boolean).join(' · ')
@@ -245,7 +257,7 @@ export function ServerDetailPage() {
           })}
         </Tabs.List>
       </Tabs.Root>
-      <Outlet context={state.data} />
+      <Outlet context={{ ...state.data, docker }} />
     </div>
   )
 }

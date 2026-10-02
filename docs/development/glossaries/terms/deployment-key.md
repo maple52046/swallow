@@ -16,7 +16,8 @@
 - Disallowed meaning: Not an Access Key and not a person's key. Not a per-Site credential,
   and no Site can override it. Not a rotation mechanism: replacing it does not
   re-authorize already-deployed Servers, which keep only the public key present when they
-  were deployed.
+  were deployed — except that setting a Server Default User with the account's one-time
+  password adds the current public key to that account on that Server.
 - Synonyms: None.
 - Deprecated terms: Automation key; Site private key or Site override (removed by
   decision 041).
@@ -25,7 +26,7 @@
   with no Site credential." / "Regenerating the Deployment Key warns that Servers deployed
   earlier authorize only the previous key."
 - Related terms: SSH Key, Automation Configuration, OS Deployment, Workflow, Runner,
-  Installation.
+  Installation, Server Default User.
 - Change note: Added for SSH key management
   ([decision 039](../../../decisions/039-ssh-key-management-and-default-user.md)). Updated
   2026-10-01: created by the installation step instead of at API start, and required by OS

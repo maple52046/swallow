@@ -100,6 +100,7 @@ query language. `includeAbsent=true` changes visibility only.
         "observedAt": "2026-05-02T15:00:00Z"
       },
       "health": {"state": "up", "observedAt": "2026-05-02T15:00:00Z"},
+      "defaultUser": {"user": "ubuntu", "source": "os_image"},
       "absent": false,
       "lastSeenAt": "2026-05-02T15:00:00Z",
       "createdAt": "2026-05-02T15:00:00Z",
@@ -129,8 +130,19 @@ OS image (the image's Swallow `defaultUser` overlay, else the built-in derived f
 family), mirrored the same way as `deployedImageName`. Swallow automation logs in to the
 Server as this user; it is also the account an operator's Access Key authorizes on
 Servers the provisioner deployed. It is omitted when nothing is deployed or no default
-user applies, in which case automation falls back to the Site SSH user and built-in
-candidates.
+user applies. It stays the image's value even when the Server has its own default user.
+
+`defaultUser` is the Server's effective **Server Default User** — the account swallow
+automation logs in as with the Deployment Key and that Docker CE adds to the `docker` group:
+
+| Field | Meaning |
+| --- | --- |
+| `user` | The account name. |
+| `source` | `server` when an operator set it on this Server ([Default User](server-detail-actions.md#default-user)); `os_image` when it is `deployedImageDefaultUser`. |
+
+It is omitted when neither applies, in which case automation falls back to the Site SSH user
+and built-in candidates. A value with source `server` is cleared when swallow starts a new
+OS deployment on the Server and when the Server is observed `ready` or `allocated`.
 
 Also on the provisioning axis, `errorDescription` is the provisioner's own
 machine-level failure reason (for example `"Failed to erase disks."`), mirrored

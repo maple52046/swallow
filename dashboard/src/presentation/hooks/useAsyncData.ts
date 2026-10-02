@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /**
- * Loading/error/ready states for an on-demand async read, plus the "unavailable" outcome the
- * Kubernetes explorer degrades to when the Platform is not an eligible deployed cluster.
+ * Loading/error/ready states for an on-demand async read, plus the "unavailable" outcome a live
+ * explorer degrades to when its target is not eligible — the Kubernetes cluster explorer for a
+ * Platform that is not an eligible deployed cluster, or the Docker Host Explorer for a Server
+ * without an API-enabled Docker CE.
  *
- * `unavailable` is a normal (non-error) result produced by an eligibility API response
- * (404 not a Kubernetes platform, 409 a registered record or missing credential); the view
- * shows a notice rather than an error banner.
+ * `unavailable` is a normal (non-error) result produced by an eligibility API response (404 or
+ * 409 per the explorer contracts); the view shows a notice rather than an error banner.
  */
 export type AsyncData<T> =
   | { status: 'loading' }

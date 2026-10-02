@@ -10,6 +10,8 @@ import type {
   ProvisioningActionResult,
   Server,
   ServerAction,
+  SetServerDefaultUserInput,
+  SetServerDefaultUserResult,
 } from '@/domain/server/types'
 import { ApiRequestError, apiRequest } from './client'
 
@@ -130,6 +132,25 @@ export class ApiServerRepository implements ServerRepository {
   async queryPowerState(id: string): Promise<PowerStateResult> {
     return apiRequest<PowerStateResult>(
       `/api/v1/servers/${encodeURIComponent(id)}/power-state`,
+    )
+  }
+
+  /**
+   * The password is sent only when present and only in this request body; it is not retained
+   * here, and the shared client never logs request bodies.
+   */
+  async setDefaultUser(id: string, input: SetServerDefaultUserInput): Promise<SetServerDefaultUserResult> {
+    const body: SetServerDefaultUserInput = input.password ? { user: input.user, password: input.password } : { user: input.user }
+    return apiRequest<SetServerDefaultUserResult>(
+      `/api/v1/servers/${encodeURIComponent(id)}/default-user`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    )
+  }
+
+  async clearDefaultUser(id: string): Promise<void> {
+    await apiRequest<void>(
+      `/api/v1/servers/${encodeURIComponent(id)}/default-user`,
+      { method: 'DELETE' },
     )
   }
 }

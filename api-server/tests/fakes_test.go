@@ -172,6 +172,9 @@ func (r *fakeServerRepo) Upsert(_ context.Context, server *serverdomain.Server) 
 		// Upsert must preserve them just as the Mongo implementation does by keeping them
 		// out of its $set.
 		server.Observed.GPUs = existing.Observed.GPUs
+		// The Server Default User is swallow-owned and written only by SetDefaultUser; the Mongo
+		// Upsert leaves it out of its $set.
+		server.DefaultUser = existing.DefaultUser
 		if !existing.CreatedAt.IsZero() {
 			server.CreatedAt = existing.CreatedAt
 		}
@@ -218,6 +221,15 @@ func (r *fakeServerRepo) SetDeployment(_ context.Context, id string, deployment 
 		return serverdomain.ErrServerNotFound
 	}
 	s.Deployment = deployment
+	return nil
+}
+
+func (r *fakeServerRepo) SetDefaultUser(_ context.Context, id string, user string) error {
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.DefaultUser = user
 	return nil
 }
 

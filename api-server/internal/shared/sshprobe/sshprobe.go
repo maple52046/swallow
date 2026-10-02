@@ -90,7 +90,7 @@ func (DefaultProber) Probe(ctx context.Context, address string, port int, user s
 	}
 	clientConn, _, _, handshakeErr := ssh.NewClientConn(connection, address, config)
 	if handshakeErr != nil {
-		if isAuthError(handshakeErr) {
+		if IsAuthenticationError(handshakeErr) {
 			return AuthFailed
 		}
 		return Unreachable
@@ -99,10 +99,11 @@ func (DefaultProber) Probe(ctx context.Context, address string, port int, user s
 	return Ready
 }
 
-// isAuthError reports whether an SSH handshake error is an authentication rejection rather than a
-// pre-authentication transport failure. x/crypto/ssh reports a rejected publickey as an
-// "unable to authenticate" handshake error.
-func isAuthError(err error) bool {
+// IsAuthenticationError reports whether an SSH handshake error is an authentication rejection
+// rather than a pre-authentication transport failure. x/crypto/ssh reports every rejected method
+// (publickey, password, keyboard-interactive) as an "unable to authenticate" handshake error. It is
+// shared so every swallow SSH login classifies a rejection the same way.
+func IsAuthenticationError(err error) bool {
 	return strings.Contains(err.Error(), "unable to authenticate")
 }
 

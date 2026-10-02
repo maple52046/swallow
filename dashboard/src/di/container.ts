@@ -9,6 +9,8 @@ import { ApiOverviewRepository } from '@/infrastructure/api/ApiOverviewRepositor
 import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningRepository'
 import { ApiInfrastructureRepository } from '@/infrastructure/api/ApiInfrastructureRepository'
 import { ApiSoftwareRepository } from '@/infrastructure/api/ApiSoftwareRepository'
+import { ApiDockerHostRepository } from '@/infrastructure/api/ApiDockerHostRepository'
+import { ApiRegistryCredentialRepository } from '@/infrastructure/api/ApiRegistryCredentialRepository'
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
 import { ApiApiKeyRepository } from '@/infrastructure/api/ApiApiKeyRepository'
 import {
@@ -26,6 +28,8 @@ import type { OverviewRepository } from '@/application/ports/OverviewRepository'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import type { InfrastructureRepository } from '@/application/ports/InfrastructureRepository'
 import type { SoftwareRepository } from '@/application/ports/SoftwareRepository'
+import type { DockerHostRepository } from '@/application/ports/DockerHostRepository'
+import type { RegistryCredentialRepository } from '@/application/ports/RegistryCredentialRepository'
 import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
 import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
 import type { ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
@@ -44,6 +48,13 @@ export interface AppContainer {
   platforms: PlatformRepository
   /** Managed Software install/uninstall and Software Assignment reads (decision 038). */
   software: SoftwareRepository
+  /**
+   * Live Docker Engine management for Servers where swallow installed Docker CE with `enableApi`
+   * (decision 043); api-server mediates every call, the browser never reaches a host.
+   */
+  dockerHosts: DockerHostRepository
+  /** Installation-wide, sealed registry credentials for private image pulls (decision 044). */
+  registryCredentials: RegistryCredentialRepository
   /** The Deployment Key and the signed-in admin's Access Keys (decision 039). */
   sshKeys: SSHKeyRepository
   /** The signed-in user's API Keys for non-interactive clients (decision 042). */
@@ -73,6 +84,8 @@ export function createContainer(): AppContainer {
     infrastructure: new ApiInfrastructureRepository(),
     platforms: new ApiPlatformRepository(),
     software: new ApiSoftwareRepository(),
+    dockerHosts: new ApiDockerHostRepository(),
+    registryCredentials: new ApiRegistryCredentialRepository(),
     sshKeys: new ApiSSHKeyRepository(),
     apiKeys: new ApiApiKeyRepository(),
     operations: new ApiOperationRepository(),

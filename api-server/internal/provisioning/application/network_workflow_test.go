@@ -71,6 +71,17 @@ func (r *networkWorkflowServerRepo) SetDeployment(_ context.Context, id string, 
 	return nil
 }
 
+func (r *networkWorkflowServerRepo) SetDefaultUser(_ context.Context, id string, user string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	server, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	server.DefaultUser = user
+	return nil
+}
+
 func (r *networkWorkflowServerRepo) CountByIntegration(context.Context, string) (int, error) {
 	return 0, nil
 }

@@ -319,6 +319,41 @@ func TestRefreshServer_DropsStaleDefaultUserOnRedeploy(t *testing.T) {
 	}
 }
 
+// A Server Default User set on the Server belongs to one OS installation (decision 045): reconcile
+// keeps it while the machine runs that OS and clears it once the machine is seen without one.
+func TestReconcile_ClearsServerDefaultUserOnlyWithoutOS(t *testing.T) {
+	tests := []struct {
+		name   string
+		status provisioningdomain.MachineStatus
+		want   string
+	}{
+		{name: "deployed keeps it", status: provisioningdomain.MachineStatusDeployed, want: "amd"},
+		{name: "rescue keeps it", status: provisioningdomain.MachineStatusRescue, want: "amd"},
+		{name: "ready clears it", status: provisioningdomain.MachineStatusReady, want: ""},
+		{name: "allocated clears it", status: provisioningdomain.MachineStatusAllocated, want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setupReconcile(t)
+			machine := testMachine("abc123", "tainan-ci")
+			machine.Status = tc.status
+			f.provider.withMachine(machine)
+			f.servers.servers["srv-1"] = &serverdomain.Server{
+				ID:          "srv-1",
+				Source:      serverdomain.Source{SiteID: testSiteID, IntegrationID: testIntegrationID, ProviderMachineID: "abc123"},
+				DefaultUser: "amd",
+			}
+
+			if _, err := f.uc.Execute(context.Background(), testIntegrationID); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if got := f.servers.servers["srv-1"].DefaultUser; got != tc.want {
+				t.Errorf("DefaultUser after reconcile of a %s machine = %q, want %q", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
 // A machine that is not deployed carries no deployed-image name, so a ready or commissioning
 // machine is never mislabelled with whatever image the catalog happens to list.
 func TestReconcile_NoDeployedImageNameWhenNotDeployed(t *testing.T) {

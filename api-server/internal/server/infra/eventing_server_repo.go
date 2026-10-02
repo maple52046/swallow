@@ -97,6 +97,16 @@ func (r *EventingServerRepository) SetDeployment(ctx context.Context, id string,
 	return nil
 }
 
+// SetDefaultUser publishes the re-read projection, so the Server detail and list show the new
+// effective default user without a reload.
+func (r *EventingServerRepository) SetDefaultUser(ctx context.Context, id string, user string) error {
+	if err := r.inner.SetDefaultUser(ctx, id, user); err != nil {
+		return err
+	}
+	r.publishByID(ctx, id)
+	return nil
+}
+
 // Delete reads the projection before removal so the removal event can be scoped to the
 // Server's Site, then publishes the removal.
 func (r *EventingServerRepository) Delete(ctx context.Context, id string) error {

@@ -26,7 +26,7 @@
   provider OS family (`ubuntu` → `ubuntu`, `centos` → `centos`, `rhel` →
   `cloud-user`), otherwise none; it can be set at upload or afterwards, and
   swallow mirrors it onto each Server deployed with the image so automation logs
-  in as that user. Provider-reported artifact metadata such as its current complete
+  in as that user unless the Server has its own Server Default User. Provider-reported artifact metadata such as its current complete
   resource-set size may accompany the live catalog but remains provider-owned and
   is never part of the overlay.   Swallow may additionally hold a swallow-owned
   **verification** for a custom image — a per-[Deploy Target](deploy-target.md)

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Button, HStack, IconButton, Stack, Table, Tabs, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Ban, Check, ChevronDown, ChevronRight, CircleDot, Redo, RefreshCw, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 import type { ProviderEvents } from '@/domain/server/types'
+import { isSoftwareKind } from '@/domain/software/types'
 import { useApp } from '@/di/AppProvider'
 import {
   isTerminalStatus,
@@ -24,6 +25,7 @@ import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
+import { softwareKindLabel } from '@/presentation/pages/software/softwarePresentation'
 import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
@@ -476,14 +478,22 @@ const JOB_LABELS: Record<string, string> = {
   'finalize-uninstall': 'Finalize Uninstall',
 }
 
+/** Prefix of the Ansible Job a Managed Software Workflow runs (`configure-<kind>`, software-deployment.md). */
+const SOFTWARE_JOB_PREFIX = 'configure-'
+
 function jobLabel(job: string): string {
-  return (
-    JOB_LABELS[job] ??
-    job
-      .split('-')
-      .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
-      .join(' ')
-  )
+  const known = JOB_LABELS[job]
+  if (known) return known
+  // A software Job names its kind by slug; show the product's written name ("Docker CE", "NFS")
+  // instead of title-casing the slug, which would read "Docker Ce" and "Nfs".
+  if (job.startsWith(SOFTWARE_JOB_PREFIX)) {
+    const kind = job.slice(SOFTWARE_JOB_PREFIX.length)
+    if (isSoftwareKind(kind)) return `Configure ${softwareKindLabel(kind)}`
+  }
+  return job
+    .split('-')
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(' ')
 }
 
 /**

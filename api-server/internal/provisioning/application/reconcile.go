@@ -276,7 +276,7 @@ func (uc *ReconcileUseCase) project(
 		if err := uc.servers.Upsert(ctx, existing); err != nil {
 			return 0, nil, err
 		}
-		return outcomeUpdated, nil, uc.clearStaleDeployment(ctx, existing, machine)
+		return outcomeUpdated, nil, uc.clearStaleOSState(ctx, existing, machine)
 	}
 	if !errors.Is(err, serverdomain.ErrServerNotFound) {
 		return 0, nil, err
@@ -319,7 +319,7 @@ func (uc *ReconcileUseCase) project(
 		if err := uc.servers.Upsert(ctx, candidate); err != nil {
 			return 0, nil, err
 		}
-		return outcomeRelinked, nil, uc.clearStaleDeployment(ctx, candidate, machine)
+		return outcomeRelinked, nil, uc.clearStaleOSState(ctx, candidate, machine)
 
 	default:
 		ids := make([]string, 0, len(candidates))
@@ -570,6 +570,45 @@ func primaryArch(architecture string) string {
 		return architecture[:index]
 	}
 	return architecture
+}
+
+// clearStaleOSState drops the swallow-owned facts that describe an OS installation the machine no
+// longer has: a finished deployment record and an operator-set Server Default User.
+func (uc *ReconcileUseCase) clearStaleOSState(
+	ctx context.Context,
+	server *serverdomain.Server,
+	machine *provisioningdomain.Machine,
+) error {
+	if err := uc.clearStaleDeployment(ctx, server, machine); err != nil {
+		return err
+	}
+	return uc.clearDefaultUserWithoutOS(ctx, server, machine)
+}
+
+// clearDefaultUserWithoutOS clears an operator-set Server Default User (decision 045) once the
+// machine is observed with no OS — `ready` (released) or `allocated` (reserved, nothing running).
+// The account it names belonged to the previous installation, whether that was released through
+// swallow or directly in the provisioner; keeping it would make automation log in to the next OS as
+// an account that may not exist there. Every other state, including `deployed` and `rescue`, keeps
+// it, because the installed OS is still on the machine.
+func (uc *ReconcileUseCase) clearDefaultUserWithoutOS(
+	ctx context.Context,
+	server *serverdomain.Server,
+	machine *provisioningdomain.Machine,
+) error {
+	if server.DefaultUser == "" || machine == nil {
+		return nil
+	}
+	switch machine.Status {
+	case provisioningdomain.MachineStatusReady, provisioningdomain.MachineStatusAllocated:
+	default:
+		return nil
+	}
+	if err := uc.servers.SetDefaultUser(ctx, server.ID, ""); err != nil {
+		return err
+	}
+	server.DefaultUser = ""
+	return nil
 }
 
 // clearStaleDeployment recovers a Server whose deployment record no longer reflects

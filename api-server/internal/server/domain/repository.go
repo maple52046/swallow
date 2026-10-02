@@ -84,6 +84,11 @@ type ServerRepository interface {
 	// release. Provider inventory Upsert must preserve this field.
 	SetDeployment(ctx context.Context, id string, deployment *DeploymentStatus) error
 
+	// SetDefaultUser replaces the operator-set Server Default User, or clears it when user is "".
+	// It is a swallow-owned field written only here; provider inventory Upsert must preserve it.
+	// Returns ErrServerNotFound for an unknown id. Callers own validation and host verification.
+	SetDefaultUser(ctx context.Context, id string, user string) error
+
 	// CountByIntegration reports how many servers were projected from an
 	// integration, so that deleting one that still has servers can be refused.
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)

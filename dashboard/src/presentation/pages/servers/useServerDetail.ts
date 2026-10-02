@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { ProvisionerDetail, Server } from '@/domain/server/types'
+import type { ServerDockerAssignment } from './useServerDockerAssignment'
 
 /** The server projection plus its live provisioner detail, shared by the detail tabs. */
 export interface ServerDetailData {
@@ -120,12 +121,20 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
 }
 
 /**
+ * What the detail page shares with its tab routes: the loaded detail plus the Server's Docker CE
+ * assignment, which the page also needs to decide whether the Containers tab is listed.
+ */
+export interface ServerDetailContext extends ServerDetailData {
+  docker: ServerDockerAssignment
+}
+
+/**
  * Reads the loaded server detail from the router outlet.
  *
  * The parent detail page loads once and shares the data with its tab routes through the
  * outlet context, so a tab never refetches. Only valid inside a tab rendered under
  * `ServerDetailPage`.
  */
-export function useServerDetailContext(): ServerDetailData {
-  return useOutletContext<ServerDetailData>()
+export function useServerDetailContext(): ServerDetailContext {
+  return useOutletContext<ServerDetailContext>()
 }

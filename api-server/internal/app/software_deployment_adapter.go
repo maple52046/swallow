@@ -76,7 +76,7 @@ func (l softwareDeploymentLauncher) LaunchInstall(ctx context.Context, launch so
 	if !ok {
 		return "", fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
 	}
-	return l.launch(ctx, launch, mapping, softwareStepKindRecord, "install", "Install "+string(launch.Kind))
+	return l.launch(ctx, launch, mapping, softwareStepKindRecord, "install", "Install "+softwareLabel(launch.Kind))
 }
 
 // LaunchUninstall builds the uninstall Workflow: prepare-hosts -> configure-<kind> (uninstall
@@ -86,7 +86,17 @@ func (l softwareDeploymentLauncher) LaunchUninstall(ctx context.Context, launch 
 	if !ok {
 		return "", fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
 	}
-	return l.launch(ctx, launch, mapping, softwareStepKindClear, "uninstall", "Uninstall "+string(launch.Kind))
+	return l.launch(ctx, launch, mapping, softwareStepKindClear, "uninstall", "Uninstall "+softwareLabel(launch.Kind))
+}
+
+// softwareLabel is the catalog's operator-facing name for a kind ("Docker CE", "NFS"), so Workflow
+// intents and Step names spell the product as it is written rather than as its slug; an unknown kind
+// falls back to the slug.
+func softwareLabel(kind softwaredomain.Kind) string {
+	if entry, ok := softwaredomain.LookupKind(kind); ok && entry.Label != "" {
+		return entry.Label
+	}
+	return string(kind)
 }
 
 // launch is the shared install/uninstall composition. recordKind selects the internal record step

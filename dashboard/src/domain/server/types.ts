@@ -136,6 +136,48 @@ export interface HealthAxis {
   observedAt: string
 }
 
+/**
+ * Where a Server's effective Server Default User comes from (glossary Server Default User,
+ * decision 045): `server` was set by an operator on this Server and verified by a Deployment Key
+ * login; `os_image` is the deployed OS Image's default user.
+ */
+export type ServerDefaultUserSource = 'server' | 'os_image'
+
+/**
+ * The effective Server Default User the API resolves — the account swallow automation logs in as
+ * with the Deployment Key and that Docker CE adds to the `docker` group. Read this rather than
+ * `provisioning.deployedImageDefaultUser`, which stays the image's own value.
+ */
+export interface ServerDefaultUser {
+  user: string
+  source: ServerDefaultUserSource
+}
+
+/**
+ * How a Server Default User may use sudo, as the verifying Deployment Key login observed it:
+ * `passwordless`, `password_required` (automation uses the Site become password), or `unavailable`
+ * (automation that needs root will fail).
+ */
+export type ServerDefaultUserSudo = 'passwordless' | 'password_required' | 'unavailable'
+
+/**
+ * Intent to set a Server Default User. `password` is the account's password, sent once so the API
+ * can install the Deployment Key; it is never stored or returned, so callers must drop it after the
+ * request.
+ */
+export interface SetServerDefaultUserInput {
+  user: string
+  password?: string
+}
+
+/** Outcome of setting a Server Default User (`PUT /servers/{id}/default-user`). */
+export interface SetServerDefaultUserResult {
+  defaultUser: ServerDefaultUser
+  /** True when a password was given and the Deployment Key was installed (or already present). */
+  keyInstalled: boolean
+  sudo: ServerDefaultUserSudo
+}
+
 export interface Server {
   /** The only identifier to reference a server by. */
   id: string
@@ -182,6 +224,9 @@ export interface Server {
   provisioning: ProvisioningAxis | null
   membership: MembershipAxis | null
   health: HealthAxis | null
+
+  /** Effective Server Default User; absent when unknown (automation then probes fallback users). */
+  defaultUser?: ServerDefaultUser
 
   /**
    * The provisioner stopped reporting it, so ordinary reconciliation retains the

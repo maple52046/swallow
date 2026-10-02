@@ -120,6 +120,11 @@ func (r *deploymentProjectionTestRepo) SetDeployment(_ context.Context, _ string
 	return nil
 }
 
+func (r *deploymentProjectionTestRepo) SetDefaultUser(_ context.Context, _ string, user string) error {
+	r.server.DefaultUser = user
+	return nil
+}
+
 func TestProviderStepRejectsDeploymentWithoutFrozenImage(t *testing.T) {
 	result := (providerStepExecutor{}).Execute(context.Background(), temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
@@ -171,7 +176,9 @@ func TestDeploymentReadinessFailureWithAddressDoesNotOfferRedeploy(t *testing.T)
 }
 
 func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
-	server := &serverdomain.Server{ID: "server-id"}
+	// The value set on the Server belongs to the OS being replaced (decision 045), so a new OS
+	// deployment clears it even when the deploy itself then fails.
+	server := &serverdomain.Server{ID: "server-id", DefaultUser: "amd"}
 	executor := providerStepExecutor{servers: &deploymentProjectionTestRepo{server: server}}
 	result := executor.Execute(context.Background(), temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
@@ -198,6 +205,9 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 	}
 	if server.Deployment.StatusReason == "" || server.Deployment.FinishedAt == nil {
 		t.Fatalf("deployment terminal details = %+v", server.Deployment)
+	}
+	if server.DefaultUser != "" {
+		t.Errorf("DefaultUser after a new OS deployment = %q, want it cleared", server.DefaultUser)
 	}
 }
 

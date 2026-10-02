@@ -11,6 +11,7 @@ import { ServerDetailPage } from './presentation/pages/servers/ServerDetailPage'
 import { ServerSummaryTab } from './presentation/pages/servers/ServerSummaryTab'
 import { ServerMonitoringTab } from './presentation/pages/servers/ServerMonitoringTab'
 import { ServerActivityTab } from './presentation/pages/servers/ServerActivityTab'
+import { ServerContainersTab } from './presentation/pages/servers/ServerContainersTab'
 import { ServerNetworkTab, ServerStorageTab, ServerPciTab } from './presentation/pages/servers/ServerDetailTableTab'
 import { PlatformsPage } from './presentation/pages/platforms/PlatformsPage'
 import { PlatformDetailPage } from './presentation/pages/platforms/PlatformDetailPage'
@@ -18,6 +19,7 @@ import { DeployPlatformWizardPage } from './presentation/pages/platforms/DeployP
 import { PlatformSettingsPage } from './presentation/pages/platforms/PlatformSettingsPage'
 import { LegacyPlatformRedirect } from './presentation/pages/platforms/LegacyPlatformRedirect'
 import { SoftwarePage } from './presentation/pages/software/SoftwarePage'
+import { SoftwareSettingsPage } from './presentation/pages/software/SoftwareSettingsPage'
 import { OperatorOperationsPage } from './presentation/pages/operations/OperatorOperationsPage'
 import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
 import { LegacyWorkflowRedirect } from './presentation/pages/operations/LegacyWorkflowRedirect'
@@ -66,6 +68,7 @@ export const router = createBrowserRouter([
             path: 'monitoring',
             element: <FeatureRoute feature="monitoring" redirectTo="../summary"><ServerMonitoringTab /></FeatureRoute>,
           },
+          { path: 'containers', element: <ServerContainersTab /> },
           { path: 'network', element: <ServerNetworkTab /> },
           { path: 'storage', element: <ServerStorageTab /> },
           { path: 'pci', element: <ServerPciTab /> },
@@ -76,6 +79,7 @@ export const router = createBrowserRouter([
       { path: 'platforms/deploy', element: <DeployPlatformWizardPage /> },
       { path: 'platforms/:id', element: <PlatformDetailPage /> },
       { path: 'software', element: <SoftwarePage /> },
+      { path: 'software/settings', element: <SoftwareSettingsPage /> },
       { path: 'clusters', element: <LegacyPlatformRedirect /> },
       { path: 'clusters/deploy', element: <LegacyPlatformRedirect deploy /> },
       { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },

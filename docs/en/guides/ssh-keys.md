@@ -56,6 +56,30 @@ one swallow logs in as on Servers deployed with it.
 When an image has no default user, swallow falls back to the Site's SSH user and
 then tries `cloud-user` and `ubuntu`.
 
+## A Server's own default user
+
+A Server whose OS was installed outside swallow (an existing Server) does not
+have the deployment key, and its image-derived user may be wrong. Set its default
+user on the Server's **Summary** → **Connection** card with **Set default user**
+or **Change**:
+
+- Enter the account (for example `amd`). Optionally give the account's
+  **password once**: swallow logs in with it and adds the deployment key to the
+  account's `~/.ssh/authorized_keys`. The password is not stored. The host must
+  allow password logins over SSH for this.
+- Without a password, add the key yourself with the command the dialog shows,
+  run as that account on the host.
+- swallow then logs in with the deployment key to prove it works, and only then
+  saves the account. It also reports whether the account can use sudo without a
+  password; if sudo asks for one, automation uses the Site's become password, and
+  an account that cannot use sudo cannot run installs or Platform deploys.
+
+Any deployed Server can override its image default this way. **Use the OS image
+default** removes the override. A value set on the Server belongs to its current
+OS: swallow clears it when it deploys a new OS to the Server or when the Server
+is released. Docker CE adds the Server's default user to the `docker` group (see
+Managed Software).
+
 ## One key for every Site
 
 Every Site's automation logs in with the deployment key; a Site cannot carry its own

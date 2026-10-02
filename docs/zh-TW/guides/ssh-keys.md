@@ -42,6 +42,22 @@ Server 上登入所用的帳號。
 
 Image 沒有 default user 時，swallow 會退回 Site 的 SSH user，再依序嘗試 `cloud-user` 與 `ubuntu`。
 
+## Server 自己的 default user
+
+OS 不是由 swallow 安裝的 Server（既有 Server）上沒有 deployment key，從 image 推得的帳號也可能
+不對。請在該 Server 的 **Summary** → **Connection** 卡片按 **Set default user** 或 **Change** 設定：
+
+- 輸入帳號（例如 `amd`）。可選擇輸入該帳號的**密碼一次**：swallow 會用它登入，並把 deployment key
+  加到該帳號的 `~/.ssh/authorized_keys`。密碼不會被保存；主機必須允許以密碼登入 SSH。
+- 不給密碼時，請在主機上以該帳號執行對話框顯示的指令，自行加入 key。
+- 接著 swallow 會用 deployment key 登入驗證，成功才儲存。它也會回報該帳號能否免密碼使用 sudo；
+  sudo 需要密碼時，automation 會使用 Site 的 become password；無法使用 sudo 的帳號無法執行安裝或
+  Platform 佈署。
+
+任何已佈署的 Server 都可以這樣覆寫 image 的預設值，**Use the OS image default** 會移除覆寫。
+在 Server 上設定的值屬於目前的 OS：swallow 為該 Server 佈署新的 OS 或 Server 被 release 時會清除。
+Docker CE 會把 Server 的 default user 加入 `docker` group（見 Managed Software）。
+
 ## 所有 Site 使用同一把 key
 
 每個 Site 的 automation 都以 deployment key 登入；Site 不能另帶自己的私鑰。要全面改用另一把 key，

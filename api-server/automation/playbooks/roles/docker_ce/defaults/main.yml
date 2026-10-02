@@ -1,5 +1,6 @@
 ---
-# docker_ce role defaults. state=present installs and starts Docker CE; state=absent removes it.
+# docker_ce role defaults. state=present installs and starts Docker CE; state=absent removes it
+# (and swallow's Engine API listener).
 # docker_ce_version optionally pins the apt package version (empty installs the latest available
 # from the Docker CE repository).
 docker_ce_state: present
@@ -10,6 +11,20 @@ docker_ce_version: ""
 # fall back to the raw fact so an unexpected architecture still produces a visible repo line.
 docker_ce_apt_arch: >-
   {{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }}
+
+# docker_ce_api_enabled makes dockerd also listen on tcp://0.0.0.0:<docker_ce_api_port>, the
+# unauthenticated plain-HTTP Docker Engine API the Docker Host Explorer dials (decision 043). The
+# deploy playbook always sets both from swallow trusted vars; the defaults keep the role closed when
+# it is reused without them. The listener is a systemd drop-in so daemon.json stays operator-owned.
+docker_ce_api_enabled: false
+docker_ce_api_port: 2375
+docker_ce_api_dropin: /etc/systemd/system/docker.service.d/swallow-api.conf
+
+# docker_ce_group_user is added to the docker group so it can use Docker without sudo (decision
+# 045). It defaults to the connection user, which swallow's runner sets to the Server's effective
+# Server Default User (the value set on the Server, else the OS Image's default user). Empty or root
+# skips the grant.
+docker_ce_group_user: "{{ ansible_user | default('') }}"
 
 # The Docker CE apt packages. Kept as one list so present/absent stay symmetric.
 docker_ce_packages:

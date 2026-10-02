@@ -35,6 +35,11 @@ type serverDoc struct {
 	Provisioning *provisioningDoc `bson:"provisioning,omitempty"`
 	Membership   *membershipDoc   `bson:"membership,omitempty"`
 
+	// DefaultUser is the operator-set Server Default User (decision 045). Top-level and written
+	// only by SetDefaultUser, like membership, so a reconcile Upsert never erases it; absent reads
+	// as "none set".
+	DefaultUser string `bson:"defaultUser,omitempty"`
+
 	Absent     bool      `bson:"absent"`
 	LastSeenAt time.Time `bson:"lastSeenAt"`
 	CreatedAt  time.Time `bson:"createdAt"`
@@ -485,6 +490,25 @@ func (r *MongoServerRepo) SetDeployment(ctx context.Context, id string, deployme
 	return nil
 }
 
+// SetDefaultUser writes the operator-set Server Default User, or unsets the field for "". It
+// touches nothing else on the document, so it cannot race the reconcile Upsert's fields.
+func (r *MongoServerRepo) SetDefaultUser(ctx context.Context, id string, user string) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if user == "" {
+		update["$unset"] = bson.M{"defaultUser": ""}
+	} else {
+		update["$set"].(bson.M)["defaultUser"] = user
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return nil
+}
+
 func (r *MongoServerRepo) CountByIntegration(ctx context.Context, integrationID string) (int, error) {
 	count, err := r.col.CountDocuments(ctx, bson.M{"source.integrationId": integrationID})
 	return int(count), err
@@ -532,11 +556,12 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 			ProviderPod:          s.Observed.ProviderPod,
 			Tags:                 s.Observed.Tags,
 		},
-		GPUs:       gpuDocs(s.Observed.GPUs),
-		Absent:     s.Absent,
-		LastSeenAt: s.LastSeenAt,
-		CreatedAt:  s.CreatedAt,
-		UpdatedAt:  s.UpdatedAt,
+		GPUs:        gpuDocs(s.Observed.GPUs),
+		DefaultUser: s.DefaultUser,
+		Absent:      s.Absent,
+		LastSeenAt:  s.LastSeenAt,
+		CreatedAt:   s.CreatedAt,
+		UpdatedAt:   s.UpdatedAt,
 	}
 
 	if d := s.Deployment; d != nil {
@@ -618,10 +643,11 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			ProviderPod:          doc.Observed.ProviderPod,
 			Tags:                 doc.Observed.Tags,
 		},
-		Absent:     doc.Absent,
-		LastSeenAt: doc.LastSeenAt,
-		CreatedAt:  doc.CreatedAt,
-		UpdatedAt:  doc.UpdatedAt,
+		DefaultUser: doc.DefaultUser,
+		Absent:      doc.Absent,
+		LastSeenAt:  doc.LastSeenAt,
+		CreatedAt:   doc.CreatedAt,
+		UpdatedAt:   doc.UpdatedAt,
 	}
 
 	for _, gpu := range doc.GPUs {
