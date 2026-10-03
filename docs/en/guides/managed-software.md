@@ -20,7 +20,10 @@ does not appear in the active API contract and manifest, it is not supported.
 
 Before installation:
 
-- each target Server is in a deployed, manageable state;
+- each target Server is in a deployed, manageable state — the dashboard offers
+  only Servers with an installed OS and no swallow OS deployment that is
+  running, failed, or needs attention (a Server whose OS was installed outside
+  swallow qualifies);
 - the Server is not locked;
 - no conflicting active Workflow owns the target;
 - Site automation can resolve the SSH user and credential for every host;
@@ -38,7 +41,9 @@ and host diagnostics when the result is unclear.
 
 ## Install and uninstall
 
-Use **Software** to select a kind, variant/settings, and targets. Submission
+Use **Software** to select a kind, variant/settings, and targets, or a Server's
+**Take action** → **Install software** to install on that Server only (the
+action explains why when the Server cannot take an install). Submission
 creates a Workflow using the registered playbook mapping. Uninstall requests are
 explicit and produce a separate Workflow; deleting a Server or Platform does
 not silently imply every software uninstall.

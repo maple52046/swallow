@@ -1,4 +1,27 @@
+import type { SoftwareInstallBlocker } from '@/domain/software/targets'
 import type { SoftwareAssignmentState, SoftwareKind } from '@/domain/software/types'
+
+/**
+ * Why a Server cannot take a software install, as shown beside the disabled Install software
+ * action on its detail page. One sentence per domain blocker so the reason reads the same wherever
+ * it appears.
+ */
+export function softwareInstallBlockerReason(blocker: SoftwareInstallBlocker): string {
+  switch (blocker) {
+    case 'absent':
+      return 'The provisioner no longer reports this Server.'
+    case 'not_deployed':
+      return 'Install an operating system on this Server first.'
+    case 'deployment_running':
+      return 'Wait for the OS deployment to finish.'
+    case 'deployment_unsuccessful':
+      return 'The last OS deployment did not succeed. Retry or redeploy it first.'
+  }
+}
+
+/** The rule the install dialog's target list states under its heading. */
+export const SOFTWARE_TARGETS_HINT =
+  'Deployed Servers are listed unless an OS deployment on them is running, failed, or needs attention.'
 
 /** The query parameter of `/software/settings` that selects one software kind's settings group. */
 export const SOFTWARE_SETTINGS_KIND_PARAM = 'kind'

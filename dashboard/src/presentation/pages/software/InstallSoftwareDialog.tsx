@@ -14,20 +14,30 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
-import { softwareKindLabel } from './softwarePresentation'
+import { SOFTWARE_TARGETS_HINT, softwareKindLabel } from './softwarePresentation'
 
 interface InstallSoftwareDialogProps {
   /** The installable catalog fetched by the page; drives the kind picker and its rules. */
   catalog: SoftwareCatalogEntry[]
-  /** Deployed Servers eligible as install targets, already scoped to the active Site. */
+  /**
+   * Servers offered as install targets, already scoped to the active Site and filtered by the
+   * shared install-target rule (`softwareInstallBlocker`).
+   */
   servers: Server[]
+  /**
+   * When true the given Servers are the fixed targets (the Server detail page passes its one
+   * Server): they are always selected, named in the description instead of a target list, and only
+   * their roles (for a kind with roles) remain to choose.
+   */
+  fixedTargets?: boolean
   onClose: () => void
   /** Called with the accepted Workflow id so the page can navigate to its progress view. */
   onLaunched: (operationId: string) => void
 }
 
 /**
- * Installs one software kind on one or more deployed Servers.
+ * Installs one software kind on one or more deployed Servers, from the Software page (choose the
+ * targets) or a Server's detail page (`fixedTargets`: that Server only, with no target list).
  *
  * The operator picks a kind, selects target Servers, assigns per-Server roles for a kind that has
  * variants (NFS), and fills the kind-specific spec (NFS export/mount, an optional runtime version,
@@ -38,11 +48,14 @@ interface InstallSoftwareDialogProps {
  * its error is surfaced inline. Dismissal is blocked while the request is in flight so a double
  * submit cannot occur.
  */
-export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }: InstallSoftwareDialogProps) {
+export function InstallSoftwareDialog({ catalog, servers, fixedTargets = false, onClose, onLaunched }: InstallSoftwareDialogProps) {
   const { software } = useApp()
   const [kind, setKind] = useState<SoftwareKind | ''>(catalog[0]?.kind ?? '')
+  // The selection a kind change resets to: fixed targets stay selected with no roles chosen yet.
+  const initialSelection = (): Record<string, SoftwareRole[]> =>
+    fixedTargets ? Object.fromEntries(servers.map((server) => [server.id, []])) : {}
   // Selected targets keyed by serverId; the value is the chosen roles (empty for a role-less kind).
-  const [selected, setSelected] = useState<Record<string, SoftwareRole[]>>({})
+  const [selected, setSelected] = useState<Record<string, SoftwareRole[]>>(initialSelection)
   const [spec, setSpec] = useState<Record<string, string>>({})
   // Docker CE's enableApi is the only boolean spec field; it starts checked because the contract
   // records an omitted value as true, so the form shows what will actually be applied.
@@ -139,7 +152,9 @@ export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }:
       closeOnInteractOutside={!submitting}
       size="lg"
       title="Install software"
-      description="Install a single piece of host software on one or more deployed Servers. Server and client are variants of the same software, not separate platforms."
+      description={`Install a single piece of host software on ${
+        fixedTargets ? servers.map(serverDisplayName).join(', ') : 'one or more deployed Servers'
+      }. Server and client are variants of the same software, not separate platforms.`}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -172,7 +187,7 @@ export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }:
             value={kind}
             onChange={(value) => {
               setKind(value as SoftwareKind)
-              setSelected({})
+              setSelected(initialSelection())
               setSpec({})
               setEnableApi(true)
             }}
@@ -183,54 +198,79 @@ export function InstallSoftwareDialog({ catalog, servers, onClose, onLaunched }:
           )}
         </Field.Root>
 
+        {/* Fixed targets are named in the description, so only their roles remain to choose. */}
+        {fixedTargets && hasRoles && (
+          <Box as="section" role="group" aria-labelledby="software-roles-label">
+            <Text id="software-roles-label" fontWeight="medium" mb="1">
+              Roles{' '}
+              <Text as="span" color="red.fg" aria-hidden>
+                *
+              </Text>
+            </Text>
+            <HStack gap="3">
+              {entry?.roles.map((role) => (
+                <Checkbox
+                  key={role}
+                  checked={servers.every((server) => roleFor(server.id).includes(role))}
+                  onCheckedChange={(next) => servers.forEach((server) => toggleRole(server.id, role, next))}
+                >
+                  {role}
+                </Checkbox>
+              ))}
+            </HStack>
+          </Box>
+        )}
+
         {/* A labelled group, not a Field.Root: Field.Root associates its id/label with a single
             control, so wrapping many Checkboxes in one made every label point at the first
             checkbox (only the first was selectable). A role="group" with an aria-labelledby label
             keeps each Checkbox's own generated id intact so all rows toggle independently. */}
-        <Box as="section" role="group" aria-labelledby="software-targets-label">
-          <Text id="software-targets-label" fontWeight="medium" mb="1">
-            Target Servers{' '}
-            <Text as="span" color="red.fg" aria-hidden>
-              *
+        {!fixedTargets && (
+          <Box as="section" role="group" aria-labelledby="software-targets-label">
+            <Text id="software-targets-label" fontWeight="medium" mb="1">
+              Target Servers{' '}
+              <Text as="span" color="red.fg" aria-hidden>
+                *
+              </Text>
             </Text>
-          </Text>
-          {servers.length === 0 ? (
-            <Text color="fg.muted" fontSize="sm">
-              No deployed Servers are available in this Site.
+            <Text color="fg.muted" fontSize="sm" mb="2">
+              {SOFTWARE_TARGETS_HINT}
             </Text>
-          ) : (
-            <Stack as="ul" gap="2" listStyleType="none" maxH="56" overflowY="auto" width="full">
-              {servers.map((server) => {
-                const checked = server.id in selected
-                return (
-                  <Box as="li" key={server.id}>
-                    <HStack justify="space-between" gap="3" wrap="wrap">
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(next) => toggleServer(server.id, next)}
-                      >
-                        {serverDisplayName(server)}
-                      </Checkbox>
-                      {checked && hasRoles && (
-                        <HStack gap="3" aria-label={`Roles for ${serverDisplayName(server)}`}>
-                          {entry?.roles.map((role) => (
-                            <Checkbox
-                              key={role}
-                              checked={roleFor(server.id).includes(role)}
-                              onCheckedChange={(next) => toggleRole(server.id, role, next)}
-                            >
-                              {role}
-                            </Checkbox>
-                          ))}
-                        </HStack>
-                      )}
-                    </HStack>
-                  </Box>
-                )
-              })}
-            </Stack>
-          )}
-        </Box>
+            {servers.length === 0 ? (
+              <Text color="fg.muted" fontSize="sm">
+                No Servers in this Site can take a software install right now.
+              </Text>
+            ) : (
+              <Stack as="ul" gap="2" listStyleType="none" maxH="56" overflowY="auto" width="full">
+                {servers.map((server) => {
+                  const checked = server.id in selected
+                  return (
+                    <Box as="li" key={server.id}>
+                      <HStack justify="space-between" gap="3" wrap="wrap">
+                        <Checkbox checked={checked} onCheckedChange={(next) => toggleServer(server.id, next)}>
+                          {serverDisplayName(server)}
+                        </Checkbox>
+                        {checked && hasRoles && (
+                          <HStack gap="3" aria-label={`Roles for ${serverDisplayName(server)}`}>
+                            {entry?.roles.map((role) => (
+                              <Checkbox
+                                key={role}
+                                checked={roleFor(server.id).includes(role)}
+                                onCheckedChange={(next) => toggleRole(server.id, role, next)}
+                              >
+                                {role}
+                              </Checkbox>
+                            ))}
+                          </HStack>
+                        )}
+                      </HStack>
+                    </Box>
+                  )
+                })}
+              </Stack>
+            )}
+          </Box>
+        )}
 
         {entry && renderSpecFields(entry, specValue, (field, value) => setSpec((current) => ({ ...current, [field]: value })))}
 

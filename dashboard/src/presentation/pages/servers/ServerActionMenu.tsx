@@ -5,8 +5,11 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/list'
+import { softwareInstallBlocker } from '@/domain/software/targets'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { ServerSoftwareInstallDialog } from '@/presentation/pages/software/ServerSoftwareInstallDialog'
+import { softwareInstallBlockerReason } from '@/presentation/pages/software/softwarePresentation'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerPlacementDialog } from './ServerPlacementDialog'
 import { ServerTagEditor } from './ServerTagEditor'
@@ -28,7 +31,9 @@ import {
  *
  * Swallow-owned placement and tags live in a separate Edit menu. Provider operations reuse
  * the shared nested Take-action menu so list and detail never drift. Destructive lifecycle
- * commands keep their existing confirmation, diagnostics, and refresh contracts.
+ * commands keep their existing confirmation, diagnostics, and refresh contracts. Install
+ * software opens the shared install dialog with this Server as the fixed target, gated by the
+ * same install-target rule as the Software page, and follows the accepted Workflow like it.
  */
 export function ServerActionMenu({
   server,
@@ -68,6 +73,14 @@ export function ServerActionMenu({
   const [powerOffWarnOpen, setPowerOffWarnOpen] = useState(false)
   const [placementOpen, setPlacementOpen] = useState(false)
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
+  const [installSoftwareOpen, setInstallSoftwareOpen] = useState(false)
+  // The same install-target rule as the Software page, plus the lock the install API refuses.
+  const installBlocker = softwareInstallBlocker(server)
+  const installSoftwareDisabledReason = installBlocker
+    ? softwareInstallBlockerReason(installBlocker)
+    : server.provisioning?.locked
+      ? 'Unlock the Server before installing software'
+      : undefined
 
   const run = async (action: ServerMenuAction, releaseInput?: ReleaseServerInput) => {
     if (action === 'delete') {
@@ -189,11 +202,26 @@ export function ServerActionMenu({
           busy={busy}
           trigger="take-action"
           deployDisabledReason={deployDisabledReason}
+          includeInstallSoftware
+          installSoftwareDisabledReason={installSoftwareDisabledReason}
           onAction={chooseAction}
           onDeploy={deployHref}
+          onInstallSoftware={() => setInstallSoftwareOpen(true)}
           onQueryPower={() => void queryPower()}
         />
       </HStack>
+
+      {installSoftwareOpen && (
+        <ServerSoftwareInstallDialog
+          server={server}
+          onClose={() => setInstallSoftwareOpen(false)}
+          onLaunched={(operationId) => {
+            setInstallSoftwareOpen(false)
+            showToast({ tone: 'success', title: 'Software install started' })
+            navigate(scopedHref(`/workflows/${operationId}`))
+          }}
+        />
+      )}
 
       {releaseOpen && (
         <ServerReleaseDialog

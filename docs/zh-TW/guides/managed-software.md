@@ -20,7 +20,9 @@ API contract 與 manifest 時，就不是 supported capability。
 
 安裝前：
 
-- 每個 target Server 都是 deployed、manageable state。
+- 每個 target Server 都是 deployed、manageable state——dashboard 只列出已安裝 OS、
+  且沒有進行中、失敗或待處理的 swallow OS deployment 的 Server（OS 在 swallow 外部安裝的
+  Server 也可以）。
 - Server 未 lock。
 - 沒有 conflicting active Workflow 擁有 target。
 - Site automation 能為每台 host resolve SSH user 與 credential。
@@ -36,8 +38,9 @@ package fact 都即時；結果不清楚時請看 associated Workflow 與 host d
 
 ## Install 與 uninstall
 
-在 **Software** 選擇 kind、variant/settings 與 targets。送出後會透過 registered
-playbook mapping 建立 Workflow。Uninstall 是 explicit request，會產生另一個 Workflow；
+在 **Software** 選擇 kind、variant/settings 與 targets，或在 Server 的
+**Take action** → **Install software** 只安裝到該 Server（Server 無法安裝時，該項目會說明原因）。
+送出後會透過 registered playbook mapping 建立 Workflow。Uninstall 是 explicit request，會產生另一個 Workflow；
 刪除 Server／Platform 不會默認 uninstall 所有 software。
 
 變更 NFS server/client role 可能影響 mounted storage 與 workload availability，

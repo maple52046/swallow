@@ -200,6 +200,8 @@ export interface FixtureOptions {
   networkSubnetName?: string
   ephemeralServerIds?: string[]
   lockedServerIds?: string[]
+  /** Servers whose OS swallow did not deploy: provisioning `deployed` with no `deployment` record. */
+  existingServerIds?: string[]
   failedServerIds?: string[]
   brokenServerIds?: string[]
   rescueServerIds?: string[]
@@ -479,6 +481,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const serverId of options.lockedServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.provisioning.locked = true
+  }
+  for (const serverId of options.existingServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.deployment = null
   }
   // Seed the not-usable provider states the recovery policy acts on (decision 033), so tests
   // can exercise Recover / Release gating and the Failed vs Broken vs Rescue badges.

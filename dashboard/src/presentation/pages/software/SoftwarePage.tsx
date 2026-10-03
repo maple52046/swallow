@@ -6,6 +6,7 @@ import { useApp } from '@/di/AppProvider'
 import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerWorkingSet'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
+import { softwareInstallBlocker } from '@/domain/software/targets'
 import type { SoftwareAssignment, SoftwareCatalogEntry } from '@/domain/software/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -24,7 +25,10 @@ import { assignmentStateLabel, assignmentStatePalette, softwareKindLabel } from 
 interface SoftwareData {
   catalog: SoftwareCatalogEntry[]
   assignments: SoftwareAssignment[]
-  /** Deployed Servers in the active Site, used for the id->name map and the install picker. */
+  /**
+   * Deployed Servers in the active Site, used for the id->name map that scopes assignments. Not
+   * narrowed by install eligibility, so a Server whose redeploy failed keeps its installed rows.
+   */
   servers: Server[]
 }
 
@@ -37,8 +41,9 @@ type SoftwareState =
  * Managed Software workspace (decision 038): install a single piece of host software on deployed
  * Servers, list the swallow-owned Software Assignments, and uninstall one from a Server. Results
  * honor the global Site scope: assignments are cross-referenced against the Site's deployed Servers
- * so only in-scope records are shown, and only in-scope deployed Servers are offered as install
- * targets. Install and uninstall create Workflows; on acceptance the page navigates to the
+ * so only in-scope records are shown, and only in-scope deployed Servers that pass the shared
+ * install-target rule (no running or unsuccessful OS deployment) are offered as install targets.
+ * Install and uninstall create Workflows; on acceptance the page navigates to the
  * Workflow's progress view so the operator follows the same per-Task Job timeline as every other
  * deployment. Settings that belong to one software kind (such as Docker CE's Registry credentials)
  * live on the Settings page this one links to, never on this software-wide list.
@@ -99,6 +104,12 @@ export function SoftwarePage() {
     }
     return names
   }, [state])
+
+  // The install picker offers only Servers that pass the shared install-target rule.
+  const installTargets = useMemo(
+    () => (state.status === 'ready' ? state.data.servers.filter((server) => softwareInstallBlocker(server) === null) : []),
+    [state],
+  )
 
   const catalogLabels = useMemo(() => {
     const labels = new Map<string, string>()
@@ -263,7 +274,7 @@ export function SoftwarePage() {
       {installing && state.status === 'ready' && (
         <InstallSoftwareDialog
           catalog={state.data.catalog}
-          servers={state.data.servers}
+          servers={installTargets}
           onClose={() => setInstalling(false)}
           onLaunched={(operationId) => handleLaunched(operationId, 'Software install started')}
         />

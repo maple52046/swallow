@@ -17,6 +17,7 @@ import {
   LifeBuoy,
   ListChecks,
   Lock,
+  PackagePlus,
   LockOpen,
   LogOut,
   MoreVertical,
@@ -113,7 +114,8 @@ export type ServerTakeActionTrigger = 'take-action' | 'kebab' | 'actions'
  * - Detail passes `capabilities` so unsupported groups hide; list omits it and shows every
  *   catalogue group (backend refuses per Server).
  * - `includeSingleOnly` keeps Delete on single-Server menus and out of bulk.
- * - Deploy OS / Query power are optional slots owned by detail; list keeps those elsewhere.
+ * - Deploy OS / Install software / Query power are optional slots owned by detail; list keeps
+ *   those elsewhere. A disabled slot shows its reason under the command.
  */
 export function ServerTakeActionMenu({
   targets,
@@ -127,8 +129,11 @@ export function ServerTakeActionMenu({
   /** List toolbars pass `sm`; omit on detail so the header control matches Edit. */
   size,
   deployDisabledReason,
+  includeInstallSoftware = false,
+  installSoftwareDisabledReason,
   onAction,
   onDeploy,
+  onInstallSoftware,
   onQueryPower,
 }: {
   targets: readonly Server[]
@@ -144,8 +149,12 @@ export function ServerTakeActionMenu({
   trigger?: ServerTakeActionTrigger
   size?: 'sm' | 'md'
   deployDisabledReason?: string
+  /** Detail only: offer Install software for the one target (Managed Software, decision 038). */
+  includeInstallSoftware?: boolean
+  installSoftwareDisabledReason?: string
   onAction: (action: ServerMenuAction) => void
   onDeploy?: () => void
+  onInstallSoftware?: () => void
   onQueryPower?: () => void
 }) {
   const groups = SERVER_ACTION_GROUPS.filter((group) => {
@@ -191,13 +200,16 @@ export function ServerTakeActionMenu({
         <Menu.Positioner>
           <Menu.Content minW="17rem">
             {includeDeploy && (
-              <>
-                <Menu.Item value="deploy" disabled={Boolean(deployDisabledReason)} onSelect={() => onDeploy?.()}>
-                  <ServerActionMenuRow icon={Rocket} label="Deploy OS" reason={deployDisabledReason} />
-                </Menu.Item>
-                <Menu.Separator />
-              </>
+              <Menu.Item value="deploy" disabled={Boolean(deployDisabledReason)} onSelect={() => onDeploy?.()}>
+                <ServerActionMenuRow icon={Rocket} label="Deploy OS" reason={deployDisabledReason} />
+              </Menu.Item>
             )}
+            {includeInstallSoftware && (
+              <Menu.Item value="install-software" disabled={Boolean(installSoftwareDisabledReason)} onSelect={() => onInstallSoftware?.()}>
+                <ServerActionMenuRow icon={PackagePlus} label="Install software" reason={installSoftwareDisabledReason} />
+              </Menu.Item>
+            )}
+            {(includeDeploy || includeInstallSoftware) && <Menu.Separator />}
             {operationGroups.map((group) => {
               const presentation = GROUP_PRESENTATION[group.label] ?? { label: group.label, icon: ListChecks }
               return (
