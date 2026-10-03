@@ -33,6 +33,12 @@ type providerStepExecutor struct {
 	powerOnWait    time.Duration
 	stageStallWait time.Duration
 	sshProbe       func(context.Context, string, int) error
+	// bootMedia recovers the deployment boot of a Boot Media Server that did not boot the ISO
+	// after the provisioner's power-on (decision 047). Nil disables the watch.
+	bootMedia bootMediaBootRecoverer
+	// bootMediaMediaWait and bootMediaBootWait override bootMediaMediaCheck and
+	// bootMediaBootCheck in tests.
+	bootMediaMediaWait, bootMediaBootWait time.Duration
 }
 
 const (
@@ -250,6 +256,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 	var allocatedSince time.Time
 	var lastReadiness deploymentReadiness
 	progress := e.newDeploymentProgress(ctx, step, serverID)
+	watch := e.newBootMediaWatch(step)
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil {
@@ -276,6 +283,10 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 				}
 				if stalled := e.observeInstallProgress(ctx, step, serverID, &progress, now); stalled != nil {
 					return *stalled
+				}
+				if watch.observe(ctx, serverID, progress, now) {
+					// The host's boot started over; the stall window measures from the restart.
+					progress.since = time.Now()
 				}
 			case string(provisioningdomain.MachineStatusAllocated):
 				// ALLOCATED is the brief reserved state MAAS passes through on its way to

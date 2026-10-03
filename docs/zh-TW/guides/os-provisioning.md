@@ -49,6 +49,26 @@ Dashboard wizard 會驗證：
 *Configuring OS*）。若該階段 25 分鐘沒有推進，Workflow step 會要求處理，而不是等到兩小時上限；
 provider 端的佈署仍保持執行，供你檢查、retry 或 release。
 
+## 沒有 provisioner DHCP 的網路：Boot Media
+
+有些 Server 所在網路的 DHCP 由現場提供、而不是 provisioner，因此無法 PXE 開機進入 provisioner。
+對這類 Server，swallow 會提供一個 iPXE 開機 ISO，讓 Server 的 BMC 以 virtual media 掛載並優先開機：
+ISO 先從現場 DHCP 取得位址，再 chain 到 provisioner。
+
+- **安裝：** 放置 iPXE ISO 檔，並設定 BMC 連到 swallow 的 base URL（見
+  [Configuration](../reference/configuration.md#boot-media)）。ISO URL 由安裝固定，不需逐台輸入。
+- **偵測：** swallow 會對每台新加入的 Server 偵測其 BMC 是否支援 Redfish virtual media 與 boot
+  override（不論 provisioner 使用哪種 power driver），結果顯示在 Server 的
+  **Summary → Management controller** 卡片。**Re-detect Redfish** 可重新偵測，例如 BMC 韌體更新後。
+- **啟用：** **Enable Boot Media** 會對實際 BMC 執行 preflight：掛載 ISO、把接下來的開機導向它，兩者都成功才
+  儲存設定。支援度依硬體與韌體而異，失敗時會顯示 BMC 自己的說明。這個動作不會重開機。
+- **佈署：** 啟用 Boot Media 的 Server 每次佈署 OS 時，會先執行 *Ensure Boot Media* 步驟重新套用，因為 BMC
+  可能遺失掛載（例如 BMC 重啟後）或開機順序。若 BMC 無法連線，該步驟會要求處理、佈署暫停；BMC 恢復後
+  到 **Workflows** retry 即可。若 Server 仍沒開進 ISO（BMC 在 provisioner 開機時丟掉了 ISO，或 BIOS
+  直接開了硬碟），swallow 會在兩分鐘時重新掛載 ISO；若十分鐘時 Server 仍未網路開機，就重新套用 Boot Media，
+  並透過 Redfish 重開 Server 一次。這種佈署會多花十到十五分鐘。
+- **Check BMC** 讀取 BMC 目前的實際狀態。**Disable** 停止重新套用，並要求 BMC 退出 ISO。
+
 ## Release 與 recovery
 
 Release 讓 provider machine 回到 ready，並可包含明確 erase options。Recovery
@@ -67,6 +87,9 @@ swallow provisioning images list --integration int1
 swallow provisioning templates list --site-id site1
 swallow provisioning deploy --file deploy.yaml
 swallow provisioning release --server server1 --erase
+swallow servers redfish-probe server1
+swallow servers boot-media enable server1
+swallow servers boot-media get server1 --live
 ```
 
 Structured payload 請使用 JSON／YAML request file，讓 fields 持續與

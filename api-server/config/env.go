@@ -147,6 +147,22 @@ func applyEnv(cfg *Config) {
 	if v := getSecretEnv("SWALLOW_API_MACHINE_TOKEN", ""); v != "" {
 		cfg.API.MachineToken = v
 	}
+	if v := os.Getenv("SWALLOW_API_BOOT_MEDIA_ISO_PATH"); v != "" {
+		cfg.API.BootMedia.ISOPath = v
+	}
+	if v := os.Getenv("SWALLOW_API_BOOT_MEDIA_BASE_URL"); v != "" {
+		cfg.API.BootMedia.BaseURL = v
+	}
+	if v := os.Getenv("SWALLOW_API_REDFISH_PROBE_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.RedfishProbeInterval = d
+		}
+	}
+	if v := os.Getenv("SWALLOW_API_REDFISH_PROBE_MAX_AGE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.RedfishProbeMaxAge = d
+		}
+	}
 }
 
 // getSecretEnv supports Compose secrets and root-only systemd credential files.

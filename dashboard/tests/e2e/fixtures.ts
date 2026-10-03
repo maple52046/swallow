@@ -287,6 +287,12 @@ export interface FixtureOptions {
   defaultUserSudo?: 'passwordless' | 'password_required' | 'unavailable'
   /** Makes the default-user PUT fail with this API error instead of saving. */
   defaultUserError?: { status: number; code: string; message: string }
+  /** Called for every Boot Media write (decision 047) with its method, path, and JSON body. */
+  onBootMediaRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
+  /** Makes the boot-media PUT fail with this API error instead of saving. */
+  bootMediaError?: { status: number; code: string; message: string }
+  /** Makes a Boot Media disable report that the BMC was not reset. */
+  bootMediaRevertError?: string
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -326,6 +332,24 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     sshKey('deploy-1', 'swallow-deployment', 'deployment', 'ssh-ed25519 AAAADEPLOY swallow-deployment'),
     sshKey('key-laptop', 'work-laptop', 'access', 'ssh-ed25519 AAAALAPTOP alice@laptop'),
   ]
+  // Per-page Boot Media state (decision 047): a supported AMI BMC, Boot Media not yet enabled.
+  const bootMediaState: { setting: Record<string, unknown> | null; redfish: Record<string, unknown> } = {
+    setting: null,
+    redfish: {
+      support: 'supported', serviceRoot: 'https://192.0.2.20/redfish/v1', vendor: 'AMI', product: 'AMI Redfish Server',
+      redfishVersion: '1.15.1', firmwareVersion: '13.06.10', systemId: 'Self', virtualMedia: true,
+      bootOverrideModes: ['Once', 'Continuous'], probedAt: now,
+    },
+  }
+  const bootMediaView = (live: boolean) => ({
+    serverId: 'srv-1',
+    image: { url: 'http://192.0.2.1/boot-media/ipxe/swallow-ipxe.iso', available: true },
+    setting: bootMediaState.setting,
+    redfish: bootMediaState.redfish,
+    live: live
+      ? { mediaInserted: Boolean(bootMediaState.setting?.enabled), overrideEnabled: 'Once', overrideTarget: 'UefiBootNext', ready: Boolean(bootMediaState.setting?.enabled) }
+      : null,
+  })
   // A newly created key starts pending in every provisioner and settles on its first single-key
   // read, modelling the backend sync pass that finishes moments after the create returns.
   const settlingKeyIds = new Set<string>()
@@ -1475,6 +1499,30 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }, 202)
     }
     if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true, networkConfiguration: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }, { title: 'BMC', fields: [{ label: 'Protocol', value: 'IPMI' }, { label: 'Address', value: '192.0.2.20' }, { label: 'Username', value: 'bmc-admin' }, { label: 'Password', value: 'bmc-secret' }, { label: 'Driver', value: 'LAN_2_0' }, { label: 'Boot type', value: 'efi' }, { label: 'Privilege level', value: 'OPERATOR' }, { label: 'Cipher suite', value: '17' }, { label: 'Power MAC', value: 'aa:bb:cc:dd:ee:ff' }] }], tables: [{ title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
+    // Boot Media (server-detail-actions.md "Boot Media"): the real API drives the BMC over Redfish;
+    // the fixture records writes and keeps one per-page setting so the Summary re-reads it.
+    const bootMediaMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/(boot-media|redfish\/probe)$/)
+    if (bootMediaMatch) {
+      const body = request.method() === 'GET' ? null : ((request.postDataJSON() ?? {}) as Record<string, unknown>)
+      if (request.method() !== 'GET') options.onBootMediaRequest?.(request.method(), path, body)
+      if (bootMediaMatch[2] === 'redfish/probe') {
+        bootMediaState.redfish = { ...bootMediaState.redfish, probedAt: now }
+        return json(route, { redfish: bootMediaState.redfish })
+      }
+      if (request.method() === 'PUT') {
+        if (options.bootMediaError) {
+          const { status, code, message } = options.bootMediaError
+          return json(route, { error: { code, message, requestId: 'req-boot-media' } }, status)
+        }
+        const enabled = body?.enabled === true
+        bootMediaState.setting = enabled
+          ? { enabled: true, updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
+          : { enabled: false, updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
+        const disableOutcome = enabled ? {} : options.bootMediaRevertError ? { reverted: false, revertError: options.bootMediaRevertError } : { reverted: true }
+        return json(route, { ...bootMediaView(false), ...disableOutcome })
+      }
+      return json(route, bootMediaView(url.searchParams.get('live') === 'true'))
+    }
     // Server Default User (server-detail-actions.md): PUT verifies on the host in the real API; the
     // fixture just records the request and applies the result to the projection.
     const defaultUserMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/default-user$/)

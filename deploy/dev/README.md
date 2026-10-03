@@ -87,6 +87,23 @@ ssh -L 5173:localhost:5173 user@host
 Vite trusts IP/localhost host headers by default. Add a deliberate
 `server.allowedHosts` entry before using a development DNS name.
 
+## Boot Media lab
+
+To try Boot Media (Redfish virtual media iPXE boot, decision 047) against a real
+BMC, put the iPXE ISO at `boot-media/swallow-ipxe.iso` (gitignored) and set in
+`.env` the address the BMC network reaches this host at:
+
+```bash
+SWALLOW_API_BOOT_MEDIA_BASE_URL=http://10.0.0.5
+BOOT_MEDIA_HTTP_PUBLISH=10.0.0.5:80
+docker compose up -d api-server
+```
+
+The API is then also published on that address's port 80, where BMCs mount
+`/boot-media/ipxe/swallow-ipxe.iso`. Many BMCs accept only plain HTTP on port 80.
+Editing api-server Go code restarts the worker (Air), which fences a running
+deployment's lease; avoid it while a lab deployment is in flight.
+
 ## Seed a demonstration Site
 
 The idempotent seed script creates the deployment key (`swallow-api deployment-key

@@ -32,6 +32,27 @@ Important production-sensitive values include:
 Changing the credential key without restoring matching encrypted data makes
 stored credentials unreadable.
 
+### Boot Media
+
+Boot Media (an iPXE ISO the BMC mounts for Servers on networks without
+provisioner DHCP; see [OS provisioning](../guides/os-provisioning.md)) is
+optional and off until both values are set:
+
+| Setting | Environment variable | Meaning |
+| --- | --- | --- |
+| `api.bootMedia.isoPath` | `SWALLOW_API_BOOT_MEDIA_ISO_PATH` | The iPXE ISO file the API serves. |
+| `api.bootMedia.baseURL` | `SWALLOW_API_BOOT_MEDIA_BASE_URL` | The address BMCs reach swallow at, for example `http://10.0.0.5`, without a path. |
+| `api.redfishProbeInterval` | `SWALLOW_API_REDFISH_PROBE_INTERVAL` | How often new or stale Servers get a Redfish probe (default 10m). |
+| `api.redfishProbeMaxAge` | `SWALLOW_API_REDFISH_PROBE_MAX_AGE` | How long a probe stays current (default 24h). |
+
+BMCs mount `<baseURL>/boot-media/ipxe/swallow-ipxe.iso` without credentials and
+re-read it at every boot. Many BMCs accept only plain `http://` on port 80, so
+the production Nginx forwards `/boot-media/` on port 80 (it is not redirected to
+HTTPS). The production Compose file reads `SWALLOW_BOOT_MEDIA_BASE_URL` and
+mounts `SWALLOW_BOOT_MEDIA_DIR` (default `./boot-media`, containing
+`swallow-ipxe.iso`). The ISO typically embeds the provisioner rack's address, so
+it is specific to the installation.
+
 ## Dashboard configuration
 
 `VITE_API_BASE_URL` selects the API origin at build/dev-server start. The

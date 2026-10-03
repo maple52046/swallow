@@ -274,6 +274,12 @@ type Server struct {
 	// it through EffectiveDefaultUser, which falls back to the OS Image's default user.
 	DefaultUser string
 
+	// BootMedia is the Server's Boot Media setting (decision 047), nil when never set. Redfish is
+	// the latest Redfish capability probe of its BMC, nil before the first probe. Both are
+	// swallow-owned, written only through BootMediaStore, and preserved by provider reconciliation.
+	BootMedia *BootMediaSetting
+	Redfish   *RedfishCapability
+
 	// The three externally owned status axes. Each is nil until its owner has been
 	// observed: absent means "not known", not a default state.
 	Provisioning *ProvisioningStatus

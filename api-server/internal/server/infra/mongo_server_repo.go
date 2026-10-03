@@ -40,6 +40,12 @@ type serverDoc struct {
 	// as "none set".
 	DefaultUser string `bson:"defaultUser,omitempty"`
 
+	// BootMedia and Redfish are the swallow-owned Boot Media setting and Redfish capability
+	// (decision 047). Top-level and written only by SetBootMedia / SetRedfishCapability, so a
+	// reconcile Upsert never erases them; absent reads as "never set" / "never probed".
+	BootMedia *bootMediaDoc `bson:"bootMedia,omitempty"`
+	Redfish   *redfishDoc   `bson:"redfish,omitempty"`
+
 	Absent     bool      `bson:"absent"`
 	LastSeenAt time.Time `bson:"lastSeenAt"`
 	CreatedAt  time.Time `bson:"createdAt"`
@@ -509,6 +515,77 @@ func (r *MongoServerRepo) SetDefaultUser(ctx context.Context, id string, user st
 	return nil
 }
 
+// bootMediaDoc stores serverdomain.BootMediaSetting.
+type bootMediaDoc struct {
+	Enabled       bool       `bson:"enabled"`
+	UpdatedAt     time.Time  `bson:"updatedAt"`
+	LastAppliedAt *time.Time `bson:"lastAppliedAt,omitempty"`
+	LastAppliedBy string     `bson:"lastAppliedBy,omitempty"`
+	BootOverride  string     `bson:"bootOverride,omitempty"`
+	LastError     string     `bson:"lastError,omitempty"`
+	LastErrorAt   *time.Time `bson:"lastErrorAt,omitempty"`
+}
+
+// redfishDoc stores serverdomain.RedfishCapability. It holds no credential.
+type redfishDoc struct {
+	Support           string    `bson:"support"`
+	Reason            string    `bson:"reason,omitempty"`
+	ServiceRoot       string    `bson:"serviceRoot,omitempty"`
+	Vendor            string    `bson:"vendor,omitempty"`
+	Product           string    `bson:"product,omitempty"`
+	RedfishVersion    string    `bson:"redfishVersion,omitempty"`
+	FirmwareVersion   string    `bson:"firmwareVersion,omitempty"`
+	SystemID          string    `bson:"systemId,omitempty"`
+	VirtualMedia      bool      `bson:"virtualMedia"`
+	BootOverrideModes []string  `bson:"bootOverrideModes,omitempty"`
+	ProbedAt          time.Time `bson:"probedAt"`
+}
+
+// SetBootMedia writes the Server's Boot Media setting, or unsets it for nil. It touches nothing
+// else on the document, so it cannot race the reconcile Upsert's fields.
+func (r *MongoServerRepo) SetBootMedia(ctx context.Context, id string, setting *serverdomain.BootMediaSetting) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if setting == nil {
+		update["$unset"] = bson.M{"bootMedia": ""}
+	} else {
+		update["$set"].(bson.M)["bootMedia"] = bootMediaDoc{
+			Enabled: setting.Enabled, UpdatedAt: setting.UpdatedAt,
+			LastAppliedAt: setting.LastAppliedAt, LastAppliedBy: string(setting.LastAppliedBy),
+			BootOverride: setting.BootOverride, LastError: setting.LastError, LastErrorAt: setting.LastErrorAt,
+		}
+	}
+	return r.updateExisting(ctx, id, update)
+}
+
+// SetRedfishCapability writes the Server's latest Redfish capability probe, or unsets it for nil.
+func (r *MongoServerRepo) SetRedfishCapability(ctx context.Context, id string, capability *serverdomain.RedfishCapability) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if capability == nil {
+		update["$unset"] = bson.M{"redfish": ""}
+	} else {
+		update["$set"].(bson.M)["redfish"] = redfishDoc{
+			Support: string(capability.Support), Reason: capability.Reason, ServiceRoot: capability.ServiceRoot,
+			Vendor: capability.Vendor, Product: capability.Product, RedfishVersion: capability.RedfishVersion,
+			FirmwareVersion: capability.FirmwareVersion, SystemID: capability.SystemID,
+			VirtualMedia: capability.VirtualMedia, BootOverrideModes: capability.BootOverrideModes,
+			ProbedAt: capability.ProbedAt,
+		}
+	}
+	return r.updateExisting(ctx, id, update)
+}
+
+// updateExisting applies update to one document and maps "no such document" to ErrServerNotFound.
+func (r *MongoServerRepo) updateExisting(ctx context.Context, id string, update bson.M) error {
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return nil
+}
+
 func (r *MongoServerRepo) CountByIntegration(ctx context.Context, integrationID string) (int, error) {
 	count, err := r.col.CountDocuments(ctx, bson.M{"source.integrationId": integrationID})
 	return int(count), err
@@ -648,6 +725,22 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 		LastSeenAt:  doc.LastSeenAt,
 		CreatedAt:   doc.CreatedAt,
 		UpdatedAt:   doc.UpdatedAt,
+	}
+
+	if b := doc.BootMedia; b != nil {
+		s.BootMedia = &serverdomain.BootMediaSetting{
+			Enabled: b.Enabled, UpdatedAt: b.UpdatedAt,
+			LastAppliedAt: b.LastAppliedAt, LastAppliedBy: serverdomain.BootMediaApplier(b.LastAppliedBy),
+			BootOverride: b.BootOverride, LastError: b.LastError, LastErrorAt: b.LastErrorAt,
+		}
+	}
+	if r := doc.Redfish; r != nil {
+		s.Redfish = &serverdomain.RedfishCapability{
+			Support: serverdomain.RedfishSupport(r.Support), Reason: r.Reason, ServiceRoot: r.ServiceRoot,
+			Vendor: r.Vendor, Product: r.Product, RedfishVersion: r.RedfishVersion,
+			FirmwareVersion: r.FirmwareVersion, SystemID: r.SystemID,
+			VirtualMedia: r.VirtualMedia, BootOverrideModes: r.BootOverrideModes, ProbedAt: r.ProbedAt,
+		}
 	}
 
 	for _, gpu := range doc.GPUs {

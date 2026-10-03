@@ -26,6 +26,9 @@ type durableProvisioningLauncher struct {
 	// rather than a stale cache (the drift behind "shows Deployed but cannot Release"). It is
 	// optional: when nil, or when a provider read fails, the gate falls back to the stored state.
 	refresh *provisioningapp.RefreshServerUseCase
+	// bootMedia inserts ensure-boot-media before the provision-os Task of a Server with Boot Media
+	// enabled (decision 047). Its zero value adds nothing.
+	bootMedia bootMediaPlanner
 }
 
 // refreshTarget best-effort advances one Server's provisioning projection from its provisioner
@@ -90,6 +93,9 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	secretValues := map[string]any{}
 	if input.UserData.Mode == "replace" && secretValue != "" {
 		secretValues["userData"] = secretValue
+	}
+	if steps, err = l.bootMedia.withEnsureTasks(ctx, steps); err != nil {
+		return nil, err
 	}
 	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
 		Kind: operationdomain.WorkflowKindDeployOS, IntentSummary: fmt.Sprintf("Deploy operating system to %d Server(s)", len(input.ServerIDs)),
@@ -368,6 +374,9 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped},
 			Parameters: map[string]any{"request": structToMap(provisioningapp.RecoverServerInput{ServerID: input.ServerID})},
 		})
+	}
+	if steps, err = l.bootMedia.withEnsureTasks(ctx, steps); err != nil {
+		return nil, err
 	}
 	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
 		Kind:           operationdomain.WorkflowKindVerifyOSImage,

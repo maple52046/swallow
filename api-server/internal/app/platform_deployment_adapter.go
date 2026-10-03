@@ -70,6 +70,9 @@ type platformDeploymentLauncher struct {
 	orchestrations *operationapp.WorkflowService
 	deployments    *provisioningapp.DeployServersUseCase
 	servers        serverdomain.ServerRepository
+	// bootMedia inserts ensure-boot-media into the ensure-os Job before each provision-os Task of
+	// a Server with Boot Media enabled (decision 047). Its zero value adds nothing.
+	bootMedia bootMediaPlanner
 }
 
 // Launch builds the durable Operation that deploys a Platform. It dispatches on the platform
@@ -317,6 +320,10 @@ func (l platformDeploymentLauncher) createDeploymentWorkflow(
 	}
 	if ensure.frozen != nil {
 		intentSnapshot["resolvedProvisioning"] = structToMap(*ensure.frozen)
+	}
+	steps, err := l.bootMedia.withEnsureTasks(ctx, steps)
+	if err != nil {
+		return nil, err
 	}
 	return l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
 		ID: operationID, Kind: kind,

@@ -95,6 +95,10 @@ type ProviderCapabilities struct {
 	// deploys. When false, swallow's SSH Keys are recorded as unsupported for this provisioner.
 	// See docs/decisions/039.
 	SSHKeyRegistration bool
+	// BMCConnection reports that BMCConnectionReader is implemented, i.e. the provider can hand
+	// swallow a machine's BMC address and account so swallow can drive Redfish Boot Media itself.
+	// See docs/decisions/047.
+	BMCConnection bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the

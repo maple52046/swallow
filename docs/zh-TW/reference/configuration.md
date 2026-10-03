@@ -31,6 +31,23 @@
 未 restore matching encrypted data 就更換 credential key，會使既有 credentials
 無法讀取。
 
+### Boot Media
+
+Boot Media（BMC 為沒有 provisioner DHCP 的網路上的 Server 掛載的 iPXE ISO，見
+[OS provisioning](../guides/os-provisioning.md)）是選用功能，兩個值都設定後才會啟用：
+
+| 設定 | Environment variable | 意義 |
+| --- | --- | --- |
+| `api.bootMedia.isoPath` | `SWALLOW_API_BOOT_MEDIA_ISO_PATH` | API 提供的 iPXE ISO 檔案。 |
+| `api.bootMedia.baseURL` | `SWALLOW_API_BOOT_MEDIA_BASE_URL` | BMC 連到 swallow 的位址，例如 `http://10.0.0.5`，不含路徑。 |
+| `api.redfishProbeInterval` | `SWALLOW_API_REDFISH_PROBE_INTERVAL` | 對新加入或過期的 Server 進行 Redfish 偵測的頻率（預設 10m）。 |
+| `api.redfishProbeMaxAge` | `SWALLOW_API_REDFISH_PROBE_MAX_AGE` | 一次偵測結果的有效期（預設 24h）。 |
+
+BMC 會以不帶帳密的方式掛載 `<baseURL>/boot-media/ipxe/swallow-ipxe.iso`，並在每次開機時重新讀取。
+許多 BMC 只接受 port 80 的 `http://`，因此 production Nginx 會在 port 80 轉發 `/boot-media/`（不會導向
+HTTPS）。Production Compose 會讀取 `SWALLOW_BOOT_MEDIA_BASE_URL`，並掛載 `SWALLOW_BOOT_MEDIA_DIR`（預設
+`./boot-media`，內含 `swallow-ipxe.iso`）。ISO 通常內嵌 provisioner rack 的位址，因此是安裝專屬的檔案。
+
 ## Dashboard configuration
 
 `VITE_API_BASE_URL` 在 build／dev-server start 時選擇 API origin。Development

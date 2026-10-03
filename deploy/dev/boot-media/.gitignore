@@ -1,0 +1,4 @@
+# The iPXE ISO served as Boot Media is a local, site-specific artifact (it embeds the
+# provisioner's address). Keep it out of git.
+*
+!.gitignore

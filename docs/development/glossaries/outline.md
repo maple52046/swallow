@@ -30,6 +30,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server Default User](terms/server-default-user.md): The OS account automation logs in as with the Deployment Key — set on the Server (verified, optionally installing the key with a one-time password) or else the deployed OS Image's default user; Docker CE adds it to `docker`.
 - [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
 - [Tag](terms/tag.md): An operator-facing label on a Server, provider-owned when the provisioner supports tagging (MAAS) and swallow-owned otherwise; drives Server Type and discovery filters.
+- [BMC](terms/bmc.md): A physical Server's out-of-band management controller; its connection facts are provisioner-owned and read live, while its Redfish capability (virtual media, boot override) is swallow's own probe result — independent of the provisioner's power driver.
+- [Boot Media](terms/boot-media.md): The swallow-served iPXE ISO a Server's BMC mounts and boots first to reach the provisioner on externally served networks; per Server, swallow owns the enabled setting, applied as a preflight and re-ensured before every OS Deployment.
 
 ### Platform Management
 
@@ -116,7 +118,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - `Owner` — Server 的擁有關係（team 或 user）。由 `Server` 的 ownership 規則引用。
 - `Team` — Server 的可能擁有者之一。
 - `User` — swallow 身分；現有用法包含 `admin | owner | user` 三種角色，角色語意尚未定義。Session、API Key 與 Access Key 都屬於某個 User（目前只有 bootstrap admin）。
-- `SSH Connection`、`BMC` — Server 的遠端存取路徑（`SSH Key` 已定義於上方 Access）。
+- `SSH Connection` — Server 的遠端存取路徑（`SSH Key` 已定義於上方 Access；`BMC` 已定義於上方 Compute Resource）。
 
 ### Physical Topology
 

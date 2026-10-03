@@ -27,7 +27,9 @@ import (
 	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
+	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverinfra "github.com/maple52046/swallow/internal/server/infra"
+	"github.com/maple52046/swallow/internal/server/infra/redfish"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	siteinfra "github.com/maple52046/swallow/internal/site/infra"
 	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
@@ -153,11 +155,18 @@ func RunWorker(cfg config.APIConfig) error {
 		platforms, nil, servers, nil,
 		managedPlatformIntegrationCleaner{integrations: integrations},
 	)
+	// Boot Media's ensure-boot-media Task (decision 047) drives the BMC over Redfish with the
+	// connection read live from the provisioner. The ISO URL comes frozen in the Task, so the
+	// worker needs no Boot Media configuration of its own; the guard is unused here.
+	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
+		bmcEndpointSource{providers: providers}, redfish.NewController(),
+		newBootMediaImage(cfg.BootMedia.ISOPath, cfg.BootMedia.BaseURL))
+	providerExecutor.bootMedia = bootMedia
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership,
 			finalizer: platformFinalizer, imageVerifications: osImageVerifications,
-			software: softwareAssignments, poll: 5 * time.Second,
+			software: softwareAssignments, bootMedia: bootMedia, poll: 5 * time.Second,
 		},
 		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,

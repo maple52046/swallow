@@ -42,6 +42,9 @@ type platformWorkflowStepExecutor struct {
 	// software marks Software Assignments installed/absent from the software Workflow's internal
 	// record step (decision 038). Nil disables the software record kinds.
 	software softwaredomain.AssignmentRepository
+	// bootMedia runs the ensure-boot-media Task before an OS deployment (decision 047). Nil fails
+	// that Task kind as unsupported.
+	bootMedia bootMediaEnsurer
 	// sshProber performs the authenticated SSH readiness probe for wait-for-ssh. Nil uses the
 	// x/crypto/ssh client; tests inject a fake to exercise readiness without a live SSH server.
 	sshProber sshprobe.Prober
@@ -69,6 +72,8 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 		return e.recordSoftwareAssignment(ctx, input, softwaredomain.StateInstalled)
 	case "clear-software-assignment":
 		return e.recordSoftwareAssignment(ctx, input, softwaredomain.StateAbsent)
+	case ensureBootMediaTaskKind:
+		return e.ensureBootMedia(ctx, input)
 	default:
 		return internalStepFailed("unsupported_internal_step", "The internal Step kind is not supported.", false)
 	}

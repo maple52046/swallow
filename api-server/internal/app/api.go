@@ -55,6 +55,7 @@ import (
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
 	serverinfra "github.com/maple52046/swallow/internal/server/infra"
+	"github.com/maple52046/swallow/internal/server/infra/redfish"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/shared/secret"
@@ -355,6 +356,15 @@ func RunAPI(cfg config.APIConfig) error {
 		serverRepo, serverProtection,
 		serverinfra.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo}),
 	))
+	// Boot Media (decision 047): this process serves the installation's iPXE ISO, probes each
+	// Server's BMC for Redfish capability, and applies the ISO through Redfish with the BMC
+	// connection read live from the provisioner. The setting and capability are written straight
+	// to the Mongo repository (the event broker only carries projection changes).
+	bootMediaImg := newBootMediaImage(cfg.BootMedia.ISOPath, cfg.BootMedia.BaseURL)
+	bootMediaUC := serverapp.NewBootMediaUseCase(serverRepo, mongoServerRepo, serverProtection,
+		bmcEndpointSource{providers: providerFactory}, redfish.NewController(), bootMediaImg)
+	bootMediaHandler := serverdelivery.NewBootMediaHandler(bootMediaUC)
+	bootMediaPlan := bootMediaPlanner{servers: serverRepo, image: bootMediaImg}
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Per-host SSH-user resolution: images use different default login users, so the runner probes
@@ -385,7 +395,7 @@ func RunAPI(cfg config.APIConfig) error {
 	platformService.AttachOperationCanceler(platformOperationCanceler{orchestrations: orchestrationService})
 	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
 		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo,
-		protection: serverProtection, refresh: refreshServerUC,
+		protection: serverProtection, refresh: refreshServerUC, bootMedia: bootMediaPlan,
 	})
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 	orchestrationStarter := temporalworkflow.NewStarter(
@@ -410,6 +420,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Platform lifecycle adapters keep durable operations outside the platform context.
 	platformLauncher := platformDeploymentLauncher{
 		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC, servers: serverRepo,
+		bootMedia: bootMediaPlan,
 	}
 	deployService := platformapp.NewDeployService(
 		platformService, platformRepo, serverRepo, lifecycleReader, platformLauncher,
@@ -527,6 +538,8 @@ func RunAPI(cfg config.APIConfig) error {
 		sites:          siteHandler,
 		servers:        serverHandler,
 		defaultUsers:   defaultUserHandler,
+		bootMedia:      bootMediaHandler,
+		bootMediaISO:   serveBootMediaISO(bootMediaImg),
 		serverStream:   serverStreamHandler,
 		provisioning:   provisioningHandler,
 		operations:     operationHandler,
@@ -555,6 +568,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go runSoftwareAssignmentSweep(ctx, softwareSweeper, cfg.ReconcileInterval)
 	go runSSHKeySync(ctx, sshKeyService, cfg.SSHKeySyncInterval)
+	go runRedfishCapabilitySweep(ctx, bootMediaUC, cfg.RedfishProbeInterval, cfg.RedfishProbeMaxAge)
 	go orchestrationStarter.Run(ctx)
 	go orchestrationReconciler.Run(ctx)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
@@ -581,13 +595,16 @@ type routeDeps struct {
 	jwtSvc *jwt.Service
 	// authenticator verifies Session access tokens and API Keys for every authenticated route;
 	// jwtSvc remains only for the machine-token routes' admin fallback.
-	authenticator  *middleware.Authenticator
-	machineToken   string
-	auth           *authdelivery.AuthHandler
-	overview       *overviewdelivery.Handler
-	sites          *sitedelivery.SiteHandler
-	servers        *serverdelivery.ServerHandler
-	defaultUsers   *serverdelivery.DefaultUserHandler
+	authenticator *middleware.Authenticator
+	machineToken  string
+	auth          *authdelivery.AuthHandler
+	overview      *overviewdelivery.Handler
+	sites         *sitedelivery.SiteHandler
+	servers       *serverdelivery.ServerHandler
+	defaultUsers  *serverdelivery.DefaultUserHandler
+	bootMedia     *serverdelivery.BootMediaHandler
+	// bootMediaISO serves the installation's Boot Media ISO without authentication (decision 047).
+	bootMediaISO   fiber.Handler
 	serverStream   *serverdelivery.ServerStreamHandler
 	provisioning   *provisioningdelivery.ProvisioningHandler
 	operations     *operationdelivery.ExecutionHandler
@@ -715,6 +732,10 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	}
 	app.Get("/readyz", ready)
 	app.Get("/healthz", ready)
+	// BMCs mount this URL with no credential; Fiber's Get also answers HEAD, which BMCs send first.
+	if deps.bootMediaISO != nil {
+		app.Get(bootMediaISOPath, deps.bootMediaISO)
+	}
 	metricsHandler := func(c *fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, "text/plain; version=0.0.4")
 		return c.SendString(
@@ -777,6 +798,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Delete("/:id", deps.provisioning.DeleteServer)
 	servers.Put("/:id/default-user", deps.defaultUsers.Set)
 	servers.Delete("/:id/default-user", deps.defaultUsers.Clear)
+	servers.Get("/:id/boot-media", deps.bootMedia.Get)
+	servers.Put("/:id/boot-media", deps.bootMedia.Set)
+	servers.Post("/:id/redfish/probe", deps.bootMedia.Probe)
 	// The provisioner detail is a live proxy read one machine at a time, distinct from
 	// the mirrored projection the list and get return.
 	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)

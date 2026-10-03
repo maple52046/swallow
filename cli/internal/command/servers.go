@@ -12,7 +12,7 @@ import (
 
 // newServersCommand groups the Servers surface: the inventory list and stream,
 // one Server's detail and diagnostics, provider-backed lifecycle actions,
-// structured network configuration, and placement (servers-list.md,
+// structured network configuration, placement, and Boot Media (servers-list.md,
 // servers-stream.md, server-detail-actions.md, infrastructure.md).
 //
 // There is intentionally no `servers create`: Servers are produced by
@@ -36,6 +36,8 @@ func newServersCommand() *cobra.Command {
 		serversProvisioningTasksCmd(),
 		serversNetworkCmd(),
 		serversPlacementCmd(),
+		serversBootMediaCmd(),
+		serversRedfishProbeCmd(),
 	)
 	cmd.AddCommand(serversActionCmds()...)
 	return cmd

@@ -102,4 +102,26 @@ type APIConfig struct {
 	// refresh a JWT. Optional: without it those endpoints require an admin JWT.
 	// Never log this value.
 	MachineToken string `yaml:"machineToken"`
+	// BootMedia configures the installation's Boot Media ISO (decision 047). Optional: with either
+	// field empty Boot Media is unavailable and every enable request explains what is missing.
+	BootMedia BootMediaConfig `yaml:"bootMedia"`
+	// RedfishProbeInterval is how often the API process looks for Servers whose Redfish capability
+	// is missing (a newly enrolled Server) or older than RedfishProbeMaxAge, and probes them.
+	RedfishProbeInterval time.Duration `yaml:"redfishProbeInterval"`
+	// RedfishProbeMaxAge is how long a Redfish capability probe stays current before the sweep
+	// re-probes it; BMC firmware updates change what a BMC supports.
+	RedfishProbeMaxAge time.Duration `yaml:"redfishProbeMaxAge"`
+}
+
+// BootMediaConfig locates the Boot Media ISO the API process serves and the URL BMCs mount it at.
+//
+// The ISO URL is fixed by the installation, never per Server: BaseURL plus the fixed path
+// /boot-media/ipxe/swallow-ipxe.iso. BaseURL must be reachable from the BMC network; many BMCs
+// (AMI MegaRAC among them) mount only plain http:// on port 80, so the production reverse proxy
+// publishes the path on port 80.
+type BootMediaConfig struct {
+	// ISOPath is the iPXE ISO file on the API host (or in its container).
+	ISOPath string `yaml:"isoPath"`
+	// BaseURL is the absolute http(s) URL, without path, at which BMCs reach this API process.
+	BaseURL string `yaml:"baseURL"`
 }

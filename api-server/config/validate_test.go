@@ -42,3 +42,35 @@ func TestValidate_SessionLifetimes(t *testing.T) {
 		})
 	}
 }
+
+// Boot Media is optional, but a configured base URL must be one the fixed ISO path can follow.
+func TestValidate_BootMedia(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr bool
+	}{
+		{name: "unset", baseURL: ""},
+		{name: "http host", baseURL: "http://10.170.168.20"},
+		{name: "trailing slash", baseURL: "http://swallow.lab/"},
+		{name: "https with port", baseURL: "https://swallow.lab:8443"},
+		{name: "has a path", baseURL: "http://swallow.lab/boot", wantErr: true},
+		{name: "has credentials", baseURL: "http://u:p@swallow.lab", wantErr: true},
+		{name: "not http", baseURL: "ftp://swallow.lab", wantErr: true},
+		{name: "relative", baseURL: "swallow.lab", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.API.BootMedia.BaseURL = tc.baseURL
+			if err := Validate(cfg); (err != nil) != tc.wantErr {
+				t.Errorf("Validate(baseURL=%q) = %v, wantErr %t", tc.baseURL, err, tc.wantErr)
+			}
+		})
+	}
+	cfg := validConfig()
+	cfg.API.RedfishProbeInterval = 0
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "redfishProbeInterval") {
+		t.Errorf("Validate(zero probe interval) = %v, want an error", err)
+	}
+}

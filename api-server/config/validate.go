@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -84,6 +85,16 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.API.ImageUploadMaxBytes <= 0 {
 		return fmt.Errorf("api.imageUploadMaxBytes must be > 0")
+	}
+	if cfg.API.RedfishProbeInterval <= 0 || cfg.API.RedfishProbeMaxAge <= 0 {
+		return fmt.Errorf("api.redfishProbeInterval and api.redfishProbeMaxAge must be > 0")
+	}
+	if base := strings.TrimSpace(cfg.API.BootMedia.BaseURL); base != "" {
+		if parsed, err := url.Parse(strings.TrimRight(base, "/")); err != nil ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+			parsed.User != nil || parsed.RawQuery != "" || (parsed.Path != "" && parsed.Path != "/") {
+			return fmt.Errorf("api.bootMedia.baseURL must be an absolute http(s) URL without path, query, or credentials")
+		}
 	}
 	return nil
 }

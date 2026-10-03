@@ -7,8 +7,11 @@ import type {
   ReleaseServerInput,
   ProviderEvents,
   ProvisioningActionResult,
+  RedfishCapability,
   Server,
   ServerAction,
+  ServerBootMedia,
+  SetServerBootMediaResult,
   SetServerDefaultUserInput,
   SetServerDefaultUserResult,
 } from '@/domain/server/types'
@@ -76,4 +79,20 @@ export interface ServerRepository {
   setDefaultUser(id: string, input: SetServerDefaultUserInput): Promise<SetServerDefaultUserResult>
   /** Clears the value set on the Server so the OS Image's default user applies; never touches the host. */
   clearDefaultUser(id: string): Promise<void>
+
+  /**
+   * Reads the Server's Boot Media (contract server-detail-actions.md "Boot Media"). With `live` the
+   * API also reads the BMC, which takes seconds; a failed live read still resolves, with
+   * `live: null` and `liveError`.
+   */
+  getBootMedia(id: string, options?: { live?: boolean }): Promise<ServerBootMedia>
+  /**
+   * Enables (the preflight: the API probes the BMC, mounts the ISO, directs the boot, and saves only
+   * when that worked — it can take minutes) or disables Boot Media. Rejects with the API error:
+   * `conflict` (locked, no ISO, no BMC, unsupported, or the BMC refused — the message carries the
+   * BMC's explanation) or `provider_unavailable` (BMC or provisioner unreachable).
+   */
+  setBootMedia(id: string, enabled: boolean): Promise<SetServerBootMediaResult>
+  /** Re-probes the BMC's Redfish capability now; an unreachable BMC resolves with that support value. */
+  probeRedfish(id: string): Promise<RedfishCapability>
 }

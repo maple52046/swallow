@@ -598,6 +598,30 @@ minutes. A machine that is still powered off becomes `requires_attention` with c
 power on, or resubmit it automatically. Providers without live power inspection retain
 the general two-hour observation timeout.
 
+**Boot Media ensure.** For each target Server whose Boot Media is enabled when the Operation is
+accepted (see [server-detail-actions.md](server-detail-actions.md#boot-media) and
+[decision 047](../../../../../docs/decisions/047-redfish-boot-media.md)), the Operation also has
+an `internal` Step `ensure-boot-media-<serverId>` of kind `ensure-boot-media`, and that Server's
+`provision-os` Step depends on it. The Step's parameters carry the installation's Boot Media ISO
+URL as accepted (`isoUrl`). When it runs it re-reads the Server's setting — a Server whose Boot
+Media was disabled meanwhile is left alone — then reads the BMC and re-applies the ISO mount and
+boot direction unconditionally, because a BMC can lose either between deployments. A BMC that
+cannot be reached or refuses fails the Step as retryable (`boot_media_ensure_failed`), and the
+dependent `provision-os` Step does not run; an Operation accepted while the installation served
+no ISO fails it as not retryable (`boot_media_not_configured`). Servers without Boot Media get
+exactly the Steps described above. The same Step is added in front of `provision-os` in OS image
+verification and in a Platform's `ensure-os` Job.
+
+Such a Server's `provision-os` Step carries the same URL as `bootMediaIsoUrl`, next to its
+`request`, and watches the deployment boot, timed from its first `deploying` reading. Two minutes
+in, if the BMC no longer holds the ISO (some BMCs drop a fresh mount at the provider's power-on),
+the Step mounts it again. Ten minutes in, if the provider's newest event is still the deployment
+start (the host never network-booted, for example because its BIOS booted the disk), it
+re-applies Boot Media and restarts the host through Redfish so the deployment boot starts from
+the ISO; the stage-stall rule below then measures from that restart. The host is restarted at
+most once per observation; the watch does not change the Step's status, and a failure is only
+logged. A deployment that still makes no progress is reported by the stage-stall rule.
+
 While the provider remains in `deploying`, Swallow also reads the provider's machine event
 stream on every observation
 ([decision 046](../../../../../docs/decisions/046-os-deployment-progress-and-stall.md)).

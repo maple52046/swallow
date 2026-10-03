@@ -40,9 +40,14 @@ POST /api/v1/servers/{id}/{override-failed-testing|lock|unlock}
 POST /api/v1/servers/{id}/{mark-broken|mark-fixed|rescue-mode|exit-rescue-mode}
 PUT  /api/v1/servers/{id}/default-user
 DELETE /api/v1/servers/{id}/default-user
+GET  /api/v1/servers/{id}/boot-media
+PUT  /api/v1/servers/{id}/boot-media
+POST /api/v1/servers/{id}/redfish/probe
+GET  /boot-media/ipxe/swallow-ipxe.iso
 ```
 
-All routes require an admin bearer token.
+All routes require an admin bearer token, except `GET /boot-media/ipxe/swallow-ipxe.iso`, which
+is deliberately unauthenticated (see [Boot Media](#boot-media)).
 
 ## Server Lock Protection
 
@@ -256,6 +261,130 @@ locked Server is `409 conflict`.
 A value set on the Server belongs to one OS installation: it is cleared automatically when
 swallow starts a new OS deployment on the Server and when the Server is observed `ready` or
 `allocated`.
+
+## Boot Media
+
+Boot Media is the swallow-served iPXE ISO that a Server's BMC mounts as Redfish virtual media
+and boots first, so a Server on a network whose DHCP is not the provisioner's still reaches the
+provisioner ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md)). The
+installation fixes the ISO and its URL; per Server, swallow owns only whether Boot Media is
+enabled and the outcome of the last apply. swallow reads the BMC's address and account from the
+provisioner (MAAS `power_parameters`) for each call and never stores, logs, or returns them on
+these routes.
+
+### The ISO
+
+`GET /boot-media/ipxe/swallow-ipxe.iso` (and `HEAD`) serves the installation's ISO file without
+authentication, because a BMC mounts the URL with no way to send a token, and it re-reads the
+ISO at every boot. It supports byte ranges (`206 Partial Content`, `Accept-Ranges: bytes`), which
+BMC HTTP virtual media requires. It is `404` when no ISO is configured. The ISO URL BMCs mount is
+`<api.bootMedia.baseURL>/boot-media/ipxe/swallow-ipxe.iso`; many BMCs accept only `http://` on
+port 80 and an image under a directory, so installations publish this path there.
+
+### Read
+
+`GET /api/v1/servers/{id}/boot-media` — add `?live=true` to also read the BMC.
+
+```json
+{
+  "serverId": "4f9ee382-…",
+  "image": { "url": "http://10.170.168.20/boot-media/ipxe/swallow-ipxe.iso", "available": true },
+  "setting": {
+    "enabled": true,
+    "updatedAt": "2026-10-03T10:30:00Z",
+    "lastAppliedAt": "2026-10-03T10:30:00Z",
+    "lastAppliedBy": "preflight",
+    "bootOverride": "Continuous",
+    "lastErrorAt": null
+  },
+  "redfish": {
+    "support": "supported",
+    "serviceRoot": "https://10.170.168.230/redfish/v1",
+    "vendor": "AMI",
+    "product": "AMI Redfish Server",
+    "redfishVersion": "1.15.1",
+    "firmwareVersion": "13.06.10",
+    "systemId": "Self",
+    "virtualMedia": true,
+    "bootOverrideModes": ["Once", "Continuous"],
+    "probedAt": "2026-10-03T10:23:29Z"
+  },
+  "live": {
+    "mediaInserted": true,
+    "mediaImage": "//10.170.168.20/boot-media/ipxe/swallow-ipxe.iso/swallow-ipxe.iso",
+    "overrideEnabled": "Once",
+    "overrideTarget": "UefiBootNext",
+    "ready": true
+  }
+}
+```
+
+- `image.available` is `false` with a `reason` when the installation serves no ISO (no file or no
+  base URL configured); Boot Media cannot be enabled then.
+- `setting` is `null` when Boot Media was never set on the Server. `lastAppliedBy` is
+  `preflight` (the enable action) or `ensure` (the Task of an OS deployment). `bootOverride` is
+  the persistence the BMC accepted: `Continuous` (survives reboots) or `Once` (the next boot
+  only). `lastError` / `lastErrorAt` describe the most recent failed apply and are cleared by a
+  successful one; a failure never changes `enabled`.
+- `redfish` is `null` before the first probe. `support` is `supported` (Redfish answers and the
+  host System has a virtual CD and boot override), `unsupported` (Redfish answers but lacks one of
+  them, or the host System cannot be identified), `unreachable` (no Redfish service at the BMC
+  address, or it rejected the provisioner's BMC account), or `no_bmc` (a virtual machine, or the
+  provisioner holds no BMC address). `reason` explains any value but `supported`. The probe is
+  made against the BMC address whatever the provisioner's power driver is (an IPMI-driven BMC may
+  offer Redfish). The API process probes every present Server whose capability is missing — a
+  newly enrolled Server — or older than a day, every ten minutes by default.
+- `live` is `null` unless `live=true` was requested and the BMC answered; then `liveError`
+  explains a failed read and the response is still `200`. `mediaImage` is verbatim (BMCs rewrite
+  URLs). `ready` means the next boot starts from the ISO.
+
+An unknown Server is `404 not_found`.
+
+### Enable or disable
+
+`PUT /api/v1/servers/{id}/boot-media`
+
+```json
+{ "enabled": true }
+```
+
+Enabling is a **preflight**: the installation must serve the ISO and the Server must be
+unlocked; swallow re-probes the BMC, mounts the ISO on a virtual CD (enabling the BMC's remote
+media service first when a vendor requires it), directs the next boots at that CD, reads both
+back, and only then saves `enabled: true`. It can take a few minutes. A failure is recorded in
+`setting.lastError` and returned; the setting stays as it was. Re-enabling an enabled Server
+re-applies it.
+
+How the boot is directed depends on the BMC and is reported as `bootOverride`: on AMI Aptio
+firmware swallow puts the USB device group (where BMC virtual media lives) first in the BIOS
+boot order, effective from the next POST (`Continuous`); a BIOS that lists the virtual CD as a
+UEFI boot option without such an order gets it first in `BootOrder` plus a one-time boot to it
+(`Once`); other BMCs get the Redfish `Cd` override, `Continuous` when allowed. Because a BMC can
+lose any of this (a BMC restart unmounts the ISO; a BIOS can re-sort its boot order; a
+provisioner's own power-on overrides one-time settings), every OS deployment of an enabled
+Server re-applies it first (see [provisioning.md](provisioning.md)).
+
+Disabling (`"enabled": false`) saves the setting first, then makes a best-effort attempt to
+eject the ISO and clear the boot override. The response adds `reverted` (`true` when the BMC
+was reset) and, when it was not, `revertError`. A disabled Server's OS deployments do not touch
+its BMC.
+
+On success both return `200 OK` with the Read shape (plus `reverted` / `revertError` for a
+disable).
+
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `validation_error` | The body is not a JSON object with a boolean `enabled`. |
+| 404 | `not_found` | The Server does not exist. |
+| 409 | `conflict` | The Server is locked; the installation serves no ISO; the Server has no BMC; the provisioner would not reveal the BMC connection (its account is not an administrator); the BMC does not support Redfish Boot Media; or the BMC refused the ISO or the override (the message carries the BMC's own explanation). |
+| 503 | `provider_unavailable` | The BMC's Redfish service could not be reached or stayed busy, the provisioner could not be reached, or the Server Lock state is unavailable. |
+
+### Probe
+
+`POST /api/v1/servers/{id}/redfish/probe` re-probes the BMC now, stores the result, and returns
+`200 OK` with `{ "redfish": { … } }` (the Read `redfish` shape). An unreachable or unsupported
+BMC is a successful probe with that `support`. An unknown Server is `404 not_found`; a
+provisioner that cannot be reached is `503 provider_unavailable`.
 
 ## Provider Events
 

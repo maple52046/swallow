@@ -8,8 +8,11 @@ import type {
   ReleaseServerInput,
   ProviderEvents,
   ProvisioningActionResult,
+  RedfishCapability,
   Server,
   ServerAction,
+  ServerBootMedia,
+  SetServerBootMediaResult,
   SetServerDefaultUserInput,
   SetServerDefaultUserResult,
 } from '@/domain/server/types'
@@ -152,5 +155,28 @@ export class ApiServerRepository implements ServerRepository {
       `/api/v1/servers/${encodeURIComponent(id)}/default-user`,
       { method: 'DELETE' },
     )
+  }
+
+  async getBootMedia(id: string, options?: { live?: boolean }): Promise<ServerBootMedia> {
+    const suffix = options?.live ? '?live=true' : ''
+    return apiRequest<ServerBootMedia>(
+      `/api/v1/servers/${encodeURIComponent(id)}/boot-media${suffix}`,
+      { cache: 'no-store' },
+    )
+  }
+
+  async setBootMedia(id: string, enabled: boolean): Promise<SetServerBootMediaResult> {
+    return apiRequest<SetServerBootMediaResult>(
+      `/api/v1/servers/${encodeURIComponent(id)}/boot-media`,
+      { method: 'PUT', body: JSON.stringify({ enabled }) },
+    )
+  }
+
+  async probeRedfish(id: string): Promise<RedfishCapability> {
+    const result = await apiRequest<{ redfish: RedfishCapability }>(
+      `/api/v1/servers/${encodeURIComponent(id)}/redfish/probe`,
+      { method: 'POST' },
+    )
+    return result.redfish
   }
 }

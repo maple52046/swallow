@@ -178,6 +178,91 @@ export interface SetServerDefaultUserResult {
   sudo: ServerDefaultUserSudo
 }
 
+/**
+ * What swallow's Redfish probe found about a Server's BMC (glossary BMC, decision 047):
+ * `supported` — Redfish answers and the host has a virtual CD and boot override, so Boot Media can
+ * be enabled; `unsupported` — Redfish answers but lacks one of them; `unreachable` — no Redfish
+ * service at the BMC address, or it rejected the provisioner's BMC account; `no_bmc` — a virtual
+ * machine, or the provisioner holds no BMC address. An unknown future value must be treated as not
+ * supported.
+ */
+export type RedfishSupport = 'supported' | 'unsupported' | 'unreachable' | 'no_bmc'
+
+/**
+ * The latest Redfish capability probe of a Server's BMC — swallow-owned data with a probe time,
+ * refreshed by the API's sweep and on demand. It never carries a credential.
+ */
+export interface RedfishCapability {
+  support: RedfishSupport
+  /** Why `support` is not `supported`; absent otherwise. */
+  reason?: string
+  serviceRoot?: string
+  vendor?: string
+  product?: string
+  redfishVersion?: string
+  firmwareVersion?: string
+  /** The Redfish System identified as the host (a GPU baseboard is never chosen). */
+  systemId?: string
+  virtualMedia: boolean
+  /** Boot override modes the BMC allows besides Disabled: `Once`, `Continuous`. */
+  bootOverrideModes: string[]
+  probedAt: string
+}
+
+/** What last applied Boot Media to the BMC: the operator's enable (`preflight`) or an OS deployment's `ensure` Task. */
+export type BootMediaApplier = 'preflight' | 'ensure'
+
+/**
+ * A Server's Boot Media setting (glossary Boot Media): the operator's intent that the Server boot
+ * the installation's iPXE ISO first, plus the outcome of the last apply. It is intent and history,
+ * not the BMC's live state. `bootOverride` is how persistently the BMC took it: `Continuous`
+ * (survives reboots) or `Once` (the next boot only — every OS deployment re-applies it anyway).
+ */
+export interface BootMediaSetting {
+  enabled: boolean
+  updatedAt: string
+  lastAppliedAt: string | null
+  lastAppliedBy?: BootMediaApplier
+  bootOverride?: string
+  /** The most recent failed apply, cleared by a successful one; it never changes `enabled`. */
+  lastError?: string
+  lastErrorAt: string | null
+}
+
+/** The BMC's Boot Media state as read live for one request. `ready` means the next boot starts from the ISO. */
+export interface BootMediaLiveState {
+  mediaInserted: boolean
+  /** Verbatim from the BMC, which may rewrite the URL. */
+  mediaImage?: string
+  overrideEnabled?: string
+  overrideTarget?: string
+  ready: boolean
+}
+
+/**
+ * One Server's Boot Media (`GET /servers/{id}/boot-media`): the installation's ISO (one fixed URL,
+ * never per Server), the Server's setting (`null` when never set), its Redfish capability (`null`
+ * before the first probe), and — only when asked for — the BMC's live state (`null` when not read
+ * or the read failed, `liveError` saying why).
+ */
+export interface ServerBootMedia {
+  serverId: string
+  image: { url: string; available: boolean; reason?: string }
+  setting: BootMediaSetting | null
+  redfish: RedfishCapability | null
+  live: BootMediaLiveState | null
+  liveError?: string
+}
+
+/**
+ * Outcome of `PUT /servers/{id}/boot-media`. For a disable, `reverted` says whether the BMC was
+ * reset (ISO ejected, override cleared) and `revertError` why not; the setting is saved either way.
+ */
+export interface SetServerBootMediaResult extends ServerBootMedia {
+  reverted?: boolean
+  revertError?: string
+}
+
 export interface Server {
   /** The only identifier to reference a server by. */
   id: string

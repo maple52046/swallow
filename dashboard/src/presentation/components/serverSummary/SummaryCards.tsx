@@ -218,8 +218,10 @@ function ManagementPassword({ value }: { value: string }) {
 /**
  * Promotes out-of-band access to its own operator surface. Connection identities are copyable;
  * the explicitly allowlisted password stays masked until an operator asks to reveal it.
+ * `bootMedia` is the caller's Boot Media block (BootMediaPanel), rendered under the connection
+ * facts because it is driven through this same controller; the card stays page-agnostic.
  */
-export function ManagementControllerCard({ management }: { management?: DetailSection }) {
+export function ManagementControllerCard({ management, bootMedia }: { management?: DetailSection; bootMedia?: ReactNode }) {
   const items: DescriptionItem[] =
     management?.fields.map((field) => ({
       label: field.label,
@@ -234,10 +236,11 @@ export function ManagementControllerCard({ management }: { management?: DetailSe
     })) ?? []
 
   return (
-    <Card.Root className="sw-server-summary-card">
+    // A named region, like Connection, so assistive technology can jump to out-of-band access.
+    <Card.Root as="section" className="sw-server-summary-card" aria-labelledby="server-management-title">
       <Card.Body gap="4">
         <Box>
-          <Heading size="sm">Management controller</Heading>
+          <Heading size="sm" id="server-management-title">Management controller</Heading>
           <Text color="fg.muted" fontSize="sm" mt="1">
             Out-of-band connection and power configuration for manual administration.
           </Text>
@@ -249,6 +252,7 @@ export function ManagementControllerCard({ management }: { management?: DetailSe
             No IPMI or Redfish controller details were reported by the provisioner.
           </Text>
         )}
+        {bootMedia}
       </Card.Body>
     </Card.Root>
   )

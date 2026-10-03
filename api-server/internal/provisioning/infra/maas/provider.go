@@ -375,6 +375,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		Grouping:             true,
 		Tagging:              true,
 		SSHKeyRegistration:   true,
+		BMCConnection:        true,
 	}
 }
 

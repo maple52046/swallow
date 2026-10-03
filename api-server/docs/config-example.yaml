@@ -68,6 +68,19 @@ api:
   # pass only repairs drift. Env: SWALLOW_API_SSH_KEY_SYNC_INTERVAL.
   sshKeySyncInterval: "5m"
 
+  # Boot Media (decision 047): an iPXE ISO the API serves, unauthenticated, at
+  # <baseURL>/boot-media/ipxe/swallow-ipxe.iso for BMCs to mount as virtual media. Optional:
+  # Boot Media stays off until both are set. Many BMCs mount only plain http:// on port 80.
+  # Env: SWALLOW_API_BOOT_MEDIA_ISO_PATH, SWALLOW_API_BOOT_MEDIA_BASE_URL.
+  bootMedia:
+    isoPath: ""
+    baseURL: ""
+  # How often Servers without a current Redfish capability probe (newly enrolled ones) are
+  # probed, and how long a probe stays current.
+  # Env: SWALLOW_API_REDFISH_PROBE_INTERVAL, SWALLOW_API_REDFISH_PROBE_MAX_AGE.
+  redfishProbeInterval: "10m"
+  redfishProbeMaxAge: "24h"
+
   # Operation orchestration. The embedded dispatcher drains legacy schema-v2 work; new
   # automation runs as durable schema-v3 Operations coordinated by Temporal. The same
   # config serves three commands: `swallow-api api` (HTTP + reconcile), `swallow-api worker`

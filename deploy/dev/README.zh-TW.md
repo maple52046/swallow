@@ -83,6 +83,21 @@ ssh -L 5173:localhost:5173 user@host
 Vite 預設信任 IP／localhost host header。使用 development DNS name 前，需明確
 設定 `server.allowedHosts`。
 
+## Boot Media lab
+
+要對實際 BMC 試用 Boot Media（Redfish virtual media iPXE 開機，decision 047），把 iPXE ISO 放到
+`boot-media/swallow-ipxe.iso`（已被 git 忽略），並在 `.env` 設定 BMC 網段連到這台主機的位址：
+
+```bash
+SWALLOW_API_BOOT_MEDIA_BASE_URL=http://10.0.0.5
+BOOT_MEDIA_HTTP_PUBLISH=10.0.0.5:80
+docker compose up -d api-server
+```
+
+API 也會發布到該位址的 port 80，BMC 由此掛載 `/boot-media/ipxe/swallow-ipxe.iso`。許多 BMC 只接受 port 80
+的 plain HTTP。修改 api-server 的 Go 程式會讓 worker 重啟（Air），使進行中佈署的 lease 失效；lab 佈署
+進行時請避免修改。
+
 ## Seed demonstration Site
 
 Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、註冊 in-Compose Prometheus Integration、
