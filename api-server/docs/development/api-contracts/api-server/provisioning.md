@@ -598,6 +598,22 @@ minutes. A machine that is still powered off becomes `requires_attention` with c
 power on, or resubmit it automatically. Providers without live power inspection retain
 the general two-hour observation timeout.
 
+While the provider remains in `deploying`, Swallow also reads the provider's machine event
+stream on every observation
+([decision 046](../../../../../docs/decisions/046-os-deployment-progress-and-stall.md)).
+The newest event recorded since the current attempt started is projected onto the Server
+deployment axis as non-terminal progress — `state` stays `deploying`, `code` stays empty,
+`stage` is the event type in snake_case (for example `configuring_os`), and `statusReason` names
+it, for example `Provider stage: Configuring OS (since 2026-10-02T16:48:45Z).` — and is rewritten
+only when the provider advances. When no newer event arrives for 25 minutes, the Step becomes
+`requires_attention` with code `deployment_provider_stage_stall`, stage set to the stuck event's
+snake_case type (or `deployment_progress` when no event was recorded since the attempt started),
+and a message naming the stage and since when. Progress is measured from provider event
+timestamps, so a worker restart or activity retry does not grant a fresh window; an explicit Step
+Retry starts a new attempt and therefore a new window. Swallow does not abort the provider
+deployment. A provider without an event stream, or an event read that fails, never produces a
+stall; the power-on check and the two-hour observation timeout stay authoritative.
+
 Retry observes before writing. If the expected image is now SSH-reachable, the Step
 succeeds without repeating provider work. If MAAS installed the image but reports no
 address, explicit Retry releases that unusable installation, waits for Ready, reapplies

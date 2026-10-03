@@ -116,7 +116,11 @@ or abandoned run. An active (`deploying`/`verifying`) or operator-pending
 A failed or attention-needing deployment axis carries the failed Step's stable error
 `code` (for example `deployment_address_unavailable`) alongside the verbose `statusReason`,
 so a client can render a concise root cause without parsing the message. `code` is empty
-for a non-failed deployment.
+for a non-failed deployment. An active deployment may still carry a non-terminal `stage` and
+`statusReason` that explain what it is waiting on: while `deploying`, the provider's newest
+installation stage (for example `configuring_os` / `Provider stage: Configuring OS (since …).`);
+while `verifying`, the SSH-readiness wait. Clients show these as progress, never as a failure,
+and must not branch on the human-readable `statusReason`.
 
 `DELETE /servers/{id}` is provider-first and synchronous. It resolves the Server's
 provisioner, deletes the backing Machine, and only then removes the Swallow projection.

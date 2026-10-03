@@ -11,7 +11,11 @@
   several Servers managed by one Integration. The deployment mode is named by its
   [Deploy Target](deploy-target.md) (`disk` | `ram`); `ram` is the memory-backed
   mode the wire, MAAS adapter, and stored deployment still call `ephemeral`, and
-  the two map one-to-one at the boundary.
+  the two map one-to-one at the boundary. While the provider reports the machine as deploying, its newest
+  installation event (for MAAS a stage such as *Configuring OS*) is the deployment's
+  progress; a stage that stops advancing for the stall window is a stalled
+  deployment that needs operator attention, even though the provider still calls it
+  deploying.
 - Disallowed meaning: Installing the Swallow control plane, running post-install
   automation, or a Swallow-owned job with its own execution lifecycle.
 - Synonyms: Deployment, when the OS Provisioning context is unambiguous.
@@ -28,3 +32,5 @@
   mode is the `ram` [Deploy Target](deploy-target.md) (its provider realization is
   still `ephemeral`), which supersedes `Ephemeral` as the sole operator-facing name
   per [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md).
+  Updated 2026-10-03: provider-stage progress and stall, per
+  [decision 046](../../../decisions/046-os-deployment-progress-and-stall.md).

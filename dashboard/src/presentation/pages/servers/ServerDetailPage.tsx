@@ -218,8 +218,14 @@ export function ServerDetailPage() {
             <Text>
               {server.deployment.state === 'verifying'
                 ? 'The provider installed the OS; Swallow is waiting for the host to become reachable over SSH before confirming it. This can take several minutes and times out if the host never comes up — for example an image that boots from RAM but not from disk.'
-                : 'The provisioner is installing the operating system. This can take several minutes.'}
+                : 'The provisioner is installing the operating system. This can take several minutes; Swallow asks for attention if the provider stops reporting progress.'}
             </Text>
+            {/* While deploying, statusReason carries the provider's latest installation stage (for
+                example "Configuring OS" and since when), so a stuck stage is visible here instead
+                of an unchanging generic message. Verifying keeps the fuller fixed explanation. */}
+            {server.deployment.state === 'deploying' && server.deployment.statusReason && (
+              <Text color="fg.muted">{server.deployment.statusReason}</Text>
+            )}
             <Button
               variant="plain"
               size="sm"

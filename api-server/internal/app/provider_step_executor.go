@@ -31,12 +31,20 @@ type providerStepExecutor struct {
 	poll           time.Duration
 	readinessWait  time.Duration
 	powerOnWait    time.Duration
+	stageStallWait time.Duration
 	sshProbe       func(context.Context, string, int) error
 }
 
 const (
 	defaultDeploymentReadinessWait = 20 * time.Minute
 	defaultDeploymentPowerOnWait   = 10 * time.Minute
+	// defaultDeploymentStageStallWait is how long a deploying Machine may go without a new
+	// provider event before the Step asks for operator attention. Healthy MAAS stages advance
+	// within minutes (the longest, Configuring OS, typically under ten), so the window is wide
+	// enough for a slow mirror yet far shorter than the two-hour observation timeout. It must
+	// stay longer than defaultDeploymentPowerOnWait so a powered-off Machine keeps its more
+	// specific power-on diagnosis.
+	defaultDeploymentStageStallWait = 25 * time.Minute
 )
 
 func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
@@ -241,6 +249,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 	var deployingSince time.Time
 	var allocatedSince time.Time
 	var lastReadiness deploymentReadiness
+	progress := e.newDeploymentProgress(ctx, step, serverID)
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil {
@@ -264,6 +273,9 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 					// proof of a provider stall. Delay the next diagnostic query while the
 					// outer two-hour deployment observation remains authoritative.
 					deployingSince = now
+				}
+				if stalled := e.observeInstallProgress(ctx, step, serverID, &progress, now); stalled != nil {
+					return *stalled
 				}
 			case string(provisioningdomain.MachineStatusAllocated):
 				// ALLOCATED is the brief reserved state MAAS passes through on its way to
@@ -471,6 +483,15 @@ func (e providerStepExecutor) powerOnTimeout() time.Duration {
 		return defaultDeploymentPowerOnWait
 	}
 	return e.powerOnWait
+}
+
+// stageStallTimeout is the provider-progress grace window for a deploying Machine; the field
+// override exists for tests, production uses defaultDeploymentStageStallWait.
+func (e providerStepExecutor) stageStallTimeout() time.Duration {
+	if e.stageStallWait <= 0 {
+		return defaultDeploymentStageStallWait
+	}
+	return e.stageStallWait
 }
 
 func (e providerStepExecutor) queryLivePower(ctx context.Context, serverID string) (provisioningdomain.PowerState, bool, error) {

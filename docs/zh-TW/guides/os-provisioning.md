@@ -45,7 +45,9 @@ Dashboard wizard 會驗證：
 - 沒有 lock 或 active conflicting Workflow 阻擋 Server。
 
 送出後會為 targets 建立 durable Workflow。請到 **Workflows** 追蹤；request
-成功回傳不代表作業已完成。
+成功回傳不代表作業已完成。Server 佈署期間，其詳細頁會顯示 provisioner 目前的安裝階段（例如
+*Configuring OS*）。若該階段 25 分鐘沒有推進，Workflow step 會要求處理，而不是等到兩小時上限；
+provider 端的佈署仍保持執行，供你檢查、retry 或 release。
 
 ## Release 與 recovery
 

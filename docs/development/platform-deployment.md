@@ -189,6 +189,11 @@ Task 帶 Job，所有 Task 都必須帶 Job**（Temporal 只要偵測到任一 J
 `provision-os` 的成功條件會同時比對請求的 image 與 ephemeral mode；僅 image 相同、但
 provider 回報的 `ephemeral` 不同，不能視為已收斂。
 
+provider 回報 `Deploying` 期間，`provision-os` 會把最新的 machine event（例如 *Configuring OS*）投影成
+deployment 的非終態 stage；同一 stage 25 分鐘未推進即 `requires_attention`（`deployment_provider_stage_stall`），
+不必等兩小時上限（[decision 046](../decisions/046-os-deployment-progress-and-stall.md)）。這讓「平台佈署卡在
+`ensure-os`」有明確的成因碼與卡住的階段，而不是靜默的 `deploying`。
+
 > **命名現況（glossary vs 現行 code）**：glossary 已採 Workflow/Job/Task/Runner，但 code 與
 > 部分 wire/BSON 仍是舊名（`Operation`/`Step`/`executor`、`Task.Executor` 的 bson tag 為
 > `runner`、`Workflow.Steps` 的 bson 為 `tasks`、`RunnerKindProvisioner` 的值仍是 `maas`、

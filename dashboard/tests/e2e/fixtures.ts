@@ -181,6 +181,12 @@ export interface FixtureOptions {
   acknowledgeFails?: boolean
   readyServerCount?: number
   changingServerIds?: string[]
+  /**
+   * Overrides the non-terminal deployment stage and reason of `changingServerIds`, e.g. the provider
+   * stage the backend projects while a deploy is in progress ("Provider stage: Configuring OS ...").
+   */
+  deployingStage?: string
+  deployingStatusReason?: string
   deploymentAttentionServerIds?: string[]
   absentServerIds?: string[]
   unobservedHealthServerIds?: string[]
@@ -426,7 +432,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       server.provisioning.providerState = 'Commissioning'
       server.deployment = {
         state: 'deploying', operationId: 'op-running', stepId: `provision-${server.id}`,
-        attempt: 1, code: '', stage: 'provisioning', statusReason: 'Provisioning operating system.',
+        attempt: 1, code: '', stage: options.deployingStage ?? 'provisioning', statusReason: options.deployingStatusReason ?? 'Provisioning operating system.',
         startedAt: now, finishedAt: null, updatedAt: now,
       }
     }

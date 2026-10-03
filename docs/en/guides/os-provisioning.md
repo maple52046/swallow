@@ -48,6 +48,11 @@ The Dashboard wizard validates:
 
 Submission creates one durable Workflow for the selected targets. Follow it in
 **Workflows**; do not infer completion from the request returning successfully.
+While a Server deploys, its detail page shows the provisioner's current
+installation stage (for example *Configuring OS*). If that stage stops advancing
+for 25 minutes, the Workflow step asks for attention instead of waiting out the
+two-hour limit; the provider deployment is left running for you to inspect,
+retry, or release.
 
 ## Release and recovery
 
