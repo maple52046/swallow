@@ -63,6 +63,26 @@ contracts state when a bounded collection returns a plain array instead.
 - Credentials are write-only; use `hasCredential` rather than expecting a
   redacted value.
 
+## OS provisioning compatibility
+
+Branch only on the swallow-defined
+[`provisioning.state`](../../development/glossaries/terms/os-provisioning-state.md).
+Never branch on `providerState`: it is a display-only provider label, such as
+MAAS *Commissioning*, and can differ between provisioners.
+
+The 2026-10-04 provisioning vocabulary change is breaking for API clients:
+
+- State value `commissioning` was renamed to `inspecting`.
+- `POST /api/v1/servers/{id}/commission` was renamed to
+  `POST /api/v1/servers/{id}/inspect`. The old route was removed and has no
+  alias.
+- The field `commissioningStatus` keeps its name because it contains the
+  provider's last inspection result label.
+
+Stored projections written before the rename are returned as `inspecting`.
+Filtering with `provisioningState=inspecting` also matches those records until
+the next reconcile rewrites them.
+
 ## Contract directory
 
 Start with:

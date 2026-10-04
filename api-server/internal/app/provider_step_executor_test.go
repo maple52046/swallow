@@ -81,7 +81,7 @@ func (p *cancellationProvider) PowerOff(context.Context, string) (*provisioningd
 func (p *cancellationProvider) QueryPowerState(context.Context, string) (provisioningdomain.PowerState, error) {
 	return p.powerState, nil
 }
-func (p *cancellationProvider) Commission(context.Context, string) (*provisioningdomain.Machine, error) {
+func (p *cancellationProvider) Inspect(context.Context, string) (*provisioningdomain.Machine, error) {
 	return nil, nil
 }
 func (p *cancellationProvider) Test(context.Context, string) (*provisioningdomain.Machine, error) {

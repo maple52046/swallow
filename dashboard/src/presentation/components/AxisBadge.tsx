@@ -1,39 +1,18 @@
-import { Badge, Box, HStack, VisuallyHidden, type BadgeProps } from '@chakra-ui/react'
+import { Badge, Box, HStack, VisuallyHidden } from '@chakra-ui/react'
 import { Lock, MemoryStick } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { DeploymentAxis, DeploymentState, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
+import type { DeploymentAxis, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
 import { POWER_PRESENTATION } from './axisBadgeUtils'
+import { resolveDeploymentPhase, type AxisColor } from './deploymentPhase'
+import { InProgressSpinner } from './InProgressSpinner'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { NOT_AVAILABLE_IN_RELEASE } from './releaseAvailability'
 
-/** Chakra colour palette used for axis badges; text always carries the state, colour supplements. */
-type AxisColor = 'green' | 'red' | 'orange' | 'blue' | 'gray' | 'purple'
-
-/**
- * CSS class (in `src/index.css`) overlaying animated diagonal stripes on a badge to
- * signal a step that is still running. Applied only to the in-progress branches of
- * {@link DeploymentBadge}; the badge text and tooltip stay the authoritative state,
- * so the motion is a supplementary cue only.
- */
-const IN_PROGRESS_LABEL_CLASS = 'sw-label-progress'
-
-/** Deployment axis states that mean work is still in flight (vs. a terminal outcome). */
-const IN_PROGRESS_DEPLOYMENT_STATES: ReadonlySet<DeploymentState> = new Set(['deploying', 'verifying'])
-
 const PROVISIONING_COLORS: Record<string, AxisColor> = {
   deployed: 'green', ready: 'blue', allocated: 'blue', deploying: 'orange', releasing: 'orange',
-  commissioning: 'orange', testing: 'orange', new: 'gray', retired: 'gray', rescue: 'purple',
+  inspecting: 'orange', testing: 'orange', new: 'gray', retired: 'gray', rescue: 'purple',
   broken: 'red', failed: 'red', unknown: 'gray',
-}
-
-const DEPLOYMENT_PRESENTATION: Record<DeploymentState, { color: AxisColor; label: string }> = {
-  deploying: { color: 'blue', label: 'Deploying' },
-  verifying: { color: 'blue', label: 'Verifying' },
-  succeeded: { color: 'green', label: 'Deployed' },
-  failed: { color: 'red', label: 'Failed' },
-  requires_attention: { color: 'orange', label: 'Attention' },
-  canceled: { color: 'gray', label: 'Canceled' },
 }
 
 /** Icon tint per power state; only running/error are tinted, the rest stay neutral. */
@@ -44,20 +23,26 @@ const POWER_TINT: Record<ProvisioningAxis['powerState'], string> = {
   unknown: 'fg.muted',
 }
 
-interface AxisLabelProps extends Pick<BadgeProps, 'className'> {
+interface AxisLabelProps {
   color: AxisColor
   tooltip: string
   icon?: ReactNode
+  /**
+   * Work is still running: a spinner follows the label, matching the OS Images Deploy Mode
+   * tags. The label stays the state; the spinner is hidden from assistive technology.
+   */
+  inProgress?: boolean
   children: ReactNode
 }
 
 /** Shared tooltip-wrapped badge for every axis; keeps colour, text, and hover detail consistent. */
-function AxisLabel({ color, tooltip, icon, className, children }: AxisLabelProps) {
+function AxisLabel({ color, tooltip, icon, inProgress = false, children }: AxisLabelProps) {
   return (
     <Tooltip content={tooltip}>
-      <Badge colorPalette={color} variant="subtle" className={className} gap="1">
+      <Badge colorPalette={color} variant="subtle" gap="1">
         {icon}
         {children}
+        {inProgress && <InProgressSpinner />}
       </Badge>
     </Tooltip>
   )
@@ -84,16 +69,6 @@ function observedAtLabel(observedAt: string): string {
 }
 
 /**
- * Appends the provisioner's machine-level failure reason to a failure tooltip when one is present,
- * so a failed/broken/rescue badge carries the "why" (e.g. "Failed to erase disks.") inline instead
- * of only the coarse provider lifecycle label. Returns an empty string when there is no reason.
- */
-function reasonSuffix(errorDescription?: string): string {
-  const reason = errorDescription?.trim()
-  return reason ? ` Reason: ${reason}.` : ''
-}
-
-/**
  * Marks an ephemeral (run-from-RAM) deployment with a memory-stick glyph beside the
  * state badge. Meaning is carried by the tooltip and `aria-label`, not colour alone;
  * the warning tint is only a supplementary cue.
@@ -109,7 +84,10 @@ function EphemeralIndicator() {
 }
 
 /**
- * Swallow-owned deployment outcome; this is the primary deployability result.
+ * The Server's OS deployment state: Swallow's own deployment outcome combined with the
+ * swallow-defined OS Provisioning State, resolved by `resolveDeploymentPhase` (decision 048).
+ * Generic states such as Releasing, Inspecting, Failed, and Ready are shown by name; none of
+ * them is hidden as a provider detail. In-progress states carry a spinner after the label.
  *
  * Two presentations. The default "merged" mode folds the deployed OS image name and,
  * unless `showEphemeral` is false, the ephemeral qualifier into one composed value. Pass
@@ -128,76 +106,18 @@ export function DeploymentBadge({
   /** False when the composed view presents RAM deployment beside another axis. */
   showEphemeral?: boolean
 }) {
+  const phase = resolveDeploymentPhase(axis, provider)
   let state: ReactNode
-  // The releasing / commissioning / testing / deploying provider states and the in-progress
-  // deployment axis states are all "work still running", so each carries the stripe animation;
-  // every terminal branch below stays static.
-  if (provider?.state === 'releasing') {
-    state = <AxisLabel color="orange" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is returning this Server to its available pool.">Releasing</AxisLabel>
-  } else if (provider?.state === 'commissioning') {
-    state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is commissioning this Server.">Commissioning</AxisLabel>
-  } else if (provider?.state === 'testing') {
-    state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is testing this Server.">Testing</AxisLabel>
-  } else if (axis && axis.state !== 'succeeded') {
-    // A swallow deployment that is still running or ended in a non-success outcome keeps its
-    // own state label; only a succeeded deployment shows the image name (handled below).
-    const presentation = DEPLOYMENT_PRESENTATION[axis.state]
-    const detail = axis.statusReason || `Operation ${axis.operationId}, attempt ${axis.attempt}`
-    const stripes = IN_PROGRESS_DEPLOYMENT_STATES.has(axis.state) ? IN_PROGRESS_LABEL_CLASS : undefined
-    state = <AxisLabel color={presentation.color} className={stripes} tooltip={detail}>{presentation.label}</AxisLabel>
-  } else if (provider?.state === 'deployed') {
-    // A deployed machine. State-only mode uses a badge because it presents lifecycle outcome.
+  if (phase.installed && stateOnly && !phase.installed.verified) {
+    // State-only mode reports the deployment outcome; an OS Swallow did not deploy has none.
+    state = <AxisLabel color="gray" tooltip="The OS is installed, but no Swallow deployment result exists. See the Deployed OS field for the installed image.">Unknown</AxisLabel>
+  } else if (phase.installed && !stateOnly && phase.installed.imageName) {
     // Merged mode presents the effective OS image name (provider catalog title overlaid with any
     // Swallow custom name) as neutral inventory text; its tooltip carries verification provenance.
-    // If no image or OS/release name can be derived, the lifecycle label remains a badge so the
-    // list cell is never blank.
-    const swallowVerified = axis?.state === 'succeeded'
-    if (stateOnly) {
-      state = swallowVerified ? (
-        <AxisLabel color="green" tooltip="Swallow deployed and verified this OS.">Deployed</AxisLabel>
-      ) : (
-        <AxisLabel color="gray" tooltip="The OS is installed, but no Swallow deployment result exists. See the Deployed OS field for the installed image.">Unknown</AxisLabel>
-      )
-    } else {
-      const fallback = [provider.osSystem, provider.distroSeries].filter(Boolean).join(' ')
-      const label = provider.deployedImageName || fallback
-      const tooltip = swallowVerified
-        ? 'Swallow deployed and verified this OS image.'
-        : 'Operating system reported by the provider; not deployed by swallow.'
-      state = label ? (
-        <DeploymentImageValue tooltip={tooltip}>{label}</DeploymentImageValue>
-      ) : (
-        <AxisLabel color={swallowVerified ? 'green' : 'gray'} tooltip={tooltip}>Deployed</AxisLabel>
-      )
-    }
-  } else if (provider?.state === 'deploying') {
-    state = <AxisLabel color="blue" className={IN_PROGRESS_LABEL_CLASS} tooltip="The provider is installing an operating system; no verified Swallow result exists yet.">Deploying</AxisLabel>
-  } else if (provider?.state === 'broken') {
-    // Broken and Failed are distinct recovery cases (decision 033) and must stay
-    // distinguishable at a glance: Broken is a provider-marked unusable Machine (cleared with
-    // Mark fixed or Recover), Failed is a last-lifecycle failure (Recover or Release).
-    state = <AxisLabel color="red" tooltip={`Provider marked this Machine broken. Provider lifecycle: ${provider.providerState}.${reasonSuffix(provider.errorDescription)} Recover or Release returns it to Ready.`}>Broken</AxisLabel>
-  } else if (provider?.state === 'failed') {
-    state = <AxisLabel color="red" tooltip={`Provider lifecycle failed: ${provider.providerState}.${reasonSuffix(provider.errorDescription)} Recover or Release returns it to Ready.`}>Failed</AxisLabel>
-  } else if (provider?.state === 'rescue') {
-    state = <AxisLabel color="purple" tooltip={`Diagnostic rescue environment. Provider lifecycle: ${provider.providerState}.${reasonSuffix(provider.errorDescription)} Exit rescue restores the previous state; Recover returns it to Ready.`}>Rescue</AxisLabel>
-  } else if (provider?.state === 'ready') {
-    // A released machine is back in the provider's available pool. Show it as "Ready"
-    // (the provider's own term) rather than "Not deployed", which reads like a fault.
-    state = <AxisLabel color="blue" tooltip="The Server is in the provider's available pool, ready to be deployed.">Ready</AxisLabel>
-  } else if (provider?.state === 'allocated') {
-    // Reserved but not deployed. This is a live provider state, so it must be shown here —
-    // before the succeeded fallback below — otherwise a leftover succeeded deployment record
-    // (for example a reservation that never finished deploying) would paint a stale "Deployed"
-    // on a Machine that the provider is not actually running, which then reads as un-releasable.
-    state = <AxisLabel color="blue" tooltip="The Server is reserved (allocated) but not deployed. Recover or Release returns it to the ready pool.">Allocated</AxisLabel>
-  } else if (axis?.state === 'succeeded') {
-    // A verified swallow deployment with no current provisioning projection still reads as
-    // deployed; the image name is unavailable without the provider axis, so fall back to a label.
-    const label = stateOnly ? 'Deployed' : provider?.deployedImageName || 'Deployed'
-    state = <AxisLabel color="green" tooltip="Swallow deployed and verified this OS image.">{label}</AxisLabel>
+    // Without a derivable name the lifecycle badge below keeps the cell from going blank.
+    state = <DeploymentImageValue tooltip={phase.tooltip}>{phase.installed.imageName}</DeploymentImageValue>
   } else {
-    state = <AxisLabel color="gray" tooltip="No operating system deployment is active or verified.">Not deployed</AxisLabel>
+    state = <AxisLabel color={phase.color} tooltip={phase.tooltip} inProgress={phase.inProgress}>{phase.label}</AxisLabel>
   }
 
   // In state-only mode the ephemeral qualifier is shown as its own field by the caller, so the

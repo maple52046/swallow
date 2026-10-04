@@ -78,7 +78,7 @@ export function StatusCard({ server, deployedImageHref }: { server: Server; depl
                 value: axis.state === 'deployed' ? (axis.ephemeral ? 'Yes — disk changes are lost on reboot' : 'No') : null,
               },
               { label: 'Kernel', value: axis.hweKernel },
-              { label: 'Commissioning', value: axis.commissioningStatus },
+              { label: 'Inspection', value: axis.commissioningStatus },
               { label: 'Testing', value: axis.testingStatus },
             ]}
           />

@@ -45,6 +45,10 @@ Development build 會顯示這些功能，並提供 **Account menu → Experimen
 ## 判讀 status
 
 - Server 沒有單一 combined status；provisioning、membership、health 互相獨立。
+- **Servers** 的 **Deployment** 欄位會合併 swallow deployment result 與
+  provider-neutral OS provisioning state。**Ready** 是已知、可佈署的 provider
+  state，**Unknown** 則不是。Spinner 表示工作正在進行；將滑鼠停在 state 上可查看
+  細節。見 [Server 與 infrastructure](servers-and-infrastructure.md#判讀-deployment-欄位)。
 - Unknown 保持 unknown，不會被 UI 呈現為 failure。
 - 信任 cached value 前檢查 integration sync error 與 observation timestamp。
 - Destructive action 送出前會顯示 state 與 lock gate。

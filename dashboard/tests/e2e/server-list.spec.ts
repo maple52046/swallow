@@ -48,6 +48,9 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   const issue = table.getByRole('row').filter({ hasText: 'gpu-node-03' })
   const deployAction = ready.getByRole('link', { name: 'Deploy OS' })
   const monitorAction = changing.getByRole('link', { name: 'Monitor workflow' })
+  // Provider inspection is a generic in-progress state and outranks the Swallow deploy result.
+  await expect(changing.getByText('Inspecting', { exact: true })).toBeVisible()
+  await expect(ready.getByText('Ready', { exact: true })).toBeVisible()
   await expect(deployAction).toHaveAttribute('href', /serverId=srv-1.*site=site-a|site=site-a.*serverId=srv-1/)
   await expect(monitorAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
   for (const action of [deployAction, monitorAction]) {
@@ -119,6 +122,27 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(absent).toBeVisible()
   await expect(absent).toContainText('CPU only')
   await expect(absent.getByRole('link', { name: 'Review server' })).toHaveAttribute('href', '/servers/srv-4/activity?site=site-a')
+})
+
+test('in-progress rows and spinners keep moving when the OS asks for reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await installApiFixtures(page, { readyServerCount: 1, changingServerIds: ['srv-2'] })
+  await page.goto('/servers?site=site-a')
+
+  const table = page.getByRole('table', { name: 'Servers' })
+  const changing = table.getByRole('row').filter({ hasText: 'gpu-node-02' })
+  const spinner = changing.getByText('Inspecting', { exact: true }).locator('.sw-progress-spinner')
+  await expect(spinner).toBeVisible()
+  const runningAnimations = (element: Element) => element.getAnimations().map((animation) => ({
+    name: (animation as CSSAnimation).animationName,
+    state: animation.playState,
+    iterations: animation.effect?.getComputedTiming().iterations,
+  }))
+  expect(await spinner.evaluate(runningAnimations)).toEqual([{ name: 'spin', state: 'running', iterations: Infinity }])
+  // The whole row of a Server with running work carries the light-band sweep; an idle row does not.
+  expect(await changing.evaluate(runningAnimations)).toEqual([{ name: 'sw-progress-sweep', state: 'running', iterations: Infinity }])
+  const idle = table.getByRole('row').filter({ hasText: 'gpu-node-01' })
+  expect(await idle.evaluate(runningAnimations)).toEqual([])
 })
 
 test('hardware facets, deterministic grouping, sorting, and URL fallback are shareable', async ({ page }) => {
@@ -356,8 +380,7 @@ test('13-inch layout prioritizes core columns and reveals context when space per
     expect(geometry.gap).toBeLessThanOrEqual(4)
   }
   await expect(providerFailed).not.toContainText('gpu-node-01.lab.example')
-  await expect(providerFailed.getByText('Failed', { exact: true })).toHaveCount(0)
-  await expect(providerFailed.getByText('Not deployed', { exact: true })).toBeVisible()
+  await expect(providerFailed.getByText('Failed', { exact: true })).toBeVisible()
   const hardwareGeometry = await providerFailed.locator('.sw-server-col--hardware').evaluate((cell) => {
     const content = cell.querySelector('strong')
     if (!(content instanceof HTMLElement)) throw new Error('Hardware summary is missing')

@@ -53,6 +53,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   that enumerates hardware and installs operating systems; registered as a `provisioner` Integration.
 - [Machine](terms/machine.md): An entry in a provider's inventory — the provider's view;
   a Server is swallow's projection of it.
+- [OS Provisioning State](terms/os-provisioning-state.md): The swallow-defined `provisioning.state`
+  value set (`new | inspecting | ready | … | releasing | …`) that every provider adapter maps onto.
 - [OS Image](terms/os-image.md): Live provider-owned operating system artifact
   available to one provisioner Integration.
 - [OS Deployment](terms/os-deployment.md): Asynchronous provider-backed OS

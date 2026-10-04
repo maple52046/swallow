@@ -35,7 +35,7 @@ DELETE /api/v1/servers/{id}/network/interfaces/{interfaceId}/links/{linkId}
 GET  /api/v1/servers/{id}/provisioning-tasks
 POST /api/v1/servers/{id}/deploy
 POST /api/v1/servers/{id}/release
-POST /api/v1/servers/{id}/{power-on|power-off|commission|test|abort}
+POST /api/v1/servers/{id}/{power-on|power-off|inspect|test|abort}
 POST /api/v1/servers/{id}/{override-failed-testing|lock|unlock}
 POST /api/v1/servers/{id}/{mark-broken|mark-fixed|rescue-mode|exit-rescue-mode}
 PUT  /api/v1/servers/{id}/default-user
@@ -53,7 +53,7 @@ is deliberately unauthenticated (see [Boot Media](#boot-media)).
 
 `POST /servers/{id}/lock` and `/unlock` return `202` with the accepted provisioning
 snapshot and immediately update `provisioning.locked`. MAAS remains the source and
-executor of that state; Swallow does not persist a second lock. MAAS only accepts Lock for a deployed Machine, so Swallow exposes Lock only in the `deployed` state and returns a clear `409 conflict` before calling the provider in every other state. Commissioning, deploying, releasing, testing, an Operation, or a Provisioning Task are also explicit conflicts. Unlock is always explicit and never resumes work.
+executor of that state; Swallow does not persist a second lock. MAAS only accepts Lock for a deployed Machine, so Swallow exposes Lock only in the `deployed` state and returns a clear `409 conflict` before calling the provider in every other state. The in-progress provisioning states `inspecting`, `deploying`, `releasing`, and `testing`, an Operation, or a Provisioning Task are also explicit conflicts. Unlock is always explicit and never resumes work.
 
 Every state-changing action except Unlock performs a live lock check before touching
 the provider. A locked Server returns `409 conflict` naming the Server and directing the
@@ -195,6 +195,12 @@ accepted provisioning snapshot. Unsupported capabilities and provider refusals u
 uses the shared envelope's `requestId`, which correlates the client-visible
 detail with the structured provisioning log entry without exposing provider
 credentials or request bodies.
+
+`inspect` asks the provisioner to re-inventory the machine's hardware (MAAS calls this
+Commission; Ironic calls it introspection). While it runs the Server's provisioning state is
+`inspecting`. `test` runs the provider's hardware tests (`testing`), and `abort` stops an
+in-progress inspection, test, or deployment. All three need the `hardwareValidation`
+capability.
 
 ## Default User
 
@@ -411,3 +417,10 @@ An adapter without machine-event support returns `200` with `supported:false` an
 empty `events` array. A provider read failure uses the common error envelope and does
 not alter the Server projection. These are provider events, not a claim that Swallow
 owns a complete durable audit trail.
+
+## Compatibility Notes
+
+On 2026-10-04 `POST /servers/{id}/commission` was renamed to `POST /servers/{id}/inspect`
+with the same behavior, and the provisioning state `commissioning` became `inspecting`
+([decision 048](../../../../../docs/decisions/048-os-provisioning-generic-states.md)). The old
+route is removed rather than aliased; clients move to `inspect` in the same release.

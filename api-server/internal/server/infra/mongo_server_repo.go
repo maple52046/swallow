@@ -120,6 +120,38 @@ type provisioningDoc struct {
 	ObservedAt               time.Time `bson:"observedAt"`
 }
 
+// legacyProvisioningStates maps provisioning.state values that earlier releases stored onto
+// today's OS Provisioning State. `commissioning` was the MAAS word for `inspecting` until
+// decision 048. The state is a mirrored observation that every reconcile pass rewrites, so a
+// read-time translation replaces a schema migration; an absent Server keeps its old value
+// until it is seen again, which is why the translation must stay until those documents age out.
+var legacyProvisioningStates = map[string]string{
+	"commissioning": "inspecting",
+}
+
+// provisioningStateFromStore returns the current domain value for a stored provisioning.state.
+func provisioningStateFromStore(stored string) string {
+	if current, ok := legacyProvisioningStates[stored]; ok {
+		return current
+	}
+	return stored
+}
+
+// provisioningStateQuery builds the provisioning.state filter for a domain value so that it
+// also matches documents still holding a legacy value for the same state.
+func provisioningStateQuery(state string) any {
+	values := []string{state}
+	for legacy, current := range legacyProvisioningStates {
+		if current == state {
+			values = append(values, legacy)
+		}
+	}
+	if len(values) == 1 {
+		return state
+	}
+	return bson.M{"$in": values}
+}
+
 type membershipDoc struct {
 	PlatformID string    `bson:"platformId"`
 	NodeName   string    `bson:"nodeName"`
@@ -306,7 +338,7 @@ func (r *MongoServerRepo) List(ctx context.Context, filter serverdomain.ListFilt
 		query["source.integrationId"] = filter.IntegrationID
 	}
 	if filter.ProvisioningState != "" {
-		query["provisioning.state"] = filter.ProvisioningState
+		query["provisioning.state"] = provisioningStateQuery(filter.ProvisioningState)
 	}
 	if filter.PlatformID != "" {
 		query["membership.platformId"] = filter.PlatformID
@@ -768,7 +800,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 
 	if p := doc.Provisioning; p != nil {
 		s.Provisioning = &serverdomain.ProvisioningStatus{
-			State:                    p.State,
+			State:                    provisioningStateFromStore(p.State),
 			ProviderState:            p.ProviderState,
 			ErrorDescription:         p.ErrorDescription,
 			PowerState:               p.PowerState,

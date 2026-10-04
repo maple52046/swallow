@@ -8,21 +8,24 @@ package domain
 
 import "errors"
 
-// MachineStatus is the provider-agnostic lifecycle state of a provisionable machine.
+// MachineStatus is the provider-agnostic lifecycle state of a provisionable machine: the
+// swallow-defined OS Provisioning State published as the Server's provisioning.state.
 //
-// The set is deliberately coarse: it carries only the distinctions swallow acts on
-// (can it be deployed, is it being deployed, did it fail). Adapters map their own
-// richer vocabulary onto these values and preserve the original label in
-// Machine.ProviderStatus, so a provider gaining new states never invents a new
-// MachineStatus value here.
+// swallow owns this vocabulary (docs/decisions/048). The set is deliberately coarse: it
+// carries only the distinctions swallow acts on (can it be deployed, is it being deployed,
+// is it being returned, did it fail). Adapters map their own richer vocabulary onto these
+// values and preserve the original label in Machine.ProviderStatus, so a provider gaining
+// new states never invents a new MachineStatus value here, and no value may be a
+// provider's own word.
 type MachineStatus string
 
 const (
-	// MachineStatusNew means the provider has discovered the machine but it is
-	// not yet ready to deploy (not commissioned).
+	// MachineStatusNew means the provider has discovered the machine but has not
+	// inspected its hardware yet, so it cannot be deployed.
 	MachineStatusNew MachineStatus = "new"
-	// MachineStatusCommissioning means the provider is inspecting the hardware.
-	MachineStatusCommissioning MachineStatus = "commissioning"
+	// MachineStatusInspecting means the provider is inventorying the hardware (MAAS
+	// Commissioning, Ironic introspection). It replaced the MAAS-only "commissioning".
+	MachineStatusInspecting MachineStatus = "inspecting"
 	// MachineStatusReady means the machine can accept a deployment.
 	MachineStatusReady MachineStatus = "ready"
 	// MachineStatusAllocated means the machine is reserved but not yet deployed.
@@ -31,7 +34,8 @@ const (
 	MachineStatusDeploying MachineStatus = "deploying"
 	// MachineStatusDeployed means an OS is installed and running.
 	MachineStatusDeployed MachineStatus = "deployed"
-	// MachineStatusReleasing means the machine is being returned to the pool.
+	// MachineStatusReleasing means the machine is being returned to the pool, including
+	// any disk erasure. Every provider offers Release, so every adapter must map onto it.
 	MachineStatusReleasing MachineStatus = "releasing"
 	// MachineStatusTesting means the provider is running hardware tests.
 	MachineStatusTesting MachineStatus = "testing"

@@ -571,8 +571,8 @@ func (p *fakeProvider) QueryPowerState(_ context.Context, machineID string) (pro
 	return provisioningdomain.PowerStateUnknown, provisioningdomain.ErrMachineNotFound
 }
 
-func (p *fakeProvider) Commission(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
-	return p.recordAction("commission", machineID)
+func (p *fakeProvider) Inspect(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
+	return p.recordAction("inspect", machineID)
 }
 
 func (p *fakeProvider) Test(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {

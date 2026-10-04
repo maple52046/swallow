@@ -45,7 +45,7 @@ const ACTION_ICONS: Record<ServerMenuAction, LucideIcon> = {
   delete: Trash2,
   'power-on': Power,
   'power-off': PowerOff,
-  commission: ClipboardCheck,
+  inspect: ClipboardCheck,
   test: FlaskConical,
   abort: CircleStop,
   'override-failed-testing': BadgeCheck,
@@ -60,8 +60,11 @@ const ACTION_ICONS: Record<ServerMenuAction, LucideIcon> = {
 // Always-on operator guidance shown under an action even when it is enabled. Rescue is a
 // diagnostic environment, not a recovery path, so the menu states that up front rather than
 // letting an operator learn it by exiting rescue back into Failed. See the rescue-mode glossary.
+// Inspect is swallow's provider-neutral name (decision 048), so its hint names the MAAS action
+// an operator may be looking for.
 const ACTION_HINTS: Partial<Record<ServerMenuAction, string>> = {
   recover: 'Returns the Server to Ready (Mark fixed, exit rescue, or Release by state).',
+  inspect: 'Re-inventories the hardware through the provisioner (MAAS calls this Commission).',
   'rescue-mode': 'Ephemeral diagnostic boot. Exit returns to the previous state; use Recover or Release to reach Ready.',
   'exit-rescue-mode': 'Restores the pre-rescue state (often still Failed or Broken); use Recover to reach Ready.',
 }

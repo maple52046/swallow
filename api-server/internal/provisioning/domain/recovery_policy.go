@@ -59,7 +59,7 @@ type RecoveryDecision struct {
 // would race in-flight work rather than converge it.
 func activeLifecycle(state MachineStatus) bool {
 	switch state {
-	case MachineStatusCommissioning,
+	case MachineStatusInspecting,
 		MachineStatusDeploying,
 		MachineStatusReleasing,
 		MachineStatusTesting:

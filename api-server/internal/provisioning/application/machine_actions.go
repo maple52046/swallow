@@ -131,9 +131,12 @@ func (uc *MachineActionsUseCase) QueryPower(ctx context.Context, serverID string
 
 // --- hardware validation ---
 
-func (uc *MachineActionsUseCase) Commission(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
+// Inspect asks the Server's provisioner to re-inventory its hardware. Like every hardware
+// validation action it requires an unlocked Server and the HardwareValidator capability, and
+// it mirrors the provider's accepted state (normally `inspecting`) onto the projection.
+func (uc *MachineActionsUseCase) Inspect(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
 	return uc.validate(ctx, serverID, func(v provisioningdomain.HardwareValidator, id string) (*provisioningdomain.Machine, error) {
-		return v.Commission(ctx, id)
+		return v.Inspect(ctx, id)
 	})
 }
 

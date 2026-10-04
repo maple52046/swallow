@@ -1,4 +1,11 @@
-import type { ProvisioningState, Server } from '@/domain/server/types'
+import {
+  isProvisioningInProgress,
+  type DeploymentAxis,
+  type ProvisioningAxis,
+  type ProvisioningState,
+  type Server,
+} from '@/domain/server/types'
+import { resolveDeploymentPhase, type DeploymentPhase } from '@/presentation/components/deploymentPhase'
 
 /** Quick operational lens applied before the advanced Server facets. */
 export type ServerView = 'all' | 'ready' | 'changing' | 'issues'
@@ -80,7 +87,7 @@ export type ServerContextAction =
 
 const PROVISIONING_STATES: readonly ProvisioningState[] = [
   'new',
-  'commissioning',
+  'inspecting',
   'ready',
   'allocated',
   'deploying',
@@ -95,12 +102,6 @@ const PROVISIONING_STATES: readonly ProvisioningState[] = [
 ]
 
 const PROVISIONING_STATE_SET = new Set<string>(PROVISIONING_STATES)
-const CHANGING_PROVIDER_STATES = new Set<ProvisioningState>([
-  'commissioning',
-  'deploying',
-  'releasing',
-  'testing',
-])
 const ISSUE_PROVIDER_STATES = new Set<ProvisioningState>(['failed', 'broken', 'rescue'])
 const VIEWS = new Set<ServerView>(['all', 'ready', 'changing', 'issues'])
 const HEALTH_FILTERS = new Set<ServerHealthFilter>(['any', 'up', 'down', 'unobserved'])
@@ -236,32 +237,75 @@ export function normalizeServerInventoryParams(
   return next
 }
 
-/** True while either the provisioner or the durable OS deployment is actively changing. */
+/**
+ * True while OS provisioning work is running on the Server: an in-progress OS Provisioning State
+ * (Releasing, Inspecting, Testing, Deploying) or a Swallow deployment that is deploying or
+ * verifying. This is what the Deployment cell marks with a spinner, so the Active deployments
+ * view, the Active count, the default order, the row tone, and the refresh poll all use it.
+ */
 export function isServerChanging(server: Server): boolean {
-  return Boolean(
-    (server.provisioning && CHANGING_PROVIDER_STATES.has(server.provisioning.state)) ||
-    server.deployment?.state === 'deploying' ||
-    server.deployment?.state === 'verifying',
-  )
+  return isProvisioningInProgress(server.provisioning?.state) || isServerDeploymentChanging(server)
 }
 
-/** True only while a Swallow-owned operating-system deployment is changing. */
+/**
+ * True only while a Swallow-owned OS deployment is changing. Narrower than
+ * {@link isServerChanging} on purpose: it gates links to the deployment's Workflow, which would
+ * point at an unrelated, finished Operation while the provider is, say, releasing.
+ */
 export function isServerDeploymentChanging(server: Server): boolean {
   return server.deployment?.state === 'deploying' || server.deployment?.state === 'verifying'
 }
 
-/** Explicit provisioning/deployment conditions that require review, without reading Health. */
+/**
+ * Provisioning or deployment conditions that need operator review, without reading Health: a
+ * failed, broken, or rescue OS Provisioning State, or a failed or attention-needing Swallow
+ * deployment. These are the states the Deployment cell shows as a problem, so the Needs attention
+ * view, the Attention count, the default order, and the row tone use it.
+ */
 export function hasServerProvisioningIssue(server: Server): boolean {
   return Boolean(
     (server.provisioning && ISSUE_PROVIDER_STATES.has(server.provisioning.state)) ||
-    server.deployment?.state === 'failed' ||
-    server.deployment?.state === 'requires_attention',
+    hasServerDeploymentIssue(server),
   )
 }
 
-/** True only when the latest Swallow-owned deployment requires operator review. */
+/** True only when the latest Swallow-owned deployment requires review; gates its Workflow link. */
 export function hasServerDeploymentIssue(server: Server): boolean {
   return server.deployment?.state === 'failed' || server.deployment?.state === 'requires_attention'
+}
+
+/**
+ * The facts the list's Deployment cell is resolved from. An absent Server's provisioning axis is
+ * a stale observation, so it is not passed. A `succeeded` Swallow result is current only while the
+ * provider still reports the OS installed; afterwards it is history, and passing it would paint a
+ * stale "Deployed" over the Server's real state (for example Releasing, then Ready).
+ */
+export function serverDeploymentCellInputs(server: Server): {
+  axis: DeploymentAxis | null
+  provider: ProvisioningAxis | null
+} {
+  const provider = server.absent ? null : server.provisioning
+  const installed = provider?.state === 'deployed'
+  const axis = server.deployment?.state === 'succeeded' && !installed ? null : server.deployment
+  return { axis, provider }
+}
+
+/**
+ * The `data-tone` of a list row or card (styled in `src/index.css`), in precedence order:
+ * absent, running OS provisioning work, then a provisioning problem. It follows the same rules
+ * as the Deployment cell so a row never shows Releasing or Failed without the matching tone.
+ */
+export function serverRowTone(server: Server): 'absent' | 'changing' | 'issue' | undefined {
+  if (server.absent) return 'absent'
+  if (isServerChanging(server)) return 'changing'
+  if (hasServerProvisioningIssue(server)) return 'issue'
+  return undefined
+}
+
+/** The Deployment cell's resolved phase, shared by the cell, its grouping, and its sorting. */
+export function serverDeploymentPhase(server: Server): DeploymentPhase {
+  const { axis, provider } = serverDeploymentCellInputs(server)
+  return resolveDeploymentPhase(axis, provider)
 }
 
 /** A deterministic accelerator signature derived from hardware inventory, never from tags. */
@@ -309,8 +353,8 @@ export function matchesServerInventoryQuery(server: Server, query: ServerInvento
   if (!query.includeAbsent && server.absent) return false
   if (!matchesServerDiscovery(server, query.q)) return false
   if (query.view === 'ready' && (server.absent || server.provisioning?.locked || server.provisioning?.state !== 'ready')) return false
-  if (query.view === 'changing' && !isServerDeploymentChanging(server)) return false
-  if (query.view === 'issues' && !hasServerDeploymentIssue(server)) return false
+  if (query.view === 'changing' && !isServerChanging(server)) return false
+  if (query.view === 'issues' && !hasServerProvisioningIssue(server)) return false
   if (query.provisioning.length > 0 && (!server.provisioning || !query.provisioning.includes(server.provisioning.state))) return false
   if (query.health === 'unobserved' && server.health !== null) return false
   if ((query.health === 'up' || query.health === 'down') && server.health?.state !== query.health) return false
@@ -336,7 +380,7 @@ export function matchesServerInventoryQuery(server: Server, query: ServerInvento
 /** Stable group label for the selected one-to-one grouping dimension. */
 export function serverInventoryGroupValue(server: Server, group: ServerInventoryGroup): string {
   switch (group) {
-    case 'provisioning': return server.deployment?.state ?? 'not deployed'
+    case 'provisioning': return serverDeploymentPhase(server).label
     case 'zone': return server.providerZone || 'unknown'
     case 'pool': return server.providerResourcePool || 'unknown'
     case 'architecture': return server.architecture || 'unknown'
@@ -348,11 +392,11 @@ export function serverInventoryGroupValue(server: Server, group: ServerInventory
   }
 }
 
-/** Swallow-deployment-first operational rank used by the default list order. */
+/** Operational rank used by the default list order: running work, then problems, then idle. */
 export function serverOperationalPriority(server: Server): number {
   if (server.absent) return 5
-  if (isServerDeploymentChanging(server)) return 0
-  if (hasServerDeploymentIssue(server)) return 1
+  if (isServerChanging(server)) return 0
+  if (hasServerProvisioningIssue(server)) return 1
   if (server.provisioning?.state === 'ready') return 2
   if (server.deployment?.state === 'succeeded') return 3
   return 4
@@ -365,7 +409,7 @@ function displayName(server: Server): string {
 function sortValue(server: Server, sort: Exclude<ServerInventorySort, 'priority'>): string | number {
   switch (sort) {
     case 'name': return displayName(server).toLocaleLowerCase()
-    case 'provisioning': return server.deployment?.state ?? ''
+    case 'provisioning': return serverDeploymentPhase(server).label
     case 'power': return server.provisioning?.powerState ?? ''
     case 'cores': return server.cpuCores
     case 'memory': return server.memoryMiB
@@ -404,8 +448,8 @@ export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
     total: servers.length,
     absent: servers.length - observed.length,
     deploymentVerified: observed.filter((server) => server.deployment?.state === 'succeeded').length,
-    deploymentActive: observed.filter(isServerDeploymentChanging).length,
-    deploymentAttention: observed.filter(hasServerDeploymentIssue).length,
+    deploymentActive: observed.filter(isServerChanging).length,
+    deploymentAttention: observed.filter(hasServerProvisioningIssue).length,
     assigned: observed.filter((server) => server.membership !== null).length,
     unassigned: observed.filter((server) => server.membership === null).length,
     healthUp: observed.filter((server) => server.health?.state === 'up').length,
@@ -420,7 +464,7 @@ export function serverContextAction(server: Server): ServerContextAction {
     return { kind: 'deploy', label: 'Deploy OS' }
   }
   if (isServerChanging(server)) {
-    if (server.deployment?.operationId) {
+    if (isServerDeploymentChanging(server) && server.deployment?.operationId) {
       return { kind: 'workflow', label: 'Monitor workflow', operationId: server.deployment.operationId }
     }
     return { kind: 'activity', label: 'Monitor server' }

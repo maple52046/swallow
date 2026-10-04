@@ -67,7 +67,7 @@ func serversListCmd() *cobra.Command {
 	addPagination(cmd)
 	cmd.Flags().String("site-id", "", "filter by Site (defaults to the global --site)")
 	cmd.Flags().String("integration", "", "filter by integration id")
-	cmd.Flags().String("provisioning-state", "", "filter by provisioning axis state")
+	cmd.Flags().String("provisioning-state", "", "filter by provisioning state: new, inspecting, ready, allocated, deploying, deployed, releasing, testing, rescue, broken, failed, retired, unknown")
 	cmd.Flags().String("platform", "", "filter by platform membership id")
 	cmd.Flags().String("keyword", "", "case-insensitive match on hostname, FQDN, address, serial, or UUID")
 	cmd.Flags().Bool("include-absent", false, "include Servers absent from the latest inventory")
@@ -197,7 +197,7 @@ func serversActionCmds() []*cobra.Command {
 	actions := []action{
 		{"power-on", "Power the Server on"},
 		{"power-off", "Power the Server off"},
-		{"commission", "Commission the Server"},
+		{"inspect", "Re-inventory the Server's hardware (MAAS: commission)"},
 		{"test", "Run hardware testing"},
 		{"abort", "Abort the current provider operation"},
 		{"override-failed-testing", "Override a failed testing result"},

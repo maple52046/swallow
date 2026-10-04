@@ -454,7 +454,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const serverId of options.changingServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) {
-      server.provisioning.state = 'commissioning'
+      server.provisioning.state = 'inspecting'
       server.provisioning.providerState = 'Commissioning'
       server.deployment = {
         state: 'deploying', operationId: 'op-running', stepId: `provision-${server.id}`,

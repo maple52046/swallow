@@ -69,11 +69,23 @@ ISO 先從現場 DHCP 取得位址，再 chain 到 provisioner。
   並透過 Redfish 重開 Server 一次。這種佈署會多花十到十五分鐘。
 - **Check BMC** 讀取 BMC 目前的實際狀態。**Disable** 停止重新套用，並要求 BMC 退出 ISO。
 
+## 硬體 inspection 與測試
+
+在 Server 的 **Take action → Hardware checks** 中，**Inspect hardware** 會要求
+provisioner 重新盤點 machine 硬體；MAAS 將此動作稱為 *Commission*。執行期間
+Server 顯示 **Inspecting**；選擇 **Test** 執行 provider hardware test 時則顯示
+**Testing**。Summary card 的 **Inspection** 欄位是 provider 上次的 inspection
+result，例如 *Passed*。
+
 ## Release 與 recovery
 
-Release 讓 provider machine 回到 ready，並可包含明確 erase options。Recovery
-會依 provider recovery policy 處理 failed、broken 或 rescue state。若 memory-backed
-state 或 active work 可能遺失，必須閱讀 power-off warning。
+Release 會讓 provider machine 回到 available pool，但不會刪除 Server。它可從
+deployed、allocated、failed、broken 或 rescue state 執行，也可包含明確 erase
+options。Action 接受後，Servers list 會在 provider 執行期間顯示 **Releasing**，
+machine 回到 pool 後顯示 **Ready**；不需離開該頁即可追蹤這段轉換。
+
+Recovery 會依 provider recovery policy 處理 allocated、failed、broken 或 rescue
+state。若 memory-backed state 或 active work 可能遺失，必須閱讀 power-off warning。
 
 ## Network inspection
 
@@ -87,6 +99,7 @@ swallow provisioning images list --integration int1
 swallow provisioning templates list --site-id site1
 swallow provisioning deploy --file deploy.yaml
 swallow provisioning release --server server1 --erase
+swallow servers inspect server1
 swallow servers redfish-probe server1
 swallow servers boot-media enable server1
 swallow servers boot-media get server1 --live

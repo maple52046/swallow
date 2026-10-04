@@ -52,7 +52,7 @@ func lockConflict(server *serverdomain.Server, reason string) error {
 
 func providerStateBlocksLock(state provisioningdomain.MachineStatus) bool {
 	switch state {
-	case provisioningdomain.MachineStatusCommissioning,
+	case provisioningdomain.MachineStatusInspecting,
 		provisioningdomain.MachineStatusDeploying,
 		provisioningdomain.MachineStatusReleasing,
 		provisioningdomain.MachineStatusTesting:

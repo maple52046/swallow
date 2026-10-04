@@ -152,26 +152,28 @@ type versionJSON struct {
 // explicitly rather than to "unknown", because each has a clear equivalent.
 //
 // Mapping keys on the numeric code because that is MAAS's stable documented value;
-// status_name is a display label and is carried separately as ProviderStatus.
+// status_name is a display label and is carried separately as ProviderStatus. The values
+// are swallow's own vocabulary (docs/decisions/048), so MAAS COMMISSIONING becomes
+// `inspecting`: the MAAS word survives only in ProviderStatus.
 var maasStatusToDomain = map[int]provisioningdomain.MachineStatus{
-	0:  provisioningdomain.MachineStatusNew,           // NEW
-	1:  provisioningdomain.MachineStatusCommissioning, // COMMISSIONING
-	2:  provisioningdomain.MachineStatusFailed,        // FAILED_COMMISSIONING
-	3:  provisioningdomain.MachineStatusBroken,        // MISSING: MAAS cannot contact it
-	4:  provisioningdomain.MachineStatusReady,         // READY
-	5:  provisioningdomain.MachineStatusAllocated,     // RESERVED: held for a named deployment
-	6:  provisioningdomain.MachineStatusDeployed,      // DEPLOYED
-	7:  provisioningdomain.MachineStatusRetired,       // RETIRED
-	8:  provisioningdomain.MachineStatusBroken,        // BROKEN
-	9:  provisioningdomain.MachineStatusDeploying,     // DEPLOYING
-	10: provisioningdomain.MachineStatusAllocated,     // ALLOCATED
-	11: provisioningdomain.MachineStatusFailed,        // FAILED_DEPLOYMENT
-	12: provisioningdomain.MachineStatusReleasing,     // RELEASING
-	13: provisioningdomain.MachineStatusFailed,        // FAILED_RELEASING
-	14: provisioningdomain.MachineStatusReleasing,     // DISK_ERASING
-	15: provisioningdomain.MachineStatusFailed,        // FAILED_DISK_ERASING
-	16: provisioningdomain.MachineStatusRescue,        // RESCUE_MODE
-	17: provisioningdomain.MachineStatusRescue,        // ENTERING_RESCUE_MODE
+	0:  provisioningdomain.MachineStatusNew,        // NEW
+	1:  provisioningdomain.MachineStatusInspecting, // COMMISSIONING
+	2:  provisioningdomain.MachineStatusFailed,     // FAILED_COMMISSIONING
+	3:  provisioningdomain.MachineStatusBroken,     // MISSING: MAAS cannot contact it
+	4:  provisioningdomain.MachineStatusReady,      // READY
+	5:  provisioningdomain.MachineStatusAllocated,  // RESERVED: held for a named deployment
+	6:  provisioningdomain.MachineStatusDeployed,   // DEPLOYED
+	7:  provisioningdomain.MachineStatusRetired,    // RETIRED
+	8:  provisioningdomain.MachineStatusBroken,     // BROKEN
+	9:  provisioningdomain.MachineStatusDeploying,  // DEPLOYING
+	10: provisioningdomain.MachineStatusAllocated,  // ALLOCATED
+	11: provisioningdomain.MachineStatusFailed,     // FAILED_DEPLOYMENT
+	12: provisioningdomain.MachineStatusReleasing,  // RELEASING
+	13: provisioningdomain.MachineStatusFailed,     // FAILED_RELEASING
+	14: provisioningdomain.MachineStatusReleasing,  // DISK_ERASING
+	15: provisioningdomain.MachineStatusFailed,     // FAILED_DISK_ERASING
+	16: provisioningdomain.MachineStatusRescue,     // RESCUE_MODE
+	17: provisioningdomain.MachineStatusRescue,     // ENTERING_RESCUE_MODE
 	// A failed rescue transition leaves the Machine inside the rescue subsystem: MAAS refuses
 	// Release from this state ("cannot be released ... 'Failed to exit rescue mode'") and the
 	// resolution is to (re)issue exit rescue. Normalizing to `rescue` (not `failed`) makes the

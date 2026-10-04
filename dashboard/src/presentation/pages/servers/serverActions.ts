@@ -7,7 +7,7 @@
  * the list shows them all and lets the backend refuse per server — matching MAAS, where bulk
  * menus always appear and the server validates.
  */
-import type { ProvisionerCapabilities, Server, ServerAction } from '@/domain/server/types'
+import { isProvisioningInProgress, type ProvisionerCapabilities, type Server, type ServerAction } from '@/domain/server/types'
 
 /** A bulk/row action. `release` is included alongside the `ServerAction` union because it
  * is a lifecycle action offered in bulk but reached through a different repository method. */
@@ -61,7 +61,7 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
     label: 'Hardware validation',
     capability: 'hardwareValidation',
     actions: [
-      { action: 'commission', label: 'Commission' },
+      { action: 'inspect', label: 'Inspect hardware' },
       { action: 'test', label: 'Test' },
       { action: 'abort', label: 'Abort' },
       { action: 'override-failed-testing', label: 'Override failed testing' },
@@ -102,8 +102,6 @@ export function actionLabel(action: ServerMenuAction): string {
 export function isRamDeploy(server: Server): boolean {
   return server.provisioning?.ephemeral === true
 }
-
-const ACTIVE_PROVIDER_STATES = new Set(['commissioning', 'deploying', 'releasing', 'testing'])
 
 // State gates mirroring the Swallow-owned recovery policy (docs/decisions/033). The dashboard
 // gates on the same normalized `provisioning.state` the backend does, so an operator sees a
@@ -170,7 +168,7 @@ export function serverActionAvailability(
   }
   if (action === 'lock') {
     const unlocked = targets.filter((server) => !server.provisioning?.locked)
-    const active = unlocked.filter((server) => ACTIVE_PROVIDER_STATES.has(server.provisioning?.state ?? ''))
+    const active = unlocked.filter((server) => isProvisioningInProgress(server.provisioning?.state))
     const eligible = unlocked.filter((server) => server.provisioning?.state === 'deployed')
     if (active.length > 0) {
       return {
@@ -221,7 +219,7 @@ export function serverActionAvailability(
   }
   if (action === 'mark-broken') {
     return stateGatedAvailability(targets,
-      (server) => provisioningState(server) !== 'broken' && !ACTIVE_PROVIDER_STATES.has(provisioningState(server)),
+      (server) => provisioningState(server) !== 'broken' && !isProvisioningInProgress(server.provisioning?.state),
       'Mark broken is unavailable while the Server is already broken or has active provider work.')
   }
   if (action === 'rescue-mode') {

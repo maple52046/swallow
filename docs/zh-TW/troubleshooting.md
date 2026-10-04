@@ -45,6 +45,27 @@ docker compose logs api-server worker ansible-executor temporal
 4. Trigger reconcile，或等待 configured interval。
 5. Server 不支援 manual create。
 
+## Server 持續停在 Releasing 或 Inspecting
+
+`releasing`、`inspecting`、`testing` 與 `deploying` 都是進行中的 OS
+provisioning state，預期會在不需要另一個 operator action 的情況下改變。
+Deployment 欄位的 spinner 會標示這種狀況，但不代表 provider 一定仍有進度。
+
+1. 將滑鼠停在 Deployment state 上，查看目前細節。
+2. 檢查 provisioning observation time，以及 Integration 的 sync error 與最後成功時間。
+3. Refresh Server，執行一次 targeted provider read。
+4. 查看 Server 的 provider event，確認 external lifecycle action 仍有進度或已失敗。
+
+```bash
+swallow servers refresh server1
+swallow servers events server1 --limit 50
+swallow -o json servers get server1
+```
+
+如果 state 變成 `failed`、`broken` 或 `rescue`，代表需要 operator 處理，而不是
+繼續等待。各 state 與 recovery 提示見
+[Server 與 infrastructure](guides/servers-and-infrastructure.md#判讀-deployment-欄位)。
+
 ## 更換 key 後 credential 失效
 
 Stored integration／automation credential 使用 `api.credentialKey` 加密。更換

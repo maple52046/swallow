@@ -817,7 +817,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Post("/:id/power-on", deps.provisioning.PowerOn)
 	servers.Post("/:id/power-off", deps.provisioning.PowerOff)
 	servers.Get("/:id/power-state", deps.provisioning.PowerState)
-	servers.Post("/:id/commission", deps.provisioning.Commission)
+	servers.Post("/:id/inspect", deps.provisioning.Inspect)
 	servers.Post("/:id/test", deps.provisioning.Test)
 	servers.Post("/:id/abort", deps.provisioning.Abort)
 	servers.Post("/:id/override-failed-testing", deps.provisioning.OverrideFailedTesting)

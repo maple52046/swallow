@@ -253,7 +253,9 @@ func TestListMachines_NormalizesStatusCodes(t *testing.T) {
 		want provisioningdomain.MachineStatus
 	}{
 		{0, provisioningdomain.MachineStatusNew},
-		{1, provisioningdomain.MachineStatusCommissioning},
+		// MAAS COMMISSIONING is swallow's generic `inspecting`; the MAAS word stays in
+		// ProviderStatus only (decision 048).
+		{1, provisioningdomain.MachineStatusInspecting},
 		{2, provisioningdomain.MachineStatusFailed},
 		{3, provisioningdomain.MachineStatusBroken},
 		{4, provisioningdomain.MachineStatusReady},

@@ -85,12 +85,26 @@ the ISO takes an address from the site's DHCP and chains to the provisioner.
 - **Check BMC** reads what the BMC reports right now. **Disable** stops
   re-applying it and asks the BMC to eject the ISO.
 
+## Hardware inspection and tests
+
+From a Server's **Take action → Hardware checks**, **Inspect hardware** asks the
+provisioner to inventory the machine's hardware again. MAAS calls this action
+*Commission*. The Server reads **Inspecting** while it runs; **Test** similarly
+reads **Testing** while the provider runs hardware tests. The Summary card's
+**Inspection** field is the provider's last inspection result, such as *Passed*.
+
 ## Release and recovery
 
-Release returns a provider machine toward ready state and may include explicit
-erase options. Recovery handles failed, broken, or rescue states according to
-the configured provider recovery policy. Power-off warnings must be reviewed
-when memory-backed state or active work could be lost.
+Release returns a provider machine to the available pool without deleting its
+Server. It is available from deployed, allocated, failed, broken, or rescue
+state and may include explicit erase options. After the action is accepted, the
+Servers list shows **Releasing** while the provider works and then **Ready**
+when the machine is back in the pool; the list follows this transition without
+requiring you to leave the page.
+
+Recovery handles allocated, failed, broken, or rescue states according to the
+configured provider recovery policy. Power-off warnings must be reviewed when
+memory-backed state or active work could be lost.
 
 ## Network inspection
 
@@ -105,6 +119,7 @@ swallow provisioning images list --integration int1
 swallow provisioning templates list --site-id site1
 swallow provisioning deploy --file deploy.yaml
 swallow provisioning release --server server1 --erase
+swallow servers inspect server1
 swallow servers redfish-probe server1
 swallow servers boot-media enable server1
 swallow servers boot-media get server1 --live

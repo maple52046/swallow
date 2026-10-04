@@ -54,6 +54,16 @@ a:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
+  /*
+   * The in-progress spinner after a status label (InProgressSpinner) keeps rotating by product
+   * request: frozen, it is a static arc that no longer reads as "work running". The class
+   * selector outranks the universal rule above; the duration is Chakra's spinner default.
+   */
+  .sw-progress-spinner {
+    animation-duration: var(--chakra-durations-slowest) !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 
@@ -639,31 +649,6 @@ tbody .sw-sticky-selection { z-index: 2; }
 .sw-power-tile__icon { display: inline-flex; line-height: 0; }
 .sw-power-tile__icon--success { color: var(--chakra-colors-green-fg); }
 .sw-power-tile__icon--danger { color: var(--chakra-colors-red-fg); }
-
-/* ---- In-progress stripe on a status badge -------------------------------- */
-/*
- * Animated diagonal stripes signal a still-running lifecycle step on a Chakra
- * Badge. The badge text and its tooltip stay the authoritative state; the motion
- * is a supplementary, colour-independent cue. Intentionally not gated behind
- * prefers-reduced-motion by product request.
- */
-.sw-label-progress {
-  background-image: linear-gradient(
-    45deg,
-    rgba(0, 0, 0, 0.18) 25%,
-    transparent 25%,
-    transparent 50%,
-    rgba(0, 0, 0, 0.18) 50%,
-    rgba(0, 0, 0, 0.18) 75%,
-    transparent 75%,
-    transparent
-  );
-  background-size: 0.8rem 0.8rem;
-  animation: sw-label-stripes 0.8s linear infinite;
-}
-@keyframes sw-label-stripes {
-  to { background-position-x: 0.8rem; }
-}
 
 /* ---- Operation timeline (numbered) --------------------------------------- */
 
@@ -2380,6 +2365,38 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 .sw-server-inventory-table tbody tr[data-tone='absent'] td:first-child {
   box-shadow: inset 3px 0 var(--chakra-colors-border-emphasized);
+}
+
+/*
+ * A row whose Server has OS provisioning work running (tone `changing`: Releasing, Inspecting,
+ * Testing, Deploying, Verifying) carries a light tint and a soft band of light sweeping across
+ * it, so the whole row reads as busy; the Deployment label stays the state of record. Only
+ * background-image is set, so the hover and selection colours above still show through, and the
+ * rule must stay after them to win their `background` shorthand. The mobile card uses the same
+ * layers over its panel colour.
+ */
+.sw-server-inventory-table tbody tr[data-tone='changing'],
+.sw-server-runtime-card[data-tone='changing'] .sw-resource-card {
+  background-image:
+    linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--chakra-colors-blue-solid) 16%, transparent) 50%, transparent 70%),
+    linear-gradient(color-mix(in srgb, var(--chakra-colors-blue-solid) 4%, transparent), color-mix(in srgb, var(--chakra-colors-blue-solid) 4%, transparent));
+  background-size: 60% 100%, auto;
+  background-repeat: no-repeat, repeat;
+  animation: sw-progress-sweep 2.4s ease-in-out infinite;
+}
+
+@keyframes sw-progress-sweep {
+  0% { background-position: -150% 0, 0 0; }
+  75%, 100% { background-position: 250% 0, 0 0; }
+}
+
+/* Like the in-progress spinner, the sweep keeps moving when the OS asks for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .sw-server-inventory-table tbody tr[data-tone='changing'],
+  .sw-server-runtime-card[data-tone='changing'] .sw-resource-card {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 .sw-server-group-row td {

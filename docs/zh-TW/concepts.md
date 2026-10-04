@@ -24,9 +24,15 @@ Server status 有互相獨立的軸：
 
 | Axis | Owner | 例子 |
 | --- | --- | --- |
-| Provisioning | Provisioner | ready、deploying、deployed、failed |
+| Provisioning | Provisioner | ready、inspecting、deploying、releasing、failed |
 | Membership | Platform runtime | member role 或尚未觀察到 membership |
 | Health | Metrics backend | 目前 health 或 unknown |
+
+Provisioning axis 使用 swallow 定義、與 provider 無關的
+[`provisioning.state`](../development/glossaries/terms/os-provisioning-state.md)
+值集合。每個 provisioner adapter 都會將自己的 lifecycle 對應到這些值。Provider
+自己的用語（例如 MAAS 的 *Commissioning*）只會出現在 display-only
+`providerState`；client 不得據此分支。
 
 `null` 表示 unknown，不是 unhealthy。每次 observation 都可有自己的 `observedAt`。
 

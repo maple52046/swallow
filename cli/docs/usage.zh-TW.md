@@ -311,7 +311,7 @@ swallow servers provisioning-tasks srv1
 # Provider-backed lifecycle actions（無 body）：
 swallow servers power-on srv1
 swallow servers power-off srv1
-swallow servers commission srv1
+swallow servers inspect srv1              # 硬體檢視（MAAS 稱為 commission）
 swallow servers test srv1
 swallow servers abort srv1
 swallow servers override-failed-testing srv1

@@ -67,9 +67,11 @@ import {
   normalizeServerInventoryParams,
   parseServerInventoryQuery,
   serverContextAction,
+  serverDeploymentCellInputs,
   serverFleetFacts,
   serverGpuProfile,
   serverInventoryGroupValue,
+  serverRowTone,
   sortedServerTags,
   type ServerInventoryDirection,
   type ServerInventoryGroup,
@@ -1396,14 +1398,14 @@ function ServerPowerIndicator({ server }: { server: Server }) {
 }
 
 /**
- * Presents the current Swallow OS deployment without leaking provider lifecycle labels.
- * A succeeded workflow is only current while the inventory still reports an installed OS;
- * otherwise it is historical and the list reads “Not deployed” instead of stale “Deployed”.
+ * The list row and card Deployment cell: the Server's OS deployment state, including generic
+ * OS Provisioning States such as Releasing, Inspecting, Failed, and Ready (decision 048). Inputs
+ * come from `serverDeploymentCellInputs`, the same source the OS deployment grouping uses. RAM
+ * deployment is shown with the Server identity, so the cell omits the ephemeral glyph.
  */
 function ServerDeploymentBadge({ server }: { server: Server }) {
-  const installed = !server.absent && server.provisioning?.state === 'deployed' ? server.provisioning : null
-  const deployment = server.deployment?.state === 'succeeded' && !installed ? null : server.deployment
-  return <DeploymentBadge axis={deployment} provider={installed} showEphemeral={false} />
+  const { axis, provider } = serverDeploymentCellInputs(server)
+  return <DeploymentBadge axis={axis} provider={provider} showEphemeral={false} />
 }
 
 function ServerDeployment({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
@@ -1524,7 +1526,7 @@ function ServerRow({
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
   const monitoring = useExperimentalFeature('monitoring')
   const detailId = `server-details-${server.id}`
-  const tone = server.absent ? 'absent' : isServerDeploymentChanging(server) ? 'changing' : hasServerDeploymentIssue(server) ? 'issue' : undefined
+  const tone = serverRowTone(server)
   return (
     <>
       <Table.Row data-selected={checked || undefined} data-tone={tone}>
@@ -1610,7 +1612,7 @@ function ServerMobileCard({
     group.facts.map((fact) => ({ ...fact, label: `${group.title} · ${fact.label}` }))
   ))
   return (
-    <div className="sw-server-runtime-card" data-tone={server.absent ? 'absent' : isServerDeploymentChanging(server) ? 'changing' : hasServerDeploymentIssue(server) ? 'issue' : undefined}>
+    <div className="sw-server-runtime-card" data-tone={serverRowTone(server)}>
       <ResourceCard
         title={<ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} />}
         selected={checked}

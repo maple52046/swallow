@@ -26,9 +26,15 @@ Server status has independent axes:
 
 | Axis | Owner | Example meaning |
 | --- | --- | --- |
-| Provisioning | Provisioner | ready, deploying, deployed, failed |
+| Provisioning | Provisioner | ready, inspecting, deploying, releasing, failed |
 | Membership | Platform runtime | member role or no observed membership |
 | Health | Metrics backend | current observed health or unknown |
+
+The provisioning axis uses swallow's provider-neutral
+[`provisioning.state`](../development/glossaries/terms/os-provisioning-state.md)
+value set. Each provisioner adapter maps its own lifecycle to those values. A
+provider's own wording, such as MAAS *Commissioning*, appears only in the
+display-only `providerState`; clients must not branch on it.
 
 `null` means unknown, not unhealthy. Each observation can have its own
 `observedAt`.

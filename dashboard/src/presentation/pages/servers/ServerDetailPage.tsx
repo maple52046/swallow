@@ -13,6 +13,7 @@ import type { ExperimentalFeature } from '@/application/ports/ExperimentalFeatur
 import { useApp } from '@/di/AppProvider'
 import { DeploymentBadge, HealthBadge, LockBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
 import { serverDisplayName } from '@/domain/server/list'
+import { isProvisioningInProgress } from '@/domain/server/types'
 import { hasSwallowInstalledDocker } from '@/domain/software/docker'
 import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
@@ -80,7 +81,7 @@ export function ServerDetailPage() {
   const releaseHandedOffRef = useRef(false)
   const activeProjection =
     state.status === 'ready' &&
-    (['deploying', 'releasing', 'commissioning', 'testing'].includes(state.data.server.provisioning?.state ?? '') ||
+    (isProvisioningInProgress(state.data.server.provisioning?.state) ||
       ['deploying', 'verifying'].includes(state.data.server.deployment?.state ?? ''))
   useEffect(() => {
     if (!activeProjection || state.status !== 'ready') return

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Badge, Box, Button, Field, HStack, IconButton, Input, Menu, Portal, Spinner, Stack, Table } from '@chakra-ui/react'
+import { Badge, Box, Button, Field, HStack, IconButton, Input, Menu, Portal, Stack, Table } from '@chakra-ui/react'
 import { AlertTriangle, Ban, Check, Columns3, FilePlus2, Pencil, RefreshCw, Rocket, RotateCcw, ShieldCheck, Trash2, Upload, X, XCircle } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
@@ -10,6 +10,7 @@ import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
@@ -131,7 +132,7 @@ function DeployModeTag({
   let icon: ReactNode
   let tooltip: string
   if (isCustom && verifying.has(key)) {
-    icon = <Spinner size="xs" color="blue.400" />
+    icon = <InProgressSpinner color="blue.400" />
     tooltip = `Verifying ${label} deploy now…`
   } else if (!isCustom || image.verifiedDeployTargets.includes(target)) {
     icon = (

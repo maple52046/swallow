@@ -188,7 +188,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	serverGroup.Post("/:id/power-on", provisioningHandler.PowerOn)
 	serverGroup.Post("/:id/power-off", provisioningHandler.PowerOff)
 	serverGroup.Get("/:id/power-state", provisioningHandler.PowerState)
-	serverGroup.Post("/:id/commission", provisioningHandler.Commission)
+	serverGroup.Post("/:id/inspect", provisioningHandler.Inspect)
 	serverGroup.Post("/:id/test", provisioningHandler.Test)
 	serverGroup.Post("/:id/abort", provisioningHandler.Abort)
 	serverGroup.Post("/:id/override-failed-testing", provisioningHandler.OverrideFailedTesting)

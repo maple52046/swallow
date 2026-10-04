@@ -27,12 +27,15 @@ export interface ServerGPU {
 }
 
 /**
- * Provisioning readiness, owned by the provisioner. Branch on `state`;
- * `providerState` is the provisioner's own label and is for display only.
+ * The swallow-defined OS Provisioning State (glossary term, decision 048): provider-neutral
+ * values that each provisioner adapter maps its own lifecycle onto. Branch on this value;
+ * `providerState` is the provisioner's own word (for example MAAS "Commissioning" while the
+ * state is `inspecting`) and is for display only. The UI label is the value in title case
+ * ("Ready", "Releasing").
  */
 export type ProvisioningState =
   | 'new'
-  | 'commissioning'
+  | 'inspecting'
   | 'ready'
   | 'allocated'
   | 'deploying'
@@ -44,6 +47,24 @@ export type ProvisioningState =
   | 'failed'
   | 'retired'
   | 'unknown'
+
+/**
+ * The OS Provisioning States in which provider work is running, so the state changes without
+ * operator action. One set shared by the Deployment cell's progress cue, the list's
+ * changing/polling logic, the detail page's follow poll, and the action gates that refuse to
+ * race in-flight work, so the four never disagree.
+ */
+export const IN_PROGRESS_PROVISIONING_STATES: ReadonlySet<ProvisioningState> = new Set<ProvisioningState>([
+  'inspecting',
+  'deploying',
+  'releasing',
+  'testing',
+])
+
+/** True when `state` is one of {@link IN_PROGRESS_PROVISIONING_STATES}; an unobserved axis is not. */
+export function isProvisioningInProgress(state: ProvisioningState | undefined): boolean {
+  return state !== undefined && IN_PROGRESS_PROVISIONING_STATES.has(state)
+}
 
 export type DeploymentState =
   | 'deploying'
@@ -113,7 +134,10 @@ export interface ProvisioningAxis {
   hweKernel: string
   /** The provisioner is refusing state-changing actions; explains a rejected deploy. */
   locked: boolean
-  /** The provisioner's labels for the last inspection and test run. Display only. */
+  /**
+   * The provisioner's labels for the last inspection and test run. Display only. The field
+   * keeps its published name because it is the provider's result label, not a lifecycle state.
+   */
   commissioningStatus: string
   testingStatus: string
   integrationId: string
@@ -271,7 +295,7 @@ export interface Server {
   /** Observed, mutable, and not unique. Two sites may share a hostname. */
   hostname: string | null
   fqdn: string | null
-  /** Empty before commissioning and during a reinstall. */
+  /** Empty before the provisioner first inspects the hardware and during a reinstall. */
   addresses: string[]
   architecture: string
   cpuCores: number
@@ -281,7 +305,7 @@ export interface Server {
   memoryMiB: number
   storageGB: number
   gpus: ServerGPU[]
-  /** Hardware make as the provisioner commissioned it, for grouping the fleet. */
+  /** Hardware make as the provisioner's inspection reported it, for grouping the fleet. */
   systemVendor: string
   systemProduct: string
   /**
@@ -384,7 +408,7 @@ export interface ProvisioningActionResult {
 export type ServerAction =
   | 'power-on'
   | 'power-off'
-  | 'commission'
+  | 'inspect'
   | 'test'
   | 'abort'
   | 'override-failed-testing'

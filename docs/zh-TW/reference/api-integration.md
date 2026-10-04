@@ -58,6 +58,24 @@ plain array，會由個別 contract 明確說明。
 - 以 cached provider data 決策前先讀 sync／observation timestamp。
 - Credential 是 write-only；使用 `hasCredential`，不要期待 redacted value。
 
+## OS provisioning compatibility
+
+Client 只能對 swallow 定義的
+[`provisioning.state`](../../development/glossaries/terms/os-provisioning-state.md)
+分支。不得對 `providerState` 分支：它只是 display-only provider label，例如
+MAAS 的 *Commissioning*，而且不同 provisioner 可能使用不同用語。
+
+2026-10-04 的 provisioning vocabulary 變更對 API client 是 breaking change：
+
+- State value `commissioning` 更名為 `inspecting`。
+- `POST /api/v1/servers/{id}/commission` 更名為
+  `POST /api/v1/servers/{id}/inspect`；舊 route 已移除，沒有 alias。
+- `commissioningStatus` field 保留原名，因為它承載 provider 上次的 inspection
+  result label。
+
+更名前寫入的 stored projection 會以 `inspecting` 回傳。在下一次 reconcile
+重寫前，以 `provisioningState=inspecting` filter 也會比對到這些 record。
+
 ## Contract directory
 
 依序閱讀：

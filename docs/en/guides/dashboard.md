@@ -52,6 +52,11 @@ configured integration naturally produces empty states.
 
 - Never expect one combined Server status. Provisioning, membership, and health
   are independent.
+- On **Servers**, the **Deployment** column combines swallow's deployment result
+  with the provider-neutral OS provisioning state. **Ready** is a known,
+  deployable provider state; **Unknown** is not. A spinner marks work in
+  progress, and hovering the state shows details. See
+  [Servers and infrastructure](servers-and-infrastructure.md#read-the-deployment-column).
 - Unknown values remain unknown; the UI does not render them as failure.
 - Check integration sync errors and observation timestamps before trusting
   cached values.

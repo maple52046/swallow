@@ -127,12 +127,15 @@ type PowerController interface {
 	QueryPowerState(ctx context.Context, machineID string) (PowerState, error)
 }
 
-// HardwareValidator re-runs the provisioner's own commissioning and hardware tests, and
+// HardwareValidator re-runs the provisioner's own hardware inspection and tests, and
 // resolves their outcomes.
 type HardwareValidator interface {
-	Commission(ctx context.Context, machineID string) (*Machine, error)
+	// Inspect re-inventories the machine's hardware, moving it to MachineStatusInspecting.
+	// Adapters translate it to the provider's own action (MAAS commission, Ironic
+	// introspection); the swallow name stays provider-neutral (docs/decisions/048).
+	Inspect(ctx context.Context, machineID string) (*Machine, error)
 	Test(ctx context.Context, machineID string) (*Machine, error)
-	// Abort stops an in-progress commissioning, testing, or deployment.
+	// Abort stops an in-progress inspection, testing, or deployment.
 	Abort(ctx context.Context, machineID string) (*Machine, error)
 	// OverrideFailedTesting accepts a machine whose tests failed, moving it back to a
 	// usable state on an operator's judgement.

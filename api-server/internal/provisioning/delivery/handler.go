@@ -273,8 +273,10 @@ func (h *ProvisioningHandler) PowerState(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-func (h *ProvisioningHandler) Commission(c *fiber.Ctx) error {
-	return h.serverAction(c, h.actions.Commission)
+// Inspect serves POST /servers/{id}/inspect (server-detail-actions.md): it starts the
+// provisioner's hardware inspection and responds 202 with the accepted provisioning snapshot.
+func (h *ProvisioningHandler) Inspect(c *fiber.Ctx) error {
+	return h.serverAction(c, h.actions.Inspect)
 }
 
 func (h *ProvisioningHandler) Test(c *fiber.Ctx) error {

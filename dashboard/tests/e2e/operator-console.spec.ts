@@ -416,7 +416,10 @@ test.describe('operator interactions', () => {
     for (const category of ['Power', 'Hardware checks', 'State & recovery']) {
       await expect(page.getByRole('menuitem', { name: category, exact: true })).toBeVisible()
     }
-    await expect(page.getByRole('menuitem', { name: 'Commission', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: /^Inspect hardware/ })).toHaveCount(0)
+    await page.getByRole('menuitem', { name: 'Hardware checks', exact: true }).hover()
+    await expect(page.getByRole('menuitem', { name: /^Inspect hardware/ })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /^Commission/ })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await page.getByRole('tab', { name: 'Monitoring' }).click()
     await expect(page.getByRole('heading', { name: 'Current metrics' })).toBeVisible()

@@ -354,7 +354,7 @@ func TestReconcile_ClearsServerDefaultUserOnlyWithoutOS(t *testing.T) {
 	}
 }
 
-// A machine that is not deployed carries no deployed-image name, so a ready or commissioning
+// A machine that is not deployed carries no deployed-image name, so a ready or inspecting
 // machine is never mislabelled with whatever image the catalog happens to list.
 func TestReconcile_NoDeployedImageNameWhenNotDeployed(t *testing.T) {
 	f := setupReconcile(t)

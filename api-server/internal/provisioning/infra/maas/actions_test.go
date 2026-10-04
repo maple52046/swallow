@@ -20,7 +20,7 @@ func TestCapabilityActions_InvokeTheRightOperation(t *testing.T) {
 	}{
 		{"power on", func(p *Provider) error { _, err := p.PowerOn(context.Background(), "abc123"); return err }, "power_on", false},
 		{"power off", func(p *Provider) error { _, err := p.PowerOff(context.Background(), "abc123"); return err }, "power_off", false},
-		{"commission", func(p *Provider) error { _, err := p.Commission(context.Background(), "abc123"); return err }, "commission", false},
+		{"inspect sends MAAS commission", func(p *Provider) error { _, err := p.Inspect(context.Background(), "abc123"); return err }, "commission", false},
 		{"test", func(p *Provider) error { _, err := p.Test(context.Background(), "abc123"); return err }, "test", false},
 		{"abort", func(p *Provider) error { _, err := p.Abort(context.Background(), "abc123"); return err }, "abort", false},
 		{"override", func(p *Provider) error { _, err := p.OverrideFailedTesting(context.Background(), "abc123"); return err }, "override_failed_testing", false},

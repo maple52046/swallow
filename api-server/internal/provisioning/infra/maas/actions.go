@@ -59,7 +59,9 @@ func (p *Provider) QueryPowerState(ctx context.Context, machineID string) (provi
 
 // --- HardwareValidator ---
 
-func (p *Provider) Commission(ctx context.Context, machineID string) (*provisioningdomain.Machine, error) {
+// Inspect is swallow's hardware inspection, which MAAS calls commissioning; the MAAS op name
+// stays inside this adapter.
+func (p *Provider) Inspect(ctx context.Context, machineID string) (*provisioningdomain.Machine, error) {
 	return p.action(ctx, machineID, "commission")
 }
 

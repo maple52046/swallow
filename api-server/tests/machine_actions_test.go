@@ -27,7 +27,7 @@ func TestServerActions_DriveTheProvisioner(t *testing.T) {
 	}{
 		{path: "power-on", wantOp: "power_on machine-srv-1"},
 		{path: "power-off", wantOp: "power_off machine-srv-1"},
-		{path: "commission", wantOp: "commission machine-srv-1"},
+		{path: "inspect", wantOp: "inspect machine-srv-1"},
 		{path: "test", wantOp: "test machine-srv-1"},
 		{path: "abort", wantOp: "abort machine-srv-1"},
 		{path: "override-failed-testing", wantOp: "override_failed_testing machine-srv-1"},
@@ -88,7 +88,7 @@ func TestServerActions_RefusedWhenProvisionerLacksCapability(t *testing.T) {
 		},
 	}
 
-	for _, path := range []string{"power-on", "commission", "lock"} {
+	for _, path := range []string{"power-on", "inspect", "lock"} {
 		resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-1/"+path, nil, f.adminAuth(t))
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%s: expected 400, got %d", path, resp.StatusCode)

@@ -84,6 +84,8 @@ type DeploymentAxisItem struct {
 }
 
 type ProvisioningAxisItem struct {
+	// State is the swallow-defined OS Provisioning State (servers-list.md, decision 048) that
+	// clients branch on; ProviderState is the provider's own label and is display only.
 	State         string `json:"state"`
 	ProviderState string `json:"providerState"`
 	// ErrorDescription is the provisioner's own machine-level failure reason, present only for

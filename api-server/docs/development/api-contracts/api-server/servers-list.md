@@ -23,6 +23,7 @@ provisioning, platform-membership, and health axes.
 
 - `Server`
 - `Server Status`
+- `OS Provisioning State`
 
 ## Endpoint / RPC
 
@@ -54,7 +55,7 @@ Bearer token required. See [`conventions.md`](conventions.md).
 | `pageSize` | integer | No | Items per page; default `20`, max `100`. |
 | `siteId` | string | No | Return Servers observed through integrations at this Site. |
 | `integrationId` | string | No | Return Servers observed through this integration. |
-| `provisioningState` | string | No | Filter on the provisioning axis state. |
+| `provisioningState` | string | No | Filter on the provisioning axis state; one of the values listed under [Provisioning state](#provisioning-state). |
 | `platformId` | string | No | Return Servers whose membership axis names this Platform. |
 | `clusterId` | string | No | Deprecated one-release alias for `platformId`; ignored when `platformId` is also present. |
 | `keyword` | string | No | Case-insensitive match on hostname, FQDN, address, serial number, or system UUID. |
@@ -117,6 +118,34 @@ This is the same complete Server projection returned by the detail endpoint.
 Optional observations use `null`; an unavailable axis is not assigned a default
 state. No BMC, SSH, integration, or automation credential is returned.
 
+### Provisioning state
+
+`provisioning.state` is the swallow-defined OS Provisioning State, never a provider's own
+word. The provider adapter maps its lifecycle onto these values and puts its own label in the
+display-only `providerState` (for example `inspecting` with `providerState` `Commissioning`
+from MAAS). Clients branch on `state` only.
+
+| Value | Meaning |
+| --- | --- |
+| `new` | Discovered, hardware not inspected yet; not deployable. |
+| `inspecting` | The provider is inventorying the hardware (MAAS Commissioning). |
+| `ready` | In the provider's available pool; can accept an OS Deployment. |
+| `allocated` | Reserved but not deployed. |
+| `deploying` | An operating system is being installed. |
+| `deployed` | An operating system is installed and running. |
+| `releasing` | Being returned to the available pool, including disk erasure. |
+| `testing` | The provider is running hardware tests. |
+| `rescue` | In the provider's diagnostic environment. |
+| `broken` | The provider marked the machine unusable. |
+| `failed` | The last lifecycle action failed. |
+| `retired` | Withdrawn from service. |
+| `unknown` | The provider reported a state swallow does not recognise. |
+
+`inspecting`, `deploying`, `releasing`, and `testing` are in progress and change without
+operator action.
+
+### Provisioning axis fields
+
 On the provisioning axis, `deployedImageName` is the effective display name of the
 currently deployed OS image — the provider catalog name overlaid with any Swallow
 custom name. It is mirrored when a deploy completes and refreshed by reconcile (and by
@@ -170,6 +199,12 @@ only documented values.
 
 Adding an optional projection field is backward compatible. Adding a credential
 field is forbidden. The three state axes and `absent` remain independent.
+
+On 2026-10-04 the provisioning state `commissioning` was renamed to `inspecting`
+([decision 048](../../../../../docs/decisions/048-os-provisioning-generic-states.md)). This
+is a breaking change for clients that branch on or filter by `commissioning`. A projection
+stored before the rename is returned as `inspecting`, and `provisioningState=inspecting`
+also matches it until the next reconcile rewrites it.
 
 Following the Cluster to Platform rename, the `clusterId` query parameter and the
 membership `clusterId` response field are deprecated one-release aliases for

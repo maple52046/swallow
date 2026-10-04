@@ -47,6 +47,31 @@ Run `sudo ./swallowctl doctor` in `production/`; each `FAIL` line names one conn
 4. Trigger reconcile or wait for the configured interval.
 5. Remember that there is no manual create-Server operation.
 
+## A Server stays Releasing or Inspecting
+
+`releasing`, `inspecting`, `testing`, and `deploying` are in-progress OS
+provisioning states. They are expected to change without another operator
+action. The spinner in the Deployment column identifies this condition but does
+not prove that the provider is making progress.
+
+1. Hover the Deployment state for its current details.
+2. Check the provisioning observation time and the Integration's sync error and
+   last-success time.
+3. Refresh the Server to perform a targeted provider read.
+4. Read the Server's provider events to see whether the external lifecycle
+   action is still advancing or has failed.
+
+```bash
+swallow servers refresh server1
+swallow servers events server1 --limit 50
+swallow -o json servers get server1
+```
+
+If the state changes to `failed`, `broken`, or `rescue`, it needs operator
+attention rather than more waiting. See
+[Servers and infrastructure](guides/servers-and-infrastructure.md#read-the-deployment-column)
+for the state and recovery cues.
+
 ## Credentials stopped working after a key change
 
 Stored integration and automation credentials are encrypted with
