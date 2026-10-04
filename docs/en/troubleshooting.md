@@ -54,6 +54,12 @@ provisioning states. They are expected to change without another operator
 action. The spinner in the Deployment column identifies this condition but does
 not prove that the provider is making progress.
 
+When shown, the running time for one of these provider states starts when
+swallow first observed it; a swallow OS deployment counts from the deployment's
+start instead. It is not the provider's exact transition time or proof of
+progress. No running time means the start is unknown, not that the work
+has not started.
+
 1. Hover the Deployment state for its current details.
 2. Check the provisioning observation time and the Integration's sync error and
    last-success time.

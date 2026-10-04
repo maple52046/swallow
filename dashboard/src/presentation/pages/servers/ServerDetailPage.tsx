@@ -160,7 +160,7 @@ export function ServerDetailPage() {
         breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]}
         metadata={
           <HStack gap="2" wrap="wrap">
-            <DeploymentBadge axis={server.deployment} provider={server.provisioning} stateOnly />
+            <DeploymentBadge axis={server.deployment} provider={server.provisioning} stateOnly elapsed="inline" />
             <LockBadge locked={server.provisioning?.locked ?? false} />
             <MembershipBadge axis={server.membership} />
             <HealthBadge axis={server.health} />

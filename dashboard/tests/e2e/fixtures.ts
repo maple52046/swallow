@@ -455,6 +455,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const server = fleet.find((item) => item.id === serverId)
     if (server) {
       server.provisioning.state = 'inspecting'
+      server.provisioning.stateSince = '2026-08-27T02:58:30Z'
       server.provisioning.providerState = 'Commissioning'
       server.deployment = {
         state: 'deploying', operationId: 'op-running', stepId: `provision-${server.id}`,
@@ -598,6 +599,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     if (remaining <= 1) {
       server.provisioning.state = 'ready'
+      server.provisioning.stateSince = new Date().toISOString()
       server.provisioning.providerState = 'Ready'
       server.provisioning.osSystem = ''
       server.provisioning.distroSeries = ''
@@ -1225,6 +1227,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         if (server) {
           if (!options.deferReleaseProjection) {
             server.provisioning.state = 'releasing'
+            server.provisioning.stateSince = new Date().toISOString()
             server.provisioning.providerState = 'Releasing'
           }
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
@@ -1262,6 +1265,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           // Recovery converges to the ready pool; model the same releasing -> ready path a
           // real Recover Operation drives so the list can follow the Server in place.
           server.provisioning.state = 'releasing'
+          server.provisioning.stateSince = new Date().toISOString()
           server.provisioning.providerState = 'Releasing'
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
         }
@@ -1468,6 +1472,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const server = fleet.find((item) => item.id === serverId)
         if (server) {
           server.provisioning.state = "releasing"
+          server.provisioning.stateSince = new Date().toISOString()
           server.provisioning.providerState = "Releasing"
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
         }

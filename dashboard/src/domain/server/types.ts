@@ -95,6 +95,13 @@ export interface DeploymentAxis {
 
 export interface ProvisioningAxis {
   state: ProvisioningState
+  /**
+   * When Swallow first observed `state` (servers-list.md): kept while the state is unchanged,
+   * moved when it changes, and as precise as Swallow's observation cadence rather than the
+   * provider's own transition time. Absent when unknown, for example a projection stored before
+   * the field existed. The running time of an in-progress provider state counts from it.
+   */
+  stateSince?: string
   providerState: string
   /**
    * The provisioner's own machine-level failure reason (e.g. "Failed to erase disks."), present

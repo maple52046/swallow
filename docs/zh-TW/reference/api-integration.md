@@ -76,6 +76,12 @@ MAAS 的 *Commissioning*，而且不同 provisioner 可能使用不同用語。
 更名前寫入的 stored projection 會以 `inspecting` 回傳。在下一次 reconcile
 重寫前，以 `provisioningState=inspecting` filter 也會比對到這些 record。
 
+Optional RFC 3339 `provisioning.stateSince` field 記錄 swallow 第一次觀察到目前
+`provisioning.state` 的時間。State 不變時此值保持不變；state 改變時，它會移到
+新的 observation time。起始時間未知時會省略此 field，包括舊 projection 尚未
+再次觀察到該 state 的情況；client 必須接受它不存在。這是 swallow 的 observation
+timestamp，不是 provider 確切的 transition time。
+
 ## Contract directory
 
 依序閱讀：

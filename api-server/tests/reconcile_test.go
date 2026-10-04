@@ -370,6 +370,43 @@ func TestReconcile_NoDeployedImageNameWhenNotDeployed(t *testing.T) {
 	}
 }
 
+// stateSince is the start of the running time a client shows for an in-progress state, so a
+// reconcile pass that sees the same state must not restart it, and a state change must.
+func TestReconcile_StateSinceKeepsAcrossPassesAndResetsOnChange(t *testing.T) {
+	f := setupReconcile(t)
+	machine := testMachine("abc123", "gpu-node-01")
+	f.provider.withMachine(machine)
+	ctx := context.Background()
+
+	if _, err := f.uc.Execute(ctx, testIntegrationID); err != nil {
+		t.Fatalf("first pass: %v", err)
+	}
+	server, err := f.servers.FindBySource(ctx, serverdomain.Source{SiteID: testSiteID, IntegrationID: testIntegrationID, ProviderMachineID: "abc123"})
+	if err != nil {
+		t.Fatalf("FindBySource: %v", err)
+	}
+	if server.Provisioning.StateSince.IsZero() {
+		t.Fatal("first pass: StateSince is zero, want the observation time")
+	}
+	earlier := server.Provisioning.StateSince.Add(-time.Hour)
+	server.Provisioning.StateSince = earlier
+
+	if _, err := f.uc.Execute(ctx, testIntegrationID); err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	if got := server.Provisioning.StateSince; !got.Equal(earlier) {
+		t.Errorf("unchanged state: StateSince = %v, want the earlier %v", got, earlier)
+	}
+
+	machine.Status = provisioningdomain.MachineStatusReleasing
+	if _, err := f.uc.Execute(ctx, testIntegrationID); err != nil {
+		t.Fatalf("third pass: %v", err)
+	}
+	if got := server.Provisioning.StateSince; !got.After(earlier.Add(time.Hour - time.Minute)) {
+		t.Errorf("changed state: StateSince = %v, want the time releasing was observed", got)
+	}
+}
+
 func TestReconcile_UpdatesInPlaceOnSecondPass(t *testing.T) {
 	f := setupReconcile(t)
 	machine := testMachine("abc123", "gpu-node-01")

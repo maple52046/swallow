@@ -101,13 +101,16 @@ type deploymentDoc struct {
 }
 
 type provisioningDoc struct {
-	State             string `bson:"state"`
-	ProviderState     string `bson:"providerState"`
-	ErrorDescription  string `bson:"errorDescription,omitempty"`
-	PowerState        string `bson:"powerState"`
-	OSSystem          string `bson:"osSystem,omitempty"`
-	DistroSeries      string `bson:"distroSeries,omitempty"`
-	DeployedImageName string `bson:"deployedImageName,omitempty"`
+	State string `bson:"state"`
+	// StateSince is absent on documents written before it existed, which reads as zero
+	// (unknown) until the next observation records it.
+	StateSince        time.Time `bson:"stateSince,omitempty"`
+	ProviderState     string    `bson:"providerState"`
+	ErrorDescription  string    `bson:"errorDescription,omitempty"`
+	PowerState        string    `bson:"powerState"`
+	OSSystem          string    `bson:"osSystem,omitempty"`
+	DistroSeries      string    `bson:"distroSeries,omitempty"`
+	DeployedImageName string    `bson:"deployedImageName,omitempty"`
 	// DeployedImageDefaultUser mirrors the deployed image's effective default login user
 	// (decision 039); absent on documents written before it existed, which reads as unknown.
 	DeployedImageDefaultUser string    `bson:"deployedImageDefaultUser,omitempty"`
@@ -691,6 +694,7 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 	if p := s.Provisioning; p != nil {
 		doc.Provisioning = &provisioningDoc{
 			State:                    p.State,
+			StateSince:               p.StateSince,
 			ProviderState:            p.ProviderState,
 			ErrorDescription:         p.ErrorDescription,
 			PowerState:               p.PowerState,
@@ -801,6 +805,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 	if p := doc.Provisioning; p != nil {
 		s.Provisioning = &serverdomain.ProvisioningStatus{
 			State:                    provisioningStateFromStore(p.State),
+			StateSince:               p.StateSince,
 			ProviderState:            p.ProviderState,
 			ErrorDescription:         p.ErrorDescription,
 			PowerState:               p.PowerState,

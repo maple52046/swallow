@@ -146,6 +146,11 @@ type Observed struct {
 type ProvisioningStatus struct {
 	// State is a normalized provisioning state. Branch on this.
 	State string
+	// StateSince is when swallow first observed State. It is swallow's own record, not the
+	// provider's transition time, so it is only as precise as the observation that saw the
+	// change; zero means unknown (a projection stored before the field existed). Writers set it
+	// through NextStateSince so it survives every re-observation of an unchanged State.
+	StateSince time.Time
 	// ProviderState is the provisioner's own label. Display only.
 	ProviderState string
 	// ErrorDescription is the provisioner's own machine-level failure reason (e.g. "Failed to
@@ -193,6 +198,17 @@ type ProvisioningStatus struct {
 	TestingStatus       string
 	IntegrationID       string
 	ObservedAt          time.Time
+}
+
+// NextStateSince returns the StateSince for a new observation of state at now, given the
+// projection it replaces. An unchanged state keeps the earlier time, so re-reading a Server every
+// reconcile pass never restarts its running time; a changed state, a first observation, or an
+// earlier time that was never recorded starts at now.
+func NextStateSince(previous *ProvisioningStatus, state string, now time.Time) time.Time {
+	if previous != nil && previous.State == state && !previous.StateSince.IsZero() {
+		return previous.StateSince
+	}
+	return now
 }
 
 // DeploymentState is Swallow's outcome for the most recent durable OS deployment.

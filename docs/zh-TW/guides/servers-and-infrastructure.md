@@ -45,7 +45,20 @@ Server detail header 不顯示 image 名稱，而是顯示結果：swallow 佈�
 | Unknown | 目前沒有 provider observation，或 adapter 無法辨識 provider state；不代表 Ready。 |
 
 進行中的狀態會在標籤後顯示小型 spinner。文字本身才是 state，spinner 只提供
-視覺提示。將滑鼠停在 state 上，可查看 provider failure reason 等細節。
+視覺提示。整列或 mobile card 也會呈現淡藍色底色，並有柔和光帶掃過。將滑鼠
+停在 state 上，可查看 provider failure reason 等細節。
+
+起始時間已知時，list row 與 mobile card 會在 state 下方顯示 timer icon 與持續
+更新的執行時間；Server detail header 則顯示在 state 旁。Swallow OS deployment
+從 deployment 開始時起算，從 **Deploying** 進入 **Verifying** 時不會重設。
+Provider 工作（**Releasing**、**Inspecting**、**Testing**，或不是由 swallow
+發起的 **Deploying**）則從 swallow 第一次觀察到該 state 時起算。將滑鼠停在
+執行時間上可查看起算依據。
+
+Provider state 的起始時間是 swallow 的 observation，不是 provider 確切的
+transition time；其精確度約等於 inventory reconcile 或 targeted Server refresh
+的頻率。Release 等 operator action 後，list 會持續追蹤該 Server，因此時間會接近
+即時。起始時間未知時不會顯示執行時間。
 
 Release 接受後可留在 list：provider 執行期間該列會變成 **Releasing**，Server
 回到 pool 後再變成 **Ready**。只有 provider 工作時，row action 會顯示

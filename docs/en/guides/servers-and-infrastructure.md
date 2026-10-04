@@ -48,8 +48,23 @@ installed image.
 | Unknown | There is no current provider observation, or the adapter does not recognize the provider state. It does not mean Ready. |
 
 An in-progress label has a small spinner after it. The text remains the state;
-the spinner is only a visual cue. Hover the state for details such as the
-provider's failure reason.
+the spinner is only a visual cue. The whole row or mobile card also has a light
+blue tint with a soft band sweeping across it. Hover the state for details such
+as the provider's failure reason.
+
+When the start is known, a timer icon and ticking running time appear under the
+state in list rows and mobile cards, and beside it in the Server detail header.
+For a swallow OS deployment, the time starts when the deployment starts and
+continues without resetting from **Deploying** into **Verifying**. For provider
+work—**Releasing**, **Inspecting**, **Testing**, or **Deploying** not started by
+swallow—it starts when swallow first observed that state. Hover the running time
+to see which start it uses.
+
+A provider-state start is swallow's observation, not the provider's exact
+transition time, so it is only as precise as inventory reconcile or a targeted
+Server refresh. It is close to real time after an operator action such as
+Release because the list follows that Server. If no start is known, no running
+time is shown.
 
 After Release is accepted, stay on the list: the row changes to **Releasing**
 while the provider works and then to **Ready** when the Server returns to the

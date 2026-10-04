@@ -51,6 +51,10 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   // Provider inspection is a generic in-progress state and outranks the Swallow deploy result.
   await expect(changing.getByText('Inspecting', { exact: true })).toBeVisible()
   await expect(ready.getByText('Ready', { exact: true })).toBeVisible()
+  // Its running time counts from when Swallow first observed it (02:58:30 against a 03:05:00
+  // page clock); an idle state has none.
+  await expect(changing.getByText('Running for 6m 30s', { exact: true })).toBeVisible()
+  await expect(ready.getByText(/^Running for/)).toHaveCount(0)
   await expect(deployAction).toHaveAttribute('href', /serverId=srv-1.*site=site-a|site=site-a.*serverId=srv-1/)
   await expect(monitorAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
   for (const action of [deployAction, monitorAction]) {

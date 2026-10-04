@@ -86,8 +86,10 @@ type DeploymentAxisItem struct {
 type ProvisioningAxisItem struct {
 	// State is the swallow-defined OS Provisioning State (servers-list.md, decision 048) that
 	// clients branch on; ProviderState is the provider's own label and is display only.
-	State         string `json:"state"`
-	ProviderState string `json:"providerState"`
+	State string `json:"state"`
+	// StateSince is when swallow first observed State, omitted when unknown (servers-list.md).
+	StateSince    *string `json:"stateSince,omitempty"`
+	ProviderState string  `json:"providerState"`
 	// ErrorDescription is the provisioner's own machine-level failure reason, present only for
 	// failure states and omitted otherwise. Display and diagnostics only; it lets a client show
 	// why a lifecycle action failed (e.g. "Failed to erase disks.") without a separate event read.
@@ -210,6 +212,7 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 	if p := s.Provisioning; p != nil {
 		item.Provisioning = &ProvisioningAxisItem{
 			State:                    p.State,
+			StateSince:               wire.TimePtr(p.StateSince),
 			ProviderState:            p.ProviderState,
 			ErrorDescription:         p.ErrorDescription,
 			PowerState:               p.PowerState,

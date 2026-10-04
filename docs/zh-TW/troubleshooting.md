@@ -51,6 +51,11 @@ docker compose logs api-server worker ansible-executor temporal
 provisioning state，預期會在不需要另一個 operator action 的情況下改變。
 Deployment 欄位的 spinner 會標示這種狀況，但不代表 provider 一定仍有進度。
 
+若有顯示執行時間，這些 provider state 會從 swallow 第一次觀察到它時起算；
+swallow OS deployment 則改從 deployment 開始時起算。它不是 provider 確切的
+transition time，也不能證明仍有進度。沒有執行時間代表
+起始時間未知，不代表工作尚未開始。
+
 1. 將滑鼠停在 Deployment state 上，查看目前細節。
 2. 檢查 provisioning observation time，以及 Integration 的 sync error 與最後成功時間。
 3. Refresh Server，執行一次 targeted provider read。

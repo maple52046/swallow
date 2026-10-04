@@ -86,6 +86,7 @@ query language. `includeAbsent=true` changes visibility only.
       "hardware": {"systemUuid": "uuid", "serialNumber": "serial", "macAddresses": []},
       "provisioning": {
         "state": "deployed",
+        "stateSince": "2026-05-02T14:12:09Z",
         "powerState": "on",
         "osSystem": "ubuntu",
         "distroSeries": "jammy",
@@ -143,6 +144,14 @@ from MAAS). Clients branch on `state` only.
 
 `inspecting`, `deploying`, `releasing`, and `testing` are in progress and change without
 operator action.
+
+`stateSince` is when Swallow first observed the current `state`: it stays the same while the
+state is unchanged and moves to the observation time when the state changes. It is Swallow's
+own record, not the provider's transition time, so its precision is the observation cadence
+(the inventory reconcile interval, or a targeted refresh of the Server). Clients use it to show
+how long a Server has been in its state, for example the running time of `releasing`. It is
+omitted when unknown, which includes a projection stored before the field existed until its
+state is observed again.
 
 ### Provisioning axis fields
 
@@ -205,6 +214,9 @@ On 2026-10-04 the provisioning state `commissioning` was renamed to `inspecting`
 is a breaking change for clients that branch on or filter by `commissioning`. A projection
 stored before the rename is returned as `inspecting`, and `provisioningState=inspecting`
 also matches it until the next reconcile rewrites it.
+
+`provisioning.stateSince` was added on 2026-10-04 as an optional field; clients must accept
+its absence.
 
 Following the Cluster to Platform rename, the `clusterId` query parameter and the
 membership `clusterId` response field are deprecated one-release aliases for

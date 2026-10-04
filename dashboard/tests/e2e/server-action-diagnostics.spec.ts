@@ -71,6 +71,7 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   await expect(row.getByText('Releasing', { exact: true })).toBeVisible()
   // The in-progress cue is a spinner after the label inside the same badge.
   await expect(row.getByText('Releasing', { exact: true }).locator('.sw-progress-spinner')).toBeVisible()
+  await expect(row.getByText(/^Running for \d+s$/)).toBeVisible()
   await expect(row.getByText('Ready', { exact: true })).toBeVisible({ timeout: 7_000 })
   await expect(row.getByText('Releasing', { exact: true })).toHaveCount(0)
   await expect(row.locator('.sw-progress-spinner')).toHaveCount(0)

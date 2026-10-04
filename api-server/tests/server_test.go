@@ -8,6 +8,36 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
+// provisioning.stateSince is optional (servers-list.md): a recorded start is an RFC 3339 time,
+// and an unknown one is omitted rather than rendered as year one.
+func TestListServers_ProvisioningStateSince(t *testing.T) {
+	f := setupPlatform(t)
+	since := time.Date(2026, 10, 4, 14, 31, 5, 0, time.UTC)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
+		s.Provisioning.State = "releasing"
+		s.Provisioning.StateSince = since
+	})
+	f.seedServer("srv-2", "gpu-node-02", "10.0.1.11", nil)
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	got := map[string]any{}
+	for _, raw := range parseBody(t, resp)["items"].([]any) {
+		item := raw.(map[string]any)
+		provisioning := item["provisioning"].(map[string]any)
+		value, present := provisioning["stateSince"]
+		if !present {
+			value = "<absent>"
+		}
+		got[item["id"].(string)] = value
+	}
+	if got["srv-1"] != "2026-10-04T14:31:05Z" || got["srv-2"] != "<absent>" {
+		t.Errorf("stateSince by server = %v, want srv-1 2026-10-04T14:31:05Z and srv-2 absent", got)
+	}
+}
+
 func TestListServers_ShapeAndAxes(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)

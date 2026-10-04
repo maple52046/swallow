@@ -83,6 +83,13 @@ Stored projections written before the rename are returned as `inspecting`.
 Filtering with `provisioningState=inspecting` also matches those records until
 the next reconcile rewrites them.
 
+The optional RFC 3339 `provisioning.stateSince` field is when swallow first
+observed the current `provisioning.state`. It remains unchanged while that state
+is unchanged and moves to the new observation time when the state changes. It
+is omitted when unknown, including on an older projection until the state is
+observed again; clients must accept its absence. This is a swallow observation
+timestamp, not the provider's exact transition time.
+
 ## Contract directory
 
 Start with:

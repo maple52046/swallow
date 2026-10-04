@@ -1,4 +1,5 @@
 import type { DeploymentAxis, DeploymentState, ProvisioningAxis } from '@/domain/server/types'
+import { formatDateTime } from '@/shared/utils/time'
 
 /** Chakra colour palette used for axis badges; text always carries the state, colour supplements. */
 export type AxisColor = 'green' | 'red' | 'orange' | 'blue' | 'gray' | 'purple'
@@ -22,6 +23,13 @@ export interface DeploymentPhase {
    * spinner after the label; the label still names the state, so the motion is only a cue.
    */
   inProgress: boolean
+  /**
+   * Start of an in-progress state's running time, absent when unknown. A Swallow deployment
+   * counts from `deployment.startedAt`, one clock across Deploying and Verifying; provider work
+   * counts from `provisioning.stateSince`, when Swallow first observed that state. `description`
+   * says which, for the hover text.
+   */
+  since?: { at: string; description: string }
   /**
    * Set only when the provider reports an installed OS. `imageName` is the effective image or
    * OS/release text ('' when none can be derived); `verified` means Swallow deployed and
@@ -48,6 +56,15 @@ function reasonSuffix(errorDescription?: string): string {
   return reason ? ` Reason: ${reason}.` : ''
 }
 
+/** Running-time start for provider work: when Swallow first observed `label`'s state. */
+function observedSince(provider: ProvisioningAxis | null, label: string): DeploymentPhase['since'] {
+  if (!provider?.stateSince) return undefined
+  return {
+    at: provider.stateSince,
+    description: `Swallow first observed ${label} at ${formatDateTime(provider.stateSince)}.`,
+  }
+}
+
 /**
  * Resolves the Deployment cell for one Server.
  *
@@ -72,19 +89,23 @@ export function resolveDeploymentPhase(
 ): DeploymentPhase {
   switch (provider?.state) {
     case 'releasing':
-      return { label: 'Releasing', color: 'orange', inProgress: true, tooltip: 'The provisioner is returning this Server to its available pool.' }
+      return { label: 'Releasing', color: 'orange', inProgress: true, since: observedSince(provider, 'Releasing'), tooltip: 'The provisioner is returning this Server to its available pool.' }
     case 'inspecting':
-      return { label: 'Inspecting', color: 'blue', inProgress: true, tooltip: 'The provisioner is inventorying this Server\'s hardware.' }
+      return { label: 'Inspecting', color: 'blue', inProgress: true, since: observedSince(provider, 'Inspecting'), tooltip: 'The provisioner is inventorying this Server\'s hardware.' }
     case 'testing':
-      return { label: 'Testing', color: 'blue', inProgress: true, tooltip: 'The provisioner is running hardware tests on this Server.' }
+      return { label: 'Testing', color: 'blue', inProgress: true, since: observedSince(provider, 'Testing'), tooltip: 'The provisioner is running hardware tests on this Server.' }
   }
 
   if (axis && axis.state !== 'succeeded') {
     const { color, label } = SWALLOW_DEPLOYMENT[axis.state]
+    const inProgress = axis.state === 'deploying' || axis.state === 'verifying'
     return {
       label,
       color,
-      inProgress: axis.state === 'deploying' || axis.state === 'verifying',
+      inProgress,
+      since: inProgress && axis.startedAt
+        ? { at: axis.startedAt, description: `Deployment started at ${formatDateTime(axis.startedAt)}.` }
+        : undefined,
       tooltip: axis.statusReason || `Operation ${axis.operationId}, attempt ${axis.attempt}`,
     }
   }
@@ -106,7 +127,7 @@ export function resolveDeploymentPhase(
   if (provider) {
     switch (provider.state) {
       case 'deploying':
-        return { label: 'Deploying', color: 'blue', inProgress: true, tooltip: 'The provisioner is installing an operating system; no verified Swallow result exists yet.' }
+        return { label: 'Deploying', color: 'blue', inProgress: true, since: observedSince(provider, 'Deploying'), tooltip: 'The provisioner is installing an operating system; no verified Swallow result exists yet.' }
       case 'broken':
         // Broken and Failed are distinct recovery cases (decision 033) and must stay
         // distinguishable at a glance: Broken is a provider-marked unusable Machine (cleared with

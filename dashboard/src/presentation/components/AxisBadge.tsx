@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { DeploymentAxis, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
 import { POWER_PRESENTATION } from './axisBadgeUtils'
 import { resolveDeploymentPhase, type AxisColor } from './deploymentPhase'
+import { ElapsedTime } from './ElapsedTime'
 import { InProgressSpinner } from './InProgressSpinner'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
@@ -93,18 +94,24 @@ function EphemeralIndicator() {
  * unless `showEphemeral` is false, the ephemeral qualifier into one composed value. Pass
  * `stateOnly` for detail views where deployment state, deployed OS, and ephemeral each get
  * their own field.
+ *
+ * An in-progress state with a known start also shows its running time (`ElapsedTime`), under
+ * the state by default or beside it with `elapsed="inline"` where the badge sits in a row of
+ * badges (the Server detail header).
  */
 export function DeploymentBadge({
   axis,
   provider,
   stateOnly = false,
   showEphemeral = true,
+  elapsed = 'below',
 }: {
   axis: DeploymentAxis | null
   provider: ProvisioningAxis | null
   stateOnly?: boolean
   /** False when the composed view presents RAM deployment beside another axis. */
   showEphemeral?: boolean
+  elapsed?: 'below' | 'inline'
 }) {
   const phase = resolveDeploymentPhase(axis, provider)
   let state: ReactNode
@@ -122,12 +129,28 @@ export function DeploymentBadge({
 
   // In state-only mode the ephemeral qualifier is shown as its own field by the caller, so the
   // badge never appends the icon; the merged list badge keeps it as a compact supplementary cue.
-  if (stateOnly || !showEphemeral || !provider?.ephemeral) return state
+  if (!stateOnly && showEphemeral && provider?.ephemeral) {
+    state = (
+      <HStack gap="1" flexWrap="nowrap">
+        {state}
+        <EphemeralIndicator />
+      </HStack>
+    )
+  }
+  if (!phase.inProgress || !phase.since) return state
+  // Spans, not divs: the list's `.sw-server-axis-stack > div` rules lay out label/value rows and
+  // would pull the running time beside the state.
   return (
-    <HStack gap="1" flexWrap="nowrap">
+    <Box
+      as="span"
+      display="inline-flex"
+      flexDirection={elapsed === 'inline' ? 'row' : 'column'}
+      alignItems={elapsed === 'inline' ? 'center' : 'flex-start'}
+      gap={elapsed === 'inline' ? '2' : '1'}
+    >
       {state}
-      <EphemeralIndicator />
-    </HStack>
+      <ElapsedTime since={phase.since.at} description={phase.since.description} />
+    </Box>
   )
 }
 

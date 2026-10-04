@@ -700,6 +700,7 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 	image := resolveImageName(machine)
 	server.Provisioning = &serverdomain.ProvisioningStatus{
 		State:                    string(machine.Status),
+		StateSince:               serverdomain.NextStateSince(server.Provisioning, string(machine.Status), now),
 		ProviderState:            machine.ProviderStatus,
 		ErrorDescription:         machine.ErrorDescription,
 		PowerState:               string(machine.PowerState),
