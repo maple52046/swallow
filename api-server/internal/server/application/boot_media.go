@@ -22,26 +22,31 @@ const (
 	bootMediaClearTimeout     = 2 * time.Minute
 	bootMediaReadTimeout      = 45 * time.Second
 	bootMediaEnsureTimeout    = 15 * time.Minute
+	// bootMediaProgressWriteTimeout bounds one progress write; progress must never hold up or
+	// fail the preflight it describes.
+	bootMediaProgressWriteTimeout = 5 * time.Second
 	// bootMediaResetCheck is how long after a recovery restart the mount is checked again: AMI
 	// dropped a fresh mount within a minute of a reset, while the host's POST takes minutes.
 	bootMediaResetCheck = 45 * time.Second
 )
 
-// BootMediaUseCase owns Boot Media for Servers (decision 047): the Redfish capability probe, the
-// enable preflight, disable, and the ensure step that runs before every OS Deployment.
+// BootMediaUseCase owns Boot Media for Servers (decisions 047 and 049): the Redfish capability
+// probe, the enable preflight with a chosen Boot ISO, disable, and the ensure step that runs
+// before every OS Deployment.
 //
 // It reads each BMC's address and account from the provisioner per call (BMCEndpointSource) and
 // never stores or logs them; it persists only the swallow-owned setting and capability through
-// BootMediaStore. Enabling and disabling change the host's boot, so they pass the Server Lock
-// guard; the ensure step runs inside an OS Deployment Workflow that already passed it.
-// Authorization (admin) is the delivery layer's job.
+// BootMediaStore. Boot ISOs are resolved through BootISOResolver; a Server may only use one of
+// its own provisioner Integration. Enabling and disabling change the host's boot, so they pass
+// the Server Lock guard; the ensure step runs inside an OS Deployment Workflow that already
+// passed it. Authorization (admin) is the delivery layer's job.
 type BootMediaUseCase struct {
 	servers   serverdomain.ServerRepository
 	store     serverdomain.BootMediaStore
 	guard     serverdomain.MutationGuard
 	endpoints serverdomain.BMCEndpointSource
 	redfish   serverdomain.RedfishController
-	image     serverdomain.BootMediaImage
+	isos      serverdomain.BootISOResolver
 	now       func() time.Time
 	// resetCheck overrides bootMediaResetCheck in tests.
 	resetCheck time.Duration
@@ -55,23 +60,34 @@ func NewBootMediaUseCase(
 	guard serverdomain.MutationGuard,
 	endpoints serverdomain.BMCEndpointSource,
 	redfish serverdomain.RedfishController,
-	image serverdomain.BootMediaImage,
+	isos serverdomain.BootISOResolver,
 ) *BootMediaUseCase {
 	return &BootMediaUseCase{
-		servers: servers, store: store, guard: guard, endpoints: endpoints, redfish: redfish, image: image,
+		servers: servers, store: store, guard: guard, endpoints: endpoints, redfish: redfish, isos: isos,
 		now: func() time.Time { return time.Now().UTC() }, resetCheck: bootMediaResetCheck,
 	}
 }
 
-// BootMediaView is one Server's Boot Media as the API reports it: the installation ISO, the
+// BootMediaView is one Server's Boot Media as the API reports it: the chosen Boot ISO, the
 // Server's setting and capability, and — when requested — the BMC's live state.
 type BootMediaView struct {
-	Server         *serverdomain.Server
-	ImageURL       string
-	ImageAvailable bool
-	ImageReason    string
-	Live           *serverdomain.BootMediaState
-	LiveError      string
+	Server *serverdomain.Server
+	// Image is the Boot ISO the setting names, nil when it names none.
+	Image *BootMediaImageView
+	// Apply is the enable preflight running now, nil when none is (an abandoned one is dropped).
+	Apply     *serverdomain.BootMediaApply
+	Live      *serverdomain.BootMediaState
+	LiveError string
+}
+
+// BootMediaImageView is the chosen Boot ISO and whether it can be mounted now. Available is
+// false, with Reason, when the ISO was deleted, its file is missing, or no base URL is set.
+type BootMediaImageView struct {
+	ID        string
+	Name      string
+	URL       string
+	Available bool
+	Reason    string
 }
 
 // Get returns the Server's Boot Media. With live, it also reads the BMC; a live-read failure is
@@ -82,14 +98,17 @@ func (uc *BootMediaUseCase) Get(ctx context.Context, serverID string, live bool)
 	if err != nil {
 		return nil, err
 	}
-	view := uc.view(server)
-	if live && view.ImageAvailable {
+	view, err := uc.view(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	if live && view.Image != nil && view.Image.Available {
 		readCtx, cancel := context.WithTimeout(ctx, bootMediaReadTimeout)
 		defer cancel()
 		endpoint, err := uc.endpoint(readCtx, server)
 		if err == nil {
 			var state serverdomain.BootMediaState
-			state, err = uc.redfish.ReadBootMedia(readCtx, *endpoint, view.ImageURL)
+			state, err = uc.redfish.ReadBootMedia(readCtx, *endpoint, view.Image.URL)
 			if err == nil {
 				view.Live = &state
 			}
@@ -101,15 +120,30 @@ func (uc *BootMediaUseCase) Get(ctx context.Context, serverID string, live bool)
 	return view, nil
 }
 
-// view assembles the stored part of a BootMediaView.
-func (uc *BootMediaUseCase) view(server *serverdomain.Server) *BootMediaView {
-	view := &BootMediaView{Server: server, ImageURL: uc.image.URL()}
-	if err := uc.image.Available(); err != nil {
-		view.ImageReason = err.Error()
-	} else {
-		view.ImageAvailable = true
+// view assembles the stored part of a BootMediaView, resolving the Boot ISO the setting names. A
+// Boot ISO that no longer exists is still reported, unavailable, so the operator sees what the
+// setting points at.
+func (uc *BootMediaUseCase) view(ctx context.Context, server *serverdomain.Server) (*BootMediaView, error) {
+	view := &BootMediaView{Server: server}
+	if server.BootMediaApply.Running(uc.now()) {
+		view.Apply = server.BootMediaApply
 	}
-	return view
+	if server.BootMedia == nil || server.BootMedia.ISOID == "" {
+		return view, nil
+	}
+	id := server.BootMedia.ISOID
+	image, err := uc.isos.Resolve(ctx, id)
+	switch {
+	case errors.Is(err, serverdomain.ErrBootISOUnknown):
+		view.Image = &BootMediaImageView{ID: id, URL: uc.isos.URL(id), Reason: "The Boot ISO no longer exists; choose another."}
+	case errors.Is(err, serverdomain.ErrBootMediaNotConfigured) && image != nil:
+		view.Image = &BootMediaImageView{ID: image.ID, Name: image.Name, URL: image.URL, Reason: err.Error()}
+	case err != nil:
+		return nil, err
+	default:
+		view.Image = &BootMediaImageView{ID: image.ID, Name: image.Name, URL: image.URL, Available: true}
+	}
+	return view, nil
 }
 
 // Probe re-probes the Server's BMC now and stores the result. Errors: ErrServerNotFound, and a
@@ -161,35 +195,68 @@ type BootMediaChange struct {
 	RevertError string
 }
 
-// SetEnabled enables or disables Boot Media on the Server.
+// SetEnabled enables or disables Boot Media on the Server. isoID names the Boot ISO to enable
+// with and is ignored when disabling.
 //
-// Enabling is the preflight: it requires the installation ISO, an unlocked Server with a BMC,
-// re-probes the BMC, mounts the ISO and sets the boot override, verifies the BMC reports both,
-// and only then saves the setting as enabled. A failed preflight records its reason on the
-// setting (so the Server page shows it) without changing whether it is enabled.
+// Enabling is the preflight: it requires a served Boot ISO of the Server's own provisioner
+// Integration and an unlocked Server with a BMC, re-probes the BMC, ejects a previously mounted
+// different Boot ISO (best effort), mounts the chosen one and sets the boot override, verifies
+// the BMC reports both, and only then saves the setting as enabled with that Boot ISO. Enabling
+// an enabled Server re-applies it; enabling with another Boot ISO switches to it. A failed
+// preflight records its reason on the setting (so the Server page shows it) without changing
+// whether it is enabled or which Boot ISO it names.
+//
+// While the preflight runs it is recorded on the Server with its current phase (Get reports it
+// as Apply), so any client can follow it; only one runs per Server, and a disable waits for it.
 //
 // Disabling saves the setting first — the operator's intent must not depend on the BMC — then
 // makes a best-effort attempt to eject the ISO and clear the override, reported in the result.
 //
-// Errors: ErrServerNotFound, the Server Lock errors, and a *BootMediaError wrapping
+// Errors: ErrServerNotFound, ErrBootISORequired, ErrBootISOUnknown, ErrBootISOWrongIntegration,
+// ErrBootMediaApplying, the Server Lock errors, and a *BootMediaError wrapping
 // ErrBootMediaNotConfigured, ErrNoBMC, ErrBMCCredentialUnavailable, ErrBMCUnreachable,
 // ErrRedfishUnsupported, or ErrBootMediaRejected.
-func (uc *BootMediaUseCase) SetEnabled(ctx context.Context, serverID string, enabled bool) (*BootMediaChange, error) {
+func (uc *BootMediaUseCase) SetEnabled(ctx context.Context, serverID string, enabled bool, isoID string) (*BootMediaChange, error) {
 	server, err := uc.servers.FindByID(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
+	var image *serverdomain.BootISOImage
 	if enabled {
-		if err := uc.image.Available(); err != nil {
+		if isoID == "" {
+			return nil, serverdomain.ErrBootISORequired
+		}
+		image, err = uc.isos.Resolve(ctx, isoID)
+		switch {
+		case errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
 			return nil, &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaNotConfigured, Server: server.DisplayName(), Detail: err.Error()}
+		case err != nil:
+			return nil, err
+		case image.IntegrationID != server.Source.IntegrationID:
+			return nil, fmt.Errorf("%w: Boot ISO %q chains to another provisioner than Server %q's", serverdomain.ErrBootISOWrongIntegration, image.Name, server.DisplayName())
 		}
 	}
 	if err := uc.guard.RequireUnlocked(ctx, []string{server.ID}); err != nil {
 		return nil, err
 	}
 	if !enabled {
+		if server.BootMediaApply.Running(uc.now()) {
+			return nil, serverdomain.ErrBootMediaApplying
+		}
 		return uc.disable(ctx, server)
 	}
+
+	// Mongo keeps milliseconds; StartedAt identifies this apply in later writes, so it must
+	// compare equal after a round trip.
+	started := uc.now().Truncate(time.Millisecond)
+	progress := serverdomain.BootMediaApply{
+		ISOID: image.ID, Phase: serverdomain.BootMediaPhaseProbing, StartedAt: started, PhaseStartedAt: started,
+	}
+	if err := uc.store.BeginBootMediaApply(ctx, server.ID, &progress, started.Add(-serverdomain.BootMediaApplyStaleAfter)); err != nil {
+		return nil, err
+	}
+	defer uc.endApply(server.ID, started)
+	ctx = serverdomain.WithBootMediaPhaseReporter(ctx, uc.phaseReporter(ctx, server.ID, progress))
 
 	previous := server.BootMedia
 	capability, err := uc.probe(ctx, server)
@@ -211,7 +278,7 @@ func (uc *BootMediaUseCase) SetEnabled(ctx context.Context, serverID string, ena
 
 	applyCtx, cancel := context.WithTimeout(ctx, bootMediaPreflightTimeout)
 	defer cancel()
-	mode, err := uc.apply(applyCtx, server)
+	mode, err := uc.apply(applyCtx, server, previous, image.URL)
 	if err != nil {
 		failure := uc.explain(server, err)
 		uc.recordFailure(ctx, server, previous, failure)
@@ -219,32 +286,53 @@ func (uc *BootMediaUseCase) SetEnabled(ctx context.Context, serverID string, ena
 	}
 	now := uc.now()
 	setting := &serverdomain.BootMediaSetting{
-		Enabled: true, UpdatedAt: now,
+		Enabled: true, ISOID: image.ID, UpdatedAt: now,
 		LastAppliedAt: &now, LastAppliedBy: serverdomain.BootMediaAppliedByPreflight, BootOverride: mode,
 	}
 	if err := uc.store.SetBootMedia(ctx, server.ID, setting); err != nil {
 		return nil, fmt.Errorf("save boot media of %s: %w", server.DisplayName(), err)
 	}
 	server.BootMedia = setting
-	return &BootMediaChange{View: uc.view(server)}, nil
+	view, err := uc.view(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	return &BootMediaChange{View: view}, nil
 }
 
-// disable saves the disabled setting, then tries to reset the BMC.
+// mountedURL is the URL the BMC was last told to mount for a setting: its Boot ISO's, or — for a
+// setting enabled before Boot ISOs existed — the retired installation ISO's. It is "" when the
+// setting never enabled Boot Media.
+func (uc *BootMediaUseCase) mountedURL(setting *serverdomain.BootMediaSetting) string {
+	if setting == nil || (setting.ISOID == "" && setting.LastAppliedAt == nil) {
+		return ""
+	}
+	return uc.isos.URL(setting.ISOID)
+}
+
+// disable saves the disabled setting, keeping the last Boot ISO as history, then tries to reset
+// the BMC.
 func (uc *BootMediaUseCase) disable(ctx context.Context, server *serverdomain.Server) (*BootMediaChange, error) {
+	previous := server.BootMedia
 	setting := &serverdomain.BootMediaSetting{Enabled: false, UpdatedAt: uc.now()}
-	if previous := server.BootMedia; previous != nil {
+	if previous != nil {
+		setting.ISOID = previous.ISOID
 		setting.LastAppliedAt, setting.LastAppliedBy, setting.BootOverride = previous.LastAppliedAt, previous.LastAppliedBy, previous.BootOverride
 	}
 	if err := uc.store.SetBootMedia(ctx, server.ID, setting); err != nil {
 		return nil, fmt.Errorf("save boot media of %s: %w", server.DisplayName(), err)
 	}
 	server.BootMedia = setting
-	change := &BootMediaChange{View: uc.view(server)}
+	view, err := uc.view(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	change := &BootMediaChange{View: view}
 	clearCtx, cancel := context.WithTimeout(ctx, bootMediaClearTimeout)
 	defer cancel()
 	endpoint, err := uc.endpoint(clearCtx, server)
 	if err == nil {
-		err = uc.redfish.ClearBootMedia(clearCtx, *endpoint, uc.image.URL())
+		err = uc.redfish.ClearBootMedia(clearCtx, *endpoint, uc.mountedURL(previous))
 	}
 	if err != nil {
 		change.RevertError = uc.explain(server, err).Error()
@@ -434,14 +522,49 @@ func (uc *BootMediaUseCase) ProbeStale(ctx context.Context, window time.Duration
 	return len(stale), nil
 }
 
-// apply resolves the endpoint and applies the installation ISO.
-func (uc *BootMediaUseCase) apply(ctx context.Context, server *serverdomain.Server) (string, error) {
+// apply resolves the endpoint and applies isoURL. A different ISO the previous setting had
+// mounted is ejected first, best effort: a BMC whose virtual CDs are all taken refuses a new
+// mount, and a failure to eject is reported by the mount that follows.
+func (uc *BootMediaUseCase) apply(ctx context.Context, server *serverdomain.Server, previous *serverdomain.BootMediaSetting, isoURL string) (string, error) {
 	endpoint, err := uc.endpoint(ctx, server)
 	if err != nil {
 		return "", err
 	}
-	mode, _, err := uc.redfish.ApplyBootMedia(ctx, *endpoint, uc.image.URL())
+	if old := uc.mountedURL(previous); old != "" && old != isoURL {
+		serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseEjecting, nil)
+		if err := uc.redfish.ClearBootMedia(ctx, *endpoint, old); err != nil {
+			slog.Warn("eject previous boot ISO", "serverId", server.ID, "error", err)
+		}
+	}
+	mode, _, err := uc.redfish.ApplyBootMedia(ctx, *endpoint, isoURL)
 	return mode, err
+}
+
+// phaseReporter records each phase the preflight that started as progress enters. Writes are
+// best effort and detached from the preflight's deadline, so a slow or failed write only makes
+// the reported progress lag.
+func (uc *BootMediaUseCase) phaseReporter(ctx context.Context, serverID string, progress serverdomain.BootMediaApply) serverdomain.BootMediaPhaseReporter {
+	detached := context.WithoutCancel(ctx)
+	return func(phase serverdomain.BootMediaPhase, endsAt *time.Time) {
+		progress.Phase, progress.PhaseStartedAt, progress.PhaseEndsAt = phase, uc.now().Truncate(time.Millisecond), endsAt
+		writeCtx, cancel := context.WithTimeout(detached, bootMediaProgressWriteTimeout)
+		defer cancel()
+		current := progress
+		if err := uc.store.UpdateBootMediaApply(writeCtx, serverID, &current); err != nil {
+			slog.Warn("record boot media progress", "serverId", serverID, "phase", phase, "error", err)
+		}
+	}
+}
+
+// endApply removes the record of the preflight that started at startedAt, whatever its outcome.
+// It runs detached from the request: a client that gave up must not leave the Server looking
+// busy until the record goes stale.
+func (uc *BootMediaUseCase) endApply(serverID string, startedAt time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), bootMediaProgressWriteTimeout)
+	defer cancel()
+	if err := uc.store.EndBootMediaApply(ctx, serverID, startedAt); err != nil {
+		slog.Warn("end boot media progress", "serverId", serverID, "error", err)
+	}
 }
 
 // endpoint resolves the Server's BMC endpoint and fills the host UUID used to pick the System.

@@ -1,4 +1,5 @@
 d /var/lib/swallow 0750 swallow swallow -
 d /var/lib/swallow/jobs 0750 swallow swallow -
+d /var/lib/swallow/boot-media 0755 swallow swallow -
 d /run/swallow 0755 root root -
 d /run/swallow/jobs 0700 swallow swallow -

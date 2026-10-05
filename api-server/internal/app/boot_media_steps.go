@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -134,7 +135,7 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 	}
 	if isoURL == "" {
 		return internalStepFailed("boot_media_not_configured",
-			"Boot Media is enabled on the Server, but this installation served no Boot Media ISO when the deployment was accepted.", false)
+			"Boot Media is enabled on the Server, but it had no served Boot ISO when the deployment was accepted. Choose a Boot ISO for the Server's Boot Media, then deploy again.", false)
 	}
 	if _, err := e.bootMedia.Ensure(ctx, serverID, isoURL); err != nil {
 		return internalStepFailed("boot_media_ensure_failed", err.Error(), true)
@@ -142,20 +143,24 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 }
 
-// bootMediaPlanner adds ensure-boot-media Tasks to Workflows that deploy an OS (decision 047).
-// The decision is made when the Workflow is created, from the Server's setting at that moment;
-// the Task re-reads the setting when it runs and does nothing if Boot Media was disabled since.
+// bootMediaPlanner adds ensure-boot-media Tasks to Workflows that deploy an OS (decisions 047
+// and 049). The decision is made when the Workflow is created, from the Server's setting at that
+// moment; the Task re-reads the setting when it runs and does nothing if Boot Media was disabled
+// since.
 type bootMediaPlanner struct {
 	servers serverdomain.ServerRepository
-	image   serverdomain.BootMediaImage
+	isos    serverdomain.BootISOResolver
 }
 
 // withEnsureTasks returns steps with an ensure-boot-media Task inserted before every provision-os
 // Task whose Server has Boot Media enabled. The new Task joins the provision Task's Job, targets
-// the same Server, carries the installation ISO URL frozen for the Workflow's lifetime, and the
-// provision Task gains a dependency on it. Steps of Servers without Boot Media are unchanged, so
-// the Workflow is exactly what it was before Boot Media existed. A zero planner returns steps
-// unchanged; an unreadable Server is an error so a deploy cannot silently skip its Boot Media.
+// the same Server, carries the URL of that Server's chosen Boot ISO frozen for the Workflow's
+// lifetime, and the provision Task gains a dependency on it. A Server whose Boot ISO is not
+// served (none chosen, deleted, file missing) gets an empty URL, which fails its ensure Task as
+// boot_media_not_configured instead of deploying a host that cannot reach the provisioner. Steps
+// of Servers without Boot Media are unchanged, so the Workflow is exactly what it was before Boot
+// Media existed. A zero planner returns steps unchanged; an unreadable Server is an error so a
+// deploy cannot silently skip its Boot Media.
 func (p bootMediaPlanner) withEnsureTasks(ctx context.Context, steps []operationdomain.Task) ([]operationdomain.Task, error) {
 	if p.servers == nil {
 		return steps, nil
@@ -177,8 +182,15 @@ func (p bootMediaPlanner) withEnsureTasks(ctx context.Context, steps []operation
 		}
 		ensureID := ensureBootMediaTaskKind + "-" + serverID
 		isoURL := ""
-		if p.image != nil && p.image.Available() == nil {
-			isoURL = p.image.URL()
+		if p.isos != nil && server.BootMedia.ISOID != "" {
+			image, err := p.isos.Resolve(ctx, server.BootMedia.ISOID)
+			switch {
+			case err == nil:
+				isoURL = image.URL
+			case errors.Is(err, serverdomain.ErrBootISOUnknown), errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
+			default:
+				return nil, fmt.Errorf("resolve Boot ISO of Server %s: %w", serverID, err)
+			}
 		}
 		out = append(out, operationdomain.Task{
 			ID: ensureID, Kind: ensureBootMediaTaskKind, Name: "Ensure Boot Media on " + server.DisplayName(),

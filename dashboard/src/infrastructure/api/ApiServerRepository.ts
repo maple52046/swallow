@@ -159,17 +159,22 @@ export class ApiServerRepository implements ServerRepository {
 
   async getBootMedia(id: string, options?: { live?: boolean }): Promise<ServerBootMedia> {
     const suffix = options?.live ? '?live=true' : ''
-    return apiRequest<ServerBootMedia>(
+    // Never cached: while a preflight runs this read is polled for its progress (`apply`).
+    const media = await apiRequest<ServerBootMedia>(
       `/api/v1/servers/${encodeURIComponent(id)}/boot-media${suffix}`,
       { cache: 'no-store' },
     )
+    return { ...media, apply: media.apply ?? null }
   }
 
-  async setBootMedia(id: string, enabled: boolean): Promise<SetServerBootMediaResult> {
-    return apiRequest<SetServerBootMediaResult>(
+  async setBootMedia(id: string, enabled: boolean, isoId?: string): Promise<SetServerBootMediaResult> {
+    // The API ignores isoId on a disable; it is sent only to enable.
+    const body = enabled ? { enabled, isoId } : { enabled }
+    const result = await apiRequest<SetServerBootMediaResult>(
       `/api/v1/servers/${encodeURIComponent(id)}/boot-media`,
-      { method: 'PUT', body: JSON.stringify({ enabled }) },
+      { method: 'PUT', body: JSON.stringify(body) },
     )
+    return { ...result, apply: result.apply ?? null }
   }
 
   async probeRedfish(id: string): Promise<RedfishCapability> {

@@ -1,5 +1,8 @@
 import type { OSImage } from "@/domain/site/types";
 import type {
+  BootISO,
+  BootISOCatalog,
+  CreateBootISOInput,
   CreateDeploymentTemplateInput,
   CreateImageVerificationInput,
   DeploymentTemplate,
@@ -122,6 +125,28 @@ export interface ProvisioningRepository {
    * provider refusal (for example an attempt to assign an automatic tag).
    */
   editServerTags(input: EditServerTagsInput): Promise<ServerTagsResult[]>;
+  /**
+   * Lists Boot ISOs (contract boot-isos.md), optionally narrowed to a Site and/or provisioner
+   * Integration, together with whether this installation can build them. A builder that cannot
+   * build is data (`builder.available: false` with a reason), not a rejection; the list still
+   * resolves so existing ISOs stay visible and deletable.
+   */
+  listBootISOs(filters?: {
+    siteId?: string;
+    integrationId?: string;
+  }): Promise<BootISOCatalog>;
+  /**
+   * Builds a Boot ISO synchronously (seconds) and resolves with it once its file exists. Rejects
+   * with the shared error envelope: `validation_error` (name, rack address, or not a provisioner),
+   * `conflict` (name taken for that provisioner, or the builder unavailable — the message says
+   * why), or `internal_error` carrying the packaging tool's summary; nothing is stored on failure.
+   */
+  createBootISO(input: CreateBootISOInput): Promise<BootISO>;
+  /**
+   * Deletes a Boot ISO and its file. Rejects with `conflict` while a Server's enabled Boot Media
+   * uses it (the message names how many), and `not_found` when it is already gone.
+   */
+  deleteBootISO(id: string): Promise<void>;
 }
 
 /**

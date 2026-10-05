@@ -3,6 +3,7 @@ package delivery
 import (
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -12,7 +13,7 @@ import (
 )
 
 // BootMediaHandler serves the Boot Media routes of contract server-detail-actions.md
-// (decision 047): GET and PUT /api/v1/servers/{id}/boot-media and
+// (decisions 047 and 049): GET and PUT /api/v1/servers/{id}/boot-media and
 // POST /api/v1/servers/{id}/redfish/probe. It is admin-only through its route group.
 //
 // No response or error carries a BMC credential; error messages come from BootMediaError, which
@@ -27,9 +28,10 @@ func NewBootMediaHandler(bootMedia *application.BootMediaUseCase) *BootMediaHand
 }
 
 // setBootMediaRequest is the PUT body. Enabled is a pointer so a body without it is a 400 rather
-// than an accidental disable.
+// than an accidental disable. ISOID names the Boot ISO to enable with (decision 049).
 type setBootMediaRequest struct {
-	Enabled *bool `json:"enabled"`
+	Enabled *bool  `json:"enabled"`
+	ISOID   string `json:"isoId"`
 }
 
 // setBootMediaResponse is the Boot Media after the change, plus the disable revert outcome.
@@ -48,13 +50,13 @@ func (h *BootMediaHandler) Get(c *fiber.Ctx) error {
 	return c.JSON(application.ToBootMediaItem(view))
 }
 
-// Set enables (preflight) or disables Boot Media on the Server.
+// Set enables Boot Media with a Boot ISO (preflight), switches it to another, or disables it.
 func (h *BootMediaHandler) Set(c *fiber.Ctx) error {
 	var req setBootMediaRequest
 	if err := c.BodyParser(&req); err != nil || req.Enabled == nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "The request body must be a JSON object with a boolean enabled."))
 	}
-	change, err := h.bootMedia.SetEnabled(c.Context(), c.Params("id"), *req.Enabled)
+	change, err := h.bootMedia.SetEnabled(c.Context(), c.Params("id"), *req.Enabled, strings.TrimSpace(req.ISOID))
 	if err != nil {
 		return respondBootMediaError(c, err)
 	}
@@ -76,13 +78,22 @@ func (h *BootMediaHandler) Probe(c *fiber.Ctx) error {
 }
 
 // respondBootMediaError maps the use case's errors onto the contract's statuses: a missing
-// Server is 404; a lock, a Server without a usable BMC, an unconfigured ISO, or a BMC that
-// refused the media are state conflicts (409); an unreachable BMC or provisioner, or an unknown
-// lock state, is 503. Anything else is logged and reported as 500.
+// Server or Boot ISO is 404; enabling without a Boot ISO or with another Integration's is 400; a
+// preflight already running, a lock, a Server without a usable BMC, a Boot ISO that is not served, or a BMC that refused the
+// media are state conflicts (409); an unreachable BMC or provisioner, or an unknown lock state,
+// is 503. Anything else is logged and reported as 500.
 func respondBootMediaError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, serverdomain.ErrServerNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Server not found."))
+	case errors.Is(err, serverdomain.ErrBootISOUnknown):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Boot ISO not found."))
+	case errors.Is(err, serverdomain.ErrBootISORequired):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Choose a Boot ISO (isoId) to enable Boot Media."))
+	case errors.Is(err, serverdomain.ErrBootISOWrongIntegration):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+	case errors.Is(err, serverdomain.ErrBootMediaApplying):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, "Boot Media is already being applied to this Server; wait until it finishes."))
 	case errors.Is(err, serverdomain.ErrServerLocked),
 		errors.Is(err, serverdomain.ErrBootMediaNotConfigured),
 		errors.Is(err, serverdomain.ErrNoBMC),

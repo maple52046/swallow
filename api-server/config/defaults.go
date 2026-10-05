@@ -41,6 +41,9 @@ func DefaultConfig() Config {
 			// A newly enrolled Server is probed within ten minutes; a probe stays current a day.
 			RedfishProbeInterval: 10 * time.Minute,
 			RedfishProbeMaxAge:   24 * time.Hour,
+			// The image installs the iPXE assets here and creates the Boot ISO directory owned by
+			// the service user; a container volume mounted over it keeps built ISOs.
+			BootMedia: BootMediaConfig{Dir: "/var/lib/swallow/boot-media", IPXEDir: "/usr/share/swallow/ipxe"},
 		},
 	}
 }

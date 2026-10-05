@@ -52,22 +52,62 @@ provider 端的佈署仍保持執行，供你檢查、retry 或 release。
 ## 沒有 provisioner DHCP 的網路：Boot Media
 
 有些 Server 所在網路的 DHCP 由現場提供、而不是 provisioner，因此無法 PXE 開機進入 provisioner。
-對這類 Server，swallow 會提供一個 iPXE 開機 ISO，讓 Server 的 BMC 以 virtual media 掛載並優先開機：
-ISO 先從現場 DHCP 取得位址，再 chain 到 provisioner。
+對這類 Server，BMC 會以 virtual media 掛載 swallow 建置的
+[Boot ISO](../../development/glossaries/terms/boot-iso.md) 並優先開機。ISO 先從
+現場 DHCP 取得位址，再 chain 到該 Server 的 provisioner。
 
-- **安裝：** 放置 iPXE ISO 檔，並設定 BMC 連到 swallow 的 base URL（見
-  [Configuration](../reference/configuration.md#boot-media)）。ISO URL 由安裝固定，不需逐台輸入。
-- **偵測：** swallow 會對每台新加入的 Server 偵測其 BMC 是否支援 Redfish virtual media 與 boot
-  override（不論 provisioner 使用哪種 power driver），結果顯示在 Server 的
-  **Summary → Management controller** 卡片。**Re-detect Redfish** 可重新偵測，例如 BMC 韌體更新後。
-- **啟用：** **Enable Boot Media** 會對實際 BMC 執行 preflight：掛載 ISO、把接下來的開機導向它，兩者都成功才
-  儲存設定。支援度依硬體與韌體而異，失敗時會顯示 BMC 自己的說明。這個動作不會重開機。
-- **佈署：** 啟用 Boot Media 的 Server 每次佈署 OS 時，會先執行 *Ensure Boot Media* 步驟重新套用，因為 BMC
-  可能遺失掛載（例如 BMC 重啟後）或開機順序。若 BMC 無法連線，該步驟會要求處理、佈署暫停；BMC 恢復後
-  到 **Workflows** retry 即可。若 Server 仍沒開進 ISO（BMC 在 provisioner 開機時丟掉了 ISO，或 BIOS
-  直接開了硬碟），swallow 會在兩分鐘時重新掛載 ISO；若十分鐘時 Server 仍未網路開機，就重新套用 Boot Media，
-  並透過 Redfish 重開 Server 一次。這種佈署會多花十到十五分鐘。
-- **Check BMC** 讀取 BMC 目前的實際狀態。**Disable** 停止重新套用，並要求 BMC 退出 ISO。
+- **每個 provisioner rack 建置一個：** 開啟 **Provisioning → Boot ISOs → Build
+  ISO**。選擇目前 Site 的 provisioner Integration，輸入在該 provisioner 內
+  不分大小寫、長度 1–63 字元的唯一名稱，以及 MAAS rack 位址（hostname 或 IPv4，
+  可帶 port；預設 `5248`）。Dialog 會建議 `<integration-name>-ipxe`、預填
+  Integration endpoint 的 host，並預覽 `http://<rack>:<port>/ipxe.cfg`。請自行確認
+  rack 位址；swallow 不會解析或連線測試。
+- **固定開機流程：** swallow 使用已驗證的 template render script，不提供 script
+  編輯。它從現場網路取得 DHCP、將 rack 設為 `next-server`，並直接 chain 到
+  `ipxe.cfg`，不使用 DHCP boot filename。DHCP 失敗時會 retry，Ctrl-B 可開啟
+  iPXE shell；UEFI chain 返回時則交給 firmware 的下一個 boot device。同步建置
+  通常只需數秒。
+- **開機相容性：** 每個 ISO 內含 iPXE v2.0.0，可在 BIOS 與 UEFI x86_64 開機。
+  iPXE 未簽署，因此使用它的 Server 必須關閉 Secure Boot。
+- **管理 ISO：** Boot ISOs table 顯示 provisioner／Site、chain URL、大小、使用中
+  數量與建置資訊。**View script** 也會顯示 rack、iPXE version、ISO URL 與
+  SHA-256；**Download** 使用 BMC 掛載的同一個 URL。只要仍有 enabled Server 使用，
+  **Delete** 就會停用或被拒絕。刪除後會移除檔案，原本的 URL 也會停止運作。
+- **逐台選擇：** 在 **Server → Summary → Management controller → Boot media**，
+  **Enable Boot Media** 必須選擇為該 Server 自己的 provisioner 建置的 Boot ISO。
+  若沒有可選項，請依連結前往 **Boot ISOs** 建置。Enable 會執行 Redfish preflight；
+  只有 BMC 掛載 ISO 並接受 boot override 後才保存設定。**Boot ISO** 欄會顯示名稱與
+  BMC 掛載的 URL。
+- **追蹤 preflight：** **Enable Boot Media**、**Change ISO** 與 **Re-apply**
+  通常約需五分鐘，其中大部分是剛完成掛載後刻意等待三分鐘，讓 BMC 穩定掛載。
+  Dialog 會顯示 progress bar、elapsed time、等待期間的剩餘時間，以及五個步驟：
+  檢查 BMC（切換時也會退出上一個 ISO）、以 virtual CD 掛載 ISO、等待 BMC 穩定掛載、
+  將接下來的開機導向 virtual CD，以及從 BMC 讀回兩項設定。各步驟會標示已完成、
+  進行中或尚未開始；不需要執行的步驟會直接顯示為已完成，例如 BMC 已掛載該 ISO。
+- **在背景繼續：** 以 **Continue in background** 關閉 dialog 不會停止 preflight。
+  結束前，Boot media block 會顯示 **Applying** 與相同進度，並停用所有 action。
+  頁面保持開啟時，成功或失敗結果會以 notification 顯示；重新載入或從其他 browser
+  tab 開啟時，也能從 API 恢復進度。
+- **操作與佈署：** enabled Server 會提供 **Change ISO**（preflight 會先退出目前
+  ISO）、**Re-apply**、**Disable**、**Re-detect Redfish** 與 **Check BMC**。
+  Disable 後仍保留選擇的 Boot ISO，供下次啟用。每次 OS deployment 都會先重新套用
+  該 Server 的 Boot ISO，並為該次 deployment 凍結這個選擇；BMC 失敗時會停在
+  Boot Media Task，修復後再 retry。
+
+API 與 CLI 使用者可透過 `GET /api/v1/servers/{id}/boot-media` 查看進度；idle
+時 `apply` 為 `null`，preflight 期間則包含 ISO ID、目前的 `probing`、`ejecting`、
+`mounting`、`settling`、`directing` 或 `verifying` phase，以及 `startedAt` 與
+`phaseStartedAt`；`phaseEndsAt` 只會在等待穩定掛載期間有值。
+`swallow servers boot-media get <server>` 會在 `enable` 等待期間顯示相同進度。
+每台 Server 同時只能執行一個
+preflight；期間再次 enable 或 disable 會收到 HTTP 409。
+
+從舊版 installation-supplied ISO 升級後，enabled Server 可能顯示 **Choose a Boot
+ISO** 警告。選擇 Boot ISO 前，OS deployment 會以
+`boot_media_not_configured` 停止；請透過 **Change ISO** 或 **Re-apply** 選擇。
+選擇的 ISO 已刪除或無法提供時，面板會顯示 **The Boot ISO cannot be mounted**
+警告，deployment 也會同樣停止。舊的 hand-made
+`swallow-ipxe.iso` 與固定 URL 已不再提供。
 
 ## 硬體 inspection 與測試
 
@@ -97,11 +137,16 @@ Network configuration 讀寫 provider-owned interface 與 link。Automatic addre
 ```bash
 swallow provisioning images list --integration int1
 swallow provisioning templates list --site-id site1
+swallow provisioning boot-isos list --site-id site1
+swallow provisioning boot-isos create --integration int1 --name rack-ipxe --rack 10.0.0.2
+swallow provisioning boot-isos get iso1
+swallow provisioning boot-isos delete iso1
 swallow provisioning deploy --file deploy.yaml
 swallow provisioning release --server server1 --erase
 swallow servers inspect server1
 swallow servers redfish-probe server1
-swallow servers boot-media enable server1
+swallow servers boot-media enable server1 --iso iso1
+swallow servers boot-media disable server1
 swallow servers boot-media get server1 --live
 ```
 

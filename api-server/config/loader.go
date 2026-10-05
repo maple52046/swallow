@@ -1,5 +1,11 @@
 package config
 
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
 // LoadOptions controls how the final Config is assembled.
 type LoadOptions struct {
 	// ConfigFile is the path to a YAML config file. An empty string means no
@@ -34,6 +40,10 @@ func Load(opts LoadOptions) (*Config, error) {
 	}
 
 	applyEnv(&cfg)
+
+	if strings.TrimSpace(cfg.API.BootMedia.ISOPath) != "" {
+		fmt.Fprintln(os.Stderr, "warning: api.bootMedia.isoPath (SWALLOW_API_BOOT_MEDIA_ISO_PATH) is retired and ignored; build Boot ISOs on the dashboard's Provisioning page")
+	}
 
 	if err := Validate(&cfg); err != nil {
 		return nil, err

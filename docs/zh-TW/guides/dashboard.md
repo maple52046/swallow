@@ -10,8 +10,8 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | 區域 | 用途 |
 | --- | --- |
 | Overview | Site-scoped fleet health、attention items、integration、Platform 與 recent Workflow |
-| Servers | Inventory、filter、saved view、bulk action、tag、lock 與 Server detail |
-| Provisioning | OS deployment、template、image、upload 與 verification |
+| Servers | Inventory、filter、saved view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
+| Provisioning | OS deployment、template、image、Boot ISO、upload 與 verification |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | Docker CE、Podman、NFS installation state 與 action |
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
@@ -41,6 +41,22 @@ Development build 會顯示這些功能，並提供 **Account menu → Experimen
 
 判讀 inventory 或 monitoring 前先選擇 Site。Site scope 保存在 URL，可直接分享。
 尚未選擇 Site，或 Site 沒有 integration 時，empty state 是正常結果。
+
+## Boot ISO 與 Server Boot Media
+
+在 selected Site 使用 **Provisioning → Boot ISOs**，為每個 provisioner rack 建置
+與管理 iPXE ISO。**Build ISO** 會要求選擇 provisioner、輸入名稱與 MAAS rack
+位址；table 提供 script detail、download、使用情況與 delete action。
+
+在 **Server → Summary → Management controller → Boot media** 啟用 Boot Media
+時，必須選擇為該 Server provisioner 建置的 Boot ISO。沒有可選項時，panel 會連回
+**Boot ISOs**。Enabled Server 可 change 或 re-apply ISO；Disable Boot Media 後仍會
+保留原本的選擇。
+**Enable Boot Media**、**Change ISO** 與 **Re-apply** 會顯示 BMC preflight
+的五步驟進度、elapsed time，以及三分鐘掛載穩定等待的剩餘時間。選擇
+**Continue in background** 可關閉 dialog 而不中止作業；block 會維持
+**Applying**、停用 action，且重新載入或從其他 tab 開啟時仍會顯示相同進度，
+最後以 notification 呈現結果。
 
 ## 判讀 status
 

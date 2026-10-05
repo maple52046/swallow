@@ -155,12 +155,19 @@ func RunWorker(cfg config.APIConfig) error {
 		platforms, nil, servers, nil,
 		managedPlatformIntegrationCleaner{integrations: integrations},
 	)
-	// Boot Media's ensure-boot-media Task (decision 047) drives the BMC over Redfish with the
-	// connection read live from the provisioner. The ISO URL comes frozen in the Task, so the
-	// worker needs no Boot Media configuration of its own; the guard is unused here.
+	// Boot Media's ensure-boot-media Task (decisions 047 and 049) drives the BMC over Redfish with
+	// the connection read live from the provisioner. The Boot ISO URL comes frozen in the Task, so
+	// the worker reads no Boot ISO file; the catalog only completes the use case, whose enable and
+	// view paths the worker never calls, and the guard is unused here.
+	bootISORepo, err := provisioninginfra.NewMongoBootISORepo(db)
+	if err != nil {
+		return fmt.Errorf("boot ISO repo init: %w", err)
+	}
 	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
 		bmcEndpointSource{providers: providers}, redfish.NewController(),
-		newBootMediaImage(cfg.BootMedia.ISOPath, cfg.BootMedia.BaseURL))
+		newBootISOCatalog(bootISORepo,
+			provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
+			cfg.BootMedia.BaseURL))
 	providerExecutor.bootMedia = bootMedia
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{

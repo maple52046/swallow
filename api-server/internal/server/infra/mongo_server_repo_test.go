@@ -3,8 +3,11 @@ package infra
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // Projections stored before decision 048 hold the MAAS word `commissioning`; they must read,
@@ -35,5 +38,21 @@ func TestProvisioningStateLegacyCompatibility(t *testing.T) {
 		if got := provisioningStateQuery(tc.state); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("provisioningStateQuery(%q) = %#v, want %#v", tc.state, got, tc.want)
 		}
+	}
+}
+
+// The running Boot Media apply round-trips through its document, including a phase end.
+func TestBootMediaApplyDocRoundTrip(t *testing.T) {
+	ends := time.Date(2026, 10, 5, 1, 36, 25, 0, time.UTC)
+	apply := &serverdomain.BootMediaApply{
+		ISOID: "iso-1", Phase: serverdomain.BootMediaPhaseSettling,
+		StartedAt:      time.Date(2026, 10, 5, 1, 32, 33, 0, time.UTC),
+		PhaseStartedAt: time.Date(2026, 10, 5, 1, 33, 25, 0, time.UTC), PhaseEndsAt: &ends,
+	}
+	doc := newBootMediaApplyDoc(apply)
+	got := toBootMediaApply(&doc)
+	if got.ISOID != apply.ISOID || got.Phase != apply.Phase || !got.StartedAt.Equal(apply.StartedAt) ||
+		!got.PhaseStartedAt.Equal(apply.PhaseStartedAt) || got.PhaseEndsAt == nil || !got.PhaseEndsAt.Equal(ends) {
+		t.Errorf("round trip = %+v, want %+v", got, apply)
 	}
 }

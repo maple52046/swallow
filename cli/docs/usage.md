@@ -338,6 +338,13 @@ swallow servers network delete-link srv1 <interfaceId> <linkId>
 swallow servers placement srv1 --zone zone1 --pool pool1
 swallow servers placement srv1 --clear-zone --clear-pool
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
+
+# Boot Media: the BMC mounts a Boot ISO of the Server's own provisioner and boots it first
+swallow servers boot-media get srv1 [--live]       # --live also reads the BMC (takes seconds)
+swallow servers boot-media enable srv1 --iso iso1  # preflight on the BMC; waits up to 8 minutes
+swallow servers boot-media enable srv1 --iso iso2  # on an enabled Server: switch Boot ISO
+swallow servers boot-media disable srv1            # the chosen Boot ISO is kept
+swallow servers redfish-probe srv1
 ```
 
 `link.yaml`: `{ mode: static, subnetId: "11", ipAddress: "192.0.2.20", defaultGateway: true }`
@@ -363,6 +370,13 @@ swallow provisioning templates delete tmpl1
 swallow provisioning templates user-data set tmpl1 --from ./cloud-init.yaml   # raw file -> { userData }
 swallow provisioning templates user-data set tmpl1 -f userdata.json           # JSON body { userData }
 swallow provisioning templates user-data clear tmpl1
+
+# Boot ISOs: iPXE ISOs that take a DHCP lease from the site network and chain to a
+# provisioner's MAAS rack (http://<rack>:<port or 5248>/ipxe.cfg); built in seconds
+swallow provisioning boot-isos list --site-id site1            # also says whether this install can build
+swallow provisioning boot-isos create --integration int1 --name tainan-rack --rack 10.0.0.2
+swallow provisioning boot-isos get iso1                        # includes the rendered iPXE script
+swallow provisioning boot-isos delete iso1                     # refused while a Server's Boot Media uses it
 
 # Server tags
 swallow provisioning tags list --site-id site1

@@ -17,9 +17,10 @@ import { findTable } from '@/presentation/components/serverSummary/detailTableUt
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData, type AsyncData } from '@/presentation/hooks/useAsyncData'
-import { ServerBootMediaDialog } from './ServerBootMediaDialog'
+import { ServerBootMediaDialog, type ServerBootMediaDialogMode } from './ServerBootMediaDialog'
 import { ServerDefaultUserDialog } from './ServerDefaultUserDialog'
 import { ServerTagEditor } from './ServerTagEditor'
+import { useBootMediaApplyWatch } from './useBootMediaApplyWatch'
 import { useServerDetailContext } from './useServerDetail'
 
 /**
@@ -48,12 +49,13 @@ function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => 
 }
 
 /**
- * Maps the Boot Media read onto the panel's state. The loader yields `null` only for a virtual
+ * Maps the Boot Media read onto the panel's state, with `latest` (the newest poll while a
+ * preflight runs) in place of the page's read. The loader yields `null` only for a virtual
  * machine, whose management card is not rendered, so that case never reaches the screen.
  */
-function bootMediaPanelState(state: AsyncData<ServerBootMedia | null>): BootMediaPanelState {
+function bootMediaPanelState(state: AsyncData<ServerBootMedia | null>, latest: ServerBootMedia | null): BootMediaPanelState {
   if (state.status !== 'ready') return state
-  return state.data ? { status: 'ready', data: state.data } : { status: 'loading' }
+  return latest ? { status: 'ready', data: latest } : { status: 'loading' }
 }
 
 /**
@@ -64,10 +66,13 @@ function bootMediaPanelState(state: AsyncData<ServerBootMedia | null>): BootMedi
  * login user is the Server Default User, set or changed here through the Default user dialog, and
  * the Server is re-read after a change so the card and SSH command follow it.
  *
- * A physical Server's management controller card also carries its Boot Media (decision 047): the
- * stored setting and Redfish probe are read when the page opens; the BMC itself is read only when
- * the operator asks ("Check BMC"), and re-probing or changing the setting re-reads the block. A
- * virtual machine has no BMC, so it reads nothing.
+ * A physical Server's management controller card also carries its Boot Media (decisions 047 and
+ * 049): the stored setting, its Boot ISO, and the Redfish probe are read when the page opens; the
+ * BMC itself is read only when the operator asks ("Check BMC"), and re-probing or changing the
+ * setting (enable, change ISO, re-apply, disable) re-reads the block. While an enable preflight
+ * runs — sent from here, from another tab, or before a reload — the block is re-read every two
+ * seconds for its progress and its actions wait until it ends. A virtual machine has no BMC, so
+ * it reads nothing.
  */
 export function ServerSummaryTab() {
   const { server, detail, detailError, reload } = useServerDetailContext()
@@ -76,7 +81,7 @@ export function ServerSummaryTab() {
   const { scopedHref } = useSiteScope()
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
   const [defaultUserOpen, setDefaultUserOpen] = useState(false)
-  const [bootMediaDialog, setBootMediaDialog] = useState<'enable' | 'disable' | null>(null)
+  const [bootMediaDialog, setBootMediaDialog] = useState<ServerBootMediaDialogMode | null>(null)
   const [bootMediaBusy, setBootMediaBusy] = useState<'probe' | 'live' | null>(null)
   const [live, setLive] = useState<{ state: BootMediaLiveState | null; error?: string } | undefined>(undefined)
   const system = detail?.sections.find((section) => section.title === 'System')
@@ -116,29 +121,37 @@ export function ServerSummaryTab() {
     }
   }
 
-  const bootMediaData = bootMedia.status === 'ready' ? bootMedia.data : null
+  const applyWatch = useBootMediaApplyWatch(servers, server.id, bootMedia.status === 'ready' ? bootMedia.data : null)
+  const bootMediaData = applyWatch.media
   const enabled = bootMediaData?.setting?.enabled ?? false
-  const canEnable = Boolean(bootMediaData?.image.available) && bootMediaData?.redfish?.support !== 'no_bmc'
+  // The Boot ISO is chosen in the dialog, so only a Server without a BMC cannot start one. While a
+  // preflight runs every BMC action waits: the API refuses a second write, and a probe or live
+  // read would compete with the preflight's own requests on a slow BMC.
+  const applying = applyWatch.applying
+  const canEnable = bootMediaData?.redfish?.support !== 'no_bmc'
   const bootMediaActions = bootMediaData && (
     <>
       {enabled ? (
-        <Button size="xs" variant="outline" onClick={() => setBootMediaDialog('disable')}>
-          Disable
-        </Button>
+        <>
+          <Button size="xs" variant="outline" disabled={applying} onClick={() => setBootMediaDialog('disable')}>
+            Disable
+          </Button>
+          <Button size="xs" variant="outline" colorPalette="brand" disabled={applying} onClick={() => setBootMediaDialog('change')}>
+            Change ISO
+          </Button>
+          <Button size="xs" variant="ghost" disabled={applying} onClick={() => setBootMediaDialog('reapply')}>
+            Re-apply
+          </Button>
+        </>
       ) : (
-        <Button size="xs" variant="outline" colorPalette="brand" disabled={!canEnable} onClick={() => setBootMediaDialog('enable')}>
+        <Button size="xs" variant="outline" colorPalette="brand" disabled={!canEnable || applying} onClick={() => setBootMediaDialog('enable')}>
           Enable Boot Media
         </Button>
       )}
-      {enabled && (
-        <Button size="xs" variant="ghost" onClick={() => setBootMediaDialog('enable')}>
-          Re-apply
-        </Button>
-      )}
-      <Button size="xs" variant="ghost" loading={bootMediaBusy === 'probe'} disabled={bootMediaBusy !== null} onClick={() => void probe()}>
+      <Button size="xs" variant="ghost" loading={bootMediaBusy === 'probe'} disabled={bootMediaBusy !== null || applying} onClick={() => void probe()}>
         Re-detect Redfish
       </Button>
-      <Button size="xs" variant="ghost" loading={bootMediaBusy === 'live'} disabled={bootMediaBusy !== null} onClick={() => void checkLive()}>
+      <Button size="xs" variant="ghost" loading={bootMediaBusy === 'live'} disabled={bootMediaBusy !== null || applying} onClick={() => void checkLive()}>
         Check BMC
       </Button>
     </>
@@ -174,7 +187,7 @@ export function ServerSummaryTab() {
           <ManagementControllerCard
             management={management}
             bootMedia={
-              <BootMediaPanel state={bootMediaPanelState(bootMedia)} live={live} actions={bootMediaActions} />
+              <BootMediaPanel state={bootMediaPanelState(bootMedia, bootMediaData)} live={live} actions={bootMediaActions} />
             }
           />
         )}
@@ -201,6 +214,8 @@ export function ServerSummaryTab() {
           bootMedia={bootMediaData}
           mode={bootMediaDialog}
           onClose={() => setBootMediaDialog(null)}
+          onApplyStarted={applyWatch.start}
+          onApplySettled={applyWatch.stop}
           onChanged={() => {
             setLive(undefined)
             bootMedia.reload()

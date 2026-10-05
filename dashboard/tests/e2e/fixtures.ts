@@ -293,6 +293,24 @@ export interface FixtureOptions {
   bootMediaError?: { status: number; code: string; message: string }
   /** Makes a Boot Media disable report that the BMC was not reset. */
   bootMediaRevertError?: string
+  /** srv-1's Boot Media setting at page load (`null`, never set, when omitted). */
+  bootMediaSetting?: Record<string, unknown>
+  /**
+   * Holds an enable preflight open until it resolves; meanwhile the Boot Media read reports it as
+   * running (`apply`) in the settle phase, as the real API does for about three minutes.
+   */
+  bootMediaApplyGate?: Promise<void>
+  /**
+   * Boot ISOs at page load (boot-isos.md, decision 049). Omitted: `taipei-rack` for MAAS Taipei
+   * (srv-1's provisioner) and `edge-rack` for MAAS Edge.
+   */
+  bootISOs?: Array<{ id: string; name: string; integrationId: string; rackAddress: string }>
+  /** Makes the Boot ISO list report the builder unavailable with this reason. */
+  bootISOBuilderUnavailable?: string
+  /** Makes the Boot ISO build fail with this API error instead of storing an ISO. */
+  bootISOBuildError?: { status: number; code: string; message: string }
+  /** Called for every Boot ISO write with its method, path, and JSON body. */
+  onBootISORequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -333,23 +351,50 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     sshKey('key-laptop', 'work-laptop', 'access', 'ssh-ed25519 AAAALAPTOP alice@laptop'),
   ]
   // Per-page Boot Media state (decision 047): a supported AMI BMC, Boot Media not yet enabled.
-  const bootMediaState: { setting: Record<string, unknown> | null; redfish: Record<string, unknown> } = {
-    setting: null,
+  const bootMediaState: { setting: Record<string, unknown> | null; redfish: Record<string, unknown>; apply: Record<string, unknown> | null } = {
+    setting: options.bootMediaSetting ?? null,
+    apply: null,
     redfish: {
       support: 'supported', serviceRoot: 'https://192.0.2.20/redfish/v1', vendor: 'AMI', product: 'AMI Redfish Server',
       redfishVersion: '1.15.1', firmwareVersion: '13.06.10', systemId: 'Self', virtualMedia: true,
       bootOverrideModes: ['Once', 'Continuous'], probedAt: now,
     },
   }
-  const bootMediaView = (live: boolean) => ({
-    serverId: 'srv-1',
-    image: { url: 'http://192.0.2.1/boot-media/ipxe/swallow-ipxe.iso', available: true },
-    setting: bootMediaState.setting,
-    redfish: bootMediaState.redfish,
-    live: live
-      ? { mediaInserted: Boolean(bootMediaState.setting?.enabled), overrideEnabled: 'Once', overrideTarget: 'UefiBootNext', ready: Boolean(bootMediaState.setting?.enabled) }
-      : null,
-  })
+  // Per-page Boot ISOs (decision 049). Only srv-1 has Boot Media in the fixture, so an ISO's
+  // inUseBy is whether srv-1's enabled setting names it.
+  let bootISOItems = (options.bootISOs ?? [
+    { id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2' },
+    { id: 'iso-edge', name: 'edge-rack', integrationId: 'maas-b', rackAddress: '10.9.0.2' },
+  ]).map((iso) => ({ ...iso, siteId: 'site-a', createdAt: now, createdBy: 'admin' }))
+  const bootISOURL = (id: string) => `http://192.0.2.1/boot-media/ipxe/${id}/swallow-ipxe.iso`
+  const bootISOView = (iso: (typeof bootISOItems)[number]) => {
+    const chainUrl = `http://${/:\d+$/.test(iso.rackAddress) ? iso.rackAddress : `${iso.rackAddress}:5248`}/ipxe.cfg`
+    return {
+      ...iso, chainUrl, ipxeVersion: 'v2.0.0 (12798ec)', sizeBytes: 2_402_304, sha256: `sha256-of-${iso.id}`,
+      script: `#!ipxe\n\nset maas_rack ${iso.rackAddress.replace(/:\d+$/, '')}\n\n:start\ndhcp || goto retry\nset next-server \${maas_rack}\nchain ${chainUrl.replace(/\/\/[^:/]+/, '//${next-server}')} || goto returned\n`,
+      url: bootISOURL(iso.id),
+      inUseBy: bootMediaState.setting?.enabled === true && bootMediaState.setting?.isoId === iso.id ? 1 : 0,
+    }
+  }
+  const bootMediaView = (live: boolean) => {
+    const isoId = typeof bootMediaState.setting?.isoId === 'string' ? bootMediaState.setting.isoId : ''
+    const iso = bootISOItems.find((item) => item.id === isoId)
+    const image = !isoId
+      ? null
+      : iso
+        ? { id: iso.id, name: iso.name, url: bootISOURL(iso.id), available: true }
+        : { id: isoId, url: '', available: false, reason: 'The Boot ISO no longer exists; choose another.' }
+    return {
+      serverId: 'srv-1',
+      image,
+      setting: bootMediaState.setting,
+      redfish: bootMediaState.redfish,
+      apply: bootMediaState.apply,
+      live: live
+        ? { mediaInserted: Boolean(bootMediaState.setting?.enabled), overrideEnabled: 'Once', overrideTarget: 'UefiBootNext', ready: Boolean(bootMediaState.setting?.enabled) }
+        : null,
+    }
+  }
   // A newly created key starts pending in every provisioner and settles on its first single-key
   // read, modelling the backend sync pass that finishes moments after the create returns.
   const settlingKeyIds = new Set<string>()
@@ -1124,6 +1169,52 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return route.fulfill({ status: 204 })
       }
     }
+    // Boot ISOs (boot-isos.md): the real API packages an iPXE ISO with genfsimg; the fixture
+    // stores the record, derives the chain URL and script as the API does, and records writes.
+    if (path === '/api/v1/provisioning/boot-isos' && request.method() === 'GET') {
+      const siteId = url.searchParams.get('siteId')
+      const integrationId = url.searchParams.get('integrationId')
+      const builder = options.bootISOBuilderUnavailable
+        ? { available: false, reason: options.bootISOBuilderUnavailable }
+        : { available: true }
+      return json(route, {
+        builder,
+        items: bootISOItems
+          .filter((item) => (!siteId || item.siteId === siteId) && (!integrationId || item.integrationId === integrationId))
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(bootISOView),
+      })
+    }
+    if (path === '/api/v1/provisioning/boot-isos' && request.method() === 'POST') {
+      const body = (request.postDataJSON() ?? {}) as Record<string, unknown>
+      options.onBootISORequest?.('POST', path, body)
+      if (options.bootISOBuildError) {
+        const { status, code, message } = options.bootISOBuildError
+        return json(route, { error: { code, message, requestId: 'req-boot-iso' } }, status)
+      }
+      const name = String(body.name ?? '').trim()
+      const integrationId = String(body.integrationId ?? '')
+      if (bootISOItems.some((item) => item.integrationId === integrationId && item.name.toLowerCase() === name.toLowerCase())) {
+        return json(route, { error: { code: 'conflict', message: 'A Boot ISO with this name already exists for the integration.' } }, 409)
+      }
+      const created = { id: `iso-${bootISOItems.length + 1}`, name, integrationId, rackAddress: String(body.rackAddress ?? '').trim(), siteId: 'site-a', createdAt: now, createdBy: 'admin' }
+      bootISOItems = [...bootISOItems, created]
+      return json(route, bootISOView(created), 201)
+    }
+    const bootISOMatch = path.match(/^\/api\/v1\/provisioning\/boot-isos\/([^/]+)$/)
+    if (bootISOMatch) {
+      const iso = bootISOItems.find((item) => item.id === decodeURIComponent(bootISOMatch[1]))
+      if (!iso) return json(route, { error: { code: 'not_found', message: 'Boot ISO not found.' } }, 404)
+      if (request.method() === 'DELETE') {
+        options.onBootISORequest?.('DELETE', path, null)
+        if (bootISOView(iso).inUseBy > 0) {
+          return json(route, { error: { code: 'conflict', message: 'boot ISO in use: 1 Server(s) have Boot Media enabled with it' } }, 409)
+        }
+        bootISOItems = bootISOItems.filter((item) => item.id !== iso.id)
+        return route.fulfill({ status: 204 })
+      }
+      return json(route, bootISOView(iso))
+    }
     if (path === '/api/v1/provisioning/templates' && request.method() === 'GET') {
       const siteId = url.searchParams.get('siteId')
       const integrationId = url.searchParams.get('integrationId')
@@ -1520,9 +1611,28 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           return json(route, { error: { code, message, requestId: 'req-boot-media' } }, status)
         }
         const enabled = body?.enabled === true
+        // The API's enable gates (server-detail-actions.md): an isoId is required and must name a
+        // Boot ISO of srv-1's own provisioner (MAAS Taipei).
+        const isoId = typeof body?.isoId === 'string' ? body.isoId : ''
+        if (enabled) {
+          const iso = bootISOItems.find((item) => item.id === isoId)
+          if (!isoId) return json(route, { error: { code: 'validation_error', message: 'Choose a Boot ISO to enable Boot Media.' } }, 400)
+          if (!iso) return json(route, { error: { code: 'not_found', message: 'Boot ISO not found.' } }, 404)
+          if (iso.integrationId !== 'maas-a') {
+            return json(route, { error: { code: 'validation_error', message: "The Boot ISO was built for another provisioner than the Server's." } }, 400)
+          }
+        }
+        if (enabled && options.bootMediaApplyGate) {
+          // Real timestamps: the dashboard counts the settle wait down against the browser clock.
+          const at = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString()
+          bootMediaState.apply = { isoId, phase: 'settling', startedAt: at(-60_000), phaseStartedAt: at(-10_000), phaseEndsAt: at(170_000) }
+          await options.bootMediaApplyGate
+          bootMediaState.apply = null
+        }
+        const keptISO = enabled ? isoId : bootMediaState.setting?.isoId
         bootMediaState.setting = enabled
-          ? { enabled: true, updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
-          : { enabled: false, updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
+          ? { enabled: true, isoId, updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
+          : { enabled: false, ...(keptISO ? { isoId: keptISO } : {}), updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
         const disableOutcome = enabled ? {} : options.bootMediaRevertError ? { reverted: false, revertError: options.bootMediaRevertError } : { reverted: true }
         return json(route, { ...bootMediaView(false), ...disableOutcome })
       }

@@ -6,19 +6,33 @@ import (
 )
 
 // BootMediaItem is the published shape of a Server's Boot Media (contract
-// server-detail-actions.md, decision 047). Setting, Redfish, and Live are null when never set,
-// never probed, or not read; that distinction is part of the contract.
+// server-detail-actions.md, decisions 047 and 049). Image, Setting, Redfish, Live, and Apply are
+// null when no Boot ISO is named, never set, never probed, not read, or no preflight runs; that
+// distinction is part of the contract.
 type BootMediaItem struct {
 	ServerID  string                  `json:"serverId"`
-	Image     BootMediaImageItem      `json:"image"`
+	Image     *BootMediaImageItem     `json:"image"`
 	Setting   *BootMediaSettingItem   `json:"setting"`
 	Redfish   *RedfishCapabilityItem  `json:"redfish"`
 	Live      *BootMediaLiveStateItem `json:"live"`
 	LiveError string                  `json:"liveError,omitempty"`
+	Apply     *BootMediaApplyItem     `json:"apply"`
 }
 
-// BootMediaImageItem is the installation's ISO: its fixed URL and whether it is served.
+// BootMediaApplyItem is the running enable preflight: which Boot ISO, which phase, and since when.
+// PhaseEndsAt is null unless the phase has a known end.
+type BootMediaApplyItem struct {
+	ISOID          string  `json:"isoId"`
+	Phase          string  `json:"phase"`
+	StartedAt      string  `json:"startedAt"`
+	PhaseStartedAt string  `json:"phaseStartedAt"`
+	PhaseEndsAt    *string `json:"phaseEndsAt"`
+}
+
+// BootMediaImageItem is the Boot ISO the setting names, its URL, and whether it is served.
 type BootMediaImageItem struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
 	URL       string `json:"url"`
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
@@ -26,7 +40,9 @@ type BootMediaImageItem struct {
 
 // BootMediaSettingItem is the swallow-owned setting with the last apply's outcome.
 type BootMediaSettingItem struct {
-	Enabled       bool    `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// ISOID is the chosen Boot ISO, null when none is (a setting enabled before Boot ISOs).
+	ISOID         *string `json:"isoId"`
 	UpdatedAt     string  `json:"updatedAt"`
 	LastAppliedAt *string `json:"lastAppliedAt"`
 	LastAppliedBy string  `json:"lastAppliedBy,omitempty"`
@@ -63,13 +79,15 @@ type BootMediaLiveStateItem struct {
 func ToBootMediaItem(view *BootMediaView) BootMediaItem {
 	item := BootMediaItem{
 		ServerID:  view.Server.ID,
-		Image:     BootMediaImageItem{URL: view.ImageURL, Available: view.ImageAvailable, Reason: view.ImageReason},
 		Redfish:   ToRedfishCapabilityItem(view.Server.Redfish),
 		LiveError: view.LiveError,
 	}
+	if image := view.Image; image != nil {
+		item.Image = &BootMediaImageItem{ID: image.ID, Name: image.Name, URL: image.URL, Available: image.Available, Reason: image.Reason}
+	}
 	if s := view.Server.BootMedia; s != nil {
 		item.Setting = &BootMediaSettingItem{
-			Enabled: s.Enabled, UpdatedAt: wire.Time(s.UpdatedAt),
+			Enabled: s.Enabled, ISOID: wire.String(s.ISOID), UpdatedAt: wire.Time(s.UpdatedAt),
 			LastAppliedBy: string(s.LastAppliedBy), BootOverride: s.BootOverride, LastError: s.LastError,
 		}
 		if s.LastAppliedAt != nil {
@@ -77,6 +95,15 @@ func ToBootMediaItem(view *BootMediaView) BootMediaItem {
 		}
 		if s.LastErrorAt != nil {
 			item.Setting.LastErrorAt = wire.TimePtr(*s.LastErrorAt)
+		}
+	}
+	if apply := view.Apply; apply != nil {
+		item.Apply = &BootMediaApplyItem{
+			ISOID: apply.ISOID, Phase: string(apply.Phase),
+			StartedAt: wire.Time(apply.StartedAt), PhaseStartedAt: wire.Time(apply.PhaseStartedAt),
+		}
+		if apply.PhaseEndsAt != nil {
+			item.Apply.PhaseEndsAt = wire.TimePtr(*apply.PhaseEndsAt)
 		}
 	}
 	if live := view.Live; live != nil {

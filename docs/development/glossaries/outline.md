@@ -31,7 +31,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
 - [Tag](terms/tag.md): An operator-facing label on a Server, provider-owned when the provisioner supports tagging (MAAS) and swallow-owned otherwise; drives Server Type and discovery filters.
 - [BMC](terms/bmc.md): A physical Server's out-of-band management controller; its connection facts are provisioner-owned and read live, while its Redfish capability (virtual media, boot override) is swallow's own probe result — independent of the provisioner's power driver.
-- [Boot Media](terms/boot-media.md): The swallow-served iPXE ISO a Server's BMC mounts and boots first to reach the provisioner on externally served networks; per Server, swallow owns the enabled setting, applied as a preflight and re-ensured before every OS Deployment.
+- [Boot Media](terms/boot-media.md): A Server's setting that its BMC mounts a chosen Boot ISO and boots it first to reach the provisioner on externally served networks; swallow owns the setting, applied as a preflight and re-ensured before every OS Deployment.
+- [Boot ISO](terms/boot-iso.md): A swallow-built iPXE ISO for one provisioner Integration that takes a site DHCP lease and chains to its MAAS rack; built from a fixed template, served by swallow, selected by Boot Media.
 
 ### Platform Management
 

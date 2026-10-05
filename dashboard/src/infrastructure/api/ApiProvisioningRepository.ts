@@ -4,6 +4,9 @@ import type {
   UploadOSImageInput,
 } from "@/application/ports/ProvisioningRepository";
 import type {
+  BootISO,
+  BootISOCatalog,
+  CreateBootISOInput,
   CreateDeploymentTemplateInput,
   CreateImageVerificationInput,
   DeploymentTemplate,
@@ -242,5 +245,39 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
       { method: "POST", body: JSON.stringify(input) },
     );
     return response.servers ?? [];
+  }
+
+  async listBootISOs(filters?: {
+    siteId?: string;
+    integrationId?: string;
+  }): Promise<BootISOCatalog> {
+    const query = new URLSearchParams();
+    if (filters?.siteId) query.set("siteId", filters.siteId);
+    if (filters?.integrationId)
+      query.set("integrationId", filters.integrationId);
+    const suffix = query.toString() ? `?${query}` : "";
+    // Never cached: `inUseBy` changes whenever a Server's Boot Media is enabled or switched.
+    const response = await apiRequest<BootISOCatalog>(
+      `/api/v1/provisioning/boot-isos${suffix}`,
+      { cache: "no-store" },
+    );
+    return {
+      builder: response.builder ?? { available: false },
+      items: response.items ?? [],
+    };
+  }
+
+  async createBootISO(input: CreateBootISOInput): Promise<BootISO> {
+    return apiRequest<BootISO>("/api/v1/provisioning/boot-isos", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteBootISO(id: string): Promise<void> {
+    await apiRequest<void>(
+      `/api/v1/provisioning/boot-isos/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
   }
 }

@@ -332,6 +332,13 @@ swallow servers network delete-link srv1 <interfaceId> <linkId>
 swallow servers placement srv1 --zone zone1 --pool pool1
 swallow servers placement srv1 --clear-zone --clear-pool
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
+
+# Boot Media：BMC 掛載 Server 所屬 provisioner 的 Boot ISO，並優先從它開機
+swallow servers boot-media get srv1 [--live]       # --live 會同時讀取 BMC（需數秒）
+swallow servers boot-media enable srv1 --iso iso1  # 在 BMC 上執行 preflight；最多等待 8 分鐘
+swallow servers boot-media enable srv1 --iso iso2  # 已啟用的 Server：切換 Boot ISO
+swallow servers boot-media disable srv1            # 保留已選的 Boot ISO
+swallow servers redfish-probe srv1
 ```
 
 `link.yaml`：
@@ -358,6 +365,13 @@ swallow provisioning templates delete tmpl1
 swallow provisioning templates user-data set tmpl1 --from ./cloud-init.yaml   # raw file -> { userData }
 swallow provisioning templates user-data set tmpl1 -f userdata.json           # JSON body { userData }
 swallow provisioning templates user-data clear tmpl1
+
+# Boot ISO：從站點網路的 DHCP 取得位址後，chain 到 provisioner 的 MAAS rack
+# （http://<rack>:<port 或 5248>/ipxe.cfg）的 iPXE ISO；建置只需數秒
+swallow provisioning boot-isos list --site-id site1            # 也會說明此安裝能否建置
+swallow provisioning boot-isos create --integration int1 --name tainan-rack --rack 10.0.0.2
+swallow provisioning boot-isos get iso1                        # 含產生的 iPXE script
+swallow provisioning boot-isos delete iso1                     # 仍有 Server 的 Boot Media 使用時會被拒絕
 
 # Server tags
 swallow provisioning tags list --site-id site1

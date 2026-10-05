@@ -1,4 +1,4 @@
-# The iPXE ISO served as Boot Media is a local, site-specific artifact (it embeds the
-# provisioner's address). Keep it out of git.
+# Boot ISOs built on the Provisioning page land here, one directory per ISO. They are local,
+# site-specific artifacts (each embeds a provisioner's rack address). Keep them out of git.
 *
 !.gitignore

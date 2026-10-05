@@ -43,10 +43,10 @@ DELETE /api/v1/servers/{id}/default-user
 GET  /api/v1/servers/{id}/boot-media
 PUT  /api/v1/servers/{id}/boot-media
 POST /api/v1/servers/{id}/redfish/probe
-GET  /boot-media/ipxe/swallow-ipxe.iso
+GET  /boot-media/ipxe/{isoId}/swallow-ipxe.iso
 ```
 
-All routes require an admin bearer token, except `GET /boot-media/ipxe/swallow-ipxe.iso`, which
+All routes require an admin bearer token, except `GET /boot-media/ipxe/{isoId}/swallow-ipxe.iso`, which
 is deliberately unauthenticated (see [Boot Media](#boot-media)).
 
 ## Server Lock Protection
@@ -270,22 +270,25 @@ swallow starts a new OS deployment on the Server and when the Server is observed
 
 ## Boot Media
 
-Boot Media is the swallow-served iPXE ISO that a Server's BMC mounts as Redfish virtual media
-and boots first, so a Server on a network whose DHCP is not the provisioner's still reaches the
-provisioner ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md)). The
-installation fixes the ISO and its URL; per Server, swallow owns only whether Boot Media is
-enabled and the outcome of the last apply. swallow reads the BMC's address and account from the
-provisioner (MAAS `power_parameters`) for each call and never stores, logs, or returns them on
-these routes.
+Boot Media is a Server's setting that its BMC mounts a Boot ISO as Redfish virtual media and
+boots it first, so a Server on a network whose DHCP is not the provisioner's still reaches the
+provisioner ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md),
+[decision 049](../../../../../docs/decisions/049-boot-iso-builder.md)). Boot ISOs are built in
+swallow per provisioner Integration ([boot-isos.md](boot-isos.md)); per Server, swallow owns
+whether Boot Media is enabled, which Boot ISO it uses, and the outcome of the last apply. swallow
+reads the BMC's address and account from the provisioner (MAAS `power_parameters`) for each call
+and never stores, logs, or returns them on these routes.
 
 ### The ISO
 
-`GET /boot-media/ipxe/swallow-ipxe.iso` (and `HEAD`) serves the installation's ISO file without
+`GET /boot-media/ipxe/{isoId}/swallow-ipxe.iso` (and `HEAD`) serves a Boot ISO's file without
 authentication, because a BMC mounts the URL with no way to send a token, and it re-reads the
 ISO at every boot. It supports byte ranges (`206 Partial Content`, `Accept-Ranges: bytes`), which
-BMC HTTP virtual media requires. It is `404` when no ISO is configured. The ISO URL BMCs mount is
-`<api.bootMedia.baseURL>/boot-media/ipxe/swallow-ipxe.iso`; many BMCs accept only `http://` on
-port 80 and an image under a directory, so installations publish this path there.
+BMC HTTP virtual media requires. It is `404` for an unknown or malformed `isoId`. The URL BMCs
+mount is `<api.bootMedia.baseURL>/boot-media/ipxe/{isoId}/swallow-ipxe.iso`, reported as the
+Boot ISO's `url`; many BMCs accept only `http://` on port 80 and an image under a directory, so
+installations publish `/boot-media/` there. The former fixed route
+`/boot-media/ipxe/swallow-ipxe.iso` of the installation-supplied ISO is removed.
 
 ### Read
 
@@ -294,9 +297,15 @@ port 80 and an image under a directory, so installations publish this path there
 ```json
 {
   "serverId": "4f9ee382-…",
-  "image": { "url": "http://10.170.168.20/boot-media/ipxe/swallow-ipxe.iso", "available": true },
+  "image": {
+    "id": "6b3f0c1e-…",
+    "name": "tainan-rack",
+    "url": "http://10.170.168.20/boot-media/ipxe/6b3f0c1e-…/swallow-ipxe.iso",
+    "available": true
+  },
   "setting": {
     "enabled": true,
+    "isoId": "6b3f0c1e-…",
     "updatedAt": "2026-10-03T10:30:00Z",
     "lastAppliedAt": "2026-10-03T10:30:00Z",
     "lastAppliedBy": "preflight",
@@ -317,16 +326,21 @@ port 80 and an image under a directory, so installations publish this path there
   },
   "live": {
     "mediaInserted": true,
-    "mediaImage": "//10.170.168.20/boot-media/ipxe/swallow-ipxe.iso/swallow-ipxe.iso",
+    "mediaImage": "//10.170.168.20/boot-media/ipxe/6b3f0c1e-…/swallow-ipxe.iso/swallow-ipxe.iso",
     "overrideEnabled": "Once",
     "overrideTarget": "UefiBootNext",
     "ready": true
-  }
+  },
+  "apply": null
 }
 ```
 
-- `image.available` is `false` with a `reason` when the installation serves no ISO (no file or no
-  base URL configured); Boot Media cannot be enabled then.
+- `image` is the Boot ISO the setting names, or `null` when it names none (never set, or a
+  setting enabled before Boot ISOs existed). `available` is `false` with a `reason` when that Boot
+  ISO no longer exists, its file is missing, or the installation has no Boot Media base URL.
+- `setting.isoId` is the chosen Boot ISO, or `null`. An enabled setting with no `isoId` needs one
+  chosen (enable again with an `isoId`); until then its deployments' ensure Task fails
+  `boot_media_not_configured`.
 - `setting` is `null` when Boot Media was never set on the Server. `lastAppliedBy` is
   `preflight` (the enable action) or `ensure` (the Task of an OS deployment). `bootOverride` is
   the persistence the BMC accepted: `Continuous` (survives reboots) or `Once` (the next boot
@@ -343,6 +357,29 @@ port 80 and an image under a directory, so installations publish this path there
 - `live` is `null` unless `live=true` was requested and the BMC answered; then `liveError`
   explains a failed read and the response is still `200`. `mediaImage` is verbatim (BMCs rewrite
   URLs). `ready` means the next boot starts from the ISO.
+- `apply` is the enable preflight running now, or `null` when none is. Clients poll this read
+  (every few seconds) for progress while the enable request is outstanding, and after a page
+  reload:
+
+  ```json
+  {
+    "isoId": "6b3f0c1e-…",
+    "phase": "settling",
+    "startedAt": "2026-10-05T01:32:33Z",
+    "phaseStartedAt": "2026-10-05T01:33:25Z",
+    "phaseEndsAt": "2026-10-05T01:36:25Z"
+  }
+  ```
+
+  `phase` is, in order: `probing` (re-probing the BMC's Redfish service), `ejecting` (a switch
+  ejects the previous Boot ISO), `mounting` (mounting the Boot ISO and waiting until the BMC
+  reports it inserted), `settling` (the fixed wait a fresh mount needs before the host may power
+  on), `directing` (directing the next boots at the virtual CD), `verifying` (reading both back).
+  Phases that are not needed are skipped: no `ejecting` unless switching, no `mounting` or
+  `settling` when the BMC already holds the Boot ISO. A future phase value may appear; treat an
+  unknown one as in progress. `phaseEndsAt` is set only for a phase with a known end
+  (`settling`), else `null`. An apply whose API process stopped is no longer reported once it is
+  older than any preflight can run (ten minutes).
 
 An unknown Server is `404 not_found`.
 
@@ -351,15 +388,20 @@ An unknown Server is `404 not_found`.
 `PUT /api/v1/servers/{id}/boot-media`
 
 ```json
-{ "enabled": true }
+{ "enabled": true, "isoId": "6b3f0c1e-…" }
 ```
 
-Enabling is a **preflight**: the installation must serve the ISO and the Server must be
-unlocked; swallow re-probes the BMC, mounts the ISO on a virtual CD (enabling the BMC's remote
-media service first when a vendor requires it), directs the next boots at that CD, reads both
-back, and only then saves `enabled: true`. It can take a few minutes. A failure is recorded in
-`setting.lastError` and returned; the setting stays as it was. Re-enabling an enabled Server
-re-applies it.
+`isoId` is required to enable and names a Boot ISO built for the Server's own provisioner
+Integration ([boot-isos.md](boot-isos.md)); it is ignored when disabling.
+
+Enabling is a **preflight**: the Boot ISO must exist and be served and the Server must be
+unlocked; swallow re-probes the BMC, mounts the Boot ISO on a virtual CD (enabling the BMC's
+remote media service first when a vendor requires it), directs the next boots at that CD, reads
+both back, and only then saves `enabled: true` with that `isoId`. It can take a few minutes. A
+failure is recorded in `setting.lastError` and returned; the setting stays as it was.
+Re-enabling an enabled Server re-applies it; enabling with a different `isoId` switches to that
+Boot ISO the same way, ejecting the previous one first. The request stays open until the
+preflight ends; its progress is the Read's `apply`. Only one preflight runs per Server at a time.
 
 How the boot is directed depends on the BMC and is reported as `bootOverride`: on AMI Aptio
 firmware swallow puts the USB device group (where BMC virtual media lives) first in the BIOS
@@ -380,9 +422,9 @@ disable).
 
 | Status | Code | When |
 | --- | --- | --- |
-| 400 | `validation_error` | The body is not a JSON object with a boolean `enabled`. |
-| 404 | `not_found` | The Server does not exist. |
-| 409 | `conflict` | The Server is locked; the installation serves no ISO; the Server has no BMC; the provisioner would not reveal the BMC connection (its account is not an administrator); the BMC does not support Redfish Boot Media; or the BMC refused the ISO or the override (the message carries the BMC's own explanation). |
+| 400 | `validation_error` | The body is not a JSON object with a boolean `enabled`; enabling without an `isoId`; or the Boot ISO belongs to another provisioner Integration. |
+| 404 | `not_found` | The Server does not exist, or the `isoId` names no Boot ISO. |
+| 409 | `conflict` | A preflight is already running on the Server (enable or disable); the Server is locked; the Boot ISO is not served (its file is missing or the installation has no Boot Media base URL); the Server has no BMC; the provisioner would not reveal the BMC connection (its account is not an administrator); the BMC does not support Redfish Boot Media; or the BMC refused the ISO or the override (the message carries the BMC's own explanation). |
 | 503 | `provider_unavailable` | The BMC's Redfish service could not be reached or stayed busy, the provisioner could not be reached, or the Server Lock state is unavailable. |
 
 ### Probe
@@ -424,3 +466,7 @@ On 2026-10-04 `POST /servers/{id}/commission` was renamed to `POST /servers/{id}
 with the same behavior, and the provisioning state `commissioning` became `inspecting`
 ([decision 048](../../../../../docs/decisions/048-os-provisioning-generic-states.md)). The old
 route is removed rather than aliased; clients move to `inspect` in the same release.
+
+On 2026-10-05 the Boot Media Read gained `apply` (the running preflight's progress), and a second
+Boot Media write while a preflight runs is refused with `409`. Both are additive for clients
+that ignore unknown fields.

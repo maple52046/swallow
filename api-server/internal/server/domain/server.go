@@ -291,10 +291,13 @@ type Server struct {
 	DefaultUser string
 
 	// BootMedia is the Server's Boot Media setting (decision 047), nil when never set. Redfish is
-	// the latest Redfish capability probe of its BMC, nil before the first probe. Both are
-	// swallow-owned, written only through BootMediaStore, and preserved by provider reconciliation.
-	BootMedia *BootMediaSetting
-	Redfish   *RedfishCapability
+	// the latest Redfish capability probe of its BMC, nil before the first probe. BootMediaApply is
+	// the enable preflight recorded as running, nil when none is (check Running: an abandoned one
+	// lingers). All are swallow-owned, written only through BootMediaStore, and preserved by
+	// provider reconciliation.
+	BootMedia      *BootMediaSetting
+	Redfish        *RedfishCapability
+	BootMediaApply *BootMediaApply
 
 	// The three externally owned status axes. Each is nil until its owner has been
 	// observed: absent means "not known", not a default state.

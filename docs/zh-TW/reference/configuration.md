@@ -33,20 +33,37 @@
 
 ### Boot Media
 
-Boot Media（BMC 為沒有 provisioner DHCP 的網路上的 Server 掛載的 iPXE ISO，見
-[OS provisioning](../guides/os-provisioning.md)）是選用功能，兩個值都設定後才會啟用：
+Boot Media 讓沒有 provisioner DHCP 的網路上的 Server BMC 掛載 swallow 建置的
+Boot ISO；見 [OS provisioning](../guides/os-provisioning.md)。Builder 需要 base
+URL、可寫入的 storage directory，以及 iPXE asset 與 packaging tool：
 
 | 設定 | Environment variable | 意義 |
 | --- | --- | --- |
-| `api.bootMedia.isoPath` | `SWALLOW_API_BOOT_MEDIA_ISO_PATH` | API 提供的 iPXE ISO 檔案。 |
 | `api.bootMedia.baseURL` | `SWALLOW_API_BOOT_MEDIA_BASE_URL` | BMC 連到 swallow 的位址，例如 `http://10.0.0.5`，不含路徑。 |
+| `api.bootMedia.dir` | `SWALLOW_API_BOOT_MEDIA_DIR` | 可寫入的 Boot ISO storage，預設 `/var/lib/swallow/boot-media`；file 存放於 `<dir>/<isoId>/swallow-ipxe.iso`。 |
+| `api.bootMedia.ipxeDir` | `SWALLOW_API_IPXE_DIR` | Prebuilt iPXE asset（`ipxe.lkrn`、`ipxe.efi`、`genfsimg`、`VERSION`），預設 `/usr/share/swallow/ipxe`。 |
 | `api.redfishProbeInterval` | `SWALLOW_API_REDFISH_PROBE_INTERVAL` | 對新加入或過期的 Server 進行 Redfish 偵測的頻率（預設 10m）。 |
 | `api.redfishProbeMaxAge` | `SWALLOW_API_REDFISH_PROBE_MAX_AGE` | 一次偵測結果的有效期（預設 24h）。 |
 
-BMC 會以不帶帳密的方式掛載 `<baseURL>/boot-media/ipxe/swallow-ipxe.iso`，並在每次開機時重新讀取。
-許多 BMC 只接受 port 80 的 `http://`，因此 production Nginx 會在 port 80 轉發 `/boot-media/`（不會導向
-HTTPS）。Production Compose 會讀取 `SWALLOW_BOOT_MEDIA_BASE_URL`，並掛載 `SWALLOW_BOOT_MEDIA_DIR`（預設
-`./boot-media`，內含 `swallow-ipxe.iso`）。ISO 通常內嵌 provisioner rack 的位址，因此是安裝專屬的檔案。
+每個 Boot ISO 都會以不帶 authentication、支援 HTTP byte range 的方式提供於
+`<baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso`。許多 BMC 只接受 port 80
+的 plain `http://`，因此 production Nginx 會在該 port 轉發 `/boot-media/`。
+Production Compose 會讀取 `SWALLOW_BOOT_MEDIA_BASE_URL`、設定 API storage directory，
+並將 named `boot-media` volume 掛載到 `/var/lib/swallow/boot-media`。
+
+Container image 已包含 pinned iPXE asset 與所需 packaging tool。Native installation
+會透過 tmpfiles 建立 Boot Media directory，但不會安裝這些 asset。若要在 native
+環境建置，請在 `api.bootMedia.ipxeDir` 提供 `ipxe.lkrn`、`ipxe.efi`、`genfsimg`
+與 `VERSION`，並安裝 `mtools`、`xorriso`、`isolinux` 與 `syslinux-common`。
+
+Base URL 為空、storage directory 無法寫入，或缺少 asset／tool 時，Dashboard
+會說明 builder unavailable 的原因並停用 **Build ISO**；既有 Boot ISO 仍會列出，
+也可刪除。
+
+`api.bootMedia.isoPath` 與 `SWALLOW_API_BOOT_MEDIA_ISO_PATH` 已退場；設定時只會
+在 startup 顯示 warning，值會被忽略。固定的
+`/boot-media/ipxe/swallow-ipxe.iso` route 已移除；production Compose 不再讀取
+`SWALLOW_BOOT_MEDIA_DIR`，放在舊路徑的 hand-made file 也不會被提供。
 
 ## Dashboard configuration
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -314,6 +315,44 @@ func TestApplyBootMediaOnAMIAptio(t *testing.T) {
 	}
 	if len(bmc.insertBodies) != 1 {
 		t.Errorf("InsertMedia calls after re-apply = %d, want still 1", len(bmc.insertBodies))
+	}
+}
+
+// An apply reports its phases through the context's reporter: the mount and its settle (with the
+// settle's end) when it mounts, then the boot direction and the read-back; a re-apply of a mounted
+// ISO skips straight to directing.
+func TestApplyBootMediaReportsPhases(t *testing.T) {
+	bmc := newFakeAMI()
+	c, endpoint := newTestController(t, bmc)
+	var phases []serverdomain.BootMediaPhase
+	var settleEnd *time.Time
+	ctx := serverdomain.WithBootMediaPhaseReporter(context.Background(), func(phase serverdomain.BootMediaPhase, endsAt *time.Time) {
+		phases = append(phases, phase)
+		if phase == serverdomain.BootMediaPhaseSettling {
+			settleEnd = endsAt
+		}
+	})
+	before := time.Now()
+	if _, _, err := c.ApplyBootMedia(ctx, endpoint, testISO); err != nil {
+		t.Fatalf("ApplyBootMedia error = %v", err)
+	}
+	want := []serverdomain.BootMediaPhase{
+		serverdomain.BootMediaPhaseMounting, serverdomain.BootMediaPhaseSettling,
+		serverdomain.BootMediaPhaseDirecting, serverdomain.BootMediaPhaseVerifying,
+	}
+	if fmt.Sprint(phases) != fmt.Sprint(want) {
+		t.Errorf("phases = %v, want %v", phases, want)
+	}
+	if settleEnd == nil || settleEnd.Before(before.Add(c.mountSettle).Add(-time.Second)) {
+		t.Errorf("settle end = %v, want about mountSettle after the mount", settleEnd)
+	}
+
+	phases = nil
+	if _, _, err := c.ApplyBootMedia(ctx, endpoint, testISO); err != nil {
+		t.Fatalf("second ApplyBootMedia error = %v", err)
+	}
+	if want := []serverdomain.BootMediaPhase{serverdomain.BootMediaPhaseDirecting, serverdomain.BootMediaPhaseVerifying}; fmt.Sprint(phases) != fmt.Sprint(want) {
+		t.Errorf("re-apply phases = %v, want %v", phases, want)
 	}
 }
 

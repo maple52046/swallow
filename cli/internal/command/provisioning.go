@@ -11,9 +11,9 @@ import (
 )
 
 // newProvisioningCommand groups the OS provisioning surface: OS image catalog
-// and overlay, deployment templates, Server tags, durable deploy/release/recover
-// operations, image verification, network inspection, and provisioning tasks
-// (provisioning.md, server-tags.md).
+// and overlay, deployment templates, Boot ISOs, Server tags, durable
+// deploy/release/recover operations, image verification, network inspection,
+// and provisioning tasks (provisioning.md, boot-isos.md, server-tags.md).
 //
 // The durable operation verbs (`deploy`, `release`, `recover`) map to the
 // canonical *-operations endpoints, not the deprecated one-shot routes.
@@ -25,6 +25,7 @@ func newProvisioningCommand() *cobra.Command {
 	cmd.AddCommand(
 		provisioningImagesCmd(),
 		provisioningTemplatesCmd(),
+		provisioningBootISOsCmd(),
 		provisioningTagsCmd(),
 		provisioningPreflightCmd(),
 		provisioningDeployCmd(),

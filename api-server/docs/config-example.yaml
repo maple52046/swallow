@@ -68,13 +68,16 @@ api:
   # pass only repairs drift. Env: SWALLOW_API_SSH_KEY_SYNC_INTERVAL.
   sshKeySyncInterval: "5m"
 
-  # Boot Media (decision 047): an iPXE ISO the API serves, unauthenticated, at
-  # <baseURL>/boot-media/ipxe/swallow-ipxe.iso for BMCs to mount as virtual media. Optional:
-  # Boot Media stays off until both are set. Many BMCs mount only plain http:// on port 80.
-  # Env: SWALLOW_API_BOOT_MEDIA_ISO_PATH, SWALLOW_API_BOOT_MEDIA_BASE_URL.
+  # Boot Media (decisions 047 and 049): Boot ISOs are built on the dashboard's Provisioning page,
+  # written under dir (one subdirectory each), and served unauthenticated at
+  # <baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso for BMCs to mount as virtual media.
+  # Optional: without baseURL no Boot ISO can be built. Many BMCs mount only plain http:// on
+  # port 80. ipxeDir holds the prebuilt iPXE assets the image installs. isoPath is retired.
+  # Env: SWALLOW_API_BOOT_MEDIA_BASE_URL, SWALLOW_API_BOOT_MEDIA_DIR, SWALLOW_API_IPXE_DIR.
   bootMedia:
-    isoPath: ""
     baseURL: ""
+    dir: "/var/lib/swallow/boot-media"
+    ipxeDir: "/usr/share/swallow/ipxe"
   # How often Servers without a current Redfish capability probe (newly enrolled ones) are
   # probed, and how long a probe stays current.
   # Env: SWALLOW_API_REDFISH_PROBE_INTERVAL, SWALLOW_API_REDFISH_PROBE_MAX_AGE.

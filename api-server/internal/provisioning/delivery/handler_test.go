@@ -152,6 +152,42 @@ func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
 	}
 }
 
+// Boot ISO failures reach the operator with the contract's status and, where it helps fix the
+// cause (builder unavailable, in use, build output), the service's own message.
+func TestRespondErrorMapsBootISOErrors(t *testing.T) {
+	cases := []struct {
+		err        error
+		wantStatus int
+		wantCode   apierror.Code
+		wantText   string
+	}{
+		{provisioningdomain.ErrBootISONotFound, http.StatusNotFound, apierror.CodeNotFound, "Boot ISO not found"},
+		{provisioningdomain.ErrBootISONameTaken, http.StatusConflict, apierror.CodeConflict, "already exists"},
+		{fmt.Errorf("%w: 2 Server(s) use it", provisioningdomain.ErrBootISOInUse), http.StatusConflict, apierror.CodeConflict, "2 Server(s)"},
+		{&provisioningdomain.BootISOBuilderUnavailableError{Reason: "xorriso is not installed"}, http.StatusConflict, apierror.CodeConflict, "xorriso is not installed"},
+		{fmt.Errorf("%w: name is required", provisioningdomain.ErrInvalidBootISO), http.StatusBadRequest, apierror.CodeValidation, "name is required"},
+		{fmt.Errorf("%w: genfsimg: no space", provisioningdomain.ErrBootISOBuildFailed), http.StatusInternalServerError, apierror.CodeInternal, "no space"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.err.Error(), func(t *testing.T) {
+			app := fiber.New()
+			app.Get("/boot-isos", func(c *fiber.Ctx) error { return RespondError(c, tc.err) })
+			resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/boot-isos", nil))
+			if err != nil {
+				t.Fatalf("request: %v", err)
+			}
+			defer resp.Body.Close()
+			var response apierror.ErrorResponse
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if resp.StatusCode != tc.wantStatus || response.Error.Code != tc.wantCode || !strings.Contains(response.Error.Message, tc.wantText) {
+				t.Errorf("response = %d %s %q, want %d %s containing %q", resp.StatusCode, response.Error.Code, response.Error.Message, tc.wantStatus, tc.wantCode, tc.wantText)
+			}
+		})
+	}
+}
+
 func TestNetworkTargetResponseIncludesDeploymentSuggestion(t *testing.T) {
 	response := toNetworkTargetResponse(application.NetworkTarget{
 		ServerID: "server-1",

@@ -133,6 +133,7 @@ func (c *Controller) ApplyBootMedia(ctx context.Context, endpoint serverdomain.B
 		return "", serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The host System offers no virtual CD."}
 	}
 	if found.mediaHolding(isoURL) == nil {
+		serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseMounting, nil)
 		if found, err = c.prepareMount(ctx, s, endpoint, found, isoURL); err != nil {
 			return "", serverdomain.BootMediaState{}, err
 		}
@@ -140,10 +141,12 @@ func (c *Controller) ApplyBootMedia(ctx context.Context, endpoint serverdomain.B
 			return "", serverdomain.BootMediaState{}, err
 		}
 	}
+	serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseDirecting, nil)
 	mode, err := c.setOverride(ctx, s, found)
 	if err != nil {
 		return "", serverdomain.BootMediaState{}, err
 	}
+	serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseVerifying, nil)
 	if found, err = s.discover(ctx, endpoint); err != nil {
 		return "", serverdomain.BootMediaState{}, discoveryError(err)
 	}
@@ -715,12 +718,17 @@ func (c *Controller) followTask(ctx context.Context, s *session, resp *response,
 // discovery. See mountSettle for why a mount must settle before the host powers on.
 func (c *Controller) mountAndSettle(ctx context.Context, s *session, endpoint serverdomain.BMCEndpoint, found *discovered, isoURL string) (*discovered, error) {
 	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseMounting, nil)
+		}
 		if err := c.insert(ctx, s, found, isoURL); err != nil {
 			return nil, err
 		}
 		if _, err := c.awaitInserted(ctx, s, endpoint, isoURL); err != nil {
 			return nil, err
 		}
+		settled := time.Now().UTC().Add(c.mountSettle).Truncate(time.Millisecond)
+		serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseSettling, &settled)
 		if err := sleep(ctx, c.mountSettle); err != nil {
 			return nil, classify(err)
 		}

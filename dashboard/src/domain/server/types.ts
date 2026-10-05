@@ -245,12 +245,18 @@ export type BootMediaApplier = 'preflight' | 'ensure'
 
 /**
  * A Server's Boot Media setting (glossary Boot Media): the operator's intent that the Server boot
- * the installation's iPXE ISO first, plus the outcome of the last apply. It is intent and history,
- * not the BMC's live state. `bootOverride` is how persistently the BMC took it: `Continuous`
- * (survives reboots) or `Once` (the next boot only — every OS deployment re-applies it anyway).
+ * a chosen Boot ISO first, plus the outcome of the last apply. It is intent and history, not the
+ * BMC's live state. `bootOverride` is how persistently the BMC took it: `Continuous` (survives
+ * reboots) or `Once` (the next boot only — every OS deployment re-applies it anyway).
  */
 export interface BootMediaSetting {
   enabled: boolean
+  /**
+   * The chosen Boot ISO, kept when Boot Media is disabled so re-enabling offers it again. `null`
+   * for a setting enabled before Boot ISOs existed (decision 049): such a Server must choose one,
+   * and until it does its OS deployments stop at the Boot Media step.
+   */
+  isoId: string | null
   updatedAt: string
   lastAppliedAt: string | null
   lastAppliedBy?: BootMediaApplier
@@ -271,16 +277,54 @@ export interface BootMediaLiveState {
 }
 
 /**
- * One Server's Boot Media (`GET /servers/{id}/boot-media`): the installation's ISO (one fixed URL,
- * never per Server), the Server's setting (`null` when never set), its Redfish capability (`null`
- * before the first probe), and — only when asked for — the BMC's live state (`null` when not read
- * or the read failed, `liveError` saying why).
+ * The Boot ISO a Boot Media setting names, as the Server's Boot Media read resolves it. It stays
+ * reported when it can no longer be mounted — the ISO was deleted (`name` is then empty), its file
+ * is missing, or the installation has no Boot Media base URL — with `available: false` and the
+ * API's `reason`, so the operator sees what the setting points at and why it will not boot.
+ */
+export interface BootMediaImage {
+  id: string
+  name: string
+  url: string
+  available: boolean
+  reason?: string
+}
+
+/**
+ * A step of the Boot Media enable preflight, in the order they run (contract `apply.phase`):
+ * `probing` the BMC's Redfish service, `ejecting` the previous Boot ISO when switching, `mounting`
+ * the Boot ISO, `settling` (the fixed wait a fresh mount needs before the host may power on),
+ * `directing` the next boots at the virtual CD, `verifying` both. Unneeded steps are skipped. A
+ * future value may arrive; it is still a running preflight.
+ */
+export type BootMediaApplyPhase = 'probing' | 'ejecting' | 'mounting' | 'settling' | 'directing' | 'verifying'
+
+/**
+ * The enable preflight running on a Server, as the API records it while the PUT is outstanding,
+ * so any tab or a reloaded page can follow it. Times are ISO timestamps from the API's clock;
+ * `phaseEndsAt` is set only for a phase with a known end (`settling`).
+ */
+export interface BootMediaApply {
+  isoId: string
+  phase: BootMediaApplyPhase | string
+  startedAt: string
+  phaseStartedAt: string
+  phaseEndsAt: string | null
+}
+
+/**
+ * One Server's Boot Media (`GET /servers/{id}/boot-media`): the Boot ISO the setting names (`null`
+ * when it names none), the Server's setting (`null` when never set), its Redfish capability (`null`
+ * before the first probe), the enable preflight running now (`null` when none), and — only when
+ * asked for — the BMC's live state (`null` when not read or the read failed, `liveError` saying
+ * why).
  */
 export interface ServerBootMedia {
   serverId: string
-  image: { url: string; available: boolean; reason?: string }
+  image: BootMediaImage | null
   setting: BootMediaSetting | null
   redfish: RedfishCapability | null
+  apply: BootMediaApply | null
   live: BootMediaLiveState | null
   liveError?: string
 }

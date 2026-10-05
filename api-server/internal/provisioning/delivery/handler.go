@@ -607,6 +607,22 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
+	// Boot ISOs (contract boot-isos.md). A build failure carries only the packaging tool's
+	// summary, which holds no secret, so it is returned as the message.
+	case errors.Is(err, provisioningdomain.ErrBootISONotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Boot ISO not found."))
+	case errors.Is(err, provisioningdomain.ErrBootISONameTaken):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"A Boot ISO with this name already exists for the integration."))
+	case errors.Is(err, provisioningdomain.ErrBootISOInUse),
+		errors.Is(err, provisioningdomain.ErrBootISOBuilderUnavailable):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+	case errors.Is(err, provisioningdomain.ErrInvalidBootISO):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+	case errors.Is(err, provisioningdomain.ErrBootISOBuildFailed):
+		slog.Error("boot ISO build failed", "requestId", c.GetRespHeader(fiber.HeaderXRequestID), "error", err)
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, err.Error()))
+
 	case errors.Is(err, provisioningdomain.ErrProvisioningTaskNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Provisioning task not found."))
 

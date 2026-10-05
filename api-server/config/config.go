@@ -102,8 +102,9 @@ type APIConfig struct {
 	// refresh a JWT. Optional: without it those endpoints require an admin JWT.
 	// Never log this value.
 	MachineToken string `yaml:"machineToken"`
-	// BootMedia configures the installation's Boot Media ISO (decision 047). Optional: with either
-	// field empty Boot Media is unavailable and every enable request explains what is missing.
+	// BootMedia configures where Boot ISOs are built and stored and the URL BMCs mount them at
+	// (decisions 047 and 049). Optional: without BaseURL no Boot ISO can be built or mounted, and
+	// every build or enable request explains what is missing.
 	BootMedia BootMediaConfig `yaml:"bootMedia"`
 	// RedfishProbeInterval is how often the API process looks for Servers whose Redfish capability
 	// is missing (a newly enrolled Server) or older than RedfishProbeMaxAge, and probes them.
@@ -113,15 +114,24 @@ type APIConfig struct {
 	RedfishProbeMaxAge time.Duration `yaml:"redfishProbeMaxAge"`
 }
 
-// BootMediaConfig locates the Boot Media ISO the API process serves and the URL BMCs mount it at.
+// BootMediaConfig locates the Boot ISOs the API process builds and serves (decision 049) and the
+// URL BMCs mount them at.
 //
-// The ISO URL is fixed by the installation, never per Server: BaseURL plus the fixed path
-// /boot-media/ipxe/swallow-ipxe.iso. BaseURL must be reachable from the BMC network; many BMCs
-// (AMI MegaRAC among them) mount only plain http:// on port 80, so the production reverse proxy
-// publishes the path on port 80.
+// A Boot ISO's URL is derived, never typed per Server: BaseURL plus
+// /boot-media/ipxe/<isoId>/swallow-ipxe.iso. BaseURL must be reachable from the BMC network; many
+// BMCs (AMI MegaRAC among them) mount only plain http:// on port 80, so the production reverse
+// proxy publishes /boot-media/ on port 80.
 type BootMediaConfig struct {
-	// ISOPath is the iPXE ISO file on the API host (or in its container).
+	// ISOPath is retired (decision 049): the installation no longer supplies an ISO. A value is
+	// ignored with a startup warning so an upgraded configuration still loads.
 	ISOPath string `yaml:"isoPath"`
 	// BaseURL is the absolute http(s) URL, without path, at which BMCs reach this API process.
 	BaseURL string `yaml:"baseURL"`
+	// Dir is where the API process writes Boot ISOs, one subdirectory per ISO. It must be
+	// writable by the API process and persistent across restarts; the worker never reads it.
+	Dir string `yaml:"dir"`
+	// IPXEDir holds the prebuilt iPXE assets a build packages: ipxe.lkrn, ipxe.efi, iPXE's
+	// genfsimg script, and a VERSION file. The api-server image installs them; a missing file
+	// only makes the builder unavailable with a reason.
+	IPXEDir string `yaml:"ipxeDir"`
 }

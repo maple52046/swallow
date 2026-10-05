@@ -15,6 +15,7 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
@@ -32,10 +33,23 @@ func (r bootMediaServers) FindByID(_ context.Context, id string) (*serverdomain.
 	return nil, serverdomain.ErrServerNotFound
 }
 
-type availableImage struct{}
+// plannerISOs resolves iso-a as served and iso-missing as present without a file.
+type plannerISOs struct{}
 
-func (availableImage) URL() string      { return "http://192.0.2.1/boot-media/ipxe/swallow-ipxe.iso" }
-func (availableImage) Available() error { return nil }
+func (plannerISOs) Resolve(_ context.Context, id string) (*serverdomain.BootISOImage, error) {
+	image := &serverdomain.BootISOImage{ID: id, Name: id, IntegrationID: "integration-1", URL: (plannerISOs{}).URL(id)}
+	switch id {
+	case "iso-a":
+		return image, nil
+	case "iso-missing":
+		return image, serverdomain.ErrBootMediaNotConfigured
+	}
+	return nil, serverdomain.ErrBootISOUnknown
+}
+
+func (plannerISOs) URL(id string) string {
+	return "http://192.0.2.1/boot-media/ipxe/" + id + "/swallow-ipxe.iso"
+}
 
 func provisionTask(serverID string) operationdomain.Task {
 	return operationdomain.Task{
@@ -47,15 +61,15 @@ func provisionTask(serverID string) operationdomain.Task {
 }
 
 // Only Servers with Boot Media enabled get an ensure Task, placed before and depended on by their
-// provision Task, in the same Job, with the ISO URL frozen in its parameters.
+// provision Task, in the same Job, with that Server's Boot ISO URL frozen in its parameters.
 func TestBootMediaPlannerAddsEnsureTasks(t *testing.T) {
 	planner := bootMediaPlanner{
 		servers: bootMediaServers{servers: map[string]*serverdomain.Server{
-			"on":  {ID: "on", Observed: serverdomain.Observed{Hostname: "tainan-ci"}, BootMedia: &serverdomain.BootMediaSetting{Enabled: true}},
-			"off": {ID: "off", BootMedia: &serverdomain.BootMediaSetting{Enabled: false}},
+			"on":  {ID: "on", Observed: serverdomain.Observed{Hostname: "tainan-ci"}, BootMedia: &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-a"}},
+			"off": {ID: "off", BootMedia: &serverdomain.BootMediaSetting{Enabled: false, ISOID: "iso-a"}},
 			"new": {ID: "new"},
 		}},
-		image: availableImage{},
+		isos: plannerISOs{},
 	}
 	steps := []operationdomain.Task{{ID: "prepare", Kind: "noop"}, provisionTask("on"), provisionTask("off"), provisionTask("new")}
 	got, err := planner.withEnsureTasks(context.Background(), steps)
@@ -73,13 +87,13 @@ func TestBootMediaPlannerAddsEnsureTasks(t *testing.T) {
 	if ensure.Kind != ensureBootMediaTaskKind || ensure.Executor != operationdomain.RunnerKindInternal || ensure.Job != "ensure-os" {
 		t.Errorf("ensure task = %+v, want an internal ensure-boot-media Task in the provision Job", ensure)
 	}
-	if ensure.Parameters["isoUrl"] != (availableImage{}).URL() {
-		t.Errorf("ensure isoUrl = %v, want the installation URL", ensure.Parameters["isoUrl"])
+	if ensure.Parameters["isoUrl"] != (plannerISOs{}).URL("iso-a") {
+		t.Errorf("ensure isoUrl = %v, want the Server's Boot ISO URL", ensure.Parameters["isoUrl"])
 	}
 	if want := []string{"prepare", "ensure-boot-media-on"}; !equalStringSlices(provision.DependsOn, want) {
 		t.Errorf("provision DependsOn = %v, want %v", provision.DependsOn, want)
 	}
-	if provision.Parameters[bootMediaISOParameter] != (availableImage{}).URL() || provision.Parameters["request"] != "snapshot" {
+	if provision.Parameters[bootMediaISOParameter] != (plannerISOs{}).URL("iso-a") || provision.Parameters["request"] != "snapshot" {
 		t.Errorf("provision parameters = %v, want the request kept and the frozen ISO URL added", provision.Parameters)
 	}
 	if !equalStringSlices(steps[1].DependsOn, []string{"prepare"}) || steps[1].Parameters[bootMediaISOParameter] != nil {
@@ -168,6 +182,27 @@ func TestBootMediaWatchLeavesProgressingAndUnknownBootsAlone(t *testing.T) {
 	inert.observe(context.Background(), "srv", progressAt("Deploying"), watchStart.Add(time.Hour))
 	if len(recoverer.calls) != 0 {
 		t.Errorf("calls = %v, want none without a frozen ISO URL", recoverer.calls)
+	}
+}
+
+// An enabled Server without a served Boot ISO (none chosen, deleted, file missing) still gets its
+// ensure Task, with an empty URL, so the deployment stops with boot_media_not_configured instead
+// of booting a host that cannot reach the provisioner.
+func TestBootMediaPlannerFreezesNoURLWithoutServedBootISO(t *testing.T) {
+	for _, isoID := range []string{"", "iso-gone", "iso-missing"} {
+		planner := bootMediaPlanner{
+			servers: bootMediaServers{servers: map[string]*serverdomain.Server{
+				"on": {ID: "on", BootMedia: &serverdomain.BootMediaSetting{Enabled: true, ISOID: isoID}},
+			}},
+			isos: plannerISOs{},
+		}
+		got, err := planner.withEnsureTasks(context.Background(), []operationdomain.Task{provisionTask("on")})
+		if err != nil {
+			t.Fatalf("withEnsureTasks(%q) error = %v", isoID, err)
+		}
+		if len(got) != 2 || got[0].Kind != ensureBootMediaTaskKind || got[0].Parameters["isoUrl"] != "" {
+			t.Errorf("withEnsureTasks(%q) = %+v, want an ensure Task with an empty isoUrl", isoID, got)
+		}
 	}
 }
 
@@ -273,22 +308,30 @@ func TestBMCEndpointSourceMapsProvisionerAnswers(t *testing.T) {
 	}
 }
 
-// The ISO route serves HEAD and byte ranges, which BMC HTTP virtual media requires, and reports
-// a missing file as unavailable rather than serving something else.
-func TestServeBootMediaISO(t *testing.T) {
+// The ISO route serves a Boot ISO by id with HEAD and byte ranges, which BMC HTTP virtual media
+// requires, and serves nothing for an unknown or malformed id — never a path outside the Boot
+// Media directory.
+func TestServeBootISO(t *testing.T) {
 	dir := t.TempDir()
-	isoPath := filepath.Join(dir, "swallow-ipxe.iso")
-	if err := os.WriteFile(isoPath, []byte("0123456789abcdef"), 0o600); err != nil {
+	const id = "6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11"
+	if err := os.MkdirAll(filepath.Join(dir, id), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	image := newBootMediaImage(isoPath, "http://192.0.2.1/")
-	if image.URL() != "http://192.0.2.1"+bootMediaISOPath || image.Available() != nil {
-		t.Fatalf("image = %q, %v; want the fixed URL and available", image.URL(), image.Available())
+	if err := os.WriteFile(filepath.Join(dir, id, provisioninginfra.BootISOFileName), []byte("0123456789abcdef"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("not an ISO"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := provisioninginfra.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1/")
 	app := fiber.New()
-	app.Get(bootMediaISOPath, serveBootMediaISO(image))
+	app.Get(bootISORoute, serveBootISO(files))
+	path := "/boot-media/ipxe/" + id + "/swallow-ipxe.iso"
+	if got := files.URL(id); got != "http://192.0.2.1"+path {
+		t.Fatalf("URL = %q, want the route under the base URL", got)
+	}
 
-	req := httptest.NewRequest("GET", bootMediaISOPath, nil)
+	req := httptest.NewRequest("GET", path, nil)
 	req.Header.Set("Range", "bytes=4-7")
 	resp, err := app.Test(req)
 	if err != nil {
@@ -299,7 +342,7 @@ func TestServeBootMediaISO(t *testing.T) {
 		t.Errorf("range GET = %d %q (Accept-Ranges %q), want 206 \"4567\"", resp.StatusCode, body, resp.Header.Get("Accept-Ranges"))
 	}
 
-	resp, err = app.Test(httptest.NewRequest("HEAD", bootMediaISOPath, nil))
+	resp, err = app.Test(httptest.NewRequest("HEAD", path, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,13 +350,64 @@ func TestServeBootMediaISO(t *testing.T) {
 		t.Errorf("HEAD = %d length %q, want 200 and the file size", resp.StatusCode, resp.Header.Get("Content-Length"))
 	}
 
-	missing := newBootMediaImage(filepath.Join(dir, "missing.iso"), "http://192.0.2.1")
-	if err := missing.Available(); !errors.Is(err, serverdomain.ErrBootMediaNotConfigured) {
-		t.Errorf("Available() with no file = %v, want ErrBootMediaNotConfigured", err)
+	for _, bad := range []string{
+		"/boot-media/ipxe/7c4e2d1f-0000-4000-8000-000000000000/swallow-ipxe.iso",
+		"/boot-media/ipxe/..%2Fsecret.txt/swallow-ipxe.iso",
+		"/boot-media/ipxe/not-an-id/swallow-ipxe.iso",
+	} {
+		resp, err := app.Test(httptest.NewRequest("GET", bad, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != fiber.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", bad, resp.StatusCode)
+		}
 	}
-	if err := newBootMediaImage(isoPath, "").Available(); !errors.Is(err, serverdomain.ErrBootMediaNotConfigured) {
-		t.Errorf("Available() with no base URL = %v, want ErrBootMediaNotConfigured", err)
+}
+
+// The catalog resolves a Boot ISO only when it is served, reports the retired installation URL
+// for a setting that names none, and maps a missing record to ErrBootISOUnknown.
+func TestBootISOCatalog(t *testing.T) {
+	dir := t.TempDir()
+	const id = "6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11"
+	repo := &catalogRepo{iso: &provisioningdomain.BootISO{ID: id, Name: "tainan-rack", IntegrationID: "integration-1"}}
+	catalog := newBootISOCatalog(repo, provisioninginfra.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1"), "http://192.0.2.1")
+
+	if image, err := catalog.Resolve(context.Background(), id); !errors.Is(err, serverdomain.ErrBootMediaNotConfigured) || image == nil || image.Name != "tainan-rack" {
+		t.Errorf("Resolve without a file = %+v, %v; want the image and ErrBootMediaNotConfigured", image, err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, id, provisioninginfra.BootISOFileName), []byte("iso"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	image, err := catalog.Resolve(context.Background(), id)
+	if err != nil || image.IntegrationID != "integration-1" || image.URL != "http://192.0.2.1/boot-media/ipxe/"+id+"/swallow-ipxe.iso" {
+		t.Errorf("Resolve = %+v, %v; want the served image", image, err)
+	}
+	if _, err := catalog.Resolve(context.Background(), "7c4e2d1f-0000-4000-8000-000000000000"); !errors.Is(err, serverdomain.ErrBootISOUnknown) {
+		t.Errorf("Resolve(unknown) error = %v, want ErrBootISOUnknown", err)
+	}
+	if got := catalog.URL(""); got != "http://192.0.2.1/boot-media/ipxe/swallow-ipxe.iso" {
+		t.Errorf("URL(\"\") = %q, want the retired installation ISO URL", got)
+	}
+	if got := newBootISOCatalog(repo, provisioninginfra.NewGenfsimgBuilder(dir, "", ""), "").URL(id); got != "" {
+		t.Errorf("URL without a base URL = %q, want empty", got)
+	}
+}
+
+// catalogRepo is a one-record BootISORepository.
+type catalogRepo struct {
+	provisioningdomain.BootISORepository
+	iso *provisioningdomain.BootISO
+}
+
+func (r *catalogRepo) FindByID(_ context.Context, id string) (*provisioningdomain.BootISO, error) {
+	if r.iso != nil && r.iso.ID == id {
+		return r.iso, nil
+	}
+	return nil, provisioningdomain.ErrBootISONotFound
 }
 
 func equalStringSlices(a, b []string) bool {

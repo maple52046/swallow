@@ -133,10 +133,11 @@ services:
       SWALLOW_API_TEMPORAL_NAMESPACE: default
       SWALLOW_API_TEMPORAL_TASK_QUEUE: swallow-operations
       SWALLOW_API_JOB_ARTIFACT_RETENTION: 720h
-      # Boot Media (decision 047), optional: the iPXE ISO in SWALLOW_BOOT_MEDIA_DIR is served at
-      # <SWALLOW_BOOT_MEDIA_BASE_URL>/boot-media/ipxe/swallow-ipxe.iso through the dashboard's
-      # port 80. An empty base URL keeps Boot Media off.
-      SWALLOW_API_BOOT_MEDIA_ISO_PATH: /var/lib/swallow/boot-media/swallow-ipxe.iso
+      # Boot Media (decisions 047 and 049), optional: Boot ISOs built on the Provisioning page are
+      # kept in the boot-media volume and served at
+      # <SWALLOW_BOOT_MEDIA_BASE_URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso through the
+      # dashboard's port 80. An empty base URL keeps Boot Media off.
+      SWALLOW_API_BOOT_MEDIA_DIR: /var/lib/swallow/boot-media
       SWALLOW_API_BOOT_MEDIA_BASE_URL: ${SWALLOW_BOOT_MEDIA_BASE_URL:-}
     secrets:
       - mongo_uri
@@ -146,7 +147,7 @@ services:
       - machine_token
     volumes:
       - job-artifacts:/var/lib/swallow/jobs
-      - ${SWALLOW_BOOT_MEDIA_DIR:-./boot-media}:/var/lib/swallow/boot-media:ro
+      - boot-media:/var/lib/swallow/boot-media
     tmpfs:
       - /run/swallow/jobs:uid=10001,gid=10001,mode=0700
       - /tmp:uid=10001,gid=10001,mode=1777
@@ -269,6 +270,8 @@ volumes:
   mongo-data:
   mongo-config:
   job-artifacts:
+  # Boot ISOs (decision 049); first mounted over the image's directory, so owned by the service user.
+  boot-media:
   temporal-postgres-data:
 
 secrets:

@@ -34,24 +34,42 @@ stored credentials unreadable.
 
 ### Boot Media
 
-Boot Media (an iPXE ISO the BMC mounts for Servers on networks without
-provisioner DHCP; see [OS provisioning](../guides/os-provisioning.md)) is
-optional and off until both values are set:
+Boot Media lets a Server's BMC mount a swallow-built Boot ISO on networks
+without provisioner DHCP; see [OS provisioning](../guides/os-provisioning.md).
+The builder needs a base URL, a writable storage directory, and its iPXE assets
+and packaging tools:
 
 | Setting | Environment variable | Meaning |
 | --- | --- | --- |
-| `api.bootMedia.isoPath` | `SWALLOW_API_BOOT_MEDIA_ISO_PATH` | The iPXE ISO file the API serves. |
 | `api.bootMedia.baseURL` | `SWALLOW_API_BOOT_MEDIA_BASE_URL` | The address BMCs reach swallow at, for example `http://10.0.0.5`, without a path. |
+| `api.bootMedia.dir` | `SWALLOW_API_BOOT_MEDIA_DIR` | Writable Boot ISO storage; default `/var/lib/swallow/boot-media`. Files are stored as `<dir>/<isoId>/swallow-ipxe.iso`. |
+| `api.bootMedia.ipxeDir` | `SWALLOW_API_IPXE_DIR` | Prebuilt iPXE assets (`ipxe.lkrn`, `ipxe.efi`, `genfsimg`, `VERSION`); default `/usr/share/swallow/ipxe`. |
 | `api.redfishProbeInterval` | `SWALLOW_API_REDFISH_PROBE_INTERVAL` | How often new or stale Servers get a Redfish probe (default 10m). |
 | `api.redfishProbeMaxAge` | `SWALLOW_API_REDFISH_PROBE_MAX_AGE` | How long a probe stays current (default 24h). |
 
-BMCs mount `<baseURL>/boot-media/ipxe/swallow-ipxe.iso` without credentials and
-re-read it at every boot. Many BMCs accept only plain `http://` on port 80, so
-the production Nginx forwards `/boot-media/` on port 80 (it is not redirected to
-HTTPS). The production Compose file reads `SWALLOW_BOOT_MEDIA_BASE_URL` and
-mounts `SWALLOW_BOOT_MEDIA_DIR` (default `./boot-media`, containing
-`swallow-ipxe.iso`). The ISO typically embeds the provisioner rack's address, so
-it is specific to the installation.
+Each Boot ISO is served without authentication and with HTTP byte ranges at
+`<baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso`. Many BMCs accept only
+plain `http://` on port 80, so production Nginx forwards `/boot-media/` there.
+Production Compose reads `SWALLOW_BOOT_MEDIA_BASE_URL`, sets the API storage
+directory, and mounts the named `boot-media` volume at
+`/var/lib/swallow/boot-media`.
+
+The container images include the pinned iPXE assets and the required packaging
+tools. A native installation creates the Boot Media directory through tmpfiles,
+but does not install those assets. To enable building natively, provide
+`ipxe.lkrn`, `ipxe.efi`, `genfsimg`, and `VERSION` under
+`api.bootMedia.ipxeDir`, and install the `mtools`, `xorriso`, `isolinux`, and
+`syslinux-common` packages.
+
+When the base URL is empty, the storage directory is not writable, or an asset
+or tool is missing, the Dashboard explains why building is unavailable and
+disables **Build ISO**. Existing Boot ISOs remain listed and deletable.
+
+`api.bootMedia.isoPath` and `SWALLOW_API_BOOT_MEDIA_ISO_PATH` are retired and
+ignored with a startup warning. The fixed
+`/boot-media/ipxe/swallow-ipxe.iso` route is removed; production Compose no
+longer reads `SWALLOW_BOOT_MEDIA_DIR`, and a hand-made file at that path is not
+served.
 
 ## Dashboard configuration
 

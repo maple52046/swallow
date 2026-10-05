@@ -87,12 +87,17 @@ export interface ServerRepository {
    */
   getBootMedia(id: string, options?: { live?: boolean }): Promise<ServerBootMedia>
   /**
-   * Enables (the preflight: the API probes the BMC, mounts the ISO, directs the boot, and saves only
-   * when that worked — it can take minutes) or disables Boot Media. Rejects with the API error:
-   * `conflict` (locked, no ISO, no BMC, unsupported, or the BMC refused — the message carries the
-   * BMC's explanation) or `provider_unavailable` (BMC or provisioner unreachable).
+   * Enables Boot Media with the Boot ISO `isoId` (the preflight: the API probes the BMC, mounts the
+   * ISO, directs the boot, and saves only when that worked — it takes about five minutes, and
+   * `getBootMedia` reports its progress as `apply` meanwhile), or disables it (`isoId` omitted; the
+   * chosen ISO is kept for next time). Enabling an enabled Server re-applies it, or switches to
+   * another ISO after ejecting the previous one. Rejects with the API error: `validation_error`
+   * (no `isoId`, or an ISO of another provisioner), `not_found` (unknown ISO), `conflict` (a
+   * preflight already running, locked, ISO not served, no BMC, unsupported, or the BMC refused —
+   * the message carries the BMC's explanation) or `provider_unavailable` (BMC or provisioner
+   * unreachable).
    */
-  setBootMedia(id: string, enabled: boolean): Promise<SetServerBootMediaResult>
+  setBootMedia(id: string, enabled: boolean, isoId?: string): Promise<SetServerBootMediaResult>
   /** Re-probes the BMC's Redfish capability now; an unreachable BMC resolves with that support value. */
   probeRedfish(id: string): Promise<RedfishCapability>
 }

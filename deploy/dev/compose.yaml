@@ -117,9 +117,10 @@ services:
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_RETENTION: "${SWALLOW_API_JOB_ARTIFACT_RETENTION:-720h}"
-      # Boot Media (decision 047): the iPXE ISO in ./boot-media, mounted by BMCs at
-      # <base URL>/boot-media/ipxe/swallow-ipxe.iso. Empty base URL leaves Boot Media off.
-      SWALLOW_API_BOOT_MEDIA_ISO_PATH: "/var/lib/swallow/boot-media/swallow-ipxe.iso"
+      # Boot Media (decisions 047 and 049): Boot ISOs built on the Provisioning page are written
+      # to ./boot-media/<isoId>/ and mounted by BMCs at
+      # <base URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso. Empty base URL leaves Boot Media off.
+      SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"
       SWALLOW_API_BOOT_MEDIA_BASE_URL: "${SWALLOW_API_BOOT_MEDIA_BASE_URL:-}"
       SWALLOW_API_REDFISH_PROBE_INTERVAL: "${SWALLOW_API_REDFISH_PROBE_INTERVAL:-10m}"
     ports:
@@ -129,7 +130,7 @@ services:
       - "${BOOT_MEDIA_HTTP_PUBLISH:-127.0.0.1:30080}:30051"
     volumes:
       - ../../api-server:/app
-      - ./boot-media:/var/lib/swallow/boot-media:ro
+      - ./boot-media:/var/lib/swallow/boot-media
       - ./air.toml:/etc/swallow/air.toml:ro
       - job-artifacts:/var/lib/swallow/jobs
       - go-mod-cache:/go/pkg/mod

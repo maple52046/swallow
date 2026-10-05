@@ -85,8 +85,8 @@ Vite 預設信任 IP／localhost host header。使用 development DNS name 前�
 
 ## Boot Media lab
 
-要對實際 BMC 試用 Boot Media（Redfish virtual media iPXE 開機，decision 047），把 iPXE ISO 放到
-`boot-media/swallow-ipxe.iso`（已被 git 忽略），並在 `.env` 設定 BMC 網段連到這台主機的位址：
+要對實際 BMC 試用 Boot Media（Redfish virtual media iPXE 開機，decision 047），請在 `.env`
+設定 BMC 網段連到這台主機的位址：
 
 ```bash
 SWALLOW_API_BOOT_MEDIA_BASE_URL=http://10.0.0.5
@@ -94,9 +94,12 @@ BOOT_MEDIA_HTTP_PUBLISH=10.0.0.5:80
 docker compose up -d api-server
 ```
 
-API 也會發布到該位址的 port 80，BMC 由此掛載 `/boot-media/ipxe/swallow-ipxe.iso`。許多 BMC 只接受 port 80
-的 plain HTTP。修改 api-server 的 Go 程式會讓 worker 重啟（Air），使進行中佈署的 lease 失效；lab 佈署
-進行時請避免修改。
+開啟 **Provisioning → Boot ISOs**，為 provisioner 建置 Boot ISO；不再需要把 ISO 放進此目錄。
+建置完成的 ISO 會存放於 git 已忽略的 `boot-media/<isoId>/` 目錄，並透過
+`<SWALLOW_API_BOOT_MEDIA_BASE_URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso`
+提供。API 也會發布到所設位址的 port 80，因為許多 BMC 只接受 port 80 的 plain HTTP。
+
+修改 api-server 的 Go 程式會讓 worker 重啟（Air），使進行中佈署的 lease 失效；lab 佈署進行時請避免修改。
 
 ## Seed demonstration Site
 

@@ -14,83 +14,111 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
-// bootMediaISOPath is the fixed path at which the API process serves the installation's Boot
-// Media ISO (decision 047). It is part of the published contract (server-detail-actions.md): the
-// installation fixes the base URL, swallow fixes the path, and operators never type an ISO URL.
-// The directory component is load-bearing: AMI MegaRAC BMCs do not mount an image that sits at a
-// server's root.
-const bootMediaISOPath = "/boot-media/ipxe/swallow-ipxe.iso"
+// bootISORoute is the path pattern at which the API process serves Boot ISOs (decision 049). It
+// is part of the published contract (server-detail-actions.md, boot-isos.md): the installation
+// fixes the base URL, swallow derives the rest from the Boot ISO's id, and operators never type
+// an ISO URL. The directory component is load-bearing: AMI MegaRAC BMCs do not mount an image
+// that sits at a server's root.
+const bootISORoute = "/boot-media/ipxe/:id/" + provisioninginfra.BootISOFileName
 
-// bootMediaImage is the installation's Boot Media ISO as configured: the file the API process
-// serves and the base URL BMCs reach the API process at. It is read-only and safe for concurrent
-// use; Available stats the file on each call so an ISO put in place after startup is picked up.
-type bootMediaImage struct {
-	isoPath string
+// legacyBootMediaISOPath is where the retired installation ISO was served (decision 047). Only
+// its URL is still needed, to eject it from a BMC that a setting enabled before Boot ISOs had
+// mounted; the route itself is gone.
+const legacyBootMediaISOPath = "/boot-media/ipxe/swallow-ipxe.iso"
+
+// bootISOCatalog is the server context's view of Boot ISOs (serverdomain.BootISOResolver): the
+// provisioning context's records, served through the Boot ISO builder's files and URLs. It is
+// read-only and safe for concurrent use.
+type bootISOCatalog struct {
+	isos    provisioningdomain.BootISORepository
+	files   *provisioninginfra.GenfsimgBuilder
 	baseURL string
 }
 
-// newBootMediaImage validates nothing at startup on purpose: Boot Media is optional, and a
-// missing ISO must only disable it (with a reason), not stop the API.
-func newBootMediaImage(isoPath, baseURL string) bootMediaImage {
-	return bootMediaImage{isoPath: strings.TrimSpace(isoPath), baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/")}
+func newBootISOCatalog(isos provisioningdomain.BootISORepository, files *provisioninginfra.GenfsimgBuilder, baseURL string) bootISOCatalog {
+	return bootISOCatalog{isos: isos, files: files, baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/")}
 }
 
-// URL implements serverdomain.BootMediaImage.
-func (b bootMediaImage) URL() string {
-	if b.baseURL == "" {
+// Resolve implements serverdomain.BootISOResolver.
+func (c bootISOCatalog) Resolve(ctx context.Context, id string) (*serverdomain.BootISOImage, error) {
+	iso, err := c.isos.FindByID(ctx, id)
+	if errors.Is(err, provisioningdomain.ErrBootISONotFound) {
+		return nil, serverdomain.ErrBootISOUnknown
+	}
+	if err != nil {
+		return nil, err
+	}
+	image := &serverdomain.BootISOImage{ID: iso.ID, Name: iso.Name, IntegrationID: iso.IntegrationID, URL: c.files.URL(iso.ID)}
+	switch {
+	case c.baseURL == "":
+		return image, fmt.Errorf("%w: set api.bootMedia.baseURL (SWALLOW_API_BOOT_MEDIA_BASE_URL) to the HTTP address BMCs use to reach swallow", serverdomain.ErrBootMediaNotConfigured)
+	case !c.files.Served(iso.ID):
+		return image, fmt.Errorf("%w: the file of Boot ISO %q is missing; build it again", serverdomain.ErrBootMediaNotConfigured, iso.Name)
+	}
+	return image, nil
+}
+
+// URL implements serverdomain.BootISOResolver.
+func (c bootISOCatalog) URL(id string) string {
+	if c.baseURL == "" {
 		return ""
 	}
-	return b.baseURL + bootMediaISOPath
+	if id == "" {
+		return c.baseURL + legacyBootMediaISOPath
+	}
+	return c.files.URL(id)
 }
 
-// Available implements serverdomain.BootMediaImage.
-func (b bootMediaImage) Available() error {
-	switch {
-	case b.baseURL == "":
-		return fmt.Errorf("%w: set api.bootMedia.baseURL (SWALLOW_API_BOOT_MEDIA_BASE_URL) to the HTTP address BMCs use to reach swallow", serverdomain.ErrBootMediaNotConfigured)
-	case b.isoPath == "":
-		return fmt.Errorf("%w: set api.bootMedia.isoPath (SWALLOW_API_BOOT_MEDIA_ISO_PATH) to the iPXE ISO file", serverdomain.ErrBootMediaNotConfigured)
+// bootISOUsage answers the provisioning context's "is this Boot ISO in use" from the Server
+// projection (provisioningdomain.BootISOUsage).
+type bootISOUsage struct {
+	servers interface {
+		CountBootMediaUsing(ctx context.Context, isoID string) (int, error)
 	}
-	info, err := os.Stat(b.isoPath)
-	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-		return fmt.Errorf("%w: the configured iPXE ISO file is missing or empty", serverdomain.ErrBootMediaNotConfigured)
-	}
-	return nil
 }
 
-// serveBootMediaISO returns the unauthenticated GET/HEAD handler for the Boot Media ISO.
+// CountEnabledUsing implements provisioningdomain.BootISOUsage.
+func (u bootISOUsage) CountEnabledUsing(ctx context.Context, isoID string) (int, error) {
+	return u.servers.CountBootMediaUsing(ctx, isoID)
+}
+
+// serveBootISO returns the unauthenticated GET/HEAD handler for Boot ISO files.
 //
 // It must stay unauthenticated: a BMC mounts the URL with no way to send a bearer token, and it
 // streams the ISO on demand at every boot. It must support HTTP Range requests: BMC HTTP
 // virtual media (AMI's httpfs2) reads 4–128 KiB ranges and gives up on a server that answers
 // whole-file only. net/http's ServeContent provides Range, HEAD, Accept-Ranges, and
-// Last-Modified; the ISO is an iPXE loader of a few MiB, so the adaptor's buffering is harmless.
-// The file holds no secret, and only this one path is served.
-func serveBootMediaISO(image bootMediaImage) fiber.Handler {
-	return adaptor.HTTPHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if image.isoPath == "" {
-			http.NotFound(w, r)
-			return
+// Last-Modified; an ISO is an iPXE loader of a few MiB, so the adaptor's buffering is harmless.
+// The id is checked against the Boot ISO id shape before any path is built, so the handler can
+// only ever read <boot media dir>/<uuid>/swallow-ipxe.iso; the files hold no secret.
+func serveBootISO(files *provisioninginfra.GenfsimgBuilder) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		path, ok := files.FilePath(c.Params("id"))
+		if !ok {
+			return c.SendStatus(fiber.StatusNotFound)
 		}
-		file, err := os.Open(image.isoPath)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		defer file.Close()
-		info, err := file.Stat()
-		if err != nil || !info.Mode().IsRegular() {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/x-iso9660-image")
-		w.Header().Set("Cache-Control", "no-cache")
-		http.ServeContent(w, r, "swallow-ipxe.iso", info.ModTime(), file)
-	})
+		return adaptor.HTTPHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			file, err := os.Open(path)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			defer file.Close()
+			info, err := file.Stat()
+			if err != nil || !info.Mode().IsRegular() {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/x-iso9660-image")
+			w.Header().Set("Cache-Control", "no-cache")
+			http.ServeContent(w, r, provisioninginfra.BootISOFileName, info.ModTime(), file)
+		})(c)
+	}
 }
 
 // bmcEndpointSource reads a Server's BMC endpoint from its provisioner (decision 047). It bridges

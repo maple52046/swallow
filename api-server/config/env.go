@@ -153,6 +153,12 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SWALLOW_API_BOOT_MEDIA_BASE_URL"); v != "" {
 		cfg.API.BootMedia.BaseURL = v
 	}
+	if v := os.Getenv("SWALLOW_API_BOOT_MEDIA_DIR"); v != "" {
+		cfg.API.BootMedia.Dir = v
+	}
+	if v := os.Getenv("SWALLOW_API_IPXE_DIR"); v != "" {
+		cfg.API.BootMedia.IPXEDir = v
+	}
 	if v := os.Getenv("SWALLOW_API_REDFISH_PROBE_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.RedfishProbeInterval = d

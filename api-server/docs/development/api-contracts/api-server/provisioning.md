@@ -602,13 +602,15 @@ the general two-hour observation timeout.
 accepted (see [server-detail-actions.md](server-detail-actions.md#boot-media) and
 [decision 047](../../../../../docs/decisions/047-redfish-boot-media.md)), the Operation also has
 an `internal` Step `ensure-boot-media-<serverId>` of kind `ensure-boot-media`, and that Server's
-`provision-os` Step depends on it. The Step's parameters carry the installation's Boot Media ISO
-URL as accepted (`isoUrl`). When it runs it re-reads the Server's setting — a Server whose Boot
+`provision-os` Step depends on it. The Step's parameters carry the URL of that Server's chosen
+Boot ISO ([boot-isos.md](boot-isos.md), [decision 049](../../../../../docs/decisions/049-boot-iso-builder.md))
+as accepted (`isoUrl`). When it runs it re-reads the Server's setting — a Server whose Boot
 Media was disabled meanwhile is left alone — then reads the BMC and re-applies the ISO mount and
 boot direction unconditionally, because a BMC can lose either between deployments. A BMC that
 cannot be reached or refuses fails the Step as retryable (`boot_media_ensure_failed`), and the
-dependent `provision-os` Step does not run; an Operation accepted while the installation served
-no ISO fails it as not retryable (`boot_media_not_configured`). Servers without Boot Media get
+dependent `provision-os` Step does not run; an Operation accepted while the Server's Boot Media
+named no served Boot ISO (none chosen, the Boot ISO's file missing, or no Boot Media base URL)
+fails it as not retryable (`boot_media_not_configured`). Servers without Boot Media get
 exactly the Steps described above. The same Step is added in front of `provision-os` in OS image
 verification and in a Platform's `ensure-os` Job.
 

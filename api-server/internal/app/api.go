@@ -356,15 +356,22 @@ func RunAPI(cfg config.APIConfig) error {
 		serverRepo, serverProtection,
 		serverinfra.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo}),
 	))
-	// Boot Media (decision 047): this process serves the installation's iPXE ISO, probes each
-	// Server's BMC for Redfish capability, and applies the ISO through Redfish with the BMC
-	// connection read live from the provisioner. The setting and capability are written straight
-	// to the Mongo repository (the event broker only carries projection changes).
-	bootMediaImg := newBootMediaImage(cfg.BootMedia.ISOPath, cfg.BootMedia.BaseURL)
+	// Boot Media (decisions 047 and 049): this process builds and serves Boot ISOs, probes each
+	// Server's BMC for Redfish capability, and applies a Server's chosen Boot ISO through Redfish
+	// with the BMC connection read live from the provisioner. The setting and capability are
+	// written straight to the Mongo repository (the event broker only carries projection changes).
+	bootISORepo, err := provisioninginfra.NewMongoBootISORepo(db)
+	if err != nil {
+		return fmt.Errorf("boot ISO repo init: %w", err)
+	}
+	bootISOFiles := provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL)
+	bootISOs := newBootISOCatalog(bootISORepo, bootISOFiles, cfg.BootMedia.BaseURL)
+	bootISOHandler := provisioningdelivery.NewBootISOHandler(provisioningapp.NewBootISOService(
+		bootISORepo, integrationReader, bootISOFiles, bootISOUsage{servers: mongoServerRepo}))
 	bootMediaUC := serverapp.NewBootMediaUseCase(serverRepo, mongoServerRepo, serverProtection,
-		bmcEndpointSource{providers: providerFactory}, redfish.NewController(), bootMediaImg)
+		bmcEndpointSource{providers: providerFactory}, redfish.NewController(), bootISOs)
 	bootMediaHandler := serverdelivery.NewBootMediaHandler(bootMediaUC)
-	bootMediaPlan := bootMediaPlanner{servers: serverRepo, image: bootMediaImg}
+	bootMediaPlan := bootMediaPlanner{servers: serverRepo, isos: bootISOs}
 	runner := operationinfra.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Per-host SSH-user resolution: images use different default login users, so the runner probes
@@ -539,7 +546,8 @@ func RunAPI(cfg config.APIConfig) error {
 		servers:        serverHandler,
 		defaultUsers:   defaultUserHandler,
 		bootMedia:      bootMediaHandler,
-		bootMediaISO:   serveBootMediaISO(bootMediaImg),
+		bootMediaISO:   serveBootISO(bootISOFiles),
+		bootISOs:       bootISOHandler,
 		serverStream:   serverStreamHandler,
 		provisioning:   provisioningHandler,
 		operations:     operationHandler,
@@ -603,8 +611,10 @@ type routeDeps struct {
 	servers       *serverdelivery.ServerHandler
 	defaultUsers  *serverdelivery.DefaultUserHandler
 	bootMedia     *serverdelivery.BootMediaHandler
-	// bootMediaISO serves the installation's Boot Media ISO without authentication (decision 047).
-	bootMediaISO   fiber.Handler
+	// bootMediaISO serves Boot ISO files without authentication (decisions 047 and 049).
+	bootMediaISO fiber.Handler
+	// bootISOs builds, lists, and deletes Boot ISOs (decision 049).
+	bootISOs       *provisioningdelivery.BootISOHandler
 	serverStream   *serverdelivery.ServerStreamHandler
 	provisioning   *provisioningdelivery.ProvisioningHandler
 	operations     *operationdelivery.ExecutionHandler
@@ -734,7 +744,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	app.Get("/healthz", ready)
 	// BMCs mount this URL with no credential; Fiber's Get also answers HEAD, which BMCs send first.
 	if deps.bootMediaISO != nil {
-		app.Get(bootMediaISOPath, deps.bootMediaISO)
+		app.Get(bootISORoute, deps.bootMediaISO)
 	}
 	metricsHandler := func(c *fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, "text/plain; version=0.0.4")
@@ -869,6 +879,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/tasks/:id/retry", deps.provisioning.RetryProvisioningTask)
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
+	// Boot ISOs (decision 049): built here, mounted by a Server's Boot Media.
+	if deps.bootISOs != nil {
+		provisioning.Get("/boot-isos", deps.bootISOs.List)
+		provisioning.Post("/boot-isos", deps.bootISOs.Create)
+		provisioning.Get("/boot-isos/:id", deps.bootISOs.Get)
+		provisioning.Delete("/boot-isos/:id", deps.bootISOs.Delete)
+	}
 
 	// Swallow owns Platform registration and policy; membership is observed from the
 	// runtime API. The former Cluster route is a delivery-only compatibility alias.

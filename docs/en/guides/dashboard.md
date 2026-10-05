@@ -11,8 +11,8 @@ current session in the browser.
 | Area | What it is for |
 | --- | --- |
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
-| Servers | Inventory, filters, saved views, bulk actions, tags, locks, and Server details |
-| Provisioning | OS deployment, templates, images, upload, and verification |
+| Servers | Inventory, filters, saved views, bulk actions, tags, locks, and Server details including Boot Media |
+| Provisioning | OS deployment, templates, images, Boot ISOs, upload, and verification |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Docker CE, Podman, and NFS installation state and actions |
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
@@ -47,6 +47,24 @@ Experimental features** to switch each one off.
 Choose a Site before interpreting inventory or monitoring results. Site scope is
 preserved in the URL so links can be shared. A missing Site or a Site with no
 configured integration naturally produces empty states.
+
+## Boot ISOs and Server Boot Media
+
+Use **Provisioning → Boot ISOs** to build and manage the iPXE ISO for each
+provisioner rack in the selected Site. **Build ISO** asks for the provisioner,
+name, and MAAS rack address; the table provides script details, download,
+usage, and delete actions.
+
+On **Server → Summary → Management controller → Boot media**, enabling Boot
+Media requires a Boot ISO built for that Server's provisioner. With none
+available, the panel links back to **Boot ISOs**. An enabled Server can change
+or re-apply its ISO, or disable Boot Media while retaining the choice.
+**Enable Boot Media**, **Change ISO**, and **Re-apply** show the BMC
+preflight's five-step progress, elapsed time, and the remaining time in its
+three-minute mount-settle wait. Choose **Continue in background** to close the
+dialog without stopping it; the block stays **Applying**, shows the same
+progress after a reload or in another tab, and disables its actions until the
+result arrives as a notification.
 
 ## Reading status
 

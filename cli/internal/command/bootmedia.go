@@ -2,11 +2,10 @@ package command
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-
-	"github.com/maple52046/swallow/cli/internal/client"
 )
 
 // bootMediaPreflightTimeout is the client-side deadline for enabling Boot Media when the operator
@@ -16,8 +15,9 @@ import (
 const bootMediaPreflightTimeout = 8 * time.Minute
 
 // serversBootMediaCmd groups one Server's Boot Media (server-detail-actions.md "Boot Media",
-// decision 047): the swallow-served iPXE ISO the BMC mounts and boots first. The ISO URL is fixed
-// by the installation, so no command takes one.
+// decisions 047 and 049): the Boot ISO the BMC mounts and boots first. Enabling names a Boot ISO
+// built for the Server's own provisioner (`swallow provisioning boot-isos`); the API derives its
+// URL, so no command takes one.
 func serversBootMediaCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "boot-media",
@@ -26,7 +26,7 @@ func serversBootMediaCmd() *cobra.Command {
 
 	get := &cobra.Command{
 		Use:   "get <serverId>",
-		Short: "Read the Boot Media setting, Redfish capability, and installation ISO",
+		Short: "Read the Boot Media setting, its Boot ISO, and the Redfish capability",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q := newQuery().setBool(cmd, "live", "live").build()
@@ -36,50 +36,35 @@ func serversBootMediaCmd() *cobra.Command {
 	get.Flags().Bool("live", false, "also read the BMC's live state (takes seconds)")
 
 	enable := &cobra.Command{
-		Use:   "enable <serverId>",
-		Short: "Enable Boot Media: preflight on the BMC (mount the ISO, direct the boot), then save",
+		Use:   "enable <serverId> --iso <isoId>",
+		Short: "Enable Boot Media with a Boot ISO: preflight on the BMC (mount it, direct the boot), then save",
 		Long: "Enable runs the preflight against the Server's real BMC and saves the setting only when the BMC\n" +
-			"mounted the ISO and directs the next boots at it. It can take several minutes; without\n" +
+			"mounted the Boot ISO and directs the next boots at it. The Boot ISO must be built for the\n" +
+			"Server's own provisioner. Enabling an enabled Server re-applies it, or switches to another\n" +
+			"Boot ISO after ejecting the previous one. It can take several minutes; without\n" +
 			"--request-timeout the client waits up to 8 minutes. Every OS deployment re-applies it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return setBootMedia(cmd, args[0], true)
+			iso, _ := cmd.Flags().GetString("iso")
+			body := map[string]any{"enabled": true, "isoId": strings.TrimSpace(iso)}
+			return sendJSONWithin(cmd, "PUT", fmt.Sprintf("servers/%s/boot-media", args[0]), body, bootMediaPreflightTimeout)
 		},
 	}
+	// No backticks in the usage text: pflag would render the quoted words as the value's name.
+	enable.Flags().String("iso", "", "Boot ISO id, from: swallow provisioning boot-isos list")
+	_ = enable.MarkFlagRequired("iso")
 
 	disable := &cobra.Command{
 		Use:   "disable <serverId>",
 		Short: "Disable Boot Media; the BMC is asked to eject the ISO (best effort)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return setBootMedia(cmd, args[0], false)
+			return sendJSON(cmd, "PUT", fmt.Sprintf("servers/%s/boot-media", args[0]), nil, map[string]any{"enabled": false})
 		},
 	}
 
 	cmd.AddCommand(get, enable, disable)
 	return cmd
-}
-
-// setBootMedia sends PUT /servers/{id}/boot-media. For an enable whose operator left
-// --request-timeout at its default, the client deadline is raised to the preflight's.
-func setBootMedia(cmd *cobra.Command, serverID string, enabled bool) error {
-	timeout := gf.timeout
-	if enabled && !cmd.Flags().Changed("request-timeout") && timeout > 0 && timeout < bootMediaPreflightTimeout {
-		timeout = bootMediaPreflightTimeout
-	}
-	c, err := client.New(clientOptions(timeout))
-	if err != nil {
-		return err
-	}
-	var out any
-	request := client.Request{
-		Method: "PUT", Path: fmt.Sprintf("servers/%s/boot-media", serverID),
-		Body: map[string]any{"enabled": enabled}, Auth: client.AuthBearer,
-	}
-	if err := c.JSON(ctx(cmd), request, &out); err != nil {
-		return err
-	}
-	return printResult(out)
 }
 
 // serversRedfishProbeCmd re-probes a Server's BMC for Redfish capability now. An unreachable or

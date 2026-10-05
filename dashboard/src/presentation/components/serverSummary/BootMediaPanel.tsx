@@ -6,6 +6,7 @@ import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { DescriptionList, type DescriptionItem } from '@/presentation/components/ui/description-list'
 import { formatRelative } from '@/shared/utils/time'
+import { BootMediaApplyProgress } from './BootMediaApplyProgress'
 import { bootMediaApplierLabel, bootOverrideLabel, redfishSupportLabel, redfishSupportStatus } from './bootMediaLabels'
 
 /** The panel's read state, mirroring useAsyncData without importing the hook. */
@@ -29,9 +30,14 @@ interface BootMediaPanelProps {
  * It presents three swallow-owned or swallow-observed facts without inventing a combined status:
  * the BMC's Redfish capability (from swallow's probe, with its age), the Server's Boot Media
  * setting (enabled or not, how persistently the BMC took it, and the last apply or failure), and
- * the installation's ISO URL (fixed by the installation, never typed per Server). A live BMC read
- * is shown only when the caller asked for one, because it takes seconds. Every state is spelled out
- * in text; badges only add colour. The page injects the actions so this block stays page-agnostic.
+ * the chosen Boot ISO (decision 049: built per provisioner on the Boot ISOs tab, with the URL the
+ * BMC mounts). An enabled setting that names no Boot ISO (enabled before Boot ISOs existed) or one
+ * that cannot be mounted gets a warning, because its OS deployments stop at the Boot Media step.
+ * While an enable preflight runs (`apply`, kept fresh by the caller's polling) its progress is
+ * shown under the facts, so it stays visible after the dialog is closed or the page reloaded.
+ * A live BMC read is shown only when the caller asked for one, because it takes seconds. Every
+ * state is spelled out in text; badges only add colour. The page injects the actions so this block
+ * stays page-agnostic.
  */
 export function BootMediaPanel({ state, live, actions }: BootMediaPanelProps) {
   return (
@@ -40,8 +46,8 @@ export function BootMediaPanel({ state, live, actions }: BootMediaPanelProps) {
         {/* h3: a sub-section of the card's own h2 heading, so the outline stays nested. */}
         <Heading as="h3" size="xs" id="server-boot-media-title">Boot media</Heading>
         <Text color="fg.muted" fontSize="sm" mt="1">
-          Boots swallow&apos;s iPXE ISO first through the BMC, so the Server reaches the provisioner on a network whose DHCP
-          the provisioner does not run.
+          Boots an iPXE Boot ISO first through the BMC, so the Server reaches the provisioner on a network whose DHCP the
+          provisioner does not run.
         </Text>
       </Box>
       <BootMediaFacts state={state} live={live} />
@@ -66,7 +72,7 @@ function BootMediaFacts({ state, live }: Pick<BootMediaPanelProps, 'state' | 'li
       </Alert>
     )
   }
-  const { image, setting, redfish } = state.data
+  const { image, setting, redfish, apply } = state.data
   const items: DescriptionItem[] = [
     {
       label: 'Redfish',
@@ -87,7 +93,14 @@ function BootMediaFacts({ state, live }: Pick<BootMediaPanelProps, 'state' | 'li
     },
     {
       label: 'Status',
-      value: setting?.enabled ? (
+      // A running preflight decides the setting, so it is the status until it ends; the saved
+      // setting would read as already settled (for example "Disabled" while being enabled).
+      value: apply ? (
+        <HStack gap="2" wrap="wrap">
+          <StatusBadge status="running" label="Applying" />
+          <Text as="span" fontSize="sm">The setting is saved once the BMC confirms the Boot ISO.</Text>
+        </HStack>
+      ) : setting?.enabled ? (
         <Stack gap="1">
           <HStack gap="2" wrap="wrap">
             <StatusBadge status="active" label="Enabled" />
@@ -108,28 +121,62 @@ function BootMediaFacts({ state, live }: Pick<BootMediaPanelProps, 'state' | 'li
         </HStack>
       ),
     },
-    {
-      label: 'ISO',
-      value: image.available ? (
-        <HStack gap="1">
-          <Text as="span" className="sw-mono" fontSize="sm">{image.url}</Text>
-          <CopyButton value={image.url} label="Copy ISO URL" />
-        </HStack>
-      ) : (
-        <Text as="span" color="fg.muted">{image.reason ?? 'This installation does not serve a Boot Media ISO.'}</Text>
-      ),
-    },
+    { label: 'Boot ISO', value: <BootISOFact image={image} /> },
   ]
   if (live) {
     items.push({ label: 'BMC now', value: <LiveState live={live} /> })
   }
+  const enabled = setting?.enabled ?? false
   return (
     <Stack gap="3">
       <DescriptionList items={items} />
+      {apply && (
+        <Box borderWidth="1px" borderColor="border.muted" rounded="md" p="3" aria-label="Boot Media being applied" role="group">
+          <BootMediaApplyProgress apply={apply} />
+        </Box>
+      )}
+      {enabled && !image && (
+        <Alert status="warning" title="Choose a Boot ISO">
+          Boot Media was enabled before Boot ISOs were built in swallow, so it names none. OS deployments of this Server stop at
+          the Boot Media step until you choose one with Change ISO.
+        </Alert>
+      )}
+      {enabled && image && !image.available && (
+        <Alert status="warning" title="The Boot ISO cannot be mounted">
+          {image.reason ?? 'The Boot ISO is not served.'} OS deployments of this Server stop at the Boot Media step until it is
+          served again or you choose another with Change ISO.
+        </Alert>
+      )}
       {setting?.lastError && (
         <Alert status="warning" title={`Last apply failed ${formatRelative(setting.lastErrorAt ?? undefined)}`}>
           {setting.lastError}
         </Alert>
+      )}
+    </Stack>
+  )
+}
+
+/**
+ * The Boot ISO the setting names: its name and the URL the BMC mounts, or why there is none or it
+ * cannot be mounted. A deleted ISO has no name, so its id is shown instead.
+ */
+function BootISOFact({ image }: { image: ServerBootMedia['image'] }) {
+  if (!image) {
+    return <Text as="span" color="fg.muted">None chosen — choose one when enabling Boot Media.</Text>
+  }
+  return (
+    <Stack gap="1">
+      <HStack gap="2" wrap="wrap">
+        <Text as="span" fontWeight="medium">{image.name || image.id}</Text>
+        {!image.available && <StatusBadge status="warning" label="Unavailable" />}
+      </HStack>
+      {image.available ? (
+        <HStack gap="1">
+          <Text as="span" className="sw-mono" fontSize="sm" wordBreak="break-all">{image.url}</Text>
+          <CopyButton value={image.url} label="Copy ISO URL" />
+        </HStack>
+      ) : (
+        <Text as="span" color="fg.muted" fontSize="sm">{image.reason ?? 'The Boot ISO is not served.'}</Text>
       )}
     </Stack>
   )

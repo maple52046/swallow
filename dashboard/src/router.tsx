@@ -27,6 +27,7 @@ import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 import { DeployOSWizardPage } from './presentation/pages/provisioning/DeployOSWizardPage'
 import { DeploymentTemplatesPage } from './presentation/pages/provisioning/DeploymentTemplatesPage'
 import { OSImagesPage } from './presentation/pages/provisioning/OSImagesPage'
+import { BootISOsPage } from './presentation/pages/provisioning/BootISOsPage'
 import { ProvisioningRedirect } from './presentation/pages/provisioning/ProvisioningRedirect'
 import { InfrastructureRedirect } from './presentation/pages/infrastructure/InfrastructureRedirect'
 import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
@@ -98,6 +99,7 @@ export const router = createBrowserRouter([
         ),
       },
       { path: 'provisioning/images', element: <OSImagesPage /> },
+      { path: 'provisioning/boot-isos', element: <BootISOsPage /> },
       { path: 'infrastructure', element: <InfrastructureRedirect /> },
       { path: 'infrastructure/sites', element: <SitesPage /> },
       { path: 'infrastructure/integrations', element: <IntegrationsPage /> },

@@ -321,3 +321,74 @@ export interface ProvisioningTask {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * A Boot ISO (glossary Boot ISO, decision 049): an iPXE boot ISO swallow built for one provisioner
+ * Integration. It takes an address from the site's own DHCP and chains to that provisioner's MAAS
+ * rack (`chainUrl`), so a Server whose network DHCP is not the provisioner's still reaches it. Only
+ * a Server of the same Integration may mount it as its Boot Media; the API enforces that.
+ *
+ * - `script` is what swallow rendered from its fixed template; it is display-only, never edited.
+ * - `url` is where BMCs mount the ISO without credentials (and where an operator can download it);
+ *   it is empty when the installation has no Boot Media base URL.
+ * - `inUseBy` counts Servers whose enabled Boot Media uses it; while non-zero it cannot be deleted.
+ */
+export interface BootISO {
+  id: string;
+  name: string;
+  siteId: string;
+  integrationId: string;
+  /** The MAAS rack as the operator gave it: an IPv4 address or hostname, optionally `:port`. */
+  rackAddress: string;
+  chainUrl: string;
+  script: string;
+  ipxeVersion: string;
+  sizeBytes: number;
+  sha256: string;
+  url: string;
+  inUseBy: number;
+  createdAt: string;
+  createdBy?: string;
+}
+
+/**
+ * Whether this installation can build Boot ISOs. `reason` (present when `available` is false) is
+ * the API's operator-facing explanation — a missing Boot Media base URL, an unwritable directory,
+ * or iPXE assets or packaging tools missing from the image — shown verbatim.
+ */
+export interface BootISOBuilderStatus {
+  available: boolean;
+  reason?: string;
+}
+
+/** The Boot ISO list: the builder's availability, and the Boot ISOs ordered by name. */
+export interface BootISOCatalog {
+  builder: BootISOBuilderStatus;
+  items: BootISO[];
+}
+
+/**
+ * A build request. The operator chooses the provisioner and names the MAAS rack; the script is
+ * always swallow's template, so there is no script input.
+ */
+export interface CreateBootISOInput {
+  name: string;
+  integrationId: string;
+  rackAddress: string;
+}
+
+/** The port the MAAS rack serves `ipxe.cfg` on when `rackAddress` names none (contract boot-isos.md). */
+export const DEFAULT_MAAS_RACK_PORT = 5248;
+
+/**
+ * The URL a Boot ISO built for `rackAddress` chains to, for previewing a build before it is sent.
+ * It mirrors the API's derivation (`http://<host>:<port or 5248>/ipxe.cfg`) without validating:
+ * the API is the authority and rejects an invalid address. Returns an empty string for a blank
+ * address.
+ */
+export function bootISOChainURL(rackAddress: string): string {
+  const address = rackAddress.trim();
+  if (!address) return "";
+  const hasPort = /:\d+$/.test(address);
+  return `http://${hasPort ? address : `${address}:${DEFAULT_MAAS_RACK_PORT}`}/ipxe.cfg`;
+}

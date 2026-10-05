@@ -45,6 +45,9 @@ type serverDoc struct {
 	// reconcile Upsert never erases them; absent reads as "never set" / "never probed".
 	BootMedia *bootMediaDoc `bson:"bootMedia,omitempty"`
 	Redfish   *redfishDoc   `bson:"redfish,omitempty"`
+	// BootMediaApply is the running enable preflight; it is written only by the Boot Media apply
+	// methods, never by SetBootMedia, so recording progress cannot overwrite the setting.
+	BootMediaApply *bootMediaApplyDoc `bson:"bootMediaApply,omitempty"`
 
 	Absent     bool      `bson:"absent"`
 	LastSeenAt time.Time `bson:"lastSeenAt"`
@@ -552,7 +555,9 @@ func (r *MongoServerRepo) SetDefaultUser(ctx context.Context, id string, user st
 
 // bootMediaDoc stores serverdomain.BootMediaSetting.
 type bootMediaDoc struct {
-	Enabled       bool       `bson:"enabled"`
+	Enabled bool `bson:"enabled"`
+	// ISOID is absent on settings written before Boot ISOs (decision 049); it reads as none chosen.
+	ISOID         string     `bson:"isoId,omitempty"`
 	UpdatedAt     time.Time  `bson:"updatedAt"`
 	LastAppliedAt *time.Time `bson:"lastAppliedAt,omitempty"`
 	LastAppliedBy string     `bson:"lastAppliedBy,omitempty"`
@@ -584,12 +589,20 @@ func (r *MongoServerRepo) SetBootMedia(ctx context.Context, id string, setting *
 		update["$unset"] = bson.M{"bootMedia": ""}
 	} else {
 		update["$set"].(bson.M)["bootMedia"] = bootMediaDoc{
-			Enabled: setting.Enabled, UpdatedAt: setting.UpdatedAt,
+			Enabled: setting.Enabled, ISOID: setting.ISOID, UpdatedAt: setting.UpdatedAt,
 			LastAppliedAt: setting.LastAppliedAt, LastAppliedBy: string(setting.LastAppliedBy),
 			BootOverride: setting.BootOverride, LastError: setting.LastError, LastErrorAt: setting.LastErrorAt,
 		}
 	}
 	return r.updateExisting(ctx, id, update)
+}
+
+// CountBootMediaUsing counts the Servers whose enabled Boot Media uses the Boot ISO isoID; a Boot
+// ISO in use cannot be deleted (decision 049). A disabled setting that still names it does not
+// count: it is history, and re-enabling requires choosing a Boot ISO again.
+func (r *MongoServerRepo) CountBootMediaUsing(ctx context.Context, isoID string) (int, error) {
+	count, err := r.col.CountDocuments(ctx, bson.M{"bootMedia.enabled": true, "bootMedia.isoId": isoID})
+	return int(count), err
 }
 
 // SetRedfishCapability writes the Server's latest Redfish capability probe, or unsets it for nil.
@@ -607,6 +620,75 @@ func (r *MongoServerRepo) SetRedfishCapability(ctx context.Context, id string, c
 		}
 	}
 	return r.updateExisting(ctx, id, update)
+}
+
+// bootMediaApplyDoc stores serverdomain.BootMediaApply.
+type bootMediaApplyDoc struct {
+	ISOID          string     `bson:"isoId"`
+	Phase          string     `bson:"phase"`
+	StartedAt      time.Time  `bson:"startedAt"`
+	PhaseStartedAt time.Time  `bson:"phaseStartedAt"`
+	PhaseEndsAt    *time.Time `bson:"phaseEndsAt,omitempty"`
+}
+
+func newBootMediaApplyDoc(apply *serverdomain.BootMediaApply) bootMediaApplyDoc {
+	return bootMediaApplyDoc{
+		ISOID: apply.ISOID, Phase: string(apply.Phase), StartedAt: apply.StartedAt,
+		PhaseStartedAt: apply.PhaseStartedAt, PhaseEndsAt: apply.PhaseEndsAt,
+	}
+}
+
+func toBootMediaApply(doc *bootMediaApplyDoc) *serverdomain.BootMediaApply {
+	return &serverdomain.BootMediaApply{
+		ISOID: doc.ISOID, Phase: serverdomain.BootMediaPhase(doc.Phase), StartedAt: doc.StartedAt,
+		PhaseStartedAt: doc.PhaseStartedAt, PhaseEndsAt: doc.PhaseEndsAt,
+	}
+}
+
+// BeginBootMediaApply records apply unless a running one (started at or after staleBefore) is
+// recorded. The filter makes the check and the write one atomic update, so two concurrent enables
+// cannot both start; the loser learns whether the Server exists from a second read.
+func (r *MongoServerRepo) BeginBootMediaApply(ctx context.Context, id string, apply *serverdomain.BootMediaApply, staleBefore time.Time) error {
+	result, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": id, "$or": bson.A{
+			bson.M{"bootMediaApply": bson.M{"$exists": false}},
+			bson.M{"bootMediaApply.startedAt": bson.M{"$lt": staleBefore}},
+		}},
+		bson.M{"$set": bson.M{"bootMediaApply": newBootMediaApplyDoc(apply)}},
+	)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 1 {
+		return nil
+	}
+	count, err := r.col.CountDocuments(ctx, bson.M{"_id": id})
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return serverdomain.ErrServerNotFound
+	}
+	return serverdomain.ErrBootMediaApplying
+}
+
+// UpdateBootMediaApply replaces the recorded apply when it is still the one that started at
+// apply.StartedAt.
+func (r *MongoServerRepo) UpdateBootMediaApply(ctx context.Context, id string, apply *serverdomain.BootMediaApply) error {
+	_, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": id, "bootMediaApply.startedAt": apply.StartedAt},
+		bson.M{"$set": bson.M{"bootMediaApply": newBootMediaApplyDoc(apply)}},
+	)
+	return err
+}
+
+// EndBootMediaApply removes the recorded apply that started at startedAt.
+func (r *MongoServerRepo) EndBootMediaApply(ctx context.Context, id string, startedAt time.Time) error {
+	_, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": id, "bootMediaApply.startedAt": startedAt},
+		bson.M{"$unset": bson.M{"bootMediaApply": ""}},
+	)
+	return err
 }
 
 // updateExisting applies update to one document and maps "no such document" to ErrServerNotFound.
@@ -765,10 +847,13 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 
 	if b := doc.BootMedia; b != nil {
 		s.BootMedia = &serverdomain.BootMediaSetting{
-			Enabled: b.Enabled, UpdatedAt: b.UpdatedAt,
+			Enabled: b.Enabled, ISOID: b.ISOID, UpdatedAt: b.UpdatedAt,
 			LastAppliedAt: b.LastAppliedAt, LastAppliedBy: serverdomain.BootMediaApplier(b.LastAppliedBy),
 			BootOverride: b.BootOverride, LastError: b.LastError, LastErrorAt: b.LastErrorAt,
 		}
+	}
+	if a := doc.BootMediaApply; a != nil {
+		s.BootMediaApply = toBootMediaApply(a)
 	}
 	if r := doc.Redfish; r != nil {
 		s.Redfish = &serverdomain.RedfishCapability{

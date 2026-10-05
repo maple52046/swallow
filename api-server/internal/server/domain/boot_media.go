@@ -66,14 +66,18 @@ const (
 	BootMediaAppliedByEnsure BootMediaApplier = "ensure"
 )
 
-// BootMediaSetting is a Server's Boot Media setting (decision 047): the operator's intent that
-// the Server boot the installation's iPXE ISO first, plus the outcome of the last apply.
+// BootMediaSetting is a Server's Boot Media setting (decisions 047 and 049): the operator's
+// intent that the Server boot a chosen Boot ISO first, plus the outcome of the last apply.
 //
 // It is swallow-owned and written only through BootMediaStore; provider reconciliation preserves
 // it. It records intent and history, never the BMC's live state — whether the ISO is mounted now
 // is read from the BMC (BootMediaState).
 type BootMediaSetting struct {
-	Enabled   bool
+	Enabled bool
+	// ISOID is the chosen Boot ISO, one of the Server's own provisioner Integration. It is empty
+	// on a setting enabled before Boot ISOs existed (decision 049); such a setting needs one
+	// chosen, and a disabled setting keeps the last one only as history.
+	ISOID     string
 	UpdatedAt time.Time
 	// LastAppliedAt and LastAppliedBy record the last apply that left the BMC ready.
 	LastAppliedAt *time.Time
@@ -87,9 +91,70 @@ type BootMediaSetting struct {
 	LastErrorAt *time.Time
 }
 
+// BootMediaPhase is one step of an enable preflight, in the order they run. The values are the
+// published `apply.phase` of the Boot Media API. Steps that are not needed are skipped.
+type BootMediaPhase string
+
+const (
+	// BootMediaPhaseProbing re-probes the BMC's Redfish capability.
+	BootMediaPhaseProbing BootMediaPhase = "probing"
+	// BootMediaPhaseEjecting ejects the previously mounted Boot ISO when switching to another.
+	BootMediaPhaseEjecting BootMediaPhase = "ejecting"
+	// BootMediaPhaseMounting mounts the Boot ISO and waits until the BMC reports it inserted.
+	BootMediaPhaseMounting BootMediaPhase = "mounting"
+	// BootMediaPhaseSettling is the fixed wait a fresh mount needs before the host may power on;
+	// it is the only phase with a known end.
+	BootMediaPhaseSettling BootMediaPhase = "settling"
+	// BootMediaPhaseDirecting directs the next boots at the virtual CD.
+	BootMediaPhaseDirecting BootMediaPhase = "directing"
+	// BootMediaPhaseVerifying reads the mount and the boot direction back.
+	BootMediaPhaseVerifying BootMediaPhase = "verifying"
+)
+
+// BootMediaApplyStaleAfter is how old a recorded apply may be before it is taken as abandoned
+// (its API process stopped): longer than any preflight can run, so a live one is never mistaken
+// for stale.
+const BootMediaApplyStaleAfter = 10 * time.Minute
+
+// BootMediaApply is an enable preflight running on a Server, recorded so any client — another
+// tab, a reloaded page, the CLI — can follow it and so a second one is refused. It is written
+// only through BootMediaStore, separately from the setting, and removed when the preflight ends.
+type BootMediaApply struct {
+	ISOID          string
+	Phase          BootMediaPhase
+	StartedAt      time.Time
+	PhaseStartedAt time.Time
+	// PhaseEndsAt is set only for a phase with a known end (settling).
+	PhaseEndsAt *time.Time
+}
+
+// Running reports whether the apply is still in flight at now, rather than abandoned.
+func (a *BootMediaApply) Running(now time.Time) bool {
+	return a != nil && now.Sub(a.StartedAt) < BootMediaApplyStaleAfter
+}
+
+// BootMediaPhaseReporter receives each phase an apply enters; endsAt is set only for a phase with
+// a known end. It must return quickly and never fail the apply.
+type BootMediaPhaseReporter func(phase BootMediaPhase, endsAt *time.Time)
+
+type phaseReporterKey struct{}
+
+// WithBootMediaPhaseReporter returns ctx carrying report, so a RedfishController reports the
+// phases of the call it makes with that context without its signature naming progress.
+func WithBootMediaPhaseReporter(ctx context.Context, report BootMediaPhaseReporter) context.Context {
+	return context.WithValue(ctx, phaseReporterKey{}, report)
+}
+
+// ReportBootMediaPhase tells ctx's reporter, if any, that the apply entered phase.
+func ReportBootMediaPhase(ctx context.Context, phase BootMediaPhase, endsAt *time.Time) {
+	if report, ok := ctx.Value(phaseReporterKey{}).(BootMediaPhaseReporter); ok && report != nil {
+		report(phase, endsAt)
+	}
+}
+
 // BootMediaState is the BMC's live Boot Media state for one Server, read for one request.
 type BootMediaState struct {
-	// MediaInserted reports that a virtual CD holds the installation's ISO.
+	// MediaInserted reports that a virtual CD holds the Boot ISO.
 	MediaInserted bool
 	// MediaImage is the image the BMC reports for that CD, verbatim (BMCs rewrite URLs).
 	MediaImage string
@@ -101,7 +166,7 @@ type BootMediaState struct {
 	OverrideReady bool
 }
 
-// Ready reports that the next boot will start from the installation's ISO.
+// Ready reports that the next boot will start from the Boot ISO.
 func (s BootMediaState) Ready() bool {
 	return s.MediaInserted && s.OverrideReady
 }
@@ -132,7 +197,7 @@ type BMCEndpointSource interface {
 //
 // Every method re-discovers the BMC's resources (host System, virtual CD, actions) instead of
 // trusting stored paths, retries a busy BMC (HTTP 503, connection resets) until ctx is done, and
-// never puts the password into an error. ISO URLs passed in are the installation's Boot Media URL.
+// never puts the password into an error. ISO URLs passed in are Boot ISO URLs (decision 049).
 type RedfishController interface {
 	// Probe classifies the BMC. It reports unreachable or unsupported BMCs in the result rather
 	// than as an error; it returns an error only when ctx ended before an answer.
@@ -158,27 +223,56 @@ type RedfishController interface {
 
 // BootMediaStore persists the swallow-owned Boot Media fields of a Server. It is separate from
 // ServerRepository so the many repository fakes need not implement it; the production Mongo
-// repository implements both on the same document. Both methods replace the field (nil clears
-// it), touch nothing else, and return ErrServerNotFound for an unknown id.
+// repository implements both on the same document. Every method touches only its own field and
+// returns ErrServerNotFound for an unknown id.
 type BootMediaStore interface {
+	// SetBootMedia and SetRedfishCapability replace their field; nil clears it.
 	SetBootMedia(ctx context.Context, id string, setting *BootMediaSetting) error
 	SetRedfishCapability(ctx context.Context, id string, capability *RedfishCapability) error
+	// BeginBootMediaApply records apply atomically unless one started at or after staleBefore is
+	// recorded, in which case it returns ErrBootMediaApplying.
+	BeginBootMediaApply(ctx context.Context, id string, apply *BootMediaApply, staleBefore time.Time) error
+	// UpdateBootMediaApply replaces the recorded apply that started at apply.StartedAt; it does
+	// nothing when that one is no longer recorded.
+	UpdateBootMediaApply(ctx context.Context, id string, apply *BootMediaApply) error
+	// EndBootMediaApply removes the apply that started at startedAt, leaving a newer one alone.
+	EndBootMediaApply(ctx context.Context, id string, startedAt time.Time) error
 }
 
-// BootMediaImage is the installation's Boot Media ISO as configured (decision 047): one file,
-// served by swallow at one URL that the installation fixes.
-type BootMediaImage interface {
-	// URL is the absolute HTTP URL BMCs mount; empty when Boot Media is not configured.
-	URL() string
-	// Available returns nil when the ISO is configured and being served, otherwise an error
-	// wrapping ErrBootMediaNotConfigured that says what is missing.
-	Available() error
+// BootISOImage is a Boot ISO as Boot Media uses it (decision 049): which one, which provisioner
+// Integration's rack it chains to, and the URL BMCs mount it at.
+type BootISOImage struct {
+	ID            string
+	Name          string
+	IntegrationID string
+	URL           string
+}
+
+// BootISOResolver resolves the Boot ISO a Boot Media setting names. Boot ISOs are built and
+// owned by the provisioning context; this port is the server context's narrow view of them.
+type BootISOResolver interface {
+	// Resolve returns the Boot ISO with id. It returns ErrBootISOUnknown when none has the id. When
+	// the ISO exists but is not served (its file is missing, or no Boot Media base URL is
+	// configured) it returns the image together with an error wrapping ErrBootMediaNotConfigured
+	// that says why, so callers can still name it.
+	Resolve(ctx context.Context, id string) (*BootISOImage, error)
+	// URL is where BMCs mount id's ISO, whether or not it still exists, so a previously mounted
+	// ISO can be ejected. For an empty id it is the URL of the retired installation ISO that a
+	// setting enabled before Boot ISOs had mounted. It is "" when no base URL is configured.
+	URL(id string) string
 }
 
 var (
-	// ErrBootMediaNotConfigured means the installation serves no Boot Media ISO (no file or no
-	// base URL configured), so no Server can enable it.
-	ErrBootMediaNotConfigured = errors.New("boot media is not configured for this installation")
+	// ErrBootMediaNotConfigured means the Boot ISO a Server would use is not served (none chosen,
+	// its file missing, or no Boot Media base URL configured), so Boot Media cannot be applied.
+	ErrBootMediaNotConfigured = errors.New("boot media is not configured for this server")
+	// ErrBootISORequired means enabling Boot Media named no Boot ISO.
+	ErrBootISORequired = errors.New("a boot ISO must be chosen to enable boot media")
+	// ErrBootISOUnknown means the named Boot ISO does not exist.
+	ErrBootISOUnknown = errors.New("boot ISO not found")
+	// ErrBootISOWrongIntegration means the Boot ISO chains to another provisioner Integration's
+	// rack than the Server's, so the Server could never reach its own provisioner with it.
+	ErrBootISOWrongIntegration = errors.New("the boot ISO belongs to another provisioner integration")
 	// ErrNoBMC means the Server has no BMC swallow can drive.
 	ErrNoBMC = errors.New("server has no BMC")
 	// ErrBMCCredentialUnavailable means the provisioner would not reveal the BMC connection.
@@ -193,6 +287,8 @@ var (
 	ErrRedfishUnsupported = errors.New("the BMC does not support redfish boot media")
 	// ErrBootMediaRejected means the BMC refused to mount the ISO or set the boot override.
 	ErrBootMediaRejected = errors.New("the BMC refused the boot media")
+	// ErrBootMediaApplying means an enable preflight is already running on the Server.
+	ErrBootMediaApplying = errors.New("boot media is already being applied to this server; wait until it finishes")
 )
 
 // BootMediaError explains a failed Boot Media action in operator terms — which Server and what
@@ -212,7 +308,7 @@ func (e *BootMediaError) Error() string {
 	}
 	switch {
 	case errors.Is(e.Err, ErrBootMediaNotConfigured):
-		return "This installation does not serve a Boot Media ISO." + detail
+		return fmt.Sprintf("Boot Media of Server %q has no Boot ISO it can use.%s", e.Server, detail)
 	case errors.Is(e.Err, ErrNoBMC):
 		return fmt.Sprintf("Server %q has no BMC swallow can drive (a virtual machine, or the provisioner holds no BMC address).", e.Server)
 	case errors.Is(e.Err, ErrBMCCredentialUnavailable):
