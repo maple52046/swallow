@@ -78,5 +78,6 @@ digests, and the release manifest still pins digests.
 Implemented in `deploy/production` (`swallowctl`, `local-maas.sh`, `bootstrap.sh`) and
 `deploy/release` (`publish.sh`; releases are published from a workstation because the project
 has no CI). Accepted on a clean Ubuntu 24.04 VM (one `swallowctl install`, rerun, upgrade, backup,
-restore, and `doctor`) with locally built images served from a temporary registry; the first
-publication to GHCR is pending.
+restore, and `doctor`) with locally built images served from a temporary registry. The first
+release, `0.1.0-rc.2`, was published to GHCR and GitHub Releases on 2026-10-05; installing it
+on a clean VM is pending.
