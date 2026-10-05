@@ -11,10 +11,13 @@
 #                     the manifest still records HEAD)
 #   --github-release  also create GitHub Release vVERSION at HEAD with the artifacts (needs gh)
 #
-# Prerequisites: docker with buildx, logged in to the registry with a token that can write
-# packages (`docker login ghcr.io -u <user>`); git, jq, zstd, and python3 with pip (the native
-# bundle's wheelhouse). crane is used when installed, otherwise a pinned crane container that
-# reads the same docker login. Environment: IMAGE_REPO (default ghcr.io/maple52046/swallow).
+# Prerequisites: an x86_64 host. Every image targets linux/amd64 only and is built natively with
+# plain `docker build` and `docker push`, so buildx and emulation are not used; the docker CLI may
+# be Docker Engine or nerdctl with BuildKit running. It must be logged in to the registry with a
+# token that can write packages (`docker login ghcr.io -u <user>`). Also git, jq, zstd, and
+# python3 with pip (the native bundle's wheelhouse). crane is used when installed, otherwise a
+# pinned crane container that reads the same docker login.
+# Environment: IMAGE_REPO (default ghcr.io/maple52046/swallow).
 set -euo pipefail
 
 version="${1:-}"
@@ -41,10 +44,11 @@ die() { printf '[publish] %s\n' "$*" >&2; exit 1; }
 
 [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] ||
   die 'usage: publish.sh VERSION [--allow-dirty] [--github-release]   (VERSION is SemVer without "v")'
+[[ "$(uname -m)" == x86_64 ]] ||
+  die 'publish from an x86_64 host: the images are built natively for linux/amd64, without buildx or emulation'
 for tool in docker git jq zstd; do
   command -v "${tool}" >/dev/null 2>&1 || die "missing prerequisite: ${tool}"
 done
-docker buildx version >/dev/null 2>&1 || die 'missing prerequisite: docker buildx'
 python3 -m pip download --help >/dev/null 2>&1 ||
   die 'missing prerequisite: python3 pip (the native bundle downloads its wheelhouse)'
 if [[ "${github_release}" == true ]]; then
@@ -88,15 +92,23 @@ set -a
 source "${release_dir}/runtime-images.env"
 set +a
 
+# With the buildx plugin installed, Docker's `docker build` runs through buildx and would attach a
+# provenance attestation, turning each image into a two-entry index; the release pins one plain
+# linux/amd64 manifest per component. nerdctl does not read this variable.
+export BUILDX_NO_DEFAULT_ATTESTATIONS=1
+
 declare -A dockerfiles=([api]=api-server.Dockerfile [dashboard]=dashboard.Dockerfile [cli]=cli.Dockerfile)
 declare -A digests=()
 for component in api dashboard cli; do
   tag="${image_repo}:${component}-${version}"
-  log "building and pushing ${tag}"
-  docker buildx build --platform linux/amd64 --provenance=false --push \
+  log "building ${tag}"
+  docker build \
     -f "${root}/deploy/production/${dockerfiles[${component}]}" \
     --build-arg "VERSION=${version}" --build-arg "COMMIT=${commit}" --build-arg "BUILT_AT=${built_at}" \
-    -t "${tag}" "${root}"
+    -t "${tag}" "${root}" ||
+    die "building ${tag} failed; publishing needs a native linux/amd64 builder (Docker Engine, or nerdctl with BuildKit running), not buildx or emulation"
+  log "pushing ${tag}"
+  docker push "${tag}"
   digests[${component}]="$(crane digest "${tag}")"
 done
 

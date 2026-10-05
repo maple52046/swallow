@@ -29,6 +29,10 @@ installation contract（digest-pinned images、產生的 secrets、lifecycle too
 
 ### 前置條件
 
+- 一個已發佈的 swallow release：GitHub Release 上的 assets（Compose bundle、
+  `release-manifest.json` 與 `SHA256SUMS`），以及 public 的 GHCR package；否則請先在 VM 上
+  `docker login ghcr.io`。Repository 裡的 `release-manifest.example.json` 只有 placeholder
+  digest，無法拿來安裝。
 - 一台可 `sudo` 的乾淨 Ubuntu 24.04 amd64 VM。建議起始規格 4 vCPU、16 GiB RAM、
   100 GiB disk。
 - 能連到 `ghcr.io`、`download.docker.com`、Snap Store 與 `images.maas.io`。

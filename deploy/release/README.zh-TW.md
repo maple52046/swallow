@@ -20,9 +20,11 @@ database，必須維持 PostgreSQL 14 以上。
 
 ## 發佈 release
 
-請在 Ubuntu 24.04 上發佈（native bundle 的 Python wheels 依 host Python 而定）。發佈機器需要
-Docker（含 buildx）、git、jq、zstd、含 pip 的 python3，以及具備 `write:packages` 權限的
-GitHub token。發佈前請先跑過各 component 的測試（見各 component README）。
+請在 x86_64 的 Ubuntu 24.04 上發佈（native bundle 的 Python wheels 依 host Python 而定）。
+所有 image 都以一般的 `docker build` 與 `docker push` 原生 build 成 linux/amd64，不需要
+buildx 或模擬：Docker Engine，或 BuildKit 有在執行的 nerdctl 即可。發佈機器另外需要 git、jq、
+zstd、含 pip 的 python3，以及具備 `write:packages` 權限的 GitHub token。發佈前請先跑過各
+component 的測試（見各 component README）。
 
 ```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin

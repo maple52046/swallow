@@ -20,9 +20,11 @@ image also hosts the co-located MAAS database, so it must stay PostgreSQL 14 or 
 
 ## Publish a release
 
-Publish from Ubuntu 24.04 (the native bundle's Python wheels follow the host Python). The
-machine needs Docker with buildx, git, jq, zstd, python3 with pip, and a GitHub token with
-`write:packages`. Run the component test suites first (see the component READMEs).
+Publish from an x86_64 Ubuntu 24.04 machine (the native bundle's Python wheels follow the host
+Python). Every image is built natively for linux/amd64 with plain `docker build` and
+`docker push`, so buildx and emulation are not needed: Docker Engine, or nerdctl with BuildKit
+running, is enough. The machine also needs git, jq, zstd, python3 with pip, and a GitHub token
+with `write:packages`. Run the component test suites first (see the component READMEs).
 
 ```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin

@@ -30,6 +30,10 @@ When `swallowctl install` finishes:
 
 ### Prerequisites
 
+- A published swallow release: its GitHub Release assets (the Compose bundle,
+  `release-manifest.json`, and `SHA256SUMS`) and a public GHCR package, or run
+  `docker login ghcr.io` on the VM first. The repository's `release-manifest.example.json`
+  holds placeholder digests and cannot be installed.
 - A clean Ubuntu 24.04 amd64 VM with `sudo`. A practical starting size is 4 vCPU,
   16 GiB RAM, and 100 GiB disk.
 - Outbound access to `ghcr.io`, `download.docker.com`, the Snap Store, and

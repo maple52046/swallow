@@ -44,28 +44,42 @@ for image in "${runtime_images[@]}" "${cli_image}"; do
   docker pull "${image}"
 done
 
-api_container=""
-dashboard_container=""
-cli_container=""
-cleanup_containers() {
-  [[ -z "${api_container}" ]] || docker rm -f "${api_container}" >/dev/null
-  [[ -z "${dashboard_container}" ]] || docker rm -f "${dashboard_container}" >/dev/null
-  [[ -z "${cli_container}" ]] || docker rm -f "${cli_container}" >/dev/null
+scratch="$(mktemp -d)"
+trap 'rm -rf -- "${scratch}"' EXIT
+
+# image_files copies PATHs (relative to the image root) out of IMAGE into DEST, reading the
+# image's layers from `docker save`. Files are not taken with `docker create` + `docker cp`:
+# rootless nerdctl refuses cp on a container that is not running, and the cli image (FROM
+# scratch) cannot be kept running. Whiteouts are not applied, so every PATH must be written by
+# the image's own layers and never deleted by a later one.
+image_files() {
+  local image="$1" dest="$2" saved="${scratch}/saved" layer member
+  shift 2
+  rm -rf -- "${saved}"
+  mkdir -p "${saved}" "${dest}"
+  docker save --output "${saved}/image.tar" "${image}"
+  tar -xf "${saved}/image.tar" -C "${saved}"
+  rm -f -- "${saved}/image.tar"
+  while IFS= read -r layer; do
+    for member in "$@"; do
+      if tar -tf "${saved}/${layer}" "${member}" >/dev/null 2>&1; then
+        tar -xf "${saved}/${layer}" --no-same-owner -C "${dest}" "${member}"
+      fi
+    done
+  done < <(jq -r '.[0].Layers[]' "${saved}/manifest.json")
+  rm -rf -- "${saved}"
+  for member in "$@"; do
+    [[ -e "${dest}/${member}" ]] || { printf '%s is missing from %s\n' "${member}" "${image}" >&2; exit 1; }
+  done
 }
-trap cleanup_containers EXIT
-api_container="$(docker create "${api_image}")"
-dashboard_container="$(docker create "${dashboard_image}")"
-cli_container="$(docker create "${cli_image}")"
-docker cp "${api_container}:/usr/local/bin/swallow-api" "${out}/native/bin/swallow-api"
-docker cp "${api_container}:/opt/swallow/automation/." "${out}/native/automation/"
-docker cp "${dashboard_container}:/usr/share/nginx/html/." "${out}/native/dashboard/"
-docker cp "${cli_container}:/swallow" "${out}/swallow-linux-amd64"
-docker rm "${api_container}" "${dashboard_container}" "${cli_container}" >/dev/null
-api_container=""
-dashboard_container=""
-cli_container=""
-trap - EXIT
-chmod 0755 "${out}/swallow-linux-amd64"
+
+image_files "${api_image}" "${scratch}/api" usr/local/bin/swallow-api opt/swallow/automation
+image_files "${dashboard_image}" "${scratch}/dashboard" usr/share/nginx/html
+image_files "${cli_image}" "${scratch}/cli" swallow
+install -m 0755 "${scratch}/api/usr/local/bin/swallow-api" "${out}/native/bin/swallow-api"
+cp -R "${scratch}/api/opt/swallow/automation/." "${out}/native/automation/"
+cp -R "${scratch}/dashboard/usr/share/nginx/html/." "${out}/native/dashboard/"
+install -m 0755 "${scratch}/cli/swallow" "${out}/swallow-linux-amd64"
 install -m 0755 "${out}/swallow-linux-amd64" "${out}/production/bin/swallow"
 
 # The host Python resolves the wheelhouse; publish from Ubuntu 24.04 so binary wheels match the

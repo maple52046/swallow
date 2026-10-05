@@ -1,0 +1,5 @@
+# Paths are relative to the build context, the repository root. The image runs npm ci before
+# copying dashboard/, so the host's node_modules and build output must not be copied over it.
+dashboard/node_modules
+dashboard/dist
+dashboard/.vite
