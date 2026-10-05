@@ -68,12 +68,15 @@ log 'checking the release contract and documentation'
 
 # The mirror and promotion scripts call `crane`. Without a local install, a shim runs the pinned
 # crane image on the host network with the caller's docker login (credential helpers that live
-# outside config.json are not visible to it; install crane in that case).
+# outside config.json are not visible to it; install crane in that case). It runs as uid 0
+# because the image's non-root user cannot read the caller's mode-0600 config.json; under
+# rootless nerdctl uid 0 is the caller, and the mount is read-only.
 if ! command -v crane >/dev/null 2>&1; then
   mkdir -p "${work}/bin"
   cat >"${work}/bin/crane" <<EOF
 #!/usr/bin/env bash
-exec docker run --rm --network host -v "${DOCKER_CONFIG:-${HOME}/.docker}:/docker-config:ro" \
+exec docker run --rm --user 0:0 --network host \
+  -v "${DOCKER_CONFIG:-${HOME}/.docker}:/docker-config:ro" \
   -e DOCKER_CONFIG=/docker-config "${crane_image}" "\$@"
 EOF
   chmod +x "${work}/bin/crane"
