@@ -59,4 +59,4 @@ Compose service `temporal-postgresql`, although it also hosts the co-located MAA
 
 Implemented in `deploy/release` (`runtime-images.env`, `publish.sh`, `assemble-release.sh`,
 `validate.sh`), `deploy/production` (`compose.yaml`, `swallowctl`, `local-maas.sh`), and the
-testing environment. No release has been published under it yet.
+testing environment. `0.1.0-rc.3`, published on 2026-10-06, is the first release under it.

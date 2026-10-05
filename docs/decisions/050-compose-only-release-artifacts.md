@@ -67,5 +67,5 @@ This defers the air-gap goal stated in [ADR 006](006-embedded-ansible-execution.
 ## Current status
 
 Implemented in `deploy/release` (`publish.sh`, `assemble-release.sh`,
-`mirror-runtime-images.sh`) and `deploy/production/swallowctl`. No release has been published
-under it yet.
+`mirror-runtime-images.sh`) and `deploy/production/swallowctl`. `0.1.0-rc.3`, published on
+2026-10-06, is the first release under it.
