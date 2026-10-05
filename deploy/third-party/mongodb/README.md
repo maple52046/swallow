@@ -3,8 +3,8 @@
 [繁體中文](README.zh-TW.md) · [Third-party overview](../README.md)
 
 The Compose path consumes the exact MongoDB OCI digest recorded in
-`release-manifest.json` and pulls it by digest from the release's GHCR package; production
-never pulls by tag.
+`release-manifest.json`: the official `mongo` image, pulled by digest from Docker Hub;
+production never pulls by tag.
 
 The native path consumes Ubuntu 24.04 amd64 packages from the separately checksummed
 third-party media under `third-party/packages/`. The native installer starts a

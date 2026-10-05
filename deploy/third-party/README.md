@@ -13,8 +13,9 @@ Third-party media is versioned separately from the Swallow core bundle.
 | Ansible | Embedded in the API Execution Environment or native offline venv; not a service. |
 | Prometheus | One independent project per site, using persistent storage and Swallow HTTP service discovery. |
 
-The installation pulls images from GHCR and the official `ubuntu/noble` boot resource from
-`images.maas.io`, so it needs outbound access to both. DNS, DHCP/PXE/BMC networking and
+The installation pulls swallow's own images from GHCR, the official MongoDB, PostgreSQL, and
+Temporal images from Docker Hub, and the official `ubuntu/noble` boot resource from
+`images.maas.io`, so it needs outbound access to all three. DNS, DHCP/PXE/BMC networking and
 target hardware are site-provided inputs rather than Swallow-managed resources.
 `offline-media-manifest.json` describes the media an air-gapped site would mirror; offline
 installation of MAAS images is not automated yet.

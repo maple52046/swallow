@@ -38,8 +38,8 @@ services:
   # single-VM installation, the co-located MAAS region (role `maas`, database `maasdb`,
   # created by local-maas.sh). Each has its own database and role; nothing is shared below
   # the instance. The port is published on loopback only, for the MAAS snap on this host.
-  temporal-postgresql:
-    image: ${SWALLOW_TEMPORAL_POSTGRES_IMAGE:?set a digest-pinned SWALLOW_TEMPORAL_POSTGRES_IMAGE}
+  postgres:
+    image: ${SWALLOW_POSTGRES_IMAGE:?set a digest-pinned SWALLOW_POSTGRES_IMAGE}
     restart: unless-stopped
     environment:
       POSTGRES_USER: temporal
@@ -47,7 +47,7 @@ services:
     secrets:
       - temporal_db_password
     volumes:
-      - temporal-postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}:5432"
     networks: [control, host-postgres]
@@ -62,7 +62,7 @@ services:
     image: ${SWALLOW_TEMPORAL_SERVER_IMAGE:?set a digest-pinned SWALLOW_TEMPORAL_SERVER_IMAGE}
     restart: unless-stopped
     depends_on:
-      temporal-postgresql:
+      postgres:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-ec"]
     command:
@@ -75,7 +75,7 @@ services:
       DBNAME: temporal_core
       VISIBILITY_DBNAME: temporal_visibility
       POSTGRES_USER: temporal
-      POSTGRES_SEEDS: temporal-postgresql
+      POSTGRES_SEEDS: postgres
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CLI_ADDRESS: temporal:7233
     secrets:
@@ -272,7 +272,7 @@ volumes:
   job-artifacts:
   # Boot ISOs (decision 049); first mounted over the image's directory, so owned by the service user.
   boot-media:
-  temporal-postgres-data:
+  postgres-data:
 
 secrets:
   mongo_root_username:

@@ -18,8 +18,9 @@ docker compose logs api-server worker ansible-executor temporal
 
 在 `production/` 執行 `sudo ./swallowctl doctor`；每一行 `FAIL` 代表一個串接。
 
-- **Image pull 被拒：** GHCR package 是 private。請設為 public，或安裝前先
-  `docker login ghcr.io`。
+- **Image pull 被拒：** 若是 `ghcr.io` 的 image，代表 GHCR package 是 private；請設為
+  public，或安裝前先 `docker login ghcr.io`。若是 `docker.io` 的 image，代表遇到 Docker Hub
+  的匿名拉取限制；稍後重跑，或先 `docker login` Docker Hub。
 - **Worker 沒有 poll task queue：** 查看 `docker compose logs worker`；它需要 MongoDB、
   database schema 與 Temporal。
 - **MAAS 沒有 complete 的 `ubuntu/noble`：** VM 連不到 `images.maas.io`，或仍在匯入中。

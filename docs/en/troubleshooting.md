@@ -20,8 +20,9 @@ docker compose logs api-server worker ansible-executor temporal
 
 Run `sudo ./swallowctl doctor` in `production/`; each `FAIL` line names one connection.
 
-- **Image pull denied:** the GHCR package is private. Make it public or run
-  `docker login ghcr.io` before installing.
+- **Image pull denied:** for a `ghcr.io` image, the GHCR package is private; make it public
+  or run `docker login ghcr.io` before installing. For a `docker.io` image, Docker Hub limits
+  anonymous pulls; wait and rerun, or `docker login` to Docker Hub first.
 - **Worker does not poll the task queue:** read `docker compose logs worker`; it needs
   MongoDB, the database schema, and Temporal.
 - **MAAS has no complete `ubuntu/noble`:** the VM cannot reach `images.maas.io`, or the

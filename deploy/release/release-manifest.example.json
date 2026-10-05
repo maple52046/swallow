@@ -8,9 +8,9 @@
     "api": "ghcr.io/maple52046/swallow@sha256:REPLACE",
     "dashboard": "ghcr.io/maple52046/swallow@sha256:REPLACE",
     "cli": "ghcr.io/maple52046/swallow@sha256:REPLACE",
-    "mongo": "ghcr.io/maple52046/swallow@sha256:REPLACE",
-    "temporalPostgres": "ghcr.io/maple52046/swallow@sha256:REPLACE",
-    "temporalServer": "ghcr.io/maple52046/swallow@sha256:REPLACE"
+    "mongo": "docker.io/library/mongo@sha256:REPLACE",
+    "postgres": "docker.io/library/postgres@sha256:REPLACE",
+    "temporalServer": "docker.io/temporalio/auto-setup@sha256:REPLACE"
   },
   "compatibility": {
     "host": "ubuntu-24.04-amd64",

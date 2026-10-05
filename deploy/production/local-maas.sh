@@ -70,16 +70,16 @@ resolve_maas_url() {
 ensure_database() {
   local attempt version password
   for attempt in $(seq 1 60); do
-    "${compose[@]}" exec -T temporal-postgresql pg_isready -U temporal >/dev/null 2>&1 && break
+    "${compose[@]}" exec -T postgres pg_isready -U temporal >/dev/null 2>&1 && break
     [[ "${attempt}" != 60 ]] || die 'the Compose PostgreSQL did not become ready'
     sleep 2
   done
-  version="$("${compose[@]}" exec -T temporal-postgresql psql -U temporal -d postgres -Atc 'SHOW server_version_num')"
+  version="$("${compose[@]}" exec -T postgres psql -U temporal -d postgres -Atc 'SHOW server_version_num')"
   (( version >= 140000 )) ||
-    die "MAAS 3.6 needs PostgreSQL 14 or newer; the Temporal PostgreSQL image reports ${version}"
+    die "MAAS 3.6 needs PostgreSQL 14 or newer; the PostgreSQL image reports ${version}"
   password="$(secret maas-db-password)"
   [[ "${password}" =~ ^[0-9a-f]+$ ]] || die 'secrets/maas-db-password must be hex'
-  "${compose[@]}" exec -T temporal-postgresql psql -v ON_ERROR_STOP=1 -q -U temporal -d postgres >/dev/null <<SQL
+  "${compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -q -U temporal -d postgres >/dev/null <<SQL
 SELECT 'CREATE ROLE maas LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'maas')\gexec
 ALTER ROLE maas WITH LOGIN PASSWORD '${password}';
 SELECT 'CREATE DATABASE maasdb OWNER maas' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'maasdb')\gexec

@@ -35,7 +35,8 @@ installation contract（digest-pinned images、產生的 secrets、lifecycle too
   digest，無法拿來安裝。
 - 一台可 `sudo` 的乾淨 Ubuntu 24.04 amd64 VM。建議起始規格 4 vCPU、16 GiB RAM、
   100 GiB disk。
-- 能連到 `ghcr.io`、`download.docker.com`、Snap Store 與 `images.maas.io`。
+- 能連到 `ghcr.io`（swallow 自己的 images）、Docker Hub（官方 MongoDB、PostgreSQL 與
+  Temporal images）、`download.docker.com`、Snap Store 與 `images.maas.io`。
 - 未被占用的 port：80（Dashboard）、5240（MAAS），以及 loopback 5432（MAAS 用的 PostgreSQL）。
 - 事先不要安裝 MAAS；installer 會拒絕不是它建立的 MAAS。缺少 Docker 時會從 Docker apt
   repository 安裝。

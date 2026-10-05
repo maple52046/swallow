@@ -13,8 +13,8 @@ Third-party media 與 swallow core bundle 分開 version。
 | Ansible | 位於 execution environment 或 native offline venv，不是 service |
 | Prometheus | 每個 Site 一個獨立 project，使用 persistent storage 與 swallow HTTP discovery |
 
-Installation 會從 GHCR 拉映像，並從 `images.maas.io` 同步官方 `ubuntu/noble` boot resource，
-因此需要能連到兩者。DNS、DHCP/PXE/BMC network 與 target hardware 是 site-provided inputs，
+Installation 會從 GHCR 拉 swallow 自己的映像、從 Docker Hub 拉官方 MongoDB、PostgreSQL 與
+Temporal 映像，並從 `images.maas.io` 同步官方 `ubuntu/noble` boot resource，因此需要能連到這三者。DNS、DHCP/PXE/BMC network 與 target hardware 是 site-provided inputs，
 不由 swallow 管理。`offline-media-manifest.json` 描述 air-gap site 需要 mirror 的 media；
 MAAS image 的離線安裝尚未自動化。
 

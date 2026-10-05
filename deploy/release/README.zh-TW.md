@@ -6,18 +6,18 @@ swallow 沒有 CI：release 由工作機執行 [`publish.sh`](publish.sh) 發佈
 
 ## Images
 
-所有 installation images 都在同一個 GHCR package `ghcr.io/<owner>/swallow`，tag 為
-`<component>-<version>`：
+GHCR package `ghcr.io/<owner>/swallow` 只放由此 repository build 的 images，tag 為
+`<component>-<version>`。Runtime services 直接使用官方 images：
 
-| Component | 來源 |
+| Image | 來源 |
 | --- | --- |
-| `api`、`dashboard`、`cli` | 由此 repository build（linux/amd64） |
-| `mongo`、`temporal-postgres`、`temporal-server` | 固定在 [`runtime-images.env`](runtime-images.env) 的 upstream images，只鏡像 linux/amd64 |
+| `api`、`dashboard`、`cli` | 由此 repository build（linux/amd64），推送到 GHCR |
+| MongoDB、PostgreSQL、Temporal Server | Docker Hub 上官方的 `mongo`、`postgres` 與 `temporalio/auto-setup`，固定在 [`runtime-images.env`](runtime-images.env) |
 
-Installation 從不使用 tag：`release-manifest.json` 以從 registry 讀回的 digest 固定每個
-image。請審慎地檢查並更新 `runtime-images.env`；Temporal PostgreSQL image 同時承載共置 MAAS 的
-database，必須維持 PostgreSQL 14 以上。選配的 Temporal UI 不屬於 release；operator 需要時，
-自行在 `production/.env` 設定它的 digest。
+Installation 從不使用 tag：`release-manifest.json` 以 digest 固定每個 image。請審慎地檢查並
+更新 `runtime-images.env`；PostgreSQL image 同時承載共置 MAAS 的 database，必須維持
+PostgreSQL 14 以上。選配的 Temporal UI 不屬於 release；operator 需要時，自行在
+`production/.env` 設定它的 digest。
 
 ## 發佈 release
 
@@ -35,10 +35,9 @@ git switch main && git pull           # 只發佈已 commit 的程式碼
 deploy/release/publish.sh 0.1.0       # 加上 --github-release 會一併建立 GitHub Release（需要 gh）
 ```
 
-`publish.sh` 會先執行 [`validate.sh`](validate.sh) 與文件檢查，拒絕 tag 已存在的版本，接著
-build 並推送 `api`、`dashboard`、`cli`，以 [`mirror-runtime-images.sh`](mirror-runtime-images.sh)
-鏡像 runtime images，再以 [`assemble-release.sh`](assemble-release.sh) 在
-`out/release/<version>/` 組出 artifacts：
+`publish.sh` 會先執行 [`validate.sh`](validate.sh) 與文件檢查，拒絕 tag 已存在的版本，確認每個
+官方 runtime image 都有 linux/amd64，接著 build 並推送 `api`、`dashboard`、`cli`，再以
+[`assemble-release.sh`](assemble-release.sh) 在 `out/release/<version>/` 組出 artifacts：
 
 - `swallow-compose-<version>.tar.zst`：單一 VM installation（含 CLI 的 `production/`、
   `testing/` 與 manifest）；

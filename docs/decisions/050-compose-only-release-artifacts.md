@@ -7,7 +7,7 @@
 
 The single-VM installation ([ADR 040](040-single-vm-production-installation.md)) needs three
 things from a release: the Compose bundle, its `release-manifest.json`, and the images that
-manifest pins in the GHCR package. Each release also produced a native preview bundle, an
+manifest pins. Each release also produced a native preview bundle, an
 offline OCI archive of the runtime images (about 900 MB), and a mirrored Temporal UI image, and
 `publish.sh` ran crane from a container when crane was not installed.
 
@@ -24,7 +24,9 @@ and did not return after streaming its output.
 
 - A release contains the Compose bundle, the CLI binary, `release-manifest.json`,
   `offline-media-manifest.json`, and `SHA256SUMS`. The manifest pins `api`, `dashboard`, `cli`,
-  `mongo`, `temporalPostgres`, and `temporalServer`. It no longer lists `images.temporalUI`,
+  `mongo`, `temporalPostgres` (renamed `postgres` by
+  [ADR 051](051-ghcr-holds-only-swallow-images.md)), and `temporalServer`. It no longer lists
+  `images.temporalUI`,
   `artifacts.ociArchive`, or `artifacts.nativeBundle`; `schemaVersion` stays 1 because no
   consumer reads them.
 - The native bundle is not published until native Temporal and PostgreSQL packaging is

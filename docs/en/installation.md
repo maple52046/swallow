@@ -36,7 +36,8 @@ When `swallowctl install` finishes:
   holds placeholder digests and cannot be installed.
 - A clean Ubuntu 24.04 amd64 VM with `sudo`. A practical starting size is 4 vCPU,
   16 GiB RAM, and 100 GiB disk.
-- Outbound access to `ghcr.io`, `download.docker.com`, the Snap Store, and
+- Outbound access to `ghcr.io` (swallow's own images), Docker Hub (the official MongoDB,
+  PostgreSQL, and Temporal images), `download.docker.com`, the Snap Store, and
   `images.maas.io`.
 - Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS).
 - No MAAS installed beforehand; the installer refuses a MAAS it did not create. Docker is

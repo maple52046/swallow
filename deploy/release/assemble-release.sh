@@ -6,8 +6,8 @@
 #
 # Usage: assemble-release.sh COMMIT
 # Environment: RELEASE_VERSION, OUT_DIR, IMAGE_REPO, API_DIGEST, DASHBOARD_DIGEST, CLI_DIGEST,
-# and the mirrored MONGO_IMAGE, TEMPORAL_POSTGRES_IMAGE, TEMPORAL_SERVER_IMAGE (exact @sha256
-# references). OUT_DIR is replaced.
+# and the official MONGO_IMAGE, POSTGRES_IMAGE, TEMPORAL_SERVER_IMAGE from runtime-images.env
+# (exact @sha256 references). OUT_DIR is replaced.
 set -euo pipefail
 
 commit="${1:?commit SHA required}"
@@ -20,14 +20,13 @@ image_repo="${IMAGE_REPO:?set IMAGE_REPO, e.g. ghcr.io/<owner>/swallow}"
 api_image="${image_repo}@${API_DIGEST:?}"
 dashboard_image="${image_repo}@${DASHBOARD_DIGEST:?}"
 cli_image="${image_repo}@${CLI_DIGEST:?}"
-# The runtime images below are the IMAGE_REPO mirrors written by mirror-runtime-images.sh.
-mongo_image="${MONGO_IMAGE:?set MONGO_IMAGE to the mirrored MongoDB digest}"
-temporal_postgres_image="${TEMPORAL_POSTGRES_IMAGE:?set TEMPORAL_POSTGRES_IMAGE to the mirrored PostgreSQL digest}"
-temporal_server_image="${TEMPORAL_SERVER_IMAGE:?set TEMPORAL_SERVER_IMAGE to the mirrored Temporal Server digest}"
+mongo_image="${MONGO_IMAGE:?set MONGO_IMAGE from runtime-images.env}"
+postgres_image="${POSTGRES_IMAGE:?set POSTGRES_IMAGE from runtime-images.env}"
+temporal_server_image="${TEMPORAL_SERVER_IMAGE:?set TEMPORAL_SERVER_IMAGE from runtime-images.env}"
 compose_bundle="swallow-compose-${version}.tar.zst"
 
 for image in "${api_image}" "${dashboard_image}" "${cli_image}" "${mongo_image}" \
-  "${temporal_postgres_image}" "${temporal_server_image}"; do
+  "${postgres_image}" "${temporal_server_image}"; do
   [[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]] ||
     { printf 'image is not digest pinned: %s\n' "${image}" >&2; exit 1; }
 done
@@ -53,13 +52,13 @@ cp "${root}/deploy/third-party/offline-media-manifest.json" "${out}/"
 
 jq -n --arg version "${version}" --arg commit "${commit}" \
   --arg api "${api_image}" --arg dashboard "${dashboard_image}" --arg cli "${cli_image}" \
-  --arg mongo "${mongo_image}" --arg temporalPostgres "${temporal_postgres_image}" \
+  --arg mongo "${mongo_image}" --arg postgres "${postgres_image}" \
   --arg temporalServer "${temporal_server_image}" --arg compose "${compose_bundle}" \
   '{schemaVersion:1,version:$version,commit:$commit,
     platforms:["linux-amd64","ubuntu-24.04-amd64"],
     schemaVersions:{mongo:3,playbookManifest:1},
     images:{api:$api,dashboard:$dashboard,cli:$cli,mongo:$mongo,
-      temporalPostgres:$temporalPostgres,temporalServer:$temporalServer},
+      postgres:$postgres,temporalServer:$temporalServer},
     compatibility:{host:"ubuntu-24.04-amd64",maas:"3.6",mongodb:"8.0",
       prometheus:"release-managed",dockerCE:"release-managed"},
     artifacts:{composeBundle:$compose,cliBinary:"swallow-linux-amd64",

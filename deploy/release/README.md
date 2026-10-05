@@ -6,19 +6,18 @@ swallow has no CI: a release is published from a workstation with [`publish.sh`]
 
 ## Images
 
-Every installation image lives in one GHCR package, `ghcr.io/<owner>/swallow`, tagged
-`<component>-<version>`:
+The GHCR package `ghcr.io/<owner>/swallow` holds only the images built from this repository,
+tagged `<component>-<version>`. The runtime services use official images as they are:
 
-| Component | Source |
+| Image | Source |
 | --- | --- |
-| `api`, `dashboard`, `cli` | built from this repository (linux/amd64) |
-| `mongo`, `temporal-postgres`, `temporal-server` | upstream images pinned in [`runtime-images.env`](runtime-images.env), mirrored for linux/amd64 |
+| `api`, `dashboard`, `cli` | built from this repository (linux/amd64) and pushed to GHCR |
+| MongoDB, PostgreSQL, Temporal Server | the official `mongo`, `postgres`, and `temporalio/auto-setup` images on Docker Hub, pinned in [`runtime-images.env`](runtime-images.env) |
 
-Installations never use tags: `release-manifest.json` pins every image by the digest read back
-from the registry. Review and bump `runtime-images.env` deliberately; the Temporal PostgreSQL
-image also hosts the co-located MAAS database, so it must stay PostgreSQL 14 or newer. The
-optional Temporal UI is not part of a release; an operator who wants it sets its digest in
-`production/.env`.
+Installations never use tags: `release-manifest.json` pins every image by digest. Review and
+bump `runtime-images.env` deliberately; the PostgreSQL image also hosts the co-located MAAS
+database, so it must stay PostgreSQL 14 or newer. The optional Temporal UI is not part of a
+release; an operator who wants it sets its digest in `production/.env`.
 
 ## Publish a release
 
@@ -37,9 +36,9 @@ deploy/release/publish.sh 0.1.0       # add --github-release to create the GitHu
 ```
 
 `publish.sh` runs [`validate.sh`](validate.sh) and the documentation check, refuses a version
-whose tags already exist, builds and pushes `api`, `dashboard`, and `cli`, mirrors the runtime
-images with [`mirror-runtime-images.sh`](mirror-runtime-images.sh), and assembles the
-artifacts with [`assemble-release.sh`](assemble-release.sh) in `out/release/<version>/`:
+whose tags already exist, checks that each official runtime image resolves to linux/amd64,
+builds and pushes `api`, `dashboard`, and `cli`, and assembles the artifacts with
+[`assemble-release.sh`](assemble-release.sh) in `out/release/<version>/`:
 
 - `swallow-compose-<version>.tar.zst` — the single-VM installation (`production/` with the
   CLI, `testing/`, and the manifest);

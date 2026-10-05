@@ -21,7 +21,7 @@ env_file="${script_dir}/.env"
 maas_marker="${script_dir}/state/local-maas"
 default_manifest="${script_dir}/../release-manifest.json"
 required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
-  SWALLOW_TEMPORAL_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE)
+  SWALLOW_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE)
 managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}")
 required_secrets=(mongo-root-username mongo-root-password mongo-uri temporal-db-password jwt-secret
   bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
@@ -48,7 +48,7 @@ write_env_from_manifest() {
   local manifest="$1" tmp key
   [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
   jq -e '.version and .images.api and .images.dashboard and .images.mongo and
-    .images.temporalPostgres and .images.temporalServer' "${manifest}" >/dev/null ||
+    .images.postgres and .images.temporalServer' "${manifest}" >/dev/null ||
     die "not a swallow release manifest: ${manifest}"
   tmp="$(mktemp "${script_dir}/.env.XXXXXX")"
   if [[ -f "${env_file}" ]]; then
@@ -58,7 +58,7 @@ write_env_from_manifest() {
     "SWALLOW_API_IMAGE=\(.images.api)",
     "SWALLOW_DASHBOARD_IMAGE=\(.images.dashboard)",
     "SWALLOW_MONGO_IMAGE=\(.images.mongo)",
-    "SWALLOW_TEMPORAL_POSTGRES_IMAGE=\(.images.temporalPostgres)",
+    "SWALLOW_POSTGRES_IMAGE=\(.images.postgres)",
     "SWALLOW_TEMPORAL_SERVER_IMAGE=\(.images.temporalServer)"' \
     "${manifest}" >>"${tmp}"
   chmod 0600 "${tmp}"
@@ -149,7 +149,7 @@ pull_images() {
     docker image inspect "${image}" >/dev/null 2>&1 && continue
     log "pulling ${image}"
     docker pull --quiet "${image}" >/dev/null ||
-      die "cannot pull ${image}: check access to ghcr.io (a private package needs 'docker login ghcr.io')"
+      die "cannot pull ${image}: check access to ${image%%/*} (swallow images come from ghcr.io, the official runtime images from docker.io)"
   done
 }
 
@@ -202,7 +202,7 @@ backup() {
     -C /var/lib/swallow/jobs -czf - . >"${target}/job-artifacts.tar.gz"
   install -m 0600 "${script_dir}/secrets/credential-key" "${target}/credential-key"
   if [[ -f "${maas_marker}" ]]; then
-    "${compose[@]}" exec -T temporal-postgresql pg_dump -U temporal -Fc maasdb >"${target}/maas.pgdump"
+    "${compose[@]}" exec -T postgres pg_dump -U temporal -Fc maasdb >"${target}/maas.pgdump"
   fi
   sha256sum "${target}"/* >"${target}/SHA256SUMS"
   if [[ "$(date -u +%u)" == "7" ]]; then
@@ -274,7 +274,7 @@ install_stack() {
   check_ports
   preflight
   pull_images
-  "${compose[@]}" up -d mongo temporal-postgresql
+  "${compose[@]}" up -d mongo postgres
   "${compose[@]}" run --rm --no-deps api-server migrate
   ensure_deployment_key
   "${compose[@]}" up -d
@@ -308,7 +308,7 @@ upgrade() {
   "${script_dir}/prepare-secrets.sh"
   preflight
   pull_images
-  "${compose[@]}" up -d mongo temporal-postgresql
+  "${compose[@]}" up -d mongo postgres
   "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
   ensure_deployment_key
   "${compose[@]}" up -d
@@ -334,7 +334,7 @@ restore() {
   install -m 0444 "${source}/credential-key" "${script_dir}/secrets/credential-key"
   if [[ -f "${source}/maas.pgdump" && -f "${maas_marker}" ]]; then
     snap stop maas
-    "${compose[@]}" exec -T temporal-postgresql pg_restore -U temporal --clean --if-exists \
+    "${compose[@]}" exec -T postgres pg_restore -U temporal --clean --if-exists \
       -d maasdb <"${source}/maas.pgdump"
     snap start maas
   fi

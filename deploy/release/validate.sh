@@ -8,10 +8,16 @@ if rg -n 'jobTemplateName|providerKind: awx|/webhooks/automation' \
 fi
 jq -e '.schemaVersion == 1 and (.playbooks | length > 0)' api-server/automation/manifest.json >/dev/null
 jq -e '.schemaVersions.mongo == 3 and .upgrade.from == [2] and .upgrade.to == 3 and .upgrade.downgradeSupported == false and
-  (.images.temporalPostgres | type == "string") and (.images.temporalServer | type == "string") and
-  (.images.cli | type == "string") and (.artifacts.cliBinary | type == "string") and
-  ([.images[] | startswith("ghcr.io/maple52046/swallow@sha256:")] | all)' \
+  (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "temporalServer"] and
+  (.artifacts.cliBinary | type == "string") and
+  ([.images.api, .images.dashboard, .images.cli] | map(startswith("ghcr.io/maple52046/swallow@sha256:")) | all) and
+  ([.images.mongo, .images.postgres, .images.temporalServer] | map(test("^docker\\.io/[^@]+@sha256:")) | all)' \
   deploy/release/release-manifest.example.json >/dev/null
+while IFS='=' read -r key value; do
+  [[ -z "${key}" || "${key}" == \#* ]] && continue
+  [[ "${value}" =~ ^[a-z0-9.-]+\.[a-z]+/[^@]+@sha256:[0-9a-f]{64}$ ]] ||
+    { printf 'runtime-images.env: %s must be pinned by registry, name, and digest\n' "${key}" >&2; exit 1; }
+done < deploy/release/runtime-images.env
 if ! awk 'NF && $0 !~ /^[A-Za-z0-9_.-]+==[A-Za-z0-9_.+-]+$/ { exit 1 }' \
   api-server/automation/requirements.txt; then
   printf 'every Python dependency must be exactly pinned\n' >&2

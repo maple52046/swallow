@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Publish a swallow release from a workstation; the project has no CI. It runs the release and
-# documentation checks, builds the api, dashboard, and cli images and pushes them as
-# <IMAGE_REPO>:<component>-<VERSION>, mirrors the approved runtime images from
-# runtime-images.env (linux/amd64), and assembles the artifacts with assemble-release.sh under
-# out/release/<VERSION>/. Released tags are never overwritten.
+# documentation checks, checks the official runtime images pinned in runtime-images.env, builds
+# the api, dashboard, and cli images and pushes them as <IMAGE_REPO>:<component>-<VERSION>, and
+# assembles the artifacts with assemble-release.sh under out/release/<VERSION>/. Only those three
+# images go to IMAGE_REPO. Released tags are never overwritten.
 #
 # Usage: deploy/release/publish.sh VERSION [--allow-dirty] [--github-release]
 #   VERSION           SemVer without "v", for example 0.1.0
@@ -35,8 +35,6 @@ done
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 release_dir="${root}/deploy/release"
 image_repo="${IMAGE_REPO:-ghcr.io/maple52046/swallow}"
-work="$(mktemp -d)"
-trap 'rm -rf -- "${work}"' EXIT
 
 log() { printf '[publish] %s\n' "$*"; }
 die() { printf '[publish] %s\n' "$*" >&2; exit 1; }
@@ -71,11 +69,15 @@ for component in api dashboard cli; do
   fi
 done
 
-# runtime-images.env holds the approved upstream digests (UPSTREAM_*_IMAGE).
-set -a
 # shellcheck source=runtime-images.env
 source "${release_dir}/runtime-images.env"
-set +a
+log 'checking the official runtime images'
+for image in "${MONGO_IMAGE:-}" "${POSTGRES_IMAGE:-}" "${TEMPORAL_SERVER_IMAGE:-}"; do
+  [[ "${image}" =~ ^[a-z0-9.-]+\.[a-z]+/[^@]+@sha256:[0-9a-f]{64}$ ]] ||
+    die "runtime-images.env must pin each image by registry, name, and digest: '${image}'"
+  crane digest --platform linux/amd64 "${image}" >/dev/null ||
+    die "${image} does not resolve to a linux/amd64 image"
+done
 
 # With the buildx plugin installed, Docker's `docker build` runs through buildx and would attach a
 # provenance attestation, turning each image into a two-entry index; the release pins one plain
@@ -97,17 +99,12 @@ for component in api dashboard cli; do
   digests[${component}]="$(crane digest "${tag}")"
 done
 
-log 'mirroring the approved runtime images'
-MIRROR_OUTPUT="${work}/mirror.out" IMAGE_REPO="${image_repo}" \
-  "${release_dir}/mirror-runtime-images.sh" "${version}"
-mirrored() { sed -n "s/^$1=//p" "${work}/mirror.out"; }
-
 out="${root}/out/release/${version}"
 log "assembling the release in ${out}"
 RELEASE_VERSION="${version}" OUT_DIR="${out}" IMAGE_REPO="${image_repo}" \
   API_DIGEST="${digests[api]}" DASHBOARD_DIGEST="${digests[dashboard]}" CLI_DIGEST="${digests[cli]}" \
-  MONGO_IMAGE="$(mirrored mongo)" TEMPORAL_POSTGRES_IMAGE="$(mirrored temporal_postgres)" \
-  TEMPORAL_SERVER_IMAGE="$(mirrored temporal_server)" \
+  MONGO_IMAGE="${MONGO_IMAGE}" POSTGRES_IMAGE="${POSTGRES_IMAGE}" \
+  TEMPORAL_SERVER_IMAGE="${TEMPORAL_SERVER_IMAGE}" \
   "${release_dir}/assemble-release.sh" "${commit}"
 
 if [[ "${github_release}" == true ]]; then

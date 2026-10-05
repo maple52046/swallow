@@ -3,8 +3,8 @@
 [English](README.md) · [Installation 選擇](../../docs/zh-TW/installation.md)
 
 Testing environment 不 build 或 bind-mount source。從 [`publish.sh`](../release/publish.sh)
-產生的 `release-manifest.json` 把 exact image references（API、Dashboard、MongoDB、Temporal
-PostgreSQL 與 Temporal Server）複製到 `.env`，再執行：
+產生的 `release-manifest.json` 把 exact image references（API、Dashboard、MongoDB、PostgreSQL
+與 Temporal Server）複製到 `.env`，再執行：
 
 ```bash
 ./prepare.sh
