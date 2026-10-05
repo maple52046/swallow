@@ -3,9 +3,8 @@
 [繁體中文](README.zh-TW.md) · [Installation choices](../../docs/en/installation.md)
 
 Testing never builds or bind-mounts source. Copy the exact image references (API,
-Dashboard, MongoDB, Temporal PostgreSQL, and Temporal Server; Temporal UI only for the
-`diagnostics` profile) from a `release-manifest.json` written by
-[`publish.sh`](../release/publish.sh) into `.env`, then run:
+Dashboard, MongoDB, Temporal PostgreSQL, and Temporal Server) from a `release-manifest.json`
+written by [`publish.sh`](../release/publish.sh) into `.env`, then run:
 
 ```bash
 ./prepare.sh

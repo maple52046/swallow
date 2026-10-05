@@ -8,7 +8,7 @@ if rg -n 'jobTemplateName|providerKind: awx|/webhooks/automation' \
 fi
 jq -e '.schemaVersion == 1 and (.playbooks | length > 0)' api-server/automation/manifest.json >/dev/null
 jq -e '.schemaVersions.mongo == 3 and .upgrade.from == [2] and .upgrade.to == 3 and .upgrade.downgradeSupported == false and
-  (.images.temporalPostgres | type == "string") and (.images.temporalServer | type == "string") and (.images.temporalUI | type == "string") and
+  (.images.temporalPostgres | type == "string") and (.images.temporalServer | type == "string") and
   (.images.cli | type == "string") and (.artifacts.cliBinary | type == "string") and
   ([.images[] | startswith("ghcr.io/maple52046/swallow@sha256:")] | all)' \
   deploy/release/release-manifest.example.json >/dev/null

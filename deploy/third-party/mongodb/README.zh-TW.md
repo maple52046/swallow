@@ -2,9 +2,8 @@
 
 [English](README.md) · [Third-party overview](../README.zh-TW.md)
 
-Compose path 使用 `release-manifest.json` 記錄的 exact MongoDB OCI digest。
-以 `docker load` 載入 core OCI archive；production-style installation 不應
-implicit pull。
+Compose path 使用 `release-manifest.json` 記錄的 exact MongoDB OCI digest，從 release 的
+GHCR package 依 digest 拉取；production 從不依 tag 拉取。
 
 Native path 使用 separately checksummed Ubuntu 24.04 amd64 packages，放在
 `third-party/packages/`。Native installer 啟動 localhost-only MongoDB、建立

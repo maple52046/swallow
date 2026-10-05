@@ -19,7 +19,8 @@ the explicit one-release migration notes in those contracts.
 - Development Compose is the contributor path.
 - Native Ubuntu packaging is preview/incomplete because native Temporal and
   PostgreSQL systemd packaging has not landed. Native API startup without the
-  full orchestration topology cannot execute Workflows.
+  full orchestration topology cannot execute Workflows, and releases do not publish
+  the native bundle.
 
 ## External systems
 

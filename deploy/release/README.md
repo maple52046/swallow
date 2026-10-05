@@ -12,21 +12,25 @@ Every installation image lives in one GHCR package, `ghcr.io/<owner>/swallow`, t
 | Component | Source |
 | --- | --- |
 | `api`, `dashboard`, `cli` | built from this repository (linux/amd64) |
-| `mongo`, `temporal-postgres`, `temporal-server`, `temporal-ui` | upstream images pinned in [`runtime-images.env`](runtime-images.env), mirrored for linux/amd64 |
+| `mongo`, `temporal-postgres`, `temporal-server` | upstream images pinned in [`runtime-images.env`](runtime-images.env), mirrored for linux/amd64 |
 
 Installations never use tags: `release-manifest.json` pins every image by the digest read back
 from the registry. Review and bump `runtime-images.env` deliberately; the Temporal PostgreSQL
-image also hosts the co-located MAAS database, so it must stay PostgreSQL 14 or newer.
+image also hosts the co-located MAAS database, so it must stay PostgreSQL 14 or newer. The
+optional Temporal UI is not part of a release; an operator who wants it sets its digest in
+`production/.env`.
 
 ## Publish a release
 
-Publish from an x86_64 Ubuntu 24.04 machine (the native bundle's Python wheels follow the host
-Python). Every image is built natively for linux/amd64 with plain `docker build` and
-`docker push`, so buildx and emulation are not needed: Docker Engine, or nerdctl with BuildKit
-running, is enough. The machine also needs git, jq, zstd, python3 with pip, and a GitHub token
-with `write:packages`. Run the component test suites first (see the component READMEs).
+Publish from an x86_64 Linux machine. Every image is built natively for linux/amd64 with plain
+`docker build` and `docker push`, so buildx and emulation are not needed: Docker Engine, or
+nerdctl with BuildKit running, is enough. The machine also needs git, jq, zstd, python3,
+[crane](https://github.com/google/go-containerregistry/tree/main/cmd/crane) on `PATH`, and a
+GitHub token with `write:packages`. Run the component test suites first (see the component
+READMEs).
 
 ```bash
+go install github.com/google/go-containerregistry/cmd/crane@v0.22.1   # once; add Go's bin to PATH
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 git switch main && git pull           # publish committed code only
 deploy/release/publish.sh 0.1.0       # add --github-release to create the GitHub Release (gh)
@@ -39,10 +43,13 @@ artifacts with [`assemble-release.sh`](assemble-release.sh) in `out/release/<ver
 
 - `swallow-compose-<version>.tar.zst` — the single-VM installation (`production/` with the
   CLI, `testing/`, and the manifest);
-- `swallow-native-<version>.tar.zst` — the native preview bundle;
-- `swallow-oci-<version>.tar` — runtime images for an air-gapped `docker load`;
 - `swallow-linux-amd64` — the CLI;
 - `release-manifest.json`, `offline-media-manifest.json`, and `SHA256SUMS`.
+
+Releases carry only the Compose installation
+([ADR 050](../../docs/decisions/050-compose-only-release-artifacts.md)): there is no native
+bundle until native packaging is complete, and no offline image archive until offline
+installation, including MAAS images, is supported.
 
 After the first push, make the GHCR package public, or every installation must
 `docker login ghcr.io` before `swallowctl install`. Without `--github-release`, attach the

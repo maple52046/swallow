@@ -87,15 +87,18 @@ the admin login, the Deployment Key, Site automation, the MAAS Integration sync,
   backups; `--purge-data` also removes the MAAS snap, the volumes, and the backups.
 
 The `secrets/` directory must never enter source control; back it up with the lifecycle tool.
-For an air-gapped host, `docker load` the release OCI archive first: `install` only pulls
-images that are missing. Importing MAAS images offline is not automated yet.
+Installation needs registry access: releases ship no offline image archive, and importing MAAS
+images offline is not automated yet.
 
 ## Diagnostics
 
 ```bash
-docker compose --profile diagnostics up -d temporal-ui   # needs SWALLOW_TEMPORAL_UI_IMAGE
 docker compose logs -f api-server worker ansible-executor
 sudo ./local-maas.sh check
 ```
+
+The Temporal UI is optional and not part of a release. To use it, set
+`SWALLOW_TEMPORAL_UI_IMAGE` in `.env` to an exact digest (`.env.example` suggests one), then
+run `docker compose --profile diagnostics up -d temporal-ui`; it listens on loopback only.
 
 The [native path](native/README.md) is an incomplete preview; use this Compose topology.

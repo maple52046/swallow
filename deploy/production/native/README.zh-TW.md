@@ -2,9 +2,11 @@
 
 [English](README.md) · [Installation 選擇](../../../docs/zh-TW/installation.md)
 
-[`publish.sh`](../../release/publish.sh) 會將此 template 組成 self-contained native bundle，包含
-`bin/swallow-api`、Dashboard assets、automation、offline Python wheelhouse、
-systemd／Nginx files，以及 separately checksummed MongoDB/Nginx packages。
+此目錄是 self-contained native bundle 的 template，內容包含 `bin/swallow-api`、Dashboard
+assets、automation、offline Python wheelhouse、systemd／Nginx files，以及 separately
+checksummed MongoDB/Nginx packages。Native packaging 完成前，release 不發佈這個 bundle
+（[ADR 050](../../../docs/decisions/050-compose-only-release-artifacts.md)）；以下步驟描述的是
+預定的 bundle。
 
 將 checksummed MongoDB 與 native runtime media 合併為 `third-party/mongodb/`
 與 `third-party/native-runtime/`。兩者都必須有 `SHA256SUMS` 與完整

@@ -22,7 +22,7 @@ maas_marker="${script_dir}/state/local-maas"
 default_manifest="${script_dir}/../release-manifest.json"
 required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
   SWALLOW_TEMPORAL_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE)
-managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}" SWALLOW_TEMPORAL_UI_IMAGE)
+managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}")
 required_secrets=(mongo-root-username mongo-root-password mongo-uri temporal-db-password jwt-secret
   bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
 
@@ -42,7 +42,8 @@ load_env() {
 
 # write_env_from_manifest copies the release version and exact image digests from a release
 # manifest into .env, keeping every other operator setting. The manifest is the only source of
-# image references: the installer never substitutes tags.
+# the required image references: the installer never substitutes tags. SWALLOW_TEMPORAL_UI_IMAGE
+# is operator-owned because releases do not ship the diagnostics UI.
 write_env_from_manifest() {
   local manifest="$1" tmp key
   [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
@@ -58,8 +59,7 @@ write_env_from_manifest() {
     "SWALLOW_DASHBOARD_IMAGE=\(.images.dashboard)",
     "SWALLOW_MONGO_IMAGE=\(.images.mongo)",
     "SWALLOW_TEMPORAL_POSTGRES_IMAGE=\(.images.temporalPostgres)",
-    "SWALLOW_TEMPORAL_SERVER_IMAGE=\(.images.temporalServer)",
-    (if .images.temporalUI then "SWALLOW_TEMPORAL_UI_IMAGE=\(.images.temporalUI)" else empty end)' \
+    "SWALLOW_TEMPORAL_SERVER_IMAGE=\(.images.temporalServer)"' \
     "${manifest}" >>"${tmp}"
   chmod 0600 "${tmp}"
   mv -- "${tmp}" "${env_file}"
@@ -141,8 +141,7 @@ check_ports() {
   done
 }
 
-# pull_images fetches only images not already present, so an air-gapped host that ran
-# `docker load` on the release OCI archive installs without registry access.
+# pull_images fetches only images not already present, so a rerun or upgrade does not pull again.
 pull_images() {
   local variable image
   for variable in "${required_images[@]}"; do
@@ -150,7 +149,7 @@ pull_images() {
     docker image inspect "${image}" >/dev/null 2>&1 && continue
     log "pulling ${image}"
     docker pull --quiet "${image}" >/dev/null ||
-      die "cannot pull ${image}: make the GHCR package public or run 'docker login ghcr.io'; an air-gapped host must 'docker load' the release OCI archive"
+      die "cannot pull ${image}: check access to ghcr.io (a private package needs 'docker login ghcr.io')"
   done
 }
 

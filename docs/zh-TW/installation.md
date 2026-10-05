@@ -9,7 +9,7 @@ swallow 正在積極開發中。請依需求選擇 installation path。
 | 給 operator 使用 | [Production installation（單一 VM）](../../deploy/production/README.zh-TW.md) | 否 | Volumes 與 backups | 正式支援的安裝方式 |
 | 評估或開發 | [Development Compose](../../deploy/dev/README.zh-TW.md) | 是 | Local volumes | Contributor 使用 |
 | 驗證 release | [Testing Compose](../../deploy/testing/README.zh-TW.md) | 否 | Isolated volumes | Release validation |
-| 不使用 container 安裝 | [Native Ubuntu preview](../../deploy/production/native/README.zh-TW.md) | 否 | Native paths | 尚未完成的 preview |
+| 不使用 container 安裝 | [Native Ubuntu preview](../../deploy/production/native/README.zh-TW.md) | 否 | Native paths | 尚未完成的 preview，不發佈 |
 
 ## Production installation（單一 VM）
 
@@ -84,7 +84,8 @@ Testing 使用 release manifest 的 exact image digests，不掛 source，也不
 ## Native preview
 
 Native bundle 目標是 Ubuntu 24.04 amd64，但 native Temporal／PostgreSQL systemd
-packaging 尚未完成。缺少完整 Temporal topology 時 Workflow 無法執行。
+packaging 尚未完成。缺少完整 Temporal topology 時 Workflow 無法執行，因此 release 目前不發佈
+native bundle。
 
 ## 正式環境安全基線
 

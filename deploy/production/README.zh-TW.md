@@ -85,16 +85,18 @@ Deployment Key、Site automation、MAAS Integration 同步，以及 OS Image cat
 - `sudo ./swallowctl uninstall` 停止 stack 與 MAAS，保留 volumes、secrets 與 backups；
   `--purge-data` 會一併移除 MAAS snap、volumes 與 backups。
 
-`secrets/` 不得進 source control；請透過 lifecycle tool 備份。Air-gap host 請先
-`docker load` release OCI archive：`install` 只會拉缺少的 images。MAAS image 的離線匯入
-尚未自動化。
+`secrets/` 不得進 source control；請透過 lifecycle tool 備份。安裝需要能連到 registry：
+release 不附離線 image 封存檔，MAAS image 的離線匯入也尚未自動化。
 
 ## Diagnostics
 
 ```bash
-docker compose --profile diagnostics up -d temporal-ui   # 需要 SWALLOW_TEMPORAL_UI_IMAGE
 docker compose logs -f api-server worker ansible-executor
 sudo ./local-maas.sh check
 ```
+
+Temporal UI 是選配，不屬於 release。要使用時，在 `.env` 把 `SWALLOW_TEMPORAL_UI_IMAGE` 設成
+exact digest（`.env.example` 有建議值），再執行
+`docker compose --profile diagnostics up -d temporal-ui`；它只聽 loopback。
 
 [Native path](native/README.zh-TW.md) 仍是 incomplete preview，請使用此 Compose topology。

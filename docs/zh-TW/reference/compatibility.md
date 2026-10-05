@@ -19,7 +19,7 @@ migration note。
 - Development Compose 是 contributor path。
 - Native Ubuntu packaging 是 incomplete preview，因為 native Temporal／PostgreSQL
   systemd packaging 尚未完成。沒有完整 orchestration topology 的 native API
-  無法執行 Workflow。
+  無法執行 Workflow，release 也不發佈 native bundle。
 
 ## External systems
 

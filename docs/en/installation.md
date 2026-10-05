@@ -9,7 +9,7 @@ swallow is in active development. Choose an installation path based on what you 
 | Run swallow for operators | [Production installation (single VM)](../../deploy/production/README.md) | No | Volumes and backups | Supported installation |
 | Evaluate or develop | [Development Compose](../../deploy/dev/README.md) | Yes | Local volumes | Contributor path |
 | Verify a release | [Testing Compose](../../deploy/testing/README.md) | No | Isolated volumes | Release validation |
-| Install without containers | [Native Ubuntu preview](../../deploy/production/native/README.md) | No | Native paths | Incomplete preview |
+| Install without containers | [Native Ubuntu preview](../../deploy/production/native/README.md) | No | Native paths | Incomplete preview, not published |
 
 ## Production installation (single VM)
 
@@ -88,7 +88,8 @@ locally built tags. It is for validating a release, not for long-lived operator 
 ## Native preview
 
 The native bundle targets Ubuntu 24.04 amd64, but native Temporal/PostgreSQL systemd
-packaging is not complete. Without the complete Temporal topology, Workflows cannot run.
+packaging is not complete. Without the complete Temporal topology, Workflows cannot run, so
+releases do not publish the native bundle yet.
 
 ## Production-safety baseline
 
