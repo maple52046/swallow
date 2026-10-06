@@ -68,8 +68,9 @@ and chains to that Server's provisioner.
   the MAAS rack address (hostname or IPv4 address, optionally with a port;
   default `5248`). The dialog suggests
   `<integration-name>-ipxe`, pre-fills the Integration endpoint's host, and
-  previews `http://<rack>:<port>/ipxe.cfg`. Confirm the rack address: swallow
-  neither resolves nor contacts it.
+  previews `http://<rack>:<port>/ipxe.cfg`. On the single-VM installation that host
+  is the installation address (`install.sh --address`), which is the rack. Confirm
+  the rack address: swallow neither resolves nor contacts it.
 - **Fixed boot flow:** swallow renders a verified script rather than accepting
   script edits. It gets DHCP from the site network, sets the rack as
   `next-server`, and chains directly to its `ipxe.cfg` without using the DHCP

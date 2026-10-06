@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Assemble the release artifacts for one SemVer version from images that are already pushed:
-# the Compose bundle (the single-VM installation plus the CLI), the CLI binary,
-# release-manifest.json, and SHA256SUMS. publish.sh calls it after building and mirroring; it
+# the Compose bundle (the single-VM installation plus the CLI), install.sh with this version
+# filled in, the CLI binary, release-manifest.json, and SHA256SUMS. publish.sh calls it after building and mirroring; it
 # builds nothing, and it reads the registry with crane rather than a local container engine.
 #
 # Usage: assemble-release.sh COMMIT
@@ -49,6 +49,8 @@ for file in compose.yaml .env.example prepare.sh seed.sh README.md README.zh-TW.
   cp "${root}/deploy/testing/${file}" "${out}/testing/"
 done
 cp "${root}/deploy/third-party/offline-media-manifest.json" "${out}/"
+sed "s/@SWALLOW_VERSION@/${version}/" "${root}/deploy/release/install.sh" >"${out}/install.sh"
+chmod 0755 "${out}/install.sh"
 
 jq -n --arg version "${version}" --arg commit "${commit}" \
   --arg api "${api_image}" --arg dashboard "${dashboard_image}" --arg cli "${cli_image}" \
@@ -68,6 +70,6 @@ jq -n --arg version "${version}" --arg commit "${commit}" \
 tar -C "${out}" -caf "${out}/${compose_bundle}" production testing release-manifest.json
 (
   cd "${out}"
-  sha256sum release-manifest.json "${compose_bundle}" swallow-linux-amd64 \
+  sha256sum release-manifest.json "${compose_bundle}" install.sh swallow-linux-amd64 \
     offline-media-manifest.json >SHA256SUMS
 )

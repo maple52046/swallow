@@ -12,8 +12,9 @@
 #
 # Access Keys are deliberately not created: the operator uploads their own.
 # Environment overrides: SWALLOW_HTTP_PORT, SWALLOW_SITE_NAME (default "default"),
-# SWALLOW_MAAS_ENDPOINT (default http://host.docker.internal:5240/MAAS, the co-located MAAS as
-# seen from the API containers), SWALLOW_SSH_KNOWN_HOSTS, SWALLOW_BOOTSTRAP_TIMEOUT (seconds).
+# SWALLOW_MAAS_ENDPOINT (default SWALLOW_MAAS_URL, the address machines use to reach the
+# co-located MAAS, which the API containers reach too; the Dashboard pre-fills a Boot ISO's rack
+# address from it), SWALLOW_SSH_KNOWN_HOSTS, SWALLOW_BOOTSTRAP_TIMEOUT (seconds).
 set -euo pipefail
 
 command_name="${1:-}"
@@ -24,7 +25,7 @@ load_installation_env "${script_dir}/.env"
 secrets_dir="${script_dir}/secrets"
 base_url="http://127.0.0.1:${SWALLOW_HTTP_PORT:-80}/api/v1"
 site_name="${SWALLOW_SITE_NAME:-default}"
-maas_endpoint="${SWALLOW_MAAS_ENDPOINT:-http://host.docker.internal:5240/MAAS}"
+maas_endpoint="${SWALLOW_MAAS_ENDPOINT:-${SWALLOW_MAAS_URL:-http://host.docker.internal:5240/MAAS}}"
 wait_timeout="${SWALLOW_BOOTSTRAP_TIMEOUT:-900}"
 image_id="ubuntu/noble"
 image_arch="amd64"

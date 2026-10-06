@@ -17,7 +17,7 @@ swallow 正在積極開發中。請依需求選擇 installation path。
 installation contract（digest-pinned images、產生的 secrets、lifecycle tooling），
 不是多機拓樸：swallow 與它的 MAAS 共用同一台 VM。
 
-`swallowctl install` 完成時：
+Installer 完成時：
 
 - Dashboard 與 API 在 **HTTP port 80** 提供服務，`admin` 帳號可登入；
 - MAAS 3.6（region+rack）在同一台 VM 上執行，已是 Site `default` 的 provisioner
@@ -29,45 +29,54 @@ installation contract（digest-pinned images、產生的 secrets、lifecycle too
 
 ### 前置條件
 
-- 一個已發佈的 swallow release：GitHub Release 上的 assets（Compose bundle、
-  `release-manifest.json` 與 `SHA256SUMS`），以及 public 的 GHCR package；否則請先在 VM 上
-  `docker login ghcr.io`。Repository 裡的 `release-manifest.example.json` 只有 placeholder
-  digest，無法拿來安裝。
 - 一台可 `sudo` 的乾淨 Ubuntu 24.04 amd64 VM。建議起始規格 4 vCPU、16 GiB RAM、
   100 GiB disk。
-- 能連到 `ghcr.io`（swallow 自己的 images）、Docker Hub（官方 MongoDB、PostgreSQL 與
-  Temporal images）、`download.docker.com`、Snap Store 與 `images.maas.io`。
+- 能連到 `github.com`（release）、`ghcr.io`（swallow 自己的 images）、Docker Hub（官方
+  MongoDB、PostgreSQL 與 Temporal images）、`download.docker.com`、Snap Store 與
+  `images.maas.io`。
 - 未被占用的 port：80（Dashboard）、5240（MAAS），以及 loopback 5432（MAAS 用的 PostgreSQL）。
 - 事先不要安裝 MAAS；installer 會拒絕不是它建立的 MAAS。缺少 Docker 時會從 Docker apt
   repository 安裝。
 
 ### 安裝
 
-從 GitHub release 下載 Compose bundle 與 checksums，再到 `production/` 目錄執行 installer：
+執行想安裝那個 release 的 installer。VM 只有一張網卡時：
 
 ```bash
-sha256sum --ignore-missing -c SHA256SUMS
-tar --zstd -xf swallow-compose-<version>.tar.zst
-cd production
-sudo ./swallowctl install --profile production --release-manifest ../release-manifest.json
+curl -fsSL https://github.com/maple52046/swallow/releases/download/v<version>/install.sh | sudo bash
 ```
 
-Installer 會把 release 的 image digests 寫入 `.env`、產生 secrets、啟動 stack、建立
-Deployment Key、安裝 MAAS、匯入 `ubuntu/noble`（數百 MB）、在 swallow 註冊 MAAS，最後執行
-`swallowctl doctor`。重複執行是安全的。
+如果機器與 BMC 是經由另一張網卡（不是預設路由那張）連到 VM，請給那個位址：
+
+```bash
+curl -fsSL https://github.com/maple52046/swallow/releases/download/v<version>/install.sh \
+  | sudo bash -s -- --address <address>
+```
+
+Installer 會以 release 的 checksums 核對檔案、解壓到 `/opt/swallow`（`--dir` 可改目錄），再執行
+`swallowctl install`：缺少 Docker 時安裝 Docker、把 release 的 image digests 與你的設定寫入
+`.env`、產生 secrets、啟動 stack、建立 Deployment Key、安裝 MAAS、匯入 `ubuntu/noble`（數百
+MB）、在 swallow 註冊 MAAS，最後執行 `swallowctl doctor`。重複執行是安全的：中途停下的安裝會
+接續完成。`--help` 會列出所有選項。有穩定版之後，
+`https://github.com/maple52046/swallow/releases/latest/download/install.sh` 永遠安裝最新的穩定版。
+
+### 升級
+
+用較新 release 的 `install.sh` 執行同一個指令。它會保留 `.env`、secrets、backups 與 state，並
+執行 `swallowctl upgrade`：先 backup，有 active Workflow 時拒絕升級。
 
 ### 安裝後
 
 1. 開啟 `http://<vm-address>/`，以 `admin` 登入；密碼在
-   `production/secrets/bootstrap-admin-password`（用 `sudo cat` 讀取）。
+   `/opt/swallow/production/secrets/bootstrap-admin-password`（用 `sudo cat` 讀取）。
 2. 從 account menu（**SSH keys**）加入自己的 SSH Access Key。Installer 不會代為建立。
 3. Commission 機器前，在 MAAS 設定 PXE network 與 DHCP
    （`http://<vm-address>:5240/MAAS`，帳號 `admin`，密碼在
-   `production/secrets/maas-admin-password`）。DNS、DHCP/PXE routing 與 BMC access
-   由 site 負責。
-4. 隨時可執行 `sudo ./swallowctl doctor` 重新檢查所有串接。
+   `/opt/swallow/production/secrets/maas-admin-password`）。DNS、DHCP/PXE routing 與 BMC
+   access 由 site 負責。
+4. 隨時可執行 `sudo /opt/swallow/production/swallowctl doctor` 重新檢查所有串接。
 
-Upgrade、backup、restore 與 uninstall 請見
+Backup、restore、uninstall，以及從下載的 bundle 手動安裝，請見
 [production installation reference](../../deploy/production/README.zh-TW.md)；third-party
 components 請見 [third-party guide](../../deploy/third-party/README.zh-TW.md)。
 
@@ -92,7 +101,7 @@ native bundle。
 
 - Installation 提供 plain HTTP。要開放到受信任的管理網路之外前，請在 port 80 前面加上
   TLS terminator。
-- 保留產生的 secrets：`production/secrets/` 權限為 0700，不得進 source control。
+- 保留產生的 secrets：`/opt/swallow/production/secrets/` 權限為 0700，不得進 source control。
 - 只用含 immutable image digests 的 release manifest 安裝。
 - 排程 `swallowctl backup` 並演練 `restore`。Backup 包含 MongoDB、credential key、
   Workflow artifacts 與 MAAS database；deployment key 的私鑰以 credential key 加密，

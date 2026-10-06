@@ -42,6 +42,8 @@ builds and pushes `api`, `dashboard`, and `cli`, and assembles the artifacts wit
 
 - `swallow-compose-<version>.tar.zst` — the single-VM installation (`production/` with the
   CLI, `testing/`, and the manifest);
+- `install.sh` — the one-command installer and upgrader for this version, generated from
+  [`install.sh`](install.sh) with the version filled in;
 - `swallow-linux-amd64` — the CLI;
 - `release-manifest.json`, `offline-media-manifest.json`, and `SHA256SUMS`.
 

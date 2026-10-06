@@ -112,7 +112,7 @@ if [[ "${github_release}" == true ]]; then
   (
     cd "${out}"
     gh release create "v${version}" --target "${commit}" --title "swallow ${version}" --generate-notes \
-      "swallow-compose-${version}.tar.zst" swallow-linux-amd64 release-manifest.json \
+      "swallow-compose-${version}.tar.zst" install.sh swallow-linux-amd64 release-manifest.json \
       offline-media-manifest.json SHA256SUMS
   )
 fi
@@ -122,6 +122,7 @@ cat <<EOF
 swallow ${version} is published to ${image_repo} (commit ${commit}).
 Artifacts: ${out}
   swallow-compose-${version}.tar.zst   the single-VM installation (production/, testing/, manifest)
+  install.sh                           the one-command installer and upgrader for this version
   swallow-linux-amd64                  the CLI
   release-manifest.json, offline-media-manifest.json, SHA256SUMS
 

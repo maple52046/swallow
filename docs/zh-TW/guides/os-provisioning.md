@@ -60,8 +60,9 @@ provider 端的佈署仍保持執行，供你檢查、retry 或 release。
   ISO**。選擇目前 Site 的 provisioner Integration，輸入在該 provisioner 內
   不分大小寫、長度 1–63 字元的唯一名稱，以及 MAAS rack 位址（hostname 或 IPv4，
   可帶 port；預設 `5248`）。Dialog 會建議 `<integration-name>-ipxe`、預填
-  Integration endpoint 的 host，並預覽 `http://<rack>:<port>/ipxe.cfg`。請自行確認
-  rack 位址；swallow 不會解析或連線測試。
+  Integration endpoint 的 host，並預覽 `http://<rack>:<port>/ipxe.cfg`。在單一 VM
+  installation 上，這個 host 就是安裝位址（`install.sh --address`），也就是 rack。請自行
+  確認 rack 位址；swallow 不會解析或連線測試。
 - **固定開機流程：** swallow 使用已驗證的 template render script，不提供 script
   編輯。它從現場網路取得 DHCP、將 rack 設為 `next-server`，並直接 chain 到
   `ipxe.cfg`，不使用 DHCP boot filename。DHCP 失敗時會 retry，Ctrl-B 可開啟

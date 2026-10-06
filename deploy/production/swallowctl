@@ -25,6 +25,14 @@ required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
 managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}")
 required_secrets=(mongo-root-username mongo-root-password mongo-uri temporal-db-password jwt-secret
   bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
+# installed_marker records the release of the last install or upgrade that passed doctor;
+# install.sh upgrades only an installation that has one.
+installed_marker="${script_dir}/state/installed"
+# Operator settings that install and upgrade copy from the environment into .env.
+# SWALLOW_SSH_KNOWN_HOSTS is left out: it may span lines, which .env cannot hold.
+setting_keys=(SWALLOW_ADDRESS SWALLOW_MAAS_URL SWALLOW_BOOT_MEDIA_BASE_URL SWALLOW_HTTP_PORT
+  SWALLOW_POSTGRES_HOST_PORT SWALLOW_MAAS_IMAGE_TIMEOUT SWALLOW_SITE_NAME
+  SWALLOW_TEMPORAL_UI_IMAGE SWALLOW_TEMPORAL_UI_PORT)
 
 log() { printf '[swallowctl] %s\n' "$*"; }
 die() { printf '[swallowctl] %s\n' "$*" >&2; exit 1; }
@@ -68,6 +76,61 @@ write_env_from_manifest() {
     unset "${key}"
   done
   log "wrote $(jq -r '.version' "${manifest}") image digests to ${env_file}"
+}
+
+# env_value prints KEY's value from .env, or nothing.
+env_value() {
+  sed -n "s/^$1=//p" "${env_file}" 2>/dev/null | tail -n 1
+}
+
+# set_env_value replaces or appends one KEY=VALUE line in .env, keeping it mode 0600.
+set_env_value() {
+  local key="$1" value="$2" tmp
+  tmp="$(mktemp "${script_dir}/.env.XXXXXX")"
+  [[ ! -f "${env_file}" ]] || grep -v "^${key}=" "${env_file}" >"${tmp}" || true
+  printf '%s=%s\n' "${key}" "${value}" >>"${tmp}"
+  chmod 0600 "${tmp}"
+  mv -- "${tmp}" "${env_file}"
+}
+
+# persist_settings writes the operator settings set in the caller's environment into .env (the
+# environment wins, as with Compose), so a later upgrade or a plain `docker compose up` sees the
+# same values. It then fills in what .env still lacks from one host address: the URL machines
+# use to reach MAAS and the Boot Media base URL BMCs use to reach swallow. The address is
+# SWALLOW_ADDRESS, else the host of the URL MAAS was initialized with, else the primary IPv4;
+# MAAS keeps the URL of its first initialization, so changing the address later is not supported.
+persist_settings() {
+  local key address maas_url port
+  for key in "${setting_keys[@]}"; do
+    [[ -n "${!key:-}" && "${!key}" != *$'\n'* ]] || continue
+    set_env_value "${key}" "${!key}"
+  done
+  maas_url="$(env_value SWALLOW_MAAS_URL)"
+  [[ -n "${maas_url}" ]] || maas_url="$(sed -n 's/^MAAS_URL=//p' "${maas_marker}" 2>/dev/null || true)"
+  address="$(env_value SWALLOW_ADDRESS)"
+  if [[ -z "${address}" && -n "${maas_url}" ]]; then
+    address="${maas_url#*://}"
+    address="${address%%/*}"
+    address="${address%%:*}"
+  fi
+  [[ -n "${address}" ]] || address="$(primary_address)"
+  [[ -n "${address}" ]] || die 'cannot detect the host address; set SWALLOW_ADDRESS (install.sh --address)'
+  [[ -n "$(env_value SWALLOW_ADDRESS)" ]] || set_env_value SWALLOW_ADDRESS "${address}"
+  [[ -n "$(env_value SWALLOW_MAAS_URL)" ]] ||
+    set_env_value SWALLOW_MAAS_URL "${maas_url:-http://${address}:5240/MAAS}"
+  if [[ -z "$(env_value SWALLOW_BOOT_MEDIA_BASE_URL)" ]]; then
+    port="$(env_value SWALLOW_HTTP_PORT)"
+    if [[ -z "${port}" || "${port}" == 80 ]]; then
+      set_env_value SWALLOW_BOOT_MEDIA_BASE_URL "http://${address}"
+    else
+      set_env_value SWALLOW_BOOT_MEDIA_BASE_URL "http://${address}:${port}"
+    fi
+  fi
+}
+
+mark_installed() {
+  install -d -m 0755 "${script_dir}/state"
+  printf 'SWALLOW_RELEASE_VERSION=%s\n' "${SWALLOW_RELEASE_VERSION}" >"${installed_marker}"
 }
 
 # ensure_host_packages installs what a clean Ubuntu 24.04 lacks. Docker comes from Docker's
@@ -234,7 +297,7 @@ primary_address() {
 
 print_summary() {
   local address port url maas_url
-  address="$(primary_address)"
+  address="${SWALLOW_ADDRESS:-$(primary_address)}"
   port="${SWALLOW_HTTP_PORT:-80}"
   url="http://${address:-<this-host>}"
   [[ "${port}" == "80" ]] || url+=":${port}"
@@ -269,6 +332,7 @@ install_stack() {
   fi
   [[ -z "${manifest}" ]] || write_env_from_manifest "${manifest}"
   [[ -f "${env_file}" ]] || die 'no .env: pass --release-manifest <release-manifest.json>'
+  persist_settings
   load_env
   "${script_dir}/prepare-secrets.sh"
   check_ports
@@ -284,6 +348,7 @@ install_stack() {
   "${script_dir}/local-maas.sh" ensure-image
   "${script_dir}/bootstrap.sh" apply
   doctor
+  mark_installed
   print_summary
 }
 
@@ -304,6 +369,7 @@ upgrade() {
   fi
   backup >/dev/null
   [[ -z "${manifest}" ]] || write_env_from_manifest "${manifest}"
+  persist_settings
   load_env
   "${script_dir}/prepare-secrets.sh"
   preflight
@@ -315,6 +381,7 @@ upgrade() {
   wait_for_ready
   install_cli
   doctor
+  mark_installed
 }
 
 restore() {
@@ -411,6 +478,7 @@ uninstall_stack() {
   local -a profile_args=()
   require_root
   load_env
+  rm -f -- "${installed_marker}"
   [[ -z "${SWALLOW_TEMPORAL_UI_IMAGE:-}" ]] || profile_args=(--profile diagnostics)
   if [[ "${1:-}" == "--purge-data" ]]; then
     [[ ! -f "${maas_marker}" ]] || "${script_dir}/local-maas.sh" purge

@@ -49,7 +49,9 @@ URL、可寫入的 storage directory，以及 iPXE asset 與 packaging tool：
 `<baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso`。許多 BMC 只接受 port 80
 的 plain `http://`，因此 production Nginx 會在該 port 轉發 `/boot-media/`。
 Production Compose 會讀取 `SWALLOW_BOOT_MEDIA_BASE_URL`、設定 API storage directory，
-並將 named `boot-media` volume 掛載到 `/var/lib/swallow/boot-media`。
+並將 named `boot-media` volume 掛載到 `/var/lib/swallow/boot-media`。除非你自行設定，
+installer 會把 `SWALLOW_BOOT_MEDIA_BASE_URL` 以 `http://<SWALLOW_ADDRESS>`
+（`install.sh --address`）寫入 `.env`，因此安裝完成後即可使用 Boot Media。
 
 Container image 已包含 pinned iPXE asset 與所需 packaging tool。Native installation
 會透過 tmpfiles 建立 Boot Media directory，但不會安裝這些 asset。若要在 native

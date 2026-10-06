@@ -41,6 +41,7 @@ deploy/release/publish.sh 0.1.0       # 加上 --github-release 會一併建立 
 
 - `swallow-compose-<version>.tar.zst`：單一 VM installation（含 CLI 的 `production/`、
   `testing/` 與 manifest）；
+- `install.sh`：這個版本的一鍵安裝與升級腳本，由 [`install.sh`](install.sh) 填入版本後產生；
 - `swallow-linux-amd64`：CLI；
 - `release-manifest.json`、`offline-media-manifest.json` 與 `SHA256SUMS`。
 

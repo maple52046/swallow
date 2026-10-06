@@ -17,7 +17,7 @@ One command turns a clean Ubuntu 24.04 VM into a working swallow. "Production" n
 installation contract — digest-pinned images, generated secrets, lifecycle tooling — not a
 multi-host topology: swallow and its MAAS share the VM.
 
-When `swallowctl install` finishes:
+When the installer finishes:
 
 - the Dashboard and API answer on **HTTP port 80** and the `admin` account can sign in;
 - MAAS 3.6 (region+rack) runs on the same VM and is the provisioner Integration of the Site
@@ -30,48 +30,60 @@ When `swallowctl install` finishes:
 
 ### Prerequisites
 
-- A published swallow release: its GitHub Release assets (the Compose bundle,
-  `release-manifest.json`, and `SHA256SUMS`) and a public GHCR package, or run
-  `docker login ghcr.io` on the VM first. The repository's `release-manifest.example.json`
-  holds placeholder digests and cannot be installed.
 - A clean Ubuntu 24.04 amd64 VM with `sudo`. A practical starting size is 4 vCPU,
   16 GiB RAM, and 100 GiB disk.
-- Outbound access to `ghcr.io` (swallow's own images), Docker Hub (the official MongoDB,
-  PostgreSQL, and Temporal images), `download.docker.com`, the Snap Store, and
-  `images.maas.io`.
+- Outbound access to `github.com` (the release), `ghcr.io` (swallow's own images), Docker Hub
+  (the official MongoDB, PostgreSQL, and Temporal images), `download.docker.com`, the Snap
+  Store, and `images.maas.io`.
 - Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS).
 - No MAAS installed beforehand; the installer refuses a MAAS it did not create. Docker is
   installed from Docker's apt repository when missing.
 
 ### Install
 
-Download the Compose bundle and checksums from the GitHub release, then run the installer
-from its `production/` directory:
+Run the installer of the release you want. On a VM with one network interface:
 
 ```bash
-sha256sum --ignore-missing -c SHA256SUMS
-tar --zstd -xf swallow-compose-<version>.tar.zst
-cd production
-sudo ./swallowctl install --profile production --release-manifest ../release-manifest.json
+curl -fsSL https://github.com/maple52046/swallow/releases/download/v<version>/install.sh | sudo bash
 ```
 
-The installer writes the release's image digests to `.env`, generates secrets, starts the
-stack, creates the Deployment Key, installs MAAS, imports `ubuntu/noble` (several hundred
-MB), registers MAAS in swallow, and ends with `swallowctl doctor`. It is safe to rerun.
+If machines and BMCs reach the VM through an interface other than the one with the default
+route, give that address:
+
+```bash
+curl -fsSL https://github.com/maple52046/swallow/releases/download/v<version>/install.sh \
+  | sudo bash -s -- --address <address>
+```
+
+The installer verifies the release against its checksums, extracts it into `/opt/swallow`
+(`--dir` changes the directory), and runs `swallowctl install`: it installs Docker when
+missing, writes the release's image digests and your settings to `.env`, generates secrets,
+starts the stack, creates the Deployment Key, installs MAAS, imports `ubuntu/noble` (several
+hundred MB), registers MAAS in swallow, and ends with `swallowctl doctor`. It is safe to rerun:
+an installation that stopped part way resumes. `--help` lists the options. Once a stable
+release exists, `https://github.com/maple52046/swallow/releases/latest/download/install.sh`
+always installs the newest one.
+
+### Upgrade
+
+Run the same command with the newer release's `install.sh`. It keeps `.env`, secrets, backups,
+and state, and runs `swallowctl upgrade`, which backs up first and refuses while Workflows are
+active.
 
 ### After installation
 
 1. Open `http://<vm-address>/` and sign in as `admin`; the password is in
-   `production/secrets/bootstrap-admin-password` (`sudo cat` it).
+   `/opt/swallow/production/secrets/bootstrap-admin-password` (`sudo cat` it).
 2. Add your own SSH Access Key from the account menu (**SSH keys**). The installer never
    creates one for you.
 3. Before commissioning machines, configure the PXE network and DHCP in MAAS
    (`http://<vm-address>:5240/MAAS`, user `admin`, password in
-   `production/secrets/maas-admin-password`). DNS, DHCP/PXE routing, and BMC access are
-   site-owned.
-4. Run `sudo ./swallowctl doctor` at any time to recheck every connection.
+   `/opt/swallow/production/secrets/maas-admin-password`). DNS, DHCP/PXE routing, and BMC
+   access are site-owned.
+4. Run `sudo /opt/swallow/production/swallowctl doctor` at any time to recheck every
+   connection.
 
-Upgrade, backup, restore, and uninstall are described in the
+Backup, restore, uninstall, and installing from a downloaded bundle are described in the
 [production installation reference](../../deploy/production/README.md); third-party
 components are covered in the [third-party guide](../../deploy/third-party/README.md).
 
@@ -96,7 +108,7 @@ releases do not publish the native bundle yet.
 
 - The installation serves plain HTTP. Put a TLS terminator in front of port 80 before
   exposing it beyond a trusted management network.
-- Keep the generated secrets: `production/secrets/` is mode 0700 and must never enter source
+- Keep the generated secrets: `/opt/swallow/production/secrets/` is mode 0700 and must never enter source
   control.
 - Install only from a release manifest with immutable image digests.
 - Schedule `swallowctl backup` and rehearse `restore`. A backup holds MongoDB, the credential

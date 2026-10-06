@@ -18,6 +18,9 @@ while IFS='=' read -r key value; do
   [[ "${value}" =~ ^[a-z0-9.-]+\.[a-z]+/[^@]+@sha256:[0-9a-f]{64}$ ]] ||
     { printf 'runtime-images.env: %s must be pinned by registry, name, and digest\n' "${key}" >&2; exit 1; }
 done < deploy/release/runtime-images.env
+# shellcheck disable=SC2016 # the literal text of install.sh's default, not an expansion
+grep -qF '"${SWALLOW_VERSION:-@SWALLOW_VERSION@}"' deploy/release/install.sh ||
+  { printf 'install.sh must default its version to @SWALLOW_VERSION@, which assemble-release.sh fills in\n' >&2; exit 1; }
 if ! awk 'NF && $0 !~ /^[A-Za-z0-9_.-]+==[A-Za-z0-9_.+-]+$/ { exit 1 }' \
   api-server/automation/requirements.txt; then
   printf 'every Python dependency must be exactly pinned\n' >&2

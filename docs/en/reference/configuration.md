@@ -52,7 +52,9 @@ Each Boot ISO is served without authentication and with HTTP byte ranges at
 plain `http://` on port 80, so production Nginx forwards `/boot-media/` there.
 Production Compose reads `SWALLOW_BOOT_MEDIA_BASE_URL`, sets the API storage
 directory, and mounts the named `boot-media` volume at
-`/var/lib/swallow/boot-media`.
+`/var/lib/swallow/boot-media`. The installer writes `SWALLOW_BOOT_MEDIA_BASE_URL`
+into `.env` as `http://<SWALLOW_ADDRESS>` (`install.sh --address`) unless you set it,
+so Boot Media is available after installation.
 
 The container images include the pinned iPXE assets and the required packaging
 tools. A native installation creates the Boot Media directory through tmpfiles,

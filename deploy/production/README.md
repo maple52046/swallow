@@ -9,16 +9,33 @@ topology. swallow is in active development; install from a release or candidate 
 
 ## Install
 
+The release's `install.sh` downloads and verifies the bundle, extracts it into `/opt/swallow`,
+and runs `swallowctl install`, or `swallowctl upgrade` once an earlier release finished
+installing there ([installation guide](../../docs/en/installation.md)):
+
 ```bash
-sudo ./swallowctl install --profile production --release-manifest ../release-manifest.json
+curl -fsSL https://github.com/maple52046/swallow/releases/download/v<version>/install.sh \
+  | sudo bash -s -- --address <address>
+```
+
+To inspect the bundle first, download `swallow-compose-<version>.tar.zst` and `SHA256SUMS`
+from the release yourself, then:
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS
+sudo mkdir -p /opt/swallow
+sudo tar --zstd -xf swallow-compose-<version>.tar.zst -C /opt/swallow --no-same-owner
+cd /opt/swallow/production
+sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../release-manifest.json
 ```
 
 `install` is idempotent and runs, in order:
 
 1. installs missing host packages (`curl`, `jq`, `openssl`, `snapd`) and Docker Engine with
    the Compose plugin from Docker's apt repository;
-2. writes the manifest's version and exact image digests to `.env` (other settings in `.env`
-   are kept) and generates secrets in `secrets/` (mode 0700) with `prepare-secrets.sh`;
+2. writes the manifest's version and exact image digests to `.env`, adds the settings below
+   that are set in the environment (other settings in `.env` are kept), and generates secrets
+   in `secrets/` (mode 0700) with `prepare-secrets.sh`;
 3. pulls only missing images, starts MongoDB and PostgreSQL, runs `swallow-api migrate`,
    creates the Deployment Key (`swallow-api deployment-key ensure`), and starts the stack;
 4. installs the bundled CLI to `/usr/local/bin/swallow`;
@@ -29,7 +46,8 @@ sudo ./swallowctl install --profile production --release-manifest ../release-man
    provisioner Integration, and Site automation defaults (enabled, Deployment Key, no
    playbook mappings) when the Site has none; then waits for the Integration sync and the
    `ubuntu/noble` catalog entry;
-7. runs `doctor` and prints the Dashboard URL and where the passwords are.
+7. runs `doctor`, records the installed release in `state/installed`, and prints the
+   Dashboard URL and where the passwords are.
 
 It never creates an SSH Access Key: the operator adds their own in the Dashboard.
 
@@ -41,7 +59,7 @@ It never creates an SSH Access Key: the operator adds their own in the Dashboard
 | API, worker, Ansible executor | Compose | internal `control` plus `egress` (reach MAAS and Servers) |
 | MongoDB, Temporal | Compose | internal only |
 | PostgreSQL | Compose | Temporal databases and `maasdb`; `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` for MAAS |
-| MAAS 3.6 region+rack | snap on the host | `http://<primary IPv4>:5240/MAAS`; swallow reaches it at `http://host.docker.internal:5240/MAAS` |
+| MAAS 3.6 region+rack | snap on the host | `SWALLOW_MAAS_URL`, which swallow's provisioner Integration uses too |
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`, off by default |
 
 The installation serves plain HTTP. Put a TLS terminator in front of port 80 before exposing
@@ -49,13 +67,16 @@ it beyond a trusted management network.
 
 ## Settings
 
-Set these in `.env` or the environment before the first `install`:
+Set these in `.env` or the environment before the first `install`. `install` and `upgrade`
+write the ones set in the environment into `.env`, so later runs keep them:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `SWALLOW_ADDRESS` | the primary IPv4 | address machines and BMCs use to reach this host (`install.sh --address`) |
 | `SWALLOW_HTTP_PORT` | `80` | Dashboard and API port |
 | `SWALLOW_POSTGRES_HOST_PORT` | `5432` | loopback port MAAS uses for PostgreSQL |
-| `SWALLOW_MAAS_URL` | `http://<primary IPv4>:5240/MAAS` | address machines use to reach MAAS |
+| `SWALLOW_MAAS_URL` | `http://<SWALLOW_ADDRESS>:5240/MAAS` | address machines use to reach MAAS; fixed at the first install |
+| `SWALLOW_BOOT_MEDIA_BASE_URL` | `http://<SWALLOW_ADDRESS>` | address BMCs use to fetch Boot ISOs |
 | `SWALLOW_MAAS_IMAGE_TIMEOUT` | `3600` | seconds to wait for `ubuntu/noble` |
 | `SWALLOW_SITE_NAME` | `default` | Site created by the bootstrap |
 | `SWALLOW_SSH_KNOWN_HOSTS` | scanned per run | static known_hosts for the Site automation |

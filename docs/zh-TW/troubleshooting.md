@@ -16,7 +16,8 @@ docker compose logs api-server worker ansible-executor temporal
 
 ## `swallowctl doctor` 回報失敗
 
-在 `production/` 執行 `sudo ./swallowctl doctor`；每一行 `FAIL` 代表一個串接。
+在 `/opt/swallow/production/`（安裝目錄）執行 `sudo ./swallowctl doctor`；每一行 `FAIL` 代表
+一個串接。重新執行 release 的 `install.sh` 是安全的，中途停下的安裝會接續完成。
 
 - **Image pull 被拒：** 若是 `ghcr.io` 的 image，代表 GHCR package 是 private；請設為
   public，或安裝前先 `docker login ghcr.io`。若是 `docker.io` 的 image，代表遇到 Docker Hub
@@ -25,15 +26,16 @@ docker compose logs api-server worker ansible-executor temporal
   database schema 與 Temporal。
 - **MAAS 沒有 complete 的 `ubuntu/noble`：** VM 連不到 `images.maas.io`，或仍在匯入中。
   請重新執行 `sudo ./local-maas.sh ensure-image`。
-- **MAAS Integration 未同步：** 該行會顯示 Integration 最後的錯誤。API 透過
-  `http://host.docker.internal:5240/MAAS` 連 MAAS；請確認 MAAS 在 port 5240 有回應、
+- **MAAS Integration 未同步：** 該行會顯示 Integration 最後的錯誤。API 透過 `.env` 裡的
+  `SWALLOW_MAAS_URL` 連 MAAS（有 `install.sh` 之前建立的安裝使用
+  `http://host.docker.internal:5240/MAAS`）；請確認 MAAS 在該位址的 port 5240 有回應、
   `secrets/maas-api-key` 是最新的，再重新執行 `sudo ./bootstrap.sh apply`。
 
 ## Login 失敗
 
 - 確認 endpoint 指向 API root，沒有重複附加 `/api/v1`。
 - Development default 是 `admin` / `admin`。Production installation 產生的 admin
-  password 在 `production/secrets/bootstrap-admin-password`。
+  password 在 `/opt/swallow/production/secrets/bootstrap-admin-password`。
 - CLI profile 可被 environment variable 或 flag 覆寫；診斷時先明確指定
   `--endpoint`。
 - Token 過期後需重新 login；consumer 不應解析 JWT expiry。

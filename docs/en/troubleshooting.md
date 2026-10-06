@@ -18,7 +18,9 @@ docker compose logs api-server worker ansible-executor temporal
 
 ## `swallowctl doctor` reports a failure
 
-Run `sudo ./swallowctl doctor` in `production/`; each `FAIL` line names one connection.
+Run `sudo ./swallowctl doctor` in `/opt/swallow/production/` (the installation directory); each
+`FAIL` line names one connection. Rerunning the release's `install.sh` is safe and resumes an
+installation that stopped part way.
 
 - **Image pull denied:** for a `ghcr.io` image, the GHCR package is private; make it public
   or run `docker login ghcr.io` before installing. For a `docker.io` image, Docker Hub limits
@@ -28,14 +30,15 @@ Run `sudo ./swallowctl doctor` in `production/`; each `FAIL` line names one conn
 - **MAAS has no complete `ubuntu/noble`:** the VM cannot reach `images.maas.io`, or the
   import is still running. Rerun `sudo ./local-maas.sh ensure-image`.
 - **MAAS Integration not synced:** the line shows the Integration's last error. The API
-  reaches MAAS at `http://host.docker.internal:5240/MAAS`; confirm MAAS answers on port
+  reaches MAAS at `SWALLOW_MAAS_URL` in `.env` (installations made before `install.sh`
+  existed use `http://host.docker.internal:5240/MAAS`); confirm MAAS answers there on port
   5240 and that `secrets/maas-api-key` is current, then rerun `sudo ./bootstrap.sh apply`.
 
 ## Login fails
 
 - Confirm the endpoint points to the API root, not `/api/v1` twice.
 - Development defaults are `admin` / `admin`. The production installation generates the
-  admin password in `production/secrets/bootstrap-admin-password`.
+  admin password in `/opt/swallow/production/secrets/bootstrap-admin-password`.
 - A CLI profile can be overridden by environment variables or flags. Run with
   an explicit `--endpoint` while diagnosing.
 - An expired token requires login again; consumers must not decode JWT expiry.
