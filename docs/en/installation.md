@@ -76,10 +76,12 @@ active.
    `/opt/swallow/production/secrets/bootstrap-admin-password` (`sudo cat` it).
 2. Add your own SSH Access Key from the account menu (**SSH keys**). The installer never
    creates one for you.
-3. Before commissioning machines, configure the PXE network and DHCP in MAAS
+3. Before network-booting machines, configure the PXE network and DHCP in MAAS
    (`http://<vm-address>:5240/MAAS`, user `admin`, password in
    `/opt/swallow/production/secrets/maas-admin-password`). DNS, DHCP/PXE routing, and BMC
-   access are site-owned.
+   access are site-owned. Then add machines from **Servers → Add servers**: swallow inspects
+   network-booted machines itself, and hosts that keep their OS enroll with one command (see
+   [Add servers](guides/servers-and-infrastructure.md#add-servers)).
 4. Run `sudo /opt/swallow/production/swallowctl doctor` at any time to recheck every
    connection.
 

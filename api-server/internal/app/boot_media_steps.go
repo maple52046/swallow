@@ -124,6 +124,11 @@ func awaitingNetworkBoot(progress deploymentProgress) bool {
 // busy or briefly unreachable, and the operator can retry the Task once it answers; the dependent
 // provision-os Task does not run until this succeeds, because deploying a Server whose BMC will
 // not boot the ISO cannot reach the provisioner.
+//
+// An OS deployment's Task carries the Boot ISO URL frozen at acceptance. An inspect-hardware
+// Task instead resolves the Server's Boot Media when it runs (resolveBootMediaLiveParameter), so
+// an operator who enables Boot Media after an inspection stopped for attention gets it applied by
+// the retry; with Boot Media disabled that Task succeeds without touching the BMC.
 func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	if e.bootMedia == nil {
 		return internalStepFailed("boot_media_unavailable", "Boot Media is unavailable in this worker.", false)
@@ -133,6 +138,16 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 	if serverID == "" {
 		return internalStepFailed("boot_media_invalid", "The ensure-boot-media Task has no target Server.", false)
 	}
+	if live, _ := input.Step.Parameters[resolveBootMediaLiveParameter].(bool); live {
+		resolved, enabled, failure := e.liveBootMediaISO(ctx, serverID)
+		if failure != nil {
+			return *failure
+		}
+		if !enabled {
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+		}
+		isoURL = resolved
+	}
 	if isoURL == "" {
 		return internalStepFailed("boot_media_not_configured",
 			"Boot Media is enabled on the Server, but it had no served Boot ISO when the deployment was accepted. Choose a Boot ISO for the Server's Boot Media, then deploy again.", false)
@@ -141,6 +156,39 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 		return internalStepFailed("boot_media_ensure_failed", err.Error(), true)
 	}
 	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+}
+
+// liveBootMediaISO reads the Server's Boot Media now and resolves its Boot ISO URL. enabled is
+// false when Boot Media is off. A Boot ISO that is not served fails retryably, because the operator
+// can choose or rebuild one and retry; a failure to read the Server is retryable for the same
+// reason as a BMC failure.
+func (e platformWorkflowStepExecutor) liveBootMediaISO(ctx context.Context, serverID string) (string, bool, *temporalworkflow.StepExecutionResult) {
+	fail := func(code, message string) (string, bool, *temporalworkflow.StepExecutionResult) {
+		result := internalStepFailed(code, message, true)
+		return "", true, &result
+	}
+	if e.servers == nil {
+		return fail("boot_media_unavailable", "Boot Media is unavailable in this worker.")
+	}
+	server, err := e.servers.FindByID(ctx, serverID)
+	if err != nil {
+		return fail("boot_media_ensure_failed", err.Error())
+	}
+	if server.BootMedia == nil || !server.BootMedia.Enabled {
+		return "", false, nil
+	}
+	notConfigured := "Boot Media is enabled on " + server.DisplayName() + ", but its Boot ISO is not served. Choose a Boot ISO for the Server's Boot Media, then retry this Task."
+	if e.bootISOs == nil || server.BootMedia.ISOID == "" {
+		return fail("boot_media_not_configured", notConfigured)
+	}
+	image, err := e.bootISOs.Resolve(ctx, server.BootMedia.ISOID)
+	switch {
+	case errors.Is(err, serverdomain.ErrBootISOUnknown), errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
+		return fail("boot_media_not_configured", notConfigured)
+	case err != nil:
+		return fail("boot_media_ensure_failed", err.Error())
+	}
+	return image.URL, true, nil
 }
 
 // bootMediaPlanner adds ensure-boot-media Tasks to Workflows that deploy an OS (decisions 047

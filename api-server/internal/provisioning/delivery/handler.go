@@ -18,6 +18,7 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/middleware"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
@@ -42,6 +43,8 @@ type ProvisioningHandler struct {
 	serverTagsList  *application.ListServerTagsUseCase
 	serverTagsEdit  *application.EditServerTagsUseCase
 	durable         application.DurableOperationLauncher
+	inspections     application.HardwareInspectionLauncher
+	enrollment      *application.HostEnrollmentUseCase
 }
 
 func NewProvisioningHandler(
@@ -273,10 +276,60 @@ func (h *ProvisioningHandler) PowerState(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-// Inspect serves POST /servers/{id}/inspect (server-detail-actions.md): it starts the
-// provisioner's hardware inspection and responds 202 with the accepted provisioning snapshot.
+// Inspect serves POST /servers/{id}/inspect (server-detail-actions.md): it starts, or resumes
+// after attention, the Server's inspect-hardware Workflow and responds 202 with the stored
+// provisioning snapshot plus workflowId and resumed. Without the Workflow launcher it falls back
+// to the direct provider action and its accepted snapshot.
 func (h *ProvisioningHandler) Inspect(c *fiber.Ctx) error {
-	return h.serverAction(c, h.actions.Inspect)
+	if h.inspections == nil {
+		return h.serverAction(c, h.actions.Inspect)
+	}
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	requestedBy := ""
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
+	}
+	accepted, err := h.inspections.LaunchInspection(c.Context(), application.InspectionRequest{
+		ServerID: id, Origin: provisioningdomain.InspectionOriginRequested,
+		RequestedBy: requestedBy, RequestID: c.GetRespHeader(fiber.HeaderXRequestID),
+	})
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(accepted)
+}
+
+// enrollBundleRequest is the optional enroll-bundle body: the address the host reaches swallow at.
+type enrollBundleRequest struct {
+	SwallowURL string `json:"swallowUrl"`
+}
+
+// EnrollBundle serves POST /provisioning/integrations/{id}/enroll-bundle (server-enrollment.md).
+// The body is optional; without swallowUrl the command uses the address this request came in on.
+// The response carries the provisioner's credential for the host to register itself, so it is
+// never cached; the route is admin-only and nothing here logs the response.
+func (h *ProvisioningHandler) EnrollBundle(c *fiber.Ctx) error {
+	if h.enrollment == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "Server enrollment is unavailable."))
+	}
+	var req enrollBundleRequest
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+		}
+	}
+	if strings.TrimSpace(req.SwallowURL) == "" {
+		req.SwallowURL = c.BaseURL()
+	}
+	c.Set(fiber.HeaderCacheControl, "no-store")
+	bundle, err := h.enrollment.Bundle(c.Context(), c.Params("id"), req.SwallowURL)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(bundle)
 }
 
 func (h *ProvisioningHandler) Test(c *fiber.Ctx) error {
@@ -628,6 +681,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 
 	case errors.Is(err, provisioningdomain.ErrProvisioningTaskConflict),
 		errors.Is(err, provisioningdomain.ErrServerMutationConflict),
+		errors.Is(err, provisioningdomain.ErrInspectionNotAllowed),
 		errors.Is(err, serverdomain.ErrServerLocked),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
@@ -637,6 +691,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch),
 		errors.Is(err, provisioningdomain.ErrInvalidReleaseRequest),
 		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration),
+		errors.Is(err, provisioningdomain.ErrInvalidEnrollmentRequest),
 		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid),
 		errors.Is(err, provisioningdomain.ErrInvalidTag):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
@@ -745,4 +800,16 @@ func (h *ProvisioningHandler) ProviderEvents(c *fiber.Ctx) error {
 // constructed. Legacy tests and deployments may omit it while compatibility endpoints live.
 func (h *ProvisioningHandler) AttachDurableOperations(launcher application.DurableOperationLauncher) {
 	h.durable = launcher
+}
+
+// AttachHardwareInspection makes Inspect start or resume an inspect-hardware Workflow (decision
+// 053). Without it, as in deployments without the Workflow engine and in legacy tests, Inspect
+// stays the direct provider action.
+func (h *ProvisioningHandler) AttachHardwareInspection(launcher application.HardwareInspectionLauncher) {
+	h.inspections = launcher
+}
+
+// AttachHostEnrollment enables the existing-OS enrollment bundle route.
+func (h *ProvisioningHandler) AttachHostEnrollment(enrollment *application.HostEnrollmentUseCase) {
+	h.enrollment = enrollment
 }

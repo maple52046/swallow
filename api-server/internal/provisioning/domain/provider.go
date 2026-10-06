@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"io"
 )
 
@@ -178,6 +179,41 @@ type MachineDetailInspector interface {
 type MachineEventReader interface {
 	ListMachineEvents(ctx context.Context, machineID string, limit int) ([]MachineEvent, error)
 }
+
+// EnrollmentSettler reports whether the provider's own enrollment of a newly discovered machine
+// has finished (decision 053).
+//
+// A provider can list a machine before its enrollment ends: MAAS records a New Machine while the
+// enlistment environment still runs and powers the machine off when it is done. Inspecting it in
+// between races the enrollment boot. EnrollmentSettled returns true when nothing is left to wait
+// for, including for a machine that has left New; it is a single reading, and callers confirm it
+// across polls. A provider without this capability has nothing to wait for. A missing machine is
+// ErrMachineNotFound; transport failures map as usual.
+type EnrollmentSettler interface {
+	EnrollmentSettled(ctx context.Context, machineID string) (bool, error)
+}
+
+// ExistingHostEnrollment is what a host that keeps its operating system needs to enroll itself
+// into one provisioner (decision 053). Token is a secret: callers must not log it, and api-server
+// returns it only to an admin for the generated enrollment command.
+type ExistingHostEnrollment struct {
+	// Endpoint is the provider address the host reaches, e.g. a MAAS region URL.
+	Endpoint string
+	// Token is the provider credential the host presents to register itself.
+	Token string
+}
+
+// ExistingHostEnroller lets a host that already runs an OS enroll into the provisioner without a
+// reboot. The adapter only says where the provider is and which credential registration needs;
+// the provider's own tooling runs on the host through `swallow servers enroll` (for MAAS:
+// maas-run-scripts register-machine, then report-results).
+type ExistingHostEnroller interface {
+	ExistingHostEnrollment(ctx context.Context) (*ExistingHostEnrollment, error)
+}
+
+// ErrInvalidEnrollmentRequest marks an enrollment bundle request whose swallow URL is not an
+// absolute http(s) URL without path, query, or credentials.
+var ErrInvalidEnrollmentRequest = errors.New("invalid enrollment request")
 
 // MachineRemover permanently deletes a Machine from the provisioner's inventory.
 //

@@ -18,6 +18,8 @@ import { hasSwallowInstalledDocker } from '@/domain/software/docker'
 import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
 import { ProviderFailureAlert } from './ProviderFailureAlert'
+import { InspectionAttentionAlert } from './InspectionAttentionAlert'
+import { useInspectionAttention } from './useInspectionAttention'
 import { useServerDetail } from './useServerDetail'
 import { useServerDockerAssignment } from './useServerDockerAssignment'
 
@@ -62,6 +64,8 @@ export function ServerDetailPage() {
   const { scopedHref } = useSiteScope()
   const { enabled: features } = useExperimentalFeatures()
   const state = useServerDetail(id)
+  // This Server's inspect-hardware Workflow waiting for attention (decision 053), if any.
+  const inspectionAttention = useInspectionAttention({ serverId: id })
   // Loaded beside the projection (not inside it) because a failed software read must only affect the
   // Containers tab, and because the tab polls it while a Docker CE re-apply runs.
   const docker = useServerDockerAssignment(id)
@@ -199,6 +203,10 @@ export function ServerDetailPage() {
           onViewOperation={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
         />
       )}
+      <InspectionAttentionAlert
+        operations={inspectionAttention}
+        onView={(operationId) => navigate(scopedHref(`/workflows/${operationId ?? inspectionAttention[0]?.id ?? ''}`))}
+      />
       {server.provisioning && ['failed', 'broken', 'rescue'].includes(server.provisioning.state) && (
         <ProviderFailureAlert
           serverId={server.id}

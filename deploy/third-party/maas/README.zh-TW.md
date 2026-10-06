@@ -19,8 +19,9 @@ Installer 會：
 機器透過 `http://<primary IPv4>:5240/MAAS` 連 MAAS；如需其他位址，請在第一次安裝前
 設定 `SWALLOW_MAAS_URL`。不會安裝第三方或 custom OS image。
 
-DNS、L2/DHCP/PXE routing 與 BMC access 仍是 Site 擁有的輸入：commission 機器前，
-請在 MAAS 的 PXE network 啟用 DHCP。
+DNS、L2/DHCP/PXE routing 與 BMC access 仍是 Site 擁有的輸入：從網路開機納管機器前，
+請在 MAAS 的 PXE network 啟用 DHCP。MAAS 完成 enlist 後，swallow 會自行 commission
+（硬體檢視）這些機器。
 
 Official references:
 

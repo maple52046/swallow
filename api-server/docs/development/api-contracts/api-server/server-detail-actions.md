@@ -202,6 +202,48 @@ Commission; Ironic calls it introspection). While it runs the Server's provision
 in-progress inspection, test, or deployment. All three need the `hardwareValidation`
 capability.
 
+### Inspect
+
+`POST /servers/{id}/inspect` runs hardware inspection as an `inspect-hardware` Workflow
+([server-enrollment.md](server-enrollment.md), [workflows.md](workflows.md)) instead of a single
+provider call, so a commission that cannot reach the provisioner is retried, bounded, and
+reported for attention. It takes no body.
+
+- When no `inspect-hardware` Workflow is active for the Server, a new one starts. A request from
+  this route skips the enrollment wait: the operator asserts the Server may boot now.
+- When the Server's `inspect-hardware` Workflow is waiting in `requires_attention`, the request
+  retries it (the same Workflow, its whole `ensure-inspected` Job) instead of starting another,
+  so Boot Media enabled since is applied before the next commission.
+- An `inspect-hardware` Workflow that is still running, or any other active Workflow on the
+  Server, is `409 conflict`.
+
+The Server must be present, unlocked, and in provisioning state `new`, `ready`, `failed`,
+`broken`, or `unknown`; any other state, or no observed state, is `409 conflict` before the
+provider is called. The response is `202` with the provisioning snapshot as stored (inspection has
+not started yet) plus the Workflow:
+
+```json
+{
+  "serverId": "server-id",
+  "state": "new",
+  "providerState": "New",
+  "powerState": "off",
+  "osSystem": "",
+  "distroSeries": "",
+  "ephemeral": false,
+  "hweKernel": "",
+  "locked": false,
+  "commissioningStatus": "",
+  "testingStatus": "",
+  "observedAt": "2026-10-06T03:00:00Z",
+  "workflowId": "workflow-id",
+  "resumed": false
+}
+```
+
+`resumed` is `true` when the request retried the Workflow waiting for attention. A deployment
+without a Workflow engine falls back to the direct provider action and omits both fields.
+
 ## Default User
 
 The Server Default User is the account swallow automation logs in as with the Deployment Key
@@ -470,3 +512,11 @@ route is removed rather than aliased; clients move to `inspect` in the same rele
 On 2026-10-05 the Boot Media Read gained `apply` (the running preflight's progress), and a second
 Boot Media write while a preflight runs is refused with `409`. Both are additive for clients
 that ignore unknown fields.
+
+On 2026-10-06 `inspect` became an `inspect-hardware` Workflow
+([decision 053](../../../../../docs/decisions/053-server-enrollment-and-automatic-inspection.md)).
+The response keeps the provisioning snapshot and adds `workflowId` and `resumed`; the snapshot
+now shows the state before inspection starts rather than the provider's accepted state. Inspect
+from `deployed`, `allocated`, `rescue`, `retired`, or an in-progress state, and Inspect while
+another Workflow holds the Server, are now `409 conflict` instead of being forwarded to the
+provider.

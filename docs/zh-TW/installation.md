@@ -70,10 +70,12 @@ MB）、在 swallow 註冊 MAAS，最後執行 `swallowctl doctor`。重複執�
 1. 開啟 `http://<vm-address>/`，以 `admin` 登入；密碼在
    `/opt/swallow/production/secrets/bootstrap-admin-password`（用 `sudo cat` 讀取）。
 2. 從 account menu（**SSH keys**）加入自己的 SSH Access Key。Installer 不會代為建立。
-3. Commission 機器前，在 MAAS 設定 PXE network 與 DHCP
+3. 從網路開機納管機器前，在 MAAS 設定 PXE network 與 DHCP
    （`http://<vm-address>:5240/MAAS`，帳號 `admin`，密碼在
    `/opt/swallow/production/secrets/maas-admin-password`）。DNS、DHCP/PXE routing 與 BMC
-   access 由 site 負責。
+   access 由 site 負責。之後從 **Servers → Add servers** 新增機器：swallow 會自行檢視從
+   網路開機的機器，保留 OS 的主機則以一行指令納管（見
+   [新增 Server](guides/servers-and-infrastructure.md#新增-server)）。
 4. 隨時可執行 `sudo /opt/swallow/production/swallowctl doctor` 重新檢查所有串接。
 
 Backup、restore、uninstall，以及從下載的 bundle 手動安裝，請見

@@ -82,6 +82,15 @@ Optional RFC 3339 `provisioning.stateSince` field 記錄 swallow 第一次觀察
 再次觀察到該 state 的情況；client 必須接受它不存在。這是 swallow 的 observation
 timestamp，不是 provider 確切的 transition time。
 
+自 2026-10-06 起，`POST /api/v1/servers/{id}/inspect` 改為執行 `inspect-hardware`
+Workflow，不再是單一 provider 呼叫。`202` response 保留 provisioning snapshot，並新增
+`workflowId` 與 `resumed`；請追蹤 Workflow，不要只輪詢 Server state。從 `deployed`、
+`allocated`、`rescue`、`retired` 或進行中的 state 執行 Inspect，以及其他 Workflow
+佔用該 Server 時執行 Inspect，現在會回 `409 conflict`。provisioner Integration 的
+`settings.autoInspect: "false"` 會關閉新納管 Server 的自動檢視。詳見
+[Server Enrollment contract](../../../api-server/docs/development/api-contracts/api-server/server-enrollment.md)，
+其中也定義了 existing OS 的 enrollment bundle。
+
 ## Contract directory
 
 依序閱讀：

@@ -110,6 +110,12 @@ and chains to that Server's provisioner.
   time. Every OS deployment re-applies that Server's chosen ISO first and
   freezes the choice for the deployment; a BMC failure stops at the Boot Media
   Task until it is fixed and retried.
+- **Enroll and inspect:** a machine on such a network is not a Server yet, so its
+  first, enlisting boot needs the ISO mounted by hand: mount the ISO URL as
+  virtual media in its BMC and boot it once. Enable Boot Media as soon as the
+  Server appears. Hardware inspection applies Boot Media before every run and
+  reads the setting when it runs, so a retry after enabling it boots the ISO (see
+  [Servers and infrastructure](servers-and-infrastructure.md#add-servers)).
 
 For API and CLI users, `GET /api/v1/servers/{id}/boot-media` returns `apply` as
 `null` while idle. During a preflight, `apply` contains `isoId`, the current
@@ -133,6 +139,14 @@ provisioner to inventory the machine's hardware again. MAAS calls this action
 *Commission*. The Server reads **Inspecting** while it runs; **Test** similarly
 reads **Testing** while the provider runs hardware tests. The Summary card's
 **Inspection** field is the provider's last inspection result, such as *Passed*.
+
+Inspection is an `inspect-hardware` Workflow with one Job, `ensure-inspected`:
+wait for the provider's enrollment to finish, apply Boot Media, then up to three
+inspection attempts. It starts automatically for newly enrolled Servers. When it
+asks for attention, enable Boot Media if the Server's network is not served by
+the provisioner's DHCP, then retry the Task or choose **Inspect hardware** again.
+See [Inspect hardware](servers-and-infrastructure.md#inspect-hardware) for the
+details and for turning automatic inspection off.
 
 ## Release and recovery
 

@@ -94,6 +94,11 @@ provider 端的佈署仍保持執行，供你檢查、retry 或 release。
   Disable 後仍保留選擇的 Boot ISO，供下次啟用。每次 OS deployment 都會先重新套用
   該 Server 的 Boot ISO，並為該次 deployment 凍結這個選擇；BMC 失敗時會停在
   Boot Media Task，修復後再 retry。
+- **納管與檢視：** 這類網路上的 machine 還不是 Server，因此第一次 enlist 開機需要
+  手動掛載 ISO：在 BMC 以 virtual media 掛上 ISO URL 並開機一次。Server 出現後立即
+  啟用 Boot Media。硬體檢視每次執行前都會套用 Boot Media，且在執行當下讀取設定，
+  因此啟用後 retry 就會從 ISO 開機（見
+  [Server 與 infrastructure](servers-and-infrastructure.md#新增-server)）。
 
 API 與 CLI 使用者可透過 `GET /api/v1/servers/{id}/boot-media` 查看進度；idle
 時 `apply` 為 `null`，preflight 期間則包含 ISO ID、目前的 `probing`、`ejecting`、
@@ -117,6 +122,12 @@ provisioner 重新盤點 machine 硬體；MAAS 將此動作稱為 *Commission*�
 Server 顯示 **Inspecting**；選擇 **Test** 執行 provider hardware test 時則顯示
 **Testing**。Summary card 的 **Inspection** 欄位是 provider 上次的 inspection
 result，例如 *Passed*。
+
+硬體檢視是 `inspect-hardware` Workflow，只有一個 Job `ensure-inspected`：等待
+provider 的 enrollment 結束、套用 Boot Media，再進行最多三次檢視。新納管的 Server
+會自動開始。要求處理時，若 Server 的網路不是由 provisioner 的 DHCP 提供，請啟用
+Boot Media，再 retry 該 Task 或重新選擇 **Inspect hardware**。細節與如何關閉自動
+檢視，請見 [檢查硬體](servers-and-infrastructure.md#檢查硬體)。
 
 ## Release 與 recovery
 

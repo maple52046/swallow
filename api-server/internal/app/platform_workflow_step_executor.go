@@ -45,6 +45,9 @@ type platformWorkflowStepExecutor struct {
 	// bootMedia runs the ensure-boot-media Task before an OS deployment (decision 047). Nil fails
 	// that Task kind as unsupported.
 	bootMedia bootMediaEnsurer
+	// bootISOs resolves a Server's chosen Boot ISO for the inspect-hardware ensure-boot-media
+	// Task, which reads Boot Media when it runs rather than from a frozen URL (decision 053).
+	bootISOs serverdomain.BootISOResolver
 	// sshProber performs the authenticated SSH readiness probe for wait-for-ssh. Nil uses the
 	// x/crypto/ssh client; tests inject a fake to exercise readiness without a live SSH server.
 	sshProber sshprobe.Prober

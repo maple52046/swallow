@@ -377,6 +377,25 @@ export interface CreateBootISOInput {
   rackAddress: string;
 }
 
+/**
+ * What a host that keeps its operating system needs to enroll itself into one provisioner
+ * (Server Enrollment, contract server-enrollment.md). `command` is one line the operator runs on
+ * the host: it downloads the enrollment script from swallow and runs it as root, which downloads
+ * the swallow CLI and enrolls the host. The host then appears as a `deployed` Server after the
+ * next inventory sync.
+ *
+ * `token` is the provisioner's own credential (for MAAS its API key), which the provider's
+ * registration requires. It is a secret: keep it only in component memory, never in storage,
+ * logs, or URLs. `command` embeds it.
+ */
+export interface HostEnrollmentBundle {
+  integrationId: string;
+  providerKind: string;
+  endpoint: string;
+  token: string;
+  command: string;
+}
+
 /** The port the MAAS rack serves `ipxe.cfg` on when `rackAddress` names none (contract boot-isos.md). */
 export const DEFAULT_MAAS_RACK_PORT = 5248;
 

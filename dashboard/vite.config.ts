@@ -26,6 +26,11 @@ export default defineConfig({
         target: process.env.VITE_DEV_API_PROXY_TARGET ?? 'http://localhost:30051',
         changeOrigin: true,
       },
+      // Server Enrollment downloads (the script and the CLI). The original Host is kept so the
+      // script points its CLI download back at this dev server.
+      '/downloads': {
+        target: process.env.VITE_DEV_API_PROXY_TARGET ?? 'http://localhost:30051',
+      },
     },
   },
   resolve: {

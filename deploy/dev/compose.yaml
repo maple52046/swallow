@@ -123,6 +123,9 @@ services:
       SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"
       SWALLOW_API_BOOT_MEDIA_BASE_URL: "${SWALLOW_API_BOOT_MEDIA_BASE_URL:-}"
       SWALLOW_API_REDFISH_PROBE_INTERVAL: "${SWALLOW_API_REDFISH_PROBE_INTERVAL:-10m}"
+      # Server Enrollment (decision 053) serves the CLI at /downloads/swallow. Build it into
+      # ./bin first: `cd cli && CGO_ENABLED=0 go build -o ../deploy/dev/bin/swallow ./cmd/swallow`.
+      SWALLOW_API_CLI_BINARY: "/usr/local/share/swallow/bin/swallow"
     ports:
       - "${API_HTTP_PORT:-30051}:30051"
       # Many BMCs mount only http:// on port 80, so the API is also published where BMCs reach it.
@@ -131,6 +134,7 @@ services:
     volumes:
       - ../../api-server:/app
       - ./boot-media:/var/lib/swallow/boot-media
+      - ./bin:/usr/local/share/swallow/bin:ro
       - ./air.toml:/etc/swallow/air.toml:ro
       - job-artifacts:/var/lib/swallow/jobs
       - go-mod-cache:/go/pkg/mod
@@ -173,10 +177,15 @@ services:
       SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
+      # Hardware inspection resolves a Server's Boot ISO when its ensure-boot-media Task runs
+      # (decision 053), so the worker sees the Boot ISO files and their URL like the API does.
+      SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"
+      SWALLOW_API_BOOT_MEDIA_BASE_URL: "${SWALLOW_API_BOOT_MEDIA_BASE_URL:-}"
     volumes:
       - ../../api-server:/app
       - ./air-worker.toml:/etc/swallow/air.toml:ro
       - job-artifacts:/var/lib/swallow/jobs
+      - ./boot-media:/var/lib/swallow/boot-media:ro
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/go/cache
 

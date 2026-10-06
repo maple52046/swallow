@@ -311,6 +311,12 @@ export interface FixtureOptions {
   bootISOBuildError?: { status: number; code: string; message: string }
   /** Called for every Boot ISO write with its method, path, and JSON body. */
   onBootISORequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
+  /** Removes every provisioner Integration, modelling a Site that has none yet. */
+  noProvisioners?: boolean
+  /** Servers whose inspect-hardware Workflow waits in `requires_attention` (decision 053). */
+  inspectionAttentionServerIds?: string[]
+  /** Called for every enroll-bundle read with its method, path, and the swallowUrl it sent. */
+  onEnrollmentRequest?: (method: string, path: string, swallowUrl: string) => void
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -576,11 +582,13 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }
   let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
   let siteItems = sites.map((site) => ({ ...site }))
-  let integrationItems = integrations.map((integration) => ({
-    ...integration,
-    settings: { ...integration.settings },
-    sync: { ...integration.sync },
-  }))
+  let integrationItems = integrations
+    .filter((integration) => !options.noProvisioners || integration.kind !== 'provisioner')
+    .map((integration) => ({
+      ...integration,
+      settings: { ...integration.settings },
+      sync: { ...integration.sync },
+    }))
   let metricBatchIndex = 0
   let activeMetricRequests = 0
   let slurmRequirement: {
@@ -734,6 +742,34 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     })
   }
   const operationItems = operations.map((operation) => ({ ...operation }))
+  // inspect-hardware Workflows waiting for attention (server-enrollment.md): the inspect Task ran
+  // out of attempts because the Server never network-booted into MAAS.
+  for (const serverId of options.inspectionAttentionServerIds ?? []) {
+    const inspection = {
+      id: `op-inspect-${serverId}`, schemaVersion: 3, kind: 'inspect-hardware',
+      intent: `Inspect hardware of ${serverId}`, intentSnapshot: { serverId, origin: 'automatic' },
+      definition: 'hardware-inspection', definitionVersion: 1,
+      status: 'requires_attention', statusReason: 'Job ensure-inspected requires operator attention.',
+      startState: 'started', temporal: { workflowId: `swallow-operation/op-inspect-${serverId}`, runId: 'run-inspect' },
+      siteId: 'site-a', platformId: null,
+      targetResources: [{ kind: 'server', id: serverId }], targetServerIds: [serverId], retryOfOperationId: null,
+      steps: [
+        {
+          id: `inspect-${serverId}`, kind: 'inspect', name: `Inspect hardware of ${serverId}`, job: 'ensure-inspected',
+          executor: 'maas', dependsOn: [], targets: [{ kind: 'server', id: serverId }],
+          status: 'requires_attention', attempt: 1, progress: 0,
+          error: {
+            code: 'inspect_pxe_unreached', retryable: true, stage: 'inspection',
+            message: `Hardware inspection of ${serverId} did not complete in 3 attempts: no provider progress for 15m0s after powering it on. If its network is not served by the provisioner's DHCP (an external network), build a Boot ISO and enable Boot Media on the Server, then retry this Task.`,
+          },
+          externalExecution: null, artifacts: [], startedAt: now, finishedAt: now,
+        },
+      ],
+      execution: { runId: 'run-inspect', playbook: '', status: 'running', statusReason: null, startedAt: now, finishedAt: null },
+      requestedBy: 'system', requestedAt: now, updatedAt: now,
+    }
+    operationItems.push(inspection as unknown as (typeof operationItems)[number])
+  }
   let operationSequence = 0
   const createProvisioningOperation = (
     kind: 'deploy-os' | 'release-os',
@@ -1024,6 +1060,21 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         siteItems = siteItems.filter((item) => item.id !== site.id)
         return json(route, { success: true })
       }
+    }
+    // Server Enrollment (server-enrollment.md): the existing-OS bundle carries the provisioner's
+    // API key, and its command fetches the enrollment script from the swallowUrl it was given.
+    const enrollmentMatch = path.match(/^\/api\/v1\/provisioning\/integrations\/([^/]+)\/enroll-bundle$/)
+    if (enrollmentMatch && request.method() === 'POST') {
+      const body = (request.postDataJSON() ?? {}) as { swallowUrl?: string }
+      options.onEnrollmentRequest?.(request.method(), path, body.swallowUrl ?? '')
+      const integration = integrationItems.find((item) => item.id === enrollmentMatch[1] && item.kind === 'provisioner')
+      if (!integration) return json(route, { error: { code: 'not_found', message: 'Integration not found.' } }, 404)
+      const endpoint = `${integration.endpoint}/MAAS`
+      const token = `consumer-${integration.id}:token:secret`
+      return json(route, {
+        integrationId: integration.id, providerKind: 'maas', endpoint, token,
+        command: `curl -fsSL '${body.swallowUrl}/downloads/swallow-enroll.sh' | sudo sh -s -- --provisioner=maas --endpoint '${endpoint}' --token '${token}'`,
+      })
     }
     if (path === '/api/v1/integrations' && request.method() === 'GET') {
       const siteId = url.searchParams.get('siteId')

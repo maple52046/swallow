@@ -58,7 +58,8 @@ Integration，而是 Site-scoped swallow capability。
 ## 5. 驗證 readiness
 
 - Integration sync 有最近的 `lastSucceededAt`，且沒有未處理 error。
-- Reconcile 後出現 Servers。
+- Reconcile 後出現 Servers；以 **Servers → Add servers** 新增更多（見
+  [新增 Server](servers-and-infrastructure.md#新增-server)）。
 - Worker 與 Ansible executor healthy。
 - Diagnostic Workflow 到達 terminal result。
 - Exporter 存在後 Prometheus discovery 會回傳 targets。

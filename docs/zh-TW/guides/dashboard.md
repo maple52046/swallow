@@ -10,7 +10,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | 區域 | 用途 |
 | --- | --- |
 | Overview | Site-scoped fleet health、attention items、integration、Platform 與 recent Workflow |
-| Servers | Inventory、filter、saved view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
+| Servers | Inventory、Add servers（納管引導）、filter、saved view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
 | Provisioning | OS deployment、template、image、Boot ISO、upload 與 verification |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | Docker CE、Podman、NFS installation state 與 action |

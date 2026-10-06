@@ -59,6 +59,10 @@ installed before this change.
   enrollment step for existing hosts today (Servers arrive only through provisioner inventory).
   When one is built, it sets the same Server Default User.
 
+  > Update 2026-10-06: [ADR 053](053-server-enrollment-and-automatic-inspection.md) added the
+  > existing-host enrollment step (`swallow servers enroll`). Capturing the Server Default User
+  > during it remains deferred.
+
 ## Consequences
 
 - New Server field `defaultUser` (Mongo, swallow-owned, not touched by reconcile), new endpoints

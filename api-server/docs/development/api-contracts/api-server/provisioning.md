@@ -612,7 +612,9 @@ dependent `provision-os` Step does not run; an Operation accepted while the Serv
 named no served Boot ISO (none chosen, the Boot ISO's file missing, or no Boot Media base URL)
 fails it as not retryable (`boot_media_not_configured`). Servers without Boot Media get
 exactly the Steps described above. The same Step is added in front of `provision-os` in OS image
-verification and in a Platform's `ensure-os` Job.
+verification and in a Platform's `ensure-os` Job. Hardware inspection always has the Step and
+resolves the Boot ISO when it runs instead (`resolveLive`, no `isoUrl`); see
+[server-enrollment.md](server-enrollment.md).
 
 Such a Server's `provision-os` Step carries the same URL as `bootMediaIsoUrl`, next to its
 `request`, and watches the deployment boot, timed from its first `deploying` reading. Two minutes

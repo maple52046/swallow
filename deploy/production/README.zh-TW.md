@@ -38,7 +38,8 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    產生 secrets；
 3. 只拉缺少的 images，啟動 MongoDB 與 PostgreSQL，執行 `swallow-api migrate`，建立
    Deployment Key（`swallow-api deployment-key ensure`），再啟動整個 stack；
-4. 把附帶的 CLI 安裝到 `/usr/local/bin/swallow`；
+4. 把附帶的 CLI 安裝到 `/usr/local/bin/swallow`（API 也會在 `/downloads/swallow` 提供
+   `bin/swallow`，給保留 OS 納管的主機下載）；
 5. 執行 [`local-maas.sh`](local-maas.sh)：在 Compose PostgreSQL 建立 `maas` role 與
    `maasdb`、安裝並初始化 MAAS snap、建立 MAAS `admin`、保存 API key，並等到官方
    `ubuntu/noble` amd64 image complete；

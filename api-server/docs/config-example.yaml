@@ -78,6 +78,10 @@ api:
     baseURL: ""
     dir: "/var/lib/swallow/boot-media"
     ipxeDir: "/usr/share/swallow/ipxe"
+  # The linux-amd64 swallow CLI served without authentication at /downloads/swallow, which the
+  # Server Enrollment script downloads on a host that keeps its OS. Optional; the production
+  # bundle ships it at bin/swallow. Env: SWALLOW_API_CLI_BINARY.
+  cliBinary: ""
   # How often Servers without a current Redfish capability probe (newly enrolled ones) are
   # probed, and how long a probe stays current.
   # Env: SWALLOW_API_REDFISH_PROBE_INTERVAL, SWALLOW_API_REDFISH_PROBE_MAX_AGE.

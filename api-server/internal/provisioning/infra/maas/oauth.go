@@ -47,6 +47,13 @@ func ParseAPIKey(raw string) (APIKey, error) {
 	}, nil
 }
 
+// credential re-joins the key into the "consumer_key:token_key:token_secret" form MAAS tools
+// accept. It is a secret: only existing-host enrollment hands it out, and it must never be logged.
+// It is deliberately not String(), so formatting an APIKey cannot print it by accident.
+func (k APIKey) credential() string {
+	return k.ConsumerKey + ":" + k.TokenKey + ":" + k.TokenSecret
+}
+
 // authorizationHeader builds a 0-legged OAuth 1.0 Authorization header.
 //
 // MAAS signs with the PLAINTEXT method and an empty consumer secret, so the

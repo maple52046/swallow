@@ -9,6 +9,7 @@ import {
   Lock,
   MemoryStick,
   PenLine,
+  Plus,
   RefreshCw,
   SlidersHorizontal,
   Tags,
@@ -18,6 +19,7 @@ import {
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
+import { INSPECT_HARDWARE_WORKFLOW_KIND } from '@/domain/operation/types'
 import type { Integration, Site } from '@/domain/site/types'
 import type { ReleaseServerInput, Server } from '@/domain/server/types'
 import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/list'
@@ -57,6 +59,9 @@ import { ServerTagEditor } from './ServerTagEditor'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
 import { ServerTakeActionMenu } from './ServerTakeActionMenu'
 import { failedServerActionOutcomes, type ServerActionRunResult, type ServerActionTarget } from './serverActionResults'
+import { AddServersDialog } from './AddServersDialog'
+import { InspectionAttentionAlert } from './InspectionAttentionAlert'
+import { useInspectionAttention } from './useInspectionAttention'
 import {
   compareServerInventory,
   hasServerInventoryFilters,
@@ -120,6 +125,7 @@ interface ServerSelectionState {
 const DEFAULT_PAGE_SIZE = 50
 const EMPTY_SERVERS: Server[] = []
 const EMPTY_SERVER_IDS: readonly string[] = []
+const EMPTY_INTEGRATIONS: Integration[] = []
 const LEGACY_GROUP_KEY = 'swallow.servers.group-by'
 const DENSITY_KEY = 'swallow.servers.density'
 const PAGE_SIZE_KEY = 'swallow.servers.page-size'
@@ -424,7 +430,10 @@ export function ServersPage() {
   const [pageSize, setPageSize] = useState(readPageSizePreference)
   const [selectionState, setSelectionState] = useState<ServerSelectionState>({ filterKey: '', ids: new Set() })
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set())
-  const [provisioners, setProvisioners] = useState<Integration[]>([])
+  // Keyed by the Site scope it was read for, so a scope change never shows the previous Site's
+  // provisioners (or decides the empty state) before its own read returns.
+  const [provisionerState, setProvisionerState] = useState<{ siteKey: string | null; items: Integration[] }>({ siteKey: null, items: [] })
+  const [addingServers, setAddingServers] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null)
   const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
   const [tagEditorTargets, setTagEditorTargets] = useState<Server[] | null>(null)
@@ -440,6 +449,9 @@ export function ServersPage() {
     ramTargets: readonly Server[]
   } | null>(null)
   const siteKey = siteId ?? ''
+  const provisionersLoaded = provisionerState.siteKey === siteKey
+  const provisioners = provisionersLoaded ? provisionerState.items : EMPTY_INTEGRATIONS
+  const inspectionAttention = useInspectionAttention({ siteId })
   const [followedServers, setFollowedServers] = useState<{ siteKey: string; ids: readonly string[] }>({ siteKey, ids: [] })
   const followedServerIds = followedServers.siteKey === siteKey ? followedServers.ids : EMPTY_SERVER_IDS
   const legacyGroupChecked = useRef(false)
@@ -493,12 +505,15 @@ export function ServersPage() {
 
   useEffect(() => {
     let cancelled = false
+    const key = siteId ?? ''
     siteRepository.listIntegrations({ siteId, kind: 'provisioner' })
       .then((items) => {
-        if (!cancelled) setProvisioners(items)
+        if (!cancelled) setProvisionerState({ siteKey: key, items })
       })
       .catch(() => {
-        if (!cancelled) setProvisioners([])
+        // A failed read reads as "none known": sync warnings disappear and the empty state
+        // offers to connect a provisioner, which the Integrations page then shows accurately.
+        if (!cancelled) setProvisionerState({ siteKey: key, items: [] })
       })
     return () => {
       cancelled = true
@@ -748,12 +763,29 @@ export function ServersPage() {
         title="Servers"
         subtitle="Discover GPU and hardware inventory, then operate provisioning and runtime signals from one fleet control plane."
         metadata={activeProjectionTargetKey ? <Badge colorPalette="blue" variant="subtle">Updating servers…</Badge> : undefined}
+        // Two header commands no longer fit beside the title on a phone.
+        stackActionsOnMobile
         actions={
-          <Button variant="outline" loading={isRefreshing} onClick={reload}>
-            <RefreshCw size={16} />
-            Refresh
-          </Button>
+          <>
+            <Button variant="outline" loading={isRefreshing} onClick={reload}>
+              <RefreshCw size={16} />
+              Refresh
+            </Button>
+            {provisioners.length > 0 && (
+              <Button colorPalette="brand" onClick={() => setAddingServers(true)}>
+                <Plus size={16} />
+                Add servers
+              </Button>
+            )}
+          </>
         }
+      />
+      {addingServers && <AddServersDialog provisioners={provisioners} servers={workingSet} onClose={() => setAddingServers(false)} />}
+      <InspectionAttentionAlert
+        operations={inspectionAttention}
+        onView={(operationId) => navigate(scopedHref(operationId
+          ? `/workflows/${operationId}`
+          : `/workflows?kind=${INSPECT_HARDWARE_WORKFLOW_KIND}&status=requires_attention`))}
       />
 
       {state.status === 'ready' && state.refreshError && (
@@ -784,13 +816,22 @@ export function ServersPage() {
         </Alert>
       )}
 
-      {state.status === 'loading' && <LoadingState rows={8} />}
-      {state.status === 'ready' && workingSet.length === 0 && (
-        <EmptyState
-          title="No Servers discovered"
-          message="Servers appear after a provisioner integration observes its inventory in this scope."
-          action={{ label: 'Review integrations', onClick: () => navigate(scopedHref('/infrastructure/integrations')) }}
-        />
+      {(state.status === 'loading' || (state.status === 'ready' && workingSet.length === 0 && !provisionersLoaded)) && <LoadingState rows={8} />}
+      {/* The empty inventory explains how to add Servers. Only a scope without any provisioner
+          sends the operator to connect one, because Servers can only come from a provisioner. */}
+      {state.status === 'ready' && workingSet.length === 0 && provisionersLoaded && (
+        provisioners.length > 0 ? (
+          <EmptyState
+            title="No servers yet"
+            action={{ label: 'Add servers', onClick: () => setAddingServers(true) }}
+          />
+        ) : (
+          <EmptyState
+            title="No provisioner connected"
+            message="Servers come from a provisioner such as MAAS."
+            action={{ label: 'Connect a provisioner', onClick: () => navigate(scopedHref('/infrastructure/integrations')) }}
+          />
+        )
       )}
       {state.status === 'ready' && workingSet.length > 0 && (
         <>

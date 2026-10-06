@@ -20,7 +20,34 @@ func newIntegrationsCommand() *cobra.Command {
 		integrationsUpdateCmd(),
 		integrationsCredentialCmd(),
 		integrationsDeleteCmd(),
+		integrationsEnrollBundleCmd(),
 	)
+	return cmd
+}
+
+// integrationsEnrollBundleCmd prints the existing-OS enrollment bundle of a provisioner
+// (server-enrollment.md): its endpoint, credential, and the one-line command to run on the host,
+// which downloads the enrollment script and the CLI from swallow. The command fetches them from
+// --swallow-url, by default this profile's endpoint. The output contains the provisioner's
+// credential; it is not stored.
+func integrationsEnrollBundleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "enroll-bundle <integrationId>",
+		Short: "Print the command a host runs to enroll into this provisioner keeping its OS (contains its credential)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			swallowURL, _ := cmd.Flags().GetString("swallow-url")
+			if swallowURL == "" {
+				swallowURL = rt.cfg.Endpoint
+			}
+			var body any
+			if swallowURL != "" {
+				body = map[string]string{"swallowUrl": swallowURL}
+			}
+			return sendJSON(cmd, "POST", fmt.Sprintf("provisioning/integrations/%s/enroll-bundle", args[0]), nil, body)
+		},
+	}
+	cmd.Flags().String("swallow-url", "", "address the host reaches swallow at (default: this profile's endpoint)")
 	return cmd
 }
 

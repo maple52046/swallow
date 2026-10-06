@@ -48,6 +48,18 @@ export interface Integration {
 }
 
 /**
+ * The provisioner setting that turns automatic hardware inspection of newly enrolled Servers off
+ * (contract sites-integrations.md, decision 053). Only the value `"false"` turns it off; absent,
+ * which is every Integration created before the setting existed, means on.
+ */
+export const AUTO_INSPECT_SETTING = 'autoInspect'
+
+/** Whether a provisioner Integration inspects newly enrolled Servers automatically. */
+export function autoInspectEnabled(integration: Pick<Integration, 'settings'>): boolean {
+  return integration.settings[AUTO_INSPECT_SETTING] !== 'false'
+}
+
+/**
  * An operating system a provisioner can currently deploy.
  *
  * `name`, `osSystem`, and `release` are the effective display values: the swallow overlay value

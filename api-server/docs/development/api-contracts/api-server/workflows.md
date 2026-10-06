@@ -105,7 +105,11 @@ Tasks (`record-image-verification` on success, `record-image-verification-failur
 failure, recording the Swallow-owned per-Deploy-Target outcome) → `recover-server` (return
 the borrowed Server to `ready`, run whether the proving deploy succeeded or failed), per
 [decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md)
-and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md). Targets are frozen,
+and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md).
+`inspect-hardware` is created by `POST /servers/{id}/inspect` and by the automatic inspection
+sweep; its `ensure-inspected` Job (`wait-enrollment-settled` → `ensure-boot-media` → `inspect`)
+and retry semantics are defined in [server-enrollment.md](server-enrollment.md). Because it runs
+as a Job, a Task retry re-runs the whole Job rather than only the failed Task. Targets are frozen,
 must belong to one Site, and must pass current provisioning, Platform policy, active-work,
 and live Server Lock checks. Success is `202 Accepted` after intent is persisted; Temporal
 may start after the response through starter reconciliation.

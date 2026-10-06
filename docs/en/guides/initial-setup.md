@@ -62,7 +62,8 @@ external Integration; it is a Site-scoped swallow capability.
 ## 5. Verify readiness
 
 - Integration sync has a recent `lastSucceededAt` and no unresolved error.
-- Servers appear after reconcile.
+- Servers appear after reconcile; add more with **Servers → Add servers** (see
+  [Add servers](servers-and-infrastructure.md#add-servers)).
 - Worker and Ansible executor are healthy.
 - A diagnostic Workflow reaches a terminal result.
 - Prometheus discovery returns targets after exporters exist.

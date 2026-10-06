@@ -404,6 +404,16 @@ func RunAPI(cfg config.APIConfig) error {
 		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo,
 		protection: serverProtection, refresh: refreshServerUC, bootMedia: bootMediaPlan,
 	})
+	// Server Enrollment (decision 053): Inspect and the automatic sweep both run hardware
+	// inspection as an inspect-hardware Workflow; existing-OS hosts get their bundle and script
+	// from the provisioner adapter.
+	inspectionLauncher := hardwareInspectionLauncher{
+		workflows: orchestrationService, history: orchestrationRepo, servers: serverRepo,
+		protection: serverProtection, refresh: refreshServerUC,
+	}
+	provisioningHandler.AttachHardwareInspection(inspectionLauncher)
+	provisioningHandler.AttachHostEnrollment(provisioningapp.NewHostEnrollmentUseCase(providerFactory))
+	autoInspect := provisioningapp.NewAutoInspectUseCase(integrationRepo, serverRepo, inspectionLauncher)
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 	orchestrationStarter := temporalworkflow.NewStarter(
 		temporalClient, orchestrationRepo, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
@@ -547,6 +557,7 @@ func RunAPI(cfg config.APIConfig) error {
 		defaultUsers:   defaultUserHandler,
 		bootMedia:      bootMediaHandler,
 		bootMediaISO:   serveBootISO(bootISOFiles),
+		cliBinary:      serveCLIBinary(cfg.CLIBinary),
 		bootISOs:       bootISOHandler,
 		serverStream:   serverStreamHandler,
 		provisioning:   provisioningHandler,
@@ -574,6 +585,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go taskWorker.Run(ctx)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
+	go runAutoInspect(ctx, autoInspect, cfg.ReconcileInterval)
 	go runSoftwareAssignmentSweep(ctx, softwareSweeper, cfg.ReconcileInterval)
 	go runSSHKeySync(ctx, sshKeyService, cfg.SSHKeySyncInterval)
 	go runRedfishCapabilitySweep(ctx, bootMediaUC, cfg.RedfishProbeInterval, cfg.RedfishProbeMaxAge)
@@ -613,6 +625,8 @@ type routeDeps struct {
 	bootMedia     *serverdelivery.BootMediaHandler
 	// bootMediaISO serves Boot ISO files without authentication (decisions 047 and 049).
 	bootMediaISO fiber.Handler
+	// cliBinary serves the swallow CLI without authentication for Server Enrollment (decision 053).
+	cliBinary fiber.Handler
 	// bootISOs builds, lists, and deletes Boot ISOs (decision 049).
 	bootISOs       *provisioningdelivery.BootISOHandler
 	serverStream   *serverdelivery.ServerStreamHandler
@@ -745,6 +759,12 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// BMCs mount this URL with no credential; Fiber's Get also answers HEAD, which BMCs send first.
 	if deps.bootMediaISO != nil {
 		app.Get(bootISORoute, deps.bootMediaISO)
+	}
+	// A host enrolling with its OS kept has no credential (decision 053): it fetches the script and
+	// the CLI it downloads without one. Neither carries a secret.
+	app.Get(provisioningapp.HostEnrollmentScriptPath, serveEnrollmentScript())
+	if deps.cliBinary != nil {
+		app.Get(provisioningapp.CLIDownloadPath, deps.cliBinary)
 	}
 	metricsHandler := func(c *fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, "text/plain; version=0.0.4")
@@ -879,6 +899,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/tasks/:id/retry", deps.provisioning.RetryProvisioningTask)
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
+	provisioning.Post("/integrations/:id/enroll-bundle", deps.provisioning.EnrollBundle)
 	// Boot ISOs (decision 049): built here, mounted by a Server's Boot Media.
 	if deps.bootISOs != nil {
 		provisioning.Get("/boot-isos", deps.bootISOs.List)

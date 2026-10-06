@@ -6,6 +6,7 @@ import { CopyButton } from '@/presentation/components/CopyButton'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
+import { downloadTextFile } from '@/presentation/utils/download'
 import { privateKeyFileName } from './sshKeyPresentation'
 
 interface GenerateSSHKeyDialogProps {
@@ -66,12 +67,7 @@ export function GenerateSSHKeyDialog({ onClose, onGenerated }: GenerateSSHKeyDia
 
   const download = () => {
     if (!secret) return
-    const url = URL.createObjectURL(new Blob([secret.privateKey], { type: 'application/x-pem-file' }))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = privateKeyFileName(secret.name)
-    anchor.click()
-    URL.revokeObjectURL(url)
+    downloadTextFile(privateKeyFileName(secret.name), secret.privateKey, 'application/x-pem-file')
   }
 
   if (secret) {

@@ -42,6 +42,7 @@ URL、可寫入的 storage directory，以及 iPXE asset 與 packaging tool：
 | `api.bootMedia.baseURL` | `SWALLOW_API_BOOT_MEDIA_BASE_URL` | BMC 連到 swallow 的位址，例如 `http://10.0.0.5`，不含路徑。 |
 | `api.bootMedia.dir` | `SWALLOW_API_BOOT_MEDIA_DIR` | 可寫入的 Boot ISO storage，預設 `/var/lib/swallow/boot-media`；file 存放於 `<dir>/<isoId>/swallow-ipxe.iso`。 |
 | `api.bootMedia.ipxeDir` | `SWALLOW_API_IPXE_DIR` | Prebuilt iPXE asset（`ipxe.lkrn`、`ipxe.efi`、`genfsimg`、`VERSION`），預設 `/usr/share/swallow/ipxe`。 |
+| `api.cliBinary` | `SWALLOW_API_CLI_BINARY` | 在 `/downloads/swallow` 提供的 linux-amd64 `swallow` CLI，給保留 OS 納管的主機下載；production bundle 會掛載其 `bin/swallow`。空值代表不提供下載。 |
 | `api.redfishProbeInterval` | `SWALLOW_API_REDFISH_PROBE_INTERVAL` | 對新加入或過期的 Server 進行 Redfish 偵測的頻率（預設 10m）。 |
 | `api.redfishProbeMaxAge` | `SWALLOW_API_REDFISH_PROBE_MAX_AGE` | 一次偵測結果的有效期（預設 24h）。 |
 

@@ -91,6 +91,12 @@ func normalizeAPIRoot(rawURL string) (string, error) {
 	return u.String(), nil
 }
 
+// regionURL is the MAAS region URL a host reaches, i.e. the API root without its "/api/2.0"
+// suffix (for example "http://10.0.0.5:5240/MAAS"); MAAS serves maas-run-scripts beneath it.
+func (c *Client) regionURL() string {
+	return strings.TrimSuffix(c.apiRoot, "/api/2.0")
+}
+
 // get issues an authenticated GET and decodes a JSON body into out.
 func (c *Client) get(ctx context.Context, path string, query url.Values, out any) error {
 	req, err := c.newRequest(ctx, http.MethodGet, path, query, nil, "")

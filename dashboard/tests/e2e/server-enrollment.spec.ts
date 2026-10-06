@@ -1,0 +1,77 @@
+import { expect, test } from 'playwright/test'
+import { installApiFixtures } from './fixtures'
+
+// Server Enrollment (decision 053): Add servers guides an operator one question at a time to the
+// one action that adds a Server, and the list says when hardware inspection needs attention.
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('swallow.appearance', 'light')
+  })
+})
+
+test('PXE with external DHCP shows the Boot ISO and Redfish commands to mount it', async ({ page }) => {
+  await installApiFixtures(page, { fleetSize: 0 })
+  await page.goto('/servers?site=site-a')
+
+  await expect(page.getByText('No servers yet')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review integrations' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Add servers' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Add servers' })
+
+  await dialog.getByRole('button', { name: /No, boot it from PXE/ }).click()
+  await dialog.getByRole('button', { name: /External DHCP/ }).click()
+  // Boot ISOs are listed by name, so edge-rack comes first.
+  const isoURL = 'http://192.0.2.1/boot-media/ipxe/iso-edge/swallow-ipxe.iso'
+  await expect(dialog.getByRole('textbox', { name: 'Boot ISO URL' })).toHaveValue(isoURL)
+
+  await dialog.getByRole('tab', { name: 'Redfish' }).click()
+  await dialog.getByRole('textbox', { name: 'BMC address' }).fill('10.0.0.50')
+  await dialog.getByRole('textbox', { name: 'BMC user' }).fill('root')
+  const commands = dialog.getByLabel('Redfish commands', { exact: true })
+  await expect(commands).toContainText("BMC='https://10.0.0.50'")
+  await expect(commands).toContainText(`"Image":"${isoURL}"`)
+  await expect(commands).toContainText("curl -sk -u 'root' -X PATCH")
+  await expect(dialog.getByText('Waiting for the server to appear…')).toBeVisible()
+})
+
+test('keeping the OS shows one command that downloads swallow from this console', async ({ page }) => {
+  const swallowUrls: string[] = []
+  await installApiFixtures(page, { fleetSize: 0, onEnrollmentRequest: (_method, _path, swallowUrl) => swallowUrls.push(swallowUrl) })
+  await page.goto('/servers?site=site-a')
+  await page.getByRole('button', { name: 'Add servers' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Add servers' })
+
+  await dialog.getByRole('button', { name: /Yes, keep its OS/ }).click()
+  // Two provisioners in the Site: nothing is read until the operator chooses one.
+  expect(swallowUrls).toEqual([])
+  await dialog.getByRole('combobox', { name: 'Provisioner' }).click()
+  await page.getByRole('option', { name: 'MAAS Taipei' }).click()
+
+  const origin = new URL(page.url()).origin
+  await expect(dialog.getByLabel('Enrollment command', { exact: true })).toContainText(
+    `curl -fsSL '${origin}/downloads/swallow-enroll.sh' | sudo sh -s -- --provisioner=maas --endpoint 'https://maas.example/MAAS' --token 'consumer-maas-a:token:secret'`,
+  )
+  await expect(dialog.getByText("Contains the provisioner's API key.")).toBeVisible()
+  expect(swallowUrls).toEqual([origin])
+})
+
+test('a Site without a provisioner is sent to connect one', async ({ page }) => {
+  await installApiFixtures(page, { fleetSize: 0, noProvisioners: true })
+  await page.goto('/servers?site=site-a')
+
+  await expect(page.getByText('No provisioner connected')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add servers' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Connect a provisioner' }).click()
+  await expect(page).toHaveURL(/\/infrastructure\/integrations\?site=site-a/)
+})
+
+test('hardware inspection waiting for attention points to Boot Media and the Workflow', async ({ page }) => {
+  await installApiFixtures(page, { inspectionAttentionServerIds: ['srv-2'] })
+  await page.goto('/servers?site=site-a')
+
+  await expect(page.getByText('Hardware inspection needs attention')).toBeVisible()
+  await expect(page.getByText("If the server can't PXE boot, enable its Boot Media, then retry.")).toBeVisible()
+  await page.getByRole('button', { name: 'View workflow' }).click()
+  await expect(page).toHaveURL(/\/workflows\/op-inspect-srv-2/)
+})

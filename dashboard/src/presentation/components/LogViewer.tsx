@@ -2,6 +2,7 @@ import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } 
 import { Box, Flex, IconButton, Input, InputGroup, Text } from '@chakra-ui/react'
 import { ChevronDown, ChevronUp, Copy, Download, RefreshCw, Search } from 'lucide-react'
 import { copyText } from '@/presentation/utils/clipboard'
+import { downloadTextFile } from '@/presentation/utils/download'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 
@@ -134,14 +135,7 @@ export function LogViewer({ text, label, downloadName, onRefresh, height = 520 }
     )
   }
 
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${downloadName}.log`
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }
+  const download = () => downloadTextFile(`${downloadName}.log`, text)
 
   return (
     <Box borderWidth="1px" borderColor="border" rounded="lg" overflow="hidden" bg="bg.panel">

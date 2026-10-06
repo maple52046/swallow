@@ -23,7 +23,11 @@ const (
 	// WorkflowKindVerifyOSImage proves an OS Image deploys for a deploy target by running a real
 	// deploy on an operator-chosen ready Server, recording the verification on success, then
 	// auto-releasing the Server (decision 035).
-	WorkflowKindVerifyOSImage    WorkflowKind = "verify-os-image"
+	WorkflowKindVerifyOSImage WorkflowKind = "verify-os-image"
+	// WorkflowKindInspectHardware inspects one Server's hardware through its provisioner: it waits
+	// for the provider's own enrollment to finish, applies Boot Media, and makes bounded inspection
+	// attempts (decision 053). Launched by Inspect and by the automatic sweep, never by playbook.
+	WorkflowKindInspectHardware  WorkflowKind = "inspect-hardware"
 	WorkflowKindDeployKubernetes WorkflowKind = "deploy-kubernetes"
 	// WorkflowKindUninstallKubernetes removes the k0s installation created by a
 	// deploy-kubernetes operation while preserving the host operating system.
@@ -72,6 +76,7 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindReleaseOS,
 	WorkflowKindRecoverServer,
 	WorkflowKindVerifyOSImage,
+	WorkflowKindInspectHardware,
 	WorkflowKindInstallGPUDriver,
 	WorkflowKindDeployKubernetes,
 	WorkflowKindUninstallKubernetes,

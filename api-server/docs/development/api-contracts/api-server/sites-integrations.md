@@ -69,3 +69,17 @@ successful deployment because it manages only self-deployed platforms
 ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)).
 Existing `platform` Integrations remain readable, updatable, and deletable; only creating a new
 one through this route is refused.
+
+## Provisioner settings
+
+`settings` is a string map of non-secret adapter options. Keys a provisioner Integration
+recognises:
+
+| Key | Values | Meaning |
+| --- | --- | --- |
+| `timeout` | Go duration, e.g. `"45s"` | Bound on one provider API call; absent means 30 seconds. |
+| `insecureSkipVerify` | `"true"` or absent | Skip TLS verification of the provider endpoint. |
+| `autoInspect` | `"false"` or absent | Absent (or any value other than `"false"`) starts hardware inspection automatically for newly enrolled Servers ([server-enrollment.md](server-enrollment.md)). `"false"` turns it off; Inspect stays available on request. |
+
+`autoInspect` is read on every sweep, so an update takes effect without restarting anything. An
+Integration created before the key existed has it absent, which means on.

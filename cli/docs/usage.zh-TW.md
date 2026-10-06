@@ -276,7 +276,18 @@ swallow integrations create -f integration.yaml
 swallow integrations update int1 -f patch.yaml
 swallow integrations credential set int1 -f credential.yaml
 swallow integrations delete int1
+
+# 保留 OS 主機的 Server Enrollment（會印出 provisioner 的 API key）
+swallow integrations enroll-bundle int1
+swallow integrations enroll-bundle int1 --swallow-url https://swallow.example.com
 ```
+
+`enroll-bundle` 會回傳一行要在主機上執行的 `command`。它會從 `--swallow-url` 的位址
+（預設為已設定的 endpoint）下載 enrollment script 與 swallow CLI，因此主機必須能以該
+位址連到 swallow。
+
+provisioner 的 `settings.autoInspect: "false"` 會關閉新納管 Server 的自動硬體檢視；
+未設定代表開啟。
 
 `integration.yaml`（kind 可為 `provisioner` 或 `metrics`；`platform` 會被拒絕）：
 
@@ -311,7 +322,7 @@ swallow servers provisioning-tasks srv1
 # Provider-backed lifecycle actions（無 body）：
 swallow servers power-on srv1
 swallow servers power-off srv1
-swallow servers inspect srv1              # 硬體檢視（MAAS 稱為 commission）
+swallow servers inspect srv1              # inspect-hardware Workflow，或 retry 等待處理的那一個（MAAS：commission）
 swallow servers test srv1
 swallow servers abort srv1
 swallow servers override-failed-testing srv1
@@ -344,6 +355,20 @@ swallow servers redfish-probe srv1
 `link.yaml`：
 `{ mode: static, subnetId: "11", ipAddress: "192.0.2.20", defaultGateway: true }`
 （`mode` 可為 `dhcp | static | link_only`；只有 `static` 需要 `ipAddress`）。
+
+`servers enroll` 要以 root **在要納管的主機上**執行，不會呼叫 swallow API：它在主機
+保留 OS 的情況下把主機註冊到 provisioner，下一次同步後 Server 會以 `deployed` 出現。
+通常由 `integrations enroll-bundle` 或 Dashboard **Add servers** 給的 enrollment 指令
+下載 CLI 並代為執行。`--endpoint` 與 `--token` 是 provisioner 的，不是 swallow 的。
+
+```bash
+sudo swallow servers enroll --provisioner=maas \
+  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' [--hostname db-03]
+# 以 SWALLOW_ENROLL_TOKEN 傳入可避免 key 留在 shell history
+```
+
+MAAS 會從 endpoint 下載 `maas-run-scripts`，執行 `register-machine` 與
+`report-results`，最後刪除下載的檔案。主機需要 `python3`。
 
 ### provisioning
 
@@ -580,7 +605,8 @@ jq -n '{serverIds:["srv1"],settings:{imageId:"ubuntu/noble",deployTarget:"disk"}
   | swallow provisioning deploy -f -
 ```
 
-Server 來自 provisioner reconciliation，因此不存在 `servers create`。Script
+Server 來自 provisioner reconciliation，因此不存在 `servers create`；
+`servers enroll` 則是把主機放進 provisioner 的 inventory。Script
 建議使用 `-o json`、檢查 process exit code、保留 error request ID、明確傳入
 `--site-id`，並依
 [provider-owned contract](../../api-server/docs/development/api-contracts/api-server/outline.md)

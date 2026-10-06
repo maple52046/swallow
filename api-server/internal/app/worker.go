@@ -156,24 +156,26 @@ func RunWorker(cfg config.APIConfig) error {
 		managedPlatformIntegrationCleaner{integrations: integrations},
 	)
 	// Boot Media's ensure-boot-media Task (decisions 047 and 049) drives the BMC over Redfish with
-	// the connection read live from the provisioner. The Boot ISO URL comes frozen in the Task, so
-	// the worker reads no Boot ISO file; the catalog only completes the use case, whose enable and
-	// view paths the worker never calls, and the guard is unused here.
+	// the connection read live from the provisioner. An OS deployment's Task carries the Boot ISO
+	// URL frozen at acceptance; an inspect-hardware Task resolves the Server's Boot ISO when it
+	// runs (decision 053), so the worker's catalog needs the Boot Media directory and base URL like
+	// the API's. The enable and view paths of the use case are never called here, and the guard is
+	// unused.
 	bootISORepo, err := provisioninginfra.NewMongoBootISORepo(db)
 	if err != nil {
 		return fmt.Errorf("boot ISO repo init: %w", err)
 	}
+	bootISOs := newBootISOCatalog(bootISORepo,
+		provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
+		cfg.BootMedia.BaseURL)
 	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
-		bmcEndpointSource{providers: providers}, redfish.NewController(),
-		newBootISOCatalog(bootISORepo,
-			provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
-			cfg.BootMedia.BaseURL))
+		bmcEndpointSource{providers: providers}, redfish.NewController(), bootISOs)
 	providerExecutor.bootMedia = bootMedia
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership,
 			finalizer: platformFinalizer, imageVerifications: osImageVerifications,
-			software: softwareAssignments, bootMedia: bootMedia, poll: 5 * time.Second,
+			software: softwareAssignments, bootMedia: bootMedia, bootISOs: bootISOs, poll: 5 * time.Second,
 		},
 		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,

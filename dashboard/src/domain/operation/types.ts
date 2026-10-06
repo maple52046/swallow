@@ -220,3 +220,11 @@ export function isInFlightStatus(status: OperationStatus): boolean {
     status === "waiting_dependency"
   );
 }
+
+/**
+ * The Workflow kind that inspects one Server's hardware (decision 053, contract
+ * server-enrollment.md). It runs automatically for newly enrolled Servers and on Inspect; one
+ * waiting in `requires_attention` usually means the Server could not network-boot into its
+ * provisioner, which Boot Media fixes on an externally served network.
+ */
+export const INSPECT_HARDWARE_WORKFLOW_KIND = "inspect-hardware";

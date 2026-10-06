@@ -5,6 +5,41 @@
 Servers are reconciled projections of provisioner machines. Operators inspect,
 organize, protect, and act on them; they do not create Server records.
 
+## Add servers
+
+A machine becomes a Server once it is in the provisioner's inventory. **Servers →
+Add servers** (also on an empty Server list) asks one question at a time and ends
+on the one thing to do, then waits and lists each Server as it appears. A Site
+without a provisioner shows **Connect a provisioner** instead.
+
+| Answers | What you do | Result |
+| --- | --- | --- |
+| Boot from PXE, provisioner DHCP | Boot the server from PXE (reboot or power it on yourself). | **New**, then inspected automatically to **Ready**. |
+| Boot from PXE, external DHCP | PXE goes through the iPXE Boot ISO: mount the shown Boot ISO URL from the BMC console (Virtual Media, boot once from the virtual CD) or run the generated Redfish commands; when the Server appears, enable its [Boot Media](os-provisioning.md#boot-media-for-networks-without-provisioner-dhcp). | Same as above. |
+| Keep its OS | Run the shown command on the server. | **Deployed**, OS untouched, no reboot. |
+
+You never press *Commission* in MAAS: swallow waits until enlistment powers the
+machine off, then inspects it (see [Inspect hardware](#inspect-hardware)).
+
+The Redfish tab takes the BMC address and user, then prints `curl` commands that
+insert the virtual media, set a one-time boot from it, and power the system on;
+`curl` asks for the BMC password. The commands assume system `1` and virtual
+media `CD1` and show how to list the real IDs.
+
+The keep-OS command needs nothing installed beforehand:
+
+```bash
+curl -fsSL 'https://swallow.example.com/downloads/swallow-enroll.sh' \
+  | sudo sh -s -- --provisioner=maas --endpoint '<MAAS URL>' --token '<MAAS API key>'
+```
+
+The script downloads the swallow CLI from your installation and runs
+`swallow servers enroll`, which wraps MAAS `maas-run-scripts register-machine` and
+`report-results`. The host needs `curl`, `python3`, and HTTP access to
+swallow and MAAS (Ubuntu, x86_64). It is never followed by automatic inspection,
+which would reboot the host. The command contains the provisioner's API key, which
+MAAS requires; run it only on trusted hosts and rotate the key in MAAS otherwise.
+
 ## Inventory and details
 
 The Servers list supports Site scope, pagination, search, status and capability
@@ -88,11 +123,31 @@ first, followed by conditions that need attention.
 
 ## Inspect hardware
 
-Choose **Take action → Hardware checks → Inspect hardware** to ask the
-provisioner to re-inventory a Server's hardware. MAAS calls this action
+Hardware inspection runs as an `inspect-hardware` Workflow. It starts by itself
+for a Server that network-boot enrollment just brought in, and on request with
+**Take action → Hardware checks → Inspect hardware**. MAAS calls this action
 *Commission*. The Deployment state is **Inspecting** while it runs. The Server
-detail Summary card's **Inspection** field continues to show the provider's
-last result label, such as *Passed*.
+detail Summary card's **Inspection** field continues to show the provider's last
+result label, such as *Passed*.
+
+The Workflow first waits until enrollment ends (for MAAS, the machine powers
+off), applies the Server's Boot Media if it is enabled, and then makes up to
+three inspection attempts. An attempt that records no provider progress for 15
+minutes is aborted, which returns a never-inspected MAAS machine to **New**. When
+the attempts run out, the Workflow asks for attention: the Server list and the
+Server detail page show **Hardware inspection needs attention** with a link to
+the Workflow, which holds the reason. swallow does not mark the Server failed.
+
+The usual cause is a Server that could not network-boot into the provisioner.
+Enable its Boot Media if its network is not served by the provisioner's DHCP,
+then retry the Workflow's Task or choose **Inspect hardware** again; either
+re-runs the whole inspection with Boot Media applied.
+
+Automatic inspection applies to Servers swallow first saw within the last 24
+hours that were never inspected by swallow. Turn it off per provisioner with
+**Inspect newly enrolled Servers automatically** in the Integration dialog;
+Inspect hardware stays available. Inspect is refused while a Server is deployed,
+allocated, in rescue, or busy with other provider work or another Workflow.
 
 ## Provider and observation failures
 
@@ -132,6 +187,7 @@ swallow servers list --site-id site1 --provisioning-state deployed
 swallow servers list --site-id site1 --provisioning-state inspecting
 swallow servers get server1
 swallow servers inspect server1
+swallow integrations enroll-bundle int1          # existing-OS command (contains the MAAS API key)
 swallow provisioning tags edit --server server1 --add amd-gpu
 swallow infrastructure zones list --site-id site1
 ```

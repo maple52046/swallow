@@ -39,6 +39,11 @@ type providerStepExecutor struct {
 	// bootMediaMediaWait and bootMediaBootWait override bootMediaMediaCheck and
 	// bootMediaBootCheck in tests.
 	bootMediaMediaWait, bootMediaBootWait time.Duration
+	// The inspect-hardware timings (inspection_steps.go) are overridden only in tests; zero uses
+	// the production defaults there.
+	enrollmentSettleWait, enrollmentSettlePoll                                           time.Duration
+	inspectionStallWait, inspectionAttemptWait, inspectionStartWait, inspectionAbortWait time.Duration
+	inspectionAttempts                                                                   int
 }
 
 const (
@@ -104,6 +109,10 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 			}
 		}
 		return result
+	case waitEnrollmentTaskKind:
+		return e.waitEnrollmentSettled(ctx, input)
+	case inspectTaskKind:
+		return e.inspectServer(ctx, input)
 	default:
 		return providerFailed("unsupported_step", "The provider Step kind is not supported.", false).StepExecutionResult
 	}

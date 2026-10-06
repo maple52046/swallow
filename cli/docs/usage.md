@@ -282,7 +282,18 @@ swallow integrations create -f integration.yaml
 swallow integrations update int1 -f patch.yaml
 swallow integrations credential set int1 -f credential.yaml
 swallow integrations delete int1
+
+# Server Enrollment for hosts that keep their OS (prints the provisioner's API key)
+swallow integrations enroll-bundle int1
+swallow integrations enroll-bundle int1 --swallow-url https://swallow.example.com
 ```
+
+`enroll-bundle` returns a one-line `command` to run on the host. It downloads the
+enrollment script and the swallow CLI from the address in `--swallow-url`
+(default: the configured endpoint), so the host must reach swallow at it.
+
+`settings.autoInspect: "false"` on a provisioner turns automatic hardware
+inspection of newly enrolled Servers off; absent means on.
 
 `integration.yaml` (kind is `provisioner` or `metrics`; `platform` is rejected):
 
@@ -317,7 +328,7 @@ swallow servers provisioning-tasks srv1
 # Provider-backed lifecycle actions (no body):
 swallow servers power-on srv1
 swallow servers power-off srv1
-swallow servers inspect srv1              # hardware inspection (MAAS calls it commission)
+swallow servers inspect srv1              # inspect-hardware Workflow, or retry the one waiting for attention (MAAS: commission)
 swallow servers test srv1
 swallow servers abort srv1
 swallow servers override-failed-testing srv1
@@ -349,6 +360,23 @@ swallow servers redfish-probe srv1
 
 `link.yaml`: `{ mode: static, subnetId: "11", ipAddress: "192.0.2.20", defaultGateway: true }`
 (`mode` is `dhcp | static | link_only`; `ipAddress` required only for `static`).
+
+`servers enroll` runs **on the host being enrolled**, as root, and never calls the
+swallow API: it registers the host with the provisioner while the host keeps its
+OS, and the Server appears as `deployed` after the next sync. Usually the enrollment
+command from `integrations enroll-bundle` or the Dashboard's **Add servers**
+downloads the CLI and runs it for you. Its `--endpoint` and `--token` are the
+provisioner's, not swallow's.
+
+```bash
+sudo swallow servers enroll --provisioner=maas \
+  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' [--hostname db-03]
+# SWALLOW_ENROLL_TOKEN keeps the key out of shell history
+```
+
+For MAAS it downloads `maas-run-scripts` from the endpoint, runs
+`register-machine` and `report-results`, and deletes what it downloaded. The host
+needs `python3`.
 
 ### provisioning
 
@@ -585,7 +613,8 @@ jq -n '{serverIds:["srv1"],settings:{imageId:"ubuntu/noble",deployTarget:"disk"}
   | swallow provisioning deploy -f -
 ```
 
-Servers come from provisioner reconciliation, so there is no `servers create`.
+Servers come from provisioner reconciliation, so there is no `servers create`;
+`servers enroll` puts a host into the provisioner's inventory instead.
 For scripts, prefer `-o json`, check the process exit code, preserve error
 request IDs, pass an explicit `--site-id`, and derive structured body fields
 from the

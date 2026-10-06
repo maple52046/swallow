@@ -159,6 +159,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SWALLOW_API_IPXE_DIR"); v != "" {
 		cfg.API.BootMedia.IPXEDir = v
 	}
+	if v := os.Getenv("SWALLOW_API_CLI_BINARY"); v != "" {
+		cfg.API.CLIBinary = v
+	}
 	if v := os.Getenv("SWALLOW_API_REDFISH_PROBE_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.RedfishProbeInterval = d

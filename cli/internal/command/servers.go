@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/maple52046/swallow/cli/internal/client"
+	"github.com/maple52046/swallow/cli/internal/hostenroll"
 )
 
 // newServersCommand groups the Servers surface: the inventory list and stream,
@@ -16,9 +17,11 @@ import (
 // servers-stream.md, server-detail-actions.md, infrastructure.md).
 //
 // There is intentionally no `servers create`: Servers are produced by
-// reconciling provisioner inventory, not registered by a caller. The deprecated
-// single-server deploy/release routes are also omitted; use the durable
-// provisioning operations instead (`swallow provisioning deploy|release`).
+// reconciling provisioner inventory, not registered by a caller. `servers enroll`
+// is not one either: it runs on a host and puts it into the provisioner's
+// inventory (server-enrollment.md). The deprecated single-server deploy/release
+// routes are also omitted; use the durable provisioning operations instead
+// (`swallow provisioning deploy|release`).
 func newServersCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "servers",
@@ -38,6 +41,7 @@ func newServersCommand() *cobra.Command {
 		serversPlacementCmd(),
 		serversBootMediaCmd(),
 		serversRedfishProbeCmd(),
+		serversEnrollCmd(),
 	)
 	cmd.AddCommand(serversActionCmds()...)
 	return cmd
@@ -197,7 +201,7 @@ func serversActionCmds() []*cobra.Command {
 	actions := []action{
 		{"power-on", "Power the Server on"},
 		{"power-off", "Power the Server off"},
-		{"inspect", "Re-inventory the Server's hardware (MAAS: commission)"},
+		{"inspect", "Inspect the Server's hardware as an inspect-hardware Workflow, or retry the one waiting for attention (MAAS: commission)"},
 		{"test", "Run hardware testing"},
 		{"abort", "Abort the current provider operation"},
 		{"override-failed-testing", "Override a failed testing result"},
@@ -221,6 +225,43 @@ func serversActionCmds() []*cobra.Command {
 		})
 	}
 	return cmds
+}
+
+// serversEnrollCmd enrolls the host it runs on into a provisioner while the host
+// keeps its OS (server-enrollment.md, decision 053). Unlike every other command it
+// does not call api-server: it drives the provisioner's own tooling through the
+// hostenroll package, and the Server appears in swallow as `deployed` after the
+// next reconcile. Its --endpoint and --token therefore name the provisioner and
+// shadow the global api-server flags of the same name.
+func serversEnrollCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "enroll",
+		Short: "Enroll this host into its provisioner, keeping its OS (run as root on the host)",
+		Long: "Register the host this command runs on with the provisioner and record its hardware, without a reboot. " +
+			"Usually run by the enrollment script from the command in the Dashboard (Servers > Add servers) or " +
+			"`swallow integrations enroll-bundle`, which downloads this CLI first. " +
+			"--endpoint and --token are the provisioner's, not swallow's. MAAS needs python3 on the host.",
+		Example: "  sudo swallow servers enroll --provisioner=maas --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>'",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			provisioner, _ := cmd.Flags().GetString("provisioner")
+			endpoint, _ := cmd.Flags().GetString("endpoint")
+			token, _ := cmd.Flags().GetString("token")
+			if token == "" {
+				token = os.Getenv("SWALLOW_ENROLL_TOKEN")
+			}
+			hostname, _ := cmd.Flags().GetString("hostname")
+			return hostenroll.Enroll(ctx(cmd), hostenroll.Options{
+				Provisioner: provisioner, Endpoint: endpoint, Token: token, Hostname: hostname,
+				Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
+			})
+		},
+	}
+	cmd.Flags().String("provisioner", "", "provisioner kind (supported: maas)")
+	cmd.Flags().String("endpoint", "", "provisioner address this host reaches, e.g. the MAAS region URL (not the swallow API)")
+	cmd.Flags().String("token", "", "provisioner credential from the enrollment bundle; SWALLOW_ENROLL_TOKEN keeps it out of shell history")
+	cmd.Flags().String("hostname", "", "name to register this host under (default: the short host name)")
+	return cmd
 }
 
 // serversNetworkCmd groups the structured network configuration reads and link

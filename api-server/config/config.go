@@ -106,6 +106,12 @@ type APIConfig struct {
 	// (decisions 047 and 049). Optional: without BaseURL no Boot ISO can be built or mounted, and
 	// every build or enable request explains what is missing.
 	BootMedia BootMediaConfig `yaml:"bootMedia"`
+	// CLIBinary is the path of the linux-amd64 swallow CLI this process serves, without
+	// authentication, at /downloads/swallow for Server Enrollment (decision 053): a host that keeps
+	// its OS downloads it from the installation instead of the internet. The production bundle
+	// ships it at bin/swallow. Optional: empty or missing makes the download, and so enrollment from
+	// the generated command, fail with 404 and a reason. The file is public; it holds no secret.
+	CLIBinary string `yaml:"cliBinary"`
 	// RedfishProbeInterval is how often the API process looks for Servers whose Redfish capability
 	// is missing (a newly enrolled Server) or older than RedfishProbeMaxAge, and probes them.
 	RedfishProbeInterval time.Duration `yaml:"redfishProbeInterval"`

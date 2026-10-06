@@ -31,16 +31,18 @@ internal/command       Cobra command tree; one file per resource group
 internal/client        the only HTTP adapter: base path, auth, error envelope, SSE, upload
 internal/output        rendering (table/json/yaml) of opaque decoded payloads
 internal/config        profile resolution and persistence (file, env, flags)
+internal/hostenroll    host-side Server Enrollment: drives a provisioner's own tooling on this host
 ```
 
 Dependency direction:
 
-- `command` depends on `client`, `output`, and `config`.
-- `client`, `output`, and `config` do not depend on `command` and do not depend
-  on each other (they are independent leaf packages).
+- `command` depends on `client`, `output`, `config`, and `hostenroll`.
+- `client`, `output`, `config`, and `hostenroll` do not depend on `command` and
+  do not depend on each other (they are independent leaf packages).
 - No package imports `api-server`. No package reaches outside these boundaries
   for HTTP, credentials, or rendering — those responsibilities live in exactly
-  one package each (single source of truth).
+  one package each (single source of truth). `hostenroll` is the only package
+  besides `client` that makes HTTP requests, and only to a provisioner.
 
 ### Layer responsibilities
 
@@ -60,6 +62,13 @@ Dependency direction:
   JSON, or YAML. It knows nothing about specific resources, so it works for every
   endpoint; table rendering is a best-effort convenience and JSON/YAML are the
   lossless formats.
+- **hostenroll** — the one exception to "the CLI only talks to api-server".
+  `swallow servers enroll` runs on a host that keeps its OS and registers it with
+  its provisioner (decision 053), because hardware facts can only be read on that
+  host. The package downloads and runs the provisioner's own tooling (MAAS
+  `maas-run-scripts`) with the endpoint and credential from api-server's
+  enrollment bundle, never calls api-server, and never persists or prints the
+  credential. Provider vocabulary stays inside it.
 - **config** — resolves the connection profile from file, then `SWALLOW_*`
   environment, then flags, and persists the credential: a Session's access and
   refresh tokens (re-reading the file before each write so concurrent `swallow`

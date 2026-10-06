@@ -38,7 +38,8 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    in `secrets/` (mode 0700) with `prepare-secrets.sh`;
 3. pulls only missing images, starts MongoDB and PostgreSQL, runs `swallow-api migrate`,
    creates the Deployment Key (`swallow-api deployment-key ensure`), and starts the stack;
-4. installs the bundled CLI to `/usr/local/bin/swallow`;
+4. installs the bundled CLI to `/usr/local/bin/swallow` (the API also serves `bin/swallow`
+   at `/downloads/swallow` for hosts that enroll with their OS kept);
 5. runs [`local-maas.sh`](local-maas.sh): creates the `maas` role and `maasdb` database in
    the Compose PostgreSQL, installs and initializes the MAAS snap, creates the MAAS `admin`,
    stores its API key, and waits until the official `ubuntu/noble` amd64 image is complete;

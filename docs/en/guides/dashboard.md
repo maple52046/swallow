@@ -11,7 +11,7 @@ current session in the browser.
 | Area | What it is for |
 | --- | --- |
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
-| Servers | Inventory, filters, saved views, bulk actions, tags, locks, and Server details including Boot Media |
+| Servers | Inventory, Add servers (enrollment guidance), filters, saved views, bulk actions, tags, locks, and Server details including Boot Media |
 | Provisioning | OS deployment, templates, images, Boot ISOs, upload, and verification |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Docker CE, Podman, and NFS installation state and actions |

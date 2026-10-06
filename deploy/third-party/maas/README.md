@@ -23,7 +23,8 @@ Machines reach MAAS at `http://<primary IPv4>:5240/MAAS`; set `SWALLOW_MAAS_URL`
 first install to choose another address. Third-party or custom OS images are not installed.
 
 DNS, L2/DHCP/PXE routing, and BMC access remain Site-owned inputs: enable DHCP on the PXE
-network in MAAS before commissioning machines.
+network in MAAS before network-booting machines. swallow commissions network-booted machines
+itself (hardware inspection) once MAAS has enlisted them.
 
 Official references:
 

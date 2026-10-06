@@ -1,0 +1,4 @@
+# The swallow CLI built for local Server Enrollment testing lands here; the dev API serves it at
+# /downloads/swallow. It is a build output, so keep it out of git.
+*
+!.gitignore

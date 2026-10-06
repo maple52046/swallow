@@ -14,6 +14,7 @@ import type {
   DeployServersInput,
   DeployServersResult,
   EditServerTagsInput,
+  HostEnrollmentBundle,
   ProvisioningOperationReference,
   RecoverServersOperationInput,
   ReleaseServersOperationInput,
@@ -278,6 +279,18 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     await apiRequest<void>(
       `/api/v1/provisioning/boot-isos/${encodeURIComponent(id)}`,
       { method: "DELETE" },
+    );
+  }
+
+  async getHostEnrollmentBundle(
+    integrationId: string,
+    swallowUrl: string,
+  ): Promise<HostEnrollmentBundle> {
+    // The response carries the provisioner's credential (contract server-enrollment.md), so it is
+    // fetched with no-store and returned straight to the caller; nothing here keeps or logs it.
+    return apiRequest<HostEnrollmentBundle>(
+      `/api/v1/provisioning/integrations/${encodeURIComponent(integrationId)}/enroll-bundle`,
+      { method: "POST", cache: "no-store", body: JSON.stringify({ swallowUrl }) },
     );
   }
 }

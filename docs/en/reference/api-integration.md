@@ -90,6 +90,17 @@ is omitted when unknown, including on an older projection until the state is
 observed again; clients must accept its absence. This is a swallow observation
 timestamp, not the provider's exact transition time.
 
+Since 2026-10-06, `POST /api/v1/servers/{id}/inspect` runs an `inspect-hardware`
+Workflow instead of a single provider call. The `202` response keeps the
+provisioning snapshot and adds `workflowId` and `resumed`; follow the Workflow
+rather than polling the Server state alone. Inspect from `deployed`,
+`allocated`, `rescue`, `retired`, or an in-progress state, and Inspect while
+another Workflow holds the Server, now return `409 conflict`. A provisioner
+Integration's `settings.autoInspect: "false"` turns automatic inspection of newly
+enrolled Servers off. See the
+[Server Enrollment contract](../../../api-server/docs/development/api-contracts/api-server/server-enrollment.md),
+which also defines the existing-OS enrollment bundle.
+
 ## Contract directory
 
 Start with:

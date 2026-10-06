@@ -10,6 +10,7 @@ import type {
   DeployServersInput,
   DeployServersResult,
   EditServerTagsInput,
+  HostEnrollmentBundle,
   ProvisioningOperationReference,
   RecoverServersOperationInput,
   ReleaseServersOperationInput,
@@ -147,6 +148,16 @@ export interface ProvisioningRepository {
    * uses it (the message names how many), and `not_found` when it is already gone.
    */
   deleteBootISO(id: string): Promise<void>;
+  /**
+   * Reads the existing-OS enrollment bundle of one provisioner Integration (contract
+   * server-enrollment.md): its endpoint, its credential, and the one-line command a host runs to
+   * enroll itself while keeping its OS. `swallowUrl` is the address the host reaches swallow at
+   * (the console's own origin); the command downloads the enrollment script and the CLI from it.
+   * The credential is a secret the caller must keep in memory only. Rejects with
+   * `validation_error` for an unusable `swallowUrl` or a provisioner without existing-host
+   * enrollment, and `provider_unavailable` when the Integration has no stored credential.
+   */
+  getHostEnrollmentBundle(integrationId: string, swallowUrl: string): Promise<HostEnrollmentBundle>;
 }
 
 /**

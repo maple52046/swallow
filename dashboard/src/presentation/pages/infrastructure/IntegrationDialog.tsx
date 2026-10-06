@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Button, Field, Heading, Input, Stack } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
-import type { Integration, IntegrationKind, Site } from '@/domain/site/types'
+import { AUTO_INSPECT_SETTING, autoInspectEnabled, type Integration, type IntegrationKind, type Site } from '@/domain/site/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -250,6 +250,20 @@ export function IntegrationDialog({
                 Skip certificate verification
               </Checkbox>
             </Field.Root>
+            {kind === 'provisioner' && (
+              <Field.Root>
+                <Field.Label>Hardware inspection</Field.Label>
+                {/* Stored only as "false" when off; absent means on (contract sites-integrations.md). */}
+                <Checkbox
+                  id="integration-auto-inspect"
+                  checked={autoInspectEnabled({ settings })}
+                  onCheckedChange={(checked) => setSetting(AUTO_INSPECT_SETTING, checked ? '' : 'false')}
+                >
+                  Inspect newly enrolled Servers automatically
+                </Checkbox>
+                <Field.HelperText>Swallow waits until enrollment ends, then inspects the hardware so the Server becomes Ready.</Field.HelperText>
+              </Field.Root>
+            )}
             {providerKind === 'prometheus' && (
               <>
                 <Field.Root>

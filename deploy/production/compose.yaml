@@ -139,6 +139,9 @@ services:
       # dashboard's port 80. An empty base URL keeps Boot Media off.
       SWALLOW_API_BOOT_MEDIA_DIR: /var/lib/swallow/boot-media
       SWALLOW_API_BOOT_MEDIA_BASE_URL: ${SWALLOW_BOOT_MEDIA_BASE_URL:-}
+      # Server Enrollment (decision 053): hosts that keep their OS download the bundled CLI from
+      # /downloads/swallow, so the bundle's bin/ is mounted read-only.
+      SWALLOW_API_CLI_BINARY: /usr/local/share/swallow/bin/swallow
     secrets:
       - mongo_uri
       - jwt_secret
@@ -148,6 +151,7 @@ services:
     volumes:
       - job-artifacts:/var/lib/swallow/jobs
       - boot-media:/var/lib/swallow/boot-media
+      - ./bin:/usr/local/share/swallow/bin:ro
     tmpfs:
       - /run/swallow/jobs:uid=10001,gid=10001,mode=0700
       - /tmp:uid=10001,gid=10001,mode=1777
@@ -187,6 +191,10 @@ services:
       SWALLOW_API_TEMPORAL_NAMESPACE: default
       SWALLOW_API_TEMPORAL_TASK_QUEUE: swallow-operations
       SWALLOW_API_JOB_ARTIFACT_DIR: /var/lib/swallow/jobs
+      # Hardware inspection resolves a Server's Boot ISO when its ensure-boot-media Task runs
+      # (decision 053), so the worker reads the Boot ISO files and their URL like the API does.
+      SWALLOW_API_BOOT_MEDIA_DIR: /var/lib/swallow/boot-media
+      SWALLOW_API_BOOT_MEDIA_BASE_URL: ${SWALLOW_BOOT_MEDIA_BASE_URL:-}
     secrets:
       - mongo_uri
       - jwt_secret
@@ -195,6 +203,7 @@ services:
       - machine_token
     volumes:
       - job-artifacts:/var/lib/swallow/jobs:ro
+      - boot-media:/var/lib/swallow/boot-media:ro
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777
     networks: [control, egress]

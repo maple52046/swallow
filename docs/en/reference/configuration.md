@@ -44,6 +44,7 @@ and packaging tools:
 | `api.bootMedia.baseURL` | `SWALLOW_API_BOOT_MEDIA_BASE_URL` | The address BMCs reach swallow at, for example `http://10.0.0.5`, without a path. |
 | `api.bootMedia.dir` | `SWALLOW_API_BOOT_MEDIA_DIR` | Writable Boot ISO storage; default `/var/lib/swallow/boot-media`. Files are stored as `<dir>/<isoId>/swallow-ipxe.iso`. |
 | `api.bootMedia.ipxeDir` | `SWALLOW_API_IPXE_DIR` | Prebuilt iPXE assets (`ipxe.lkrn`, `ipxe.efi`, `genfsimg`, `VERSION`); default `/usr/share/swallow/ipxe`. |
+| `api.cliBinary` | `SWALLOW_API_CLI_BINARY` | The linux-amd64 `swallow` CLI served at `/downloads/swallow` for hosts that enroll keeping their OS; the production bundle mounts its `bin/swallow`. Empty disables the download. |
 | `api.redfishProbeInterval` | `SWALLOW_API_REDFISH_PROBE_INTERVAL` | How often new or stale Servers get a Redfish probe (default 10m). |
 | `api.redfishProbeMaxAge` | `SWALLOW_API_REDFISH_PROBE_MAX_AGE` | How long a probe stays current (default 24h). |
 

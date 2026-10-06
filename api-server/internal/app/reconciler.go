@@ -187,6 +187,32 @@ func runAutoExporterDeploy(ctx context.Context, autoDeploy *operationapp.AutoExp
 	}
 }
 
+// runAutoInspect starts hardware inspection for newly enrolled Servers on an interval, until ctx
+// is cancelled (decision 053). It shares the reconcile cadence: a Server becomes eligible only
+// after a reconcile pass has projected it as new. Each Server gets at most one automatic
+// inspect-hardware Workflow, so a rerun is cheap; the Workflow itself waits for the provider's
+// enrollment to finish, so the sweep never needs to.
+func runAutoInspect(ctx context.Context, autoInspect *provisioningapp.AutoInspectUseCase, interval time.Duration) {
+	inspectOnce := func() {
+		if _, err := autoInspect.Run(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("auto-inspect: sweep failed: %v", err)
+		}
+	}
+
+	inspectOnce()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("auto-inspect stopped")
+			return
+		case <-ticker.C:
+			inspectOnce()
+		}
+	}
+}
+
 func syncMembershipOnce(ctx context.Context, membership *platformapp.MembershipSyncUseCase) {
 	reports, err := membership.ExecuteAll(ctx)
 	if err != nil {
