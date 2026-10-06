@@ -5,16 +5,19 @@ import {
   ChevronDown,
   ChevronRight,
   CircleCheckBig,
+  Eye,
   Filter,
   Lock,
   MemoryStick,
   PenLine,
   Plus,
   RefreshCw,
+  Rocket,
   SlidersHorizontal,
   Tags,
   TriangleAlert,
   UploadCloud,
+  type LucideIcon,
 } from 'lucide-react'
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
@@ -62,22 +65,23 @@ import { failedServerActionOutcomes, type ServerActionRunResult, type ServerActi
 import { AddServersDialog } from './AddServersDialog'
 import { InspectionAttentionAlert } from './InspectionAttentionAlert'
 import { useInspectionAttention } from './useInspectionAttention'
+import { SERVER_ACTIVITY_SECTION_TITLES } from './serverActivitySections'
 import {
   compareServerInventory,
   hasServerInventoryFilters,
-  hasServerDeploymentIssue,
-  isServerDeploymentChanging,
   isServerChanging,
   matchesServerInventoryQuery,
   normalizeServerInventoryParams,
   parseServerInventoryQuery,
   serverContextAction,
+  serverContextActionPath,
   serverDeploymentCellInputs,
   serverFleetFacts,
   serverGpuProfile,
   serverInventoryGroupValue,
   serverRowTone,
   sortedServerTags,
+  type ServerContextAction,
   type ServerInventoryDirection,
   type ServerInventoryGroup,
   type ServerInventoryQuery,
@@ -252,12 +256,6 @@ function activeAdvancedFilterCount(query: ServerInventoryQuery): number {
     query.lock !== 'any',
     query.includeAbsent,
   ].filter(Boolean).length
-}
-
-function appendQuery(href: string, key: string, value: string): string {
-  const target = new URL(href, window.location.origin)
-  target.searchParams.append(key, value)
-  return `${target.pathname}${target.search}${target.hash}`
 }
 
 function siteNameOf(server: Server, sites: readonly Site[]): string {
@@ -1449,19 +1447,63 @@ function ServerDeploymentBadge({ server }: { server: Server }) {
   return <DeploymentBadge axis={axis} provider={provider} showEphemeral={false} />
 }
 
+/**
+ * The Deployment cell of a list row and mobile card: the deployment state plus, when the state
+ * calls for one, the row's single contextual next step (`serverContextAction`). The step lives
+ * here rather than in the Actions column because it always follows this axis.
+ */
 function ServerDeployment({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
-  const workflowVisible = server.deployment?.operationId && (
-    isServerDeploymentChanging(server) || hasServerDeploymentIssue(server)
-  )
+  const action = serverContextAction(server)
   return (
-    <div className="sw-server-axis-stack">
+    <div className="sw-server-deployment">
       <ServerDeploymentBadge server={server} />
-      {workflowVisible && server.deployment && (
-        <RouterLink className="sw-server-workflow-link" to={scopedHref(`/workflows/${server.deployment.operationId}`)}>
-          View workflow<ArrowUpRight size={13} aria-hidden />
-        </RouterLink>
-      )}
+      {action && <ServerContextActionLink server={server} action={action} scopedHref={scopedHref} />}
     </div>
+  )
+}
+
+const CONTEXT_ACTION_ICONS: Record<ServerContextAction['label'], LucideIcon> = {
+  'Deploy OS': Rocket,
+  'View workflow': ArrowUpRight,
+  'View activity': Eye,
+  'Review activity': TriangleAlert,
+}
+
+/**
+ * Icon-only link for a contextual next step. Fixed size and no visible text, so every row's
+ * control is the same width and nothing is truncated; the tooltip spells out the purpose and,
+ * for Activity links, the section the link lands on, and the accessible name repeats the purpose
+ * with the Server name so a screen-reader link list tells rows apart. Deploy OS and Review
+ * activity are tinted as the steps an operator should take; the icon and name carry the meaning.
+ */
+function ServerContextActionLink({
+  server,
+  action,
+  scopedHref,
+}: {
+  server: Server
+  action: ServerContextAction
+  scopedHref: (path: string) => string
+}) {
+  const Icon = CONTEXT_ACTION_ICONS[action.label]
+  const prominent = action.kind === 'deploy' || action.label === 'Review activity'
+  const tooltip = action.kind === 'activity'
+    ? `${action.label} · ${SERVER_ACTIVITY_SECTION_TITLES[action.section]}`
+    : action.label
+  return (
+    <Tooltip content={tooltip}>
+      <IconButton
+        asChild
+        className="sw-server-context-action"
+        size="xs"
+        variant={prominent ? 'subtle' : 'outline'}
+        colorPalette={prominent ? 'brand' : undefined}
+      >
+        <RouterLink to={scopedHref(serverContextActionPath(server, action))} aria-label={`${action.label} for ${serverDisplayName(server)}`}>
+          <Icon size={16} aria-hidden />
+        </RouterLink>
+      </IconButton>
+    </Tooltip>
   )
 }
 
@@ -1511,21 +1553,6 @@ function ServerPlatform({ server, scopedHref }: { server: Server; scopedHref: (p
       </RouterLink>
       <span>{server.membership.role || server.membership.nodeName}</span>
     </div>
-  )
-}
-
-function ContextualActionLink({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
-  const action = serverContextAction(server)
-  let href: string
-  if (action.kind === 'deploy') href = appendQuery(scopedHref('/provisioning/deploy'), 'serverId', server.id)
-  else if (action.kind === 'workflow') href = scopedHref(`/workflows/${action.operationId}`)
-  else if (action.kind === 'activity') href = scopedHref(`/servers/${server.id}/activity`)
-  else href = scopedHref(`/servers/${server.id}/summary`)
-  const prominent = action.kind === 'deploy' || action.label === 'Review server'
-  return (
-    <Button asChild className="sw-server-context-action" colorPalette={prominent ? 'brand' : undefined} variant={prominent ? 'solid' : 'outline'} size="sm">
-      <RouterLink to={href}><span>{action.label}</span></RouterLink>
-    </Button>
   )
 }
 
@@ -1602,10 +1629,7 @@ function ServerRow({
         <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.health} /></Table.Cell>
         <Table.Cell className="sw-server-col--platform"><ServerPlatform server={server} scopedHref={scopedHref} /></Table.Cell>
         <Table.Cell className="sw-server-row-actions">
-          <HStack className="sw-server-row-actions__content" gap="1" justify="flex-end" wrap="nowrap">
-            <ContextualActionLink server={server} scopedHref={scopedHref} />
-            <ServerTakeActionMenu targets={[server]} trigger="kebab" onAction={onAction} />
-          </HStack>
+          <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} onAction={onAction} />
         </Table.Cell>
       </Table.Row>
       {expanded && (
@@ -1662,7 +1686,6 @@ function ServerMobileCard({
         actions={
           <>
             <Checkbox id={`server-mobile-${server.id}`} aria-label={`Mobile selection: ${serverDisplayName(server)}`} checked={checked} onCheckedChange={onToggle}>Select</Checkbox>
-            <ContextualActionLink server={server} scopedHref={scopedHref} />
             {server.provisioning && (
               <Button
                 variant="outline"
@@ -1673,12 +1696,12 @@ function ServerMobileCard({
                 <ServerPowerIndicator server={server} /> Power · {powerStateLabel(server.provisioning.powerState)}
               </Button>
             )}
-            <ServerTakeActionMenu targets={[server]} trigger="actions" onAction={onAction} />
+            <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} onAction={onAction} />
           </>
         }
       >
         <ResourceCardField label="Network"><ServerNetworkIdentity server={server} /></ResourceCardField>
-        <ResourceCardField label="Deployment"><ServerDeploymentBadge server={server} /></ResourceCardField>
+        <ResourceCardField label="Deployment"><ServerDeployment server={server} scopedHref={scopedHref} /></ResourceCardField>
         <ResourceCardField label="Hardware"><ServerHardware server={server} /></ResourceCardField>
         <ResourceCardField label="Zone">{textOrDash(server.providerZone)}</ResourceCardField>
         <ResourceCardField label="Pool">{textOrDash(server.providerResourcePool)}</ResourceCardField>

@@ -103,9 +103,27 @@ time is shown.
 
 After Release is accepted, stay on the list: the row changes to **Releasing**
 while the provider works and then to **Ready** when the Server returns to the
-pool. Provider-only work uses the **Monitor server** row action. **View
-workflow** is available when a swallow deployment is running or needs review,
-and **Monitor workflow** is the row action while that deployment is running.
+pool.
+
+### Next-step icon and Actions menu
+
+When the state calls for a next step, a small icon follows it in the Deployment
+column. The icon has no text: hover or focus it to read what it does and, for
+Activity links, which section of the Server's **Activity** tab it opens. The
+first matching row applies.
+
+| Icon | When | Opens |
+| --- | --- | --- |
+| Warning — **Review activity** | The Server is absent from provider inventory. | **Activity → Provider events** |
+| Rocket — **Deploy OS** | The Server is unlocked and **Ready**. | The Deploy OS wizard with the Server selected |
+| Arrow — **View workflow** | A swallow deployment is running. | That deployment's Workflow |
+| Eye — **View activity** | Provider-only work is running. | **Activity → Provisioning tasks** for Releasing, **Related Operations** for Inspecting, **Provider events** otherwise |
+| Arrow — **View workflow** | The last swallow deployment failed or needs attention. | That deployment's Workflow |
+| Warning — **Review activity** | The provider reports **Failed**, **Broken**, or **Rescue**. | **Activity → Provider events** |
+
+An idle Server has no icon; open it from its name. Provider actions—power,
+hardware checks, lock, recovery, release, and delete—are in the row's
+**Actions** menu, which is the same button on mobile cards.
 
 ## Quick views and fleet signals
 

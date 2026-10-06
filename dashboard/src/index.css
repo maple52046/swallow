@@ -525,6 +525,9 @@ a.sw-attention-row:hover { background: var(--chakra-colors-bg-muted); transform:
   gap: 1.5rem;
 }
 
+/* Activity sections are deep-link targets; keep a landed section clear of the sticky header. */
+.sw-activity-stack > section { scroll-margin-block-start: 4.5rem; }
+
 .sw-server-header-actions { flex-wrap: wrap; }
 
 .sw-server-summary-grid {
@@ -2308,7 +2311,7 @@ tbody .sw-sticky-selection { z-index: 2; }
 .sw-server-inventory-table .sw-server-col--pool { width: 6rem; }
 .sw-server-inventory-table .sw-server-col--health { width: 7rem; }
 .sw-server-inventory-table .sw-server-col--platform { width: 10rem; }
-.sw-server-inventory-table .sw-server-row-actions { width: 12rem; }
+.sw-server-inventory-table .sw-server-row-actions { width: 8rem; }
 
 .sw-server-inventory-table .sw-server-col--health,
 .sw-server-inventory-table .sw-server-col--platform {
@@ -2484,7 +2487,6 @@ tbody .sw-sticky-selection { z-index: 2; }
   padding: 0;
 }
 
-.sw-server-axis-stack,
 .sw-server-platform,
 .sw-server-hardware-summary {
   display: flex;
@@ -2494,20 +2496,23 @@ tbody .sw-sticky-selection { z-index: 2; }
   gap: 0.375rem;
 }
 
-.sw-server-axis-stack > div {
+/* State on the start edge, the contextual icon on the end edge, so icons line up down the column. */
+.sw-server-deployment {
   display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 0.375rem;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
-.sw-server-axis-stack > div > span:first-child {
-  width: 4.75rem;
+.sw-server-deployment > :first-child {
+  min-width: 0;
+}
+
+.sw-server-context-action {
   flex: none;
-  color: var(--chakra-colors-fg-muted);
-  font-size: var(--chakra-font-sizes-xs);
 }
 
-.sw-server-workflow-link,
 .sw-server-platform a {
   white-space: nowrap;
   display: inline-flex;
@@ -2519,7 +2524,6 @@ tbody .sw-sticky-selection { z-index: 2; }
   text-decoration: none;
 }
 
-.sw-server-workflow-link:hover,
 .sw-server-platform a:hover {
   text-decoration: underline;
   text-underline-offset: 0.2em;
@@ -2556,32 +2560,19 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 .sw-server-row-actions {
   width: 1%;
-  overflow: hidden;
   text-align: end;
   white-space: nowrap;
+}
+
+/* Every row's trigger is the same width, whatever the label's rendered width in a given font. */
+.sw-server-actions-trigger {
+  min-width: 6.5rem;
+  justify-content: space-between;
 }
 
 .sw-server-hardware-summary {
   width: 100%;
   overflow: hidden;
-}
-
-.sw-server-row-actions__content {
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.sw-server-context-action {
-  flex: none;
-}
-
-.sw-server-context-action > span {
-  white-space: nowrap;
-}
-
-.sw-server-row-actions__content > :not(.sw-server-context-action) {
-  flex: none;
 }
 
 .sw-server-detail-row:hover {

@@ -138,8 +138,6 @@ export function DeploymentBadge({
     )
   }
   if (!phase.inProgress || !phase.since) return state
-  // Spans, not divs: the list's `.sw-server-axis-stack > div` rules lay out label/value rows and
-  // would pull the running time beside the state.
   return (
     <Box
       as="span"

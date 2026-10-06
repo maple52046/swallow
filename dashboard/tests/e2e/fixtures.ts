@@ -205,6 +205,12 @@ export interface FixtureOptions {
   failedServerIds?: string[]
   brokenServerIds?: string[]
   rescueServerIds?: string[]
+  /**
+   * Provider-only running work: sets the OS Provisioning State and leaves the Swallow deployment
+   * record alone, so no Swallow Workflow is running for the Server (unlike `changingServerIds`).
+   */
+  providerWorkServerIds?: Record<string, 'releasing' | 'inspecting' | 'testing' | 'deploying'>
+
   secondReadyServerIntegrationId?: string
   failImageIntegrationIds?: string[]
   deploymentFailureIds?: string[]
@@ -576,6 +582,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   seedProviderState(options.failedServerIds, 'failed', 'Failed deployment')
   seedProviderState(options.brokenServerIds, 'broken', 'Broken')
   seedProviderState(options.rescueServerIds, 'rescue', 'Rescue mode')
+  const providerWorkLabels = { releasing: 'Releasing', inspecting: 'Commissioning', testing: 'Testing', deploying: 'Deploying' }
+  for (const [serverId, state] of Object.entries(options.providerWorkServerIds ?? {})) {
+    seedProviderState([serverId], state, providerWorkLabels[state])
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.provisioning.stateSince = '2026-08-27T02:58:30Z'
+  }
   if (options.secondReadyServerIntegrationId && fleet[1]) {
     fleet[1].source.integrationId = options.secondReadyServerIntegrationId
     fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId

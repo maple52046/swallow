@@ -46,8 +46,9 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   const changing = table.getByRole('row').filter({ hasText: 'gpu-node-02' })
   await expect(table.getByText('Provider', { exact: true })).toHaveCount(0)
   const issue = table.getByRole('row').filter({ hasText: 'gpu-node-03' })
-  const deployAction = ready.getByRole('link', { name: 'Deploy OS' })
-  const monitorAction = changing.getByRole('link', { name: 'Monitor workflow' })
+  const deployAction = ready.getByRole('link', { name: 'Deploy OS for gpu-node-01' })
+  const workflowAction = changing.getByRole('link', { name: 'View workflow for gpu-node-02' })
+  const reviewAction = issue.getByRole('link', { name: 'View workflow for gpu-node-03' })
   // Provider inspection is a generic in-progress state and outranks the Swallow deploy result.
   await expect(changing.getByText('Inspecting', { exact: true })).toBeVisible()
   await expect(ready.getByText('Ready', { exact: true })).toBeVisible()
@@ -56,16 +57,34 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(changing.getByText('Running for 6m 30s', { exact: true })).toBeVisible()
   await expect(ready.getByText(/^Running for/)).toHaveCount(0)
   await expect(deployAction).toHaveAttribute('href', /serverId=srv-1.*site=site-a|site=site-a.*serverId=srv-1/)
-  await expect(monitorAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
-  for (const action of [deployAction, monitorAction]) {
-    expect(await action.locator('span').evaluate((label) => label.scrollWidth <= label.clientWidth)).toBe(true)
+  await expect(workflowAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
+  // A Swallow deployment that needs review opens its Workflow, which holds the failed Step.
+  await expect(reviewAction).toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
+  // The contextual step is an icon in the Deployment cell: no visible text, one size on every row.
+  const contextActions = [deployAction, workflowAction, reviewAction]
+  for (const action of contextActions) {
+    await expect(action).toHaveText('')
+    expect(await action.evaluate((link) => link.closest('td')?.classList.contains('sw-server-col--deployment'))).toBe(true)
   }
+  const contextWidths = await Promise.all(contextActions.map((action) => action.evaluate((link) => link.getBoundingClientRect().width)))
+  expect(new Set(contextWidths).size).toBe(1)
+  await deployAction.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Deploy OS')
+  // The Actions column holds only the labelled mutation menu, the same width on every row.
+  const triggers = [ready, changing, issue].map((row) => row.locator('.sw-server-row-actions').getByRole('button', { name: /^Actions for gpu-node-0/ }))
+  for (const trigger of triggers) await expect(trigger).toHaveText('Actions')
+  const triggerWidths = await Promise.all(triggers.map((trigger) => trigger.evaluate((button) => button.getBoundingClientRect().width)))
+  expect(new Set(triggerWidths).size).toBe(1)
+  await expect(ready.locator('.sw-server-row-actions').getByRole('link')).toHaveCount(0)
+  await triggers[0].click()
+  await expect(page.getByRole('menuitem', { name: 'Power', exact: true })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Deploy OS' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   const identityOrder = await changing.locator('.sw-server-identity__copy > div').first().evaluate((line) => (
     Array.from(line.children).map((child) => child.getAttribute('aria-label') ?? child.textContent?.trim())
   ))
   expect(identityOrder.slice(0, 3)).toEqual(['Locked', 'RAM deployment', 'gpu-node-02'])
   await expect(changing.locator('.sw-server-col--power').getByLabel('RAM deployment', { exact: true })).toHaveCount(0)
-  await expect(issue.getByRole('link', { name: 'Review server' })).toHaveAttribute('href', '/servers/srv-3/activity?site=site-a')
   await expect(ready.getByLabel('2 more tags')).toHaveText('+2')
   const visibleTag = ready.getByText('east', { exact: true })
   await expect(visibleTag).toHaveCSS('border-radius', '4px')
@@ -125,7 +144,34 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   const absent = table.getByRole('row').filter({ hasText: 'gpu-node-04' })
   await expect(absent).toBeVisible()
   await expect(absent).toContainText('CPU only')
-  await expect(absent.getByRole('link', { name: 'Review server' })).toHaveAttribute('href', '/servers/srv-4/activity?site=site-a')
+  await expect(absent.getByRole('link', { name: 'Review activity for gpu-node-04' })).toHaveAttribute('href', '/servers/srv-4/activity?site=site-a#activity-provider-events')
+})
+
+test('provider-only work links to the Activity section that records it', async ({ page }) => {
+  await installApiFixtures(page, {
+    providerWorkServerIds: { 'srv-1': 'releasing', 'srv-2': 'inspecting', 'srv-3': 'testing' },
+  })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/servers?site=site-a')
+
+  const table = page.getByRole('table', { name: 'Servers' })
+  const viewActivity = (name: string) => table.getByRole('row').filter({ hasText: name }).first().getByRole('link', { name: `View activity for ${name}` })
+  await expect(viewActivity('gpu-node-01')).toHaveAttribute('href', '/servers/srv-1/activity?site=site-a#activity-provisioning-tasks')
+  await expect(viewActivity('gpu-node-02')).toHaveAttribute('href', '/servers/srv-2/activity?site=site-a#activity-related-operations')
+  await expect(viewActivity('gpu-node-03')).toHaveAttribute('href', '/servers/srv-3/activity?site=site-a#activity-provider-events')
+  await expect(table.getByRole('link', { name: /^Monitor/ })).toHaveCount(0)
+
+  // Hover without scrolling: the tooltip closes when the page scrolls under the pointer.
+  const inspecting = viewActivity('gpu-node-02')
+  await expect(inspecting).toBeInViewport()
+  await inspecting.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('View activity · Related Operations')
+  // A short viewport makes the Activity tab taller than the screen, so landing is observable.
+  await page.setViewportSize({ width: 1280, height: 520 })
+  await inspecting.click()
+  await expect(page).toHaveURL('/servers/srv-2/activity?site=site-a#activity-related-operations')
+  await expect(page.getByRole('heading', { name: 'Related Operations' })).toBeInViewport()
+  await expect(page.getByRole('heading', { name: 'Current browser session' })).not.toBeInViewport()
 })
 
 test('in-progress rows and spinners keep moving when the OS asks for reduced motion', async ({ page }) => {
@@ -316,6 +362,8 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
   await expect(card.getByText('Pool', { exact: true })).toBeVisible()
   await expect(card.getByText('accelerators', { exact: true }).first()).toBeVisible()
   await expect(card.getByRole('button', { name: 'Edit tags for gpu-node-01' })).toBeVisible()
+  await expect(card.getByRole('link', { name: 'Deploy OS for gpu-node-01' })).toHaveText('')
+  await expect(card.getByRole('button', { name: 'Actions for gpu-node-01', exact: true })).toHaveText('Actions')
   await card.locator('summary', { hasText: 'More details' }).click()
   await expect(card).toContainText('Operational context · Health')
   await expect(card).toContainText('platform-a')
@@ -327,7 +375,7 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
   await expect(page.getByRole('region', { name: 'Selection actions' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
-  const name = card.getByRole('link', { name: 'gpu-node-01' })
+  const name = card.getByRole('link', { name: 'gpu-node-01', exact: true })
   await name.focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL('/servers/srv-1/summary?site=site-a')
@@ -397,15 +445,23 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   })
   expect(hardwareGeometry.contentRight).toBeLessThanOrEqual(hardwareGeometry.cellRight)
   expect(hardwareGeometry.scrollWidth).toBeGreaterThan(hardwareGeometry.clientWidth)
+  await expect(providerFailed.getByRole('link', { name: 'Review activity for gpu-node-01' })).toHaveAttribute('href', '/servers/srv-1/activity?site=site-a#activity-provider-events')
   const changing = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
-  await expect(changing.getByRole('link', { name: 'Monitor workflow' })).toBeVisible()
-  const actionGeometry = await changing.locator('.sw-server-row-actions').evaluate((cell) => {
-    const cellRight = cell.getBoundingClientRect().right
-    const childRights = Array.from(cell.querySelectorAll(':scope > div > *')).map((child) => child.getBoundingClientRect().right)
-    return { cellRight, childRight: Math.max(...childRights) }
-  })
-  expect(actionGeometry.childRight).toBeLessThanOrEqual(actionGeometry.cellRight)
+  await expect(changing.getByRole('link', { name: 'View workflow for gpu-node-03' })).toBeVisible()
+  for (const [cellClass, control] of [
+    ['.sw-server-col--deployment', 'a'],
+    ['.sw-server-row-actions', 'button'],
+  ] as const) {
+    const geometry = await changing.locator(cellClass).evaluate((cell, selector) => {
+      const target = cell.querySelector(selector)
+      if (!target) throw new Error(`${selector} is missing`)
+      return { cellRight: cell.getBoundingClientRect().right, controlRight: target.getBoundingClientRect().right }
+    }, control)
+    expect(geometry.controlRight).toBeLessThanOrEqual(geometry.cellRight)
+  }
   const deployed = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).first()
+  // An idle deployed Server gets no contextual icon; its host name already opens the Summary.
+  await expect(deployed.locator('.sw-server-col--deployment').getByRole('link')).toHaveCount(0)
   const deployedImage = deployed.getByText('Ubuntu 24.04 LTS', { exact: true })
   await expect(deployedImage).toBeVisible()
   await expect(deployedImage).not.toHaveAttribute('data-scope', 'badge')

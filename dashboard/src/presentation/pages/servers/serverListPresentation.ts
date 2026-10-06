@@ -6,6 +6,7 @@ import {
   type Server,
 } from '@/domain/server/types'
 import { resolveDeploymentPhase, type DeploymentPhase } from '@/presentation/components/deploymentPhase'
+import { serverActivityPath, type ServerActivitySection } from './serverActivitySections'
 
 /** Quick operational lens applied before the advanced Server facets. */
 export type ServerView = 'all' | 'ready' | 'changing' | 'issues'
@@ -78,12 +79,18 @@ export interface ServerFleetFacts {
   healthUnobserved: number
 }
 
-/** Navigation priority for the visible row CTA; none of these choices performs a mutation. */
+/**
+ * The one contextual next step a Server list row offers, shown as an icon-only link in the
+ * Deployment cell because every choice follows the OS deployment axis that cell presents. None
+ * of them performs a mutation; mutations stay in the row's Actions menu.
+ *
+ * `label` is the full purpose and becomes the tooltip and accessible name. It is never rendered
+ * as visible button text, so every row's control keeps one width and no label is truncated.
+ */
 export type ServerContextAction =
   | { kind: 'deploy'; label: 'Deploy OS' }
-  | { kind: 'workflow'; label: 'Monitor workflow'; operationId: string }
-  | { kind: 'activity'; label: 'Monitor server' | 'Review server' }
-  | { kind: 'summary'; label: 'Open server' }
+  | { kind: 'workflow'; label: 'View workflow'; operationId: string }
+  | { kind: 'activity'; label: 'View activity' | 'Review activity'; section: ServerActivitySection }
 
 const PROVISIONING_STATES: readonly ProvisioningState[] = [
   'new',
@@ -458,21 +465,74 @@ export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
   }
 }
 
-/** Chooses the most useful, non-mutating next-step link for one row. */
-export function serverContextAction(server: Server): ServerContextAction {
-  if (!server.absent && !server.provisioning?.locked && server.provisioning?.state === 'ready') {
+/**
+ * Chooses a row's contextual next step, highest precedence first:
+ *
+ * 1. Review activity (Provider events) for an absent Server. Its provisioning axis is a stale
+ *    observation, which is also why the Deployment cell ignores it.
+ * 2. Deploy OS for an unlocked `ready` Server.
+ * 3. While work runs: the deployment's Workflow when Swallow is deploying or verifying, otherwise
+ *    View activity on the section that records the provider work (see
+ *    {@link inProgressActivitySection}).
+ * 4. A Swallow deployment that needs review opens its Workflow, which holds the failed Step.
+ * 5. Review activity (Provider events) for a failed, broken, or rescue Server.
+ *
+ * Returns `null` when nothing needs the operator, for example an idle deployed or locked Server;
+ * its host name already links to the Summary, so the row gets no icon rather than a redundant
+ * "open" link. Workflow links are gated on Swallow's own deployment state so they never point at
+ * an unrelated, finished Operation while the provider is, say, releasing.
+ */
+export function serverContextAction(server: Server): ServerContextAction | null {
+  if (server.absent) {
+    return { kind: 'activity', label: 'Review activity', section: 'provider-events' }
+  }
+  if (!server.provisioning?.locked && server.provisioning?.state === 'ready') {
     return { kind: 'deploy', label: 'Deploy OS' }
   }
+  const operationId = server.deployment?.operationId
   if (isServerChanging(server)) {
-    if (isServerDeploymentChanging(server) && server.deployment?.operationId) {
-      return { kind: 'workflow', label: 'Monitor workflow', operationId: server.deployment.operationId }
+    if (isServerDeploymentChanging(server) && operationId) {
+      return { kind: 'workflow', label: 'View workflow', operationId }
     }
-    return { kind: 'activity', label: 'Monitor server' }
+    return { kind: 'activity', label: 'View activity', section: inProgressActivitySection(server) }
   }
-  if (server.absent || hasServerProvisioningIssue(server)) {
-    return { kind: 'activity', label: 'Review server' }
+  if (hasServerDeploymentIssue(server) && operationId) {
+    return { kind: 'workflow', label: 'View workflow', operationId }
   }
-  return { kind: 'summary', label: 'Open server' }
+  if (hasServerProvisioningIssue(server)) {
+    return { kind: 'activity', label: 'Review activity', section: 'provider-events' }
+  }
+  return null
+}
+
+/**
+ * The Activity section that records running work Swallow has no Workflow link for. The Server
+ * list carries no Provisioning Task or Operation id, so this targets a section, not one record:
+ *
+ * - Releasing: Provisioning tasks, where post-Release network cleanup is tracked.
+ * - Inspecting, or a Swallow deployment without an Operation id: Related Operations, which lists
+ *   the inspect-hardware or deployment Workflow.
+ * - Other provider work (Deploying, Testing): Provider events, the provisioner's own history.
+ */
+function inProgressActivitySection(server: Server): ServerActivitySection {
+  if (server.provisioning?.state === 'releasing') return 'provisioning-tasks'
+  if (server.provisioning?.state === 'inspecting' || isServerDeploymentChanging(server)) return 'related-operations'
+  return 'provider-events'
+}
+
+/**
+ * Site-unscoped destination of a contextual step; callers pass it through `scopedHref`. Deploy
+ * OS preselects the Server in the wizard, and Activity paths carry the section hash.
+ */
+export function serverContextActionPath(server: Server, action: ServerContextAction): string {
+  switch (action.kind) {
+    case 'deploy':
+      return `/provisioning/deploy?serverId=${encodeURIComponent(server.id)}`
+    case 'workflow':
+      return `/workflows/${action.operationId}`
+    case 'activity':
+      return serverActivityPath(server.id, action.section)
+  }
 }
 
 /** Whether any discovery facet, search, or quick lens constrains the visible working set. */

@@ -93,9 +93,25 @@ transition time；其精確度約等於 inventory reconcile 或 targeted Server 
 即時。起始時間未知時不會顯示執行時間。
 
 Release 接受後可留在 list：provider 執行期間該列會變成 **Releasing**，Server
-回到 pool 後再變成 **Ready**。只有 provider 工作時，row action 會顯示
-**Monitor server**。Swallow deployment 正在執行或需要檢查時會提供 **View
-workflow**；deployment 執行期間，row action 會顯示 **Monitor workflow**。
+回到 pool 後再變成 **Ready**。
+
+### 下一步圖示與 Actions 選單
+
+狀態需要下一步時，Deployment 欄的狀態後方會出現一個小圖示。圖示沒有文字：將滑鼠
+停在圖示上或以鍵盤 focus，即可看到它的用途；連到 Activity 的圖示也會標出會開啟
+Server **Activity** 分頁的哪個區塊。由上往下第一個符合的條件生效。
+
+| 圖示 | 條件 | 開啟 |
+| --- | --- | --- |
+| 警示 — **Review activity** | Server 已不在 provider inventory 中（absent）。 | **Activity → Provider events** |
+| 火箭 — **Deploy OS** | Server 未 lock 且為 **Ready**。 | 已選好該 Server 的 Deploy OS 精靈 |
+| 箭頭 — **View workflow** | Swallow deployment 正在執行。 | 該 deployment 的 Workflow |
+| 眼睛 — **View activity** | 只有 provider 工作正在執行。 | Releasing 開啟 **Activity → Provisioning tasks**，Inspecting 開啟 **Related Operations**，其他開啟 **Provider events** |
+| 箭頭 — **View workflow** | 上一次 swallow deployment 失敗或需要處理。 | 該 deployment 的 Workflow |
+| 警示 — **Review activity** | Provider 回報 **Failed**、**Broken** 或 **Rescue**。 | **Activity → Provider events** |
+
+閒置的 Server 沒有圖示，請從名稱開啟。Provider 操作（電源、硬體檢查、lock、
+recovery、release 與 delete）都在該列的 **Actions** 選單；mobile card 上也是同一個按鈕。
 
 ## Quick view 與 fleet signal
 

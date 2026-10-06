@@ -2,10 +2,10 @@
  * Shared Take-action menu for Server list and Server detail.
  *
  * One nested presentation (icons, remapped group labels, disabled reasons) so list row
- * kebab / bulk Take action and detail Take action never drift. Callers own execution,
+ * Actions / bulk Take action and detail Take action never drift. Callers own execution,
  * confirmation dialogs, and whether Deploy OS / Query power appear.
  */
-import { Box, Button, HStack, IconButton, Menu, Portal, Text } from '@chakra-ui/react'
+import { Box, Button, HStack, Menu, Portal, Text } from '@chakra-ui/react'
 import {
   BadgeCheck,
   ChevronDown,
@@ -20,7 +20,6 @@ import {
   PackagePlus,
   LockOpen,
   LogOut,
-  MoreVertical,
   Power,
   PowerOff,
   RefreshCw,
@@ -109,7 +108,13 @@ export function ServerActionMenuRow({
   )
 }
 
-export type ServerTakeActionTrigger = 'take-action' | 'kebab' | 'actions'
+/**
+ * How the menu is opened: `take-action` is the prominent bulk / detail button; `actions` is the
+ * labelled per-Server trigger on list rows and cards. Both carry visible text: on the list this
+ * menu is the only entry point to a Server's provider mutations, so it must not shrink to an
+ * easily overlooked icon.
+ */
+export type ServerTakeActionTrigger = 'take-action' | 'actions'
 
 /**
  * Nested Take-action surface shared by list and detail.
@@ -117,8 +122,9 @@ export type ServerTakeActionTrigger = 'take-action' | 'kebab' | 'actions'
  * - Detail passes `capabilities` so unsupported groups hide; list omits it and shows every
  *   catalogue group (backend refuses per Server).
  * - `includeSingleOnly` keeps Delete on single-Server menus and out of bulk.
- * - Deploy OS / Install software / Query power are optional slots owned by detail; list keeps
- *   those elsewhere. A disabled slot shows its reason under the command.
+ * - Deploy OS / Install software / Query power are optional slots owned by detail; the list
+ *   offers Deploy OS as the Deployment cell's contextual icon and never repeats navigation here.
+ *   A disabled slot shows its reason under the command.
  */
 export function ServerTakeActionMenu({
   targets,
@@ -129,6 +135,7 @@ export function ServerTakeActionMenu({
   includeQueryPower = false,
   busy = false,
   trigger = 'take-action',
+  targetName,
   /** List toolbars pass `sm`; omit on detail so the header control matches Edit. */
   size,
   deployDisabledReason,
@@ -150,6 +157,12 @@ export function ServerTakeActionMenu({
   includeQueryPower?: boolean
   busy?: boolean
   trigger?: ServerTakeActionTrigger
+  /**
+   * Display name of the single target on list rows and cards. The `actions` trigger appends it
+   * to its accessible name ("Actions for gpu-node-01") so each row's menu is distinguishable
+   * to assistive tech while the visible label stays the same short word.
+   */
+  targetName?: string
   size?: 'sm' | 'md'
   deployDisabledReason?: string
   /** Detail only: offer Install software for the one target (Managed Software, decision 038). */
@@ -182,14 +195,16 @@ export function ServerTakeActionMenu({
   return (
     <Menu.Root positioning={{ placement: 'bottom-end' }}>
       <Menu.Trigger asChild>
-        {trigger === 'kebab' ? (
-          <IconButton variant="ghost" size={size ?? 'sm'} aria-label="Actions" disabled={busy}>
-            <MoreVertical size={16} />
-          </IconButton>
-        ) : trigger === 'actions' ? (
-          <Button variant="outline" size={size ?? 'sm'} disabled={busy}>
+        {trigger === 'actions' ? (
+          <Button
+            className="sw-server-actions-trigger"
+            variant="outline"
+            size={size ?? 'sm'}
+            disabled={busy}
+            aria-label={targetName ? `Actions for ${targetName}` : undefined}
+          >
             Actions
-            <ChevronDown size={16} />
+            <ChevronDown size={16} aria-hidden />
           </Button>
         ) : (
           <Button colorPalette="brand" size={size} disabled={busy}>

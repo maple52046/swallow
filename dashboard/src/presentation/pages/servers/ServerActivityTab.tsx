@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, IconButton, Table, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Eye, RefreshCw, RotateCcw } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import type { Operation } from '@/domain/operation/types'
 import type { ProvisioningTask } from '@/domain/provisioning/types'
 import type { ProviderEvents } from '@/domain/server/types'
@@ -20,6 +20,7 @@ import {
   SERVER_ACTION_RESULT_RECORDED_EVENT,
   type ServerActionRunResult,
 } from './serverActionResults'
+import { SERVER_ACTIVITY_SECTION_IDS, SERVER_ACTIVITY_SECTION_TITLES } from './serverActivitySections'
 import { useServerDetailContext } from './useServerDetail'
 
 type LoadState<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: T }
@@ -28,11 +29,15 @@ type LoadState<T> = { status: 'loading' } | { status: 'error'; message: string }
  * Composes the three truthful activity sources for one Server: live provider events, durable
  * automation Operations, and current-tab synchronous action diagnostics. Each source has its
  * own loading/error/empty state, so one unavailable source never blanks the whole tab.
+ *
+ * Each section carries an id from `SERVER_ACTIVITY_SECTION_IDS`, so a `#activity-…` hash (the
+ * Server list's View/Review activity icons) opens the tab on the section that records the work.
  */
 export function ServerActivityTab() {
   const { server } = useServerDetailContext()
   const { servers, operations } = useApp()
   const { scopedHref } = useSiteScope()
+  const { hash } = useLocation()
   const { showToast } = useToast()
   const [provider, setProvider] = useState<LoadState<ProviderEvents>>({ status: 'loading' })
   const [related, setRelated] = useState<LoadState<Operation[]>>({ status: 'loading' })
@@ -86,6 +91,17 @@ export function ServerActivityTab() {
     }
   }, [nonce, operations, server.id, servers])
 
+  const sourcesSettled = provider.status !== 'loading' && related.status !== 'loading' && tasks.status !== 'loading'
+  const scrolledHashRef = useRef('')
+  // Lands a section deep link. Scrolling waits until every source has settled because the
+  // sections above the target change height when their rows arrive, and it runs once per hash
+  // so a later Refresh never pulls the operator back to the section.
+  useEffect(() => {
+    if (!sourcesSettled || !hash || scrolledHashRef.current === hash) return
+    scrolledHashRef.current = hash
+    document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [hash, sourcesSettled])
+
   const retryCleanup = async (taskId: string) => {
     setRetryingTaskId(taskId)
     try {
@@ -101,9 +117,9 @@ export function ServerActivityTab() {
 
   return (
     <div className="sw-activity-stack">
-      <section className="sw-section">
+      <section className="sw-section" id={SERVER_ACTIVITY_SECTION_IDS.session}>
         <SectionHeader
-          title="Current browser session"
+          title={SERVER_ACTIVITY_SECTION_TITLES.session}
           description="Synchronous provider actions performed in this browser tab. Request IDs correlate failures with API server logs."
         />
         {sessionResults.length === 0 ? (
@@ -145,9 +161,9 @@ export function ServerActivityTab() {
         )}
       </section>
 
-      <section className="sw-section">
+      <section className="sw-section" id={SERVER_ACTIVITY_SECTION_IDS['provisioning-tasks']}>
         <SectionHeader
-          title="Provisioning tasks"
+          title={SERVER_ACTIVITY_SECTION_TITLES['provisioning-tasks']}
           description="Durable Swallow follow-up such as post-Release static IP cleanup. Retry resumes cleanup and never repeats Release."
         />
         {tasks.status === 'loading' && <div className="sw-section-empty">Loading provisioning tasks...</div>}
@@ -193,9 +209,9 @@ export function ServerActivityTab() {
         )}
       </section>
 
-      <section className="sw-section">
+      <section className="sw-section" id={SERVER_ACTIVITY_SECTION_IDS['provider-events']}>
         <SectionHeader
-          title="Provider events"
+          title={SERVER_ACTIVITY_SECTION_TITLES['provider-events']}
           description="Live machine history retained by the provisioner. This is not a complete Swallow audit log."
           actions={
             <Button variant="outline" onClick={refresh}>
@@ -236,8 +252,8 @@ export function ServerActivityTab() {
         )}
       </section>
 
-      <section className="sw-section">
-        <SectionHeader title="Related Operations" description="Durable automation runs that include this Server. Open one for retained events and stdout." />
+      <section className="sw-section" id={SERVER_ACTIVITY_SECTION_IDS['related-operations']}>
+        <SectionHeader title={SERVER_ACTIVITY_SECTION_TITLES['related-operations']} description="Durable automation runs that include this Server. Open one for retained events and stdout." />
         {related.status === 'loading' && <div className="sw-section-empty">Loading related Operations...</div>}
         {related.status === 'error' && (
           <div className="sw-activity-alert">
