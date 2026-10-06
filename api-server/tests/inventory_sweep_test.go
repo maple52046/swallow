@@ -22,7 +22,10 @@ func TestInventorySweep_PopulatesGPUsOnServers(t *testing.T) {
 	for id, s := range f.servers.servers {
 		serverID, machineID = id, s.Source.ProviderMachineID
 	}
-	f.provider.gpus[machineID] = []provisioningdomain.GPU{{Vendor: "NVIDIA Corporation", Model: "A100", Count: 8}}
+	f.provider.gpus[machineID] = []provisioningdomain.GPU{
+		{Vendor: "NVIDIA Corporation", Model: "A100", Count: 8},
+		{Vendor: "ASPEED Technology, Inc.", Model: "ASPEED Graphics Family", Count: 1},
+	}
 
 	sweep := provisioningapp.NewInventorySweepUseCase(f.integrations, f.servers, f.factory)
 	reports, err := sweep.ExecuteAll(context.Background())
@@ -34,8 +37,11 @@ func TestInventorySweep_PopulatesGPUsOnServers(t *testing.T) {
 	}
 
 	gpus := f.servers.servers[serverID].Observed.GPUs
-	if len(gpus) != 1 || gpus[0].Model != "A100" || gpus[0].Count != 8 {
+	if len(gpus) != 2 || gpus[0].Model != "A100" || gpus[0].Count != 8 || gpus[0].Kind != serverdomain.GPUKindCompute {
 		t.Fatalf("GPU inventory not written: %+v", gpus)
+	}
+	if gpus[1].Kind != serverdomain.GPUKindDisplay {
+		t.Errorf("ASPEED kind = %q, want %q", gpus[1].Kind, serverdomain.GPUKindDisplay)
 	}
 }
 

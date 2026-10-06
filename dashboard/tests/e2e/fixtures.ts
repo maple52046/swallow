@@ -15,7 +15,12 @@ function makeServer(index: number): Server {
     fqdn: named ? `gpu-node-0${ordinal}.lab.example` : `compute-node-${String(ordinal).padStart(3, '0')}.lab.example`,
     addresses: hasInventory ? [named ? `192.168.40.${20 + ordinal}` : `10.20.${Math.floor(index / 250)}.${(index % 250) + 1}`] : [],
     architecture: hasInventory ? 'amd64/generic' : '', cpuCores: hasInventory ? 64 : 0, cpuModel: hasInventory ? 'AMD EPYC 9554' : '', memoryMiB: hasInventory ? 524288 : 0, storageGB: hasInventory ? 3840 : 0,
-    gpus: named && hasInventory ? [{ vendor: 'AMD', model: 'MI300X', count: 8 }] : [],
+    gpus: named && hasInventory
+      ? [
+          { vendor: 'AMD', model: 'MI300X', count: 8, kind: 'compute' },
+          { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 1, kind: 'display' },
+        ]
+      : [],
     systemVendor: hasInventory ? 'Supermicro' : '', systemProduct: hasInventory ? 'AS-8125GS-TNHR' : '', providerZone: hasInventory ? index < 2 ? 'rack-a' : 'rack-b' : '',
     providerResourcePool: hasInventory ? named ? 'accelerators' : 'compute' : '', providerPod: '', tags: hasInventory ? named ? ['gpu', 'production'] : ['compute'] : [],
     hardware: { systemUuid: `uuid-${ordinal}`, serialNumber: `SN${String(ordinal).padStart(4, '0')}`, macAddresses: hasInventory ? [`02:00:00:00:${String(Math.floor(index / 250)).padStart(2, '0')}:${String((index % 250) + 1).padStart(2, '0')}`] : [] },
@@ -192,6 +197,14 @@ export interface FixtureOptions {
   unobservedHealthServerIds?: string[]
   cpuOnlyServerIds?: string[]
   multiGpuServerIds?: string[]
+  /** Replaces inventory with a management/display GPU and no compute accelerator. */
+  displayOnlyServerIds?: string[]
+  /** Replaces compute inventory with a provider-generic AMD model plus an ASPEED controller. */
+  genericComputeServerIds?: string[]
+  /** Replaces inventory with a Cirrus Logic GD 5446 display controller. */
+  cirrusDisplayOnlyServerIds?: string[]
+  /** Overrides installed image labels for truncation and responsive presentation scenarios. */
+  deployedImageNames?: Record<string, string>
   extraTags?: Record<string, string[]>
   serverListFailuresAfterInitial?: number
   serverListFailureRequestNumbers?: number[]
@@ -546,9 +559,33 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const serverId of options.multiGpuServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.gpus = [
-      { vendor: 'AMD', model: 'MI300X', count: 8 },
-      { vendor: 'NVIDIA', model: 'H100', count: 4 },
+      { vendor: 'AMD', model: 'MI300X', count: 8, kind: 'compute' },
+      { vendor: 'NVIDIA', model: 'H100', count: 4, kind: 'compute' },
+      { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 16, kind: 'display' },
     ]
+  }
+  for (const serverId of options.displayOnlyServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.gpus = [
+      { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 1, kind: 'display' },
+    ]
+  }
+  for (const serverId of options.genericComputeServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.gpus = [
+      { vendor: 'AMD', model: 'AMD GPU', count: 8, kind: 'compute' },
+      { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 1, kind: 'display' },
+    ]
+  }
+  for (const serverId of options.cirrusDisplayOnlyServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.gpus = [
+      { vendor: 'Cirrus Logic', model: 'GD 5446', count: 1, kind: 'display' },
+    ]
+  }
+  for (const [serverId, imageName] of Object.entries(options.deployedImageNames ?? {})) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.provisioning.deployedImageName = imageName
   }
   for (const [serverId, tags] of Object.entries(options.extraTags ?? {})) {
     const server = fleet.find((item) => item.id === serverId)

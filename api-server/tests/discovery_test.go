@@ -160,7 +160,10 @@ func TestPrometheusTargets_DefaultsToDeployedOnly(t *testing.T) {
 func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
-		s.Observed.GPUs = []serverdomain.GPU{{Vendor: "NVIDIA", Model: "A100", Count: 8}}
+		s.Observed.GPUs = []serverdomain.GPU{
+			{Vendor: "NVIDIA", Model: "A100", Count: 8, Kind: serverdomain.GPUKindCompute},
+			{Vendor: "ASPEED", Model: "Graphics Family", Count: 1, Kind: serverdomain.GPUKindDisplay},
+		}
 		s.Observed.Tags = []string{"amd-gpu"}
 		s.Membership = &serverdomain.MembershipStatus{
 			PlatformID: "platform-1", NodeName: "gpu-node-01", Role: "worker",
@@ -202,6 +205,9 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 		if len(hosts) != 1 || hosts[0] != "srv-1" {
 			t.Errorf("group %q membership: %v", group, hosts)
 		}
+	}
+	if _, exists := inventory["gpu_aspeed"]; exists {
+		t.Error("display GPU vendor must not create an accelerator inventory group")
 	}
 
 	all := inventory["all"].(map[string]any)

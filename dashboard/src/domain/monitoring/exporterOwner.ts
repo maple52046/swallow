@@ -7,6 +7,7 @@
  * `exporterOwner` policy and docs/decisions/003-metrics-label-contract.md).
  */
 import type { Platform, ExporterOwner } from '@/domain/platform/types'
+import { serverGPUsByKind } from '@/domain/server/gpu'
 import type { Server } from '@/domain/server/types'
 
 /** The effective owner shown per host: the platform policy values plus `unmanaged`. */
@@ -41,7 +42,7 @@ export function resolveExporterOwner(
  * shows GPU cards even before its GPUs are detected.
  */
 export function isGpuServer(server: Server): boolean {
-  if (server.gpus.length > 0) {
+  if (serverGPUsByKind(server, 'compute').length > 0) {
     return true
   }
   return server.tags.some((tag) => tag === 'amd-gpu' || tag === 'nvidia-gpu')

@@ -24,6 +24,7 @@ provisioning, platform-membership, and health axes.
 - `Server`
 - `Server Status`
 - `OS Provisioning State`
+- `GPU Inventory`
 
 ## Endpoint / RPC
 
@@ -82,7 +83,7 @@ query language. `includeAbsent=true` changes visibility only.
       },
       "hostname": "gpu-42",
       "addresses": ["192.0.2.42"],
-      "gpus": [{"vendor": "AMD", "model": "MI300X", "count": 8}],
+      "gpus": [{"vendor": "AMD", "model": "MI300X", "count": 8, "kind": "compute"}],
       "hardware": {"systemUuid": "uuid", "serialNumber": "serial", "macAddresses": []},
       "provisioning": {
         "state": "deployed",
@@ -118,6 +119,24 @@ query language. `includeAbsent=true` changes visibility only.
 This is the same complete Server projection returned by the detail endpoint.
 Optional observations use `null`; an unavailable axis is not assigned a default
 state. No BMC, SSH, integration, or automation credential is returned.
+
+### GPU inventory
+
+`gpus` is the complete provisioner-observed GPU Inventory, including workload accelerators and
+local-console or BMC graphics controllers. Identical devices are grouped; every item contains:
+
+| Field | Meaning |
+| --- | --- |
+| `vendor` | Provider-reported vendor; may be empty when the provider cannot name it. |
+| `model` | Provider-reported model; may be empty when the provider cannot name it. |
+| `count` | Positive number of physical devices in this vendor/model/kind group. |
+| `kind` | `compute` for workload accelerator capacity, or `display` for a management/local-console graphics controller. |
+
+MAAS exposes both kinds through its generic GPU device filter. Swallow classifies known server
+display controllers (including ASPEED, Cirrus Logic GD 5446, Matrox G200, and XGI BMC graphics)
+as `display`. All other provider-reported GPU devices remain `compute` when the provider supplies
+no stronger class.
+Clients must use `kind` rather than vendor-name heuristics when calculating accelerator capacity.
 
 ### Provisioning state
 
@@ -217,6 +236,10 @@ also matches it until the next reconcile rewrites it.
 
 `provisioning.stateSince` was added on 2026-10-04 as an optional field; clients must accept
 its absence.
+
+`gpus[].kind` was added on 2026-10-06. It is additive for clients that ignore unknown fields;
+the server always emits it, including for inventory stored before the field existed by deriving
+the classification while reading that legacy projection.
 
 Following the Cluster to Platform rename, the `clusterId` query parameter and the
 membership `clusterId` response field are deprecated one-release aliases for

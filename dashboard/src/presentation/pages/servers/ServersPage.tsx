@@ -34,9 +34,8 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { Pagination } from '@/presentation/components/Pagination'
 import {
-  DeploymentBadge,
+  DeploymentSummary,
   HealthBadge,
-  MembershipBadge,
   PowerBadge,
 } from '@/presentation/components/AxisBadge'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
@@ -77,6 +76,7 @@ import {
   serverContextActionPath,
   serverDeploymentCellInputs,
   serverFleetFacts,
+  serverGpuCompactSummary,
   serverGpuProfile,
   serverInventoryGroupValue,
   serverRowTone,
@@ -982,14 +982,13 @@ export function ServersPage() {
                             </Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-cell-center sw-col-details" aria-label="Row details" />
                             <Table.ColumnHeader className="sw-server-col--identity">Server</Table.ColumnHeader>
-                            <Table.ColumnHeader className="sw-server-col--power sw-cell-center">Power</Table.ColumnHeader>
+                            <Table.ColumnHeader className="sw-server-col--power">Power</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--network">Network</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--deployment">Deployment</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--hardware">Hardware</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--zone">Zone</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--pool">Pool</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--health">Health</Table.ColumnHeader>
-                            <Table.ColumnHeader className="sw-server-col--platform">Platform</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-row-actions" aria-label="Server actions" />
                           </Table.Row>
                         </Table.Header>
@@ -1345,7 +1344,7 @@ function ServerGroupRows({
     <>
       {grouped && (
         <Table.Row className="sw-server-group-row">
-          <Table.Cell colSpan={12}>
+          <Table.Cell colSpan={11}>
             <HStack gap="2">
               <IconButton variant="ghost" size="xs" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label}`} onClick={onCollapse}>
                 {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
@@ -1386,7 +1385,7 @@ function ServerIdentity({
   return (
     <div className="sw-server-identity">
       <div className="sw-server-identity__copy">
-        <HStack gap="1.5" minW="0">
+        <HStack gap="1" minW="0">
           {server.provisioning?.locked && (
             <Tooltip content="Locked">
               <span className="sw-server-lock-icon" role="img" aria-label="Locked"><Lock size={14} /></span>
@@ -1437,45 +1436,33 @@ function ServerPowerIndicator({ server }: { server: Server }) {
 }
 
 /**
- * The list row and card Deployment cell: the Server's OS deployment state, including generic
- * OS Provisioning States such as Releasing, Inspecting, Failed, and Ready (decision 048). Inputs
- * come from `serverDeploymentCellInputs`, the same source the OS deployment grouping uses. RAM
- * deployment is shown with the Server identity, so the cell omits the ephemeral glyph.
- */
-function ServerDeploymentBadge({ server }: { server: Server }) {
-  const { axis, provider } = serverDeploymentCellInputs(server)
-  return <DeploymentBadge axis={axis} provider={provider} showEphemeral={false} />
-}
-
-/**
  * The Deployment cell of a list row and mobile card: the deployment state plus, when the state
  * calls for one, the row's single contextual next step (`serverContextAction`). The step lives
  * here rather than in the Actions column because it always follows this axis.
  */
 function ServerDeployment({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
   const action = serverContextAction(server)
-  return (
-    <div className="sw-server-deployment">
-      <ServerDeploymentBadge server={server} />
-      {action && <ServerContextActionLink server={server} action={action} scopedHref={scopedHref} />}
-    </div>
-  )
+  const { axis, provider } = serverDeploymentCellInputs(server)
+  return <DeploymentSummary
+    axis={axis}
+    provider={provider}
+    action={action && <ServerContextActionLink server={server} action={action} scopedHref={scopedHref} />}
+  />
 }
 
-const CONTEXT_ACTION_ICONS: Record<ServerContextAction['label'], LucideIcon> = {
+/**
+ * Frameless icon-and-text link for a contextual next step. It sits in Deployment's secondary line
+ * instead of competing with the state. The tooltip adds the destination section for Activity
+ * links, and the accessible name includes the Server so screen-reader link lists still distinguish
+ * otherwise repeated labels.
+ */
+const SERVER_CONTEXT_ACTION_ICONS: Record<ServerContextAction['label'], LucideIcon> = {
   'Deploy OS': Rocket,
   'View workflow': ArrowUpRight,
   'View activity': Eye,
   'Review activity': TriangleAlert,
 }
 
-/**
- * Icon-only link for a contextual next step. Fixed size and no visible text, so every row's
- * control is the same width and nothing is truncated; the tooltip spells out the purpose and,
- * for Activity links, the section the link lands on, and the accessible name repeats the purpose
- * with the Server name so a screen-reader link list tells rows apart. Deploy OS and Review
- * activity are tinted as the steps an operator should take; the icon and name carry the meaning.
- */
 function ServerContextActionLink({
   server,
   action,
@@ -1485,24 +1472,20 @@ function ServerContextActionLink({
   action: ServerContextAction
   scopedHref: (path: string) => string
 }) {
-  const Icon = CONTEXT_ACTION_ICONS[action.label]
-  const prominent = action.kind === 'deploy' || action.label === 'Review activity'
   const tooltip = action.kind === 'activity'
     ? `${action.label} · ${SERVER_ACTIVITY_SECTION_TITLES[action.section]}`
     : action.label
+  const Icon = SERVER_CONTEXT_ACTION_ICONS[action.label]
   return (
     <Tooltip content={tooltip}>
-      <IconButton
-        asChild
+      <RouterLink
         className="sw-server-context-action"
-        size="xs"
-        variant={prominent ? 'subtle' : 'outline'}
-        colorPalette={prominent ? 'brand' : undefined}
+        to={scopedHref(serverContextActionPath(server, action))}
+        aria-label={`${action.label} for ${serverDisplayName(server)}`}
       >
-        <RouterLink to={scopedHref(serverContextActionPath(server, action))} aria-label={`${action.label} for ${serverDisplayName(server)}`}>
-          <Icon size={16} aria-hidden />
-        </RouterLink>
-      </IconButton>
+        <Icon size={13} aria-hidden />
+        <span className="sw-server-context-action__label">{action.label}</span>
+      </RouterLink>
     </Tooltip>
   )
 }
@@ -1534,24 +1517,65 @@ function TagSummary({ server, onEdit }: { server: Server; onEdit: () => void }) 
   )
 }
 
+/**
+ * Dense Hardware summary with exactly one emphasized first fact: the primary GPU when present,
+ * otherwise the CPU identity. Exact provider values remain keyboard-accessible through tooltips.
+ */
 function ServerHardware({ server }: { server: Server }) {
+  const compactProfile = serverGpuCompactSummary(server)
+  const fullProfile = serverGpuProfile(server)
+  const hasGPU = Boolean(compactProfile)
+  const cpuModel = server.cpuModel.trim()
+  const cpuCores = server.cpuCores > 0 ? server.cpuCores.toLocaleString() : null
+  const memory = server.memoryMiB > 0 ? quantityOrDash(server.memoryMiB, 'GiB', 1024) : null
+  const hasHardwareInventory = hasGPU || Boolean(cpuModel) || Boolean(cpuCores) || Boolean(memory)
+
+  if (!hasHardwareInventory) {
+    return (
+      <div className="sw-server-hardware-summary">
+        <strong className="sw-server-hardware-empty">Not reported</strong>
+      </div>
+    )
+  }
+
+  const gpuSummary = hasGPU ? (
+    <strong
+      className="sw-server-hardware-gpu"
+      tabIndex={0}
+    >
+      {compactProfile}
+    </strong>
+  ) : null
+  const cpuSummary = cpuModel ? (
+    <Tooltip content={cpuModel}>
+      <span className="sw-server-hardware-cpu" tabIndex={0}>
+        {cpuModel}
+      </span>
+    </Tooltip>
+  ) : cpuCores || (!hasGPU && memory) ? (
+    <span className="sw-server-hardware-cpu" data-state="unobserved">Model not reported</span>
+  ) : null
+
   return (
     <div className="sw-server-hardware-summary">
-      <strong>{serverGpuProfile(server)}</strong>
-      <span>{quantityOrDash(server.cpuCores, 'cores')} · {quantityOrDash(server.memoryMiB, 'GiB', 1024)}</span>
-    </div>
-  )
-}
-
-function ServerPlatform({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
-  if (!server.membership) return <Text as="span" color="fg.muted">Unassigned</Text>
-  return (
-    <div className="sw-server-platform">
-      <MembershipBadge axis={server.membership} />
-      <RouterLink to={scopedHref(`/platforms/${server.membership.platformId}`)}>
-        Open platform<ArrowUpRight size={12} aria-hidden />
-      </RouterLink>
-      <span>{server.membership.role || server.membership.nodeName}</span>
+      {gpuSummary && (
+        <div className="sw-server-hardware-fact sw-server-hardware-fact--primary">
+          <span className="sw-server-hardware-label">GPU</span>
+          <Tooltip content={fullProfile}>{gpuSummary}</Tooltip>
+        </div>
+      )}
+      {cpuSummary && (
+        <div className={`sw-server-hardware-fact${hasGPU ? '' : ' sw-server-hardware-fact--primary'}`}>
+          {!hasGPU && <span className="sw-server-hardware-label">CPU</span>}
+          {cpuSummary}
+        </div>
+      )}
+      {(cpuCores || memory) && (
+        <div className="sw-server-hardware-capacity" aria-label="Server capacity">
+          {cpuCores && <span><strong>{cpuCores}</strong> cores</span>}
+          {memory && <span>RAM <strong>{memory}</strong></span>}
+        </div>
+      )}
     </div>
   )
 }
@@ -1607,7 +1631,7 @@ function ServerRow({
           </IconButton>
         </Table.Cell>
         <Table.Cell className="sw-server-col--identity"><ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} /></Table.Cell>
-        <Table.Cell className="sw-server-col--power sw-cell-center" onClick={(event) => event.stopPropagation()}>
+        <Table.Cell className="sw-server-col--power" onClick={(event) => event.stopPropagation()}>
           {server.provisioning ? (
             <Tooltip content={`Power actions (${powerStateLabel(server.provisioning.powerState)})${server.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
               <Button
@@ -1627,14 +1651,13 @@ function ServerRow({
         <Table.Cell className="sw-server-col--zone">{textOrDash(server.providerZone)}</Table.Cell>
         <Table.Cell className="sw-server-col--pool">{textOrDash(server.providerResourcePool)}</Table.Cell>
         <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.health} /></Table.Cell>
-        <Table.Cell className="sw-server-col--platform"><ServerPlatform server={server} scopedHref={scopedHref} /></Table.Cell>
         <Table.Cell className="sw-server-row-actions">
           <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} onAction={onAction} />
         </Table.Cell>
       </Table.Row>
       {expanded && (
         <Table.Row id={detailId} className="sw-server-detail-row">
-          <Table.Cell colSpan={12}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations, monitoring)} /></Table.Cell>
+          <Table.Cell colSpan={11}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations, monitoring)} /></Table.Cell>
         </Table.Row>
       )}
       {powerDialogOpen && (

@@ -229,7 +229,8 @@ swallow 的內部實作。資料流總覽見
   - 佈建：`provisioning_state`、`os_system`、`distro_series`、`default_user`（effective Server Default
     User）與 `image_default_user`（OS Image 的 default user），兩者都僅在已知時出現。
   - 成員：`platform_id`、`platform_role`、`platform_node_name`（若已加入 platform）。
-  - 其他：`gpu_vendors`、`server_tags`（避開 Ansible 保留字 `tags`）。
+  - 其他：`gpu_vendors`（僅運算型 GPU；排除本機 console／BMC 顯示控制器）、
+    `server_tags`（避開 Ansible 保留字 `tags`）。
 - 動態 group（非 `[a-z0-9_]` 的字元會被 tokenize 成 `_`）：`site_<id>`、
   `provisioning_<state>`（例如 `provisioning_deployed`）、`platform_<id>`、`role_<role>`、
   `gpu_<vendor>`、`tag_<tag>`；`all` 收斂上述。

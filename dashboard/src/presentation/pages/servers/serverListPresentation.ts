@@ -5,7 +5,12 @@ import {
   type ProvisioningState,
   type Server,
 } from '@/domain/server/types'
+import { gpuInventoryCount, preferredServerGPUs } from '@/domain/server/gpu'
 import { resolveDeploymentPhase, type DeploymentPhase } from '@/presentation/components/deploymentPhase'
+import {
+  gpuInventoryCompactSummary,
+  gpuInventoryProfile,
+} from '@/presentation/components/serverGpuPresentation'
 import { serverActivityPath, type ServerActivitySection } from './serverActivitySections'
 
 /** Quick operational lens applied before the advanced Server facets. */
@@ -80,12 +85,11 @@ export interface ServerFleetFacts {
 }
 
 /**
- * The one contextual next step a Server list row offers, shown as an icon-only link in the
- * Deployment cell because every choice follows the OS deployment axis that cell presents. None
- * of them performs a mutation; mutations stay in the row's Actions menu.
+ * The one contextual next step a Server list row offers, shown as a frameless icon-and-text link in
+ * the Deployment cell because every choice follows the OS deployment axis that cell presents.
+ * None of them performs a mutation; mutations stay in the row's Actions menu.
  *
- * `label` is the full purpose and becomes the tooltip and accessible name. It is never rendered
- * as visible button text, so every row's control keeps one width and no label is truncated.
+ * `label` is the visible purpose and also anchors the tooltip and row-specific accessible name.
  */
 export type ServerContextAction =
   | { kind: 'deploy'; label: 'Deploy OS' }
@@ -315,22 +319,30 @@ export function serverDeploymentPhase(server: Server): DeploymentPhase {
   return resolveDeploymentPhase(axis, provider)
 }
 
-/** A deterministic accelerator signature derived from hardware inventory, never from tags. */
+/**
+ * Deterministic profile for the GPU kind represented by the Server List: compute accelerators
+ * when present, otherwise display controllers. Classification comes from the API, never tags.
+ */
 export function serverGpuProfile(server: Server): string {
-  if (server.gpus.length === 0) return 'CPU only'
-  return [...server.gpus]
-    .sort((left, right) => (
-      left.vendor.localeCompare(right.vendor) ||
-      left.model.localeCompare(right.model) ||
-      left.count - right.count
-    ))
-    .map((gpu) => `${gpu.count} × ${[gpu.vendor, gpu.model].filter(Boolean).join(' ')}`)
-    .join(' + ')
+  const gpus = preferredServerGPUs(server)
+  return gpus.length > 0 ? gpuInventoryProfile(gpus) : 'CPU only'
 }
 
-/** Total physical GPU count reported for one Server. */
+/**
+ * Short GPU inventory label for dense Server rows and cards.
+ *
+ * Compute inventory outranks display inventory. Within that selected kind, the profile with the
+ * largest count is shown using its full vendor/model name. Callers retain `serverGpuProfile` for
+ * exact tooltip/detail text and grouping, where hiding the remaining profiles would lose
+ * operator-visible inventory meaning.
+ */
+export function serverGpuCompactSummary(server: Server): string {
+  return gpuInventoryCompactSummary(preferredServerGPUs(server))
+}
+
+/** Physical GPU count represented by the Server List's compute-first inventory selection. */
 export function serverGpuCount(server: Server): number {
-  return server.gpus.reduce((total, gpu) => total + gpu.count, 0)
+  return gpuInventoryCount(preferredServerGPUs(server))
 }
 
 /** Stable effective tags; provenance is intentionally unavailable in the current projection. */

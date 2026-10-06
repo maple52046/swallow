@@ -111,9 +111,7 @@ func (r *Reader) ListServers(ctx context.Context, siteID string) ([]overviewapp.
 		if server.Membership != nil {
 			item.PlatformID = server.Membership.PlatformID
 		}
-		for _, gpu := range server.Observed.GPUs {
-			item.GPUDevices += gpu.Count
-		}
+		item.GPUDevices = serverdomain.GPUCountByKind(server.Observed.GPUs, serverdomain.GPUKindCompute)
 		if health := healthByID[server.ID]; health != nil {
 			item.HealthState = string(health.State)
 		}

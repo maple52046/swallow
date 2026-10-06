@@ -238,10 +238,15 @@ func (uc *DiscoveryUseCase) discoverable(ctx context.Context, input DiscoveryInp
 	return result.Servers, nil
 }
 
+// gpuVendors returns accelerator vendors only. Display controllers stay in Server inventory but
+// must not create Ansible groups that imply a workload GPU stack is present.
 func gpuVendors(server *serverdomain.Server) []string {
 	seen := map[string]bool{}
 	var vendors []string
 	for _, gpu := range server.Observed.GPUs {
+		if gpu.ClassifiedKind() != serverdomain.GPUKindCompute {
+			continue
+		}
 		vendor := strings.ToLower(gpu.Vendor)
 		if vendor == "" || seen[vendor] {
 			continue

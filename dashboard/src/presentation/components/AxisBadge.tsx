@@ -61,6 +61,57 @@ function DeploymentImageValue({ tooltip, children }: { tooltip: string; children
   )
 }
 
+/**
+ * Compact Deployment presentation for Server inventory rows and cards.
+ *
+ * The lifecycle state is always visible tone-aware text, so installed
+ * images no longer make a deployed Server look structurally unrelated to Ready, Failed, or
+ * in-progress Servers. Installed image names and running time occupy the secondary line; the
+ * caller may inject the Server-specific contextual action into that hierarchy without duplicating
+ * lifecycle resolution. RAM deployment remains part of Server identity on these inventory
+ * surfaces and is intentionally not repeated here.
+ */
+export function DeploymentSummary({
+  axis,
+  provider,
+  action,
+}: {
+  axis: DeploymentAxis | null
+  provider: ProvisioningAxis | null
+  action?: ReactNode
+}) {
+  const phase = resolveDeploymentPhase(axis, provider)
+  const imageName = phase.installed?.imageName.trim() || ''
+  const tooltip = phase.label === 'Deployed'
+    ? 'An operating system is deployed on this Server.'
+    : phase.tooltip
+  const elapsed = !imageName && phase.inProgress && phase.since
+    ? <ElapsedTime since={phase.since.at} description={phase.since.description} />
+    : null
+  return (
+    <Box as="span" className="sw-deployment-summary">
+      <Tooltip content={tooltip}>
+        <Box as="span" className="sw-deployment-summary__state" color={`${phase.color}.fg`}>
+          <Box as="span">{phase.label}</Box>
+          {phase.inProgress && <InProgressSpinner />}
+        </Box>
+      </Tooltip>
+      {imageName && (
+        <Tooltip content={`${imageName} · ${tooltip}`}>
+          <Box as="span" className="sw-deployment-summary__image">{imageName}</Box>
+        </Tooltip>
+      )}
+      {(elapsed || action) && (
+        <Box as="span" className="sw-deployment-summary__meta">
+          {elapsed}
+          {elapsed && action && <Box as="span" aria-hidden>·</Box>}
+          {action}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 function UnknownBadge({ tooltip }: { tooltip: string }) {
   return <AxisLabel color="gray" tooltip={tooltip}>unknown</AxisLabel>
 }

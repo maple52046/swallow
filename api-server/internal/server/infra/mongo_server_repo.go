@@ -88,6 +88,8 @@ type gpuDoc struct {
 	Vendor string `bson:"vendor"`
 	Model  string `bson:"model"`
 	Count  int    `bson:"count"`
+	// Kind is absent in legacy projections; toServer classifies those records during reads.
+	Kind string `bson:"kind,omitempty"`
 }
 
 type deploymentDoc struct {
@@ -804,7 +806,12 @@ func gpuDocs(gpus []serverdomain.GPU) []gpuDoc {
 	}
 	docs := make([]gpuDoc, 0, len(gpus))
 	for _, gpu := range gpus {
-		docs = append(docs, gpuDoc{Vendor: gpu.Vendor, Model: gpu.Model, Count: gpu.Count})
+		docs = append(docs, gpuDoc{
+			Vendor: gpu.Vendor,
+			Model:  gpu.Model,
+			Count:  gpu.Count,
+			Kind:   string(gpu.ClassifiedKind()),
+		})
 	}
 	return docs
 }
@@ -865,11 +872,14 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 	}
 
 	for _, gpu := range doc.GPUs {
-		s.Observed.GPUs = append(s.Observed.GPUs, serverdomain.GPU{
+		projected := serverdomain.GPU{
 			Vendor: gpu.Vendor,
 			Model:  gpu.Model,
 			Count:  gpu.Count,
-		})
+			Kind:   serverdomain.GPUKind(gpu.Kind),
+		}
+		projected.Kind = projected.ClassifiedKind()
+		s.Observed.GPUs = append(s.Observed.GPUs, projected)
 	}
 
 	if d := doc.Deployment; d != nil {

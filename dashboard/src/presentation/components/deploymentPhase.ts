@@ -115,7 +115,7 @@ export function resolveDeploymentPhase(
     const fallback = [provider.osSystem, provider.distroSeries].filter(Boolean).join(' ')
     return {
       label: 'Deployed',
-      color: verified ? 'green' : 'gray',
+      color: 'green',
       inProgress: false,
       tooltip: verified
         ? 'Swallow deployed and verified this OS image.'

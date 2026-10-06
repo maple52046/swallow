@@ -105,12 +105,73 @@ func (h Hardware) Empty() bool {
 	return systemUUID == "" && serial == "" && len(macs) == 0
 }
 
-// GPU is a GPU as the provisioner detected it. Telemetry is never stored here; only
-// what the hardware inventory reports.
+// GPUKind separates workload accelerator capacity from graphics controllers that only serve
+// a Server's local console or BMC. Provider inventories often call both devices GPUs, so every
+// projected GPU must carry this distinction before capacity or monitoring code consumes it.
+type GPUKind string
+
+const (
+	// GPUKindCompute contributes accelerator capacity and may have workload telemetry.
+	GPUKindCompute GPUKind = "compute"
+	// GPUKindDisplay is a local-console or BMC graphics controller, not workload capacity.
+	GPUKindDisplay GPUKind = "display"
+)
+
+// GPU is a provisioner-observed GPU group. Telemetry is never stored here; only hardware
+// inventory belongs in the projection. Kind is normalized at the projection boundary, while
+// ClassifiedKind keeps documents written before the field existed compatible on read.
 type GPU struct {
 	Vendor string
 	Model  string
 	Count  int
+	Kind   GPUKind
+}
+
+// ClassifyGPUKind applies swallow's fallback when a provider exposes only a generic GPU class.
+// Known server-console controllers are display devices; every other reported GPU remains compute
+// so an unnamed accelerator is not silently removed from capacity.
+func ClassifyGPUKind(vendor, model string) GPUKind {
+	identity := strings.ToLower(strings.TrimSpace(vendor + " " + model))
+	cirrusGD5446 := strings.Contains(identity, "cirrus logic") &&
+		(strings.Contains(identity, "gd 5446") || strings.Contains(identity, "gd5446"))
+	switch {
+	case strings.Contains(identity, "aspeed"), strings.Contains(identity, "1a03:"):
+		return GPUKindDisplay
+	case cirrusGD5446, strings.Contains(identity, "1013:"):
+		return GPUKindDisplay
+	case strings.Contains(identity, "matrox") && strings.Contains(identity, "g200"):
+		return GPUKindDisplay
+	case strings.Contains(identity, "102b:"):
+		return GPUKindDisplay
+	case strings.Contains(identity, "xgi") && (strings.Contains(identity, "z7") || strings.Contains(identity, "z9")):
+		return GPUKindDisplay
+	case strings.Contains(identity, "18ca:"):
+		return GPUKindDisplay
+	default:
+		return GPUKindCompute
+	}
+}
+
+// ClassifiedKind returns a valid kind for both current and legacy GPU projections. An explicit
+// valid kind is authoritative; an absent or unknown stored value is reclassified from the
+// provider's vendor/model strings so upgrades are correct before the next inventory sweep.
+func (g GPU) ClassifiedKind() GPUKind {
+	if g.Kind == GPUKindCompute || g.Kind == GPUKindDisplay {
+		return g.Kind
+	}
+	return ClassifyGPUKind(g.Vendor, g.Model)
+}
+
+// GPUCountByKind returns physical devices of one classified kind, including legacy groups whose
+// stored kind is absent. Display controllers therefore never inflate compute capacity.
+func GPUCountByKind(gpus []GPU, kind GPUKind) int {
+	total := 0
+	for _, gpu := range gpus {
+		if gpu.ClassifiedKind() == kind {
+			total += gpu.Count
+		}
+	}
+	return total
 }
 
 // Observed holds what the provisioner reports about the machine. Cached, never

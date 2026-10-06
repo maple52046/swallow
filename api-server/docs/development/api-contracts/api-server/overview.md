@@ -72,6 +72,10 @@ An unknown `siteId` returns `not_found` rather than an empty overview.
 }
 ```
 
+`inventory.gpuDevices` counts only GPU Inventory items whose kind is `compute`. Display
+controllers remain visible on their Server projections but do not contribute accelerator
+capacity to the overview.
+
 Integration items contain `id`, `siteId`, `name`, `kind`, `providerKind`,
 `enabled`, `lastSucceededAt`, and `lastError`. Recent operations reuse the public
 Operation summary fields and contain at most eight entries ordered by `requestedAt`

@@ -24,6 +24,8 @@ export interface ServerGPU {
   vendor: string
   model: string
   count: number
+  /** Workload accelerator capacity or a non-capacity local-console/BMC graphics controller. */
+  kind: 'compute' | 'display'
 }
 
 /**

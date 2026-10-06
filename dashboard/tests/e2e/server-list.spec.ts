@@ -19,6 +19,7 @@ test.beforeEach(async ({ page }) => {
 test('fleet overview, discovery search, quick lenses, and contextual actions stay independent', async ({ page }) => {
   await installApiFixtures(page, {
     readyServerCount: 1,
+    existingServerIds: ['srv-4'],
     changingServerIds: ['srv-2'],
     ephemeralServerIds: ['srv-2'],
     lockedServerIds: ['srv-2'],
@@ -60,15 +61,27 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(workflowAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
   // A Swallow deployment that needs review opens its Workflow, which holds the failed Step.
   await expect(reviewAction).toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
-  // The contextual step is an icon in the Deployment cell: no visible text, one size on every row.
-  const contextActions = [deployAction, workflowAction, reviewAction]
-  for (const action of contextActions) {
-    await expect(action).toHaveText('')
+  // The contextual step is a frameless icon-and-text link on Deployment's secondary line.
+  const contextActions = [[deployAction, 'Deploy OS'], [workflowAction, 'View workflow'], [reviewAction, 'View workflow']] as const
+  for (const [action, label] of contextActions) {
+    await expect(action).toHaveText(label)
+    const icon = action.locator('svg')
+    await expect(icon).toHaveCount(1)
+    await expect(action.locator('.sw-server-context-action__label')).toHaveCSS('text-decoration-line', 'underline')
+    await expect(icon).toHaveCSS('text-decoration-line', 'none')
+    await expect(action).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(action).toHaveCSS('border-top-width', '0px')
     expect(await action.evaluate((link) => link.closest('td')?.classList.contains('sw-server-col--deployment'))).toBe(true)
+    expect(await action.evaluate((link) => link.parentElement?.classList.contains('sw-deployment-summary__meta'))).toBe(true)
   }
-  const contextWidths = await Promise.all(contextActions.map((action) => action.evaluate((link) => link.getBoundingClientRect().width)))
-  expect(new Set(contextWidths).size).toBe(1)
-  await deployAction.hover()
+  const deploymentActionPlacement = await deployAction.evaluate((link) => {
+    const state = link.closest('.sw-deployment-summary')?.querySelector('.sw-deployment-summary__state')
+    if (!(state instanceof HTMLElement)) throw new Error('Deployment state is missing')
+    return { stateTop: state.getBoundingClientRect().top, actionTop: link.getBoundingClientRect().top }
+  })
+  expect(deploymentActionPlacement.actionTop).toBeGreaterThan(deploymentActionPlacement.stateTop)
+  await deployAction.focus()
+  await expect(deployAction).toBeFocused()
   await expect(page.getByRole('tooltip')).toHaveText('Deploy OS')
   // The Actions column holds only the labelled mutation menu, the same width on every row.
   const triggers = [ready, changing, issue].map((row) => row.locator('.sw-server-row-actions').getByRole('button', { name: /^Actions for gpu-node-0/ }))
@@ -136,6 +149,7 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(page.getByRole('heading', { name: 'No matching Servers' })).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect(page).toHaveURL('/servers?site=site-a')
+  await expect(search).toHaveValue('')
 
   await page.getByRole('button', { name: /Filters/ }).click()
   await page.getByRole('checkbox', { name: 'Include absent projections' }).locator('..').click()
@@ -143,8 +157,26 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await page.keyboard.press('Escape')
   const absent = table.getByRole('row').filter({ hasText: 'gpu-node-04' })
   await expect(absent).toBeVisible()
-  await expect(absent).toContainText('CPU only')
+  await expect(absent.locator('.sw-server-hardware-summary')).toHaveText('Not reported')
+  await expect(absent.locator('.sw-server-hardware-capacity')).toHaveCount(0)
+  await expect(absent.getByText('Unknown', { exact: true })).toBeVisible()
   await expect(absent.getByRole('link', { name: 'Review activity for gpu-node-04' })).toHaveAttribute('href', '/servers/srv-4/activity?site=site-a#activity-provider-events')
+})
+
+test('deployed status uses one tone regardless of deployment provenance', async ({ page }) => {
+  await installApiFixtures(page, { existingServerIds: ['srv-2'] })
+  await page.goto('/servers?site=site-a')
+
+  const table = page.getByRole('table', { name: 'Servers' })
+  const verified = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).locator('.sw-deployment-summary__state')
+  const providerOnly = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).locator('.sw-deployment-summary__state')
+  const states = [verified, providerOnly]
+  for (const state of states) await expect(state).toHaveText('Deployed')
+  await expect(table.locator('.sw-deployment-summary__indicator')).toHaveCount(0)
+  const colors = await Promise.all(states.map((state) => state.evaluate((element) => (
+    getComputedStyle(element).color
+  ))))
+  expect(new Set(colors).size).toBe(1)
 })
 
 test('provider-only work links to the Activity section that records it', async ({ page }) => {
@@ -181,7 +213,7 @@ test('in-progress rows and spinners keep moving when the OS asks for reduced mot
 
   const table = page.getByRole('table', { name: 'Servers' })
   const changing = table.getByRole('row').filter({ hasText: 'gpu-node-02' })
-  const spinner = changing.getByText('Inspecting', { exact: true }).locator('.sw-progress-spinner')
+  const spinner = changing.locator('.sw-deployment-summary__state .sw-progress-spinner')
   await expect(spinner).toBeVisible()
   const runningAnimations = (element: Element) => element.getAnimations().map((animation) => ({
     name: (animation as CSSAnimation).animationName,
@@ -209,6 +241,11 @@ test('hardware facets, deterministic grouping, sorting, and URL fallback are sha
   const table = page.getByRole('table', { name: 'Servers' })
   await expect(table.getByText('gpu-node-03', { exact: true })).toBeVisible()
   await expect(table.getByText('gpu-node-01', { exact: true })).toHaveCount(0)
+  const mixedGpuRow = table.getByRole('row').filter({ hasText: 'gpu-node-03' })
+  const mixedGpuSummary = mixedGpuRow.locator('.sw-server-hardware-gpu')
+  await expect(mixedGpuSummary).toHaveText('AMD MI300X')
+  await mixedGpuSummary.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('8 × AMD MI300X + 4 × NVIDIA H100')
 
   await page.goto('/servers?site=site-a&gpu=present&architecture=amd64%2Fgeneric&systemVendor=Supermicro&systemProduct=AS-8125GS-TNHR&zone=rack-a&pool=accelerators&tag=east&tag=production&membership=assigned&health=up')
   await expect(table.getByText('gpu-node-01', { exact: true })).toBeVisible()
@@ -236,6 +273,118 @@ test('hardware facets, deterministic grouping, sorting, and URL fallback are sha
   await expect(page.getByText('Showing 1–4 of 4 servers')).toBeVisible()
 })
 
+test('GPU summaries prefer compute capacity and Server detail separates display controllers', async ({ page }) => {
+  await installApiFixtures(page, { displayOnlyServerIds: ['srv-2'], cpuOnlyServerIds: ['srv-3'] })
+  await page.goto('/servers?site=site-a')
+
+  const table = page.getByRole('table', { name: 'Servers' })
+  const computeRow = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
+  const computeSummary = computeRow.locator('.sw-server-hardware-gpu')
+  await expect(computeSummary).toHaveText('AMD MI300X')
+  await computeSummary.focus()
+  await expect(page.getByRole('tooltip', { name: '8 × AMD MI300X', exact: true })).toBeVisible()
+  const cpuModel = computeRow.locator('.sw-server-hardware-cpu')
+  await expect(cpuModel).toHaveText('AMD EPYC 9554')
+  await cpuModel.hover()
+  await expect(page.getByRole('tooltip', { name: 'AMD EPYC 9554', exact: true })).toBeVisible()
+
+  const displayRow = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).first()
+  const displaySummary = displayRow.locator('.sw-server-hardware-gpu')
+  await expect(displaySummary).toHaveText('ASPEED Technology, Inc. ASPEED Graphics Family')
+  await displaySummary.hover()
+  await expect(page.getByRole('tooltip', { name: '1 × ASPEED Technology, Inc. ASPEED Graphics Family', exact: true })).toBeVisible()
+
+  const cpuOnlyRow = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
+  await expect(cpuOnlyRow.locator('.sw-server-hardware-gpu')).toHaveCount(0)
+  await expect(cpuOnlyRow.locator('.sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
+  await expect(cpuOnlyRow.locator('.sw-server-hardware-fact--primary .sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
+  await expect(cpuOnlyRow.locator('.sw-server-hardware-label')).toHaveText('CPU')
+  await expect(cpuOnlyRow.locator('.sw-server-hardware-capacity > span')).toHaveText(['64 cores', 'RAM 512 GiB'])
+  await expect(cpuOnlyRow.locator('.sw-server-hardware-capacity strong')).toHaveText(['64', '512 GiB'])
+
+  const [primaryStyle, secondaryStyle] = await Promise.all([
+    computeSummary.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { fontSize: style.fontSize, fontWeight: style.fontWeight }
+    }),
+    cpuModel.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { fontSize: style.fontSize, fontWeight: style.fontWeight }
+    }),
+  ])
+  expect(Number(primaryStyle.fontWeight)).toBeGreaterThan(Number(secondaryStyle.fontWeight))
+  expect(Number.parseFloat(primaryStyle.fontSize)).toBeGreaterThan(Number.parseFloat(secondaryStyle.fontSize))
+  await expect(computeRow.locator('.sw-server-hardware-fact--primary')).toHaveCount(1)
+  await expect(computeRow.locator('.sw-server-hardware-label')).toHaveText('GPU')
+  const tagStyles = await Promise.all([
+    computeRow.locator('.sw-server-hardware-label').evaluate((label) => {
+      const style = getComputedStyle(label)
+      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
+    }),
+    cpuOnlyRow.locator('.sw-server-hardware-label').evaluate((label) => {
+      const style = getComputedStyle(label)
+      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
+    }),
+  ])
+  expect(tagStyles[0]).toEqual(tagStyles[1])
+  expect(tagStyles[0].borderRadius).toBe('0px')
+  await expect(computeRow.locator('.sw-server-hardware-fact').first()).toHaveCSS('display', 'flex')
+  const [summaryBox, capacityBox] = await Promise.all([
+    computeRow.locator('.sw-server-hardware-summary').boundingBox(),
+    computeRow.locator('.sw-server-hardware-capacity strong').first().boundingBox(),
+  ])
+  expect(summaryBox).not.toBeNull()
+  expect(capacityBox).not.toBeNull()
+  expect(Math.abs((summaryBox?.x ?? 0) - (capacityBox?.x ?? 0))).toBeLessThanOrEqual(1)
+  const [secondaryBox, capacityLineBox] = await Promise.all([
+    cpuModel.boundingBox(),
+    computeRow.locator('.sw-server-hardware-capacity').boundingBox(),
+  ])
+  expect(secondaryBox).not.toBeNull()
+  expect(capacityLineBox).not.toBeNull()
+  expect((capacityLineBox?.y ?? 0) - ((secondaryBox?.y ?? 0) + (secondaryBox?.height ?? 0))).toBeLessThanOrEqual(2)
+  const rowBox = await computeRow.boundingBox()
+  expect(rowBox).not.toBeNull()
+  expect(rowBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(82)
+
+  await page.goto('/servers/srv-1/summary?site=site-a')
+  const capacity = page.getByRole('heading', { name: 'Capacity', exact: true }).locator('xpath=../../..')
+  const computeCapacity = capacity.locator('.sw-server-capacity-item').filter({ hasText: 'Compute GPUs' })
+  await expect(computeCapacity).toContainText('8 GPUs')
+  await expect(computeCapacity).toContainText('8 × AMD MI300X')
+  const displayCapacity = capacity.locator('.sw-server-capacity-item').filter({ hasText: 'Display GPUs' })
+  await expect(displayCapacity).toContainText('1 GPU')
+  await expect(displayCapacity).toContainText('1 × ASPEED Technology, Inc. ASPEED Graphics Family')
+
+  const hardwareProfile = page.getByRole('heading', { name: 'Hardware profile', exact: true }).locator('xpath=../../..')
+  await expect(hardwareProfile).toContainText('Compute GPUs')
+  await expect(hardwareProfile).toContainText('Display GPUs')
+})
+
+test('generic and opaque provider GPU names remain complete with exact tooltip detail', async ({ page }) => {
+  await installApiFixtures(page, {
+    genericComputeServerIds: ['srv-1'],
+    displayOnlyServerIds: ['srv-2'],
+    cirrusDisplayOnlyServerIds: ['srv-3'],
+  })
+  await page.goto('/servers?site=site-a')
+
+  const table = page.getByRole('table', { name: 'Servers' })
+  const genericCompute = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
+  const genericSummary = genericCompute.locator('.sw-server-hardware-gpu')
+  await expect(genericSummary).toHaveText('AMD GPU')
+  await genericSummary.focus()
+  await expect(page.getByRole('tooltip', { name: '8 × AMD AMD GPU', exact: true })).toBeVisible()
+
+  const aspeedDisplay = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).first()
+  await expect(aspeedDisplay.locator('.sw-server-hardware-gpu')).toHaveText('ASPEED Technology, Inc. ASPEED Graphics Family')
+
+  const cirrusDisplay = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
+  const cirrusSummary = cirrusDisplay.locator('.sw-server-hardware-gpu')
+  await expect(cirrusSummary).toHaveText('Cirrus Logic GD 5446')
+  await cirrusSummary.hover()
+  await expect(page.getByRole('tooltip', { name: '1 × Cirrus Logic GD 5446', exact: true })).toBeVisible()
+})
 test('display preferences migrate once while grouping and sorting preserve selection', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('swallow.servers.group-by', JSON.stringify('zone'))
@@ -349,27 +498,40 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
   await installApiFixtures(page, {
     readyServerCount: 1,
     changingServerIds: ['srv-2'],
+    deployedImageNames: { 'srv-3': 'Ubuntu 24.04 LTS ROCm Enterprise Accelerator Image' },
     extraTags: { 'srv-1': ['east', 'training'] },
   })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/servers?site=site-a')
 
   const card = page.getByRole('article').filter({ hasText: 'gpu-node-01' })
-  await expect(card).toContainText('8 × AMD MI300X')
-  await expect(card).toContainText('64 cores · 512 GiB')
+  await expect(card.locator('.sw-server-hardware-purpose')).toHaveCount(0)
+  await expect(card.locator('.sw-server-hardware-gpu')).toHaveText('AMD MI300X')
+  await expect(card.locator('.sw-server-hardware-fact--primary .sw-server-hardware-gpu')).toHaveCount(1)
+  await expect(card.locator('.sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
+  const capacity = card.locator('.sw-server-hardware-capacity')
+  await expect(card.locator('.sw-server-hardware-label')).toHaveText('GPU')
+  await expect(capacity.locator(':scope > span')).toHaveText(['64 cores', 'RAM 512 GiB'])
+  await expect(capacity.locator('strong')).toHaveText(['64', '512 GiB'])
   await expect(card.getByText('Zone', { exact: true })).toBeVisible()
   await expect(card.getByText('rack-a', { exact: true }).first()).toBeVisible()
   await expect(card.getByText('Pool', { exact: true })).toBeVisible()
   await expect(card.getByText('accelerators', { exact: true }).first()).toBeVisible()
   await expect(card.getByRole('button', { name: 'Edit tags for gpu-node-01' })).toBeVisible()
-  await expect(card.getByRole('link', { name: 'Deploy OS for gpu-node-01' })).toHaveText('')
+  const deployAction = card.getByRole('link', { name: 'Deploy OS for gpu-node-01' })
+  await expect(deployAction).toHaveText('Deploy OS')
+  await expect(deployAction.locator('svg')).toHaveCount(1)
   await expect(card.getByRole('button', { name: 'Actions for gpu-node-01', exact: true })).toHaveText('Actions')
   await card.locator('summary', { hasText: 'More details' }).click()
   await expect(card).toContainText('Operational context · Health')
   await expect(card).toContainText('platform-a')
   await expect(card).toContainText('SN0001')
+  await expect(card).toContainText('8 × AMD MI300X')
   await expect(card).toContainText('east, gpu, production, training')
 
+  const wrappedImage = page.getByRole('article').filter({ hasText: 'gpu-node-03' }).locator('.sw-deployment-summary__image')
+  await expect(wrappedImage).toHaveCSS('white-space', 'normal')
+  expect(await wrappedImage.evaluate((image) => image.getBoundingClientRect().height)).toBeGreaterThan(20)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await card.getByLabel('Mobile selection: gpu-node-01').check()
   await expect(page.getByRole('region', { name: 'Selection actions' })).toBeVisible()
@@ -385,7 +547,8 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   await installApiFixtures(page, {
     failedServerIds: ['srv-1'],
     changingServerIds: ['srv-3'],
-    multiGpuServerIds: ['srv-1'],
+    displayOnlyServerIds: ['srv-1'],
+    deployedImageNames: { 'srv-2': 'Ubuntu 24.04 LTS ROCm Enterprise Accelerator Image' },
   })
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/servers?site=site-a')
@@ -398,10 +561,17 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   await expect(table.getByRole('columnheader', { name: 'Placement', exact: true })).toHaveCount(0)
   const serverHeader = table.getByRole('columnheader', { name: 'Server', exact: true })
   expect(await serverHeader.evaluate((header) => header.nextElementSibling?.textContent?.trim())).toBe('Power')
+  const serverColumnWidth = await serverHeader.evaluate((header) => header.getBoundingClientRect().width)
+  expect(serverColumnWidth).toBeGreaterThanOrEqual(175)
+  expect(serverColumnWidth).toBeLessThanOrEqual(177)
   await expect(table.getByRole('columnheader', { name: 'Signals', exact: true })).toHaveCount(0)
-  for (const heading of ['Health', 'Platform']) {
-    await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeHidden()
-  }
+  await expect(table.getByRole('columnheader', { name: 'Health', exact: true })).toBeHidden()
+  await expect(table.getByRole('columnheader', { name: 'Platform', exact: true })).toHaveCount(0)
+  const [deploymentWidth, hardwareWidth] = await Promise.all([
+    table.getByRole('columnheader', { name: 'Deployment', exact: true }).evaluate((header) => header.getBoundingClientRect().width),
+    table.getByRole('columnheader', { name: 'Hardware', exact: true }).evaluate((header) => header.getBoundingClientRect().width),
+  ])
+  expect(Math.abs(deploymentWidth - hardwareWidth)).toBeLessThanOrEqual(1)
 
   const providerFailed = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
   const detailsButton = providerFailed.getByRole('button', { name: 'Show details for gpu-node-01' })
@@ -413,6 +583,21 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   expect(await detailsHeader.evaluate((header) => header.previousElementSibling?.getAttribute('aria-label'))).toBe('Row selection')
   expect(await detailsHeader.evaluate((header) => header.nextElementSibling?.textContent?.trim())).toBe('Server')
   await expect(detailsButton).toBeVisible()
+  const [serverNameBox, serverNameCopyBox] = await Promise.all([
+    providerFailed.locator('.sw-server-name').boundingBox(),
+    providerFailed.getByRole('button', { name: 'Copy Server name' }).boundingBox(),
+  ])
+  if (!serverNameBox || !serverNameCopyBox) throw new Error('Server name or copy action is missing')
+  const serverNameCopyGap = serverNameCopyBox.x - (serverNameBox.x + serverNameBox.width)
+  expect(serverNameCopyGap).toBeGreaterThanOrEqual(0)
+  expect(serverNameCopyGap).toBeLessThanOrEqual(6)
+  const powerStartGap = await providerFailed.locator('.sw-server-col--power').evaluate((cell) => {
+    const button = cell.querySelector('.sw-power-button')
+    if (!(button instanceof HTMLElement)) throw new Error('Power action button is missing')
+    return button.getBoundingClientRect().left - cell.getBoundingClientRect().left
+  })
+  expect(powerStartGap).toBeLessThanOrEqual(12)
+
   await expect(providerFailed).toContainText('192.168.40.21')
   await expect(providerFailed).toContainText('02:00:00:00:00:01')
   for (const value of ['192.168.40.21', '02:00:00:00:00:01']) {
@@ -434,17 +619,21 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   await expect(providerFailed).not.toContainText('gpu-node-01.lab.example')
   await expect(providerFailed.getByText('Failed', { exact: true })).toBeVisible()
   const hardwareGeometry = await providerFailed.locator('.sw-server-col--hardware').evaluate((cell) => {
-    const content = cell.querySelector('strong')
+    const content = cell.querySelector('.sw-server-hardware-gpu')
     if (!(content instanceof HTMLElement)) throw new Error('Hardware summary is missing')
     return {
       cellRight: cell.getBoundingClientRect().right,
       contentRight: content.getBoundingClientRect().right,
       clientWidth: content.clientWidth,
       scrollWidth: content.scrollWidth,
+      whiteSpace: getComputedStyle(content).whiteSpace,
     }
   })
+  await expect(providerFailed.locator('.sw-server-hardware-gpu')).toHaveText('ASPEED Technology, Inc. ASPEED Graphics Family')
+  await expect(providerFailed.locator('.sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
   expect(hardwareGeometry.contentRight).toBeLessThanOrEqual(hardwareGeometry.cellRight)
   expect(hardwareGeometry.scrollWidth).toBeGreaterThan(hardwareGeometry.clientWidth)
+  expect(hardwareGeometry.whiteSpace).toBe('nowrap')
   await expect(providerFailed.getByRole('link', { name: 'Review activity for gpu-node-01' })).toHaveAttribute('href', '/servers/srv-1/activity?site=site-a#activity-provider-events')
   const changing = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
   await expect(changing.getByRole('link', { name: 'View workflow for gpu-node-03' })).toBeVisible()
@@ -462,13 +651,26 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   const deployed = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).first()
   // An idle deployed Server gets no contextual icon; its host name already opens the Summary.
   await expect(deployed.locator('.sw-server-col--deployment').getByRole('link')).toHaveCount(0)
-  const deployedImage = deployed.getByText('Ubuntu 24.04 LTS', { exact: true })
+  await expect(deployed.getByText('Deployed', { exact: true })).toBeVisible()
+  const deployedImage = deployed.getByText('Ubuntu 24.04 LTS ROCm Enterprise Accelerator Image', { exact: true })
   await expect(deployedImage).toBeVisible()
   await expect(deployedImage).not.toHaveAttribute('data-scope', 'badge')
+  const imageOverflow = await deployedImage.evaluate((image) => ({
+    clientWidth: image.clientWidth,
+    scrollWidth: image.scrollWidth,
+    whiteSpace: getComputedStyle(image).whiteSpace,
+  }))
+  expect(imageOverflow.whiteSpace).toBe('nowrap')
+  expect(imageOverflow.scrollWidth).toBeGreaterThan(imageOverflow.clientWidth)
+  await deployedImage.scrollIntoViewIfNeeded()
+  await deployedImage.hover()
+  await expect(page.getByRole('tooltip')).toContainText('Ubuntu 24.04 LTS ROCm Enterprise Accelerator Image')
+  await expect(page.getByRole('tooltip')).toContainText('An operating system is deployed on this Server.')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
   await page.setViewportSize({ width: 1800, height: 900 })
-  for (const heading of ['Health', 'Power', 'Platform']) {
+  for (const heading of ['Health', 'Power']) {
     await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeVisible()
   }
+  await expect(table.getByRole('columnheader', { name: 'Platform', exact: true })).toHaveCount(0)
 })

@@ -62,10 +62,13 @@ type ServerHardwareItem struct {
 	MACAddresses []string `json:"macAddresses"`
 }
 
+// ServerGPUItem is one grouped GPU Inventory item. Kind is always populated, including when the
+// stored Server predates classification, so API consumers never need vendor heuristics.
 type ServerGPUItem struct {
 	Vendor string `json:"vendor"`
 	Model  string `json:"model"`
 	Count  int    `json:"count"`
+	Kind   string `json:"kind"`
 }
 
 type DeploymentAxisItem struct {
@@ -187,6 +190,7 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 			Vendor: gpu.Vendor,
 			Model:  gpu.Model,
 			Count:  gpu.Count,
+			Kind:   string(gpu.ClassifiedKind()),
 		})
 	}
 

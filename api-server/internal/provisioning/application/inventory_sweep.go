@@ -105,10 +105,17 @@ func (uc *InventorySweepUseCase) sweep(ctx context.Context, integration *sitedom
 	return report
 }
 
+// toServerGPUs is the provider-to-Server classification boundary. Provisioners expose a generic
+// GPU class; the Server projection adds the compute/display distinction before persistence.
 func toServerGPUs(gpus []provisioningdomain.GPU) []serverdomain.GPU {
 	out := make([]serverdomain.GPU, 0, len(gpus))
 	for _, g := range gpus {
-		out = append(out, serverdomain.GPU{Vendor: g.Vendor, Model: g.Model, Count: g.Count})
+		out = append(out, serverdomain.GPU{
+			Vendor: g.Vendor,
+			Model:  g.Model,
+			Count:  g.Count,
+			Kind:   serverdomain.ClassifyGPUKind(g.Vendor, g.Model),
+		})
 	}
 	return out
 }

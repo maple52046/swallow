@@ -1,11 +1,13 @@
 import { Badge, Box, Card, Heading, HStack, IconButton, Link as ChakraLink, Text } from '@chakra-ui/react'
-import { Cpu, Eye, EyeOff, HardDrive, MemoryStick, Microchip, Tags } from 'lucide-react'
+import { Cpu, Eye, EyeOff, HardDrive, MemoryStick, Microchip, Monitor, Tags } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
+import { gpuInventoryCount, serverGPUsByKind } from '@/domain/server/gpu'
 import { serverPrimaryAddress, type DetailSection, type Server } from '@/domain/server/types'
 import { HealthBadge, LockBadge, MembershipBadge, PowerBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { CopyButton } from '@/presentation/components/CopyButton'
+import { gpuInventoryProfile } from '@/presentation/components/serverGpuPresentation'
 import { defaultUserSourceLabel } from '@/presentation/components/serverSummary/defaultUserLabels'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { DescriptionList, type DescriptionItem } from '@/presentation/components/ui/description-list'
@@ -89,13 +91,15 @@ export function StatusCard({ server, deployedImageHref }: { server: Server; depl
 }
 
 /**
- * Consolidates capacity into one scan surface rather than four equally weighted cards.
+ * Consolidates capacity into one scan surface rather than separate equally weighted cards.
  * Values come from the reconciled Server projection; missing observations are explicit and
- * GPU count is derived from every reported accelerator model.
+ * GPU capacity separates workload accelerators from local-console/BMC display controllers.
  */
 export function CapacityCard({ server, storageDeviceCount }: { server: Server; storageDeviceCount?: number }) {
-  const gpuCount = server.gpus.reduce((total, gpu) => total + gpu.count, 0)
-  const gpuDetail = server.gpus.map((gpu) => `${gpu.vendor} ${gpu.model}`).join(', ')
+  const computeGPUs = serverGPUsByKind(server, 'compute')
+  const displayGPUs = serverGPUsByKind(server, 'display')
+  const computeGPUCount = gpuInventoryCount(computeGPUs)
+  const displayGPUCount = gpuInventoryCount(displayGPUs)
   const items: CapacityItem[] = [
     {
       label: 'CPU',
@@ -115,10 +119,16 @@ export function CapacityCard({ server, storageDeviceCount }: { server: Server; s
       icon: <HardDrive size={18} />,
     },
     {
-      label: 'Accelerators',
-      value: gpuCount ? `${gpuCount} GPU${gpuCount === 1 ? '' : 's'}` : 'None reported',
-      detail: gpuDetail || undefined,
+      label: 'Compute GPUs',
+      value: computeGPUCount ? `${computeGPUCount} GPU${computeGPUCount === 1 ? '' : 's'}` : 'None reported',
+      detail: computeGPUs.length ? gpuInventoryProfile(computeGPUs) : undefined,
       icon: <Microchip size={18} />,
+    },
+    {
+      label: 'Display GPUs',
+      value: displayGPUCount ? `${displayGPUCount} GPU${displayGPUCount === 1 ? '' : 's'}` : 'None reported',
+      detail: displayGPUs.length ? gpuInventoryProfile(displayGPUs) : undefined,
+      icon: <Monitor size={18} />,
     },
   ]
   return (
@@ -360,6 +370,8 @@ export function ConnectionCard({ server, imageHref, loginUserAction }: { server:
  * when they overlap so the card remains a compact profile instead of repeating facts.
  */
 export function HardwareProfileCard({ server, system }: { server: Server; system?: DetailSection }) {
+  const computeGPUs = serverGPUsByKind(server, 'compute')
+  const displayGPUs = serverGPUsByKind(server, 'display')
   const items: DescriptionItem[] = system ? system.fields.map((field) => ({ label: field.label, value: field.value })) : []
   const labels = new Set(items.map((item) => item.label.toLocaleLowerCase()))
   // Provider labels are not standardized, so aliases prevent duplicated projection fallbacks.
@@ -374,7 +386,8 @@ export function HardwareProfileCard({ server, system }: { server: Server; system
   addFallback('System product', server.systemProduct)
   addFallback('Architecture', server.architecture)
   addFallback('CPU model', server.cpuModel)
-  addFallback('Accelerators', server.gpus.length ? server.gpus.map((gpu) => `${gpu.count} × ${gpu.vendor} ${gpu.model}`).join(', ') : null)
+  addFallback('Compute GPUs', computeGPUs.length ? gpuInventoryProfile(computeGPUs) : null)
+  addFallback('Display GPUs', displayGPUs.length ? gpuInventoryProfile(displayGPUs) : null)
   return (
     <Card.Root className="sw-server-summary-card">
       <Card.Body gap="4">

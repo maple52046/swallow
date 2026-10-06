@@ -10,6 +10,7 @@
  */
 import type { Server } from './types'
 import { serverDisplayName, serverPrimaryAddress } from './types'
+import { gpuInventoryCount, preferredServerGPUs } from './gpu'
 
 /** How the list is grouped. `none` renders a single ungrouped table. */
 export type ServerGroupBy = 'none' | 'provisioning' | 'zone' | 'pool' | 'architecture' | 'power'
@@ -127,9 +128,9 @@ export function matchesServerFilters(server: Server, filters: ServerFilters): bo
   return true
 }
 
-/** Total GPU count across a server's GPU entries, used for sorting and display. */
+/** Compute-first GPU count matching the Server List summary; display is the fallback. */
 export function serverGpuCount(server: Server): number {
-  return server.gpus.reduce((sum, gpu) => sum + gpu.count, 0)
+  return gpuInventoryCount(preferredServerGPUs(server))
 }
 
 /** The comparable value for a sort key; strings sort case-insensitively. */

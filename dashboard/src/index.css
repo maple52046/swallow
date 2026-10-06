@@ -232,7 +232,7 @@ a:focus-visible {
   border: 1px solid var(--chakra-colors-border-muted);
   /* Match the search input's corner (Chakra `l2` → radii.sm) instead of the large panel
      radius, so dense data tables read crisp rather than pill-like. */
-  border-radius: var(--chakra-radii-sm);
+  border-radius: 2px;
   box-shadow: var(--sw-shadow);
 }
 
@@ -560,6 +560,10 @@ a.sw-attention-row:hover { background: var(--chakra-colors-bg-muted); transform:
 
 .sw-server-capacity-item:nth-child(2n) { border-inline-end: 0; }
 .sw-server-capacity-item:nth-last-child(-n + 2) { border-block-end: 0; }
+.sw-server-capacity-item:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  border-inline-end: 0;
+}
 .sw-server-capacity-icon { display: inline-flex; color: var(--chakra-colors-brand-fg); }
 .sw-server-capacity-value {
   margin: 0.75rem 0 0;
@@ -2296,25 +2300,23 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 .sw-server-inventory-table {
   width: 100%;
-  min-width: 74rem;
+  min-width: 80rem;
   table-layout: fixed;
 }
 
 .sw-server-inventory-table .sw-col-select { width: 3rem; }
 .sw-server-inventory-table .sw-col-details { width: 2.5rem; }
-.sw-server-inventory-table .sw-server-col--identity { width: 18%; }
+.sw-server-inventory-table .sw-server-col--identity { width: 11rem; }
 .sw-server-inventory-table .sw-server-col--power { width: 4rem; }
 .sw-server-inventory-table .sw-server-col--network { width: 14rem; }
-.sw-server-inventory-table .sw-server-col--deployment { width: 13%; }
-.sw-server-inventory-table .sw-server-col--hardware { width: 14%; }
-.sw-server-inventory-table .sw-server-col--zone { width: 6rem; }
-.sw-server-inventory-table .sw-server-col--pool { width: 6rem; }
+.sw-server-inventory-table .sw-server-col--deployment,
+.sw-server-inventory-table .sw-server-col--hardware { width: auto; }
+.sw-server-inventory-table .sw-server-col--zone { width: 5.5rem; }
+.sw-server-inventory-table .sw-server-col--pool { width: 5.5rem; }
 .sw-server-inventory-table .sw-server-col--health { width: 7rem; }
-.sw-server-inventory-table .sw-server-col--platform { width: 10rem; }
 .sw-server-inventory-table .sw-server-row-actions { width: 8rem; }
 
-.sw-server-inventory-table .sw-server-col--health,
-.sw-server-inventory-table .sw-server-col--platform {
+.sw-server-inventory-table .sw-server-col--health {
   display: none;
 }
 
@@ -2329,8 +2331,8 @@ tbody .sw-sticky-selection { z-index: 2; }
 }
 
 .sw-server-inventory-table td {
-  height: 4.75rem;
-  padding: 0.75rem 0.625rem;
+  height: 4.25rem;
+  padding: 0.5rem 0.625rem;
   border-color: color-mix(in srgb, var(--chakra-colors-border-muted) 78%, transparent);
   vertical-align: middle;
 }
@@ -2420,9 +2422,15 @@ tbody .sw-sticky-selection { z-index: 2; }
   gap: 0.25rem;
 }
 
+.sw-server-identity__copy > div:first-child {
+  width: 100%;
+}
+
 .sw-server-name {
   display: inline-block;
+  min-width: 0;
   max-width: 12rem;
+  flex: 0 1 auto;
   overflow: hidden;
   color: var(--chakra-colors-fg);
   font-weight: var(--chakra-font-weights-semibold);
@@ -2487,7 +2495,6 @@ tbody .sw-sticky-selection { z-index: 2; }
   padding: 0;
 }
 
-.sw-server-platform,
 .sw-server-hardware-summary {
   display: flex;
   min-width: 0;
@@ -2496,52 +2503,190 @@ tbody .sw-sticky-selection { z-index: 2; }
   gap: 0.375rem;
 }
 
-/* State on the start edge, the contextual icon on the end edge, so icons line up down the column. */
-.sw-server-deployment {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.sw-server-deployment > :first-child {
-  min-width: 0;
-}
-
-.sw-server-context-action {
-  flex: none;
-}
-
-.sw-server-platform a {
-  white-space: nowrap;
+/* One shared hierarchy for every Deployment phase: state first, details and next step below. */
+.sw-deployment-summary {
   display: inline-flex;
-  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.25rem;
-  color: var(--chakra-colors-brand-fg);
-  font-size: var(--chakra-font-sizes-xs);
+}
+
+.sw-deployment-summary__state {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.375rem;
+  font-size: var(--chakra-font-sizes-sm);
   font-weight: var(--chakra-font-weights-semibold);
-  text-decoration: none;
 }
 
-.sw-server-platform a:hover {
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
-
-.sw-server-platform > span:last-child,
-.sw-server-hardware-summary > span {
+.sw-deployment-summary__meta {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.375rem;
   color: var(--chakra-colors-fg-muted);
   font-size: var(--chakra-font-sizes-xs);
 }
 
-.sw-server-hardware-summary strong {
-  display: block;
+.sw-deployment-summary__image {
+  max-width: 100%;
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-xs);
+  font-weight: var(--chakra-font-weights-medium);
+  overflow-wrap: anywhere;
+}
+
+.sw-server-context-action {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 0.25rem;
+  padding: 0;
+  color: var(--chakra-colors-brand-fg);
+  background: transparent;
+  border: 0;
+  font-size: var(--chakra-font-sizes-xs);
+  font-weight: var(--chakra-font-weights-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sw-server-context-action svg {
+  flex: none;
+}
+
+.sw-server-context-action__label {
+  min-width: 0;
+  overflow: hidden;
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.2em;
+  text-overflow: ellipsis;
+}
+
+.sw-server-context-action:hover .sw-server-context-action__label {
+  text-decoration-thickness: 0.125em;
+}
+
+.sw-server-hardware-fact {
+  display: flex;
   width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.sw-server-hardware-label {
+  display: inline-flex;
+  box-sizing: border-box;
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  height: 1.125rem;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0.25rem;
+  border: 1px solid var(--chakra-colors-border-muted);
+  border-radius: 0;
+  background: var(--chakra-colors-bg-muted);
+  color: var(--chakra-colors-fg-subtle);
+  font-size: 0.625rem;
+  font-weight: var(--chakra-font-weights-semibold);
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+
+.sw-server-hardware-gpu,
+.sw-server-hardware-cpu {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  font-weight: var(--chakra-font-weights-normal);
+  overflow-wrap: anywhere;
+}
+
+.sw-server-hardware-gpu {
+  color: var(--chakra-colors-fg);
+  font-size: var(--chakra-font-sizes-sm);
+}
+
+.sw-server-hardware-cpu {
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-xs);
+}
+
+.sw-server-hardware-fact--primary .sw-server-hardware-gpu,
+.sw-server-hardware-fact--primary .sw-server-hardware-cpu {
+  color: var(--chakra-colors-fg);
+  font-size: var(--chakra-font-sizes-md);
+  font-weight: var(--chakra-font-weights-semibold);
+}
+
+.sw-server-hardware-cpu[data-state='unobserved'],
+.sw-server-hardware-empty {
+  color: var(--chakra-colors-fg-muted);
+}
+
+.sw-server-hardware-empty {
+  font-size: var(--chakra-font-sizes-md);
+  font-weight: var(--chakra-font-weights-semibold);
+}
+
+.sw-server-hardware-gpu:focus-visible,
+.sw-server-hardware-cpu:focus-visible {
+  border-radius: var(--chakra-radii-xs);
+  outline: 2px solid var(--chakra-colors-brand-focus-ring, var(--chakra-colors-brand-solid));
+  outline-offset: 2px;
+}
+
+.sw-server-hardware-capacity {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.375rem;
+  margin: 0;
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-xs);
+  white-space: nowrap;
+}
+
+/* Tighten only the tertiary capacity line when a secondary CPU line precedes it. */
+.sw-server-hardware-fact:not(.sw-server-hardware-fact--primary) + .sw-server-hardware-capacity {
+  margin-block-start: -0.125rem;
+}
+
+.sw-server-hardware-capacity > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.sw-server-hardware-capacity > span + span::before {
+  color: var(--chakra-colors-fg-subtle);
+  content: '·';
+}
+
+.sw-server-hardware-capacity strong {
+  color: var(--chakra-colors-fg-muted);
+  font-weight: var(--chakra-font-weights-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.sw-server-inventory-table .sw-deployment-summary__image,
+.sw-server-inventory-table .sw-server-hardware-gpu,
+.sw-server-inventory-table .sw-server-hardware-cpu {
+  display: block;
   max-width: 100%;
   overflow: hidden;
-  font-size: var(--chakra-font-sizes-sm);
-  font-weight: var(--chakra-font-weights-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2572,6 +2717,7 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 .sw-server-hardware-summary {
   width: 100%;
+  gap: 0.125rem;
   overflow: hidden;
 }
 
@@ -2648,22 +2794,12 @@ tbody .sw-sticky-selection { z-index: 2; }
   border-block-start: 1px solid var(--chakra-colors-border-muted);
 }
 
-@container server-inventory-table (min-width: 78rem) {
+@container server-inventory-table (min-width: 87rem) {
   .sw-server-inventory-table {
-    min-width: 78rem;
+    min-width: 87rem;
   }
 
   .sw-server-inventory-table .sw-server-col--health {
-    display: table-cell;
-  }
-}
-
-@container server-inventory-table (min-width: 90rem) {
-  .sw-server-inventory-table {
-    min-width: 90rem;
-  }
-
-  .sw-server-inventory-table .sw-server-col--platform {
     display: table-cell;
   }
 }
