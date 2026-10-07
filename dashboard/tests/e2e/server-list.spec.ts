@@ -100,6 +100,7 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(changing.locator('.sw-server-col--power').getByLabel('RAM deployment', { exact: true })).toHaveCount(0)
   await expect(ready.getByLabel('2 more tags')).toHaveText('+2')
   const visibleTag = ready.getByText('east', { exact: true })
+  await expect(visibleTag).toHaveClass(/sw-resource-tag/)
   await expect(visibleTag).toHaveCSS('border-radius', '4px')
   await expect(visibleTag).toHaveCSS('align-items', 'center')
   await expect(visibleTag).toHaveCSS('justify-content', 'center')

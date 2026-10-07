@@ -1,4 +1,4 @@
-import { Badge, Box, Card, Heading, HStack, IconButton, Link as ChakraLink, Text } from '@chakra-ui/react'
+import { Box, Card, Heading, HStack, IconButton, Link as ChakraLink, Text } from '@chakra-ui/react'
 import { Cpu, Eye, EyeOff, HardDrive, MemoryStick, Microchip, Monitor, Tags } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
@@ -8,6 +8,7 @@ import { HealthBadge, LockBadge, MembershipBadge, PowerBadge, ProvisioningBadge 
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { gpuInventoryProfile } from '@/presentation/components/serverGpuPresentation'
+import { ResourceTag } from '@/presentation/components/ResourceTag'
 import { defaultUserSourceLabel } from '@/presentation/components/serverSummary/defaultUserLabels'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { DescriptionList, type DescriptionItem } from '@/presentation/components/ui/description-list'
@@ -406,9 +407,9 @@ function TagBadges({ tags }: { tags: string[] }) {
   return (
     <HStack gap="1" wrap="wrap">
       {tags.map((tag) => (
-        <Badge key={tag} colorPalette="blue" variant="subtle">
+        <ResourceTag key={tag}>
           {tag}
-        </Badge>
+        </ResourceTag>
       ))}
     </HStack>
   )

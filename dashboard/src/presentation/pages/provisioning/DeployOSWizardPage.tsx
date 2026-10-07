@@ -273,12 +273,11 @@ export function DeployOSWizardPage() {
   const effectiveDefaultGateway = selectedTemplate && !customized ? selectedTemplate.network?.defaultGateway ?? false : defaultGateway
   const effectiveDeployTarget = deployTargetForEphemeral(effectiveEphemeral)
   const selectedImage = images.find((image) => image.id === effectiveImageId)
-  // Custom (uploaded) images must be verified for the chosen deploy target before a normal deploy
-  // is allowed; synced provider images are trusted. This mirrors the backend gate so an operator is
-  // warned here rather than surprised by a 409 at submit. The provider osSystem is authoritative for
-  // "custom" (a display overlay can rename the effective osSystem). When the image is not in the
-  // fetched catalog we do not block, leaving the backend as the source of truth.
-  const customImageNeedsVerification = Boolean(
+  // A gated image must support the selected deploy mode before a normal deploy is allowed. This
+  // mirrors the backend gate so an operator sees the concrete next step instead of a 409 at submit.
+  // The provider osSystem remains authoritative for the internal policy; when an image is absent
+  // from the fetched catalog, the backend remains the source of truth.
+  const selectedImageModeUnsupported = Boolean(
     selectedImage &&
       selectedImage.providerOsSystem === 'custom' &&
       !selectedImage.verifiedDeployTargets.includes(effectiveDeployTarget),
@@ -309,7 +308,7 @@ export function DeployOSWizardPage() {
       !catalogLoading &&
       (userDataMode !== 'replace' || userData) &&
       networkAssignmentsValid &&
-      !customImageNeedsVerification,
+      !selectedImageModeUnsupported,
   )
   const inheritedSecretCannotBeSaved = Boolean(saveTemplate && selectedTemplate?.hasUserData && customized && userDataMode === 'inherit')
   const reviewValid =
@@ -662,11 +661,11 @@ export function DeployOSWizardPage() {
               onChange={(nextTarget) => setEphemeral(deployTargetIsEphemeral(nextTarget))}
               helperText="Disk installs the OS to the machine's disk; RAM runs it from memory and leaves the disks untouched."
             />
-            {customImageNeedsVerification && (
-              <Alert status="warning" title="This custom image is not verified for this deploy target">
+            {selectedImageModeUnsupported && (
+              <Alert status="warning" title="This image does not support this deploy mode yet">
                 A normal {DEPLOY_TARGET_LABELS[effectiveDeployTarget]} of{' '}
-                <strong>{selectedImage?.name || effectiveImageId}</strong> is blocked until it is verified. Verify it on
-                a ready Server from the{' '}
+                <strong>{selectedImage?.name || effectiveImageId}</strong> is blocked until this mode passes a deployment
+                test. Test it on a ready Server from the{' '}
                 <Link to={scopedHref('/provisioning/images')}>OS images</Link> page, then return here.
               </Alert>
             )}

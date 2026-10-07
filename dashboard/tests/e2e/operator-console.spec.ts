@@ -266,7 +266,7 @@ test.describe('operator interactions', () => {
   test('multi-select action docks do not reflow their tables', async ({ page }) => {
     const cases = [
       { path: '/servers?site=site-a', table: 'Servers', selectAll: 'Select all on this page' },
-      { path: '/provisioning/images?site=site-a', table: 'OS images', selectAll: 'Select all shown images' },
+      { path: '/provisioning/images?site=site-a', table: 'OS images', selectAll: 'Select all on this page' },
       { path: '/platforms?site=site-a', table: 'Platforms', selectAll: 'Select all platforms' },
     ]
 
@@ -434,8 +434,8 @@ test.describe('operator interactions', () => {
     await expect.poll(() => new URL(page.url()).searchParams.get('imageName')).toBe('Ubuntu 24.04 LTS')
     await expect(page.getByRole('textbox', { name: 'Search OS images' })).toHaveValue('Ubuntu 24.04 LTS')
     const imageTable = page.getByRole('table', { name: 'OS images' })
-    await expect(imageTable.getByRole('row', { name: /Ubuntu 24.04 LTS/ })).toHaveCount(1)
-    await expect(imageTable.getByRole('row', { name: /Ubuntu 22.04 LTS/ })).toHaveCount(0)
+    await expect(imageTable.getByRole('row', { name: 'Ubuntu 24.04 LTS catalog data', exact: true })).toHaveCount(1)
+    await expect(imageTable.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true })).toHaveCount(0)
   })
 
   test('Server headline reports failed verification while retaining provider OS detail', async ({ page }) => {
@@ -1025,7 +1025,7 @@ test.describe('operator interactions', () => {
     await expect(running).toContainText('running')
     await expect(running).toContainText('deploy-k0s.yml')
     await expect(running).toContainText('Legacy execution')
-    await expect(running.getByRole('link', { name: 'Monitor workflow' }))
+    await expect(running.getByRole('link', { name: 'View workflow' }))
       .toHaveAttribute('href', '/workflows/op-running?site=site-a')
 
     const attention = table.getByRole('row', { name: /Deploy edge-staging k0s platform/ })
@@ -1051,7 +1051,7 @@ test.describe('operator interactions', () => {
     const workflowName = running.getByRole('link', { name: 'Deploy production k0s platform' })
     await workflowName.focus()
     await expect(workflowName).toBeFocused()
-    const workflowAction = running.getByRole('link', { name: 'Monitor workflow' })
+    const workflowAction = running.getByRole('link', { name: 'View workflow' })
     await workflowAction.focus()
     await expect(workflowAction).toBeFocused()
 
@@ -1099,7 +1099,7 @@ test.describe('operator interactions', () => {
     await page.goto('/workflows?site=site-a')
     const cards = page.locator('.sw-workflow-runtime-card')
     await expect(cards).toHaveCount(4)
-    await expect(cards.first().getByRole('link', { name: 'Monitor workflow' })).toBeVisible()
+    await expect(cards.first().getByRole('link', { name: 'View workflow' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 
@@ -1460,24 +1460,28 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('table', { name: 'Servers' })).toBeVisible()
   })
 
-  test('OS Images displays provider-reported sizes and an explicit unknown value', async ({ page }) => {
+  test('OS Images presents its title and inventory facts as paired rows', async ({ page }) => {
     await page.goto('/provisioning/images?site=site-a')
-    await expect(page.getByRole('columnheader', { name: 'Size' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Default user' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Artifact' })).toHaveCount(0)
     await expect(page.getByRole('columnheader', { name: 'Image ID' })).toHaveCount(0)
-    await expect(page.getByRole('columnheader', { name: 'Architecture' })).toHaveCount(0)
     await expect(page.getByRole('columnheader', { name: 'Refreshed' })).toHaveCount(0)
 
-    const syncedImage = page.getByRole('row', { name: /Ubuntu 22.04 LTS/ }).first()
-    await expect(syncedImage).toContainText('4 GiB')
-    await expect(syncedImage.getByRole('cell', { name: '4 GiB', exact: true })).toHaveCSS('white-space', 'nowrap')
-    const nameField = syncedImage.getByRole('cell').nth(1)
-    await expect(nameField.locator('.sw-image-name')).toHaveCSS('flex-direction', 'column')
-    await expect(nameField.locator('strong')).toHaveText('Ubuntu 22.04 LTS')
-    await expect(nameField.locator('.sw-image-id .sw-mono')).toHaveText('ubuntu/jammy')
-    await expect(nameField.locator('.sw-image-id > .sw-mono + button[aria-label="Copy image ID"]')).toHaveCount(1)
+    const syncedTitle = page.getByRole('row', { name: 'Ubuntu 22.04 LTS image', exact: true }).first()
+    const syncedData = page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true }).first()
+    await expect(syncedTitle.locator('.sw-os-image-os-family')).toHaveText('ubuntu')
+    await expect(syncedTitle.locator('.sw-os-image-title strong')).toHaveText('Ubuntu 22.04 LTS')
+    const identity = syncedData.locator('.sw-os-image-col--identity')
+    await expect(identity).toContainText('amd64 · 4 GiB')
+    await expect(identity.locator('.sw-image-id .sw-mono')).toHaveText('ubuntu/jammy')
+    await expect(identity.locator('.sw-image-id > .sw-mono + button[aria-label="Copy image ID"]')).toHaveCount(1)
+    await expect(syncedData.locator('.sw-os-image-col--default-user')).toHaveText('ubuntu')
 
-    const customImage = page.getByRole('row', { name: /Ubuntu 24.04 ROCm/ }).first()
-    await expect(customImage.getByRole('cell', { name: '—', exact: true })).toBeVisible()
+    const customTitle = page.getByRole('row', { name: 'Ubuntu 24.04 ROCm image', exact: true }).first()
+    const customData = page.getByRole('row', { name: 'Ubuntu 24.04 ROCm catalog data', exact: true }).first()
+    await expect(customData.locator('.sw-os-image-col--identity')).toContainText('Unknown')
+    await customTitle.getByRole('button', { name: 'Show details for Ubuntu 24.04 ROCm' }).click()
+    await expect(page.getByRole('row', { name: /Artifact and source/ }).first()).toContainText('Catalog refreshed')
   })
 
   test('OS Images uploads a new image to the selected provisioner', async ({ page }) => {
@@ -1523,7 +1527,7 @@ test.describe('operator interactions', () => {
 
     await page.goto('/provisioning/images?site=site-a')
     await expect(page.getByText('MAAS Edge image catalog unavailable')).toBeVisible()
-    await expect(page.getByRole('row', { name: /Ubuntu 22.04 LTS/ })).toBeVisible()
+    await expect(page.getByRole('row', { name: 'Ubuntu 22.04 LTS image', exact: true }).first()).toBeVisible()
     await expectTableCellsVerticallyCentered(page, 'OS images')
   })
 
@@ -1547,8 +1551,9 @@ test.describe('operator interactions', () => {
     await expect(maas).toContainText('maas')
 
     await page.goto('/provisioning/images?site=site-a')
-    await expect(page.getByRole('columnheader', { name: 'Provider integration' })).toBeVisible()
-    await page.getByRole('row', { name: /Ubuntu 22.04 LTS/ }).getByRole('link', { name: 'MAAS Taipei' }).click()
+    await expect(page.getByRole('columnheader', { name: 'Source' })).toBeVisible()
+    const imageSource = page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true }).filter({ hasText: 'MAAS Taipei' })
+    await imageSource.getByRole('link', { name: 'MAAS Taipei' }).click()
     await expect(page).toHaveURL('/infrastructure/integrations?site=site-a#integration-maas-a')
     await expect(page.locator('#integration-maas-a')).toContainText('Taipei Lab')
   })

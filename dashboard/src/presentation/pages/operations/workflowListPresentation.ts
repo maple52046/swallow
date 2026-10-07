@@ -1,4 +1,4 @@
-import type { Operation, OperationStatus, OperationStepStatus } from '@/domain/operation/types'
+import type { Operation, OperationStatus, OperationStep, OperationStepStatus } from '@/domain/operation/types'
 import { operationStatus } from '@/domain/operation/types'
 
 const CHANGING_STATUSES: ReadonlySet<OperationStatus> = new Set([
@@ -28,6 +28,35 @@ const STATUS_LABELS: Record<OperationStepStatus, string> = {
   requires_attention: 'need attention',
 }
 
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+/** Translates canonical image-verification payloads into the concrete action operators recognize. */
+export function workflowDisplayIntent(operation: Operation): string {
+  if (operation.kind !== 'verify-os-image') {
+    return operation.intent || operation.execution.playbook || 'Workflow'
+  }
+  const request = recordValue(operation.intentSnapshot?.request)
+  const imageId = typeof request?.imageId === 'string' ? request.imageId.trim() : ''
+  const target = request?.deployTarget === 'disk' ? 'Disk' : request?.deployTarget === 'ram' ? 'RAM' : ''
+  return imageId && target ? `Test OS image ${imageId} for ${target} deployment` : 'Test image deployment'
+}
+
+/** Uses deployment-test language for Tasks that belong to an image-test Workflow. */
+export function workflowDisplayTaskName(operation: Operation, task: OperationStep): string {
+  if (operation.kind !== 'verify-os-image') return task.name
+  if (task.kind === 'record-image-verification') return 'Record supported deploy mode'
+  if (task.kind === 'record-image-verification-failure') return 'Record failed deployment test'
+  if (task.kind === 'provision-os') {
+    if (/^verify\b/i.test(task.name)) return task.name.replace(/^verify\b/i, 'Test')
+    return /^test\b/i.test(task.name) ? task.name : 'Test image deployment'
+  }
+  return task.name
+}
+
 /** Presentation states that can advance without a new operator repair command. */
 export function isWorkflowChangingStatus(status: OperationStatus): boolean {
   return CHANGING_STATUSES.has(status)
@@ -40,7 +69,7 @@ export function isWorkflowReviewStatus(status: OperationStatus): boolean {
 
 /** Native-link label that reflects why an operator would open a Workflow. */
 export function workflowActionLabel(status: OperationStatus): string {
-  if (isWorkflowChangingStatus(status)) return 'Monitor workflow'
+  if (isWorkflowChangingStatus(status)) return 'View workflow'
   if (isWorkflowReviewStatus(status)) return 'Review workflow'
   return 'View workflow'
 }
@@ -97,10 +126,11 @@ export function workflowActivitySummary(operation: Operation): WorkflowActivityS
   }
 
   const runnerActivity = focus.live?.currentTask
+  const taskName = workflowDisplayTaskName(operation, focus)
   return {
-    primary: runnerActivity || focus.name,
+    primary: runnerActivity || taskName,
     secondary: runnerActivity
-      ? focus.name
+      ? taskName
       : focus.error?.message || focus.waitingReason || operation.statusReason || operation.execution.statusReason || undefined,
     taskTotal: tasks.length,
     taskCounts,

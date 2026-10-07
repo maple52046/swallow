@@ -29,6 +29,7 @@ import { softwareKindLabel } from '@/presentation/pages/software/softwarePresent
 import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
+import { workflowDisplayIntent, workflowDisplayTaskName } from './workflowListPresentation'
 
 interface DurableOperationDetailProps {
   operation: Operation
@@ -47,7 +48,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
   const { scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const status = operationStatus(operation)
-  const steps = useMemo(() => operation.steps ?? [], [operation.steps])
+  const steps = useMemo(() => operation.steps ?? [], [operation])
   const targetProtection = useTargetLockProtection(operation.targetServerIds)
   const retryDisabledReason = targetProtection.checking
     ? 'Checking target protection.'
@@ -100,7 +101,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
       setControlling(true)
       try {
         await operations.retryStep(operation.id, step.id)
-        showToast({ tone: 'success', title: 'Step retry requested', description: `${step.name} will continue as attempt ${step.attempt + 1}.` })
+        showToast({ tone: 'success', title: 'Step retry requested', description: `${workflowDisplayTaskName(operation, step)} will continue as attempt ${step.attempt + 1}.` })
         setRetryCandidate(null)
         reload()
       } catch (error) {
@@ -109,7 +110,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
         setControlling(false)
       }
     },
-    [operation.id, operations, reload, showToast],
+    [operation, operations, reload, showToast],
   )
 
   const details = [
@@ -155,7 +156,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
               setTab(step.error ? 'stderr' : 'stdout')
             }}
           >
-            {step.name}
+            {workflowDisplayTaskName(operation, step)}
           </Button>
           <Text as="small" display="block" color="fg.muted" className="mono">
             {step.kind}
@@ -189,14 +190,16 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
               content={
                 retryDisabledReason ??
                 (step.kind === 'provision-os'
-                  ? 'Retry verification; a target with no provider address will be released and redeployed'
+                  ? operation.kind === 'verify-os-image'
+                    ? 'Retry this deployment test; a target with no provider address will be released and redeployed'
+                    : 'Retry verification; a target with no provider address will be released and redeployed'
                   : 'Retry this failed Step without repeating completed Steps')
               }
             >
               <IconButton
                 variant="ghost"
                 size="sm"
-                aria-label={retryDisabledReason ? `Retry: ${retryDisabledReason}` : `Retry ${step.name}`}
+                aria-label={retryDisabledReason ? `Retry: ${retryDisabledReason}` : `Retry ${workflowDisplayTaskName(operation, step)}`}
                 disabled={controlling || Boolean(retryDisabledReason)}
                 onClick={() => {
                   if (step.kind === 'provision-os') setRetryCandidate(step)
@@ -215,7 +218,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
   return (
     <div className="operator-page">
       <PageHeader
-        title={operation.intent || operation.kind}
+        title={workflowDisplayIntent(operation)}
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
         metadata={
           <HStack gap="2">
@@ -308,7 +311,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
 
       {selectedStep && (
         <section className="sw-section sw-operation-debugger">
-          <SectionHeader title={selectedStep.name} description={`Attempt ${selectedStep.attempt} - ${selectedStep.executor}`} />
+          <SectionHeader title={workflowDisplayTaskName(operation, selectedStep)} description={`Attempt ${selectedStep.attempt} - ${selectedStep.executor}`} />
           {selectedStep.error && (
             <Alert
               status={selectedStep.status === 'requires_attention' ? 'warning' : 'error'}
@@ -876,7 +879,7 @@ function OperationTimeline({ operation }: { operation: Operation }) {
       canceled = true
     }
   }, [operation.id, operation.updatedAt, operations])
-  const stepNames = useMemo(() => new Map((operation.steps ?? []).map((step) => [step.id, step.name])), [operation.steps])
+  const stepNames = useMemo(() => new Map((operation.steps ?? []).map((step) => [step.id, workflowDisplayTaskName(operation, step)])), [operation])
   if (events.length === 0) return <EmptyState title="No timeline events" />
   return (
     <ol className="sw-timeline">

@@ -29,6 +29,7 @@ import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/list'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
+import { ResourceTag } from '@/presentation/components/ResourceTag'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -1496,9 +1497,9 @@ function TagSummary({ server, onEdit }: { server: Server; onEdit: () => void }) 
   return (
     <HStack className="sw-server-tag-summary" gap="1" wrap="wrap">
       {tags.length === 0 && <Text as="span" color="fg.muted">No tags</Text>}
-      {tags.slice(0, 2).map((tag) => <Badge key={tag} className="sw-server-tag-badge" colorPalette="blue" variant="subtle">{tag}</Badge>)}
+      {tags.slice(0, 2).map((tag) => <ResourceTag key={tag}>{tag}</ResourceTag>)}
       {tags.length > 2 && (
-        <Tooltip content={tags.join(', ')}><Badge className="sw-server-tag-badge" variant="subtle" aria-label={`${tags.length - 2} more tags`}>+{tags.length - 2}</Badge></Tooltip>
+        <Tooltip content={tags.join(', ')}><ResourceTag ariaLabel={`${tags.length - 2} more tags`}>+{tags.length - 2}</ResourceTag></Tooltip>
       )}
       <Tooltip content={`Edit tags for ${serverDisplayName(server)}`}>
         <IconButton

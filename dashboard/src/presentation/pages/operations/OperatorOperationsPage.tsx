@@ -31,6 +31,7 @@ import {
   isWorkflowChangingStatus,
   isWorkflowReviewStatus,
   workflowActionLabel,
+  workflowDisplayIntent,
   workflowActivitySummary,
   type WorkflowActivitySummary,
 } from './workflowListPresentation'
@@ -104,7 +105,7 @@ function WorkflowIdentity({ operation, href }: { operation: Operation; href: str
       </span>
       <span className="sw-workflow-identity__copy">
         <RouterLink className="sw-workflow-name" to={href}>
-          {operation.intent || operation.execution.playbook || 'Workflow'}
+          {workflowDisplayIntent(operation)}
         </RouterLink>
         <HStack as="span" gap="2" minW="0">
           <Badge variant="subtle" colorPalette="purple">{operation.kind}</Badge>

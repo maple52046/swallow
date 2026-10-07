@@ -18,25 +18,27 @@ function primaryArchitecture(architecture: string): string {
 }
 
 /**
- * Launches an image verification: an admin picks a ready Server of the image's architecture and a
- * deploy target, then Swallow runs a real deploy to prove the image, records the verification, and
- * auto-releases the Server. The chosen Server is briefly taken out of the ready pool for the run.
+ * Starts a target-specific image deployment test on an operator-selected ready Server. The durable
+ * backend still records canonical verification evidence; this presentation describes the concrete
+ * user-visible behavior: deploy in Disk or RAM mode, confirm SSH access, then return the Server.
  */
-export function VerifyImageDialog({
+export function TestImageDeploymentDialog({
   image,
+  initialTarget = 'disk',
   provisioning,
   servers,
   onClose,
   onLaunched,
 }: {
   image: OSImageCatalogRow
+  initialTarget?: DeployTarget
   provisioning: ProvisioningRepository
   servers: ServerRepository
   onClose: () => void
-  /** Called after the verify Operation is accepted, with a toast title to show. */
+  /** Called after the deployment-test Workflow is accepted, with a toast title to show. */
   onLaunched: (title: string) => void
 }) {
-  const [target, setTarget] = useState<DeployTarget>('disk')
+  const [target, setTarget] = useState<DeployTarget>(initialTarget)
   const [candidates, setCandidates] = useState<Server[]>([])
   const [serverId, setServerId] = useState('')
   // Starts true because the dialog opens straight into the fetch below; the effect only flips it
@@ -92,11 +94,11 @@ export function VerifyImageDialog({
       })
       onLaunched(
         keepServer
-          ? `Verifying ${image.name || image.id} — the Server will stay deployed when done`
-          : `Verifying ${image.name || image.id} — the Server will auto-release when done`,
+          ? `Testing ${image.name || image.id} — the Server will stay deployed when done`
+          : `Testing ${image.name || image.id} — the Server will auto-return to Ready when done`,
       )
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The verification could not be started.')
+      setError(caught instanceof Error ? caught.message : 'The deployment test could not be started.')
       setSubmitting(false)
     }
   }
@@ -108,8 +110,8 @@ export function VerifyImageDialog({
       open
       onClose={close}
       closeOnInteractOutside={!submitting}
-      title="Verify OS image"
-      description={`Prove ${image.name || image.id} (${image.architecture}) deploys by running a real deployment on a ready Server.`}
+      title="Test image deployment"
+      description={`Run a real deployment of ${image.name || image.id} (${image.architecture}) on a ready Server and confirm Swallow can log in over SSH.`}
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={submitting}>
@@ -121,14 +123,14 @@ export function VerifyImageDialog({
             loading={submitting}
             disabled={submitting || loadingServers || !serverId}
           >
-            Start verification
+            Start test
           </Button>
         </>
       }
     >
       <Stack gap="4">
         {error && (
-          <Alert status="error" title="Verification could not be started">
+          <Alert status="error" title="Deployment test could not be started">
             {error}
           </Alert>
         )}
@@ -140,8 +142,8 @@ export function VerifyImageDialog({
         <DeployTargetField
           value={target}
           onChange={setTarget}
-          label="Deploy target to verify"
-          helperText="Verify Disk and RAM separately — each proves that one deploy mode works for this image."
+          label="Deploy mode to test"
+          helperText="Disk and RAM are tested separately. A successful test means the selected deployment completed and SSH login succeeded."
         />
         <Field.Root required>
           <Field.Label>Ready Server</Field.Label>
@@ -162,26 +164,27 @@ export function VerifyImageDialog({
           )}
           <Field.HelperText>
             Only ready Servers of the {primaryArchitecture(image.architecture)} architecture are shown. The Server is
-            deployed to and verified{keepServer ? ' and left deployed afterwards.' : ', then returned to ready afterwards.'}
+            used for the selected deployment test{keepServer ? ' and left deployed afterwards.' : ', then returned to Ready afterwards.'}
           </Field.HelperText>
         </Field.Root>
         {noReadyServers && (
           <Alert status="warning" title="No ready Server available">
-            Release or add a ready Server on this provisioner before verifying this image.
+            Release or add a ready Server on this provisioner before testing this image.
           </Alert>
         )}
         <Stack gap="1">
           <Checkbox id="verify-keep-server" checked={keepServer} disabled={submitting} onCheckedChange={setKeepServer}>
-            Keep the Server deployed after verification
+            Keep the Server deployed after the test
           </Checkbox>
           <Text fontSize="sm" color="fg.muted">
             By default the Server returns to the ready pool when the run finishes. Keep it deployed to use or inspect the
-            verified deployment — you can Release it later. On failure the Server is left as-is for you to recover.
+            tested deployment — you can Release it later. On failure the Server is left as-is for you to recover.
           </Text>
         </Stack>
         <Text fontSize="sm" color="fg.muted">
-          Verification runs a real deployment. It can take several minutes and the Server is unavailable for other work
-          until it {keepServer ? 'finishes' : 'auto-releases'}.
+          This test only checks the selected deploy mode and SSH access; it does not certify platform compatibility,
+          security, or any other property of the image. It can take several minutes, and the Server is unavailable for
+          other work until it {keepServer ? 'finishes' : 'returns to Ready'}.
         </Text>
       </Stack>
     </Modal>

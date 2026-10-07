@@ -30,7 +30,7 @@ export interface OSImageBulkOutcome extends OSImageBulkTarget {
 
 /** A concise, human label for an action, used in toast titles. */
 function actionLabel(action: OSImageBulkAction): string {
-  return action === 'delete' ? 'Delete images' : 'Reset overrides'
+  return action === 'delete' ? 'Delete images' : 'Restore original details'
 }
 
 /**

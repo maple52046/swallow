@@ -18,6 +18,7 @@ import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
 import { DurableOperationDetail } from './DurableOperationDetail'
+import { workflowDisplayIntent } from './workflowListPresentation'
 import { useOperation } from './useOperation'
 
 /** AWX-style operation debugger with stdout first, filtered events, and immutable details. */
@@ -100,7 +101,7 @@ export function OperatorOperationDetailPage() {
   return (
     <div className="operator-page">
       <PageHeader
-        title={operation.intent || operation.execution.playbook}
+        title={workflowDisplayIntent(operation)}
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
         metadata={<StatusBadge status={operation.execution.status} />}
         actions={

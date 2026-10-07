@@ -65,7 +65,7 @@ export function BulkImageActionDialog({ action, targets, skipped, onClose, onDon
       role={isDelete ? 'alertdialog' : undefined}
       closeOnInteractOutside={!running}
       title={title}
-      description={isDelete ? undefined : 'Clears Swallow label overrides and restores provider values without changing the provider images.'}
+      description={isDelete ? undefined : 'Restores the original catalog details without changing the underlying images.'}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -115,7 +115,7 @@ export function BulkImageActionDialog({ action, targets, skipped, onClose, onDon
           >
             {isDelete
               ? 'Images that cannot be deleted from their provider are left unchanged.'
-              : 'Only images with a swallow override can be reset; the rest already show their provider values.'}
+              : 'Only images with edited details can be restored; the rest already use their original catalog details.'}
           </Alert>
         )}
         {isDelete && (
