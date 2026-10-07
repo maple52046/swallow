@@ -272,7 +272,7 @@ const rows = pendingServers ?? previousServers
 
 ## 測試規範
 
-- 現況：本專案尚未接入 unit test runner（`playwright` 已安裝但無 script）。在補上之前，仍必須以「可測性」為設計前提：值得測的規則要放在 use case、domain 模組或可直接呼叫的 helper，而不是埋在 JSX 裡。
+- 現況：本專案尚未接入 unit test runner；functional browser journeys 由 Playwright E2E scripts 驗證。在補上 unit runner 之前，仍必須以「可測性」為設計前提：值得測的規則要放在 use case、domain 模組或可直接呼叫的 helper，而不是埋在 JSX 裡。
 - 補上測試後：單元測試命名 `*.test.ts` / `*.test.tsx` 放在被測程式碼旁；end-to-end Playwright spec 放在 `tests/`。
 - 測試應驗證使用者可觀察行為與資料契約，不只驗證 implementation detail。
 - Component test 優先從 role、label、文字與互動結果查詢元素，不依賴 class name 或 component 內部結構。
@@ -280,6 +280,24 @@ const rows = pendingServers ?? previousServers
 - 建構完整的期待值一次比較，而不是逐欄位檢查；失敗訊息要能看出輸入、實際值與期待值。
 - 錯誤語意驗證可觀察的型別或已文件化的屬性，不比較格式化後的訊息字串。
 - Test fixture 應小而明確；避免共享可變 fixture 造成測試彼此影響。
+
+### Visual review
+
+- Visual review 是 user-visible UI change 的 completion evidence，不是
+  pixel-diff regression test，也不得建立或提交 expected PNG baseline。
+- 使用 `npm run review:visual -- --grep <route-name>` 產生 dark desktop/mobile
+  screenshots；color、theme token、shared style 或 appearance change 使用
+  `npm run review:visual:themes -- --grep <route-name>` 加驗 light。
+- Shared layout、navigation、typography 或 theme change 使用
+  `--grep @representative` 選取 login、overview、servers、server detail 與
+  deploy wizard，不得無目的地對所有 route 建立完整排列。
+- Agent 必須實際開啟每張產生的圖片，檢查 overlap、clipping、overflow、
+  alignment、spacing、visual hierarchy、responsive behavior 與 contrast。只確認
+  command 成功或 PNG 存在不算完成。
+- 發現問題後必須修正並重新 capture、重新 inspection。若環境無法產生或檢視
+  screenshots，最終回報必須標示 visual verification 未完成。
+- Screenshots 只可使用 deterministic synthetic fixtures，並留在被 Git ignore 的
+  `test-results/visual-review/`；不得使用 customer data 或提交產物。
 
 ## Agent 執行規則
 
@@ -294,5 +312,7 @@ AI agent 修改 dashboard 程式碼時必須遵守以下規則：
 - 新增 session storage、API adapter、route guard、network effect、theme token mapping 或任何顯示敏感值的程式碼時，必須先確認註解是否達到本文件的最低審查標準。
 - 不得用大量低價值註解填充；註解必須幫助未來讀者避免誤用或誤改。
 - 新增或修改功能呈現前，先確認是否已有共用 component；若有，組合它並以 props 注入差異，不得複製一份。為共用功能加欄位/子區時必須改共用 component（見「元件共用與組合（DRY）」）。
+- User-visible UI change 完成前必須依 Visual review 規範 capture 並實際檢視受影響
+  routes；最終回報列出檢查過的 route、viewport、appearance 與修正項目。
 - 不得引入與既有工具鏈不一致的抽象、命名、狀態管理或測試工具，除非修改本身就是為了統一風格。
 - 完成修改前應執行 `npm run lint` 與 `npm run build`，或明確建議使用者執行。

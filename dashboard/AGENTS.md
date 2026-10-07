@@ -56,6 +56,8 @@ accessibility quality:
 7. Layer direction must hold: nothing under `src/domain/` or `src/application/`
    may import React, the router, an HTTP client, storage, or a UI library, and
    nothing under `src/presentation/` may import `@/infrastructure/**`.
+8. Visible UI changes must satisfy the visual-verification gate below. Producing
+   screenshots without opening and evaluating them does not satisfy the gate.
 
 If any changed source file fails this documentation, accessibility, real-data, or
 layering gate, the task is not complete. Fix the issue immediately before moving
@@ -65,6 +67,32 @@ For large implementations that add or change multiple modules, agents must do a
 dedicated final JSDoc / accessibility / state pass after the functional code
 works. The final response must not describe the task as complete unless this pass
 has been performed.
+
+## Visual Verification Completion Gate
+
+Visual verification is direct inspection of disposable rendered screenshots, not
+a pixel-baseline test. It applies whenever a change can alter user-visible
+content, layout, styling, or responsive behavior.
+
+1. Capture every affected route with
+   `npm run review:visual -- --grep <route-name>`. The routine baseline is dark
+   mode at desktop (1440x900) and mobile (390x844).
+2. Use `npm run review:visual:themes -- --grep <route-name>` when changing
+   colors, theme tokens, shared styles, or appearance behavior.
+3. For shared layout, navigation, typography, or theme changes, select the
+   representative route set (login, overview, servers, server detail, and
+   deploy wizard) with `--grep @representative`.
+4. Open every generated PNG under `test-results/visual-review/` and inspect
+   overlap, clipping, overflow, alignment, spacing, hierarchy, responsive
+   behavior, and contrast. Fix defects and repeat capture plus inspection.
+5. Use only the synthetic Playwright fixtures. Never capture customer data.
+6. In the final response, list the routes, viewports, and appearances actually
+   inspected and summarize defects fixed. If the environment cannot capture or
+   display the images, report visual verification as incomplete instead of
+   claiming the gate passed.
+
+The screenshots are ignored local artifacts. They must not be committed or
+treated as expected images.
 
 ## API Consumption
 

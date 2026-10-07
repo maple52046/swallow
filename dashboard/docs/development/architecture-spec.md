@@ -147,7 +147,8 @@ dialogs、release options、pagination、loading/error/empty states 等須 reuse
 
 - deterministic API fixtures 驗證 operator journeys；
 - active route、auth、action、failure/recovery behavior；
-- desktop/mobile、light/dark visual baselines；
+- 以獨立 visual-review workflow 產生 disposable desktop/mobile screenshots，由
+  agent 或 developer 實際開啟檢查，不進行 pixel-baseline comparison；
 - accessibility role 與 visible user outcome。
 
 Domain/use-case logic 應保持可在不 render React、不啟動 browser、不呼叫 live API
@@ -169,7 +170,10 @@ Domain/use-case logic 應保持可在不 render React、不啟動 browser、不�
 
 1. 確認 Active provider contract 與 glossary。
 2. 保持 layer direction、real-data behavior 與 accessibility。
-3. 執行 `npm run lint`、`npm run build` 及相關 Playwright tests。
-4. 手動檢查 changed source 的 JSDoc、cleanup、auth/storage、error/loading/empty
+3. 執行 `npm run lint`、`npm run build` 及相關 functional Playwright tests。
+4. User-visible UI 變更使用獨立 visual-review workflow 截取受影響 route 的 dark
+   desktop/mobile；theme、color 或 shared-style 變更加驗 light。Agent 必須實際
+   開啟 screenshots，修正發現的 layout、responsive 或 contrast 問題後重新檢查。
+5. 手動檢查 changed source 的 JSDoc、cleanup、auth/storage、error/loading/empty
    state、responsive behavior 與 shared-component reuse。
-5. 同步更新 tests、architecture 與雙語 public docs（若 user-visible）。
+6. 同步更新 tests、architecture 與雙語 public docs（若 user-visible）。

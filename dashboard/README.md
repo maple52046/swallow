@@ -65,11 +65,19 @@ npm run lint
 npm run build
 npm run test:e2e
 npm run test:e2e:production   # release build via vite preview: hidden features stay hidden
+npm run review:visual -- --grep servers
+npm run review:visual:themes -- --grep servers
+npm run review:visual -- --grep @representative
 ```
 
-Playwright includes deterministic operator journeys and light/dark,
-desktop/mobile visual baselines. The tests use synthetic fixture data; do not
-replace it with captured customer data.
+Playwright includes deterministic functional operator journeys. Visual review is
+a separate developer workflow: `review:visual` captures dark desktop/mobile
+screenshots, while `review:visual:themes` also captures light mode. Open and
+inspect the disposable images under `test-results/visual-review/`; they are not
+pixel baselines and must not be committed. All browser workflows use synthetic
+fixture data—never replace it with captured customer data. The
+`@representative` filter selects login, overview, servers, server detail, and
+the deploy wizard for shared layout, navigation, typography, or theme changes.
 
 ## Architecture
 

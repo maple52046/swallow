@@ -62,10 +62,19 @@ npm run lint
 npm run build
 npm run test:e2e
 npm run test:e2e:production   # 以 vite preview 驗證 release build 隱藏開發中功能
+npm run review:visual -- --grep servers
+npm run review:visual:themes -- --grep servers
+npm run review:visual -- --grep @representative
 ```
 
-Playwright 包含 deterministic operator journey 與 light/dark、desktop/mobile
-visual baseline。Test 使用 synthetic fixture data，不得替換成 customer data capture。
+Playwright 包含 deterministic functional operator journey。Visual review 是獨立
+developer workflow：`review:visual` 產生 dark desktop/mobile screenshots，
+`review:visual:themes` 另加 light mode。必須實際開啟並檢查
+`test-results/visual-review/` 下的 disposable images；它們不是 pixel baseline，
+也不得 commit。所有 browser workflow 都使用 synthetic fixture data，不得替換成
+customer data capture。`@representative` filter 會選取 login、overview、servers、
+server detail 與 deploy wizard，供 shared layout、navigation、typography 或 theme
+change 使用。
 
 ## Architecture
 

@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "test:e2e": "playwright test",
     "test:e2e:production": "playwright test -c playwright.production.config.ts",
+    "review:visual": "playwright test -c playwright.visual-review.config.ts --project=desktop-dark --project=mobile-dark",
+    "review:visual:themes": "playwright test -c playwright.visual-review.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
