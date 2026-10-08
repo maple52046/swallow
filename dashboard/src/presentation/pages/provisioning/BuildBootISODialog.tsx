@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
+import { Box, Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import { bootISOChainURL, type BootISO } from '@/domain/provisioning/types'
 import type { Integration } from '@/domain/site/types'
@@ -26,13 +26,14 @@ interface BuildDraft {
 /**
  * Builds a Boot ISO for one provisioner from the Provisioning page's Boot ISOs tab (decision 049).
  *
- * The operator picks the provisioner and confirms the MAAS rack address; the iPXE script is always
- * swallow's verified template (DHCP from the site network, then chain the rack's `ipxe.cfg`), so
- * there is no script field — the dialog previews the chain URL instead. Picking a provisioner
- * pre-fills the name and the rack address (its endpoint host); a field the operator already edited
- * is not overwritten. The API builds synchronously in seconds; while it runs, dismissal is blocked
- * so the request cannot be abandoned, and a refusal (name taken, builder unavailable, packaging
- * failure) is shown inline with the API's message so the operator can correct it and retry.
+ * A single provisioner is summarized read-only; only a multi-provisioner scope needs a selector.
+ * The selected Integration suggests the MAAS rack host and an advanced ISO name, while either field
+ * remains operator-editable and is never overwritten after editing. The iPXE script is swallow's
+ * fixed template (DHCP from the Site network, then chain the rack's `ipxe.cfg`), so there is no
+ * script field and the dialog previews the final chain URL instead. The API builds synchronously in
+ * seconds; while it runs, dismissal is blocked so the request cannot be abandoned, and a refusal
+ * (name taken, builder unavailable, packaging failure) is shown inline with the API's message so the
+ * operator can correct it and retry.
  */
 export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBootISODialogProps) {
   const { provisioning } = useApp()
@@ -45,6 +46,7 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
   const [edited, setEdited] = useState({ name: false, rackAddress: false })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const selectedIntegration = integrations.find((item) => item.id === draft.integrationId)
   const chainURL = bootISOChainURL(draft.rackAddress)
   const ready = Boolean(draft.integrationId && draft.name.trim() && draft.rackAddress.trim())
 
@@ -81,7 +83,7 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
       onClose={() => !busy && onClose()}
       closeOnInteractOutside={!busy}
       title="Build Boot ISO"
-      description="An iPXE ISO that takes an address from the site network's DHCP and chains to the provisioner's MAAS rack. Servers of that provisioner can then boot it through their BMC (Boot Media)."
+      description="Build the optional iPXE path for Servers that obtain DHCP outside the provisioner network. The BMC mounts the ISO, then iPXE chains to the selected MAAS rack."
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -92,7 +94,7 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
             Cancel
           </Button>
           <Button type="submit" colorPalette="brand" loading={busy} loadingText="Building…" disabled={busy || !ready}>
-            Build ISO
+            Build Boot ISO
           </Button>
         </HStack>
       }
@@ -103,37 +105,33 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
             {error}
           </Alert>
         )}
-        <Field.Root required>
-          <Field.Label htmlFor="boot-iso-integration">
-            Provisioner <Field.RequiredIndicator />
-          </Field.Label>
-          <Select
-            id="boot-iso-integration"
-            value={draft.integrationId}
-            aria-label="Provisioner"
-            placeholder="Select a provisioner"
-            disabled={busy}
-            onChange={chooseIntegration}
-            options={integrations.map((integration) => ({ value: integration.id, label: integration.name }))}
-          />
-          <Field.HelperText>Only Servers of this provisioner can use the ISO.</Field.HelperText>
-        </Field.Root>
-        <Field.Root required>
-          <Field.Label>
-            Name <Field.RequiredIndicator />
-          </Field.Label>
-          <Input
-            value={draft.name}
-            maxLength={63}
-            disabled={busy}
-            autoComplete="off"
-            onChange={(event) => {
-              setEdited((current) => ({ ...current, name: true }))
-              setDraft((current) => ({ ...current, name: event.target.value }))
-            }}
-          />
-          <Field.HelperText>Unique per provisioner; shown when choosing a Server&apos;s Boot Media.</Field.HelperText>
-        </Field.Root>
+        {single ? (
+          <div className="sw-boot-iso-integration-summary" aria-label="Provisioner Integration">
+            <Text color="fg.muted" fontSize="xs" fontWeight="medium">
+              Provisioner Integration
+            </Text>
+            <Text fontWeight="semibold">{single.name}</Text>
+            <Text className="sw-mono" color="fg.muted" fontSize="sm">
+              {single.endpoint}
+            </Text>
+          </div>
+        ) : (
+          <Field.Root required>
+            <Field.Label htmlFor="boot-iso-integration">
+              Provisioner Integration <Field.RequiredIndicator />
+            </Field.Label>
+            <Select
+              id="boot-iso-integration"
+              value={draft.integrationId}
+              aria-label="Provisioner Integration"
+              placeholder="Select a provisioner"
+              disabled={busy}
+              onChange={chooseIntegration}
+              options={integrations.map((integration) => ({ value: integration.id, label: integration.name }))}
+            />
+            <Field.HelperText>Only Servers connected to this Integration can use the ISO.</Field.HelperText>
+          </Field.Root>
+        )}
         <Field.Root required>
           <Field.Label>
             MAAS rack address <Field.RequiredIndicator />
@@ -151,23 +149,47 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
             }}
           />
           <Field.HelperText>
-            The rack controller&apos;s IPv4 address or hostname, optionally with <Text as="span" className="sw-mono">:port</Text>{' '}
-            (default 5248). Pre-filled with the provisioner endpoint&apos;s host, which is the rack when MAAS runs region and
-            rack on one machine. The Servers must reach it from the network their DHCP serves.
+            Suggested from {selectedIntegration ? `${selectedIntegration.name}'s` : 'the selected Integration'} endpoint.
+            Use the hostname or IPv4 address that Servers can reach from the Site DHCP network.
           </Field.HelperText>
         </Field.Root>
         {chainURL && (
-          <Text fontSize="sm" aria-live="polite">
-            Boots, takes a DHCP lease, then chains to{' '}
-            <Text as="span" className="sw-mono">
-              {chainURL}
+          <Box className="sw-boot-iso-chain-preview" aria-live="polite">
+            <Text color="fg.muted" fontSize="xs" fontWeight="medium">
+              Boot path preview
             </Text>
-            .
-          </Text>
+            <Text fontSize="sm">
+              Site DHCP →{' '}
+              <Text as="span" className="sw-mono">
+                {chainURL}
+              </Text>
+            </Text>
+          </Box>
         )}
-        <Text color="fg.muted" fontSize="sm">
-          iPXE is unsigned: Servers booting the ISO must have Secure Boot turned off.
-        </Text>
+        <Alert status="warning" title="Secure Boot must be off">
+          The generated iPXE image is unsigned. Disable Secure Boot on Servers that mount this ISO.
+        </Alert>
+        <Box as="details" className="sw-boot-iso-advanced">
+          <Box as="summary">Advanced settings</Box>
+          <Field.Root required>
+            <Field.Label>
+              Boot ISO name <Field.RequiredIndicator />
+            </Field.Label>
+            <Input
+              value={draft.name}
+              maxLength={63}
+              disabled={busy}
+              autoComplete="off"
+              onChange={(event) => {
+                setEdited((current) => ({ ...current, name: true }))
+                setDraft((current) => ({ ...current, name: event.target.value }))
+              }}
+            />
+            <Field.HelperText>
+              Generated from the Integration name and unique within that Integration.
+            </Field.HelperText>
+          </Field.Root>
+        </Box>
       </Stack>
     </Modal>
   )

@@ -115,15 +115,15 @@ a swallow-built [Boot ISO](../../development/glossaries/terms/boot-iso.md) as
 virtual media and boots it first. The ISO takes an address from the site's DHCP
 and chains to that Server's provisioner.
 
-- **Build one per provisioner rack:** open **Provisioning → Boot ISOs → Build
-  ISO**. Choose a provisioner Integration in the current Site, give the ISO a
-  1–63-character name unique for that provisioner (case-insensitive), and enter
-  the MAAS rack address (hostname or IPv4 address, optionally with a port;
-  default `5248`). The dialog suggests
-  `<integration-name>-ipxe`, pre-fills the Integration endpoint's host, and
-  previews `http://<rack>:<port>/ipxe.cfg`. On the single-VM installation that host
-  is the installation address (`install.sh --address`), which is the rack. Confirm
-  the rack address: swallow neither resolves nor contacts it.
+- **Build only when this path is needed:** open **Provisioning → Boot ISOs →
+  Build Boot ISO**. With one provisioner Integration, the dialog shows it as a
+  read-only summary; with several, choose the Integration first. The **MAAS rack
+  address** is suggested from the Integration endpoint by keeping only its
+  hostname or IPv4 address and dropping the region API scheme, port, and path.
+  You can replace the suggestion with the address reachable from the Site DHCP
+  network. The dialog generates `<integration-name>-ipxe` under **Advanced
+  settings** and previews `http://<rack>:<port>/ipxe.cfg` (default port `5248`).
+  Confirm the rack address: swallow neither resolves nor contacts it.
 - **Fixed boot flow:** swallow renders a verified script rather than accepting
   script edits. It gets DHCP from the site network, sets the rack as
   `next-server`, and chains directly to its `ipxe.cfg` without using the DHCP
@@ -132,11 +132,14 @@ and chains to that Server's provisioner.
   synchronous build normally takes seconds.
 - **Boot compatibility:** each ISO contains iPXE v2.0.0 and boots BIOS and UEFI
   x86_64. iPXE is unsigned, so turn off Secure Boot on Servers that use it.
-- **Manage ISOs:** the Boot ISOs table shows the provisioner and Site, chain
-  URL, size, usage count, and build details. **View script** also shows the rack,
-  iPXE version, ISO URL, and SHA-256; **Download** uses the same URL BMCs mount.
-  **Delete** is disabled or refused while any enabled Server uses the ISO.
-  After deletion, its file is removed and its URL stops working.
+- **Manage the small setup:** the page uses one card per configured ISO rather
+  than an inventory table. Each card keeps **Served** or **Not served** separate
+  from **Used by N Servers** or **Not in use**, links to its provisioner
+  Integration, and shows the Site in all-sites scope. **Download** stays visible.
+  **Technical details** discloses the ID, rack and chain URL, ISO URL, SHA-256,
+  iPXE version, size, and build facts. **More** opens the rendered iPXE script or
+  Delete action. Delete is disabled or refused while any enabled Server uses
+  the ISO; after deletion, its file is removed and its URL stops working.
 - **Choose per Server:** on **Server → Summary → Management controller → Boot
   media**, **Enable Boot Media** requires a Boot ISO built for that Server's own
   provisioner. If none exists, follow the link to **Boot ISOs** and build one.

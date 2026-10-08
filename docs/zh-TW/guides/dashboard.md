@@ -44,9 +44,13 @@ Development build 會顯示這些功能，並提供 **Account menu → Experimen
 
 ## Boot ISO 與 Server Boot Media
 
-在 selected Site 使用 **Provisioning → Boot ISOs**，為每個 provisioner rack 建置
-與管理 iPXE ISO。**Build ISO** 會要求選擇 provisioner、輸入名稱與 MAAS rack
-位址；table 提供 script detail、download、使用情況與 delete action。
+多數 Site 不需要 Boot ISO。只有 Server 使用 external DHCP、無法走 provisioner
+管理的 network boot path 時，才需要 **Provisioning → Boot ISOs**。頁面會呈現選配的
+**Server BMC → Swallow Boot ISO → Site DHCP → MAAS rack** 路徑，以及每個已設定
+ISO 的 card。**Build Boot ISO** 會從所選 Integration endpoint 建議 MAAS rack 位址，
+自動產生的名稱位於 **Advanced settings**。Card 會分開顯示 served 狀態與 Server
+使用情況，固定提供 **Download**，並將 iPXE script、delete、URL、hash 與建置資訊
+放在 **More** 和 **Technical details**。
 
 在 **Server → Summary → Management controller → Boot media** 啟用 Boot Media
 時，必須選擇為該 Server provisioner 建置的 Boot ISO。沒有可選項時，panel 會連回

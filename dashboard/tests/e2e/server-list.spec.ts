@@ -217,7 +217,7 @@ test('provider-only work links to the Activity section that records it', async (
   await expect(page.getByRole('heading', { name: 'Current browser session' })).not.toBeInViewport()
 })
 
-test('in-progress rows and spinners keep moving when the OS asks for reduced motion', async ({ page }) => {
+test('in-progress rows stay still while the status spinner keeps moving with reduced motion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await installApiFixtures(page, { readyServerCount: 1, changingServerIds: ['srv-2'] })
   await page.goto('/servers?site=site-a')
@@ -232,8 +232,8 @@ test('in-progress rows and spinners keep moving when the OS asks for reduced mot
     iterations: animation.effect?.getComputedTiming().iterations,
   }))
   expect(await spinner.evaluate(runningAnimations)).toEqual([{ name: 'spin', state: 'running', iterations: Infinity }])
-  // The whole row of a Server with running work carries the light-band sweep; an idle row does not.
-  expect(await changing.evaluate(runningAnimations)).toEqual([{ name: 'sw-progress-sweep', state: 'running', iterations: Infinity }])
+  // Activity belongs to the Deployment status; animating the full row interferes with table scanning.
+  expect(await changing.evaluate(runningAnimations)).toEqual([])
   const idle = table.getByRole('row').filter({ hasText: 'gpu-node-01' })
   expect(await idle.evaluate(runningAnimations)).toEqual([])
 })

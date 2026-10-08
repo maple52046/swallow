@@ -50,10 +50,15 @@ configured integration naturally produces empty states.
 
 ## Boot ISOs and Server Boot Media
 
-Use **Provisioning → Boot ISOs** to build and manage the iPXE ISO for each
-provisioner rack in the selected Site. **Build ISO** asks for the provisioner,
-name, and MAAS rack address; the table provides script details, download,
-usage, and delete actions.
+Most Sites do not need a Boot ISO. Use **Provisioning → Boot ISOs** only when
+a Server receives external DHCP and cannot use its provisioner's managed
+network-boot path. The page shows the optional
+**Server BMC → Swallow Boot ISO → Site DHCP → MAAS rack** path and one card per
+configured ISO. **Build Boot ISO** suggests the MAAS rack address from the
+selected Integration endpoint; the generated name is under **Advanced
+settings**. Cards separate served state from Server usage, keep **Download**
+visible, and place the iPXE script, delete action, URLs, hash, and build facts
+under **More** and **Technical details**.
 
 On **Server → Summary → Management controller → Boot media**, enabling Boot
 Media requires a Boot ISO built for that Server's provisioner. With none

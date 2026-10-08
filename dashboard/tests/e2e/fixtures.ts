@@ -170,6 +170,15 @@ const alerts = [
   { fingerprint: 'alert-3', name: 'ExporterMissing', severity: 'warning', state: 'suppressed', summary: 'Exporter rollout pending', description: '', labels: { alertname: 'ExporterMissing', server_id: 'srv-3' }, startsAt: '2026-08-27T01:45:00Z', serverId: 'srv-3', siteId: 'site-a', platformId: 'platform-a' },
 ]
 
+interface BootISOFixture {
+  id: string
+  name: string
+  integrationId: string
+  rackAddress: string
+  /** Undefined uses the fixture's served URL; null models an ISO record that is not currently served. */
+  url?: string | null
+}
+
 /** Controls for large-fleet, concurrency, and failure-path browser fixtures. */
 export interface FixtureOptions {
   /**
@@ -327,7 +336,7 @@ export interface FixtureOptions {
    * Boot ISOs at page load (boot-isos.md, decision 049). Omitted: `taipei-rack` for MAAS Taipei
    * (srv-1's provisioner) and `edge-rack` for MAAS Edge.
    */
-  bootISOs?: Array<{ id: string; name: string; integrationId: string; rackAddress: string }>
+  bootISOs?: BootISOFixture[]
   /** Makes the Boot ISO list report the builder unavailable with this reason. */
   bootISOBuilderUnavailable?: string
   /** Makes the Boot ISO build fail with this API error instead of storing an ISO. */
@@ -338,6 +347,8 @@ export interface FixtureOptions {
   noProvisioners?: boolean
   /** Adds a second provisioner to site-a, modelling an invalid Site configuration. */
   multipleProvisioners?: boolean
+  /** Overrides provisioner endpoints to exercise Boot ISO rack-address suggestion parsing. */
+  provisionerEndpoints?: Record<string, string>
   /** Disables site-a's only provisioner. */
   disabledProvisioner?: boolean
   /** Limits the installation to site-a so global deployment can auto-select it. */
@@ -434,7 +445,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     return {
       ...iso, chainUrl, ipxeVersion: 'v2.0.0 (12798ec)', sizeBytes: 2_402_304, sha256: `sha256-of-${iso.id}`,
       script: `#!ipxe\n\nset maas_rack ${iso.rackAddress.replace(/:\d+$/, '')}\n\n:start\ndhcp || goto retry\nset next-server \${maas_rack}\nchain ${chainUrl.replace(/\/\/[^:/]+/, '//${next-server}')} || goto returned\n`,
-      url: bootISOURL(iso.id),
+      url: iso.url === undefined ? bootISOURL(iso.id) : iso.url,
       inUseBy: bootMediaState.setting?.enabled === true && bootMediaState.setting?.isoId === iso.id ? 1 : 0,
     }
   }
@@ -444,7 +455,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const image = !isoId
       ? null
       : iso
-        ? { id: iso.id, name: iso.name, url: bootISOURL(iso.id), available: true }
+        ? { id: iso.id, name: iso.name, url: iso.url === undefined ? bootISOURL(iso.id) : (iso.url ?? ''), available: iso.url !== null }
         : { id: isoId, url: '', available: false, reason: 'The Boot ISO no longer exists; choose another.' }
     return {
       serverId: 'srv-1',
@@ -674,6 +685,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     .filter((integration) => !options.noProvisioners || integration.kind !== 'provisioner')
     .map((integration) => ({
       ...integration,
+      endpoint: options.provisionerEndpoints?.[integration.id] ?? integration.endpoint,
       enabled:
         options.disabledProvisioner && integration.id === 'maas-a'
           ? false

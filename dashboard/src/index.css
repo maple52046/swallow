@@ -3272,14 +3272,9 @@ tbody .sw-sticky-selection { z-index: 2; }
 }
 
 /*
- * A row whose Server has OS provisioning work running (tone `changing`: Releasing, Inspecting,
- * Testing, Deploying, Verifying) carries a light tint and a soft band of light sweeping across
- * it, so the whole row reads as busy; the Deployment label stays the state of record. Only
- * background-image is set, so the hover and selection colours above still show through, and the
- * rule must stay after them to win their `background` shorthand. The mobile card uses the same
- * layers over its panel colour.
+ * Desktop changing rows rely on the Deployment presentation and slim leading rail instead of a
+ * full-row animation. Mobile cards keep their compact activity treatment.
  */
-.sw-server-inventory-table tbody tr[data-tone='changing'],
 .sw-server-runtime-card[data-tone='changing'] .sw-resource-card {
   background-image:
     linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--chakra-colors-blue-solid) 16%, transparent) 50%, transparent 70%),
@@ -3296,7 +3291,6 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 /* Like the in-progress spinner, the sweep keeps moving when the OS asks for reduced motion. */
 @media (prefers-reduced-motion: reduce) {
-  .sw-server-inventory-table tbody tr[data-tone='changing'],
   .sw-server-runtime-card[data-tone='changing'] .sw-resource-card {
     animation-duration: 2.4s !important;
     animation-iteration-count: infinite !important;

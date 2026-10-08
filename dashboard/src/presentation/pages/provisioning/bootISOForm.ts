@@ -9,7 +9,9 @@ export function rackAddressFromEndpoint(endpoint: string): string {
   const value = endpoint.trim()
   if (!value) return ''
   try {
-    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`).hostname
+    const hostname = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`).hostname
+    if (!hostname || hostname.includes('%')) return ''
+    return hostname
   } catch {
     // An endpoint that is not a URL has no host to offer; the operator types the rack address.
     return ''

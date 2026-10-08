@@ -101,13 +101,14 @@ provider 端的佈署仍保持執行，供你檢查、retry 或 release。
 [Boot ISO](../../development/glossaries/terms/boot-iso.md) 並優先開機。ISO 先從
 現場 DHCP 取得位址，再 chain 到該 Server 的 provisioner。
 
-- **每個 provisioner rack 建置一個：** 開啟 **Provisioning → Boot ISOs → Build
-  ISO**。選擇目前 Site 的 provisioner Integration，輸入在該 provisioner 內
-  不分大小寫、長度 1–63 字元的唯一名稱，以及 MAAS rack 位址（hostname 或 IPv4，
-  可帶 port；預設 `5248`）。Dialog 會建議 `<integration-name>-ipxe`、預填
-  Integration endpoint 的 host，並預覽 `http://<rack>:<port>/ipxe.cfg`。在單一 VM
-  installation 上，這個 host 就是安裝位址（`install.sh --address`），也就是 rack。請自行
-  確認 rack 位址；swallow 不會解析或連線測試。
+- **只在需要這條路徑時建置：** 開啟 **Provisioning → Boot ISOs → Build Boot
+  ISO**。只有一個 provisioner Integration 時，Dialog 會顯示 read-only summary；
+  有多個時才需要先選 Integration。**MAAS rack address** 會從 Integration endpoint
+  建議，只保留 hostname 或 IPv4，去除 region API 的 scheme、port 與 path。你可以將
+  建議值改成 Site DHCP 網路實際能連到的位址。Dialog 會在 **Advanced settings**
+  自動產生 `<integration-name>-ipxe`，並預覽
+  `http://<rack>:<port>/ipxe.cfg`（預設 port `5248`）。請自行確認 rack 位址；
+  swallow 不會解析或連線測試。
 - **固定開機流程：** swallow 使用已驗證的 template render script，不提供 script
   編輯。它從現場網路取得 DHCP、將 rack 設為 `next-server`，並直接 chain 到
   `ipxe.cfg`，不使用 DHCP boot filename。DHCP 失敗時會 retry，Ctrl-B 可開啟
@@ -115,10 +116,13 @@ provider 端的佈署仍保持執行，供你檢查、retry 或 release。
   通常只需數秒。
 - **開機相容性：** 每個 ISO 內含 iPXE v2.0.0，可在 BIOS 與 UEFI x86_64 開機。
   iPXE 未簽署，因此使用它的 Server 必須關閉 Secure Boot。
-- **管理 ISO：** Boot ISOs table 顯示 provisioner／Site、chain URL、大小、使用中
-  數量與建置資訊。**View script** 也會顯示 rack、iPXE version、ISO URL 與
-  SHA-256；**Download** 使用 BMC 掛載的同一個 URL。只要仍有 enabled Server 使用，
-  **Delete** 就會停用或被拒絕。刪除後會移除檔案，原本的 URL 也會停止運作。
+- **管理少量設定：** 頁面不再使用 inventory table，而是每個已設定 ISO 一張 card。
+  Card 會分開顯示 **Served**／**Not served** 與 **Used by N Servers**／**Not in
+  use**，連到 provisioner Integration，並在 all-sites scope 顯示 Site。
+  **Download** 固定顯示；**Technical details** 收納 ID、rack 與 chain URL、ISO
+  URL、SHA-256、iPXE version、大小和建置資訊。**More** 可開啟 render 後的 iPXE
+  script 或 Delete。只要仍有 enabled Server 使用，Delete 就會停用或被拒絕；
+  刪除後會移除檔案，原本的 URL 也會停止運作。
 - **逐台選擇：** 在 **Server → Summary → Management controller → Boot media**，
   **Enable Boot Media** 必須選擇為該 Server 自己的 provisioner 建置的 Boot ISO。
   若沒有可選項，請依連結前往 **Boot ISOs** 建置。Enable 會執行 Redfish preflight；
