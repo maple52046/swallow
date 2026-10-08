@@ -1038,6 +1038,21 @@ tbody .sw-sticky-selection { z-index: 2; }
   overflow-wrap: anywhere;
 }
 .sw-activity-alert { padding: 1.5rem; }
+.sw-activity-pagination {
+  display: flex;
+  min-height: 3.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 1rem;
+  border-block-start: 1px solid var(--chakra-colors-border-muted);
+}
+.sw-activity-pagination__controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
 
 /* ---- Responsive ---------------------------------------------------------- */
 
@@ -1097,6 +1112,8 @@ tbody .sw-sticky-selection { z-index: 2; }
   .sw-attention-row { grid-template-columns: 76px minmax(0, 1fr); padding-inline: 1rem; }
   .sw-attention-row > b { display: none; }
   .sw-section-header { align-items: flex-start; padding-inline: 1rem; }
+  .sw-activity-pagination,
+  .sw-activity-pagination__controls { flex-wrap: wrap; }
   .sw-resource-card__fields { grid-template-columns: 1fr 1fr; }
 }
 

@@ -20,6 +20,59 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('Server Activity paginates persisted sources independently', async ({ page }) => {
+  await installApiFixtures(page, { serverActivityItemCount: 12 })
+  await page.goto('/servers/srv-1/activity?site=site-a')
+
+  const tasks = page.locator('#activity-provisioning-tasks')
+  const provider = page.locator('#activity-provider-events')
+  const related = page.locator('#activity-related-operations')
+
+  await expect(tasks.getByText('Showing 1–10 of 12')).toBeVisible()
+  await expect(tasks.getByRole('table')).toContainText('task-activity-01')
+  await expect(tasks.getByRole('table')).toContainText('task-activity-10')
+  await expect(tasks.getByRole('table')).not.toContainText('task-activity-11')
+  await expect(provider.getByText('Showing 1–10 of 12')).toBeVisible()
+  await expect(provider.getByRole('table')).toContainText('Provider event 01')
+  await expect(related.getByText('Showing 1–10 of 12')).toBeVisible()
+  await expect(related.getByRole('table')).toContainText('Maintenance operation 01')
+
+  const taskPageSize = tasks.getByRole('combobox', { name: 'provisioning tasks rows per page' })
+  await taskPageSize.click()
+  for (const size of [5, 10, 15, 20]) {
+    await expect(page.getByRole('option', { name: `${size} rows`, exact: true })).toBeVisible()
+  }
+  await page.getByRole('option', { name: '5 rows', exact: true }).click()
+  await expect(tasks.getByText('Showing 1–5 of 12')).toBeVisible()
+  await tasks.getByRole('button', { name: 'Next provisioning tasks page' }).click()
+  await expect(tasks.getByText('Showing 6–10 of 12')).toBeVisible()
+  await expect(tasks.getByRole('table')).toContainText('task-activity-06')
+  await expect(provider.getByRole('table')).toContainText('Provider event 01')
+
+  await provider.getByRole('combobox', { name: 'provider events rows per page' }).click()
+  await page.getByRole('option', { name: '5 rows', exact: true }).click()
+  await expect(provider.getByText('Showing 1–5 of 12')).toBeVisible()
+  await provider.getByRole('button', { name: 'Next provider events page' }).click()
+  await expect(provider.getByText('Showing 6–10 of 12')).toBeVisible()
+  await expect(provider.getByRole('table')).toContainText('Provider event 06')
+  await expect(tasks.getByRole('table')).toContainText('task-activity-06')
+
+  await related.getByRole('combobox', { name: 'related Operations rows per page' }).click()
+  await page.getByRole('option', { name: '5 rows', exact: true }).click()
+  await related.getByRole('button', { name: 'Next related Operations page' }).click()
+  await related.getByRole('button', { name: 'Next related Operations page' }).click()
+  await expect(related.getByText('Showing 11–12 of 12')).toBeVisible()
+  await expect(related.getByRole('link', { name: 'Maintenance operation 11' })).toHaveAttribute(
+    'href',
+    '/workflows/op-activity-11?site=site-a',
+  )
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => page.evaluate(() => (
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+  ))).toBe(true)
+})
+
 test('Release requires confirmation and submits MAAS disk-erasure options', async ({ page }) => {
   const requests: Array<{ serverId: string; body: Record<string, unknown> | null }> = []
   const refreshes: string[] = []

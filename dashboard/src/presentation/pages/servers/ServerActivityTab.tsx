@@ -7,8 +7,10 @@ import type { ProvisioningTask } from '@/domain/provisioning/types'
 import type { ProviderEvents } from '@/domain/server/types'
 import { useApp } from '@/di/AppProvider'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { Pagination } from '@/presentation/components/Pagination'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
+import { Select } from '@/presentation/components/ui/select'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -24,6 +26,56 @@ import { SERVER_ACTIVITY_SECTION_IDS, SERVER_ACTIVITY_SECTION_TITLES } from './s
 import { useServerDetailContext } from './useServerDetail'
 
 type LoadState<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: T }
+
+const DEFAULT_ACTIVITY_PAGE_SIZE = 10
+const ACTIVITY_PAGE_SIZES = [5, 10, 15, 20] as const
+const ACTIVITY_PAGE_SIZE_OPTIONS = ACTIVITY_PAGE_SIZES.map((size) => ({
+  value: String(size),
+  label: `${size} rows`,
+}))
+
+interface ActivityPage<T> {
+  items: T[]
+  page: number
+  totalPages: number
+  rangeStart: number
+  rangeEnd: number
+  total: number
+  pageSize: number
+}
+
+interface ActivitySectionPage {
+  page: number
+  pageSize: number
+}
+
+interface ActivityPages {
+  serverId: string
+  tasks: ActivitySectionPage
+  provider: ActivitySectionPage
+  related: ActivitySectionPage
+}
+
+function initialActivityPages(serverId: string): ActivityPages {
+  const section = () => ({ page: 1, pageSize: DEFAULT_ACTIVITY_PAGE_SIZE })
+  return { serverId, tasks: section(), provider: section(), related: section() }
+}
+
+/** Preserves source ordering while constraining one activity section to a compact page. */
+function activityPage<T>(items: readonly T[], requestedPage: number, pageSize: number): ActivityPage<T> {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
+  const page = Math.min(Math.max(requestedPage, 1), totalPages)
+  const start = (page - 1) * pageSize
+  return {
+    items: items.slice(start, start + pageSize),
+    page,
+    totalPages,
+    rangeStart: items.length === 0 ? 0 : start + 1,
+    rangeEnd: Math.min(start + pageSize, items.length),
+    total: items.length,
+    pageSize,
+  }
+}
 
 /**
  * Composes the three truthful activity sources for one Server: live provider events, durable
@@ -45,13 +97,36 @@ export function ServerActivityTab() {
   const [sessionResults, setSessionResults] = useState<ServerActionRunResult[]>(() => listStoredServerActionResults(server.id))
   const [selectedResult, setSelectedResult] = useState<ServerActionRunResult | null>(null)
   const [retryingTaskId, setRetryingTaskId] = useState('')
+  const [pages, setPages] = useState<ActivityPages>(() => initialActivityPages(server.id))
   const [nonce, setNonce] = useState(0)
+  const activePages = pages.serverId === server.id ? pages : initialActivityPages(server.id)
+  const setActivityPage = (section: 'tasks' | 'provider' | 'related', page: number) => {
+    setPages((current) => {
+      const base = current.serverId === server.id ? current : initialActivityPages(server.id)
+      return { ...base, [section]: { ...base[section], page } }
+    })
+  }
+  const setActivityPageSize = (section: 'tasks' | 'provider' | 'related', pageSize: number) => {
+    setPages((current) => {
+      const base = current.serverId === server.id ? current : initialActivityPages(server.id)
+      return { ...base, [section]: { page: 1, pageSize } }
+    })
+  }
   const refresh = useCallback(() => {
     setProvider({ status: 'loading' })
     setRelated({ status: 'loading' })
     setTasks({ status: 'loading' })
+    setPages((current) => {
+      const base = current.serverId === server.id ? current : initialActivityPages(server.id)
+      return {
+        ...base,
+        tasks: { ...base.tasks, page: 1 },
+        provider: { ...base.provider, page: 1 },
+        related: { ...base.related, page: 1 },
+      }
+    })
     setNonce((value) => value + 1)
-  }, [])
+  }, [server.id])
 
   useEffect(() => {
     const sync = () => setSessionResults(listStoredServerActionResults(server.id))
@@ -92,6 +167,15 @@ export function ServerActivityTab() {
   }, [nonce, operations, server.id, servers])
 
   const sourcesSettled = provider.status !== 'loading' && related.status !== 'loading' && tasks.status !== 'loading'
+  const pagedTasks = tasks.status === 'ready'
+    ? activityPage(tasks.data, activePages.tasks.page, activePages.tasks.pageSize)
+    : null
+  const pagedProviderEvents = provider.status === 'ready'
+    ? activityPage(provider.data.events, activePages.provider.page, activePages.provider.pageSize)
+    : null
+  const pagedRelated = related.status === 'ready'
+    ? activityPage(related.data, activePages.related.page, activePages.related.pageSize)
+    : null
   const scrolledHashRef = useRef('')
   // Lands a section deep link. Scrolling waits until every source has settled because the
   // sections above the target change height when their rows arrive, and it runs once per hash
@@ -175,37 +259,45 @@ export function ServerActivityTab() {
           </div>
         )}
         {tasks.status === 'ready' && tasks.data.length === 0 && <div className="sw-section-empty">No durable provisioning tasks for this Server.</div>}
-        {tasks.status === 'ready' && tasks.data.length > 0 && (
-          <StickyTableFrame>
-            <Table.Root size="sm" aria-label="Provisioning tasks">
-              <Table.Header>
-                <Table.Row><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Task</Table.ColumnHeader><Table.ColumnHeader>Phase</Table.ColumnHeader><Table.ColumnHeader>Updated</Table.ColumnHeader><Table.ColumnHeader>Error</Table.ColumnHeader><Table.ColumnHeader>Request ID</Table.ColumnHeader><Table.ColumnHeader><VisuallyHidden>Actions</VisuallyHidden></Table.ColumnHeader></Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {tasks.data.map((task) => (
-                  <Table.Row key={task.id}>
-                    <Table.Cell><StatusBadge status={task.status} /></Table.Cell>
-                    <Table.Cell>
-                      Release network cleanup
-                      <Text as="small" display="block" color="fg.muted" className="mono">{task.id}</Text>
-                    </Table.Cell>
-                    <Table.Cell>{task.phase.replaceAll('_', ' ')}</Table.Cell>
-                    <Table.Cell>{formatDateTime(task.updatedAt)}</Table.Cell>
-                    <Table.Cell>{task.error || '-'}</Table.Cell>
-                    <Table.Cell className="mono">{task.requestId || '-'}</Table.Cell>
-                    <Table.Cell textAlign="end">
-                      {task.retryable && (
-                        <Button variant="outline" size="sm" loading={retryingTaskId === task.id} disabled={Boolean(retryingTaskId)} onClick={() => void retryCleanup(task.id)}>
-                          <RotateCcw size={16} />
-                          Retry cleanup
-                        </Button>
-                      )}
-                    </Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table.Root>
-          </StickyTableFrame>
+        {pagedTasks && pagedTasks.total > 0 && (
+          <>
+            <StickyTableFrame>
+              <Table.Root size="sm" aria-label="Provisioning tasks">
+                <Table.Header>
+                  <Table.Row><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Task</Table.ColumnHeader><Table.ColumnHeader>Phase</Table.ColumnHeader><Table.ColumnHeader>Updated</Table.ColumnHeader><Table.ColumnHeader>Error</Table.ColumnHeader><Table.ColumnHeader>Request ID</Table.ColumnHeader><Table.ColumnHeader><VisuallyHidden>Actions</VisuallyHidden></Table.ColumnHeader></Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {pagedTasks.items.map((task) => (
+                    <Table.Row key={task.id}>
+                      <Table.Cell><StatusBadge status={task.status} /></Table.Cell>
+                      <Table.Cell>
+                        Release network cleanup
+                        <Text as="small" display="block" color="fg.muted" className="mono">{task.id}</Text>
+                      </Table.Cell>
+                      <Table.Cell>{task.phase.replaceAll('_', ' ')}</Table.Cell>
+                      <Table.Cell>{formatDateTime(task.updatedAt)}</Table.Cell>
+                      <Table.Cell>{task.error || '-'}</Table.Cell>
+                      <Table.Cell className="mono">{task.requestId || '-'}</Table.Cell>
+                      <Table.Cell textAlign="end">
+                        {task.retryable && (
+                          <Button variant="outline" size="sm" loading={retryingTaskId === task.id} disabled={Boolean(retryingTaskId)} onClick={() => void retryCleanup(task.id)}>
+                            <RotateCcw size={16} />
+                            Retry cleanup
+                          </Button>
+                        )}
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Root>
+            </StickyTableFrame>
+            <ActivityPagination
+              page={pagedTasks}
+              subject="provisioning tasks"
+              onChange={(page) => setActivityPage('tasks', page)}
+              onPageSize={(pageSize) => setActivityPageSize('tasks', pageSize)}
+            />
+          </>
         )}
       </section>
 
@@ -230,25 +322,33 @@ export function ServerActivityTab() {
         )}
         {provider.status === 'ready' && !provider.data.supported && <div className="sw-section-empty">This provisioner does not expose machine events.</div>}
         {provider.status === 'ready' && provider.data.supported && provider.data.events.length === 0 && <div className="sw-section-empty">No provider events are retained for this Server.</div>}
-        {provider.status === 'ready' && provider.data.events.length > 0 && (
-          <StickyTableFrame>
-            <Table.Root size="sm" aria-label="Provider events">
-              <Table.Header>
-                <Table.Row><Table.ColumnHeader>Time</Table.ColumnHeader><Table.ColumnHeader>Level</Table.ColumnHeader><Table.ColumnHeader>Type</Table.ColumnHeader><Table.ColumnHeader>Message</Table.ColumnHeader><Table.ColumnHeader>Actor</Table.ColumnHeader></Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {provider.data.events.map((event) => (
-                  <Table.Row key={event.id}>
-                    <Table.Cell>{formatDateTime(event.occurredAt)}</Table.Cell>
-                    <Table.Cell><StatusBadge status={event.level} /></Table.Cell>
-                    <Table.Cell>{event.type || '-'}</Table.Cell>
-                    <Table.Cell>{event.message || '-'}</Table.Cell>
-                    <Table.Cell>{event.actor || '-'}</Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table.Root>
-          </StickyTableFrame>
+        {pagedProviderEvents && pagedProviderEvents.total > 0 && (
+          <>
+            <StickyTableFrame>
+              <Table.Root size="sm" aria-label="Provider events">
+                <Table.Header>
+                  <Table.Row><Table.ColumnHeader>Time</Table.ColumnHeader><Table.ColumnHeader>Level</Table.ColumnHeader><Table.ColumnHeader>Type</Table.ColumnHeader><Table.ColumnHeader>Message</Table.ColumnHeader><Table.ColumnHeader>Actor</Table.ColumnHeader></Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {pagedProviderEvents.items.map((event) => (
+                    <Table.Row key={event.id}>
+                      <Table.Cell>{formatDateTime(event.occurredAt)}</Table.Cell>
+                      <Table.Cell><StatusBadge status={event.level} /></Table.Cell>
+                      <Table.Cell>{event.type || '-'}</Table.Cell>
+                      <Table.Cell>{event.message || '-'}</Table.Cell>
+                      <Table.Cell>{event.actor || '-'}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Root>
+            </StickyTableFrame>
+            <ActivityPagination
+              page={pagedProviderEvents}
+              subject="provider events"
+              onChange={(page) => setActivityPage('provider', page)}
+              onPageSize={(pageSize) => setActivityPageSize('provider', pageSize)}
+            />
+          </>
         )}
       </section>
 
@@ -263,32 +363,72 @@ export function ServerActivityTab() {
           </div>
         )}
         {related.status === 'ready' && related.data.length === 0 && <div className="sw-section-empty">No durable Operations include this Server.</div>}
-        {related.status === 'ready' && related.data.length > 0 && (
-          <StickyTableFrame>
-            <Table.Root size="sm" aria-label="Related Operations">
-              <Table.Header>
-                <Table.Row><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Operation</Table.ColumnHeader><Table.ColumnHeader>Kind</Table.ColumnHeader><Table.ColumnHeader>Requested</Table.ColumnHeader><Table.ColumnHeader>Requested by</Table.ColumnHeader></Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {related.data.map((operation) => (
-                  <Table.Row key={operation.id}>
-                    <Table.Cell><StatusBadge status={operation.execution.status} /></Table.Cell>
-                    <Table.Cell>
-                      <Link to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent || operation.execution.playbook}</Link>
-                      <Text as="small" display="block" color="fg.muted" className="mono">{operation.id}</Text>
-                    </Table.Cell>
-                    <Table.Cell>{operation.kind}</Table.Cell>
-                    <Table.Cell>{formatDateTime(operation.requestedAt)}</Table.Cell>
-                    <Table.Cell>{operation.requestedBy || 'system'}</Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table.Root>
-          </StickyTableFrame>
+        {pagedRelated && pagedRelated.total > 0 && (
+          <>
+            <StickyTableFrame>
+              <Table.Root size="sm" aria-label="Related Operations">
+                <Table.Header>
+                  <Table.Row><Table.ColumnHeader>Status</Table.ColumnHeader><Table.ColumnHeader>Operation</Table.ColumnHeader><Table.ColumnHeader>Kind</Table.ColumnHeader><Table.ColumnHeader>Requested</Table.ColumnHeader><Table.ColumnHeader>Requested by</Table.ColumnHeader></Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {pagedRelated.items.map((operation) => (
+                    <Table.Row key={operation.id}>
+                      <Table.Cell><StatusBadge status={operation.execution.status} /></Table.Cell>
+                      <Table.Cell>
+                        <Link to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent || operation.execution.playbook}</Link>
+                        <Text as="small" display="block" color="fg.muted" className="mono">{operation.id}</Text>
+                      </Table.Cell>
+                      <Table.Cell>{operation.kind}</Table.Cell>
+                      <Table.Cell>{formatDateTime(operation.requestedAt)}</Table.Cell>
+                      <Table.Cell>{operation.requestedBy || 'system'}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Root>
+            </StickyTableFrame>
+            <ActivityPagination
+              page={pagedRelated}
+              subject="related Operations"
+              onChange={(page) => setActivityPage('related', page)}
+              onPageSize={(pageSize) => setActivityPageSize('related', pageSize)}
+            />
+          </>
         )}
       </section>
 
       {selectedResult && <ServerActionResultDialog result={selectedResult} onClose={() => setSelectedResult(null)} />}
+    </div>
+  )
+}
+
+function ActivityPagination<T>({
+  page,
+  subject,
+  onChange,
+  onPageSize,
+}: {
+  page: ActivityPage<T>
+  subject: string
+  onChange: (page: number) => void
+  onPageSize: (pageSize: number) => void
+}) {
+  if (page.total <= ACTIVITY_PAGE_SIZES[0]) return null
+  return (
+    <div className="sw-activity-pagination">
+      <Text color="fg.muted" fontSize="sm" aria-live="polite">
+        Showing {page.rangeStart}–{page.rangeEnd} of {page.total}
+      </Text>
+      <div className="sw-activity-pagination__controls">
+        <Select
+          value={String(page.pageSize)}
+          aria-label={`${subject} rows per page`}
+          size="sm"
+          width="8rem"
+          onChange={(value) => onPageSize(Number(value))}
+          options={ACTIVITY_PAGE_SIZE_OPTIONS}
+        />
+        <Pagination total={page.totalPages} value={page.page} onChange={onChange} subject={subject} />
+      </div>
     </div>
   )
 }

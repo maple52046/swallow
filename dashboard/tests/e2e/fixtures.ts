@@ -233,6 +233,8 @@ export interface FixtureOptions {
    * record alone, so no Swallow Workflow is running for the Server (unlike `changingServerIds`).
    */
   providerWorkServerIds?: Record<string, 'releasing' | 'inspecting' | 'testing' | 'deploying'>
+  /** Populates each persisted Server Activity source with this many rows for pagination coverage. */
+  serverActivityItemCount?: number
 
   secondReadyServerIntegrationId?: string
   failImageIntegrationIds?: string[]
@@ -725,7 +727,25 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   const releaseRefreshesRemaining = new Map<string, number>()
   const deploymentRefreshesRemaining = new Map<string, number>()
   const releaseCleanupRequested = new Set<string>()
-  const provisioningTasks: Array<Record<string, unknown>> = []
+  const provisioningTasks: Array<Record<string, unknown>> = Array.from(
+    { length: options.serverActivityItemCount ?? 0 },
+    (_, index) => {
+      const ordinal = index + 1
+      return {
+        id: `task-activity-${String(ordinal).padStart(2, '0')}`,
+        kind: 'release_network_cleanup',
+        serverId: 'srv-1',
+        status: 'succeeded',
+        phase: 'complete',
+        attempt: 1,
+        error: '',
+        requestId: `req-task-${ordinal}`,
+        retryable: false,
+        createdAt: now,
+        updatedAt: now,
+      }
+    },
+  )
   const networkTargets = new Map(fleet.map((server) => {
     const interfaceId = `nic-${server.id}`
     const linkId = `link-${server.id}`
@@ -868,6 +888,33 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     })
   }
   const operationItems = structuredClone(operations)
+  if (options.serverActivityItemCount) {
+    for (const operation of operationItems) {
+      operation.targetServerIds = operation.targetServerIds.filter((serverId) => serverId !== 'srv-1')
+    }
+    for (let index = 0; index < options.serverActivityItemCount; index += 1) {
+      const ordinal = index + 1
+      const operation = {
+        ...structuredClone(operations[0]),
+        id: `op-activity-${String(ordinal).padStart(2, '0')}`,
+        kind: 'server.maintenance',
+        intent: `Maintenance operation ${String(ordinal).padStart(2, '0')}`,
+        platformId: null,
+        targetServerIds: ['srv-1'],
+        execution: {
+          runId: `run-activity-${ordinal}`,
+          playbook: 'server-maintenance.yml',
+          status: 'succeeded',
+          statusReason: null,
+          startedAt: now,
+          finishedAt: now,
+        },
+        requestedAt: now,
+        updatedAt: now,
+      }
+      operationItems.push(operation as unknown as (typeof operationItems)[number])
+    }
+  }
   // inspect-hardware Workflows waiting for attention (server-enrollment.md): the inspect Task ran
   // out of attempts because the Server never network-booted into MAAS.
   for (const serverId of options.inspectionAttentionServerIds ?? []) {
@@ -1665,13 +1712,23 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     const serverEventsMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/events$/)
     if (serverEventsMatch && request.method() === 'GET') {
+      const activityCount = serverEventsMatch[1] === 'srv-1' ? options.serverActivityItemCount ?? 0 : 0
       return json(route, {
         supported: true,
-        events: [{
-          id: '4812', level: 'audit', type: 'Request from user',
-          message: 'Started releasing machine.', actor: 'admin',
-          occurredAt: '2026-08-27T02:58:00Z',
-        }],
+        events: activityCount > 0
+          ? Array.from({ length: activityCount }, (_, index) => ({
+              id: `event-activity-${String(index + 1).padStart(2, '0')}`,
+              level: 'audit',
+              type: 'Machine lifecycle',
+              message: `Provider event ${String(index + 1).padStart(2, '0')}`,
+              actor: 'admin',
+              occurredAt: now,
+            }))
+          : [{
+              id: '4812', level: 'audit', type: 'Request from user',
+              message: 'Started releasing machine.', actor: 'admin',
+              occurredAt: '2026-08-27T02:58:00Z',
+            }],
       })
     }
     const serverTasksMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/provisioning-tasks$/)

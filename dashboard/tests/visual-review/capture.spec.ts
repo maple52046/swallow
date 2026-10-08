@@ -15,6 +15,7 @@ const visualCases = [
   { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
+  { name: 'server-activity', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
@@ -101,6 +102,7 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'servers'
           ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
           : {}),
+        ...(visualCase.name === 'server-activity' ? { serverActivityItemCount: 12 } : {}),
         ...(visualCase.name.startsWith('software-')
           ? { fleetSize: 5, softwareAssignments: visualSoftwareAssignments }
           : {}),

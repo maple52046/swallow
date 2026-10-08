@@ -7,6 +7,8 @@ interface PaginationProps {
   /** The current 1-based page. */
   value: number
   onChange: (page: number) => void
+  /** Optional noun phrase that disambiguates multiple pagers on one page. */
+  subject?: string
 }
 
 /**
@@ -16,10 +18,10 @@ interface PaginationProps {
  * pagination is driven with a page size of one so one "item" equals one page.
  * Renders nothing for a single page so short lists stay uncluttered.
  */
-export function Pagination({ total, value, onChange }: PaginationProps) {
+export function Pagination({ total, value, onChange, subject }: PaginationProps) {
   if (total <= 1) return null
   return (
-    <Flex justify="flex-end">
+    <Flex as="nav" justify="flex-end" aria-label={subject ? `${subject} pagination` : 'Pagination'}>
       <ChakraPagination.Root
         count={total}
         pageSize={1}
@@ -28,13 +30,13 @@ export function Pagination({ total, value, onChange }: PaginationProps) {
       >
         <ButtonGroup variant="ghost" size="sm" gap="1">
           <ChakraPagination.PrevTrigger asChild>
-            <IconButton aria-label="Previous page">
+            <IconButton aria-label={subject ? `Previous ${subject} page` : 'Previous page'}>
               <ChevronLeft size={16} />
             </IconButton>
           </ChakraPagination.PrevTrigger>
           <ChakraPagination.PageText />
           <ChakraPagination.NextTrigger asChild>
-            <IconButton aria-label="Next page">
+            <IconButton aria-label={subject ? `Next ${subject} page` : 'Next page'}>
               <ChevronRight size={16} />
             </IconButton>
           </ChakraPagination.NextTrigger>
