@@ -48,8 +48,8 @@ const TABS: readonly ServerDetailTab[] = [
   { value: 'pci', label: 'PCI devices', icon: CircuitBoard },
 ]
 
-const RELEASE_FOLLOW_INTERVAL_MS = 2_000
-const RELEASE_FOLLOW_MAX_ATTEMPTS = 150
+const MUTATION_FOLLOW_INTERVAL_MS = 2_000
+const MUTATION_FOLLOW_MAX_ATTEMPTS = 150
 
 /**
  * Cockpit-style single-machine route shell. Projection and live provider detail are loaded
@@ -72,7 +72,7 @@ export function ServerDetailPage() {
   // A just-accepted release runs as an asynchronous durable Operation, so the Server is not
   // yet in an active provisioning axis and the active-projection poll below will not pick it
   // up. Follow it until it transitions, then hand off to that poll.
-  const [releaseFollow, setReleaseFollow] = useState<{ id: string; token: number } | null>(null)
+  const [mutationFollow, setMutationFollow] = useState<{ id: string; token: number } | null>(null)
   // Stable handle to the latest reload so the follow effect need not depend on `state`
   // (which changes on every reload, and would otherwise restart the follow endlessly).
   const reloadRef = useRef<() => void>(() => {})
@@ -82,7 +82,7 @@ export function ServerDetailPage() {
   // Whether the followed Server has already entered an active axis. Tracked in a ref (not
   // state) so the hand-off does not setState inside the effect, and so the follow does not
   // restart once the active-projection poll takes over and the Server later converges.
-  const releaseHandedOffRef = useRef(false)
+  const mutationHandedOffRef = useRef(false)
   const activeProjection =
     state.status === 'ready' &&
     (isProvisioningInProgress(state.data.server.provisioning?.state) ||
@@ -110,16 +110,16 @@ export function ServerDetailPage() {
     }
   }, [activeProjection, servers, state])
   useEffect(() => {
-    if (!releaseFollow) return
+    if (!mutationFollow) return
     if (activeProjection) {
       // The Server entered an active axis; the active-projection effect now drives it to
       // convergence. Record the hand-off so this effect does not resume polling once the
       // Server later leaves that axis (converges to ready).
-      releaseHandedOffRef.current = true
+      mutationHandedOffRef.current = true
       return
     }
-    if (releaseHandedOffRef.current) return
-    const targetId = releaseFollow.id
+    if (mutationHandedOffRef.current) return
+    const targetId = mutationFollow.id
     let canceled = false
     let attempts = 0
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -128,10 +128,10 @@ export function ServerDetailPage() {
       if (canceled) return
       reloadRef.current()
       attempts += 1
-      if (attempts < RELEASE_FOLLOW_MAX_ATTEMPTS) {
-        timer = setTimeout(() => void tick(), RELEASE_FOLLOW_INTERVAL_MS)
+      if (attempts < MUTATION_FOLLOW_MAX_ATTEMPTS) {
+        timer = setTimeout(() => void tick(), MUTATION_FOLLOW_INTERVAL_MS)
       } else {
-        setReleaseFollow(null)
+        setMutationFollow(null)
       }
     }
     void tick()
@@ -139,7 +139,7 @@ export function ServerDetailPage() {
       canceled = true
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [releaseFollow, activeProjection, servers])
+  }, [mutationFollow, activeProjection, servers])
   if (state.status === 'loading') return <LoadingState />
   if (state.status === 'error') return <ErrorState message={state.message} />
   if (state.status === 'not-found') return <EmptyState title="Server not found" />
@@ -180,12 +180,17 @@ export function ServerDetailPage() {
             deployDisabledReason={deployDisabledReason}
             onActed={(action) => {
               reload()
-              // Release and Recover both start a durable Operation that converges the Server
-              // back to `ready`; follow the Server in place until it settles.
+              // Accepted durable mutations may not immediately appear in the projection; follow
+              // the Server in place until its active axis takes over polling.
               if (action === 'release' || action === 'recover') {
-                releaseHandedOffRef.current = false
-                setReleaseFollow({ id: server.id, token: Date.now() })
+                mutationHandedOffRef.current = false
+                setMutationFollow({ id: server.id, token: Date.now() })
               }
+            }}
+            onDeploymentLaunched={() => {
+              reload()
+              mutationHandedOffRef.current = false
+              setMutationFollow({ id: server.id, token: Date.now() })
             }}
             onPlacementChanged={reload}
             onTagsChanged={reload}
@@ -213,8 +218,8 @@ export function ServerDetailPage() {
           provisioning={server.provisioning}
           onRecoverStarted={() => {
             reload()
-            releaseHandedOffRef.current = false
-            setReleaseFollow({ id: server.id, token: Date.now() })
+            mutationHandedOffRef.current = false
+            setMutationFollow({ id: server.id, token: Date.now() })
           }}
         />
       )}

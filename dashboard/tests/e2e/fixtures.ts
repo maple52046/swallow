@@ -152,13 +152,13 @@ const sites = [
 ]
 const integrations = [
   { id: 'maas-a', siteId: 'site-a', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Taipei', endpoint: 'https://maas.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
-  { id: 'maas-b', siteId: 'site-a', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Edge', endpoint: 'https://maas-edge.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
+  { id: 'maas-b', siteId: 'site-b', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Edge', endpoint: 'https://maas-edge.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
   { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
 ]
 const osImages = [
-  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', providerName: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'jammy', providerRelease: 'jammy', tags: [], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 4294967296, verifiedDeployTargets: [], failedDeployTargets: [] },
-  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', providerName: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'noble', providerRelease: 'noble', tags: [], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 5368709120, verifiedDeployTargets: [], failedDeployTargets: [] },
-  { id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', providerName: 'Ubuntu 24.04 ROCm', osSystem: 'custom', providerOsSystem: 'custom', release: 'ubuntu-24.04-rocm', providerRelease: 'ubuntu-24.04-rocm', tags: [], architecture: 'amd64', verifiedDeployTargets: ['ram'], failedDeployTargets: ['disk'] },
+  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', providerName: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'jammy', providerRelease: 'jammy', tags: ['general-purpose', 'lts', 'production'], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 4294967296, verifiedDeployTargets: [], failedDeployTargets: [] },
+  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', providerName: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'noble', providerRelease: 'noble', tags: ['latest', 'lts'], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 5368709120, verifiedDeployTargets: [], failedDeployTargets: [] },
+  { id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', providerName: 'Ubuntu 24.04 ROCm', osSystem: 'custom', providerOsSystem: 'custom', release: 'ubuntu-24.04-rocm', providerRelease: 'ubuntu-24.04-rocm', tags: ['gpu', 'rocm'], architecture: 'amd64', verifiedDeployTargets: ['ram'], failedDeployTargets: ['disk'] },
 ]
 const baseDeploymentTemplates = [
   { id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true, createdAt: now, updatedAt: now },
@@ -230,6 +230,8 @@ export interface FixtureOptions {
   serverActionFailureIds?: string[]
   deploymentReadinessIssues?: Record<string, string>
   onOSImageCatalogRequest?: (integrationId: string) => void
+  /** Adds one large synthetic OS family so grouping, page-level scrolling, and search can be exercised. */
+  extraOSImageCount?: number
   /** Called with the target integration when the OS image upload endpoint receives a POST. */
   onOSImageUploadRequest?: (integrationId: string) => void
   /** Called with the multipart `defaultUser` field (or '') of an OS image upload. */
@@ -239,6 +241,8 @@ export interface FixtureOptions {
   /** Called for every SSH Keys request with its method, path, and JSON body (if any). */
   onSSHKeyRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
   onDeploymentRequest?: (body: Record<string, unknown>) => void
+  /** Holds an OS deployment response open so dismissal locking can be exercised. */
+  deploymentRequestGate?: Promise<void>
   onPlatformDeploymentRequest?: (body: Record<string, unknown>) => void
   onServerReleaseRequest?: (serverId: string, body: Record<string, unknown> | null) => void
   onServerRecoverRequest?: (serverId: string, body: Record<string, unknown> | null) => void
@@ -332,6 +336,12 @@ export interface FixtureOptions {
   onBootISORequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
   /** Removes every provisioner Integration, modelling a Site that has none yet. */
   noProvisioners?: boolean
+  /** Adds a second provisioner to site-a, modelling an invalid Site configuration. */
+  multipleProvisioners?: boolean
+  /** Disables site-a's only provisioner. */
+  disabledProvisioner?: boolean
+  /** Limits the installation to site-a so global deployment can auto-select it. */
+  singleSite?: boolean
   /** Servers whose inspect-hardware Workflow waits in `requires_attention` (decision 053). */
   inspectionAttentionServerIds?: string[]
   /** Called for every enroll-bundle read with its method, path, and the swallowUrl it sent. */
@@ -356,13 +366,35 @@ function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publ
     updatedAt: now,
     providerSync: [
       { integrationId: 'maas-a', siteId: 'site-a', state: 'synced', syncedAt: now },
-      { integrationId: 'maas-b', siteId: 'site-a', state: 'failed', error: 'Could not reach MAAS.' },
+      { integrationId: 'maas-b', siteId: 'site-b', state: 'failed', error: 'Could not reach MAAS.' },
     ],
   }
 }
 
 /** Installs deterministic network fixtures; no backend or provider is contacted. */
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
+  const imageCatalog = [
+    ...osImages,
+    ...Array.from({ length: options.extraOSImageCount ?? 0 }, (_, index) => {
+      const release = `validation-${String(index + 1).padStart(2, '0')}`
+      const name = `Validation Linux ${String(index + 1).padStart(2, '0')}`
+      return {
+        id: `validation/${release}`,
+        name,
+        providerName: name,
+        osSystem: 'validation-linux',
+        providerOsSystem: 'validation-linux',
+        release,
+        providerRelease: release,
+        tags: ['validation'],
+        defaultUser: 'operator',
+        architecture: index % 2 === 0 ? 'amd64' : 'arm64',
+        sizeBytes: 2_147_483_648 + index,
+        verifiedDeployTargets: [],
+        failedDeployTargets: [],
+      }
+    }),
+  ]
   // Mirrors the refresh cookie: the startup refresh succeeds only while a Session exists.
   let signedIn = options.signedIn ?? true
   // Per-page SSH Key state so one test's changes never leak into another.
@@ -390,7 +422,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   let bootISOItems = (options.bootISOs ?? [
     { id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2' },
     { id: 'iso-edge', name: 'edge-rack', integrationId: 'maas-b', rackAddress: '10.9.0.2' },
-  ]).map((iso) => ({ ...iso, siteId: 'site-a', createdAt: now, createdBy: 'admin' }))
+  ]).map((iso) => ({
+    ...iso,
+    siteId: integrations.find((integration) => integration.id === iso.integrationId)?.siteId ?? 'site-a',
+    createdAt: now,
+    createdBy: 'admin',
+  }))
   const bootISOURL = (id: string) => `http://192.0.2.1/boot-media/ipxe/${id}/swallow-ipxe.iso`
   const bootISOView = (iso: (typeof bootISOItems)[number]) => {
     const chainUrl = `http://${/:\d+$/.test(iso.rackAddress) ? iso.rackAddress : `${iso.rackAddress}:5248`}/ipxe.cfg`
@@ -630,14 +667,28 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId
   }
   let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
-  let siteItems = sites.map((site) => ({ ...site }))
+  let siteItems = sites
+    .filter((site) => !options.singleSite || site.id === 'site-a')
+    .map((site) => ({ ...site }))
   let integrationItems = integrations
     .filter((integration) => !options.noProvisioners || integration.kind !== 'provisioner')
     .map((integration) => ({
       ...integration,
+      enabled:
+        options.disabledProvisioner && integration.id === 'maas-a'
+          ? false
+          : integration.enabled,
       settings: { ...integration.settings },
       sync: { ...integration.sync },
     }))
+  if (options.multipleProvisioners) {
+    integrationItems.push({
+      ...integrations.find((integration) => integration.id === 'maas-b')!,
+      id: 'maas-a-secondary',
+      siteId: 'site-a',
+      name: 'MAAS Taipei Secondary',
+    })
+  }
   let metricBatchIndex = 0
   let activeMetricRequests = 0
   let slurmRequirement: {
@@ -790,7 +841,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       createdAt: now, updatedAt: now,
     })
   }
-  const operationItems = operations.map((operation) => ({ ...operation }))
+  const operationItems = structuredClone(operations)
   // inspect-hardware Workflows waiting for attention (server-enrollment.md): the inspect Task ran
   // out of attempts because the Server never network-booted into MAAS.
   for (const serverId of options.inspectionAttentionServerIds ?? []) {
@@ -1219,7 +1270,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (options.failImageIntegrationIds?.includes(integrationId)) {
         return json(route, { error: { code: 'provider_unavailable', message: 'Image provider is unavailable' } }, 503)
       }
-      return json(route, osImages)
+      return json(route, imageCatalog)
     }
     if (path === '/api/v1/provisioning/images/overlay' && request.method() === 'PATCH') {
       options.onOSImageOverlayRequest?.(request.postDataJSON() as Record<string, unknown>)
@@ -1401,6 +1452,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/provisioning/deployment-operations' && request.method() === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       options.onDeploymentRequest?.(body)
+      await options.deploymentRequestGate
       const serverIds = body.serverIds as string[]
       const operationId = createProvisioningOperation('deploy-os', serverIds, body)
       return json(route, { operationId }, 202)

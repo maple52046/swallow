@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Box, Button, Flex, Steps, Text } from '@chakra-ui/react'
 
 /** One wizard step: a stable id, a nav label, its body, and whether the operator may advance. */
@@ -38,10 +38,24 @@ interface WizardProps {
  */
 export function Wizard({ steps, onFinish, finishLabel = 'Finish', finishing = false }: WizardProps) {
   const [current, setCurrent] = useState(0)
+  const progressRef = useRef<HTMLDivElement>(null)
+  const previousStepRef = useRef(current)
   const step = steps[current]
   const isLast = current === steps.length - 1
   const canProceed = step.canProceed !== false
   const goNext = () => setCurrent((value) => Math.min(steps.length - 1, value + 1))
+
+  useEffect(() => {
+    if (previousStepRef.current === current) return
+    previousStepRef.current = current
+
+    // Announce the new step and bring its start below the sticky operator header. This also
+    // resets a long dialog workspace to the top without moving deployment data outside React.
+    const progress = progressRef.current
+    if (!progress) return
+    progress.scrollIntoView({ block: 'start' })
+    progress.focus({ preventScroll: true })
+  }, [current])
 
   return (
     <Box className="sw-wizard" colorPalette="brand">
@@ -71,7 +85,7 @@ export function Wizard({ steps, onFinish, finishLabel = 'Finish', finishing = fa
       </Box>
 
       <Box className="sw-wizard__workspace">
-        <Box className="sw-wizard__progress" aria-live="polite">
+        <Box ref={progressRef} className="sw-wizard__progress" aria-live="polite" tabIndex={-1}>
           <Text as="span">Step {current + 1} of {steps.length}</Text>
           <Text as="strong">{step.name}</Text>
         </Box>

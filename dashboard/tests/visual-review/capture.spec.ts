@@ -1,4 +1,4 @@
-import { expect, test } from 'playwright/test'
+import { expect, test, type Page, type TestInfo } from 'playwright/test'
 import { installApiFixtures } from '../e2e/fixtures'
 
 const visualCases = [
@@ -11,10 +11,37 @@ const visualCases = [
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
-  { name: 'deploy-wizard', path: '/provisioning/deploy?site=site-a&serverId=srv-1', heading: 'Deploy OS', authenticated: true, representative: true },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
 ] as const
+
+async function setAppearance(page: Page, appearance: 'dark' | 'light') {
+  await page.addInitScript(({ appearance }) => {
+    Date.now = () => Date.parse('2026-08-27T03:05:00Z')
+    localStorage.setItem('swallow.appearance', appearance)
+    localStorage.removeItem('swallow.navigation.collapsed')
+    localStorage.removeItem('access_token')
+  }, { appearance })
+}
+
+async function prepareCapture(page: Page, appearance: 'dark' | 'light') {
+  await page.waitForLoadState('networkidle')
+  await page.evaluate(() => document.fonts.ready.then(() => true))
+  if (appearance === 'dark') await expect(page.locator('html')).toHaveClass(/dark/)
+  else await expect(page.locator('html')).not.toHaveClass(/dark/)
+}
+
+async function capture(page: Page, testInfo: TestInfo, name: string, fullPage = true) {
+  await page.screenshot({
+    path: testInfo.outputPath(`${name}-${testInfo.project.name}.png`),
+    animations: 'disabled', caret: 'hide', fullPage,
+  })
+}
+
+async function chooseOption(page: Page, label: string, option: string) {
+  await page.getByRole('combobox', { name: label, exact: true }).click()
+  await page.getByRole('option', { name: option, exact: true }).click()
+}
 
 /**
  * Captures deterministic rendered pages for direct agent or developer inspection.
@@ -36,27 +63,218 @@ test.describe('dashboard visual review', () => {
           ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
           : {}),
       })
-      await page.addInitScript(({ appearance }) => {
-        Date.now = () => Date.parse('2026-08-27T03:05:00Z')
-        localStorage.setItem('swallow.appearance', appearance)
-        localStorage.removeItem('swallow.navigation.collapsed')
-        localStorage.removeItem('access_token')
-      }, { appearance })
+      await setAppearance(page, appearance)
 
       await page.goto(visualCase.path)
       await expect(page.getByRole('heading', { name: visualCase.heading, exact: true }).first()).toBeVisible()
-      await page.waitForLoadState('networkidle')
-      await page.evaluate(() => document.fonts.ready.then(() => true))
-
-      if (appearance === 'dark') await expect(page.locator('html')).toHaveClass(/dark/)
-      else await expect(page.locator('html')).not.toHaveClass(/dark/)
-
-      await page.screenshot({
-        path: testInfo.outputPath(`${visualCase.name}-${testInfo.project.name}.png`),
-        animations: 'disabled',
-        caret: 'hide',
-        fullPage: true,
-      })
+      await prepareCapture(page, appearance)
+      await capture(page, testInfo, visualCase.name)
     })
   }
+})
+
+/** Captures each contextual or embedded OS deployment adapter where its differences matter. */
+test.describe('OS deployment flow visual review', () => {
+  test('single Server dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { readyServerCount: 1 })
+    await page.route('**/api/v1/workflows?*', async (route) => {
+      const url = new URL(route.request().url())
+      if (url.searchParams.get('kind') !== 'verify-os-image') return route.fallback()
+      const workflow = {
+        id: 'verify-rocm-ram',
+        schemaVersion: 3,
+        kind: 'verify-os-image',
+        intent: 'Verify Ubuntu 24.04 ROCm for RAM deployment',
+        intentSnapshot: { request: { integrationId: 'maas-a', imageId: 'ubuntu-24.04-rocm', architecture: 'amd64', deployTarget: 'ram' } },
+        status: 'running',
+        statusReason: null,
+        siteId: 'site-a',
+        platformId: null,
+        targetServerIds: ['srv-1'],
+        steps: [],
+        retryOfOperationId: null,
+        execution: { runId: 'run-verify-rocm-ram', playbook: '', status: 'running', statusReason: null, startedAt: '2026-08-27T02:00:00Z', finishedAt: null },
+        requestedBy: 'admin',
+        requestedAt: '2026-08-27T02:00:00Z',
+        updatedAt: '2026-08-27T02:05:00Z',
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [workflow], total: 1, page: 1, pageSize: 100 }),
+      })
+    })
+    await setAppearance(page, appearance)
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await expect(dialog.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-single-dialog', false)
+
+    let releaseRefresh = () => {}
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve
+    })
+    await page.route('**/api/v1/provisioning/images?*', async (route) => {
+      await refreshGate
+      await route.fallback()
+    })
+    await dialog.getByRole('button', { name: 'Refresh' }).click()
+    await expect(dialog.getByText('2 images in Ubuntu · Refreshing…', { exact: true })).toBeVisible()
+    await expect(dialog.getByRole('radio', { name: 'Ubuntu 22.04 LTS', exact: false })).toBeVisible()
+    await capture(page, testInfo, 'os-deploy-single-image-refresh', false)
+    releaseRefresh()
+    await expect(dialog.getByText('2 images in Ubuntu', { exact: true })).toBeVisible()
+
+    const providerImage = dialog.getByRole('radio', { name: 'Ubuntu 22.04 LTS', exact: false })
+    const providerCard = providerImage.locator('..').locator('.sw-os-image-picker__card')
+    await providerCard.click()
+    await expect(providerImage).toBeChecked()
+    await providerImage.scrollIntoViewIfNeeded()
+    await capture(page, testInfo, 'os-deploy-provider-image-metadata', false)
+
+    await dialog.getByRole('button', { name: 'Custom 1', exact: true }).click()
+    const customImage = dialog.getByRole('radio', { name: 'Ubuntu 24.04 ROCm', exact: false })
+    const customCard = customImage.locator('..').locator('.sw-os-image-picker__card')
+    await expect(customCard.getByLabel('Disk deploy: Unavailable')).toBeVisible()
+    await expect(customCard.getByLabel('RAM deploy: Verification in progress')).toBeVisible()
+    await customImage.scrollIntoViewIfNeeded()
+    await capture(page, testInfo, 'os-deploy-custom-image-metadata', false)
+  })
+
+  test('single Server OS image search', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { readyServerCount: 1 })
+    await setAppearance(page, appearance)
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await expect(dialog.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    await dialog.getByRole('textbox', { name: 'Search deployment images' }).fill('24.04')
+    await expect(dialog.getByRole('radio', { name: 'Ubuntu 24.04 LTS', exact: false })).toBeVisible()
+    await expect(dialog.getByRole('radio', { name: 'Ubuntu 22.04 LTS', exact: false })).toHaveCount(0)
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-single-image-search', false)
+  })
+
+  test('single Server deployment choices', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { readyServerCount: 1 })
+    await setAppearance(page, appearance)
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    const image = dialog.getByRole('radio', { name: 'Ubuntu 22.04 LTS', exact: false })
+    await image.locator('..').click()
+    await expect(image).toBeChecked()
+    await capture(page, testInfo, 'os-deploy-single-image-selected', false)
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Installation', exact: true })).toBeVisible()
+    const diskMode = dialog.getByRole('radio', { name: 'Disk deploy' })
+    await diskMode.locator('..').locator('.sw-deployment-choice-card').click()
+    await expect(diskMode).toBeChecked()
+
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-single-install-choices', false)
+
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
+    const staticMode = dialog.getByRole('radio', { name: 'Static', exact: true })
+    await staticMode.locator('..').click()
+    await expect(staticMode).toBeChecked()
+    await expect(
+      dialog.getByLabel('Static IPv4 address for gpu-node-01'),
+    ).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-single-network-choices', false)
+    await dialog.getByTestId('deploy-os-dialog-viewport').evaluate((viewport) => {
+      viewport.scrollTop = viewport.scrollHeight
+    })
+    await capture(page, testInfo, 'os-deploy-single-network-assignment', false)
+  })
+
+  test('bulk Server dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { readyServerCount: 2 })
+    await setAppearance(page, appearance)
+    await page.goto('/servers?site=site-a')
+    for (const server of ['gpu-node-01', 'gpu-node-02']) {
+      await page.getByLabel(`${mobile ? 'Mobile selection:' : 'Select'} ${server}`, { exact: true }).click()
+    }
+    await page.getByRole('region', { name: 'Selection actions' }).getByRole('button', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await expect(dialog.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-bulk-dialog', false)
+  })
+
+  test('fixed OS image dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { readyServerCount: 2 })
+    await setAppearance(page, appearance)
+    await page.goto('/provisioning/images?site=site-a')
+    await page.getByRole('button', { name: 'Deploy Ubuntu 24.04 LTS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await expect(dialog.getByRole('heading', { name: 'Deployment targets' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-fixed-image-targets', false)
+    const firstTarget = dialog.getByLabel('Select gpu-node-01')
+    await firstTarget.click()
+    await expect(firstTarget).toBeChecked()
+    await capture(page, testInfo, 'os-deploy-fixed-image-target-selected', false)
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Installation', exact: true })).toBeVisible()
+    await expect(
+      dialog.getByRole('navigation', { name: 'Deployment progress' }).getByText('OS image', { exact: true }),
+    ).toHaveCount(0)
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-fixed-image-installation', false)
+  })
+
+  test('Platform operating system step', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 1 })
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.getByLabel('Platform name').fill('visual-k0s')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await chooseOption(page, 'Topology', 'Standalone (single Server)')
+    await chooseOption(page, 'Role for gpu-node-01', 'Standalone node')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    const sharedImageStep = page.locator('.sw-os-image-selection-step')
+    await expect(sharedImageStep).toHaveCount(1)
+    await expect(sharedImageStep.locator('.sw-form-grid')).toHaveCount(0)
+    const headerAlignment = await sharedImageStep.locator('.sw-os-image-selection-step__heading').evaluate((element) => {
+      const heading = element.querySelector('h2')?.getBoundingClientRect()
+      const refresh = element.querySelector('button')?.getBoundingClientRect()
+      return {
+        centerDelta: heading && refresh
+          ? Math.abs((heading.top + heading.bottom) / 2 - (refresh.top + refresh.bottom) / 2)
+          : Number.POSITIVE_INFINITY,
+        horizontalGap: heading && refresh ? refresh.left - heading.right : Number.NEGATIVE_INFINITY,
+      }
+    })
+    expect(headerAlignment.centerDelta).toBeLessThanOrEqual(1)
+    expect(headerAlignment.horizontalGap).toBeGreaterThanOrEqual(8)
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'platform-os-image-step', false)
+
+    const image = page.getByRole('radio', { name: 'Ubuntu 22.04 LTS', exact: false })
+    await image.locator('..').click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    await capture(page, testInfo, 'platform-os-installation-step', false)
+
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
+    await capture(page, testInfo, 'platform-os-networking-step', false)
+  })
 })

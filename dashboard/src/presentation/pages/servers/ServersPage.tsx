@@ -19,7 +19,7 @@ import {
   UploadCloud,
   type LucideIcon,
 } from 'lucide-react'
-import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
 import { INSPECT_HARDWARE_WORKFLOW_KIND } from '@/domain/operation/types'
@@ -65,6 +65,7 @@ import { failedServerActionOutcomes, type ServerActionRunResult, type ServerActi
 import { AddServersDialog } from './AddServersDialog'
 import { InspectionAttentionAlert } from './InspectionAttentionAlert'
 import { useInspectionAttention } from './useInspectionAttention'
+import { DeployOSDialog } from '@/presentation/pages/provisioning/DeployOSDialog'
 import { SERVER_ACTIVITY_SECTION_TITLES } from './serverActivitySections'
 import {
   compareServerInventory,
@@ -136,7 +137,7 @@ const DENSITY_KEY = 'swallow.servers.density'
 const PAGE_SIZE_KEY = 'swallow.servers.page-size'
 const DEPLOYMENT_POLL_INTERVAL_MS = 2_000
 const MAX_DEPLOYMENT_POLL_ATTEMPTS = 150
-const RELEASE_FOLLOW_WINDOW_MS = 180_000
+const MUTATION_FOLLOW_WINDOW_MS = 180_000
 
 const SERVER_VIEWS: ReadonlyArray<{ value: ServerView; label: string }> = [
   { value: 'all', label: 'All' },
@@ -415,6 +416,7 @@ export function ServersPage() {
   const { sites: siteRepository, servers: serverRepository } = useApp()
   const { sites, siteId, scopedHref } = useSiteScope()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const paramsKey = searchParams.toString()
   // The health filter is offered only while monitoring is shown; otherwise `?health=` is
@@ -447,6 +449,7 @@ export function ServersPage() {
     targets: readonly Server[]
     ramTargets: readonly Server[]
   } | null>(null)
+  const [deploymentTargets, setDeploymentTargets] = useState<Server[] | null>(null)
   const siteKey = siteId ?? ''
   const provisionersLoaded = provisionerState.siteKey === siteKey
   const provisioners = provisionersLoaded ? provisionerState.items : EMPTY_INTEGRATIONS
@@ -454,6 +457,22 @@ export function ServersPage() {
   const [followedServers, setFollowedServers] = useState<{ siteKey: string; ids: readonly string[] }>({ siteKey, ids: [] })
   const followedServerIds = followedServers.siteKey === siteKey ? followedServers.ids : EMPTY_SERVER_IDS
   const legacyGroupChecked = useRef(false)
+  useEffect(() => {
+    const state = location.state as { followServerIds?: unknown } | null
+    const ids = Array.isArray(state?.followServerIds)
+      ? state.followServerIds.filter((value): value is string => typeof value === 'string')
+      : []
+    if (ids.length === 0) return
+    const handle = window.setTimeout(() => {
+      setFollowedServers({ siteKey, ids })
+      navigate(
+        { pathname: location.pathname, search: location.search },
+        { replace: true, state: null },
+      )
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [location.pathname, location.search, location.state, navigate, siteKey])
+
 
   const updateParams = useCallback((
     update: (next: URLSearchParams) => void,
@@ -556,7 +575,7 @@ export function ServersPage() {
     if (followedServerIds.length === 0) return
     const handle = setTimeout(() => {
       setFollowedServers({ siteKey, ids: [] })
-    }, RELEASE_FOLLOW_WINDOW_MS)
+    }, MUTATION_FOLLOW_WINDOW_MS)
     return () => clearTimeout(handle)
   }, [followedServerIds, siteKey])
 
@@ -623,6 +642,7 @@ export function ServersPage() {
   const somePageSelected = pageIds.some((id) => selected.has(id))
   const actionTargets = workingSet.filter((server) => selected.has(server.id))
   const targetIntegrations = new Set(actionTargets.map((server) => server.source.integrationId))
+  const targetSites = new Set(actionTargets.map((server) => server.source.siteId))
   const deployDisabledReason = selected.size > 100
     ? 'Deploy OS supports at most 100 Servers.'
     : actionTargets.some((server) => server.absent)
@@ -631,15 +651,13 @@ export function ServersPage() {
         ? 'Unlock every selected Server before deployment.'
         : actionTargets.some((server) => server.provisioning?.state !== 'ready')
           ? 'Every selected Server must be ready.'
-          : targetIntegrations.size > 1
+          : targetSites.size > 1
+            ? 'Selected Servers must belong to the same Site.'
+            : targetIntegrations.size > 1
             ? 'Selected Servers must use the same provisioner integration.'
             : undefined
 
-  const deploySelected = () => {
-    const target = new URL(scopedHref('/provisioning/deploy'), window.location.origin)
-    selected.forEach((id) => target.searchParams.append('serverId', id))
-    navigate(`${target.pathname}${target.search}`)
-  }
+  const deploySelected = () => setDeploymentTargets(actionTargets)
 
   const runAction = useCallback(async (action: ServerMenuAction, ids: string[], confirmed = false) => {
     if (!ids.length) return
@@ -983,7 +1001,6 @@ export function ServersPage() {
                             </Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-cell-center sw-col-details" aria-label="Row details" />
                             <Table.ColumnHeader className="sw-server-col--identity">Server</Table.ColumnHeader>
-                            <Table.ColumnHeader className="sw-server-col--power">Power</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--network">Network</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--deployment">Deployment</Table.ColumnHeader>
                             <Table.ColumnHeader className="sw-server-col--hardware">Hardware</Table.ColumnHeader>
@@ -1013,6 +1030,7 @@ export function ServersPage() {
                               onToggleOne={toggleOne}
                               onToggleGroup={setMany}
                               onAction={(action, id) => void runAction(action, [id])}
+                              onDeploy={(server) => setDeploymentTargets([server])}
                               onEditTags={(server) => setTagEditorTargets([server])}
                             />
                           ))}
@@ -1040,6 +1058,7 @@ export function ServersPage() {
                                 scopedHref={scopedHref}
                                 onToggle={() => toggleOne(server.id)}
                                 onAction={(action) => void runAction(action, [server.id])}
+                                onDeploy={() => setDeploymentTargets([server])}
                                 onEditTags={() => setTagEditorTargets([server])}
                               />
                             ))}
@@ -1085,6 +1104,22 @@ export function ServersPage() {
           onDeleted={() => {
             setDeleteTarget(null)
             clearSelection()
+            reload()
+          }}
+        />
+      )}
+      {deploymentTargets && deploymentTargets.length > 0 && (
+        <DeployOSDialog
+          context={{
+            kind: 'fixed-targets',
+            siteId: deploymentTargets[0].source.siteId,
+            targets: deploymentTargets,
+          }}
+          onClose={() => setDeploymentTargets(null)}
+          onLaunched={(_operationId, targetIds) => {
+            setDeploymentTargets(null)
+            clearSelection()
+            setFollowedServers({ siteKey, ids: targetIds })
             reload()
           }}
         />
@@ -1323,6 +1358,7 @@ function ServerGroupRows({
   onToggleOne,
   onToggleGroup,
   onAction,
+  onDeploy,
   onEditTags,
 }: {
   group: RenderGroup
@@ -1336,6 +1372,7 @@ function ServerGroupRows({
   onToggleOne: (id: string) => void
   onToggleGroup: (ids: string[], checked: boolean) => void
   onAction: (action: ServerMenuAction, id: string) => void
+  onDeploy: (server: Server) => void
   onEditTags: (server: Server) => void
 }) {
   const ids = group.items.map((server) => server.id)
@@ -1345,7 +1382,7 @@ function ServerGroupRows({
     <>
       {grouped && (
         <Table.Row className="sw-server-group-row">
-          <Table.Cell colSpan={11}>
+          <Table.Cell colSpan={10}>
             <HStack gap="2">
               <IconButton variant="ghost" size="xs" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label}`} onClick={onCollapse}>
                 {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
@@ -1366,6 +1403,7 @@ function ServerGroupRows({
           scopedHref={scopedHref}
           onToggle={() => onToggleOne(server.id)}
           onAction={(action) => onAction(action, server.id)}
+          onDeploy={() => onDeploy(server)}
           onEditTags={() => onEditTags(server)}
         />
       ))}
@@ -1377,10 +1415,12 @@ function ServerIdentity({
   server,
   scopedHref,
   onEditTags,
+  onOpenPower,
 }: {
   server: Server
   scopedHref: (path: string) => string
   onEditTags: () => void
+  onOpenPower: () => void
 }) {
   const name = serverDisplayName(server)
   return (
@@ -1400,7 +1440,10 @@ function ServerIdentity({
           <RouterLink className="sw-server-name" to={scopedHref(`/servers/${server.id}/summary`)}>{name}</RouterLink>
           <CopyButton value={name} label="Copy Server name" />
         </HStack>
-        <TagSummary server={server} onEdit={onEditTags} />
+        <div className="sw-server-identity__metadata">
+          <ServerPowerButton server={server} onOpen={onOpenPower} />
+          <TagSummary server={server} onEdit={onEditTags} />
+        </div>
         {server.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
       </div>
     </div>
@@ -1414,14 +1457,14 @@ function ServerNetworkIdentity({ server }: { server: Server }) {
   return (
     <div className="sw-server-network-identity">
       <div>
-        <span>IP</span>
+        <span className="sw-server-network-label">IP</span>
         <span className="sw-server-network-value">
           <span className="mono">{textOrDash(primaryAddress)}</span>
           {primaryAddress && <CopyButton value={primaryAddress} label="Copy IP address" />}
         </span>
       </div>
       <div>
-        <span>MAC</span>
+        <span className="sw-server-network-label">MAC</span>
         <span className="sw-server-network-value">
           <span className="mono">{textOrDash(primaryMac)}</span>
           {primaryMac && <CopyButton value={primaryMac} label="Copy MAC address" />}
@@ -1436,18 +1479,71 @@ function ServerPowerIndicator({ server }: { server: Server }) {
   return <PowerBadge powerState={server.provisioning?.powerState ?? null} decorative={Boolean(server.provisioning)} />
 }
 
+const POWER_BUTTON_PRESENTATION: Record<
+  NonNullable<Server['provisioning']>['powerState'],
+  { label: string; colorPalette: 'green' | 'gray' | 'red' }
+> = {
+  on: { label: 'ON', colorPalette: 'green' },
+  off: { label: 'OFF', colorPalette: 'gray' },
+  error: { label: 'ERROR', colorPalette: 'red' },
+  unknown: { label: 'UNKNOWN', colorPalette: 'gray' },
+}
+
 /**
- * The Deployment cell of a list row and mobile card: the deployment state plus, when the state
- * calls for one, the row's single contextual next step (`serverContextAction`). The step lives
- * here rather than in the Actions column because it always follows this axis.
+ * Keeps the provider-owned power fact actionable without turning it into a Deployment state.
+ * The short state label and tinted background make the current fact scannable; the accessible name
+ * and tooltip retain the complete action and state wording.
  */
-function ServerDeployment({ server, scopedHref }: { server: Server; scopedHref: (path: string) => string }) {
+function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => void }) {
+  const fullLabel = powerStateLabel(server.provisioning?.powerState ?? null)
+  if (!server.provisioning) {
+    return (
+      <span className="sw-server-power-unavailable" aria-label={fullLabel}>
+        <ServerPowerIndicator server={server} />
+        <span>N/A</span>
+      </span>
+    )
+  }
+  const presentation = POWER_BUTTON_PRESENTATION[server.provisioning.powerState]
+  return (
+    <Tooltip content={`Power actions (${fullLabel})${server.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
+      <Button
+        variant="subtle"
+        colorPalette={presentation.colorPalette}
+        size="xs"
+        className="sw-power-button"
+        aria-label={`Power actions for ${serverDisplayName(server)}${server.provisioning.ephemeral ? '; RAM deployment' : ''}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          onOpen()
+        }}
+      >
+        <ServerPowerIndicator server={server} />
+        <span>{presentation.label}</span>
+      </Button>
+    </Tooltip>
+  )
+}
+
+/**
+ * The Deployment field of a list row and mobile card stays dedicated to the OS lifecycle and its
+ * contextual next step; provider-owned power remains with Server identity.
+ */
+function ServerDeployment({
+  server,
+  scopedHref,
+  onDeploy,
+}: {
+  server: Server
+  scopedHref: (path: string) => string
+  onDeploy: () => void
+}) {
   const action = serverContextAction(server)
   const { axis, provider } = serverDeploymentCellInputs(server)
   return <DeploymentSummary
     axis={axis}
     provider={provider}
-    action={action && <ServerContextActionLink server={server} action={action} scopedHref={scopedHref} />}
+    action={action && <ServerContextActionLink server={server} action={action} scopedHref={scopedHref} onDeploy={onDeploy} />}
   />
 }
 
@@ -1468,15 +1564,33 @@ function ServerContextActionLink({
   server,
   action,
   scopedHref,
+  onDeploy,
 }: {
   server: Server
   action: ServerContextAction
   scopedHref: (path: string) => string
+  onDeploy: () => void
 }) {
   const tooltip = action.kind === 'activity'
     ? `${action.label} · ${SERVER_ACTIVITY_SECTION_TITLES[action.section]}`
     : action.label
   const Icon = SERVER_CONTEXT_ACTION_ICONS[action.label]
+  if (action.label === 'Deploy OS') {
+    return (
+      <Tooltip content={tooltip}>
+        <Button
+          variant="plain"
+          size="xs"
+          className="sw-server-context-action"
+          aria-label={`${action.label} for ${serverDisplayName(server)}`}
+          onClick={onDeploy}
+        >
+          <Icon size={13} aria-hidden />
+          <span className="sw-server-context-action__label">{action.label}</span>
+        </Button>
+      </Tooltip>
+    )
+  }
   return (
     <Tooltip content={tooltip}>
       <RouterLink
@@ -1496,24 +1610,41 @@ function TagSummary({ server, onEdit }: { server: Server; onEdit: () => void }) 
   const tags = sortedServerTags(server)
   return (
     <HStack className="sw-server-tag-summary" gap="1" wrap="wrap">
-      {tags.length === 0 && <Text as="span" color="fg.muted">No tags</Text>}
-      {tags.slice(0, 2).map((tag) => <ResourceTag key={tag}>{tag}</ResourceTag>)}
-      {tags.length > 2 && (
-        <Tooltip content={tags.join(', ')}><ResourceTag ariaLabel={`${tags.length - 2} more tags`}>+{tags.length - 2}</ResourceTag></Tooltip>
-      )}
-      <Tooltip content={`Edit tags for ${serverDisplayName(server)}`}>
-        <IconButton
-          variant="ghost"
-          size="2xs"
-          aria-label={`Edit tags for ${serverDisplayName(server)}`}
+      {tags.length === 0 ? (
+        <Button
+          variant="outline"
+          size="xs"
+          className="sw-server-add-tags"
+          aria-label={`Add tags to ${serverDisplayName(server)}`}
           onClick={(event) => {
             event.stopPropagation()
             onEdit()
           }}
         >
-          <PenLine size={13} aria-hidden />
-        </IconButton>
-      </Tooltip>
+          <Plus size={12} aria-hidden />
+          Add tags
+        </Button>
+      ) : (
+        <>
+          {tags.slice(0, 2).map((tag) => <ResourceTag key={tag}>{tag}</ResourceTag>)}
+          {tags.length > 2 && (
+            <Tooltip content={tags.join(', ')}><ResourceTag ariaLabel={`${tags.length - 2} more tags`}>+{tags.length - 2}</ResourceTag></Tooltip>
+          )}
+          <Tooltip content={`Edit tags for ${serverDisplayName(server)}`}>
+            <IconButton
+              variant="ghost"
+              size="2xs"
+              aria-label={`Edit tags for ${serverDisplayName(server)}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                onEdit()
+              }}
+            >
+              <PenLine size={13} aria-hidden />
+            </IconButton>
+          </Tooltip>
+        </>
+      )}
     </HStack>
   )
 }
@@ -1604,6 +1735,7 @@ function ServerRow({
   scopedHref,
   onToggle,
   onAction,
+  onDeploy,
   onEditTags,
 }: {
   server: Server
@@ -1613,6 +1745,7 @@ function ServerRow({
   scopedHref: (path: string) => string
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
+  onDeploy: () => void
   onEditTags: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -1631,23 +1764,9 @@ function ServerRow({
             {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </IconButton>
         </Table.Cell>
-        <Table.Cell className="sw-server-col--identity"><ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} /></Table.Cell>
-        <Table.Cell className="sw-server-col--power" onClick={(event) => event.stopPropagation()}>
-          {server.provisioning ? (
-            <Tooltip content={`Power actions (${powerStateLabel(server.provisioning.powerState)})${server.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
-              <Button
-                variant="plain"
-                className="sw-power-button"
-                aria-label={`Power actions for ${serverDisplayName(server)}${server.provisioning.ephemeral ? '; RAM deployment' : ''}`}
-                onClick={() => setPowerDialogOpen(true)}
-              >
-                <ServerPowerIndicator server={server} />
-              </Button>
-            </Tooltip>
-          ) : <ServerPowerIndicator server={server} />}
-        </Table.Cell>
+        <Table.Cell className="sw-server-col--identity"><ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} onOpenPower={() => setPowerDialogOpen(true)} /></Table.Cell>
         <Table.Cell className="sw-server-col--network"><ServerNetworkIdentity server={server} /></Table.Cell>
-        <Table.Cell className="sw-server-col--deployment"><ServerDeployment server={server} scopedHref={scopedHref} /></Table.Cell>
+        <Table.Cell className="sw-server-col--deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></Table.Cell>
         <Table.Cell className="sw-server-col--hardware"><ServerHardware server={server} /></Table.Cell>
         <Table.Cell className="sw-server-col--zone">{textOrDash(server.providerZone)}</Table.Cell>
         <Table.Cell className="sw-server-col--pool">{textOrDash(server.providerResourcePool)}</Table.Cell>
@@ -1658,7 +1777,7 @@ function ServerRow({
       </Table.Row>
       {expanded && (
         <Table.Row id={detailId} className="sw-server-detail-row">
-          <Table.Cell colSpan={11}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations, monitoring)} /></Table.Cell>
+          <Table.Cell colSpan={10}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations, monitoring)} /></Table.Cell>
         </Table.Row>
       )}
       {powerDialogOpen && (
@@ -1684,6 +1803,7 @@ function ServerMobileCard({
   scopedHref,
   onToggle,
   onAction,
+  onDeploy,
   onEditTags,
 }: {
   server: Server
@@ -1693,6 +1813,7 @@ function ServerMobileCard({
   scopedHref: (path: string) => string
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
+  onDeploy: () => void
   onEditTags: () => void
 }) {
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
@@ -1703,29 +1824,19 @@ function ServerMobileCard({
   return (
     <div className="sw-server-runtime-card" data-tone={serverRowTone(server)}>
       <ResourceCard
-        title={<ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} />}
+        title={<ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} onOpenPower={() => setPowerDialogOpen(true)} />}
         selected={checked}
         status={server.absent ? <Badge variant="subtle">Absent</Badge> : undefined}
         details={details.map((fact) => <ResourceCardField key={fact.label} label={fact.label}>{fact.value}</ResourceCardField>)}
         actions={
           <>
             <Checkbox id={`server-mobile-${server.id}`} aria-label={`Mobile selection: ${serverDisplayName(server)}`} checked={checked} onCheckedChange={onToggle}>Select</Checkbox>
-            {server.provisioning && (
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label={`Power actions for ${serverDisplayName(server)}${server.provisioning.ephemeral ? '; RAM deployment' : ''}`}
-                onClick={() => setPowerDialogOpen(true)}
-              >
-                <ServerPowerIndicator server={server} /> Power · {powerStateLabel(server.provisioning.powerState)}
-              </Button>
-            )}
             <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} onAction={onAction} />
           </>
         }
       >
         <ResourceCardField label="Network"><ServerNetworkIdentity server={server} /></ResourceCardField>
-        <ResourceCardField label="Deployment"><ServerDeployment server={server} scopedHref={scopedHref} /></ResourceCardField>
+        <ResourceCardField label="Deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></ResourceCardField>
         <ResourceCardField label="Hardware"><ServerHardware server={server} /></ResourceCardField>
         <ResourceCardField label="Zone">{textOrDash(server.providerZone)}</ResourceCardField>
         <ResourceCardField label="Pool">{textOrDash(server.providerResourcePool)}</ResourceCardField>

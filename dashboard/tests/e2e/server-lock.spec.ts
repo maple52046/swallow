@@ -68,19 +68,7 @@ test('Unlock is the only mutation offered for a protected Server', async ({ page
   await expect(page.getByText('Locked', { exact: true })).toHaveCount(0)
 })
 
-test('locked targets stay visible in OS deployment and are excluded from Platform deployment', async ({ page }) => {
-  await installApiFixtures(page, {
-    lockedServerIds: ['srv-1'],
-    freePlatformCandidates: true,
-    readyServerCount: 4,
-  })
-  await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
-
-  await expect(page.getByText('Locked targets removed')).toBeVisible()
-  await expect(page).not.toHaveURL(/serverId=srv-1/)
-  await expect(page.getByLabel('Select gpu-node-01')).toBeDisabled()
-  await expect(page.getByRole('table', { name: 'Deployment targets' }).getByText('Locked')).toBeVisible()
-
+test('locked targets are excluded from Platform deployment', async ({ page }) => {
   await installApiFixtures(page, {
     lockedServerIds: ['srv-1'],
     freePlatformCandidates: true,

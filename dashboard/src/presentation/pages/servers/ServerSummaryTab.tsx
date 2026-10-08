@@ -15,6 +15,7 @@ import {
 } from '@/presentation/components/serverSummary/SummaryCards'
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { primaryImageArchitecture } from '@/presentation/pages/provisioning/osImageListPresentation'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData, type AsyncData } from '@/presentation/hooks/useAsyncData'
 import { ServerBootMediaDialog, type ServerBootMediaDialogMode } from './ServerBootMediaDialog'
@@ -42,7 +43,7 @@ function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => 
   const target = new URL(scopedHref('/provisioning/images'), window.location.origin)
   target.searchParams.set('integrationId', axis.integrationId)
   target.searchParams.set('imageName', axis.deployedImageName)
-  if (server.architecture) target.searchParams.set('architecture', server.architecture)
+  if (server.architecture) target.searchParams.set('architecture', primaryImageArchitecture(server.architecture))
   if (axis.osSystem) target.searchParams.set('osSystem', axis.osSystem)
   if (axis.distroSeries) target.searchParams.set('release', axis.distroSeries)
   return `${target.pathname}${target.search}`

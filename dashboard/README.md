@@ -12,7 +12,6 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/login` | Authenticate |
 | `/` | Site-scoped overview and attention items |
 | `/servers`, `/servers/:id/*` | Inventory, actions, activity, monitoring, network, storage, PCI |
-| `/provisioning/deploy` | OS deployment wizard |
 | `/provisioning/templates` | Deployment Templates |
 | `/provisioning/images` | OS images, upload, delete, and verification |
 | `/platforms`, `/platforms/:id` | Kubernetes/Slurm Platform inventory and detail |
@@ -23,7 +22,8 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/infrastructure/*` | Sites, Integrations, Zones, and Pools |
 | `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
 
-`/clusters` and `/operations` are compatibility redirects.
+`/clusters`, `/operations`, and the retired `/provisioning/deploy` page are
+compatibility redirects.
 
 Monitoring (`/monitoring`, the Server Monitoring tab, health on shared pages), OS
 image upload, and Deployment Templates are still in development. Release builds
@@ -76,8 +76,8 @@ screenshots, while `review:visual:themes` also captures light mode. Open and
 inspect the disposable images under `test-results/visual-review/`; they are not
 pixel baselines and must not be committed. All browser workflows use synthetic
 fixture data—never replace it with captured customer data. The
-`@representative` filter selects login, overview, servers, server detail, and
-the deploy wizard for shared layout, navigation, typography, or theme changes.
+`@representative` filter selects login, overview, servers, and server detail
+for shared layout, navigation, typography, or theme changes.
 
 ## Architecture
 

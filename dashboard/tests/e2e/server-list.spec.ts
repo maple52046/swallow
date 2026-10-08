@@ -47,7 +47,7 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   const changing = table.getByRole('row').filter({ hasText: 'gpu-node-02' })
   await expect(table.getByText('Provider', { exact: true })).toHaveCount(0)
   const issue = table.getByRole('row').filter({ hasText: 'gpu-node-03' })
-  const deployAction = ready.getByRole('link', { name: 'Deploy OS for gpu-node-01' })
+  const deployAction = ready.getByRole('button', { name: 'Deploy OS for gpu-node-01' })
   const workflowAction = changing.getByRole('link', { name: 'View workflow for gpu-node-02' })
   const reviewAction = issue.getByRole('link', { name: 'View workflow for gpu-node-03' })
   // Provider inspection is a generic in-progress state and outranks the Swallow deploy result.
@@ -57,7 +57,6 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   // page clock); an idle state has none.
   await expect(changing.getByText('Running for 6m 30s', { exact: true })).toBeVisible()
   await expect(ready.getByText(/^Running for/)).toHaveCount(0)
-  await expect(deployAction).toHaveAttribute('href', /serverId=srv-1.*site=site-a|site=site-a.*serverId=srv-1/)
   await expect(workflowAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
   // A Swallow deployment that needs review opens its Workflow, which holds the failed Step.
   await expect(reviewAction).toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
@@ -97,7 +96,14 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
     Array.from(line.children).map((child) => child.getAttribute('aria-label') ?? child.textContent?.trim())
   ))
   expect(identityOrder.slice(0, 3)).toEqual(['Locked', 'RAM deployment', 'gpu-node-02'])
-  await expect(changing.locator('.sw-server-col--power').getByLabel('RAM deployment', { exact: true })).toHaveCount(0)
+  await expect(changing.locator('.sw-server-col--deployment').getByLabel('RAM deployment', { exact: true })).toHaveCount(0)
+  const powerAction = ready.getByRole('button', { name: 'Power actions for gpu-node-01' })
+  await expect(powerAction).toHaveText('ON')
+  expect(await powerAction.evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+  expect(await powerAction.evaluate((button) => button.closest('td')?.classList.contains('sw-server-col--identity'))).toBe(true)
+  await powerAction.click()
+  await expect(page.getByRole('dialog', { name: 'Power actions' })).toContainText('Current power state: Powered on.')
+  await page.getByRole('dialog', { name: 'Power actions' }).getByRole('button', { name: 'Cancel' }).click()
   await expect(ready.getByLabel('2 more tags')).toHaveText('+2')
   const visibleTag = ready.getByText('east', { exact: true })
   await expect(visibleTag).toHaveClass(/sw-resource-tag/)
@@ -161,6 +167,10 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(absent.locator('.sw-server-hardware-summary')).toHaveText('Not reported')
   await expect(absent.locator('.sw-server-hardware-capacity')).toHaveCount(0)
   await expect(absent.getByText('Unknown', { exact: true })).toBeVisible()
+  const addTags = absent.getByRole('button', { name: 'Add tags to gpu-node-04' })
+  await expect(addTags).toHaveText('Add tags')
+  await expect(addTags).toHaveCSS('border-top-style', 'dashed')
+  await expect(absent.getByText('No tags', { exact: true })).toHaveCount(0)
   await expect(absent.getByRole('link', { name: 'Review activity for gpu-node-04' })).toHaveAttribute('href', '/servers/srv-4/activity?site=site-a#activity-provider-events')
 })
 
@@ -317,6 +327,7 @@ test('GPU summaries prefer compute capacity and Server detail separates display 
   expect(Number.parseFloat(primaryStyle.fontSize)).toBeGreaterThan(Number.parseFloat(secondaryStyle.fontSize))
   await expect(computeRow.locator('.sw-server-hardware-fact--primary')).toHaveCount(1)
   await expect(computeRow.locator('.sw-server-hardware-label')).toHaveText('GPU')
+  await expect(computeRow.locator('.sw-server-network-label')).toHaveText(['IP', 'MAC'])
   const tagStyles = await Promise.all([
     computeRow.locator('.sw-server-hardware-label').evaluate((label) => {
       const style = getComputedStyle(label)
@@ -326,8 +337,16 @@ test('GPU summaries prefer compute capacity and Server detail separates display 
       const style = getComputedStyle(label)
       return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
     }),
+    computeRow.locator('.sw-server-network-label').nth(0).evaluate((label) => {
+      const style = getComputedStyle(label)
+      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
+    }),
+    computeRow.locator('.sw-server-network-label').nth(1).evaluate((label) => {
+      const style = getComputedStyle(label)
+      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
+    }),
   ])
-  expect(tagStyles[0]).toEqual(tagStyles[1])
+  for (const style of tagStyles.slice(1)) expect(style).toEqual(tagStyles[0])
   expect(tagStyles[0].borderRadius).toBe('0px')
   await expect(computeRow.locator('.sw-server-hardware-fact').first()).toHaveCSS('display', 'flex')
   const [summaryBox, capacityBox] = await Promise.all([
@@ -519,7 +538,14 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
   await expect(card.getByText('Pool', { exact: true })).toBeVisible()
   await expect(card.getByText('accelerators', { exact: true }).first()).toBeVisible()
   await expect(card.getByRole('button', { name: 'Edit tags for gpu-node-01' })).toBeVisible()
-  const deployAction = card.getByRole('link', { name: 'Deploy OS for gpu-node-01' })
+  const powerAction = card.getByRole('button', { name: 'Power actions for gpu-node-01' })
+  await expect(powerAction).toHaveText('ON')
+  expect(await powerAction.evaluate((button) => {
+    const identity = button.closest('.sw-server-identity')
+    const tags = identity?.querySelector('.sw-server-tag-summary')
+    return Boolean(identity && tags && (button.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING))
+  })).toBe(true)
+  const deployAction = card.getByRole('button', { name: 'Deploy OS for gpu-node-01' })
   await expect(deployAction).toHaveText('Deploy OS')
   await expect(deployAction.locator('svg')).toHaveCount(1)
   await expect(card.getByRole('button', { name: 'Actions for gpu-node-01', exact: true })).toHaveText('Actions')
@@ -556,15 +582,16 @@ test('13-inch layout prioritizes core columns and reveals context when space per
 
   const table = page.getByRole('table', { name: 'Servers' })
   await expect(table).toBeVisible()
-  for (const heading of ['Server', 'Power', 'Network', 'Deployment', 'Hardware', 'Zone', 'Pool']) {
+  for (const heading of ['Server', 'Network', 'Deployment', 'Hardware', 'Zone', 'Pool']) {
     await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeVisible()
   }
+  await expect(table.getByRole('columnheader', { name: 'Power', exact: true })).toHaveCount(0)
   await expect(table.getByRole('columnheader', { name: 'Placement', exact: true })).toHaveCount(0)
   const serverHeader = table.getByRole('columnheader', { name: 'Server', exact: true })
-  expect(await serverHeader.evaluate((header) => header.nextElementSibling?.textContent?.trim())).toBe('Power')
+  expect(await serverHeader.evaluate((header) => header.nextElementSibling?.textContent?.trim())).toBe('Network')
   const serverColumnWidth = await serverHeader.evaluate((header) => header.getBoundingClientRect().width)
-  expect(serverColumnWidth).toBeGreaterThanOrEqual(175)
-  expect(serverColumnWidth).toBeLessThanOrEqual(177)
+  expect(serverColumnWidth).toBeGreaterThanOrEqual(223)
+  expect(serverColumnWidth).toBeLessThanOrEqual(225)
   await expect(table.getByRole('columnheader', { name: 'Signals', exact: true })).toHaveCount(0)
   await expect(table.getByRole('columnheader', { name: 'Health', exact: true })).toBeHidden()
   await expect(table.getByRole('columnheader', { name: 'Platform', exact: true })).toHaveCount(0)
@@ -592,12 +619,28 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   const serverNameCopyGap = serverNameCopyBox.x - (serverNameBox.x + serverNameBox.width)
   expect(serverNameCopyGap).toBeGreaterThanOrEqual(0)
   expect(serverNameCopyGap).toBeLessThanOrEqual(6)
-  const powerStartGap = await providerFailed.locator('.sw-server-col--power').evaluate((cell) => {
+  const powerPlacement = await providerFailed.locator('.sw-server-col--identity').evaluate((cell) => {
     const button = cell.querySelector('.sw-power-button')
+    const tags = cell.querySelector('.sw-server-tag-summary')
     if (!(button instanceof HTMLElement)) throw new Error('Power action button is missing')
-    return button.getBoundingClientRect().left - cell.getBoundingClientRect().left
+    if (!(tags instanceof HTMLElement)) throw new Error('Server tags are missing')
+    const cellRect = cell.getBoundingClientRect()
+    const buttonRect = button.getBoundingClientRect()
+    const tagsRect = tags.getBoundingClientRect()
+    return {
+      startGap: buttonRect.left - cellRect.left,
+      interControlGap: tagsRect.left - buttonRect.right,
+      centerDelta: Math.abs((buttonRect.top + buttonRect.height / 2) - (tagsRect.top + tagsRect.height / 2)),
+      buttonBeforeTags: Boolean(button.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING),
+    }
   })
-  expect(powerStartGap).toBeLessThanOrEqual(12)
+  await expect(providerFailed.locator('.sw-server-col--identity .sw-power-button')).toHaveText('ON')
+  await expect(providerFailed.locator('.sw-server-col--identity .sw-power-button svg')).toHaveCount(1)
+  expect(powerPlacement.startGap).toBeLessThanOrEqual(12)
+  expect(powerPlacement.interControlGap).toBeGreaterThanOrEqual(0)
+  expect(powerPlacement.interControlGap).toBeLessThanOrEqual(8)
+  expect(powerPlacement.centerDelta).toBeLessThanOrEqual(4)
+  expect(powerPlacement.buttonBeforeTags).toBe(true)
 
   await expect(providerFailed).toContainText('192.168.40.21')
   await expect(providerFailed).toContainText('02:00:00:00:00:01')
@@ -670,8 +713,9 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
   await page.setViewportSize({ width: 1800, height: 900 })
-  for (const heading of ['Health', 'Power']) {
+  for (const heading of ['Health']) {
     await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeVisible()
   }
+  await expect(table.getByRole('columnheader', { name: 'Power', exact: true })).toHaveCount(0)
   await expect(table.getByRole('columnheader', { name: 'Platform', exact: true })).toHaveCount(0)
 })

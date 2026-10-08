@@ -1,48 +1,48 @@
 import { useState } from 'react'
 import { Field, RadioCard } from '@chakra-ui/react'
-import { DEPLOY_TARGET_LABELS, type DeployTarget } from '@/domain/provisioning/types'
+import type { DeploymentNetworkMode } from '@/domain/provisioning/types'
 
-const DEPLOY_TARGET_OPTIONS: ReadonlyArray<{
-  value: DeployTarget
+const ADDRESSING_MODE_OPTIONS: ReadonlyArray<{
+  value: DeploymentNetworkMode
   label: string
   description: string
 }> = [
   {
-    value: 'disk',
-    label: DEPLOY_TARGET_LABELS.disk,
-    description: 'Install the operating system to the Server disks.',
+    value: 'automatic',
+    label: 'Automatic',
+    description: 'Let the provisioner assign addressing for each selected Server.',
   },
   {
-    value: 'ram',
-    label: DEPLOY_TARGET_LABELS.ram,
-    description: 'Run from memory and leave the Server disks unchanged.',
+    value: 'static',
+    label: 'Static',
+    description: 'Choose a NIC, subnet, and unique IPv4 address for every Server.',
   },
 ]
 
-interface DeployTargetFieldProps {
-  value: DeployTarget
-  onChange: (target: DeployTarget) => void
+interface AddressingModeFieldProps {
+  value: DeploymentNetworkMode
+  onChange: (mode: DeploymentNetworkMode) => void
   disabled?: boolean
   label?: string
   helperText?: string
 }
 
 /**
- * Selects the canonical disk or RAM deployment intent with equal-width, consequence-oriented
- * cards. The full card is the radio target so pointer and keyboard behavior do not depend on
- * label length. Callers own template locking and map this domain value to their transport shape.
+ * Selects deployment-time network intent with equal-width radio cards. Supporting text makes the
+ * operational consequence available before selection, and disabled template-owned values remain
+ * readable instead of collapsing into a terse segmented control.
  */
-export function DeployTargetField({
+export function AddressingModeField({
   value,
   onChange,
   disabled,
-  label = 'Deploy mode',
+  label = 'Addressing mode',
   helperText,
-}: DeployTargetFieldProps) {
+}: AddressingModeFieldProps) {
   const [keyboardNavigation, setKeyboardNavigation] = useState(false)
 
   return (
-    <Field.Root>
+    <Field.Root required>
       <Field.Label>{label}</Field.Label>
       <RadioCard.Root
         aria-label={label}
@@ -54,10 +54,12 @@ export function DeployTargetField({
         onKeyDownCapture={() => setKeyboardNavigation(true)}
         onPointerDownCapture={() => setKeyboardNavigation(false)}
         onValueChange={(details) => {
-          if (details.value === 'disk' || details.value === 'ram') onChange(details.value)
+          if (details.value === 'automatic' || details.value === 'static') {
+            onChange(details.value)
+          }
         }}
       >
-        {DEPLOY_TARGET_OPTIONS.map((option) => (
+        {ADDRESSING_MODE_OPTIONS.map((option) => (
           <RadioCard.Item key={option.value} value={option.value}>
             <RadioCard.ItemHiddenInput />
             <RadioCard.ItemControl className="sw-deployment-choice-card">

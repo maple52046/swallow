@@ -67,9 +67,9 @@ function DeploymentImageValue({ tooltip, children }: { tooltip: string; children
  * The lifecycle state is always visible tone-aware text, so installed
  * images no longer make a deployed Server look structurally unrelated to Ready, Failed, or
  * in-progress Servers. Installed image names and running time occupy the secondary line; the
- * caller may inject the Server-specific contextual action into that hierarchy without duplicating
- * lifecycle resolution. RAM deployment remains part of Server identity on these inventory
- * surfaces and is intentionally not repeated here.
+ * caller may inject the Server-specific contextual action into the secondary hierarchy without
+ * duplicating lifecycle resolution. RAM deployment and power remain part of Server identity on
+ * these inventory surfaces and are intentionally not repeated here.
  */
 export function DeploymentSummary({
   axis,

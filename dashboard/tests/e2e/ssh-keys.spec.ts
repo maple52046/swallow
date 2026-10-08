@@ -154,7 +154,13 @@ test('OS image default user is shown, validated, and saved with the rest of the 
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByText('OS image updated')).toBeVisible()
   // The PATCH replaces the whole overlay, so every field is sent, including the default user.
-  expect(overlays).toEqual([{ name: '', osSystem: '', release: '', tags: [], defaultUser: 'cloud-user' }])
+  expect(overlays).toEqual([{
+    name: '',
+    osSystem: '',
+    release: '',
+    tags: ['gpu', 'rocm'],
+    defaultUser: 'cloud-user',
+  }])
 })
 
 test('Server summary shows how to connect with the deployed image login user', async ({ page }) => {

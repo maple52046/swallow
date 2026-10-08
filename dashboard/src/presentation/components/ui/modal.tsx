@@ -20,9 +20,13 @@ interface ModalProps {
   size?: Dialog.RootProps['size']
   /** Prevents backdrop/Escape dismissal for destructive flows that must be answered. */
   closeOnInteractOutside?: boolean
+  /** Disables every dismissal affordance while an operation must remain visible. */
+  dismissDisabled?: boolean
   role?: Dialog.RootProps['role']
   /** Element that receives focus when the dialog opens. */
   initialFocusEl?: Dialog.RootProps['initialFocusEl']
+  /** Optional class for dialogs that need a purpose-built bounded shell. */
+  contentClassName?: string
   /**
    * When provided, the header/body/footer are wrapped in a `<form>` so Enter submits
    * and the footer's `type="submit"` button triggers `onSubmit`.
@@ -48,8 +52,10 @@ export function Modal({
   footer,
   size = 'md',
   closeOnInteractOutside = true,
+  dismissDisabled = false,
   role,
   initialFocusEl,
+  contentClassName,
   onSubmit,
 }: ModalProps) {
   const inner = (
@@ -67,18 +73,18 @@ export function Modal({
     <Dialog.Root
       open={open}
       onOpenChange={(event) => {
-        if (!event.open) onClose()
+        if (!event.open && !dismissDisabled) onClose()
       }}
       size={size}
       placement="center"
       role={role}
       initialFocusEl={initialFocusEl}
-      closeOnInteractOutside={closeOnInteractOutside}
+      closeOnInteractOutside={closeOnInteractOutside && !dismissDisabled}
     >
       <Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>
-          <Dialog.Content>
+          <Dialog.Content className={contentClassName}>
             {/* Nested Selects read this flag and render their listbox inline instead of
                 portalling to the body, which mis-positions inside a focus-trapped dialog. */}
             <InsideDialogContext.Provider value={true}>
@@ -91,7 +97,7 @@ export function Modal({
               )}
             </InsideDialogContext.Provider>
             <Dialog.CloseTrigger asChild>
-              <CloseButton size="sm" />
+              <CloseButton size="sm" disabled={dismissDisabled} />
             </Dialog.CloseTrigger>
           </Dialog.Content>
         </Dialog.Positioner>

@@ -13,10 +13,10 @@ test('catalog overview stays scope-wide while discovery search resets selection'
   await page.goto('/provisioning/images?site=site-a')
 
   const overview = page.getByRole('region', { name: 'Image catalog' })
-  await expect(overview.getByText('Images loaded').locator('..')).toContainText('6')
-  await expect(overview.getByText('Disk supported').locator('..')).toContainText('4')
-  await expect(overview.getByText('RAM supported').locator('..')).toContainText('6')
-  await expect(overview.getByText('Failed tests').locator('..')).toContainText('2')
+  await expect(overview.getByText('Images loaded').locator('..')).toContainText('3')
+  await expect(overview.getByText('Disk supported').locator('..')).toContainText('2')
+  await expect(overview.getByText('RAM supported').locator('..')).toContainText('3')
+  await expect(overview.getByText('Failed tests').locator('..')).toContainText('1')
 
   const jammyTitle = page.getByRole('row', { name: 'Ubuntu 22.04 LTS image', exact: true }).first()
   const jammyData = page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true }).first()
@@ -28,16 +28,16 @@ test('catalog overview stays scope-wide while discovery search resets selection'
   await expect(jammyData.getByText('Supported', { exact: true })).toHaveCount(2)
   await expect(jammyData.getByText('ubuntu/jammy', { exact: true })).toBeVisible()
   await expect(jammyData).toContainText('amd64 · 4 GiB')
-  await expect(jammyData.getByRole('link', { name: 'Deploy OS' })).toBeVisible()
+  await expect(jammyData.getByRole('button', { name: 'Deploy Ubuntu 22.04 LTS' })).toBeVisible()
   await jammyTitle.getByRole('checkbox', { name: 'Select Ubuntu 22.04 LTS' }).check({ force: true })
   await expect(page.getByRole('region', { name: 'Selection actions' })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Search OS images' }).fill('ROCm')
   await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('ROCm')
   await expect(page.getByRole('region', { name: 'Selection actions' })).toHaveCount(0)
-  await expect(page.getByRole('table', { name: 'OS images' }).getByRole('row', { name: 'Ubuntu 24.04 ROCm catalog data', exact: true })).toHaveCount(2)
-  await expect(overview.getByText('Images loaded').locator('..')).toContainText('6')
-  await expect(page.getByRole('region', { name: 'Deployment images' })).toContainText('Showing 1–2 of 2 images')
+  await expect(page.getByRole('table', { name: 'OS images' }).getByRole('row', { name: 'Ubuntu 24.04 ROCm catalog data', exact: true })).toHaveCount(1)
+  await expect(overview.getByText('Images loaded').locator('..')).toContainText('3')
+  await expect(page.getByRole('region', { name: 'Deployment images' })).toContainText('Showing 1–1 of 1 images')
 })
 
 test('manual refresh keeps last-good images when the integration read fails', async ({ page }) => {
@@ -61,13 +61,13 @@ test('manual refresh keeps last-good images when the integration read fails', as
 test('deploy-mode filters, display state, and legacy focus remain URL-owned', async ({ page }) => {
   await page.goto('/provisioning/images?site=site-a&view=verification_failed&target=disk&readiness=failed&group=os&sort=name&dir=desc')
   await expect(page.getByRole('button', { name: 'Failed tests' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByRole('row', { name: 'Ubuntu 24.04 ROCm catalog data', exact: true })).toHaveCount(2)
+  await expect(page.getByRole('row', { name: 'Ubuntu 24.04 ROCm catalog data', exact: true })).toHaveCount(1)
   await expect(page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true })).toHaveCount(0)
   await expect.poll(() => new URL(page.url()).searchParams.get('site')).toBe('site-a')
 
   await page.goto('/provisioning/images?site=site-a&readiness=failed')
   await expect.poll(() => new URL(page.url()).searchParams.has('readiness')).toBe(false)
-  await expect(page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true })).toHaveCount(2)
+  await expect(page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true })).toHaveCount(1)
 
   await page.goto('/provisioning/images?site=site-a&view=overridden')
   await expect.poll(() => new URL(page.url()).searchParams.has('view')).toBe(false)
@@ -173,7 +173,7 @@ test('deployment-test activity drives View, Review, Test, and Deploy actions wit
     return json(route, detail)
   })
 
-  await page.goto('/provisioning/images?site=site-a')
+  await page.goto('/provisioning/images')
   const governedTitle = page.getByRole('row', { name: 'GPU baseline image', exact: true })
   const governed = page.getByRole('row', { name: 'GPU baseline catalog data', exact: true })
   await expect(governed.getByText('gpu', { exact: true })).toBeVisible()
@@ -198,7 +198,7 @@ test('deployment-test activity drives View, Review, Test, and Deploy actions wit
 
   const running = page.getByRole('row', { name: 'Running image test catalog data', exact: true }).filter({ hasText: 'MAAS Taipei' })
   const viewAction = running.getByRole('link', { name: 'View workflow' })
-  await expect(viewAction).toHaveAttribute('href', '/workflows/verify-running?site=site-a')
+  await expect(viewAction).toHaveAttribute('href', '/workflows/verify-running')
   await expect(viewAction).toHaveText('View')
   await expect(running.getByText('Testing', { exact: true })).toBeVisible()
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -212,7 +212,7 @@ test('deployment-test activity drives View, Review, Test, and Deploy actions wit
 
   const attention = page.getByRole('row', { name: 'Attention image test catalog data', exact: true })
   const reviewAction = attention.getByRole('link', { name: 'Review workflow' })
-  await expect(reviewAction).toHaveAttribute('href', '/workflows/verify-attention?site=site-a')
+  await expect(reviewAction).toHaveAttribute('href', '/workflows/verify-attention')
   await expect(reviewAction).toHaveText('Review')
   await expect(attention.getByText('Needs attention', { exact: true })).toBeVisible()
 
@@ -233,13 +233,24 @@ test('deployment-test activity drives View, Review, Test, and Deploy actions wit
   await expect(untested.getByText('Not tested', { exact: true })).toHaveCount(2)
 
   const provider = page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true })
-  const deployAction = provider.getByRole('link', { name: 'Deploy OS' })
-  await expect(deployAction).toHaveAttribute('href', '/provisioning/deploy?site=site-a&integrationId=maas-a&imageId=ubuntu%2Fjammy')
+  const deployAction = provider.getByRole('button', { name: 'Deploy Ubuntu 22.04 LTS' })
   await expect(deployAction).toHaveText('Deploy')
+  await expect(deployAction.locator('svg')).toHaveCount(1)
   expect(Math.round((await deployAction.boundingBox())?.width ?? 0)).toBe(actionWidths[0])
+  await deployAction.click()
+  const deployDialog = page.getByRole('dialog', { name: 'Deploy OS' })
+  await expect(page).toHaveURL('/provisioning/images')
+  await expect(deployDialog).toContainText('The image is fixed from the catalog.')
+  await expect(
+    deployDialog
+      .getByRole('navigation', { name: 'Deployment progress' })
+      .locator('li')
+      .filter({ hasText: 'Targets' }),
+  ).toHaveAttribute('aria-current', 'step')
+  await deployDialog.getByRole('button', { name: 'Close' }).click()
 
 
-  await page.goto('/workflows/verify-running?site=site-a')
+  await page.goto('/workflows/verify-running')
   await expect(page.getByRole('heading', { name: 'Test OS image custom/running for Disk deployment' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Test custom/running (disk deploy) on gpu-node-01' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Record supported deploy mode' })).toBeVisible()
@@ -289,7 +300,9 @@ test('desktop priorities and mobile cards avoid viewport overflow', async ({ pag
   await expect(page.getByRole('columnheader', { name: 'Default user' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Source' })).toBeHidden()
   const desktopRow = page.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true }).first()
-  await expect(desktopRow.getByRole('link', { name: 'Deploy OS' })).toHaveText('Deploy')
+  const desktopDeploy = desktopRow.getByRole('button', { name: 'Deploy Ubuntu 22.04 LTS' })
+  await expect(desktopDeploy).toHaveText('Deploy')
+  await expect(desktopDeploy.locator('svg')).toHaveCount(1)
   await expect(desktopRow).toContainText('ubuntu/jammy')
   await expect(desktopRow).toContainText('amd64 · 4 GiB')
   await expect(desktopRow).toContainText('ubuntu')
@@ -297,9 +310,11 @@ test('desktop priorities and mobile cards avoid viewport overflow', async ({ pag
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('table', { name: 'OS images' })).toBeHidden()
   const cards = page.getByLabel('OS images').locator('article')
-  await expect(cards).toHaveCount(6)
+  await expect(cards).toHaveCount(3)
   const primaryFields = cards.first().locator('.sw-resource-card__fields').first()
   await expect(primaryFields.locator('dt').filter({ hasText: /^Image$/ })).toBeVisible()
   await expect(primaryFields.locator('dt').filter({ hasText: /^Default user$/ })).toBeVisible()
+  const mobileDeploy = cards.filter({ hasText: 'Ubuntu 22.04 LTS' }).getByRole('button', { name: 'Deploy Ubuntu 22.04 LTS' })
+  await expect(mobileDeploy.locator('svg')).toHaveCount(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

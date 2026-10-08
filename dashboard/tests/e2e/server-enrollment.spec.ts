@@ -21,8 +21,8 @@ test('PXE with external DHCP shows the Boot ISO and Redfish commands to mount it
 
   await dialog.getByRole('button', { name: /No, boot it from PXE/ }).click()
   await dialog.getByRole('button', { name: /External DHCP/ }).click()
-  // Boot ISOs are listed by name, so edge-rack comes first.
-  const isoURL = 'http://192.0.2.1/boot-media/ipxe/iso-edge/swallow-ipxe.iso'
+  // Only the current Site provisioner's Boot ISO is offered.
+  const isoURL = 'http://192.0.2.1/boot-media/ipxe/iso-taipei/swallow-ipxe.iso'
   await expect(dialog.getByRole('textbox', { name: 'Boot ISO URL' })).toHaveValue(isoURL)
 
   await dialog.getByRole('tab', { name: 'Redfish' }).click()
@@ -43,11 +43,7 @@ test('keeping the OS shows one command that downloads swallow from this console'
   const dialog = page.getByRole('dialog', { name: 'Add servers' })
 
   await dialog.getByRole('button', { name: /Yes, keep its OS/ }).click()
-  // Two provisioners in the Site: nothing is read until the operator chooses one.
-  expect(swallowUrls).toEqual([])
-  await dialog.getByRole('combobox', { name: 'Provisioner' }).click()
-  await page.getByRole('option', { name: 'MAAS Taipei' }).click()
-
+  // The Site's only provisioner is resolved without another choice.
   const origin = new URL(page.url()).origin
   await expect(dialog.getByLabel('Enrollment command', { exact: true })).toContainText(
     `curl -fsSL '${origin}/downloads/swallow-enroll.sh' | sudo sh -s -- --provisioner=maas --endpoint 'https://maas.example/MAAS' --token 'consumer-maas-a:token:secret'`,

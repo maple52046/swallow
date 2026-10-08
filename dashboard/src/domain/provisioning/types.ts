@@ -11,19 +11,18 @@ export type DeploymentNetworkMode = "automatic" | "static";
 /**
  * Where an OS deployment runs. `disk` installs to the machine's disk; `ram` runs from memory
  * (the fact the backend still calls "ephemeral"). This is the canonical operator-facing
- * vocabulary; the dashboard sends `deployTarget` and the label for `ram` is "RAM deploy
- * (ephemeral)". A `ram` target maps to `ephemeral=true` at the API boundary.
+ * vocabulary; the dashboard sends `deployTarget` and labels `ram` as "RAM deploy". A `ram`
+ * target maps to `ephemeral=true` at the API boundary.
  */
 export type DeployTarget = "disk" | "ram";
 
 /**
- * Operator-facing labels for the deploy targets. `ram` is the fact the backend still calls
- * "ephemeral" (the OS runs from memory and leaves the disks untouched), surfaced with an explicit
- * "(ephemeral)" hint so the vocabulary shift does not lose the old meaning.
+ * Operator-facing labels for deploy targets. The RAM choice stays concise here; its card
+ * description still explains that it runs from memory and leaves Server disks unchanged.
  */
 export const DEPLOY_TARGET_LABELS: Record<DeployTarget, string> = {
   disk: "Disk deploy",
-  ram: "RAM deploy (ephemeral)",
+  ram: "RAM deploy",
 };
 
 /** Maps the deploy target onto the legacy ephemeral boolean the read models still expose. */

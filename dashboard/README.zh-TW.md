@@ -12,7 +12,6 @@
 | `/login` | Authenticate |
 | `/` | Site-scoped overview 與 attention items |
 | `/servers`、`/servers/:id/*` | Inventory、action、activity、monitoring、network、storage、PCI |
-| `/provisioning/deploy` | OS deployment wizard |
 | `/provisioning/templates` | Deployment Template |
 | `/provisioning/images` | OS image、upload、delete、verification |
 | `/platforms`、`/platforms/:id` | Kubernetes／Slurm Platform inventory 與 detail |
@@ -23,7 +22,8 @@
 | `/infrastructure/*` | Site、Integration、Zone、Pool |
 | `/account/ssh-keys`、`/account/api-keys` | 你的 SSH key 與 API key（account menu） |
 
-`/clusters` 與 `/operations` 是 compatibility redirect。
+`/clusters`、`/operations` 與已退役的 `/provisioning/deploy` 頁面是
+compatibility redirect。
 
 Monitoring（`/monitoring`、Server Monitoring tab、共用頁面上的 health）、OS image upload 與
 Deployment Template 仍在開發中。Release build（`npm run build`）會隱藏它們：route 顯示 Not Found
@@ -72,9 +72,8 @@ developer workflow：`review:visual` 產生 dark desktop/mobile screenshots，
 `review:visual:themes` 另加 light mode。必須實際開啟並檢查
 `test-results/visual-review/` 下的 disposable images；它們不是 pixel baseline，
 也不得 commit。所有 browser workflow 都使用 synthetic fixture data，不得替換成
-customer data capture。`@representative` filter 會選取 login、overview、servers、
-server detail 與 deploy wizard，供 shared layout、navigation、typography 或 theme
-change 使用。
+customer data capture。`@representative` filter 會選取 login、overview、servers 與 server detail，供
+shared layout、navigation、typography 或 theme change 使用。
 
 ## Architecture
 

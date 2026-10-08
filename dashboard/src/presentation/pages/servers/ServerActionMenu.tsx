@@ -10,6 +10,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { ServerSoftwareInstallDialog } from '@/presentation/pages/software/ServerSoftwareInstallDialog'
 import { softwareInstallBlockerReason } from '@/presentation/pages/software/softwarePresentation'
+import { DeployOSDialog } from '@/presentation/pages/provisioning/DeployOSDialog'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
 import { ServerPlacementDialog } from './ServerPlacementDialog'
 import { ServerTagEditor } from './ServerTagEditor'
@@ -40,6 +41,7 @@ export function ServerActionMenu({
   capabilities,
   deployDisabledReason,
   onActed,
+  onDeploymentLaunched,
   onPlacementChanged,
   onTagsChanged,
 }: {
@@ -51,6 +53,8 @@ export function ServerActionMenu({
     input: ReleaseServerInput | undefined,
     result?: ProvisioningActionResult,
   ) => void
+  /** Starts in-place projection following after a contextual OS deployment is accepted. */
+  onDeploymentLaunched?: (operationId: string) => void
   /** Called after a zone/pool placement change so the caller can reload the projection. */
   onPlacementChanged?: () => void
   /** Called after a tag edit so the caller can reload the projection (tags drive Server Type). */
@@ -74,6 +78,7 @@ export function ServerActionMenu({
   const [placementOpen, setPlacementOpen] = useState(false)
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
   const [installSoftwareOpen, setInstallSoftwareOpen] = useState(false)
+  const [deployOSOpen, setDeployOSOpen] = useState(false)
   // The same install-target rule as the Software page, plus the lock the install API refuses.
   const installBlocker = softwareInstallBlocker(server)
   const installSoftwareDisabledReason = installBlocker
@@ -156,12 +161,6 @@ export function ServerActionMenu({
     }
   }
 
-  const deployHref = () => {
-    const target = new URL(scopedHref('/provisioning/deploy'), window.location.origin)
-    target.searchParams.append('serverId', serverId)
-    navigate(`${target.pathname}${target.search}`)
-  }
-
   const chooseAction = (action: ServerMenuAction) => {
     if (action === 'lock' || action === 'unlock') setLockAction(action)
     else if (action === 'power-off' && isRamDeploy(server)) setPowerOffWarnOpen(true)
@@ -205,11 +204,22 @@ export function ServerActionMenu({
           includeInstallSoftware
           installSoftwareDisabledReason={installSoftwareDisabledReason}
           onAction={chooseAction}
-          onDeploy={deployHref}
+          onDeploy={() => setDeployOSOpen(true)}
           onInstallSoftware={() => setInstallSoftwareOpen(true)}
           onQueryPower={() => void queryPower()}
         />
       </HStack>
+
+      {deployOSOpen && (
+        <DeployOSDialog
+          context={{ kind: 'fixed-targets', siteId: server.source.siteId, targets: [server] }}
+          onClose={() => setDeployOSOpen(false)}
+          onLaunched={(operationId) => {
+            setDeployOSOpen(false)
+            onDeploymentLaunched?.(operationId)
+          }}
+        />
+      )}
 
       {installSoftwareOpen && (
         <ServerSoftwareInstallDialog

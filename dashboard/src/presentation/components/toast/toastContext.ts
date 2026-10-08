@@ -9,6 +9,11 @@ export interface ToastOptions {
   description?: string
   tone?: ToastTone
   duration?: number
+  /** Optional keyboard-accessible action rendered with the notification. */
+  action?: {
+    label: string
+    onClick: () => void
+  }
 }
 
 /** Notification channel exposed to async actions without coupling them to toast markup. */
@@ -54,5 +59,6 @@ function showToast(options: ToastOptions): void {
     type: TONE_TO_TYPE[tone],
     duration: options.duration ?? DURATION[tone],
     closable: true,
+    action: options.action,
   })
 }

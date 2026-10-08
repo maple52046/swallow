@@ -29,6 +29,7 @@ import {
   SlidersHorizontal,
   Trash2,
   Upload,
+  UploadCloud,
 } from 'lucide-react'
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import type { OSImageCatalogFailure, OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
@@ -55,6 +56,7 @@ import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeat
 import { formatBytes } from '@/shared/utils/bytes'
 import { formatDateTime } from '@/shared/utils/time'
 import { BulkImageActionDialog } from './BulkImageActionDialog'
+import { DeployOSDialog } from './DeployOSDialog'
 import { ProvisioningTabs } from './ProvisioningTabs'
 import { UploadImageDialog } from './UploadImageDialog'
 import { TestImageDeploymentDialog } from './TestImageDeploymentDialog'
@@ -306,14 +308,15 @@ function ImageDetails({ image, siteName, activities, scopedHref }: { image: OSIm
   )
 }
 
-function ContextAction({ image, activities, scopedHref, onTest }: { image: OSImageCatalogRow; activities: OSImageVerificationActivityMap; scopedHref: (path: string) => string; onTest: (target: OSImageTarget) => void }) {
+function ContextAction({ image, activities, scopedHref, onTest, onDeploy }: { image: OSImageCatalogRow; activities: OSImageVerificationActivityMap; scopedHref: (path: string) => string; onTest: (target: OSImageTarget) => void; onDeploy?: () => void }) {
+  const [deployOpen, setDeployOpen] = useState(false)
   const action = osImageContextAction(image, activities)
   if (action.kind === 'workflow') {
     const shortLabel = action.label === 'Review workflow' ? 'Review' : 'View'
     return <Tooltip content={action.label}><Button asChild className="sw-os-image-context-action" size="sm" variant={action.label === 'Review workflow' ? 'solid' : 'outline'} colorPalette={action.label === 'Review workflow' ? 'brand' : undefined}><RouterLink aria-label={action.label} to={scopedHref(`/workflows/${action.operationId}`)}>{shortLabel}<ArrowUpRight size={14} /></RouterLink></Button></Tooltip>
   }
   if (action.kind === 'test') return <Tooltip content="Test deployment"><Button className="sw-os-image-context-action" size="sm" colorPalette="brand" aria-label="Test deployment" onClick={() => onTest(action.target)}><FlaskConical size={15} />Test</Button></Tooltip>
-  return <Tooltip content="Deploy OS"><Button asChild className="sw-os-image-context-action" size="sm" colorPalette="brand"><RouterLink aria-label="Deploy OS" to={provisioningHref('/provisioning/deploy', { integrationId: image.integrationId, imageId: image.id }, scopedHref)}>Deploy<ArrowUpRight size={14} /></RouterLink></Button></Tooltip>
+  return <><Tooltip content="Deploy OS"><Button className="sw-os-image-context-action" size="sm" colorPalette="brand" aria-label={`Deploy ${image.name || image.id}`} onClick={() => onDeploy ? onDeploy() : setDeployOpen(true)}><UploadCloud size={15} />Deploy</Button></Tooltip>{deployOpen && <DeployOSDialog context={{ kind: 'fixed-image', siteId: image.siteId, integrationId: image.integrationId, image }} onClose={() => setDeployOpen(false)} onLaunched={() => setDeployOpen(false)} />}</>
 }
 
 function ImageActionsMenu({ image, templatesEnabled, scopedHref, onEdit, onTest, onDelete }: { image: OSImageCatalogRow; templatesEnabled: boolean; scopedHref: (path: string) => string; onEdit?: () => void; onTest: () => void; onDelete: () => void }) {
@@ -337,10 +340,11 @@ interface ImagePresentationProps {
   onToggle: () => void
   onEdit: () => void
   onTest: (target: OSImageTarget) => void
+  onDeploy?: () => void
   onDelete: () => void
 }
 
-function ImageRow({ image, checked, siteName, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDelete }: ImagePresentationProps) {
+function ImageRow({ image, checked, siteName, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDeploy, onDelete }: ImagePresentationProps) {
   const [expanded, setExpanded] = useState(false)
   const detailId = `os-image-details-${controlId(osImageKey(image))}`
   const displayName = image.name || image.id
@@ -356,14 +360,14 @@ function ImageRow({ image, checked, siteName, activities, templatesEnabled, scop
       <Table.Cell className="sw-os-image-col--tags"><TagSummary tags={image.tags} /></Table.Cell>
       <Table.Cell className="sw-os-image-col--default-user"><DefaultUserCell image={image} /></Table.Cell>
       <Table.Cell className="sw-os-image-col--source"><SourceCell image={image} siteName={siteName} /></Table.Cell>
-      <Table.Cell className="sw-os-image-col--action"><HStack gap="1" wrap="nowrap"><ContextAction image={image} activities={activities} scopedHref={scopedHref} onTest={onTest} /><ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onEdit={onEdit} onTest={() => onTest('disk')} onDelete={onDelete} /></HStack></Table.Cell>
+      <Table.Cell className="sw-os-image-col--action"><HStack gap="1" wrap="nowrap"><ContextAction image={image} activities={activities} scopedHref={scopedHref} onTest={onTest} onDeploy={onDeploy} /><ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onEdit={onEdit} onTest={() => onTest('disk')} onDelete={onDelete} /></HStack></Table.Cell>
     </Table.Row>
     {expanded && <Table.Row id={detailId} className="sw-os-image-detail-row"><Table.Cell colSpan={8}><ImageDetails image={image} siteName={siteName} activities={activities} scopedHref={scopedHref} /></Table.Cell></Table.Row>}
   </>
 }
 
-function ImageCard({ image, checked, siteName, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDelete }: ImagePresentationProps) {
-  return <ResourceCard title={<ImageTitle image={image} />} status={<Checkbox aria-label={`Select ${image.name || image.id}`} checked={checked} onCheckedChange={onToggle} />} selected={checked} details={<ResourceCardField label="Catalog details"><ImageDetails image={image} siteName={siteName} activities={activities} scopedHref={scopedHref} /></ResourceCardField>} actions={<><ContextAction image={image} activities={activities} scopedHref={scopedHref} onTest={onTest} /><Button size="sm" variant="outline" onClick={onEdit}><PenLine size={14} />Edit image</Button><ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onTest={() => onTest('disk')} onDelete={onDelete} /></>}>
+function ImageCard({ image, checked, siteName, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDeploy, onDelete }: ImagePresentationProps) {
+  return <ResourceCard title={<ImageTitle image={image} />} status={<Checkbox aria-label={`Select ${image.name || image.id}`} checked={checked} onCheckedChange={onToggle} />} selected={checked} details={<ResourceCardField label="Catalog details"><ImageDetails image={image} siteName={siteName} activities={activities} scopedHref={scopedHref} /></ResourceCardField>} actions={<><ContextAction image={image} activities={activities} scopedHref={scopedHref} onTest={onTest} onDeploy={onDeploy} /><Button size="sm" variant="outline" onClick={onEdit}><PenLine size={14} />Edit image</Button><ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onTest={() => onTest('disk')} onDelete={onDelete} /></>}>
     <ResourceCardField label="Image"><ImageInventoryCell image={image} /></ResourceCardField>
     <ResourceCardField label="Deploy modes"><DeployModesCell image={image} activities={activities} scopedHref={scopedHref} /></ResourceCardField>
     <ResourceCardField label="Tags"><TagSummary tags={image.tags} /></ResourceCardField>
@@ -454,7 +458,7 @@ export function OSImageCatalogPage() {
   }
 
   return <div className="operator-page sw-os-image-page">
-    <PageHeader title="OS images" subtitle="Organize deployment images and see which Disk or RAM modes each image supports." breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'OS images' }]} actions={<>
+    <PageHeader title="OS images" subtitle="Organize deployment images and see which Disk or RAM modes each image supports." breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'OS images' }]} actions={<>
       <Button variant="outline" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>Manage integrations</Button>
       <Button variant="outline" loading={isRefreshing} onClick={reload}><RefreshCw size={16} />Refresh</Button>
       {uploadEnabled && <Tooltip content={provisioners.length === 0 ? 'Add a provisioner integration before uploading an image' : 'Upload a new OS image to a provisioner'}><span><Button colorPalette="brand" disabled={provisioners.length === 0} onClick={() => setUploading(true)}><Upload size={16} />Upload image</Button></span></Tooltip>}

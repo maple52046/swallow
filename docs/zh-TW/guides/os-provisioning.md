@@ -36,7 +36,52 @@ API 與 CLI 不受影響。
 
 ## 佈署 OS
 
-Dashboard wizard 會驗證：
+請從最接近操作意圖的入口開始：
+
+- Server detail 或 Server row 的 **Deploy OS** 會開啟不離頁的 dialog，並固定該
+  Server。Bulk action 會固定 list 上已選的 Servers；若要增減 target，請先關閉
+  dialog 並回到 list 調整 selection。
+- OS image 的 **Deploy** 會固定該 image，並從選擇 Servers 開始。
+- Platform deployment 在外層 wizard 中使用相同的 **OS image**、**Installation**
+  與 **OS networking** steps，但仍由 Platform workflow 送出。
+
+情境 dialog 完成後會留在來源頁。固定 Server 的 dialog 會先執行 live deployment
+preflight 與 network inspection，成功後才顯示第一個設定 step；失敗時會逐台列出
+問題並提供 Networking 連結，修正後可選 **Check again**。固定 Server 的設定流程是
+**OS image**、**Installation**、**Networking**，最後進入 **Review**。固定 image 的入口
+則是 **Targets**、**Installation**、**Networking**、**Review**：來源 action 已經固定
+catalog image，因此 dialog 完全省略 OS image selection step，只在 dialog 語境與 Review
+確認該 image。Target selector 只以可搜尋的 responsive cards 顯示該 provisioner 下 ready
+且 unlocked 的 Servers；不符合條件的 Server 不會以 disabled row 出現。所有情境 dialog
+都不會在設定 steps 重複顯示 Site、provisioner 與 target 數量，這些資訊集中在 Review。
+固定 Server dialog 與 Platform wizard 共用同一個 **OS image** surface：**Refresh** 與標題固定在同一行並左右分開，後面直接呈現說明、OS families 與
+images。Configuration source 只在支援 template 的入口出現，不會再包住或重複標示
+picker。**Installation** 與 **Networking** 使用相同層級：description 直接位於
+標題分隔線下方，接著就是操作欄位，不插入中間 section card。既有
+template 請從 Platform flow 選擇；情境 deployment 仍可在 Review 儲存為新
+template。送出後 Server 頁會持續追蹤 targets，所有情境成功通知也提供
+**View workflow**。Image 選擇會先以 OS family
+縮小 catalog，再於該 family 內搜尋與比較 images。Image card 顯示 name、architecture、
+size、與 name 不同時的 provider ID、排序後的 tags，以及只用圖示表達的 Disk／RAM
+可部署性：勾號表示可以部署，叉號表示不可部署。Custom image 的 failed 與尚未測試
+刻意使用相同的不可部署圖示，因為兩者不影響此處的選擇判斷；若 picker 開啟時有
+verification 正在執行，則顯示 spinner。這個狀態只讀取一次，不會輪詢。
+Provider release 不作為 operator-facing label，因此不顯示。Picker 與 page／dialog 共用
+同一個 scroll surface，不會再建立內層 scrollbar。Catalog 只會在 step 開啟時載入，
+之後僅在選擇 **Refresh** 時更新；refresh 期間仍會保留
+既有結果、family、搜尋文字與已選 image。Deploy mode 與 addressing 選項以
+完整 choice card 說明影響，其中 memory-backed 選項標示為 **RAM deploy**。Image 只有一種
+deploy mode 可用時會預選該 mode；兩種都可用或兩種都不可用時則預選 RAM。Operator 後續
+手動選擇其他 mode 時不會被自動覆寫。選到不可用的 mode 時會顯示 warning，但這個
+Dashboard 版本不會因此阻擋下一步或送出。每台 Server 的 network assignment 在寬螢幕使用
+比較表格，mobile 則使用有明確 label 的卡片。
+
+每個 Site 必須恰好有一個 enabled provisioner Integration。沒有 provisioner、
+有多個、唯一的 provisioner 已停用，或固定 Server／image 屬於其他 Integration
+時，deployment 都會被阻擋。請從訊息中的 **Manage integrations** 修正設定；
+設定無效期間不會讀取 image catalog，也不會送出 deployment。
+
+Dashboard provisioning flow 會驗證：
 
 - 選擇的 Servers 屬於目標 Site 且可 deploy。
 - Image 可用，且對 target 已完成 verification。

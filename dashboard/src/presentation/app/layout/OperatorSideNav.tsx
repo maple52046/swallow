@@ -29,7 +29,7 @@ interface NavEntry {
 const NAVIGATION: readonly NavEntry[] = [
   { label: 'Overview', path: '/', icon: LayoutDashboard },
   { label: 'Servers', path: '/servers', icon: Server },
-  { label: 'Provisioning', path: '/provisioning/deploy', icon: UploadCloud },
+  { label: 'Provisioning', path: '/provisioning/images', icon: UploadCloud },
   { label: 'Platforms', path: '/platforms', icon: Boxes },
   { label: 'Software', path: '/software', icon: Package },
   { label: 'Workflows', path: '/workflows', icon: Workflow },

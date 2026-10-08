@@ -1,4 +1,4 @@
-import { expect, test, type Page } from 'playwright/test'
+import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
 // In-development features (monitoring, OS image upload, Deployment Templates) are shown on the dev
@@ -7,11 +7,6 @@ import { installApiFixtures } from './fixtures'
 // gates to settings that are always off (tests/production covers the real build).
 
 const RELEASE_VIEW = { monitoring: false, osImageUpload: false, deploymentTemplates: false }
-
-async function chooseSelectOption(page: Page, fieldLabel: string, optionLabel: string) {
-  await page.getByRole('combobox', { name: fieldLabel, exact: true }).click()
-  await page.getByRole('option', { name: optionLabel, exact: true }).click()
-}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -109,21 +104,16 @@ test.describe('with every in-development feature hidden (the release view)', () 
     await expect(page.getByRole('button', { name: 'Upload image' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Create template/ })).toHaveCount(0)
     // Verifying an existing custom image is not part of upload and stays available.
-    await expect(page.getByRole('button', { name: 'Verify Ubuntu 24.04 ROCm' }).first()).toBeVisible()
+    const customImage = page.getByRole('row', { name: 'Ubuntu 24.04 ROCm catalog data', exact: true })
+    await customImage.getByRole('button', { name: 'More actions for Ubuntu 24.04 ROCm' }).click()
+    await expect(page.getByRole('menuitem', { name: 'Test deployment' })).toBeVisible()
+    await page.keyboard.press('Escape')
     await expect(page.getByRole('tab', { name: 'OS images' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Templates' })).toHaveCount(0)
 
     await page.goto('/provisioning/templates?site=site-a')
-    await expect(page).toHaveURL('/provisioning/deploy?site=site-a')
-
-    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&templateId=template-1')
-    await page.getByRole('button', { name: 'Next' }).click()
-    await expect(page.getByRole('heading', { name: 'Operating system configuration' })).toBeVisible()
-    await expect(page.getByLabel('Configuration source')).toHaveCount(0)
-    await chooseSelectOption(page, 'OS image', 'Ubuntu 22.04 LTS (amd64)')
-    await page.getByRole('button', { name: 'Next' }).click()
-    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
-    await expect(page.getByText('Save as a deployment template')).toHaveCount(0)
+    await expect(page).toHaveURL('/provisioning/images?site=site-a')
+    await expect(page.getByRole('tab', { name: 'Deploy OS', exact: true })).toHaveCount(0)
 
     await page.goto('/platforms/deploy?site=site-a')
     await expect(page.getByLabel('Platform name')).toBeVisible()

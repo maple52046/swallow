@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Field, Heading, Input, SegmentGroup, Table, Text, Textarea } from '@chakra-ui/react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Card, Field, Heading, Input, Table, Text, Textarea } from '@chakra-ui/react'
 import { Plus } from 'lucide-react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { DeploymentTemplate } from '@/domain/provisioning/types'
 import type { Integration, OSImage } from '@/domain/site/types'
@@ -15,12 +15,15 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Select } from '@/presentation/components/ui/select'
 import { deployTargetForEphemeral, deployTargetIsEphemeral } from '@/domain/provisioning/types'
+import { AddressingModeField } from './AddressingModeField'
 import { DeployTargetField } from './DeployTargetField'
+import { OSImagePicker } from './OSImagePicker'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
 import { ProvisioningTabs } from './ProvisioningTabs'
+import { defaultDeployTargetForImage } from './osDeploymentFlow'
 
 type TemplatesState =
   | { status: 'loading' }
@@ -44,23 +47,18 @@ const EMPTY_DRAFT: TemplateDraft = {
   name: '',
   description: '',
   imageId: '',
-  ephemeral: false,
+  ephemeral: true,
   networkMode: 'automatic',
   subnetId: '',
   defaultGateway: false,
 }
 
-const NETWORK_MODES = [
-  { value: 'automatic', label: 'Automatic' },
-  { value: 'static', label: 'Static' },
-]
 
 /** CRUD workspace for Swallow-owned deployment intent and write-only cloud-init. */
 export function DeploymentTemplatesPage() {
   const { provisioning, sites: siteRepository } = useApp()
   const { siteId, sites, scopedHref } = useSiteScope()
   const { showToast } = useToast()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [state, setState] = useState<TemplatesState>({ status: 'loading' })
   const [query, setQuery] = useState('')
@@ -72,6 +70,7 @@ export function DeploymentTemplatesPage() {
   const [secretTemplate, setSecretTemplate] = useState<DeploymentTemplate | null>(null)
   const [secretValue, setSecretValue] = useState('')
   const [secretSaving, setSecretSaving] = useState(false)
+  const pendingImageDefaultId = useRef('')
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -91,6 +90,7 @@ export function DeploymentTemplatesPage() {
   }, [load])
 
   const openCreate = useCallback((integrationId = '', imageId = '') => {
+    pendingImageDefaultId.current = imageId
     setDraft({ ...EMPTY_DRAFT, integrationId, imageId })
     setFormOpen(true)
   }, [])
@@ -111,7 +111,16 @@ export function DeploymentTemplatesPage() {
     provisioning
       .listOSImages(draft.integrationId)
       .then((items) => {
-        if (!cancelled) setImages(items)
+        if (cancelled) return
+        setImages(items)
+        const pendingImage = items.find((image) => image.id === pendingImageDefaultId.current)
+        if (pendingImage) {
+          setDraft((current) => ({
+            ...current,
+            ephemeral: defaultDeployTargetForImage(pendingImage) === 'ram',
+          }))
+          pendingImageDefaultId.current = ''
+        }
       })
       .catch((error: Error) => {
         if (!cancelled) {
@@ -216,6 +225,7 @@ export function DeploymentTemplatesPage() {
   }
 
   const openEdit = (template: DeploymentTemplate) => {
+    pendingImageDefaultId.current = ''
     setDraft({
       id: template.id,
       integrationId: template.integrationId,
@@ -229,10 +239,6 @@ export function DeploymentTemplatesPage() {
     })
     setFormOpen(true)
   }
-  const deployTemplate = (template: DeploymentTemplate) => {
-    navigate(`${scopedHref('/provisioning/deploy')}&templateId=${encodeURIComponent(template.id)}`.replace('?&', '?'))
-  }
-
   const integrationName = (id: string) => (state.status === 'ready' ? state.integrations.find((item) => item.id === id)?.name ?? id : id)
   const siteName = (id: string) => sites.find((item) => item.id === id)?.name ?? id
 
@@ -240,7 +246,7 @@ export function DeploymentTemplatesPage() {
     <div className="operator-page">
       <PageHeader
         title="Deployment templates"
-        breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'Templates' }]}
+        breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'Templates' }]}
         actions={
           <Button colorPalette="brand" onClick={() => openCreate()}>
             <Plus size={16} />
@@ -264,7 +270,15 @@ export function DeploymentTemplatesPage() {
                   disabled={Boolean(draft.id)}
                   aria-label="Provisioner integration"
                   placeholder="Select an integration"
-                  onChange={(value) => setDraft((current) => ({ ...current, integrationId: value, imageId: '' }))}
+                  onChange={(value) => {
+                    pendingImageDefaultId.current = ''
+                    setDraft((current) => ({
+                      ...current,
+                      integrationId: value,
+                      imageId: '',
+                      ephemeral: true,
+                    }))
+                  }}
                   options={state.status === 'ready' ? state.integrations.map((integration) => ({ value: integration.id, label: integration.name })) : []}
                 />
               </Field.Root>
@@ -274,23 +288,24 @@ export function DeploymentTemplatesPage() {
                 </Field.Label>
                 <Input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
               </Field.Root>
-              <Field.Root required>
-                <Field.Label>
-                  OS image <Field.RequiredIndicator />
-                </Field.Label>
-                <Select
-                  value={draft.imageId}
-                  disabled={!draft.integrationId || Boolean(imageError)}
-                  aria-label="OS image"
-                  placeholder="Select an image"
-                  onChange={(value) => setDraft((current) => ({ ...current, imageId: value }))}
-                  options={[
-                    // Keep the current selection visible even if it is no longer in the fetched list.
-                    ...(draft.imageId && !images.some((item) => item.id === draft.imageId) ? [{ value: draft.imageId, label: draft.imageId }] : []),
-                    ...images.map((image) => ({ value: image.id, label: `${image.name} (${image.architecture})` })),
-                  ]}
-                />
-              </Field.Root>
+              <OSImagePicker
+                images={images}
+                value={draft.imageId}
+                siteId={siteId}
+                integrationId={draft.integrationId}
+                required
+                error={imageError}
+                disabled={!draft.integrationId || Boolean(imageError)}
+                onChange={(value) => {
+                  pendingImageDefaultId.current = ''
+                  const image = images.find((candidate) => candidate.id === value)
+                  setDraft((current) => ({
+                    ...current,
+                    imageId: value,
+                    ephemeral: defaultDeployTargetForImage(image) === 'ram',
+                  }))
+                }}
+              />
               <Field.Root>
                 <Field.Label>Description</Field.Label>
                 <Input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
@@ -298,27 +313,16 @@ export function DeploymentTemplatesPage() {
               <DeployTargetField
                 value={deployTargetForEphemeral(draft.ephemeral)}
                 onChange={(nextTarget) => setDraft((current) => ({ ...current, ephemeral: deployTargetIsEphemeral(nextTarget) }))}
-                helperText="Disk installs the OS to the machine's disk; RAM runs it from memory (ephemeral)."
               />
-              <Field.Root required>
-                <Field.Label>Network mode</Field.Label>
-                <SegmentGroup.Root
-                  value={draft.networkMode}
-                  onValueChange={(details) => {
-                    if (!details.value) return
-                    const mode = details.value as 'automatic' | 'static'
-                    setDraft((current) => ({ ...current, networkMode: mode, defaultGateway: mode === 'automatic' ? false : current.defaultGateway }))
-                  }}
-                >
-                  <SegmentGroup.Indicator />
-                  {NETWORK_MODES.map((option) => (
-                    <SegmentGroup.Item key={option.value} value={option.value}>
-                      <SegmentGroup.ItemText>{option.label}</SegmentGroup.ItemText>
-                      <SegmentGroup.ItemHiddenInput />
-                    </SegmentGroup.Item>
-                  ))}
-                </SegmentGroup.Root>
-              </Field.Root>
+              <AddressingModeField
+                label="Network mode"
+                value={draft.networkMode}
+                onChange={(mode) => setDraft((current) => ({
+                  ...current,
+                  networkMode: mode,
+                  defaultGateway: mode === 'automatic' ? false : current.defaultGateway,
+                }))}
+              />
               {draft.networkMode === 'static' && (
                 <Field.Root required>
                   <Field.Label>
@@ -335,11 +339,6 @@ export function DeploymentTemplatesPage() {
                 </Field.Root>
               )}
             </div>
-            {imageError && (
-              <Alert status="warning" title="Image catalog unavailable">
-                {imageError} Image-changing actions are disabled.
-              </Alert>
-            )}
             <div className="sw-form-actions">
               <Button variant="ghost" onClick={closeForm}>
                 Cancel
@@ -447,16 +446,6 @@ export function DeploymentTemplatesPage() {
                         px="1"
                         h="auto"
                         colorPalette="brand"
-                        onClick={() => deployTemplate(template)}
-                      >
-                        Deploy
-                      </Button>
-                      <Button
-                        variant="plain"
-                        size="sm"
-                        px="1"
-                        h="auto"
-                        colorPalette="brand"
                         onClick={() => {
                           setSecretTemplate(template)
                           setSecretValue('')
@@ -489,7 +478,6 @@ export function DeploymentTemplatesPage() {
                   description={template.description || template.imageId}
                   actions={
                     <>
-                      <Button size="sm" colorPalette="brand" onClick={() => deployTemplate(template)}>Deploy template</Button>
                       <Button size="sm" variant="outline" onClick={() => openEdit(template)}>Edit template</Button>
                       <Button size="sm" variant="plain" onClick={() => { setSecretTemplate(template); setSecretValue('') }}>
                         {template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}

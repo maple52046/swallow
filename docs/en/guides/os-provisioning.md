@@ -38,7 +38,60 @@ deploy with a custom configuration. The API and CLI are unaffected.
 
 ## Deploy an operating system
 
-The Dashboard wizard validates:
+Choose the entry point that already knows the most about your intent:
+
+- **Deploy OS** on a Server detail page or Server row opens a dialog with that
+  Server fixed. A bulk action fixes the selected Servers; add or remove targets
+  on the list before opening it.
+- **Deploy** on an OS image opens a dialog with the image fixed and starts by
+  choosing Servers.
+- A Platform deployment uses the same **OS image**, **Installation**, and
+  **OS networking** steps inside its outer wizard, then submits through the
+  Platform workflow.
+
+Contextual dialogs stay on their source page. Fixed-Server dialogs run live
+deployment preflight and network inspection before showing the first configuration
+step. A failure lists the affected Server and links to Networking; correct it and
+choose **Check again**. Fixed-Server configuration is split into **OS image**,
+**Installation**, and **Networking**, followed by **Review**. A fixed-image launch instead uses
+**Targets**, **Installation**, **Networking**, and **Review**: because the source action already
+fixes the catalog image, the dialog omits the OS-image selection step entirely and confirms that
+image only in the dialog context and Review. The target selector shows only ready, unlocked Servers
+from the image's provisioner as searchable responsive cards; ineligible Servers are omitted instead
+of disabled. Contextual dialogs keep Site, provisioner, and target-count facts out of configuration
+and present them together in Review. The fixed-Server dialog and Platform wizard use one
+shared **OS image** surface: **Refresh** stays on the same row as the heading, with
+space between them, followed directly by the explanation, OS families, and images. An optional
+Configuration source appears only where templates are supported; it does not wrap or relabel the
+picker. **Installation** and **Networking** follow
+the same hierarchy: each description follows the title divider directly, with its controls below
+and no intermediate section card. Choose existing templates from the Platform flow; a contextual deployment can still be saved
+as a new template in Review.
+After submission, Server pages keep following the affected rows, while every contextual success
+notification offers **View workflow**.
+Image selection first narrows the catalog by OS family, then searches and compares images
+inside that family. Image cards show the name, architecture, size, a distinct provider ID,
+sorted tags, and icon-only Disk/RAM availability. A check means the mode can deploy; an X means
+it cannot. Custom-image failures and modes that have not been tested intentionally use the same
+unavailable icon because that distinction does not change the selection. A spinner means a
+verification was active when the picker opened. This activity is read once and is not polled.
+Provider release is omitted because it is not a reliable operator-facing label. The picker shares
+the page or dialog scroll surface instead of adding a nested scrollbar. The catalog loads when
+the step opens and refreshes only when you choose **Refresh**; existing results, family, search
+text, and the selected image remain visible while that request is in progress.
+Deploy mode and addressing choices explain their effects in full-width cards; the memory-backed
+choice is labelled **RAM deploy**. When an image supports exactly one deploy mode, that mode is
+selected by default. Images that support both modes—or neither mode—default to RAM. Choosing a
+different mode remains an explicit operator override. An unavailable mode shows a warning, but
+does not block the next step or submission in this Dashboard release. Per-Server network
+assignments use a comparison table on wide screens and labelled cards on mobile.
+Each Site must have exactly one enabled provisioner Integration. Deployment is
+blocked when it has none, more than one, a disabled provisioner, or when a
+fixed Server/image belongs to another Integration. Use **Manage integrations**
+from the message to correct the Site; no image catalog is read and no
+deployment is submitted while the configuration is invalid.
+
+Dashboard provisioning flows validate:
 
 - selected Servers belong to the intended Site and are deployable;
 - the image is available and verified for the target;

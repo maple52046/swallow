@@ -37,5 +37,5 @@ test('Release builds hide in-development features and offer no switch', async ({
   await expect(page.getByRole('tab', { name: 'Templates' })).toHaveCount(0)
 
   await page.goto('/provisioning/templates?site=site-a')
-  await expect(page).toHaveURL('/provisioning/deploy?site=site-a')
+  await expect(page).toHaveURL('/provisioning/images?site=site-a')
 })

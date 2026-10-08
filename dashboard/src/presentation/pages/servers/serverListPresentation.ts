@@ -533,13 +533,13 @@ function inProgressActivitySection(server: Server): ServerActivitySection {
 }
 
 /**
- * Site-unscoped destination of a contextual step; callers pass it through `scopedHref`. Deploy
- * OS preselects the Server in the wizard, and Activity paths carry the section hash.
+ * Site-unscoped destination of a contextual step; callers pass it through `scopedHref`.
+ * Deploy is handled in-page, while this fallback remains a safe Server destination.
  */
 export function serverContextActionPath(server: Server, action: ServerContextAction): string {
   switch (action.kind) {
     case 'deploy':
-      return `/provisioning/deploy?serverId=${encodeURIComponent(server.id)}`
+      return `/servers/${encodeURIComponent(server.id)}/summary`
     case 'workflow':
       return `/workflows/${action.operationId}`
     case 'activity':

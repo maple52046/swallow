@@ -159,7 +159,7 @@ export function BootISOsPage() {
       <PageHeader
         title="Boot ISOs"
         subtitle="iPXE boot ISOs that reach a provisioner from a network whose DHCP it does not run. A Server's Boot Media mounts one through its BMC."
-        breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/deploy') }, { label: 'Boot ISOs' }]}
+        breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'Boot ISOs' }]}
         actions={
           <Tooltip content={buildDisabledReason} disabled={!buildDisabledReason}>
             <span>

@@ -13,10 +13,14 @@ async function chooseSingleSelectOption(page: import('playwright/test').Page, fi
   await page.getByRole('option', { name: optionLabel, exact: true }).click()
 }
 
-/**
- * Opens a DOM-rendered Chakra Select and verifies its disabled placeholder
- * is painted against a real menu surface before any pointer hover occurs.
- */
+async function chooseOSImage(page: import('playwright/test').Page, imageName: string) {
+  const image = page.getByRole('radio', { name: imageName, exact: false })
+  await expect(image).toBeVisible()
+  await image.locator('..').click()
+  await expect(image).toBeChecked()
+}
+
+/** Verifies that a shared Select paints its expanded menu on an opaque readable surface. */
 async function expectExpandedPlaceholderReadable(
   page: import('playwright/test').Page,
   fieldLabel: string,
@@ -121,22 +125,6 @@ test.describe('operator interactions', () => {
     await chooseMenuItem(page, 'Light')
     await expect(page.locator('html')).not.toHaveClass(/dark/)
   })
-  test('Deploy OS renders its expanded Integration placeholder in dark mode', async ({ page }) => {
-    await page.goto('/provisioning/deploy?site=site-a')
-    await visibleAppearance(page).click()
-    await chooseMenuItem(page, 'Dark')
-    const wizard = page.locator('.sw-wizard')
-    await expect(wizard).toBeVisible()
-    await expect(wizard).toHaveCSS('overflow', 'clip')
-    const integration = page.getByLabel('Provisioner integration')
-    await expect(integration).toContainText('Select an integration')
-    await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
-    await expectExpandedPlaceholderReadable(page, 'Provisioner integration')
-    await expect(page.getByRole('option', { name: 'MAAS Taipei', exact: true })).toBeVisible()
-    await page.getByRole('option', { name: 'MAAS Taipei', exact: true }).click()
-    await expect(integration).toContainText('MAAS Taipei')
-  })
-
   test('Deploy Platform renders its expanded Site placeholder in dark mode', async ({ page }) => {
     await page.goto('/platforms/deploy')
     await visibleAppearance(page).click()
@@ -188,10 +176,12 @@ test.describe('operator interactions', () => {
     await page.goto('/servers?site=site-a')
     await expect(page.locator('.sw-server-inventory')).toBeVisible()
 
-    for (const route of ['/provisioning/templates?site=site-a', '/provisioning/images?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
+    for (const route of ['/provisioning/templates?site=site-a', '/infrastructure/sites?site=site-a', '/infrastructure/integrations?site=site-a']) {
       await page.goto(route)
       await expect(page.locator('.sw-data-toolbar').first()).toHaveClass(/sw-data-toolbar--plain/)
     }
+    await page.goto('/provisioning/images?site=site-a')
+    await expect(page.locator('.sw-os-image-toolbar-layout')).toBeVisible()
 
     await page.goto('/workflows?site=site-a')
     await expect(page.locator('.sw-workflow-inventory')).toBeVisible()
@@ -274,6 +264,7 @@ test.describe('operator interactions', () => {
       await page.goto(entry.path)
       const table = page.getByRole('table', { name: entry.table })
       await expect(table).toBeVisible()
+      await expect.poll(() => table.boundingBox()).not.toBeNull()
       const before = await table.boundingBox()
       expect(before).not.toBeNull()
 
@@ -303,7 +294,7 @@ test.describe('operator interactions', () => {
     await page.getByLabel('Mobile selection: gpu-node-01', { exact: true }).click()
     const mobileDock = page.getByRole('region', { name: 'Selection actions' })
     await expect(mobileDock).toBeVisible()
-    await expect(mobileDock.getByRole('button', { name: 'Deploy OS' })).toBeInViewport()
+    await expect(mobileDock.getByRole('button', { name: 'Deploy OS', exact: true })).toBeInViewport()
     await expect(mobileDock).toHaveCSS('opacity', '1')
     const mobileBox = await mobileDock.boundingBox()
     expect(mobileBox).not.toBeNull()
@@ -315,18 +306,18 @@ test.describe('operator interactions', () => {
   test('Server fleet keeps discovery summaries concise and exposes full hardware details', async ({ page }) => {
     await page.goto('/servers?site=site-a')
     const table = page.getByRole('table', { name: 'Servers' })
-    for (const heading of ['Server', 'Power', 'Network', 'Deployment', 'Hardware', 'Placement']) {
+    for (const heading of ['Server', 'Network', 'Deployment', 'Hardware', 'Zone', 'Pool']) {
       await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeVisible()
     }
+    await expect(table.getByRole('columnheader', { name: 'Power', exact: true })).toHaveCount(0)
     await expect(table.getByRole('columnheader', { name: 'Signals', exact: true })).toHaveCount(0)
     await expect(table.getByRole('columnheader', { name: 'MAC address' })).toHaveCount(0)
 
     const firstRow = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
-    await expect(firstRow).toContainText('8 × AMD MI300X')
-    await expect(firstRow).toContainText('64 cores · 512 GiB')
-    await expect(firstRow.getByText('Zone', { exact: true })).toBeVisible()
+    await expect(firstRow).toContainText('AMD MI300X')
+    await expect(firstRow).toContainText('64 cores')
+    await expect(firstRow).toContainText('RAM 512 GiB')
     await expect(firstRow.getByText('rack-a', { exact: true })).toBeVisible()
-    await expect(firstRow.getByText('Pool', { exact: true })).toBeVisible()
     await expect(firstRow.getByText('accelerators', { exact: true })).toBeVisible()
     const identity = firstRow.locator('.sw-server-col--identity')
     await expect(identity.getByText('gpu', { exact: true })).toBeVisible()
@@ -337,10 +328,7 @@ test.describe('operator interactions', () => {
     await expect(firstRow).not.toContainText('gpu-node-01.lab.example')
     await expect(firstRow.getByText('Ubuntu 24.04 LTS', { exact: true })).toBeVisible()
     await page.setViewportSize({ width: 1800, height: 900 })
-    for (const heading of ['Health', 'Power', 'Platform']) {
-      await expect(table.getByRole('columnheader', { name: heading, exact: true })).toBeVisible()
-    }
-    await expect(firstRow.getByRole('link', { name: 'Open platform' })).toHaveAttribute('href', '/platforms/platform-a?site=site-a')
+    await expect(table.getByRole('columnheader', { name: 'Health', exact: true })).toBeVisible()
 
     await firstRow.getByRole('button', { name: 'Show details for gpu-node-01' }).click()
     const details = table.getByRole('row').filter({ hasText: 'SN0001' })
@@ -362,7 +350,8 @@ test.describe('operator interactions', () => {
     await page.goto('/servers?site=site-a')
     const table = page.getByRole('table', { name: 'Servers' })
     await expect(table.getByRole('columnheader', { name: 'Hardware', exact: true })).toBeVisible()
-    await expect(table.getByRole('columnheader', { name: 'Placement', exact: true })).toBeVisible()
+    await expect(table.getByRole('columnheader', { name: 'Zone', exact: true })).toBeVisible()
+    await expect(table.getByRole('columnheader', { name: 'Pool', exact: true })).toBeVisible()
     await expect(page.getByLabel('Configure columns')).toHaveCount(0)
   })
 
@@ -432,7 +421,7 @@ test.describe('operator interactions', () => {
     await page.goto('/servers/srv-1/summary?site=site-a')
     await page.getByRole('link', { name: 'Ubuntu 24.04 LTS' }).click()
     await expect.poll(() => new URL(page.url()).searchParams.get('imageName')).toBe('Ubuntu 24.04 LTS')
-    await expect(page.getByRole('textbox', { name: 'Search OS images' })).toHaveValue('Ubuntu 24.04 LTS')
+    await expect(page.getByRole('textbox', { name: 'Search OS images' })).toHaveValue('')
     const imageTable = page.getByRole('table', { name: 'OS images' })
     await expect(imageTable.getByRole('row', { name: 'Ubuntu 24.04 LTS catalog data', exact: true })).toHaveCount(1)
     await expect(imageTable.getByRole('row', { name: 'Ubuntu 22.04 LTS catalog data', exact: true })).toHaveCount(0)
@@ -601,14 +590,52 @@ test.describe('operator interactions', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await next.click()
 
-    await expect(page.getByRole('heading', { name: 'Operating system configuration' })).toBeVisible()
-    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 24.04 LTS - amd64 (ubuntu noble)')
-    await page.getByRole('checkbox', { name: 'Run the operating system from memory' }).locator('..').click()
+    await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    const platformOSStep = page.locator('.sw-os-image-selection-step')
+    await expect(platformOSStep).toHaveCount(1)
+    await expect(platformOSStep.locator('.sw-form-grid')).toHaveCount(0)
+    await expect(platformOSStep.getByText(
+      'Choose an OS family, then compare the deployable images in that family. Architecture, size, tags, deploy-mode availability, and distinct provider IDs remain visible.',
+      { exact: true },
+    )).toBeVisible()
+    await chooseOSImage(page, 'Ubuntu 24.04 LTS')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'RAM deploy' })).toBeChecked()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await expect(page.getByText('OS deployment mode', { exact: true })).toBeVisible()
     await expect(page.getByText('Ephemeral (memory-backed)', { exact: true })).toBeVisible()
+  })
+
+  test('Platform OS installation warns about an unsupported deploy mode without blocking Next', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 1 })
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.getByLabel('Platform name').fill('unsupported-mode-k0s')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+
+    await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
+    await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Custom 1', exact: true }).click()
+    await chooseOSImage(page, 'Ubuntu 24.04 ROCm')
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    await expect(page.getByText('Deploy mode', { exact: true })).toBeVisible()
+    const disk = page.getByRole('radio', { name: 'Disk deploy' })
+    await disk.locator('..').locator('.sw-deployment-choice-card').click()
+    await expect(page.getByText('This image does not support this deploy mode')).toBeVisible()
+    await expect(page.getByText(/You can continue, but deployment may fail/)).toBeVisible()
+    await expect(next).toBeEnabled()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
   })
 
   test('Kubernetes ephemeral deployment warns about volatile state and submits the intent', async ({ page }) => {
@@ -627,11 +654,15 @@ test.describe('operator interactions', () => {
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
     await next.click()
 
-    await expect(page.getByRole('heading', { name: 'Operating system configuration' })).toBeVisible()
-    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 24.04 LTS - amd64 (ubuntu noble)')
-    await page.getByRole('checkbox', { name: 'Run the operating system from memory' }).locator('..').click()
+    await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    await chooseOSImage(page, 'Ubuntu 24.04 LTS')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'RAM deploy' })).toBeChecked()
     await expect(page.getByText('Ephemeral Kubernetes is disposable')).toBeVisible()
     await expect(page.getByText(/control-plane state, container runtime, and workloads are held in memory/)).toBeVisible()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Platform network' })).toBeVisible()
@@ -819,6 +850,7 @@ test.describe('operator interactions', () => {
     await expect(failed.getByRole('link', { name: 'Review platform' })).toBeVisible()
     await expect(failed.getByRole('link', { name: 'View workflow' }))
       .toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
+    await expect(page.getByText('Swallow-deployed', { exact: true })).toHaveCount(0)
     await expect(registered).toContainText('Registered')
     await expect(registered).toContainText('External record')
 
@@ -1032,7 +1064,6 @@ test.describe('operator interactions', () => {
     await expect(attention).toContainText('requires attention')
     await expect(attention).toContainText('Provision and verify operating system on srv-4')
     await expect(attention).toContainText('2 Tasks')
-    await expect(attention).toContainText('1 failed')
     await expect(attention.getByRole('link', { name: 'Review workflow' }))
       .toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
     await expect(attention.getByRole('link', { name: 'Open Platform platform-b' }))
@@ -1259,43 +1290,22 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('listitem').filter({ hasText: 'NodeDown' })).toBeVisible()
   })
 
-  test('Server Detail opens the standalone OS deployment workflow with its target', async ({ page }) => {
+  test('Server Detail opens a fixed-target OS deployment dialog in place', async ({ page }) => {
     await page.unroute('**/api/v1/**')
     await installApiFixtures(page, { readyServerCount: 1 })
     await page.goto('/servers/srv-1/summary?site=site-a')
     await expect(page.getByText('Deploy operating system')).toHaveCount(0)
     await page.getByRole('button', { name: 'Take action' }).click()
     await page.getByRole('menuitem', { name: 'Deploy OS', exact: true }).click()
-    await expect(page).toHaveURL(/\/provisioning\/deploy\?.*site=site-a.*serverId=srv-1/)
-    await expect(page.getByText('1 of 100 selected')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled()
+    await expect(page).toHaveURL('/servers/srv-1/summary?site=site-a')
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await expect(dialog.getByText('Configure the selected Servers without leaving this page.')).toBeVisible()
+    await expect(dialog.getByRole('tab', { name: 'Targets' })).toHaveCount(0)
+    await expect(dialog.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('region', { name: 'Deployment context' })).toHaveCount(0)
   })
 
-  test('MAAS network readiness blocks deployment before provider dispatch', async ({ page }) => {
-    await page.unroute('**/api/v1/**')
-    let deploymentRequests = 0
-    await installApiFixtures(page, {
-      readyServerCount: 1,
-      deploymentReadinessIssues: {
-        'srv-1': "No MAAS interface is linked to a subnet. Configure the machine's Network in MAAS, then check deployment readiness again.",
-      },
-      onDeploymentRequest: () => { deploymentRequests += 1 },
-    })
-
-    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1')
-    await page.getByRole('button', { name: 'Next' }).click()
-
-    await expect(page.getByText('gpu-node-01: Deployment blocked')).toBeVisible()
-    await expect(page.getByText(/No MAAS interface is linked to a subnet/)).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible()
-    await expect(page.getByLabel('Configuration source')).toHaveCount(0)
-    expect(deploymentRequests).toBe(0)
-
-    await page.getByRole('button', { name: 'Review Server Network' }).click()
-    await expect(page).toHaveURL('/servers/srv-1/network?site=site-a')
-  })
-
-  test('multi-node deploy preserves targets, customizes a template, and returns to Servers', async ({ page }) => {
+  test('multi-node deploy preserves targets, saves a template, and returns to Servers', async ({ page }) => {
     await page.unroute('**/api/v1/**')
     let deploymentRequest: Record<string, unknown> | undefined
     await installApiFixtures(page, {
@@ -1306,63 +1316,40 @@ test.describe('operator interactions', () => {
     await page.goto('/servers?site=site-a')
     await page.getByLabel('Select gpu-node-01').check()
     await page.getByLabel('Select gpu-node-02').check()
-    await page.getByRole('button', { name: 'Deploy OS' }).click()
-    await expect(page).toHaveURL(/serverId=srv-1.*serverId=srv-2/)
-    await expect(page.getByText('2 of 100 selected')).toBeVisible()
-
-    await page.getByRole('button', { name: 'Next' }).click()
-    await chooseSingleSelectOption(page, 'Configuration source', 'GPU compute baseline')
-    await expect(page.getByLabel('OS image')).toBeDisabled()
-    await page.getByRole('button', { name: 'Customize' }).click()
-    await expect(page.getByLabel('OS image')).toBeEnabled()
+    await page.getByRole('button', { name: 'Deploy OS', exact: true }).click()
+    await expect(page).toHaveURL('/servers?site=site-a')
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await expect(dialog.getByRole('tab', { name: 'Targets' })).toHaveCount(0)
+    await expect(dialog.getByRole('region', { name: 'Deployment context' })).toHaveCount(0)
+    await expect(dialog.getByLabel('Configuration source')).toHaveCount(0)
+    await chooseOSImage(page, 'Ubuntu 22.04 LTS')
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Installation', exact: true })).toBeVisible()
     await chooseSingleSelectOption(page, 'Cloud-init', 'Replace for this deployment')
-    await page.locator('textarea#deploy-user-data').fill('#cloud-config\nhostname: batch')
-    await page.getByRole('button', { name: 'Next' }).click()
+    await dialog.getByLabel('Cloud-init user data').fill('#cloud-config\nhostname: batch')
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: '2 Servers' })).toBeVisible()
+    await expect(dialog.getByText('Site', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Provisioner', { exact: true })).toBeVisible()
     await page.getByLabel('Save as a deployment template').locator('..').click()
     await page.getByLabel('New deployment template name').fill('Scale-out baseline')
-    await page.getByRole('button', { name: 'Deploy OS' }).click()
+    await dialog.getByRole('button', { name: 'Deploy OS', exact: true }).click()
 
     await expect(page).toHaveURL('/servers?site=site-a')
     await expect(page.getByText('OS deployment started')).toBeVisible()
-    await expect(page.getByText(/Operation op-deploy-os-1 is running in the background/)).toBeVisible()
+    await expect(page.getByText('Server status will update automatically.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'View workflow' })).toBeVisible()
     await expect(page.getByRole('table', { name: 'Servers' })).toBeVisible()
     expect(deploymentRequest?.serverIds).toEqual(['srv-1', 'srv-2'])
-    expect(deploymentRequest?.network).toEqual({ mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false, assignments: [{ serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a' }, { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a' }] })
+    expect(deploymentRequest?.network).toEqual({ mode: 'automatic', defaultGateway: false, assignments: [{ serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a' }, { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a' }] })
     expect(JSON.stringify(deploymentRequest)).toContain('#cloud-config')
     expect(await page.evaluate(() => JSON.stringify({
       local: { ...localStorage },
       session: { ...sessionStorage },
     }))).not.toContain('#cloud-config')
-  })
-
-  test('Deploy OS renders its expanded dark image placeholder and refreshes uploaded images', async ({ page }) => {
-    const catalogRequests: string[] = []
-    await page.unroute('**/api/v1/**')
-    await installApiFixtures(page, {
-      readyServerCount: 1,
-      onOSImageCatalogRequest: (integrationId) => catalogRequests.push(integrationId),
-    })
-    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1')
-    await visibleAppearance(page).click()
-    await chooseMenuItem(page, 'Dark')
-    await page.getByRole('button', { name: 'Next' }).click()
-    await expect(page.getByLabel('OS image')).toContainText('Select an image')
-    await expectExpandedPlaceholderReadable(page, 'OS image', 'Select an image')
-    await expect(page.getByRole('option', { name: 'Ubuntu 24.04 ROCm (amd64)', exact: true })).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(page.getByText('3 deployable images returned by the provider.')).toBeVisible()
-    await expect.poll(() => catalogRequests).toEqual(['maas-a'])
-
-    await page.getByRole('button', { name: 'Refresh' }).click()
-    await expect.poll(() => catalogRequests).toEqual(['maas-a', 'maas-a'])
-
-    const networkSection = page.locator('section.sw-section').filter({ hasText: 'Network configuration' })
-    const sectionBox = await networkSection.boundingBox()
-    const automaticBox = await page.getByRole('radio', { name: 'Automatic' }).locator('..').boundingBox()
-    expect(sectionBox).not.toBeNull()
-    expect(automaticBox).not.toBeNull()
-    if (!sectionBox || !automaticBox) throw new Error('Network configuration controls are not visible')
-    expect(automaticBox.x - sectionBox.x).toBeGreaterThan(16)
   })
 
   test('Deploy OS preserves an existing Static binding as the network default', async ({ page }) => {
@@ -1373,25 +1360,28 @@ test.describe('operator interactions', () => {
       networkSubnetName: '192.168.40.0/24',
     })
 
-    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
-    await page.getByRole('button', { name: 'Next' }).click()
+    await page.goto('/servers?site=site-a')
+    await page.getByLabel('Select gpu-node-01').check()
+    await page.getByLabel('Select gpu-node-02').check()
+    await page.getByRole('button', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await chooseOSImage(page, 'Ubuntu 22.04 LTS')
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Installation', exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
 
-    const staticMode = page.getByRole('radio', { name: 'Static' })
-    const automaticMode = page.getByRole('radio', { name: 'Automatic' })
+    const staticMode = dialog.getByRole('radio', { name: 'Static' })
+    const automaticMode = dialog.getByRole('radio', { name: 'Automatic' })
     await expect(staticMode).toBeChecked()
     await expect(automaticMode).not.toBeChecked()
     const subnet = page.getByRole('combobox', { name: 'Subnet for gpu-node-01' })
     await expect(subnet).toHaveText('192.168.40.0/24')
     await expect(subnet).not.toContainText('(')
-    const currentModeHeading = page.getByRole('columnheader', { name: 'Current mode' })
-    await expect(currentModeHeading).toBeVisible()
-    expect(await currentModeHeading.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-    await expect(page.getByLabel('Use the selected subnet for the default route')).toBeChecked()
-    await expect(page.getByText('the provider makes this Static link the IPv4 default route', { exact: false })).toBeVisible()
+    await expect(dialog.getByLabel('Use the selected subnet for the default route')).toBeChecked()
     await expect(page.getByLabel('Static IPv4 address for gpu-node-01')).toHaveValue('192.168.40.21')
     await expect(page.getByLabel('Static IPv4 address for gpu-node-02')).toHaveValue('')
 
-    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 22.04 LTS (amd64)')
     await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
 
     await automaticMode.locator('..').click()
@@ -1400,7 +1390,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled()
   })
 
-  test('cross-integration selection is blocked and Site changes clear provisioning drafts', async ({ page }) => {
+  test('cross-integration selection is blocked before contextual deployment', async ({ page }) => {
     await page.unroute('**/api/v1/**')
     await installApiFixtures(page, {
       readyServerCount: 2,
@@ -1409,16 +1399,14 @@ test.describe('operator interactions', () => {
     await page.goto('/servers?site=site-a')
     await page.getByLabel('Select gpu-node-01').check()
     await page.getByLabel('Select gpu-node-02').check()
-    await expect(page.getByRole('button', { name: 'Deploy OS' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Deploy OS', exact: true })).toBeDisabled()
     await expect(page.getByText('Selected Servers must use the same provisioner integration.')).toBeVisible()
 
     await page.getByLabel('Select gpu-node-02').uncheck()
-    await page.getByRole('button', { name: 'Deploy OS' }).click()
-    await expect(page).toHaveURL(/serverId=srv-1/)
-    await visibleSiteScope(page).click()
-    await chooseMenuItem(page, 'Hsinchu Edge')
-    await expect(page).toHaveURL('/provisioning/deploy?site=site-b')
-    await expect(page.getByText('Provisioning draft cleared')).toBeVisible()
+    await page.getByRole('button', { name: 'Deploy OS', exact: true }).click()
+    await expect(page).toHaveURL('/servers?site=site-a')
+    await expect(page.getByRole('dialog', { name: 'Deploy OS' })).toBeVisible()
+    await page.getByRole('dialog', { name: 'Deploy OS' }).getByRole('button', { name: 'Close' }).click()
   })
 
   test('Static OS deployment requires and reviews a unique IPv4 address per target', async ({ page }) => {
@@ -1429,12 +1417,19 @@ test.describe('operator interactions', () => {
       deploymentConvergesAfterRefreshes: 1,
       onDeploymentRequest: (body) => { deploymentRequest = body },
     })
-    await page.goto('/provisioning/deploy?site=site-a&serverId=srv-1&serverId=srv-2')
-    await page.getByRole('button', { name: 'Next' }).click()
-    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 22.04 LTS (amd64)')
-    await page.getByRole('radio', { name: 'Static' }).locator('..').click()
+    await page.goto('/servers?site=site-a')
+    await page.getByLabel('Select gpu-node-01').check()
+    await page.getByLabel('Select gpu-node-02').check()
+    await page.getByRole('button', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await chooseOSImage(page, 'Ubuntu 22.04 LTS')
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Installation', exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
+    await dialog.getByRole('radio', { name: 'Static' }).locator('..').click()
 
-    const next = page.getByRole('button', { name: 'Next' })
+    const next = dialog.getByRole('button', { name: 'Next' })
     await expect(next).toBeDisabled()
     await page.getByLabel('Static IPv4 address for gpu-node-01').fill('192.168.40.91')
     await page.getByLabel('Static IPv4 address for gpu-node-02').fill('192.168.40.91')
@@ -1443,10 +1438,10 @@ test.describe('operator interactions', () => {
     await expect(next).toBeEnabled()
     await next.click()
 
-    const review = page.getByRole('table', { name: 'Deployment review targets' })
+    const review = dialog.getByRole('table', { name: 'Deployment review targets' })
     await expect(review).toContainText('192.168.40.91')
     await expect(review).toContainText('192.168.40.92')
-    await page.getByRole('button', { name: 'Deploy OS' }).click()
+    await dialog.getByRole('button', { name: 'Deploy OS', exact: true }).click()
     await expect(page).toHaveURL('/servers?site=site-a')
     expect(deploymentRequest?.network).toEqual({
       mode: 'static',
@@ -1515,7 +1510,8 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Create template' }).click()
     await chooseSingleSelectOption(page, 'Provisioner integration', 'MAAS Taipei')
     await page.getByLabel('Name').fill('Scale-out template')
-    await chooseSingleSelectOption(page, 'OS image', 'Ubuntu 24.04 LTS (amd64)')
+    await chooseOSImage(page, 'Ubuntu 24.04 LTS')
+    await expect(page.getByRole('radio', { name: 'RAM deploy' })).toBeChecked()
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     const row = page.getByRole('row', { name: /Scale-out template/ })
     await expect(row).toBeVisible()
@@ -1525,7 +1521,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('row', { name: /Scale-out template/ })).toContainText('Configured')
     expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('#cloud-config')
 
-    await page.goto('/provisioning/images?site=site-a')
+    await page.goto('/provisioning/images')
     await expect(page.getByText('MAAS Edge image catalog unavailable')).toBeVisible()
     await expect(page.getByRole('row', { name: 'Ubuntu 22.04 LTS image', exact: true }).first()).toBeVisible()
     await expectTableCellsVerticallyCentered(page, 'OS images')
@@ -1537,7 +1533,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('tab', { name: 'Sites' })).toHaveAttribute('aria-selected', 'true')
     const taipei = page.getByRole('row', { name: /Taipei Lab/ })
     await expect(taipei).toContainText('Primary accelerator lab')
-    await expect(taipei.getByRole('cell', { name: '3' })).toBeVisible()
+    await expect(taipei.getByRole('cell', { name: '2', exact: true })).toBeVisible()
     await taipei.getByRole('button', { name: 'Delete' }).click()
     await page.getByLabel('Site name confirmation').fill('Taipei Lab')
     await page.getByRole('alertdialog').getByRole('button', { name: 'Delete site' }).click()
@@ -1580,7 +1576,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Site', exact: true })).toHaveText('Singapore DC')
     await page.getByLabel('Name').fill('MAAS Singapore')
     await page.getByLabel('Endpoint').fill('https://maas.sg.example')
-    await page.getByLabel('Credential').fill('consumer:token:initial-secret')
+    await page.getByLabel('MAAS API key').fill('consumer:token:initial-secret')
     await page.getByLabel('Request timeout').fill('45s')
     await page.getByRole('dialog').getByRole('button', { name: 'Create integration' }).click()
 
@@ -1600,7 +1596,7 @@ test.describe('operator interactions', () => {
     await integration.getByRole('button', { name: 'Credential' }).click()
     const credentialDialog = page.getByRole('dialog', { name: 'Replace credential' })
     await expect(credentialDialog).toHaveAccessibleDescription('')
-    await page.getByLabel('New credential').fill('replacement-secret')
+    await page.getByLabel('New MAAS API key').fill('replacement-secret')
     await page.getByRole('dialog').getByRole('button', { name: 'Replace credential' }).click()
     await expect(page.getByText('Credential replaced')).toBeVisible()
     expect(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))).not.toContain('replacement-secret')

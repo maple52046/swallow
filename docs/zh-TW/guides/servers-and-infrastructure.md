@@ -104,7 +104,7 @@ Server **Activity** 分頁的哪個區塊。由上往下第一個符合的條件
 | 圖示 | 條件 | 開啟 |
 | --- | --- | --- |
 | 警示 — **Review activity** | Server 已不在 provider inventory 中（absent）。 | **Activity → Provider events** |
-| 火箭 — **Deploy OS** | Server 未 lock 且為 **Ready**。 | 已選好該 Server 的 Deploy OS 精靈 |
+| 火箭 — **Deploy OS** | Server 未 lock 且為 **Ready**。 | 不離頁的 Deploy OS dialog；固定該 Server，並在 OS image、Installation 與 Networking steps 前檢查 live readiness 與 networking |
 | 箭頭 — **View workflow** | Swallow deployment 正在執行。 | 該 deployment 的 Workflow |
 | 眼睛 — **View activity** | 只有 provider 工作正在執行。 | Releasing 開啟 **Activity → Provisioning tasks**，Inspecting 開啟 **Related Operations**，其他開啟 **Provider events** |
 | 箭頭 — **View workflow** | 上一次 swallow deployment 失敗或需要處理。 | 該 deployment 的 Workflow |
@@ -112,6 +112,10 @@ Server **Activity** 分頁的哪個區塊。由上往下第一個符合的條件
 
 閒置的 Server 沒有圖示，請從名稱開啟。Provider 操作（電源、硬體檢查、lock、
 recovery、release 與 delete）都在該列的 **Actions** 選單；mobile card 上也是同一個按鈕。
+
+Bulk **Deploy OS** 會在相同 dialog 中固定目前 selection。單台或 bulk deployment
+成功後，list／detail 仍留在原頁並持續追蹤各 target 的 projection；bulk selection
+會清除，成功通知則提供 **View workflow**。
 
 ## Quick view 與 fleet signal
 

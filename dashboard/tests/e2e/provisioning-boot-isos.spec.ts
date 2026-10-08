@@ -16,9 +16,7 @@ test('Boot ISOs are listed per provisioner with their script, and only unused on
     bootMediaSetting: { enabled: true, isoId: 'iso-taipei', updatedAt: '2026-10-04T00:00:00Z', lastAppliedAt: '2026-10-04T00:00:00Z', lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null },
     onBootISORequest: (method, path) => writes.push(`${method} ${path}`),
   })
-  await page.goto('/provisioning/deploy?site=site-a')
-  await page.getByRole('tab', { name: 'Boot ISOs' }).click()
-  await expect(page).toHaveURL(/\/provisioning\/boot-isos\?site=site-a$/)
+  await page.goto('/provisioning/boot-isos')
 
   const table = page.getByRole('table', { name: 'Boot ISOs' })
   const taipei = table.getByRole('row', { name: /taipei-rack/ })
@@ -55,9 +53,7 @@ test('Build ISO pre-fills the rack from the provisioner endpoint and previews th
 
   await page.getByRole('button', { name: 'Build ISO' }).first().click()
   const dialog = page.getByRole('dialog', { name: 'Build Boot ISO' })
-  await expect(dialog.getByRole('button', { name: 'Build ISO', exact: true })).toBeDisabled()
-  await dialog.getByRole('combobox', { name: 'Provisioner', exact: true }).click()
-  await page.getByRole('option', { name: 'MAAS Taipei', exact: true }).click()
+  await expect(dialog.getByRole('combobox', { name: 'Provisioner', exact: true })).toContainText('MAAS Taipei')
 
   const name = dialog.getByRole('textbox', { name: /^Name/ })
   const rack = dialog.getByRole('textbox', { name: /^MAAS rack address/ })
@@ -84,7 +80,7 @@ test('a failed build keeps the dialog open with the packaging error', async ({ p
   await page.getByRole('button', { name: 'Build ISO' }).click()
   const dialog = page.getByRole('dialog', { name: 'Build Boot ISO' })
   await dialog.getByRole('combobox', { name: 'Provisioner', exact: true }).click()
-  await page.getByRole('option', { name: 'MAAS Edge', exact: true }).click()
+  await page.getByRole('option', { name: 'MAAS Taipei', exact: true }).click()
   await dialog.getByRole('button', { name: 'Build ISO', exact: true }).click()
 
   await expect(dialog).toContainText('The Boot ISO was not built')

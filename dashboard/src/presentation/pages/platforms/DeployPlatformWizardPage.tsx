@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Badge, Box, Button, Card, Field, Heading, HStack, IconButton, Input, SegmentGroup, Table, Text, Textarea } from '@chakra-ui/react'
-import { RefreshCcw } from 'lucide-react'
+import { Badge, Button, Card, Field, Heading, HStack, Input, Table, Text, Textarea } from '@chakra-ui/react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import { evaluateMinimumResourceEligibility, formatGiB, formatMinimumResources } from '@/domain/platform/resourceEligibility'
 import type { Platform, GPUStackOwner, NodeRole, PlatformType, PlatformMachinePreparation, RoleAssignment } from '@/domain/platform/types'
-import type { DeploymentNetworkMode, DeploymentTemplate, NetworkInspectionResult } from '@/domain/provisioning/types'
-import type { OSImage } from '@/domain/site/types'
+import type { DeploymentNetworkMode, DeploymentTemplate, DeployTarget, NetworkInspectionResult } from '@/domain/provisioning/types'
+import type { Integration, OSImage } from '@/domain/site/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -17,11 +16,20 @@ import { SectionHeader, StickyTableFrame } from '@/presentation/components/Opera
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
-import { deployTargetForEphemeral, deployTargetIsEphemeral } from '@/domain/provisioning/types'
+import { deployTargetForEphemeral } from '@/domain/provisioning/types'
+import { AddressingModeField } from '@/presentation/pages/provisioning/AddressingModeField'
+import { NetworkAssignmentsEditor } from '@/presentation/pages/provisioning/NetworkAssignmentsEditor'
 import { DeployTargetField } from '@/presentation/pages/provisioning/DeployTargetField'
+import { OSImageSelectionStep } from '@/presentation/pages/provisioning/OSImageSelectionStep'
+import { UnsupportedDeployModeWarning } from '@/presentation/pages/provisioning/UnsupportedDeployModeWarning'
+import {
+  defaultDeployTargetForImage,
+  osImageSupportsDeployTarget,
+  toPlatformMachinePreparation,
+  type OSDeploymentConfiguration,
+} from '@/presentation/pages/provisioning/osDeploymentFlow'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Select } from '@/presentation/components/ui/select'
-import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
@@ -148,7 +156,7 @@ function EphemeralKubernetesWarning() {
  */
 export function DeployPlatformWizardPage() {
   const navigate = useNavigate()
-  const { platforms, provisioning } = useApp()
+  const { platforms, provisioning, sites: siteRepository } = useApp()
   const { siteId: scopedSiteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
@@ -180,7 +188,7 @@ export function DeployPlatformWizardPage() {
   const [templateId, setTemplateId] = useState('')
   const [images, setImages] = useState<OSImage[]>([])
   const [imageId, setImageId] = useState('')
-  const [ephemeral, setEphemeral] = useState(false)
+  const [deployTarget, setDeployTarget] = useState<DeployTarget>('ram')
   const [cloudInit, setCloudInit] = useState('')
   const [networkMode, setNetworkMode] = useState<DeploymentNetworkMode>('automatic')
   const [defaultGateway, setDefaultGateway] = useState(false)
@@ -188,9 +196,43 @@ export function DeployPlatformWizardPage() {
   const [networkAssignments, setNetworkAssignments] = useState<Record<string, { interfaceId: string; subnetId: string; ipAddress: string }>>({})
   const [provisioningLoading, setProvisioningLoading] = useState(false)
   const [provisioningError, setProvisioningError] = useState('')
+  const [siteProvisionerState, setSiteProvisionerState] = useState<{
+    siteKey: string | null
+    items: Integration[]
+    error: string
+  }>({ siteKey: null, items: [], error: '' })
   const effectiveSiteId = siteId ?? scopedSiteId
   const state = useDeployableServers(effectiveSiteId, CANDIDATE_PROVISIONING_STATES, candidateRevision)
   const { state: slurmRequirementState, reload: reloadSlurmRequirement } = useSlurmDeploymentRequirement()
+
+  useEffect(() => {
+    if (!effectiveSiteId) return
+    let canceled = false
+    siteRepository
+      .listIntegrations({ siteId: effectiveSiteId, kind: 'provisioner' })
+      .then((integrations) => {
+        if (!canceled) {
+          setSiteProvisionerState({
+            siteKey: effectiveSiteId,
+            items: integrations,
+            error: '',
+          })
+        }
+      })
+      .catch((error: Error) => {
+        if (!canceled) {
+          setSiteProvisionerState({
+            siteKey: effectiveSiteId,
+            items: [],
+            error: error.message,
+          })
+        }
+      })
+    return () => {
+      canceled = true
+    }
+  }, [effectiveSiteId, siteRepository])
+
 
   // Deployment templates are per-Site; the OS step filters them to the derived provisioner.
   useEffect(() => {
@@ -286,12 +328,59 @@ export function DeployPlatformWizardPage() {
   const deployedSelectedServers = selectedServers.filter((server) => server.provisioning?.state === 'deployed')
   const readySelectedServers = selectedServers.filter((server) => server.provisioning?.state !== 'deployed')
   const needsProvisioning = readySelectedServers.length > 0
-  // The provisioner is derived from the ready Servers rather than picked: they are provisioned
-  // with one OS image, so they must share a single provisioner.
-  const readyProvisionerIds = [...new Set(readySelectedServers.map((server) => server.source.integrationId))]
-  const provisionerConflict = readyProvisionerIds.length > 1
-  const integrationId = readyProvisionerIds.length === 1 ? readyProvisionerIds[0] : ''
-  const machinesValid = (isSlurm ? slurmTopologyValid : topologyValid) && (!needsProvisioning || (!provisionerConflict && Boolean(integrationId)))
+  const siteProvisioners = siteProvisionerState.siteKey === effectiveSiteId
+    ? siteProvisionerState.items
+    : null
+  const siteProvisionerError = siteProvisionerState.siteKey === effectiveSiteId ? siteProvisionerState.error : ''
+  const siteProvisioner =
+    siteProvisioners?.length === 1 ? siteProvisioners[0] : undefined
+  const provisionerSourceMismatch = Boolean(
+    siteProvisioner &&
+      readySelectedServers.some(
+        (server) =>
+          server.source.siteId !== effectiveSiteId ||
+          server.source.integrationId !== siteProvisioner.id,
+      ),
+  )
+  const siteProvisionerIssue = !needsProvisioning
+    ? null
+    : siteProvisioners === null
+      ? {
+          title: 'Resolving Site provisioner',
+          message: 'Checking the Site configuration before OS preparation.',
+        }
+      : siteProvisionerError
+        ? {
+            title: 'Provisioner configuration unavailable',
+            message: siteProvisionerError,
+          }
+        : siteProvisioners.length === 0
+          ? {
+              title: 'Connect a provisioner',
+              message: 'This Site has no provisioner Integration.',
+            }
+          : siteProvisioners.length > 1
+            ? {
+                title: 'Site configuration conflict',
+                message: 'Platform OS preparation requires exactly one provisioner for this Site.',
+              }
+            : !siteProvisioner?.enabled
+              ? {
+                  title: 'Enable the Site provisioner',
+                  message: `${siteProvisioner?.name ?? 'The provisioner'} is disabled.`,
+                }
+              : provisionerSourceMismatch
+                ? {
+                    title: 'Inconsistent deployment source',
+                    message: 'A selected ready Server does not belong to the Site provisioner.',
+                  }
+                : null
+  const provisionerConflict = Boolean(siteProvisionerIssue)
+  const integrationId =
+    needsProvisioning && !siteProvisionerIssue ? siteProvisioner?.id ?? '' : ''
+  const machinesValid =
+    (isSlurm ? slurmTopologyValid : topologyValid) &&
+    (!needsProvisioning || (!provisionerConflict && Boolean(integrationId)))
   // Slurm has no platform-level network step; its networking is only the OS provisioning step.
   const platformNetworkingValid = isSlurm ? true : networkingValid
 
@@ -318,7 +407,7 @@ export function DeployPlatformWizardPage() {
   // Only the pool-ready Servers need OS + network preparation; deployed Servers are reused.
   const preparationTargetKey = readySelectedServers.map((server) => server.id).sort().join(',')
   useEffect(() => {
-    if (!needsProvisioning || !preparationTargetKey) return
+    if (!needsProvisioning || !preparationTargetKey || !integrationId) return
     let canceled = false
     provisioning
       .inspectDeploymentNetworks(preparationTargetKey.split(','))
@@ -348,7 +437,7 @@ export function DeployPlatformWizardPage() {
     return () => {
       canceled = true
     }
-  }, [needsProvisioning, preparationTargetKey, provisioning])
+  }, [integrationId, needsProvisioning, preparationTargetKey, provisioning])
 
   // Ignore a template left selected from a previously derived provisioner so it can never leak
   // another provisioner's image/network into this deploy, or one selected before templates
@@ -357,7 +446,14 @@ export function DeployPlatformWizardPage() {
     ? templates.find((template) => template.id === templateId && template.integrationId === integrationId)
     : undefined
   const effectiveImageId = selectedTemplate?.imageId ?? imageId
-  const effectiveEphemeral = selectedTemplate?.ephemeral ?? ephemeral
+  const effectiveDeployTarget = selectedTemplate
+    ? deployTargetForEphemeral(selectedTemplate.ephemeral)
+    : deployTarget
+  const selectedImage = images.find((image) => image.id === effectiveImageId)
+  const selectedImageModeUnsupported = Boolean(
+    selectedImage && !osImageSupportsDeployTarget(selectedImage, effectiveDeployTarget),
+  )
+  const effectiveEphemeral = effectiveDeployTarget === 'ram'
   // Review the same resolved mode that deployment submits, including a template-owned setting.
   const osDeploymentModeLabel = effectiveEphemeral ? 'Ephemeral (memory-backed)' : 'Persistent (disk-backed)'
   const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
@@ -373,14 +469,22 @@ export function DeployPlatformWizardPage() {
         if (!assignment?.interfaceId || !assignment.subnetId || !selectedInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)) return false
         return effectiveNetworkMode !== 'static' || validAddress(assignment.ipAddress)
       }))
-  const osConfigurationValid = !needsProvisioning || Boolean(integrationId && effectiveImageId && networkAssignmentsValid && !provisioningError)
+  const osImageValid =
+    !needsProvisioning ||
+    Boolean(integrationId && effectiveImageId && !provisioningLoading && !provisioningError)
+  const osInstallationValid = !needsProvisioning || Boolean(effectiveImageId)
+  const osNetworkingValid =
+    !needsProvisioning ||
+    Boolean(integrationId && networkAssignmentsValid && !provisioningError)
+  const osConfigurationValid =
+    osImageValid && osInstallationValid && osNetworkingValid
 
   const selectTemplate = (nextTemplateId: string) => {
     setTemplateId(nextTemplateId)
     const template = templates.find((item) => item.id === nextTemplateId)
     if (!template) return
     setImageId(template.imageId)
-    setEphemeral(template.ephemeral)
+    setDeployTarget(deployTargetForEphemeral(template.ephemeral))
     setNetworkMode(template.network.mode)
     setDefaultGateway(template.network.defaultGateway)
   }
@@ -405,6 +509,7 @@ export function DeployPlatformWizardPage() {
     setSlurmWorkloadMountOptions('')
     setTemplateId('')
     setImageId('')
+    setDeployTarget('ram')
     setNetworkInspection(null)
     setNetworkAssignments({})
     if (next === 'slurm') setGPUStackOwner('provisioning')
@@ -450,25 +555,35 @@ export function DeployPlatformWizardPage() {
     setSubmitting(true)
     // The mode is derived from the selection, not chosen: reuse existing-OS Servers when nothing
     // needs provisioning, otherwise converge — provision the ready Servers and reuse deployed.
+    const osConfiguration: OSDeploymentConfiguration = {
+      serverIds: readySelectedServers.map((server) => server.id),
+      templateId: selectedTemplate?.id,
+      customized: !selectedTemplate,
+      imageId: effectiveImageId,
+      deployTarget: effectiveDeployTarget,
+      userData: selectedTemplate
+        ? { mode: 'inherit' }
+        : cloudInit.trim()
+          ? { mode: 'replace', value: cloudInit }
+          : { mode: 'omit' },
+      network: {
+        mode: effectiveNetworkMode,
+        subnetId: selectedTemplate?.network.subnetId,
+        defaultGateway: selectedTemplate?.network.defaultGateway ?? defaultGateway,
+        assignments: readySelectedServers.map((server) => ({
+          serverId: server.id,
+          interfaceId: networkAssignments[server.id]?.interfaceId ?? '',
+          subnetId: networkAssignments[server.id]?.subnetId,
+          ipAddress:
+            effectiveNetworkMode === 'static'
+              ? networkAssignments[server.id]?.ipAddress.trim()
+              : undefined,
+        })),
+      },
+    }
     const machinePreparation: PlatformMachinePreparation = !needsProvisioning
       ? { mode: 'existing_os' }
-      : {
-          mode: 'provision_os',
-          templateId: selectedTemplate?.id,
-          settings: selectedTemplate ? undefined : { imageId: effectiveImageId, ephemeral: effectiveEphemeral },
-          userData: selectedTemplate ? { mode: 'inherit' } : cloudInit.trim() ? { mode: 'replace', value: cloudInit } : { mode: 'omit' },
-          network: {
-            mode: effectiveNetworkMode,
-            subnetId: selectedTemplate?.network.subnetId,
-            defaultGateway: selectedTemplate?.network.defaultGateway ?? defaultGateway,
-            assignments: readySelectedServers.map((server) => ({
-              serverId: server.id,
-              interfaceId: networkAssignments[server.id]?.interfaceId ?? '',
-              subnetId: networkAssignments[server.id]?.subnetId,
-              ipAddress: effectiveNetworkMode === 'static' ? networkAssignments[server.id]?.ipAddress.trim() : undefined,
-            })),
-          },
-        }
+      : toPlatformMachinePreparation(osConfiguration)
     try {
       const result = await platforms.deployPlatform(
         isSlurm
@@ -732,10 +847,25 @@ export function DeployPlatformWizardPage() {
               Assigned Servers remain visible for context. Remove the existing Platform assignment before selecting a role.
             </Alert>
           )}
-          {provisionerConflict && (
-            <Alert status="warning" title="Ready Servers span multiple provisioners">
-              Servers that still need an OS must share one provisioner so a single OS image applies. Deselect ready Servers from other provisioners, or include
-              only already-deployed Servers from them.
+          {siteProvisionerIssue && (
+            <Alert
+              status="warning"
+              title={siteProvisionerIssue.title}
+              actions={
+                effectiveSiteId ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      navigate(`/infrastructure/integrations?site=${encodeURIComponent(effectiveSiteId)}`)
+                    }
+                  >
+                    Manage integrations
+                  </Button>
+                ) : undefined
+              }
+            >
+              {siteProvisionerIssue.message}
             </Alert>
           )}
           {state.data.servers.length === 0 ? (
@@ -896,118 +1026,141 @@ export function DeployPlatformWizardPage() {
     })
 
     if (needsProvisioning) {
+      const preparationScopeTitle =
+        'Preparing ' + readySelectedServers.length + ' Server' +
+        (readySelectedServers.length === 1 ? '' : 's') +
+        ' that still need an operating system'
+      const preparationScopeMessage = deployedSelectedServers.length > 0
+        ? deployedSelectedServers.length + ' already-deployed Server' +
+          (deployedSelectedServers.length === 1 ? '' : 's') +
+          ' in this deployment are used as-is and skip these settings.'
+        : 'These settings apply to every selected Server.'
+      const preparationScope = (
+        <Alert status="info" title={preparationScopeTitle}>
+          {preparationScopeMessage}
+        </Alert>
+      )
+
       steps.push({
-        id: 'deploy-operating-system',
-        name: 'Operating system',
-        canProceed: osConfigurationValid,
+        id: 'deploy-os-image',
+        name: 'OS image',
+        canProceed: osImageValid,
         content: (
-          <WizardSection title="Operating system configuration">
-            <Alert status="info" title={`Preparing ${readySelectedServers.length} Server${readySelectedServers.length === 1 ? '' : 's'} that still need an operating system`}>
-              {deployedSelectedServers.length > 0
-                ? `${deployedSelectedServers.length} already-deployed Server${deployedSelectedServers.length === 1 ? '' : 's'} in this deployment are used as-is and skip these settings.`
-                : 'These settings apply to every selected Server.'}
-            </Alert>
+          <OSImageSelectionStep
+            images={images}
+            value={effectiveImageId}
+            siteId={effectiveSiteId}
+            integrationId={integrationId}
+            loading={provisioningLoading}
+            error={provisioningError}
+            disabled={Boolean(selectedTemplate) || Boolean(provisioningError)}
+            onChange={(value) => {
+              setImageId(value)
+              setDeployTarget(defaultDeployTargetForImage(
+                images.find((image) => image.id === value),
+              ))
+            }}
+            onRefresh={() => {
+              if (!integrationId) return
+              setProvisioningLoading(true)
+              setProvisioningError('')
+              provisioning
+                .listOSImages(integrationId)
+                .then(setImages)
+                .catch((error: Error) => setProvisioningError(error.message))
+                .finally(() => setProvisioningLoading(false))
+            }}
+            configurationSource={templatesEnabled ? {
+              value: templateId,
+              onChange: selectTemplate,
+              options: [
+                { value: '', label: 'Custom configuration' },
+                ...templates
+                  .filter((template) => template.integrationId === integrationId)
+                  .map((template) => ({ value: template.id, label: template.name })),
+              ],
+            } : undefined}
+            scopeNotice={{
+              title: preparationScopeTitle,
+              message: preparationScopeMessage,
+            }}
+          />
+        ),
+      })
+
+      steps.push({
+        id: 'deploy-os-installation',
+        name: 'Installation',
+        canProceed: osInstallationValid,
+        content: (
+          <WizardSection title="OS installation">
+            {preparationScope}
+            <div className="sw-form-grid">
+              <DeployTargetField
+                value={effectiveDeployTarget}
+                disabled={Boolean(selectedTemplate)}
+                onChange={setDeployTarget}
+                helperText={selectedTemplate
+                  ? 'The selected template owns the install location.'
+                  : undefined}
+              />
+              {!isSlurm && effectiveEphemeral && <EphemeralKubernetesWarning />}
+              {!selectedTemplate && (
+                <Field.Root className="sw-form-grid__wide">
+                  <Field.Label>Cloud-init user data</Field.Label>
+                  <Textarea
+                    value={cloudInit}
+                    onChange={(event) => setCloudInit(event.target.value)}
+                    rows={7}
+                    autoComplete="off"
+                    placeholder="#cloud-config"
+                  />
+                  <Field.HelperText>Cloud-init stays in memory and is submitted only with this deployment.</Field.HelperText>
+                </Field.Root>
+              )}
+            </div>
+            {selectedImageModeUnsupported && (
+              <UnsupportedDeployModeWarning
+                imageName={selectedImage?.name || effectiveImageId}
+                deployTarget={effectiveDeployTarget}
+              />
+            )}
+            {selectedTemplate && (
+              <Alert status="info" title="Template settings are locked">
+                The selected template owns the install location, cloud-init, and addressing intent.
+              </Alert>
+            )}
+          </WizardSection>
+        ),
+      })
+
+      steps.push({
+        id: 'deploy-os-networking',
+        name: 'OS networking',
+        canProceed: osNetworkingValid,
+        content: (
+          <WizardSection title="OS networking">
+            {preparationScope}
             {provisioningError && (
               <Alert status="error" title="Provisioning data is unavailable">
                 {provisioningError}
               </Alert>
             )}
-            <div className="sw-form-grid">
-              {templatesEnabled && (
-                <Field.Root required>
-                  <Field.Label>Configuration source</Field.Label>
-                  <Select
-                    value={templateId}
-                    aria-label="Configuration source"
-                    onChange={(value) => selectTemplate(value)}
-                    options={[
-                      { value: '', label: 'Custom configuration' },
-                      ...templates
-                        .filter((template) => template.integrationId === integrationId)
-                        .map((template) => ({ value: template.id, label: template.name })),
-                    ]}
-                  />
-                </Field.Root>
-              )}
-              <Field.Root required>
-                <Field.Label>OS image</Field.Label>
-                <HStack gap="2" align="stretch">
-                  <Box flex="1">
-                    <Select
-                      id="platform-os-image"
-                      aria-label="OS image"
-                      value={effectiveImageId}
-                      placeholder="Select an OS image"
-                      options={images.map((image) => ({ value: image.id, label: `${image.name} - ${image.architecture} (${image.osSystem} ${image.release})` }))}
-                      required
-                      disabled={Boolean(selectedTemplate)}
-                      onChange={setImageId}
-                    />
-                  </Box>
-                  <IconButton
-                    variant="outline"
-                    aria-label="Refresh OS images"
-                    loading={provisioningLoading}
-                    onClick={() => {
-                      if (!integrationId) return
-                      setProvisioningLoading(true)
-                      setProvisioningError('')
-                      provisioning
-                        .listOSImages(integrationId)
-                        .then(setImages)
-                        .catch((error: Error) => setProvisioningError(error.message))
-                        .finally(() => setProvisioningLoading(false))
-                    }}
-                  >
-                    <RefreshCcw size={16} />
-                  </IconButton>
-                </HStack>
-              </Field.Root>
-              <DeployTargetField
-                value={deployTargetForEphemeral(effectiveEphemeral)}
-                disabled={Boolean(selectedTemplate)}
-                onChange={(nextTarget) => setEphemeral(deployTargetIsEphemeral(nextTarget))}
-                helperText="RAM runs the OS from memory: disks remain untouched and operating-system changes are lost after reboot."
-              />
-              {!isSlurm && effectiveEphemeral && <EphemeralKubernetesWarning />}
-              {!selectedTemplate && (
-                <Field.Root>
-                  <Field.Label>Cloud-init user data</Field.Label>
-                  <Textarea value={cloudInit} onChange={(event) => setCloudInit(event.target.value)} rows={7} autoComplete="off" placeholder="#cloud-config" />
-                </Field.Root>
-              )}
-            </div>
-
             <section className="sw-section">
-              <SectionHeader title="Network configuration" description="Configure each boot interface before deployment." />
+              <SectionHeader title="Addressing and interfaces" description="Configure each boot interface before deployment." />
               <div className="sw-section-body">
                 <div className="sw-form-grid">
-                  <Field.Root required>
-                    <Field.Label>Addressing mode</Field.Label>
-                    <SegmentGroup.Root
-                      value={effectiveNetworkMode}
-                      disabled={Boolean(selectedTemplate)}
-                      onValueChange={(details) => {
-                        if (!details.value) return
-                        if (details.value === 'automatic') {
-                          setNetworkMode('automatic')
-                          setDefaultGateway(false)
-                        } else {
-                          setNetworkMode('static')
-                        }
-                      }}
-                    >
-                      <SegmentGroup.Indicator />
-                      <SegmentGroup.Item value="automatic">
-                        <SegmentGroup.ItemText>Automatic</SegmentGroup.ItemText>
-                        <SegmentGroup.ItemHiddenInput />
-                      </SegmentGroup.Item>
-                      <SegmentGroup.Item value="static">
-                        <SegmentGroup.ItemText>Static</SegmentGroup.ItemText>
-                        <SegmentGroup.ItemHiddenInput />
-                      </SegmentGroup.Item>
-                    </SegmentGroup.Root>
-                  </Field.Root>
+                  <AddressingModeField
+                    value={effectiveNetworkMode}
+                    disabled={Boolean(selectedTemplate)}
+                    helperText={selectedTemplate
+                      ? 'The selected template owns the addressing intent for machine preparation.'
+                      : undefined}
+                    onChange={(mode) => {
+                      setNetworkMode(mode)
+                      if (mode === 'automatic') setDefaultGateway(false)
+                    }}
+                  />
                   {effectiveNetworkMode === 'static' && (
                     <Field.Root>
                       <Checkbox
@@ -1030,76 +1183,21 @@ export function DeployPlatformWizardPage() {
                 )}
               </div>
               {networkInspection && (
-                <StickyTableFrame>
-                  <Table.Root size="sm" aria-label="Platform operating system network assignments" className="sw-network-assignment-table">
-                    <Table.Header>
-                      <Table.Row>
-                        <Table.ColumnHeader>Server</Table.ColumnHeader>
-                        <Table.ColumnHeader>Interface</Table.ColumnHeader>
-                        <Table.ColumnHeader>Subnet</Table.ColumnHeader>
-                        {effectiveNetworkMode === 'static' && <Table.ColumnHeader>Static IPv4 address</Table.ColumnHeader>}
-                        <Table.ColumnHeader>Current mode</Table.ColumnHeader>
-                      </Table.Row>
-                    </Table.Header>
-                    <Table.Body>
-                      {networkInspection.targets.map((target) => {
-                        const server = selectedServers.find((item) => item.id === target.serverId)
-                        const assignment = networkAssignments[target.serverId] ?? { interfaceId: '', subnetId: '', ipAddress: '' }
-                        const iface = target.network.interfaces.find((item) => item.id === assignment.interfaceId)
-                        const currentMode = iface?.rawProviderMode === 'AUTO' ? 'Provider-managed (MAAS AUTO)' : iface?.rawProviderMode || '-'
-                        return (
-                          <Table.Row key={target.serverId}>
-                            <Table.Cell>
-                              <strong>{server ? serverDisplayName(server) : target.serverId}</strong>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <Select
-                                aria-label={`Interface for ${server ? serverDisplayName(server) : target.serverId}`}
-                                value={assignment.interfaceId}
-                                size="sm"
-                                placeholder="Select an interface"
-                                onChange={(value) => {
-                                  const nextInterface = target.network.interfaces.find((item) => item.id === value)
-                                  const subnetId = nextInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)
-                                    ? assignment.subnetId
-                                    : nextInterface?.availableSubnets.length === 1
-                                      ? nextInterface.availableSubnets[0].id
-                                      : ''
-                                  setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, interfaceId: value, subnetId } }))
-                                }}
-                                options={target.network.interfaces.map((item) => ({
-                                  value: item.id,
-                                  label: `${item.name} - ${item.macAddress}${item.boot ? ' (boot NIC)' : ''}`,
-                                }))}
-                              />
-                            </Table.Cell>
-                            <Table.Cell>
-                              <Select
-                                aria-label={`Subnet for ${server ? serverDisplayName(server) : target.serverId}`}
-                                value={assignment.subnetId}
-                                size="sm"
-                                placeholder="Select a subnet"
-                                onChange={(value) => setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, subnetId: value } }))}
-                                options={(iface?.availableSubnets ?? []).map((subnet) => ({ value: subnet.id, label: formatSubnetOptionLabel(subnet) }))}
-                              />
-                            </Table.Cell>
-                            {effectiveNetworkMode === 'static' && (
-                              <Table.Cell>
-                                <Input
-                                  aria-label={`Static IPv4 address for ${server ? serverDisplayName(server) : target.serverId}`}
-                                  value={assignment.ipAddress}
-                                  onChange={(event) => setNetworkAssignments((current) => ({ ...current, [target.serverId]: { ...assignment, ipAddress: event.target.value } }))}
-                                  placeholder="192.0.2.10"
-                                />
-                              </Table.Cell>
-                            )}
-                            <Table.Cell title={currentMode}>{currentMode}</Table.Cell>
-                          </Table.Row>
-                        )
-                      })}
-                    </Table.Body>
-                  </Table.Root>
-                </StickyTableFrame>
+                <NetworkAssignmentsEditor
+                  targets={networkInspection.targets}
+                  serverNames={Object.fromEntries(
+                    selectedServers.map((server) => [server.id, serverDisplayName(server)]),
+                  )}
+                  assignments={networkAssignments}
+                  mode={effectiveNetworkMode}
+                  ariaLabel="Platform operating system network assignments"
+                  onChange={(serverId, assignment) =>
+                    setNetworkAssignments((current) => ({
+                      ...current,
+                      [serverId]: assignment,
+                    }))
+                  }
+                />
               )}
             </section>
           </WizardSection>

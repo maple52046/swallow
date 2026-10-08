@@ -24,11 +24,10 @@ import { OperatorOperationsPage } from './presentation/pages/operations/Operator
 import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
 import { LegacyWorkflowRedirect } from './presentation/pages/operations/LegacyWorkflowRedirect'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
-import { DeployOSWizardPage } from './presentation/pages/provisioning/DeployOSWizardPage'
 import { DeploymentTemplatesPage } from './presentation/pages/provisioning/DeploymentTemplatesPage'
 import { OSImagesPage } from './presentation/pages/provisioning/OSImagesPage'
 import { BootISOsPage } from './presentation/pages/provisioning/BootISOsPage'
-import { ProvisioningRedirect } from './presentation/pages/provisioning/ProvisioningRedirect'
+import { LegacyDeployOSRedirect, ProvisioningRedirect } from './presentation/pages/provisioning/ProvisioningRedirect'
 import { InfrastructureRedirect } from './presentation/pages/infrastructure/InfrastructureRedirect'
 import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
 import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
@@ -89,11 +88,11 @@ export const router = createBrowserRouter([
       { path: 'operations', element: <LegacyWorkflowRedirect /> },
       { path: 'operations/:id', element: <LegacyWorkflowRedirect /> },
       { path: 'provisioning', element: <ProvisioningRedirect /> },
-      { path: 'provisioning/deploy', element: <DeployOSWizardPage /> },
+      { path: 'provisioning/deploy', element: <LegacyDeployOSRedirect /> },
       {
         path: 'provisioning/templates',
         element: (
-          <FeatureRoute feature="deploymentTemplates" redirectTo="/provisioning/deploy">
+          <FeatureRoute feature="deploymentTemplates" redirectTo="/provisioning/images">
             <DeploymentTemplatesPage />
           </FeatureRoute>
         ),

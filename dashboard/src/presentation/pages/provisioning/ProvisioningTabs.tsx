@@ -12,9 +12,8 @@ interface ProvisioningTab {
 }
 
 const TABS: readonly ProvisioningTab[] = [
-  { value: '/provisioning/deploy', label: 'Deploy OS' },
-  { value: '/provisioning/templates', label: 'Templates', feature: 'deploymentTemplates' },
   { value: '/provisioning/images', label: 'OS images' },
+  { value: '/provisioning/templates', label: 'Templates', feature: 'deploymentTemplates' },
   { value: '/provisioning/boot-isos', label: 'Boot ISOs' },
 ]
 

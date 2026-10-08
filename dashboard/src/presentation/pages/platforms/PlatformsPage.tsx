@@ -100,10 +100,6 @@ function platformTypeLabel(type: PlatformType): string {
   return type === 'kubernetes' ? 'Kubernetes' : 'Slurm'
 }
 
-function platformOriginLabel(platform: Platform): string {
-  return platform.origin === 'deployed' ? 'Swallow-deployed' : 'External record'
-}
-
 /** Exposes workflow navigation only while the durable lifecycle is operationally relevant. */
 function exposesLifecycleWorkflow(platform: Platform): boolean {
   return Boolean(
@@ -115,8 +111,9 @@ function exposesLifecycleWorkflow(platform: Platform): boolean {
 /**
  * Runtime identity shared by desktop rows and mobile cards.
  *
- * The canonical Platform name remains the navigation target while type and
- * origin provide the PaaS context without becoming additional status axes.
+ * The canonical Platform name remains the navigation target while type provides the PaaS context.
+ * Only a legacy external record gets an origin suffix; deployed is the normal and only creatable
+ * origin, so labelling every managed Platform as Swallow-deployed would add no information.
  */
 function PlatformIdentity({ platform, href }: { platform: Platform; href: string }) {
   const TypeIcon = platform.type === 'kubernetes' ? Boxes : Network
@@ -127,7 +124,10 @@ function PlatformIdentity({ platform, href }: { platform: Platform; href: string
       </span>
       <span className="sw-platform-identity__copy">
         <RouterLink className="sw-platform-name" to={href}>{platform.name}</RouterLink>
-        <span>{platformTypeLabel(platform.type)} · {platformOriginLabel(platform)}</span>
+        <span>
+          {platformTypeLabel(platform.type)}
+          {platform.origin === 'registered' && ' · External record'}
+        </span>
       </span>
     </div>
   )
@@ -302,7 +302,6 @@ function PlatformRuntimeCard({
         <ResourceCardField label="Connectivity"><PlatformConnectivity platform={platform} /></ResourceCardField>
         <ResourceCardField label="Members"><PlatformMembership platform={platform} /></ResourceCardField>
         <ResourceCardField label="Last sync">{lastSync}</ResourceCardField>
-        <ResourceCardField label="Origin">{platformOriginLabel(platform)}</ResourceCardField>
       </ResourceCard>
     </div>
   )

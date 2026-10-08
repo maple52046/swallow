@@ -115,7 +115,7 @@ first matching row applies.
 | Icon | When | Opens |
 | --- | --- | --- |
 | Warning — **Review activity** | The Server is absent from provider inventory. | **Activity → Provider events** |
-| Rocket — **Deploy OS** | The Server is unlocked and **Ready**. | The Deploy OS wizard with the Server selected |
+| Rocket — **Deploy OS** | The Server is unlocked and **Ready**. | An in-page Deploy OS dialog with the Server fixed; it checks live readiness and networking before the OS image, Installation, and Networking steps |
 | Arrow — **View workflow** | A swallow deployment is running. | That deployment's Workflow |
 | Eye — **View activity** | Provider-only work is running. | **Activity → Provisioning tasks** for Releasing, **Related Operations** for Inspecting, **Provider events** otherwise |
 | Arrow — **View workflow** | The last swallow deployment failed or needs attention. | That deployment's Workflow |
@@ -124,6 +124,11 @@ first matching row applies.
 An idle Server has no icon; open it from its name. Provider actions—power,
 hardware checks, lock, recovery, release, and delete—are in the row's
 **Actions** menu, which is the same button on mobile cards.
+
+Bulk **Deploy OS** fixes the current selection in the same dialog. A successful
+single or bulk deployment leaves the list/detail page open, follows each target's
+projection, clears a bulk selection, and offers **View workflow** in the success
+notification.
 
 ## Quick views and fleet signals
 

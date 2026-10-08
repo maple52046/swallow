@@ -34,7 +34,7 @@ interface ServerPowerDialogProps {
 
 /**
  * Lets an operator pick a power action (on/off) for one Server from the server list, opened by
- * the power-state icon button in the Power column.
+ * the icon-and-text power button before tags in the Server field.
  *
  * The two actions are presented as a two-column grid of square tiles. The list has no live
  * `ProvisionerCapabilities`, so — like the row's action menu — both actions are offered and the
