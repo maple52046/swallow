@@ -46,7 +46,7 @@ export function ServerContainersTab() {
       <EmptyState
         title="Docker CE is not installed by swallow"
         message="Install Docker CE on this Server from Software to manage its images, containers, volumes, and networks here."
-        action={{ label: 'Open Software', onClick: () => navigate(scopedHref('/software')) }}
+        action={{ label: 'Open Docker CE', onClick: () => navigate(scopedHref('/software/docker-ce')) }}
       />
     )
   }

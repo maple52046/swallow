@@ -41,12 +41,20 @@ and host diagnostics when the result is unclear.
 
 ## Install and uninstall
 
-Use **Software** to select a kind, variant/settings, and targets, or a Server's
-**Take action** → **Install software** to install on that Server only (the
-action explains why when the Server cannot take an install). Submission
-creates a Workflow using the registered playbook mapping. Uninstall requests are
-explicit and produce a separate Workflow; deleting a Server or Platform does
-not silently imply every software uninstall.
+Use **Software** as the catalog of software Swallow can manage. Open a software
+card to see its capabilities and current deployments, then choose **Install
+software** to select one or more eligible Servers before configuring that
+software. Servers that already have the software are managed from the same
+detail page with **Reconfigure**, **Retry install**, or **Uninstall**.
+
+A Server's **Take action** → **Install software** is the fixed-Server entry
+point. It first presents the grouped software catalog and then the selected
+software's configuration. An existing or failed assignment is prefilled for
+reconfigure or retry; an in-progress assignment links to its Workflow instead.
+The action explains why when the Server cannot take an install. Submission
+creates a Workflow using the registered playbook mapping. Uninstall requests
+are explicit and produce a separate Workflow; deleting a Server or Platform
+does not silently imply every software uninstall.
 
 NFS server/client role changes deserve extra review because they can affect
 mounted storage and workload availability.
@@ -91,9 +99,9 @@ enables by default:
 
 ### Private registries
 
-To pull private images, add a **Registry credential** under **Software ›
-Settings › Docker CE** (settings are grouped by software kind there): the
-registry host (for example `harbor.example.com` or `docker.io` for Docker
+To pull private images, add a **Registry credential** under **Software › Docker
+CE › Settings**. Only software with its own settings exposes this action. Enter
+the registry host (for example `harbor.example.com` or `docker.io` for Docker
 Hub — `hub.docker.com` is saved as `docker.io` too), a username, and a password
 or access token. The dialog shows the registry the credential is saved as. A
 pull uses the credential of

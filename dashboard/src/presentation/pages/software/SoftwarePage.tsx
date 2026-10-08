@@ -1,291 +1,227 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, HStack, Table, Text, VisuallyHidden } from '@chakra-ui/react'
-import { Plus, Settings } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Badge, Box, Button, Heading, HStack, Stack, Text } from '@chakra-ui/react'
+import { ArrowRight } from 'lucide-react'
+import { Link as RouterLink } from 'react-router-dom'
+import { loadSoftwareFootprint, type SoftwareFootprintWorkingSet } from '@/application/usecases/software/loadSoftwareWorkspace'
 import { useApp } from '@/di/AppProvider'
-import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerWorkingSet'
-import type { Server } from '@/domain/server/types'
-import { serverDisplayName } from '@/domain/server/types'
-import { softwareInstallBlocker } from '@/domain/software/targets'
-import type { SoftwareAssignment, SoftwareCatalogEntry } from '@/domain/software/types'
-import { EmptyState } from '@/presentation/components/EmptyState'
+import type { SoftwareCatalogEntry } from '@/domain/software/types'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { DataToolbar, SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
-import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
-import { SearchInput } from '@/presentation/components/ui/search-input'
-import { useToast } from '@/presentation/components/toast/toastContext'
+import { PageHeader } from '@/presentation/components/PageHeader'
+import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { formatDateTime } from '@/shared/utils/time'
-import { InstallSoftwareDialog } from './InstallSoftwareDialog'
-import { UninstallSoftwareDialog } from './UninstallSoftwareDialog'
-import { assignmentStateLabel, assignmentStatePalette, softwareKindLabel } from './softwarePresentation'
+import {
+  groupSoftwareCatalog,
+  isSoftwareAssignmentChanging,
+  softwareCatalogPresentation,
+  softwareFootprints,
+} from './softwareCatalogPresentation'
+import './software.css'
 
-/** The data the page needs once loaded: the catalog, current assignments, and deployed Servers. */
-interface SoftwareData {
-  catalog: SoftwareCatalogEntry[]
-  assignments: SoftwareAssignment[]
-  /**
-   * Deployed Servers in the active Site, used for the id->name map that scopes assignments. Not
-   * narrowed by install eligibility, so a Server whose redeploy failed keeps its installed rows.
-   */
-  servers: Server[]
-}
-
-type SoftwareState =
+type CatalogState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; data: SoftwareData }
+  | { status: 'ready'; catalog: SoftwareCatalogEntry[] }
+
+type FootprintState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string; data?: SoftwareFootprintWorkingSet }
+  | { status: 'ready'; data: SoftwareFootprintWorkingSet }
+
+const REFRESH_INTERVAL_MS = 5_000
 
 /**
- * Managed Software workspace (decision 038): install a single piece of host software on deployed
- * Servers, list the swallow-owned Software Assignments, and uninstall one from a Server. Results
- * honor the global Site scope: assignments are cross-referenced against the Site's deployed Servers
- * so only in-scope records are shown, and only in-scope deployed Servers that pass the shared
- * install-target rule (no running or unsuccessful OS deployment) are offered as install targets.
- * Install and uninstall create Workflows; on acceptance the page navigates to the
- * Workflow's progress view so the operator follows the same per-Task Job timeline as every other
- * deployment. Settings that belong to one software kind (such as Docker CE's Registry credentials)
- * live on the Settings page this one links to, never on this software-wide list.
+ * Managed Software catalog route.
+ *
+ * Software identity remains available when Site-scoped deployment context cannot be read: the
+ * catalog and footprint have separate state boundaries. Cards are native links so the entire
+ * discovery surface is keyboard-accessible without turning nested actions into invalid markup.
  */
 export function SoftwarePage() {
   const { software, servers } = useApp()
   const { siteId, scopedHref } = useSiteScope()
-  const { showToast } = useToast()
-  const navigate = useNavigate()
-  const [state, setState] = useState<SoftwareState>({ status: 'loading' })
-  const [query, setQuery] = useState('')
-  const [installing, setInstalling] = useState(false)
-  const [uninstalling, setUninstalling] = useState<SoftwareAssignment | null>(null)
+  const [catalogState, setCatalogState] = useState<CatalogState>({ status: 'loading' })
+  const [footprintState, setFootprintState] = useState<FootprintState>({ status: 'loading' })
 
-  const load = useCallback(async () => {
-    setState({ status: 'loading' })
+  const loadCatalog = useCallback(async () => {
+    setCatalogState({ status: 'loading' })
     try {
-      const [catalog, assignments, workingSet] = await Promise.all([
-        software.listCatalog(),
-        software.listAssignments(),
-        loadServerWorkingSet(servers, { siteId, provisioningState: 'deployed' }),
-      ])
-      setState({ status: 'ready', data: { catalog, assignments, servers: workingSet.servers } })
+      setCatalogState({ status: 'ready', catalog: await software.listCatalog() })
     } catch (caught) {
-      setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load software.' })
+      setCatalogState({
+        status: 'error',
+        message: caught instanceof Error ? caught.message : 'The software catalog could not be loaded.',
+      })
+    }
+  }, [software])
+
+  useEffect(() => {
+    let cancelled = false
+    void software.listCatalog().then(
+      (catalog) => {
+        if (!cancelled) setCatalogState({ status: 'ready', catalog })
+      },
+      (caught: unknown) => {
+        if (!cancelled) {
+          setCatalogState({
+            status: 'error',
+            message: caught instanceof Error ? caught.message : 'The software catalog could not be loaded.',
+          })
+        }
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [software])
+
+  const refreshFootprint = useCallback(async (background = false) => {
+    if (!background) setFootprintState({ status: 'loading' })
+    try {
+      const data = await loadSoftwareFootprint(software, servers, siteId)
+      setFootprintState({ status: 'ready', data })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Deployment data could not be loaded.'
+      setFootprintState((current) => ({
+        status: 'error',
+        message,
+        data: current.status === 'ready' || current.status === 'error' ? current.data : undefined,
+      }))
     }
   }, [software, servers, siteId])
 
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      try {
-        const [catalog, assignments, workingSet] = await Promise.all([
-          software.listCatalog(),
-          software.listAssignments(),
-          loadServerWorkingSet(servers, { siteId, provisioningState: 'deployed' }),
-        ])
+    void Promise.resolve().then(() => {
+      if (!cancelled) setFootprintState({ status: 'loading' })
+    })
+    void loadSoftwareFootprint(software, servers, siteId).then(
+      (data) => {
+        if (!cancelled) setFootprintState({ status: 'ready', data })
+      },
+      (caught: unknown) => {
         if (!cancelled) {
-          setState({ status: 'ready', data: { catalog, assignments, servers: workingSet.servers } })
+          setFootprintState({
+            status: 'error',
+            message: caught instanceof Error ? caught.message : 'Deployment data could not be loaded.',
+          })
         }
-      } catch (caught) {
-        if (!cancelled) {
-          setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load software.' })
-        }
-      }
-    })()
+      },
+    )
     return () => {
       cancelled = true
     }
   }, [software, servers, siteId])
 
-  // Resolve a Server id to its display label, and remember which Servers are in the active Site so
-  // assignments for out-of-scope Servers are hidden along with the Site filter.
-  const serverIndex = useMemo(() => {
-    const names = new Map<string, string>()
-    if (state.status === 'ready') {
-      for (const server of state.data.servers) names.set(server.id, serverDisplayName(server))
-    }
-    return names
-  }, [state])
-
-  // The install picker offers only Servers that pass the shared install-target rule.
-  const installTargets = useMemo(
-    () => (state.status === 'ready' ? state.data.servers.filter((server) => softwareInstallBlocker(server) === null) : []),
-    [state],
+  const footprintData = footprintState.status === 'ready' || footprintState.status === 'error'
+    ? footprintState.data
+    : undefined
+  const scopedServerIds = useMemo(
+    () => new Set(footprintData?.servers.map((server) => server.id) ?? []),
+    [footprintData],
   )
+  const hasChanging = footprintData?.assignments.some((assignment) =>
+    scopedServerIds.has(assignment.serverId) && isSoftwareAssignmentChanging(assignment)
+  ) ?? false
 
-  const catalogLabels = useMemo(() => {
-    const labels = new Map<string, string>()
-    if (state.status === 'ready') {
-      for (const entry of state.data.catalog) labels.set(entry.kind, entry.label)
-    }
-    return labels
-  }, [state])
+  useEffect(() => {
+    if (!hasChanging) return
+    const timer = window.setTimeout(() => void refreshFootprint(true), REFRESH_INTERVAL_MS)
+    return () => window.clearTimeout(timer)
+  }, [hasChanging, refreshFootprint, footprintState])
 
-  const visibleAssignments = useMemo(() => {
-    if (state.status !== 'ready') return []
-    const needle = query.trim().toLowerCase()
-    return state.data.assignments
-      // Scope to the active Site by keeping only assignments whose Server is in the Site's set.
-      // When no Site is selected the whole fleet's deployed Servers are loaded, so nothing is lost.
-      .filter((assignment) => serverIndex.has(assignment.serverId))
-      .filter((assignment) => {
-        if (!needle) return true
-        const label = softwareKindLabel(assignment.kind, catalogLabels.get(assignment.kind))
-        const serverName = serverIndex.get(assignment.serverId) ?? assignment.serverId
-        return [label, serverName, assignment.serverId, assignment.state].some((value) =>
-          value.toLowerCase().includes(needle),
-        )
-      })
-  }, [state, query, serverIndex, catalogLabels])
-
-  const serverLabel = useCallback(
-    (serverId: string) => serverIndex.get(serverId) ?? serverId,
-    [serverIndex],
+  const groups = useMemo(
+    () => catalogState.status === 'ready' ? groupSoftwareCatalog(catalogState.catalog) : [],
+    [catalogState],
   )
-
-  const handleLaunched = (operationId: string, toneTitle: string) => {
-    setInstalling(false)
-    setUninstalling(null)
-    showToast({ tone: 'success', title: toneTitle })
-    navigate(scopedHref(`/workflows/${operationId}`))
-  }
-
-  const renderRoles = (assignment: SoftwareAssignment) =>
-    assignment.roles.length > 0 ? assignment.roles.join(', ') : '-'
-
-  const renderState = (assignment: SoftwareAssignment) => (
-    <Badge colorPalette={assignmentStatePalette(assignment.state)} variant="subtle">
-      {assignmentStateLabel(assignment.state)}
-    </Badge>
+  const footprints = useMemo(
+    () => catalogState.status === 'ready' && footprintData
+      ? softwareFootprints(catalogState.catalog, footprintData.assignments, footprintData.servers)
+      : new Map(),
+    [catalogState, footprintData],
   )
 
   return (
-    <div className="operator-page">
-      <SectionHeader
+    <div className="operator-page sw-software-catalog-page">
+      <PageHeader
         title="Software"
-        description="Install a single piece of host software (Docker CE, Podman, NFS) on deployed Servers, separate from platform deployment."
-        actions={
-          <HStack gap="2">
-            <Button variant="outline" onClick={() => navigate(scopedHref('/software/settings'))}>
-              <Settings size={16} aria-hidden />
-              Settings
-            </Button>
-            <Button colorPalette="brand" onClick={() => setInstalling(true)} disabled={state.status !== 'ready'}>
-              <Plus size={16} />
-              Install software
-            </Button>
-          </HStack>
-        }
+        subtitle="Discover and manage host-level software that Swallow can install on deployed Servers."
       />
-      <DataToolbar variant="plain">
-        <SearchInput value={query} onChange={setQuery} placeholder="Search software" aria-label="Search software" />
-      </DataToolbar>
 
-      {state.status === 'loading' && <LoadingState rows={5} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
-      {state.status === 'ready' && visibleAssignments.length === 0 && (
-        <EmptyState
-          title="No software installed"
-          message={
-            query
-              ? 'No results match this search.'
-              : 'Install software on one or more deployed Servers to see it here.'
-          }
-          action={!query ? { label: 'Install software', onClick: () => setInstalling(true) } : undefined}
-        />
+      {footprintState.status === 'error' && (
+        <Alert status="warning" title="Deployment context is temporarily unavailable">
+          <HStack justify="space-between" gap="3" align="flex-start" wrap="wrap">
+            <Text>{footprintState.message} The installable software catalog is still available.</Text>
+            <Button size="xs" variant="outline" onClick={() => void refreshFootprint(false)}>Retry</Button>
+          </HStack>
+        </Alert>
       )}
-      {state.status === 'ready' && visibleAssignments.length > 0 && (
-        <ResponsiveDataView
-          desktop={
-            <StickyTableFrame>
-              <Table.Root size="sm" aria-label="Software assignments">
-                <Table.Header>
-                  <Table.Row>
-                    <Table.ColumnHeader>Server</Table.ColumnHeader>
-                    <Table.ColumnHeader>Software</Table.ColumnHeader>
-                    <Table.ColumnHeader>Roles</Table.ColumnHeader>
-                    <Table.ColumnHeader>State</Table.ColumnHeader>
-                    <Table.ColumnHeader>Last applied</Table.ColumnHeader>
-                    <Table.ColumnHeader>
-                      <VisuallyHidden>Actions</VisuallyHidden>
-                    </Table.ColumnHeader>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {visibleAssignments.map((assignment) => (
-                    <Table.Row key={`${assignment.serverId}/${assignment.kind}`}>
-                      <Table.Cell>
-                        <strong>{serverLabel(assignment.serverId)}</strong>
-                        <Text as="small" display="block" color="fg.muted" className="sw-mono">
-                          {assignment.serverId}
-                        </Text>
-                      </Table.Cell>
-                      <Table.Cell>{softwareKindLabel(assignment.kind, catalogLabels.get(assignment.kind))}</Table.Cell>
-                      <Table.Cell>{renderRoles(assignment)}</Table.Cell>
-                      <Table.Cell>{renderState(assignment)}</Table.Cell>
-                      <Table.Cell>{assignment.lastAppliedAt ? formatDateTime(assignment.lastAppliedAt) : '-'}</Table.Cell>
-                      <Table.Cell textAlign="end">
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          colorPalette="red"
-                          onClick={() => setUninstalling(assignment)}
-                        >
-                          Uninstall
-                        </Button>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table.Root>
-            </StickyTableFrame>
-          }
-          mobile={
-            <div className="sw-resource-card-list" aria-label="Software assignments">
-              {visibleAssignments.map((assignment) => (
-                <ResourceCard
-                  key={`${assignment.serverId}/${assignment.kind}`}
-                  title={serverLabel(assignment.serverId)}
-                  description={assignment.serverId}
-                  status={renderState(assignment)}
-                  actions={
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      colorPalette="red"
-                      onClick={() => setUninstalling(assignment)}
+
+      {catalogState.status === 'loading' && <LoadingState rows={3} />}
+      {catalogState.status === 'error' && <ErrorState message={catalogState.message} onRetry={() => void loadCatalog()} />}
+      {catalogState.status === 'ready' && catalogState.catalog.length === 0 && (
+        <ErrorState message="The active installation does not publish any Managed Software." onRetry={() => void loadCatalog()} />
+      )}
+      {catalogState.status === 'ready' && catalogState.catalog.length > 0 && (
+        <Stack gap="10">
+          {groups.map((group) => (
+            <Box as="section" key={group.key} aria-labelledby={`software-category-${group.key}`}>
+              <Box className="sw-software-category-heading">
+                <Heading as="h2" id={`software-category-${group.key}`} size="lg">{group.label}</Heading>
+                <Text color="fg.muted">{group.description}</Text>
+              </Box>
+              <div className="sw-software-catalog-grid">
+                {group.entries.map((entry) => {
+                  const presentation = softwareCatalogPresentation(entry.kind)
+                  const footprint = footprints.get(entry.kind)
+                  const Icon = presentation.icon
+                  return (
+                    <RouterLink
+                      key={entry.kind}
+                      to={scopedHref(`/software/${entry.kind}`)}
+                      className="sw-software-catalog-card"
+                      aria-label={`Open ${entry.label}`}
                     >
-                      Uninstall
-                    </Button>
-                  }
-                >
-                  <ResourceCardField label="Software">
-                    {softwareKindLabel(assignment.kind, catalogLabels.get(assignment.kind))}
-                  </ResourceCardField>
-                  <ResourceCardField label="Roles">{renderRoles(assignment)}</ResourceCardField>
-                  <ResourceCardField label="Last applied">
-                    {assignment.lastAppliedAt ? formatDateTime(assignment.lastAppliedAt) : '-'}
-                  </ResourceCardField>
-                </ResourceCard>
-              ))}
-            </div>
-          }
-        />
-      )}
-
-      {installing && state.status === 'ready' && (
-        <InstallSoftwareDialog
-          catalog={state.data.catalog}
-          servers={installTargets}
-          onClose={() => setInstalling(false)}
-          onLaunched={(operationId) => handleLaunched(operationId, 'Software install started')}
-        />
-      )}
-      {uninstalling && (
-        <UninstallSoftwareDialog
-          assignment={uninstalling}
-          serverLabel={serverLabel(uninstalling.serverId)}
-          onClose={() => setUninstalling(null)}
-          onLaunched={(operationId) => handleLaunched(operationId, 'Software uninstall started')}
-        />
+                      <div className="sw-software-catalog-card__topline">
+                        <span className="sw-software-catalog-card__icon" aria-hidden><Icon size={25} /></span>
+                        <Badge variant="subtle" colorPalette="gray">{group.label}</Badge>
+                      </div>
+                      <div>
+                        <Heading as="h3" size="lg">{entry.label}</Heading>
+                        <Text color="fg.muted" mt="2">{presentation.description}</Text>
+                      </div>
+                      <HStack gap="2" wrap="wrap" aria-label={`${entry.label} capabilities`}>
+                        {presentation.capabilities.slice(0, 2).map((capability) => (
+                          <Badge key={capability} variant="outline" colorPalette="gray">{capability}</Badge>
+                        ))}
+                      </HStack>
+                      <div className="sw-software-catalog-card__footer">
+                        <div>
+                          {footprint ? (
+                            <>
+                              <Text fontWeight="semibold">Installed on {footprint.installed} {footprint.installed === 1 ? 'Server' : 'Servers'}</Text>
+                              {(footprint.changing > 0 || footprint.failed > 0) && (
+                                <Text color={footprint.failed > 0 ? 'red.fg' : 'fg.muted'} fontSize="sm">
+                                  {[
+                                    footprint.changing > 0 ? `${footprint.changing} changing` : '',
+                                    footprint.failed > 0 ? `${footprint.failed} failed` : '',
+                                  ].filter(Boolean).join(' · ')}
+                                </Text>
+                              )}
+                            </>
+                          ) : (
+                            <Text color="fg.muted">Deployment count unavailable</Text>
+                          )}
+                        </div>
+                        <ArrowRight size={18} aria-hidden />
+                      </div>
+                    </RouterLink>
+                  )
+                })}
+              </div>
+            </Box>
+          ))}
+        </Stack>
       )}
     </div>
   )

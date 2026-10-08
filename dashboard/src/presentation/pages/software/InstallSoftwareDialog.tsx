@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
-import { Box, Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
+import { Badge, Box, Button, Field, HStack, Input, RadioCard, Stack, Text } from '@chakra-ui/react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
 import type {
-  InstallSoftwareTarget,
+  SoftwareAssignment,
   SoftwareCatalogEntry,
   SoftwareKind,
   SoftwareRole,
@@ -13,71 +15,130 @@ import { DockerApiRiskNotice } from '@/presentation/components/DockerApiRiskNoti
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
-import { Select } from '@/presentation/components/ui/select'
-import { SOFTWARE_TARGETS_HINT, softwareKindLabel } from './softwarePresentation'
+import { SearchInput } from '@/presentation/components/ui/search-input'
+import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import {
+  groupSoftwareCatalog,
+  softwareCatalogPresentation,
+  softwareTargetBlocker,
+  softwareTargetBlockerLabel,
+  softwareTargetMatches,
+} from './softwareCatalogPresentation'
+import {
+  buildSoftwareInstallInput,
+  isSoftwareInstallConfigurationValid,
+  softwareInstallActionLabel,
+  softwareInstallDefaults,
+  softwareInstallMode,
+} from './softwareInstallForm'
 
 interface InstallSoftwareDialogProps {
-  /** The installable catalog fetched by the page; drives the kind picker and its rules. */
+  /** The complete installable catalog; one dimension may be fixed by the caller. */
   catalog: SoftwareCatalogEntry[]
-  /**
-   * Servers offered as install targets, already scoped to the active Site and filtered by the
-   * shared install-target rule (`softwareInstallBlocker`).
-   */
+  /** Site-scoped deployed Servers offered by the Software detail flow, or one fixed Server. */
   servers: Server[]
-  /**
-   * When true the given Servers are the fixed targets (the Server detail page passes its one
-   * Server): they are always selected, named in the description instead of a target list, and only
-   * their roles (for a kind with roles) remain to choose.
-   */
-  fixedTargets?: boolean
+  /** Current assignments used for existing-state, mutual-exclusion, retry, and reconfigure behavior. */
+  assignments: SoftwareAssignment[]
+  /** Software detail fixes the kind and asks for Servers first. */
+  fixedKind?: SoftwareKind
+  /** Server detail fixes one target and asks for software first. */
+  fixedServer?: Server
   onClose: () => void
-  /** Called with the accepted Workflow id so the page can navigate to its progress view. */
+  /** Called with the accepted Workflow id so the route can navigate to its progress view. */
   onLaunched: (operationId: string) => void
 }
 
+type InstallStep = 'software' | 'servers' | 'configuration'
+
 /**
- * Installs one software kind on one or more deployed Servers, from the Software page (choose the
- * targets) or a Server's detail page (`fixedTargets`: that Server only, with no target list).
+ * Shared two-dimensional Managed Software installation flow.
  *
- * The operator picks a kind, selects target Servers, assigns per-Server roles for a kind that has
- * variants (NFS), and fills the kind-specific spec (NFS export/mount, an optional runtime version,
- * and for Docker CE the `enableApi` variant — checked by default to match the contract default, with
- * the shared risk notice beside it). Submit stays disabled until the selection satisfies the kind's
- * role and spec rules, so the obvious client-side mistakes are caught before a Workflow is created;
- * the backend remains the authority on state, mutual exclusion, and Kubernetes-member refusal, and
- * its error is surfaced inline. Dismissal is blocked while the request is in flight so a double
- * submit cannot occur.
+ * Software detail fixes the software dimension (Servers to Configuration); Server detail fixes the
+ * target dimension (Software to Configuration). When both are fixed, row-level Retry/Reconfigure
+ * opens directly on the prefilled configuration. Existing assignments never join a new multi-node
+ * install, so one shared spec cannot silently overwrite heterogeneous Server configuration.
  */
-export function InstallSoftwareDialog({ catalog, servers, fixedTargets = false, onClose, onLaunched }: InstallSoftwareDialogProps) {
+export function InstallSoftwareDialog({
+  catalog,
+  servers,
+  assignments,
+  fixedKind,
+  fixedServer,
+  onClose,
+  onLaunched,
+}: InstallSoftwareDialogProps) {
   const { software } = useApp()
-  const [kind, setKind] = useState<SoftwareKind | ''>(catalog[0]?.kind ?? '')
-  // The selection a kind change resets to: fixed targets stay selected with no roles chosen yet.
-  const initialSelection = (): Record<string, SoftwareRole[]> =>
-    fixedTargets ? Object.fromEntries(servers.map((server) => [server.id, []])) : {}
-  // Selected targets keyed by serverId; the value is the chosen roles (empty for a role-less kind).
-  const [selected, setSelected] = useState<Record<string, SoftwareRole[]>>(initialSelection)
-  const [spec, setSpec] = useState<Record<string, string>>({})
-  // Docker CE's enableApi is the only boolean spec field; it starts checked because the contract
-  // records an omitted value as true, so the form shows what will actually be applied.
-  const [enableApi, setEnableApi] = useState(true)
+  const { siteId, sites, scopedHref } = useSiteScope()
+  const initialEntry = fixedKind ? catalog.find((item) => item.kind === fixedKind) : undefined
+  const initialAssignment = initialEntry && fixedServer
+    ? assignments.find((item) => item.kind === initialEntry.kind && item.serverId === fixedServer.id)
+    : undefined
+  const initialDefaults = initialEntry ? softwareInstallDefaults(initialEntry, initialAssignment) : undefined
+  const [step, setStep] = useState<InstallStep>(
+    fixedKind && fixedServer ? 'configuration' : fixedKind ? 'servers' : 'software',
+  )
+  const [kind, setKind] = useState<SoftwareKind | ''>(fixedKind ?? '')
+  const [selected, setSelected] = useState<Record<string, SoftwareRole[]>>(
+    fixedServer ? { [fixedServer.id]: initialDefaults?.roles ?? [] } : {},
+  )
+  const [spec, setSpec] = useState<Record<string, string>>(initialDefaults?.spec ?? {})
+  const [enableApi, setEnableApi] = useState(initialDefaults?.enableApi ?? true)
+  const [targetQuery, setTargetQuery] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const entry = useMemo(() => catalog.find((item) => item.kind === kind), [catalog, kind])
-  const hasRoles = (entry?.roles.length ?? 0) > 0
-
   const selectedIds = Object.keys(selected)
+  const existingAssignment = entry && fixedServer
+    ? assignments.find((item) => item.kind === entry.kind && item.serverId === fixedServer.id)
+    : undefined
+  const mode = softwareInstallMode(existingAssignment)
+  const hasRoles = (entry?.roles.length ?? 0) > 0
   const specValue = (field: string) => spec[field] ?? ''
   const roleFor = (serverId: string): SoftwareRole[] => selected[serverId] ?? []
+  const siteName = (siteId: string) => sites.find((site) => site.id === siteId)?.name ?? siteId
+  const showSite = !fixedServer && !siteId
+
+  const visibleServers = useMemo(
+    () => servers.filter((server) => softwareTargetMatches(server, targetQuery)),
+    [servers, targetQuery],
+  )
+  const availableVisibleServers = useMemo(
+    () => entry
+      ? visibleServers.filter((server) => softwareTargetBlocker(server, entry, assignments) === null)
+      : [],
+    [assignments, entry, visibleServers],
+  )
+
+  const chooseKind = (nextKind: SoftwareKind) => {
+    const nextEntry = catalog.find((item) => item.kind === nextKind)
+    if (!nextEntry) return
+    const assignment = fixedServer
+      ? assignments.find((item) => item.kind === nextKind && item.serverId === fixedServer.id)
+      : undefined
+    const defaults = softwareInstallDefaults(nextEntry, assignment)
+    setKind(nextKind)
+    setSelected(fixedServer ? { [fixedServer.id]: defaults.roles } : {})
+    setSpec(defaults.spec)
+    setEnableApi(defaults.enableApi)
+    setError('')
+  }
+
+  const softwareChoiceBlocker = (candidate: SoftwareCatalogEntry): string | null => {
+    if (!fixedServer) return null
+    const current = assignments.find((item) => item.serverId === fixedServer.id && item.kind === candidate.kind)
+    if (current?.state === 'pending') return 'Installation is already in progress.'
+    if (current?.state === 'uninstalling') return 'Uninstall is already in progress.'
+    if (current?.state === 'installed' || current?.state === 'failed') return null
+    const blocker = softwareTargetBlocker(fixedServer, candidate, assignments)
+    return blocker ? softwareTargetBlockerLabel(blocker) : null
+  }
 
   const toggleServer = (serverId: string, checked: boolean) => {
     setSelected((current) => {
       const next = { ...current }
-      if (checked) {
-        next[serverId] = current[serverId] ?? []
-      } else {
-        delete next[serverId]
-      }
+      if (checked) next[serverId] = current[serverId] ?? []
+      else delete next[serverId]
       return next
     })
   }
@@ -91,52 +152,29 @@ export function InstallSoftwareDialog({ catalog, servers, fixedTargets = false, 
     })
   }
 
-  // Client-side validity mirrors the contract's required fields so the operator gets immediate
-  // feedback; the backend still enforces the authoritative rules.
-  const valid = useMemo(() => {
-    if (!entry || selectedIds.length === 0) return false
-    if (hasRoles) {
-      const everyTargetHasRole = selectedIds.every((serverId) => roleFor(serverId).length > 0)
-      if (!everyTargetHasRole) return false
-      const anyServer = selectedIds.some((serverId) => roleFor(serverId).includes('server'))
-      const anyClient = selectedIds.some((serverId) => roleFor(serverId).includes('client'))
-      if (anyServer && specValue('exportPath').trim() === '') return false
-      if (anyClient && (specValue('source').trim() === '' || specValue('mountPath').trim() === '')) return false
-    }
-    return true
-    // roleFor/specValue read the same state the deps cover.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry, hasRoles, selected, spec])
-
-  const buildSpec = (): Record<string, unknown> | undefined => {
-    if (!entry) return undefined
-    const result: Record<string, unknown> = {}
-    for (const field of entry.specFields) {
-      if (field === 'enableApi') {
-        // Sent explicitly (never omitted) so an unchecked box cannot fall back to the default.
-        result.enableApi = enableApi
-        continue
-      }
-      const value = specValue(field).trim()
-      if (value !== '') result[field] = value
-    }
-    return Object.keys(result).length > 0 ? result : undefined
-  }
+  const configurationValid = isSoftwareInstallConfigurationValid({
+    entry,
+    serverIds: selectedIds,
+    roles: selected,
+    spec,
+  })
 
   const close = () => {
     if (!submitting) onClose()
   }
 
   const submit = async () => {
-    if (!valid || !entry || submitting) return
+    if (!entry || !configurationValid || submitting) return
     setSubmitting(true)
     setError('')
     try {
-      const assignments: InstallSoftwareTarget[] = selectedIds.map((serverId) => ({
-        serverId,
-        roles: roleFor(serverId),
+      const result = await software.installSoftware(buildSoftwareInstallInput({
+        entry,
+        serverIds: selectedIds,
+        roles: selected,
+        spec,
+        enableApi,
       }))
-      const result = await software.installSoftware({ kind: entry.kind, assignments, spec: buildSpec() })
       onLaunched(result.operationId)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The software could not be installed.')
@@ -145,141 +183,270 @@ export function InstallSoftwareDialog({ catalog, servers, fixedTargets = false, 
     }
   }
 
+  const canContinue = step === 'software' ? Boolean(entry) : selectedIds.length > 0
+  const hasPreviousStep = !(fixedKind && fixedServer)
+  const title = mode === 'reconfigure' && entry
+    ? `Reconfigure ${entry.label}`
+    : mode === 'retry' && entry
+      ? `Retry ${entry.label} installation`
+      : 'Install software'
+  const description = fixedServer
+    ? `Choose and configure software for ${serverDisplayName(fixedServer)}.`
+    : entry
+      ? `Install ${entry.label} on one or more deployed Servers.`
+      : 'Install one Managed Software kind on deployed Servers.'
+
   return (
     <Modal
       open
       onClose={close}
       closeOnInteractOutside={!submitting}
-      size="lg"
-      title="Install software"
-      description={`Install a single piece of host software on ${
-        fixedTargets ? servers.map(serverDisplayName).join(', ') : 'one or more deployed Servers'
-      }. Server and client are variants of the same software, not separate platforms.`}
+      dismissDisabled={submitting}
+      size="xl"
+      title={title}
+      description={description}
+      contentClassName="sw-software-install-dialog"
       onSubmit={(event) => {
         event.preventDefault()
-        void submit()
+        if (step === 'configuration') void submit()
       }}
       footer={
         <>
-          <Button variant="ghost" onClick={close} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button type="submit" colorPalette="brand" loading={submitting} disabled={!valid || submitting}>
-            Install
-          </Button>
+          <Button variant="ghost" onClick={close} disabled={submitting}>Cancel</Button>
+          {step === 'configuration' ? (
+            <>
+              {hasPreviousStep && (
+                <Button
+                  variant="outline"
+                  onClick={() => setStep(fixedKind ? 'servers' : 'software')}
+                  disabled={submitting}
+                >
+                  <ChevronLeft size={16} aria-hidden />
+                  Back
+                </Button>
+              )}
+              <Button
+                type="submit"
+                colorPalette="brand"
+                loading={submitting}
+                disabled={!configurationValid || submitting}
+              >
+                {softwareInstallActionLabel(mode)}
+              </Button>
+            </>
+          ) : (
+            <Button
+              colorPalette="brand"
+              disabled={!canContinue}
+              onClick={() => setStep('configuration')}
+            >
+              Next
+              <ChevronRight size={16} aria-hidden />
+            </Button>
+          )}
         </>
       }
     >
-      <Stack gap="4">
+      <Stack gap="5">
+        {hasPreviousStep && (
+          <HStack as="ol" className="sw-software-install-progress" aria-label="Installation progress">
+            {(fixedKind ? ['Servers', 'Configuration'] : ['Software', 'Configuration']).map((label, index) => {
+              const active = step === 'configuration' ? index === 1 : index === 0
+              return (
+                <HStack as="li" key={label} gap="2" data-active={active || undefined}>
+                  <span>{index + 1}</span>
+                  <Text>{label}</Text>
+                </HStack>
+              )
+            })}
+          </HStack>
+        )}
+
         {error && (
-          <Alert status="error" title="The software could not be installed">
-            {error}
-          </Alert>
+          <Alert status="error" title="The software could not be installed">{error}</Alert>
         )}
 
-        <Field.Root required>
-          <Field.Label>
-            Software <Field.RequiredIndicator />
-          </Field.Label>
-          <Select
-            id="software-kind"
-            aria-label="Software"
-            value={kind}
-            onChange={(value) => {
-              setKind(value as SoftwareKind)
-              setSelected(initialSelection())
-              setSpec({})
-              setEnableApi(true)
-            }}
-            options={catalog.map((item) => ({ value: item.kind, label: softwareKindLabel(item.kind, item.label) }))}
-          />
-          {entry?.refusedForKubernetesMembers && (
-            <Field.HelperText>Cannot be installed on a Kubernetes platform member.</Field.HelperText>
-          )}
-        </Field.Root>
-
-        {/* Fixed targets are named in the description, so only their roles remain to choose. */}
-        {fixedTargets && hasRoles && (
-          <Box as="section" role="group" aria-labelledby="software-roles-label">
-            <Text id="software-roles-label" fontWeight="medium" mb="1">
-              Roles{' '}
-              <Text as="span" color="red.fg" aria-hidden>
-                *
-              </Text>
-            </Text>
-            <HStack gap="3">
-              {entry?.roles.map((role) => (
-                <Checkbox
-                  key={role}
-                  checked={servers.every((server) => roleFor(server.id).includes(role))}
-                  onCheckedChange={(next) => servers.forEach((server) => toggleRole(server.id, role, next))}
+        {step === 'software' && fixedServer && (
+          <Stack gap="6">
+            {groupSoftwareCatalog(catalog).map((group) => (
+              <Box as="section" key={group.key} aria-labelledby={`software-picker-${group.key}`}>
+                <Text id={`software-picker-${group.key}`} fontWeight="semibold" mb="2">{group.label}</Text>
+                <RadioCard.Root
+                  aria-label={group.label}
+                  value={kind}
+                  colorPalette="brand"
+                  className="sw-software-picker-grid"
+                  onValueChange={(details) => {
+                    if (details.value) chooseKind(details.value as SoftwareKind)
+                  }}
                 >
-                  {role}
-                </Checkbox>
-              ))}
-            </HStack>
-          </Box>
+                  {group.entries.map((candidate) => {
+                    const presentation = softwareCatalogPresentation(candidate.kind)
+                    const blocker = softwareChoiceBlocker(candidate)
+                    const assignment = assignments.find((item) =>
+                      item.serverId === fixedServer.id && item.kind === candidate.kind
+                    )
+                    const Icon = presentation.icon
+                    return (
+                      <Box key={candidate.kind} className="sw-software-picker-option">
+                        <RadioCard.Item
+                          value={candidate.kind}
+                          disabled={Boolean(blocker)}
+                          className="sw-software-picker-item"
+                        >
+                          <RadioCard.ItemHiddenInput />
+                          <RadioCard.ItemControl className="sw-software-picker-card">
+                            <RadioCard.ItemContent>
+                              <HStack align="flex-start" gap="3">
+                                <span className="sw-software-picker-card__icon" aria-hidden><Icon size={20} /></span>
+                                <Box minW="0">
+                                  <RadioCard.ItemText>{candidate.label}</RadioCard.ItemText>
+                                  <RadioCard.ItemDescription>{presentation.description}</RadioCard.ItemDescription>
+                                  {assignment && (
+                                    <Badge mt="2" variant="subtle" colorPalette={assignment.state === 'failed' ? 'red' : assignment.state === 'installed' ? 'green' : 'yellow'}>
+                                      {assignment.state === 'installed' ? 'Installed' : assignment.state === 'failed' ? 'Install failed' : assignment.state === 'pending' ? 'Installing' : 'Uninstalling'}
+                                    </Badge>
+                                  )}
+                                  {blocker && <Text color="fg.muted" fontSize="xs" mt="2">{blocker}</Text>}
+                                </Box>
+                              </HStack>
+                            </RadioCard.ItemContent>
+                            <RadioCard.ItemIndicator />
+                          </RadioCard.ItemControl>
+                        </RadioCard.Item>
+                        {assignment && (assignment.state === 'pending' || assignment.state === 'uninstalling') && (
+                          <Button asChild variant="plain" size="xs" mt="1">
+                            <RouterLink to={scopedHref(`/workflows/${assignment.lastWorkflowId}`)}>View workflow</RouterLink>
+                          </Button>
+                        )}
+                      </Box>
+                    )
+                  })}
+                </RadioCard.Root>
+              </Box>
+            ))}
+          </Stack>
         )}
 
-        {/* A labelled group, not a Field.Root: Field.Root associates its id/label with a single
-            control, so wrapping many Checkboxes in one made every label point at the first
-            checkbox (only the first was selectable). A role="group" with an aria-labelledby label
-            keeps each Checkbox's own generated id intact so all rows toggle independently. */}
-        {!fixedTargets && (
-          <Box as="section" role="group" aria-labelledby="software-targets-label">
-            <Text id="software-targets-label" fontWeight="medium" mb="1">
-              Target Servers{' '}
-              <Text as="span" color="red.fg" aria-hidden>
-                *
-              </Text>
-            </Text>
-            <Text color="fg.muted" fontSize="sm" mb="2">
-              {SOFTWARE_TARGETS_HINT}
-            </Text>
-            {servers.length === 0 ? (
-              <Text color="fg.muted" fontSize="sm">
-                No Servers in this Site can take a software install right now.
-              </Text>
+        {step === 'servers' && entry && (
+          <Stack gap="4">
+            <HStack justify="space-between" gap="3" wrap="wrap">
+              <SearchInput
+                value={targetQuery}
+                onChange={setTargetQuery}
+                placeholder="Search Servers, addresses, or tags"
+                aria-label="Search installation targets"
+              />
+              <Text color="fg.muted" fontSize="sm" role="status">{selectedIds.length} selected</Text>
+            </HStack>
+            {visibleServers.length > 0 && (
+              <Checkbox
+                checked={
+                  availableVisibleServers.length > 0 &&
+                  availableVisibleServers.every((server) => server.id in selected)
+                    ? true
+                    : availableVisibleServers.some((server) => server.id in selected)
+                      ? 'indeterminate'
+                      : false
+                }
+                disabled={availableVisibleServers.length === 0}
+                onCheckedChange={(checked) => {
+                  for (const server of availableVisibleServers) toggleServer(server.id, checked)
+                }}
+              >
+                Select all available results
+              </Checkbox>
+            )}
+            {visibleServers.length === 0 ? (
+              <Text color="fg.muted">No Servers match this search.</Text>
             ) : (
-              <Stack as="ul" gap="2" listStyleType="none" maxH="56" overflowY="auto" width="full">
-                {servers.map((server) => {
-                  const checked = server.id in selected
+              <Stack as="ul" className="sw-software-target-list" gap="0" listStyleType="none">
+                {visibleServers.map((server) => {
+                  const blocker = softwareTargetBlocker(server, entry, assignments)
                   return (
-                    <Box as="li" key={server.id}>
-                      <HStack justify="space-between" gap="3" wrap="wrap">
-                        <Checkbox checked={checked} onCheckedChange={(next) => toggleServer(server.id, next)}>
-                          {serverDisplayName(server)}
-                        </Checkbox>
-                        {checked && hasRoles && (
-                          <HStack gap="3" aria-label={`Roles for ${serverDisplayName(server)}`}>
-                            {entry?.roles.map((role) => (
-                              <Checkbox
-                                key={role}
-                                checked={roleFor(server.id).includes(role)}
-                                onCheckedChange={(next) => toggleRole(server.id, role, next)}
-                              >
-                                {role}
-                              </Checkbox>
-                            ))}
-                          </HStack>
-                        )}
+                    <Box as="li" key={server.id} className="sw-software-target-row" data-disabled={Boolean(blocker) || undefined}>
+                      <Checkbox
+                        checked={server.id in selected}
+                        disabled={Boolean(blocker)}
+                        onCheckedChange={(checked) => toggleServer(server.id, checked)}
+                        aria-label={`Select ${serverDisplayName(server)}`}
+                      />
+                      <Box minW="0" flex="1">
+                        <Text fontWeight="semibold">{serverDisplayName(server)}</Text>
+                        <Text color="fg.muted" fontSize="sm">
+                          {[server.addresses[0], showSite ? siteName(server.source.siteId) : ''].filter(Boolean).join(' · ') || server.id}
+                        </Text>
+                        {blocker && <Text color="fg.muted" fontSize="xs">{softwareTargetBlockerLabel(blocker)}</Text>}
+                      </Box>
+                      <HStack gap="1" wrap="wrap" justify="flex-end">
+                        {server.tags.slice(0, 2).map((tag) => <Badge key={tag} variant="subtle" colorPalette="gray">{tag}</Badge>)}
                       </HStack>
                     </Box>
                   )
                 })}
               </Stack>
             )}
-          </Box>
+          </Stack>
         )}
 
-        {entry && renderSpecFields(entry, specValue, (field, value) => setSpec((current) => ({ ...current, [field]: value })))}
+        {step === 'configuration' && entry && (
+          <Stack gap="5">
+            <Box className="sw-software-configuration-summary">
+              <Text fontWeight="semibold">
+                {entry.label} · {selectedIds.length} {selectedIds.length === 1 ? 'Server' : 'Servers'}
+              </Text>
+              <Text color="fg.muted" fontSize="sm">
+                {mode === 'reconfigure'
+                  ? 'The complete configuration below replaces the recorded configuration on this Server.'
+                  : mode === 'retry'
+                    ? 'Retry the failed installation with the configuration below.'
+                    : 'Swallow will create one Workflow for these targets.'}
+              </Text>
+            </Box>
 
-        {entry?.specFields.includes('enableApi') && (
-          <Stack gap="2">
-            <Checkbox checked={enableApi} onCheckedChange={setEnableApi}>
-              Enable the Docker Engine API (required for the Server&apos;s Containers tab)
-            </Checkbox>
-            <DockerApiRiskNotice context="option" />
+            {hasRoles && (
+              <Box as="section" role="group" aria-labelledby="software-roles-label">
+                <Text id="software-roles-label" fontWeight="semibold" mb="2">
+                  Roles <Text as="span" color="red.fg" aria-hidden>*</Text>
+                </Text>
+                <Stack gap="2">
+                  {selectedIds.map((serverId) => {
+                    const server = servers.find((candidate) => candidate.id === serverId)
+                    return (
+                      <HStack key={serverId} className="sw-software-role-row" justify="space-between" gap="3" wrap="wrap">
+                        <Text>{server ? serverDisplayName(server) : serverId}</Text>
+                        <HStack gap="3" aria-label={`Roles for ${server ? serverDisplayName(server) : serverId}`}>
+                          {entry.roles.map((role) => (
+                            <Checkbox
+                              key={role}
+                              checked={roleFor(serverId).includes(role)}
+                              onCheckedChange={(checked) => toggleRole(serverId, role, checked)}
+                            >
+                              {role}
+                            </Checkbox>
+                          ))}
+                        </HStack>
+                      </HStack>
+                    )
+                  })}
+                </Stack>
+              </Box>
+            )}
+
+            <SoftwareSpecFields
+              entry={entry}
+              value={specValue}
+              onChange={(field, value) => setSpec((current) => ({ ...current, [field]: value }))}
+            />
+
+            {entry.specFields.includes('enableApi') && (
+              <Stack gap="2">
+                <Checkbox checked={enableApi} onCheckedChange={setEnableApi}>
+                  Enable the Docker Engine API (required for the Server&apos;s Containers tab)
+                </Checkbox>
+                <DockerApiRiskNotice context="option" />
+              </Stack>
+            )}
           </Stack>
         )}
       </Stack>
@@ -287,60 +454,40 @@ export function InstallSoftwareDialog({ catalog, servers, fixedTargets = false, 
   )
 }
 
-/**
- * Renders the kind-specific spec inputs. NFS gets export/mount fields; a container runtime gets an
- * optional pinned version. Fields are omitted from the payload when left blank, and required NFS
- * fields are enforced by the dialog's validity check.
- */
-function renderSpecFields(
-  entry: SoftwareCatalogEntry,
-  value: (field: string) => string,
-  onChange: (field: string, value: string) => void,
-) {
+/** Kind-specific configuration fields shared by new installs, retry, and reconfigure. */
+function SoftwareSpecFields({
+  entry,
+  value,
+  onChange,
+}: {
+  entry: SoftwareCatalogEntry
+  value: (field: string) => string
+  onChange: (field: string, value: string) => void
+}) {
   if (entry.kind === 'nfs') {
     return (
       <Stack gap="4">
         <Field.Root>
           <Field.Label>Export path (server)</Field.Label>
-          <Input
-            value={value('exportPath')}
-            onChange={(event) => onChange('exportPath', event.target.value)}
-            placeholder="/export/data"
-          />
+          <Input value={value('exportPath')} onChange={(event) => onChange('exportPath', event.target.value)} placeholder="/export/data" />
           <Field.HelperText>Required when a Server takes the server role.</Field.HelperText>
         </Field.Root>
         <Field.Root>
           <Field.Label>Export options (server)</Field.Label>
-          <Input
-            value={value('exportOptions')}
-            onChange={(event) => onChange('exportOptions', event.target.value)}
-            placeholder="rw,sync,no_subtree_check,root_squash"
-          />
+          <Input value={value('exportOptions')} onChange={(event) => onChange('exportOptions', event.target.value)} placeholder="rw,sync,no_subtree_check,root_squash" />
         </Field.Root>
         <Field.Root>
           <Field.Label>Source (client)</Field.Label>
-          <Input
-            value={value('source')}
-            onChange={(event) => onChange('source', event.target.value)}
-            placeholder="10.0.0.9:/export/data"
-          />
+          <Input value={value('source')} onChange={(event) => onChange('source', event.target.value)} placeholder="10.0.0.9:/export/data" />
           <Field.HelperText>Required when a Server takes the client role (host:/path).</Field.HelperText>
         </Field.Root>
         <Field.Root>
           <Field.Label>Mount path (client)</Field.Label>
-          <Input
-            value={value('mountPath')}
-            onChange={(event) => onChange('mountPath', event.target.value)}
-            placeholder="/shared"
-          />
+          <Input value={value('mountPath')} onChange={(event) => onChange('mountPath', event.target.value)} placeholder="/shared" />
         </Field.Root>
         <Field.Root>
           <Field.Label>Mount options (client)</Field.Label>
-          <Input
-            value={value('mountOptions')}
-            onChange={(event) => onChange('mountOptions', event.target.value)}
-            placeholder="rw,_netdev"
-          />
+          <Input value={value('mountOptions')} onChange={(event) => onChange('mountOptions', event.target.value)} placeholder="rw,_netdev" />
         </Field.Root>
       </Stack>
     )
@@ -349,11 +496,7 @@ function renderSpecFields(
     return (
       <Field.Root>
         <Field.Label>Version</Field.Label>
-        <Input
-          value={value('version')}
-          onChange={(event) => onChange('version', event.target.value)}
-          placeholder="Leave blank for the latest available"
-        />
+        <Input value={value('version')} onChange={(event) => onChange('version', event.target.value)} placeholder="Leave blank for the latest available" />
       </Field.Root>
     )
   }

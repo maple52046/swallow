@@ -15,21 +15,35 @@ interface ServerSoftwareInstallDialogProps {
 }
 
 /**
- * Install software from a Server's detail page: the shared install dialog with this Server as its
- * fixed target. The software catalog is read when it opens, because the detail page does not load
- * it otherwise.
+ * Opens the shared Software-first installation flow with one fixed Server.
  *
- * Nothing is rendered while that short read runs. A placeholder dialog would have to be swapped for
- * the install dialog once the catalog arrives, and unmounting one dialog returns focus outside the
- * next, which then dismisses itself. A failed read shows the reason in a dialog with a retry.
+ * Catalog and existing assignments are read together so each choice can distinguish a new install,
+ * retry, reconfigure, mutual exclusion, or in-progress Workflow. Nothing is rendered during that
+ * short read: swapping a placeholder dialog would move focus outside the newly mounted dialog and
+ * dismiss it. A failed read remains a real dialog with a retry action.
  */
 export function ServerSoftwareInstallDialog({ server, onClose, onLaunched }: ServerSoftwareInstallDialogProps) {
   const { software } = useApp()
-  const catalog = useAsyncData(() => software.listCatalog(), [software])
+  const workspace = useAsyncData(async () => {
+    const [catalog, assignments] = await Promise.all([
+      software.listCatalog(),
+      software.listAssignments({ serverId: server.id }),
+    ])
+    return { catalog, assignments }
+  }, [software, server.id])
 
-  if (catalog.status === 'loading') return null
-  if (catalog.status === 'ready') {
-    return <InstallSoftwareDialog catalog={catalog.data} servers={[server]} fixedTargets onClose={onClose} onLaunched={onLaunched} />
+  if (workspace.status === 'loading') return null
+  if (workspace.status === 'ready') {
+    return (
+      <InstallSoftwareDialog
+        catalog={workspace.data.catalog}
+        assignments={workspace.data.assignments}
+        servers={[server]}
+        fixedServer={server}
+        onClose={onClose}
+        onLaunched={onLaunched}
+      />
+    )
   }
   return (
     <Modal
@@ -43,7 +57,7 @@ export function ServerSoftwareInstallDialog({ server, onClose, onLaunched }: Ser
         </Button>
       }
     >
-      <ErrorState message={catalog.message} onRetry={catalog.reload} />
+      <ErrorState message={workspace.message} onRetry={workspace.reload} />
     </Modal>
   )
 }

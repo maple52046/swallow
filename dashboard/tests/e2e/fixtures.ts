@@ -1,5 +1,6 @@
 import type { Page, Route } from 'playwright/test'
 import type { Server } from '@/domain/server/types'
+import type { SoftwareAssignment } from '@/domain/software/types'
 
 const now = '2026-08-27T03:00:00Z'
 
@@ -303,8 +304,16 @@ export interface FixtureOptions {
    * is not offered. Opt-in so other tests are unaffected.
    */
   dockerAssignments?: Record<string, 'enabled' | 'disabled'>
+  /** Generic Managed Software assignments used by catalog/detail and lifecycle tests. */
+  softwareAssignments?: SoftwareAssignment[]
+  /** GET request ordinals that should fail, allowing initial and background failure coverage. */
+  softwareAssignmentFailureRequestNumbers?: number[]
   /** Called with the body of every POST /software/assignments (a Docker CE re-apply from the tab). */
   onSoftwareInstallRequest?: (body: Record<string, unknown>) => void
+  /** Makes the Managed Software install endpoint reject the submitted request. */
+  softwareInstallError?: { status: number; code: string; message: string }
+  /** Called with every POST /software/uninstall request. */
+  onSoftwareUninstallRequest?: (body: Record<string, unknown>) => void
   /** Called for every Docker Host Explorer write with its method, explorer sub-path, and JSON body. */
   onDockerRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
   /** Holds every image pull response until it resolves, to exercise a long-running pull. */
@@ -476,7 +485,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     return { ...key, providerSync: key.providerSync.map(({ integrationId, siteId }) => ({ integrationId, siteId, state: 'pending' })) }
   }
   // Per-page Docker CE assignments and Docker Engine objects (software.md, servers-docker.md).
-  const dockerAssignments = new Map(
+  const dockerAssignments = new Map<string, SoftwareAssignment>(
     Object.entries(options.dockerAssignments ?? {}).map(([serverId, mode]) => [serverId, {
       serverId, kind: 'docker-ce', roles: [] as string[],
       spec: mode === 'enabled' ? ({ enableApi: true } as Record<string, unknown>) : null,
@@ -484,6 +493,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       createdAt: '2026-08-20T00:00:00Z', updatedAt: '2026-08-20T00:00:00Z',
     }]),
   )
+  let softwareAssignmentItems: SoftwareAssignment[] = [
+    ...dockerAssignments.values(),
+    ...structuredClone(options.softwareAssignments ?? []),
+  ]
+  let softwareAssignmentRequestCount = 0
   let dockerImages = [
     { id: 'sha256:1111111111111111111111111111111111111111111111111111111111111111', repoTags: ['nginx:1.27'], repoDigests: ['nginx@sha256:aaaa'], sizeBytes: 192004589, createdAt: '2026-08-20T00:00:00Z', dangling: false },
     { id: 'sha256:2222222222222222222222222222222222222222222222222222222222222222', repoTags: [] as string[], repoDigests: [] as string[], sizeBytes: 5000000, createdAt: '2026-08-10T00:00:00Z', dangling: true },
@@ -1081,21 +1095,67 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       registryCredentialItems = registryCredentialItems.filter((entry) => entry.id !== decodeURIComponent(registryCredentialMatch[1]))
       return route.fulfill({ status: 204 })
     }
-    // Managed Software assignments: only the Docker CE records the explorer tests opt into.
+    // Managed Software assignments used by catalog, detail, install, and Docker explorer tests.
     if (path === '/api/v1/software/assignments' && request.method() === 'GET') {
+      softwareAssignmentRequestCount += 1
+      if (options.softwareAssignmentFailureRequestNumbers?.includes(softwareAssignmentRequestCount)) {
+        return json(route, { error: { code: 'provider_unavailable', message: 'Software assignments are temporarily unavailable.', requestId: 'req-software-list' } }, 503)
+      }
       const serverId = url.searchParams.get('serverId')
       const kind = url.searchParams.get('kind')
-      const items = [...dockerAssignments.values()].filter((item) => (!serverId || item.serverId === serverId) && (!kind || item.kind === kind))
+      const items = softwareAssignmentItems.filter((item) => (!serverId || item.serverId === serverId) && (!kind || item.kind === kind))
       return json(route, { items })
     }
     if (path === '/api/v1/software/assignments' && request.method() === 'POST') {
-      const body = (request.postDataJSON() ?? {}) as { assignments?: Array<{ serverId: string }>; spec?: Record<string, unknown> }
+      const body = (request.postDataJSON() ?? {}) as {
+        kind?: SoftwareAssignment['kind']
+        assignments?: Array<{ serverId: string; roles?: SoftwareAssignment['roles'] }>
+        spec?: Record<string, unknown>
+      }
       options.onSoftwareInstallRequest?.(body as Record<string, unknown>)
+      if (options.softwareInstallError) {
+        return json(route, {
+          error: { code: options.softwareInstallError.code, message: options.softwareInstallError.message },
+        }, options.softwareInstallError.status)
+      }
       for (const target of body.assignments ?? []) {
-        const existing = dockerAssignments.get(target.serverId)
-        if (existing) Object.assign(existing, { state: 'pending', spec: body.spec ?? null, lastWorkflowId: 'op-docker-reapply' })
+        const existing = softwareAssignmentItems.find((item) =>
+          item.serverId === target.serverId && item.kind === body.kind
+        )
+        if (existing) {
+          Object.assign(existing, {
+            roles: target.roles ?? [],
+            state: 'pending',
+            spec: body.spec ?? null,
+            lastWorkflowId: 'op-docker-reapply',
+            updatedAt: now,
+          })
+        } else if (body.kind) {
+          const created: SoftwareAssignment = {
+            serverId: target.serverId,
+            kind: body.kind,
+            roles: target.roles ?? [],
+            spec: body.spec ?? null,
+            state: 'pending',
+            lastWorkflowId: 'op-docker-reapply',
+            lastAppliedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          }
+          softwareAssignmentItems = [...softwareAssignmentItems, created]
+          if (body.kind === 'docker-ce') dockerAssignments.set(target.serverId, created)
+        }
       }
       return json(route, { operationId: 'op-docker-reapply' }, 202)
+    }
+    if (path === '/api/v1/software/uninstall' && request.method() === 'POST') {
+      const body = (request.postDataJSON() ?? {}) as { kind?: SoftwareAssignment['kind']; serverIds?: string[] }
+      options.onSoftwareUninstallRequest?.(body as Record<string, unknown>)
+      for (const serverId of body.serverIds ?? []) {
+        const existing = softwareAssignmentItems.find((item) => item.serverId === serverId && item.kind === body.kind)
+        if (existing) Object.assign(existing, { state: 'uninstalling', lastWorkflowId: 'op-software-uninstall', updatedAt: now })
+      }
+      return json(route, { operationId: 'op-software-uninstall' }, 202)
     }
     // Docker Host Explorer: eligible only for an installed Docker CE with enableApi (servers-docker.md).
     const dockerMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/docker(\/.*)?$/)

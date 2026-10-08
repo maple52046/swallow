@@ -16,7 +16,7 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/provisioning/images` | OS images, upload, delete, and verification |
 | `/platforms`, `/platforms/:id` | Kubernetes/Slurm Platform inventory and detail |
 | `/platforms/deploy`, `/platforms/settings` | Platform deployment and Slurm requirements |
-| `/software` | Managed Software assignments and actions |
+| `/software`, `/software/:kind` | Managed Software catalog, deployments, and multi-Server installation |
 | `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
 | `/monitoring` | Alerts, silences, metrics, health, and Grafana |
 | `/infrastructure/*` | Sites, Integrations, Zones, and Pools |

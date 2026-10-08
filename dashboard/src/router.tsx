@@ -19,6 +19,7 @@ import { DeployPlatformWizardPage } from './presentation/pages/platforms/DeployP
 import { PlatformSettingsPage } from './presentation/pages/platforms/PlatformSettingsPage'
 import { LegacyPlatformRedirect } from './presentation/pages/platforms/LegacyPlatformRedirect'
 import { SoftwarePage } from './presentation/pages/software/SoftwarePage'
+import { SoftwareDetailPage } from './presentation/pages/software/SoftwareDetailPage'
 import { SoftwareSettingsPage } from './presentation/pages/software/SoftwareSettingsPage'
 import { OperatorOperationsPage } from './presentation/pages/operations/OperatorOperationsPage'
 import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
@@ -80,6 +81,8 @@ export const router = createBrowserRouter([
       { path: 'platforms/:id', element: <PlatformDetailPage /> },
       { path: 'software', element: <SoftwarePage /> },
       { path: 'software/settings', element: <SoftwareSettingsPage /> },
+      { path: 'software/:kind/settings', element: <SoftwareSettingsPage /> },
+      { path: 'software/:kind', element: <SoftwareDetailPage /> },
       { path: 'clusters', element: <LegacyPlatformRedirect /> },
       { path: 'clusters/deploy', element: <LegacyPlatformRedirect deploy /> },
       { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },

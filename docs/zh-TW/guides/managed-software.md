@@ -38,10 +38,17 @@ package fact 都即時；結果不清楚時請看 associated Workflow 與 host d
 
 ## Install 與 uninstall
 
-在 **Software** 選擇 kind、variant/settings 與 targets，或在 Server 的
-**Take action** → **Install software** 只安裝到該 Server（Server 無法安裝時，該項目會說明原因）。
-送出後會透過 registered playbook mapping 建立 Workflow。Uninstall 是 explicit request，會產生另一個 Workflow；
-刪除 Server／Platform 不會默認 uninstall 所有 software。
+**Software** 是 Swallow 可管理 software 的 catalog。開啟 software card 後可查看能力與目前
+deployment，再使用 **Install software** 選擇一台或多台 eligible Servers，接著設定該
+software。已經存在 assignment 的 Server 則從同一個 detail 頁進行 **Reconfigure**、
+**Retry install** 或 **Uninstall**。
+
+Server 的 **Take action** → **Install software** 是 fixed-Server 入口：第一步從分類 catalog
+選擇 software，第二步設定該 software。已安裝或失敗的 assignment 會預填完整設定，供
+reconfigure 或 retry；進行中的 assignment 則直接提供 Workflow link。Server 無法安裝時，
+action 會說明原因。送出後會透過 registered playbook mapping 建立 Workflow。Uninstall 是
+explicit request，會產生另一個 Workflow；刪除 Server／Platform 不會默認 uninstall 所有
+software。
 
 變更 NFS server/client role 可能影響 mounted storage 與 workload availability，
 需要額外檢查。
@@ -77,8 +84,8 @@ swallow 在 Server 上安裝 Docker CE 後，Server detail 頁面會出現 **Con
 
 ### Private registry
 
-要 pull private image，請在 **Software › Settings › Docker CE** 新增 **Registry credential**
-（Settings 頁依 software kind 分類）：registry host
+要 pull private image，請在 **Software › Docker CE › Settings** 新增 **Registry credential**。
+只有具備專屬設定的 software 才會顯示這個 action。請輸入 registry host
 （例如 `harbor.example.com`，Docker Hub 用 `docker.io`——輸入 `hub.docker.com` 也會存成
 `docker.io`）、username，以及 password 或 access token。對話框會顯示憑證實際存成哪個
 registry。Pull 時會使用 image reference 中那個 registry 的憑證——`nginx`、`team/app`

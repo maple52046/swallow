@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from 'playwright/test'
+import type { SoftwareAssignment } from '@/domain/software/types'
 import { installApiFixtures } from '../e2e/fixtures'
 
 const visualCases = [
@@ -9,12 +10,43 @@ const visualCases = [
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true, representative: false },
   { name: 'os-image-list', path: '/provisioning/images?site=site-a', heading: 'OS images', authenticated: true, representative: false },
   { name: 'boot-isos', path: '/provisioning/boot-isos?site=site-a', heading: 'Boot ISOs', authenticated: true, representative: false },
+  { name: 'software-catalog', path: '/software?site=site-a', heading: 'Software', authenticated: true, representative: false },
+  { name: 'software-docker-detail', path: '/software/docker-ce?site=site-a', heading: 'Docker CE', authenticated: true, representative: false },
+  { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
 ] as const
+
+const visualSoftwareAssignments: SoftwareAssignment[] = [
+  {
+    serverId: 'srv-5', kind: 'docker-ce', roles: [], spec: { version: '27.3.1', enableApi: true },
+    state: 'installed', lastWorkflowId: 'op-docker-installed', lastAppliedAt: '2026-08-26T06:00:00Z',
+    createdAt: '2026-08-25T04:00:00Z', updatedAt: '2026-08-26T06:00:00Z',
+  },
+  {
+    serverId: 'srv-1', kind: 'docker-ce', roles: [], spec: { enableApi: false },
+    state: 'pending', lastWorkflowId: 'op-docker-installing', lastAppliedAt: null,
+    createdAt: '2026-08-27T02:00:00Z', updatedAt: '2026-08-27T02:05:00Z',
+  },
+  {
+    serverId: 'srv-2', kind: 'podman', roles: [], spec: { version: '5.2' },
+    state: 'failed', lastWorkflowId: 'op-podman-failed', lastAppliedAt: null,
+    createdAt: '2026-08-26T02:00:00Z', updatedAt: '2026-08-26T02:15:00Z',
+  },
+  {
+    serverId: 'srv-5', kind: 'nfs', roles: ['client'], spec: { source: 'storage.internal:/gpu-data', mountPath: '/shared/gpu-data' },
+    state: 'installed', lastWorkflowId: 'op-nfs-installed', lastAppliedAt: '2026-08-26T07:00:00Z',
+    createdAt: '2026-08-24T02:00:00Z', updatedAt: '2026-08-26T07:00:00Z',
+  },
+  {
+    serverId: 'srv-3', kind: 'nfs', roles: ['server'], spec: { exportPath: '/srv/training-data', exportOptions: 'rw,sync' },
+    state: 'failed', lastWorkflowId: 'op-nfs-failed', lastAppliedAt: null,
+    createdAt: '2026-08-26T03:00:00Z', updatedAt: '2026-08-26T03:15:00Z',
+  },
+]
 
 async function setAppearance(page: Page, appearance: 'dark' | 'light') {
   await page.addInitScript(({ appearance }) => {
@@ -37,6 +69,12 @@ async function capture(page: Page, testInfo: TestInfo, name: string, fullPage = 
     path: testInfo.outputPath(`${name}-${testInfo.project.name}.png`),
     animations: 'disabled', caret: 'hide', fullPage,
   })
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+  await expect.poll(() => page.evaluate(() => (
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+  ))).toBe(true)
 }
 
 async function chooseOption(page: Page, label: string, option: string) {
@@ -63,15 +101,57 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'servers'
           ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
           : {}),
+        ...(visualCase.name.startsWith('software-')
+          ? { fleetSize: 5, softwareAssignments: visualSoftwareAssignments }
+          : {}),
       })
       await setAppearance(page, appearance)
 
       await page.goto(visualCase.path)
       await expect(page.getByRole('heading', { name: visualCase.heading, exact: true }).first()).toBeVisible()
       await prepareCapture(page, appearance)
+      if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
     })
   }
+})
+
+/** Captures both contextual entry points of the shared Managed Software installation flow. */
+test.describe('Software installation flow visual review', () => {
+  test('software detail multi-node dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { fleetSize: 5, softwareAssignments: visualSoftwareAssignments })
+    await setAppearance(page, appearance)
+    await page.goto('/software/nfs?site=site-a')
+    await page.getByRole('button', { name: 'Install software', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Install software' })
+    await expect(dialog.getByRole('textbox', { name: 'Search installation targets' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-multi-node-dialog', false)
+  })
+
+  test('Server detail fixed-target dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, {
+      fleetSize: 5,
+      softwareAssignments: [{
+        ...visualSoftwareAssignments[0],
+        state: 'failed',
+        lastAppliedAt: null,
+        lastWorkflowId: 'op-docker-failed',
+      }],
+    })
+    await setAppearance(page, appearance)
+    await page.goto('/servers/srv-5/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: /Install software/ }).click()
+    const dialog = page.getByRole('dialog', { name: 'Install software' })
+    await expect(dialog.getByText('Choose and configure software for compute-node-005.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-server-dialog', false)
+  })
 })
 
 /** Captures each contextual or embedded OS deployment adapter where its differences matter. */

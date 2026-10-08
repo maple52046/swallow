@@ -19,20 +19,14 @@ export function softwareInstallBlockerReason(blocker: SoftwareInstallBlocker): s
   }
 }
 
-/** The rule the install dialog's target list states under its heading. */
-export const SOFTWARE_TARGETS_HINT =
-  'Deployed Servers are listed unless an OS deployment on them is running, failed, or needs attention.'
-
-/** The query parameter of `/software/settings` that selects one software kind's settings group. */
+/** Legacy query parameter retained for old `/software/settings` bookmarks. */
 export const SOFTWARE_SETTINGS_KIND_PARAM = 'kind'
 
 /**
- * Path of one kind's group on the Software settings page, for links from elsewhere (for example the
- * Pull image dialog pointing at Docker CE's Registry credentials). Callers add the Site scope with
- * `scopedHref`.
+ * Canonical settings path for one software kind. Callers add the Site scope with `scopedHref`.
  */
 export function softwareSettingsPath(kind: SoftwareKind): string {
-  return `/software/settings?${SOFTWARE_SETTINGS_KIND_PARAM}=${encodeURIComponent(kind)}`
+  return `/software/${encodeURIComponent(kind)}/settings`
 }
 
 /**
@@ -81,7 +75,7 @@ export function assignmentStateLabel(state: SoftwareAssignmentState): string {
     case 'failed':
       return 'Failed'
     case 'pending':
-      return 'Pending'
+      return 'Installing'
     case 'uninstalling':
       return 'Uninstalling'
     case 'absent':

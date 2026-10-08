@@ -14,7 +14,7 @@ current session in the browser.
 | Servers | Inventory, Add servers (enrollment guidance), filters, saved views, bulk actions, tags, locks, and Server details including Boot Media |
 | Provisioning | OS deployment, templates, images, Boot ISOs, upload, and verification |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
-| Software | Docker CE, Podman, and NFS installation state and actions |
+| Software | Grouped Docker CE, Podman, and NFS catalog, per-software deployments, and multi-Server installation |
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
 | Monitoring | Alerts, silences, fixed metrics, fleet health, and Grafana links |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |

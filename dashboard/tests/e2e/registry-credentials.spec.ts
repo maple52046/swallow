@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Docker CE Registry Credentials (decision 044): managed in Software settings under Docker CE,
+// Docker CE Registry Credentials (decision 044): managed in Docker CE settings,
 // write-only passwords, and used by the Pull image dialog for references whose registry has one.
 
 test.beforeEach(async ({ page }) => {
@@ -16,13 +16,15 @@ test('credentials are added, replaced, and deleted without ever showing a passwo
     registryCredentials: [{ registry: 'docker.io', username: 'hub-bot' }],
     onRegistryCredentialRequest: (method, _path, body) => writes.push({ method, body }),
   })
-  // Credentials are a Docker CE setting: not on the software-wide list, but in Software settings.
+  // Credentials are owned by Docker CE: the catalog has no global settings action.
   await page.goto('/software?site=site-a')
   await expect(page.getByRole('heading', { name: 'Software', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Registry credentials' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expect(page).toHaveURL(/\/software\/settings\?site=site-a/)
-  await expect(page.getByRole('tab', { name: 'Docker CE', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Open Docker CE' }).click()
+  await page.getByRole('link', { name: 'Settings', exact: true }).click()
+  await expect(page).toHaveURL('/software/docker-ce/settings?site=site-a')
+  await expect(page.getByRole('heading', { name: 'Docker CE settings', exact: true })).toBeVisible()
 
   const list = page.getByRole('table', { name: 'Registry credentials' })
   await expect(list.getByRole('row').filter({ hasText: 'docker.io' })).toContainText('Docker Hub')
@@ -72,7 +74,7 @@ test('the pull dialog says which saved credential a reference will use', async (
 
   await reference.fill('nginx:1.27')
   await expect(pull.getByRole('status')).toContainText('No saved credential for docker.io, so the pull is anonymous.')
-  await expect(pull.getByRole('link', { name: 'registry credential' })).toHaveAttribute('href', /\/software\/settings\?kind=docker-ce&site=site-a/)
+  await expect(pull.getByRole('link', { name: 'registry credential' })).toHaveAttribute('href', '/software/docker-ce/settings?site=site-a')
 
   await reference.fill('harbor.lab.local/team/app:1.4')
   await expect(pull.getByRole('status')).toContainText('Signs in to harbor.lab.local as robot')

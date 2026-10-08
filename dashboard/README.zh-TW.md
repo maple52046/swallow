@@ -16,7 +16,7 @@
 | `/provisioning/images` | OS image、upload、delete、verification |
 | `/platforms`、`/platforms/:id` | Kubernetes／Slurm Platform inventory 與 detail |
 | `/platforms/deploy`、`/platforms/settings` | Platform deployment 與 Slurm requirement |
-| `/software` | Managed Software Assignment 與 action |
+| `/software`、`/software/:kind` | Managed Software catalog、deployment 與多 Server 安裝 |
 | `/workflows`、`/workflows/:id` | Durable Workflow list、event、log 與 control |
 | `/monitoring` | Alert、silence、metric、health 與 Grafana |
 | `/infrastructure/*` | Site、Integration、Zone、Pool |

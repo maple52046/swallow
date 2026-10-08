@@ -13,7 +13,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Servers | Inventory、Add servers（納管引導）、filter、saved view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
 | Provisioning | OS deployment、template、image、Boot ISO、upload 與 verification |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
-| Software | Docker CE、Podman、NFS installation state 與 action |
+| Software | 分類呈現 Docker CE、Podman、NFS catalog、各 software deployment 與多 Server 安裝 |
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
 | Monitoring | Alert、silence、fixed metrics、fleet health 與 Grafana link |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
