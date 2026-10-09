@@ -180,6 +180,20 @@ interface BootISOFixture {
   url?: string | null
 }
 
+/**
+ * One Server's Power Configuration as the provisioner holds it (decision 054). The password itself
+ * is never part of a fixture; only whether one is set.
+ */
+export interface PowerConfigurationFixture {
+  driver: string
+  address?: string
+  powerId?: string
+  username?: string
+  passwordSet?: boolean
+  /** A provisioner VM host whose own configuration powers the Server, making it read-only. */
+  managedBy?: string
+}
+
 /** Controls for large-fleet, concurrency, and failure-path browser fixtures. */
 export interface FixtureOptions {
   /**
@@ -339,6 +353,15 @@ export interface FixtureOptions {
   /** srv-1's Boot Media setting at page load (`null`, never set, when omitted). */
   bootMediaSetting?: Record<string, unknown>
   /**
+   * Power Configurations by serverId at page load (decision 054). Servers not listed have the IPMI
+   * BMC the provisioner detail reports (192.0.2.20, bmc-admin, a password set).
+   */
+  powerConfigurations?: Record<string, PowerConfigurationFixture>
+  /** Called for every Power Configuration write with its JSON body (a password included). */
+  onPowerConfigurationRequest?: (serverId: string, body: Record<string, unknown>) => void
+  /** Makes the Power Configuration PUT fail with this API error instead of saving. */
+  powerConfigurationError?: { status: number; code: string; message: string }
+  /**
    * Holds an enable preflight open until it resolves; meanwhile the Boot Media read reports it as
    * running (`apply`) in the settle phase, as the real API does for about three minutes.
    */
@@ -366,6 +389,11 @@ export interface FixtureOptions {
   singleSite?: boolean
   /** Servers whose inspect-hardware Workflow waits in `requires_attention` (decision 053). */
   inspectionAttentionServerIds?: string[]
+  /**
+   * Servers whose inspect-hardware Workflow stopped at the enrollment wait with
+   * `power_configuration_required` (decision 054): enrollment ended without a readable power driver.
+   */
+  powerAttentionServerIds?: string[]
   /** Called for every enroll-bundle read with its method, path, and the swallowUrl it sent. */
   onEnrollmentRequest?: (method: string, path: string, swallowUrl: string) => void
 }
@@ -438,6 +466,21 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       redfishVersion: '1.15.1', firmwareVersion: '13.06.10', systemId: 'Self', virtualMedia: true,
       bootOverrideModes: ['Once', 'Continuous'], probedAt: now,
     },
+  }
+  // Per-page Power Configurations (decision 054), keyed by serverId; a write replaces one the way
+  // the API does, keeping the password for an unchanged driver when the body omits it.
+  const powerConfigurations: Record<string, PowerConfigurationFixture> = { ...(options.powerConfigurations ?? {}) }
+  const powerFamily = (driver: string) => (driver === 'ipmi' || driver === 'redfish' ? 'bmc' : driver === 'virsh' ? 'virsh' : '')
+  const powerControl = (driver: string) => (driver === '' ? 'none' : driver === 'manual' ? 'manual' : 'automatic')
+  const powerConfigurationView = (serverId: string) => {
+    const config = powerConfigurations[serverId] ?? { driver: 'ipmi', address: '192.0.2.20', username: 'bmc-admin', passwordSet: true }
+    return {
+      serverId, driver: config.driver, family: powerFamily(config.driver), control: powerControl(config.driver),
+      address: config.address ?? '', powerId: config.powerId ?? '', username: config.username ?? '',
+      passwordSet: config.passwordSet ?? false, editable: !config.managedBy,
+      readOnlyReason: config.managedBy ? `This virtual machine takes its power from provisioner VM host "${config.managedBy}"; change it there.` : '',
+      drivers: [{ driver: 'ipmi', family: 'bmc' }, { driver: 'redfish', family: 'bmc' }, { driver: 'virsh', family: 'virsh' }],
+    }
   }
   // Per-page Boot ISOs (decision 049). Only srv-1 has Boot Media in the fixture, so an ISO's
   // inUseBy is whether srv-1's enabled setting names it.
@@ -939,6 +982,39 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         },
       ],
       execution: { runId: 'run-inspect', playbook: '', status: 'running', statusReason: null, startedAt: now, finishedAt: null },
+      requestedBy: 'system', requestedAt: now, updatedAt: now,
+    }
+    operationItems.push(inspection as unknown as (typeof operationItems)[number])
+  }
+  for (const serverId of options.powerAttentionServerIds ?? []) {
+    const target = [{ kind: 'server', id: serverId }]
+    const pending = (id: string, kind: string, name: string, dependsOn: string[]) => ({
+      id, kind, name, job: 'ensure-inspected', executor: kind === 'ensure-boot-media' ? 'internal' : 'maas', dependsOn, targets: target,
+      status: 'pending', attempt: 0, progress: 0, error: null, externalExecution: null, artifacts: [], startedAt: null, finishedAt: null,
+    })
+    const inspection = {
+      id: `op-power-${serverId}`, schemaVersion: 3, kind: 'inspect-hardware',
+      intent: `Inspect hardware of ${serverId}`, intentSnapshot: { serverId, origin: 'automatic' },
+      definition: 'hardware-inspection', definitionVersion: 1,
+      status: 'requires_attention', statusReason: 'Job ensure-inspected requires operator attention.',
+      startState: 'started', temporal: { workflowId: `swallow-operation/op-power-${serverId}`, runId: 'run-power' },
+      siteId: 'site-a', platformId: null,
+      targetResources: target, targetServerIds: [serverId], retryOfOperationId: null,
+      steps: [
+        {
+          id: `wait-enrollment-${serverId}`, kind: 'wait-enrollment-settled', name: `Wait for the enrollment of ${serverId} to finish`,
+          job: 'ensure-inspected', executor: 'maas', dependsOn: [], targets: target,
+          status: 'requires_attention', attempt: 1, progress: 0,
+          error: {
+            code: 'power_configuration_required', retryable: true, stage: 'enrollment',
+            message: `${serverId} has no power driver, so it finished enrolling, but no power driver can report the power-off that ends enrollment. Set the Server's Power Configuration, then retry this Task.`,
+          },
+          externalExecution: null, artifacts: [], startedAt: now, finishedAt: now,
+        },
+        pending(`ensure-boot-media-${serverId}`, 'ensure-boot-media', `Ensure Boot Media on ${serverId}`, [`wait-enrollment-${serverId}`]),
+        pending(`inspect-${serverId}`, 'inspect', `Inspect hardware of ${serverId}`, [`ensure-boot-media-${serverId}`]),
+      ],
+      execution: { runId: 'run-power', playbook: '', status: 'running', statusReason: null, startedAt: now, finishedAt: null },
       requestedBy: 'system', requestedAt: now, updatedAt: now,
     }
     operationItems.push(inspection as unknown as (typeof operationItems)[number])
@@ -1875,7 +1951,29 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ...(releaseBody?.unbindStaticIPs ? { taskId: `task-${serverId}` } : {}),
       }, 202)
     }
-    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true, networkConfiguration: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }, { title: 'BMC', fields: [{ label: 'Protocol', value: 'IPMI' }, { label: 'Address', value: '192.0.2.20' }, { label: 'Username', value: 'bmc-admin' }, { label: 'Password', value: 'bmc-secret' }, { label: 'Driver', value: 'LAN_2_0' }, { label: 'Boot type', value: 'efi' }, { label: 'Privilege level', value: 'OPERATOR' }, { label: 'Cipher suite', value: '17' }, { label: 'Power MAC', value: 'aa:bb:cc:dd:ee:ff' }] }], tables: [{ title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
+    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true, networkConfiguration: true, powerConfiguration: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }, { title: 'BMC', fields: [{ label: 'Protocol', value: 'IPMI' }, { label: 'Address', value: '192.0.2.20' }, { label: 'Username', value: 'bmc-admin' }, { label: 'Password', value: 'bmc-secret' }, { label: 'Driver', value: 'LAN_2_0' }, { label: 'Boot type', value: 'efi' }, { label: 'Privilege level', value: 'OPERATOR' }, { label: 'Cipher suite', value: '17' }, { label: 'Power MAC', value: 'aa:bb:cc:dd:ee:ff' }] }], tables: [{ title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
+    // Power Configuration (server-detail-actions.md "Power Configuration"): the real API writes it
+    // through to the provisioner; the fixture keeps one per Server for the page.
+    const powerConfigurationMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/power-configuration$/)
+    if (powerConfigurationMatch) {
+      const serverId = decodeURIComponent(powerConfigurationMatch[1])
+      if (!fleet.some((entry) => entry.id === serverId)) return json(route, { error: { code: 'not_found', message: 'Server not found.' } }, 404)
+      if (request.method() === 'PUT') {
+        const body = (request.postDataJSON() ?? {}) as Record<string, unknown>
+        options.onPowerConfigurationRequest?.(serverId, body)
+        if (options.powerConfigurationError) {
+          const { status, code, message } = options.powerConfigurationError
+          return json(route, { error: { code, message, requestId: 'req-power-configuration' } }, status)
+        }
+        const previous = powerConfigurationView(serverId)
+        const driver = String(body.driver ?? '')
+        const passwordSet = typeof body.password === 'string' ? body.password !== '' : driver === previous.driver && previous.passwordSet
+        powerConfigurations[serverId] = {
+          driver, address: String(body.address ?? ''), powerId: String(body.powerId ?? ''), username: String(body.username ?? ''), passwordSet,
+        }
+      }
+      return json(route, powerConfigurationView(serverId))
+    }
     // Boot Media (server-detail-actions.md "Boot Media"): the real API drives the BMC over Redfish;
     // the fixture records writes and keeps one per-page setting so the Summary re-reads it.
     const bootMediaMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/(boot-media|redfish\/probe)$/)

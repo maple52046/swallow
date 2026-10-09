@@ -96,4 +96,6 @@ in Commissioning until a timeout, while the operator's fix is Boot Media
 
 ## Current status
 
-Implemented.
+Implemented. [ADR 054](054-provisioner-power-configuration.md) refines the enrollment wait: it
+stops for `power_configuration_required` when the power-off cannot be observed, and a retried
+run waits again instead of succeeding at once.

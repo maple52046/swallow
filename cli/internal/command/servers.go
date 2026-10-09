@@ -12,9 +12,10 @@ import (
 )
 
 // newServersCommand groups the Servers surface: the inventory list and stream,
-// one Server's detail and diagnostics, provider-backed lifecycle actions,
-// structured network configuration, placement, and Boot Media (servers-list.md,
-// servers-stream.md, server-detail-actions.md, infrastructure.md).
+// one Server's detail and diagnostics, provider-backed lifecycle actions, the
+// Power Configuration, structured network configuration, placement, and Boot
+// Media (servers-list.md, servers-stream.md, server-detail-actions.md,
+// infrastructure.md).
 //
 // There is intentionally no `servers create`: Servers are produced by
 // reconciling provisioner inventory, not registered by a caller. `servers enroll`
@@ -36,6 +37,7 @@ func newServersCommand() *cobra.Command {
 		serversProvisionerDetailCmd(),
 		serversEventsCmd(),
 		serversPowerStateCmd(),
+		serversPowerConfigurationCmd(),
 		serversProvisioningTasksCmd(),
 		serversNetworkCmd(),
 		serversPlacementCmd(),

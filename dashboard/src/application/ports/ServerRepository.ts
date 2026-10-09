@@ -11,9 +11,11 @@ import type {
   Server,
   ServerAction,
   ServerBootMedia,
+  ServerPowerConfiguration,
   SetServerBootMediaResult,
   SetServerDefaultUserInput,
   SetServerDefaultUserResult,
+  SetServerPowerConfigurationInput,
 } from '@/domain/server/types'
 
 export interface Paginated<T> {
@@ -65,8 +67,25 @@ export interface ServerRepository {
    */
   runServerAction(id: string, action: ServerAction): Promise<ProvisioningActionResult>
 
-  /** Read the live BMC power state. Changes nothing. */
+  /** Read the live power state through the Server's power driver. Changes nothing. */
   queryPowerState(id: string): Promise<PowerStateResult>
+
+  /**
+   * Reads the Server's Power Configuration live from its provisioner (contract
+   * server-detail-actions.md "Power Configuration", decision 054). Never carries the password.
+   * Rejects with the API error: `validation_error` (the provisioner lacks the capability),
+   * `not_found`, or `provider_unavailable` (provisioner unreachable, or its account may not read
+   * power parameters).
+   */
+  getPowerConfiguration(id: string): Promise<ServerPowerConfiguration>
+  /**
+   * Replaces the Server's Power Configuration at the provisioner and resolves with it read back.
+   * It neither switches power nor resumes an inspection waiting for attention. Rejects with the API
+   * error: `validation_error` (unsupported driver, a parameter missing or not applicable, or the
+   * provisioner's own refusal — the message explains), `conflict` (locked, or powered through a VM
+   * host), `not_found`, or `provider_unavailable`. The password must not be kept after the call.
+   */
+  setPowerConfiguration(id: string, input: SetServerPowerConfigurationInput): Promise<ServerPowerConfiguration>
 
   /**
    * Sets the Server Default User (contract server-detail-actions.md "Default User"). The API logs

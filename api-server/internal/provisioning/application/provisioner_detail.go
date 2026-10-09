@@ -19,6 +19,9 @@ type CapabilitiesItem struct {
 	MachineRemoval       bool `json:"machineRemoval"`
 	ReleaseOptions       bool `json:"releaseOptions"`
 	NetworkConfiguration bool `json:"networkConfiguration"`
+	// PowerConfiguration tells a client that the Power Configuration routes are available
+	// (decision 054).
+	PowerConfiguration bool `json:"powerConfiguration"`
 }
 
 // DetailFieldItem, DetailSectionItem, and DetailTableItem are the display-oriented shape
@@ -89,6 +92,7 @@ func (uc *GetProvisionerDetailUseCase) Execute(ctx context.Context, serverID str
 			MachineRemoval:       caps.MachineRemoval,
 			ReleaseOptions:       caps.ReleaseOptions,
 			NetworkConfiguration: caps.NetworkConfiguration,
+			PowerConfiguration:   caps.PowerConfiguration,
 		},
 		Sections: []DetailSectionItem{},
 		Tables:   []DetailTableItem{},

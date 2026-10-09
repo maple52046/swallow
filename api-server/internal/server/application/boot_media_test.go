@@ -98,16 +98,20 @@ type bootMediaGuard struct{ err error }
 
 func (g bootMediaGuard) RequireUnlocked(context.Context, []string) error { return g.err }
 
-// fakeEndpoints hands out a fixed endpoint, or err.
+// fakeEndpoints hands out a fixed endpoint, or err. Like the production source, it answers
+// ErrNoBMC for a VM-host member, whose Power Configuration has no BMC.
 type fakeEndpoints struct {
 	err   error
 	calls int
 }
 
-func (e *fakeEndpoints) BMCEndpoint(context.Context, *serverdomain.Server) (*serverdomain.BMCEndpoint, error) {
+func (e *fakeEndpoints) BMCEndpoint(_ context.Context, server *serverdomain.Server) (*serverdomain.BMCEndpoint, error) {
 	e.calls++
 	if e.err != nil {
 		return nil, e.err
+	}
+	if server.Observed.ProviderPod != "" {
+		return nil, serverdomain.ErrNoBMC
 	}
 	return &serverdomain.BMCEndpoint{Address: "192.0.2.10", Username: "maas", Password: "secret"}, nil
 }
@@ -344,8 +348,8 @@ func TestBootMediaEnableGates(t *testing.T) {
 		if _, err := f.uc.SetEnabled(context.Background(), "vm-1", true, "iso-a"); !errors.Is(err, serverdomain.ErrNoBMC) {
 			t.Fatalf("SetEnabled(true) error = %v, want ErrNoBMC", err)
 		}
-		if f.endpoints.calls != 0 {
-			t.Error("asked the provisioner for the BMC of a virtual machine")
+		if len(f.redfish.calls) != 0 {
+			t.Errorf("drove Redfish on a virtual machine: %v", f.redfish.calls)
 		}
 	})
 }

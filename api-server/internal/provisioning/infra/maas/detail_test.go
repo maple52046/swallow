@@ -289,6 +289,47 @@ func TestBuildMachineDetail_OmitsBMCForVirtualMachine(t *testing.T) {
 	if _, ok := sectionsByTitle(detail.Sections)["BMC"]; ok {
 		t.Fatal("virtual-machine detail must not expose a BMC section")
 	}
+	if _, ok := sectionsByTitle(detail.Sections)["Power"]; !ok {
+		t.Error("virtual-machine detail must describe its power driver in a Power section")
+	}
+}
+
+// A virsh driver is not a BMC even without a VM host: its libvirt URI is shown as the power address,
+// with the SSH user kept and the password never shown.
+func TestBuildMachineDetail_VirshDriverGetsPowerSection(t *testing.T) {
+	detail := buildMachineDetail(
+		&detailMachineJSON{PowerType: "virsh"},
+		powerParametersJSON{PowerAddress: "qemu+ssh://maas@tainan-ci/system", PowerID: "simple-pig", PowerPass: "must-not-show"},
+		"",
+		nil,
+	)
+
+	sections := sectionsByTitle(detail.Sections)
+	if _, ok := sections["BMC"]; ok {
+		t.Fatal("a virsh driver must not be presented as a BMC")
+	}
+	power := sections["Power"]
+	if fieldValue(power, "Driver") != "virsh" || fieldValue(power, "Address") != "qemu+ssh://maas@tainan-ci/system" ||
+		fieldValue(power, "Power ID") != "simple-pig" {
+		t.Errorf("Power section = %+v", power.Fields)
+	}
+	for _, field := range power.Fields {
+		if field.Value == "must-not-show" {
+			t.Errorf("Power section exposes the password as %q", field.Label)
+		}
+	}
+}
+
+// A machine without a power driver gets neither a BMC nor a Power section.
+func TestBuildMachineDetail_NoDriverNoPowerSection(t *testing.T) {
+	detail := buildMachineDetail(&detailMachineJSON{}, powerParametersJSON{}, "", nil)
+	sections := sectionsByTitle(detail.Sections)
+	if _, ok := sections["BMC"]; ok {
+		t.Error("BMC section without a driver")
+	}
+	if _, ok := sections["Power"]; ok {
+		t.Error("Power section without a driver")
+	}
 }
 
 func sectionsByTitle(sections []provisioningdomain.DetailSection) map[string]provisioningdomain.DetailSection {

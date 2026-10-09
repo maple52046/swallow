@@ -487,6 +487,8 @@ export interface ProvisionerCapabilities {
   machineRemoval: boolean
   releaseOptions: boolean
   networkConfiguration: boolean
+  /** The Power Configuration routes are available (decision 054). Absent from older APIs, so read as false. */
+  powerConfiguration?: boolean
 }
 
 /** A labelled value in a provisioner detail section. */
@@ -523,6 +525,66 @@ export interface ProvisionerDetail {
 export interface PowerStateResult {
   serverId: string
   powerState: string
+}
+
+/**
+ * A power driver family (glossary Power Configuration, decision 054): `bmc` is a physical Server's
+ * BMC (drivers `ipmi`, `redfish`) and is the only family with Boot Media; `virsh` is a libvirt
+ * virtual machine. Redfish is a function of the BMC, never a family of its own.
+ */
+export type PowerFamily = 'bmc' | 'virsh'
+
+/**
+ * What a Server's power driver lets the provisioner do: `none` (no driver — it cannot power the
+ * Server, so it cannot inspect or deploy it), `manual` (a person switches power; the state cannot be
+ * read), `automatic` (the provisioner switches and reads power itself). `unknown` is the dashboard's
+ * safe reading of a value a newer API might add; it is never sent.
+ */
+export type PowerControl = 'none' | 'manual' | 'automatic' | 'unknown'
+
+/** One driver a Power Configuration write may choose, with its family. */
+export interface PowerDriverOption {
+  driver: string
+  family: PowerFamily
+}
+
+/**
+ * A Server's Power Configuration as the API reads it live from the provisioner
+ * (`GET /servers/{id}/power-configuration`). The provisioner owns it; swallow stores nothing.
+ * The password is write-only, so only `passwordSet` is known. `family` is null when there is no
+ * driver or the dashboard does not know its family, in which case the Server has no BMC functions.
+ * `editable` is false for a virtual machine powered through a provisioner VM host, with the reason.
+ */
+export interface ServerPowerConfiguration {
+  serverId: string
+  /** The provisioner's driver name, '' when none is configured; an unknown driver is kept verbatim. */
+  driver: string
+  family: PowerFamily | null
+  control: PowerControl
+  /** The BMC address or libvirt URI, with any URL password, query, and fragment already removed by the API. */
+  address: string
+  /** A virsh driver's libvirt domain name or UUID. */
+  powerId: string
+  /** A BMC driver's account. */
+  username: string
+  passwordSet: boolean
+  editable: boolean
+  readOnlyReason: string
+  drivers: PowerDriverOption[]
+}
+
+/**
+ * A replacement Power Configuration (`PUT /servers/{id}/power-configuration`). Parameters that do
+ * not apply to the driver are omitted. `password` is write-only and three-valued, as in the
+ * contract: `undefined` keeps the provisioner's password when the driver is unchanged (and clears it
+ * when the driver changes), `''` clears it, any other value replaces it.
+ */
+export interface SetServerPowerConfigurationInput {
+  driver: string
+  address: string
+  powerId?: string
+  username?: string
+  password?: string
 }
 
 /** One machine event retained by the provisioner and proxied live by Swallow. */

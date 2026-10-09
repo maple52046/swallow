@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Button } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
-import type { BootMediaLiveState, Server, ServerBootMedia } from '@/domain/server/types'
+import type { BootMediaLiveState, Server, ServerBootMedia, ServerPowerConfiguration } from '@/domain/server/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { BootMediaPanel, type BootMediaPanelState } from '@/presentation/components/serverSummary/BootMediaPanel'
+import { PowerConfigurationPanel, type PowerConfigurationPanelState } from '@/presentation/components/serverSummary/PowerConfigurationPanel'
 import { redfishSupportLabel } from '@/presentation/components/serverSummary/bootMediaLabels'
 import {
   CapacityCard,
@@ -20,6 +21,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData, type AsyncData } from '@/presentation/hooks/useAsyncData'
 import { ServerBootMediaDialog, type ServerBootMediaDialogMode } from './ServerBootMediaDialog'
 import { ServerDefaultUserDialog } from './ServerDefaultUserDialog'
+import { ServerPowerConfigurationDialog } from './ServerPowerConfigurationDialog'
 import { ServerTagEditor } from './ServerTagEditor'
 import { useBootMediaApplyWatch } from './useBootMediaApplyWatch'
 import { useServerDetailContext } from './useServerDetail'
@@ -51,12 +53,29 @@ function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => 
 
 /**
  * Maps the Boot Media read onto the panel's state, with `latest` (the newest poll while a
- * preflight runs) in place of the page's read. The loader yields `null` only for a virtual
- * machine, whose management card is not rendered, so that case never reaches the screen.
+ * preflight runs) in place of the page's read. The loader yields `null` only for a Server known to
+ * have no BMC, whose Boot Media block is not rendered, so that case never reaches the screen.
  */
 function bootMediaPanelState(state: AsyncData<ServerBootMedia | null>, latest: ServerBootMedia | null): BootMediaPanelState {
   if (state.status !== 'ready') return state
   return latest ? { status: 'ready', data: latest } : { status: 'loading' }
+}
+
+/**
+ * Maps the Power Configuration read onto the panel's state, with `saved` (the configuration read
+ * back by the last save on this page) in place of the read, so a save shows at once without a
+ * reload that would flash the card back to loading. The loader yields `null` only when the
+ * provisioner does not offer the capability.
+ */
+function powerPanelState(
+  state: AsyncData<ServerPowerConfiguration | null>,
+  saved: ServerPowerConfiguration | null,
+): PowerConfigurationPanelState {
+  if (saved) return { status: 'ready', data: saved }
+  if (state.status !== 'ready') return state
+  return state.data
+    ? { status: 'ready', data: state.data }
+    : { status: 'unavailable', message: 'This provisioner does not let swallow read or set the power configuration.' }
 }
 
 /**
@@ -67,13 +86,18 @@ function bootMediaPanelState(state: AsyncData<ServerBootMedia | null>, latest: S
  * login user is the Server Default User, set or changed here through the Default user dialog, and
  * the Server is re-read after a change so the card and SSH command follow it.
  *
- * A physical Server's management controller card also carries its Boot Media (decisions 047 and
- * 049): the stored setting, its Boot ISO, and the Redfish probe are read when the page opens; the
- * BMC itself is read only when the operator asks ("Check BMC"), and re-probing or changing the
- * setting (enable, change ISO, re-apply, disable) re-reads the block. While an enable preflight
- * runs — sent from here, from another tab, or before a reload — the block is re-read every two
- * seconds for its progress and its actions wait until it ends. A virtual machine has no BMC, so
- * it reads nothing.
+ * The management controller card always carries the Server's Power Configuration (decision 054),
+ * read live from the provisioner when the page opens and editable through its dialog. Its driver
+ * family decides whether the Server has a BMC: only a `bmc` driver of a Server outside a provisioner
+ * VM host does. Until it is read, or when it cannot be, VM-host membership is the only signal, so a
+ * physical Server keeps its card while the read is in flight.
+ *
+ * A Server with a BMC also shows its Boot Media there (decisions 047 and 049): the stored setting,
+ * its Boot ISO, and the Redfish probe are read when the page opens; the BMC itself is read only
+ * when the operator asks ("Check BMC"), and re-probing or changing the setting (enable, change ISO,
+ * re-apply, disable) re-reads the block. While an enable preflight runs — sent from here, from
+ * another tab, or before a reload — the block is re-read every two seconds for its progress and its
+ * actions wait until it ends. A Server without a BMC reads no Boot Media.
  */
 export function ServerSummaryTab() {
   const { server, detail, detailError, reload } = useServerDetailContext()
@@ -82,6 +106,8 @@ export function ServerSummaryTab() {
   const { scopedHref } = useSiteScope()
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
   const [defaultUserOpen, setDefaultUserOpen] = useState(false)
+  const [powerDialogOpen, setPowerDialogOpen] = useState(false)
+  const [savedPower, setSavedPower] = useState<ServerPowerConfiguration | null>(null)
   const [bootMediaDialog, setBootMediaDialog] = useState<ServerBootMediaDialogMode | null>(null)
   const [bootMediaBusy, setBootMediaBusy] = useState<'probe' | 'live' | null>(null)
   const [live, setLive] = useState<{ state: BootMediaLiveState | null; error?: string } | undefined>(undefined)
@@ -89,10 +115,19 @@ export function ServerSummaryTab() {
   const management = detail?.sections.find((section) => section.title === 'BMC')
   const storage = detail ? findTable(detail.tables, 'Storage') : undefined
   const deployedImageHref = deployedImageCatalogHref(server, scopedHref)
-  const physical = !server.providerPod
+  // Unknown until the provisioner detail arrives; only an explicit false skips the read.
+  const powerSupported = detail?.capabilities.powerConfiguration !== false
+  const powerConfiguration = useAsyncData(
+    async () => (powerSupported ? servers.getPowerConfiguration(server.id) : null),
+    [servers, server.id, powerSupported],
+  )
+  const power = powerPanelState(powerConfiguration, savedPower?.serverId === server.id ? savedPower : null)
+  const hasBMC = power.status === 'ready'
+    ? power.data.family === 'bmc' && !server.providerPod
+    : !server.providerPod
   const bootMedia = useAsyncData(
-    async () => (physical ? servers.getBootMedia(server.id) : null),
-    [servers, server.id, physical],
+    async () => (hasBMC ? servers.getBootMedia(server.id) : null),
+    [servers, server.id, hasBMC],
   )
 
   const probe = async () => {
@@ -184,14 +219,30 @@ export function ServerSummaryTab() {
             </Button>
           }
         />
-        {physical && (
-          <ManagementControllerCard
-            management={management}
-            bootMedia={
-              <BootMediaPanel state={bootMediaPanelState(bootMedia, bootMediaData)} live={live} actions={bootMediaActions} />
-            }
-          />
-        )}
+        <ManagementControllerCard
+          hasBMC={hasBMC}
+          management={management}
+          power={
+            <PowerConfigurationPanel
+              state={power}
+              compact={hasBMC}
+              actions={power.status === 'ready' && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  colorPalette="brand"
+                  disabled={!power.data.editable}
+                  onClick={() => setPowerDialogOpen(true)}
+                >
+                  {power.data.driver ? 'Edit power configuration' : 'Set power configuration'}
+                </Button>
+              )}
+            />
+          }
+          bootMedia={
+            <BootMediaPanel state={bootMediaPanelState(bootMedia, bootMediaData)} live={live} actions={bootMediaActions} />
+          }
+        />
       </div>
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
         <HardwareProfileCard server={server} system={system} />
@@ -208,6 +259,18 @@ export function ServerSummaryTab() {
       )}
       {defaultUserOpen && (
         <ServerDefaultUserDialog server={server} onClose={() => setDefaultUserOpen(false)} onChanged={reload} />
+      )}
+      {powerDialogOpen && power.status === 'ready' && (
+        <ServerPowerConfigurationDialog
+          server={server}
+          configuration={power.data}
+          onClose={() => setPowerDialogOpen(false)}
+          onChanged={(saved) => {
+            setSavedPower(saved)
+            // The provisioner detail's BMC facts follow the new driver.
+            reload()
+          }}
+        />
       )}
       {bootMediaDialog && bootMediaData && (
         <ServerBootMediaDialog

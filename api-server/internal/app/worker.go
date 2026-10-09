@@ -169,7 +169,7 @@ func RunWorker(cfg config.APIConfig) error {
 		provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
 		cfg.BootMedia.BaseURL)
 	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
-		bmcEndpointSource{providers: providers}, redfish.NewController(), bootISOs)
+		newBMCEndpointSource(providers), redfish.NewController(), bootISOs)
 	providerExecutor.bootMedia = bootMedia
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{

@@ -106,13 +106,15 @@ type detailMachineJSON struct {
 }
 
 // powerParametersJSON deliberately decodes only the connection facts approved for the
-// admin-only live-detail response. PowerPass is the sole secret required for manual BMC
-// administration; K_g values, tokens, private keys, and unknown JSON fields are discarded
-// before they can cross the API boundary.
+// admin-only live-detail response and the Power Configuration. PowerPass is the sole secret
+// required for manual BMC administration and Redfish Boot Media; K_g values, tokens, private keys,
+// and unknown JSON fields are discarded before they can cross the API boundary.
 type powerParametersJSON struct {
-	PowerAddress   string `json:"power_address"`
-	PowerUser      string `json:"power_user"`
-	PowerPass      string `json:"power_pass"`
+	PowerAddress string `json:"power_address"`
+	PowerUser    string `json:"power_user"`
+	PowerPass    string `json:"power_pass"`
+	// PowerID is a virsh driver's libvirt domain name or UUID.
+	PowerID        string `json:"power_id"`
 	NodeID         string `json:"node_id"`
 	PowerDriver    string `json:"power_driver"`
 	PowerBootType  string `json:"power_boot_type"`
@@ -155,11 +157,16 @@ type numaNodeJSON struct {
 	Memory int64 `json:"memory"`
 }
 
+// powerAdapters resolves a MAAS power_type to its swallow power driver family (decision 054). The
+// detail view asks it whether a driver has a BMC instead of inspecting VM-host membership or
+// driver names itself.
+var powerAdapters = provisioningdomain.DefaultPowerAdapters()
+
 // GetMachineDetail proxies MAAS live for one machine and shapes the answer into the
 // provider-neutral MachineDetail. The machine object and device inventory are mandatory;
-// a physical machine with a power type also gets an admin-only power_parameters read. That
-// optional read degrades to an explicit section status so BMC permission does not hide the
-// rest of the hardware detail.
+// a machine with a power driver also gets an admin-only power_parameters read. That
+// optional read degrades to an explicit section status so power-parameter permission does
+// not hide the rest of the hardware detail.
 //
 // It is not cached: this is read one machine at a time, so a live read is always fresh
 // and swallow needs no schema for MAAS's disk and NUMA shapes.
@@ -171,7 +178,7 @@ func (p *Provider) GetMachineDetail(ctx context.Context, machineID string) (*pro
 
 	powerParameters := powerParametersJSON{}
 	powerParametersStatus := ""
-	if nameOf(m.Pod) == "" && cleanField(m.PowerType) != "" {
+	if powerDriverOf(m.PowerType) != provisioningdomain.PowerDriverNone {
 		if err := p.client.getOperation(ctx, machinePath(machineID), "power_parameters", &powerParameters); err != nil {
 			powerParametersStatus = powerParametersUnavailableStatus(err)
 		} else if !powerParameters.hasDisplayValues() {
@@ -223,23 +230,8 @@ func buildMachineDetail(
 	}
 	detail.Sections = append(detail.Sections, dropEmptyFields(compute))
 
-	if nameOf(m.Pod) == "" {
-		bmc := dropEmptyFields(provisioningdomain.DetailSection{Title: "BMC", Fields: []provisioningdomain.DetailField{
-			{Label: "Protocol", Value: managementProtocol(m.PowerType)},
-			{Label: "Address", Value: safePowerAddress(powerParameters.PowerAddress)},
-			{Label: "Username", Value: cleanField(powerParameters.PowerUser)},
-			{Label: "Password", Value: cleanField(powerParameters.PowerPass)},
-			{Label: "Node ID", Value: cleanField(powerParameters.NodeID)},
-			{Label: "Driver", Value: cleanField(powerParameters.PowerDriver)},
-			{Label: "Boot type", Value: cleanField(powerParameters.PowerBootType)},
-			{Label: "Privilege level", Value: cleanField(powerParameters.PrivilegeLevel)},
-			{Label: "Cipher suite", Value: cleanField(powerParameters.CipherSuiteID)},
-			{Label: "Power MAC", Value: cleanField(powerParameters.MACAddress)},
-			{Label: "Connection details", Value: powerParametersStatus},
-		}})
-		if len(bmc.Fields) > 0 {
-			detail.Sections = append(detail.Sections, bmc)
-		}
+	if section, ok := powerSection(m, powerParameters, powerParametersStatus); ok {
+		detail.Sections = append(detail.Sections, section)
 	}
 
 	if hw := m.HardwareInfo; hw != nil {
@@ -262,6 +254,42 @@ func buildMachineDetail(
 	detail.Tables = appendNonEmptyTable(detail.Tables, pciTable(devices))
 
 	return detail
+}
+
+// powerSection describes the machine's power driver by its family (decision 054). A machine with a
+// BMC (as the power adapter registry decides) gets the BMC section with its allowlisted connection
+// facts, including the password the admin-only detail exists to reveal. Any other configured driver
+// (virsh, a VM host's own driver) has no BMC and gets a Power section without a password, with the
+// URI's user kept because it is the account MAAS connects as. A machine without a driver gets no
+// section.
+func powerSection(m *detailMachineJSON, params powerParametersJSON, status string) (provisioningdomain.DetailSection, bool) {
+	driver := powerDriverOf(m.PowerType)
+	if driver == provisioningdomain.PowerDriverNone {
+		return provisioningdomain.DetailSection{}, false
+	}
+	if _, hasBMC := powerAdapters.BMCAdapter(provisioningdomain.PowerConfiguration{Driver: driver, ManagedBy: nameOf(m.Pod)}); hasBMC {
+		bmc := dropEmptyFields(provisioningdomain.DetailSection{Title: "BMC", Fields: []provisioningdomain.DetailField{
+			{Label: "Protocol", Value: managementProtocol(m.PowerType)},
+			{Label: "Address", Value: safePowerAddress(params.PowerAddress)},
+			{Label: "Username", Value: cleanField(params.PowerUser)},
+			{Label: "Password", Value: cleanField(params.PowerPass)},
+			{Label: "Node ID", Value: cleanField(params.NodeID)},
+			{Label: "Driver", Value: cleanField(params.PowerDriver)},
+			{Label: "Boot type", Value: cleanField(params.PowerBootType)},
+			{Label: "Privilege level", Value: cleanField(params.PrivilegeLevel)},
+			{Label: "Cipher suite", Value: cleanField(params.CipherSuiteID)},
+			{Label: "Power MAC", Value: cleanField(params.MACAddress)},
+			{Label: "Connection details", Value: status},
+		}})
+		return bmc, len(bmc.Fields) > 0
+	}
+	power := dropEmptyFields(provisioningdomain.DetailSection{Title: "Power", Fields: []provisioningdomain.DetailField{
+		{Label: "Driver", Value: string(driver)},
+		{Label: "Address", Value: provisioningdomain.RedactPowerAddress(params.PowerAddress)},
+		{Label: "Power ID", Value: strings.TrimSpace(params.PowerID)},
+		{Label: "Connection details", Value: status},
+	}})
+	return power, true
 }
 
 func storageTable(disks []blockDeviceJSON) provisioningdomain.DetailTable {

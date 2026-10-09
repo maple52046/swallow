@@ -51,6 +51,7 @@ import (
 	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
@@ -369,7 +370,7 @@ func RunAPI(cfg config.APIConfig) error {
 	bootISOHandler := provisioningdelivery.NewBootISOHandler(provisioningapp.NewBootISOService(
 		bootISORepo, integrationReader, bootISOFiles, bootISOUsage{servers: mongoServerRepo}))
 	bootMediaUC := serverapp.NewBootMediaUseCase(serverRepo, mongoServerRepo, serverProtection,
-		bmcEndpointSource{providers: providerFactory}, redfish.NewController(), bootISOs)
+		newBMCEndpointSource(providerFactory), redfish.NewController(), bootISOs)
 	bootMediaHandler := serverdelivery.NewBootMediaHandler(bootMediaUC)
 	bootMediaPlan := bootMediaPlanner{servers: serverRepo, isos: bootISOs}
 	runner := operationinfra.NewLocalRunner(
@@ -413,6 +414,8 @@ func RunAPI(cfg config.APIConfig) error {
 	}
 	provisioningHandler.AttachHardwareInspection(inspectionLauncher)
 	provisioningHandler.AttachHostEnrollment(provisioningapp.NewHostEnrollmentUseCase(providerFactory))
+	provisioningHandler.AttachPowerConfiguration(provisioningapp.NewPowerConfigurationUseCase(
+		serverRepo, providerFactory, provisioningdomain.DefaultPowerAdapters()))
 	autoInspect := provisioningapp.NewAutoInspectUseCase(integrationRepo, serverRepo, inspectionLauncher)
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 	orchestrationStarter := temporalworkflow.NewStarter(
@@ -847,6 +850,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Post("/:id/power-on", deps.provisioning.PowerOn)
 	servers.Post("/:id/power-off", deps.provisioning.PowerOff)
 	servers.Get("/:id/power-state", deps.provisioning.PowerState)
+	// The provisioner-owned Power Configuration (decision 054), read live and written through.
+	servers.Get("/:id/power-configuration", deps.provisioning.GetPowerConfiguration)
+	servers.Put("/:id/power-configuration", deps.provisioning.SetPowerConfiguration)
 	servers.Post("/:id/inspect", deps.provisioning.Inspect)
 	servers.Post("/:id/test", deps.provisioning.Test)
 	servers.Post("/:id/abort", deps.provisioning.Abort)

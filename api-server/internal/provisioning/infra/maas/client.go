@@ -194,6 +194,23 @@ func (c *Client) putMultipart(ctx context.Context, path string, fields map[strin
 	return c.do(req, out)
 }
 
+// putMultipartExact is putMultipart for updates where an empty value is meaningful: every field is
+// sent, including empty ones. MAAS fills each power parameter the request omits from the machine's
+// stored parameters, so clearing one (a password when the driver changes) needs an explicit empty
+// part, which putMultipart would drop.
+func (c *Client) putMultipartExact(ctx context.Context, path string, fields map[string]string, out any) error {
+	body, contentType, err := multipartExactBody(fields)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPut, path, nil, body, contentType)
+	if err != nil {
+		return err
+	}
+	return c.do(req, out)
+}
+
 // putUpload streams one raw chunk to a MAAS boot-resource upload target.
 //
 // rawURL is the upload_uri MAAS returns for an incomplete boot-resource file: a host-absolute
@@ -335,6 +352,29 @@ func multipartBody(fields map[string]string) (io.Reader, string, error) {
 		return nil, "", fmt.Errorf("encode maas request: %w", err)
 	}
 
+	return &buf, writer.FormDataContentType(), nil
+}
+
+// multipartExactBody encodes every field as multipart/form-data, empty values included, sorted so
+// the body is deterministic for tests. Callers pass at least one field; MAAS rejects an empty
+// multipart body.
+func multipartExactBody(fields map[string]string) (io.Reader, string, error) {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	for _, name := range names {
+		if err := writer.WriteField(name, fields[name]); err != nil {
+			return nil, "", fmt.Errorf("encode maas request field %q: %w", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("encode maas request: %w", err)
+	}
 	return &buf, writer.FormDataContentType(), nil
 }
 

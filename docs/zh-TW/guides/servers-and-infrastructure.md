@@ -20,6 +20,10 @@ Machine 進入 provisioner 的 inventory 後就會成為 Server。**Servers → 
 不需要在 MAAS 按 *Commission*：swallow 會等 enlistment 結束並關機後自行檢視（見
 [檢查硬體](#檢查硬體)）。
 
+實驗用的 virtual machine 也用同樣方式 enlist（從網路或 iPXE 開機媒體開機），但
+enlistment 無法替它設定 power driver，MAAS 因此看不到它關機。它的檢視會停下並提示
+**Set power configuration**；替它設定 `virsh` 的 [Power configuration](#power-configuration) 後再 retry。
+
 Redfish 分頁填入 BMC 位址與帳號後，會產生 `curl` 指令：插入 virtual media、設定下次
 從它開機一次，並開機；`curl` 會詢問 BMC 密碼。指令假設 system 為 `1`、virtual media
 為 `CD1`，並附上列出實際 ID 的方式。
@@ -144,14 +148,50 @@ Workflow 先等 enrollment 結束（MAAS 會把 machine 關機），若 Server �
 Server 列表與 Server detail 會顯示 **Hardware inspection needs attention**，並連到記錄原因的 Workflow。
 swallow 不會把 Server 標成 failed。
 
-常見原因是 Server 無法從網路開機連到 provisioner。若其網路不是由 provisioner 的
-DHCP 提供，請啟用 Boot Media，再 retry 該 Workflow 的 Task 或重新選擇 **Inspect
-hardware**；兩者都會在套用 Boot Media 後重跑整個檢視。
+處理方式依停下的原因而定：
+
+| 原因 | 先修正，再 retry |
+| --- | --- |
+| Enrollment 已結束，但 Server 沒有 MAAS 讀得到的 power driver（VM 的常見情況） | 設定它的 [Power configuration](#power-configuration)；確認 **Power state** 讀得到；若仍開機就關機。 |
+| Enrollment 20 分鐘內沒有結束 | 確認主機已完成 enlistment，且 MAAS 讀得到它的電源。 |
+| Server 從未以網路開機進入檢視 | 若其網路不是由 provisioner 的 DHCP 提供，請啟用 Boot Media；VM 則把 NIC 或 iPXE 開機媒體排在 hypervisor 開機順序的第一位。 |
+| Provider 回報檢視失敗 | 到 MAAS 查看檢視結果。 |
+
+Retry 該 Workflow 的 Task，或重新選擇 **Inspect hardware**；兩者都會重跑整個檢視。
+Retry 會再次等待 enrollment 結束，因此不會 commission 一台仍在 enlist 的 machine；
+MAAS 讀到 machine 已關機後，大約 30 秒內就會通過等待。Server 沒有等待中的 Workflow
+時，**Inspect hardware** 會建立一個略過等待的 Workflow，因為你已確認 Server 現在可以開機。
 
 自動檢視只套用在 swallow 於最近 24 小時內第一次看到、且從未被 swallow 檢視過的
 Server。可在 Integration 對話框以 **Inspect newly enrolled Servers automatically**
 逐一關閉；手動 Inspect hardware 仍可使用。Server 為 deployed、allocated、rescue，
 或正在進行其他 provider 工作或其他 Workflow 時，Inspect 會被拒絕。
+
+## Power configuration
+
+Server 的 power configuration 是 MAAS 用來切換與讀取它電源的 power driver 及其設定。
+它由 MAAS 擁有；swallow 即時讀取，並把你的修改寫回 MAAS。設定位於 Server detail 的
+**Summary**：有 BMC 的 Server 在 **Management controller** 卡片，沒有 BMC 的 Server 在
+**Power control** 卡片。選擇 **Edit power configuration**（或 **Set power configuration**）。
+
+| Driver | 適用 | 設定 |
+| --- | --- | --- |
+| IPMI、Redfish | 實體 Server 的 BMC | BMC 位址、帳號、密碼 |
+| virsh | libvirt virtual machine | Hypervisor URI `qemu+ssh://user@host/system`、domain 名稱或 UUID、密碼（選填） |
+
+只有 BMC driver 會讓 Server 有 Boot Media；不論 MAAS 用這兩種 driver 的哪一種，
+Redfish Boot Media 都是對 BMC 探測。密碼只寫不讀：留空即保留原密碼（更換 driver
+時，除非輸入新密碼，否則會移除）。
+
+使用 `virsh` driver 時，連到 hypervisor 的是 MAAS 而不是 swallow，因此 MAAS rack
+controller 必須先能以 SSH 連到 hypervisor 帳號，driver 才會生效。MAAS 以 snap 安裝時，
+把金鑰、`known_hosts` 與 SSH 選項放在 `/var/snap/maas/current/root/.ssh`，並在 snap 內確認：
+`sudo snap run --shell maas -c 'virsh -c qemu+ssh://user@host/system list --all'`。
+URI 保持乾淨：MAAS 不接受 `?keyfile=` 之類的 query 參數。同一台 hypervisor 上的多台
+VM 共用同一個 URI，以 domain 區分。
+
+儲存不會切換電源，也不會恢復檢視。先讀 **Power state** 確認 MAAS 連得到 driver，
+再 retry 檢視。屬於 MAAS VM host 的 virtual machine 由 VM host 提供電源，在這裡為唯讀。
 
 ## Provider 與 observation failure
 
@@ -187,6 +227,10 @@ swallow servers list --site-id site1 --provisioning-state deployed
 swallow servers list --site-id site1 --provisioning-state inspecting
 swallow servers get server1
 swallow servers inspect server1
+swallow servers power-configuration get server1
+swallow servers power-configuration set server1 --driver virsh \
+  --address qemu+ssh://maas@hypervisor.lab/system --power-id vm-01
+swallow servers power-state server1
 swallow integrations enroll-bundle int1          # existing OS 指令（含 MAAS API key）
 swallow provisioning tags edit --server server1 --add amd-gpu
 swallow infrastructure zones list --site-id site1

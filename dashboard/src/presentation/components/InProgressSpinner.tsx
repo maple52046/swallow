@@ -1,9 +1,10 @@
 import { Spinner, type SpinnerProps } from '@chakra-ui/react'
 
 /**
- * The small rotating cue placed after a status label while work is still running: the
- * Deployment cell's in-progress OS provisioning states and the OS Images Deploy Mode tags while
- * a verification runs. One component so both surfaces look and move the same.
+ * The small rotating cue placed after a status label while work is still running: Server
+ * Deployment cells, OS Images Deploy Mode tags while a verification runs, and Workflow
+ * Execution status while the run can still advance. One component so those surfaces look
+ * and move the same.
  *
  * The label next to it carries the state, so the spinner is hidden from assistive technology.
  * It keeps rotating when the operating system asks for reduced motion, by product request: the

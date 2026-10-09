@@ -14,12 +14,14 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
-// The provisioner Tasks of the inspect-hardware Workflow (decision 053, contract
+// The provisioner Tasks of the inspect-hardware Workflow (decisions 053 and 054, contract
 // server-enrollment.md).
 //
 // The enrollment wait polls at defaultEnrollmentSettlePoll and needs enrollmentSettledReadings
 // consecutive settled readings, so a BMC that reports off for one instant during the enlistment
 // reboot is not mistaken for the end of enlistment; it gives up after defaultEnrollmentSettleWait.
+// The same number of consecutive power-unobservable readings stops it early: the provider has said
+// its enrollment is over and no power driver can report the power-off, so waiting cannot help.
 //
 // Inspection makes up to defaultInspectionAttempts commissions. An attempt stalls when the provider
 // records no event for defaultInspectionStallWait while inspecting: a healthy inspection records
@@ -42,15 +44,17 @@ const (
 )
 
 // waitEnrollmentSettled runs the wait-enrollment-settled Task: it holds the inspection until the
-// provider's own enrollment of the Server has finished. A requested inspection and any retried
-// run skip the wait, because an operator decided the Server may boot. A provisioner without the
-// EnrollmentSettler capability has nothing to wait for. A provider read failure resets the
-// confirmation count rather than failing, because enlistment often keeps the BMC busy; only the
-// overall timeout asks for attention, and nothing has been commissioned at that point.
+// provider's own enrollment of the Server has finished. A requested inspection does not wait,
+// because an operator decided the Server may boot, but it still needs a power driver (see
+// requirePowerDriver). A retried run waits again: retrying is how an operator resumes after fixing
+// the Power Configuration, and it must not commission a Machine whose enrollment has not ended. A
+// provisioner without the EnrollmentSettler capability has nothing to wait for.
+//
+// A provider read failure resets both confirmation counts rather than failing, because enlistment
+// often keeps a BMC busy. Two consecutive power-unobservable readings, or the overall timeout, ask
+// for attention; nothing has been commissioned at that point, and the attention is retryable.
 func (e providerStepExecutor) waitEnrollmentSettled(ctx context.Context, step temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
-	if skip, _ := step.Step.Parameters[skipEnrollmentWaitParameter].(bool); skip || step.Step.Attempt > 1 {
-		return providerSucceeded()
-	}
+	requested, _ := step.Step.Parameters[skipEnrollmentWaitParameter].(bool)
 	serverID := firstTargetServer(step.Step)
 	if serverID == "" {
 		return providerFailed("invalid_step", "The enrollment wait has no target Server.", false).StepExecutionResult
@@ -63,38 +67,81 @@ func (e providerStepExecutor) waitEnrollmentSettled(ctx context.Context, step te
 	if !ok {
 		return providerSucceeded()
 	}
+	if requested {
+		return requirePowerDriver(ctx, settler, server)
+	}
 	deadline := time.NewTimer(e.enrollmentSettleTimeout())
 	defer deadline.Stop()
 	ticker := time.NewTicker(e.enrollmentSettleInterval())
 	defer ticker.Stop()
-	readings := 0
+	settled, unobservable := 0, 0
 	for {
-		settled, err := settler.EnrollmentSettled(ctx, server.Source.ProviderMachineID)
+		observation, err := settler.ObserveEnrollment(ctx, server.Source.ProviderMachineID)
 		switch {
 		case errors.Is(err, provisioningdomain.ErrMachineNotFound):
-			return providerFailed("machine_not_found", "The provisioner no longer has the machine of "+server.DisplayName()+".", false).withStage("enrollment")
-		case err == nil && settled:
-			readings++
-			if readings >= enrollmentSettledReadings {
+			return machineGoneDuringEnrollment(server)
+		case err != nil:
+			slog.Debug("enrollment settle reading failed", "serverId", serverID, "error", err)
+			settled, unobservable = 0, 0
+		case observation.State == provisioningdomain.EnrollmentSettled:
+			settled, unobservable = settled+1, 0
+			if settled >= enrollmentSettledReadings {
 				return providerSucceeded()
 			}
-		default:
-			if err != nil {
-				slog.Debug("enrollment settle reading failed", "serverId", serverID, "error", err)
+		case observation.State == provisioningdomain.EnrollmentPowerUnobservable:
+			settled, unobservable = 0, unobservable+1
+			if unobservable >= enrollmentSettledReadings {
+				return powerConfigurationRequired(server, observation,
+					"it finished enrolling, but no power driver can report the power-off that ends enrollment")
 			}
-			readings = 0
+		default:
+			settled, unobservable = 0, 0
 		}
 		select {
 		case <-ctx.Done():
 			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
 		case <-deadline.C:
 			return providerAttention("enrollment_not_settled",
-				fmt.Sprintf("The provisioner still reports %s as enrolling: it has not powered off after enrollment within %s. Check that the Server finished enrollment and that its BMC power settings are configured in the provisioner, then retry this Task to inspect it.",
+				fmt.Sprintf("The provisioner still reports %s as enrolling: it has not powered off after enrollment within %s. Check that the Server finished enrollment and that the provisioner can read its power (its Power Configuration; GET power-state), power it off once enrollment is done, then retry this Task to inspect it.",
 					server.DisplayName(), e.enrollmentSettleTimeout()),
 				"enrollment")
 		case <-ticker.C:
 		}
 	}
+}
+
+// requirePowerDriver is the enrollment Task of a requested inspection: no wait, one reading. Only
+// a Machine with no power driver at all is stopped, because the provisioner could not power it on
+// to inspect it and its commission would be refused outright; a manual driver is allowed, since an
+// operator who asked for the inspection can switch the power. A failed reading lets the inspection
+// proceed, where the provider reports its own error.
+func requirePowerDriver(ctx context.Context, settler provisioningdomain.EnrollmentSettler, server *serverdomain.Server) temporalworkflow.StepExecutionResult {
+	observation, err := settler.ObserveEnrollment(ctx, server.Source.ProviderMachineID)
+	switch {
+	case errors.Is(err, provisioningdomain.ErrMachineNotFound):
+		return machineGoneDuringEnrollment(server)
+	case err == nil && observation.Control == provisioningdomain.PowerControlNone:
+		return powerConfigurationRequired(server, observation, "the provisioner cannot power it on to inspect it")
+	}
+	return providerSucceeded()
+}
+
+// powerConfigurationRequired is the retryable attention that names the Power Configuration as the
+// fix (decision 054). why says what the missing power control prevents.
+func powerConfigurationRequired(server *serverdomain.Server, observation provisioningdomain.EnrollmentObservation, why string) temporalworkflow.StepExecutionResult {
+	driver := "has no power driver"
+	if observation.Driver != provisioningdomain.PowerDriverNone {
+		driver = fmt.Sprintf("has power driver %q, which the provisioner cannot read", observation.Driver)
+	}
+	return providerAttention("power_configuration_required",
+		fmt.Sprintf("%s %s, so %s. Set the Server's Power Configuration (for a libvirt virtual machine, driver virsh with the hypervisor's qemu+ssh URI and the domain name), check that its power state reads, power it off if it is on, then retry this Task.",
+			server.DisplayName(), driver, why),
+		"enrollment")
+}
+
+// machineGoneDuringEnrollment is the non-retryable failure for a Machine the provisioner deleted.
+func machineGoneDuringEnrollment(server *serverdomain.Server) temporalworkflow.StepExecutionResult {
+	return providerFailed("machine_not_found", "The provisioner no longer has the machine of "+server.DisplayName()+".", false).withStage("enrollment")
 }
 
 // inspectionOutcomeKind classifies one inspection attempt.
@@ -123,7 +170,8 @@ type inspectionOutcome struct {
 // inspectServer runs the inspect Task: bounded inspection attempts until the Server is ready
 // (decision 053). Each attempt re-checks the Server Lock and issues Inspect. A failed or stalled
 // attempt is followed by another until the attempts run out; the Task then asks for attention with
-// a remediation that names Boot Media, leaving a stalled Server aborted back to New.
+// the network-boot remediation that fits the Server (Boot Media for a Server with a BMC, the boot
+// order for a virtual machine), leaving a stalled Server aborted back to New.
 //
 // The first attempt follows an inspection that is already running instead of issuing a second one
 // the provider would refuse: an activity retry after a worker loss, or a provider that started
@@ -171,8 +219,32 @@ func (e providerStepExecutor) inspectServer(ctx context.Context, step temporalwo
 		last = outcome
 		slog.Info("hardware inspection attempt did not complete", "serverId", serverID, "attempt", attempt, "of", attempts, "reason", outcome.detail)
 	}
-	return inspectionExhausted(server.DisplayName(), attempts, last)
+	return inspectionExhausted(server.DisplayName(), attempts, last, networkBootRemedy(ctx, server, provider))
 }
+
+// networkBootRemedy says how an operator gets a Server that never network-booted into its
+// inspection onto the provisioner's network boot. Boot Media is the remedy only for a Server with a
+// BMC; a virtual machine has none (decision 054), so it is pointed at its own boot order. The
+// answer comes from the power adapter of the Server's Power Configuration; when that cannot be read
+// the Boot Media remedy, which applies to every physical Server, is given.
+func networkBootRemedy(ctx context.Context, server *serverdomain.Server, provider provisioningdomain.OSProvisioningProvider) string {
+	const bootMedia = "If its network is not served by the provisioner's DHCP (an external network), build a Boot ISO and enable Boot Media on the Server, then retry this Task."
+	reader, ok := provider.(provisioningdomain.PowerConfigurationReader)
+	if !ok || !provider.Capabilities().PowerConfiguration {
+		return bootMedia
+	}
+	config, err := reader.PowerConfiguration(ctx, server.Source.ProviderMachineID)
+	if err != nil || config.Driver == provisioningdomain.PowerDriverNone {
+		return bootMedia
+	}
+	if _, hasBMC := inspectionPowerAdapters.BMCAdapter(*config); hasBMC {
+		return bootMedia
+	}
+	return fmt.Sprintf("It has no BMC (power driver %q), so Boot Media cannot help: make the virtual machine boot from the network first — its NIC, or an iPXE boot medium that chains to the provisioner — in its hypervisor's boot order, check that the provisioner can power it on, then retry this Task.", config.Driver)
+}
+
+// inspectionPowerAdapters resolves a Server's power driver for networkBootRemedy.
+var inspectionPowerAdapters = provisioningdomain.DefaultPowerAdapters()
 
 // observeInspection follows one inspection attempt started at started.
 func (e providerStepExecutor) observeInspection(
@@ -279,12 +351,13 @@ func inspectionInterrupted(state string) inspectionOutcome {
 }
 
 // inspectionExhausted is the attention result after the last attempt. It is retryable: a retry
-// re-runs the whole ensure-inspected Job, applying Boot Media enabled in the meantime.
-func inspectionExhausted(name string, attempts int, last inspectionOutcome) temporalworkflow.StepExecutionResult {
+// re-runs the whole ensure-inspected Job, applying Boot Media enabled in the meantime. remedy is the
+// network-boot fix that applies to this Server (networkBootRemedy).
+func inspectionExhausted(name string, attempts int, last inspectionOutcome, remedy string) temporalworkflow.StepExecutionResult {
 	if last.kind == inspectionStalledAttempt {
 		return providerAttention("inspect_pxe_unreached",
-			fmt.Sprintf("Hardware inspection of %s did not complete in %d attempts: %s. The Server probably could not network-boot into the provisioner. If its network is not served by the provisioner's DHCP (an external network), build a Boot ISO and enable Boot Media on the Server, then retry this Task.",
-				name, attempts, last.detail),
+			fmt.Sprintf("Hardware inspection of %s did not complete in %d attempts: %s. The Server probably could not network-boot into the provisioner. %s",
+				name, attempts, last.detail, remedy),
 			"inspection")
 	}
 	return providerAttention("inspect_failed",

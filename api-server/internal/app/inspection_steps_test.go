@@ -25,8 +25,10 @@ type inspectionProvider struct {
 	onRead    func(p *inspectionProvider, reads int)
 	reads     int
 	inspects  int
-	settled   []bool
-	settles   int
+	// observations are the enrollment readings in order; the last one repeats. Empty means a
+	// Machine that is always still enrolling.
+	observations []provisioningdomain.EnrollmentObservation
+	settles      int
 }
 
 func (p *inspectionProvider) GetMachine(context.Context, string) (*provisioningdomain.Machine, error) {
@@ -64,18 +66,50 @@ func (p *inspectionProvider) ListMachineEvents(context.Context, string, int) ([]
 	return nil, nil
 }
 
-func (p *inspectionProvider) EnrollmentSettled(context.Context, string) (bool, error) {
+func (p *inspectionProvider) ObserveEnrollment(context.Context, string) (provisioningdomain.EnrollmentObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.settles++
-	if len(p.settled) == 0 {
-		return false, nil
+	if len(p.observations) == 0 {
+		return enrolling, nil
 	}
-	reading := p.settled[0]
-	if len(p.settled) > 1 {
-		p.settled = p.settled[1:]
+	reading := p.observations[0]
+	if len(p.observations) > 1 {
+		p.observations = p.observations[1:]
 	}
 	return reading, nil
+}
+
+// Enrollment readings of a Machine with an automatic driver, and of one without any driver.
+var (
+	enrolling = provisioningdomain.EnrollmentObservation{
+		State: provisioningdomain.EnrollmentEnrolling, Driver: "ipmi", Control: provisioningdomain.PowerControlAutomatic,
+	}
+	settled = provisioningdomain.EnrollmentObservation{
+		State: provisioningdomain.EnrollmentSettled, Driver: "ipmi", Control: provisioningdomain.PowerControlAutomatic,
+	}
+	unobservable = provisioningdomain.EnrollmentObservation{
+		State: provisioningdomain.EnrollmentPowerUnobservable, Control: provisioningdomain.PowerControlNone,
+	}
+	noDriverEnrolling = provisioningdomain.EnrollmentObservation{
+		State: provisioningdomain.EnrollmentEnrolling, Control: provisioningdomain.PowerControlNone,
+	}
+)
+
+// poweredInspectionProvider adds a Power Configuration to the scripted provisioner, so the inspect
+// Task can tell a virtual machine from a Server with a BMC.
+type poweredInspectionProvider struct {
+	*inspectionProvider
+	config provisioningdomain.PowerConfiguration
+}
+
+func (p *poweredInspectionProvider) Capabilities() provisioningdomain.ProviderCapabilities {
+	return provisioningdomain.ProviderCapabilities{HardwareValidation: true, PowerConfiguration: true}
+}
+
+func (p *poweredInspectionProvider) PowerConfiguration(context.Context, string) (*provisioningdomain.PowerConfiguration, error) {
+	config := p.config
+	return &config, nil
 }
 
 type inspectionProviderFactory struct {
@@ -111,34 +145,73 @@ func inspectionTask(kind string, parameters map[string]any) temporalworkflow.Ste
 }
 
 func TestWaitEnrollmentSettled(t *testing.T) {
-	t.Run("requested inspection skips the wait", func(t *testing.T) {
-		provider := &inspectionProvider{}
+	waitTask := func() temporalworkflow.StepExecutionInput {
+		return inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: false})
+	}
+	t.Run("requested inspection does not wait", func(t *testing.T) {
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling}}
 		result := inspectionExecutor(provider).Execute(context.Background(),
 			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: true}))
-		if result.Status != operationdomain.TaskSucceeded || provider.settles != 0 {
-			t.Errorf("result = %+v after %d readings, want success without reading", result, provider.settles)
+		if result.Status != operationdomain.TaskSucceeded || provider.settles != 1 {
+			t.Errorf("result = %+v after %d readings, want success after one reading", result, provider.settles)
 		}
 	})
-	t.Run("a retried run skips the wait", func(t *testing.T) {
-		provider := &inspectionProvider{}
-		input := inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: false})
+	t.Run("requested inspection of a Machine without a power driver asks for a Power Configuration", func(t *testing.T) {
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{noDriverEnrolling}}
+		result := inspectionExecutor(provider).Execute(context.Background(),
+			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: true}))
+		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
+			result.Error.Code != "power_configuration_required" || !result.Error.Retryable {
+			t.Errorf("result = %+v, want retryable power_configuration_required attention", result)
+		}
+	})
+	t.Run("requested inspection of a manual driver proceeds", func(t *testing.T) {
+		manual := provisioningdomain.EnrollmentObservation{
+			State: provisioningdomain.EnrollmentPowerUnobservable, Driver: "manual", Control: provisioningdomain.PowerControlManual,
+		}
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{manual}}
+		result := inspectionExecutor(provider).Execute(context.Background(),
+			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: true}))
+		if result.Status != operationdomain.TaskSucceeded {
+			t.Errorf("result = %+v, want success: an operator can switch a manual driver", result)
+		}
+	})
+	t.Run("a retried run waits again", func(t *testing.T) {
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling, settled, settled}}
+		input := waitTask()
 		input.Step.Attempt = 2
-		if result := inspectionExecutor(provider).Execute(context.Background(), input); result.Status != operationdomain.TaskSucceeded || provider.settles != 0 {
-			t.Errorf("result = %+v after %d readings, want success without reading", result, provider.settles)
+		if result := inspectionExecutor(provider).Execute(context.Background(), input); result.Status != operationdomain.TaskSucceeded || provider.settles != 3 {
+			t.Errorf("result = %+v after %d readings, want success after 3 readings", result, provider.settles)
 		}
 	})
 	t.Run("two consecutive settled readings are needed", func(t *testing.T) {
-		provider := &inspectionProvider{settled: []bool{false, true, false, true, true}}
-		result := inspectionExecutor(provider).Execute(context.Background(),
-			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: false}))
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling, settled, enrolling, settled, settled}}
+		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
 		if result.Status != operationdomain.TaskSucceeded || provider.settles != 5 {
 			t.Errorf("result = %+v after %d readings, want success after 5", result, provider.settles)
 		}
 	})
+	t.Run("an unobservable power-off asks for a Power Configuration without waiting for the timeout", func(t *testing.T) {
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{noDriverEnrolling, unobservable, unobservable}}
+		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
+		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
+			result.Error.Code != "power_configuration_required" || !result.Error.Retryable || provider.settles != 3 {
+			t.Fatalf("result = %+v after %d readings, want retryable power_configuration_required after 3", result, provider.settles)
+		}
+		if !strings.Contains(result.Error.Message, "Power Configuration") || !strings.Contains(result.Error.Message, "gpu-07") {
+			t.Errorf("message = %q, want the Server and the Power Configuration named", result.Error.Message)
+		}
+	})
+	t.Run("a single unobservable reading is not enough", func(t *testing.T) {
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{unobservable, settled, settled}}
+		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
+		if result.Status != operationdomain.TaskSucceeded {
+			t.Errorf("result = %+v, want success once the power-off was observed", result)
+		}
+	})
 	t.Run("an enrollment that never settles asks for attention", func(t *testing.T) {
-		provider := &inspectionProvider{settled: []bool{false}}
-		result := inspectionExecutor(provider).Execute(context.Background(),
-			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: false}))
+		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling}}
+		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
 		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
 			result.Error.Code != "enrollment_not_settled" || !result.Error.Retryable {
 			t.Errorf("result = %+v, want retryable enrollment_not_settled attention", result)
@@ -186,6 +259,24 @@ func TestInspectServer(t *testing.T) {
 		}
 		if !strings.Contains(result.Error.Message, "Boot Media") || provider.status != provisioningdomain.MachineStatusNew {
 			t.Errorf("message = %q, status = %s; want Boot Media remediation and the Server back in new", result.Error.Message, provider.status)
+		}
+	})
+	t.Run("a virtual machine that never booted is pointed at its boot order, not Boot Media", func(t *testing.T) {
+		provider := &poweredInspectionProvider{
+			inspectionProvider: &inspectionProvider{status: provisioningdomain.MachineStatusNew,
+				onInspect: func(p *inspectionProvider) { p.status = provisioningdomain.MachineStatusInspecting },
+				onAbort:   func(p *inspectionProvider) { p.status = provisioningdomain.MachineStatusNew },
+			},
+			config: provisioningdomain.PowerConfiguration{Driver: "virsh", Address: "qemu+ssh://h/system", PowerID: "vm"},
+		}
+		executor := inspectionExecutor(provider)
+		executor.inspectionAttempts = 1
+		result := executor.Execute(context.Background(), inspectionTask(inspectTaskKind, nil))
+		if result.Error == nil || result.Error.Code != "inspect_pxe_unreached" {
+			t.Fatalf("result = %+v, want inspect_pxe_unreached attention", result)
+		}
+		if !strings.Contains(result.Error.Message, "boot order") || strings.Contains(result.Error.Message, "enable Boot Media") {
+			t.Errorf("message = %q, want the boot-order remediation instead of enabling Boot Media", result.Error.Message)
 		}
 	})
 	t.Run("provider-reported failures are retried and end in inspect_failed", func(t *testing.T) {

@@ -211,6 +211,8 @@ export function ServerDetailPage() {
       <InspectionAttentionAlert
         operations={inspectionAttention}
         onView={(operationId) => navigate(scopedHref(`/workflows/${operationId ?? inspectionAttention[0]?.id ?? ''}`))}
+        // The Power Configuration is on the Summary; offer the jump only from the other tabs.
+        onConfigurePower={current === 'summary' ? undefined : (serverId) => navigate(scopedHref(`/servers/${serverId}/summary`))}
       />
       {server.provisioning && ['failed', 'broken', 'rescue'].includes(server.provisioning.state) && (
         <ProviderFailureAlert

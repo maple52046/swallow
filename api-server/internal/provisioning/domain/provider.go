@@ -96,10 +96,11 @@ type ProviderCapabilities struct {
 	// deploys. When false, swallow's SSH Keys are recorded as unsupported for this provisioner.
 	// See docs/decisions/039.
 	SSHKeyRegistration bool
-	// BMCConnection reports that BMCConnectionReader is implemented, i.e. the provider can hand
-	// swallow a machine's BMC address and account so swallow can drive Redfish Boot Media itself.
-	// See docs/decisions/047.
-	BMCConnection bool
+	// PowerConfiguration reports that PowerConfigurationReader and PowerConfigurationWriter are
+	// implemented, i.e. the provider hands swallow a machine's power driver and parameters and
+	// accepts a replacement. Redfish Boot Media also reads a BMC's address and account through it
+	// (decisions 047 and 054).
+	PowerConfiguration bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the
@@ -119,11 +120,13 @@ type DeploymentTargetValidator interface {
 	ValidateDeploymentTarget(ctx context.Context, machineID string) error
 }
 
-// PowerController controls a machine's power through the provisioner's BMC integration.
+// PowerController controls a machine's power through the provisioner's own power driver — a BMC,
+// a hypervisor, or whatever the machine's Power Configuration names. It works only when that
+// driver's control is automatic; otherwise the provider refuses or reports an unknown state.
 type PowerController interface {
 	PowerOn(ctx context.Context, machineID string) (*Machine, error)
 	PowerOff(ctx context.Context, machineID string) (*Machine, error)
-	// QueryPowerState reads the live power state from the BMC rather than the
+	// QueryPowerState reads the live power state through the power driver rather than the
 	// provisioner's cached value.
 	QueryPowerState(ctx context.Context, machineID string) (PowerState, error)
 }
@@ -180,17 +183,44 @@ type MachineEventReader interface {
 	ListMachineEvents(ctx context.Context, machineID string, limit int) ([]MachineEvent, error)
 }
 
-// EnrollmentSettler reports whether the provider's own enrollment of a newly discovered machine
-// has finished (decision 053).
+// EnrollmentState is what one reading of a provider's enrollment of a newly discovered machine
+// found (decisions 053 and 054).
+type EnrollmentState string
+
+const (
+	// EnrollmentSettled means nothing is left to wait for: the machine left New, or its
+	// enrollment ended with the power-off the provider observed.
+	EnrollmentSettled EnrollmentState = "settled"
+	// EnrollmentEnrolling means the enrollment may still be running, or its power-off has not been
+	// observed yet through a driver that can observe it.
+	EnrollmentEnrolling EnrollmentState = "enrolling"
+	// EnrollmentPowerUnobservable means the provider's enrollment has finished but its power-off
+	// can never be observed: the machine has no automatic power driver and is not recorded off.
+	// Waiting longer cannot help; the machine needs a Power Configuration.
+	EnrollmentPowerUnobservable EnrollmentState = "power_unobservable"
+)
+
+// EnrollmentObservation is one reading of a machine's enrollment. Driver and Control describe its
+// Power Configuration at the time of the reading, so callers can explain an unobservable power-off
+// and refuse to inspect a machine the provider cannot power on.
+type EnrollmentObservation struct {
+	State   EnrollmentState
+	Driver  PowerDriver
+	Control PowerControl
+}
+
+// EnrollmentSettler observes the provider's own enrollment of a newly discovered machine
+// (decisions 053 and 054).
 //
 // A provider can list a machine before its enrollment ends: MAAS records a New Machine while the
 // enlistment environment still runs and powers the machine off when it is done. Inspecting it in
-// between races the enrollment boot. EnrollmentSettled returns true when nothing is left to wait
-// for, including for a machine that has left New; it is a single reading, and callers confirm it
-// across polls. A provider without this capability has nothing to wait for. A missing machine is
-// ErrMachineNotFound; transport failures map as usual.
+// between races the enrollment boot. ObserveEnrollment is a single reading; callers confirm a
+// state across polls. Implementations report EnrollmentPowerUnobservable only when they know their
+// enrollment has finished — a provider that sets a BMC driver during enrollment must not report it
+// while that may still happen. A provider without this capability has nothing to wait for. A
+// missing machine is ErrMachineNotFound; transport failures map as usual.
 type EnrollmentSettler interface {
-	EnrollmentSettled(ctx context.Context, machineID string) (bool, error)
+	ObserveEnrollment(ctx context.Context, machineID string) (EnrollmentObservation, error)
 }
 
 // ExistingHostEnrollment is what a host that keeps its operating system needs to enroll itself

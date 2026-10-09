@@ -339,6 +339,16 @@ swallow servers mark-fixed srv1
 swallow servers rescue-mode srv1
 swallow servers exit-rescue-mode srv1
 
+# Power Configuration: the provisioner's power driver and parameters, written through to it.
+# The password is write-only; without a password flag it is kept for an unchanged driver.
+swallow servers power-configuration get srv1
+swallow servers power-configuration set srv1 --driver virsh \
+  --address qemu+ssh://maas@tainan-ci.lab/system --power-id simple-pig   # libvirt VM
+printf '%s' "$BMC_PASSWORD" | swallow servers power-configuration set srv2 \
+  --driver ipmi --address 10.0.0.5 --username maas --password-stdin      # BMC
+swallow servers power-configuration set srv2 --driver ipmi --address 10.0.0.5 --clear-password
+swallow servers power-configuration set srv1 -f power.yaml               # { driver, address, powerId, username, password }
+
 # Network configuration
 swallow servers network get srv1
 swallow servers network add-link srv1 <interfaceId> -f link.yaml

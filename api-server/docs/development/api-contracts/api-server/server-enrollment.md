@@ -33,6 +33,7 @@ A Server still comes into being only through reconciliation; nothing here create
 - Server Enrollment
 - Server
 - OS Provisioning State
+- Power Configuration
 - Boot Media
 - Workflow, Job, Task
 
@@ -77,11 +78,32 @@ Kind `inspect-hardware`, definition `hardware-inspection` version 1, one target 
 
 `wait-enrollment-settled` polls every 15 seconds and succeeds after two consecutive settled
 readings. For MAAS a Machine is settled once it has left New, or is New and powered off (the
-power-off ends enlistment); the power state is read live from the BMC, falling back to the
-state MAAS recorded. A provisioner without an enrollment check succeeds at once. A Workflow
-started by `POST /servers/{id}/inspect` and any retried run succeed at once. Twenty minutes
-without a settled reading is `requires_attention` with code `enrollment_not_settled`; nothing
-was commissioned.
+power-off ends enlistment); the power state is read live through the Machine's power driver,
+falling back to the state MAAS recorded. A provisioner without an enrollment check succeeds at
+once. Twenty minutes without a settled reading is `requires_attention` with code
+`enrollment_not_settled`; nothing was commissioned.
+
+The power-off can only be observed through a power driver that reads power. When the provider's
+own enrollment has finished and the Machine's Power Configuration ([server-detail-actions.md](server-detail-actions.md#power-configuration))
+has no automatic driver (`control` is `none` or `manual`) and is not recorded powered off, the
+Task stops after two consecutive such readings — not after twenty minutes — in
+`requires_attention` with code `power_configuration_required`, naming the Power Configuration as
+the fix ([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)).
+For MAAS, enrollment has finished once the Machine's enlistment script set is no longer pending,
+installing, or running: MAAS sets a physical Machine's BMC driver from within that script set,
+so a Machine still running it is waiting for its driver, not missing one. Nothing was
+commissioned.
+
+A Workflow started by `POST /servers/{id}/inspect` does not wait: the operator asserts the Server
+may boot now. It reads the Machine once and stops with `power_configuration_required` only when
+the Machine has no power driver at all (`control` `none`), because the provisioner could not
+power it on to inspect it; otherwise, or when that reading fails, it succeeds at once.
+
+A retried run (any Task retry, and `POST /servers/{id}/inspect` resuming a Workflow waiting for
+attention) waits again the same way, so the commission still cannot race the enrollment boot.
+After setting a Power Configuration, a Machine whose enrollment already powered it off settles
+within two readings; one that is still on settles once it is powered off (`POST
+/servers/{id}/power-off`).
 
 `ensure-boot-media` here reads the Server's Boot Media when it runs (it carries no frozen ISO
 URL). Disabled Boot Media succeeds without touching the BMC. Enabled Boot Media whose Boot ISO
@@ -104,14 +126,25 @@ already brought to `ready` succeeds without inspecting. Observation:
 
 After the last attempt the Task is `requires_attention` and retryable, with code
 `inspect_pxe_unreached` (the last attempt stalled) or `inspect_failed` (the provider reported
-failure). The message names Boot Media for a Server whose network the provisioner does not
-serve. swallow never sets the Server's provisioning state itself; a stalled Server is back in
+failure). For a stalled attempt the message names the network-boot remedy that fits the Server:
+Boot Media for a Server with a BMC whose network the provisioner does not serve, and the virtual
+machine's own boot order (its NIC or an iPXE boot medium first) for a Server whose Power
+Configuration has no BMC. swallow never sets the Server's provisioning state itself; a stalled Server is back in
 `new`, and one MAAS marked Failed commissioning stays `failed` (Inspect is accepted from it).
 
 Retrying any Task of the Workflow (`POST /workflows/{id}/tasks/{taskId}/retry`, or
-`POST /servers/{id}/inspect`) re-runs the whole Job: the enrollment wait is skipped, Boot Media
-is read and applied again, and Inspect gets three new attempts. Canceling the Workflow aborts a
-running inspection.
+`POST /servers/{id}/inspect`) re-runs the whole Job: the enrollment wait runs again as described
+above (a requested Workflow keeps skipping it), Boot Media is read and applied again, and Inspect
+gets three new attempts. Canceling the Workflow aborts a running inspection.
+
+Operator recovery by attention code:
+
+| Code | Fix, then retry |
+| --- | --- |
+| `power_configuration_required` | Set the Server's Power Configuration (for a libvirt VM, driver `virsh` with the hypervisor URI and domain), confirm `GET /servers/{id}/power-state` reads, and power it off if it is on. |
+| `enrollment_not_settled` | Check that enrollment finished on the host and that the provisioner can read the Server's power (`GET /servers/{id}/power-state`); power it off when enrollment is done. |
+| `inspect_pxe_unreached` | Enable Boot Media for a Server on a network the provisioner does not serve; for a virtual machine, put its NIC or iPXE boot medium first in the hypervisor's boot order. |
+| `inspect_failed` | Read the provider's inspection results and fix the cause. |
 
 ## Enrollment bundle
 
@@ -190,3 +223,10 @@ Server appears as `deployed`.
 
 Added 2026-10-06. Workflow kind `inspect-hardware` and Task kinds `wait-enrollment-settled` and
 `inspect` are new published vocabulary; renaming them breaks persisted Workflows.
+
+Changed 2026-10-09
+([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)): the
+attention code `power_configuration_required` is new; a retried run no longer skips the
+enrollment wait; a requested Workflow stops for attention when the Machine has no power driver
+instead of failing at the provider's commission. Clients that branch on attention codes must
+treat unknown codes as generic attention.

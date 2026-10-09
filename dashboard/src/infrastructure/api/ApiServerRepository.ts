@@ -12,11 +12,42 @@ import type {
   Server,
   ServerAction,
   ServerBootMedia,
+  ServerPowerConfiguration,
   SetServerBootMediaResult,
   SetServerDefaultUserInput,
   SetServerDefaultUserResult,
+  SetServerPowerConfigurationInput,
 } from '@/domain/server/types'
 import { ApiRequestError, apiRequest } from './client'
+
+/** The Power Configuration as the API sends it; the enum fields are narrowed by mapPowerConfiguration. */
+interface PowerConfigurationDTO extends Omit<ServerPowerConfiguration, 'family' | 'control' | 'drivers'> {
+  family: string
+  control: string
+  drivers: { driver: string; family: string }[] | null
+}
+
+/**
+ * Narrows the API's Power Configuration onto the domain type. Unknown enum values a newer API might
+ * send are read safely: an unknown family becomes null (no BMC functions, so no Boot Media offered)
+ * and an unknown control becomes `unknown`; driver options of an unknown family are dropped because
+ * the form would not know their parameters.
+ */
+function mapPowerConfiguration(dto: PowerConfigurationDTO): ServerPowerConfiguration {
+  const family = (value: string): ServerPowerConfiguration['family'] =>
+    value === 'bmc' || value === 'virsh' ? value : null
+  const control: ServerPowerConfiguration['control'] =
+    dto.control === 'none' || dto.control === 'manual' || dto.control === 'automatic' ? dto.control : 'unknown'
+  return {
+    ...dto,
+    family: family(dto.family),
+    control,
+    drivers: (dto.drivers ?? []).flatMap((option) => {
+      const optionFamily = family(option.family)
+      return optionFamily ? [{ driver: option.driver, family: optionFamily }] : []
+    }),
+  }
+}
 
 /**
  * The API response shape maps directly onto the domain type, so there is no adapter
@@ -136,6 +167,32 @@ export class ApiServerRepository implements ServerRepository {
     return apiRequest<PowerStateResult>(
       `/api/v1/servers/${encodeURIComponent(id)}/power-state`,
     )
+  }
+
+  async getPowerConfiguration(id: string): Promise<ServerPowerConfiguration> {
+    // Never cached: it is the provisioner's live state an operator is about to edit.
+    const dto = await apiRequest<PowerConfigurationDTO>(
+      `/api/v1/servers/${encodeURIComponent(id)}/power-configuration`,
+      { cache: 'no-store' },
+    )
+    return mapPowerConfiguration(dto)
+  }
+
+  /**
+   * Sends only the parameters the input carries. `password` is included only when it is defined
+   * (`''` clears it), so an omitted password keeps the provisioner's; it is not retained here, and
+   * the shared client never logs request bodies.
+   */
+  async setPowerConfiguration(id: string, input: SetServerPowerConfigurationInput): Promise<ServerPowerConfiguration> {
+    const body: SetServerPowerConfigurationInput = { driver: input.driver, address: input.address }
+    if (input.powerId !== undefined) body.powerId = input.powerId
+    if (input.username !== undefined) body.username = input.username
+    if (input.password !== undefined) body.password = input.password
+    const dto = await apiRequest<PowerConfigurationDTO>(
+      `/api/v1/servers/${encodeURIComponent(id)}/power-configuration`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    )
+    return mapPowerConfiguration(dto)
   }
 
   /**

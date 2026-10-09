@@ -15,6 +15,7 @@ const visualCases = [
   { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
+  { name: 'server-detail-vm-power', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-activity', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
@@ -103,6 +104,10 @@ test.describe('dashboard visual review', () => {
           ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
           : {}),
         ...(visualCase.name === 'server-activity' ? { serverActivityItemCount: 12 } : {}),
+        // A lab VM that enlisted without a power driver, its inspection stopped for it (decision 054).
+        ...(visualCase.name === 'server-detail-vm-power'
+          ? { powerConfigurations: { 'srv-2': { driver: '' } }, powerAttentionServerIds: ['srv-2'] }
+          : {}),
         ...(visualCase.name.startsWith('software-')
           ? { fleetSize: 5, softwareAssignments: visualSoftwareAssignments }
           : {}),

@@ -121,11 +121,20 @@ func serveBootISO(files *provisioninginfra.GenfsimgBuilder) fiber.Handler {
 	}
 }
 
-// bmcEndpointSource reads a Server's BMC endpoint from its provisioner (decision 047). It bridges
-// the provisioning context's optional BMCConnectionReader capability to the server domain port;
-// the password passes through in memory only.
+// bmcEndpointSource reads a Server's BMC endpoint from its provisioner (decisions 047 and 054). It
+// bridges the provisioning context's Power Configuration to the server domain port: the registry
+// decides whether the machine has a BMC (a bmc-family driver, not a VM-host member), and only the
+// BMC extension yields an endpoint. A virsh machine, a driver no family knows, and a machine without
+// a driver therefore have no BMC, with no driver-name or VM-host check here. The password passes
+// through in memory only.
 type bmcEndpointSource struct {
 	providers provisioningdomain.ProviderFactory
+	adapters  *provisioningdomain.PowerAdapterRegistry
+}
+
+// newBMCEndpointSource wires the source with the supported power driver families.
+func newBMCEndpointSource(providers provisioningdomain.ProviderFactory) bmcEndpointSource {
+	return bmcEndpointSource{providers: providers, adapters: provisioningdomain.DefaultPowerAdapters()}
 }
 
 // BMCEndpoint implements serverdomain.BMCEndpointSource.
@@ -134,15 +143,13 @@ func (s bmcEndpointSource) BMCEndpoint(ctx context.Context, server *serverdomain
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", serverdomain.ErrBMCConnectionUnavailable, err)
 	}
-	reader, ok := provider.(provisioningdomain.BMCConnectionReader)
-	if !ok || !provider.Capabilities().BMCConnection {
+	reader, ok := provider.(provisioningdomain.PowerConfigurationReader)
+	if !ok || !provider.Capabilities().PowerConfiguration {
 		return nil, serverdomain.ErrNoBMC
 	}
-	connection, err := reader.BMCConnection(ctx, server.Source.ProviderMachineID)
+	config, err := reader.PowerConfiguration(ctx, server.Source.ProviderMachineID)
 	var providerErr *provisioningdomain.ProviderError
 	switch {
-	case errors.Is(err, provisioningdomain.ErrMachineHasNoBMC):
-		return nil, serverdomain.ErrNoBMC
 	case errors.As(err, &providerErr) && providerErr.Kind == provisioningdomain.ProviderErrorAuth:
 		return nil, serverdomain.ErrBMCCredentialUnavailable
 	case errors.Is(err, provisioningdomain.ErrMachineNotFound):
@@ -150,9 +157,17 @@ func (s bmcEndpointSource) BMCEndpoint(ctx context.Context, server *serverdomain
 	case err != nil:
 		return nil, fmt.Errorf("%w: %v", serverdomain.ErrBMCConnectionUnavailable, err)
 	}
+	bmc, hasBMC := s.adapters.BMCAdapter(*config)
+	if !hasBMC {
+		return nil, serverdomain.ErrNoBMC
+	}
+	access, ok := bmc.BMCAccess(*config)
+	if !ok {
+		return nil, serverdomain.ErrNoBMC
+	}
 	return &serverdomain.BMCEndpoint{
-		Address: connection.Address, Username: connection.Username, Password: connection.Password,
-		PowerType: connection.PowerType, SystemHint: connection.NodeID, HostUUID: server.Hardware.SystemUUID,
+		Address: access.Address, Username: access.Username, Password: access.Password,
+		PowerType: string(access.Driver), SystemHint: access.SystemHint, HostUUID: server.Hardware.SystemUUID,
 	}, nil
 }
 

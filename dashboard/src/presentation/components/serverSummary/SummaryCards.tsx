@@ -226,13 +226,31 @@ function ManagementPassword({ value }: { value: string }) {
   )
 }
 
+interface ManagementControllerCardProps {
+  /** The provisioner detail's `BMC` section; only used when `hasBMC`. */
+  management?: DetailSection
+  /** The caller's Power Configuration block (PowerConfigurationPanel). */
+  power?: ReactNode
+  /** The caller's Boot Media block (BootMediaPanel); only rendered when `hasBMC`. */
+  bootMedia?: ReactNode
+  /**
+   * Whether the Server has a BMC, decided by the caller from the Power Configuration's driver family
+   * (decision 054). Without one the card is about power control only: no out-of-band facts and no
+   * Boot Media, which a BMC drives. Defaults to true for callers that know only a physical Server.
+   */
+  hasBMC?: boolean
+}
+
 /**
- * Promotes out-of-band access to its own operator surface. Connection identities are copyable;
- * the explicitly allowlisted password stays masked until an operator asks to reveal it.
- * `bootMedia` is the caller's Boot Media block (BootMediaPanel), rendered under the connection
- * facts because it is driven through this same controller; the card stays page-agnostic.
+ * Promotes out-of-band access and power control to their own operator surface on the Server
+ * Summary. For a Server with a BMC, connection identities are copyable and the explicitly
+ * allowlisted password stays masked until an operator asks to reveal it; under them come the Power
+ * Configuration and Boot Media, both driven through this same controller. A Server without a BMC
+ * (a libvirt virtual machine, or one with no power driver yet) gets the card retitled to power
+ * control with only its Power Configuration, so an operator can still give the provisioner a way
+ * to power it. The blocks are the caller's, so the card stays page-agnostic.
  */
-export function ManagementControllerCard({ management, bootMedia }: { management?: DetailSection; bootMedia?: ReactNode }) {
+export function ManagementControllerCard({ management, power, bootMedia, hasBMC = true }: ManagementControllerCardProps) {
   const items: DescriptionItem[] =
     management?.fields.map((field) => ({
       label: field.label,
@@ -251,19 +269,26 @@ export function ManagementControllerCard({ management, bootMedia }: { management
     <Card.Root as="section" className="sw-server-summary-card" aria-labelledby="server-management-title">
       <Card.Body gap="4">
         <Box>
-          <Heading size="sm" id="server-management-title">Management controller</Heading>
+          <Heading size="sm" id="server-management-title">{hasBMC ? 'Management controller' : 'Power control'}</Heading>
           <Text color="fg.muted" fontSize="sm" mt="1">
-            Out-of-band connection and power configuration for manual administration.
+            {hasBMC
+              ? 'Out-of-band connection and power configuration for manual administration.'
+              : 'This Server has no BMC: the provisioner powers it through its power driver, and Boot Media is not available.'}
           </Text>
         </Box>
-        {items.length > 0 ? (
+        {hasBMC && (items.length > 0 ? (
           <DescriptionList items={items} />
         ) : (
           <Text color="fg.muted" fontSize="sm">
             No IPMI or Redfish controller details were reported by the provisioner.
           </Text>
-        )}
-        {bootMedia}
+        ))}
+        {power && (hasBMC ? (
+          <Box borderTopWidth="1px" borderColor="border.muted" pt="4">
+            {power}
+          </Box>
+        ) : power)}
+        {hasBMC && bootMedia}
       </Card.Body>
     </Card.Root>
   )

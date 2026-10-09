@@ -15,9 +15,9 @@ Active
 
 ## Purpose
 
-Read one Server projection, execute provider-backed machine actions, and permanently
-delete a Server together with its backing provisioner Machine without exposing provider
-credentials.
+Read one Server projection, execute provider-backed machine actions, read and write the
+provisioner-owned Power Configuration, and permanently delete a Server together with its
+backing provisioner Machine without exposing provider credentials.
 
 ## Endpoints
 
@@ -28,6 +28,8 @@ DELETE /api/v1/servers/{id}
 GET  /api/v1/servers/{id}/provisioner-detail
 GET  /api/v1/servers/{id}/events?limit=50
 GET  /api/v1/servers/{id}/power-state
+GET  /api/v1/servers/{id}/power-configuration
+PUT  /api/v1/servers/{id}/power-configuration
 GET  /api/v1/servers/{id}/network
 POST /api/v1/servers/{id}/network/interfaces/{interfaceId}/links
 PUT  /api/v1/servers/{id}/network/interfaces/{interfaceId}/links/{linkId}
@@ -88,15 +90,22 @@ controls.
 
 `GET /servers/{id}` returns the same complete Server projection documented in [servers-list.md](servers-list.md).
 Provisioner detail is a live provider-neutral view with a capability set. The
-`machineRemoval` flag tells clients whether provider-backed deletion is available, and
-`releaseOptions` tells clients whether release can carry disk-erasure controls. Power
-state is read-only.
+`machineRemoval` flag tells clients whether provider-backed deletion is available,
+`releaseOptions` tells clients whether release can carry disk-erasure controls, and
+`powerConfiguration` tells clients whether the Power Configuration routes below are
+available. Power state is read-only; the Power Configuration that lets the provisioner
+switch and read it is written through its own route.
 
-For a physical Machine, the live detail may include a `BMC` section. MAAS-backed
-detail reads its connection configuration from the admin-only `power_parameters`
-operation rather than expecting it in the ordinary Machine response. Its allowlisted
-fields are `Protocol`, `Address`, `Username`, `Password`, `Node ID`, `Driver`, `Boot type`,
-`Privilege level`, `Cipher suite`, and `Power MAC`; absent provider facts are omitted.
+The live detail describes the Machine's power driver by its driver family
+([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)).
+A Machine whose driver belongs to the `bmc` family (`ipmi`, `redfish`) and that is not a member
+of a provisioner VM host may include a `BMC` section. MAAS-backed detail reads its connection configuration from the admin-only
+`power_parameters` operation rather than expecting it in the ordinary Machine response. Its
+allowlisted fields are `Protocol`, `Address`, `Username`, `Password`, `Node ID`, `Driver`,
+`Boot type`, `Privilege level`, `Cipher suite`, and `Power MAC`; absent provider facts are
+omitted. A Machine with any other configured driver (for example `virsh`) has no BMC and
+gets a `Power` section instead, with only `Driver`, `Address`, and `Power ID`; it never
+carries a password. A Machine without a power driver has neither section.
 `Connection details` communicates an unavailable or empty parameter response. `Password`
 is the only allowlisted secret and exists solely for manual administration through this
 admin-only live-detail route. Consumers must mask it by default, reveal it only on an
@@ -210,10 +219,13 @@ provider call, so a commission that cannot reach the provisioner is retried, bou
 reported for attention. It takes no body.
 
 - When no `inspect-hardware` Workflow is active for the Server, a new one starts. A request from
-  this route skips the enrollment wait: the operator asserts the Server may boot now.
+  this route skips the enrollment wait: the operator asserts the Server may boot now. It still
+  stops in `requires_attention` with `power_configuration_required` when the Machine has no power
+  driver at all, because the provisioner could not power it on to inspect it.
 - When the Server's `inspect-hardware` Workflow is waiting in `requires_attention`, the request
   retries it (the same Workflow, its whole `ensure-inspected` Job) instead of starting another,
-  so Boot Media enabled since is applied before the next commission.
+  so a Power Configuration or Boot Media set since is used by the next commission. Like any
+  retry it runs the enrollment wait again ([server-enrollment.md](server-enrollment.md)).
 - An `inspect-hardware` Workflow that is still running, or any other active Workflow on the
   Server, is `409 conflict`.
 
@@ -243,6 +255,111 @@ not started yet) plus the Workflow:
 
 `resumed` is `true` when the request retried the Workflow waiting for attention. A deployment
 without a Workflow engine falls back to the direct provider action and omits both fields.
+
+## Power Configuration
+
+A Server's Power Configuration is the power driver its provisioner uses to switch and read the
+Server's power, and that driver's connection parameters
+([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)). The
+provisioner owns it (for MAAS, the Machine's `power_type` and `power_parameters`); swallow reads
+it live on every request and writes it through to the provisioner. swallow never stores it, and
+never returns or logs a password. Both routes need the `powerConfiguration` capability; a
+provisioner without it answers `400 validation_error`. Responses carry `Cache-Control: no-store`.
+
+Drivers are grouped into families. A family decides which parameters apply and which functions a
+Server has beyond switching power:
+
+| Driver | Family | Parameters | Notes |
+| --- | --- | --- | --- |
+| `ipmi` | `bmc` | `address` (required), `username`, `password` | A BMC. Redfish Boot Media is a function of the BMC, probed independently of the driver (decision 047). |
+| `redfish` | `bmc` | `address` (required), `username`, `password` | The provisioner switches power over Redfish. Not the same as Redfish Boot Media. |
+| `virsh` | `virsh` | `address` (required), `powerId` (required), `password` | A libvirt virtual machine. No BMC, so no Boot Media. |
+
+`control` classifies what the driver lets the provisioner do: `none` (no driver: the provisioner
+can neither switch nor read power, so it cannot inspect or deploy the Server), `manual` (a person
+switches power and the state cannot be read, MAAS `manual`), or `automatic` (the provisioner
+switches and reads power itself; every driver in the table, and any other driver the provisioner
+reports, such as a VM host's own driver).
+
+### Read
+
+`GET /api/v1/servers/{id}/power-configuration`
+
+```json
+{
+  "serverId": "server-id",
+  "driver": "virsh",
+  "family": "virsh",
+  "control": "automatic",
+  "address": "qemu+ssh://maas@tainan-ci.lab/system",
+  "powerId": "simple-pig",
+  "username": "",
+  "passwordSet": false,
+  "editable": true,
+  "readOnlyReason": "",
+  "drivers": [
+    { "driver": "ipmi", "family": "bmc" },
+    { "driver": "redfish", "family": "bmc" },
+    { "driver": "virsh", "family": "virsh" }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `driver` | The provisioner's power driver, `""` when none is configured. A driver outside the table is reported verbatim. |
+| `family` | `bmc`, `virsh`, or `""` when there is no driver or swallow does not know its family. |
+| `control` | `none`, `manual`, or `automatic`, as above. |
+| `address` | The BMC address or libvirt URI as the provisioner holds it, with any password in the URL, query, and fragment removed. A user name in the URL is kept: it is the account the provisioner connects as, not a secret. |
+| `powerId` | The libvirt domain name or UUID of a `virsh` driver; `""` otherwise. |
+| `username` | The BMC account of a `bmc` driver; `""` otherwise. |
+| `passwordSet` | Whether the provisioner holds a password for the driver. The password itself is write-only. |
+| `editable` | `false` when the provisioner manages this Server's power elsewhere: a virtual machine that belongs to a provisioner VM host takes its power from that VM host. |
+| `readOnlyReason` | Why `editable` is `false`, in operator terms; `""` otherwise. |
+| `drivers` | The drivers a write may choose, with their family. |
+
+### Write
+
+`PUT /api/v1/servers/{id}/power-configuration` replaces the Server's Power Configuration and
+returns `200 OK` with the Read shape, read back from the provisioner after the write.
+
+```json
+{
+  "driver": "virsh",
+  "address": "qemu+ssh://maas@tainan-ci.lab/system",
+  "powerId": "simple-pig",
+  "password": "optional"
+}
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `driver` | Yes | One of `drivers`. |
+| `address` | Yes | For `bmc`: the BMC host, IP, or URL. For `virsh`: `qemu+ssh://[user@]host[:port]/system`. A libvirt URI with a password, a query (`?keyfile=…`), a fragment, another scheme, or another path is refused: the provisioner cannot use one, and SSH settings belong in the provisioner's own SSH configuration. |
+| `powerId` | `virsh` only | The libvirt domain name or UUID on that hypervisor, without whitespace. Refused for `bmc`. |
+| `username` | No (`bmc` only) | The BMC account. Refused for `virsh`. |
+| `password` | No | Write-only. Omitted keeps the password the provisioner holds when `driver` is unchanged and clears it when `driver` changes; `""` clears it; any other value replaces it. |
+
+swallow validates the body against the driver's family before calling the provisioner; the
+provisioner then validates it again and may refuse it. The provisioner itself connects with these
+values, so the provisioner — not swallow — must reach the address: for `virsh`, the MAAS rack
+controller needs SSH access to the hypervisor account (its key in the MAAS snap's
+`/var/snap/maas/current/root/.ssh`). A write does not test that access; read `GET
+/servers/{id}/power-state` afterwards.
+
+A write changes only the Power Configuration; it never switches power, and it does not resume
+an `inspect-hardware` Workflow waiting for attention. Retry that Workflow (or `POST
+/servers/{id}/inspect`) after the write.
+
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `validation_error` | The body is not a JSON object; `driver` is missing or not one of `drivers`; a parameter is missing, malformed, or does not apply to the driver; the provisioner lacks the capability; or the provisioner refused the configuration (the message carries its explanation). |
+| 404 | `not_found` | The Server does not exist, or the provisioner no longer has its Machine. |
+| 409 | `conflict` | The Server is locked, or its power is managed by a provisioner VM host (`editable` is `false`). |
+| 503 | `provider_unavailable` | The provisioner could not be reached, its credential may not read or write power parameters (a MAAS account that is not an administrator), or the Server Lock state is unavailable. |
+
+The Read answers `404` and `503` the same way, and `400` only for a provisioner without the
+capability.
 
 ## Default User
 
@@ -318,8 +435,9 @@ provisioner ([decision 047](../../../../../docs/decisions/047-redfish-boot-media
 [decision 049](../../../../../docs/decisions/049-boot-iso-builder.md)). Boot ISOs are built in
 swallow per provisioner Integration ([boot-isos.md](boot-isos.md)); per Server, swallow owns
 whether Boot Media is enabled, which Boot ISO it uses, and the outcome of the last apply. swallow
-reads the BMC's address and account from the provisioner (MAAS `power_parameters`) for each call
-and never stores, logs, or returns them on these routes.
+reads the BMC's address and account from the Server's Power Configuration at the provisioner
+(MAAS `power_parameters`) for each call and never stores, logs, or returns them on these routes.
+Only a `bmc`-family driver has a BMC; any other driver, or none, is `no_bmc`.
 
 ### The ISO
 
@@ -391,10 +509,10 @@ installations publish `/boot-media/` there. The former fixed route
 - `redfish` is `null` before the first probe. `support` is `supported` (Redfish answers and the
   host System has a virtual CD and boot override), `unsupported` (Redfish answers but lacks one of
   them, or the host System cannot be identified), `unreachable` (no Redfish service at the BMC
-  address, or it rejected the provisioner's BMC account), or `no_bmc` (a virtual machine, or the
-  provisioner holds no BMC address). `reason` explains any value but `supported`. The probe is
-  made against the BMC address whatever the provisioner's power driver is (an IPMI-driven BMC may
-  offer Redfish). The API process probes every present Server whose capability is missing — a
+  address, or it rejected the provisioner's BMC account), or `no_bmc` (a virtual machine, a
+  driver outside the `bmc` family, or the provisioner holds no BMC address). `reason` explains any
+  value but `supported`. The probe is made against the BMC address whatever `bmc`-family driver
+  the provisioner uses (an IPMI-driven BMC may offer Redfish). The API process probes every present Server whose capability is missing — a
   newly enrolled Server — or older than a day, every ten minutes by default.
 - `live` is `null` unless `live=true` was requested and the BMC answered; then `liveError`
   explains a failed read and the response is still `200`. `mediaImage` is verbatim (BMCs rewrite
@@ -520,3 +638,13 @@ now shows the state before inspection starts rather than the provider's accepted
 from `deployed`, `allocated`, `rescue`, `retired`, or an in-progress state, and Inspect while
 another Workflow holds the Server, are now `409 conflict` instead of being forwarded to the
 provider.
+
+On 2026-10-09 the Power Configuration routes were added and `capabilities` gained
+`powerConfiguration`
+([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)). The
+provisioner detail now shows a `BMC` section only for a `bmc`-family driver; a Machine with a
+`virsh` or other non-BMC driver gets a `Power` section without a password, where it used to get
+a `BMC` section naming its libvirt URI. Both changes are additive for clients that ignore unknown
+fields and sections. An Inspect that resumes a Workflow waiting for attention now runs the
+enrollment wait again, and a new requested Inspect of a Machine without a power driver stops for
+attention instead of failing at the provider.

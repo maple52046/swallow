@@ -15,6 +15,7 @@ import type { ListOperationsFilters, Operation, OperationStatus } from '@/domain
 import { operationStatus } from '@/domain/operation/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { InventorySurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -116,14 +117,16 @@ function WorkflowIdentity({ operation, href }: { operation: Operation; href: str
   )
 }
 
-/** Textual Workflow status with a motion-safe activity cue for changing executions. */
+/**
+ * Textual Workflow status with the shared in-progress cue used on Server Deployment
+ * cells: label first, then `InProgressSpinner` while the execution can still advance.
+ * Status meaning stays on the badge text; the spinner is decorative only.
+ */
 function WorkflowStatusLine({ status }: { status: OperationStatus }) {
   return (
     <div className="sw-workflow-status-line">
-      {isWorkflowChangingStatus(status) && (
-        <LoaderCircle className="sw-workflow-activity-spinner" size={14} aria-hidden />
-      )}
       <StatusBadge status={status} />
+      {isWorkflowChangingStatus(status) && <InProgressSpinner />}
     </div>
   )
 }

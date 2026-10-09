@@ -253,19 +253,19 @@ func TestEnsureBootMediaStep(t *testing.T) {
 	}
 }
 
-// fakeBMCProvider is a provisioner with the BMCConnection capability.
+// fakeBMCProvider is a provisioner with the PowerConfiguration capability.
 type fakeBMCProvider struct {
 	provisioningdomain.OSProvisioningProvider
-	connection *provisioningdomain.BMCConnection
-	err        error
+	config *provisioningdomain.PowerConfiguration
+	err    error
 }
 
 func (p fakeBMCProvider) Capabilities() provisioningdomain.ProviderCapabilities {
-	return provisioningdomain.ProviderCapabilities{BMCConnection: true}
+	return provisioningdomain.ProviderCapabilities{PowerConfiguration: true}
 }
 
-func (p fakeBMCProvider) BMCConnection(context.Context, string) (*provisioningdomain.BMCConnection, error) {
-	return p.connection, p.err
+func (p fakeBMCProvider) PowerConfiguration(context.Context, string) (*provisioningdomain.PowerConfiguration, error) {
+	return p.config, p.err
 }
 
 type fakeBMCProviders struct {
@@ -276,31 +276,40 @@ func (f fakeBMCProviders) For(context.Context, string) (provisioningdomain.OSPro
 	return f.provider, nil
 }
 
+// The endpoint source asks the power adapter of the Power Configuration whether there is a BMC:
+// only a bmc-family driver of a machine outside a VM host yields one (decision 054).
 func TestBMCEndpointSourceMapsProvisionerAnswers(t *testing.T) {
 	server := &serverdomain.Server{ID: "srv", Hardware: serverdomain.Hardware{SystemUUID: "uuid-1"}}
-	source := bmcEndpointSource{providers: fakeBMCProviders{provider: fakeBMCProvider{
-		connection: &provisioningdomain.BMCConnection{PowerType: "ipmi", Address: "10.0.0.5", Username: "maas", Password: "pw", NodeID: "Self"},
-	}}}
+	source := newBMCEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{
+		config: &provisioningdomain.PowerConfiguration{Driver: "ipmi", Address: "10.0.0.5", Username: "maas", Password: "pw", NodeID: "Self"},
+	}})
 	endpoint, err := source.BMCEndpoint(context.Background(), server)
 	if err != nil {
 		t.Fatalf("BMCEndpoint error = %v", err)
 	}
-	if endpoint.Address != "10.0.0.5" || endpoint.Password != "pw" || endpoint.SystemHint != "Self" || endpoint.HostUUID != "uuid-1" {
+	if endpoint.Address != "10.0.0.5" || endpoint.Password != "pw" || endpoint.SystemHint != "Self" ||
+		endpoint.HostUUID != "uuid-1" || endpoint.PowerType != "ipmi" {
 		t.Errorf("endpoint = %+v", endpoint)
 	}
 
 	cases := []struct {
-		name string
-		err  error
-		want error
+		name   string
+		config *provisioningdomain.PowerConfiguration
+		err    error
+		want   error
 	}{
-		{"virtual machine", provisioningdomain.ErrMachineHasNoBMC, serverdomain.ErrNoBMC},
-		{"not an admin", &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorAuth}, serverdomain.ErrBMCCredentialUnavailable},
-		{"provisioner down", &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorUnavailable}, serverdomain.ErrBMCConnectionUnavailable},
+		{"virsh driver", &provisioningdomain.PowerConfiguration{Driver: "virsh", Address: "qemu+ssh://h/system", PowerID: "vm"}, nil, serverdomain.ErrNoBMC},
+		{"VM-host member", &provisioningdomain.PowerConfiguration{Driver: "ipmi", Address: "10.0.0.5", ManagedBy: "kvm-3"}, nil, serverdomain.ErrNoBMC},
+		{"no driver", &provisioningdomain.PowerConfiguration{}, nil, serverdomain.ErrNoBMC},
+		{"unknown driver", &provisioningdomain.PowerConfiguration{Driver: "lxd", Address: "https://h"}, nil, serverdomain.ErrNoBMC},
+		{"no BMC address", &provisioningdomain.PowerConfiguration{Driver: "redfish"}, nil, serverdomain.ErrNoBMC},
+		{"machine gone", nil, provisioningdomain.ErrMachineNotFound, serverdomain.ErrNoBMC},
+		{"not an admin", nil, &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorAuth}, serverdomain.ErrBMCCredentialUnavailable},
+		{"provisioner down", nil, &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorUnavailable}, serverdomain.ErrBMCConnectionUnavailable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			source := bmcEndpointSource{providers: fakeBMCProviders{provider: fakeBMCProvider{err: tc.err}}}
+			source := newBMCEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{config: tc.config, err: tc.err}})
 			if _, err := source.BMCEndpoint(context.Background(), server); !errors.Is(err, tc.want) {
 				t.Errorf("BMCEndpoint error = %v, want %v", err, tc.want)
 			}

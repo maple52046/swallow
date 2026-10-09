@@ -803,6 +803,7 @@ export function ServersPage() {
         onView={(operationId) => navigate(scopedHref(operationId
           ? `/workflows/${operationId}`
           : `/workflows?kind=${INSPECT_HARDWARE_WORKFLOW_KIND}&status=requires_attention`))}
+        onConfigurePower={(serverId) => navigate(scopedHref(`/servers/${serverId}/summary`))}
       />
 
       {state.status === 'ready' && state.refreshError && (

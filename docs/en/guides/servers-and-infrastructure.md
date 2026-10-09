@@ -21,6 +21,11 @@ without a provisioner shows **Connect a provisioner** instead.
 You never press *Commission* in MAAS: swallow waits until enlistment powers the
 machine off, then inspects it (see [Inspect hardware](#inspect-hardware)).
 
+A lab virtual machine enlists the same way (boot it from the network or from an
+iPXE boot medium), but enlistment cannot give it a power driver, so MAAS cannot
+report its power-off. Its inspection stops with **Set power configuration**; give
+it a `virsh` [Power configuration](#power-configuration) and retry.
+
 The Redfish tab takes the BMC address and user, then prints `curl` commands that
 insert the virtual media, set a one-time boot from it, and power the system on;
 `curl` asks for the BMC password. The commands assume system `1` and virtual
@@ -161,16 +166,59 @@ the attempts run out, the Workflow asks for attention: the Server list and the
 Server detail page show **Hardware inspection needs attention** with a link to
 the Workflow, which holds the reason. swallow does not mark the Server failed.
 
-The usual cause is a Server that could not network-boot into the provisioner.
-Enable its Boot Media if its network is not served by the provisioner's DHCP,
-then retry the Workflow's Task or choose **Inspect hardware** again; either
-re-runs the whole inspection with Boot Media applied.
+What to do depends on why it stopped:
+
+| Reason | Fix, then retry |
+| --- | --- |
+| Enrollment ended but the Server has no power driver MAAS can read (typical for a VM) | Set its [Power configuration](#power-configuration); check **Power state**; power it off if it is on. |
+| Enrollment did not end within 20 minutes | Check the host finished enlisting and that MAAS can read its power. |
+| The Server never network-booted into an inspection | Enable its Boot Media if its network is not served by the provisioner's DHCP; for a VM, put its NIC or iPXE boot medium first in the hypervisor's boot order. |
+| The provider reported the inspection failed | Read the inspection results in MAAS. |
+
+Retry the Workflow's Task, or choose **Inspect hardware** again; either re-runs
+the whole inspection. A retry waits for enrollment again, so it never
+commissions a machine that is still enlisting; once MAAS reads the machine as
+powered off, the wait passes within about 30 seconds. **Inspect hardware** on a
+Server without a waiting Workflow starts one that skips the wait, because you
+assert the Server may boot now.
 
 Automatic inspection applies to Servers swallow first saw within the last 24
 hours that were never inspected by swallow. Turn it off per provisioner with
 **Inspect newly enrolled Servers automatically** in the Integration dialog;
 Inspect hardware stays available. Inspect is refused while a Server is deployed,
 allocated, in rescue, or busy with other provider work or another Workflow.
+
+## Power configuration
+
+A Server's power configuration is the power driver MAAS uses to switch and read
+its power, and that driver's settings. MAAS owns it; swallow reads it live and
+saves your changes to MAAS. It is on the Server detail **Summary**: in the
+**Management controller** card for a Server with a BMC, and in the **Power
+control** card for a Server without one. Choose **Edit power configuration** (or
+**Set power configuration**).
+
+| Driver | For | Settings |
+| --- | --- | --- |
+| IPMI, Redfish | A physical Server's BMC | BMC address, account, password |
+| virsh | A libvirt virtual machine | Hypervisor URI `qemu+ssh://user@host/system`, domain name or UUID, optional password |
+
+Only a BMC driver gives a Server Boot Media; Redfish Boot Media is probed from
+the BMC whichever of the two drivers MAAS uses. The password is write-only:
+leave it empty to keep the stored one (changing the driver removes it unless you
+enter a new one).
+
+For a `virsh` driver, MAAS — not swallow — connects to the hypervisor, so its
+rack controller needs SSH access to the hypervisor account before the driver
+works. With the MAAS snap, put the key, `known_hosts`, and any SSH options in
+`/var/snap/maas/current/root/.ssh`, and check from inside the snap:
+`sudo snap run --shell maas -c 'virsh -c qemu+ssh://user@host/system list --all'`.
+Keep the URI clean: MAAS refuses query parameters such as `?keyfile=`. Several
+VMs on one hypervisor share its URI and differ by domain.
+
+Saving does not switch power or resume an inspection. Read **Power state** to
+confirm MAAS can reach the driver, then retry the inspection. A virtual machine
+that belongs to a MAAS VM host takes its power from the VM host and is read-only
+here.
 
 ## Provider and observation failures
 
@@ -210,6 +258,10 @@ swallow servers list --site-id site1 --provisioning-state deployed
 swallow servers list --site-id site1 --provisioning-state inspecting
 swallow servers get server1
 swallow servers inspect server1
+swallow servers power-configuration get server1
+swallow servers power-configuration set server1 --driver virsh \
+  --address qemu+ssh://maas@hypervisor.lab/system --power-id vm-01
+swallow servers power-state server1
 swallow integrations enroll-bundle int1          # existing-OS command (contains the MAAS API key)
 swallow provisioning tags edit --server server1 --add amd-gpu
 swallow infrastructure zones list --site-id site1

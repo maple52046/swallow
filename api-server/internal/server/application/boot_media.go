@@ -568,10 +568,9 @@ func (uc *BootMediaUseCase) endApply(serverID string, startedAt time.Time) {
 }
 
 // endpoint resolves the Server's BMC endpoint and fills the host UUID used to pick the System.
+// Whether the Server has a BMC at all is the endpoint source's answer, from the power adapter of its
+// Power Configuration (decision 054); this use case does not guess it from VM-host membership.
 func (uc *BootMediaUseCase) endpoint(ctx context.Context, server *serverdomain.Server) (*serverdomain.BMCEndpoint, error) {
-	if server.Observed.ProviderPod != "" {
-		return nil, serverdomain.ErrNoBMC
-	}
 	endpoint, err := uc.endpoints.BMCEndpoint(ctx, server)
 	if err != nil {
 		return nil, err

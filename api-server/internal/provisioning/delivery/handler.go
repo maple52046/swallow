@@ -45,6 +45,7 @@ type ProvisioningHandler struct {
 	durable         application.DurableOperationLauncher
 	inspections     application.HardwareInspectionLauncher
 	enrollment      *application.HostEnrollmentUseCase
+	power           *application.PowerConfigurationUseCase
 }
 
 func NewProvisioningHandler(
@@ -270,6 +271,66 @@ func (h *ProvisioningHandler) PowerState(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
 	}
 	item, err := h.actions.QueryPower(c.Context(), id)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
+}
+
+// powerConfigurationRequest is the PUT /servers/{id}/power-configuration body. Password is a
+// pointer so an absent key (keep the stored password for an unchanged driver) is told apart from
+// "" (clear it); JSON null counts as absent.
+type powerConfigurationRequest struct {
+	Driver   string  `json:"driver"`
+	Address  string  `json:"address"`
+	PowerID  string  `json:"powerId"`
+	Username string  `json:"username"`
+	Password *string `json:"password"`
+}
+
+// GetPowerConfiguration serves GET /servers/{id}/power-configuration (server-detail-actions.md):
+// the Server's Power Configuration read live from its provisioner, without the password. The
+// response is not cached because it reflects live provisioner state an operator is about to edit.
+func (h *ProvisioningHandler) GetPowerConfiguration(c *fiber.Ctx) error {
+	c.Set(fiber.HeaderCacheControl, "no-store")
+	if h.power == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "Power configuration is unavailable."))
+	}
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	item, err := h.power.Get(c.Context(), id)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
+}
+
+// SetPowerConfiguration serves PUT /servers/{id}/power-configuration: it writes the operator's
+// Power Configuration through to the provisioner and answers 200 with the configuration read back.
+// The request carries a write-only password; nothing here logs the body, and the shared error
+// mapper logs only the provider's client-safe detail.
+func (h *ProvisioningHandler) SetPowerConfiguration(c *fiber.Ctx) error {
+	c.Set(fiber.HeaderCacheControl, "no-store")
+	if h.power == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "Power configuration is unavailable."))
+	}
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	var req powerConfigurationRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if strings.TrimSpace(req.Driver) == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "driver is required."))
+	}
+	item, err := h.power.Set(c.Context(), id, application.SetPowerConfigurationInput{
+		Driver: req.Driver, Address: req.Address, PowerID: req.PowerID,
+		Username: req.Username, Password: req.Password,
+	})
 	if err != nil {
 		return RespondError(c, err)
 	}
@@ -681,6 +742,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 
 	case errors.Is(err, provisioningdomain.ErrProvisioningTaskConflict),
 		errors.Is(err, provisioningdomain.ErrServerMutationConflict),
+		errors.Is(err, provisioningdomain.ErrPowerConfigurationManaged),
 		errors.Is(err, provisioningdomain.ErrInspectionNotAllowed),
 		errors.Is(err, serverdomain.ErrServerLocked),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict),
@@ -693,6 +755,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration),
 		errors.Is(err, provisioningdomain.ErrInvalidEnrollmentRequest),
 		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid),
+		errors.Is(err, provisioningdomain.ErrInvalidPowerConfiguration),
 		errors.Is(err, provisioningdomain.ErrInvalidTag):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
@@ -812,4 +875,10 @@ func (h *ProvisioningHandler) AttachHardwareInspection(launcher application.Hard
 // AttachHostEnrollment enables the existing-OS enrollment bundle route.
 func (h *ProvisioningHandler) AttachHostEnrollment(enrollment *application.HostEnrollmentUseCase) {
 	h.enrollment = enrollment
+}
+
+// AttachPowerConfiguration enables the Power Configuration routes (decision 054). Without it, as in
+// legacy tests, they answer 503 rather than panicking on a nil use case.
+func (h *ProvisioningHandler) AttachPowerConfiguration(power *application.PowerConfigurationUseCase) {
+	h.power = power
 }
