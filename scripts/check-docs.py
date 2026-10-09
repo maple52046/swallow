@@ -186,39 +186,26 @@ def check_required_counterparts(errors: list[str]) -> None:
             )
 
 
-def check_visual_baselines(errors: list[str]) -> None:
-    baselines = {
-        Path(
-            "dashboard/tests/e2e/visual-regression.spec.ts-snapshots/"
-            "overview-desktop-light-chromium-linux.png"
-        ): (
-            Path("docs/assets/overview.png"),
-            {Path("README.md"), Path("README.zh-TW.md")},
-        ),
-        Path(
-            "dashboard/tests/e2e/visual-regression.spec.ts-snapshots/"
-            "platform-wizard-desktop-light-chromium-linux.png"
-        ): (
-            Path("docs/assets/platform-deployment-wizard.png"),
-            {
-                Path("docs/en/introduction.md"),
-                Path("docs/zh-TW/introduction.md"),
-                Path("docs/en/guides/platforms.md"),
-                Path("docs/zh-TW/guides/platforms.md"),
-            },
-        ),
+def check_documentation_screenshots(errors: list[str]) -> None:
+    # Docs screenshots are curated assets. They are no longer tied to tracked
+    # Playwright pixel baselines (see dashboard visual-review workflow).
+    assets = {
+        Path("docs/assets/overview.png"): {
+            Path("README.md"),
+            Path("README.zh-TW.md"),
+        },
+        Path("docs/assets/platform-deployment-wizard.png"): {
+            Path("docs/en/introduction.md"),
+            Path("docs/zh-TW/introduction.md"),
+            Path("docs/en/guides/platforms.md"),
+            Path("docs/zh-TW/guides/platforms.md"),
+        },
     }
-    for baseline, (asset, documents) in baselines.items():
-        baseline_path = ROOT / baseline
+    for asset, documents in assets.items():
         asset_path = ROOT / asset
-        if not baseline_path.is_file():
-            errors.append(f"missing deterministic Playwright baseline: {baseline}")
-            continue
         if not asset_path.is_file():
             errors.append(f"missing documentation screenshot asset: {asset}")
             continue
-        if baseline_path.read_bytes() != asset_path.read_bytes():
-            errors.append(f"{asset}: does not match Playwright baseline {baseline}")
         expected = asset_path.resolve()
         for document in documents:
             linked = {
@@ -236,7 +223,7 @@ def main() -> int:
     check_links(files, errors)
     check_language_mirror(errors)
     check_required_counterparts(errors)
-    check_visual_baselines(errors)
+    check_documentation_screenshots(errors)
     if errors:
         print("Documentation validation failed:", file=sys.stderr)
         for error in errors:
