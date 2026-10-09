@@ -90,4 +90,6 @@ Three gaps met there:
 
 ## Current status
 
-Implemented.
+Implemented. [ADR 055](055-libvirt-virtual-machine-enrollment.md) refines it: a `virsh` Server whose
+address names a swallow Hypervisor gets `libvirt` Boot Media, and swallow reaches that Hypervisor's
+libvirt with the Deployment Key for domain reads and Boot Media only, never for power.

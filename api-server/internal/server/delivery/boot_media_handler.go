@@ -68,20 +68,21 @@ func (h *BootMediaHandler) Set(c *fiber.Ctx) error {
 	return c.JSON(response)
 }
 
-// Probe re-probes the Server's BMC for Redfish capability and returns the stored result.
+// Probe re-probes the Server's Boot Media method and returns the stored results.
 func (h *BootMediaHandler) Probe(c *fiber.Ctx) error {
-	capability, err := h.bootMedia.Probe(c.Context(), c.Params("id"))
+	probe, err := h.bootMedia.Probe(c.Context(), c.Params("id"))
 	if err != nil {
 		return respondBootMediaError(c, err)
 	}
-	return c.JSON(fiber.Map{"redfish": application.ToRedfishCapabilityItem(capability)})
+	return c.JSON(application.ToBootMediaProbeItem(probe))
 }
 
 // respondBootMediaError maps the use case's errors onto the contract's statuses: a missing
 // Server or Boot ISO is 404; enabling without a Boot ISO or with another Integration's is 400; a
-// preflight already running, a lock, a Server without a usable BMC, a Boot ISO that is not served, or a BMC that refused the
-// media are state conflicts (409); an unreachable BMC or provisioner, or an unknown lock state,
-// is 503. Anything else is logged and reported as 500.
+// preflight already running, a lock, a Server without a usable method, a Boot ISO that is not
+// served, a hypervisor without the domain or refusing the key or libvirt, or a BMC or hypervisor
+// that refused the media are state conflicts (409); an unreachable BMC, hypervisor, or
+// provisioner, or an unknown lock state, is 503. Anything else is logged and reported as 500.
 func respondBootMediaError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, serverdomain.ErrServerNotFound):
@@ -97,12 +98,21 @@ func respondBootMediaError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, serverdomain.ErrServerLocked),
 		errors.Is(err, serverdomain.ErrBootMediaNotConfigured),
 		errors.Is(err, serverdomain.ErrNoBMC),
+		errors.Is(err, serverdomain.ErrNoHypervisor),
 		errors.Is(err, serverdomain.ErrBMCCredentialUnavailable),
 		errors.Is(err, serverdomain.ErrRedfishUnsupported),
-		errors.Is(err, serverdomain.ErrBootMediaRejected):
+		errors.Is(err, serverdomain.ErrBootMediaRejected),
+		errors.Is(err, serverdomain.ErrHypervisorNotDeployed),
+		errors.Is(err, serverdomain.ErrInvalidDefaultUser),
+		errors.Is(err, serverdomain.ErrDeploymentKeyMissing),
+		errors.Is(err, serverdomain.ErrDeploymentKeyRejected),
+		errors.Is(err, serverdomain.ErrLibvirtUnavailable),
+		errors.Is(err, serverdomain.ErrDomainNotFound),
+		errors.Is(err, serverdomain.ErrLibvirtRefused):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 	case errors.Is(err, serverdomain.ErrBMCUnreachable),
 		errors.Is(err, serverdomain.ErrBMCConnectionUnavailable),
+		errors.Is(err, serverdomain.ErrHostUnreachable),
 		errors.Is(err, serverdomain.ErrServerLockUnavailable):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 	}

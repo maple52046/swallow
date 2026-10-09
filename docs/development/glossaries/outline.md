@@ -33,7 +33,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Tag](terms/tag.md): An operator-facing label on a Server, provider-owned when the provisioner supports tagging (MAAS) and swallow-owned otherwise; drives Server Type and discovery filters.
 - [BMC](terms/bmc.md): A physical Server's out-of-band management controller; its connection facts are provisioner-owned and read live, while its Redfish capability (virtual media, boot override) is swallow's own probe result — independent of the provisioner's power driver.
 - [Power Configuration](terms/power-configuration.md): The provisioner-owned power driver and parameters that let the provisioner switch and read a Server's power — family `bmc` (`ipmi`, `redfish`) or `virsh`, control `none`/`manual`/`automatic`; swallow writes it through, password write-only.
-- [Boot Media](terms/boot-media.md): A Server's setting that its BMC mounts a chosen Boot ISO and boots it first to reach the provisioner on externally served networks; swallow owns the setting, applied as a preflight and re-ensured before every OS Deployment.
+- [Boot Media](terms/boot-media.md): A Server's setting that a chosen Boot ISO is attached and booted first to reach the provisioner on externally served networks — method `redfish` (BMC virtual media) or `libvirt` (a VM's CD-ROM on its Hypervisor); swallow owns the setting, applied as a preflight and re-ensured before every inspection and OS Deployment.
+- [Hypervisor](terms/hypervisor.md): A deployed Server that runs libvirt virtual machines swallow can enroll by name and give Boot Media, reached over SSH with the Deployment Key; the provisioner still switches their power.
 - [Boot ISO](terms/boot-iso.md): A swallow-built iPXE ISO for one provisioner Integration that takes a site DHCP lease and chains to its MAAS rack; built from a fixed template, served by swallow, selected by Boot Media.
 
 ### Platform Management
@@ -58,8 +59,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   a Server is swallow's projection of it.
 - [Server Enrollment](terms/server-enrollment.md): Putting a machine into the provisioner's inventory —
   network boot (then automatic inspection to `ready`, asking for a Power Configuration when the
-  enrollment power-off cannot be observed) or a host keeping its OS (`deployed`); never creating a
-  Server record.
+  enrollment power-off cannot be observed), a libvirt virtual machine named on its Hypervisor, or a
+  host keeping its OS (`deployed`); never creating a Server record.
 - [OS Provisioning State](terms/os-provisioning-state.md): The swallow-defined `provisioning.state`
   value set (`new | inspecting | ready | … | releasing | …`) that every provider adapter maps onto.
 - [OS Image](terms/os-image.md): Live provider-owned operating system artifact

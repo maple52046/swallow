@@ -115,6 +115,19 @@ bash seed.sh
 未提供 MAAS／SSH input 時會略過並顯示提示。觀察到 deployed Server 後，可依
 ownership policy 自動安裝 exporter；locked Server 保持 unmanaged。
 
+若要以本機 MAAS snap 納管 libvirt 虛擬機，先給它的 rack 與 production 安裝相同的 SSH
+身分（已安裝的主機上 `local-maas.sh ensure-virsh-identity` 做的就是這件事），再 seed 它的公鑰：
+
+```bash
+sudo install -d -m 0700 /var/snap/maas/current/root/.ssh
+sudo test -s /var/snap/maas/current/root/.ssh/id_ed25519 ||
+  sudo ssh-keygen -q -t ed25519 -N '' -f /var/snap/maas/current/root/.ssh/id_ed25519
+printf '\n# BEGIN swallow virsh\nHost *\n  StrictHostKeyChecking accept-new\n# END swallow virsh\n' |
+  sudo tee -a /var/snap/maas/current/root/.ssh/config >/dev/null
+sudo cat /var/snap/maas/current/root/.ssh/id_ed25519.pub >/tmp/maas-virsh.pub
+SWALLOW_MAAS_VIRSH_SSH_PUBLIC_KEY_FILE=/tmp/maas-virsh.pub bash seed.sh
+```
+
 手動設定請依[初始設定指南](../../docs/zh-TW/guides/initial-setup.md)。
 
 ## Troubleshooting

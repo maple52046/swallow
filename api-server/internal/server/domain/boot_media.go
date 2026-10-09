@@ -7,6 +7,30 @@ import (
 	"time"
 )
 
+// BootMediaMethod is how a Server's Boot ISO is attached (decisions 047 and 055), decided by its
+// Power Configuration. The values are the published `method` of the Boot Media API.
+type BootMediaMethod string
+
+const (
+	// BootMediaMethodRedfish mounts the Boot ISO as Redfish virtual media on the Server's BMC.
+	BootMediaMethodRedfish BootMediaMethod = "redfish"
+	// BootMediaMethodLibvirt puts the Boot ISO on a virtual machine's CD-ROM on its Hypervisor.
+	BootMediaMethodLibvirt BootMediaMethod = "libvirt"
+)
+
+// BootMediaMethod is the method the stored probes found: libvirt when the libvirt probe found a
+// Hypervisor, else redfish when the Redfish probe found a BMC, else "".
+func (s *Server) BootMediaMethod() BootMediaMethod {
+	switch {
+	case s.Libvirt != nil && s.Libvirt.Support != LibvirtNoHypervisor:
+		return BootMediaMethodLibvirt
+	case s.Redfish != nil && s.Redfish.Support != RedfishNoBMC:
+		return BootMediaMethodRedfish
+	default:
+		return ""
+	}
+}
+
 // RedfishSupport is the outcome of swallow's Redfish capability probe of a Server's BMC
 // (decision 047). The values are the published `redfish.support` of the Boot Media API.
 type RedfishSupport string
@@ -54,6 +78,57 @@ type RedfishCapability struct {
 // Stale reports whether the probe is older than window at now, so a sweep re-probes it.
 func (c *RedfishCapability) Stale(now time.Time, window time.Duration) bool {
 	return c == nil || now.Sub(c.ProbedAt) >= window
+}
+
+// LibvirtSupport is the outcome of swallow's libvirt probe of a virtual machine (decision 055).
+// The values are the published `libvirt.support` of the Boot Media API.
+type LibvirtSupport string
+
+const (
+	// LibvirtSupported means the Hypervisor answered and has the domain: Boot Media can be enabled.
+	LibvirtSupported LibvirtSupport = "supported"
+	// LibvirtUnsupported means the Hypervisor answered but has no such domain.
+	LibvirtUnsupported LibvirtSupport = "unsupported"
+	// LibvirtUnreachable means the Hypervisor could not be reached, refused the Deployment Key, or
+	// the account may not use libvirt.
+	LibvirtUnreachable LibvirtSupport = "unreachable"
+	// LibvirtNoHypervisor means the Power Configuration's host is not a swallow Server of the Site.
+	LibvirtNoHypervisor LibvirtSupport = "no_hypervisor"
+)
+
+// LibvirtCapability is what one probe of a virtual machine's Hypervisor found. Like
+// RedfishCapability it is swallow-owned, refreshed by the capability sweep and on demand, and used
+// only to gate and explain Boot Media.
+type LibvirtCapability struct {
+	Support LibvirtSupport
+	// Reason explains, in operator terms, why Support is not LibvirtSupported. Empty otherwise.
+	Reason             string
+	HypervisorServerID string
+	Account            string
+	Domain             string
+	Pool               string
+	CDROM              bool
+	ProbedAt           time.Time
+}
+
+// LibvirtEndpoint is how swallow reaches one virtual machine for one call, read from its Power
+// Configuration (`qemu+ssh://<account>@<host>/system`, power ID the domain).
+type LibvirtEndpoint struct {
+	// Hypervisor is the swallow Server the address's host names; nil when the host is not a
+	// swallow Server of the Site. HypervisorOf turns it into a login.
+	Hypervisor *Server
+	Host       string
+	// Account is the address's SSH account, empty when it names none.
+	Account string
+	Domain  string
+}
+
+// BootMediaEndpoint is the method a Server's Power Configuration gives it, with what that method
+// needs: BMC for redfish, Libvirt for libvirt.
+type BootMediaEndpoint struct {
+	Method  BootMediaMethod
+	BMC     *BMCEndpoint
+	Libvirt *LibvirtEndpoint
 }
 
 // BootMediaApplier names what last applied Boot Media to a Server's BMC.
@@ -183,14 +258,16 @@ type BMCEndpoint struct {
 	HostUUID   string
 }
 
-// BMCEndpointSource reads a Server's BMC endpoint from its provisioner (decision 047).
+// BootMediaEndpointSource reads a Server's Boot Media method and endpoint from its provisioner's
+// Power Configuration (decisions 047, 054, and 055): a bmc-family driver gives redfish with the
+// BMC's endpoint, and a virsh driver gives libvirt with the Hypervisor its address names.
 //
-// Implementations return ErrNoBMC when the Server has no BMC (a virtual machine, no power driver,
-// no address) or its provisioner cannot hand out BMC connections, ErrBMCCredentialUnavailable when
-// the provisioner refused to reveal the connection, and ErrBMCConnectionUnavailable (wrapped)
-// when it could not be reached. They must not log or retain the password.
-type BMCEndpointSource interface {
-	BMCEndpoint(ctx context.Context, server *Server) (*BMCEndpoint, error)
+// Implementations return ErrNoBMC when the Server has neither (no power driver, another driver,
+// no address) or its provisioner cannot hand out power settings, ErrBMCCredentialUnavailable when
+// the provisioner refused to reveal them, and ErrBMCConnectionUnavailable (wrapped) when it could
+// not be reached. They must not log or retain the password.
+type BootMediaEndpointSource interface {
+	BootMediaEndpoint(ctx context.Context, server *Server) (*BootMediaEndpoint, error)
 }
 
 // RedfishController drives the Redfish Boot Media functions of one BMC (decision 047).
@@ -226,9 +303,11 @@ type RedfishController interface {
 // repository implements both on the same document. Every method touches only its own field and
 // returns ErrServerNotFound for an unknown id.
 type BootMediaStore interface {
-	// SetBootMedia and SetRedfishCapability replace their field; nil clears it.
+	// SetBootMedia, SetRedfishCapability, and SetLibvirtCapability replace their field; nil clears
+	// it.
 	SetBootMedia(ctx context.Context, id string, setting *BootMediaSetting) error
 	SetRedfishCapability(ctx context.Context, id string, capability *RedfishCapability) error
+	SetLibvirtCapability(ctx context.Context, id string, capability *LibvirtCapability) error
 	// BeginBootMediaApply records apply atomically unless one started at or after staleBefore is
 	// recorded, in which case it returns ErrBootMediaApplying.
 	BeginBootMediaApply(ctx context.Context, id string, apply *BootMediaApply, staleBefore time.Time) error
@@ -248,6 +327,16 @@ type BootISOImage struct {
 	URL           string
 }
 
+// BootISOFile is a Boot ISO's file on this installation, for a method that uploads it (libvirt)
+// rather than having a BMC mount its URL.
+type BootISOFile struct {
+	ID            string
+	Name          string
+	IntegrationID string
+	Path          string
+	Size          int64
+}
+
 // BootISOResolver resolves the Boot ISO a Boot Media setting names. Boot ISOs are built and
 // owned by the provisioning context; this port is the server context's narrow view of them.
 type BootISOResolver interface {
@@ -256,6 +345,9 @@ type BootISOResolver interface {
 	// configured) it returns the image together with an error wrapping ErrBootMediaNotConfigured
 	// that says why, so callers can still name it.
 	Resolve(ctx context.Context, id string) (*BootISOImage, error)
+	// File returns the Boot ISO's file. It returns ErrBootISOUnknown when none has the id, and an
+	// error wrapping ErrBootMediaNotConfigured when the file is missing. It needs no base URL.
+	File(ctx context.Context, id string) (*BootISOFile, error)
 	// URL is where BMCs mount id's ISO, whether or not it still exists, so a previously mounted
 	// ISO can be ejected. For an empty id it is the URL of the retired installation ISO that a
 	// setting enabled before Boot ISOs had mounted. It is "" when no base URL is configured.
@@ -275,6 +367,9 @@ var (
 	ErrBootISOWrongIntegration = errors.New("the boot ISO belongs to another provisioner integration")
 	// ErrNoBMC means the Server has no BMC swallow can drive.
 	ErrNoBMC = errors.New("server has no BMC")
+	// ErrNoHypervisor means a virtual machine's virsh power settings name a host that is not a
+	// swallow Server of its Site, so swallow cannot reach its libvirt.
+	ErrNoHypervisor = errors.New("the virtual machine's hypervisor is not a swallow server")
 	// ErrBMCCredentialUnavailable means the provisioner would not reveal the BMC connection.
 	ErrBMCCredentialUnavailable = errors.New("the provisioner did not reveal the BMC connection")
 	// ErrBMCConnectionUnavailable means the provisioner could not be reached to read the BMC
@@ -310,7 +405,9 @@ func (e *BootMediaError) Error() string {
 	case errors.Is(e.Err, ErrBootMediaNotConfigured):
 		return fmt.Sprintf("Boot Media of Server %q has no Boot ISO it can use.%s", e.Server, detail)
 	case errors.Is(e.Err, ErrNoBMC):
-		return fmt.Sprintf("Server %q has no BMC swallow can drive (a virtual machine, or the provisioner holds no BMC address).", e.Server)
+		return fmt.Sprintf("Server %q has no Boot Media method: no BMC swallow can drive and no swallow hypervisor in its power settings.", e.Server)
+	case errors.Is(e.Err, ErrNoHypervisor):
+		return fmt.Sprintf("The virsh power settings of Server %q do not name a swallow hypervisor.%s", e.Server, detail)
 	case errors.Is(e.Err, ErrBMCCredentialUnavailable):
 		return fmt.Sprintf("The provisioner did not reveal the BMC connection of Server %q; its integration account must be a provisioner administrator.", e.Server)
 	case errors.Is(e.Err, ErrBMCUnreachable):

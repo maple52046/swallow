@@ -7,8 +7,11 @@
 #
 # Usage: local-maas.sh install | ensure-image | check | stop | purge
 #   install       create the MAAS role and database, install and initialize the snap, create
-#                 the MAAS admin, and store its API key in secrets/maas-api-key
+#                 the MAAS admin, store its API key in secrets/maas-api-key, and give the rack
+#                 the SSH identity its virsh power driver uses (secrets/maas-virsh-ssh.pub)
 #   ensure-image  select ubuntu/noble amd64 on the official source and wait until complete
+#   ensure-virsh-identity
+#                 only the virsh SSH identity step of install (swallowctl upgrade runs it)
 #   check         read-only: MAAS API reachable and ubuntu/noble amd64 complete
 #   stop | purge  stop the MAAS services, or remove the snap and the local MAAS marker
 #
@@ -33,6 +36,9 @@ postgres_port="${SWALLOW_POSTGRES_HOST_PORT:-5432}"
 image_timeout="${SWALLOW_MAAS_IMAGE_TIMEOUT:-3600}"
 image_name="ubuntu/noble"
 image_arch="amd64"
+# The MAAS snap runs its rack controller as root with HOME under the snap's data, so this is where
+# its ssh (and thus the virsh power driver's qemu+ssh) finds its keys and configuration.
+snap_ssh_dir="/var/snap/maas/current/root/.ssh"
 
 log() { printf '[local-maas] %s\n' "$*"; }
 die() { printf '[local-maas] %s\n' "$*" >&2; exit 1; }
@@ -145,6 +151,38 @@ ensure_admin() {
   log 'MAAS admin API key stored in secrets/maas-api-key'
 }
 
+# ensure_virsh_identity gives the rack the SSH identity its virsh power driver connects to
+# hypervisors with (decision 055): a passphrase-less key in the snap's root home (an existing
+# ed25519 or RSA key is kept), and accept-new host key checking as the default for every host, so
+# the first connection to a hypervisor records its key and a changed key is refused. More specific
+# Host blocks an operator adds earlier in the file still win. The public key is copied to
+# secrets/maas-virsh-ssh.pub, which bootstrap.sh records as the Integration's virshSshPublicKey;
+# swallow authorizes it on a hypervisor when it enrolls that hypervisor's virtual machines.
+ensure_virsh_identity() {
+  local key public config="${snap_ssh_dir}/config"
+  install -d -m 0700 "${snap_ssh_dir}"
+  for key in id_ed25519 id_rsa; do
+    [[ -s "${snap_ssh_dir}/${key}" && -s "${snap_ssh_dir}/${key}.pub" ]] && break
+    key=""
+  done
+  if [[ -z "${key}" ]]; then
+    key=id_ed25519
+    ssh-keygen -q -t ed25519 -N '' -C 'maas-virsh@swallow' -f "${snap_ssh_dir}/${key}"
+    log 'generated the MAAS rack SSH key for virsh power'
+  fi
+  touch "${config}"
+  chmod 0600 "${config}"
+  if ! grep -q '^# BEGIN swallow virsh$' "${config}"; then
+    printf '\n# BEGIN swallow virsh\nHost *\n  StrictHostKeyChecking accept-new\n# END swallow virsh\n' >>"${config}"
+    log 'MAAS rack SSH accepts a new hypervisor host key on first connection'
+  fi
+  public="$(sed -n '1p' "${snap_ssh_dir}/${key}.pub")"
+  [[ "${public}" =~ ^ssh-[a-z0-9-]+\ [A-Za-z0-9+/=]+ ]] || die "unexpected public key in ${snap_ssh_dir}/${key}.pub"
+  (umask 022 && printf '%s\n' "${public}" >"${secrets_dir}/maas-virsh-ssh.pub")
+  chmod 0444 "${secrets_dir}/maas-virsh-ssh.pub"
+  log 'MAAS rack virsh public key stored in secrets/maas-virsh-ssh.pub'
+}
+
 maas_login() {
   maas login "${maas_profile}" "${maas_local_url}/" "$(secret maas-api-key)" >/dev/null
 }
@@ -228,6 +266,12 @@ check() {
     printf 'FAIL  MAAS has no complete %s %s boot resource\n' "${image_name}" "${image_arch}"
     failed=1
   fi
+  if [[ -s "${secrets_dir}/maas-virsh-ssh.pub" ]]; then
+    printf 'ok    MAAS rack has an SSH identity for virsh power\n'
+  else
+    printf 'FAIL  MAAS rack has no SSH identity for virsh power (run swallowctl upgrade)\n'
+    failed=1
+  fi
   return "${failed}"
 }
 
@@ -240,11 +284,13 @@ install_maas() {
   ensure_init "${url}"
   wait_for_api
   ensure_admin
+  ensure_virsh_identity
 }
 
 case "${command_name}" in
   install) install_maas ;;
   ensure-image) require_root; ensure_image ;;
+  ensure-virsh-identity) require_root; ensure_virsh_identity ;;
   check) check ;;
   stop)
     require_root
@@ -253,7 +299,7 @@ case "${command_name}" in
   purge)
     require_root
     if snap list maas >/dev/null 2>&1; then snap remove --purge maas; fi
-    rm -f -- "${marker}" "${secrets_dir}/maas-api-key"
+    rm -f -- "${marker}" "${secrets_dir}/maas-api-key" "${secrets_dir}/maas-virsh-ssh.pub"
     ;;
-  *) printf 'usage: local-maas.sh {install|ensure-image|check|stop|purge}\n' >&2; exit 2 ;;
+  *) printf 'usage: local-maas.sh {install|ensure-image|ensure-virsh-identity|check|stop|purge}\n' >&2; exit 2 ;;
 esac

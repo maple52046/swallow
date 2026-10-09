@@ -10,9 +10,10 @@ Active
 
 ## Consumer Components
 
-- `dashboard` (Add servers guidance)
-- `cli` (`swallow integrations enroll-bundle`; `swallow servers enroll` runs on the host being
-  enrolled, downloaded by the enrollment script, and talks only to the provisioner)
+- `dashboard` (Add servers guidance; the virtual-machine path is an experimental dashboard feature)
+- `cli` (`swallow integrations enroll-bundle`; `swallow servers virtual-machines list|enroll`;
+  `swallow servers enroll` runs on the host being enrolled, downloaded by the enrollment script,
+  and talks only to the provisioner)
 - The enrollment script (`/downloads/swallow-enroll.sh`) on the host being enrolled
 
 ## Purpose
@@ -27,11 +28,16 @@ A Server still comes into being only through reconciliation; nothing here create
 - **Existing OS**: one command on a host that keeps its OS downloads a script and the swallow
   CLI from the installation and registers the host with the provisioner. This contract hands
   that command the provisioner endpoint and credential.
+- **Virtual machine**: the operator names libvirt domains on a hypervisor that swallow manages;
+  swallow registers each with the provisioner together with its `virsh` Power Configuration and,
+  when asked, its Boot Media, and automatic inspection takes it to `ready`
+  ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)).
 
 ## Related Glossary Terms
 
 - Server Enrollment
 - Server
+- Hypervisor
 - OS Provisioning State
 - Power Configuration
 - Boot Media
@@ -42,6 +48,8 @@ A Server still comes into being only through reconciliation; nothing here create
 ```text
 POST /api/v1/provisioning/integrations/{id}/enroll-bundle
 POST /api/v1/servers/{id}/inspect            (server-detail-actions.md)
+GET  /api/v1/servers/{hypervisorId}/virtual-machines
+POST /api/v1/provisioning/virtual-machine-enrollments
 GET  /downloads/swallow-enroll.sh            (no authentication)
 GET  /downloads/swallow                      (no authentication)
 ```
@@ -146,6 +154,124 @@ Operator recovery by attention code:
 | `inspect_pxe_unreached` | Enable Boot Media for a Server on a network the provisioner does not serve; for a virtual machine, put its NIC or iPXE boot medium first in the hypervisor's boot order. |
 | `inspect_failed` | Read the provider's inspection results and fix the cause. |
 
+## Virtual machines (libvirt)
+
+A libvirt virtual machine is enrolled by naming its domain on a hypervisor that swallow manages
+([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)). The
+hypervisor is a present, `deployed` Server with a primary address. swallow logs in to it over SSH
+with the installation's Deployment Key, as `account` when given and otherwise as the hypervisor's
+effective Server Default User, on the Site's SSH port, and runs `virsh -c qemu:///system`. The
+account must be allowed to use the system libvirt daemon (on Ubuntu, the `libvirt` group). swallow
+reads domains and changes only their CD-ROM and boot order; the provisioner still switches power
+through the `virsh` driver.
+
+### List virtual machines
+
+`GET /api/v1/servers/{hypervisorId}/virtual-machines` lists every domain on the hypervisor. The
+optional `account` query parameter overrides the login account.
+
+```json
+{
+  "hypervisorServerId": "server-id",
+  "account": "ubuntu",
+  "items": [
+    {
+      "name": "lab-afde-mi308-1",
+      "uuid": "2f1f2a6e-…",
+      "state": "shut off",
+      "architecture": "x86_64",
+      "macAddresses": ["52:54:00:af:de:01"],
+      "serverId": null
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `state` | libvirt's own state words (`running`, `shut off`, `paused`, …), for display. |
+| `architecture` | libvirt's guest architecture, for example `x86_64` or `aarch64`. |
+| `serverId` | The Server that already has one of the domain's MAC addresses, or `null`. |
+
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `validation_error` | `account` (or the hypervisor's effective Server Default User) is not a POSIX login name. |
+| 404 | `not_found` | The hypervisor Server does not exist. |
+| 409 | `conflict` | The hypervisor is absent, not `deployed`, or has no address; the installation has no Deployment Key; the hypervisor refused the key for the account; or the account cannot use libvirt (`virsh` missing or permission denied). |
+| 503 | `provider_unavailable` | The hypervisor could not be reached over SSH. |
+
+### Enroll virtual machines
+
+`POST /api/v1/provisioning/virtual-machine-enrollments`
+
+```json
+{
+  "integrationId": "maas-a",
+  "hypervisorServerId": "server-id",
+  "domains": ["lab-afde-mi308-1", "lab-afde-mi308-2"],
+  "bootIsoId": "6b3f0c1e-…",
+  "account": "ubuntu",
+  "powerOffRunning": false
+}
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `integrationId` | Yes | The provisioner the virtual machines enroll into. It must offer machine registration and Power Configuration, and belong to the hypervisor's Site. |
+| `hypervisorServerId` | Yes | The hypervisor Server. |
+| `domains` | Yes | Domain names, at least one, without duplicates; each is non-empty, has no surrounding whitespace, `/`, or control characters, and is at most 128 characters. |
+| `bootIsoId` | No | A Boot ISO of the same provisioner ([boot-isos.md](boot-isos.md)) for a network the provisioner's DHCP does not serve; each virtual machine then gets libvirt Boot Media with it. |
+| `account` | No | The login account on the hypervisor; also the account the provisioner's `virsh` driver connects as. |
+| `powerOffRunning` | No | Stop a running domain (a hard power-off) instead of asking for attention. Default `false`. |
+
+The response is `202 Accepted` with `{ "workflowId": "…" }`. The Workflow has kind
+`enroll-virtual-machines`, definition `virtual-machine-enrollment` version 1, targets the hypervisor
+Server (so two enrollments never change one hypervisor at once), and one Task of kind
+`enroll-virtual-machine` per domain with the `provisioner` runner and no dependencies, so the Tasks
+run in parallel up to the installation's Workflow parallelism (4 by default). Each Task ensures, in
+order:
+
+1. The domain exists; otherwise it fails with `domain_not_found` (not retryable).
+2. The domain is shut off. A running domain is `requires_attention` with `domain_running`, unless
+   `powerOffRunning` is set, in which case swallow stops it through libvirt.
+3. When the Integration has `settings.virshSshPublicKey`
+   ([sites-integrations.md](sites-integrations.md)), that key is authorized for the account on the
+   hypervisor, so the provisioner can reach libvirt.
+4. With `bootIsoId`, the Boot ISO is on the domain's CD-ROM and the CD-ROM boots first, as for
+   libvirt Boot Media ([server-detail-actions.md](server-detail-actions.md#boot-media)).
+5. A Machine exists for the domain. One that already has one of the domain's MAC addresses is
+   reused and its Power Configuration replaced; otherwise one is registered with the domain's
+   architecture (`x86_64` → `amd64/generic`, `aarch64` → `arm64/generic`; any other fails with
+   `architecture_unsupported`), all its MAC addresses, a hostname derived from the domain name
+   (lower case, every other character than `a`–`z`, `0`–`9`, `-` replaced by `-`, at most 63
+   characters, without a leading or trailing `-`), the Power Configuration driver `virsh` with address
+   `qemu+ssh://<account>@<hypervisor address>/system` and power ID the domain name, and **without
+   commissioning it**. A provisioner refusal (a hostname already in use) is `requires_attention`
+   with `machine_registration_refused` and the provisioner's explanation.
+6. The provisioner can read the Machine's power through the `virsh` driver; otherwise
+   `requires_attention` with `provisioner_cannot_reach_hypervisor`, naming the provisioner's SSH
+   access to the account as the fix.
+7. The Machine's Server is projected: swallow waits up to five minutes for the provisioner
+   reconciliation (every 30 seconds by default) to project it; otherwise `requires_attention` with
+   `server_not_projected`.
+8. With `bootIsoId`, the Server's Boot Media is saved as enabled with that Boot ISO, so every
+   inspection and OS deployment re-applies it.
+
+A hypervisor that cannot be reached over SSH during a Task is `requires_attention` with
+`hypervisor_unreachable`. Every step is an ensure, so retrying a Task
+(`POST /workflows/{id}/tasks/{taskId}/retry`) is safe; a retried Task reuses the Machine it
+registered. A Task never commissions the Machine: the Server it leaves is `new`, powered off, with
+an automatic power driver, so automatic hardware inspection (above) settles at once and takes it to
+`ready`. When the Integration has `settings.autoInspect` set to `"false"`, request the inspection
+instead.
+
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `validation_error` | A required field is missing; `domains` is empty, has duplicates, or a name breaks the rules above; the Integration is not a provisioner or lacks machine registration or Power Configuration; or the Boot ISO belongs to another provisioner. |
+| 404 | `not_found` | The Integration, the hypervisor Server, or the Boot ISO does not exist. |
+| 409 | `conflict` | The hypervisor is absent, not `deployed`, has no address, is locked, or is not in the Integration's Site; the installation has no Deployment Key; the Boot ISO is not served; or another Workflow holds the hypervisor. |
+| 503 | `provider_unavailable` | The Server Lock state of the hypervisor is unavailable. |
+
 ## Enrollment bundle
 
 `POST /api/v1/provisioning/integrations/{id}/enroll-bundle` returns what a host needs to enroll
@@ -230,3 +356,8 @@ attention code `power_configuration_required` is new; a retried run no longer sk
 enrollment wait; a requested Workflow stops for attention when the Machine has no power driver
 instead of failing at the provider's commission. Clients that branch on attention codes must
 treat unknown codes as generic attention.
+
+Added 2026-10-09
+([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)): the
+virtual-machine routes, Workflow kind `enroll-virtual-machines`, Task kind
+`enroll-virtual-machine`, and its attention codes are new published vocabulary.

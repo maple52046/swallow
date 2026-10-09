@@ -101,6 +101,16 @@ provider 端的佈署仍保持執行，供你檢查、retry 或 release。
 [Boot ISO](../../development/glossaries/terms/boot-iso.md) 並優先開機。ISO 先從
 現場 DHCP 取得位址，再 chain 到該 Server 的 provisioner。
 
+libvirt virtual machine 沒有 BMC。當它的 `virsh` power configuration 指向一台 swallow
+Server 作為 hypervisor 時，Boot Media 改由該 hypervisor 處理：swallow 把 Boot ISO 上傳到
+hypervisor 的 `default` storage pool（hypervisor 沒有這個 pool 時會建立）、放到 domain 的
+CD-ROM（需要時新增 CD-ROM），並在 domain 定義中把 CD-ROM 設為第一開機裝置。它不需要 Boot
+Media base URL、幾秒內完成，並持續到停用為止。Server Summary 會在 **Power control** 卡片中
+顯示它，並提供 **Re-detect hypervisor** 與 **Check hypervisor**；在 Dashboard 中這是
+development build 的實驗功能，CLI 與 API 則在每個 release 都提供。
+[納管 virtual machine](servers-and-infrastructure.md#libvirt-virtual-machine) 時指定 Boot ISO
+會自動完成這些設定。
+
 - **只在需要這條路徑時建置：** 開啟 **Provisioning → Boot ISOs → Build Boot
   ISO**。只有一個 provisioner Integration 時，Dialog 會顯示 read-only summary；
   有多個時才需要先選 Integration。**MAAS rack address** 會從 Integration endpoint

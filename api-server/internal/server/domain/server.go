@@ -352,12 +352,14 @@ type Server struct {
 	DefaultUser string
 
 	// BootMedia is the Server's Boot Media setting (decision 047), nil when never set. Redfish is
-	// the latest Redfish capability probe of its BMC, nil before the first probe. BootMediaApply is
-	// the enable preflight recorded as running, nil when none is (check Running: an abandoned one
-	// lingers). All are swallow-owned, written only through BootMediaStore, and preserved by
-	// provider reconciliation.
+	// the latest Redfish capability probe of its BMC, nil before the first probe. Libvirt is the
+	// latest probe of its Hypervisor (decision 055), nil unless its power driver is virsh.
+	// BootMediaApply is the enable preflight recorded as running, nil when none is (check Running:
+	// an abandoned one lingers). All are swallow-owned, written only through BootMediaStore, and
+	// preserved by provider reconciliation.
 	BootMedia      *BootMediaSetting
 	Redfish        *RedfishCapability
+	Libvirt        *LibvirtCapability
 	BootMediaApply *BootMediaApply
 
 	// The three externally owned status axes. Each is nil until its owner has been

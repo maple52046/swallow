@@ -109,7 +109,10 @@ and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-inte
 `inspect-hardware` is created by `POST /servers/{id}/inspect` and by the automatic inspection
 sweep; its `ensure-inspected` Job (`wait-enrollment-settled` → `ensure-boot-media` → `inspect`)
 and retry semantics are defined in [server-enrollment.md](server-enrollment.md). Because it runs
-as a Job, a Task retry re-runs the whole Job rather than only the failed Task. Targets are frozen,
+as a Job, a Task retry re-runs the whole Job rather than only the failed Task.
+`enroll-virtual-machines` is created by `POST /provisioning/virtual-machine-enrollments`; it targets
+the hypervisor Server and has one independent `enroll-virtual-machine` Task per libvirt domain, so a
+Task retry re-runs only that domain ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). Targets are frozen,
 must belong to one Site, and must pass current provisioning, Platform policy, active-work,
 and live Server Lock checks. Success is `202 Accepted` after intent is persisted; Temporal
 may start after the response through starter reconciliation.

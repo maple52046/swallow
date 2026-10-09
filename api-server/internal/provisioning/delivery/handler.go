@@ -46,6 +46,7 @@ type ProvisioningHandler struct {
 	inspections     application.HardwareInspectionLauncher
 	enrollment      *application.HostEnrollmentUseCase
 	power           *application.PowerConfigurationUseCase
+	vmEnrollment    application.VirtualMachineEnrollmentLauncher
 }
 
 func NewProvisioningHandler(
@@ -355,6 +356,42 @@ func (h *ProvisioningHandler) Inspect(c *fiber.Ctx) error {
 	}
 	accepted, err := h.inspections.LaunchInspection(c.Context(), application.InspectionRequest{
 		ServerID: id, Origin: provisioningdomain.InspectionOriginRequested,
+		RequestedBy: requestedBy, RequestID: c.GetRespHeader(fiber.HeaderXRequestID),
+	})
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(accepted)
+}
+
+// enrollVirtualMachinesRequest is the virtual-machine enrollment body (server-enrollment.md).
+type enrollVirtualMachinesRequest struct {
+	IntegrationID      string   `json:"integrationId"`
+	HypervisorServerID string   `json:"hypervisorServerId"`
+	Domains            []string `json:"domains"`
+	BootISOID          string   `json:"bootIsoId"`
+	Account            string   `json:"account"`
+	PowerOffRunning    bool     `json:"powerOffRunning"`
+}
+
+// EnrollVirtualMachines serves POST /provisioning/virtual-machine-enrollments
+// (server-enrollment.md, decision 055): it starts an enroll-virtual-machines Workflow and responds
+// 202 with its id.
+func (h *ProvisioningHandler) EnrollVirtualMachines(c *fiber.Ctx) error {
+	if h.vmEnrollment == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "Virtual machine enrollment is unavailable."))
+	}
+	var req enrollVirtualMachinesRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	requestedBy := ""
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
+	}
+	accepted, err := h.vmEnrollment.LaunchVirtualMachineEnrollment(c.Context(), application.VirtualMachineEnrollmentRequest{
+		IntegrationID: req.IntegrationID, HypervisorServerID: req.HypervisorServerID, Domains: req.Domains,
+		BootISOID: req.BootISOID, Account: req.Account, PowerOffRunning: req.PowerOffRunning,
 		RequestedBy: requestedBy, RequestID: c.GetRespHeader(fiber.HeaderXRequestID),
 	})
 	if err != nil {
@@ -740,6 +777,19 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrProvisioningTaskNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Provisioning task not found."))
 
+	// Virtual-machine enrollment (server-enrollment.md, decision 055) checks the Hypervisor and the
+	// Boot ISO through the server context.
+	case errors.Is(err, serverdomain.ErrBootISOUnknown):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Boot ISO not found."))
+	case errors.Is(err, serverdomain.ErrBootISOWrongIntegration),
+		errors.Is(err, serverdomain.ErrInvalidDefaultUser),
+		errors.Is(err, provisioningdomain.ErrInvalidVirtualMachineEnrollment):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+	case errors.Is(err, provisioningdomain.ErrVirtualMachineEnrollmentConflict),
+		errors.Is(err, serverdomain.ErrHypervisorNotDeployed),
+		errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+
 	case errors.Is(err, provisioningdomain.ErrProvisioningTaskConflict),
 		errors.Is(err, provisioningdomain.ErrServerMutationConflict),
 		errors.Is(err, provisioningdomain.ErrPowerConfigurationManaged),
@@ -881,4 +931,10 @@ func (h *ProvisioningHandler) AttachHostEnrollment(enrollment *application.HostE
 // legacy tests, they answer 503 rather than panicking on a nil use case.
 func (h *ProvisioningHandler) AttachPowerConfiguration(power *application.PowerConfigurationUseCase) {
 	h.power = power
+}
+
+// AttachVirtualMachineEnrollment enables the virtual-machine enrollment route (decision 055).
+// Without it the route answers 503.
+func (h *ProvisioningHandler) AttachVirtualMachineEnrollment(launcher application.VirtualMachineEnrollmentLauncher) {
+	h.vmEnrollment = launcher
 }

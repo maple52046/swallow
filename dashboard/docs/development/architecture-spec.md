@@ -109,7 +109,7 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
 
 ## Experimental features
 
-開發中的 dashboard 功能（目前為 `monitoring`、`osImageUpload`、`deploymentTemplates`）只在
+開發中的 dashboard 功能（目前為 `monitoring`、`osImageUpload`、`deploymentTemplates`、`virtualMachines`）只在
 development build（Vite dev server，含 Playwright）顯示；release build（`vite build`）一律隱藏。
 這只影響 presentation，不改 API、CLI 或後端行為。
 

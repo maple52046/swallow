@@ -41,11 +41,14 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 4. 把附帶的 CLI 安裝到 `/usr/local/bin/swallow`（API 也會在 `/downloads/swallow` 提供
    `bin/swallow`，給保留 OS 納管的主機下載）；
 5. 執行 [`local-maas.sh`](local-maas.sh)：在 Compose PostgreSQL 建立 `maas` role 與
-   `maasdb`、安裝並初始化 MAAS snap、建立 MAAS `admin`、保存 API key，並等到官方
-   `ubuntu/noble` amd64 image complete；
+   `maasdb`、安裝並初始化 MAAS snap、建立 MAAS `admin`、保存 API key、為 MAAS rack 建立
+   `virsh` power 用的 SSH key（第一次連線時接受新的 hypervisor host key）並把公鑰存到
+   `secrets/maas-virsh-ssh.pub`，再等到官方 `ubuntu/noble` amd64 image complete；
 6. 透過已發佈的 API 執行 [`bootstrap.sh`](bootstrap.sh)：建立 Site `default`、MAAS
-   provisioner Integration；Site 尚無 automation 設定時寫入預設值（啟用、Deployment Key、
-   無 playbook mapping）；再等待 Integration 同步與 catalog 出現 `ubuntu/noble`；
+   provisioner Integration，並把 rack 的 `virsh` 公鑰設為它的 `virshSshPublicKey`（swallow
+   納管某台 hypervisor 上的 libvirt 虛擬機時，會把它授權到那台 hypervisor）；Site 尚無
+   automation 設定時寫入預設值（啟用、Deployment Key、無 playbook mapping）；再等待
+   Integration 同步與 catalog 出現 `ubuntu/noble`；
 7. 執行 `doctor`，把已安裝的 release 記錄在 `state/installed`，並印出 Dashboard URL 與密碼
    位置。
 
@@ -96,7 +99,8 @@ Deployment Key、Site automation、MAAS Integration 同步，以及 OS Image cat
 ## 維運
 
 - `sudo ./swallowctl upgrade [--release-manifest PATH] [--force]` 會先 backup；有 active
-  Workflow 時拒絕，除非 `--force`；完成 migrate 後重新執行 `doctor`。
+  Workflow 時拒絕，除非 `--force`；完成 migrate、確保 MAAS rack 的 `virsh` SSH key 並記錄到
+  Integration 後，重新執行 `doctor`。
 - `sudo ./swallowctl backup` 把 MongoDB、job artifacts、credential key 與 MAAS database
   寫到 `backups/`。請每日排程；retention 是七份 daily 與四份 Sunday weekly。MAAS boot
   images 會從 `images.maas.io` 重新同步。

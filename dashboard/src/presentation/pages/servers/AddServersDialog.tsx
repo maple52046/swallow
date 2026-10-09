@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Box, Button, Field, HStack, Input, InputGroup, Link, SimpleGrid, Stack, Tabs, Text } from '@chakra-ui/react'
-import { ChevronRight, Disc3, HardDrive, Network, Router, TriangleAlert } from 'lucide-react'
+import { ChevronRight, Disc3, HardDrive, MonitorCog, Network, Router, TriangleAlert } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { BootISO, HostEnrollmentBundle } from '@/domain/provisioning/types'
@@ -13,14 +13,16 @@ import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { redfishBootISOCommands } from './bootISORedfish'
+import { VirtualMachineEnrollmentAction } from './VirtualMachineEnrollmentAction'
 
 /**
- * Where the guide is. The first two steps are questions; the last three each show one action and
- * then wait for the Server to appear.
+ * Where the guide is. The first two steps are questions; the others each show one action and then
+ * wait for the Server to appear.
  */
-type GuideStep = 'keep-os' | 'dhcp' | 'pxe' | 'boot-iso' | 'existing-os'
+type GuideStep = 'keep-os' | 'dhcp' | 'pxe' | 'boot-iso' | 'existing-os' | 'virtual-machines'
 
 /** The step a Back press returns to. */
 const PREVIOUS_STEP: Record<GuideStep, GuideStep | null> = {
@@ -29,6 +31,7 @@ const PREVIOUS_STEP: Record<GuideStep, GuideStep | null> = {
   pxe: 'dhcp',
   'boot-iso': 'dhcp',
   'existing-os': 'keep-os',
+  'virtual-machines': 'keep-os',
 }
 
 interface AddServersDialogProps {
@@ -45,17 +48,20 @@ interface AddServersDialogProps {
  *
  * It asks one question per step and shows only the next action: keep the OS, or PXE boot; for
  * PXE, whether the provisioner's DHCP or an external DHCP serves the network (external DHCP PXE
- * boots through the iPXE Boot ISO, mounted from the BMC console or with Redfish). Each path ends
- * on a waiting panel that lists Servers appearing in the live working set since the guide opened,
- * with their state, so the operator sees New → Inspecting → Ready (or Deployed) without leaving.
- * Whether the server is restarted is the operator's call; the guide only says how it must boot.
- * Servers are never created here; they come from reconciliation.
+ * boots through the iPXE Boot ISO, mounted from the BMC console or with Redfish). While the
+ * experimental `virtualMachines` switch is on, a third answer enrolls libvirt virtual machines by
+ * name from a hypervisor (decision 055). Each path ends on a waiting panel that lists Servers
+ * appearing in the live working set since the guide opened, with their state, so the operator sees
+ * New → Inspecting → Ready (or Deployed) without leaving. Whether the server is restarted is the
+ * operator's call; the guide only says how it must boot. Servers are never created here; they come
+ * from reconciliation.
  *
  * The existing-OS command embeds the provisioner's credential. It is read only on that step,
  * kept only in component state, and dropped on close.
  */
 export function AddServersDialog({ provisioners, servers, onClose }: AddServersDialogProps) {
   const [step, setStep] = useState<GuideStep>('keep-os')
+  const virtualMachines = useExperimentalFeature('virtualMachines')
   // Servers present when the guide opened; anything else in the live working set is new.
   const [knownIds] = useState(() => new Set(servers.map((server) => server.id)))
   const appeared = useMemo(
@@ -83,6 +89,14 @@ export function AddServersDialog({ provisioners, servers, onClose }: AddServersD
         <Question title="Does the server already run an OS you want to keep?">
           <Choice icon={<Network size={20} />} title="No, boot it from PXE" hint="Swallow then inspects its hardware" onSelect={() => setStep('dhcp')} />
           <Choice icon={<HardDrive size={20} />} title="Yes, keep its OS" hint="Run one command on the server" onSelect={() => setStep('existing-os')} />
+          {virtualMachines && (
+            <Choice
+              icon={<MonitorCog size={20} />}
+              title="It is a libvirt virtual machine"
+              hint="Choose it by name on its hypervisor"
+              onSelect={() => setStep('virtual-machines')}
+            />
+          )}
         </Question>
       )}
       {step === 'dhcp' && (
@@ -107,6 +121,12 @@ export function AddServersDialog({ provisioners, servers, onClose }: AddServersD
         <Stack gap="4">
           <ExistingOSAction provisioners={provisioners} />
           <Waiting servers={appeared} provisioners={provisioners} />
+        </Stack>
+      )}
+      {step === 'virtual-machines' && virtualMachines && (
+        <Stack gap="4">
+          <VirtualMachineEnrollmentAction provisioners={provisioners} servers={servers} />
+          <Waiting servers={appeared} provisioners={provisioners} inspects />
         </Stack>
       )}
     </Modal>

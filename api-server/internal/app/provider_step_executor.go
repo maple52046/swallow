@@ -39,6 +39,8 @@ type providerStepExecutor struct {
 	// bootMediaMediaWait and bootMediaBootWait override bootMediaMediaCheck and
 	// bootMediaBootCheck in tests.
 	bootMediaMediaWait, bootMediaBootWait time.Duration
+	// virtualMachines runs enroll-virtual-machine Tasks (decision 055). Nil refuses them.
+	virtualMachines *virtualMachineEnroller
 	// The inspect-hardware timings (inspection_steps.go) are overridden only in tests; zero uses
 	// the production defaults there.
 	enrollmentSettleWait, enrollmentSettlePoll                                           time.Duration
@@ -113,6 +115,8 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 		return e.waitEnrollmentSettled(ctx, input)
 	case inspectTaskKind:
 		return e.inspectServer(ctx, input)
+	case enrollVirtualMachineTaskKind:
+		return e.enrollVirtualMachine(ctx, input)
 	default:
 		return providerFailed("unsupported_step", "The provider Step kind is not supported.", false).StepExecutionResult
 	}

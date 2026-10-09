@@ -176,6 +176,21 @@ func (c *Client) postMultipart(ctx context.Context, path string, fields map[stri
 	return c.do(req, out)
 }
 
+// postMultipartValues is postMultipart for a create whose parameters repeat under one name, such
+// as the machine create's mac_addresses.
+func (c *Client) postMultipartValues(ctx context.Context, path string, values url.Values, out any) error {
+	body, contentType, err := multipartValuesBody(values)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, path, nil, body, contentType)
+	if err != nil {
+		return err
+	}
+	return c.do(req, out)
+}
+
 // putMultipart issues an authenticated PUT whose parameters are multipart/form-data fields,
 // used for MAAS resource updates such as renaming a zone or setting a machine's zone/pool. Like
 // the MAAS CLI's own "update" verb, the write is a PUT to the resource path with form fields;

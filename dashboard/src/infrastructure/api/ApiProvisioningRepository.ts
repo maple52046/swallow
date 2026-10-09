@@ -22,6 +22,8 @@ import type {
   ServerTagOption,
   ServerTagsResult,
   UpdateDeploymentTemplateInput,
+  VirtualMachineEnrollmentAccepted,
+  VirtualMachineEnrollmentInput,
 } from "@/domain/provisioning/types";
 import type { OSImage } from "@/domain/site/types";
 import { ApiRequestError, apiRequest, apiUpload, type UploadProgress } from "./client";
@@ -291,6 +293,25 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     return apiRequest<HostEnrollmentBundle>(
       `/api/v1/provisioning/integrations/${encodeURIComponent(integrationId)}/enroll-bundle`,
       { method: "POST", cache: "no-store", body: JSON.stringify({ swallowUrl }) },
+    );
+  }
+
+  async enrollVirtualMachines(
+    input: VirtualMachineEnrollmentInput,
+  ): Promise<VirtualMachineEnrollmentAccepted> {
+    // Optional fields are sent only when chosen, so the contract's defaults (the Server Default
+    // User, no Boot ISO, ask before stopping a running domain) apply otherwise.
+    const body: VirtualMachineEnrollmentInput = {
+      integrationId: input.integrationId,
+      hypervisorServerId: input.hypervisorServerId,
+      domains: input.domains,
+    };
+    if (input.bootIsoId) body.bootIsoId = input.bootIsoId;
+    if (input.account?.trim()) body.account = input.account.trim();
+    if (input.powerOffRunning) body.powerOffRunning = true;
+    return apiRequest<VirtualMachineEnrollmentAccepted>(
+      "/api/v1/provisioning/virtual-machine-enrollments",
+      { method: "POST", body: JSON.stringify(body) },
     );
   }
 }

@@ -34,6 +34,9 @@ CLI 不受影響。
 - **OS image upload**：OS images 沒有 Upload。既有 custom image 的 verification 仍可使用。
 - **Deployment Template**：沒有 Templates workspace、Create template，佈署時也不能選擇或保存
   template；佈署使用 custom configuration。
+- **Virtual machines**：Add servers 沒有 libvirt virtual machine 路徑，virtual machine 的
+  Summary 也不會顯示經由 hypervisor 的 Boot Media。請改用 `swallow servers virtual-machines` 與
+  `swallow servers boot-media`。
 
 Development build 會顯示這些功能，並提供 **Account menu → Experimental features** 逐項關閉。
 

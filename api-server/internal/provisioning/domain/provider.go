@@ -101,6 +101,9 @@ type ProviderCapabilities struct {
 	// accepts a replacement. Redfish Boot Media also reads a BMC's address and account through it
 	// (decisions 047 and 054).
 	PowerConfiguration bool
+	// MachineRegistration reports that MachineRegistrar is implemented, i.e. swallow can register
+	// a virtual machine with the provider without commissioning it (decision 055).
+	MachineRegistration bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the

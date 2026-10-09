@@ -42,10 +42,15 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    at `/downloads/swallow` for hosts that enroll with their OS kept);
 5. runs [`local-maas.sh`](local-maas.sh): creates the `maas` role and `maasdb` database in
    the Compose PostgreSQL, installs and initializes the MAAS snap, creates the MAAS `admin`,
-   stores its API key, and waits until the official `ubuntu/noble` amd64 image is complete;
+   stores its API key, gives the MAAS rack an SSH key for `virsh` power (accepting a new
+   hypervisor host key on first connection) and stores its public key in
+   `secrets/maas-virsh-ssh.pub`, and waits until the official `ubuntu/noble` amd64 image is
+   complete;
 6. runs [`bootstrap.sh`](bootstrap.sh) through the published API: Site `default`, the MAAS
-   provisioner Integration, and Site automation defaults (enabled, Deployment Key, no
-   playbook mappings) when the Site has none; then waits for the Integration sync and the
+   provisioner Integration with the rack's `virsh` public key as its `virshSshPublicKey`
+   setting (swallow authorizes it on a hypervisor when it enrolls that hypervisor's libvirt
+   virtual machines), and Site automation defaults (enabled, Deployment Key, no playbook
+   mappings) when the Site has none; then waits for the Integration sync and the
    `ubuntu/noble` catalog entry;
 7. runs `doctor`, records the installed release in `state/installed`, and prints the
    Dashboard URL and where the passwords are.
@@ -97,7 +102,8 @@ the admin login, the Deployment Key, Site automation, the MAAS Integration sync,
 ## Operate
 
 - `sudo ./swallowctl upgrade [--release-manifest PATH] [--force]` backs up first, refuses
-  while Workflows are active unless `--force`, migrates, and reruns `doctor`.
+  while Workflows are active unless `--force`, migrates, ensures the MAAS rack's `virsh` SSH
+  key and its record on the Integration, and reruns `doctor`.
 - `sudo ./swallowctl backup` writes MongoDB, the job artifacts, the credential key, and the
   MAAS database under `backups/`. Schedule it daily; retention is seven daily and four Sunday
   weekly recovery points. MAAS boot images re-sync from `images.maas.io`.

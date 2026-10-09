@@ -115,6 +115,18 @@ a swallow-built [Boot ISO](../../development/glossaries/terms/boot-iso.md) as
 virtual media and boots it first. The ISO takes an address from the site's DHCP
 and chains to that Server's provisioner.
 
+A libvirt virtual machine has no BMC. When its `virsh` power configuration names
+a hypervisor that is a swallow Server, its Boot Media goes through that
+hypervisor instead: swallow uploads the Boot ISO to the hypervisor's `default`
+storage pool (creating the pool when the hypervisor has none), puts it on the
+domain's CD-ROM (adding one when needed), and makes the CD-ROM boot first in the
+domain's definition. It needs no Boot Media base URL, takes seconds, and lasts
+until disabled. The Server Summary shows it in the **Power control** card, with
+**Re-detect hypervisor** and **Check hypervisor**; in the Dashboard this is an
+experimental feature of development builds, while the CLI and API offer it in
+every release. [Enrolling virtual machines](servers-and-infrastructure.md#libvirt-virtual-machines)
+with a Boot ISO sets this up for you.
+
 - **Build only when this path is needed:** open **Provisioning → Boot ISOs →
   Build Boot ISO**. With one provisioner Integration, the dialog shows it as a
   read-only summary; with several, choose the Integration first. The **MAAS rack

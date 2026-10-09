@@ -38,6 +38,9 @@ Dashboard hide them; the API and the `swallow` CLI are not affected.
 - **Deployment Templates**: the Templates workspace, Create template, and
   choosing or saving a template while deploying are absent; deployments use a
   custom configuration.
+- **Virtual machines**: Add servers has no libvirt virtual machine path, and a
+  virtual machine's Summary shows no Boot Media through its hypervisor. Use
+  `swallow servers virtual-machines` and `swallow servers boot-media` instead.
 
 Development builds show these features and offer **Account menu →
 Experimental features** to switch each one off.

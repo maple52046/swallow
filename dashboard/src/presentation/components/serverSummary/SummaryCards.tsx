@@ -231,12 +231,16 @@ interface ManagementControllerCardProps {
   management?: DetailSection
   /** The caller's Power Configuration block (PowerConfigurationPanel). */
   power?: ReactNode
-  /** The caller's Boot Media block (BootMediaPanel); only rendered when `hasBMC`. */
+  /**
+   * The caller's Boot Media block (BootMediaPanel), or nothing when the Server has no Boot Media
+   * method the caller shows: a BMC's Redfish, or a virtual machine's Hypervisor (decision 055).
+   */
   bootMedia?: ReactNode
   /**
    * Whether the Server has a BMC, decided by the caller from the Power Configuration's driver family
-   * (decision 054). Without one the card is about power control only: no out-of-band facts and no
-   * Boot Media, which a BMC drives. Defaults to true for callers that know only a physical Server.
+   * (decision 054). Without one the card is about power control: no out-of-band facts, and Boot
+   * Media only when the caller passes it for a virtual machine. Defaults to true for callers that
+   * know only a physical Server.
    */
   hasBMC?: boolean
 }
@@ -247,8 +251,9 @@ interface ManagementControllerCardProps {
  * allowlisted password stays masked until an operator asks to reveal it; under them come the Power
  * Configuration and Boot Media, both driven through this same controller. A Server without a BMC
  * (a libvirt virtual machine, or one with no power driver yet) gets the card retitled to power
- * control with only its Power Configuration, so an operator can still give the provisioner a way
- * to power it. The blocks are the caller's, so the card stays page-agnostic.
+ * control with its Power Configuration, so an operator can still give the provisioner a way to
+ * power it, plus Boot Media through its Hypervisor when the caller has it. The blocks are the
+ * caller's, so the card stays page-agnostic.
  */
 export function ManagementControllerCard({ management, power, bootMedia, hasBMC = true }: ManagementControllerCardProps) {
   const items: DescriptionItem[] =
@@ -273,7 +278,9 @@ export function ManagementControllerCard({ management, power, bootMedia, hasBMC 
           <Text color="fg.muted" fontSize="sm" mt="1">
             {hasBMC
               ? 'Out-of-band connection and power configuration for manual administration.'
-              : 'This Server has no BMC: the provisioner powers it through its power driver, and Boot Media is not available.'}
+              : bootMedia
+                ? 'This Server has no BMC: the provisioner powers it through its power driver, and Boot Media goes through its hypervisor.'
+                : 'This Server has no BMC: the provisioner powers it through its power driver, and Boot Media is not available.'}
           </Text>
         </Box>
         {hasBMC && (items.length > 0 ? (
@@ -288,7 +295,7 @@ export function ManagementControllerCard({ management, power, bootMedia, hasBMC 
             {power}
           </Box>
         ) : power)}
-        {hasBMC && bootMedia}
+        {bootMedia}
       </Card.Body>
     </Card.Root>
   )

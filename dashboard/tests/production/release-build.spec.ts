@@ -38,4 +38,11 @@ test('Release builds hide in-development features and offer no switch', async ({
 
   await page.goto('/provisioning/templates?site=site-a')
   await expect(page).toHaveURL('/provisioning/images?site=site-a')
+
+  // Enrolling libvirt virtual machines is CLI- and API-only in a release (decision 055).
+  await page.goto('/servers?site=site-a')
+  await page.getByRole('button', { name: 'Add servers' }).first().click()
+  const addServers = page.getByRole('dialog', { name: 'Add servers' })
+  await expect(addServers.getByRole('button', { name: /Yes, keep its OS/ })).toBeVisible()
+  await expect(addServers.getByRole('button', { name: /libvirt virtual machine/ })).toHaveCount(0)
 })

@@ -395,6 +395,27 @@ export interface HostEnrollmentBundle {
   command: string;
 }
 
+/**
+ * A request to enroll libvirt virtual machines of a Hypervisor into a provisioner by domain name
+ * (contract server-enrollment.md "Virtual machines (libvirt)", decision 055). The Hypervisor is a
+ * deployed swallow Server. `bootIsoId` names a Boot ISO of the same provisioner for a network its
+ * DHCP does not serve; `account` overrides the Hypervisor's Server Default User; `powerOffRunning`
+ * lets swallow hard-stop a running domain instead of asking for attention.
+ */
+export interface VirtualMachineEnrollmentInput {
+  integrationId: string;
+  hypervisorServerId: string;
+  domains: string[];
+  bootIsoId?: string;
+  account?: string;
+  powerOffRunning?: boolean;
+}
+
+/** The enroll-virtual-machines Workflow an enrollment request started (`202 { workflowId }`). */
+export interface VirtualMachineEnrollmentAccepted {
+  workflowId: string;
+}
+
 /** The port the MAAS rack serves `ipxe.cfg` on when `rackAddress` names none (contract boot-isos.md). */
 export const DEFAULT_MAAS_RACK_PORT = 5248;
 

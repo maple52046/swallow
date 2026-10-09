@@ -380,6 +380,12 @@ upgrade() {
   "${compose[@]}" up -d
   wait_for_ready
   install_cli
+  # An installation from before decision 055 gets the rack's virsh SSH identity and records it on
+  # the provisioner Integration; both steps are idempotent.
+  if [[ -f "${maas_marker}" ]]; then
+    "${script_dir}/local-maas.sh" ensure-virsh-identity
+    "${script_dir}/bootstrap.sh" apply
+  fi
   doctor
   mark_installed
 }

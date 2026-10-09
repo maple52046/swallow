@@ -27,8 +27,12 @@ const (
 	// WorkflowKindInspectHardware inspects one Server's hardware through its provisioner: it waits
 	// for the provider's own enrollment to finish, applies Boot Media, and makes bounded inspection
 	// attempts (decision 053). Launched by Inspect and by the automatic sweep, never by playbook.
-	WorkflowKindInspectHardware  WorkflowKind = "inspect-hardware"
-	WorkflowKindDeployKubernetes WorkflowKind = "deploy-kubernetes"
+	WorkflowKindInspectHardware WorkflowKind = "inspect-hardware"
+	// WorkflowKindEnrollVirtualMachines registers libvirt domains of a Hypervisor with a
+	// provisioner, one parallel Task per domain, without commissioning them (decision 055).
+	// Launched by virtual-machine enrollment, never by playbook.
+	WorkflowKindEnrollVirtualMachines WorkflowKind = "enroll-virtual-machines"
+	WorkflowKindDeployKubernetes      WorkflowKind = "deploy-kubernetes"
 	// WorkflowKindUninstallKubernetes removes the k0s installation created by a
 	// deploy-kubernetes operation while preserving the host operating system.
 	WorkflowKindUninstallKubernetes WorkflowKind = "uninstall-kubernetes"
@@ -77,6 +81,7 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindRecoverServer,
 	WorkflowKindVerifyOSImage,
 	WorkflowKindInspectHardware,
+	WorkflowKindEnrollVirtualMachines,
 	WorkflowKindInstallGPUDriver,
 	WorkflowKindDeployKubernetes,
 	WorkflowKindUninstallKubernetes,

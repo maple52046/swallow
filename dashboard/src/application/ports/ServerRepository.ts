@@ -1,13 +1,14 @@
 import type { NetworkLinkInput, NetworkTarget, ProvisioningTask } from '@/domain/provisioning/types'
 import type {
+  BootMediaProbe,
   DeployServerInput,
+  HypervisorVirtualMachines,
   ListServersFilters,
   PowerStateResult,
   ProvisionerDetail,
   ReleaseServerInput,
   ProviderEvents,
   ProvisioningActionResult,
-  RedfishCapability,
   Server,
   ServerAction,
   ServerBootMedia,
@@ -117,6 +118,20 @@ export interface ServerRepository {
    * unreachable).
    */
   setBootMedia(id: string, enabled: boolean, isoId?: string): Promise<SetServerBootMediaResult>
-  /** Re-probes the BMC's Redfish capability now; an unreachable BMC resolves with that support value. */
-  probeRedfish(id: string): Promise<RedfishCapability>
+  /**
+   * Re-probes the Server's Boot Media method now — its BMC's Redfish capability, or a virtual
+   * machine's Hypervisor — and resolves with both stored capabilities. An unreachable BMC or
+   * Hypervisor resolves with that support value; only an unknown Server or an unreachable
+   * provisioner rejects.
+   */
+  probeBootMedia(id: string): Promise<BootMediaProbe>
+
+  /**
+   * Lists the libvirt domains of a Hypervisor — a deployed swallow Server the API logs in to with
+   * the Deployment Key, as `account` or its Server Default User (decision 055). Rejects with the API
+   * error: `validation_error` (an account that is not a login name), `not_found`, `conflict` (not
+   * deployed, no Deployment Key, the key or libvirt refused for the account — the message says
+   * which), or `provider_unavailable` (unreachable over SSH).
+   */
+  listVirtualMachines(hypervisorId: string, account?: string): Promise<HypervisorVirtualMachines>
 }

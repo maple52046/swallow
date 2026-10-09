@@ -18,6 +18,8 @@ import type {
   ServerTagOption,
   ServerTagsResult,
   UpdateDeploymentTemplateInput,
+  VirtualMachineEnrollmentAccepted,
+  VirtualMachineEnrollmentInput,
 } from "@/domain/provisioning/types";
 
 /**
@@ -158,6 +160,16 @@ export interface ProvisioningRepository {
    * enrollment, and `provider_unavailable` when the Integration has no stored credential.
    */
   getHostEnrollmentBundle(integrationId: string, swallowUrl: string): Promise<HostEnrollmentBundle>;
+  /**
+   * Starts enrolling libvirt virtual machines of a Hypervisor by domain name (contract
+   * server-enrollment.md, decision 055) and resolves with the enroll-virtual-machines Workflow's id
+   * as soon as it is accepted; the per-domain Tasks run in the worker and report attention there.
+   * Rejects with `validation_error` (malformed request, a provisioner that cannot register machines,
+   * or another provisioner's Boot ISO), `not_found`, or `conflict` (Hypervisor not deployed, locked,
+   * outside the provisioner's Site, busy with another Workflow, no Deployment Key, or the Boot ISO
+   * not served).
+   */
+  enrollVirtualMachines(input: VirtualMachineEnrollmentInput): Promise<VirtualMachineEnrollmentAccepted>;
 }
 
 /**

@@ -360,13 +360,30 @@ swallow servers placement srv1 --zone zone1 --pool pool1
 swallow servers placement srv1 --clear-zone --clear-pool
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 
-# Boot Media: the BMC mounts a Boot ISO of the Server's own provisioner and boots it first
-swallow servers boot-media get srv1 [--live]       # --live also reads the BMC (takes seconds)
-swallow servers boot-media enable srv1 --iso iso1  # preflight on the BMC; waits up to 8 minutes
+# Boot Media: the Server boots a Boot ISO of its own provisioner first. The method follows its
+# Power Configuration: redfish (the BMC mounts it) or libvirt (the hypervisor puts it on the VM's CD-ROM)
+swallow servers boot-media get srv1 [--live]       # --live also reads the BMC or hypervisor (takes seconds)
+swallow servers boot-media enable srv1 --iso iso1  # preflight; waits up to 8 minutes
 swallow servers boot-media enable srv1 --iso iso2  # on an enabled Server: switch Boot ISO
 swallow servers boot-media disable srv1            # the chosen Boot ISO is kept
-swallow servers redfish-probe srv1
+swallow servers redfish-probe srv1                 # re-probe the method (BMC Redfish, or libvirt hypervisor)
+
+# Virtual machines (libvirt): a hypervisor is a deployed swallow Server, reached with the Deployment Key
+swallow servers virtual-machines list hv1 [--account ubuntu]   # domains, state, MACs, existing Server
+swallow servers virtual-machines enroll hv1 lab-vm-1 lab-vm-2 --integration int1 \
+  [--boot-iso iso1] [--account ubuntu] [--power-off-running]   # 202 { workflowId }
+swallow servers vms enroll hv1 -f vm-enrollment.yaml           # { integrationId, hypervisorServerId, domains, ... }
 ```
+
+`servers virtual-machines enroll` names libvirt domains, never MAC addresses: swallow
+reads those from the hypervisor. It starts an `enroll-virtual-machines` Workflow with
+one Task per domain, run in parallel: the domain must be shut off (or
+`--power-off-running` stops it), the provisioner's SSH key is authorized on the
+hypervisor account, `--boot-iso` puts the Boot ISO on the domain's CD-ROM first, and
+the domain is registered with the `virsh` power driver **without commissioning**.
+Automatic hardware inspection then takes each new Server to `ready`. Follow it with
+`swallow workflows get <workflowId>`; a Task waiting for attention says what to fix,
+then `swallow workflows task retry <workflowId> <taskId>` resumes it.
 
 `link.yaml`: `{ mode: static, subnetId: "11", ipAddress: "192.0.2.20", defaultGateway: true }`
 (`mode` is `dhcp | static | link_only`; `ipAddress` required only for `static`).

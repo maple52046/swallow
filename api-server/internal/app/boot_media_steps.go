@@ -41,8 +41,16 @@ const (
 
 // bootMediaEnsurer is the slice of the Boot Media use case the internal executor needs.
 type bootMediaEnsurer interface {
-	Ensure(ctx context.Context, serverID, isoURL string) (serverapp.EnsureOutcome, error)
+	Ensure(ctx context.Context, serverID string, iso serverapp.BootISORef) (serverapp.EnsureOutcome, error)
 }
+
+// The ensure-boot-media Task parameters frozen at acceptance: the Boot ISO's id (which libvirt Boot
+// Media uploads, decision 055) and its URL (which a BMC mounts). A Workflow persisted before
+// libvirt Boot Media carries only the URL.
+const (
+	ensureISOIDParameter  = "isoId"
+	ensureISOURLParameter = "isoUrl"
+)
 
 // bootMediaBootRecoverer is the slice of the Boot Media use case the provision-os observer uses
 // to recover a deployment boot that missed the ISO.
@@ -134,11 +142,14 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 		return internalStepFailed("boot_media_unavailable", "Boot Media is unavailable in this worker.", false)
 	}
 	serverID := firstTargetServer(input.Step)
-	isoURL, _ := input.Step.Parameters["isoUrl"].(string)
+	iso := serverapp.BootISORef{}
+	iso.ID, _ = input.Step.Parameters[ensureISOIDParameter].(string)
+	iso.URL, _ = input.Step.Parameters[ensureISOURLParameter].(string)
 	if serverID == "" {
 		return internalStepFailed("boot_media_invalid", "The ensure-boot-media Task has no target Server.", false)
 	}
-	if live, _ := input.Step.Parameters[resolveBootMediaLiveParameter].(bool); live {
+	live, _ := input.Step.Parameters[resolveBootMediaLiveParameter].(bool)
+	if live {
 		resolved, enabled, failure := e.liveBootMediaISO(ctx, serverID)
 		if failure != nil {
 			return *failure
@@ -146,26 +157,31 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 		if !enabled {
 			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 		}
-		isoURL = resolved
+		iso = resolved
 	}
-	if isoURL == "" {
+	if iso.ID == "" && iso.URL == "" {
 		return internalStepFailed("boot_media_not_configured",
 			"Boot Media is enabled on the Server, but it had no served Boot ISO when the deployment was accepted. Choose a Boot ISO for the Server's Boot Media, then deploy again.", false)
 	}
-	if _, err := e.bootMedia.Ensure(ctx, serverID, isoURL); err != nil {
+	if _, err := e.bootMedia.Ensure(ctx, serverID, iso); err != nil {
+		// A Boot ISO frozen at acceptance stays unusable, so only a live resolution can be retried.
+		if errors.Is(err, serverdomain.ErrBootMediaNotConfigured) {
+			return internalStepFailed("boot_media_not_configured", err.Error(), live)
+		}
 		return internalStepFailed("boot_media_ensure_failed", err.Error(), true)
 	}
 	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
 }
 
-// liveBootMediaISO reads the Server's Boot Media now and resolves its Boot ISO URL. enabled is
-// false when Boot Media is off. A Boot ISO that is not served fails retryably, because the operator
+// liveBootMediaISO reads the Server's Boot Media now and resolves its Boot ISO. enabled is false
+// when Boot Media is off. A Boot ISO that no longer exists fails retryably, because the operator
 // can choose or rebuild one and retry; a failure to read the Server is retryable for the same
-// reason as a BMC failure.
-func (e platformWorkflowStepExecutor) liveBootMediaISO(ctx context.Context, serverID string) (string, bool, *temporalworkflow.StepExecutionResult) {
-	fail := func(code, message string) (string, bool, *temporalworkflow.StepExecutionResult) {
+// reason as a BMC failure. Whether the method can use the ISO (redfish needs its URL, libvirt its
+// file) is the ensure's question.
+func (e platformWorkflowStepExecutor) liveBootMediaISO(ctx context.Context, serverID string) (serverapp.BootISORef, bool, *temporalworkflow.StepExecutionResult) {
+	fail := func(code, message string) (serverapp.BootISORef, bool, *temporalworkflow.StepExecutionResult) {
 		result := internalStepFailed(code, message, true)
-		return "", true, &result
+		return serverapp.BootISORef{}, true, &result
 	}
 	if e.servers == nil {
 		return fail("boot_media_unavailable", "Boot Media is unavailable in this worker.")
@@ -175,7 +191,7 @@ func (e platformWorkflowStepExecutor) liveBootMediaISO(ctx context.Context, serv
 		return fail("boot_media_ensure_failed", err.Error())
 	}
 	if server.BootMedia == nil || !server.BootMedia.Enabled {
-		return "", false, nil
+		return serverapp.BootISORef{}, false, nil
 	}
 	notConfigured := "Boot Media is enabled on " + server.DisplayName() + ", but its Boot ISO is not served. Choose a Boot ISO for the Server's Boot Media, then retry this Task."
 	if e.bootISOs == nil || server.BootMedia.ISOID == "" {
@@ -183,12 +199,14 @@ func (e platformWorkflowStepExecutor) liveBootMediaISO(ctx context.Context, serv
 	}
 	image, err := e.bootISOs.Resolve(ctx, server.BootMedia.ISOID)
 	switch {
-	case errors.Is(err, serverdomain.ErrBootISOUnknown), errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
+	case errors.Is(err, serverdomain.ErrBootISOUnknown):
 		return fail("boot_media_not_configured", notConfigured)
+	case errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
+		return serverapp.BootISORef{ID: server.BootMedia.ISOID}, true, nil
 	case err != nil:
 		return fail("boot_media_ensure_failed", err.Error())
 	}
-	return image.URL, true, nil
+	return serverapp.BootISORef{ID: image.ID, URL: image.URL}, true, nil
 }
 
 // bootMediaPlanner adds ensure-boot-media Tasks to Workflows that deploy an OS (decisions 047
@@ -202,10 +220,11 @@ type bootMediaPlanner struct {
 
 // withEnsureTasks returns steps with an ensure-boot-media Task inserted before every provision-os
 // Task whose Server has Boot Media enabled. The new Task joins the provision Task's Job, targets
-// the same Server, carries the URL of that Server's chosen Boot ISO frozen for the Workflow's
-// lifetime, and the provision Task gains a dependency on it. A Server whose Boot ISO is not
-// served (none chosen, deleted, file missing) gets an empty URL, which fails its ensure Task as
-// boot_media_not_configured instead of deploying a host that cannot reach the provisioner. Steps
+// the same Server, carries the id and URL of that Server's chosen Boot ISO frozen for the
+// Workflow's lifetime, and the provision Task gains a dependency on it. A Server whose Boot ISO is
+// gone gets neither, and one without a URL (no base URL, or its file missing) only the id; the
+// ensure Task then fails as boot_media_not_configured when the Server's method cannot use it,
+// instead of deploying a host that cannot reach the provisioner. Steps
 // of Servers without Boot Media are unchanged, so the Workflow is exactly what it was before Boot
 // Media existed. A zero planner returns steps unchanged; an unreadable Server is an error so a
 // deploy cannot silently skip its Boot Media.
@@ -229,13 +248,15 @@ func (p bootMediaPlanner) withEnsureTasks(ctx context.Context, steps []operation
 			continue
 		}
 		ensureID := ensureBootMediaTaskKind + "-" + serverID
-		isoURL := ""
+		isoID, isoURL := "", ""
 		if p.isos != nil && server.BootMedia.ISOID != "" {
 			image, err := p.isos.Resolve(ctx, server.BootMedia.ISOID)
 			switch {
 			case err == nil:
-				isoURL = image.URL
-			case errors.Is(err, serverdomain.ErrBootISOUnknown), errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
+				isoID, isoURL = image.ID, image.URL
+			case errors.Is(err, serverdomain.ErrBootMediaNotConfigured):
+				isoID = server.BootMedia.ISOID
+			case errors.Is(err, serverdomain.ErrBootISOUnknown):
 			default:
 				return nil, fmt.Errorf("resolve Boot ISO of Server %s: %w", serverID, err)
 			}
@@ -244,7 +265,7 @@ func (p bootMediaPlanner) withEnsureTasks(ctx context.Context, steps []operation
 			ID: ensureID, Kind: ensureBootMediaTaskKind, Name: "Ensure Boot Media on " + server.DisplayName(),
 			Job: step.Job, Executor: operationdomain.RunnerKindInternal,
 			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
-			Parameters: map[string]any{"isoUrl": isoURL},
+			Parameters: map[string]any{ensureISOIDParameter: isoID, ensureISOURLParameter: isoURL},
 		})
 		step.DependsOn = append(append([]string(nil), step.DependsOn...), ensureID)
 		// The provision Task carries the same frozen URL so its boot watch (see

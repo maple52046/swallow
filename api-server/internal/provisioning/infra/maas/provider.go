@@ -376,6 +376,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		Tagging:              true,
 		SSHKeyRegistration:   true,
 		PowerConfiguration:   true,
+		MachineRegistration:  true,
 	}
 }
 

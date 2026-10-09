@@ -63,6 +63,20 @@ func (r *bootMediaRepo) SetRedfishCapability(_ context.Context, id string, capab
 	return nil
 }
 
+func (r *bootMediaRepo) SetLibvirtCapability(_ context.Context, id string, capability *serverdomain.LibvirtCapability) error {
+	server, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	if capability == nil {
+		server.Libvirt = nil
+		return nil
+	}
+	copied := *capability
+	server.Libvirt = &copied
+	return nil
+}
+
 func (r *bootMediaRepo) BeginBootMediaApply(_ context.Context, id string, apply *serverdomain.BootMediaApply, staleBefore time.Time) error {
 	server, ok := r.servers[id]
 	if !ok {
@@ -94,26 +108,102 @@ func (r *bootMediaRepo) EndBootMediaApply(_ context.Context, id string, startedA
 	return nil
 }
 
-type bootMediaGuard struct{ err error }
-
-func (g bootMediaGuard) RequireUnlocked(context.Context, []string) error { return g.err }
-
-// fakeEndpoints hands out a fixed endpoint, or err. Like the production source, it answers
-// ErrNoBMC for a VM-host member, whose Power Configuration has no BMC.
-type fakeEndpoints struct {
-	err   error
-	calls int
+// bootMediaGuard refuses with err; with only set, it refuses only those Servers.
+type bootMediaGuard struct {
+	err  error
+	only map[string]bool
 }
 
-func (e *fakeEndpoints) BMCEndpoint(_ context.Context, server *serverdomain.Server) (*serverdomain.BMCEndpoint, error) {
+func (g bootMediaGuard) RequireUnlocked(_ context.Context, ids []string) error {
+	if g.only == nil {
+		return g.err
+	}
+	for _, id := range ids {
+		if g.only[id] {
+			return g.err
+		}
+	}
+	return nil
+}
+
+// fakeEndpoints hands out a fixed BMC endpoint, a libvirt endpoint for the Servers in libvirt, or
+// err. Like the production source, it answers ErrNoBMC for a VM-host member.
+type fakeEndpoints struct {
+	err     error
+	calls   int
+	libvirt map[string]*serverdomain.LibvirtEndpoint
+}
+
+func (e *fakeEndpoints) BootMediaEndpoint(_ context.Context, server *serverdomain.Server) (*serverdomain.BootMediaEndpoint, error) {
 	e.calls++
 	if e.err != nil {
 		return nil, e.err
 	}
+	if endpoint, ok := e.libvirt[server.ID]; ok {
+		copied := *endpoint
+		return &serverdomain.BootMediaEndpoint{Method: serverdomain.BootMediaMethodLibvirt, Libvirt: &copied}, nil
+	}
 	if server.Observed.ProviderPod != "" {
 		return nil, serverdomain.ErrNoBMC
 	}
-	return &serverdomain.BMCEndpoint{Address: "192.0.2.10", Username: "maas", Password: "secret"}, nil
+	return &serverdomain.BootMediaEndpoint{Method: serverdomain.BootMediaMethodRedfish,
+		BMC: &serverdomain.BMCEndpoint{Address: "192.0.2.10", Username: "maas", Password: "secret"}}, nil
+}
+
+// fakeLibvirt records libvirt calls; ready is what ReadBootMedia reports.
+type fakeLibvirt struct {
+	domainErr error
+	applyErr  error
+	ready     bool
+	calls     []string
+	logins    []serverdomain.HypervisorLogin
+	files     []serverdomain.BootISOFile
+}
+
+func (f *fakeLibvirt) ListDomains(context.Context, serverdomain.HypervisorLogin) ([]serverdomain.VirtualMachine, error) {
+	f.calls = append(f.calls, "list")
+	return nil, nil
+}
+
+func (f *fakeLibvirt) Domain(_ context.Context, login serverdomain.HypervisorLogin, name string) (*serverdomain.VirtualMachine, error) {
+	f.calls = append(f.calls, "domain")
+	f.logins = append(f.logins, login)
+	if f.domainErr != nil {
+		return nil, f.domainErr
+	}
+	return &serverdomain.VirtualMachine{Name: name, State: "shut off", Architecture: "x86_64", CDROM: true}, nil
+}
+
+func (f *fakeLibvirt) DestroyDomain(context.Context, serverdomain.HypervisorLogin, string) error {
+	f.calls = append(f.calls, "destroy")
+	return nil
+}
+
+func (f *fakeLibvirt) AuthorizePublicKey(context.Context, serverdomain.HypervisorLogin, string) error {
+	f.calls = append(f.calls, "authorize")
+	return nil
+}
+
+func (f *fakeLibvirt) ReadBootMedia(context.Context, serverdomain.HypervisorLogin, string, string) (serverdomain.BootMediaState, error) {
+	f.calls = append(f.calls, "read")
+	if f.ready {
+		return serverdomain.BootMediaState{MediaInserted: true, OverrideReady: true}, nil
+	}
+	return serverdomain.BootMediaState{}, nil
+}
+
+func (f *fakeLibvirt) ApplyBootMedia(_ context.Context, _ serverdomain.HypervisorLogin, _ string, iso serverdomain.BootISOFile) (serverdomain.BootMediaState, error) {
+	f.calls = append(f.calls, "apply")
+	f.files = append(f.files, iso)
+	if f.applyErr != nil {
+		return serverdomain.BootMediaState{}, f.applyErr
+	}
+	return serverdomain.BootMediaState{MediaInserted: true, OverrideReady: true}, nil
+}
+
+func (f *fakeLibvirt) ClearBootMedia(context.Context, serverdomain.HypervisorLogin, string) error {
+	f.calls = append(f.calls, "clear")
+	return nil
 }
 
 // fakeRedfish records calls and returns the configured outcomes.
@@ -187,22 +277,47 @@ func (f *fakeRedfish) ResetHost(context.Context, serverdomain.BMCEndpoint) error
 }
 
 // fakeISOs is the Boot ISO catalog: iso-a and iso-b chain to integration-1 (the test Servers'
-// provisioner), iso-other to another one; notServed marks ISOs whose file is missing.
-type fakeISOs struct{ notServed map[string]bool }
+// provisioner), iso-other to another one; notServed marks ISOs whose file is missing, and noURL
+// an installation without a Boot Media base URL.
+type fakeISOs struct {
+	notServed map[string]bool
+	noURL     bool
+}
+
+func (f fakeISOs) integration(id string) string {
+	return map[string]string{"iso-a": "integration-1", "iso-b": "integration-1", "iso-other": "integration-2"}[id]
+}
 
 func (f fakeISOs) Resolve(_ context.Context, id string) (*serverdomain.BootISOImage, error) {
-	integration := map[string]string{"iso-a": "integration-1", "iso-b": "integration-1", "iso-other": "integration-2"}[id]
+	integration := f.integration(id)
 	if integration == "" {
 		return nil, serverdomain.ErrBootISOUnknown
 	}
 	image := &serverdomain.BootISOImage{ID: id, Name: id + " name", IntegrationID: integration, URL: f.URL(id)}
-	if f.notServed[id] {
+	switch {
+	case f.notServed[id]:
 		return image, fmt.Errorf("%w: the file is missing", serverdomain.ErrBootMediaNotConfigured)
+	case f.noURL:
+		return image, fmt.Errorf("%w: no base URL", serverdomain.ErrBootMediaNotConfigured)
 	}
 	return image, nil
 }
 
-func (fakeISOs) URL(id string) string {
+func (f fakeISOs) File(_ context.Context, id string) (*serverdomain.BootISOFile, error) {
+	integration := f.integration(id)
+	if integration == "" {
+		return nil, serverdomain.ErrBootISOUnknown
+	}
+	if f.notServed[id] {
+		return nil, fmt.Errorf("%w: the file is missing", serverdomain.ErrBootMediaNotConfigured)
+	}
+	return &serverdomain.BootISOFile{ID: id, Name: id + " name", IntegrationID: integration, Path: "/boot-media/" + id + ".iso", Size: 1024}, nil
+}
+
+func (f fakeISOs) URL(id string) string {
+	if f.noURL {
+		return ""
+	}
 	if id == "" {
 		return "http://192.0.2.1/boot-media/ipxe/swallow-ipxe.iso"
 	}
@@ -213,6 +328,7 @@ type bootMediaFixture struct {
 	uc        *BootMediaUseCase
 	repo      *bootMediaRepo
 	redfish   *fakeRedfish
+	libvirt   *fakeLibvirt
 	endpoints *fakeEndpoints
 }
 
@@ -222,11 +338,34 @@ func newBootMediaFixture(servers ...*serverdomain.Server) bootMediaFixture {
 		repo.servers[server.ID] = server
 	}
 	redfish := &fakeRedfish{capability: serverdomain.RedfishCapability{Support: serverdomain.RedfishSupported}, mode: "Continuous"}
+	libvirt := &fakeLibvirt{}
 	endpoints := &fakeEndpoints{}
-	uc := NewBootMediaUseCase(repo, repo, bootMediaGuard{}, endpoints, redfish, fakeISOs{})
+	uc := NewBootMediaUseCase(repo, repo, bootMediaGuard{}, endpoints, redfish, libvirt, fakeISOs{})
 	uc.now = func() time.Time { return time.Date(2026, 10, 3, 9, 0, 0, 0, time.UTC) }
 	uc.resetCheck = 0
-	return bootMediaFixture{uc: uc, repo: repo, redfish: redfish, endpoints: endpoints}
+	return bootMediaFixture{uc: uc, repo: repo, redfish: redfish, libvirt: libvirt, endpoints: endpoints}
+}
+
+// hypervisorServer is a deployed Server that can act as a Hypervisor.
+func hypervisorServer(id string) *serverdomain.Server {
+	return &serverdomain.Server{
+		ID: id, Observed: serverdomain.Observed{Hostname: "tainan-ci", Addresses: []string{"10.170.168.22"}},
+		Source:       serverdomain.Source{SiteID: "site-1", IntegrationID: "integration-1"},
+		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed", DeployedImageDefaultUser: "ubuntu"},
+	}
+}
+
+// newLibvirtFixture is a fixture with the virtual machine vm-1 on hypervisor hv-1.
+func newLibvirtFixture() bootMediaFixture {
+	hypervisor := hypervisorServer("hv-1")
+	vm := physicalServer("vm-1")
+	vm.Observed.Hostname = "lab-vm-1"
+	f := newBootMediaFixture(hypervisor, vm)
+	f.endpoints.libvirt = map[string]*serverdomain.LibvirtEndpoint{
+		"vm-1": {Hypervisor: hypervisor, Host: "10.170.168.22", Account: "ubuntu", Domain: "lab-vm-1"},
+	}
+	f.uc.isos = fakeISOs{noURL: true}
+	return f
 }
 
 func physicalServer(id string) *serverdomain.Server {
@@ -539,7 +678,7 @@ func TestBootMediaEnsure(t *testing.T) {
 	f := newBootMediaFixture(enabled, disabled)
 	f.redfish.state = serverdomain.BootMediaState{MediaInserted: true, OverrideReady: true}
 
-	outcome, err := f.uc.Ensure(context.Background(), "srv-1", "http://frozen/boot-media/ipxe/swallow-ipxe.iso")
+	outcome, err := f.uc.Ensure(context.Background(), "srv-1", BootISORef{URL: "http://frozen/boot-media/ipxe/swallow-ipxe.iso"})
 	if err != nil {
 		t.Fatalf("Ensure(enabled) error = %v", err)
 	}
@@ -557,7 +696,7 @@ func TestBootMediaEnsure(t *testing.T) {
 	}
 
 	f.redfish.calls = nil
-	outcome, err = f.uc.Ensure(context.Background(), "srv-2", "http://frozen/x.iso")
+	outcome, err = f.uc.Ensure(context.Background(), "srv-2", BootISORef{URL: "http://frozen/x.iso"})
 	if err != nil || !outcome.Skipped || len(f.redfish.calls) != 0 {
 		t.Errorf("Ensure(disabled) = %+v, %v, calls %v; want skipped without BMC calls", outcome, err, f.redfish.calls)
 	}
@@ -569,7 +708,7 @@ func TestBootMediaEnsureFailureIsRecorded(t *testing.T) {
 	server.BootMedia = &serverdomain.BootMediaSetting{Enabled: true}
 	f := newBootMediaFixture(server)
 	f.redfish.applyErr = &detailError{sentinel: serverdomain.ErrBMCUnreachable, detail: "timeout"}
-	if _, err := f.uc.Ensure(context.Background(), "srv-1", "http://frozen/x.iso"); !errors.Is(err, serverdomain.ErrBMCUnreachable) {
+	if _, err := f.uc.Ensure(context.Background(), "srv-1", BootISORef{URL: "http://frozen/x.iso"}); !errors.Is(err, serverdomain.ErrBMCUnreachable) {
 		t.Fatalf("Ensure error = %v, want ErrBMCUnreachable", err)
 	}
 	if saved := f.repo.servers["srv-1"].BootMedia; !saved.Enabled || saved.LastError == "" {
@@ -680,6 +819,127 @@ func TestBootMediaProbeStale(t *testing.T) {
 	}
 	if got := f.repo.servers["vm"].Redfish; got == nil || got.Support != serverdomain.RedfishNoBMC {
 		t.Errorf("vm capability = %+v, want no_bmc", got)
+	}
+}
+
+// A libvirt virtual machine's preflight probes the Hypervisor's domain and uploads the Boot ISO's
+// file — no Boot Media base URL needed — and saves the setting with a persistent boot order.
+func TestBootMediaEnableLibvirt(t *testing.T) {
+	f := newLibvirtFixture()
+	change, err := f.uc.SetEnabled(context.Background(), "vm-1", true, "iso-a")
+	if err != nil {
+		t.Fatalf("SetEnabled(true) error = %v", err)
+	}
+	if want := []string{"domain", "apply"}; !equalStrings(f.libvirt.calls, want) {
+		t.Errorf("libvirt calls = %v, want %v", f.libvirt.calls, want)
+	}
+	if len(f.redfish.calls) != 0 {
+		t.Errorf("drove Redfish on a virtual machine: %v", f.redfish.calls)
+	}
+	if login := f.libvirt.logins[0]; login.ServerID != "hv-1" || login.Account != "ubuntu" || login.Target.Address != "10.170.168.22" {
+		t.Errorf("hypervisor login = %+v, want ubuntu@10.170.168.22 of hv-1", login)
+	}
+	if file := f.libvirt.files[0]; file.ID != "iso-a" || file.Path == "" {
+		t.Errorf("uploaded = %+v, want iso-a's file", file)
+	}
+	vm := f.repo.servers["vm-1"]
+	if saved := vm.BootMedia; saved == nil || !saved.Enabled || saved.ISOID != "iso-a" || saved.BootOverride != "Continuous" {
+		t.Errorf("saved setting = %+v, want enabled with iso-a, Continuous", saved)
+	}
+	if vm.Libvirt == nil || vm.Libvirt.Support != serverdomain.LibvirtSupported || vm.Libvirt.HypervisorServerID != "hv-1" || vm.Libvirt.Domain != "lab-vm-1" {
+		t.Errorf("libvirt capability = %+v, want supported on hv-1", vm.Libvirt)
+	}
+	if vm.Redfish == nil || vm.Redfish.Support != serverdomain.RedfishNoBMC {
+		t.Errorf("redfish capability = %+v, want no_bmc", vm.Redfish)
+	}
+	if method := change.View.Server.BootMediaMethod(); method != serverdomain.BootMediaMethodLibvirt {
+		t.Errorf("method = %q, want libvirt", method)
+	}
+	if image := change.View.Image; image == nil || !image.Available {
+		t.Errorf("view image = %+v, want available without a base URL", image)
+	}
+}
+
+// The Hypervisor's lock refuses libvirt Boot Media; a host that is no swallow Server has no method.
+func TestBootMediaEnableLibvirtGates(t *testing.T) {
+	t.Run("locked hypervisor", func(t *testing.T) {
+		f := newLibvirtFixture()
+		f.uc.guard = bootMediaGuard{err: serverdomain.ErrServerLocked, only: map[string]bool{"hv-1": true}}
+		if _, err := f.uc.SetEnabled(context.Background(), "vm-1", true, "iso-a"); !errors.Is(err, serverdomain.ErrServerLocked) {
+			t.Fatalf("SetEnabled(true) error = %v, want ErrServerLocked", err)
+		}
+		if equalStrings(f.libvirt.calls, []string{"domain", "apply"}) {
+			t.Error("changed a domain on a locked hypervisor")
+		}
+	})
+	t.Run("no swallow hypervisor", func(t *testing.T) {
+		f := newLibvirtFixture()
+		f.endpoints.libvirt["vm-1"].Hypervisor = nil
+		if _, err := f.uc.SetEnabled(context.Background(), "vm-1", true, "iso-a"); !errors.Is(err, serverdomain.ErrNoHypervisor) {
+			t.Fatalf("SetEnabled(true) error = %v, want ErrNoHypervisor", err)
+		}
+		if vm := f.repo.servers["vm-1"]; vm.Libvirt == nil || vm.Libvirt.Support != serverdomain.LibvirtNoHypervisor {
+			t.Errorf("libvirt capability = %+v, want no_hypervisor", vm.Libvirt)
+		}
+	})
+	t.Run("redfish still needs a URL", func(t *testing.T) {
+		f := newBootMediaFixture(physicalServer("srv-1"))
+		f.uc.isos = fakeISOs{noURL: true}
+		if _, err := f.uc.SetEnabled(context.Background(), "srv-1", true, "iso-a"); !errors.Is(err, serverdomain.ErrBootMediaNotConfigured) {
+			t.Fatalf("SetEnabled(true) error = %v, want ErrBootMediaNotConfigured", err)
+		}
+	})
+}
+
+// The ensure of a virtual machine uploads the Boot ISO frozen by id, even without a URL; a
+// deployment boot watch leaves it alone, and disabling clears the domain.
+func TestBootMediaLibvirtEnsureRecoverDisable(t *testing.T) {
+	f := newLibvirtFixture()
+	f.repo.servers["vm-1"].BootMedia = &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-a"}
+	f.libvirt.ready = true
+	outcome, err := f.uc.Ensure(context.Background(), "vm-1", BootISORef{ID: "iso-a"})
+	if err != nil {
+		t.Fatalf("Ensure error = %v", err)
+	}
+	if !outcome.WasReady || outcome.Mode != "Continuous" {
+		t.Errorf("outcome = %+v, want was-ready, Continuous", outcome)
+	}
+	if want := []string{"read", "apply"}; !equalStrings(f.libvirt.calls, want) {
+		t.Errorf("libvirt calls = %v, want %v", f.libvirt.calls, want)
+	}
+
+	f.libvirt.calls = nil
+	if changed, err := f.uc.RecoverDeploymentBoot(context.Background(), "vm-1", "http://frozen/x.iso", true); err != nil || changed {
+		t.Errorf("RecoverDeploymentBoot = %v, %v; want untouched", changed, err)
+	}
+	if len(f.libvirt.calls) != 0 || len(f.redfish.calls) != 0 {
+		t.Errorf("recovery touched the virtual machine: libvirt %v, redfish %v", f.libvirt.calls, f.redfish.calls)
+	}
+
+	change, err := f.uc.SetEnabled(context.Background(), "vm-1", false, "")
+	if err != nil {
+		t.Fatalf("SetEnabled(false) error = %v", err)
+	}
+	if !change.Reverted || !equalStrings(f.libvirt.calls, []string{"clear"}) {
+		t.Errorf("disable = %+v, libvirt calls %v; want the domain cleared", change, f.libvirt.calls)
+	}
+}
+
+// Enrollment saves Boot Media it applied, after storing the probes.
+func TestBootMediaEnableApplied(t *testing.T) {
+	f := newLibvirtFixture()
+	if err := f.uc.EnableApplied(context.Background(), "vm-1", "iso-a"); err != nil {
+		t.Fatalf("EnableApplied error = %v", err)
+	}
+	vm := f.repo.servers["vm-1"]
+	if vm.BootMedia == nil || !vm.BootMedia.Enabled || vm.BootMedia.ISOID != "iso-a" || vm.BootMedia.LastAppliedBy != serverdomain.BootMediaAppliedByEnsure {
+		t.Errorf("saved setting = %+v, want enabled with iso-a, applied by ensure", vm.BootMedia)
+	}
+	if vm.Libvirt == nil || vm.Libvirt.Support != serverdomain.LibvirtSupported {
+		t.Errorf("libvirt capability = %+v, want supported", vm.Libvirt)
+	}
+	if err := f.uc.EnableApplied(context.Background(), "vm-1", "iso-other"); !errors.Is(err, serverdomain.ErrBootISOWrongIntegration) {
+		t.Errorf("EnableApplied(another provisioner's ISO) error = %v, want ErrBootISOWrongIntegration", err)
 	}
 }
 

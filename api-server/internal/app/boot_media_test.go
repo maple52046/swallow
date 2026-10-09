@@ -20,7 +20,7 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
-// bootMediaServers is a FindByID-only ServerRepository.
+// bootMediaServers is a FindByID and List ServerRepository.
 type bootMediaServers struct {
 	serverdomain.ServerRepository
 	servers map[string]*serverdomain.Server
@@ -33,6 +33,17 @@ func (r bootMediaServers) FindByID(_ context.Context, id string) (*serverdomain.
 	return nil, serverdomain.ErrServerNotFound
 }
 
+func (r bootMediaServers) List(_ context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
+	var result serverdomain.ListResult
+	for _, server := range r.servers {
+		if filter.SiteID == "" || server.Source.SiteID == filter.SiteID {
+			result.Servers = append(result.Servers, server)
+		}
+	}
+	result.Total = len(result.Servers)
+	return result, nil
+}
+
 // plannerISOs resolves iso-a as served and iso-missing as present without a file.
 type plannerISOs struct{}
 
@@ -43,6 +54,16 @@ func (plannerISOs) Resolve(_ context.Context, id string) (*serverdomain.BootISOI
 		return image, nil
 	case "iso-missing":
 		return image, serverdomain.ErrBootMediaNotConfigured
+	}
+	return nil, serverdomain.ErrBootISOUnknown
+}
+
+func (plannerISOs) File(_ context.Context, id string) (*serverdomain.BootISOFile, error) {
+	switch id {
+	case "iso-a":
+		return &serverdomain.BootISOFile{ID: id, Name: id, IntegrationID: "integration-1", Path: "/boot-media/" + id, Size: 3}, nil
+	case "iso-missing":
+		return nil, serverdomain.ErrBootMediaNotConfigured
 	}
 	return nil, serverdomain.ErrBootISOUnknown
 }
@@ -87,8 +108,8 @@ func TestBootMediaPlannerAddsEnsureTasks(t *testing.T) {
 	if ensure.Kind != ensureBootMediaTaskKind || ensure.Executor != operationdomain.RunnerKindInternal || ensure.Job != "ensure-os" {
 		t.Errorf("ensure task = %+v, want an internal ensure-boot-media Task in the provision Job", ensure)
 	}
-	if ensure.Parameters["isoUrl"] != (plannerISOs{}).URL("iso-a") {
-		t.Errorf("ensure isoUrl = %v, want the Server's Boot ISO URL", ensure.Parameters["isoUrl"])
+	if ensure.Parameters["isoUrl"] != (plannerISOs{}).URL("iso-a") || ensure.Parameters["isoId"] != "iso-a" {
+		t.Errorf("ensure parameters = %v, want the Server's Boot ISO id and URL", ensure.Parameters)
 	}
 	if want := []string{"prepare", "ensure-boot-media-on"}; !equalStringSlices(provision.DependsOn, want) {
 		t.Errorf("provision DependsOn = %v, want %v", provision.DependsOn, want)
@@ -187,8 +208,10 @@ func TestBootMediaWatchLeavesProgressingAndUnknownBootsAlone(t *testing.T) {
 
 // An enabled Server without a served Boot ISO (none chosen, deleted, file missing) still gets its
 // ensure Task, with an empty URL, so the deployment stops with boot_media_not_configured instead
-// of booting a host that cannot reach the provisioner.
+// of booting a host that cannot reach the provisioner. A Boot ISO that still exists keeps its id,
+// which libvirt Boot Media uploads without a URL.
 func TestBootMediaPlannerFreezesNoURLWithoutServedBootISO(t *testing.T) {
+	wantID := map[string]string{"": "", "iso-gone": "", "iso-missing": "iso-missing"}
 	for _, isoID := range []string{"", "iso-gone", "iso-missing"} {
 		planner := bootMediaPlanner{
 			servers: bootMediaServers{servers: map[string]*serverdomain.Server{
@@ -200,8 +223,8 @@ func TestBootMediaPlannerFreezesNoURLWithoutServedBootISO(t *testing.T) {
 		if err != nil {
 			t.Fatalf("withEnsureTasks(%q) error = %v", isoID, err)
 		}
-		if len(got) != 2 || got[0].Kind != ensureBootMediaTaskKind || got[0].Parameters["isoUrl"] != "" {
-			t.Errorf("withEnsureTasks(%q) = %+v, want an ensure Task with an empty isoUrl", isoID, got)
+		if len(got) != 2 || got[0].Kind != ensureBootMediaTaskKind || got[0].Parameters["isoUrl"] != "" || got[0].Parameters["isoId"] != wantID[isoID] {
+			t.Errorf("withEnsureTasks(%q) = %+v, want an ensure Task with an empty isoUrl and isoId %q", isoID, got, wantID[isoID])
 		}
 	}
 }
@@ -218,10 +241,11 @@ func TestBootMediaPlannerZeroValueIsNoOp(t *testing.T) {
 type fakeEnsurer struct {
 	err              error
 	serverID, isoURL string
+	isoID            string
 }
 
-func (f *fakeEnsurer) Ensure(_ context.Context, serverID, isoURL string) (serverapp.EnsureOutcome, error) {
-	f.serverID, f.isoURL = serverID, isoURL
+func (f *fakeEnsurer) Ensure(_ context.Context, serverID string, iso serverapp.BootISORef) (serverapp.EnsureOutcome, error) {
+	f.serverID, f.isoURL, f.isoID = serverID, iso.URL, iso.ID
 	return serverapp.EnsureOutcome{}, f.err
 }
 
@@ -251,6 +275,19 @@ func TestEnsureBootMediaStep(t *testing.T) {
 	if result.Status != operationdomain.TaskFailed || result.Error.Code != "boot_media_not_configured" || result.Error.Retryable {
 		t.Errorf("result = %+v, want a non-retryable failure without an ISO URL", result)
 	}
+
+	// A Boot ISO frozen by id only (no base URL) reaches the use case, which decides by method; a
+	// frozen Boot ISO the method cannot use stays unusable, so it is not retryable.
+	ensurer.err = nil
+	input := ensureInput("")
+	input.Step.Parameters["isoId"] = "iso-a"
+	if result := executor.Execute(context.Background(), input); result.Status != operationdomain.TaskSucceeded || ensurer.isoID != "iso-a" {
+		t.Errorf("result = %+v, ensure id %q; want success with the frozen id", result, ensurer.isoID)
+	}
+	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaNotConfigured, Server: "tainan-ci"}
+	if result := executor.Execute(context.Background(), input); result.Error == nil || result.Error.Code != "boot_media_not_configured" || result.Error.Retryable {
+		t.Errorf("result = %+v, want a non-retryable boot_media_not_configured", result)
+	}
 }
 
 // fakeBMCProvider is a provisioner with the PowerConfiguration capability.
@@ -276,20 +313,37 @@ func (f fakeBMCProviders) For(context.Context, string) (provisioningdomain.OSPro
 	return f.provider, nil
 }
 
-// The endpoint source asks the power adapter of the Power Configuration whether there is a BMC:
-// only a bmc-family driver of a machine outside a VM host yields one (decision 054).
-func TestBMCEndpointSourceMapsProvisionerAnswers(t *testing.T) {
-	server := &serverdomain.Server{ID: "srv", Hardware: serverdomain.Hardware{SystemUUID: "uuid-1"}}
-	source := newBMCEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{
+// The endpoint source asks the power adapter of the Power Configuration for the method: a
+// bmc-family driver of a machine outside a VM host gives redfish (decision 054), and a virsh driver
+// gives libvirt with the swallow Server its address names (decision 055).
+func TestBootMediaEndpointSourceMapsProvisionerAnswers(t *testing.T) {
+	server := &serverdomain.Server{ID: "srv", Hardware: serverdomain.Hardware{SystemUUID: "uuid-1"}, Source: serverdomain.Source{SiteID: "site-1"}}
+	hypervisor := &serverdomain.Server{ID: "hv-1", Source: serverdomain.Source{SiteID: "site-1"},
+		Observed: serverdomain.Observed{Hostname: "tainan-ci", Addresses: []string{"10.170.168.22"}}}
+	servers := bootMediaServers{servers: map[string]*serverdomain.Server{"srv": server, "hv-1": hypervisor}}
+	source := newBootMediaEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{
 		config: &provisioningdomain.PowerConfiguration{Driver: "ipmi", Address: "10.0.0.5", Username: "maas", Password: "pw", NodeID: "Self"},
-	}})
-	endpoint, err := source.BMCEndpoint(context.Background(), server)
+	}}, servers)
+	endpoint, err := source.BootMediaEndpoint(context.Background(), server)
 	if err != nil {
-		t.Fatalf("BMCEndpoint error = %v", err)
+		t.Fatalf("BootMediaEndpoint error = %v", err)
 	}
-	if endpoint.Address != "10.0.0.5" || endpoint.Password != "pw" || endpoint.SystemHint != "Self" ||
-		endpoint.HostUUID != "uuid-1" || endpoint.PowerType != "ipmi" {
+	if bmc := endpoint.BMC; endpoint.Method != serverdomain.BootMediaMethodRedfish || bmc == nil || bmc.Address != "10.0.0.5" || bmc.Password != "pw" ||
+		bmc.SystemHint != "Self" || bmc.HostUUID != "uuid-1" || bmc.PowerType != "ipmi" {
 		t.Errorf("endpoint = %+v", endpoint)
+	}
+
+	for host, want := range map[string]*serverdomain.Server{"10.170.168.22": hypervisor, "TAINAN-CI": hypervisor, "10.9.9.9": nil} {
+		source := newBootMediaEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{
+			config: &provisioningdomain.PowerConfiguration{Driver: "virsh", Address: "qemu+ssh://ubuntu@" + host + "/system", PowerID: "lab-1"},
+		}}, servers)
+		endpoint, err := source.BootMediaEndpoint(context.Background(), server)
+		if err != nil {
+			t.Fatalf("BootMediaEndpoint(virsh %s) error = %v", host, err)
+		}
+		if l := endpoint.Libvirt; endpoint.Method != serverdomain.BootMediaMethodLibvirt || l == nil || l.Hypervisor != want || l.Account != "ubuntu" || l.Domain != "lab-1" {
+			t.Errorf("endpoint(virsh %s) = %+v, want libvirt on %v", host, endpoint.Libvirt, want)
+		}
 	}
 
 	cases := []struct {
@@ -298,8 +352,9 @@ func TestBMCEndpointSourceMapsProvisionerAnswers(t *testing.T) {
 		err    error
 		want   error
 	}{
-		{"virsh driver", &provisioningdomain.PowerConfiguration{Driver: "virsh", Address: "qemu+ssh://h/system", PowerID: "vm"}, nil, serverdomain.ErrNoBMC},
+		{"virsh without a domain", &provisioningdomain.PowerConfiguration{Driver: "virsh", Address: "qemu+ssh://h/system"}, nil, serverdomain.ErrNoBMC},
 		{"VM-host member", &provisioningdomain.PowerConfiguration{Driver: "ipmi", Address: "10.0.0.5", ManagedBy: "kvm-3"}, nil, serverdomain.ErrNoBMC},
+		{"virsh VM-host member", &provisioningdomain.PowerConfiguration{Driver: "virsh", Address: "qemu+ssh://h/system", PowerID: "vm", ManagedBy: "kvm-3"}, nil, serverdomain.ErrNoBMC},
 		{"no driver", &provisioningdomain.PowerConfiguration{}, nil, serverdomain.ErrNoBMC},
 		{"unknown driver", &provisioningdomain.PowerConfiguration{Driver: "lxd", Address: "https://h"}, nil, serverdomain.ErrNoBMC},
 		{"no BMC address", &provisioningdomain.PowerConfiguration{Driver: "redfish"}, nil, serverdomain.ErrNoBMC},
@@ -309,9 +364,9 @@ func TestBMCEndpointSourceMapsProvisionerAnswers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			source := newBMCEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{config: tc.config, err: tc.err}})
-			if _, err := source.BMCEndpoint(context.Background(), server); !errors.Is(err, tc.want) {
-				t.Errorf("BMCEndpoint error = %v, want %v", err, tc.want)
+			source := newBootMediaEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{config: tc.config, err: tc.err}}, servers)
+			if _, err := source.BootMediaEndpoint(context.Background(), server); !errors.Is(err, tc.want) {
+				t.Errorf("BootMediaEndpoint error = %v, want %v", err, tc.want)
 			}
 		})
 	}
@@ -397,6 +452,13 @@ func TestBootISOCatalog(t *testing.T) {
 	}
 	if _, err := catalog.Resolve(context.Background(), "7c4e2d1f-0000-4000-8000-000000000000"); !errors.Is(err, serverdomain.ErrBootISOUnknown) {
 		t.Errorf("Resolve(unknown) error = %v, want ErrBootISOUnknown", err)
+	}
+	file, err := catalog.File(context.Background(), id)
+	if err != nil || file.Size != 3 || file.IntegrationID != "integration-1" || file.Path != filepath.Join(dir, id, provisioninginfra.BootISOFileName) {
+		t.Errorf("File = %+v, %v; want the ISO file", file, err)
+	}
+	if _, err := newBootISOCatalog(repo, provisioninginfra.NewGenfsimgBuilder(dir, "", ""), "").File(context.Background(), id); err != nil {
+		t.Errorf("File without a base URL error = %v, want the file", err)
 	}
 	if got := catalog.URL(""); got != "http://192.0.2.1/boot-media/ipxe/swallow-ipxe.iso" {
 		t.Errorf("URL(\"\") = %q, want the retired installation ISO URL", got)

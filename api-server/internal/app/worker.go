@@ -29,6 +29,7 @@ import (
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverinfra "github.com/maple52046/swallow/internal/server/infra"
+	"github.com/maple52046/swallow/internal/server/infra/libvirt"
 	"github.com/maple52046/swallow/internal/server/infra/redfish"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	siteinfra "github.com/maple52046/swallow/internal/site/infra"
@@ -89,8 +90,12 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
+	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	automationConfigurations := operationapp.NewEffectiveAutomationConfigurations(
-		operationinfra.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
+		automationRepo, deploymentKeySource{keys: sshKeys})
+	// Hypervisor access (decision 055): libvirt Boot Media ensures and virtual-machine enrollment
+	// log in to a Hypervisor with the Deployment Key on the Site's SSH port.
+	libvirtHosts := libvirt.NewHost(serverinfra.NewSSHHostAccess(deploymentKeySource{keys: sshKeys}, siteSSHPorts{configurations: automationRepo}))
 	platforms, err := platforminfra.NewMongoPlatformRepo(db)
 	if err != nil {
 		return err
@@ -169,8 +174,11 @@ func RunWorker(cfg config.APIConfig) error {
 		provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
 		cfg.BootMedia.BaseURL)
 	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
-		newBMCEndpointSource(providers), redfish.NewController(), bootISOs)
+		newBootMediaEndpointSource(providers, servers), redfish.NewController(), libvirtHosts, bootISOs)
 	providerExecutor.bootMedia = bootMedia
+	providerExecutor.virtualMachines = &virtualMachineEnroller{
+		libvirt: libvirtHosts, isos: bootISOs, bootMedia: bootMedia, integrations: integrations,
+	}
 	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership,

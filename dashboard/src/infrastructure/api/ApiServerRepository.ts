@@ -1,14 +1,15 @@
 import type { Paginated, ServerRepository } from '@/application/ports/ServerRepository'
 import type { NetworkLinkInput, NetworkTarget, ProvisioningTask } from '@/domain/provisioning/types'
 import type {
+  BootMediaProbe,
   DeployServerInput,
+  HypervisorVirtualMachines,
   ListServersFilters,
   PowerStateResult,
   ProvisionerDetail,
   ReleaseServerInput,
   ProviderEvents,
   ProvisioningActionResult,
-  RedfishCapability,
   Server,
   ServerAction,
   ServerBootMedia,
@@ -221,7 +222,7 @@ export class ApiServerRepository implements ServerRepository {
       `/api/v1/servers/${encodeURIComponent(id)}/boot-media${suffix}`,
       { cache: 'no-store' },
     )
-    return { ...media, apply: media.apply ?? null }
+    return normalizeBootMedia(media)
   }
 
   async setBootMedia(id: string, enabled: boolean, isoId?: string): Promise<SetServerBootMediaResult> {
@@ -231,14 +232,34 @@ export class ApiServerRepository implements ServerRepository {
       `/api/v1/servers/${encodeURIComponent(id)}/boot-media`,
       { method: 'PUT', body: JSON.stringify(body) },
     )
-    return { ...result, apply: result.apply ?? null }
+    return normalizeBootMedia(result)
   }
 
-  async probeRedfish(id: string): Promise<RedfishCapability> {
-    const result = await apiRequest<{ redfish: RedfishCapability }>(
+  async probeBootMedia(id: string): Promise<BootMediaProbe> {
+    // The route kept its Redfish-era path when it learned libvirt (decision 055).
+    const result = await apiRequest<Partial<BootMediaProbe>>(
       `/api/v1/servers/${encodeURIComponent(id)}/redfish/probe`,
       { method: 'POST' },
     )
-    return result.redfish
+    return { redfish: result.redfish ?? null, libvirt: result.libvirt ?? null }
   }
+
+  async listVirtualMachines(hypervisorId: string, account?: string): Promise<HypervisorVirtualMachines> {
+    const query = account?.trim() ? `?account=${encodeURIComponent(account.trim())}` : ''
+    // Never cached: it is a live libvirt read, and a domain's state changes as it is started or enrolled.
+    const result = await apiRequest<HypervisorVirtualMachines>(
+      `/api/v1/servers/${encodeURIComponent(hypervisorId)}/virtual-machines${query}`,
+      { cache: 'no-store' },
+    )
+    return { ...result, items: (result.items ?? []).map((item) => ({ ...item, macAddresses: item.macAddresses ?? [], serverId: item.serverId ?? null })) }
+  }
+}
+
+/**
+ * Fills the Boot Media fields an older API omits — `apply`, and `method` and `libvirt` from before
+ * libvirt Boot Media (decision 055) — with their documented "none" value, so the panel never reads
+ * `undefined` as a method.
+ */
+function normalizeBootMedia<T extends ServerBootMedia>(media: T): T {
+  return { ...media, method: media.method ?? null, libvirt: media.libvirt ?? null, apply: media.apply ?? null }
 }

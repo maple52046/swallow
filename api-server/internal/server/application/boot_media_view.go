@@ -10,13 +10,50 @@ import (
 // null when no Boot ISO is named, never set, never probed, not read, or no preflight runs; that
 // distinction is part of the contract.
 type BootMediaItem struct {
-	ServerID  string                  `json:"serverId"`
+	ServerID string `json:"serverId"`
+	// Method is redfish or libvirt (decision 055), null when the probes found neither.
+	Method    *string                 `json:"method"`
 	Image     *BootMediaImageItem     `json:"image"`
 	Setting   *BootMediaSettingItem   `json:"setting"`
 	Redfish   *RedfishCapabilityItem  `json:"redfish"`
+	Libvirt   *LibvirtCapabilityItem  `json:"libvirt"`
 	Live      *BootMediaLiveStateItem `json:"live"`
 	LiveError string                  `json:"liveError,omitempty"`
 	Apply     *BootMediaApplyItem     `json:"apply"`
+}
+
+// LibvirtCapabilityItem is the latest probe of a virtual machine's Hypervisor.
+type LibvirtCapabilityItem struct {
+	Support            string  `json:"support"`
+	Reason             string  `json:"reason,omitempty"`
+	HypervisorServerID *string `json:"hypervisorServerId"`
+	Account            string  `json:"account,omitempty"`
+	Domain             string  `json:"domain"`
+	Pool               string  `json:"pool"`
+	CDROM              bool    `json:"cdrom"`
+	ProbedAt           string  `json:"probedAt"`
+}
+
+// BootMediaProbeItem is the published result of a probe: both methods' capabilities.
+type BootMediaProbeItem struct {
+	Redfish *RedfishCapabilityItem `json:"redfish"`
+	Libvirt *LibvirtCapabilityItem `json:"libvirt"`
+}
+
+// ToBootMediaProbeItem maps a probe onto its published shape.
+func ToBootMediaProbeItem(probe *BootMediaProbe) BootMediaProbeItem {
+	return BootMediaProbeItem{Redfish: ToRedfishCapabilityItem(probe.Redfish), Libvirt: ToLibvirtCapabilityItem(probe.Libvirt)}
+}
+
+// ToLibvirtCapabilityItem maps a capability onto its published shape, or nil when never probed.
+func ToLibvirtCapabilityItem(c *serverdomain.LibvirtCapability) *LibvirtCapabilityItem {
+	if c == nil {
+		return nil
+	}
+	return &LibvirtCapabilityItem{
+		Support: string(c.Support), Reason: c.Reason, HypervisorServerID: wire.String(c.HypervisorServerID),
+		Account: c.Account, Domain: c.Domain, Pool: c.Pool, CDROM: c.CDROM, ProbedAt: wire.Time(c.ProbedAt),
+	}
 }
 
 // BootMediaApplyItem is the running enable preflight: which Boot ISO, which phase, and since when.
@@ -79,7 +116,9 @@ type BootMediaLiveStateItem struct {
 func ToBootMediaItem(view *BootMediaView) BootMediaItem {
 	item := BootMediaItem{
 		ServerID:  view.Server.ID,
+		Method:    wire.String(string(view.Server.BootMediaMethod())),
 		Redfish:   ToRedfishCapabilityItem(view.Server.Redfish),
+		Libvirt:   ToLibvirtCapabilityItem(view.Server.Libvirt),
 		LiveError: view.LiveError,
 	}
 	if image := view.Image; image != nil {

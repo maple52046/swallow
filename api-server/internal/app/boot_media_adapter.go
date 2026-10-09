@@ -63,6 +63,27 @@ func (c bootISOCatalog) Resolve(ctx context.Context, id string) (*serverdomain.B
 	return image, nil
 }
 
+// File implements serverdomain.BootISOResolver.
+func (c bootISOCatalog) File(ctx context.Context, id string) (*serverdomain.BootISOFile, error) {
+	iso, err := c.isos.FindByID(ctx, id)
+	if errors.Is(err, provisioningdomain.ErrBootISONotFound) {
+		return nil, serverdomain.ErrBootISOUnknown
+	}
+	if err != nil {
+		return nil, err
+	}
+	missing := fmt.Errorf("%w: the file of Boot ISO %q is missing; build it again", serverdomain.ErrBootMediaNotConfigured, iso.Name)
+	path, ok := c.files.FilePath(iso.ID)
+	if !ok {
+		return nil, missing
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return nil, missing
+	}
+	return &serverdomain.BootISOFile{ID: iso.ID, Name: iso.Name, IntegrationID: iso.IntegrationID, Path: path, Size: info.Size()}, nil
+}
+
 // URL implements serverdomain.BootISOResolver.
 func (c bootISOCatalog) URL(id string) string {
 	if c.baseURL == "" {
@@ -121,24 +142,25 @@ func serveBootISO(files *provisioninginfra.GenfsimgBuilder) fiber.Handler {
 	}
 }
 
-// bmcEndpointSource reads a Server's BMC endpoint from its provisioner (decisions 047 and 054). It
-// bridges the provisioning context's Power Configuration to the server domain port: the registry
-// decides whether the machine has a BMC (a bmc-family driver, not a VM-host member), and only the
-// BMC extension yields an endpoint. A virsh machine, a driver no family knows, and a machine without
-// a driver therefore have no BMC, with no driver-name or VM-host check here. The password passes
-// through in memory only.
-type bmcEndpointSource struct {
+// bootMediaEndpointSource reads a Server's Boot Media method from its provisioner's Power
+// Configuration (decisions 047, 054, and 055). It bridges the provisioning context's power adapters
+// to the server domain port: the BMC extension of a bmc-family driver (not a VM-host member) yields
+// the redfish endpoint, and a virsh driver not owned by a VM host yields libvirt, with the swallow
+// Server of the same Site that the address's host names as its Hypervisor. Any other machine has no
+// method, with no driver-name check here. The BMC password passes through in memory only.
+type bootMediaEndpointSource struct {
 	providers provisioningdomain.ProviderFactory
 	adapters  *provisioningdomain.PowerAdapterRegistry
+	servers   serverdomain.ServerRepository
 }
 
-// newBMCEndpointSource wires the source with the supported power driver families.
-func newBMCEndpointSource(providers provisioningdomain.ProviderFactory) bmcEndpointSource {
-	return bmcEndpointSource{providers: providers, adapters: provisioningdomain.DefaultPowerAdapters()}
+// newBootMediaEndpointSource wires the source with the supported power driver families.
+func newBootMediaEndpointSource(providers provisioningdomain.ProviderFactory, servers serverdomain.ServerRepository) bootMediaEndpointSource {
+	return bootMediaEndpointSource{providers: providers, adapters: provisioningdomain.DefaultPowerAdapters(), servers: servers}
 }
 
-// BMCEndpoint implements serverdomain.BMCEndpointSource.
-func (s bmcEndpointSource) BMCEndpoint(ctx context.Context, server *serverdomain.Server) (*serverdomain.BMCEndpoint, error) {
+// BootMediaEndpoint implements serverdomain.BootMediaEndpointSource.
+func (s bootMediaEndpointSource) BootMediaEndpoint(ctx context.Context, server *serverdomain.Server) (*serverdomain.BootMediaEndpoint, error) {
 	provider, err := s.providers.For(ctx, server.Source.IntegrationID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", serverdomain.ErrBMCConnectionUnavailable, err)
@@ -157,18 +179,44 @@ func (s bmcEndpointSource) BMCEndpoint(ctx context.Context, server *serverdomain
 	case err != nil:
 		return nil, fmt.Errorf("%w: %v", serverdomain.ErrBMCConnectionUnavailable, err)
 	}
-	bmc, hasBMC := s.adapters.BMCAdapter(*config)
-	if !hasBMC {
+	if bmc, hasBMC := s.adapters.BMCAdapter(*config); hasBMC {
+		access, ok := bmc.BMCAccess(*config)
+		if !ok {
+			return nil, serverdomain.ErrNoBMC
+		}
+		return &serverdomain.BootMediaEndpoint{Method: serverdomain.BootMediaMethodRedfish, BMC: &serverdomain.BMCEndpoint{
+			Address: access.Address, Username: access.Username, Password: access.Password,
+			PowerType: string(access.Driver), SystemHint: access.SystemHint, HostUUID: server.Hardware.SystemUUID,
+		}}, nil
+	}
+	if config.Driver != provisioningdomain.PowerDriverVirsh || config.ManagedBy != "" || config.PowerID == "" {
 		return nil, serverdomain.ErrNoBMC
 	}
-	access, ok := bmc.BMCAccess(*config)
-	if !ok {
+	account, host, err := provisioningdomain.VirshHostOf(config.Address)
+	if err != nil {
 		return nil, serverdomain.ErrNoBMC
 	}
-	return &serverdomain.BMCEndpoint{
-		Address: access.Address, Username: access.Username, Password: access.Password,
-		PowerType: string(access.Driver), SystemHint: access.SystemHint, HostUUID: server.Hardware.SystemUUID,
-	}, nil
+	hypervisor, err := s.hypervisor(ctx, server, host)
+	if err != nil {
+		return nil, err
+	}
+	return &serverdomain.BootMediaEndpoint{Method: serverdomain.BootMediaMethodLibvirt, Libvirt: &serverdomain.LibvirtEndpoint{
+		Hypervisor: hypervisor, Host: host, Account: account, Domain: config.PowerID,
+	}}, nil
+}
+
+// hypervisor finds the present Server of the virtual machine's Site that host names, or nil.
+func (s bootMediaEndpointSource) hypervisor(ctx context.Context, server *serverdomain.Server, host string) (*serverdomain.Server, error) {
+	result, err := s.servers.List(ctx, serverdomain.ListFilter{SiteID: server.Source.SiteID})
+	if err != nil {
+		return nil, fmt.Errorf("find hypervisor %s: %w", host, err)
+	}
+	for _, candidate := range result.Servers {
+		if candidate.ID != server.ID && candidate.HostMatches(host) {
+			return candidate, nil
+		}
+	}
+	return nil, nil
 }
 
 // runRedfishCapabilitySweep probes Servers whose Redfish capability is missing or older than

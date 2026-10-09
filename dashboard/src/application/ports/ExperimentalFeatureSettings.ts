@@ -7,14 +7,18 @@
  *   metrics-owned health shown on shared pages.
  * - `osImageUpload`: uploading a custom OS Image from OS Images.
  * - `deploymentTemplates`: managing and applying Deployment Templates.
+ * - `virtualMachines`: enrolling libvirt virtual machines by name from Add servers, and Boot Media
+ *   through a virtual machine's Hypervisor on the Server Summary (decision 055). The API and the
+ *   CLI offer both regardless.
  */
-export type ExperimentalFeature = 'monitoring' | 'osImageUpload' | 'deploymentTemplates'
+export type ExperimentalFeature = 'monitoring' | 'osImageUpload' | 'deploymentTemplates' | 'virtualMachines'
 
 /** Every experimental feature, in the order the settings dialog lists them. */
 export const EXPERIMENTAL_FEATURES: readonly ExperimentalFeature[] = [
   'monitoring',
   'osImageUpload',
   'deploymentTemplates',
+  'virtualMachines',
 ]
 
 /**

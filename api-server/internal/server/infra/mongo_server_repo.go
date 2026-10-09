@@ -45,6 +45,9 @@ type serverDoc struct {
 	// reconcile Upsert never erases them; absent reads as "never set" / "never probed".
 	BootMedia *bootMediaDoc `bson:"bootMedia,omitempty"`
 	Redfish   *redfishDoc   `bson:"redfish,omitempty"`
+	// Libvirt is the latest probe of a virtual machine's Hypervisor (decision 055), written only by
+	// SetLibvirtCapability.
+	Libvirt *libvirtDoc `bson:"libvirt,omitempty"`
 	// BootMediaApply is the running enable preflight; it is written only by the Boot Media apply
 	// methods, never by SetBootMedia, so recording progress cannot overwrite the setting.
 	BootMediaApply *bootMediaApplyDoc `bson:"bootMediaApply,omitempty"`
@@ -624,6 +627,33 @@ func (r *MongoServerRepo) SetRedfishCapability(ctx context.Context, id string, c
 	return r.updateExisting(ctx, id, update)
 }
 
+// libvirtDoc stores serverdomain.LibvirtCapability. It holds no credential.
+type libvirtDoc struct {
+	Support            string    `bson:"support"`
+	Reason             string    `bson:"reason,omitempty"`
+	HypervisorServerID string    `bson:"hypervisorServerId,omitempty"`
+	Account            string    `bson:"account,omitempty"`
+	Domain             string    `bson:"domain,omitempty"`
+	Pool               string    `bson:"pool,omitempty"`
+	CDROM              bool      `bson:"cdrom"`
+	ProbedAt           time.Time `bson:"probedAt"`
+}
+
+// SetLibvirtCapability writes the Server's latest Hypervisor probe, or unsets it for nil.
+func (r *MongoServerRepo) SetLibvirtCapability(ctx context.Context, id string, capability *serverdomain.LibvirtCapability) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if capability == nil {
+		update["$unset"] = bson.M{"libvirt": ""}
+	} else {
+		update["$set"].(bson.M)["libvirt"] = libvirtDoc{
+			Support: string(capability.Support), Reason: capability.Reason, HypervisorServerID: capability.HypervisorServerID,
+			Account: capability.Account, Domain: capability.Domain, Pool: capability.Pool, CDROM: capability.CDROM,
+			ProbedAt: capability.ProbedAt,
+		}
+	}
+	return r.updateExisting(ctx, id, update)
+}
+
 // bootMediaApplyDoc stores serverdomain.BootMediaApply.
 type bootMediaApplyDoc struct {
 	ISOID          string     `bson:"isoId"`
@@ -868,6 +898,12 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			Vendor: r.Vendor, Product: r.Product, RedfishVersion: r.RedfishVersion,
 			FirmwareVersion: r.FirmwareVersion, SystemID: r.SystemID,
 			VirtualMedia: r.VirtualMedia, BootOverrideModes: r.BootOverrideModes, ProbedAt: r.ProbedAt,
+		}
+	}
+	if l := doc.Libvirt; l != nil {
+		s.Libvirt = &serverdomain.LibvirtCapability{
+			Support: serverdomain.LibvirtSupport(l.Support), Reason: l.Reason, HypervisorServerID: l.HypervisorServerID,
+			Account: l.Account, Domain: l.Domain, Pool: l.Pool, CDROM: l.CDROM, ProbedAt: l.ProbedAt,
 		}
 	}
 

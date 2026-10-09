@@ -5,7 +5,8 @@
 #
 # Usage: bootstrap.sh apply | verify
 #   apply   idempotent: find or create the Site, register (or re-key) the co-located MAAS as
-#           its provisioner Integration, write Site automation defaults only when the Site has
+#           its provisioner Integration with the rack's virsh public key as its
+#           virshSshPublicKey setting, write Site automation defaults only when the Site has
 #           none, then wait for the Integration to sync and for the official ubuntu/noble
 #           amd64 OS Image to appear complete in the catalog
 #   verify  read-only checks for `swallowctl doctor`
@@ -108,6 +109,29 @@ ensure_integration() {
   printf '%s' "${integration_id}"
 }
 
+# ensure_virsh_key records the rack's virsh SSH public key (secrets/maas-virsh-ssh.pub, written by
+# local-maas.sh) as the Integration's virshSshPublicKey setting (decision 055), so swallow can
+# authorize it on a hypervisor when it enrolls that hypervisor's virtual machines. An update
+# replaces the whole settings map, so the current settings are merged rather than overwritten.
+ensure_virsh_key() {
+  local integration_id="$1" key settings
+  [[ -s "${secrets_dir}/maas-virsh-ssh.pub" ]] || { log 'no MAAS virsh public key to record; skipped'; return 0; }
+  key="$(sed -n '1p' "${secrets_dir}/maas-virsh-ssh.pub")"
+  settings="$(api GET "/integrations/${integration_id}" | jq -c '.settings // {}')"
+  if [[ "$(jq -r '.virshSshPublicKey // ""' <<<"${settings}")" == "${key}" ]]; then
+    return 0
+  fi
+  api PATCH "/integrations/${integration_id}" --data-binary "$(jq -nc --argjson settings "${settings}" --arg key "${key}" \
+    '{settings: ($settings + {virshSshPublicKey: $key})}')" >/dev/null
+  log 'recorded the MAAS rack virsh public key on the provisioner Integration'
+}
+
+virsh_key_recorded() {
+  local key
+  key="$(sed -n '1p' "${secrets_dir}/maas-virsh-ssh.pub")"
+  api GET "/integrations/$1" | jq -e --arg key "${key}" '.settings.virshSshPublicKey == $key' >/dev/null
+}
+
 # ensure_automation writes defaults only for a Site with no configuration, so an operator's
 # later edits survive every rerun. Automation is enabled (Ansible Tasks refuse to run
 # otherwise) with no playbook mappings. Without operator-supplied known_hosts the static block
@@ -173,6 +197,7 @@ apply() {
   login
   site_id="$(ensure_site)"
   integration_id="$(ensure_integration "${site_id}")"
+  ensure_virsh_key "${integration_id}"
   ensure_automation "${site_id}"
   deployment_key_present || die 'the Deployment Key is missing; run swallowctl install'
   wait_until 'MAAS Integration sync' integration_synced "${integration_id}" ||
@@ -214,6 +239,9 @@ verify() {
     failed=1
   fi
   report "OS Image catalog lists a complete ${image_id} ${image_arch}" catalog_has_image "${integration_id}" || failed=1
+  if [[ -s "${secrets_dir}/maas-virsh-ssh.pub" ]]; then
+    report 'MAAS provisioner Integration records the rack virsh public key' virsh_key_recorded "${integration_id}" || failed=1
+  fi
   return "${failed}"
 }
 

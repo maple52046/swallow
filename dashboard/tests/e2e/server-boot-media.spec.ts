@@ -199,3 +199,39 @@ test('the BMC is read live only on request, and Redfish can be re-detected', asy
   await expect(page.getByText('Redfish Boot Media supported').last()).toBeVisible()
   expect(writes).toEqual(['POST /api/v1/servers/srv-1/redfish/probe'])
 })
+
+// libvirt Boot Media (decision 055, experimental in the Dashboard): a virsh virtual machine whose
+// hypervisor is a swallow Server gets the same block, through the hypervisor instead of a BMC.
+test('a libvirt virtual machine gets Boot Media through its hypervisor (experimental)', async ({ page }) => {
+  const writes: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = []
+  await installApiFixtures(page, {
+    powerConfigurations: { 'srv-2': { driver: 'virsh', address: 'qemu+ssh://ubuntu@192.168.40.21/system', powerId: 'gpu-node-02' } },
+    libvirtBootMediaServerIds: ['srv-2'],
+    bootISOs: [{ id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2', url: '' }],
+    onBootMediaRequest: (method, path, body) => writes.push({ method, path, body }),
+  })
+  await page.goto('/servers/srv-2/summary?site=site-a')
+
+  const card = page.getByRole('region', { name: 'Power control' })
+  await expect(card).toContainText('Boot Media goes through its hypervisor')
+  const bootMedia = card.getByRole('region', { name: 'Boot media' })
+  await expect(bootMedia).toContainText('Hypervisor ready for Boot Media')
+  await expect(bootMedia).toContainText('domain gpu-node-02 · as ubuntu · pool default · has a CD-ROM')
+
+  await bootMedia.getByRole('button', { name: 'Enable Boot Media' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Enable Boot Media' })
+  await expect(dialog).toContainText('from its CD-ROM on the hypervisor')
+  // Without a Boot Media base URL the ISO is still selectable: libvirt uploads the file.
+  await expect(dialog.getByRole('combobox', { name: 'Boot ISO', exact: true })).toContainText('taipei-rack')
+  await expect(dialog).not.toContainText('(not served)')
+  await dialog.getByRole('button', { name: 'Enable', exact: true }).click()
+  await expect(page.getByText('Boot Media enabled on gpu-node-02')).toBeVisible()
+  expect(writes).toEqual([{ method: 'PUT', path: '/api/v1/servers/srv-2/boot-media', body: { enabled: true, isoId: 'iso-taipei' } }])
+  await expect(bootMedia).toContainText('Uploaded to the hypervisor’s storage pool')
+
+  await bootMedia.getByRole('button', { name: 'Check hypervisor' }).click()
+  await expect(bootMedia).toContainText('Hypervisor now')
+  await expect(bootMedia).toContainText('CD-ROM holds the Boot ISO · boots first')
+  await bootMedia.getByRole('button', { name: 'Re-detect hypervisor' }).click()
+  await expect(page.getByText('Hypervisor ready for Boot Media').last()).toBeVisible()
+})

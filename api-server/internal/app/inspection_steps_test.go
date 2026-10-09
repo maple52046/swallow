@@ -350,8 +350,9 @@ func TestInspectServer(t *testing.T) {
 }
 
 // The inspect-hardware ensure-boot-media Task reads Boot Media when it runs: disabled Boot Media
-// succeeds without the BMC, enabled Boot Media is ensured with its Boot ISO's URL, and an enabled
-// setting whose Boot ISO is not served fails retryably so the operator can fix it and retry.
+// succeeds without the BMC, enabled Boot Media is ensured with its Boot ISO's id and URL, and an
+// enabled setting whose Boot ISO has no URL is passed by id to the use case, whose refusal (the
+// method needs a URL or the file) fails retryably so the operator can fix it and retry.
 func TestEnsureBootMediaResolvesLive(t *testing.T) {
 	live := temporalworkflow.StepExecutionInput{Step: operationdomain.Task{
 		ID: "ensure-boot-media-srv", Kind: ensureBootMediaTaskKind,
@@ -361,6 +362,7 @@ func TestEnsureBootMediaResolvesLive(t *testing.T) {
 	cases := []struct {
 		name      string
 		setting   *serverdomain.BootMediaSetting
+		ensureErr error
 		wantCode  string
 		wantISO   string
 		wantCalls bool
@@ -368,11 +370,13 @@ func TestEnsureBootMediaResolvesLive(t *testing.T) {
 		{name: "disabled", setting: &serverdomain.BootMediaSetting{Enabled: false, ISOID: "iso-a"}},
 		{name: "never set"},
 		{name: "enabled", setting: &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-a"}, wantISO: (plannerISOs{}).URL("iso-a"), wantCalls: true},
-		{name: "enabled without a served ISO", setting: &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-missing"}, wantCode: "boot_media_not_configured"},
+		{name: "enabled without a served ISO", setting: &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-missing"},
+			ensureErr: &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaNotConfigured, Server: "srv"}, wantCode: "boot_media_not_configured"},
+		{name: "enabled with an unknown ISO", setting: &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-gone"}, wantCode: "boot_media_not_configured"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ensurer := &fakeEnsurer{}
+			ensurer := &fakeEnsurer{err: tc.ensureErr}
 			executor := platformWorkflowStepExecutor{
 				bootMedia: ensurer, bootISOs: plannerISOs{},
 				servers: bootMediaServers{servers: map[string]*serverdomain.Server{"srv": {ID: "srv", BootMedia: tc.setting}}},

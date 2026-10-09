@@ -5,7 +5,8 @@
 #   - creates the Deployment Key (the dev stack has no swallowctl install step, so this
 #     post-install seed runs `swallow-api deployment-key ensure` inside the api container),
 #   - registers a site,
-#   - (optional) a MAAS provisioner integration, so lab machines reconcile into servers,
+#   - (optional) a MAAS provisioner integration, so lab machines reconcile into servers, with
+#     the rack's virsh SSH public key as its virshSshPublicKey setting when one is given,
 #   - site automation settings (automation always logs in with the Deployment Key) and an
 #     optional become password, so exporter playbooks can run,
 #   - the install/uninstall-exporters playbook mappings,
@@ -47,6 +48,13 @@ become_password="${SWALLOW_BECOME_PASSWORD:-}"
 
 maas_url="${SWALLOW_MAAS_URL:-}"
 maas_credential="${SWALLOW_MAAS_CREDENTIAL:-}"
+# The public key the MAAS rack's virsh power driver connects to hypervisors with (decision 055), as
+# a key line or a file holding one; for a local MAAS snap the key is under
+# /var/snap/maas/current/root/.ssh (readable by root only, so copy the .pub somewhere first).
+maas_virsh_key="${SWALLOW_MAAS_VIRSH_SSH_PUBLIC_KEY:-}"
+if [[ -z "${maas_virsh_key}" && -n "${SWALLOW_MAAS_VIRSH_SSH_PUBLIC_KEY_FILE:-}" ]]; then
+  maas_virsh_key="$(sed -n '1p' "${SWALLOW_MAAS_VIRSH_SSH_PUBLIC_KEY_FILE}")"
+fi
 
 curl_flags=(--fail --silent --show-error)
 
@@ -99,6 +107,19 @@ if [[ -n "${maas_url}" && -n "${maas_credential}" ]]; then
     printf 'registered MAAS provisioner -> %s\n' "${maas_url}"
   else
     printf 'MAAS provisioner already present (%s)\n' "${maas_id}"
+  fi
+  # An update replaces the whole settings map, so the key is merged into the current settings.
+  if [[ -n "${maas_virsh_key}" ]]; then
+    maas_id="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations?siteId=${site_id}" |
+      jq -r 'first((.items? // .)[] | select(.kind == "provisioner") | .id)? // ""')"
+    settings="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations/${maas_id}" | jq -c '.settings // {}')"
+    curl "${curl_flags[@]}" "${auth[@]}" -X PATCH "${base_url}/integrations/${maas_id}" \
+      -H 'Content-Type: application/json' \
+      --data-binary "$(jq -nc --argjson settings "${settings}" --arg key "${maas_virsh_key}" \
+        '{settings: ($settings + {virshSshPublicKey: $key})}')" >/dev/null
+    printf 'recorded the MAAS rack virsh public key on the provisioner\n'
+  else
+    printf 'no MAAS virsh key: set SWALLOW_MAAS_VIRSH_SSH_PUBLIC_KEY(_FILE) to enroll libvirt virtual machines\n'
   fi
 else
   printf 'skipping MAAS: set SWALLOW_MAAS_URL and SWALLOW_MAAS_CREDENTIAL to register it\n'

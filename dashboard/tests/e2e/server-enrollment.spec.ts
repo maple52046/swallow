@@ -52,6 +52,40 @@ test('keeping the OS shows one command that downloads swallow from this console'
   expect(swallowUrls).toEqual([origin])
 })
 
+test('libvirt virtual machines are enrolled by name from their hypervisor (experimental)', async ({ page }) => {
+  const requests: Record<string, unknown>[] = []
+  await installApiFixtures(page, { onVirtualMachineEnrollmentRequest: (body) => requests.push(body) })
+  await page.goto('/servers?site=site-a')
+  await page.getByRole('button', { name: 'Add servers' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Add servers' })
+
+  await dialog.getByRole('button', { name: /It is a libvirt virtual machine/ }).click()
+  await dialog.getByRole('combobox', { name: 'Hypervisor' }).click()
+  await dialog.getByRole('option', { name: 'gpu-node-01 (192.168.40.21)' }).click()
+  await dialog.getByRole('button', { name: 'List virtual machines' }).click()
+
+  const machines = dialog.getByRole('group', { name: 'Virtual machines' })
+  await expect(machines).toContainText('Read as ubuntu.')
+  await expect(machines).toContainText('52:54:00:af:de:01')
+  // A domain that already is a Server links to it and cannot be chosen again.
+  await expect(machines.getByRole('link', { name: 'Already gpu-node-03' })).toBeVisible()
+  await expect(machines.getByRole('checkbox', { name: 'lab-vm-3' })).toBeDisabled()
+
+  await machines.getByText('lab-vm-1', { exact: true }).click()
+  await machines.getByText('lab-vm-2', { exact: true }).click()
+  await dialog.getByRole('combobox', { name: 'Boot ISO' }).click()
+  await dialog.getByRole('option', { name: /taipei-rack/ }).click()
+  await dialog.getByText('Stop a running virtual machine').click()
+  await dialog.getByRole('button', { name: 'Enroll 2 virtual machines' }).click()
+
+  await expect(dialog.getByText('Enrolling 2 virtual machines')).toBeVisible()
+  expect(requests).toEqual([{
+    integrationId: 'maas-a', hypervisorServerId: 'srv-1', domains: ['lab-vm-1', 'lab-vm-2'], bootIsoId: 'iso-taipei', powerOffRunning: true,
+  }])
+  await dialog.getByRole('link', { name: 'View workflow' }).click()
+  await expect(page).toHaveURL(/\/workflows\/op-vm-enroll/)
+})
+
 test('a Site without a provisioner is sent to connect one', async ({ page }) => {
   await installApiFixtures(page, { fleetSize: 0, noProvisioners: true })
   await page.goto('/servers?site=site-a')

@@ -1,12 +1,13 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// In-development features (monitoring, OS image upload, Deployment Templates) are shown on the dev
-// server and hidden in release builds. These journeys run on the dev server: switching every feature
-// off through the dev-only setting reproduces the release view, because release builds bind the same
-// gates to settings that are always off (tests/production covers the real build).
+// In-development features (monitoring, OS image upload, Deployment Templates, virtual machines) are
+// shown on the dev server and hidden in release builds. These journeys run on the dev server:
+// switching every feature off through the dev-only setting reproduces the release view, because
+// release builds bind the same gates to settings that are always off (tests/production covers the
+// real build).
 
-const RELEASE_VIEW = { monitoring: false, osImageUpload: false, deploymentTemplates: false }
+const RELEASE_VIEW = { monitoring: false, osImageUpload: false, deploymentTemplates: false, virtualMachines: false }
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -25,7 +26,7 @@ test('Experimental features are on in development and switch live from the accou
   await page.getByRole('button', { name: 'Account menu' }).click()
   await page.getByRole('menuitem', { name: 'Experimental features' }).click()
   const dialog = page.getByRole('dialog', { name: 'Experimental features' })
-  for (const label of ['Monitoring', 'OS image upload', 'Deployment Templates']) {
+  for (const label of ['Monitoring', 'OS image upload', 'Deployment Templates', 'Virtual machines']) {
     await expect(dialog.getByLabel(label, { exact: true })).toBeChecked()
   }
 
@@ -119,5 +120,31 @@ test.describe('with every in-development feature hidden (the release view)', () 
     await expect(page.getByLabel('Platform name')).toBeVisible()
 
     expect(templateRequests).toEqual([])
+  })
+
+  test('libvirt virtual machines are not offered and their Boot Media is not shown', async ({ page }) => {
+    const hiddenRequests: string[] = []
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname
+      if (path.endsWith('/virtual-machines')) hiddenRequests.push(path)
+    })
+    await installApiFixtures(page, {
+      powerConfigurations: { 'srv-2': { driver: 'virsh', address: 'qemu+ssh://ubuntu@192.168.40.21/system', powerId: 'gpu-node-02' } },
+      libvirtBootMediaServerIds: ['srv-2'],
+    })
+
+    await page.goto('/servers?site=site-a')
+    await page.getByRole('button', { name: 'Add servers' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Add servers' })
+    await expect(dialog.getByRole('button', { name: /Yes, keep its OS/ })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: /libvirt virtual machine/ })).toHaveCount(0)
+
+    await page.goto('/servers/srv-2/summary?site=site-a')
+    const card = page.getByRole('region', { name: 'Power control' })
+    await expect(card.getByText('virsh (libvirt) — virtual machine')).toBeVisible()
+    await expect(card).toContainText('Boot Media is not available')
+    await expect(page.getByRole('heading', { name: 'Boot media' })).toHaveCount(0)
+
+    expect(hiddenRequests).toEqual([])
   })
 })

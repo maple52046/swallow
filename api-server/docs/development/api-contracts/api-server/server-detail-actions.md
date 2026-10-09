@@ -273,7 +273,7 @@ Server has beyond switching power:
 | --- | --- | --- | --- |
 | `ipmi` | `bmc` | `address` (required), `username`, `password` | A BMC. Redfish Boot Media is a function of the BMC, probed independently of the driver (decision 047). |
 | `redfish` | `bmc` | `address` (required), `username`, `password` | The provisioner switches power over Redfish. Not the same as Redfish Boot Media. |
-| `virsh` | `virsh` | `address` (required), `powerId` (required), `password` | A libvirt virtual machine. No BMC, so no Boot Media. |
+| `virsh` | `virsh` | `address` (required), `powerId` (required), `password` | A libvirt virtual machine. No BMC; Boot Media uses the `libvirt` method when its hypervisor is a swallow Server. |
 
 `control` classifies what the driver lets the provisioner do: `none` (no driver: the provisioner
 can neither switch nor read power, so it cannot inspect or deploy the Server), `manual` (a person
@@ -429,15 +429,34 @@ swallow starts a new OS deployment on the Server and when the Server is observed
 
 ## Boot Media
 
-Boot Media is a Server's setting that its BMC mounts a Boot ISO as Redfish virtual media and
-boots it first, so a Server on a network whose DHCP is not the provisioner's still reaches the
-provisioner ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md),
-[decision 049](../../../../../docs/decisions/049-boot-iso-builder.md)). Boot ISOs are built in
-swallow per provisioner Integration ([boot-isos.md](boot-isos.md)); per Server, swallow owns
-whether Boot Media is enabled, which Boot ISO it uses, and the outcome of the last apply. swallow
-reads the BMC's address and account from the Server's Power Configuration at the provisioner
-(MAAS `power_parameters`) for each call and never stores, logs, or returns them on these routes.
-Only a `bmc`-family driver has a BMC; any other driver, or none, is `no_bmc`.
+Boot Media is a Server's setting that a Boot ISO is attached to it and booted first, so a Server
+on a network whose DHCP is not the provisioner's still reaches the provisioner
+([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md),
+[decision 049](../../../../../docs/decisions/049-boot-iso-builder.md),
+[decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)). Boot ISOs
+are built in swallow per provisioner Integration ([boot-isos.md](boot-isos.md)); per Server, swallow
+owns whether Boot Media is enabled, which Boot ISO it uses, and the outcome of the last apply.
+
+How the ISO is attached is the Boot Media **method**, decided by the Server's Power Configuration:
+
+- `redfish` — a Server with a BMC (`bmc`-family driver, not a VM-host member): the BMC mounts the
+  Boot ISO as Redfish virtual media. swallow reads the BMC's address and account from the
+  provisioner (MAAS `power_parameters`) for each call and never stores, logs, or returns them on
+  these routes.
+- `libvirt` — a libvirt virtual machine (`virsh` driver) whose hypervisor is a swallow Server: the
+  Power Configuration's address `qemu+ssh://<account>@<host>/system` names the hypervisor (its host
+  matches a Server of the same Site by address, hostname, or FQDN) and the account, and the power ID
+  names the domain. swallow logs in to the hypervisor with the Deployment Key, as for
+  [virtual-machine enrollment](server-enrollment.md#virtual-machines-libvirt), uploads the Boot ISO as
+  the volume `swallow-ipxe-<isoId>.iso` in the hypervisor's `default` storage pool (once per Boot
+  ISO; like `virt-install`, swallow defines `default` as a directory pool at
+  `/var/lib/libvirt/images` when the hypervisor has none, and starts it when it is inactive), puts
+  it on the domain's CD-ROM (adding a CD-ROM when the domain has none), and makes the CD-ROM boot
+  first. It changes the domain's persistent definition, which a running domain uses from
+  its next start. The provisioner's `virsh` driver starts and stops the domain without touching its
+  boot order, so nothing undoes it.
+
+Any other Server has no Boot Media method.
 
 ### The ISO
 
@@ -452,11 +471,12 @@ installations publish `/boot-media/` there. The former fixed route
 
 ### Read
 
-`GET /api/v1/servers/{id}/boot-media` — add `?live=true` to also read the BMC.
+`GET /api/v1/servers/{id}/boot-media` — add `?live=true` to also read the BMC or the hypervisor.
 
 ```json
 {
   "serverId": "4f9ee382-…",
+  "method": "redfish",
   "image": {
     "id": "6b3f0c1e-…",
     "name": "tainan-rack",
@@ -484,6 +504,7 @@ installations publish `/boot-media/` there. The former fixed route
     "bootOverrideModes": ["Once", "Continuous"],
     "probedAt": "2026-10-03T10:23:29Z"
   },
+  "libvirt": null,
   "live": {
     "mediaInserted": true,
     "mediaImage": "//10.170.168.20/boot-media/ipxe/6b3f0c1e-…/swallow-ipxe.iso/swallow-ipxe.iso",
@@ -514,9 +535,34 @@ installations publish `/boot-media/` there. The former fixed route
   value but `supported`. The probe is made against the BMC address whatever `bmc`-family driver
   the provisioner uses (an IPMI-driven BMC may offer Redfish). The API process probes every present Server whose capability is missing — a
   newly enrolled Server — or older than a day, every ten minutes by default.
-- `live` is `null` unless `live=true` was requested and the BMC answered; then `liveError`
-  explains a failed read and the response is still `200`. `mediaImage` is verbatim (BMCs rewrite
-  URLs). `ready` means the next boot starts from the ISO.
+- `method` is `redfish`, `libvirt`, or `null` (no method, or not probed yet), derived from the
+  stored probes: `libvirt` when the libvirt probe found a hypervisor, else `redfish` when the
+  Redfish probe found a BMC.
+- `libvirt` is `null` unless the Server's driver is `virsh` and it was probed (the same probe and
+  sweep as `redfish`, which records `no_bmc` for such a Server):
+
+  ```json
+  {
+    "support": "supported",
+    "hypervisorServerId": "server-id",
+    "account": "ubuntu",
+    "domain": "lab-afde-mi308-1",
+    "pool": "default",
+    "cdrom": true,
+    "probedAt": "2026-10-09T03:00:00Z"
+  }
+  ```
+
+  `support` is `supported` (the domain exists), `unsupported` (no such domain on the hypervisor),
+  `unreachable` (the hypervisor could not be reached or refused the Deployment Key or libvirt
+  access), or `no_hypervisor` (the address's host is not a swallow Server of the Site). `reason`
+  explains any value but `supported`. `pool` is the storage pool the Boot ISO goes to. `cdrom` says
+  whether the domain already has a CD-ROM; enabling adds one when it does not.
+- `live` is `null` unless `live=true` was requested and the BMC or hypervisor answered; then
+  `liveError` explains a failed read and the response is still `200`. `mediaImage` is verbatim (BMCs
+  rewrite URLs; for `libvirt` it is the CD-ROM's source path). `ready` means the next boot starts
+  from the ISO. For `libvirt`, `overrideEnabled` is `Continuous` when the CD-ROM boots first and
+  `overrideTarget` is `Cd`.
 - `apply` is the enable preflight running now, or `null` when none is. Clients poll this read
   (every few seconds) for progress while the enable request is outstanding, and after a page
   reload:
@@ -531,11 +577,12 @@ installations publish `/boot-media/` there. The former fixed route
   }
   ```
 
-  `phase` is, in order: `probing` (re-probing the BMC's Redfish service), `ejecting` (a switch
-  ejects the previous Boot ISO), `mounting` (mounting the Boot ISO and waiting until the BMC
-  reports it inserted), `settling` (the fixed wait a fresh mount needs before the host may power
-  on), `directing` (directing the next boots at the virtual CD), `verifying` (reading both back).
-  Phases that are not needed are skipped: no `ejecting` unless switching, no `mounting` or
+  `phase` is, in order: `probing` (re-probing the BMC's Redfish service or the hypervisor),
+  `ejecting` (a switch ejects the previous Boot ISO), `mounting` (mounting the Boot ISO and waiting
+  until the BMC reports it inserted; for `libvirt`, uploading it to the hypervisor and putting it on
+  the CD-ROM), `settling` (the fixed wait a fresh BMC mount needs before the host may power on; never
+  for `libvirt`), `directing` (directing the next boots at the virtual CD), `verifying` (reading both
+  back). Phases that are not needed are skipped: no `ejecting` unless switching, no `mounting` or
   `settling` when the BMC already holds the Boot ISO. A future phase value may appear; treat an
   unknown one as in progress. `phaseEndsAt` is set only for a phase with a known end
   (`settling`), else `null`. An apply whose API process stopped is no longer reported once it is
@@ -577,6 +624,13 @@ eject the ISO and clear the boot override. The response adds `reverted` (`true` 
 was reset) and, when it was not, `revertError`. A disabled Server's OS deployments do not touch
 its BMC.
 
+For the `libvirt` method, enabling needs the Boot ISO's file but not a Boot Media base URL (the
+file is uploaded to the hypervisor, not mounted by URL). The hypervisor Server must also be
+unlocked, because the domain's definition lives on it. `bootOverride` is `Continuous`: the CD-ROM's
+boot order persists until Boot Media is disabled. Disabling ejects the CD-ROM and removes its boot
+order, leaving the domain's other boot devices in their order. There is no `settling` wait and no
+recovery during an OS deployment, because nothing undoes a domain's persistent definition.
+
 On success both return `200 OK` with the Read shape (plus `reverted` / `revertError` for a
 disable).
 
@@ -584,15 +638,16 @@ disable).
 | --- | --- | --- |
 | 400 | `validation_error` | The body is not a JSON object with a boolean `enabled`; enabling without an `isoId`; or the Boot ISO belongs to another provisioner Integration. |
 | 404 | `not_found` | The Server does not exist, or the `isoId` names no Boot ISO. |
-| 409 | `conflict` | A preflight is already running on the Server (enable or disable); the Server is locked; the Boot ISO is not served (its file is missing or the installation has no Boot Media base URL); the Server has no BMC; the provisioner would not reveal the BMC connection (its account is not an administrator); the BMC does not support Redfish Boot Media; or the BMC refused the ISO or the override (the message carries the BMC's own explanation). |
-| 503 | `provider_unavailable` | The BMC's Redfish service could not be reached or stayed busy, the provisioner could not be reached, or the Server Lock state is unavailable. |
+| 409 | `conflict` | A preflight is already running on the Server (enable or disable); the Server or its hypervisor is locked; the Boot ISO is not served (its file is missing or, for `redfish`, the installation has no Boot Media base URL); the Server has no Boot Media method (no BMC and no swallow hypervisor); the provisioner would not reveal the BMC connection (its account is not an administrator); the BMC does not support Redfish Boot Media, or the hypervisor has no such domain; or the BMC or hypervisor refused the ISO, the storage pool, or the boot order (the message carries its own explanation). |
+| 503 | `provider_unavailable` | The BMC's Redfish service or the hypervisor could not be reached or stayed busy, the provisioner could not be reached, or the Server Lock state is unavailable. |
 
 ### Probe
 
-`POST /api/v1/servers/{id}/redfish/probe` re-probes the BMC now, stores the result, and returns
-`200 OK` with `{ "redfish": { … } }` (the Read `redfish` shape). An unreachable or unsupported
-BMC is a successful probe with that `support`. An unknown Server is `404 not_found`; a
-provisioner that cannot be reached is `503 provider_unavailable`.
+`POST /api/v1/servers/{id}/redfish/probe` re-probes the Server's Boot Media method now, stores the
+result, and returns `200 OK` with `{ "redfish": { … }, "libvirt": { … } | null }` (the Read shapes).
+An unreachable or unsupported BMC or hypervisor is a successful probe with that `support`. An
+unknown Server is `404 not_found`; a provisioner that cannot be reached is
+`503 provider_unavailable`.
 
 ## Provider Events
 
@@ -648,3 +703,9 @@ a `BMC` section naming its libvirt URI. Both changes are additive for clients th
 fields and sections. An Inspect that resumes a Workflow waiting for attention now runs the
 enrollment wait again, and a new requested Inspect of a Machine without a power driver stops for
 attention instead of failing at the provider.
+
+Also on 2026-10-09 Boot Media gained the `libvirt` method
+([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)): the Read
+adds `method` and `libvirt`, the probe response adds `libvirt`, and a `virsh` Server whose
+hypervisor is a swallow Server can enable Boot Media instead of being refused for having no BMC.
+All additions are compatible with clients that ignore unknown fields.

@@ -21,10 +21,12 @@ without a provisioner shows **Connect a provisioner** instead.
 You never press *Commission* in MAAS: swallow waits until enlistment powers the
 machine off, then inspects it (see [Inspect hardware](#inspect-hardware)).
 
-A lab virtual machine enlists the same way (boot it from the network or from an
-iPXE boot medium), but enlistment cannot give it a power driver, so MAAS cannot
-report its power-off. Its inspection stops with **Set power configuration**; give
-it a `virsh` [Power configuration](#power-configuration) and retry.
+A libvirt virtual machine is enrolled by name instead, from its hypervisor: see
+[Libvirt virtual machines](#libvirt-virtual-machines). One that you boot into
+enlistment yourself (from the network or an iPXE boot medium) gets no power
+driver from enlistment, so MAAS cannot report its power-off; its inspection
+stops with **Set power configuration**. Give it a `virsh`
+[Power configuration](#power-configuration) and retry.
 
 The Redfish tab takes the BMC address and user, then prints `curl` commands that
 insert the virtual media, set a one-time boot from it, and power the system on;
@@ -44,6 +46,46 @@ The script downloads the swallow CLI from your installation and runs
 swallow and MAAS (Ubuntu, x86_64). It is never followed by automatic inspection,
 which would reboot the host. The command contains the provisioner's API key, which
 MAAS requires; run it only on trusted hosts and rotate the key in MAAS otherwise.
+
+## Libvirt virtual machines
+
+Virtual machines on a libvirt hypervisor are enrolled by their domain names; you
+never type a MAC address. The hypervisor must itself be a **Deployed** Server of
+the Site. swallow logs in to it over SSH with the Deployment Key, as its Server
+Default User or an account you name, and that account must be allowed to run
+`virsh -c qemu:///system` (on Ubuntu, the `libvirt` group).
+
+```bash
+swallow servers virtual-machines list hv1                       # domains, state, MACs, existing Server
+swallow servers virtual-machines enroll hv1 lab-vm-1 lab-vm-2 \
+  --integration int1 [--boot-iso iso1] [--account ubuntu] [--power-off-running]
+```
+
+In development builds the Dashboard offers the same under **Add servers → It is
+a libvirt virtual machine** (an experimental feature): pick the hypervisor, list
+its virtual machines, tick the ones to enroll, and optionally choose a Boot ISO.
+
+Enrolling starts one `enroll-virtual-machines` Workflow with a Task per virtual
+machine, run in parallel. Each Task checks the domain is shut off (with
+`--power-off-running`, swallow stops a running one), lets the provisioner's SSH
+key log in to the hypervisor account, and — with a Boot ISO, for a network the
+provisioner's DHCP does not serve — puts the ISO on the domain's CD-ROM and boots
+it first. It then registers the domain with MAAS with its MAC addresses and the
+`virsh` power driver, **without** commissioning it, and waits for the Server to
+appear. Automatic inspection then starts the virtual machine through MAAS and
+takes it to **Ready**. A domain that already is a Server is reused, not
+duplicated.
+
+| Task stopped with | Fix, then retry the Task |
+| --- | --- |
+| `domain_running` | Shut the virtual machine down, or enroll it again with `--power-off-running`. |
+| `provisioner_cannot_reach_hypervisor` | Let MAAS's rack SSH key log in to the hypervisor account (the installation records it on the provisioner Integration as `virshSshPublicKey`, and the Task authorizes it). |
+| `hypervisor_unreachable` | Check the hypervisor answers on SSH, accepts the Deployment Key, and lets the account use libvirt. |
+| `machine_registration_refused` | Read MAAS's reason, for example a hostname already in use. |
+| `server_not_projected` | Check the provisioner Integration is enabled and syncing. |
+
+A domain that does not exist or has an architecture other than `x86_64` or
+`aarch64` fails without a retry.
 
 ## Inventory and details
 
@@ -202,16 +244,21 @@ control** card for a Server without one. Choose **Edit power configuration** (or
 | IPMI, Redfish | A physical Server's BMC | BMC address, account, password |
 | virsh | A libvirt virtual machine | Hypervisor URI `qemu+ssh://user@host/system`, domain name or UUID, optional password |
 
-Only a BMC driver gives a Server Boot Media; Redfish Boot Media is probed from
-the BMC whichever of the two drivers MAAS uses. The password is write-only:
-leave it empty to keep the stored one (changing the driver removes it unless you
-enter a new one).
+A BMC driver gives a Server Redfish Boot Media, probed from the BMC whichever of
+the two drivers MAAS uses. A `virsh` driver whose URI names a swallow Server
+gives libvirt Boot Media through that hypervisor (see
+[Boot Media](os-provisioning.md#boot-media-for-networks-without-provisioner-dhcp)).
+The password is write-only: leave it empty to keep the stored one (changing the
+driver removes it unless you enter a new one).
 
 For a `virsh` driver, MAAS — not swallow — connects to the hypervisor, so its
 rack controller needs SSH access to the hypervisor account before the driver
-works. With the MAAS snap, put the key, `known_hosts`, and any SSH options in
-`/var/snap/maas/current/root/.ssh`, and check from inside the snap:
-`sudo snap run --shell maas -c 'virsh -c qemu+ssh://user@host/system list --all'`.
+works. The production installation gives the co-located MAAS rack an SSH key
+that accepts a new hypervisor's host key on first connection, and
+[enrolling virtual machines](#libvirt-virtual-machines) authorizes that key on
+the hypervisor. Otherwise, with the MAAS snap, put the key, `known_hosts`, and
+any SSH options in `/var/snap/maas/current/root/.ssh`, and check from inside the
+snap: `sudo snap run --shell maas -c 'virsh -c qemu+ssh://user@host/system list --all'`.
 Keep the URI clean: MAAS refuses query parameters such as `?keyfile=`. Several
 VMs on one hypervisor share its URI and differ by domain.
 
@@ -262,6 +309,8 @@ swallow servers power-configuration get server1
 swallow servers power-configuration set server1 --driver virsh \
   --address qemu+ssh://maas@hypervisor.lab/system --power-id vm-01
 swallow servers power-state server1
+swallow servers virtual-machines list hv1        # libvirt domains of a deployed hypervisor
+swallow servers virtual-machines enroll hv1 vm-01 vm-02 --integration int1
 swallow integrations enroll-bundle int1          # existing-OS command (contains the MAAS API key)
 swallow provisioning tags edit --server server1 --add amd-gpu
 swallow infrastructure zones list --site-id site1

@@ -354,13 +354,29 @@ swallow servers placement srv1 --zone zone1 --pool pool1
 swallow servers placement srv1 --clear-zone --clear-pool
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 
-# Boot Media：BMC 掛載 Server 所屬 provisioner 的 Boot ISO，並優先從它開機
-swallow servers boot-media get srv1 [--live]       # --live 會同時讀取 BMC（需數秒）
-swallow servers boot-media enable srv1 --iso iso1  # 在 BMC 上執行 preflight；最多等待 8 分鐘
+# Boot Media：Server 優先從所屬 provisioner 的 Boot ISO 開機。方式依 Power Configuration 而定：
+# redfish（由 BMC 掛載）或 libvirt（由 hypervisor 放到 VM 的 CD-ROM）
+swallow servers boot-media get srv1 [--live]       # --live 會同時讀取 BMC 或 hypervisor（需數秒）
+swallow servers boot-media enable srv1 --iso iso1  # 執行 preflight；最多等待 8 分鐘
 swallow servers boot-media enable srv1 --iso iso2  # 已啟用的 Server：切換 Boot ISO
 swallow servers boot-media disable srv1            # 保留已選的 Boot ISO
-swallow servers redfish-probe srv1
+swallow servers redfish-probe srv1                 # 重新探測方式（BMC Redfish 或 libvirt hypervisor）
+
+# 虛擬機（libvirt）：hypervisor 是已 deploy 的 swallow Server，以 Deployment Key 登入
+swallow servers virtual-machines list hv1 [--account ubuntu]   # domain、狀態、MAC、已對應的 Server
+swallow servers virtual-machines enroll hv1 lab-vm-1 lab-vm-2 --integration int1 \
+  [--boot-iso iso1] [--account ubuntu] [--power-off-running]   # 202 { workflowId }
+swallow servers vms enroll hv1 -f vm-enrollment.yaml           # { integrationId, hypervisorServerId, domains, ... }
 ```
+
+`servers virtual-machines enroll` 以 libvirt domain 名稱指定虛擬機，不需要輸入 MAC：
+swallow 會從 hypervisor 讀取。它啟動一個 `enroll-virtual-machines` Workflow，每個
+domain 一個 Task 並行執行：domain 必須是關機狀態（或以 `--power-off-running` 讓
+swallow 關機）、把 provisioner 的 SSH key 授權到 hypervisor 帳號、`--boot-iso` 會把
+Boot ISO 放到 domain 的 CD-ROM 並設為第一開機裝置，最後以 `virsh` power driver 註冊
+且**不執行 commissioning**。之後由自動硬體檢查把每台新 Server 帶到 `ready`。以
+`swallow workflows get <workflowId>` 追蹤；等待處理的 Task 會說明要修正什麼，修正後以
+`swallow workflows task retry <workflowId> <taskId>` 繼續。
 
 `link.yaml`：
 `{ mode: static, subnetId: "11", ipAddress: "192.0.2.20", defaultGateway: true }`

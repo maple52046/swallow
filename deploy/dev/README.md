@@ -125,6 +125,20 @@ Without MAAS or SSH inputs, those steps are skipped with guidance. After a
 provisioned Server is observed, exporter installation can run automatically
 according to ownership policy; locked Servers remain unmanaged.
 
+To enroll libvirt virtual machines with a local MAAS snap, give its rack the SSH
+identity the production installation creates (`local-maas.sh ensure-virsh-identity`
+does the same on an installed host), then seed its public key:
+
+```bash
+sudo install -d -m 0700 /var/snap/maas/current/root/.ssh
+sudo test -s /var/snap/maas/current/root/.ssh/id_ed25519 ||
+  sudo ssh-keygen -q -t ed25519 -N '' -f /var/snap/maas/current/root/.ssh/id_ed25519
+printf '\n# BEGIN swallow virsh\nHost *\n  StrictHostKeyChecking accept-new\n# END swallow virsh\n' |
+  sudo tee -a /var/snap/maas/current/root/.ssh/config >/dev/null
+sudo cat /var/snap/maas/current/root/.ssh/id_ed25519.pub >/tmp/maas-virsh.pub
+SWALLOW_MAAS_VIRSH_SSH_PUBLIC_KEY_FILE=/tmp/maas-virsh.pub bash seed.sh
+```
+
 For manual setup, follow the [initial setup guide](../../docs/en/guides/initial-setup.md).
 
 ## Troubleshooting

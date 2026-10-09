@@ -56,6 +56,7 @@ import (
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
 	serverinfra "github.com/maple52046/swallow/internal/server/infra"
+	"github.com/maple52046/swallow/internal/server/infra/libvirt"
 	"github.com/maple52046/swallow/internal/server/infra/redfish"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
@@ -353,10 +354,14 @@ func RunAPI(cfg config.APIConfig) error {
 	// Server Default User (decision 045): setting one logs in to the host directly — once with an
 	// optional one-time password to install the Deployment Key, then with the key to verify — on the
 	// Site's SSH port, behind the live Server Lock guard.
+	hostAccess := serverinfra.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo})
 	defaultUserHandler := serverdelivery.NewDefaultUserHandler(serverapp.NewDefaultUserUseCase(
-		serverRepo, serverProtection,
-		serverinfra.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo}),
+		serverRepo, serverProtection, hostAccess,
 	))
+	// Hypervisors (decision 055): swallow reads a deployed Server's libvirt domains and gives its
+	// virtual machines libvirt Boot Media over the same Deployment Key logins.
+	libvirtHosts := libvirt.NewHost(hostAccess)
+	virtualMachineHandler := serverdelivery.NewVirtualMachineHandler(serverapp.NewVirtualMachineUseCase(serverRepo, libvirtHosts))
 	// Boot Media (decisions 047 and 049): this process builds and serves Boot ISOs, probes each
 	// Server's BMC for Redfish capability, and applies a Server's chosen Boot ISO through Redfish
 	// with the BMC connection read live from the provisioner. The setting and capability are
@@ -370,7 +375,7 @@ func RunAPI(cfg config.APIConfig) error {
 	bootISOHandler := provisioningdelivery.NewBootISOHandler(provisioningapp.NewBootISOService(
 		bootISORepo, integrationReader, bootISOFiles, bootISOUsage{servers: mongoServerRepo}))
 	bootMediaUC := serverapp.NewBootMediaUseCase(serverRepo, mongoServerRepo, serverProtection,
-		newBMCEndpointSource(providerFactory), redfish.NewController(), bootISOs)
+		newBootMediaEndpointSource(providerFactory, serverRepo), redfish.NewController(), libvirtHosts, bootISOs)
 	bootMediaHandler := serverdelivery.NewBootMediaHandler(bootMediaUC)
 	bootMediaPlan := bootMediaPlanner{servers: serverRepo, isos: bootISOs}
 	runner := operationinfra.NewLocalRunner(
@@ -416,6 +421,12 @@ func RunAPI(cfg config.APIConfig) error {
 	provisioningHandler.AttachHostEnrollment(provisioningapp.NewHostEnrollmentUseCase(providerFactory))
 	provisioningHandler.AttachPowerConfiguration(provisioningapp.NewPowerConfigurationUseCase(
 		serverRepo, providerFactory, provisioningdomain.DefaultPowerAdapters()))
+	// Virtual-machine enrollment (decision 055): libvirt domains of a Hypervisor are registered with
+	// the provisioner by an enroll-virtual-machines Workflow run by the worker.
+	provisioningHandler.AttachVirtualMachineEnrollment(virtualMachineEnrollmentLauncher{
+		workflows: orchestrationService, integrations: integrationRepo, providers: providerFactory,
+		servers: serverRepo, protection: serverProtection, isos: bootISOs, keys: sshKeyService,
+	})
 	autoInspect := provisioningapp.NewAutoInspectUseCase(integrationRepo, serverRepo, inspectionLauncher)
 	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 	orchestrationStarter := temporalworkflow.NewStarter(
@@ -550,31 +561,32 @@ func RunAPI(cfg config.APIConfig) error {
 	}
 
 	registerRoutes(fiberApp, routeDeps{
-		jwtSvc:         jwtSvc,
-		authenticator:  authenticator,
-		machineToken:   cfg.MachineToken,
-		auth:           authHandler,
-		overview:       overviewHandler,
-		sites:          siteHandler,
-		servers:        serverHandler,
-		defaultUsers:   defaultUserHandler,
-		bootMedia:      bootMediaHandler,
-		bootMediaISO:   serveBootISO(bootISOFiles),
-		cliBinary:      serveCLIBinary(cfg.CLIBinary),
-		bootISOs:       bootISOHandler,
-		serverStream:   serverStreamHandler,
-		provisioning:   provisioningHandler,
-		operations:     operationHandler,
-		monitoring:     monitoringHandler,
-		platforms:      platformHandler,
-		software:       softwareHandler,
-		docker:         dockerHandler,
-		registryCreds:  registryCredentialHandler,
-		infrastructure: infrastructureHandler,
-		discovery:      discoveryHandler,
-		sshKeys:        sshKeyHandler,
-		apiKeys:        apiKeyHandler,
-		releaseVersion: releaseVersion,
+		jwtSvc:          jwtSvc,
+		authenticator:   authenticator,
+		machineToken:    cfg.MachineToken,
+		auth:            authHandler,
+		overview:        overviewHandler,
+		sites:           siteHandler,
+		servers:         serverHandler,
+		defaultUsers:    defaultUserHandler,
+		virtualMachines: virtualMachineHandler,
+		bootMedia:       bootMediaHandler,
+		bootMediaISO:    serveBootISO(bootISOFiles),
+		cliBinary:       serveCLIBinary(cfg.CLIBinary),
+		bootISOs:        bootISOHandler,
+		serverStream:    serverStreamHandler,
+		provisioning:    provisioningHandler,
+		operations:      operationHandler,
+		monitoring:      monitoringHandler,
+		platforms:       platformHandler,
+		software:        softwareHandler,
+		docker:          dockerHandler,
+		registryCreds:   registryCredentialHandler,
+		infrastructure:  infrastructureHandler,
+		discovery:       discoveryHandler,
+		sshKeys:         sshKeyHandler,
+		apiKeys:         apiKeyHandler,
+		releaseVersion:  releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
 				return err
@@ -625,7 +637,9 @@ type routeDeps struct {
 	sites         *sitedelivery.SiteHandler
 	servers       *serverdelivery.ServerHandler
 	defaultUsers  *serverdelivery.DefaultUserHandler
-	bootMedia     *serverdelivery.BootMediaHandler
+	// virtualMachines lists a Hypervisor's libvirt domains (decision 055).
+	virtualMachines *serverdelivery.VirtualMachineHandler
+	bootMedia       *serverdelivery.BootMediaHandler
 	// bootMediaISO serves Boot ISO files without authentication (decisions 047 and 049).
 	bootMediaISO fiber.Handler
 	// cliBinary serves the swallow CLI without authentication for Server Enrollment (decision 053).
@@ -834,6 +848,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Get("/:id/boot-media", deps.bootMedia.Get)
 	servers.Put("/:id/boot-media", deps.bootMedia.Set)
 	servers.Post("/:id/redfish/probe", deps.bootMedia.Probe)
+	servers.Get("/:id/virtual-machines", deps.virtualMachines.List)
 	// The provisioner detail is a live proxy read one machine at a time, distinct from
 	// the mirrored projection the list and get return.
 	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)
@@ -906,6 +921,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 	provisioning.Post("/integrations/:id/enroll-bundle", deps.provisioning.EnrollBundle)
+	provisioning.Post("/virtual-machine-enrollments", deps.provisioning.EnrollVirtualMachines)
 	// Boot ISOs (decision 049): built here, mounted by a Server's Boot Media.
 	if deps.bootISOs != nil {
 		provisioning.Get("/boot-isos", deps.bootISOs.List)

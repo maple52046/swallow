@@ -89,6 +89,26 @@ func (virshPowerAdapter) Normalize(change PowerConfigurationChange) (PowerConfig
 	return change, nil
 }
 
+// VirshAddress is the virsh driver address for account on host:
+// `qemu+ssh://<account>@<host>/system`. host may be an IPv6 literal.
+func VirshAddress(account, host string) string {
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	return (&url.URL{Scheme: "qemu+ssh", User: url.User(account), Host: host, Path: "/system"}).String()
+}
+
+// VirshHostOf reads the SSH account (empty when the URI names none) and host of a virsh driver
+// address, after the same validation Normalize applies.
+func VirshHostOf(address string) (account, host string, err error) {
+	address = strings.TrimSpace(address)
+	if err := validateVirshAddress(address); err != nil {
+		return "", "", err
+	}
+	parsed, _ := url.Parse(address)
+	return parsed.User.Username(), parsed.Hostname(), nil
+}
+
 // validateVirshAddress enforces the libvirt URI shape the provisioner can use.
 func validateVirshAddress(address string) error {
 	invalid := func(reason string) error {

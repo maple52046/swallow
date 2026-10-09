@@ -83,3 +83,7 @@ recognises:
 
 `autoInspect` is read on every sweep, so an update takes effect without restarting anything. An
 Integration created before the key existed has it absent, which means on.
+
+| Key | Value | Meaning |
+| --- | --- | --- |
+| `virshSshPublicKey` | An OpenSSH public key line, or absent | The public key the provisioner's rack controller uses for `virsh` power over `qemu+ssh` ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)). Virtual-machine enrollment authorizes it for the login account on the hypervisor ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). The installation sets it for a co-located MAAS. It is a public key, not a secret. |

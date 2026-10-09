@@ -5,7 +5,12 @@ import type { BootMediaLiveState, Server, ServerBootMedia, ServerPowerConfigurat
 import { Alert } from '@/presentation/components/ui/alert'
 import { BootMediaPanel, type BootMediaPanelState } from '@/presentation/components/serverSummary/BootMediaPanel'
 import { PowerConfigurationPanel, type PowerConfigurationPanelState } from '@/presentation/components/serverSummary/PowerConfigurationPanel'
-import { redfishSupportLabel } from '@/presentation/components/serverSummary/bootMediaLabels'
+import {
+  bootMediaTargetLabel,
+  libvirtSupportLabel,
+  redfishSupportLabel,
+  shownBootMediaMethod,
+} from '@/presentation/components/serverSummary/bootMediaLabels'
 import {
   CapacityCard,
   ConnectionCard,
@@ -17,6 +22,7 @@ import {
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { primaryImageArchitecture } from '@/presentation/pages/provisioning/osImageListPresentation'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData, type AsyncData } from '@/presentation/hooks/useAsyncData'
 import { ServerBootMediaDialog, type ServerBootMediaDialogMode } from './ServerBootMediaDialog'
@@ -53,8 +59,9 @@ function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => 
 
 /**
  * Maps the Boot Media read onto the panel's state, with `latest` (the newest poll while a
- * preflight runs) in place of the page's read. The loader yields `null` only for a Server known to
- * have no BMC, whose Boot Media block is not rendered, so that case never reaches the screen.
+ * preflight runs) in place of the page's read. The loader yields `null` only for a Server whose
+ * Boot Media block is not rendered (no BMC and no Hypervisor shown), so that case never reaches the
+ * screen.
  */
 function bootMediaPanelState(state: AsyncData<ServerBootMedia | null>, latest: ServerBootMedia | null): BootMediaPanelState {
   if (state.status !== 'ready') return state
@@ -97,7 +104,10 @@ function powerPanelState(
  * when the operator asks ("Check BMC"), and re-probing or changing the setting (enable, change ISO,
  * re-apply, disable) re-reads the block. While an enable preflight runs — sent from here, from
  * another tab, or before a reload — the block is re-read every two seconds for its progress and its
- * actions wait until it ends. A Server without a BMC reads no Boot Media.
+ * actions wait until it ends. A libvirt virtual machine (a `virsh` driver outside a provisioner VM
+ * host) shows the same block through its Hypervisor (decision 055) while the experimental
+ * `virtualMachines` switch is on; release builds keep it hidden. Any other Server reads no Boot
+ * Media.
  */
 export function ServerSummaryTab() {
   const { server, detail, detailError, reload } = useServerDetailContext()
@@ -125,33 +135,42 @@ export function ServerSummaryTab() {
   const hasBMC = power.status === 'ready'
     ? power.data.family === 'bmc' && !server.providerPod
     : !server.providerPod
+  const virtualMachines = useExperimentalFeature('virtualMachines')
+  // Only a virsh driver the operator controls (not a provisioner VM host's) can name a swallow
+  // Hypervisor; whether it does is the Boot Media read's answer (`libvirt.support`).
+  const throughHypervisor = virtualMachines && power.status === 'ready' && power.data.family === 'virsh' && !server.providerPod
+  const readsBootMedia = hasBMC || throughHypervisor
   const bootMedia = useAsyncData(
-    async () => (hasBMC ? servers.getBootMedia(server.id) : null),
-    [servers, server.id, hasBMC],
+    async () => (readsBootMedia ? servers.getBootMedia(server.id) : null),
+    [servers, server.id, readsBootMedia],
   )
 
   const probe = async () => {
     setBootMediaBusy('probe')
     try {
-      const capability = await servers.probeRedfish(server.id)
-      showToast({ tone: capability.support === 'supported' ? 'success' : 'warning', title: redfishSupportLabel(capability.support), description: capability.reason })
+      const { redfish, libvirt } = await servers.probeBootMedia(server.id)
+      if (libvirt) {
+        showToast({ tone: libvirt.support === 'supported' ? 'success' : 'warning', title: libvirtSupportLabel(libvirt.support), description: libvirt.reason })
+      } else if (redfish) {
+        showToast({ tone: redfish.support === 'supported' ? 'success' : 'warning', title: redfishSupportLabel(redfish.support), description: redfish.reason })
+      }
       bootMedia.reload()
     } catch (caught) {
-      showToast({ tone: 'error', title: 'Redfish probe failed', description: caught instanceof Error ? caught.message : undefined })
+      showToast({ tone: 'error', title: 'Boot Media probe failed', description: caught instanceof Error ? caught.message : undefined })
     } finally {
       setBootMediaBusy(null)
     }
   }
 
-  // A live read reaches the BMC and takes seconds, so it runs only on request and its answer is
-  // kept beside the stored facts until the next read or setting change.
+  // A live read reaches the BMC or Hypervisor and takes seconds, so it runs only on request and its
+  // answer is kept beside the stored facts until the next read or setting change.
   const checkLive = async () => {
     setBootMediaBusy('live')
     try {
       const result = await servers.getBootMedia(server.id, { live: true })
       setLive({ state: result.live, error: result.liveError })
     } catch (caught) {
-      setLive({ state: null, error: caught instanceof Error ? caught.message : 'The BMC could not be read.' })
+      setLive({ state: null, error: caught instanceof Error ? caught.message : `The ${target} could not be read.` })
     } finally {
       setBootMediaBusy(null)
     }
@@ -159,12 +178,16 @@ export function ServerSummaryTab() {
 
   const applyWatch = useBootMediaApplyWatch(servers, server.id, bootMedia.status === 'ready' ? bootMedia.data : null)
   const bootMediaData = applyWatch.media
+  const method = bootMediaData ? shownBootMediaMethod(bootMediaData) : null
+  const target = bootMediaTargetLabel(method)
   const enabled = bootMediaData?.setting?.enabled ?? false
-  // The Boot ISO is chosen in the dialog, so only a Server without a BMC cannot start one. While a
-  // preflight runs every BMC action waits: the API refuses a second write, and a probe or live
-  // read would compete with the preflight's own requests on a slow BMC.
+  // The Boot ISO is chosen in the dialog, so only a Server without a method cannot start one. While
+  // a preflight runs every action waits: the API refuses a second write, and a probe or live read
+  // would compete with the preflight's own requests on a slow BMC.
   const applying = applyWatch.applying
-  const canEnable = bootMediaData?.redfish?.support !== 'no_bmc'
+  const canEnable = method === 'libvirt'
+    ? bootMediaData?.libvirt?.support !== 'no_hypervisor'
+    : bootMediaData?.redfish?.support !== 'no_bmc'
   const bootMediaActions = bootMediaData && (
     <>
       {enabled ? (
@@ -185,10 +208,10 @@ export function ServerSummaryTab() {
         </Button>
       )}
       <Button size="xs" variant="ghost" loading={bootMediaBusy === 'probe'} disabled={bootMediaBusy !== null || applying} onClick={() => void probe()}>
-        Re-detect Redfish
+        {method === 'libvirt' ? 'Re-detect hypervisor' : 'Re-detect Redfish'}
       </Button>
       <Button size="xs" variant="ghost" loading={bootMediaBusy === 'live'} disabled={bootMediaBusy !== null || applying} onClick={() => void checkLive()}>
-        Check BMC
+        {target === 'hypervisor' ? 'Check hypervisor' : 'Check BMC'}
       </Button>
     </>
   )
@@ -239,9 +262,9 @@ export function ServerSummaryTab() {
               )}
             />
           }
-          bootMedia={
+          bootMedia={readsBootMedia && (
             <BootMediaPanel state={bootMediaPanelState(bootMedia, bootMediaData)} live={live} actions={bootMediaActions} />
-          }
+          )}
         />
       </div>
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">

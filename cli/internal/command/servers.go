@@ -44,6 +44,7 @@ func newServersCommand() *cobra.Command {
 		serversBootMediaCmd(),
 		serversRedfishProbeCmd(),
 		serversEnrollCmd(),
+		serversVirtualMachinesCmd(),
 	)
 	cmd.AddCommand(serversActionCmds()...)
 	return cmd

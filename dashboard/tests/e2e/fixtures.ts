@@ -396,6 +396,34 @@ export interface FixtureOptions {
   powerAttentionServerIds?: string[]
   /** Called for every enroll-bundle read with its method, path, and the swallowUrl it sent. */
   onEnrollmentRequest?: (method: string, path: string, swallowUrl: string) => void
+  /**
+   * libvirt domains by hypervisor Server id for `GET /servers/{id}/virtual-machines` (decision 055).
+   * Omitted: srv-1 (gpu-node-01) hosts three lab domains, one of which is already srv-3.
+   */
+  virtualMachines?: Record<string, VirtualMachineFixture[]>
+  /** Called for every virtual-machine enrollment POST with its JSON body. */
+  onVirtualMachineEnrollmentRequest?: (body: Record<string, unknown>) => void
+  /** Servers whose Boot Media goes through a swallow hypervisor (method `libvirt`), on srv-1. */
+  libvirtBootMediaServerIds?: string[]
+}
+
+/** One libvirt domain in the `virtual-machines` read shape. */
+interface VirtualMachineFixture {
+  name: string
+  uuid: string
+  state: string
+  architecture: string
+  macAddresses: string[]
+  serverId: string | null
+}
+
+/** srv-1's lab domains when a test names none: two to enroll (one running) and one already a Server. */
+const defaultVirtualMachines: Record<string, VirtualMachineFixture[]> = {
+  'srv-1': [
+    { name: 'lab-vm-1', uuid: '5d685113-0078-444c-8707-000000000001', state: 'shut off', architecture: 'x86_64', macAddresses: ['52:54:00:af:de:01'], serverId: null },
+    { name: 'lab-vm-2', uuid: '5d685113-0078-444c-8707-000000000002', state: 'running', architecture: 'x86_64', macAddresses: ['52:54:00:af:de:02'], serverId: null },
+    { name: 'lab-vm-3', uuid: '5d685113-0078-444c-8707-000000000003', state: 'shut off', architecture: 'x86_64', macAddresses: ['52:54:00:af:de:03'], serverId: 'srv-3' },
+  ],
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -503,7 +531,17 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       inUseBy: bootMediaState.setting?.enabled === true && bootMediaState.setting?.isoId === iso.id ? 1 : 0,
     }
   }
-  const bootMediaView = (live: boolean) => {
+  // A virtual machine on srv-1 (decision 055) has no BMC; its Hypervisor is what the probes find.
+  const throughHypervisor = (serverId: string) => options.libvirtBootMediaServerIds?.includes(serverId) ?? false
+  const noBMC = {
+    support: 'no_bmc', reason: 'The Server is a libvirt virtual machine; its Boot Media method is libvirt.',
+    virtualMedia: false, bootOverrideModes: [], probedAt: now,
+  }
+  const libvirtCapability = (serverId: string) => ({
+    support: 'supported', hypervisorServerId: 'srv-1', account: 'ubuntu',
+    domain: fleet.find((entry) => entry.id === serverId)?.hostname ?? serverId, pool: 'default', cdrom: true, probedAt: now,
+  })
+  const bootMediaView = (live: boolean, serverId = 'srv-1') => {
     const isoId = typeof bootMediaState.setting?.isoId === 'string' ? bootMediaState.setting.isoId : ''
     const iso = bootISOItems.find((item) => item.id === isoId)
     const image = !isoId
@@ -511,14 +549,26 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       : iso
         ? { id: iso.id, name: iso.name, url: iso.url === undefined ? bootISOURL(iso.id) : (iso.url ?? ''), available: iso.url !== null }
         : { id: isoId, url: '', available: false, reason: 'The Boot ISO no longer exists; choose another.' }
+    const enabled = Boolean(bootMediaState.setting?.enabled)
+    if (throughHypervisor(serverId)) {
+      return {
+        serverId, method: 'libvirt', image: image && { ...image, available: Boolean(iso) },
+        setting: bootMediaState.setting, redfish: noBMC, libvirt: libvirtCapability(serverId), apply: bootMediaState.apply,
+        live: live
+          ? { mediaInserted: enabled, mediaImage: enabled ? `/var/lib/libvirt/images/swallow-ipxe-${isoId}.iso` : '', overrideEnabled: enabled ? 'Continuous' : '', overrideTarget: enabled ? 'Cd' : '', ready: enabled }
+          : null,
+      }
+    }
     return {
-      serverId: 'srv-1',
+      serverId,
+      method: 'redfish',
       image,
       setting: bootMediaState.setting,
       redfish: bootMediaState.redfish,
+      libvirt: null,
       apply: bootMediaState.apply,
       live: live
-        ? { mediaInserted: Boolean(bootMediaState.setting?.enabled), overrideEnabled: 'Once', overrideTarget: 'UefiBootNext', ready: Boolean(bootMediaState.setting?.enabled) }
+        ? { mediaInserted: enabled, overrideEnabled: 'Once', overrideTarget: 'UefiBootNext', ready: enabled }
         : null,
     }
   }
@@ -1978,11 +2028,13 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     // the fixture records writes and keeps one per-page setting so the Summary re-reads it.
     const bootMediaMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/(boot-media|redfish\/probe)$/)
     if (bootMediaMatch) {
+      const mediaServerId = decodeURIComponent(bootMediaMatch[1])
       const body = request.method() === 'GET' ? null : ((request.postDataJSON() ?? {}) as Record<string, unknown>)
       if (request.method() !== 'GET') options.onBootMediaRequest?.(request.method(), path, body)
       if (bootMediaMatch[2] === 'redfish/probe') {
+        if (throughHypervisor(mediaServerId)) return json(route, { redfish: noBMC, libvirt: libvirtCapability(mediaServerId) })
         bootMediaState.redfish = { ...bootMediaState.redfish, probedAt: now }
-        return json(route, { redfish: bootMediaState.redfish })
+        return json(route, { redfish: bootMediaState.redfish, libvirt: null })
       }
       if (request.method() === 'PUT') {
         if (options.bootMediaError) {
@@ -2013,9 +2065,26 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           ? { enabled: true, isoId, updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
           : { enabled: false, ...(keptISO ? { isoId: keptISO } : {}), updatedAt: now, lastAppliedAt: now, lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null }
         const disableOutcome = enabled ? {} : options.bootMediaRevertError ? { reverted: false, revertError: options.bootMediaRevertError } : { reverted: true }
-        return json(route, { ...bootMediaView(false), ...disableOutcome })
+        return json(route, { ...bootMediaView(false, mediaServerId), ...disableOutcome })
       }
-      return json(route, bootMediaView(url.searchParams.get('live') === 'true'))
+      return json(route, bootMediaView(url.searchParams.get('live') === 'true', mediaServerId))
+    }
+    // Virtual machines (server-enrollment.md, decision 055): the real API reads libvirt over SSH on
+    // the hypervisor; the fixture answers a fixed domain list per hypervisor.
+    const virtualMachinesMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/virtual-machines$/)
+    if (virtualMachinesMatch && request.method() === 'GET') {
+      const hypervisorId = decodeURIComponent(virtualMachinesMatch[1])
+      if (!fleet.some((entry) => entry.id === hypervisorId)) return json(route, { error: { code: 'not_found', message: 'Server not found.' } }, 404)
+      const items = (options.virtualMachines ?? defaultVirtualMachines)[hypervisorId] ?? []
+      return json(route, { hypervisorServerId: hypervisorId, account: url.searchParams.get('account') || 'ubuntu', items })
+    }
+    if (path === '/api/v1/provisioning/virtual-machine-enrollments' && request.method() === 'POST') {
+      const body = (request.postDataJSON() ?? {}) as Record<string, unknown>
+      options.onVirtualMachineEnrollmentRequest?.(body)
+      if (!Array.isArray(body.domains) || body.domains.length === 0) {
+        return json(route, { error: { code: 'validation_error', message: 'domains must name at least one virtual machine' } }, 400)
+      }
+      return json(route, { workflowId: 'op-vm-enroll' }, 202)
     }
     // Server Default User (server-detail-actions.md): PUT verifies on the host in the real API; the
     // fixture just records the request and applies the result to the projection.

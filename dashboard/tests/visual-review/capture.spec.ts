@@ -16,6 +16,7 @@ const visualCases = [
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
   { name: 'server-detail-vm-power', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
+  { name: 'server-detail-vm-boot-media', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-activity', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
@@ -108,6 +109,17 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'server-detail-vm-power'
           ? { powerConfigurations: { 'srv-2': { driver: '' } }, powerAttentionServerIds: ['srv-2'] }
           : {}),
+        // A lab VM on a swallow hypervisor with Boot Media enabled through it (decision 055).
+        ...(visualCase.name === 'server-detail-vm-boot-media'
+          ? {
+              powerConfigurations: { 'srv-2': { driver: 'virsh', address: 'qemu+ssh://ubuntu@192.168.40.21/system', powerId: 'gpu-node-02' } },
+              libvirtBootMediaServerIds: ['srv-2'],
+              bootMediaSetting: {
+                enabled: true, isoId: 'iso-taipei', updatedAt: '2026-08-27T02:00:00Z', lastAppliedAt: '2026-08-27T02:00:00Z',
+                lastAppliedBy: 'ensure', bootOverride: 'Continuous', lastErrorAt: null,
+              },
+            }
+          : {}),
         ...(visualCase.name.startsWith('software-')
           ? { fleetSize: 5, softwareAssignments: visualSoftwareAssignments }
           : {}),
@@ -119,8 +131,34 @@ test.describe('dashboard visual review', () => {
       await prepareCapture(page, appearance)
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
+      // The full mobile page is too long to read at its own scale; the changed card is captured too.
+      if (visualCase.name === 'server-detail-vm-boot-media') {
+        await page.getByRole('region', { name: 'Power control' }).screenshot({
+          path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+        })
+      }
     })
   }
+})
+
+/** Captures the experimental Add servers path for libvirt virtual machines with a listed hypervisor. */
+test.describe('Add servers virtual machines visual review', () => {
+  test('add-servers-virtual-machines', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/servers?site=site-a')
+    await page.getByRole('button', { name: 'Add servers' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Add servers' })
+    await dialog.getByRole('button', { name: /It is a libvirt virtual machine/ }).click()
+    await chooseOption(page, 'Hypervisor', 'gpu-node-01 (192.168.40.21)')
+    await dialog.getByRole('button', { name: 'List virtual machines' }).click()
+    const machines = dialog.getByRole('group', { name: 'Virtual machines' })
+    await expect(machines).toContainText('lab-vm-3')
+    await machines.getByText('lab-vm-1', { exact: true }).click()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'add-servers-virtual-machines', false)
+  })
 })
 
 /** Captures both contextual entry points of the shared Managed Software installation flow. */

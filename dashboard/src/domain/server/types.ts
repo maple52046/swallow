@@ -242,6 +242,71 @@ export interface RedfishCapability {
   probedAt: string
 }
 
+/**
+ * How a Server's Boot ISO is attached (glossary Boot Media, decisions 047 and 055), decided by its
+ * Power Configuration: `redfish` — the BMC mounts it as virtual media; `libvirt` — a virtual
+ * machine's swallow Hypervisor puts it on the domain's CD-ROM and boots that first. `null` in a read
+ * means neither probe found a method (or none ran yet). An unknown future value is treated as no
+ * method the dashboard can drive.
+ */
+export type BootMediaMethod = 'redfish' | 'libvirt'
+
+/**
+ * What swallow's libvirt probe found about a virtual machine (decision 055): `supported` — its
+ * Hypervisor answered and has the domain; `unsupported` — no such domain there; `unreachable` — the
+ * Hypervisor could not be reached, refused the Deployment Key, or the account cannot use libvirt;
+ * `no_hypervisor` — the virsh address's host is not a swallow Server of the Site. An unknown future
+ * value is treated as not supported.
+ */
+export type LibvirtSupport = 'supported' | 'unsupported' | 'unreachable' | 'no_hypervisor'
+
+/**
+ * The latest probe of a virtual machine's Hypervisor — swallow-owned data with a probe time, like
+ * the Redfish capability. `hypervisorServerId` is `null` when the address names no swallow Server.
+ */
+export interface LibvirtCapability {
+  support: LibvirtSupport
+  /** Why `support` is not `supported`; absent otherwise. */
+  reason?: string
+  hypervisorServerId: string | null
+  /** The login account on the Hypervisor. */
+  account?: string
+  /** The libvirt domain name (the virsh power ID). */
+  domain: string
+  /** The storage pool the Boot ISO is uploaded to. */
+  pool: string
+  /** Whether the domain already has a CD-ROM; enabling adds one when it does not. */
+  cdrom: boolean
+  probedAt: string
+}
+
+/** The result of re-probing a Server's Boot Media method: both capabilities as stored. */
+export interface BootMediaProbe {
+  redfish: RedfishCapability | null
+  libvirt: LibvirtCapability | null
+}
+
+/**
+ * One libvirt domain on a Hypervisor (`GET /servers/{id}/virtual-machines`). `state` is libvirt's
+ * own wording (`running`, `shut off`, …), shown as is. `serverId` is the Server that already has one
+ * of its MAC addresses, `null` when it is not a Server yet.
+ */
+export interface VirtualMachine {
+  name: string
+  uuid: string
+  state: string
+  architecture: string
+  macAddresses: string[]
+  serverId: string | null
+}
+
+/** A Hypervisor's domains and the account swallow logged in as to read them. */
+export interface HypervisorVirtualMachines {
+  hypervisorServerId: string
+  account: string
+  items: VirtualMachine[]
+}
+
 /** What last applied Boot Media to the BMC: the operator's enable (`preflight`) or an OS deployment's `ensure` Task. */
 export type BootMediaApplier = 'preflight' | 'ensure'
 
@@ -315,17 +380,20 @@ export interface BootMediaApply {
 }
 
 /**
- * One Server's Boot Media (`GET /servers/{id}/boot-media`): the Boot ISO the setting names (`null`
- * when it names none), the Server's setting (`null` when never set), its Redfish capability (`null`
- * before the first probe), the enable preflight running now (`null` when none), and — only when
- * asked for — the BMC's live state (`null` when not read or the read failed, `liveError` saying
- * why).
+ * One Server's Boot Media (`GET /servers/{id}/boot-media`): its method (`null` when the probes found
+ * none), the Boot ISO the setting names (`null` when it names none), the Server's setting (`null`
+ * when never set), its Redfish capability (`null` before the first probe), its libvirt capability
+ * (`null` unless it is a virsh virtual machine that was probed), the enable preflight running now
+ * (`null` when none), and — only when asked for — the BMC's or Hypervisor's live state (`null` when
+ * not read or the read failed, `liveError` saying why).
  */
 export interface ServerBootMedia {
   serverId: string
+  method: BootMediaMethod | null
   image: BootMediaImage | null
   setting: BootMediaSetting | null
   redfish: RedfishCapability | null
+  libvirt: LibvirtCapability | null
   apply: BootMediaApply | null
   live: BootMediaLiveState | null
   liveError?: string
@@ -529,8 +597,9 @@ export interface PowerStateResult {
 
 /**
  * A power driver family (glossary Power Configuration, decision 054): `bmc` is a physical Server's
- * BMC (drivers `ipmi`, `redfish`) and is the only family with Boot Media; `virsh` is a libvirt
- * virtual machine. Redfish is a function of the BMC, never a family of its own.
+ * BMC (drivers `ipmi`, `redfish`), whose Boot Media is Redfish; `virsh` is a libvirt virtual
+ * machine, whose Boot Media goes through its Hypervisor when the address names a swallow Server
+ * (decision 055). Redfish is a function of the BMC, never a family of its own.
  */
 export type PowerFamily = 'bmc' | 'virsh'
 

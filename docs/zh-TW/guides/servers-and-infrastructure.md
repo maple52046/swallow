@@ -20,9 +20,11 @@ Machine 進入 provisioner 的 inventory 後就會成為 Server。**Servers → 
 不需要在 MAAS 按 *Commission*：swallow 會等 enlistment 結束並關機後自行檢視（見
 [檢查硬體](#檢查硬體)）。
 
-實驗用的 virtual machine 也用同樣方式 enlist（從網路或 iPXE 開機媒體開機），但
-enlistment 無法替它設定 power driver，MAAS 因此看不到它關機。它的檢視會停下並提示
-**Set power configuration**；替它設定 `virsh` 的 [Power configuration](#power-configuration) 後再 retry。
+libvirt virtual machine 改由 hypervisor 以名稱納管：見
+[libvirt virtual machine](#libvirt-virtual-machine)。若你自己讓它開機進入 enlistment（從網路或
+iPXE 開機媒體開機），enlistment 無法替它設定 power driver，MAAS 因此看不到它關機；它的
+檢視會停下並提示 **Set power configuration**。替它設定 `virsh` 的
+[Power configuration](#power-configuration) 後再 retry。
 
 Redfish 分頁填入 BMC 位址與帳號後，會產生 `curl` 指令：插入 virtual media、設定下次
 從它開機一次，並開機；`curl` 會詢問 BMC 密碼。指令假設 system 為 `1`、virtual media
@@ -40,6 +42,41 @@ MAAS `maas-run-scripts register-machine` 與 `report-results`。主機需要 `cu
 `python3`，並能以 HTTP 連到 swallow 與 MAAS（Ubuntu、x86_64）。之後不會自動檢視（檢視
 會重新開機）。指令含有 provisioner 的 API key，這是 MAAS 所需；只在可信任的主機執行，
 否則請在 MAAS 更換該 key。
+
+## libvirt virtual machine
+
+libvirt hypervisor 上的 virtual machine 以 domain 名稱納管，不需要輸入 MAC 位址。
+Hypervisor 本身必須是該 Site 中 **Deployed** 的 Server。swallow 以 Deployment Key 透過
+SSH 登入它，帳號為它的 Server Default User 或你指定的帳號，該帳號必須能執行
+`virsh -c qemu:///system`（Ubuntu 上為 `libvirt` group）。
+
+```bash
+swallow servers virtual-machines list hv1                       # domain、狀態、MAC、已對應的 Server
+swallow servers virtual-machines enroll hv1 lab-vm-1 lab-vm-2 \
+  --integration int1 [--boot-iso iso1] [--account ubuntu] [--power-off-running]
+```
+
+Development build 的 Dashboard 在 **Add servers → It is a libvirt virtual machine**
+（實驗功能）提供相同流程：選擇 hypervisor、列出它的 virtual machine、勾選要納管的項目，
+並可選擇 Boot ISO。
+
+納管會啟動一個 `enroll-virtual-machines` Workflow，每台 virtual machine 一個 Task 並行
+執行。每個 Task 會確認 domain 已關機（加上 `--power-off-running` 時由 swallow 關掉執行中
+的 domain）、讓 provisioner 的 SSH key 能登入 hypervisor 帳號，並在指定 Boot ISO 時（網路
+不由 provisioner 的 DHCP 服務）把 ISO 放到 domain 的 CD-ROM 並設為第一開機裝置。接著以它
+的 MAC 位址與 `virsh` power driver 在 MAAS 註冊，且**不執行** commissioning，然後等待
+Server 出現。之後由自動檢視透過 MAAS 啟動 virtual machine，並帶到 **Ready**。已經是
+Server 的 domain 會沿用，不會重複建立。
+
+| Task 停下的原因 | 修正後 retry 該 Task |
+| --- | --- |
+| `domain_running` | 先關閉 virtual machine，或加上 `--power-off-running` 重新納管。 |
+| `provisioner_cannot_reach_hypervisor` | 讓 MAAS rack 的 SSH key 能登入 hypervisor 帳號（installation 會把它記錄在 provisioner Integration 的 `virshSshPublicKey`，Task 會負責授權）。 |
+| `hypervisor_unreachable` | 確認 hypervisor 的 SSH 有回應、接受 Deployment Key，且帳號能使用 libvirt。 |
+| `machine_registration_refused` | 依 MAAS 的原因處理，例如 hostname 已被使用。 |
+| `server_not_projected` | 確認 provisioner Integration 已啟用且持續同步。 |
+
+不存在的 domain，或架構不是 `x86_64`、`aarch64` 的 domain，會直接失敗、無法 retry。
 
 ## Inventory 與 detail
 
@@ -179,13 +216,17 @@ Server 的 power configuration 是 MAAS 用來切換與讀取它電源的 power 
 | IPMI、Redfish | 實體 Server 的 BMC | BMC 位址、帳號、密碼 |
 | virsh | libvirt virtual machine | Hypervisor URI `qemu+ssh://user@host/system`、domain 名稱或 UUID、密碼（選填） |
 
-只有 BMC driver 會讓 Server 有 Boot Media；不論 MAAS 用這兩種 driver 的哪一種，
-Redfish Boot Media 都是對 BMC 探測。密碼只寫不讀：留空即保留原密碼（更換 driver
-時，除非輸入新密碼，否則會移除）。
+BMC driver 讓 Server 有 Redfish Boot Media；不論 MAAS 用這兩種 driver 的哪一種，都是對
+BMC 探測。URI 指向 swallow Server 的 `virsh` driver，則讓 Server 經由該 hypervisor 取得
+libvirt Boot Media（見 [Boot Media](os-provisioning.md#沒有-provisioner-dhcp-的網路boot-media)）。
+密碼只寫不讀：留空即保留原密碼（更換 driver 時，除非輸入新密碼，否則會移除）。
 
 使用 `virsh` driver 時，連到 hypervisor 的是 MAAS 而不是 swallow，因此 MAAS rack
-controller 必須先能以 SSH 連到 hypervisor 帳號，driver 才會生效。MAAS 以 snap 安裝時，
-把金鑰、`known_hosts` 與 SSH 選項放在 `/var/snap/maas/current/root/.ssh`，並在 snap 內確認：
+controller 必須先能以 SSH 連到 hypervisor 帳號，driver 才會生效。Production 安裝會替同機
+的 MAAS rack 建立 SSH key，並在第一次連線時接受新 hypervisor 的 host key；
+[納管 virtual machine](#libvirt-virtual-machine) 時會把該 key 授權到 hypervisor。其他情況下，
+MAAS 以 snap 安裝時，把金鑰、`known_hosts` 與 SSH 選項放在
+`/var/snap/maas/current/root/.ssh`，並在 snap 內確認：
 `sudo snap run --shell maas -c 'virsh -c qemu+ssh://user@host/system list --all'`。
 URI 保持乾淨：MAAS 不接受 `?keyfile=` 之類的 query 參數。同一台 hypervisor 上的多台
 VM 共用同一個 URI，以 domain 區分。
@@ -231,6 +272,8 @@ swallow servers power-configuration get server1
 swallow servers power-configuration set server1 --driver virsh \
   --address qemu+ssh://maas@hypervisor.lab/system --power-id vm-01
 swallow servers power-state server1
+swallow servers virtual-machines list hv1        # 已 deploy 的 hypervisor 上的 libvirt domain
+swallow servers virtual-machines enroll hv1 vm-01 vm-02 --integration int1
 swallow integrations enroll-bundle int1          # existing OS 指令（含 MAAS API key）
 swallow provisioning tags edit --server server1 --add amd-gpu
 swallow infrastructure zones list --site-id site1
