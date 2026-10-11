@@ -63,11 +63,14 @@ transition time，也不能證明仍有進度。沒有執行時間代表
 2. 檢查 provisioning observation time，以及 Integration 的 sync error 與最後成功時間。
 3. Refresh Server，執行一次 targeted provider read。
 4. 查看 Server 的 provider event，確認 external lifecycle action 仍有進度或已失敗。
+5. 若為 **Releasing**，開啟 Server detail 頁。其 banner 會連到正在追蹤這次 release 的
+   Workflow，並說明該 Workflow 是否需要處理或已結束，或是沒有 Workflow 涵蓋這次 release。
 
 ```bash
 swallow servers refresh server1
 swallow servers events server1 --limit 50
 swallow -o json servers get server1
+swallow workflows list --server server1
 ```
 
 如果 state 變成 `failed`、`broken` 或 `rescue`，代表需要 operator 處理，而不是

@@ -70,11 +70,15 @@ has not started.
 3. Refresh the Server to perform a targeted provider read.
 4. Read the Server's provider events to see whether the external lifecycle
    action is still advancing or has failed.
+5. For **Releasing**, open the Server detail page. Its banner links to the
+   Workflow following the release and says when that Workflow needs attention
+   or has ended, or that no Workflow covers the release.
 
 ```bash
 swallow servers refresh server1
 swallow servers events server1 --limit 50
 swallow -o json servers get server1
+swallow workflows list --server server1
 ```
 
 If the state changes to `failed`, `broken`, or `rescue`, it needs operator

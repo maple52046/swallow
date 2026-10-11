@@ -199,7 +199,7 @@ test('provider-only work links to the Activity section that records it', async (
 
   const table = page.getByRole('table', { name: 'Servers' })
   const viewActivity = (name: string) => table.getByRole('row').filter({ hasText: name }).first().getByRole('link', { name: `View activity for ${name}` })
-  await expect(viewActivity('gpu-node-01')).toHaveAttribute('href', '/servers/srv-1/activity?site=site-a#activity-provisioning-tasks')
+  await expect(viewActivity('gpu-node-01')).toHaveAttribute('href', '/servers/srv-1/activity?site=site-a#activity-related-operations')
   await expect(viewActivity('gpu-node-02')).toHaveAttribute('href', '/servers/srv-2/activity?site=site-a#activity-related-operations')
   await expect(viewActivity('gpu-node-03')).toHaveAttribute('href', '/servers/srv-3/activity?site=site-a#activity-provider-events')
   await expect(table.getByRole('link', { name: /^Monitor/ })).toHaveCount(0)

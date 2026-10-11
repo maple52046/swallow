@@ -80,7 +80,9 @@ function activityPage<T>(items: readonly T[], requestedPage: number, pageSize: n
 /**
  * Composes the three truthful activity sources for one Server: live provider events, durable
  * automation Operations, and current-tab synchronous action diagnostics. Each source has its
- * own loading/error/empty state, so one unavailable source never blanks the whole tab.
+ * own loading/error/empty state, so one unavailable source never blanks the whole tab. While the
+ * Server is Releasing, the empty Provisioning tasks and Related Operations states say where the
+ * release is recorded instead.
  *
  * Each section carries an id from `SERVER_ACTIVITY_SECTION_IDS`, so a `#activity-…` hash (the
  * Server list's View/Review activity icons) opens the tab on the section that records the work.
@@ -167,6 +169,9 @@ export function ServerActivityTab() {
   }, [nonce, operations, server.id, servers])
 
   const sourcesSettled = provider.status !== 'loading' && related.status !== 'loading' && tasks.status !== 'loading'
+  // A Releasing Server is the case where an empty section misleads: Provisioning tasks exist only
+  // for opt-in static IP cleanup, and the release Workflow (if any) is under Related Operations.
+  const releasing = server.provisioning?.state === 'releasing'
   const pagedTasks = tasks.status === 'ready'
     ? activityPage(tasks.data, activePages.tasks.page, activePages.tasks.pageSize)
     : null
@@ -258,7 +263,12 @@ export function ServerActivityTab() {
             </Alert>
           </div>
         )}
-        {tasks.status === 'ready' && tasks.data.length === 0 && <div className="sw-section-empty">No durable provisioning tasks for this Server.</div>}
+        {tasks.status === 'ready' && tasks.data.length === 0 && (
+          <div className="sw-section-empty">
+            No durable provisioning tasks for this Server.
+            {releasing && ' This section only tracks the static IP cleanup a Release can opt into; the release itself is under Related Operations and Provider events.'}
+          </div>
+        )}
         {pagedTasks && pagedTasks.total > 0 && (
           <>
             <StickyTableFrame>
@@ -362,7 +372,12 @@ export function ServerActivityTab() {
             </Alert>
           </div>
         )}
-        {related.status === 'ready' && related.data.length === 0 && <div className="sw-section-empty">No durable Operations include this Server.</div>}
+        {related.status === 'ready' && related.data.length === 0 && (
+          <div className="sw-section-empty">
+            No durable Operations include this Server.
+            {releasing && ' No Swallow Workflow covers the current release: it was started in the provisioner or through the deprecated release endpoint, and Provider events record its progress.'}
+          </div>
+        )}
         {pagedRelated && pagedRelated.total > 0 && (
           <>
             <StickyTableFrame>

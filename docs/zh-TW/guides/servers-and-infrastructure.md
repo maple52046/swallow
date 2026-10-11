@@ -136,6 +136,14 @@ transition time；其精確度約等於 inventory reconcile 或 targeted Server 
 Release 接受後可留在 list：provider 執行期間該列會變成 **Releasing**，Server
 回到 pool 後再變成 **Ready**。
 
+在 Server detail 頁，**Releasing** 的 Server 會顯示一個 banner，連到正在追蹤這次
+release 的 Workflow（Release、Recover，或會 release Server 的 Platform uninstall）。
+若該 Workflow 需要處理，或在 provider 仍在 release 時已結束，banner 會說明並另外連到
+**Provider events**。若沒有 Workflow 涵蓋這次 release（由 provisioner 端發起），banner
+只連到 **Provider events**。Provider 正在 release 的 Server，swallow 無法變更其狀態：
+Release、Recover、Lock 與 Deploy OS 會維持不可用，直到 provider 讓它回到 **Ready**
+或回報失敗。
+
 ### 下一步圖示與 Actions 選單
 
 狀態需要下一步時，Deployment 欄的狀態後方會出現一個小圖示。圖示沒有文字：將滑鼠
@@ -147,7 +155,7 @@ Server **Activity** 分頁的哪個區塊。由上往下第一個符合的條件
 | 警示 — **Review activity** | Server 已不在 provider inventory 中（absent）。 | **Activity → Provider events** |
 | 火箭 — **Deploy OS** | Server 未 lock 且為 **Ready**。 | 不離頁的 Deploy OS dialog；固定該 Server，並在 OS image、Installation 與 Networking steps 前檢查 live readiness 與 networking |
 | 箭頭 — **View workflow** | Swallow deployment 正在執行。 | 該 deployment 的 Workflow |
-| 眼睛 — **View activity** | 只有 provider 工作正在執行。 | Releasing 開啟 **Activity → Provisioning tasks**，Inspecting 開啟 **Related Operations**，其他開啟 **Provider events** |
+| 眼睛 — **View activity** | 只有 provider 工作正在執行。 | Releasing 與 Inspecting 開啟 **Activity → Related Operations**，其他開啟 **Provider events** |
 | 箭頭 — **View workflow** | 上一次 swallow deployment 失敗或需要處理。 | 該 deployment 的 Workflow |
 | 警示 — **Review activity** | Provider 回報 **Failed**、**Broken** 或 **Rescue**。 | **Activity → Provider events** |
 

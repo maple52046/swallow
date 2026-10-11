@@ -247,6 +247,13 @@ export interface FixtureOptions {
    * record alone, so no Swallow Workflow is running for the Server (unlike `changingServerIds`).
    */
   providerWorkServerIds?: Record<string, 'releasing' | 'inspecting' | 'testing' | 'deploying'>
+  /**
+   * The Swallow work behind a Releasing Server (pair with `providerWorkServerIds`): seeds one
+   * `release-os` Workflow per listed Server with that status, finished after the seeded
+   * `stateSince` when terminal. `null` instead removes the Server from every Workflow, modelling a
+   * release started in the provisioner.
+   */
+  releaseWorkflows?: Record<string, 'waiting_external' | 'requires_attention' | 'canceled' | null>
   /** Populates each persisted Server Activity source with this many rows for pagination coverage. */
   serverActivityItemCount?: number
 
@@ -1068,6 +1075,38 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       requestedBy: 'system', requestedAt: now, updatedAt: now,
     }
     operationItems.push(inspection as unknown as (typeof operationItems)[number])
+  }
+  for (const [serverId, status] of Object.entries(options.releaseWorkflows ?? {})) {
+    if (status === null) {
+      for (const operation of operationItems) {
+        operation.targetServerIds = operation.targetServerIds.filter((target) => target !== serverId)
+      }
+      continue
+    }
+    const finished = status === 'canceled' ? now : null
+    const release = {
+      id: `op-release-${serverId}`, schemaVersion: 3, kind: 'release-os',
+      intent: 'Release 1 Server(s)', intentSnapshot: {},
+      definition: 'os-release', definitionVersion: 1,
+      status, statusReason: status === 'waiting_external' ? 'Waiting for provider observation.' : null,
+      startState: 'started', temporal: { workflowId: `swallow-operation/op-release-${serverId}`, runId: 'run-release' },
+      siteId: 'site-a', platformId: null,
+      targetResources: [{ kind: 'server', id: serverId }], targetServerIds: [serverId], retryOfOperationId: null,
+      steps: [
+        {
+          id: `release-${serverId}`, kind: 'release-os', name: `Release ${serverId}`,
+          executor: 'maas', dependsOn: [], targets: [{ kind: 'server', id: serverId }],
+          status, attempt: 1, progress: 0,
+          error: status === 'requires_attention'
+            ? { code: 'provider_observation_timeout', message: 'Timed out waiting for the Server to return to Ready.', retryable: true, stage: 'release' }
+            : null,
+          externalExecution: null, artifacts: [], startedAt: '2026-08-27T02:58:00Z', finishedAt: finished,
+        },
+      ],
+      execution: { runId: 'run-release', playbook: '', status, statusReason: null, startedAt: '2026-08-27T02:58:00Z', finishedAt: finished },
+      requestedBy: 'admin', requestedAt: '2026-08-27T02:58:00Z', startedAt: '2026-08-27T02:58:00Z', finishedAt: finished, updatedAt: now,
+    }
+    operationItems.push(release as unknown as (typeof operationItems)[number])
   }
   let operationSequence = 0
   const createProvisioningOperation = (

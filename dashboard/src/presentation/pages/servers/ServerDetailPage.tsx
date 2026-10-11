@@ -19,9 +19,11 @@ import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
 import { ProviderFailureAlert } from './ProviderFailureAlert'
 import { InspectionAttentionAlert } from './InspectionAttentionAlert'
+import { ReleaseInProgressAlert } from './ReleaseInProgressAlert'
 import { useInspectionAttention } from './useInspectionAttention'
 import { useServerDetail } from './useServerDetail'
 import { useServerDockerAssignment } from './useServerDockerAssignment'
+import { useServerReleaseActivity } from './useServerReleaseActivity'
 
 /** One persistent deep-link tab; the glyph supplements its visible accessible label. */
 interface ServerDetailTab {
@@ -66,6 +68,13 @@ export function ServerDetailPage() {
   const state = useServerDetail(id)
   // This Server's inspect-hardware Workflow waiting for attention (decision 053), if any.
   const inspectionAttention = useInspectionAttention({ serverId: id })
+  // The Workflow behind a Releasing state, which the projection does not reference.
+  const loadedProvisioning = state.status === 'ready' ? state.data.server.provisioning : undefined
+  const releaseActivity = useServerReleaseActivity({
+    serverId: id ?? '',
+    releasing: loadedProvisioning?.state === 'releasing',
+    stateSince: loadedProvisioning?.stateSince,
+  })
   // Loaded beside the projection (not inside it) because a failed software read must only affect the
   // Containers tab, and because the tab polls it while a Docker CE re-apply runs.
   const docker = useServerDockerAssignment(id)
@@ -225,6 +234,7 @@ export function ServerDetailPage() {
           }}
         />
       )}
+      <ReleaseInProgressAlert serverId={server.id} activity={releaseActivity} />
       {server.deployment?.operationId && ['deploying', 'verifying'].includes(server.deployment.state) && (
         <Alert
           status="info"

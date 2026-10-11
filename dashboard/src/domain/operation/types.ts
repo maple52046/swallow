@@ -228,3 +228,79 @@ export function isInFlightStatus(status: OperationStatus): boolean {
  * provisioner, which Boot Media fixes on an externally served network.
  */
 export const INSPECT_HARDWARE_WORKFLOW_KIND = "inspect-hardware";
+
+/**
+ * Task (and Workflow) kinds that take a Server through the `releasing` OS Provisioning State:
+ * `release-os` is a Release Workflow's Task and a Platform uninstall's release Job, and
+ * `recover-server` is Recover's Task (which releases a failed, deployed, or allocated Server) and
+ * an image verification's return-to-Ready Task.
+ */
+const RELEASING_KINDS = new Set(["release-os", "recover-server"]);
+
+/** How a Workflow relates to the release a Server is showing right now. */
+export type ServerReleaseWorkflowPhase = "in-flight" | "attention" | "ended";
+
+/** The Workflow behind a Server's `releasing` state, with how it currently stands. */
+export interface ServerReleaseWorkflow {
+  operation: Operation;
+  /**
+   * - `in-flight`: still following the provider (including `canceling`).
+   * - `attention`: parked in `requires_attention`, typically after Swallow stopped waiting for
+   *   Ready; it still holds the Server.
+   * - `ended`: finished after the Server entered `releasing`, so nothing in Swallow follows the
+   *   release any more.
+   */
+  phase: ServerReleaseWorkflowPhase;
+}
+
+/** Whether `operation` releases or recovers `serverId`, by a Task targeting it or its own kind. */
+function releasesServer(operation: Operation, serverId: string): boolean {
+  const steps = operation.steps ?? [];
+  if (steps.length === 0) {
+    return RELEASING_KINDS.has(operation.kind) && operation.targetServerIds.includes(serverId);
+  }
+  return steps.some(
+    (step) =>
+      RELEASING_KINDS.has(step.kind) &&
+      step.targets.some((target) => target.kind === "server" && target.id === serverId),
+  );
+}
+
+/**
+ * Picks the Workflow that explains why a Server shows `releasing`, from that Server's Workflows in
+ * any order. The Server projection carries no release Operation id, so this is how Server detail
+ * links the provider state to Swallow's durable work.
+ *
+ * Precedence: the newest in-flight Workflow, then the newest one in `requires_attention`, then the
+ * newest one that finished at or after `stateSince` (when Swallow first observed `releasing`). A
+ * Workflow that finished before that belongs to an earlier release and is never returned, and
+ * without a known `stateSince` no finished Workflow is returned. `undefined` means no Swallow
+ * Workflow covers this release: it was started in the provisioner or through the deprecated
+ * synchronous Release endpoint.
+ */
+export function findServerReleaseWorkflow(
+  operations: readonly Operation[],
+  serverId: string,
+  stateSince?: string,
+): ServerReleaseWorkflow | undefined {
+  const candidates = operations
+    .filter((operation) => releasesServer(operation, serverId))
+    .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+  const inFlight = candidates.find((operation) => {
+    const status = operationStatus(operation);
+    return isInFlightStatus(status) || status === "canceling";
+  });
+  if (inFlight) return { operation: inFlight, phase: "in-flight" };
+  const attention = candidates.find(
+    (operation) => operationStatus(operation) === "requires_attention",
+  );
+  if (attention) return { operation: attention, phase: "attention" };
+  if (!stateSince) return undefined;
+  const since = Date.parse(stateSince);
+  const ended = candidates.find((operation) => {
+    if (!isTerminalStatus(operationStatus(operation))) return false;
+    const finished = Date.parse(operation.finishedAt ?? operation.updatedAt);
+    return Number.isFinite(since) && Number.isFinite(finished) && finished >= since;
+  });
+  return ended ? { operation: ended, phase: "ended" } : undefined;
+}

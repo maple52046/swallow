@@ -18,6 +18,8 @@ const visualCases = [
   { name: 'server-detail-vm-power', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-detail-vm-boot-media', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-activity', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
+  { name: 'server-detail-releasing', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
+  { name: 'server-activity-releasing', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
@@ -60,8 +62,14 @@ async function setAppearance(page: Page, appearance: 'dark' | 'light') {
   }, { appearance })
 }
 
-async function prepareCapture(page: Page, appearance: 'dark' | 'light') {
-  await page.waitForLoadState('networkidle')
+/**
+ * Waits for a stable render before a screenshot. `settled` replaces the network-idle wait on routes
+ * that poll continuously (a Releasing Server refreshes its projection every 2 seconds, so the
+ * network never idles); it must resolve once the content under review has rendered.
+ */
+async function prepareCapture(page: Page, appearance: 'dark' | 'light', settled?: () => Promise<void>) {
+  if (settled) await settled()
+  else await page.waitForLoadState('networkidle')
   await page.evaluate(() => document.fonts.ready.then(() => true))
   if (appearance === 'dark') await expect(page.locator('html')).toHaveClass(/dark/)
   else await expect(page.locator('html')).not.toHaveClass(/dark/)
@@ -105,6 +113,14 @@ test.describe('dashboard visual review', () => {
           ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
           : {}),
         ...(visualCase.name === 'server-activity' ? { serverActivityItemCount: 12 } : {}),
+        // A release whose Workflow stopped waiting for Ready (its longest banner, with two links), and
+        // one no Swallow Workflow covers (the Activity empty states that explain where it is recorded).
+        ...(visualCase.name === 'server-detail-releasing'
+          ? { providerWorkServerIds: { 'srv-1': 'releasing' as const }, releaseWorkflows: { 'srv-1': 'requires_attention' as const } }
+          : {}),
+        ...(visualCase.name === 'server-activity-releasing'
+          ? { providerWorkServerIds: { 'srv-1': 'releasing' as const }, releaseWorkflows: { 'srv-1': null } }
+          : {}),
         // A lab VM that enlisted without a power driver, its inspection stopped for it (decision 054).
         ...(visualCase.name === 'server-detail-vm-power'
           ? { powerConfigurations: { 'srv-2': { driver: '' } }, powerAttentionServerIds: ['srv-2'] }
@@ -128,12 +144,26 @@ test.describe('dashboard visual review', () => {
 
       await page.goto(visualCase.path)
       await expect(page.getByRole('heading', { name: visualCase.heading, exact: true }).first()).toBeVisible()
-      await prepareCapture(page, appearance)
+      const releasing = visualCase.name.endsWith('-releasing')
+      const releaseBanner = page.getByRole('status').filter({ hasText: /Release needs attention|The provider is releasing this Server/ })
+      await prepareCapture(page, appearance, releasing
+        ? async () => {
+            await expect(releaseBanner).toBeVisible()
+            if (visualCase.name === 'server-activity-releasing') {
+              await expect(page.locator('#activity-related-operations')).toContainText('No Swallow Workflow covers the current release')
+            }
+          }
+        : undefined)
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
       // The full mobile page is too long to read at its own scale; the changed card is captured too.
       if (visualCase.name === 'server-detail-vm-boot-media') {
         await page.getByRole('region', { name: 'Power control' }).screenshot({
+          path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+        })
+      }
+      if (releasing) {
+        await releaseBanner.screenshot({
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }

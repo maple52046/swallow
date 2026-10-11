@@ -152,6 +152,16 @@ After Release is accepted, stay on the list: the row changes to **Releasing**
 while the provider works and then to **Ready** when the Server returns to the
 pool.
 
+On the Server detail page, a **Releasing** Server shows a banner that links to
+the Workflow following the release (a Release, a Recover, or a Platform
+uninstall that releases its Servers). If that Workflow needs attention or has
+ended while the provider is still releasing, the banner says so and also links
+to **Provider events**. If no Workflow covers the release—it was started in the
+provisioner—the banner links to **Provider events** only. Swallow cannot change
+the state of a Server the provider is releasing: Release, Recover, Lock, and
+Deploy OS stay unavailable until the provider returns it to **Ready** or reports
+a failure.
+
 ### Next-step icon and Actions menu
 
 When the state calls for a next step, a small icon follows it in the Deployment
@@ -164,7 +174,7 @@ first matching row applies.
 | Warning — **Review activity** | The Server is absent from provider inventory. | **Activity → Provider events** |
 | Rocket — **Deploy OS** | The Server is unlocked and **Ready**. | An in-page Deploy OS dialog with the Server fixed; it checks live readiness and networking before the OS image, Installation, and Networking steps |
 | Arrow — **View workflow** | A swallow deployment is running. | That deployment's Workflow |
-| Eye — **View activity** | Provider-only work is running. | **Activity → Provisioning tasks** for Releasing, **Related Operations** for Inspecting, **Provider events** otherwise |
+| Eye — **View activity** | Provider-only work is running. | **Activity → Related Operations** for Releasing and Inspecting, **Provider events** otherwise |
 | Arrow — **View workflow** | The last swallow deployment failed or needs attention. | That deployment's Workflow |
 | Warning — **Review activity** | The provider reports **Failed**, **Broken**, or **Rescue**. | **Activity → Provider events** |
 

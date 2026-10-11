@@ -521,14 +521,15 @@ export function serverContextAction(server: Server): ServerContextAction | null 
  * The Activity section that records running work Swallow has no Workflow link for. The Server
  * list carries no Provisioning Task or Operation id, so this targets a section, not one record:
  *
- * - Releasing: Provisioning tasks, where post-Release network cleanup is tracked.
- * - Inspecting, or a Swallow deployment without an Operation id: Related Operations, which lists
- *   the inspect-hardware or deployment Workflow.
+ * - Releasing, Inspecting, or a Swallow deployment without an Operation id: Related Operations,
+ *   which lists the release-os, inspect-hardware, or deployment Workflow. Releasing must not
+ *   target Provisioning tasks: those exist only for an opt-in static IP cleanup, so a default
+ *   Release would land on an empty section.
  * - Other provider work (Deploying, Testing): Provider events, the provisioner's own history.
  */
 function inProgressActivitySection(server: Server): ServerActivitySection {
-  if (server.provisioning?.state === 'releasing') return 'provisioning-tasks'
-  if (server.provisioning?.state === 'inspecting' || isServerDeploymentChanging(server)) return 'related-operations'
+  const state = server.provisioning?.state
+  if (state === 'releasing' || state === 'inspecting' || isServerDeploymentChanging(server)) return 'related-operations'
   return 'provider-events'
 }
 

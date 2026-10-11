@@ -134,6 +134,10 @@ function provisioningState(server: Server): string {
  * the action (recovery mutations require an unlocked Server); otherwise the action is offered
  * only when every target is in an allowed state, matching the backend's batch rejection so the
  * UI never offers a control the Operation would refuse.
+ *
+ * No allowed state is an in-progress one, so a target with running provider work (Releasing,
+ * Inspecting, Testing, Deploying) is reported as such instead of with the action's source
+ * states, which would read as if the Server were simply in the wrong state.
  */
 function stateGatedAvailability(
   targets: readonly Server[],
@@ -144,6 +148,15 @@ function stateGatedAvailability(
   if (locked.length > 0) {
     const name = locked[0].hostname ?? locked[0].id
     return { eligible: [], skipped: locked, disabledReason: `${name} is locked. Unlock it before starting this action.` }
+  }
+  const busy = targets.filter((server) => isProvisioningInProgress(server.provisioning?.state))
+  if (busy.length > 0) {
+    const name = busy[0].hostname ?? busy[0].id
+    return {
+      eligible: [],
+      skipped: busy,
+      disabledReason: `${name} is ${provisioningState(busy[0])}. Wait for the provider to finish before starting this action.`,
+    }
   }
   const ineligible = targets.filter((server) => !allows(server))
   if (ineligible.length > 0) {
