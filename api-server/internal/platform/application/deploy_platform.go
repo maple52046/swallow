@@ -990,7 +990,7 @@ func deploymentAPIAddressForPreparation(spec platformdomain.DeploymentSpec, targ
 	if err == nil {
 		return address, vip, nil
 	}
-	// DHCP addresses are learned after MAAS completes. The playbook resolves the initial
-	// control-plane inventory address at execution time.
+	// Automatic and DHCP addresses are learned after MAAS completes. The playbook resolves the
+	// initial control-plane inventory address at execution time.
 	return "", netip.Addr{}, nil
 }

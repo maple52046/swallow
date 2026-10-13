@@ -1061,6 +1061,77 @@ tbody .sw-sticky-selection { z-index: 2; }
   border-radius: var(--sw-radius);
 }
 
+/* Integration settings page: one tab's panel at a readable width under the page's tabs. */
+.sw-integration-settings-page__panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 64rem;
+}
+
+/* Subnet DNS: the collapsed list of host-internal subnets below the attached ones. */
+.sw-subnet-dns-other {
+  min-width: 0;
+  border-block-start: 1px solid var(--chakra-colors-border-muted);
+}
+
+.sw-subnet-dns-other > summary {
+  width: fit-content;
+  margin-block-start: 0.75rem;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-sm);
+  font-weight: var(--chakra-font-weights-semibold);
+}
+
+.sw-subnet-dns-other[open] > summary {
+  color: var(--chakra-colors-brand-fg);
+}
+
+.sw-subnet-dns-other > :not(summary) {
+  margin-block-start: 1rem;
+}
+
+/* Subnet DNS: one row per provisioner subnet, identity beside its editor; stacked when narrow. */
+.sw-subnet-dns-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sw-subnet-dns-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--chakra-colors-border-muted);
+}
+
+.sw-subnet-dns-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.sw-subnet-dns-row__identity,
+.sw-subnet-dns-row__editor {
+  min-width: 0;
+}
+
+.sw-subnet-dns-row__identity > p {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .sw-subnet-dns-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+}
+
 .sw-template-editor {
   display: flex;
   flex-direction: column;
@@ -1765,6 +1836,16 @@ tbody .sw-sticky-selection { z-index: 2; }
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+}
+
+/* Three choices (addressing mode) share one row; the narrow-screen rule below still stacks them. */
+.sw-deployment-choice-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* The addressing mode spans its form grid's full row so its three cards keep a readable width. */
+.sw-addressing-mode-field {
+  grid-column: 1 / -1;
 }
 
 .sw-deployment-choice-grid [data-part='item'] {

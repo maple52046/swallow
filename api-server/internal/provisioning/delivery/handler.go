@@ -48,6 +48,7 @@ type ProvisioningHandler struct {
 	power           *application.PowerConfigurationUseCase
 	vmEnrollment    application.VirtualMachineEnrollmentLauncher
 	httpProxy       *application.HTTPProxyUseCase
+	subnetDNS       *application.SubnetDNSUseCase
 }
 
 func NewProvisioningHandler(
@@ -860,8 +861,12 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid),
 		errors.Is(err, provisioningdomain.ErrInvalidPowerConfiguration),
 		errors.Is(err, provisioningdomain.ErrInvalidHTTPProxy),
+		errors.Is(err, provisioningdomain.ErrInvalidSubnetDNS),
 		errors.Is(err, provisioningdomain.ErrInvalidTag):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+
+	case errors.Is(err, provisioningdomain.ErrSubnetNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "The provisioner has no such subnet."))
 
 	case errors.Is(err, sitedomain.ErrSiteNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))
@@ -991,6 +996,12 @@ func (h *ProvisioningHandler) AttachPowerConfiguration(power *application.PowerC
 // tests, they answer 503 rather than panicking on a nil use case.
 func (h *ProvisioningHandler) AttachHTTPProxy(httpProxy *application.HTTPProxyUseCase) {
 	h.httpProxy = httpProxy
+}
+
+// AttachSubnetDNS enables the Subnet DNS routes (decision 058). Without it, as in legacy tests,
+// they answer 503 rather than panicking on a nil use case.
+func (h *ProvisioningHandler) AttachSubnetDNS(subnetDNS *application.SubnetDNSUseCase) {
+	h.subnetDNS = subnetDNS
 }
 
 // AttachVirtualMachineEnrollment enables the virtual-machine enrollment route (decision 055).

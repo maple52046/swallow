@@ -32,6 +32,17 @@ import { LegacyDeployOSRedirect, ProvisioningRedirect } from './presentation/pag
 import { InfrastructureRedirect } from './presentation/pages/infrastructure/InfrastructureRedirect'
 import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
 import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
+import {
+  IntegrationSettingsIndexRedirect,
+  IntegrationSettingsPage,
+} from './presentation/pages/infrastructure/IntegrationSettingsPage'
+import {
+  IntegrationConnectionTab,
+  IntegrationCredentialTab,
+  IntegrationGeneralTab,
+  IntegrationHttpProxyTab,
+  IntegrationSubnetDnsTab,
+} from './presentation/pages/infrastructure/IntegrationSettingsTabs'
 import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
 import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
 import { ApiKeysPage } from './presentation/pages/account/ApiKeysPage'
@@ -105,6 +116,20 @@ export const router = createBrowserRouter([
       { path: 'infrastructure', element: <InfrastructureRedirect /> },
       { path: 'infrastructure/sites', element: <SitesPage /> },
       { path: 'infrastructure/integrations', element: <IntegrationsPage /> },
+      // One Integration's settings, a tab per route (General, Connection, Credential, and for a
+      // MAAS provisioner its HTTP proxy and Subnet DNS).
+      {
+        path: 'infrastructure/integrations/:id',
+        element: <IntegrationSettingsPage />,
+        children: [
+          { index: true, element: <IntegrationSettingsIndexRedirect /> },
+          { path: 'general', element: <IntegrationGeneralTab /> },
+          { path: 'connection', element: <IntegrationConnectionTab /> },
+          { path: 'credential', element: <IntegrationCredentialTab /> },
+          { path: 'http-proxy', element: <IntegrationHttpProxyTab /> },
+          { path: 'subnet-dns', element: <IntegrationSubnetDnsTab /> },
+        ],
+      },
       { path: 'infrastructure/zones', element: <GroupingPage kind="zone" /> },
       { path: 'infrastructure/pools', element: <GroupingPage kind="pool" /> },
       // Account settings for the signed-in admin; not Site-scoped (SSH keys are per User).

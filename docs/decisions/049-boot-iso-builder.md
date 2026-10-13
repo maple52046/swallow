@@ -60,4 +60,6 @@ script that takes a DHCP lease from the site network, sets `next-server` to the 
 
 ## Current status
 
-Implemented.
+Implemented. [ADR 057](057-uefi-boot-iso-hand-off.md) refines it: UEFI firmware boots a GRUB
+built into the ISO that loads MAAS's per-MAC GRUB configuration instead of running iPXE, and a
+Boot ISO can be rebuilt in place.

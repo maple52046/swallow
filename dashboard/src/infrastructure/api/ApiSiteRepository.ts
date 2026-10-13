@@ -6,7 +6,7 @@ import type {
   UpdateSiteInput,
 } from '@/application/ports/SiteRepository'
 import type { Integration, IntegrationKind, OSImage, Site } from '@/domain/site/types'
-import { apiRequest } from './client'
+import { ApiRequestError, apiRequest } from './client'
 
 /**
  * Maps the Active Sites/Integrations HTTP contract onto the admin registry port.
@@ -44,6 +44,16 @@ export class ApiSiteRepository implements SiteRepository {
 
     const suffix = query.toString() ? `?${query.toString()}` : ''
     return apiRequest<Integration[]>(`/api/v1/integrations${suffix}`)
+  }
+
+  async getIntegration(id: string): Promise<Integration | null> {
+    try {
+      return await apiRequest<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`)
+    } catch (error) {
+      // The contract answers 404 for an unknown Integration; the port reports that as null.
+      if (error instanceof ApiRequestError && error.status === 404) return null
+      throw error
+    }
   }
 
   async createIntegration(input: CreateIntegrationInput): Promise<Integration> {

@@ -208,7 +208,7 @@ MAAS 讀到 machine 已關機後，大約 30 秒內就會通過等待。Server �
 時，**Inspect hardware** 會建立一個略過等待的 Workflow，因為你已確認 Server 現在可以開機。
 
 自動檢視只套用在 swallow 於最近 24 小時內第一次看到、且從未被 swallow 檢視過的
-Server。可在 Integration 對話框以 **Inspect newly enrolled Servers automatically**
+Server。可在 Integration 設定頁的 Connection 分頁以 **Inspect newly enrolled Servers automatically**
 逐一關閉；手動 Inspect hardware 仍可使用。Server 為 deployed、allocated、rescue，
 或正在進行其他 provider 工作或其他 Workflow 時，Inspect 會被拒絕。
 

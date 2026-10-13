@@ -83,7 +83,7 @@ data model.
 | Which machines exist; CPU, RAM, GPU, disk, NIC detail | Provisioner (MAAS, one per site) | Reconciler poll | Cached projection, with staleness |
 | OS deployment state and deployed OS | Provisioner | Reconciler poll | Cached projection |
 | Power state | Provisioner (via BMC) | Reconciler poll | Cached projection, short freshness window |
-| IP assignment, DHCP, DNS, subnets, VLANs | Provisioner | Read-only, as machine attributes | Nothing modelled |
+| IP assignment, DHCP, DNS, subnets, VLANs | Provisioner | Read-only, as machine attributes; a subnet's DNS servers are written through ([ADR 058](058-deployment-dhcp-and-subnet-dns.md)) | Nothing modelled |
 | Long-running execution: state, logs, leases, concurrency | Swallow embedded Ansible runtime | Internal application port | Owned operation metadata and retained local artifacts |
 | Playbooks, roles, automation content | Git and the signed Swallow release | Manifest allowlist | Immutable release bundle, not mutable database content |
 | Time-series metrics | Central TSDB | PromQL at query time | Nothing, ever |
@@ -157,7 +157,9 @@ capability, so the integrate-or-own test lands on "integrate, do not rebuild":
 - **No alert lifecycle of its own.** Acknowledging is creating an Alertmanager silence,
   not setting a field in Mongo.
 - **No mutable automation content in MongoDB.** Versioned playbooks belong in git and the signed release bundle; site configuration may select only manifest-listed names.
-- **No network management.** No DHCP, DNS, subnet, or VLAN modelling.
+- **No network management.** No DHCP, DNS, subnet, or VLAN modelling. (Refined by
+  [ADR 058](058-deployment-dhcp-and-subnet-dns.md): swallow edits a subnet's DNS servers through
+  the provisioner and stores nothing; it still models none of these.)
 - **No scheduler.** Deciding which workload runs where is Slurm's and Kubernetes' job.
 - **No hardware history or CMDB.** swallow may mirror a machine's *current* hardware as the
   provisioner reports it — enough to query the fleet by GPU model or vendor — but it does

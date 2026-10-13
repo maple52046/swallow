@@ -16,7 +16,7 @@ import { SectionHeader, StickyTableFrame } from '@/presentation/components/Opera
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
-import { deployTargetForEphemeral } from '@/domain/provisioning/types'
+import { DEPLOYMENT_NETWORK_MODE_LABELS, deployTargetForEphemeral } from '@/domain/provisioning/types'
 import { AddressingModeField } from '@/presentation/pages/provisioning/AddressingModeField'
 import { NetworkAssignmentsEditor } from '@/presentation/pages/provisioning/NetworkAssignmentsEditor'
 import { DeployTargetField } from '@/presentation/pages/provisioning/DeployTargetField'
@@ -25,6 +25,8 @@ import { UnsupportedDeployModeWarning } from '@/presentation/pages/provisioning/
 import {
   defaultDeployTargetForImage,
   osImageSupportsDeployTarget,
+  SITE_DHCP_SUGGESTION_TEXT,
+  suggestedBatchNetworkMode,
   toPlatformMachinePreparation,
   type OSDeploymentConfiguration,
 } from '@/presentation/pages/provisioning/osDeploymentFlow'
@@ -415,17 +417,15 @@ export function DeployPlatformWizardPage() {
         if (canceled) return
         setNetworkInspection(inspection)
         const nextAssignments: Record<string, { interfaceId: string; subnetId: string; ipAddress: string }> = {}
-        let anyStatic = false
         for (const target of inspection.targets) {
           nextAssignments[target.serverId] = {
             interfaceId: target.suggestion.interfaceId,
             subnetId: target.suggestion.subnetId,
             ipAddress: target.suggestion.ipAddress,
           }
-          if (target.suggestion.mode === 'static') anyStatic = true
         }
         setNetworkAssignments(nextAssignments)
-        setNetworkMode(anyStatic ? 'static' : 'automatic')
+        setNetworkMode(suggestedBatchNetworkMode(inspection.targets.map((target) => target.suggestion.mode)))
         setDefaultGateway(inspection.targets.some((target) => target.suggestion.defaultGateway))
       })
       .catch((error: Error) => {
@@ -457,6 +457,10 @@ export function DeployPlatformWizardPage() {
   // Review the same resolved mode that deployment submits, including a template-owned setting.
   const osDeploymentModeLabel = effectiveEphemeral ? 'Ephemeral (memory-backed)' : 'Persistent (disk-backed)'
   const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
+  // Explains a DHCP suggestion from the backend (ADR 058) whatever the current choice, so it also
+  // warns an operator who switches a site-DHCP batch back to Automatic.
+  const siteDhcpSuggested = networkInspection !== null &&
+    suggestedBatchNetworkMode(networkInspection.targets.map((target) => target.suggestion.mode)) === 'dhcp'
   const inspectedTargetKey = networkInspection?.targets.map((target) => target.serverId).sort().join(',') ?? ''
   const networkAssignmentsValid =
     !needsProvisioning ||
@@ -1155,10 +1159,10 @@ export function DeployPlatformWizardPage() {
                     disabled={Boolean(selectedTemplate)}
                     helperText={selectedTemplate
                       ? 'The selected template owns the addressing intent for machine preparation.'
-                      : undefined}
+                      : siteDhcpSuggested ? SITE_DHCP_SUGGESTION_TEXT : undefined}
                     onChange={(mode) => {
                       setNetworkMode(mode)
-                      if (mode === 'automatic') setDefaultGateway(false)
+                      if (mode !== 'static') setDefaultGateway(false)
                     }}
                   />
                   {effectiveNetworkMode === 'static' && (
@@ -1288,7 +1292,7 @@ export function DeployPlatformWizardPage() {
                         ? [
                             ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
                             ['OS deployment mode', osDeploymentModeLabel],
-                            ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
+                            ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : DEPLOYMENT_NETWORK_MODE_LABELS[effectiveNetworkMode]],
                           ]
                         : []),
                       ['Controllers', String(slurmControllerIds.length)],
@@ -1311,7 +1315,7 @@ export function DeployPlatformWizardPage() {
                         ? [
                             ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
                             ['OS deployment mode', osDeploymentModeLabel],
-                            ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : 'Automatic'],
+                            ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : DEPLOYMENT_NETWORK_MODE_LABELS[effectiveNetworkMode]],
                           ]
                         : []),
                       ['k0s version', k0sVersion],

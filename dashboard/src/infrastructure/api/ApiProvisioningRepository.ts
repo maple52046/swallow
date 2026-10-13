@@ -16,6 +16,7 @@ import type {
   EditServerTagsInput,
   HostEnrollmentBundle,
   ProvisionerHttpProxy,
+  ProvisionerSubnet,
   ProvisioningOperationReference,
   RecoverServersOperationInput,
   ReleaseServersOperationInput,
@@ -286,6 +287,14 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     );
   }
 
+  async rebuildBootISO(id: string): Promise<BootISO> {
+    // The rebuild takes no body: the API re-renders from the ISO's own stored rack address.
+    return apiRequest<BootISO>(
+      `/api/v1/provisioning/boot-isos/${encodeURIComponent(id)}/rebuild`,
+      { method: "POST" },
+    );
+  }
+
   async getHostEnrollmentBundle(
     integrationId: string,
     swallowUrl: string,
@@ -338,6 +347,33 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
         method: "PUT",
         cache: "no-store",
         body: JSON.stringify({ mode: input.mode, httpProxy: input.httpProxy }),
+      },
+    );
+  }
+
+  async listProvisionerSubnets(integrationId: string): Promise<ProvisionerSubnet[]> {
+    // Live provisioner state (contract provisioner-subnet-dns.md); the response wraps the list with
+    // its integrationId, which the caller already knows, so only the subnets are returned.
+    const response = await apiRequest<{ integrationId: string; subnets: ProvisionerSubnet[] }>(
+      `/api/v1/provisioning/integrations/${encodeURIComponent(integrationId)}/subnets`,
+      { cache: "no-store" },
+    );
+    return response.subnets;
+  }
+
+  async setProvisionerSubnetDnsServers(
+    integrationId: string,
+    subnetId: string,
+    dnsServers: string[],
+  ): Promise<ProvisionerSubnet> {
+    // The field is always sent, `[]` included: the contract refuses a body without it so a client
+    // cannot clear the setting by accident.
+    return apiRequest<ProvisionerSubnet>(
+      `/api/v1/provisioning/integrations/${encodeURIComponent(integrationId)}/subnets/${encodeURIComponent(subnetId)}/dns-servers`,
+      {
+        method: "PUT",
+        cache: "no-store",
+        body: JSON.stringify({ dnsServers }),
       },
     );
   }

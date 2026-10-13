@@ -107,6 +107,11 @@ type ProviderCapabilities struct {
 	// HTTPProxy reports that HTTPProxyReader and HTTPProxyWriter are implemented, i.e. the provider
 	// hands swallow the proxy it gives deployed machines and accepts a replacement (decision 056).
 	HTTPProxy bool
+	// SubnetDNS reports that NetworkConfigurationProvider lists subnets with their DNS servers and
+	// that SubnetDNSWriter and SubnetAttachmentReader are implemented, i.e. the provider accepts a
+	// replacement Subnet DNS for one of its subnets and tells attached subnets from host-internal
+	// ones (decision 058).
+	SubnetDNS bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the

@@ -429,6 +429,7 @@ func RunAPI(cfg config.APIConfig) error {
 	provisioningHandler.AttachPowerConfiguration(provisioningapp.NewPowerConfigurationUseCase(
 		serverRepo, providerFactory, provisioningdomain.DefaultPowerAdapters()))
 	provisioningHandler.AttachHTTPProxy(provisioningapp.NewHTTPProxyUseCase(providerFactory))
+	provisioningHandler.AttachSubnetDNS(provisioningapp.NewSubnetDNSUseCase(providerFactory))
 	// Virtual-machine enrollment (decision 055): libvirt domains of a Hypervisor are registered with
 	// the provisioner by an enroll-virtual-machines Workflow run by the worker.
 	provisioningHandler.AttachVirtualMachineEnrollment(virtualMachineEnrollmentLauncher{
@@ -933,12 +934,17 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// Integration setting (contract provisioner-http-proxy.md, decision 056).
 	provisioning.Get("/integrations/:id/http-proxy", deps.provisioning.GetHTTPProxy)
 	provisioning.Put("/integrations/:id/http-proxy", deps.provisioning.SetHTTPProxy)
+	// The provisioner's subnets and their DNS servers, read live and written through (contract
+	// provisioner-subnet-dns.md, decision 058).
+	provisioning.Get("/integrations/:id/subnets", deps.provisioning.ListSubnets)
+	provisioning.Put("/integrations/:id/subnets/:subnetId/dns-servers", deps.provisioning.SetSubnetDNSServers)
 	provisioning.Post("/virtual-machine-enrollments", deps.provisioning.EnrollVirtualMachines)
 	// Boot ISOs (decision 049): built here, mounted by a Server's Boot Media.
 	if deps.bootISOs != nil {
 		provisioning.Get("/boot-isos", deps.bootISOs.List)
 		provisioning.Post("/boot-isos", deps.bootISOs.Create)
 		provisioning.Get("/boot-isos/:id", deps.bootISOs.Get)
+		provisioning.Post("/boot-isos/:id/rebuild", deps.bootISOs.Rebuild)
 		provisioning.Delete("/boot-isos/:id", deps.bootISOs.Delete)
 	}
 

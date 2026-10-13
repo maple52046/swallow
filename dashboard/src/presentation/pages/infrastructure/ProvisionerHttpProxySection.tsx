@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Field, Heading, HStack, Input, Stack, Text } from '@chakra-ui/react'
+import { Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import {
   httpProxyModeNeedsUrl,
@@ -14,45 +14,37 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Select } from '@/presentation/components/ui/select'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 import { HTTP_PROXY_MODE_TEXT, httpProxyUrlProblem } from './httpProxyForm'
+import { ProvisionerLiveSettingSection } from './ProvisionerLiveSettingSection'
 
 const MODE_OPTIONS = PROVISIONER_HTTP_PROXY_MODES.map((mode) => ({ value: mode, label: HTTP_PROXY_MODE_TEXT[mode].label }))
 
 interface ProvisionerHttpProxySectionProps {
-  /** The stored MAAS provisioner Integration being edited; unsaved dialog edits do not apply here. */
+  /** The stored MAAS provisioner Integration whose settings page shows this tab. */
   integration: Pick<Integration, 'id' | 'hasCredential'>
 }
 
 /**
- * The HTTP Proxy section of the Edit integration dialog for a MAAS provisioner (contract
+ * The HTTP proxy tab of a MAAS provisioner's Integration settings page (contract
  * provisioner-http-proxy.md, decision 056): the proxy MAAS hands to the machines it deploys.
  *
- * The value is provisioner-owned and live. It is read from MAAS when the dialog opens and written
- * through by the section's own **Apply proxy** button, never by the dialog's Save, because it is not
+ * The value is provisioner-owned and live. It is read from MAAS when the tab opens and written
+ * through by the tab's own **Apply proxy** button, never by the General or Connection Save, because it is not
  * an Integration setting and a MAAS write must not hide inside the Integration PATCH. Without a
  * stored credential nothing is requested: the API could not reach MAAS, so the section says what is
  * missing instead of showing an error. Loading, the API's error, and a vanished Integration use the
- * shared AsyncSection states; the dialog itself stays usable whatever this section shows.
+ * shared AsyncSection states; the rest of the page stays usable whatever this tab shows.
  */
 export function ProvisionerHttpProxySection({ integration }: ProvisionerHttpProxySectionProps) {
   return (
-    <section className="sw-integration-settings" aria-labelledby="integration-http-proxy-title">
-      <Stack gap="1">
-        <Heading as="h3" size="sm" id="integration-http-proxy-title">
-          HTTP proxy
-        </Heading>
-        <Text fontSize="sm" color="fg.muted">
-          The proxy MAAS gives the machines it deploys for packages. It is read from and applied to MAAS directly, not
-          saved with this Integration.
-        </Text>
-      </Stack>
-      {integration.hasCredential ? (
-        <LiveHttpProxy integrationId={integration.id} />
-      ) : (
-        <Alert status="info" title="No MAAS API key">
-          Set the Integration&apos;s credential first; swallow reads and applies the proxy with it.
-        </Alert>
-      )}
-    </section>
+    <ProvisionerLiveSettingSection
+      integration={integration}
+      id="integration-http-proxy"
+      title="HTTP proxy"
+      description="The proxy MAAS gives the machines it deploys for packages. It is read from and applied to MAAS directly, not saved with this Integration."
+      credentialNeededFor="reads and applies the proxy"
+    >
+      <LiveHttpProxy integrationId={integration.id} />
+    </ProvisionerLiveSettingSection>
   )
 }
 
@@ -68,7 +60,7 @@ function LiveHttpProxy({ integrationId }: { integrationId: string }) {
       state={proxy}
       loadingRows={2}
       unavailableTitle="HTTP proxy settings are unavailable"
-      unavailableHint="Close the dialog and refresh the Integrations list."
+      unavailableHint="Return to the Integrations list and refresh it."
     >
       {(current) => <HttpProxyForm integrationId={integrationId} current={current} />}
     </AsyncSection>
@@ -113,7 +105,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
       showToast({ tone: 'success', title: 'HTTP proxy applied', description: 'MAAS uses it for deployments it starts from now on.' })
     } catch (caught) {
       // MAAS applies its settings one at a time, so a failure may follow a partial write; the
-      // message says what failed and reopening the dialog shows what MAAS now holds.
+      // message says what failed and reopening the tab shows what MAAS now holds.
       setError(caught instanceof Error ? caught.message : 'The HTTP proxy could not be applied.')
     } finally {
       setApplying(false)
@@ -158,8 +150,8 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
               disabled={applying}
               onChange={(event) => setUrl(event.target.value)}
               onKeyDown={(event) => {
-                // The dialog is a form whose Enter saves the Integration; Enter here applies the
-                // proxy instead, which is what an operator typing a proxy URL means.
+                // Enter applies the proxy, which is what an operator typing a proxy URL means; the
+                // default is suppressed so no enclosing form ever submits instead.
                 if (event.key !== 'Enter') return
                 event.preventDefault()
                 void apply()
@@ -175,7 +167,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
       </div>
       <HStack justify="space-between" gap="3" wrap="wrap">
         <Text role="status" fontSize="sm" color={dirty ? 'fg' : 'fg.muted'}>
-          {dirty ? 'Not applied yet. Save changes does not apply the proxy.' : `MAAS uses: ${appliedSummary}.`}
+          {dirty ? 'Not applied yet.' : `MAAS uses: ${appliedSummary}.`}
         </Text>
         <Button type="button" size="sm" colorPalette="brand" variant="outline" loading={applying} disabled={!canApply} onClick={() => void apply()}>
           Apply proxy

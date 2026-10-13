@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,7 +23,9 @@ type BootISOItem struct {
 	IntegrationID string `json:"integrationId"`
 	RackAddress   string `json:"rackAddress"`
 	ChainURL      string `json:"chainUrl"`
+	UEFIChainURL  string `json:"uefiChainUrl"`
 	Script        string `json:"script"`
+	GRUBConfig    string `json:"grubConfig"`
 	IPXEVersion   string `json:"ipxeVersion"`
 	SizeBytes     int64  `json:"sizeBytes"`
 	SHA256        string `json:"sha256"`
@@ -30,6 +33,8 @@ type BootISOItem struct {
 	InUseBy       int    `json:"inUseBy"`
 	CreatedAt     string `json:"createdAt"`
 	CreatedBy     string `json:"createdBy,omitempty"`
+	RebuiltAt     string `json:"rebuiltAt,omitempty"`
+	RebuiltBy     string `json:"rebuiltBy,omitempty"`
 }
 
 // BootISOBuilderItem reports whether this installation can build Boot ISOs, and why not.
@@ -52,13 +57,14 @@ type CreateBootISOInput struct {
 	CreatedBy     string
 }
 
-// BootISOService builds, lists, and deletes Boot ISOs (decision 049).
+// BootISOService builds, rebuilds, lists, and deletes Boot ISOs (decisions 049, 057).
 //
 // A build renders the fixed iPXE template for the given MAAS rack, packages it synchronously
 // through BootISOBuilder (seconds), and only then stores the record, so a listed Boot ISO always
-// has a file; a record that cannot be stored removes the file again. Deletion is refused while a
-// Server's enabled Boot Media uses the ISO (BootISOUsage). Authorization (admin) is the delivery
-// layer's job.
+// has a file; a record that cannot be stored removes the file again. A rebuild renders the
+// current template for the ISO's stored rack address and replaces the file under the same id.
+// Deletion is refused while a Server's enabled Boot Media uses the ISO (BootISOUsage).
+// Authorization (admin) is the delivery layer's job.
 type BootISOService struct {
 	isos         provisioningdomain.BootISORepository
 	integrations provisioningdomain.ProvisionerIntegrationReader
@@ -66,6 +72,9 @@ type BootISOService struct {
 	usage        provisioningdomain.BootISOUsage
 	now          func() time.Time
 	newID        func() string
+	// rebuilds serializes rebuilds: two rebuilds of the same id would race on its one file, and a
+	// rebuild is a rare operator action, so one at a time per process costs nothing.
+	rebuilds sync.Mutex
 }
 
 // NewBootISOService wires the service.
@@ -117,15 +126,16 @@ func (s *BootISOService) Create(ctx context.Context, input CreateBootISOInput) (
 	}
 
 	rack := strings.TrimSpace(input.RackAddress)
-	script := provisioningdomain.RenderBootISOScript(host, port)
+	content := provisioningdomain.RenderBootISOContent(host, port)
 	id := s.newID()
-	artifact, err := s.builder.Build(ctx, id, script)
+	artifact, err := s.builder.Build(ctx, id, content)
 	if err != nil {
 		return nil, err
 	}
 	iso := &provisioningdomain.BootISO{
-		ID: id, Name: name, IntegrationID: integration.ID,
-		RackAddress: rack, ChainURL: provisioningdomain.MAASChainURL(host, port), Script: script,
+		ID: id, Name: name, IntegrationID: integration.ID, RackAddress: rack,
+		ChainURL: provisioningdomain.MAASChainURL(host, port), UEFIChainURL: provisioningdomain.MAASUEFIChainURL(host, port),
+		Script: content.IPXEScript, GRUBConfig: content.GRUBConfig,
 		IPXEVersion: artifact.IPXEVersion, SizeBytes: artifact.SizeBytes, SHA256: artifact.SHA256,
 		CreatedAt: s.now(), CreatedBy: input.CreatedBy,
 	}
@@ -136,6 +146,51 @@ func (s *BootISOService) Create(ctx context.Context, input CreateBootISOInput) (
 		return nil, err
 	}
 	item := s.item(iso, integration.SiteID, 0)
+	return &item, nil
+}
+
+// Rebuild renders the current template for a Boot ISO's stored rack address, replaces its file
+// in place, and records the rebuild; the id and the URL Boot Media mounts stay the same, so every
+// Server using the ISO boots the new script from its next boot. rebuiltBy is the authenticated
+// operator's username.
+//
+// The file is replaced before the record. A failed build leaves both as they were; a record that
+// cannot be stored after a successful build leaves the new file served under the old record,
+// which repeating the rebuild converges. Errors: ErrBootISONotFound, ErrInvalidBootISO (a stored
+// rack address the current rules refuse), ErrBootISOBuilderUnavailable, ErrBootISOBuildFailed.
+func (s *BootISOService) Rebuild(ctx context.Context, id, rebuiltBy string) (*BootISOItem, error) {
+	s.rebuilds.Lock()
+	defer s.rebuilds.Unlock()
+
+	iso, err := s.isos.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	host, port, err := provisioningdomain.ParseMAASRackAddress(iso.RackAddress)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.builder.Available(); err != nil {
+		return nil, err
+	}
+	content := provisioningdomain.RenderBootISOContent(host, port)
+	artifact, err := s.builder.Build(ctx, iso.ID, content)
+	if err != nil {
+		return nil, err
+	}
+	rebuilt := *iso
+	rebuilt.ChainURL = provisioningdomain.MAASChainURL(host, port)
+	rebuilt.UEFIChainURL = provisioningdomain.MAASUEFIChainURL(host, port)
+	rebuilt.Script, rebuilt.GRUBConfig = content.IPXEScript, content.GRUBConfig
+	rebuilt.IPXEVersion, rebuilt.SizeBytes, rebuilt.SHA256 = artifact.IPXEVersion, artifact.SizeBytes, artifact.SHA256
+	rebuilt.RebuiltAt, rebuilt.RebuiltBy = s.now(), rebuiltBy
+	if err := s.isos.Update(ctx, &rebuilt); err != nil {
+		return nil, err
+	}
+	item, err := s.view(ctx, &rebuilt, map[string]string{})
+	if err != nil {
+		return nil, err
+	}
 	return &item, nil
 }
 
@@ -249,11 +304,23 @@ func (s *BootISOService) view(ctx context.Context, iso *provisioningdomain.BootI
 	return s.item(iso, siteID, inUse), nil
 }
 
+// item shapes a record for the API. uefiChainUrl is reported only for an ISO that carries a GRUB:
+// one built before decision 057 — including one rebuilt while its UEFI path still went through
+// iPXE, which recorded a UEFI URL but no GRUB — must read as needing a rebuild.
 func (s *BootISOService) item(iso *provisioningdomain.BootISO, siteID string, inUse int) BootISOItem {
-	return BootISOItem{
-		ID: iso.ID, Name: iso.Name, SiteID: siteID, IntegrationID: iso.IntegrationID,
-		RackAddress: iso.RackAddress, ChainURL: iso.ChainURL, Script: iso.Script, IPXEVersion: iso.IPXEVersion,
-		SizeBytes: iso.SizeBytes, SHA256: iso.SHA256, URL: s.builder.URL(iso.ID), InUseBy: inUse,
-		CreatedAt: wire.Time(iso.CreatedAt), CreatedBy: iso.CreatedBy,
+	uefiChainURL := ""
+	if iso.GRUBConfig != "" {
+		uefiChainURL = iso.UEFIChainURL
 	}
+	item := BootISOItem{
+		ID: iso.ID, Name: iso.Name, SiteID: siteID, IntegrationID: iso.IntegrationID,
+		RackAddress: iso.RackAddress, ChainURL: iso.ChainURL, UEFIChainURL: uefiChainURL,
+		Script: iso.Script, GRUBConfig: iso.GRUBConfig, IPXEVersion: iso.IPXEVersion,
+		SizeBytes: iso.SizeBytes, SHA256: iso.SHA256, URL: s.builder.URL(iso.ID), InUseBy: inUse,
+		CreatedAt: wire.Time(iso.CreatedAt), CreatedBy: iso.CreatedBy, RebuiltBy: iso.RebuiltBy,
+	}
+	if !iso.RebuiltAt.IsZero() {
+		item.RebuiltAt = wire.Time(iso.RebuiltAt)
+	}
+	return item
 }

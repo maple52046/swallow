@@ -117,21 +117,30 @@ development build 的實驗功能，CLI 與 API 則在每個 release 都提供�
   建議，只保留 hostname 或 IPv4，去除 region API 的 scheme、port 與 path。你可以將
   建議值改成 Site DHCP 網路實際能連到的位址。Dialog 會在 **Advanced settings**
   自動產生 `<integration-name>-ipxe`，並預覽
-  `http://<rack>:<port>/ipxe.cfg`（預設 port `5248`）。請自行確認 rack 位址；
+  `http://<rack>:<port>/ipxe.cfg`（預設 port `5248`），這是 BIOS 的 chain；UEFI 會
+  從同一個 rack 與 port 載入 `grub/grub.cfg-<mac>`。請自行確認 rack 位址；
   swallow 不會解析或連線測試。
-- **固定開機流程：** swallow 使用已驗證的 template render script，不提供 script
-  編輯。它從現場網路取得 DHCP、將 rack 設為 `next-server`，並直接 chain 到
-  `ipxe.cfg`，不使用 DHCP boot filename。DHCP 失敗時會 retry，Ctrl-B 可開啟
-  iPXE shell；UEFI chain 返回時則交給 firmware 的下一個 boot device。同步建置
-  通常只需數秒。
-- **開機相容性：** 每個 ISO 內含 iPXE v2.0.0，可在 BIOS 與 UEFI x86_64 開機。
-  iPXE 未簽署，因此使用它的 Server 必須關閉 Secure Boot。
+- **固定開機流程：** swallow 使用固定的 template render script，不提供 script
+  編輯。它從現場網路取得 DHCP、將 rack 設為 `next-server`，不使用 DHCP boot
+  filename，接著由韌體決定開機程式：BIOS 執行 iPXE，chain 到 rack 的 `ipxe.cfg`
+  （DHCP 失敗時會 retry，Ctrl-B 可開啟 iPXE shell）；UEFI 執行 ISO 內建的 GRUB，
+  自行取得 DHCP 租約後載入 rack 的 `grub/grub.cfg-<mac>`，也就是 MAAS 原生的 UEFI
+  路徑；MAAS 沒有接手開機時就交給 firmware 的下一個 boot device。這很重要，因為
+  MAAS 只有看到 UEFI 開機時才會給 Machine EFI 系統分割區；少了它，UEFI 的 disk
+  deploy 會在安裝 GRUB 時失敗。同步建置通常只需數秒。
+- **範本變更後要 Rebuild：** 標示 **UEFI needs rebuild** 的 card 是在 UEFI 分流之前
+  建置的。按 **Rebuild**（或 **More → Rebuild Boot ISO**）：swallow 會為同一個 rack
+  render 目前的 script，並在同一個 URL 取代檔案，因此不需要改任何 Boot Media 設定。
+  之後，使用它的每台 UEFI Server 在下次部署前要重新 inspect，讓 MAAS 記錄 UEFI 開機，
+  並以含 EFI 系統分割區的磁碟配置重建。
+- **開機相容性：** 每個 ISO 內含 BIOS 用的 iPXE v2.0.0 與 UEFI x86_64 用的 GRUB。
+  兩者都未簽署，因此使用它的 Server 必須關閉 Secure Boot。
 - **管理少量設定：** 頁面不再使用 inventory table，而是每個已設定 ISO 一張 card。
   Card 會分開顯示 **Served**／**Not served** 與 **Used by N Servers**／**Not in
   use**，連到 provisioner Integration，並在 all-sites scope 顯示 Site。
-  **Download** 固定顯示；**Technical details** 收納 ID、rack 與 chain URL、ISO
-  URL、SHA-256、iPXE version、大小和建置資訊。**More** 可開啟 render 後的 iPXE
-  script 或 Delete。只要仍有 enabled Server 使用，Delete 就會停用或被拒絕；
+  **Download** 固定顯示；**Technical details** 收納 ID、rack、BIOS 與 UEFI chain
+  URL、ISO URL、SHA-256、iPXE version、大小，以及建置與 rebuild 資訊。**More** 可開啟
+  render 後的開機 script（BIOS 的 iPXE、UEFI 的 GRUB）、Rebuild 或 Delete。只要仍有 enabled Server 使用，Delete 就會停用或被拒絕；
   刪除後會移除檔案，原本的 URL 也會停止運作。
 - **逐台選擇：** 在 **Server → Summary → Management controller → Boot media**，
   **Enable Boot Media** 必須選擇為該 Server 自己的 provisioner 建置的 Boot ISO。
@@ -200,8 +209,22 @@ state。若 memory-backed state 或 active work 可能遺失，必須閱讀 powe
 
 ## Network inspection
 
-Network configuration 讀寫 provider-owned interface 與 link。Automatic addressing
-是要求 provider auto-assignment，不是由 swallow 另建 address allocator。
+Network configuration 讀寫 provider-owned interface 與 link。部署時從三種
+addressing mode 擇一：
+
+- **Automatic** 要求 provider auto-assignment：由 MAAS 分配並記錄固定位址，不是由
+  swallow 另建 address allocator。
+- **DHCP** 由網路自己的 DHCP server 指派位址、gateway 與 DNS。適用於 DHCP 不是由
+  provisioner 提供的網路，例如透過 Boot ISO 開機的 Server：在這類網路上，Automatic
+  會配出站點 DHCP server 不知道的位址。Deploy OS 對話框會對這類 subnet 建議 DHCP
+  並說明原因。
+- **Static** 使用你為每台 Server 指定的位址。
+
+Automatic 與 Static 部署的 DNS servers 來自 subnet 的 **Subnet DNS**；subnet 沒有設定時
+使用 MAAS 自己的 DNS。可在 MAAS Integration 設定頁的 **Subnet DNS** 分頁
+（Infrastructure → Integrations → 該 Integration）逐一設定：每個 subnet 的 **Apply DNS** 直接寫入
+MAAS、不會隨 Integration 儲存，而且只影響 MAAS 之後開始的部署。同一份清單也標示
+MAAS 是否負責該 subnet 的 DHCP。
 
 ## CLI
 

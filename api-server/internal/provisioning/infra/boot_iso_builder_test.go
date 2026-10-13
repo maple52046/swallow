@@ -28,49 +28,84 @@ func fakeIPXEDir(t *testing.T) string {
 	return dir
 }
 
-// fakeTools makes every tool and the ISOLINUX boot sector look installed.
+// fakeTools makes every tool, the ISOLINUX boot sector, and the GRUB modules look installed.
 func fakeTools(b *GenfsimgBuilder) {
 	b.lookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	realStat := b.statFile
 	b.statFile = func(path string) (os.FileInfo, error) {
-		if path == isolinuxCandidates[0] {
+		if path == isolinuxCandidates[0] || path == filepath.Join(grubModuleDir, "normal.mod") {
 			return realStat(filepath.Join(b.ipxeDir, "ipxe.lkrn"))
 		}
 		return realStat(path)
 	}
 }
 
-// A build runs genfsimg with the script and both iPXE binaries in a private directory, then moves
-// the ISO under its id and reports its size, digest and the iPXE version.
+// fakeBuildRunner stands in for grub-mkstandalone and genfsimg: it records the GRUB configuration
+// and iPXE script each was given and writes the image each would produce, with iso as the ISO's
+// bytes. failGenfsimg makes genfsimg fail with a tool-like output.
+type fakeBuildRunner struct {
+	t            *testing.T
+	iso          string
+	failGenfsimg bool
+	grubArgs     []string
+	genfsimgArgs []string
+	grubConfig   string
+	script       string
+}
+
+func (f *fakeBuildRunner) run(_ context.Context, workDir, name string, args ...string) ([]byte, error) {
+	if !strings.HasPrefix(filepath.Base(workDir), ".build-") {
+		f.t.Errorf("%s ran in %s, want the private build directory", name, workDir)
+	}
+	if name == "grub-mkstandalone" {
+		f.grubArgs = args
+		config := strings.TrimPrefix(args[len(args)-1], "boot/grub/grub.cfg=")
+		raw, err := os.ReadFile(config)
+		if err != nil {
+			return nil, err
+		}
+		f.grubConfig = string(raw)
+		return nil, os.WriteFile(args[5], []byte("GRUB-EFI"), 0o600)
+	}
+	f.genfsimgArgs = append([]string{name}, args...)
+	raw, err := os.ReadFile(args[3])
+	if err != nil {
+		return nil, err
+	}
+	f.script = string(raw)
+	if f.failGenfsimg {
+		return []byte("line 1\nline 2\nline 3\nxorriso : FAILURE : no space\n"), errors.New("exit status 1")
+	}
+	return nil, os.WriteFile(args[1], []byte(f.iso), 0o600)
+}
+
+var testBootISOContent = provisioningdomain.BootISOContent{IPXEScript: "#!ipxe\nshell\n", GRUBConfig: "net_bootp\n"}
+
+// A build packs the GRUB configuration into a standalone x86_64-efi GRUB, runs genfsimg with the
+// iPXE script, the BIOS iPXE kernel, and that GRUB in a private directory, then moves the ISO under
+// its id and reports its size, digest and the iPXE version.
 func TestGenfsimgBuilderBuild(t *testing.T) {
 	dir, ipxeDir := t.TempDir(), fakeIPXEDir(t)
 	builder := NewGenfsimgBuilder(dir, ipxeDir, "http://192.0.2.1/")
 	fakeTools(builder)
-	var gotArgs []string
-	var gotScript string
-	builder.run = func(_ context.Context, workDir, name string, args ...string) ([]byte, error) {
-		gotArgs = append([]string{name}, args...)
-		raw, err := os.ReadFile(args[3])
-		if err != nil {
-			return nil, err
-		}
-		gotScript = string(raw)
-		if filepath.Dir(args[1]) != workDir || !strings.HasPrefix(filepath.Base(workDir), ".build-") {
-			t.Errorf("output %s not in the private build directory %s", args[1], workDir)
-		}
-		return nil, os.WriteFile(args[1], []byte("ISO-BYTES"), 0o600)
-	}
+	runner := &fakeBuildRunner{t: t, iso: "ISO-BYTES"}
+	builder.run = runner.run
 
-	artifact, err := builder.Build(context.Background(), testBootISOID, "#!ipxe\nshell\n")
+	artifact, err := builder.Build(context.Background(), testBootISOID, testBootISOContent)
 	if err != nil {
 		t.Fatalf("Build error = %v", err)
 	}
-	want := []string{filepath.Join(ipxeDir, "genfsimg"), "-o", "", "-s", "", filepath.Join(ipxeDir, "ipxe.lkrn"), filepath.Join(ipxeDir, "ipxe.efi")}
-	if len(gotArgs) != len(want) || gotArgs[0] != want[0] || gotArgs[1] != "-o" || gotArgs[3] != "-s" || gotArgs[5] != want[5] || gotArgs[6] != want[6] {
-		t.Errorf("genfsimg args = %v, want %v", gotArgs, want)
+	if len(runner.grubArgs) < 6 || runner.grubArgs[0] != "-O" || runner.grubArgs[1] != "x86_64-efi" || runner.grubArgs[3] != grubModuleDir ||
+		filepath.Base(runner.grubArgs[5]) != "grubx64.efi" || runner.grubConfig != "net_bootp\n" {
+		t.Errorf("grub-mkstandalone args = %v with config %q, want an x86_64-efi image embedding the GRUB configuration", runner.grubArgs, runner.grubConfig)
 	}
-	if filepath.Base(gotArgs[4]) != "autoexec.ipxe" || gotScript != "#!ipxe\nshell\n" {
-		t.Errorf("script %s = %q, want autoexec.ipxe with the rendered script", gotArgs[4], gotScript)
+	got := runner.genfsimgArgs
+	if len(got) != 7 || got[0] != filepath.Join(ipxeDir, "genfsimg") || got[1] != "-o" || got[3] != "-s" ||
+		got[5] != filepath.Join(ipxeDir, "ipxe.lkrn") || got[6] != runner.grubArgs[5] {
+		t.Errorf("genfsimg args = %v, want the iPXE BIOS kernel and the built GRUB", got)
+	}
+	if filepath.Base(got[4]) != "autoexec.ipxe" || runner.script != "#!ipxe\nshell\n" {
+		t.Errorf("script %s = %q, want autoexec.ipxe with the rendered script", got[4], runner.script)
 	}
 	sum := sha256.Sum256([]byte("ISO-BYTES"))
 	if artifact.SizeBytes != 9 || artifact.SHA256 != hex.EncodeToString(sum[:]) || artifact.IPXEVersion != "v2.0.0 (12798ec)" {
@@ -95,16 +130,43 @@ func TestGenfsimgBuilderBuild(t *testing.T) {
 	}
 }
 
+// Building an id that already has an ISO replaces the file in place, and a rebuild whose tool
+// fails keeps serving the previous file.
+func TestGenfsimgBuilderRebuild(t *testing.T) {
+	dir := t.TempDir()
+	builder := NewGenfsimgBuilder(dir, fakeIPXEDir(t), "http://192.0.2.1")
+	fakeTools(builder)
+	runner := &fakeBuildRunner{t: t, iso: "ISO-V1"}
+	builder.run = runner.run
+	if _, err := builder.Build(context.Background(), testBootISOID, testBootISOContent); err != nil {
+		t.Fatalf("first Build error = %v", err)
+	}
+	runner.iso = "ISO-V2"
+	if _, err := builder.Build(context.Background(), testBootISOID, testBootISOContent); err != nil {
+		t.Fatalf("rebuild error = %v", err)
+	}
+	path, _ := builder.FilePath(testBootISOID)
+	if raw, err := os.ReadFile(path); err != nil || string(raw) != "ISO-V2" {
+		t.Errorf("after rebuild the file holds %q, %v; want the new ISO", raw, err)
+	}
+
+	runner.failGenfsimg = true
+	if _, err := builder.Build(context.Background(), testBootISOID, testBootISOContent); !errors.Is(err, provisioningdomain.ErrBootISOBuildFailed) {
+		t.Fatalf("failed rebuild error = %v, want ErrBootISOBuildFailed", err)
+	}
+	if raw, err := os.ReadFile(path); err != nil || string(raw) != "ISO-V2" {
+		t.Errorf("after a failed rebuild the file holds %q, %v; want the previous ISO", raw, err)
+	}
+}
+
 // A failed genfsimg run reports the tool's last lines and leaves nothing behind; a malformed id
 // never reaches the file system.
 func TestGenfsimgBuilderBuildFailures(t *testing.T) {
 	dir := t.TempDir()
 	builder := NewGenfsimgBuilder(dir, fakeIPXEDir(t), "http://192.0.2.1")
 	fakeTools(builder)
-	builder.run = func(context.Context, string, string, ...string) ([]byte, error) {
-		return []byte("line 1\nline 2\nline 3\nxorriso : FAILURE : no space\n"), errors.New("exit status 1")
-	}
-	_, err := builder.Build(context.Background(), testBootISOID, "#!ipxe\n")
+	builder.run = (&fakeBuildRunner{t: t, failGenfsimg: true}).run
+	_, err := builder.Build(context.Background(), testBootISOID, testBootISOContent)
 	if !errors.Is(err, provisioningdomain.ErrBootISOBuildFailed) || !strings.Contains(err.Error(), "no space") || strings.Contains(err.Error(), "line 1") {
 		t.Errorf("Build error = %v, want ErrBootISOBuildFailed with the last output lines", err)
 	}
@@ -113,7 +175,7 @@ func TestGenfsimgBuilderBuildFailures(t *testing.T) {
 	}
 
 	for _, id := range []string{"../escape", "", "6B3F0C1E-4F7A-4F53-9D2A-2A7F1D0C9E11"} {
-		if _, err := builder.Build(context.Background(), id, "#!ipxe\n"); !errors.Is(err, provisioningdomain.ErrBootISOBuildFailed) {
+		if _, err := builder.Build(context.Background(), id, testBootISOContent); !errors.Is(err, provisioningdomain.ErrBootISOBuildFailed) {
 			t.Errorf("Build(%q) error = %v, want ErrBootISOBuildFailed", id, err)
 		}
 		if _, ok := builder.FilePath(id); ok {
@@ -132,7 +194,23 @@ func TestGenfsimgBuilderAvailable(t *testing.T) {
 		{name: "ready", mutate: func(*GenfsimgBuilder) {}},
 		{name: "no base URL", mutate: func(b *GenfsimgBuilder) { b.baseURL = "" }, reason: "SWALLOW_API_BOOT_MEDIA_BASE_URL"},
 		{name: "no directory", mutate: func(b *GenfsimgBuilder) { b.dir = "" }, reason: "SWALLOW_API_BOOT_MEDIA_DIR"},
-		{name: "missing asset", mutate: func(b *GenfsimgBuilder) { _ = os.Remove(filepath.Join(b.ipxeDir, "ipxe.efi")) }, reason: "ipxe.efi"},
+		{name: "missing asset", mutate: func(b *GenfsimgBuilder) { _ = os.Remove(filepath.Join(b.ipxeDir, "ipxe.lkrn")) }, reason: "ipxe.lkrn"},
+		{name: "no grub-mkstandalone", mutate: func(b *GenfsimgBuilder) {
+			b.lookPath = func(name string) (string, error) {
+				if name == "grub-mkstandalone" {
+					return "", exec.ErrNotFound
+				}
+				return "/usr/bin/" + name, nil
+			}
+		}, reason: "grub-mkstandalone"},
+		{name: "no GRUB modules", mutate: func(b *GenfsimgBuilder) {
+			b.statFile = func(path string) (os.FileInfo, error) {
+				if path == filepath.Join(grubModuleDir, "normal.mod") {
+					return nil, os.ErrNotExist
+				}
+				return os.Stat(filepath.Join(b.ipxeDir, "ipxe.lkrn"))
+			}
+		}, reason: "grub-efi-amd64-bin"},
 		{name: "no mtools", mutate: func(b *GenfsimgBuilder) {
 			b.lookPath = func(name string) (string, error) {
 				if name == "mformat" {
@@ -197,8 +275,9 @@ func TestGenfsimgBuilderUnavailableReasonIsOneSentence(t *testing.T) {
 	}
 }
 
-// With real iPXE assets (SWALLOW_TEST_IPXE_DIR, as in the api-server image) and the packaging
-// tools installed, the builder produces an ISO that carries the script as autoexec.ipxe.
+// With real iPXE assets (SWALLOW_TEST_IPXE_DIR, as in the api-server image), GRUB, and the
+// packaging tools installed, the builder produces an ISO that carries the iPXE script as
+// autoexec.ipxe and a GRUB embedding the UEFI configuration (stored uncompressed in its memdisk).
 func TestGenfsimgBuilderRealBuild(t *testing.T) {
 	ipxeDir := os.Getenv("SWALLOW_TEST_IPXE_DIR")
 	if ipxeDir == "" {
@@ -208,8 +287,8 @@ func TestGenfsimgBuilderRealBuild(t *testing.T) {
 	if err := builder.Available(); err != nil {
 		t.Skipf("builder unavailable: %v", err)
 	}
-	script := provisioningdomain.RenderBootISOScript("10.1.0.5", provisioningdomain.DefaultMAASRackPort)
-	artifact, err := builder.Build(context.Background(), testBootISOID, script)
+	content := provisioningdomain.RenderBootISOContent("10.1.0.5", provisioningdomain.DefaultMAASRackPort)
+	artifact, err := builder.Build(context.Background(), testBootISOID, content)
 	if err != nil {
 		t.Fatalf("Build error = %v", err)
 	}
@@ -222,6 +301,9 @@ func TestGenfsimgBuilderRealBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(raw), "set maas_rack 10.1.0.5") {
-		t.Error("the ISO does not carry the rendered script")
+		t.Error("the ISO does not carry the rendered iPXE script")
+	}
+	if !strings.Contains(string(raw), "set maas_rack=10.1.0.5") || !strings.Contains(string(raw), "configfile /grub/grub.cfg-$mac") {
+		t.Error("the ISO does not carry a GRUB with the rendered UEFI configuration")
 	}
 }

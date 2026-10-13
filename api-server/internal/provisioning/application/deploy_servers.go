@@ -201,12 +201,9 @@ func (uc *DeployServersUseCase) Execute(
 			for index := range jobs {
 				server := resolved.servers[index]
 				assignment := resolved.assignments[index]
-				// Automatic addressing is realized by provider auto-assign (a recorded,
-				// stable IP), not raw DHCP; static keeps the caller-chosen address.
-				linkMode := provisioningdomain.NetworkLinkAuto
-				if resolved.networkMode == provisioningdomain.DeploymentNetworkStatic {
-					linkMode = provisioningdomain.NetworkLinkStatic
-				}
+				// resolveDeployment normalized the mode, so LinkMode always maps it: auto-assign
+				// for Automatic, a DHCP link for DHCP, and the caller's address for Static.
+				linkMode, _ := resolved.networkMode.LinkMode()
 				_, configureErr := resolved.networkProvider.ConfigureNetworkLink(
 					ctx,
 					server.Source.ProviderMachineID,
@@ -346,12 +343,12 @@ func (uc *DeployServersUseCase) preflight(
 		subnetID = strings.TrimSpace(input.Network.SubnetID)
 		defaultGateway = input.Network.DefaultGateway
 	}
-	// Normalize folds an empty value and the deprecated "dhcp" alias into Automatic, so
-	// downstream code and the provider adapter only ever see automatic or static.
+	// Normalize folds an empty value into Automatic, so downstream code and the provider
+	// adapter only ever see automatic, dhcp, or static.
 	normalizedMode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(string(networkMode))
 	if !ok {
 		return nil, fmt.Errorf(
-			"%w: network.mode must be automatic or static",
+			"%w: network.mode must be automatic, dhcp, or static",
 			provisioningdomain.ErrInvalidDeploymentBatch,
 		)
 	}

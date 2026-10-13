@@ -322,6 +322,12 @@ func networkDisabledReason(server *serverdomain.Server) string {
 	}
 }
 
+// suggestNetwork derives the non-authoritative deployment default for one Server from its live
+// network (provisioning.md, Network Inspection). The boot NIC is preferred; one explicit Static
+// link is preserved as Static intent. Otherwise the subnet is the NIC's one linked subnet or its
+// sole managed one, and the mode is DHCP when the provisioner serves no DHCP on that subnet —
+// auto-assign there would allocate without knowing the site's DHCP pool (ADR 058) — and
+// Automatic everywhere else, including when no subnet could be chosen.
 func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestion {
 	suggestion := NetworkSuggestion{Mode: provisioningdomain.DeploymentNetworkAutomatic}
 	var selected *provisioningdomain.NetworkInterface
@@ -367,7 +373,7 @@ func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestio
 		for subnetID := range subnets {
 			suggestion.SubnetID = subnetID
 		}
-		return suggestion
+		return withSiteDHCPMode(suggestion, selected)
 	}
 	managed := ""
 	for _, subnet := range selected.AvailableSubnets {
@@ -380,6 +386,21 @@ func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestio
 		managed = subnet.ID
 	}
 	suggestion.SubnetID = managed
+	return withSiteDHCPMode(suggestion, selected)
+}
+
+// withSiteDHCPMode switches a non-Static suggestion to DHCP when its subnet is one the selected
+// NIC can use and the provisioner serves no DHCP on it. A subnet missing from the NIC's available
+// subnets is unknown, so the suggestion stays Automatic rather than guessing.
+func withSiteDHCPMode(suggestion NetworkSuggestion, iface *provisioningdomain.NetworkInterface) NetworkSuggestion {
+	if suggestion.SubnetID == "" {
+		return suggestion
+	}
+	for _, subnet := range iface.AvailableSubnets {
+		if subnet.ID == suggestion.SubnetID && !subnet.ProvisionerDHCP {
+			suggestion.Mode = provisioningdomain.DeploymentNetworkDHCP
+		}
+	}
 	return suggestion
 }
 

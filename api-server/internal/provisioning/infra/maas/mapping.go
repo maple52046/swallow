@@ -1,6 +1,8 @@
 package maas
 
 import (
+	"encoding/json"
+	"strconv"
 	"strings"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
@@ -80,9 +82,15 @@ type hardwareInfoJSON struct {
 // interfaceJSON is the MAAS network shape translated by network.go. IDs remain
 // opaque outside the adapter even though MAAS serializes them as integers.
 type interfaceJSON struct {
-	ID            int                 `json:"id"`
-	Name          string              `json:"name"`
-	Type          string              `json:"type"`
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	// Parents names the interfaces a bond, VLAN, or bridge is built on; empty for a NIC and for a
+	// host-internal bridge such as docker0.
+	Parents []string `json:"parents"`
+	// Vendor is the NIC's hardware vendor as commissioning read it; empty for software interfaces
+	// such as veth pairs, which MAAS still types as physical, and for controller interfaces.
+	Vendor        string              `json:"vendor"`
 	MACAddress    string              `json:"mac_address"`
 	Enabled       bool                `json:"enabled"`
 	LinkConnected *bool               `json:"link_connected"`
@@ -98,17 +106,55 @@ type interfaceLinkJSON struct {
 	Subnet    *subnetJSON `json:"subnet"`
 }
 
+// vlanJSON is the subset of a MAAS VLAN swallow reads, nested in interfaces and subnets. DHCPOn
+// is MAAS serving DHCP on the VLAN itself; RelayVLAN, when not null, names the VLAN whose MAAS
+// DHCP is relayed to this one. Either means the provisioner serves the VLAN's DHCP.
 type vlanJSON struct {
-	ID int `json:"id"`
+	ID        int             `json:"id"`
+	DHCPOn    bool            `json:"dhcp_on"`
+	RelayVLAN json.RawMessage `json:"relay_vlan"`
 }
 
+// providerDHCP reports whether MAAS serves DHCP on the VLAN, directly or through a relay. A nil
+// VLAN is a subnet MAAS reported without one, which swallow treats as not served.
+func (v *vlanJSON) providerDHCP() bool {
+	if v == nil {
+		return false
+	}
+	relay := strings.TrimSpace(string(v.RelayVLAN))
+	return v.DHCPOn || (relay != "" && relay != "null")
+}
+
+// subnetJSON is the subset of a MAAS subnet swallow reads. DNSServers is the subnet's Subnet DNS
+// (ADR 058); MAAS reports it as a list of address strings, empty when unset.
 type subnetJSON struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	CIDR      string    `json:"cidr"`
-	GatewayIP string    `json:"gateway_ip"`
-	Managed   bool      `json:"managed"`
-	VLAN      *vlanJSON `json:"vlan"`
+	ID         int       `json:"id"`
+	Name       string    `json:"name"`
+	CIDR       string    `json:"cidr"`
+	GatewayIP  string    `json:"gateway_ip"`
+	Managed    bool      `json:"managed"`
+	DNSServers []string  `json:"dns_servers"`
+	VLAN       *vlanJSON `json:"vlan"`
+}
+
+// toDomainSubnet maps a MAAS subnet into swallow's NetworkSubnet, the one shape both the subnet
+// catalog and a NIC's available subnets use.
+func toDomainSubnet(subnet subnetJSON) provisioningdomain.NetworkSubnet {
+	var dnsServers []string
+	for _, server := range subnet.DNSServers {
+		if trimmed := strings.TrimSpace(server); trimmed != "" {
+			dnsServers = append(dnsServers, trimmed)
+		}
+	}
+	return provisioningdomain.NetworkSubnet{
+		ID:              strconv.Itoa(subnet.ID),
+		Name:            subnet.Name,
+		CIDR:            subnet.CIDR,
+		GatewayAddress:  subnet.GatewayIP,
+		Managed:         subnet.Managed,
+		ProvisionerDHCP: subnet.VLAN.providerDHCP(),
+		DNSServers:      dnsServers,
+	}
 }
 
 type bootResourceJSON struct {

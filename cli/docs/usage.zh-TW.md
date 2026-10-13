@@ -418,7 +418,8 @@ swallow provisioning templates user-data set tmpl1 -f userdata.json           # 
 swallow provisioning templates user-data clear tmpl1
 
 # Boot ISO：從站點網路的 DHCP 取得位址後，chain 到 provisioner 的 MAAS rack
-# （http://<rack>:<port 或 5248>/ipxe.cfg）的 iPXE ISO；建置只需數秒
+# （BIOS 以 iPXE 到 ipxe.cfg、UEFI 以 GRUB 到 grub/grub.cfg-<mac>，預設 port 5248）的 ISO；建置只需數秒。
+# 原地 rebuild 目前只能在 Dashboard／API 進行（CLI 尚無對應指令）。
 swallow provisioning boot-isos list --site-id site1            # 也會說明此安裝能否建置
 swallow provisioning boot-isos create --integration int1 --name tainan-rack --rack 10.0.0.2
 swallow provisioning boot-isos get iso1                        # 含產生的 iPXE script
@@ -460,7 +461,7 @@ settings:
 userData:
   mode: inherit          # inherit | replace | omit
 network:
-  mode: automatic        # automatic | static
+  mode: automatic        # automatic | dhcp | static
 ```
 
 `verify.yaml`：

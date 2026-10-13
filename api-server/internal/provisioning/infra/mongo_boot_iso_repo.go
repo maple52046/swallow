@@ -22,12 +22,18 @@ type bootISODoc struct {
 	Name           string    `bson:"name"`
 	RackAddress    string    `bson:"rackAddress"`
 	ChainURL       string    `bson:"chainUrl"`
+	UEFIChainURL   string    `bson:"uefiChainUrl,omitempty"`
 	Script         string    `bson:"script"`
+	GRUBConfig     string    `bson:"grubConfig,omitempty"`
 	IPXEVersion    string    `bson:"ipxeVersion"`
 	SizeBytes      int64     `bson:"sizeBytes"`
 	SHA256         string    `bson:"sha256"`
 	CreatedAt      time.Time `bson:"createdAt"`
 	CreatedBy      string    `bson:"createdBy,omitempty"`
+	// RebuiltAt and RebuiltBy are absent on a document never rebuilt (decision 057); documents
+	// written before then decode with both empty, which is the same meaning.
+	RebuiltAt time.Time `bson:"rebuiltAt,omitempty"`
+	RebuiltBy string    `bson:"rebuiltBy,omitempty"`
 }
 
 // MongoBootISORepo stores Boot ISO records in the boot_isos collection. A unique index on
@@ -101,6 +107,24 @@ func (r *MongoBootISORepo) List(ctx context.Context, filter provisioningdomain.B
 	return items, nil
 }
 
+// Update implements provisioningdomain.BootISORepository. It sets only the fields a rebuild
+// changes, so the unique (integrationId, normalizedName) key and the creation facts are never
+// rewritten.
+func (r *MongoBootISORepo) Update(ctx context.Context, iso *provisioningdomain.BootISO) error {
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": iso.ID}, bson.M{"$set": bson.M{
+		"chainUrl": iso.ChainURL, "uefiChainUrl": iso.UEFIChainURL, "script": iso.Script, "grubConfig": iso.GRUBConfig,
+		"ipxeVersion": iso.IPXEVersion, "sizeBytes": iso.SizeBytes, "sha256": iso.SHA256,
+		"rebuiltAt": iso.RebuiltAt, "rebuiltBy": iso.RebuiltBy,
+	}})
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return provisioningdomain.ErrBootISONotFound
+	}
+	return nil
+}
+
 // Delete implements provisioningdomain.BootISORepository.
 func (r *MongoBootISORepo) Delete(ctx context.Context, id string) error {
 	result, err := r.col.DeleteOne(ctx, bson.M{"_id": id})
@@ -117,15 +141,19 @@ func newBootISODoc(iso *provisioningdomain.BootISO) bootISODoc {
 	return bootISODoc{
 		ID: iso.ID, IntegrationID: iso.IntegrationID,
 		NormalizedName: strings.ToLower(strings.TrimSpace(iso.Name)), Name: iso.Name,
-		RackAddress: iso.RackAddress, ChainURL: iso.ChainURL, Script: iso.Script, IPXEVersion: iso.IPXEVersion,
+		RackAddress: iso.RackAddress, ChainURL: iso.ChainURL, UEFIChainURL: iso.UEFIChainURL,
+		Script: iso.Script, GRUBConfig: iso.GRUBConfig, IPXEVersion: iso.IPXEVersion,
 		SizeBytes: iso.SizeBytes, SHA256: iso.SHA256, CreatedAt: iso.CreatedAt, CreatedBy: iso.CreatedBy,
+		RebuiltAt: iso.RebuiltAt, RebuiltBy: iso.RebuiltBy,
 	}
 }
 
 func toBootISO(doc *bootISODoc) *provisioningdomain.BootISO {
 	return &provisioningdomain.BootISO{
 		ID: doc.ID, Name: doc.Name, IntegrationID: doc.IntegrationID,
-		RackAddress: doc.RackAddress, ChainURL: doc.ChainURL, Script: doc.Script, IPXEVersion: doc.IPXEVersion,
+		RackAddress: doc.RackAddress, ChainURL: doc.ChainURL, UEFIChainURL: doc.UEFIChainURL,
+		Script: doc.Script, GRUBConfig: doc.GRUBConfig, IPXEVersion: doc.IPXEVersion,
 		SizeBytes: doc.SizeBytes, SHA256: doc.SHA256, CreatedAt: doc.CreatedAt, CreatedBy: doc.CreatedBy,
+		RebuiltAt: doc.RebuiltAt, RebuiltBy: doc.RebuiltBy,
 	}
 }

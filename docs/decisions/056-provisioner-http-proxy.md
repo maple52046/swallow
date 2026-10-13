@@ -51,4 +51,6 @@ reaches the provisioner (`timeout`, `insecureSkipVerify`) and swallow's own poli
 
 ## Current status
 
-Implemented in `api-server` and `dashboard`. The CLI has no command for it yet.
+Implemented in `api-server` and `dashboard`. The CLI has no command for it yet. The Dashboard
+section now lives on the HTTP proxy tab of the Integration settings page, which replaced the Edit
+integration dialog.

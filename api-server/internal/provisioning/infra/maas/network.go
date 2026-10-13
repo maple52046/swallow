@@ -34,13 +34,7 @@ func (p *Provider) ListNetworkSubnets(ctx context.Context) ([]provisioningdomain
 	}
 	out := make([]provisioningdomain.NetworkSubnet, 0, len(subnets))
 	for _, subnet := range subnets {
-		out = append(out, provisioningdomain.NetworkSubnet{
-			ID:             strconv.Itoa(subnet.ID),
-			Name:           subnet.Name,
-			CIDR:           subnet.CIDR,
-			GatewayAddress: subnet.GatewayIP,
-			Managed:        subnet.Managed,
-		})
+		out = append(out, toDomainSubnet(subnet))
 	}
 	return out, nil
 }
@@ -332,13 +326,7 @@ func toDomainNetwork(machine *machineJSON, subnets []subnetJSON) *provisioningdo
 			if source.VLAN == nil || subnet.VLAN == nil || source.VLAN.ID != subnet.VLAN.ID {
 				continue
 			}
-			iface.AvailableSubnets = append(iface.AvailableSubnets, provisioningdomain.NetworkSubnet{
-				ID:             strconv.Itoa(subnet.ID),
-				Name:           subnet.Name,
-				CIDR:           subnet.CIDR,
-				GatewayAddress: subnet.GatewayIP,
-				Managed:        subnet.Managed,
-			})
+			iface.AvailableSubnets = append(iface.AvailableSubnets, toDomainSubnet(subnet))
 		}
 		out.Interfaces = append(out.Interfaces, iface)
 	}

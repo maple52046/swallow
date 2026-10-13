@@ -373,7 +373,7 @@ func workflowServer(id string) *serverdomain.Server {
 
 func workflowNetwork(machineID string, ambiguous bool) *provisioningdomain.MachineNetwork {
 	subnets := []provisioningdomain.NetworkSubnet{{
-		ID: "subnet-a", Name: "primary", CIDR: "192.0.2.0/24", Managed: true,
+		ID: "subnet-a", Name: "primary", CIDR: "192.0.2.0/24", Managed: true, ProvisionerDHCP: true,
 	}}
 	links := []provisioningdomain.NetworkLink{{
 		ID: "link-" + machineID, State: provisioningdomain.NetworkStateProviderManaged,
@@ -381,7 +381,7 @@ func workflowNetwork(machineID string, ambiguous bool) *provisioningdomain.Machi
 	}}
 	if ambiguous {
 		subnets = append(subnets, provisioningdomain.NetworkSubnet{
-			ID: "subnet-b", Name: "secondary", CIDR: "198.51.100.0/24", Managed: true,
+			ID: "subnet-b", Name: "secondary", CIDR: "198.51.100.0/24", Managed: true, ProvisionerDHCP: true,
 		})
 		links = nil
 	}
@@ -392,6 +392,24 @@ func workflowNetwork(machineID string, ambiguous bool) *provisioningdomain.Machi
 			Links: links, AvailableSubnets: subnets,
 		}},
 	}
+}
+
+// siteDHCPNetwork is one boot NIC on a subnet whose DHCP the provisioner does not serve, as on
+// a Boot ISO network; linked says whether the NIC already has a link there.
+func siteDHCPNetwork(linked bool) *provisioningdomain.MachineNetwork {
+	iface := provisioningdomain.NetworkInterface{
+		ID: "nic-site", Name: "enp1s0", Boot: true,
+		AvailableSubnets: []provisioningdomain.NetworkSubnet{{
+			ID: "subnet-site", Name: "site", CIDR: "10.170.168.0/23", Managed: true,
+		}},
+	}
+	if linked {
+		iface.Links = []provisioningdomain.NetworkLink{{
+			ID: "link-site", State: provisioningdomain.NetworkStateProviderManaged,
+			ProviderMode: "AUTO", SubnetID: "subnet-site", CIDR: "10.170.168.0/23",
+		}}
+	}
+	return &provisioningdomain.MachineNetwork{MachineID: "machine-site", Interfaces: []provisioningdomain.NetworkInterface{iface}}
 }
 
 func TestSuggestNetworkUsesStaticBindingOrAutomaticFallback(t *testing.T) {
@@ -407,6 +425,32 @@ func TestSuggestNetworkUsesStaticBindingOrAutomaticFallback(t *testing.T) {
 				Mode:        provisioningdomain.DeploymentNetworkAutomatic,
 				InterfaceID: "nic-machine-a",
 				SubnetID:    "subnet-a",
+			},
+		},
+		{
+			name:    "linked subnet without provisioner DHCP suggests dhcp",
+			network: siteDHCPNetwork(true),
+			want: NetworkSuggestion{
+				Mode:        provisioningdomain.DeploymentNetworkDHCP,
+				InterfaceID: "nic-site",
+				SubnetID:    "subnet-site",
+			},
+		},
+		{
+			name:    "sole managed subnet without provisioner DHCP suggests dhcp",
+			network: siteDHCPNetwork(false),
+			want: NetworkSuggestion{
+				Mode:        provisioningdomain.DeploymentNetworkDHCP,
+				InterfaceID: "nic-site",
+				SubnetID:    "subnet-site",
+			},
+		},
+		{
+			name:    "no subnet choice stays automatic",
+			network: workflowNetwork("machine-c", true),
+			want: NetworkSuggestion{
+				Mode:        provisioningdomain.DeploymentNetworkAutomatic,
+				InterfaceID: "nic-machine-c",
 			},
 		},
 		{
@@ -480,6 +524,30 @@ func TestDeployServersDefaultsToAutomaticAndReportsFailureStage(t *testing.T) {
 		if req.Mode != provisioningdomain.NetworkLinkAuto || req.SubnetID != "subnet-a" {
 			t.Fatalf("expected provider auto-assign on subnet-a, got %#v", req)
 		}
+	}
+}
+
+// DHCP intent (ADR 058) replaces the NIC's existing link with a DHCP link on the same subnet,
+// with no address and no gateway, instead of collapsing into provider auto-assign.
+func TestDeployServersWithDHCPConfiguresDHCPLink(t *testing.T) {
+	uc, provider := setupNetworkWorkflow(1)
+	imageID := "ubuntu/noble"
+
+	result, err := uc.Execute(context.Background(), DeployServersInput{
+		ServerIDs: []string{"a"},
+		Settings:  DeploymentSettingsInput{ImageID: &imageID},
+		Network:   &DeploymentNetworkInput{Mode: "DHCP"},
+	})
+	if err != nil {
+		t.Fatalf("deploy batch: %v", err)
+	}
+	if len(result.Accepted) != 1 || len(provider.configureRequests) != 1 {
+		t.Fatalf("accepted = %d, configure requests = %d, want 1 and 1", len(result.Accepted), len(provider.configureRequests))
+	}
+	req := provider.configureRequests[0]
+	if req.Mode != provisioningdomain.NetworkLinkDHCP || req.SubnetID != "subnet-a" || req.LinkID != "link-machine-a" ||
+		req.IPAddress != "" || req.DefaultGateway {
+		t.Errorf("configure request = %#v, want a DHCP link replacing link-machine-a on subnet-a", req)
 	}
 }
 
@@ -573,7 +641,7 @@ func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 	if frozen.UserData.Mode != "replace" || frozen.UserData.Value != "" || secret != templates.userData {
 		t.Fatalf("secret was not separated from durable intent: input=%#v secret=%q", frozen.UserData, secret)
 	}
-	if frozen.Network == nil || frozen.Network.Mode != "automatic" || len(frozen.Network.Assignments) != 1 ||
+	if frozen.Network == nil || frozen.Network.Mode != "dhcp" || len(frozen.Network.Assignments) != 1 ||
 		frozen.Network.Assignments[0].InterfaceID != "nic-machine-a" ||
 		frozen.Network.Assignments[0].SubnetID != "subnet-a" {
 		t.Fatalf("network intent was not frozen: %#v", frozen.Network)

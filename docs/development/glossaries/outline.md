@@ -83,6 +83,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Provisioner HTTP Proxy](terms/provisioner-http-proxy.md): The provisioner-owned proxy
   setting handed to deployed machines — mode `none | builtin | external | peer` plus a URL —
   read live and written through per provisioner Integration; not an Integration setting.
+- [Subnet DNS](terms/subnet-dns.md): The provisioner-owned DNS servers of one subnet, handed to
+  `automatic` and `static` deployments on it; read live and written through per Integration.
 
 ### Infrastructure Grouping
 

@@ -12,6 +12,7 @@ import type {
   EditServerTagsInput,
   HostEnrollmentBundle,
   ProvisionerHttpProxy,
+  ProvisionerSubnet,
   ProvisioningOperationReference,
   RecoverServersOperationInput,
   ReleaseServersOperationInput,
@@ -153,6 +154,14 @@ export interface ProvisioningRepository {
    */
   deleteBootISO(id: string): Promise<void>;
   /**
+   * Rebuilds a Boot ISO in place from the current template and its own rack address (contract
+   * boot-isos.md, decision 057) and resolves with it once the new file is served. Its id and URL
+   * stay the same, so Servers using it boot the new script from their next boot. Rejects with
+   * `not_found`, `conflict` (the builder is unavailable — the message says why), or
+   * `internal_error` carrying the packaging tool's summary; a failed rebuild keeps the previous file.
+   */
+  rebuildBootISO(id: string): Promise<BootISO>;
+  /**
    * Reads the existing-OS enrollment bundle of one provisioner Integration (contract
    * server-enrollment.md): its endpoint, its credential, and the one-line command a host runs to
    * enroll itself while keeping its OS. `swallowUrl` is the address the host reaches swallow at
@@ -187,6 +196,21 @@ export interface ProvisioningRepository {
    * rejection may follow a partial write; read again to see what the provisioner holds.
    */
   setProvisionerHttpProxy(integrationId: string, input: SetProvisionerHttpProxyInput): Promise<ProvisionerHttpProxy>;
+  /**
+   * Lists one provisioner Integration's subnets with their Subnet DNS, read live from its
+   * provisioner in its order (contract provisioner-subnet-dns.md). Rejects like
+   * `getProvisionerHttpProxy`: `not_found`, `validation_error` for an Integration that is not a
+   * capable provisioner, and `provider_unavailable`.
+   */
+  listProvisionerSubnets(integrationId: string): Promise<ProvisionerSubnet[]>;
+  /**
+   * Replaces one subnet's Subnet DNS and resolves with the subnet read back; `[]` clears it. It
+   * only affects `automatic` and `static` deployments the provisioner starts afterwards. Rejects
+   * with `validation_error` (an address, a repeat, more than eight, or the provisioner's refusal —
+   * the message says which), `not_found` (Integration or subnet), and `provider_unavailable`
+   * (unreachable, or a MAAS account that is not an administrator).
+   */
+  setProvisionerSubnetDnsServers(integrationId: string, subnetId: string, dnsServers: string[]): Promise<ProvisionerSubnet>;
 }
 
 /**

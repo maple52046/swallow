@@ -5,9 +5,11 @@
   install one OS Image on the provider machine projected by that Server.
 - Allowed meaning: Provider-backed intent addressed by Swallow `serverId`, with
   progress observed through the Server provisioning axis. One request may submit
-  the same image, ephemeral, cloud-init, and automatic-or-static network intent
-  (automatic is realized by provider auto-assign — see
-  [ADR 018](../../../decisions/018-automatic-addressing-provider-auto-assign.md)) for
+  the same image, ephemeral, cloud-init, and `automatic`, `dhcp`, or `static`
+  network intent (automatic is realized by provider auto-assign — see
+  [ADR 018](../../../decisions/018-automatic-addressing-provider-auto-assign.md);
+  dhcp by the network's own DHCP — see
+  [ADR 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md)) for
   several Servers managed by one Integration. The deployment mode is named by its
   [Deploy Target](deploy-target.md) (`disk` | `ram`); `ram` is the memory-backed
   mode the wire, MAAS adapter, and stored deployment still call `ephemeral`, and
@@ -34,3 +36,5 @@
   per [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md).
   Updated 2026-10-03: provider-stage progress and stall, per
   [decision 046](../../../decisions/046-os-deployment-progress-and-stall.md).
+  Updated 2026-10-13: network intent gains `dhcp`, per
+  [decision 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md).

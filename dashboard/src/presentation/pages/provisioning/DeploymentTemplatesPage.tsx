@@ -3,7 +3,7 @@ import { Button, Card, Field, Heading, Input, Table, Text, Textarea } from '@cha
 import { Plus } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import type { DeploymentTemplate } from '@/domain/provisioning/types'
+import type { DeploymentNetworkMode, DeploymentTemplate } from '@/domain/provisioning/types'
 import type { Integration, OSImage } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -14,7 +14,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Select } from '@/presentation/components/ui/select'
-import { deployTargetForEphemeral, deployTargetIsEphemeral } from '@/domain/provisioning/types'
+import { DEPLOYMENT_NETWORK_MODE_LABELS, deployTargetForEphemeral, deployTargetIsEphemeral } from '@/domain/provisioning/types'
 import { AddressingModeField } from './AddressingModeField'
 import { DeployTargetField } from './DeployTargetField'
 import { OSImagePicker } from './OSImagePicker'
@@ -37,7 +37,7 @@ interface TemplateDraft {
   description: string
   imageId: string
   ephemeral: boolean
-  networkMode: 'automatic' | 'static'
+  networkMode: DeploymentNetworkMode
   subnetId: string
   defaultGateway: boolean
 }
@@ -53,6 +53,17 @@ const EMPTY_DRAFT: TemplateDraft = {
   defaultGateway: false,
 }
 
+
+/**
+ * A template's network intent in words: the mode label, plus its subnet for Static, the only mode
+ * whose template must name one. A template without network intent reads as Automatic, as the
+ * contract defines. `separator` keeps the table's and the card's existing typography.
+ */
+function templateNetworkLabel(template: DeploymentTemplate, separator: string): string {
+  const mode = template.network?.mode ?? 'automatic'
+  if (mode === 'static') return `${DEPLOYMENT_NETWORK_MODE_LABELS.static}${separator}${template.network?.subnetId || '-'}`
+  return DEPLOYMENT_NETWORK_MODE_LABELS[mode]
+}
 
 /** CRUD workspace for Swallow-owned deployment intent and write-only cloud-init. */
 export function DeploymentTemplatesPage() {
@@ -320,7 +331,7 @@ export function DeploymentTemplatesPage() {
                 onChange={(mode) => setDraft((current) => ({
                   ...current,
                   networkMode: mode,
-                  defaultGateway: mode === 'automatic' ? false : current.defaultGateway,
+                  defaultGateway: mode === 'static' ? current.defaultGateway : false,
                 }))}
               />
               {draft.networkMode === 'static' && (
@@ -425,7 +436,7 @@ export function DeploymentTemplatesPage() {
                   <Table.Cell>{integrationName(template.integrationId)}</Table.Cell>
                   <Table.Cell className="sw-mono">{template.imageId}</Table.Cell>
                   <Table.Cell>{template.ephemeral ? 'Yes' : 'No'}</Table.Cell>
-                  <Table.Cell>{template.network?.mode === 'static' ? `Static - ${template.network.subnetId || '-'}` : 'Automatic'}</Table.Cell>
+                  <Table.Cell>{templateNetworkLabel(template, ' - ')}</Table.Cell>
                   <Table.Cell>{template.hasUserData ? 'Configured' : '-'}</Table.Cell>
                   <Table.Cell>{formatDateTime(template.updatedAt)}</Table.Cell>
                   <Table.Cell textAlign="end">
@@ -492,7 +503,7 @@ export function DeploymentTemplatesPage() {
                   <ResourceCardField label="Integration">{integrationName(template.integrationId)}</ResourceCardField>
                   <ResourceCardField label="Image ID"><span className="sw-mono">{template.imageId}</span></ResourceCardField>
                   <ResourceCardField label="Ephemeral">{template.ephemeral ? 'Yes' : 'No'}</ResourceCardField>
-                  <ResourceCardField label="Network">{template.network?.mode === 'static' ? `Static · ${template.network.subnetId || '-'}` : 'Automatic'}</ResourceCardField>
+                  <ResourceCardField label="Network">{templateNetworkLabel(template, ' · ')}</ResourceCardField>
                   <ResourceCardField label="Cloud-init">{template.hasUserData ? 'Configured' : 'Not configured'}</ResourceCardField>
                 </ResourceCard>
               ))}

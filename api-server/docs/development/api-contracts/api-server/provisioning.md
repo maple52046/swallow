@@ -28,6 +28,7 @@ Templates, and submit one OS deployment configuration to one or more eligible Se
 - Server
 - Server Status
 - Network Configuration
+- Subnet DNS
 - IP Binding
 - Provisioning Task
 - Server Lock
@@ -310,11 +311,13 @@ A template response contains:
 the preferred deploy-mode field) or its deprecated `ephemeral` boolean alias,
 optional `network`, and optional write-only `userData`. The stored template
 carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
-`ram ↔ true`) and wins when both are sent. `network.mode` is `automatic` or `static`;
-missing network intent defaults to Automatic. `dhcp` is accepted as a deprecated
-one-release alias of `automatic` and is normalized on write. Automatic addressing is
-realized by provider auto-assign (a stable, provider-recorded address), not raw DHCP
-(see [ADR 018](../../../../../docs/decisions/018-automatic-addressing-provider-auto-assign.md)).
+`ram ↔ true`) and wins when both are sent. `network.mode` is `automatic`, `dhcp`, or
+`static` (glossary Network Configuration); missing network intent defaults to Automatic.
+Automatic addressing is realized by provider auto-assign (a stable, provider-recorded
+address; see [ADR 018](../../../../../docs/decisions/018-automatic-addressing-provider-auto-assign.md));
+DHCP leaves the address, gateway, and DNS to the network's own DHCP server (see
+[ADR 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md)). `dhcp` is no
+longer an alias of `automatic`, and a template stored with `dhcp` reads as DHCP.
 `subnetId` names a live provider subnet and `defaultGateway` defaults to false. A default
 gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
 
@@ -384,7 +387,8 @@ from deployment preflight:
               "name": "management",
               "cidr": "192.168.100.0/24",
               "gatewayAddress": "192.168.100.1",
-              "managed": true
+              "managed": true,
+              "provisionerDhcp": true
             }
           ]
         }
@@ -396,15 +400,19 @@ from deployment preflight:
 }
 ```
 
+`provisionerDhcp` is true when the provisioner itself serves DHCP on the subnet (MAAS: DHCP
+on for the subnet's VLAN); false means any DHCP there is the site's.
+
 Configuration states are `dhcp`, `static`, `link_only`, `unconfigured`,
 `provider_managed`, or `unknown`. Provider-specific values are diagnostic and
 must not be sent back as writable intent. The boot interface is suggested by
 default. One explicit Static link on that NIC is preserved as the suggested
 deployment mode, subnet, IP address, and default-gateway intent. Multiple Static
 links remain ambiguous and require operator input. Without an explicit Static
-link, Swallow suggests Automatic and uses an existing linked subnet when unambiguous,
-or the sole compatible managed subnet. Multiple compatible subnets produce
-`network_selection_required` instead of a silent choice.
+link, Swallow uses an existing linked subnet when unambiguous, or the sole compatible
+managed subnet, and suggests DHCP when that subnet has no provisioner DHCP
+(`provisionerDhcp` false), Automatic otherwise. Multiple compatible subnets produce
+`network_selection_required` instead of a silent choice and suggest Automatic.
 
 ## Deployment Target Preflight
 
@@ -509,13 +517,16 @@ cover `POST /deployments`, `POST /deployment-operations`, and platform deploys. 
 
 
 Missing `network` resolves to Swallow's Automatic default. `network.mode` accepts
-`automatic` or `static` (the deprecated `dhcp` alias still maps to `automatic`);
-keep-current is not valid intent. Automatic is realized by the provider's auto-assign
-capability, so the deployed address is stable and always provider-recorded. Each
+`automatic`, `dhcp`, or `static`; keep-current is not valid intent. Automatic is realized
+by the provider's auto-assign capability, so the deployed address is stable and always
+provider-recorded; its DNS servers are the subnet's Subnet DNS
+([provisioner-subnet-dns.md](provisioner-subnet-dns.md)) or, when that is empty, the
+provisioner's own DNS. DHCP links the NIC for the network's own DHCP server, which assigns
+the address, gateway, and DNS; the provider records only the address it observes. Each
 target resolves its boot NIC by default and can override `interfaceId` and
-`subnetId`. Static requires one valid, unique per-target `ipAddress`.
-`defaultGateway` is valid only for Static. Templates may supply mode, subnet,
-and gateway intent but never a NIC ID or static IP.
+`subnetId`. Static requires one valid, unique per-target `ipAddress` and takes DNS like
+Automatic. A per-target `ipAddress` and `defaultGateway` are valid only for Static.
+Templates may supply mode, subnet, and gateway intent but never a NIC ID or static IP.
 `userData.mode` is one of:
 
 - `inherit`: use the template's sealed user data; valid only with a template.

@@ -134,23 +134,35 @@ with a Boot ISO sets this up for you.
   hostname or IPv4 address and dropping the region API scheme, port, and path.
   You can replace the suggestion with the address reachable from the Site DHCP
   network. The dialog generates `<integration-name>-ipxe` under **Advanced
-  settings** and previews `http://<rack>:<port>/ipxe.cfg` (default port `5248`).
+  settings** and previews `http://<rack>:<port>/ipxe.cfg` (default port `5248`),
+  the BIOS chain; UEFI loads `grub/grub.cfg-<mac>` from the same rack and port.
   Confirm the rack address: swallow neither resolves nor contacts it.
-- **Fixed boot flow:** swallow renders a verified script rather than accepting
+- **Fixed boot flow:** swallow renders a fixed script rather than accepting
   script edits. It gets DHCP from the site network, sets the rack as
-  `next-server`, and chains directly to its `ipxe.cfg` without using the DHCP
-  boot filename. DHCP retries after failure, Ctrl-B opens the iPXE shell, and
-  UEFI returns to the next firmware boot device if the chain returns. The
-  synchronous build normally takes seconds.
-- **Boot compatibility:** each ISO contains iPXE v2.0.0 and boots BIOS and UEFI
-  x86_64. iPXE is unsigned, so turn off Secure Boot on Servers that use it.
+  `next-server`, and never uses the DHCP boot filename. The firmware decides
+  which boot loader runs: BIOS runs iPXE, which chains the rack's `ipxe.cfg`
+  (DHCP retries after failure, and Ctrl-B opens the iPXE shell); UEFI runs a
+  GRUB built into the ISO, which takes a DHCP lease and loads the rack's
+  `grub/grub.cfg-<mac>`, MAAS's own UEFI path, and returns to the next firmware
+  boot device if MAAS does not boot it. That matters because MAAS gives a
+  Machine an EFI system partition only when it saw a UEFI boot; without one, a
+  UEFI disk deployment fails while installing GRUB. The synchronous build
+  normally takes seconds.
+- **Rebuild after a template change:** a card marked **UEFI needs rebuild** was
+  built before the UEFI hand-off. Choose **Rebuild** (or **More → Rebuild Boot
+  ISO**): swallow renders the current script for the same rack and replaces the
+  file at the same URL, so no Boot Media setting changes. Then inspect each
+  UEFI Server that uses it again before its next deployment, so MAAS records the
+  UEFI boot and recreates its disk layout with an EFI system partition.
+- **Boot compatibility:** each ISO contains iPXE v2.0.0 for BIOS and a GRUB for
+  UEFI x86_64. Neither is signed, so turn off Secure Boot on Servers that use it.
 - **Manage the small setup:** the page uses one card per configured ISO rather
   than an inventory table. Each card keeps **Served** or **Not served** separate
   from **Used by N Servers** or **Not in use**, links to its provisioner
   Integration, and shows the Site in all-sites scope. **Download** stays visible.
-  **Technical details** discloses the ID, rack and chain URL, ISO URL, SHA-256,
-  iPXE version, size, and build facts. **More** opens the rendered iPXE script or
-  Delete action. Delete is disabled or refused while any enabled Server uses
+  **Technical details** discloses the ID, rack, BIOS and UEFI chain URLs, ISO
+  URL, SHA-256, iPXE version, size, and build and rebuild facts. **More** opens
+  the rendered boot scripts (iPXE for BIOS, GRUB for UEFI), Rebuild, or Delete. Delete is disabled or refused while any enabled Server uses
   the ISO; after deletion, its file is removed and its URL stops working.
 - **Choose per Server:** on **Server → Summary → Management controller → Boot
   media**, **Enable Boot Media** requires a Boot ISO built for that Server's own
@@ -231,9 +243,24 @@ memory-backed state or active work could be lost.
 
 ## Network inspection
 
-Network configuration reads and writes provider-owned interfaces and links.
-Automatic addressing requests provider auto-assignment; it does not invent a
-separate swallow address allocator.
+Network configuration reads and writes provider-owned interfaces and links. A
+deployment chooses one of three addressing modes:
+
+- **Automatic** requests provider auto-assignment: MAAS allocates and records a
+  fixed address. It does not invent a separate swallow address allocator.
+- **DHCP** leaves the address, gateway, and DNS to the network's own DHCP
+  server. Use it on networks whose DHCP the provisioner does not serve, such as
+  Servers that boot through a Boot ISO: there, Automatic would hand out an
+  address the site DHCP server does not know about. The Deploy OS dialog
+  suggests DHCP for such subnets and says why.
+- **Static** uses an address you choose for every Server.
+
+Automatic and Static deployments take their DNS servers from the subnet's
+**Subnet DNS**, or MAAS's own DNS when it has none. Set it per subnet on the
+**Subnet DNS** tab of the MAAS Integration's settings page (Infrastructure →
+Integrations → the Integration): each subnet's **Apply DNS** writes it to MAAS
+directly, it is not saved with the Integration, and it affects only deployments
+MAAS starts afterwards. The same list shows whether MAAS runs each subnet's DHCP.
 
 ## CLI
 

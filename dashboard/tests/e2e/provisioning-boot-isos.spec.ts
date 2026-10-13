@@ -55,8 +55,8 @@ test('cards keep serving, usage, links, technical facts, and guarded actions dis
   const taipeiMore = taipei.getByRole('button', { name: 'More actions for taipei-rack' })
   await taipeiMore.focus()
   await page.keyboard.press('Enter')
-  await page.getByRole('menuitem', { name: 'View iPXE script' }).click()
-  const script = page.getByRole('dialog', { name: 'iPXE script of taipei-rack' })
+  await page.getByRole('menuitem', { name: 'View boot scripts' }).click()
+  const script = page.getByRole('dialog', { name: 'Boot scripts of taipei-rack' })
   await expect(script).toContainText('set maas_rack 10.0.0.2')
   await expect(script).toContainText('v2.0.0 (12798ec)')
   await script.getByRole('button', { name: 'Close' }).first().click()
@@ -76,6 +76,70 @@ test('cards keep serving, usage, links, technical facts, and guarded actions dis
   await expect(page.getByText('Boot ISO edge-rack deleted')).toBeVisible()
   await expect(edge).toHaveCount(0)
   expect(writes).toEqual(['DELETE /api/v1/provisioning/boot-isos/iso-edge'])
+})
+
+// Decision 057: an ISO built before the UEFI hand-off is flagged in words, and rebuilding it in
+// place — after a confirmation naming the Servers it affects — keeps its URL and adds the UEFI path.
+test('an ISO built before the UEFI hand-off is flagged and rebuilt in place', async ({ page }) => {
+  const writes: string[] = []
+  await installApiFixtures(page, {
+    bootISOs: [
+      { id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2', legacyTemplate: true },
+      { id: 'iso-edge', name: 'edge-rack', integrationId: 'maas-b', rackAddress: '10.9.0.2' },
+    ],
+    bootMediaSetting: { enabled: true, isoId: 'iso-taipei', updatedAt: '2026-10-04T00:00:00Z', lastAppliedAt: '2026-10-04T00:00:00Z', lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null },
+    onBootISORequest: (method, path) => writes.push(`${method} ${path}`),
+  })
+  await page.goto('/provisioning/boot-isos')
+
+  const taipei = bootISOCard(page, 'taipei-rack')
+  const edge = bootISOCard(page, 'edge-rack')
+  await expect(taipei).toContainText('UEFI needs rebuild')
+  await expect(taipei).toContainText('Through iPXE like BIOS until rebuilt')
+  await expect(taipei.getByText('Built before the UEFI hand-off')).toBeVisible()
+  await expect(edge).not.toContainText('UEFI needs rebuild')
+  await expect(edge).toContainText('http://10.9.0.2:5248/grub/grub.cfg-<mac>')
+
+  await taipei.getByRole('button', { name: 'Rebuild taipei-rack' }).click()
+  const confirm = page.getByRole('alertdialog', { name: 'Rebuild Boot ISO' })
+  await expect(confirm).toContainText('replaced at the same URL')
+  await expect(confirm).toContainText('1 Server uses it as Boot Media and will boot the new script from their next boot')
+  await confirm.getByRole('button', { name: 'Rebuild taipei-rack' }).click()
+
+  await expect(page.getByText('Boot ISO taipei-rack rebuilt')).toBeVisible()
+  await expect(taipei).not.toContainText('UEFI needs rebuild')
+  await expect(taipei).toContainText('http://10.0.0.2:5248/grub/grub.cfg-<mac>')
+  await expect(taipei.getByRole('link', { name: 'Download taipei-rack' })).toHaveAttribute(
+    'href',
+    'http://192.0.2.1/boot-media/ipxe/iso-taipei/swallow-ipxe.iso',
+  )
+  expect(writes).toEqual(['POST /api/v1/provisioning/boot-isos/iso-taipei/rebuild'])
+
+  await taipei.getByRole('button', { name: 'More actions for taipei-rack' }).click()
+  await page.getByRole('menuitem', { name: 'View boot scripts' }).click()
+  const script = page.getByRole('dialog', { name: 'Boot scripts of taipei-rack' })
+  await expect(script.getByRole('heading', { name: 'GRUB configuration (UEFI)' })).toBeVisible()
+  await expect(script).toContainText('net_bootp')
+  await expect(script).toContainText('configfile /grub/grub.cfg-$mac')
+})
+
+// A rebuild the API refuses keeps the dialog open and says the previous ISO is still served.
+test('a failed rebuild keeps the previous ISO and says so', async ({ page }) => {
+  await installApiFixtures(page, {
+    bootISOs: [{ id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2', legacyTemplate: true }],
+    bootISOBuildError: { status: 500, code: 'internal_error', message: 'building the boot ISO failed: genfsimg: xorriso : FAILURE' },
+  })
+  await page.goto('/provisioning/boot-isos')
+
+  const taipei = bootISOCard(page, 'taipei-rack')
+  await taipei.getByRole('button', { name: 'Rebuild taipei-rack' }).click()
+  const confirm = page.getByRole('alertdialog', { name: 'Rebuild Boot ISO' })
+  await confirm.getByRole('button', { name: 'Rebuild taipei-rack' }).click()
+  await expect(page.getByText('Could not rebuild the Boot ISO')).toBeVisible()
+  await expect(page.getByText(/The previous ISO is still served/)).toBeVisible()
+  await expect(confirm).toBeVisible()
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+  await expect(taipei).toContainText('UEFI needs rebuild')
 })
 
 test('single provisioner is summarized and its endpoint suggests the editable rack address', async ({ page }) => {

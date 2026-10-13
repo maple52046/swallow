@@ -42,9 +42,10 @@ COPY --from=air-build /go/bin/air /usr/local/bin/air
 # Match the production execution environment: the lock is copied before the source bind
 # mount replaces /app, and the venv is available to the non-root developer user.
 COPY api-server/automation/requirements.txt /tmp/ansible-requirements.txt
-# mtools, xorriso, isolinux, and syslinux-common are what genfsimg needs to package a Boot ISO.
+# mtools, xorriso, isolinux, and syslinux-common are what genfsimg needs to package a Boot ISO;
+# grub-common (grub-mkstandalone) and grub-efi-amd64-bin build its UEFI GRUB (decision 057).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openssh-client python3-venv mtools xorriso isolinux syslinux-common \
+ && apt-get install -y --no-install-recommends openssh-client python3-venv mtools xorriso isolinux syslinux-common grub-common grub-efi-amd64-bin \
  && python3 -m venv /opt/ansible \
  && /opt/ansible/bin/pip install --no-cache-dir -r /tmp/ansible-requirements.txt \
  && rm -rf /var/lib/apt/lists/* /tmp/ansible-requirements.txt

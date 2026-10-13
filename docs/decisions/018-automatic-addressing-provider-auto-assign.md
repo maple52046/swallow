@@ -1,7 +1,12 @@
 # 018. Automatic deployment addressing is realized by provider auto-assign
 
-- Status: Accepted
+- Status: Accepted (the `dhcp` alias and the rejection of a separate DHCP mode are superseded by [ADR 058](058-deployment-dhcp-and-subnet-dns.md))
 - Date: 2026-09-06
+
+> Refinement (2026-10-13): on networks whose DHCP is the site's rather than the provisioner's,
+> `AUTO` allocates without knowing the site DHCP pool. [ADR 058](058-deployment-dhcp-and-subnet-dns.md)
+> makes `dhcp` a deployment mode again, beside `automatic` and `static`, and ends the alias.
+> `automatic` keeps the meaning and MAAS `AUTO` realization decided here.
 
 ## Context
 

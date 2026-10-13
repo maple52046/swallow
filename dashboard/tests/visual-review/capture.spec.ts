@@ -12,6 +12,7 @@ const visualCases = [
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true, representative: false },
   { name: 'os-image-list', path: '/provisioning/images?site=site-a', heading: 'OS images', authenticated: true, representative: false },
   { name: 'boot-isos', path: '/provisioning/boot-isos?site=site-a', heading: 'Boot ISOs', authenticated: true, representative: false },
+  { name: 'boot-isos-needs-rebuild', path: '/provisioning/boot-isos?site=site-a', heading: 'Boot ISOs', authenticated: true, representative: false },
   { name: 'software-catalog', path: '/software?site=site-a', heading: 'Software', authenticated: true, representative: false },
   { name: 'software-docker-detail', path: '/software/docker-ce?site=site-a', heading: 'Docker CE', authenticated: true, representative: false },
   { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
@@ -144,6 +145,16 @@ test.describe('dashboard visual review', () => {
               },
             }
           : {}),
+        // A Boot ISO built before the UEFI hand-off (decision 057), in use by a Server.
+        ...(visualCase.name === 'boot-isos-needs-rebuild'
+          ? {
+              bootISOs: [{ id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2', legacyTemplate: true }],
+              bootMediaSetting: {
+                enabled: true, isoId: 'iso-taipei', updatedAt: '2026-08-27T02:00:00Z', lastAppliedAt: '2026-08-27T02:00:00Z',
+                lastAppliedBy: 'ensure', bootOverride: 'Continuous', lastErrorAt: null,
+              },
+            }
+          : {}),
         ...(visualCase.name.startsWith('software-')
           ? { fleetSize: 5, softwareAssignments: visualSoftwareAssignments }
           : {}),
@@ -217,29 +228,69 @@ test.describe('Add servers virtual machines visual review', () => {
 })
 
 /**
- * Captures the Edit integration dialog of a MAAS provisioner with its HTTP proxy section (decision
- * 056): once as MAAS reports an External proxy, and once with an unapplied change and a URL error.
+ * Captures the Integration settings page (it replaced the Edit integration dialog): each tab of a
+ * MAAS provisioner — General, Connection, Credential, HTTP proxy (External, then an unapplied change
+ * with a URL error), and Subnet DNS (a site-DHCP subnet with DNS applied beside an invalid entry) —
+ * and the Create integration dialog that remains.
  */
-test.describe('Integration HTTP proxy visual review', () => {
-  test('integration-http-proxy', async ({ page }, testInfo) => {
+test.describe('Integration settings visual review', () => {
+  test('integration-settings-tabs', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
-    await installApiFixtures(page, { httpProxies: { 'maas-a': { mode: 'external', httpProxy: 'http://10.170.168.20:18080' } } })
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, {
+      httpProxies: { 'maas-a': { mode: 'external', httpProxy: 'http://10.170.168.20:18080' } },
+      provisionerSubnets: {
+        'maas-a': [
+          { id: '1', name: 'lab-network', cidr: '192.168.40.0/24', gatewayAddress: '192.168.40.1', managed: true, provisionerDhcp: true, attached: true, dnsServers: [] },
+          { id: '7', name: '10.170.168.0/23', cidr: '10.170.168.0/23', gatewayAddress: '10.170.169.254', managed: true, provisionerDhcp: false, attached: true, dnsServers: ['165.204.124.158', '165.204.219.249'] },
+          { id: '12', name: '172.17.0.0/16', cidr: '172.17.0.0/16', gatewayAddress: '', managed: true, provisionerDhcp: false, attached: false, dnsServers: [] },
+          { id: '14', name: '192.168.68.0/24', cidr: '192.168.68.0/24', gatewayAddress: '', managed: true, provisionerDhcp: false, attached: false, dnsServers: [] },
+        ],
+      },
+    })
     await setAppearance(page, appearance)
-    await page.goto('/infrastructure/integrations?site=site-a')
-    await page.getByRole('button', { name: 'Edit MAAS Taipei' }).filter({ visible: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Edit integration' })
-    const proxy = dialog.getByRole('region', { name: 'HTTP proxy' })
-    await expect(proxy.getByRole('status')).toHaveText('MAAS uses: External (http://10.170.168.20:18080).')
-    await proxy.scrollIntoViewIfNeeded()
-    await prepareCapture(page, appearance)
-    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
-    await capture(page, testInfo, 'integration-http-proxy', false)
+    for (const tab of ['general', 'connection', 'credential'] as const) {
+      await page.goto(`/infrastructure/integrations/maas-a/${tab}?site=site-a`)
+      await expect(page.getByRole('heading', { level: 1, name: 'MAAS Taipei' })).toBeVisible()
+      await expect(page.getByRole('tab', { selected: true })).toBeVisible()
+      await prepareCapture(page, appearance)
+      if (mobile) await expectNoHorizontalOverflow(page)
+      await capture(page, testInfo, `integration-settings-${tab}`, false)
+    }
 
+    await page.goto('/infrastructure/integrations/maas-a/http-proxy?site=site-a')
+    const proxy = page.getByRole('region', { name: 'HTTP proxy' })
+    await expect(proxy.getByRole('status')).toHaveText('MAAS uses: External (http://10.170.168.20:18080).')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'integration-settings-http-proxy', false)
     await chooseOption(page, 'Proxy mode', 'Peer')
     await proxy.getByRole('textbox', { name: /^Proxy URL/ }).fill('http://user:secret@squid.example:3128')
     await expect(proxy.getByText('Leave the user and password out; the URL is readable back.')).toBeVisible()
-    await proxy.scrollIntoViewIfNeeded()
-    await capture(page, testInfo, 'integration-http-proxy-invalid', false)
+    await capture(page, testInfo, 'integration-settings-http-proxy-invalid', false)
+
+    await page.goto('/infrastructure/integrations/maas-a/subnet-dns?site=site-a')
+    const dns = page.getByRole('region', { name: 'Subnet DNS' })
+    await dns.getByRole('textbox', { name: 'DNS servers for 192.168.40.0/24' }).fill('192.168.40.1, dns.lab')
+    await expect(dns.getByText('dns.lab is not an IP address.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'integration-settings-subnet-dns', false)
+    await dns.getByText('Other subnets (2)').click()
+    await dns.getByRole('list', { name: 'Other subnets' }).scrollIntoViewIfNeeded()
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'integration-settings-subnet-dns-other', false)
+  })
+
+  test('integration-create-dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/infrastructure/integrations?site=site-a')
+    await page.locator('.sw-page-header').getByRole('button', { name: 'Create integration' }).click()
+    await expect(page.getByRole('dialog', { name: 'Create integration' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'integration-create-dialog', false)
   })
 })
 
@@ -404,6 +455,52 @@ test.describe('OS deployment flow visual review', () => {
       viewport.scrollTop = viewport.scrollHeight
     })
     await capture(page, testInfo, 'os-deploy-single-network-assignment', false)
+  })
+
+  /**
+   * The platform wizard's OS networking step on a site-DHCP network, where the shared addressing
+   * field spans the wizard's form grid with its DHCP suggestion (decision 058).
+   */
+  test('platform-wizard-site-dhcp-networking', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 2, siteDhcpNetworkServerIds: ['srv-1', 'srv-2'] })
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/deploy?site=site-a')
+    await chooseOption(page, 'Platform type', 'Slurm')
+    await page.getByLabel('Platform name').fill('site-dhcp-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+    await page.getByRole('radio', { name: 'Ubuntu 24.04 LTS', exact: false }).locator('..').click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'DHCP', exact: true })).toBeChecked()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-wizard-site-dhcp-networking', false)
+  })
+
+  /** The Networking step when inspection suggests DHCP for a site-DHCP subnet (decision 058). */
+  test('single Server site-dhcp networking', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { readyServerCount: 1, siteDhcpNetworkServerIds: ['srv-1'] })
+    await setAppearance(page, appearance)
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await dialog.getByRole('radio', { name: 'Ubuntu 22.04 LTS', exact: false }).locator('..').click()
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('radio', { name: 'DHCP', exact: true })).toBeChecked()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-deploy-single-site-dhcp-networking', false)
   })
 
   test('bulk Server dialog', async ({ page }, testInfo) => {

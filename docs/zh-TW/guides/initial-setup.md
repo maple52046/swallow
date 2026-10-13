@@ -28,6 +28,13 @@ Credential 會使用 API credential key 加密，而且永遠不會回傳。建�
 `hasCredential` 與 integration sync status。Reconciliation 成功後，MAAS machines
 會投影成 Servers。
 
+在 Dashboard 中，**Infrastructure → Integrations → Create integration** 完成註冊後
+會開啟該 Integration 的設定頁。每個 Integration 的設定頁（點列表中的名稱或
+**Edit**）都有 **General**（名稱、endpoint、啟用）、**Connection**（timeout、TLS、
+自動 inspection 與 provider 專屬設定）與 **Credential**（設定或更換 key）分頁。
+MAAS provisioner 另有 **HTTP proxy** 與 **Subnet DNS**，會直接套用到 MAAS。每個
+分頁都有自己的 URL，以及自己的 Save 或 Apply。
+
 一個 Site 只有一個 provisioner boundary。若 MAAS 跨越彼此獨立管理的地點，應拆成
 不同 Site integration。
 

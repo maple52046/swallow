@@ -7,6 +7,8 @@
  * docs/development/glossaries/terms/platform.md and the Node Role glossary.
  */
 
+import type { DeploymentNetworkMode } from "@/domain/provisioning/types";
+
 export type PlatformType = "kubernetes" | "slurm";
 
 /** Observed Server hardware floor for Slurm deployment eligibility. */
@@ -141,8 +143,9 @@ export interface PlatformMachinePreparation {
   settings?: { imageId?: string; ephemeral?: boolean };
   userData?: { mode: "inherit" | "replace" | "omit"; value?: string };
   network?: {
-    // Deployment addressing intent; "automatic" is realized by provider auto-assign.
-    mode: "automatic" | "static";
+    // Deployment addressing intent, the provisioning contract's network.mode: "automatic" is
+    // provider auto-assign, "dhcp" the network's own DHCP, "static" a per-target address.
+    mode: DeploymentNetworkMode;
     subnetId?: string;
     defaultGateway: boolean;
     assignments: Array<{

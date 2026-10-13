@@ -31,7 +31,7 @@ async function choiceGeometry(dialog: Locator) {
       allInside: cards.every(
         (card) => card.left >= rootRect.left - 1 && card.right <= rootRect.right + 1,
       ),
-      sameRow: cards.length === 2 && Math.abs(cards[0].top - cards[1].top) <= 1,
+      sameRow: cards.length >= 2 && cards.every((card) => Math.abs(card.top - cards[0].top) <= 1),
     }
   })
 }
@@ -214,7 +214,7 @@ for (const viewport of [
     await dialog.getByRole('button', { name: 'Next' }).click()
     await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
     await expect(dialog.getByText(
-      'Choose Automatic or Static addressing for the inspected target NICs.',
+      'Choose Automatic, DHCP, or Static addressing for the inspected target NICs.',
       { exact: true },
     )).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Addressing and interfaces' })).toHaveCount(0)
@@ -222,7 +222,7 @@ for (const viewport of [
     const networkingChoices = await choiceGeometry(dialog)
     expect(networkingChoices.dialogTop).toBeGreaterThanOrEqual(-1)
     expect(networkingChoices.dialogBottom).toBeLessThanOrEqual(networkingChoices.viewportHeight + 1)
-    expect(networkingChoices.cardCount).toBe(2)
+    expect(networkingChoices.cardCount).toBe(3)
     expect(networkingChoices.widthDelta).toBeLessThanOrEqual(2)
     expect(networkingChoices.allInside).toBe(true)
     expect(networkingChoices.sameRow).toBe(viewport.name === 'desktop')

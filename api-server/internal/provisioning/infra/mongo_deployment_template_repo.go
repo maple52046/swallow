@@ -261,8 +261,10 @@ func mapTemplateWriteError(err error) error {
 }
 
 func toDeploymentTemplate(doc *deploymentTemplateDoc) *provisioningdomain.DeploymentTemplate {
-	// Fold an empty or the deprecated "dhcp" value from an older stored template into the
-	// canonical Automatic mode, so read-back never resurfaces the deprecated alias.
+	// A template stored before network intent existed has no mode and reads as Automatic. One
+	// stored with "dhcp" before ADR 018 normalized writes reads as DHCP: since ADR 058 that is
+	// its own mode, not an alias of Automatic. An unknown stored value is surfaced unchanged so
+	// the deploy-time validation refuses it rather than guessing.
 	mode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(doc.NetworkMode)
 	if !ok {
 		mode = provisioningdomain.DeploymentNetworkMode(doc.NetworkMode)

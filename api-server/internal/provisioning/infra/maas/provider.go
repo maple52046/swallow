@@ -378,6 +378,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		PowerConfiguration:   true,
 		MachineRegistration:  true,
 		HTTPProxy:            true,
+		SubnetDNS:            true,
 	}
 }
 

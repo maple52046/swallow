@@ -1,12 +1,20 @@
 import type { ProvisioningActionResult } from "@/domain/server/types";
 
 /**
- * Swallow-owned writable deployment addressing intent. `automatic` asks the provisioner to
- * assign an address (realized by provider auto-assign, a stable recorded IP — see ADR 018),
- * `static` uses a caller-chosen address. The backend still accepts the deprecated `dhcp`
- * alias for one release, but the dashboard always sends the canonical values.
+ * Swallow-owned writable deployment addressing intent (glossary Network Configuration).
+ * `automatic` asks the provisioner to allocate and record an address (provider auto-assign, a
+ * stable recorded IP — ADR 018); `dhcp` leaves the address, gateway, and DNS to the network's
+ * own DHCP server, the right choice on a subnet whose DHCP the provisioner does not serve
+ * (ADR 058); `static` uses a caller-chosen address. `dhcp` is not an alias of `automatic`.
  */
-export type DeploymentNetworkMode = "automatic" | "static";
+export type DeploymentNetworkMode = "automatic" | "dhcp" | "static";
+
+/** Operator-facing labels of the deployment addressing modes; the key is the domain value sent. */
+export const DEPLOYMENT_NETWORK_MODE_LABELS: Record<DeploymentNetworkMode, string> = {
+  automatic: "Automatic",
+  dhcp: "DHCP",
+  static: "Static",
+};
 
 /**
  * Where an OS deployment runs. `disk` installs to the machine's disk; `ram` runs from memory
@@ -210,12 +218,18 @@ export type PhysicalLinkState = "up" | "down" | "unknown";
  */
 export type ManualNetworkMode = "dhcp" | "static" | "link_only";
 
+/**
+ * A provisioner subnet a NIC can use, read live from network inspection. `provisionerDhcp` is
+ * whether the provisioner itself serves DHCP there; when false any DHCP on it is the site's,
+ * which is why the backend suggests `dhcp` deployments on it.
+ */
 export interface NetworkSubnet {
   id: string;
   name: string;
   cidr: string;
   gatewayAddress: string;
   managed: boolean;
+  provisionerDhcp: boolean;
 }
 
 export interface NetworkLink {
@@ -322,14 +336,20 @@ export interface ProvisioningTask {
 }
 
 /**
- * A Boot ISO (glossary Boot ISO, decision 049): an iPXE boot ISO swallow built for one provisioner
- * Integration. It takes an address from the site's own DHCP and chains to that provisioner's MAAS
- * rack (`chainUrl`), so a Server whose network DHCP is not the provisioner's still reaches it. Only
- * a Server of the same Integration may mount it as its Boot Media; the API enforces that.
+ * A Boot ISO (glossary Boot ISO, decisions 049 and 057): a network boot ISO swallow built for one
+ * provisioner Integration. It takes an address from the site's own DHCP and hands off to that
+ * provisioner's MAAS rack, so a Server whose network DHCP is not the provisioner's still reaches
+ * it. Only a Server of the same Integration may mount it as its Boot Media; the API enforces that.
  *
- * - `script` is what swallow rendered from its fixed template; it is display-only, never edited.
+ * - BIOS firmware runs iPXE with `script`, which chains `chainUrl` (the rack's `ipxe.cfg`). UEFI
+ *   firmware runs the ISO's own GRUB with `grubConfig`: it takes a DHCP lease and loads
+ *   `uefiChainUrl` (the rack's `grub/grub.cfg-<mac>`, `<mac>` being the leasing interface), MAAS's
+ *   own UEFI path, which is what makes MAAS give a UEFI Machine its EFI system partition. An empty
+ *   `uefiChainUrl` marks an ISO built before decision 057 that sends UEFI firmware through iPXE and
+ *   needs a rebuild (see `bootISONeedsRebuild`).
+ * - `script` and `grubConfig` are what swallow rendered from its fixed templates; display-only.
  * - `url` is where BMCs mount the ISO without credentials (and where an operator can download it);
- *   it is empty when the installation has no Boot Media base URL.
+ *   it is empty when the installation has no Boot Media base URL. A rebuild keeps it.
  * - `inUseBy` counts Servers whose enabled Boot Media uses it; while non-zero it cannot be deleted.
  */
 export interface BootISO {
@@ -340,7 +360,10 @@ export interface BootISO {
   /** The MAAS rack as the operator gave it: an IPv4 address or hostname, optionally `:port`. */
   rackAddress: string;
   chainUrl: string;
+  uefiChainUrl: string;
   script: string;
+  /** The UEFI path's GRUB configuration; empty for an ISO that predates it. */
+  grubConfig: string;
   ipxeVersion: string;
   sizeBytes: number;
   sha256: string;
@@ -348,6 +371,19 @@ export interface BootISO {
   inUseBy: number;
   createdAt: string;
   createdBy?: string;
+  /** When and by whom the ISO was last rebuilt in place; absent when it never was. */
+  rebuiltAt?: string;
+  rebuiltBy?: string;
+}
+
+/**
+ * Whether a Boot ISO predates the UEFI hand-off (decision 057): UEFI Servers booting it reach MAAS
+ * through `ipxe.cfg`, MAAS treats them as BIOS, and their disk deployment fails installing GRUB.
+ * Rebuilding fixes it in place. A missing field (an API older than this console) reads as needing
+ * a rebuild, the safe answer.
+ */
+export function bootISONeedsRebuild(iso: Pick<BootISO, "uefiChainUrl">): boolean {
+  return !iso.uefiChainUrl;
 }
 
 /**
@@ -455,6 +491,31 @@ export interface SetProvisionerHttpProxyInput {
 /** Whether `mode` routes deployed machines through an operator-given proxy URL. */
 export function httpProxyModeNeedsUrl(mode: ProvisionerHttpProxyMode): boolean {
   return mode === "external" || mode === "peer";
+}
+
+/** The most DNS servers one subnet's Subnet DNS may list (contract provisioner-subnet-dns.md). */
+export const MAX_SUBNET_DNS_SERVERS = 8;
+
+/**
+ * One subnet of a provisioner Integration with its Subnet DNS (glossary Subnet DNS, decision 058),
+ * read live from the provisioner; swallow stores none of it. `dnsServers` is in the provisioner's
+ * order and empty when the subnet has none, in which case `automatic` and `static` deployments on
+ * it use the provisioner's own DNS. `dhcp` deployments take DNS from the DHCP server instead.
+ *
+ * `attached` marks a real network by the provisioner's own markers (a controller interface, its
+ * DHCP, a machine's boot interface, or a NIC with hardware identity is on it). The rest are
+ * host-internal networks — container, Kubernetes, or VM bridges an enrolled host reported — that
+ * deployments never use; the Dashboard lists them apart rather than hiding them.
+ */
+export interface ProvisionerSubnet {
+  id: string;
+  name: string;
+  cidr: string;
+  gatewayAddress: string;
+  managed: boolean;
+  provisionerDhcp: boolean;
+  attached: boolean;
+  dnsServers: string[];
 }
 
 /** The port the MAAS rack serves `ipxe.cfg` on when `rackAddress` names none (contract boot-isos.md). */

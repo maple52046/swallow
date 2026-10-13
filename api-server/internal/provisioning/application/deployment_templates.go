@@ -336,12 +336,12 @@ func validateTemplateNetwork(
 		subnetID = strings.TrimSpace(input.SubnetID)
 		defaultGateway = input.DefaultGateway
 	}
-	// Empty and the deprecated "dhcp" alias normalize to Automatic; the stored template
-	// therefore never persists the deprecated value.
+	// Empty normalizes to Automatic, so a stored template always carries one of the three
+	// canonical modes.
 	mode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(rawMode)
 	if !ok {
 		return "", "", false, fmt.Errorf(
-			"%w: network.mode must be automatic or static",
+			"%w: network.mode must be automatic, dhcp, or static",
 			provisioningdomain.ErrInvalidDeploymentTemplate,
 		)
 	}

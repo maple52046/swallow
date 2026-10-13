@@ -52,10 +52,11 @@ func provisioningBootISOsCmd() *cobra.Command {
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Build a Boot ISO that chains to a provisioner's MAAS rack",
-		Long: "Create renders swallow's iPXE template for the MAAS rack (DHCP from the site network, then\n" +
-			"chain http://<rack>:<port or 5248>/ipxe.cfg) and packages a BIOS and UEFI ISO. The rack is an\n" +
-			"IPv4 address or hostname, optionally with :port; swallow neither resolves nor contacts it.\n" +
-			"Servers booting the ISO must have Secure Boot off (iPXE is unsigned).",
+		Long: "Create renders swallow's boot templates for the MAAS rack and packages a BIOS and UEFI ISO:\n" +
+			"after DHCP from the site network, BIOS runs iPXE and chains http://<rack>:<port or 5248>/ipxe.cfg,\n" +
+			"and UEFI runs a GRUB that loads the rack's grub/grub.cfg-<mac>. The rack is an IPv4 address or\n" +
+			"hostname, optionally with :port; swallow neither resolves nor contacts it. Servers booting the\n" +
+			"ISO must have Secure Boot off (neither boot loader is signed).",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			name, _ := cmd.Flags().GetString("name")
 			integration, _ := cmd.Flags().GetString("integration")

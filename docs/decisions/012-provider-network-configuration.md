@@ -10,6 +10,10 @@
 > and always provider-known; `dhcp` is a deprecated one-release alias. Everything else in this
 > ADR (swallow owns the intent, MAAS vocabulary stays in the adapter, no force option, verify
 > after mutation, Static mode, release cleanup as a Provisioning Task) still holds.
+>
+> Refinement (2026-10-13): [ADR 058](058-deployment-dhcp-and-subnet-dns.md) brings DHCP back as
+> a deployment mode beside `automatic` and `static`, for subnets whose DHCP the provisioner does
+> not serve.
 
 ## Context
 

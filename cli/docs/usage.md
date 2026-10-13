@@ -427,7 +427,8 @@ swallow provisioning templates user-data set tmpl1 -f userdata.json           # 
 swallow provisioning templates user-data clear tmpl1
 
 # Boot ISOs: iPXE ISOs that take a DHCP lease from the site network and chain to a
-# provisioner's MAAS rack (http://<rack>:<port or 5248>/ipxe.cfg); built in seconds
+# provisioner's MAAS rack (iPXE to ipxe.cfg on BIOS, GRUB to grub/grub.cfg-<mac> on UEFI, port 5248 by default);
+# built in seconds. Rebuilding one in place is a Dashboard/API action (no CLI command yet).
 swallow provisioning boot-isos list --site-id site1            # also says whether this install can build
 swallow provisioning boot-isos create --integration int1 --name tainan-rack --rack 10.0.0.2
 swallow provisioning boot-isos get iso1                        # includes the rendered iPXE script
@@ -469,7 +470,7 @@ settings:
 userData:
   mode: inherit          # inherit | replace | omit
 network:
-  mode: automatic        # automatic | static
+  mode: automatic        # automatic | dhcp | static
 ```
 
 `verify.yaml`:

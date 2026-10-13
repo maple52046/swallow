@@ -29,6 +29,14 @@ The credential is encrypted with the API credential key and is never returned.
 After creation, check `hasCredential` and the integration sync status. A
 successful reconciliation projects MAAS machines into Servers.
 
+In the Dashboard, **Infrastructure → Integrations → Create integration** registers
+it and then opens the Integration's settings page. Every Integration's settings
+page (its name in the list, or **Edit**) has a tab each for **General** (name,
+endpoint, enabled), **Connection** (timeout, TLS, automatic inspection, and
+provider-specific settings), and **Credential** (set or replace the key). A MAAS
+provisioner also has **HTTP proxy** and **Subnet DNS**, which are applied to MAAS
+directly. Each tab has its own URL and its own Save or Apply.
+
 One Site has one provisioner boundary. Model a MAAS installation spanning
 independently operated locations as separate Site integrations.
 

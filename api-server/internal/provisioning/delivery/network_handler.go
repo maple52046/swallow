@@ -25,12 +25,16 @@ type networkSuggestionResponse struct {
 	IPAddress      string `json:"ipAddress"`
 	DefaultGateway bool   `json:"defaultGateway"`
 }
+
+// networkSubnetResponse is one entry of a NIC's availableSubnets (provisioning.md, Network
+// Inspection). provisionerDhcp tells the Dashboard why a DHCP suggestion was made.
 type networkSubnetResponse struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	CIDR           string `json:"cidr"`
-	GatewayAddress string `json:"gatewayAddress"`
-	Managed        bool   `json:"managed"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	CIDR            string `json:"cidr"`
+	GatewayAddress  string `json:"gatewayAddress"`
+	Managed         bool   `json:"managed"`
+	ProvisionerDHCP bool   `json:"provisionerDhcp"`
 }
 type networkLinkResponse struct {
 	ID             string `json:"id"`
@@ -79,7 +83,7 @@ func toNetworkTargetResponse(target application.NetworkTarget) networkTargetResp
 			}
 			subnets := make([]networkSubnetResponse, 0, len(iface.AvailableSubnets))
 			for _, subnet := range iface.AvailableSubnets {
-				subnets = append(subnets, networkSubnetResponse{ID: subnet.ID, Name: subnet.Name, CIDR: subnet.CIDR, GatewayAddress: subnet.GatewayAddress, Managed: subnet.Managed})
+				subnets = append(subnets, networkSubnetResponse{ID: subnet.ID, Name: subnet.Name, CIDR: subnet.CIDR, GatewayAddress: subnet.GatewayAddress, Managed: subnet.Managed, ProvisionerDHCP: subnet.ProvisionerDHCP})
 			}
 			interfaces = append(interfaces, networkInterfaceResponse{ID: iface.ID, Name: iface.Name, MACAddress: iface.MACAddress, Boot: iface.Boot, PhysicalState: string(iface.PhysicalState), State: string(iface.State), ProviderMode: iface.ProviderMode, Links: links, AvailableSubnets: subnets})
 		}

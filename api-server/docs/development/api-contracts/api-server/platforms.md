@@ -221,6 +221,9 @@ types):
 }
 ```
 
+`network` carries the OS deployment network intent of [provisioning.md](provisioning.md)
+(`mode` `automatic`, `dhcp`, or `static`) for the targets that are provisioned.
+
 `mode` is `existing_os` (default) or `provision_os`. In `provision_os` a target that is
 already `deployed` is reused as-is while a `ready` target is provisioned first, so one
 deploy may mix both. The deploy mode is the `ram` Deploy Target — `settings.ephemeral=true`,

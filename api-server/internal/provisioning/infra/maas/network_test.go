@@ -232,3 +232,35 @@ func TestConfigureNetworkLinkRejectsDefaultGatewayForDHCPBeforeProviderRead(t *t
 		t.Fatalf("provider request occurred before validation: %q", fake.lastOperation)
 	}
 }
+
+// The subnet catalog reports whether MAAS serves a subnet's DHCP — on its VLAN or relayed to it —
+// and the subnet's DNS servers, which drive the DHCP suggestion and Subnet DNS (ADR 058).
+func TestListNetworkSubnetsReportsProvisionerDHCPAndDNS(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.respond("GET "+apiPrefix+"/subnets/{$}", http.StatusOK, `[
+	  {"id": 1, "name": "site", "cidr": "10.170.168.0/23", "gateway_ip": "10.170.169.254", "managed": true,
+	   "dns_servers": ["165.204.124.158", " 165.204.219.249 "], "vlan": {"id": 5001, "dhcp_on": false, "relay_vlan": null}},
+	  {"id": 2, "name": "maas", "cidr": "192.168.100.0/24", "gateway_ip": "192.168.100.1", "managed": true,
+	   "dns_servers": [], "vlan": {"id": 5002, "dhcp_on": true}},
+	  {"id": 3, "name": "relayed", "cidr": "192.168.110.0/24", "gateway_ip": null, "managed": false,
+	   "vlan": {"id": 5003, "dhcp_on": false, "relay_vlan": {"id": 5002}}}
+	]`)
+
+	subnets, err := newTestProvider(t, fake).ListNetworkSubnets(context.Background())
+	if err != nil {
+		t.Fatalf("ListNetworkSubnets: %v", err)
+	}
+	if len(subnets) != 3 {
+		t.Fatalf("subnets = %d, want 3", len(subnets))
+	}
+	site, maasDHCP, relayed := subnets[0], subnets[1], subnets[2]
+	if site.ID != "1" || site.ProvisionerDHCP || strings.Join(site.DNSServers, ",") != "165.204.124.158,165.204.219.249" {
+		t.Errorf("site subnet = %+v, want no provisioner DHCP and its two DNS servers trimmed", site)
+	}
+	if !maasDHCP.ProvisionerDHCP || len(maasDHCP.DNSServers) != 0 {
+		t.Errorf("MAAS DHCP subnet = %+v, want provisioner DHCP and no DNS servers", maasDHCP)
+	}
+	if !relayed.ProvisionerDHCP || relayed.Managed || relayed.GatewayAddress != "" {
+		t.Errorf("relayed subnet = %+v, want provisioner DHCP through the relay, unmanaged, no gateway", relayed)
+	}
+}

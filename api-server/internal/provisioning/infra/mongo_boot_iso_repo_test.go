@@ -12,8 +12,10 @@ import (
 func TestBootISODocRoundTrip(t *testing.T) {
 	iso := &provisioningdomain.BootISO{
 		ID: "iso-1", Name: "Tainan-Rack", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5",
-		ChainURL: "http://10.1.0.5:5248/ipxe.cfg", Script: "#!ipxe\n", IPXEVersion: "v2.0.0",
+		ChainURL: "http://10.1.0.5:5248/ipxe.cfg", UEFIChainURL: "http://10.1.0.5:5248/grub/grub.cfg-<mac>",
+		Script: "#!ipxe\n", GRUBConfig: "net_bootp\n", IPXEVersion: "v2.0.0",
 		SizeBytes: 1024, SHA256: "abc", CreatedAt: time.Date(2026, 10, 4, 8, 0, 0, 0, time.UTC), CreatedBy: "admin",
+		RebuiltAt: time.Date(2026, 10, 13, 1, 0, 0, 0, time.UTC), RebuiltBy: "operator",
 	}
 	doc := newBootISODoc(iso)
 	if doc.NormalizedName != "tainan-rack" || doc.Name != "Tainan-Rack" {

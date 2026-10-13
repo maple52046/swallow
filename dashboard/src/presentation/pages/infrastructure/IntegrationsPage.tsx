@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Plus } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Integration, IntegrationKind } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -19,8 +19,8 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
 import { credentialGuidance } from './credentialGuidance'
 import { InfrastructureHeader } from './InfrastructureHeader'
-import { IntegrationCredentialDialog } from './IntegrationCredentialDialog'
-import { IntegrationDialog } from './IntegrationDialog'
+import { CreateIntegrationDialog } from './CreateIntegrationDialog'
+import { isMaasProvisioner } from './integrationSettings'
 import { ResourceDeleteDialog } from './ResourceDeleteDialog'
 
 type IntegrationsState =
@@ -51,18 +51,20 @@ function credentialHint(integration: Integration): string {
 /**
  * Admin Integration registry for Site-owned external provider connections.
  *
- * Credentials remain write-only and use a separate replacement dialog. Desktop
- * rows and mobile cards share the same filters, status semantics, and mutations.
+ * Registration uses the Create integration dialog; editing an existing Integration, including its
+ * write-only credential, happens on its settings page, which the name, Edit, and Credential
+ * actions open at the matching tab. Deletion stays a confirmation dialog here. Desktop rows and
+ * mobile cards share the same filters, status semantics, and actions.
  */
 export function IntegrationsPage() {
   const { sites: repository } = useApp()
   const { showToast } = useToast()
-  const { sites, siteId } = useSiteScope()
+  const { sites, siteId, scopedHref } = useSiteScope()
+  const navigate = useNavigate()
   const [state, setState] = useState<IntegrationsState>({ status: 'loading' })
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<IntegrationKind | ''>('')
-  const [editor, setEditor] = useState<Integration | 'create' | null>(null)
-  const [credentialTarget, setCredentialTarget] = useState<Integration | null>(null)
+  const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<Integration | null>(null)
 
   const load = useCallback(async () => {
@@ -95,17 +97,20 @@ export function IntegrationsPage() {
       )
     : []
 
-  const handleSaved = async () => {
-    const created = editor === 'create'
-    setEditor(null)
-    await load()
-    showToast({ tone: 'success', title: created ? 'Integration created' : 'Integration updated' })
-  }
+  // Editing happens on the Integration settings page; each tab has its own URL.
+  const settingsHref = (integration: Integration, tab: 'general' | 'credential') =>
+    scopedHref(`/infrastructure/integrations/${encodeURIComponent(integration.id)}/${tab}`)
 
-  const handleCredentialReplaced = async () => {
-    setCredentialTarget(null)
+  // A new MAAS provisioner still has settings only its page offers (its HTTP proxy and Subnet DNS),
+  // so it opens there; any other Integration is complete and stays in the list.
+  const handleCreated = async (created: Integration) => {
+    setCreating(false)
+    showToast({ tone: 'success', title: 'Integration created' })
+    if (isMaasProvisioner(created)) {
+      navigate(settingsHref(created, 'general'))
+      return
+    }
     await load()
-    showToast({ tone: 'success', title: 'Credential replaced' })
   }
 
   const handleDeleted = async () => {
@@ -122,7 +127,7 @@ export function IntegrationsPage() {
     <div className="operator-page">
       <InfrastructureHeader
         actions={
-          <Button colorPalette="brand" onClick={() => setEditor('create')} disabled={sites.length === 0}>
+          <Button colorPalette="brand" onClick={() => setCreating(true)} disabled={sites.length === 0}>
             <Plus size={16} />
             Create integration
           </Button>
@@ -151,7 +156,7 @@ export function IntegrationsPage() {
         <EmptyState
           title="No integrations"
           message={query || kind ? 'No results match these filters.' : 'Connect a provider to a site.'}
-          action={!query && !kind && sites.length > 0 ? { label: 'Create integration', onClick: () => setEditor('create') } : undefined}
+          action={!query && !kind && sites.length > 0 ? { label: 'Create integration', onClick: () => setCreating(true) } : undefined}
         />
       )}
       {state.status === 'ready' && filtered.length > 0 && (
@@ -175,7 +180,7 @@ export function IntegrationsPage() {
                 <Table.Body>
                   {filtered.map((integration) => (
                     <Table.Row key={integration.id} id={`integration-${integration.id}`}>
-                      <Table.Cell><strong>{integration.name}</strong><Text as="small" display="block" color="fg.muted" className="sw-mono">{integration.id}</Text></Table.Cell>
+                      <Table.Cell><Link to={settingsHref(integration, 'general')}><strong>{integration.name}</strong></Link><Text as="small" display="block" color="fg.muted" className="sw-mono">{integration.id}</Text></Table.Cell>
                       <Table.Cell><Link to={`/infrastructure/sites?site=${encodeURIComponent(integration.siteId)}#site-${integration.siteId}`}>{siteName(integration.siteId)}</Link></Table.Cell>
                       <Table.Cell>{KIND_LABELS[integration.kind]}</Table.Cell>
                       <Table.Cell>{integration.providerKind}</Table.Cell>
@@ -192,8 +197,8 @@ export function IntegrationsPage() {
                       <Table.Cell textAlign="end">
                         <ResourceRowActions
                           actions={[
-                            { kind: 'edit', label: `Edit ${integration.name}`, onClick: () => setEditor(integration) },
-                            { kind: 'credential', label: `${integration.hasCredential ? 'Replace' : 'Set'} credential for ${integration.name}`, onClick: () => setCredentialTarget(integration) },
+                            { kind: 'edit', label: `Edit ${integration.name}`, onClick: () => navigate(settingsHref(integration, 'general')) },
+                            { kind: 'credential', label: `${integration.hasCredential ? 'Replace' : 'Set'} credential for ${integration.name}`, onClick: () => navigate(settingsHref(integration, 'credential')) },
                             { kind: 'delete', label: `Delete ${integration.name}`, onClick: () => setDeleting(integration) },
                           ]}
                         />
@@ -215,8 +220,8 @@ export function IntegrationsPage() {
                   actions={
                     <ResourceRowActions
                       actions={[
-                        { kind: 'edit', label: `Edit ${integration.name}`, onClick: () => setEditor(integration) },
-                        { kind: 'credential', label: `${integration.hasCredential ? 'Replace' : 'Set'} credential for ${integration.name}`, onClick: () => setCredentialTarget(integration) },
+                        { kind: 'edit', label: `Edit ${integration.name}`, onClick: () => navigate(settingsHref(integration, 'general')) },
+                        { kind: 'credential', label: `${integration.hasCredential ? 'Replace' : 'Set'} credential for ${integration.name}`, onClick: () => navigate(settingsHref(integration, 'credential')) },
                         { kind: 'delete', label: `Delete ${integration.name}`, onClick: () => setDeleting(integration) },
                       ]}
                     />
@@ -237,20 +242,12 @@ export function IntegrationsPage() {
         />
       )}
 
-      {editor && (
-        <IntegrationDialog
-          integration={editor === 'create' ? undefined : editor}
+      {creating && (
+        <CreateIntegrationDialog
           sites={sites}
           defaultSiteId={siteId}
-          onClose={() => setEditor(null)}
-          onSaved={() => void handleSaved()}
-        />
-      )}
-      {credentialTarget && (
-        <IntegrationCredentialDialog
-          integration={credentialTarget}
-          onClose={() => setCredentialTarget(null)}
-          onReplaced={() => void handleCredentialReplaced()}
+          onClose={() => setCreating(false)}
+          onCreated={(created) => void handleCreated(created)}
         />
       )}
       {deleting && (

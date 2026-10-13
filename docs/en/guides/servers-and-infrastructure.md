@@ -236,7 +236,8 @@ assert the Server may boot now.
 
 Automatic inspection applies to Servers swallow first saw within the last 24
 hours that were never inspected by swallow. Turn it off per provisioner with
-**Inspect newly enrolled Servers automatically** in the Integration dialog;
+**Inspect newly enrolled Servers automatically** on the Connection tab of the
+Integration's settings page;
 Inspect hardware stays available. Inspect is refused while a Server is deployed,
 allocated, in rescue, or busy with other provider work or another Workflow.
 

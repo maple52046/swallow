@@ -47,6 +47,11 @@ export interface SiteRepository {
   updateSite(id: string, input: UpdateSiteInput): Promise<Site>
   deleteSite(id: string): Promise<void>
   listIntegrations(filters?: { siteId?: string; kind?: IntegrationKind }): Promise<Integration[]>
+  /**
+   * Reads one Integration for its settings page. Resolves `null` for an unknown id — a domain miss
+   * the page shows as "not found" — and rejects only for transport or server faults.
+   */
+  getIntegration(id: string): Promise<Integration | null>
   createIntegration(input: CreateIntegrationInput): Promise<Integration>
   updateIntegration(id: string, input: UpdateIntegrationInput): Promise<Integration>
   replaceIntegrationCredential(id: string, credential: string): Promise<void>

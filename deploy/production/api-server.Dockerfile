@@ -1,10 +1,11 @@
 ARG GO_IMAGE=golang:1.25-bookworm@sha256:e401dae1bf814e29204a8cb7915682e1780951e609ca0dd8865ee1937f510c48
 ARG EXECUTION_ENVIRONMENT=python:3.13-slim-bookworm@sha256:cbd229d7b9bd041012af758ce5ffd807a6518d76493ce9035d208f1db9ceff1e
 
-# iPXE for Boot ISOs (decision 049): ipxe.lkrn (BIOS) and ipxe.efi (x86_64 UEFI) are compiled
-# once, with no embedded script, from a pinned commit; each Boot ISO is packaged at runtime with
-# iPXE's own genfsimg, which adds the rendered script as autoexec.ipxe, so the runtime image needs
-# no compiler. The commit is the v2.0.0 tag's; the build fails if the tag ever moves.
+# iPXE for Boot ISOs (decision 049): ipxe.lkrn (BIOS) is compiled once, with no embedded script,
+# from a pinned commit; each Boot ISO is packaged at runtime with iPXE's own genfsimg, which adds
+# the rendered script as autoexec.ipxe, so the runtime image needs no compiler. UEFI Boot ISOs boot
+# a GRUB built at runtime instead (decision 057); ipxe.efi is still built but not packaged. The
+# commit is the v2.0.0 tag's; the build fails if the tag ever moves.
 FROM ${GO_IMAGE} AS ipxe
 ARG IPXE_VERSION=v2.0.0
 ARG IPXE_COMMIT=12798ec29aa8a64d8675c4378b99f5fe28447afb
@@ -36,11 +37,12 @@ LABEL org.opencontainers.image.source="https://github.com/maple52046/swallow" \
       org.opencontainers.image.description="swallow API, worker, and Ansible executor"
 USER 0
 COPY api-server/automation/requirements.txt /tmp/swallow-ansible-requirements.txt
-# mtools, xorriso, isolinux, and syslinux-common are what genfsimg needs to package a Boot ISO.
+# mtools, xorriso, isolinux, and syslinux-common are what genfsimg needs to package a Boot ISO;
+# grub-common (grub-mkstandalone) and grub-efi-amd64-bin build its UEFI GRUB (decision 057).
 # The Boot ISO directory is created owned by the service user so a named volume mounted over it
 # starts writable.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openssh-client tar mtools xorriso isolinux syslinux-common \
+ && apt-get install -y --no-install-recommends openssh-client tar mtools xorriso isolinux syslinux-common grub-common grub-efi-amd64-bin \
  && python3 -m pip install --no-cache-dir --requirement /tmp/swallow-ansible-requirements.txt \
  && rm -rf /var/lib/apt/lists/* /tmp/swallow-ansible-requirements.txt \
  && groupadd --gid 10001 swallow \

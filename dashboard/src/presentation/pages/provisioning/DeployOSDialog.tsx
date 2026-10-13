@@ -21,7 +21,7 @@ import type {
   NetworkInspectionResult,
   DeploymentUserDataMode,
 } from '@/domain/provisioning/types'
-import { DEPLOY_TARGET_LABELS } from '@/domain/provisioning/types'
+import { DEPLOY_TARGET_LABELS, DEPLOYMENT_NETWORK_MODE_LABELS } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import type { Integration, OSImage } from '@/domain/site/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
@@ -43,6 +43,8 @@ import { UnsupportedDeployModeWarning } from './UnsupportedDeployModeWarning'
 import {
   defaultDeployTargetForImage,
   osImageSupportsDeployTarget,
+  SITE_DHCP_SUGGESTION_TEXT,
+  suggestedBatchNetworkMode,
   toDeployServersInput,
   type OSDeploymentConfiguration,
   type OSDeploymentLaunchContext,
@@ -384,6 +386,10 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
   const networkInspection = inspectionState.status === 'ready'
     ? inspectionState.inspection
     : null
+  // The DHCP explanation follows the backend's suggestion rather than the current choice, so it
+  // stays visible as a warning when the operator switches a site-DHCP batch to Automatic.
+  const siteDhcpSuggested = networkInspection !== null &&
+    suggestedBatchNetworkMode(networkInspection.targets.map((target) => target.suggestion.mode)) === 'dhcp'
   const assignedStaticIPs = selectedServers
     .map((server) => networkAssignments[server.id]?.ipAddress.trim() ?? '')
     .filter(Boolean)
@@ -416,8 +422,10 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     ),
   ]
   const reusableSubnetId = assignedSubnetIds.length === 1 ? assignedSubnetIds[0] : ''
+  // Only Static templates must name a subnet (contract provisioning.md); Automatic and DHCP ones
+  // resolve each target's subnet at deploy time.
   const reusableNetworkValid =
-    effectiveNetworkMode === 'automatic' || Boolean(reusableSubnetId)
+    effectiveNetworkMode !== 'static' || Boolean(reusableSubnetId)
   const operatingSystemValid = Boolean(
     integration &&
       effectiveImageId &&
@@ -450,11 +458,9 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
         setInspectionState({ status: 'attention', issues })
         return false
       }
-      const suggestedMode: DeploymentNetworkMode = inspection.targets.some(
-        (target) => target.suggestion.mode === 'static',
+      const suggestedMode = suggestedBatchNetworkMode(
+        inspection.targets.map((target) => target.suggestion.mode),
       )
-        ? 'static'
-        : 'automatic'
       setNetworkMode(suggestedMode)
       setDefaultGateway(
         suggestedMode === 'static' &&
@@ -866,15 +872,16 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
           color="fg.muted"
           fontSize="sm"
         >
-          Choose Automatic or Static addressing for the inspected target NICs.
+          Choose Automatic, DHCP, or Static addressing for the inspected target NICs.
         </Text>
         <div className="sw-deploy-config-grid">
           <AddressingModeField
             value={effectiveNetworkMode}
+            helperText={siteDhcpSuggested ? SITE_DHCP_SUGGESTION_TEXT : undefined}
             onChange={(mode) => {
               markDirty()
               setNetworkMode(mode)
-              if (mode === 'automatic') setDefaultGateway(false)
+              if (mode !== 'static') setDefaultGateway(false)
             }}
           />
           {effectiveNetworkMode === 'static' && (
@@ -950,7 +957,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
                 },
                 {
                   label: 'Network mode',
-                  value: effectiveNetworkMode === 'automatic' ? 'Automatic' : 'Static',
+                  value: DEPLOYMENT_NETWORK_MODE_LABELS[effectiveNetworkMode],
                 },
               ]}
             />
@@ -986,7 +993,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
                     <Table.Cell className="sw-mono">
                       {effectiveNetworkMode === 'static'
                         ? assignment?.ipAddress || '-'
-                        : 'Automatic'}
+                        : DEPLOYMENT_NETWORK_MODE_LABELS[effectiveNetworkMode]}
                     </Table.Cell>
                   </Table.Row>
                 )

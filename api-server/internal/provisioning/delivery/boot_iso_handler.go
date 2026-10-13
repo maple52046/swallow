@@ -8,8 +8,9 @@ import (
 	"github.com/maple52046/swallow/internal/shared/middleware"
 )
 
-// BootISOHandler serves the Boot ISO routes of contract boot-isos.md (decision 049):
-// GET/POST /api/v1/provisioning/boot-isos and GET/DELETE /api/v1/provisioning/boot-isos/{id}.
+// BootISOHandler serves the Boot ISO routes of contract boot-isos.md (decisions 049, 057):
+// GET/POST /api/v1/provisioning/boot-isos, GET/DELETE /api/v1/provisioning/boot-isos/{id}, and
+// POST /api/v1/provisioning/boot-isos/{id}/rebuild.
 // It is admin-only through its route group; the unauthenticated file route is served by the
 // composition root, not here. Errors go through the shared provisioning mapper (RespondError).
 type BootISOHandler struct {
@@ -61,6 +62,20 @@ func (h *BootISOHandler) Create(c *fiber.Ctx) error {
 // Get returns one Boot ISO.
 func (h *BootISOHandler) Get(c *fiber.Ctx) error {
 	item, err := h.isos.Get(c.Context(), c.Params("id"))
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
+}
+
+// Rebuild re-renders a Boot ISO from the current template and replaces its file in place,
+// answering 200 with it. It takes no body; the operator's username is recorded as rebuiltBy.
+func (h *BootISOHandler) Rebuild(c *fiber.Ctx) error {
+	rebuiltBy := ""
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		rebuiltBy = principal.Username
+	}
+	item, err := h.isos.Rebuild(c.Context(), c.Params("id"), rebuiltBy)
 	if err != nil {
 		return RespondError(c, err)
 	}

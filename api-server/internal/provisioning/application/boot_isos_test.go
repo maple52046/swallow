@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
@@ -43,6 +44,15 @@ func (r *bootISORepoFake) List(_ context.Context, filter provisioningdomain.Boot
 	return out, nil
 }
 
+func (r *bootISORepoFake) Update(_ context.Context, iso *provisioningdomain.BootISO) error {
+	if _, ok := r.isos[iso.ID]; !ok {
+		return provisioningdomain.ErrBootISONotFound
+	}
+	stored := *iso
+	r.isos[iso.ID] = &stored
+	return nil
+}
+
 func (r *bootISORepoFake) Delete(_ context.Context, id string) error {
 	if _, ok := r.isos[id]; !ok {
 		return provisioningdomain.ErrBootISONotFound
@@ -74,16 +84,18 @@ type bootISOBuilderFake struct {
 	unavailable error
 	buildErr    error
 	scripts     map[string]string
+	grubConfigs map[string]string
 	removed     []string
 }
 
 func (b *bootISOBuilderFake) Available() error { return b.unavailable }
 
-func (b *bootISOBuilderFake) Build(_ context.Context, id, script string) (provisioningdomain.BootISOArtifact, error) {
+func (b *bootISOBuilderFake) Build(_ context.Context, id string, content provisioningdomain.BootISOContent) (provisioningdomain.BootISOArtifact, error) {
 	if b.buildErr != nil {
 		return provisioningdomain.BootISOArtifact{}, b.buildErr
 	}
-	b.scripts[id] = script
+	b.scripts[id] = content.IPXEScript
+	b.grubConfigs[id] = content.GRUBConfig
 	return provisioningdomain.BootISOArtifact{SizeBytes: 1024, SHA256: "abc", IPXEVersion: "v2.0.0"}, nil
 }
 
@@ -121,7 +133,7 @@ type bootISOFixture struct {
 func newBootISOFixture() *bootISOFixture {
 	f := &bootISOFixture{
 		repo:    &bootISORepoFake{isos: map[string]*provisioningdomain.BootISO{}},
-		builder: &bootISOBuilderFake{scripts: map[string]string{}},
+		builder: &bootISOBuilderFake{scripts: map[string]string{}, grubConfigs: map[string]string{}},
 		usage:   bootISOUsageFake{},
 	}
 	f.service = NewBootISOService(f.repo, bootISOIntegrationsFake{"maas-tainan": "site-tainan", "maas-taipei": "site-taipei"}, f.builder, f.usage)
@@ -151,7 +163,13 @@ func TestCreateBootISORendersRackTemplate(t *testing.T) {
 		t.Errorf("item = %+v, want the served URL, iPXE version and creator", item)
 	}
 	if script := f.builder.scripts["iso-1"]; !strings.Contains(script, "set maas_rack 10.1.0.5\n") || !strings.Contains(script, ":5248/ipxe.cfg") || script != item.Script {
-		t.Errorf("built script = %q, want the stored script chaining to the rack", script)
+		t.Errorf("built script = %q, want the stored iPXE script chaining to the rack", script)
+	}
+	if config := f.builder.grubConfigs["iso-1"]; !strings.Contains(config, "set maas_rack=10.1.0.5\n") || config != item.GRUBConfig {
+		t.Errorf("built GRUB configuration = %q, want the stored UEFI configuration for the rack", config)
+	}
+	if item.UEFIChainURL != "http://10.1.0.5:5248/grub/grub.cfg-<mac>" || item.RebuiltAt != "" {
+		t.Errorf("item = %+v, want the UEFI chain URL and no rebuild", item)
 	}
 	if _, ok := f.repo.isos["iso-1"]; !ok {
 		t.Error("the Boot ISO was not stored")
@@ -251,6 +269,73 @@ func TestListBootISOs(t *testing.T) {
 	list, err = f.service.List(context.Background(), "", "")
 	if err != nil || len(list.Items) != 2 {
 		t.Errorf("List() = %+v, %v; want both", list, err)
+	}
+}
+
+// An ISO without a GRUB reads as needing a rebuild even when it recorded a UEFI URL (rebuilt while
+// the UEFI path still went through iPXE); a rebuild renders both current templates for its stored
+// rack, replaces the file under the same id, and keeps the identity and creation facts.
+func TestRebuildBootISO(t *testing.T) {
+	f := newBootISOFixture()
+	created := time.Date(2026, 10, 5, 1, 20, 0, 0, time.UTC)
+	f.repo.isos["iso-old"] = &provisioningdomain.BootISO{
+		ID: "iso-old", Name: "tainan-rack", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5:8080",
+		ChainURL: "http://10.1.0.5:8080/ipxe.cfg", UEFIChainURL: "http://10.1.0.5:8080/grubx64.efi",
+		Script: "#!ipxe\nchain old\n", IPXEVersion: "v1.21.1", CreatedAt: created, CreatedBy: "admin",
+	}
+	if before, err := f.service.Get(context.Background(), "iso-old"); err != nil || before.UEFIChainURL != "" {
+		t.Errorf("Get before the rebuild = %+v, %v; want no UEFI chain URL without a GRUB", before, err)
+	}
+	f.usage["iso-old"] = 2
+	rebuiltAt := time.Date(2026, 10, 13, 1, 40, 0, 0, time.UTC)
+	f.service.now = func() time.Time { return rebuiltAt }
+
+	item, err := f.service.Rebuild(context.Background(), "iso-old", "operator")
+	if err != nil {
+		t.Fatalf("Rebuild error = %v", err)
+	}
+	script := f.builder.scripts["iso-old"]
+	if !strings.Contains(script, ":8080/ipxe.cfg") || script != item.Script {
+		t.Errorf("rebuilt script = %q, want the current template for the stored rack", script)
+	}
+	if config := f.builder.grubConfigs["iso-old"]; !strings.Contains(config, "set maas_port=8080\n") || config != item.GRUBConfig {
+		t.Errorf("rebuilt GRUB configuration = %q, want the current template for the stored rack", config)
+	}
+	if item.ID != "iso-old" || item.Name != "tainan-rack" || item.UEFIChainURL != "http://10.1.0.5:8080/grub/grub.cfg-<mac>" ||
+		item.IPXEVersion != "v2.0.0" || item.InUseBy != 2 || item.SiteID != "site-tainan" {
+		t.Errorf("item = %+v, want the same ISO with the new script and artifact", item)
+	}
+	if item.RebuiltBy != "operator" || item.RebuiltAt != "2026-10-13T01:40:00Z" || item.CreatedBy != "admin" || item.CreatedAt != "2026-10-05T01:20:00Z" {
+		t.Errorf("item = %+v, want the rebuild recorded beside the original creation", item)
+	}
+	if stored := f.repo.isos["iso-old"]; stored.Script != script || !stored.CreatedAt.Equal(created) {
+		t.Errorf("stored = %+v, want the rebuild stored and the creation kept", stored)
+	}
+	if len(f.builder.removed) != 0 {
+		t.Errorf("removed = %v, a rebuild must not remove the file", f.builder.removed)
+	}
+}
+
+// A rebuild that cannot build leaves the record as it was.
+func TestRebuildBootISORefusals(t *testing.T) {
+	if _, err := newBootISOFixture().service.Rebuild(context.Background(), "missing", "operator"); !errors.Is(err, provisioningdomain.ErrBootISONotFound) {
+		t.Errorf("Rebuild of an unknown ISO error = %v, want ErrBootISONotFound", err)
+	}
+	for name, setup := range map[string]func(*bootISOFixture){
+		"builder unavailable": func(f *bootISOFixture) { f.builder.unavailable = provisioningdomain.ErrBootISOBuilderUnavailable },
+		"build failed":        func(f *bootISOFixture) { f.builder.buildErr = provisioningdomain.ErrBootISOBuildFailed },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newBootISOFixture()
+			f.repo.isos["iso-old"] = &provisioningdomain.BootISO{ID: "iso-old", Name: "a", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5", Script: "old"}
+			setup(f)
+			if _, err := f.service.Rebuild(context.Background(), "iso-old", "operator"); err == nil {
+				t.Fatal("Rebuild succeeded, want an error")
+			}
+			if stored := f.repo.isos["iso-old"]; stored.Script != "old" || stored.RebuiltBy != "" {
+				t.Errorf("stored = %+v, want the record unchanged", stored)
+			}
+		})
 	}
 }
 

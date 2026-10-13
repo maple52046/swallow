@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Button, Heading, HStack, Menu, Portal, Stack, Text } from '@chakra-ui/react'
-import { ArrowRight, Disc, Download, EllipsisVertical, FileCode2, Network, Plus, RefreshCw, Server, Trash2 } from 'lucide-react'
+import { ArrowRight, Disc, Download, EllipsisVertical, FileCode2, Hammer, Network, Plus, RefreshCw, Server, Trash2 } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import type { BootISO, BootISOCatalog } from '@/domain/provisioning/types'
+import { bootISONeedsRebuild, type BootISO, type BootISOCatalog } from '@/domain/provisioning/types'
 import type { Integration } from '@/domain/site/types'
 import { CodeBlock } from '@/presentation/components/CodeBlock'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
@@ -48,6 +48,13 @@ function deleteBlockedReason(iso: BootISO): string {
   return `${servers} use it as Boot Media. Disable Boot Media on them or switch them to another ISO first.`
 }
 
+/** What a rebuild changes for the Servers using an ISO, in words for the confirmation. */
+function rebuildConsequence(iso: BootISO): string {
+  if (iso.inUseBy === 0) return 'No Server uses it now.'
+  const servers = iso.inUseBy === 1 ? '1 Server uses' : `${iso.inUseBy} Servers use`
+  return `${servers} it as Boot Media and will boot the new script from their next boot, including deployments and inspections already started.`
+}
+
 /** "In use by" in words; never a bare number, so 0 reads as unused rather than missing. */
 function inUseLabel(iso: BootISO): string {
   if (iso.inUseBy === 0) return 'Not in use'
@@ -71,6 +78,10 @@ function siteHref(siteId: string): string {
  * keep serving, usage, chain, and technical facts distinct; a missing ISO is therefore an ordinary
  * empty setup rather than a fleet warning. Refreshes preserve the last-good setup, while Site
  * changes replace it and invalidate late responses from the previous Site.
+ *
+ * Rebuild (decision 057) re-renders an ISO in place behind a confirmation that names the Servers
+ * it affects; an ISO built before the UEFI hand-off is flagged on its card so an operator finds it
+ * before a UEFI deployment fails on it.
  */
 export function BootISOsPage() {
   const { provisioning, sites: siteRepository } = useApp()
@@ -82,6 +93,8 @@ export function BootISOsPage() {
   const [scriptOf, setScriptOf] = useState<BootISO | null>(null)
   const [deleting, setDeleting] = useState<BootISO | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [rebuilding, setRebuilding] = useState<BootISO | null>(null)
+  const [rebuildBusy, setRebuildBusy] = useState(false)
 
   const load = useCallback(async (mode: LoadMode = 'refresh') => {
     const generation = ++generationRef.current
@@ -141,6 +154,27 @@ export function BootISOsPage() {
     }
   }
 
+  // The dialog stays open on failure so the operator keeps the context; the API leaves the
+  // previous file served, which the error toast says.
+  const rebuild = async () => {
+    if (!rebuilding || rebuildBusy) return
+    setRebuildBusy(true)
+    try {
+      const iso = await provisioning.rebuildBootISO(rebuilding.id)
+      showToast({ tone: 'success', title: `Boot ISO ${iso.name} rebuilt`, description: 'Its URL is unchanged; Servers using it boot the new script next time.' })
+      setRebuilding(null)
+      await load('refresh')
+    } catch (error) {
+      showToast({
+        tone: 'error',
+        title: 'Could not rebuild the Boot ISO',
+        description: `${error instanceof Error ? error.message : 'Unknown error'} The previous ISO is still served.`,
+      })
+    } finally {
+      setRebuildBusy(false)
+    }
+  }
+
   const ready = state.status === 'ready' ? state : null
   const integrationName = (id: string) => ready?.integrations.find((item) => item.id === id)?.name ?? id
   const siteName = (id: string) => sites.find((item) => item.id === id)?.name ?? id
@@ -156,7 +190,7 @@ export function BootISOsPage() {
     <div className="operator-page sw-boot-isos-page">
       <PageHeader
         title="Boot ISOs"
-        subtitle="Optional iPXE boot media for Servers that use external DHCP instead of their provisioner's managed network."
+        subtitle="Optional network boot media for Servers that use external DHCP instead of their provisioner's managed network."
         breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'Boot ISOs' }]}
         stackActionsOnMobile
         actions={
@@ -254,6 +288,8 @@ export function BootISOsPage() {
                   siteName={siteName(iso.siteId)}
                   showSite={!siteId}
                   onViewScript={() => setScriptOf(iso)}
+                  rebuildBlocked={builderReason ? 'This installation cannot build Boot ISOs; see the notice above.' : ''}
+                  onRebuild={() => setRebuilding(iso)}
                   onDelete={() => setDeleting(iso)}
                 />
               ))}
@@ -274,6 +310,23 @@ export function BootISOsPage() {
         />
       )}
       {scriptOf && <BootISOScriptDialog iso={scriptOf} onClose={() => setScriptOf(null)} />}
+      <ConfirmDialog
+        open={rebuilding !== null}
+        title="Rebuild Boot ISO"
+        confirmLabel={rebuilding ? `Rebuild ${rebuilding.name}` : 'Rebuild'}
+        busy={rebuildBusy}
+        onConfirm={() => void rebuild()}
+        onCancel={() => setRebuilding(null)}
+      >
+        <Stack gap="2">
+          <Text>
+            Rebuild <strong>{rebuilding?.name}</strong> from the current iPXE template for rack{' '}
+            <Text as="span" className="sw-mono">{rebuilding?.rackAddress}</Text>? Its file is replaced at the same URL, so
+            no Boot Media setting changes.
+          </Text>
+          <Text>{rebuilding ? rebuildConsequence(rebuilding) : ''}</Text>
+        </Stack>
+      </ConfirmDialog>
       <ConfirmDialog
         open={deleting !== null}
         title="Delete Boot ISO"
@@ -326,7 +379,7 @@ function BootPathGuide() {
         })}
       </ol>
       <Text className="sw-boot-iso-guide__note" color="fg.muted" fontSize="sm">
-        The BMC mounts the ISO, iPXE obtains a Site DHCP lease, then chains to the selected MAAS rack.
+        The BMC mounts the ISO; its boot loader (iPXE on BIOS, GRUB on UEFI) obtains a Site DHCP lease, then chains to the selected MAAS rack.
       </Text>
     </div>
   )
@@ -337,20 +390,32 @@ interface BootISOCardProps {
   integrationName: string
   siteName: string
   showSite: boolean
+  /** Why no rebuild can run on this installation (the builder is unavailable), or "" when it can. */
+  rebuildBlocked: string
   onViewScript: () => void
+  onRebuild: () => void
   onDelete: () => void
 }
 
+/**
+ * One Boot ISO: identity, serving and usage badges, its BIOS and UEFI hand-offs, and actions. An
+ * ISO built before the UEFI hand-off (decision 057) carries a text badge and a notice that explains
+ * what fails and holds a Rebuild button, so the warning never depends on colour alone; Rebuild is
+ * also always in the More menu beside the script view and Delete.
+ */
 function BootISOCard({
   iso,
   integrationName,
   siteName,
   showSite,
+  rebuildBlocked,
   onViewScript,
+  onRebuild,
   onDelete,
 }: BootISOCardProps) {
   const blocked = deleteBlockedReason(iso)
   const served = Boolean(iso.url)
+  const needsRebuild = bootISONeedsRebuild(iso)
   const headingId = `boot-iso-${iso.id}-title`
 
   return (
@@ -363,6 +428,7 @@ function BootISOCard({
           <HStack gap="2" wrap="wrap">
             <StatusBadge status={served ? 'active' : 'warning'} label={served ? 'Served' : 'Not served'} />
             <StatusBadge status={iso.inUseBy > 0 ? 'info' : 'unknown'} label={inUseLabel(iso)} />
+            {needsRebuild && <StatusBadge status="warning" label="UEFI needs rebuild" />}
           </HStack>
         </div>
 
@@ -380,11 +446,22 @@ function BootISOCard({
             </dd>
           </div>
           <div>
-            <dt>Boot path</dt>
-            <dd className="sw-boot-iso-card__path">
-              <span>Site DHCP</span>
-              <ArrowRight size={14} aria-hidden />
-              <span className="sw-mono">{iso.chainUrl}</span>
+            <dt>Boot path after Site DHCP</dt>
+            <dd className="sw-boot-iso-card__paths">
+              <span className="sw-boot-iso-card__path">
+                <span>BIOS</span>
+                <ArrowRight size={14} aria-hidden />
+                <span className="sw-boot-iso-card__path-value sw-mono">{iso.chainUrl}</span>
+              </span>
+              <span className="sw-boot-iso-card__path">
+                <span>UEFI</span>
+                <ArrowRight size={14} aria-hidden />
+                {needsRebuild ? (
+                  <Text as="span" className="sw-boot-iso-card__path-value" color="fg.muted">Through iPXE like BIOS until rebuilt</Text>
+                ) : (
+                  <span className="sw-boot-iso-card__path-value sw-mono">{iso.uefiChainUrl}</span>
+                )}
+              </span>
             </dd>
           </div>
         </dl>
@@ -423,7 +500,16 @@ function BootISOCard({
               <Menu.Content>
                 <Menu.Item value="view-script" onClick={onViewScript}>
                   <FileCode2 size={15} aria-hidden />
-                  View iPXE script
+                  View boot scripts
+                </Menu.Item>
+                <Menu.Item value="rebuild" disabled={Boolean(rebuildBlocked)} onClick={onRebuild}>
+                  <Hammer size={15} aria-hidden />
+                  <Box>
+                    <Text>Rebuild Boot ISO</Text>
+                    <Text color="fg.muted" fontSize="xs" maxW="18rem">
+                      {rebuildBlocked || 'Re-render from the current template at the same URL.'}
+                    </Text>
+                  </Box>
                 </Menu.Item>
                 <Menu.Item value="delete" color="fg.error" disabled={Boolean(blocked)} onClick={onDelete}>
                   <Trash2 size={15} aria-hidden />
@@ -442,13 +528,42 @@ function BootISOCard({
         </Menu.Root>
       </div>
 
+      {needsRebuild && (
+        <div className="sw-boot-iso-card__notice">
+          <Alert status="warning" title="Built before the UEFI hand-off">
+            <Stack gap="2" alignItems="flex-start">
+              <Text as="span">
+                UEFI Servers booting this ISO reach MAAS as BIOS machines, so MAAS gives them no EFI partition and their disk
+                deployment fails installing GRUB. Rebuild it; the URL stays the same.
+              </Text>
+              <Tooltip content={rebuildBlocked} disabled={!rebuildBlocked}>
+                <span>
+                  <Button colorPalette="brand" size="sm" disabled={Boolean(rebuildBlocked)} onClick={onRebuild} aria-label={`Rebuild ${iso.name}`}>
+                    <Hammer size={15} aria-hidden />
+                    Rebuild
+                  </Button>
+                </span>
+              </Tooltip>
+            </Stack>
+          </Alert>
+        </div>
+      )}
+
       <details className="sw-boot-iso-card__details">
         <summary>Technical details</summary>
         <DescriptionList
           items={[
             { label: 'Boot ISO ID', value: <CopyableValue value={iso.id} label="Copy Boot ISO ID" /> },
             { label: 'Rack address', value: <Text as="span" className="sw-mono">{iso.rackAddress}</Text> },
-            { label: 'Chain URL', value: <CopyableValue value={iso.chainUrl} label="Copy chain URL" /> },
+            { label: 'BIOS chain URL', value: <CopyableValue value={iso.chainUrl} label="Copy BIOS chain URL" /> },
+            {
+              label: 'UEFI configuration URL',
+              value: needsRebuild ? (
+                <Text as="span" color="fg.muted">None: rebuild to boot UEFI through MAAS&apos;s UEFI path</Text>
+              ) : (
+                <CopyableValue value={iso.uefiChainUrl} label="Copy UEFI configuration URL" />
+              ),
+            },
             {
               label: 'ISO URL',
               value: served ? (
@@ -463,6 +578,10 @@ function BootISOCard({
             {
               label: 'Built',
               value: `${formatDateTime(iso.createdAt)}${iso.createdBy ? ` by ${iso.createdBy}` : ''}`,
+            },
+            {
+              label: 'Rebuilt',
+              value: iso.rebuiltAt ? `${formatDateTime(iso.rebuiltAt)}${iso.rebuiltBy ? ` by ${iso.rebuiltBy}` : ''}` : 'Never',
             },
           ]}
         />
@@ -483,9 +602,11 @@ function CopyableValue({ value, label, compact = false }: { value: string; label
 }
 
 /**
- * The rendered iPXE script and build facts of one Boot ISO, read-only. The script is swallow's
- * template filled with the rack address; showing it lets an operator check what a Server will run
- * before choosing the ISO, and the SHA-256 lets them verify a downloaded copy.
+ * The rendered boot scripts and build facts of one Boot ISO, read-only: the iPXE script BIOS
+ * firmware runs and the GRUB configuration UEFI firmware runs (decision 057). Both are swallow's
+ * templates filled with the rack address; showing them lets an operator check what a Server will
+ * run before choosing the ISO, and the SHA-256 lets them verify a downloaded copy. An ISO built
+ * before the UEFI hand-off has no GRUB configuration, which the dialog says in words.
  */
 function BootISOScriptDialog({ iso, onClose }: { iso: BootISO; onClose: () => void }) {
   return (
@@ -493,7 +614,7 @@ function BootISOScriptDialog({ iso, onClose }: { iso: BootISO; onClose: () => vo
       open
       onClose={onClose}
       size="lg"
-      title={`iPXE script of ${iso.name}`}
+      title={`Boot scripts of ${iso.name}`}
       footer={
         <Button variant="ghost" onClick={onClose}>
           Close
@@ -501,11 +622,30 @@ function BootISOScriptDialog({ iso, onClose }: { iso: BootISO; onClose: () => vo
       }
     >
       <Stack gap="4">
-        <CodeBlock code={iso.script} language="bash" aria-label={`iPXE script of ${iso.name}`} />
+        <Stack gap="2">
+          <Heading as="h3" size="sm">iPXE script (BIOS)</Heading>
+          <CodeBlock code={iso.script} language="bash" aria-label={`iPXE script of ${iso.name}`} />
+        </Stack>
+        <Stack gap="2">
+          <Heading as="h3" size="sm">GRUB configuration (UEFI)</Heading>
+          {iso.grubConfig ? (
+            <CodeBlock code={iso.grubConfig} language="bash" aria-label={`GRUB configuration of ${iso.name}`} />
+          ) : (
+            <Text color="fg.muted">None: this ISO was built before the UEFI hand-off. Rebuild it.</Text>
+          )}
+        </Stack>
         <DescriptionList
           items={[
             { label: 'Rack address', value: <Text as="span" className="sw-mono">{iso.rackAddress}</Text> },
-            { label: 'Chains to', value: <Text as="span" className="sw-mono">{iso.chainUrl}</Text> },
+            { label: 'BIOS chains to', value: <Text as="span" className="sw-mono">{iso.chainUrl}</Text> },
+            {
+              label: 'UEFI loads',
+              value: bootISONeedsRebuild(iso) ? (
+                <Text as="span" color="fg.muted">Through iPXE like BIOS (built before the UEFI hand-off; rebuild it)</Text>
+              ) : (
+                <Text as="span" className="sw-mono">{iso.uefiChainUrl}</Text>
+              ),
+            },
             { label: 'iPXE', value: iso.ipxeVersion },
             {
               label: 'ISO URL',

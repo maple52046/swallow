@@ -49,15 +49,23 @@ func execRunner(ctx context.Context, dir, name string, args ...string) ([]byte, 
 	return cmd.CombinedOutput()
 }
 
-// GenfsimgBuilder builds Boot ISOs with iPXE's genfsimg from prebuilt ipxe.lkrn and ipxe.efi
-// (decision 049) and owns their files under dir/<isoId>/swallow-ipxe.iso.
+// grubModuleDir is where grub-efi-amd64-bin installs the x86_64-efi modules grub-mkstandalone packs.
+const grubModuleDir = "/usr/lib/grub/x86_64-efi"
+
+// GenfsimgBuilder builds Boot ISOs with iPXE's genfsimg (decisions 049, 057) and owns their files
+// under dir/<isoId>/swallow-ipxe.iso.
 //
-// genfsimg -s copies the script to the ESP root as autoexec.ipxe, which iPXE's EFI build runs,
-// and passes it to the BIOS kernel as initrd=autoexec.ipxe, so no compiler is needed. Each build
+// BIOS firmware boots the prebuilt ipxe.lkrn with the iPXE script as initrd=autoexec.ipxe (genfsimg
+// -s). UEFI firmware boots a GRUB built for the ISO by grub-mkstandalone with the GRUB
+// configuration embedded in its memdisk, which genfsimg places as EFI/BOOT/BOOTX64.EFI; iPXE's own
+// EFI build is not used, because a GRUB it chains cannot reach the network (decision 057). No
+// compiler is needed: both tools only package prebuilt binaries and modules. Each build
 // works in a private directory inside dir and renames the finished file into place, so the
 // served URL never exposes a half-written ISO and concurrent builds of different ids do not
-// interfere. It is safe for concurrent use. The API process is its only user; the worker never
-// touches the files.
+// interfere. Building an id that already has a file is a rebuild: the rename replaces the file
+// atomically, and a failure leaves the previous file served. It is safe for concurrent use;
+// concurrent builds of the same id are serialized by the caller. The API process is its only
+// user; the worker never touches the files.
 type GenfsimgBuilder struct {
 	dir      string
 	ipxeDir  string
@@ -92,11 +100,17 @@ func (b *GenfsimgBuilder) Available() error {
 	if err := b.checkWritable(); err != nil {
 		return unavailable("the Boot Media directory %s is not writable", b.dir)
 	}
-	for _, asset := range []string{"ipxe.lkrn", "ipxe.efi", "genfsimg"} {
+	for _, asset := range []string{"ipxe.lkrn", "genfsimg"} {
 		info, err := b.statFile(filepath.Join(b.ipxeDir, asset))
 		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 			return unavailable("the iPXE asset %s is missing from %s; use the swallow api-server image", asset, b.ipxeDir)
 		}
+	}
+	if _, err := b.lookPath("grub-mkstandalone"); err != nil {
+		return unavailable("grub-mkstandalone (grub-common) is not installed")
+	}
+	if info, err := b.statFile(filepath.Join(grubModuleDir, "normal.mod")); err != nil || !info.Mode().IsRegular() {
+		return unavailable("the GRUB x86_64-efi modules (grub-efi-amd64-bin) are missing from %s", grubModuleDir)
 	}
 	for _, tool := range []string{"mformat", "mcopy"} {
 		if _, err := b.lookPath(tool); err != nil {
@@ -143,8 +157,9 @@ func (b *GenfsimgBuilder) anyFile(paths ...string) bool {
 	return false
 }
 
-// Build implements provisioningdomain.BootISOBuilder.
-func (b *GenfsimgBuilder) Build(ctx context.Context, id, script string) (provisioningdomain.BootISOArtifact, error) {
+// Build implements provisioningdomain.BootISOBuilder. It runs grub-mkstandalone, then genfsimg, in
+// one private work directory; both share the build timeout.
+func (b *GenfsimgBuilder) Build(ctx context.Context, id string, content provisioningdomain.BootISOContent) (provisioningdomain.BootISOArtifact, error) {
 	if !bootISOIDPattern.MatchString(id) {
 		return provisioningdomain.BootISOArtifact{}, fmt.Errorf("%w: invalid id", provisioningdomain.ErrBootISOBuildFailed)
 	}
@@ -158,21 +173,38 @@ func (b *GenfsimgBuilder) Build(ctx context.Context, id, script string) (provisi
 	defer os.RemoveAll(work)
 
 	scriptPath := filepath.Join(work, "autoexec.ipxe")
-	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(content.IPXEScript), 0o644); err != nil {
 		return provisioningdomain.BootISOArtifact{}, fmt.Errorf("%w: write script: %v", provisioningdomain.ErrBootISOBuildFailed, err)
 	}
+	grubConfigPath := filepath.Join(work, "grub.cfg")
+	if err := os.WriteFile(grubConfigPath, []byte(content.GRUBConfig), 0o644); err != nil {
+		return provisioningdomain.BootISOArtifact{}, fmt.Errorf("%w: write GRUB configuration: %v", provisioningdomain.ErrBootISOBuildFailed, err)
+	}
+	grubImage := filepath.Join(work, "grubx64.efi")
 	output := filepath.Join(work, BootISOFileName)
 	buildCtx, cancel := context.WithTimeout(ctx, bootISOBuildTimeout)
 	defer cancel()
-	if out, err := b.run(buildCtx, work, filepath.Join(b.ipxeDir, "genfsimg"),
-		"-o", output, "-s", scriptPath,
-		filepath.Join(b.ipxeDir, "ipxe.lkrn"), filepath.Join(b.ipxeDir, "ipxe.efi"),
-	); err != nil {
+	failed := func(tool string, out []byte, err error) error {
 		summary := summarizeToolOutput(out, err)
 		if errors.Is(buildCtx.Err(), context.DeadlineExceeded) {
 			summary = "timed out after " + bootISOBuildTimeout.String()
 		}
-		return provisioningdomain.BootISOArtifact{}, fmt.Errorf("%w: genfsimg: %s", provisioningdomain.ErrBootISOBuildFailed, summary)
+		return fmt.Errorf("%w: %s: %s", provisioningdomain.ErrBootISOBuildFailed, tool, summary)
+	}
+	// The configuration goes into GRUB's memdisk as /boot/grub/grub.cfg, which GRUB reads at start;
+	// locales, fonts, and themes are left out because the UEFI path only prints status lines.
+	if out, err := b.run(buildCtx, work, "grub-mkstandalone",
+		"-O", "x86_64-efi", "-d", grubModuleDir, "-o", grubImage,
+		"--locales=", "--fonts=", "--themes=",
+		"boot/grub/grub.cfg="+grubConfigPath,
+	); err != nil {
+		return provisioningdomain.BootISOArtifact{}, failed("grub-mkstandalone", out, err)
+	}
+	if out, err := b.run(buildCtx, work, filepath.Join(b.ipxeDir, "genfsimg"),
+		"-o", output, "-s", scriptPath,
+		filepath.Join(b.ipxeDir, "ipxe.lkrn"), grubImage,
+	); err != nil {
+		return provisioningdomain.BootISOArtifact{}, failed("genfsimg", out, err)
 	}
 
 	size, sum, err := fileDigest(output)
@@ -183,11 +215,17 @@ func (b *GenfsimgBuilder) Build(ctx context.Context, id, script string) (provisi
 		return provisioningdomain.BootISOArtifact{}, fmt.Errorf("%w: %v", provisioningdomain.ErrBootISOBuildFailed, err)
 	}
 	final := filepath.Join(b.dir, id)
+	_, statErr := b.statFile(final)
+	existed := statErr == nil
 	if err := os.MkdirAll(final, 0o755); err != nil {
 		return provisioningdomain.BootISOArtifact{}, fmt.Errorf("%w: %v", provisioningdomain.ErrBootISOBuildFailed, err)
 	}
 	if err := os.Rename(output, filepath.Join(final, BootISOFileName)); err != nil {
-		_ = os.RemoveAll(final)
+		// A rebuild must keep serving the previous ISO, so only a directory this build created is
+		// removed.
+		if !existed {
+			_ = os.RemoveAll(final)
+		}
 		return provisioningdomain.BootISOArtifact{}, fmt.Errorf("%w: %v", provisioningdomain.ErrBootISOBuildFailed, err)
 	}
 	return provisioningdomain.BootISOArtifact{SizeBytes: size, SHA256: sum, IPXEVersion: b.ipxeVersion()}, nil

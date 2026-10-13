@@ -1462,6 +1462,51 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('table', { name: 'Servers' })).toBeVisible()
   })
 
+  // ADR 058: on a subnet whose DHCP the provisioner does not serve, network inspection suggests
+  // DHCP; the dialog starts there, says why, keeps the warning if the operator picks Automatic, and
+  // sends `dhcp` without addresses.
+  test('a site-DHCP subnet starts the deployment on DHCP and explains the suggestion', async ({ page }) => {
+    let deploymentRequest: Record<string, unknown> | undefined
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, {
+      readyServerCount: 2,
+      siteDhcpNetworkServerIds: ['srv-1', 'srv-2'],
+      deploymentConvergesAfterRefreshes: 1,
+      onDeploymentRequest: (body) => { deploymentRequest = body },
+    })
+    await page.goto('/servers?site=site-a')
+    await page.getByLabel('Select gpu-node-01').check()
+    await page.getByLabel('Select gpu-node-02').check()
+    await page.getByRole('button', { name: 'Deploy OS', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+    await chooseOSImage(page, 'Ubuntu 22.04 LTS')
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
+
+    await expect(dialog.getByRole('radio', { name: 'DHCP' })).toBeChecked()
+    const explanation = dialog.getByText(/DHCP is suggested because the provisioner runs no DHCP/)
+    await expect(explanation).toBeVisible()
+    await expect(dialog.getByLabel(/^Static IPv4 address for/)).toHaveCount(0)
+    await dialog.getByRole('radio', { name: 'Automatic' }).locator('..').click()
+    await expect(explanation).toBeVisible()
+    await dialog.getByRole('radio', { name: 'DHCP' }).locator('..').click()
+
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    const review = dialog.getByRole('table', { name: 'Deployment review targets' })
+    await expect(review.getByRole('cell', { name: 'DHCP', exact: true })).toHaveCount(2)
+    await dialog.getByRole('button', { name: 'Deploy OS', exact: true }).click()
+    await expect(page).toHaveURL('/servers?site=site-a')
+    expect(deploymentRequest?.network).toEqual({
+      mode: 'dhcp',
+      defaultGateway: false,
+      assignments: [
+        { serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a' },
+        { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a' },
+      ],
+    })
+  })
+
   test('OS Images presents its title and inventory facts as paired rows', async ({ page }) => {
     await page.goto('/provisioning/images?site=site-a')
     await expect(page.getByRole('columnheader', { name: 'Default user' })).toBeVisible()
@@ -1587,27 +1632,28 @@ test.describe('operator interactions', () => {
     await page.getByLabel('Request timeout').fill('45s')
     await page.getByRole('dialog').getByRole('button', { name: 'Create integration' }).click()
 
-    let integration = page.getByRole('row', { name: /MAAS Singapore/ })
-    await expect(integration).toContainText('Singapore DC')
-    await expect(integration).toContainText('Configured')
-    await integration.getByRole('button', { name: 'Edit' }).click()
-    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Site', exact: true })).toBeDisabled()
-    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Role', exact: true })).toBeDisabled()
-    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Provider', exact: true })).toBeDisabled()
-    await page.getByLabel('Name').fill('MAAS Singapore Primary')
-    await page.getByLabel('Enabled').locator('..').click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Save changes' }).click()
+    // A new MAAS provisioner opens on its settings page, where the rest of its settings live.
+    await expect(page).toHaveURL(/\/infrastructure\/integrations\/[^/]+\/general\?site=site-3$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'MAAS Singapore' })).toBeVisible()
+    const general = page.getByRole('region', { name: 'General' })
+    await expect(general.getByText('Singapore DC')).toBeVisible()
+    await expect(general.getByRole('combobox')).toHaveCount(0)
+    await page.getByRole('textbox', { name: /^Name/ }).fill('MAAS Singapore Primary')
+    await page.getByRole('checkbox', { name: 'Enabled' }).locator('..').click()
+    await page.getByRole('button', { name: 'Save changes' }).click()
+    await expect(page.getByText('Integration updated')).toBeVisible()
 
-    integration = page.getByRole('row', { name: /MAAS Singapore Primary/ })
-    await expect(integration).toContainText('Paused')
-    await integration.getByRole('button', { name: 'Credential' }).click()
-    const credentialDialog = page.getByRole('dialog', { name: 'Replace credential' })
-    await expect(credentialDialog).toHaveAccessibleDescription('')
+    await page.getByRole('tab', { name: 'Credential' }).click()
     await page.getByLabel('New MAAS API key').fill('replacement-secret')
-    await page.getByRole('dialog').getByRole('button', { name: 'Replace credential' }).click()
+    await page.getByRole('button', { name: 'Replace credential' }).click()
     await expect(page.getByText('Credential replaced')).toBeVisible()
     expect(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))).not.toContain('replacement-secret')
 
+    await page.getByRole('link', { name: 'Integrations' }).click()
+    const integration = page.getByRole('row', { name: /MAAS Singapore Primary/ })
+    await expect(integration).toContainText('Singapore DC')
+    await expect(integration).toContainText('Paused')
+    await expect(integration).toContainText('Configured')
     await integration.getByRole('button', { name: 'Delete' }).click()
     await page.getByLabel('Integration name confirmation').fill('MAAS Singapore Primary')
     await page.getByRole('alertdialog').getByRole('button', { name: 'Delete integration' }).click()

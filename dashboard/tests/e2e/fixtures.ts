@@ -179,6 +179,10 @@ interface BootISOFixture {
   rackAddress: string
   /** Undefined uses the fixture's served URL; null models an ISO record that is not currently served. */
   url?: string | null
+  /** An ISO built before the UEFI hand-off (decision 057): no `uefiChainUrl` until rebuilt. */
+  legacyTemplate?: boolean
+  rebuiltAt?: string
+  rebuiltBy?: string
 }
 
 /**
@@ -431,6 +435,39 @@ export interface FixtureOptions {
   onHttpProxyRequest?: (integrationId: string, body: Record<string, unknown>) => void
   /** Makes every Provisioner HTTP Proxy PUT fail the way a non-administrator MAAS account does. */
   httpProxyWriteForbidden?: boolean
+  /** Servers whose inspected subnet has no provisioner DHCP, so the API suggests `dhcp` (ADR 058). */
+  siteDhcpNetworkServerIds?: string[]
+  /**
+   * Provisioner subnets with their Subnet DNS by Integration id (decision 058). Omitted
+   * provisioner Integrations list a MAAS-DHCP lab subnet and a site-DHCP subnet, both without DNS.
+   */
+  provisionerSubnets?: Record<string, ProvisionerSubnetFixture[]>
+  /** Called for every Subnet DNS PUT with the Integration id, subnet id, and its JSON body. */
+  onSubnetDnsRequest?: (integrationId: string, subnetId: string, body: Record<string, unknown>) => void
+}
+
+/** One subnet in the provisioner-subnet-dns.md read shape. */
+export interface ProvisionerSubnetFixture {
+  id: string
+  name: string
+  cidr: string
+  gatewayAddress: string
+  managed: boolean
+  provisionerDhcp: boolean
+  attached: boolean
+  dnsServers: string[]
+}
+
+/**
+ * The subnets a provisioner Integration lists when a test does not choose its own: two attached
+ * networks and one host-internal Docker bridge MAAS recorded from an enrolled host.
+ */
+function defaultProvisionerSubnets(): ProvisionerSubnetFixture[] {
+  return [
+    { id: '1', name: 'lab-network', cidr: '192.168.40.0/24', gatewayAddress: '192.168.40.1', managed: true, provisionerDhcp: true, attached: true, dnsServers: [] },
+    { id: '7', name: 'site-network', cidr: '10.170.168.0/23', gatewayAddress: '10.170.169.254', managed: true, provisionerDhcp: false, attached: true, dnsServers: [] },
+    { id: '12', name: '172.17.0.0/16', cidr: '172.17.0.0/16', gatewayAddress: '', managed: true, provisionerDhcp: false, attached: false, dnsServers: [] },
+  ]
 }
 
 /** One libvirt domain in the `virtual-machines` read shape. */
@@ -549,10 +586,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }))
   const bootISOURL = (id: string) => `http://192.0.2.1/boot-media/ipxe/${id}/swallow-ipxe.iso`
   const bootISOView = (iso: (typeof bootISOItems)[number]) => {
-    const chainUrl = `http://${/:\d+$/.test(iso.rackAddress) ? iso.rackAddress : `${iso.rackAddress}:5248`}/ipxe.cfg`
+    // legacyTemplate is fixture state, not an API field, so it is kept out of the response.
+    const { legacyTemplate, ...record } = iso
+    const rack = /:\d+$/.test(iso.rackAddress) ? iso.rackAddress : `${iso.rackAddress}:5248`
+    const [rackHost, rackPort = '5248'] = rack.split(':')
+    const chainUrl = `http://${rack}/ipxe.cfg`
+    const uefiChainUrl = legacyTemplate ? '' : `http://${rack}/grub/grub.cfg-<mac>`
+    const grubConfig = legacyTemplate
+      ? ''
+      : `set maas_rack=${rackHost}\nset maas_port=${rackPort}\nnet_bootp\nset root=(http,\${maas_rack}:\${maas_port})\nconfigfile /grub/grub.cfg-$mac\n`
     return {
-      ...iso, chainUrl, ipxeVersion: 'v2.0.0 (12798ec)', sizeBytes: 2_402_304, sha256: `sha256-of-${iso.id}`,
-      script: `#!ipxe\n\nset maas_rack ${iso.rackAddress.replace(/:\d+$/, '')}\n\n:start\ndhcp || goto retry\nset next-server \${maas_rack}\nchain ${chainUrl.replace(/\/\/[^:/]+/, '//${next-server}')} || goto returned\n`,
+      ...record, chainUrl, uefiChainUrl, grubConfig, ipxeVersion: 'v2.0.0 (12798ec)', sizeBytes: 2_402_304, sha256: `sha256-of-${iso.id}`,
+      script: `#!ipxe\n\nset maas_rack ${rackHost}\n\n:start\ndhcp || goto retry\nset next-server \${maas_rack}\nchain ${chainUrl.replace(/\/\/[^:/]+/, '//${next-server}')} || goto returned\n`,
       url: iso.url === undefined ? bootISOURL(iso.id) : iso.url,
       inUseBy: bootMediaState.setting?.enabled === true && bootMediaState.setting?.isoId === iso.id ? 1 : 0,
     }
@@ -829,6 +874,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       sync: { ...integration.sync },
     }))
   const httpProxies = new Map(Object.entries(options.httpProxies ?? {}))
+  // Subnet DNS is live MAAS state as well, kept per Integration so a write is read back.
+  const provisionerSubnets = new Map(
+    Object.entries(options.provisionerSubnets ?? {}).map(([id, subnets]) => [id, subnets.map((subnet) => ({ ...subnet }))]),
+  )
+  const subnetsOf = (integrationId: string): ProvisionerSubnetFixture[] => {
+    let subnets = provisionerSubnets.get(integrationId)
+    if (!subnets) {
+      subnets = defaultProvisionerSubnets()
+      provisionerSubnets.set(integrationId, subnets)
+    }
+    return subnets
+  }
   if (options.multipleProvisioners) {
     integrationItems.push({
       ...integrations.find((integration) => integration.id === 'maas-b')!,
@@ -870,6 +927,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const interfaceId = `nic-${server.id}`
     const linkId = `link-${server.id}`
     const hasStaticBinding = options.staticNetworkServerIds?.includes(server.id) ?? false
+    // A site-DHCP Server's subnet has no provisioner DHCP, which is when the API suggests `dhcp`
+    // (provisioning.md, Network Inspection); every other non-static Server suggests `automatic`.
+    const siteDhcp = options.siteDhcpNetworkServerIds?.includes(server.id) ?? false
     const subnetName = options.networkSubnetName ?? 'lab-network'
     return [server.id, {
       serverId: server.id,
@@ -877,7 +937,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       disabledReason: server.provisioning.locked
         ? 'Unlock the Server before changing network configuration.'
         : server.provisioning.state === 'ready' ? '' : 'Network configuration can only be changed while the Server is Ready.',
-      suggestion: { mode: hasStaticBinding ? 'static' : 'dhcp', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
+      suggestion: { mode: hasStaticBinding ? 'static' : siteDhcp ? 'dhcp' : 'automatic', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
       network: {
         interfaces: [{
           id: interfaceId,
@@ -903,6 +963,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
             cidr: '192.168.40.0/24',
             gatewayAddress: '192.168.40.1',
             managed: true,
+            provisionerDhcp: !siteDhcp,
           }],
         }],
       },
@@ -1512,6 +1573,37 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return json(route, { integrationId, ...stored })
       }
     }
+    // Subnet DNS (provisioner-subnet-dns.md): the list, and a write validated the way the API does
+    // before it is read back.
+    const subnetListMatch = path.match(/^\/api\/v1\/provisioning\/integrations\/([^/]+)\/subnets$/)
+    const subnetDnsMatch = path.match(/^\/api\/v1\/provisioning\/integrations\/([^/]+)\/subnets\/([^/]+)\/dns-servers$/)
+    if (subnetListMatch || subnetDnsMatch) {
+      const integrationId = (subnetListMatch ?? subnetDnsMatch)![1]
+      const integration = integrationItems.find((item) => item.id === integrationId)
+      if (!integration) return json(route, { error: { code: 'not_found', message: 'Integration not found.' } }, 404)
+      if (integration.kind !== 'provisioner') {
+        return json(route, { error: { code: 'validation_error', message: 'integration is not a provisioner' } }, 400)
+      }
+      if (subnetListMatch && request.method() === 'GET') {
+        return json(route, { integrationId, subnets: subnetsOf(integrationId) })
+      }
+      if (subnetDnsMatch && request.method() === 'PUT') {
+        const subnetId = decodeURIComponent(subnetDnsMatch[2])
+        const body = (request.postDataJSON() ?? {}) as { dnsServers?: unknown }
+        options.onSubnetDnsRequest?.(integrationId, subnetId, body)
+        const subnet = subnetsOf(integrationId).find((item) => item.id === subnetId)
+        if (!subnet) return json(route, { error: { code: 'not_found', message: 'The provisioner has no such subnet.' } }, 404)
+        if (!Array.isArray(body.dnsServers)) {
+          return json(route, { error: { code: 'validation_error', message: 'dnsServers is required; send [] to clear it.' } }, 400)
+        }
+        const servers = (body.dnsServers as unknown[]).map((entry) => String(entry).trim())
+        if (servers.length > 8 || new Set(servers).size !== servers.length || servers.some((entry) => !/^[0-9a-f.:]+$/i.test(entry))) {
+          return json(route, { error: { code: 'validation_error', message: 'invalid subnet DNS servers: enter up to 8 distinct IP addresses' } }, 400)
+        }
+        subnet.dnsServers = servers
+        return json(route, subnet)
+      }
+    }
     if (path === '/api/v1/integrations' && request.method() === 'GET') {
       const siteId = url.searchParams.get('siteId')
       const kind = url.searchParams.get('kind')
@@ -1687,6 +1779,21 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const created = { id: `iso-${bootISOItems.length + 1}`, name, integrationId, rackAddress: String(body.rackAddress ?? '').trim(), siteId: 'site-a', createdAt: now, createdBy: 'admin' }
       bootISOItems = [...bootISOItems, created]
       return json(route, bootISOView(created), 201)
+    }
+    // A rebuild re-renders the current template in place: same id and URL, now with the UEFI
+    // hand-off, recorded as rebuilt by the signed-in admin.
+    const bootISORebuildMatch = path.match(/^\/api\/v1\/provisioning\/boot-isos\/([^/]+)\/rebuild$/)
+    if (bootISORebuildMatch && request.method() === 'POST') {
+      options.onBootISORequest?.('POST', path, null)
+      const index = bootISOItems.findIndex((item) => item.id === decodeURIComponent(bootISORebuildMatch[1]))
+      if (index < 0) return json(route, { error: { code: 'not_found', message: 'Boot ISO not found.' } }, 404)
+      if (options.bootISOBuildError) {
+        const { status, code, message } = options.bootISOBuildError
+        return json(route, { error: { code, message, requestId: 'req-boot-iso' } }, status)
+      }
+      const rebuilt = { ...bootISOItems[index], legacyTemplate: false, rebuiltAt: now, rebuiltBy: 'admin' }
+      bootISOItems = bootISOItems.map((item, position) => (position === index ? rebuilt : item))
+      return json(route, bootISOView(rebuilt))
     }
     const bootISOMatch = path.match(/^\/api\/v1\/provisioning\/boot-isos\/([^/]+)$/)
     if (bootISOMatch) {
