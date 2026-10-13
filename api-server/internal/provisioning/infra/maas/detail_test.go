@@ -66,6 +66,53 @@ func TestListGPUs_AggregatesIdenticalModels(t *testing.T) {
 	}
 }
 
+// untypedAcceleratorDevicesJSON is a node inventory as MAAS reports it when commissioning bound
+// no driver to its MI308X accelerators: they are generic "Node" devices next to their PCIe
+// switch ports, while the display-class ASPEED controller is still typed GPU.
+const untypedAcceleratorDevicesJSON = `[
+  {"vendor_name": "Advanced Micro Devices, Inc. [AMD/ATI]", "product_name": "", "vendor_id": "1002", "product_id": "1501",
+   "hardware_type_name": "Node", "bus_name": "PCIE", "pci_address": "0000:05:00.0", "numa_node": 0},
+  {"vendor_name": "Advanced Micro Devices, Inc. [AMD/ATI]", "product_name": "", "vendor_id": "1002", "product_id": "74A2",
+   "hardware_type_name": "Node", "bus_name": "PCIE", "pci_address": "0000:06:00.0", "numa_node": 0},
+  {"vendor_name": "ASPEED Technology, Inc.", "product_name": "ASPEED Graphics Family", "vendor_id": "1a03", "product_id": "2000",
+   "hardware_type_name": "GPU", "bus_name": "PCIE", "pci_address": "0000:7a:00.0", "numa_node": 0},
+  {"vendor_name": "Advanced Micro Devices, Inc. [AMD/ATI]", "product_name": "", "vendor_id": "1002", "product_id": "74a2",
+   "hardware_type_name": "Node", "bus_name": "PCIE", "pci_address": "0000:25:00.0", "numa_node": 0},
+  {"vendor_name": "Advanced Micro Devices, Inc. [AMD]", "product_name": "", "vendor_id": "1022", "product_id": "14a4",
+   "hardware_type_name": "Node", "bus_name": "PCIE", "pci_address": "0000:00:00.0", "numa_node": 0},
+  {"vendor_name": "Advanced Micro Devices, Inc. [AMD/ATI]", "product_name": "", "vendor_id": "1002", "product_id": "74b6",
+   "hardware_type_name": "Node", "bus_name": "USB", "pci_address": "", "numa_node": 0}
+]`
+
+func TestListGPUs_CountsUntypedAcceleratorsFromCompleteInventory(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onNodeDevices(http.StatusOK, untypedAcceleratorDevicesJSON)
+	provider := newTestProvider(t, fake)
+
+	gpus, err := provider.ListGPUs(context.Background(), "abc123")
+	if err != nil {
+		t.Fatalf("ListGPUs: %v", err)
+	}
+
+	if strings.Contains(fake.lastRawQuery, "hardware_type") {
+		t.Errorf("device query = %q, want the complete inventory without a hardware_type filter", fake.lastRawQuery)
+	}
+	// Both MI308X physical functions count, whatever the id's case; the switch port, the host
+	// bridge, and the device off the PCI bus do not.
+	want := []provisioningdomain.GPU{
+		{Vendor: "Advanced Micro Devices, Inc. [AMD/ATI]", Count: 2},
+		{Vendor: "ASPEED Technology, Inc.", Model: "ASPEED Graphics Family", Count: 1},
+	}
+	if len(gpus) != len(want) {
+		t.Fatalf("ListGPUs() = %+v, want %+v", gpus, want)
+	}
+	for i := range want {
+		if gpus[i] != want[i] {
+			t.Errorf("ListGPUs()[%d] = %+v, want %+v", i, gpus[i], want[i])
+		}
+	}
+}
+
 func TestListGPUs_EmptyWhenNoneAttached(t *testing.T) {
 	fake := newFakeMAAS(t)
 	fake.onNodeDevices(http.StatusOK, `[]`)

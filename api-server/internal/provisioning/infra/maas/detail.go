@@ -33,17 +33,66 @@ func devicesPath(machineID string) string {
 }
 
 // ListGPUs returns the machine's GPUs, collapsing identical models into one entry with a
-// count. MAAS answers the hardware_type filter with the string "gpu"; the numeric code
-// is rejected.
+// count. It reads the complete device inventory rather than MAAS's hardware_type=gpu filter,
+// because that filter misses the compute accelerators MAAS could not type (see
+// untypedAcceleratorIDs).
 func (p *Provider) ListGPUs(ctx context.Context, machineID string) ([]provisioningdomain.GPU, error) {
-	query := url.Values{}
-	query.Set("hardware_type", "gpu")
-
 	var devices []nodeDeviceJSON
-	if err := p.client.get(ctx, devicesPath(machineID), query, &devices); err != nil {
+	if err := p.client.get(ctx, devicesPath(machineID), nil, &devices); err != nil {
 		return nil, translateError(err, machineID)
 	}
-	return aggregateGPUs(devices), nil
+	return aggregateGPUs(gpuDevices(devices)), nil
+}
+
+// maasGPUHardwareType is the hardware_type_name MAAS gives a device it typed as a GPU.
+const maasGPUHardwareType = "GPU"
+
+// untypedAcceleratorIDs are the "vendor:product" PCI ids (lowercase hex) of compute accelerators
+// MAAS may report as generic devices. MAAS types a device as a GPU only from a display class
+// (0x03xx) or from a driver that bound it during commissioning. AMD Instinct MI300 and MI350
+// series devices are processing accelerators (class 0x1200), so on a machine whose commissioning
+// binds no driver to them (amdgpu blacklisted to keep them for passthrough, or a virtual machine
+// whose passed-through accelerator cannot initialize) they arrive untyped. Physical functions
+// and their SR-IOV virtual functions are both listed because a machine may see either.
+// Accelerators with a display class need no entry.
+var untypedAcceleratorIDs = map[string]bool{
+	"1002:74a0": true, // Instinct MI300A
+	"1002:74a1": true, // Instinct MI300X
+	"1002:74a2": true, // Instinct MI308X
+	"1002:74a5": true, // Instinct MI325X
+	"1002:74a8": true, // Instinct MI308X HF
+	"1002:74a9": true, // Instinct MI300X HF
+	"1002:74b5": true, // Instinct MI300X virtual function
+	"1002:74b6": true, // Instinct MI308X virtual function
+	"1002:74b9": true, // Instinct MI325X virtual function
+	"1002:74bc": true, // Instinct MI308X virtual function
+	"1002:74bd": true, // Instinct MI300X virtual function
+	"1002:75a0": true, // Instinct MI350X
+	"1002:75a3": true, // Instinct MI355X
+	"1002:75a8": true, // Instinct MI350P
+	"1002:75b0": true, // Instinct MI350X virtual function
+	"1002:75b3": true, // Instinct MI355X virtual function
+	"1002:75b8": true, // Instinct MI350P virtual function
+}
+
+// gpuDevices selects the GPUs from a node's complete device inventory: every device MAAS typed
+// as a GPU, plus PCI devices whose id is a known untyped accelerator. Other devices sharing an
+// accelerator's vendor, such as its PCIe switch ports, stay out.
+func gpuDevices(devices []nodeDeviceJSON) []nodeDeviceJSON {
+	var gpus []nodeDeviceJSON
+	for _, d := range devices {
+		id := strings.ToLower(strings.TrimSpace(d.VendorID) + ":" + strings.TrimSpace(d.ProductID))
+		if strings.EqualFold(d.HardwareTypeName, maasGPUHardwareType) || (isPCIDevice(d) && untypedAcceleratorIDs[id]) {
+			gpus = append(gpus, d)
+		}
+	}
+	return gpus
+}
+
+// isPCIDevice reports whether MAAS placed the device on a PCI or PCIe bus. A device without a
+// bus name is kept rather than dropped.
+func isPCIDevice(d nodeDeviceJSON) bool {
+	return d.BusName == "" || strings.EqualFold(d.BusName, "PCIE") || strings.EqualFold(d.BusName, "PCI")
 }
 
 // aggregateGPUs groups devices by vendor and model, preserving first-seen order so the
@@ -333,7 +382,7 @@ func pciTable(devices []nodeDeviceJSON) provisioningdomain.DetailTable {
 	sorted := append([]nodeDeviceJSON(nil), devices...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].PCIAddress < sorted[j].PCIAddress })
 	for _, d := range sorted {
-		if d.BusName != "" && !strings.EqualFold(d.BusName, "PCIE") && !strings.EqualFold(d.BusName, "PCI") {
+		if !isPCIDevice(d) {
 			continue
 		}
 		table.Rows = append(table.Rows, []string{d.PCIAddress, d.HardwareTypeName, cleanField(d.VendorName), cleanField(d.ProductName)})

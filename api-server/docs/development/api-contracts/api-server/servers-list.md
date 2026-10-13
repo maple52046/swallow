@@ -132,10 +132,14 @@ local-console or BMC graphics controllers. Identical devices are grouped; every 
 | `count` | Positive number of physical devices in this vendor/model/kind group. |
 | `kind` | `compute` for workload accelerator capacity, or `display` for a management/local-console graphics controller. |
 
-MAAS exposes both kinds through its generic GPU device filter. Swallow classifies known server
+MAAS exposes both kinds through its generic GPU device type. Swallow classifies known server
 display controllers (including ASPEED, Cirrus Logic GD 5446, Matrox G200, and XGI BMC graphics)
-as `display`. All other provider-reported GPU devices remain `compute` when the provider supplies
-no stronger class.
+and virtual-machine console adapters (virtio-gpu, QXL, Bochs/QEMU standard VGA, VMware SVGA II,
+and Hyper-V video) as `display`. All other provider-reported GPU devices remain `compute` when
+the provider supplies no stronger class. MAAS gives a processing accelerator its GPU type only
+when a driver claimed it during commissioning, so swallow also counts known compute accelerators
+that MAAS left untyped (AMD Instinct MI300 and MI350 series, physical and SR-IOV virtual
+functions) as `compute`.
 Clients must use `kind` rather than vendor-name heuristics when calculating accelerator capacity.
 
 ### Provisioning state
@@ -240,6 +244,10 @@ its absence.
 `gpus[].kind` was added on 2026-10-06. It is additive for clients that ignore unknown fields;
 the server always emits it, including for inventory stored before the field existed by deriving
 the classification while reading that legacy projection.
+
+On 2026-10-13 the GPU Inventory widened without a shape change: virtual-machine console adapters
+became `display`, and untyped MAAS accelerators started to appear as `compute`. A projection
+stored before then keeps its stored kinds until the next inventory sweep rewrites it.
 
 Following the Cluster to Platform rename, the `clusterId` query parameter and the
 membership `clusterId` response field are deprecated one-release aliases for

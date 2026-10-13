@@ -16,6 +16,17 @@ func TestClassifyGPUKind(t *testing.T) {
 		{name: "Matrox G200 controller", vendor: "Matrox", model: "G200e", want: GPUKindDisplay},
 		{name: "named non-BMC Matrox", vendor: "Matrox", model: "LUMA A380", want: GPUKindCompute},
 		{name: "XGI BMC controller", vendor: "XGI Technology Inc.", model: "Volari Z9s", want: GPUKindDisplay},
+		{name: "virtio-gpu console adapter", vendor: "Red Hat, Inc.", model: "Virtio 1.0 GPU", want: GPUKindDisplay},
+		{name: "virtio-gpu PCI fallback", model: "1af4:1050", want: GPUKindDisplay},
+		{name: "QXL console adapter", vendor: "Red Hat, Inc.", model: "QXL paravirtual graphic card", want: GPUKindDisplay},
+		{name: "QXL PCI fallback", model: "1b36:0100", want: GPUKindDisplay},
+		{name: "QEMU standard VGA", vendor: "Technical Corp.", model: "QEMU Virtual Video Controller", want: GPUKindDisplay},
+		{name: "Bochs PCI fallback", model: "1234:1111", want: GPUKindDisplay},
+		{name: "VMware SVGA II", vendor: "VMware", model: "SVGA II Adapter", want: GPUKindDisplay},
+		{name: "VMware SVGA PCI fallback", model: "15ad:0405", want: GPUKindDisplay},
+		{name: "Hyper-V video", vendor: "Microsoft Corporation", model: "Hyper-V virtual VGA", want: GPUKindDisplay},
+		{name: "Hyper-V PCI fallback", model: "1414:5353", want: GPUKindDisplay},
+		{name: "other Red Hat virtio device stays compute", vendor: "Red Hat, Inc.", model: "Virtio 1.0 network device", want: GPUKindCompute},
 	}
 
 	for _, test := range tests {

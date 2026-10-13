@@ -113,7 +113,8 @@ type GPUKind string
 const (
 	// GPUKindCompute contributes accelerator capacity and may have workload telemetry.
 	GPUKindCompute GPUKind = "compute"
-	// GPUKindDisplay is a local-console or BMC graphics controller, not workload capacity.
+	// GPUKindDisplay is a local-console, BMC, or virtual-machine console graphics controller,
+	// not workload capacity.
 	GPUKindDisplay GPUKind = "display"
 )
 
@@ -128,8 +129,10 @@ type GPU struct {
 }
 
 // ClassifyGPUKind applies swallow's fallback when a provider exposes only a generic GPU class.
-// Known server-console controllers are display devices; every other reported GPU remains compute
-// so an unnamed accelerator is not silently removed from capacity.
+// Known server-console controllers and the emulated console adapters a hypervisor gives a virtual
+// machine are display devices; every other reported GPU remains compute so an unnamed accelerator
+// is not silently removed from capacity. Each family is matched by name and by the "vendor:product"
+// PCI id a provider falls back to when it cannot name the device.
 func ClassifyGPUKind(vendor, model string) GPUKind {
 	identity := strings.ToLower(strings.TrimSpace(vendor + " " + model))
 	cirrusGD5446 := strings.Contains(identity, "cirrus logic") &&
@@ -146,6 +149,20 @@ func ClassifyGPUKind(vendor, model string) GPUKind {
 	case strings.Contains(identity, "xgi") && (strings.Contains(identity, "z7") || strings.Contains(identity, "z9")):
 		return GPUKindDisplay
 	case strings.Contains(identity, "18ca:"):
+		return GPUKindDisplay
+	// Virtual-machine console adapters: virtio-gpu, QXL, Bochs/QEMU standard VGA, VMware SVGA II,
+	// and Hyper-V video. Their vendors also make non-display devices, so the PCI fallbacks name
+	// the exact product rather than the vendor prefix.
+	case strings.Contains(identity, "virtio") && strings.Contains(identity, "gpu"), strings.Contains(identity, "1af4:1050"):
+		return GPUKindDisplay
+	case strings.Contains(identity, "qxl"), strings.Contains(identity, "1b36:0100"):
+		return GPUKindDisplay
+	case strings.Contains(identity, "bochs"), strings.Contains(identity, "qemu virtual video"), strings.Contains(identity, "1234:1111"):
+		return GPUKindDisplay
+	case strings.Contains(identity, "vmware") && strings.Contains(identity, "svga"), strings.Contains(identity, "15ad:0405"):
+		return GPUKindDisplay
+	case strings.Contains(identity, "hyper-v") && (strings.Contains(identity, "vga") || strings.Contains(identity, "video")),
+		strings.Contains(identity, "1414:5353"):
 		return GPUKindDisplay
 	default:
 		return GPUKindCompute
