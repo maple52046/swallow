@@ -55,7 +55,14 @@ export interface Overview {
     failedLast24Hours: number
     recent: Operation[]
   }
+  /**
+   * Firing alerts from Alertmanager, which is optional. Three states (overview.md):
+   * read (`configured` and `available`), not configured (neither, `error` null — a normal state,
+   * not a failure), and unavailable (`configured`, not `available`, `error` set). In both non-read
+   * states the counts are zero and must not be shown as "no alerts".
+   */
   monitoring: {
+    configured: boolean
     available: boolean
     error: { code: string; message: string } | null
     firing: {

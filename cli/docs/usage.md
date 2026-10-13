@@ -528,7 +528,7 @@ swallow infrastructure pools create -f pool.yaml
 swallow platforms list --site-id site1
 swallow platforms get plat1
 swallow platforms deploy -f platform-k8s.yaml
-swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner
+swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner, monitoringLinks
 swallow platforms delete plat1
 swallow platforms uninstall plat1                     # software only
 swallow platforms uninstall plat1 -f uninstall.yaml   # { releaseServers, releaseOptions }
@@ -612,9 +612,19 @@ swallow monitoring alerts list --severity critical --state firing
 swallow monitoring alerts acknowledge <fingerprint> -f ack.yaml --site-id site1
 swallow monitoring metrics get --server srv1 --server srv2 --metric cpuUsagePercent
 swallow monitoring metrics names
+
+# Usage history: exactly one scope (--server, --pool, --zone, or --platform).
+swallow monitoring metrics range --server srv1 --window 6h
+swallow monitoring metrics range --pool pool1 --metric cpuUsagePercent --metric gpuUtilizationPercent --window 24h
+swallow monitoring metrics range --platform plat1 --mode perServer --metric memoryUsedPercent
+swallow monitoring metrics range --zone zone1 --start 2026-10-10T00:00:00Z --end 2026-10-11T00:00:00Z
 ```
 
 `ack.yaml`: `{ matchers: [...], duration: "2h", comment: "ack by ops" }`
+
+`range` returns one series per metric for the whole scope (`aggregate`, the default) or
+one per Server (`--mode perServer`, at most 50 Servers). The server chooses the step
+(about 180 points per series); a metric with no data has no series.
 
 ### discovery (machine auth)
 

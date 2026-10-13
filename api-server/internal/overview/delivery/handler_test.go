@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,6 +47,49 @@ func (routeSource) ListOperations(context.Context, string) ([]overviewapp.Operat
 
 func (routeSource) ListFiringAlerts(context.Context, string) ([]overviewapp.Alert, error) {
 	return []overviewapp.Alert{}, nil
+}
+
+// unconfiguredAlertsSource is a Site with no alert source: Alertmanager is optional.
+type unconfiguredAlertsSource struct{ routeSource }
+
+func (unconfiguredAlertsSource) ListFiringAlerts(context.Context, string) ([]overviewapp.Alert, error) {
+	return nil, overviewapp.ErrMonitoringNotConfigured
+}
+
+// A Site without an Alertmanager answers configured=false with a null error, so a client can
+// tell "nothing to read" apart from "alert source failing" (overview.md).
+func TestOverviewReportsUnconfiguredAlertSourceWithoutError(t *testing.T) {
+	jwtService := jwt.NewService("overview-test-secret", time.Hour)
+	adminToken, err := jwtService.Sign("admin-1", "admin", "admin")
+	if err != nil {
+		t.Fatalf("sign admin token: %v", err)
+	}
+	handler := NewHandler(overviewapp.NewService(unconfiguredAlertsSource{}, fixedClock{
+		now: time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC),
+	}))
+	app := fiber.New()
+	app.Get("/api/v1/overview", middleware.Auth(jwtService), middleware.AdminOnly(), handler.Get)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil)
+	request.Header.Set("Authorization", "Bearer "+adminToken)
+	response, err := app.Test(request)
+	if err != nil {
+		t.Fatalf("request overview: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.StatusCode)
+	}
+	var body struct {
+		Monitoring map[string]any `json:"monitoring"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode overview: %v", err)
+	}
+	got := body.Monitoring
+	if got["configured"] != false || got["available"] != false || got["error"] != nil {
+		t.Errorf("monitoring = %v, want configured=false, available=false, error=null", got)
+	}
 }
 
 func TestOverviewRouteAuthorizationAndSiteValidation(t *testing.T) {

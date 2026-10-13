@@ -65,6 +65,7 @@ An unknown `siteId` returns `not_found` rather than an empty overview.
   "clusters": { "total": 3, "unreachable": 1, "unmatchedMembers": 2 },
   "operations": { "active": 1, "failedLast24Hours": 2, "recent": [] },
   "monitoring": {
+    "configured": true,
     "available": true,
     "error": null,
     "firing": { "critical": 1, "warning": 2, "items": [] }
@@ -87,11 +88,19 @@ descending.
 hours before `generatedAt`. `unmatchedMembers` is the sum of positive differences
 between each platform's reported and matched member counts.
 
-When Alertmanager or its metrics integration is missing or unreachable, the endpoint
-still returns `200`: `monitoring.available` is `false`, items and counts are empty,
-and `monitoring.error` contains the common `provider_unavailable` code and a
-human-readable message. Durable repository failures are not partial and use the common
-error envelope.
+`monitoring` summarizes firing alerts read from Alertmanager. Alertmanager is optional, so
+the section distinguishes "no alert source" from "alert source failing":
+
+| State | `configured` | `available` | `error` | Meaning |
+| --- | --- | --- | --- | --- |
+| Alerts read | `true` | `true` | `null` | Counts and items are current. |
+| Not configured | `false` | `false` | `null` | The scope has no enabled metrics Integration, or it sets no Alertmanager address. This is a normal state, not a failure. |
+| Unavailable | `true` | `false` | `provider_unavailable` | An Alertmanager is configured but could not be read (unreachable, rejected credential, or an error response). |
+
+In both non-read states the endpoint still returns `200` with empty items and zero counts,
+which a consumer must not present as "no alerts". `error.message` is human-readable. Usage
+charts and health use the metrics backend, not Alertmanager, and are unaffected by this
+section. Durable repository failures are not partial and use the common error envelope.
 
 ## Errors
 
@@ -103,6 +112,13 @@ codes.
 
 This endpoint is additive. New optional fields may be added to existing sections; section
 removal, renaming, or semantic changes are breaking.
+
+On 2026-10-12 `monitoring.configured` was added, and a scope without an alert source
+(no enabled metrics Integration, or no Alertmanager address) now reports `error: null`
+instead of `provider_unavailable`. This is a breaking semantic change for a consumer that
+treated a non-null `error` as the only signal: such a consumer stops warning for a Site that
+simply has no Alertmanager, which is the intended behavior. `available` keeps its meaning
+(alerts were read).
 
 Following the Cluster to Platform rename, `inventory.clustered`, the `clusters` section,
 and the `clusterId` field on recent operations are deprecated one-release aliases that

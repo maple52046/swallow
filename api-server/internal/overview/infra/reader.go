@@ -181,15 +181,19 @@ func (r *Reader) ListOperations(ctx context.Context, siteID string) ([]overviewa
 	return items, nil
 }
 
-// ListFiringAlerts maps optional-provider failures to the overview's partial-state sentinel.
-// Unexpected mapping or programming failures remain fatal.
+// ListFiringAlerts maps the monitoring context's outcomes onto the overview's two partial
+// states: no metrics Integration or no Alertmanager address is "not configured" (Alertmanager
+// is optional), and a store failure on a configured Alertmanager is "unavailable". Unexpected
+// mapping or programming failures remain fatal.
 func (r *Reader) ListFiringAlerts(ctx context.Context, siteID string) ([]overviewapp.Alert, error) {
 	alerts, err := r.alerts.List(ctx, monitoringapp.ListAlertsInput{SiteID: siteID, State: "firing"})
 	if err != nil {
 		var queryErr *monitoringdomain.QueryError
-		if errors.Is(err, monitoringdomain.ErrNoAlertSource) ||
-			errors.Is(err, monitoringdomain.ErrNoMetricsIntegration) ||
-			errors.As(err, &queryErr) {
+		switch {
+		case errors.Is(err, monitoringdomain.ErrNoAlertSource),
+			errors.Is(err, monitoringdomain.ErrNoMetricsIntegration):
+			return nil, fmt.Errorf("%w: %v", overviewapp.ErrMonitoringNotConfigured, err)
+		case errors.As(err, &queryErr):
 			return nil, fmt.Errorf("%w: %v", overviewapp.ErrMonitoringUnavailable, err)
 		}
 		return nil, fmt.Errorf("list overview alerts: %w", err)

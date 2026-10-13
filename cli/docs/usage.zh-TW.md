@@ -517,7 +517,7 @@ swallow infrastructure pools create -f pool.yaml
 swallow platforms list --site-id site1
 swallow platforms get plat1
 swallow platforms deploy -f platform-k8s.yaml
-swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner
+swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner, monitoringLinks
 swallow platforms delete plat1
 swallow platforms uninstall plat1                     # 只移除 software
 swallow platforms uninstall plat1 -f uninstall.yaml   # { releaseServers, releaseOptions }
@@ -603,9 +603,19 @@ swallow monitoring alerts list --severity critical --state firing
 swallow monitoring alerts acknowledge <fingerprint> -f ack.yaml --site-id site1
 swallow monitoring metrics get --server srv1 --server srv2 --metric cpuUsagePercent
 swallow monitoring metrics names
+
+# 用量歷史：scope 擇一（--server、--pool、--zone 或 --platform）。
+swallow monitoring metrics range --server srv1 --window 6h
+swallow monitoring metrics range --pool pool1 --metric cpuUsagePercent --metric gpuUtilizationPercent --window 24h
+swallow monitoring metrics range --platform plat1 --mode perServer --metric memoryUsedPercent
+swallow monitoring metrics range --zone zone1 --start 2026-10-10T00:00:00Z --end 2026-10-11T00:00:00Z
 ```
 
 `ack.yaml`：`{ matchers: [...], duration: "2h", comment: "ack by ops" }`
+
+`range` 預設（`aggregate`）對整個 scope 每個 metric 回傳一條 series；`--mode perServer`
+則每台 Server 一條（最多 50 台）。Step 由 server 決定（每條 series 約 180 點）；沒有資料的
+metric 不會出現 series。
 
 ### discovery（machine auth）
 

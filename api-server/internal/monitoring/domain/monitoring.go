@@ -40,15 +40,81 @@ func (s Sample) ServerID() string {
 	return s.Labels[LabelServerID]
 }
 
+// Point is one value of a time series at one evaluation timestamp.
+type Point struct {
+	Timestamp time.Time
+	Value     float64
+}
+
+// Series is one range-query result: a label set and its points in ascending time order.
+//
+// Points are only the timestamps the store had a value for. A missing timestamp is a gap —
+// the host was down or not yet scraped — and must never be filled in as zero by a caller.
+type Series struct {
+	Labels map[string]string
+	Points []Point
+}
+
+// ServerID returns the server this series belongs to, or "" for an aggregate across servers
+// or a series produced inside a platform.
+func (s Series) ServerID() string {
+	return s.Labels[LabelServerID]
+}
+
+// TimeRange is the evaluation window of a range query. Step is the spacing between
+// evaluated timestamps; Start and End are inclusive bounds the store aligns points to.
+type TimeRange struct {
+	Start time.Time
+	End   time.Time
+	Step  time.Duration
+}
+
 // MetricsQuerier reads from the central metrics store.
 //
 // Deliberately narrow: swallow exposes named, parameterised queries rather than a PromQL
 // passthrough, so the set of expressions that can reach the store is bounded by this
 // codebase rather than by a client.
+//
+// Implementations drop non-finite values (NaN, ±Inf) instead of returning them: a division by
+// zero in the store means "no meaningful value", and those values cannot cross JSON anyway.
+// Failures are reported as *QueryError so the delivery layer can tell an unreachable store
+// from a rejected expression.
 type MetricsQuerier interface {
 	Name() string
 	// Query evaluates a PromQL expression at the current instant.
 	Query(ctx context.Context, expr string) ([]Sample, error)
+	// QueryRange evaluates a PromQL expression at every step of the range. The caller is
+	// responsible for bounding the range and step; the querier forwards them as given.
+	QueryRange(ctx context.Context, expr string, window TimeRange) ([]Series, error)
+}
+
+// ScopeKind names what a metrics scope groups Servers by.
+type ScopeKind string
+
+const (
+	// ScopeServers is an explicit list of Servers chosen by the caller.
+	ScopeServers ScopeKind = "servers"
+	// ScopePool is the Servers currently placed in one Pool.
+	ScopePool ScopeKind = "pool"
+	// ScopeZone is the Servers currently placed in one Zone.
+	ScopeZone ScopeKind = "zone"
+	// ScopePlatform is the Servers whose membership axis names one Platform.
+	ScopePlatform ScopeKind = "platform"
+)
+
+// ServerScopeResolver turns a grouping into the Servers it contains right now.
+//
+// It is the monitoring context's only view of Pools, Zones, and Platforms: grouping is owned
+// by other contexts, and metrics carry only server_id (decision 003 forbids grouping labels on
+// series), so a grouping is joined to series at query time through this port. Implementations
+// must:
+//
+//   - return the ids of non-absent Servers only, in a stable order;
+//   - return ErrScopeNotFound when the grouping id does not exist, so a typo is a 404 rather
+//     than an empty chart;
+//   - never be asked for ScopeServers, which needs no resolution.
+type ServerScopeResolver interface {
+	ResolveScope(ctx context.Context, kind ScopeKind, id string) ([]string, error)
 }
 
 // AlertState is Alertmanager's view of an alert.
@@ -119,6 +185,9 @@ var (
 	// ErrInvalidServerID means a server identifier contained characters that cannot
 	// safely be interpolated into a query.
 	ErrInvalidServerID = errors.New("invalid server identifier")
+	// ErrScopeNotFound means the Pool, Zone, or Platform a metrics scope names does not
+	// exist. It is a client error (404), not an empty scope.
+	ErrScopeNotFound = errors.New("metrics scope not found")
 )
 
 // QueryErrorKind classifies a metrics failure for the delivery layer.

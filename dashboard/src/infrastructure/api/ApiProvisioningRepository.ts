@@ -15,12 +15,14 @@ import type {
   DeployServersResult,
   EditServerTagsInput,
   HostEnrollmentBundle,
+  ProvisionerHttpProxy,
   ProvisioningOperationReference,
   RecoverServersOperationInput,
   ReleaseServersOperationInput,
   NetworkInspectionResult,
   ServerTagOption,
   ServerTagsResult,
+  SetProvisionerHttpProxyInput,
   UpdateDeploymentTemplateInput,
   VirtualMachineEnrollmentAccepted,
   VirtualMachineEnrollmentInput,
@@ -312,6 +314,31 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     return apiRequest<VirtualMachineEnrollmentAccepted>(
       "/api/v1/provisioning/virtual-machine-enrollments",
       { method: "POST", body: JSON.stringify(body) },
+    );
+  }
+
+  async getProvisionerHttpProxy(integrationId: string): Promise<ProvisionerHttpProxy> {
+    // Live provisioner state an operator is about to edit (contract provisioner-http-proxy.md), so
+    // a cached copy must never stand in for it.
+    return apiRequest<ProvisionerHttpProxy>(
+      `/api/v1/provisioning/integrations/${encodeURIComponent(integrationId)}/http-proxy`,
+      { cache: "no-store" },
+    );
+  }
+
+  async setProvisionerHttpProxy(
+    integrationId: string,
+    input: SetProvisionerHttpProxyInput,
+  ): Promise<ProvisionerHttpProxy> {
+    // `httpProxy` is always sent: the contract requires it to be empty for `none` and `builtin`, and
+    // the write replaces mode and URL together.
+    return apiRequest<ProvisionerHttpProxy>(
+      `/api/v1/provisioning/integrations/${encodeURIComponent(integrationId)}/http-proxy`,
+      {
+        method: "PUT",
+        cache: "no-store",
+        body: JSON.stringify({ mode: input.mode, httpProxy: input.httpProxy }),
+      },
     );
   }
 }

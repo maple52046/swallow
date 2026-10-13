@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -178,10 +179,45 @@ func TestServiceExecuteKeepsDurableDataWhenMonitoringUnavailable(t *testing.T) {
 	if result.Inventory.Servers != 1 {
 		t.Errorf("Execute() servers = %d, want 1", result.Inventory.Servers)
 	}
-	if result.Monitoring.Available || result.Monitoring.Error == nil ||
+	if !result.Monitoring.Configured || result.Monitoring.Available || result.Monitoring.Error == nil ||
 		result.Monitoring.Error.Code != "provider_unavailable" {
-		t.Errorf("Execute() monitoring = %+v, want provider_unavailable partial state",
+		t.Errorf("Execute() monitoring = %+v, want configured provider_unavailable partial state",
 			result.Monitoring)
+	}
+}
+
+// A Site without an Alertmanager is not failing: Alertmanager is optional, so the summary
+// says "not configured" with no error, and durable inventory is still returned.
+func TestServiceExecuteReportsUnconfiguredAlertSourceWithoutError(t *testing.T) {
+	source := &fakeSource{
+		sites:    []Site{{ID: "site-a"}},
+		servers:  []Server{{ProvisioningState: "deployed"}},
+		alertErr: fmt.Errorf("%w: no alert source configured", ErrMonitoringNotConfigured),
+	}
+
+	result, err := NewService(source, fixedClock{}).Execute(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil partial response", err)
+	}
+	if result.Inventory.Servers != 1 {
+		t.Errorf("Execute() servers = %d, want 1", result.Inventory.Servers)
+	}
+	got := result.Monitoring
+	if got.Configured || got.Available || got.Error != nil || len(got.Firing.Items) != 0 {
+		t.Errorf("Execute() monitoring = %+v, want not configured with no error", got)
+	}
+}
+
+// When alerts are read, the source is both configured and available.
+func TestServiceExecuteMarksReadAlertSourceConfigured(t *testing.T) {
+	source := &fakeSource{sites: []Site{{ID: "site-a"}}}
+
+	result, err := NewService(source, fixedClock{}).Execute(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !result.Monitoring.Configured || !result.Monitoring.Available || result.Monitoring.Error != nil {
+		t.Errorf("Execute() monitoring = %+v, want configured and available", result.Monitoring)
 	}
 }
 

@@ -74,6 +74,16 @@ export type GPUStackOwner = "provisioning" | "gpu-operator";
 export type ExporterOwner = "ansible" | "k8s";
 
 /**
+ * A Monitoring Link (glossary): an operator-registered name and absolute http(s) URL pointing at
+ * the runtime's own monitoring UI, such as the Grafana Omnistat brings for Slurm. swallow never
+ * queries it; it is a shortcut, not a metrics source. Set through the API/CLI `PATCH`.
+ */
+export interface MonitoringLink {
+  name: string;
+  url: string;
+}
+
+/**
  * Freshness of the last membership read. `matchedCount` below `memberCount` means the
  * platform contains machines swallow does not manage, which is worth showing rather than
  * hiding.
@@ -101,6 +111,8 @@ export interface Platform {
   gpuStackOwner: GPUStackOwner;
   /** Which subsystem installs this platform's exporters; `ansible` unless set to `k8s`. */
   exporterOwner: ExporterOwner;
+  /** Operator-registered links to the runtime's own monitoring UI; always an array. */
+  monitoringLinks: MonitoringLink[];
   sync: PlatformSyncState;
   createdAt: string;
   updatedAt: string;

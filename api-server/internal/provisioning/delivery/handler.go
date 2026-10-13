@@ -47,6 +47,7 @@ type ProvisioningHandler struct {
 	enrollment      *application.HostEnrollmentUseCase
 	power           *application.PowerConfigurationUseCase
 	vmEnrollment    application.VirtualMachineEnrollmentLauncher
+	httpProxy       *application.HTTPProxyUseCase
 }
 
 func NewProvisioningHandler(
@@ -332,6 +333,58 @@ func (h *ProvisioningHandler) SetPowerConfiguration(c *fiber.Ctx) error {
 		Driver: req.Driver, Address: req.Address, PowerID: req.PowerID,
 		Username: req.Username, Password: req.Password,
 	})
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
+}
+
+// httpProxyRequest is the Provisioner HTTP Proxy write body (provisioner-http-proxy.md).
+type httpProxyRequest struct {
+	Mode      string `json:"mode"`
+	HTTPProxy string `json:"httpProxy"`
+}
+
+// GetHTTPProxy serves GET /provisioning/integrations/{id}/http-proxy (provisioner-http-proxy.md):
+// the Integration's Provisioner HTTP Proxy read live from its provisioner. The response is not
+// cached because it reflects live provisioner state an operator is about to edit.
+func (h *ProvisioningHandler) GetHTTPProxy(c *fiber.Ctx) error {
+	c.Set(fiber.HeaderCacheControl, "no-store")
+	if h.httpProxy == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "HTTP proxy settings are unavailable."))
+	}
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	item, err := h.httpProxy.Get(c.Context(), id)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(item)
+}
+
+// SetHTTPProxy serves PUT /provisioning/integrations/{id}/http-proxy: it writes the operator's
+// Provisioner HTTP Proxy through to the provisioner and answers 200 with the configuration read
+// back. Field validation beyond a present mode belongs to the use case, so the API and any later
+// client share one set of rules.
+func (h *ProvisioningHandler) SetHTTPProxy(c *fiber.Ctx) error {
+	c.Set(fiber.HeaderCacheControl, "no-store")
+	if h.httpProxy == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, "HTTP proxy settings are unavailable."))
+	}
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	var req httpProxyRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if strings.TrimSpace(req.Mode) == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "mode is required."))
+	}
+	item, err := h.httpProxy.Set(c.Context(), id, application.SetHTTPProxyInput{Mode: req.Mode, HTTPProxy: req.HTTPProxy})
 	if err != nil {
 		return RespondError(c, err)
 	}
@@ -806,6 +859,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrInvalidEnrollmentRequest),
 		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid),
 		errors.Is(err, provisioningdomain.ErrInvalidPowerConfiguration),
+		errors.Is(err, provisioningdomain.ErrInvalidHTTPProxy),
 		errors.Is(err, provisioningdomain.ErrInvalidTag):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
@@ -931,6 +985,12 @@ func (h *ProvisioningHandler) AttachHostEnrollment(enrollment *application.HostE
 // legacy tests, they answer 503 rather than panicking on a nil use case.
 func (h *ProvisioningHandler) AttachPowerConfiguration(power *application.PowerConfigurationUseCase) {
 	h.power = power
+}
+
+// AttachHTTPProxy enables the Provisioner HTTP Proxy routes (decision 056). Without it, as in legacy
+// tests, they answer 503 rather than panicking on a nil use case.
+func (h *ProvisioningHandler) AttachHTTPProxy(httpProxy *application.HTTPProxyUseCase) {
+	h.httpProxy = httpProxy
 }
 
 // AttachVirtualMachineEnrollment enables the virtual-machine enrollment route (decision 055).

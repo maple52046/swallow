@@ -313,6 +313,269 @@ func TestServerMetrics_RequiresServerIDs(t *testing.T) {
 	}
 }
 
+// Disk and network are host-layer metrics like CPU and memory: they come from node-exporter and
+// are attributed by server_id. Virtual devices are excluded so container traffic is not counted
+// twice.
+func TestServerMetrics_DiskAndNetworkNamedQueries(t *testing.T) {
+	f := setupPlatform(t)
+	f.monitoring.querier.samples["node_filesystem_avail_bytes"] = []monitoringdomain.Sample{
+		{Labels: map[string]string{"server_id": "srv-1"}, Value: 41.5, Timestamp: time.Now().UTC()},
+	}
+	f.monitoring.querier.samples["node_network_receive_bytes_total"] = []monitoringdomain.Sample{
+		{Labels: map[string]string{"server_id": "srv-1"}, Value: 1250000, Timestamp: time.Now().UTC()},
+	}
+
+	resp := doRequest(t, f.app, "GET",
+		"/api/v1/monitoring/metrics?serverIds=srv-1&metrics=diskUsedPercent,networkReceiveBytesPerSecond", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	metrics := parseBody(t, resp)["items"].([]any)[0].(map[string]any)["metrics"].(map[string]any)
+	if metrics["diskUsedPercent"] != 41.5 || metrics["networkReceiveBytesPerSecond"] != 1250000.0 {
+		t.Errorf("metrics = %v, want disk 41.5 and receive 1250000", metrics)
+	}
+	for _, expr := range f.monitoring.querier.queries {
+		if strings.Contains(expr, "node_network_receive_bytes_total") && !strings.Contains(expr, `device!~"lo|veth.*`) {
+			t.Errorf("network query must exclude loopback and virtual devices, got %q", expr)
+		}
+		if strings.Contains(expr, "node_filesystem") && !strings.Contains(expr, `mountpoint="/"`) {
+			t.Errorf("disk query must read the root filesystem, got %q", expr)
+		}
+	}
+}
+
+// --- usage history (range) ---
+
+func rangePoints(values ...float64) []monitoringdomain.Point {
+	points := make([]monitoringdomain.Point, len(values))
+	for i, value := range values {
+		points[i] = monitoringdomain.Point{Timestamp: testMetricsNow.Add(time.Duration(i-len(values)) * time.Minute), Value: value}
+	}
+	return points
+}
+
+// A Pool is charted as one series per metric: its current members are resolved to server ids
+// and the named expression is wrapped in the metric's scope aggregate.
+func TestMetricRange_AggregatesPoolScope(t *testing.T) {
+	f := setupPlatform(t)
+	f.metricScopes.members["pool/pool-research"] = []string{"srv-1", "srv-2"}
+	f.monitoring.querier.series["node_cpu_seconds_total"] = []monitoringdomain.Series{
+		{Labels: map[string]string{}, Points: rangePoints(12.5, 14)},
+	}
+
+	resp := doRequest(t, f.app, "GET",
+		"/api/v1/monitoring/metrics/range?poolId=pool-research&metrics=cpuUsagePercent&window=6h", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	body := parseBody(t, resp)
+
+	scope := body["scope"].(map[string]any)
+	if scope["kind"] != "pool" || scope["id"] != "pool-research" || scope["serverCount"] != 2.0 {
+		t.Errorf("scope = %v, want pool pool-research with 2 servers", scope)
+	}
+	if body["mode"] != "aggregate" || body["stepSeconds"] != 120.0 {
+		t.Errorf("mode/step = %v/%v, want aggregate/120", body["mode"], body["stepSeconds"])
+	}
+	if body["start"] != "2026-10-11T19:00:00Z" || body["end"] != "2026-10-12T01:00:00Z" {
+		t.Errorf("range = %v..%v, want the 6h window ending at the request time", body["start"], body["end"])
+	}
+
+	series := body["series"].([]any)
+	if len(series) != 1 {
+		t.Fatalf("expected one aggregate series, got %v", series)
+	}
+	first := series[0].(map[string]any)
+	if first["metric"] != "cpuUsagePercent" || first["serverId"] != nil || len(first["points"].([]any)) != 2 {
+		t.Errorf("series = %v, want cpuUsagePercent for the whole scope with 2 points", first)
+	}
+
+	expr := f.monitoring.querier.rangeQueries[0]
+	if !strings.HasPrefix(expr, "avg (") || !strings.Contains(expr, `server_id=~"srv-1|srv-2"`) {
+		t.Errorf("expected an averaged expression over the pool members, got %q", expr)
+	}
+	if got := f.monitoring.querier.ranges[0].Step; got != 2*time.Minute {
+		t.Errorf("step = %v, want 2m for a 6h window", got)
+	}
+}
+
+// Throughput and power add up across a scope; temperature keeps the hottest host.
+func TestMetricRange_UsesEachMetricsScopeAggregate(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "GET",
+		"/api/v1/monitoring/metrics/range?serverIds=srv-1,srv-2&metrics=networkReceiveBytesPerSecond,gpuTemperatureCelsius,gpuPowerWatts",
+		nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+
+	want := []string{"sum (", "max (", "sum ("}
+	if len(f.monitoring.querier.rangeQueries) != len(want) {
+		t.Fatalf("expected %d range queries, got %v", len(want), f.monitoring.querier.rangeQueries)
+	}
+	for i, prefix := range want {
+		if got := f.monitoring.querier.rangeQueries[i]; !strings.HasPrefix(got, prefix) {
+			t.Errorf("query %d = %q, want prefix %q", i, got, prefix)
+		}
+	}
+	// A request without a window charts the last hour.
+	if body := parseBody(t, resp); body["stepSeconds"] != 30.0 {
+		t.Errorf("stepSeconds = %v, want 30 for the default 1h window", body["stepSeconds"])
+	}
+}
+
+// perServer keeps each Server's own series, in scope order, and drops what cannot be attributed
+// or has no points.
+func TestMetricRange_PerServerOrdersByScope(t *testing.T) {
+	f := setupPlatform(t)
+	f.monitoring.querier.series["node_memory_MemAvailable_bytes"] = []monitoringdomain.Series{
+		{Labels: map[string]string{"server_id": "srv-1"}, Points: rangePoints(40)},
+		{Labels: map[string]string{"server_id": "srv-2"}, Points: rangePoints(55, 56)},
+		{Labels: map[string]string{"server_id": "srv-3"}, Points: nil},
+		{Labels: map[string]string{}, Points: rangePoints(1)},
+	}
+
+	resp := doRequest(t, f.app, "GET",
+		"/api/v1/monitoring/metrics/range?serverIds=srv-2,srv-1,srv-3&metrics=memoryUsedPercent&mode=perServer",
+		nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	series := parseBody(t, resp)["series"].([]any)
+	var got []any
+	for _, item := range series {
+		got = append(got, item.(map[string]any)["serverId"])
+	}
+	if len(got) != 2 || got[0] != "srv-2" || got[1] != "srv-1" {
+		t.Errorf("series servers = %v, want [srv-2 srv-1]", got)
+	}
+	if expr := f.monitoring.querier.rangeQueries[0]; strings.HasPrefix(expr, "avg (") {
+		t.Errorf("perServer must not aggregate, got %q", expr)
+	}
+}
+
+// No data is no series — never a flat zero line — and the list is an array, not null.
+func TestMetricRange_MissingDataHasNoSeries(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "GET",
+		"/api/v1/monitoring/metrics/range?serverIds=srv-1&metrics=gpuUtilizationPercent", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	series, ok := parseBody(t, resp)["series"].([]any)
+	if !ok || len(series) != 0 {
+		t.Errorf("series = %v, want an empty array", series)
+	}
+}
+
+// An empty grouping is a fact about the grouping: it is answered without a metrics backend.
+func TestMetricRange_EmptyScopeSkipsBackend(t *testing.T) {
+	f := setupPlatform(t)
+	f.metricScopes.members["zone/zone-empty"] = []string{}
+	f.monitoring.querierErr = monitoringdomain.ErrNoMetricsIntegration
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/monitoring/metrics/range?zoneId=zone-empty", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	if scope := parseBody(t, resp)["scope"].(map[string]any); scope["serverCount"] != 0.0 {
+		t.Errorf("serverCount = %v, want 0", scope["serverCount"])
+	}
+	if len(f.monitoring.querier.rangeQueries) != 0 {
+		t.Error("an empty scope must not query the store")
+	}
+}
+
+// An explicit range derives its step from the span, like a named window.
+func TestMetricRange_ExplicitRangeDerivesStep(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "GET",
+		"/api/v1/monitoring/metrics/range?serverIds=srv-1&metrics=cpuUsagePercent&start=2026-10-10T00:00:00Z&end=2026-10-11T00:00:00Z",
+		nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	body := parseBody(t, resp)
+	if body["stepSeconds"] != 480.0 || body["start"] != "2026-10-10T00:00:00Z" {
+		t.Errorf("step/start = %v/%v, want 480 and the requested start", body["stepSeconds"], body["start"])
+	}
+}
+
+func TestMetricRange_RejectsInvalidRequests(t *testing.T) {
+	f := setupPlatform(t)
+	large := make([]string, 51)
+	for i := range large {
+		large[i] = "srv-" + strings.Repeat("a", i+1)
+	}
+	huge := make([]string, 1001)
+	for i := range huge {
+		huge[i] = "srv-h"
+	}
+	f.metricScopes.members["pool/pool-large"] = large
+	f.metricScopes.members["platform/platform-huge"] = huge
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{"no scope", "metrics=cpuUsagePercent"},
+		{"two scopes", "serverIds=srv-1&poolId=pool-large"},
+		{"unknown window", "serverIds=srv-1&window=2h"},
+		{"window with start and end", "serverIds=srv-1&window=1h&start=2026-10-10T00:00:00Z&end=2026-10-10T01:00:00Z"},
+		{"start without end", "serverIds=srv-1&start=2026-10-10T00:00:00Z"},
+		{"unparsable start", "serverIds=srv-1&start=yesterday&end=2026-10-10T01:00:00Z"},
+		{"start after end", "serverIds=srv-1&start=2026-10-10T02:00:00Z&end=2026-10-10T01:00:00Z"},
+		{"span over 7 days", "serverIds=srv-1&start=2026-10-01T00:00:00Z&end=2026-10-10T00:00:00Z"},
+		{"span under 5 minutes", "serverIds=srv-1&start=2026-10-10T00:00:00Z&end=2026-10-10T00:01:00Z"},
+		{"unknown mode", "serverIds=srv-1&mode=stacked"},
+		{"unknown metric", "serverIds=srv-1&metrics=loadAverage"},
+		{"perServer over 50 servers", "poolId=pool-large&mode=perServer"},
+		{"scope over 1000 servers", "platformId=platform-huge"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doRequest(t, f.app, "GET", "/api/v1/monitoring/metrics/range?"+tc.query, nil, f.adminAuth(t))
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("GET range?%s = %d, want 400", tc.query, resp.StatusCode)
+			}
+		})
+	}
+	if len(f.monitoring.querier.rangeQueries) != 0 {
+		t.Errorf("a refused request must not query the store, got %v", f.monitoring.querier.rangeQueries)
+	}
+}
+
+// A grouping id that does not exist is a 404, not an empty chart.
+func TestMetricRange_UnknownGroupingIsNotFound(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/monitoring/metrics/range?zoneId=zone-missing", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if code := errorCode(t, resp); code != "not_found" {
+		t.Errorf("code = %s, want not_found", code)
+	}
+}
+
+// Without a metrics Integration the charts cannot be drawn; the API says so in a way a client
+// can turn into "register a metrics backend" rather than "the servers are down".
+func TestMetricRange_NoIntegrationIsProviderUnavailable(t *testing.T) {
+	f := setupPlatform(t)
+	f.monitoring.querierErr = monitoringdomain.ErrNoMetricsIntegration
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/monitoring/metrics/range?serverIds=srv-1", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", resp.StatusCode)
+	}
+	if code := errorCode(t, resp); code != "provider_unavailable" {
+		t.Errorf("code = %s, want provider_unavailable", code)
+	}
+}
+
 func TestMetricNames_IsDiscoverable(t *testing.T) {
 	f := setupPlatform(t)
 

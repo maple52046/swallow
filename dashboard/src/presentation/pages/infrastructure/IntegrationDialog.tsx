@@ -8,6 +8,7 @@ import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 import { credentialGuidance } from './credentialGuidance'
 import { CredentialGuidanceNote } from './CredentialGuidanceNote'
+import { ProvisionerHttpProxySection } from './ProvisionerHttpProxySection'
 
 interface IntegrationDialogProps {
   integration?: Integration
@@ -51,6 +52,9 @@ function replaceSetting(settings: Record<string, string>, key: string, value: st
  * Creates or edits one provider connection without allowing Site or provider ownership
  * to change after registration. Unknown adapter settings are preserved during edits, and
  * the write-only credential (create flow only) is cleared from state on success.
+ *
+ * Editing a MAAS provisioner also shows its HTTP proxy, which lives in MAAS rather than in
+ * the Integration: that section reads and applies it on its own, and Save never touches it.
  */
 export function IntegrationDialog({
   integration,
@@ -296,6 +300,9 @@ export function IntegrationDialog({
             )}
           </div>
         </section>
+        {integration?.kind === 'provisioner' && integration.providerKind === 'maas' && (
+          <ProvisionerHttpProxySection integration={integration} />
+        )}
         <Checkbox id="integration-enabled" checked={enabled} onCheckedChange={setEnabled}>
           Enabled
         </Checkbox>

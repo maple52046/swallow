@@ -11,12 +11,14 @@ import type {
   DeployServersResult,
   EditServerTagsInput,
   HostEnrollmentBundle,
+  ProvisionerHttpProxy,
   ProvisioningOperationReference,
   RecoverServersOperationInput,
   ReleaseServersOperationInput,
   NetworkInspectionResult,
   ServerTagOption,
   ServerTagsResult,
+  SetProvisionerHttpProxyInput,
   UpdateDeploymentTemplateInput,
   VirtualMachineEnrollmentAccepted,
   VirtualMachineEnrollmentInput,
@@ -170,6 +172,21 @@ export interface ProvisioningRepository {
    * not served).
    */
   enrollVirtualMachines(input: VirtualMachineEnrollmentInput): Promise<VirtualMachineEnrollmentAccepted>;
+  /**
+   * Reads one provisioner Integration's Provisioner HTTP Proxy live from its provisioner (contract
+   * provisioner-http-proxy.md). Rejects with `not_found` for an unknown Integration,
+   * `validation_error` for one that is not a capable provisioner, and `provider_unavailable` when
+   * the provisioner cannot be reached or the Integration has no credential.
+   */
+  getProvisionerHttpProxy(integrationId: string): Promise<ProvisionerHttpProxy>;
+  /**
+   * Writes a Provisioner HTTP Proxy through to the provisioner and resolves with the value read
+   * back. It only affects deployments the provisioner starts afterwards. Rejects with
+   * `validation_error` (mode, URL, or the provisioner's own refusal — the message says which) and
+   * `provider_unavailable` (unreachable, or a MAAS account that is not an administrator). A
+   * rejection may follow a partial write; read again to see what the provisioner holds.
+   */
+  setProvisionerHttpProxy(integrationId: string, input: SetProvisionerHttpProxyInput): Promise<ProvisionerHttpProxy>;
 }
 
 /**

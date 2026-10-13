@@ -14,20 +14,27 @@ import (
 	"github.com/maple52046/swallow/internal/shared/middleware"
 )
 
-// maxMetricServers bounds a metrics request so that one call cannot ask the store for
-// the whole fleet at once.
+// maxMetricServers bounds an explicit serverIds list, for current values and usage history
+// alike, so that one call cannot ask the store for the whole fleet at once.
 const maxMetricServers = 200
 
+// MonitoringHandler maps the monitoring HTTP surface (monitoring-alerts.md,
+// server-metrics.md) onto the alert, current-value, and usage-history use cases. It parses
+// transport shape only; every semantic rule lives in the application layer, and errors are
+// translated to the contract's codes by respondError.
 type MonitoringHandler struct {
 	alerts  *application.AlertService
 	metrics *application.ServerMetricsService
+	ranges  *application.MetricRangeService
 }
 
+// NewMonitoringHandler wires the monitoring routes to their use cases.
 func NewMonitoringHandler(
 	alerts *application.AlertService,
 	metrics *application.ServerMetricsService,
+	ranges *application.MetricRangeService,
 ) *MonitoringHandler {
-	return &MonitoringHandler{alerts: alerts, metrics: metrics}
+	return &MonitoringHandler{alerts: alerts, metrics: metrics, ranges: ranges}
 }
 
 func (h *MonitoringHandler) ListAlerts(c *fiber.Ctx) error {
@@ -119,6 +126,77 @@ func (h *MonitoringHandler) ServerMetrics(c *fiber.Ctx) error {
 	})
 }
 
+// metricRangeResponse is the usage-history body: the use case's result plus the optional
+// Grafana link, flattened into one object as the contract shows it.
+type metricRangeResponse struct {
+	*application.MetricRangeResult
+	Grafana *string `json:"grafana"`
+}
+
+// MetricRange handles GET /monitoring/metrics/range (server-metrics.md, "Usage History"). It
+// identifies which single scope parameter was sent, parses list and timestamp syntax, and
+// leaves window, span, mode, and scope-size rules to the use case.
+func (h *MonitoringHandler) MetricRange(c *fiber.Ctx) error {
+	input := application.MetricRangeInput{
+		Metrics: splitList(c.Query("metrics")),
+		Window:  strings.TrimSpace(c.Query("window")),
+		Mode:    strings.TrimSpace(c.Query("mode")),
+	}
+
+	serverIDs := splitList(c.Query("serverIds"))
+	scopes := 0
+	if len(serverIDs) > 0 {
+		scopes++
+		input.ScopeKind, input.ServerIDs = monitoringdomain.ScopeServers, serverIDs
+	}
+	for _, scope := range []struct {
+		param string
+		kind  monitoringdomain.ScopeKind
+	}{
+		{"poolId", monitoringdomain.ScopePool},
+		{"zoneId", monitoringdomain.ScopeZone},
+		{"platformId", monitoringdomain.ScopePlatform},
+	} {
+		if id := strings.TrimSpace(c.Query(scope.param)); id != "" {
+			scopes++
+			input.ScopeKind, input.ScopeID = scope.kind, id
+		}
+	}
+	if scopes != 1 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
+			"exactly one of serverIds, poolId, zoneId, or platformId is required."))
+	}
+	if len(serverIDs) > maxMetricServers {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
+			"too many servers in one request; chart at most 200 explicit servers, or use a Pool, Zone, or Platform."))
+	}
+
+	for _, bound := range []struct {
+		param  string
+		target **time.Time
+	}{
+		{"start", &input.Start},
+		{"end", &input.End},
+	} {
+		raw := strings.TrimSpace(c.Query(bound.param))
+		if raw == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return apierror.Respond(c, apierror.New(apierror.CodeValidation,
+				bound.param+" must be an ISO 8601 timestamp, e.g. \"2026-10-12T00:00:00Z\"."))
+		}
+		*bound.target = &parsed
+	}
+
+	result, err := h.ranges.Query(c.Context(), input)
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(metricRangeResponse{MetricRangeResult: result, Grafana: h.ranges.GrafanaLink(c.Context())})
+}
+
 // MetricNames lists what a client may ask for, so that the fixed query set is
 // discoverable rather than something to read from source.
 func (h *MonitoringHandler) MetricNames(c *fiber.Ctx) error {
@@ -144,15 +222,19 @@ func respondError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, monitoringdomain.ErrNoMetricsIntegration):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
-			"No metrics backend is registered."))
+			"No metrics backend is registered. Register a Prometheus metrics Integration for the Site to see usage."))
 
 	case errors.Is(err, monitoringdomain.ErrNoAlertSource):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable,
 			"The metrics integration has no Alertmanager address configured."))
 
 	case errors.Is(err, monitoringdomain.ErrInvalidServerID),
-		errors.Is(err, application.ErrUnknownMetric):
+		errors.Is(err, application.ErrUnknownMetric),
+		errors.Is(err, application.ErrInvalidMetricRange):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+
+	case errors.Is(err, monitoringdomain.ErrScopeNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
 	}
 
 	var queryErr *monitoringdomain.QueryError

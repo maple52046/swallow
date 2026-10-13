@@ -5,6 +5,8 @@ import { installApiFixtures } from '../e2e/fixtures'
 const visualCases = [
   { name: 'login', path: '/login', heading: 'Sign in', authenticated: false, representative: true },
   { name: 'overview', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: true },
+  { name: 'overview-alerts-not-configured', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
+  { name: 'overview-alerts-unavailable', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
   { name: 'servers', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: true },
   { name: 'platform-list', path: '/platforms?site=site-a', heading: 'Platforms', authenticated: true, representative: false },
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true, representative: false },
@@ -14,6 +16,9 @@ const visualCases = [
   { name: 'software-docker-detail', path: '/software/docker-ce?site=site-a', heading: 'Docker CE', authenticated: true, representative: false },
   { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
+  { name: 'monitoring-pool-charts', path: '/monitoring?site=site-a&chartScope=pool&chartScopeId=pool-research', heading: 'Monitoring', authenticated: true, representative: false },
+  { name: 'server-monitoring', path: '/servers/srv-1/monitoring?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm', path: '/platforms/platform-slurm?site=site-a', heading: 'research-slurm', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
   { name: 'server-detail-vm-power', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-detail-vm-boot-media', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
@@ -113,6 +118,9 @@ test.describe('dashboard visual review', () => {
           ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
           : {}),
         ...(visualCase.name === 'server-activity' ? { serverActivityItemCount: 12 } : {}),
+        // Alertmanager is optional: a Site without one is a quiet card state, a failing one warns.
+        ...(visualCase.name === 'overview-alerts-not-configured' ? { overviewAlertSource: 'not-configured' as const } : {}),
+        ...(visualCase.name === 'overview-alerts-unavailable' ? { overviewAlertSource: 'unavailable' as const } : {}),
         // A release whose Workflow stopped waiting for Ready (its longest banner, with two links), and
         // one no Swallow Workflow covers (the Activity empty states that explain where it is recorded).
         ...(visualCase.name === 'server-detail-releasing'
@@ -167,6 +175,23 @@ test.describe('dashboard visual review', () => {
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }
+      // Usage charts are long on a phone; one viewport from the section's top shows the header,
+      // window picker, scope pickers, and the first charts at their real scale.
+      const crop = visualCase.name === 'server-monitoring' || visualCase.name === 'monitoring-pool-charts'
+        ? page.locator('.sw-usage-charts')
+        : visualCase.name === 'platform-detail-slurm'
+          ? page.locator('section.sw-section').filter({ has: page.getByRole('heading', { name: 'Monitoring', exact: true }) })
+          : null
+      if (crop) {
+        const box = await crop.boundingBox()
+        const viewport = page.viewportSize()
+        if (box && viewport) {
+          await page.screenshot({
+            path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+            fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: Math.min(box.height, viewport.height) },
+          })
+        }
+      }
     })
   }
 })
@@ -188,6 +213,33 @@ test.describe('Add servers virtual machines visual review', () => {
     await machines.getByText('lab-vm-1', { exact: true }).click()
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'add-servers-virtual-machines', false)
+  })
+})
+
+/**
+ * Captures the Edit integration dialog of a MAAS provisioner with its HTTP proxy section (decision
+ * 056): once as MAAS reports an External proxy, and once with an unapplied change and a URL error.
+ */
+test.describe('Integration HTTP proxy visual review', () => {
+  test('integration-http-proxy', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { httpProxies: { 'maas-a': { mode: 'external', httpProxy: 'http://10.170.168.20:18080' } } })
+    await setAppearance(page, appearance)
+    await page.goto('/infrastructure/integrations?site=site-a')
+    await page.getByRole('button', { name: 'Edit MAAS Taipei' }).filter({ visible: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Edit integration' })
+    const proxy = dialog.getByRole('region', { name: 'HTTP proxy' })
+    await expect(proxy.getByRole('status')).toHaveText('MAAS uses: External (http://10.170.168.20:18080).')
+    await proxy.scrollIntoViewIfNeeded()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'integration-http-proxy', false)
+
+    await chooseOption(page, 'Proxy mode', 'Peer')
+    await proxy.getByRole('textbox', { name: /^Proxy URL/ }).fill('http://user:secret@squid.example:3128')
+    await expect(proxy.getByText('Leave the user and password out; the URL is readable back.')).toBeVisible()
+    await proxy.scrollIntoViewIfNeeded()
+    await capture(page, testInfo, 'integration-http-proxy-invalid', false)
   })
 })
 

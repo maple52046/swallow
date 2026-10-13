@@ -121,10 +121,13 @@ type executionResponse struct {
 	FinishedAt   *string `json:"finishedAt"`
 }
 
+// monitoringResponse is overview.md's `monitoring` section. Configured separates "no alert
+// source" (a normal state with a null error) from "alert source failing".
 type monitoringResponse struct {
-	Available bool           `json:"available"`
-	Error     *embeddedError `json:"error"`
-	Firing    firingResponse `json:"firing"`
+	Configured bool           `json:"configured"`
+	Available  bool           `json:"available"`
+	Error      *embeddedError `json:"error"`
+	Firing     firingResponse `json:"firing"`
 }
 
 type embeddedError struct {
@@ -226,7 +229,8 @@ func toResponse(result overviewapp.Result) response {
 			Recent:            operations,
 		},
 		Monitoring: monitoringResponse{
-			Available: result.Monitoring.Available, Error: monitoringError,
+			Configured: result.Monitoring.Configured,
+			Available:  result.Monitoring.Available, Error: monitoringError,
 			Firing: firingResponse{
 				Critical: result.Monitoring.Firing.Critical,
 				Warning:  result.Monitoring.Firing.Warning, Items: alerts,

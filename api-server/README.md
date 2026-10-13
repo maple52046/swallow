@@ -30,7 +30,7 @@ Integrations are registered per Site at runtime:
 | Kind | Current provider | Used for |
 | --- | --- | --- |
 | `provisioner` | Ubuntu MAAS | Machine inventory, power, OS images, deploy/release, grouping, tags |
-| `metrics` | Prometheus/Alertmanager/Grafana | Fixed metric queries, alerts/silences, links |
+| `metrics` | Prometheus/Alertmanager/Grafana | Fixed metric queries and bounded usage history for charts, alerts/silences, optional Grafana link |
 | Platform runtime | Kubernetes, Slurm | Live membership and runtime management for self-deployed Platforms |
 
 swallow stores intent and identity relationships. It does not copy hardware

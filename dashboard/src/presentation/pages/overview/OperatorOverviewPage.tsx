@@ -116,13 +116,37 @@ function unavailableMetric(label: string, icon: ReactNode): MetricItem {
 }
 
 /**
+ * The Alerts card for the three alert-source states. Zero counts are only shown as a number when
+ * alerts were actually read: a Site without an Alertmanager (optional) reads "Not configured", and
+ * a configured one that could not be read reads "Unavailable", so neither looks like "no alerts".
+ */
+function alertsMetric(alerts: Overview['monitoring'], icon: ReactNode): MetricItem {
+  if (!alerts.configured) {
+    return { label: 'Alerts', value: 'Not configured', detail: 'No Alertmanager for this scope', tone: 'neutral', icon }
+  }
+  if (!alerts.available) {
+    return { label: 'Alerts', value: 'Unavailable', detail: 'Alertmanager could not be read', tone: 'warning', icon }
+  }
+  const firing = alerts.firing.critical + alerts.firing.warning
+  return {
+    label: 'Alerts',
+    value: firing,
+    detail: `${alerts.firing.critical} critical`,
+    tone: alerts.firing.critical ? 'critical' : firing ? 'warning' : 'neutral',
+    icon,
+  }
+}
+
+/**
  * Operator landing page backed by the provider-owned overview aggregate.
  *
  * The page groups existing facts into four scan targets and derives only an
  * action queue; it never treats missing metrics as failure or invents trends.
+ * The alerts warning appears only when an Alertmanager is configured but could not be
+ * read; a scope without one is a normal state shown on the Alerts card, not a failure.
  * While monitoring is in development (always, in release builds) the Fleet health
- * and Alerts cards keep their place with a "not available" note, and the
- * monitoring-unavailable warning is not shown because nothing here relies on it.
+ * and Alerts cards keep their place with a "not available" note, and the alerts
+ * warning is not shown because nothing here relies on it.
  */
 export function OperatorOverviewPage() {
   const { overview } = useApp()
@@ -153,7 +177,6 @@ export function OperatorOverviewPage() {
   if (state.status === 'error') return <ErrorState message={state.message} />
 
   const data = state.data
-  const firingAlerts = data.monitoring.firing.critical + data.monitoring.firing.warning
 
   return (
     <div className="operator-page">
@@ -161,9 +184,9 @@ export function OperatorOverviewPage() {
         title="Overview"
         metadata={<Text as="span" fontSize="sm" color="fg.muted">Updated {formatRelative(data.generatedAt)}</Text>}
       />
-      {monitoring && !data.monitoring.available && (
-        <Alert status="warning" title="Monitoring unavailable">
-          Inventory and workflows are still current.
+      {monitoring && data.monitoring.configured && !data.monitoring.available && (
+        <Alert status="warning" title="Alerts unavailable">
+          Swallow could not read alerts from Alertmanager. Inventory, workflows, health, and usage charts are unaffected.
         </Alert>
       )}
       <MetricGrid items={[
@@ -190,13 +213,7 @@ export function OperatorOverviewPage() {
           icon: <Workflow size={16} />,
         },
         monitoring
-          ? {
-            label: 'Alerts',
-            value: firingAlerts,
-            detail: `${data.monitoring.firing.critical} critical`,
-            tone: data.monitoring.firing.critical ? 'critical' : firingAlerts ? 'warning' : 'neutral',
-            icon: <BellRing size={16} />,
-          }
+          ? alertsMetric(data.monitoring, <BellRing size={16} />)
           : unavailableMetric('Alerts', <BellRing size={16} />),
       ]} />
 

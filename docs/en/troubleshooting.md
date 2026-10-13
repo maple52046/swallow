@@ -104,10 +104,16 @@ credential again.
 
 ## Monitoring is empty
 
-- Confirm the metrics Integration is configured for the selected Site.
+- "No metrics backend for this Site" on the usage charts means no metrics
+  Integration is registered (or it cannot be reached); register one for the Site.
 - Verify Prometheus can call service discovery with the machine token (and trusts the
   CA of any TLS terminator in front of swallow).
-- Confirm exporters are installed and reachable at the discovered targets.
+- Confirm exporters are installed and reachable at the discovered targets: the
+  `install-exporters` Workflow runs when a Server reaches `deployed`, and a locked
+  Server gets none.
+- A chart that reads "No data" for one metric only — for example the GPU charts —
+  usually means that exporter is not running on the Server (a GPU Server without the
+  `amd-gpu` tag gets no RDC exporter).
 - Missing metric data is unknown, not proof of failure.
 
 ## Keep the request ID

@@ -17,9 +17,14 @@ const (
 var (
 	// ErrSiteNotFound means an explicit overview scope does not identify a Site.
 	ErrSiteNotFound = errors.New("overview site not found")
-	// ErrMonitoringUnavailable marks an optional monitoring-provider failure that the
-	// overview can safely expose as partial state instead of failing durable inventory.
+	// ErrMonitoringUnavailable marks a configured alert source that could not be read. The
+	// overview exposes it as partial state (with provider_unavailable) instead of failing
+	// durable inventory.
 	ErrMonitoringUnavailable = errors.New("overview monitoring unavailable")
+	// ErrMonitoringNotConfigured marks a scope with no alert source at all: no enabled metrics
+	// Integration, or one without an Alertmanager address. Alertmanager is optional, so this is
+	// a normal state reported without an error, never a failure.
+	ErrMonitoringNotConfigured = errors.New("overview monitoring not configured")
 )
 
 // Clock supplies the snapshot time used for the generated timestamp and rolling failure
@@ -39,8 +44,9 @@ func (SystemClock) Now() time.Time {
 // Source is the read boundary for the contexts summarized by Overview.
 //
 // Implementations translate context-owned repositories into these deliberately small
-// projections. A missing optional alert provider must wrap ErrMonitoringUnavailable;
-// durable repository failures remain ordinary errors and fail the query.
+// projections. ListFiringAlerts must wrap ErrMonitoringNotConfigured when the scope has no
+// alert source and ErrMonitoringUnavailable when a configured one cannot be read; durable
+// repository failures remain ordinary errors and fail the query.
 type Source interface {
 	ListSites(ctx context.Context) ([]Site, error)
 	ListIntegrations(ctx context.Context, siteID string) ([]Integration, error)
@@ -171,12 +177,15 @@ type FiringSummary struct {
 	Items    []Alert
 }
 
-// MonitoringSummary makes optional-provider failure explicit without pretending that no
-// alerts means the same thing as an unavailable alert source.
+// MonitoringSummary makes the alert source's state explicit without pretending that no
+// alerts means the same thing as an absent or failing alert source. The three states are:
+// read (Configured and Available), not configured (neither, Error nil — a normal state), and
+// unavailable (Configured, not Available, Error provider_unavailable).
 type MonitoringSummary struct {
-	Available bool
-	Error     *EmbeddedError
-	Firing    FiringSummary
+	Configured bool
+	Available  bool
+	Error      *EmbeddedError
+	Firing     FiringSummary
 }
 
 // Result is one coherent, point-in-time overview read model.
@@ -202,9 +211,9 @@ func NewService(source Source, clock Clock) *Service {
 	return &Service{source: source, clock: clock}
 }
 
-// Execute builds a site-scoped snapshot. Monitoring-provider failure is returned inside
-// Result; every other source failure aborts so partial durable inventory is never mistaken
-// for a complete swallow-wide view.
+// Execute builds a site-scoped snapshot. An absent or failing alert source is returned inside
+// Result.Monitoring; every other source failure aborts so partial durable inventory is never
+// mistaken for a complete swallow-wide view.
 func (s *Service) Execute(ctx context.Context, siteID string) (Result, error) {
 	var result Result
 	generatedAt := s.clock.Now().UTC()
@@ -240,16 +249,20 @@ func (s *Service) Execute(ctx context.Context, siteID string) (Result, error) {
 		Integrations: summarizeIntegrations(integrations),
 		Platforms:    summarizePlatforms(platforms),
 		Operations:   summarizeOperations(operations, generatedAt),
-		Monitoring:   MonitoringSummary{Available: true, Firing: FiringSummary{Items: []Alert{}}},
+		Monitoring:   MonitoringSummary{Configured: true, Available: true, Firing: FiringSummary{Items: []Alert{}}},
 	}
 
 	alerts, err := s.source.ListFiringAlerts(ctx, siteID)
+	if errors.Is(err, ErrMonitoringNotConfigured) {
+		result.Monitoring = MonitoringSummary{Firing: FiringSummary{Items: []Alert{}}}
+		return result, nil
+	}
 	if errors.Is(err, ErrMonitoringUnavailable) {
 		result.Monitoring = MonitoringSummary{
-			Available: false,
+			Configured: true,
 			Error: &EmbeddedError{
 				Code:    "provider_unavailable",
-				Message: "Monitoring provider is unavailable.",
+				Message: "Alertmanager is configured but could not be read.",
 			},
 			Firing: FiringSummary{Items: []Alert{}},
 		}

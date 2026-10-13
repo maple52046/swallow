@@ -31,6 +31,11 @@ test('Release builds hide in-development features and offer no switch', async ({
   await page.goto('/monitoring?site=site-a')
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
 
+  // Monitoring Links are Platform data and stay; the entry into the in-development console does not.
+  await page.goto('/platforms/platform-slurm?site=site-a')
+  await expect(page.getByRole('link', { name: 'Omnistat Grafana' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'View usage charts' })).toHaveCount(0)
+
   await page.goto('/provisioning/images?site=site-a')
   await expect(page.getByRole('heading', { name: 'OS images', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Upload image' })).toHaveCount(0)

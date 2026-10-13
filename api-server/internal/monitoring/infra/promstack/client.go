@@ -80,6 +80,18 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, out any
 	return c.do(req, out)
 }
 
+// postForm sends form-encoded parameters in the body. The Prometheus query API accepts POST for
+// query and query_range precisely so that long expressions — a regex over hundreds of
+// server_ids — are not truncated by URL-length limits in proxies or the store itself.
+func (c *Client) postForm(ctx context.Context, path string, form url.Values, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return c.do(req, out)
+}
+
 func (c *Client) postJSON(ctx context.Context, path string, payload, out any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {

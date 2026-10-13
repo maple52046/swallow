@@ -16,7 +16,7 @@ current session in the browser.
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Grouped Docker CE, Podman, and NFS catalog, per-software deployments, and multi-Server installation |
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
-| Monitoring | Alerts, silences, fixed metrics, fleet health, and Grafana links |
+| Monitoring | Alerts, silences, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, fleet health, and optional Grafana links |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call Swallow as you without a password |
@@ -29,10 +29,11 @@ Canonical navigation uses Platforms and Workflows.
 Three Dashboard features are still in development. Release builds of the
 Dashboard hide them; the API and the `swallow` CLI are not affected.
 
-- **Monitoring**: the Monitoring page and the Server Monitoring tab are absent.
+- **Monitoring**: the Monitoring page, the Server Monitoring tab with its usage
+  charts, and the Platform page's "View usage charts" shortcut are absent.
   Health keeps its place on Overview, the Server list, and Server details but
   reads "Not available in this release". You can still register a metrics
-  Integration.
+  Integration, and a Platform's Monitoring Links remain visible.
 - **OS image upload**: OS images has no Upload action. Verifying an existing
   custom image is still available.
 - **Deployment Templates**: the Templates workspace, Create template, and

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
-import { Badge, Button, HStack, Table, Tabs } from '@chakra-ui/react'
-import { RefreshCw } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Badge, Button, HStack, Table, Tabs, Text } from '@chakra-ui/react'
+import { ChartLine, ExternalLink, RefreshCw } from 'lucide-react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
 import { platformLifecycleLabel, platformLifecycleStatus } from '@/domain/platform/lifecycle'
@@ -15,6 +15,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { KubernetesPlatformView } from './KubernetesPlatformView'
@@ -146,6 +147,7 @@ export function PlatformDetailPage() {
             ) : (
               <SlurmPlatformView platform={platform} members={members} loginNodes={loginNodes} onSelect={(server) => openServer(server.id)} />
             )}
+            <PlatformMonitoring platform={platform} />
             <PlatformConfiguration platform={platform} />
           </div>
         </Tabs.Content>
@@ -223,6 +225,61 @@ export function PlatformDetailPage() {
         </Tabs.Content>
       </Tabs.Root>
     </div>
+  )
+}
+
+/**
+ * Where to watch this Platform: swallow's own usage charts for its members, and the runtime's own
+ * monitoring UIs registered as Monitoring Links (for example Omnistat's Grafana on Slurm).
+ *
+ * The chart entry links to the Monitoring console with this Platform preselected and is shown
+ * only while the experimental `monitoring` console is enabled. Monitoring Links are Platform
+ * data, so they show regardless; they open in a new tab and swallow never fetches them. With no
+ * links the section explains how to add one through the API or CLI, since the console has no
+ * editor for them.
+ */
+function PlatformMonitoring({ platform }: { platform: Platform }) {
+  const monitoringConsole = useExperimentalFeature('monitoring')
+  const { scopedHref } = useSiteScope()
+  const links = platform.monitoringLinks
+  const chartsHref = scopedHref(`/monitoring?${new URLSearchParams({ chartScope: 'platform', chartScopeId: platform.id }).toString()}`)
+
+  return (
+    <section className="sw-section">
+      <SectionHeader
+        title="Monitoring"
+        description="Usage of this Platform's Servers in swallow, and the runtime's own monitoring tools."
+        actions={monitoringConsole ? (
+          <Button asChild variant="outline" size="sm">
+            <Link to={chartsHref}>
+              <ChartLine size={16} />
+              View usage charts
+            </Link>
+          </Button>
+        ) : undefined}
+      />
+      <div className="sw-section-content">
+        {links.length === 0 ? (
+          <Text color="fg.muted" fontSize="sm">
+            No monitoring links. Add the runtime's own dashboards (for example Omnistat's Grafana) with{' '}
+            <code>swallow platforms update {platform.id} -f patch.yaml</code> and a <code>monitoringLinks</code> list.
+          </Text>
+        ) : (
+          <HStack as="ul" aria-label="Monitoring links" gap="2" wrap="wrap" listStyleType="none" m="0" p="0">
+            {links.map((link) => (
+              <li key={link.name}>
+                <Button asChild variant="outline" size="sm">
+                  <a href={link.url} target="_blank" rel="noreferrer">
+                    {link.name}
+                    <ExternalLink size={14} />
+                  </a>
+                </Button>
+              </li>
+            ))}
+          </HStack>
+        )}
+      </div>
+    </section>
   )
 }
 

@@ -33,6 +33,7 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 - [Kubernetes Topology](../../../../../docs/development/glossaries/terms/kubernetes-topology.md)
 - [Minimum Resource Requirement](../../../../../docs/development/glossaries/terms/minimum-resource-requirement.md)
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
+- [Monitoring Link](../../../../../docs/development/glossaries/terms/monitoring-link.md)
 
 ## Endpoints
 
@@ -78,6 +79,9 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
   },
   "gpuStackOwner": "provisioning",
   "exporterOwner": "ansible",
+  "monitoringLinks": [
+    { "name": "Omnistat Grafana", "url": "https://omnistat.example.internal/grafana" }
+  ],
   "sync": {
     "lastStartedAt": null,
     "lastSucceededAt": null,
@@ -92,6 +96,14 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 
 `type` is `kubernetes` or `slurm`. `gpuStackOwner` is `provisioning` or
 `gpu-operator` and has no default. `exporterOwner` is `ansible` (default) or `k8s`.
+
+`monitoringLinks` lists the Platform's **Monitoring Links**: operator-registered links to an
+external monitoring UI that belongs to the runtime itself — for example the Grafana that Omnistat
+brings for a Slurm Platform. It is always an array, empty by default. Each link has a `name`
+(the label an operator clicks) and an absolute `http`/`https` `url`. Monitoring Links are
+swallow-owned display data: swallow never connects to, authenticates against, or checks the
+URL, and they are not a metrics Integration — swallow's own usage charts keep reading the Site
+metrics backend (see [server-metrics.md](server-metrics.md)). They are set with `PATCH`.
 
 `origin` is `registered | deployed`. New Platforms are always `deployed`; `origin=registered`
 is a one-release compatibility value for records created before the register-existing path was
@@ -409,8 +421,19 @@ the uninstall.
 `GET /api/v1/platforms/{platformId}` returns one. Lifecycle history is fetched in one batch
 for list requests; the API does not fan out one Operation query per Platform.
 
-`PATCH /api/v1/platforms/{platformId}` updates `name`, `gpuStackOwner`, or `exporterOwner`;
-omitted fields do not change. It does not accept `integrationId`: a Platform's credential
+`PATCH /api/v1/platforms/{platformId}` updates `name`, `gpuStackOwner`, `exporterOwner`, or
+`monitoringLinks`; omitted fields do not change.
+
+`monitoringLinks` replaces the whole list; `[]` clears it. At most 10 links. Each `name` is
+trimmed, required, at most 64 characters, and unique within the Platform (case-insensitive).
+Each `url` is trimmed, at most 2048 characters, and must be an absolute `http` or `https` URL
+with a host. Any violation is `validation_error` and changes nothing.
+
+```json
+{ "monitoringLinks": [{ "name": "Omnistat Grafana", "url": "https://omnistat.example.internal/grafana" }] }
+```
+
+`PATCH` does not accept `integrationId`: a Platform's credential
 Integration is set only by its deployment, and repointing it at an operator-owned Integration
 would be a register-existing back door, which
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) removes.
@@ -524,3 +547,5 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 - `apiVip` remains accepted exactly as before for HA requests and is now optional for a
   one-control-plane deployment.
 - Control-plane lease discovery remains per Integration because its naming is k0s-specific.
+- `monitoringLinks` was added on 2026-10-12. It is additive: a Platform stored before the field
+  existed reads as `[]`, and a `PATCH` that omits it leaves the links unchanged.

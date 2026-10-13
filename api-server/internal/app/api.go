@@ -230,10 +230,6 @@ func RunAPI(cfg config.APIConfig) error {
 	// which reads as "not known" rather than as anything about the machine.
 	monitoringFactory := monitoringinfra.NewMonitoringFactory(integrationRepo)
 	alertService := monitoringapp.NewAlertService(monitoringFactory)
-	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
-		alertService,
-		monitoringapp.NewServerMetricsService(monitoringFactory),
-	)
 	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory)
 
 	serverHandler := serverdelivery.NewServerHandler(
@@ -324,6 +320,17 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("platform repo init: %w", err)
 	}
+
+	// Monitoring reads (alerts, current values, usage history) need the grouping repositories
+	// above: a usage-history scope names a Zone, Pool, or Platform, and metrics carry only
+	// server_id, so the scope is resolved to Servers here at query time.
+	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
+		alertService,
+		monitoringapp.NewServerMetricsService(monitoringFactory),
+		monitoringapp.NewMetricRangeService(monitoringFactory, metricScopeResolver{
+			zones: zoneRepo, pools: poolRepo, platforms: platformRepo, servers: serverRepo,
+		}),
+	)
 	requirementRepo := platforminfra.NewMongoDeploymentRequirementRepo(db)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformReaderFactory := platforminfra.NewReaderFactory(integrationRepo)
@@ -421,6 +428,7 @@ func RunAPI(cfg config.APIConfig) error {
 	provisioningHandler.AttachHostEnrollment(provisioningapp.NewHostEnrollmentUseCase(providerFactory))
 	provisioningHandler.AttachPowerConfiguration(provisioningapp.NewPowerConfigurationUseCase(
 		serverRepo, providerFactory, provisioningdomain.DefaultPowerAdapters()))
+	provisioningHandler.AttachHTTPProxy(provisioningapp.NewHTTPProxyUseCase(providerFactory))
 	// Virtual-machine enrollment (decision 055): libvirt domains of a Hypervisor are registered with
 	// the provisioner by an enroll-virtual-machines Workflow run by the worker.
 	provisioningHandler.AttachVirtualMachineEnrollment(virtualMachineEnrollmentLauncher{
@@ -921,6 +929,10 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 	provisioning.Post("/integrations/:id/enroll-bundle", deps.provisioning.EnrollBundle)
+	// The provisioner-owned proxy handed to deployed machines, read live and written through; not an
+	// Integration setting (contract provisioner-http-proxy.md, decision 056).
+	provisioning.Get("/integrations/:id/http-proxy", deps.provisioning.GetHTTPProxy)
+	provisioning.Put("/integrations/:id/http-proxy", deps.provisioning.SetHTTPProxy)
 	provisioning.Post("/virtual-machine-enrollments", deps.provisioning.EnrollVirtualMachines)
 	// Boot ISOs (decision 049): built here, mounted by a Server's Boot Media.
 	if deps.bootISOs != nil {
@@ -994,6 +1006,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	monitoring.Get("/alerts", deps.monitoring.ListAlerts)
 	monitoring.Post("/alerts/:fingerprint/acknowledge", deps.monitoring.Acknowledge)
 	monitoring.Get("/metrics", deps.monitoring.ServerMetrics)
+	monitoring.Get("/metrics/range", deps.monitoring.MetricRange)
 	monitoring.Get("/metrics/names", deps.monitoring.MetricNames)
 
 	// Canonical Workflow surface (ADR 017). A Workflow is a DAG of Tasks.

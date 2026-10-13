@@ -93,10 +93,14 @@ affected credential。
 
 ## Monitoring 是空的
 
-- 確認 selected Site 已設定 metrics Integration。
+- 用量圖表顯示「No metrics backend for this Site」代表尚未註冊 metrics Integration（或無法
+  連線）；請為該 Site 註冊一個。
 - 驗證 Prometheus 可使用 machine token 呼叫 service discovery（若 swallow 前面有 TLS
   terminator，也要信任它的 CA）。
-- 確認 exporter 已安裝，且 discovered target 可連線。
+- 確認 exporter 已安裝，且 discovered target 可連線：Server 進入 `deployed` 時會執行
+  `install-exporters` Workflow，locked Server 則不會安裝。
+- 只有某個 metric 顯示「No data」——例如 GPU 圖表——通常代表該 exporter 沒有在 Server 上執行
+  （沒有 `amd-gpu` tag 的 GPU Server 不會安裝 RDC exporter）。
 - Missing metric data 是 unknown，不是 failure 證據。
 
 ## 保留 request ID

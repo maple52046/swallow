@@ -39,3 +39,15 @@ The OS Image default user is swallow-owned data on the OS Image Provider Data Ov
 (`defaultUser`, with a built-in per provider OS family). Reconcile mirrors the effective
 value onto each deployed Server as `deployedImageDefaultUser`, alongside
 `deployedImageName`, so automation reads it from the projection without a catalog call.
+
+## Provisioner HTTP Proxy written through (decision 056)
+
+```text
+dashboard --provisioner-http-proxy.md--> HTTPProxyUseCase --ProviderFactory--> HTTPProxyReader/Writer --> MAAS get_config/set_config
+```
+
+The provisioner owns the proxy setting; swallow keeps no copy. The optional
+`HTTPProxyReader`/`HTTPProxyWriter` capability (advertised as `HTTPProxy`) translates the
+swallow mode set (`none | builtin | external | peer`) to and from MAAS's
+`enable_http_proxy`, `use_peer_proxy`, and `http_proxy`; those names stay inside the MAAS
+adapter.

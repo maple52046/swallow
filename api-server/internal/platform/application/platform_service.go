@@ -68,10 +68,20 @@ type PlatformItem struct {
 	GPUStackOwner string `json:"gpuStackOwner"`
 	// ExporterOwner decides which subsystem installs this platform's Prometheus
 	// exporters: "ansible" (default) or "k8s".
-	ExporterOwner string           `json:"exporterOwner"`
-	Sync          PlatformSyncItem `json:"sync"`
-	CreatedAt     string           `json:"createdAt"`
-	UpdatedAt     string           `json:"updatedAt"`
+	ExporterOwner string `json:"exporterOwner"`
+	// MonitoringLinks are the operator-registered links to the runtime's own monitoring UI.
+	// Always an array (empty when none), so clients never branch on null.
+	MonitoringLinks []MonitoringLinkItem `json:"monitoringLinks"`
+	Sync            PlatformSyncItem     `json:"sync"`
+	CreatedAt       string               `json:"createdAt"`
+	UpdatedAt       string               `json:"updatedAt"`
+}
+
+// MonitoringLinkItem is the wire shape of one Monitoring Link, used both in the projection and
+// as the PATCH replacement list.
+type MonitoringLinkItem struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // PlatformDeploymentItem explains topology and workload co-location without exposing
@@ -201,9 +211,14 @@ type UpdatePlatformInput struct {
 	Name          *string
 	GPUStackOwner *string
 	ExporterOwner *string
+	// MonitoringLinks replaces the whole list when non-nil; a pointer to an empty slice clears
+	// it, and nil leaves it unchanged.
+	MonitoringLinks *[]MonitoringLinkItem
 }
 
-// Update changes registration and policy without changing lifecycle provenance.
+// Update changes registration, policy, and Monitoring Links without changing lifecycle
+// provenance. Every supplied field is validated before anything is written, so a request with
+// one invalid field (ErrInvalidPlatform) changes nothing.
 func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePlatformInput) (*PlatformItem, error) {
 	platform, err := s.platforms.FindByID(ctx, id)
 	if err != nil {
@@ -231,6 +246,17 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 				ErrInvalidPlatform, platformdomain.ValidExporterOwners)
 		}
 		platform.ExporterOwner = exporterOwner
+	}
+	if input.MonitoringLinks != nil {
+		requested := make([]platformdomain.MonitoringLink, len(*input.MonitoringLinks))
+		for i, link := range *input.MonitoringLinks {
+			requested[i] = platformdomain.MonitoringLink{Name: link.Name, URL: link.URL}
+		}
+		links, err := platformdomain.NormalizeMonitoringLinks(requested)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidPlatform, err)
+		}
+		platform.MonitoringLinks = links
 	}
 	platform.UpdatedAt = time.Now().UTC()
 
@@ -374,6 +400,7 @@ func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.
 		LifecycleOperationID: wire.String(lifecycle.OperationID),
 		Deployment:           toPlatformDeploymentItem(lifecycle.Deployment),
 		GPUStackOwner:        string(platform.GPUStackOwner), ExporterOwner: string(platform.ExporterOwner),
+		MonitoringLinks: toMonitoringLinkItems(platform.MonitoringLinks),
 		Sync: PlatformSyncItem{
 			LastStartedAt:   optionalTime(platform.Sync.LastStartedAt),
 			LastSucceededAt: optionalTime(platform.Sync.LastSucceededAt),
@@ -399,6 +426,16 @@ func toPlatformDeploymentItem(operation *platformdomain.LifecycleOperation) *Pla
 		Topology: string(operation.Intent.Topology), RoleAssignments: assignments,
 		LoginServerIDs: operation.Intent.LoginServerIDs,
 	}
+}
+
+// toMonitoringLinkItems projects links as a non-nil array, so a Platform created before the
+// field existed (or a fake repository that never set it) still serializes as [].
+func toMonitoringLinkItems(links []platformdomain.MonitoringLink) []MonitoringLinkItem {
+	items := make([]MonitoringLinkItem, len(links))
+	for i, link := range links {
+		items[i] = MonitoringLinkItem{Name: link.Name, URL: link.URL}
+	}
+	return items
 }
 
 func optionalTime(t *time.Time) *string {

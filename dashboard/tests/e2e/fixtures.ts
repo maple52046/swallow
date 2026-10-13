@@ -120,7 +120,7 @@ const platforms = [
         { serverId: 'srv-3', role: 'control-plane', runWorkloads: false },
       ],
     },
-    gpuStackOwner: 'gpu-operator', exporterOwner: 'k8s',
+    gpuStackOwner: 'gpu-operator', exporterOwner: 'k8s', monitoringLinks: [],
     sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 5, matchedCount: 4 },
     createdAt: '2026-08-10T00:00:00Z', updatedAt: now,
   },
@@ -134,7 +134,7 @@ const platforms = [
         { serverId: 'srv-4', role: 'control-plane', runWorkloads: true },
       ],
     },
-    gpuStackOwner: 'provisioning', exporterOwner: 'ansible',
+    gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [],
     sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
     createdAt: '2026-08-20T00:00:00Z', updatedAt: now,
   },
@@ -143,6 +143,7 @@ const platforms = [
     integrationId: 'slurm-a', origin: 'registered', lifecycleState: 'registered',
     lifecycleOperationId: null, deployment: null,
     gpuStackOwner: 'provisioning', exporterOwner: 'ansible',
+    monitoringLinks: [{ name: 'Omnistat Grafana', url: 'https://omnistat.example/grafana' }],
     sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 0, matchedCount: 0 },
     createdAt: '2026-08-22T00:00:00Z', updatedAt: now,
   },
@@ -314,6 +315,15 @@ export interface FixtureOptions {
   slurmRequirementFails?: boolean
   onMetricsActive?: (active: number) => void
   /**
+   * The overview's alert-source state: `not-configured` models a Site without an Alertmanager
+   * (normal), `unavailable` a configured one that could not be read. Defaults to alerts read.
+   */
+  overviewAlertSource?: 'not-configured' | 'unavailable'
+  /** Makes every metric read answer `provider_unavailable`, as when the Site has no metrics Integration. */
+  metricsBackendMissing?: boolean
+  /** Called with the query string of every usage-history (range) request. */
+  onMetricRangeRequest?: (params: URLSearchParams) => void
+  /**
    * Adds a Swallow-deployed HA Slurm platform (`platform-slurm-ha`) with two controller-only
    * nodes and two compute nodes. The controllers report no membership (slurmrestd lists only
    * slurmd scheduler nodes), so this exercises the deployment-intent projection that surfaces
@@ -412,6 +422,15 @@ export interface FixtureOptions {
   onVirtualMachineEnrollmentRequest?: (body: Record<string, unknown>) => void
   /** Servers whose Boot Media goes through a swallow hypervisor (method `libvirt`), on srv-1. */
   libvirtBootMediaServerIds?: string[]
+  /**
+   * Provisioner HTTP Proxy by Integration id as MAAS holds it (decision 056). Omitted Integrations
+   * start on the MAAS default, the built-in proxy.
+   */
+  httpProxies?: Record<string, { mode: string; httpProxy: string }>
+  /** Called for every Provisioner HTTP Proxy PUT with the Integration id and its JSON body. */
+  onHttpProxyRequest?: (integrationId: string, body: Record<string, unknown>) => void
+  /** Makes every Provisioner HTTP Proxy PUT fail the way a non-administrator MAAS account does. */
+  httpProxyWriteForbidden?: boolean
 }
 
 /** One libvirt domain in the `virtual-machines` read shape. */
@@ -809,6 +828,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       settings: { ...integration.settings },
       sync: { ...integration.sync },
     }))
+  const httpProxies = new Map(Object.entries(options.httpProxies ?? {}))
   if (options.multipleProvisioners) {
     integrationItems.push({
       ...integrations.find((integration) => integration.id === 'maas-b')!,
@@ -982,7 +1002,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           { serverId: 'slurm-cpt-2', role: 'worker', runWorkloads: false },
         ],
       },
-      gpuStackOwner: 'provisioning', exporterOwner: 'ansible',
+      gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [],
       sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 2, matchedCount: 2 },
       createdAt: now, updatedAt: now,
     })
@@ -1460,6 +1480,38 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         command: `curl -fsSL '${body.swallowUrl}/downloads/swallow-enroll.sh' | sudo sh -s -- --provisioner=maas --endpoint '${endpoint}' --token '${token}'`,
       })
     }
+    // Provisioner HTTP Proxy (provisioner-http-proxy.md): live MAAS state, so the fixture keeps it
+    // per Integration and normalizes a write the way the API does before reading it back.
+    const httpProxyMatch = path.match(/^\/api\/v1\/provisioning\/integrations\/([^/]+)\/http-proxy$/)
+    if (httpProxyMatch) {
+      const integrationId = httpProxyMatch[1]
+      const integration = integrationItems.find((item) => item.id === integrationId)
+      if (!integration) return json(route, { error: { code: 'not_found', message: 'Integration not found.' } }, 404)
+      if (integration.kind !== 'provisioner') {
+        return json(route, { error: { code: 'validation_error', message: 'integration is not a provisioner' } }, 400)
+      }
+      if (request.method() === 'GET') {
+        return json(route, { integrationId, ...(httpProxies.get(integrationId) ?? { mode: 'builtin', httpProxy: '' }) })
+      }
+      if (request.method() === 'PUT') {
+        const body = (request.postDataJSON() ?? {}) as { mode?: string; httpProxy?: string }
+        options.onHttpProxyRequest?.(integrationId, body)
+        if (options.httpProxyWriteForbidden) {
+          return json(route, { error: { code: 'provider_unavailable', message: 'The provisioner credential may not change MAAS settings; its MAAS account must be an administrator.' } }, 503)
+        }
+        const mode = body.mode ?? ''
+        const needsUrl = mode === 'external' || mode === 'peer'
+        if (!['none', 'builtin', 'external', 'peer'].includes(mode)) {
+          return json(route, { error: { code: 'validation_error', message: `invalid provisioner HTTP proxy: mode "${mode}" is not one of none, builtin, external, peer` } }, 400)
+        }
+        if (needsUrl && !/^https?:\/\/[^/@?#\s]+\/?$/.test(body.httpProxy?.trim() ?? '')) {
+          return json(route, { error: { code: 'validation_error', message: 'invalid provisioner HTTP proxy: httpProxy must start with http:// or https://' } }, 400)
+        }
+        const stored = { mode, httpProxy: needsUrl ? (body.httpProxy ?? '').trim().replace(/\/$/, '') : '' }
+        httpProxies.set(integrationId, stored)
+        return json(route, { integrationId, ...stored })
+      }
+    }
     if (path === '/api/v1/integrations' && request.method() === 'GET') {
       const siteId = url.searchParams.get('siteId')
       const kind = url.searchParams.get('kind')
@@ -1850,7 +1902,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         inventory: { sites: siteId ? 1 : 2, servers: 4, absent: 0, deployed: 4, platformed: 4, gpuDevices: 24, health: { up: 3, down: 1, unknown: 0 } },
         integrations: { total: integrationItems.length, failing: 1, items: integrationItems.map((item) => ({ id: item.id, siteId: item.siteId, name: item.name, kind: item.kind, providerKind: item.providerKind, enabled: item.enabled, lastSucceededAt: item.sync.lastSucceededAt, lastError: item.sync.lastError })) },
         platforms: { total: 2, unreachable: 1, unmatchedMembers: 1 }, operations: { active: 1, failedLast24Hours: 1, recent: operations },
-        monitoring: { available: true, error: null, firing: { critical: 1, warning: 1, items: alerts.filter((alert) => alert.state === 'firing') } },
+        monitoring: options.overviewAlertSource === 'not-configured'
+          ? { configured: false, available: false, error: null, firing: { critical: 0, warning: 0, items: [] } }
+          : options.overviewAlertSource === 'unavailable'
+            ? { configured: true, available: false, error: { code: 'provider_unavailable', message: 'Alertmanager is configured but could not be read.' }, firing: { critical: 0, warning: 0, items: [] } }
+            : { configured: true, available: true, error: null, firing: { critical: 1, warning: 1, items: alerts.filter((alert) => alert.state === 'firing') } },
       })
     }
 
@@ -2167,7 +2223,57 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (options.acknowledgeFails) return json(route, { error: { code: 'provider_unavailable', message: 'Alertmanager is unavailable' } }, 503)
       return json(route, { silenceId: 'silence-e2e' })
     }
+    if (path === '/api/v1/infrastructure/zones' && request.method() === 'GET') {
+      return json(route, [{ id: 'zone-a', siteId: 'site-a', name: 'rack-a', description: '', providerRealized: true, createdAt: now, updatedAt: now }])
+    }
+    if (path === '/api/v1/infrastructure/pools' && request.method() === 'GET') {
+      return json(route, [{ id: 'pool-research', siteId: 'site-a', name: 'research', description: '', providerRealized: true, createdAt: now, updatedAt: now }])
+    }
+    if (path === '/api/v1/monitoring/metrics/range') {
+      options.onMetricRangeRequest?.(url.searchParams)
+      if (options.metricsBackendMissing) {
+        return json(route, { error: { code: 'provider_unavailable', message: 'No metrics backend is registered. Register a Prometheus metrics Integration for the Site to see usage.' } }, 503)
+      }
+      // A deterministic 1-hour, 30-second history ending at a fixed instant. The server-detail
+      // GPU chart and the network charts get data; disk is left without data on purpose so the
+      // "No data" card is exercised.
+      const end = Date.parse('2026-08-27T03:00:00Z')
+      const step = 30
+      const start = end - 3600_000
+      const serverIds = (url.searchParams.get('serverIds') ?? '').split(',').filter(Boolean)
+      const poolId = url.searchParams.get('poolId'); const zoneId = url.searchParams.get('zoneId'); const platformId = url.searchParams.get('platformId')
+      const serverCount = serverIds.length || (poolId === 'pool-research' ? 3 : zoneId === 'zone-a' ? 2 : platformId ? 4 : 0)
+      const requested = (url.searchParams.get('metrics') ?? '').split(',').filter(Boolean)
+      const wave = (base: number, amplitude: number) => Array.from({ length: 121 }, (_, index) => ({
+        timestamp: new Date(start + index * step * 1000).toISOString(),
+        value: Math.max(0, base + amplitude * Math.sin(index / 9)),
+      }))
+      const shapes: Record<string, () => Array<{ timestamp: string; value: number }>> = {
+        cpuUsagePercent: () => wave(42, 18),
+        memoryUsedPercent: () => wave(63, 4),
+        networkReceiveBytesPerSecond: () => wave(48_000_000, 20_000_000),
+        networkTransmitBytesPerSecond: () => wave(12_000_000, 6_000_000),
+        gpuUtilizationPercent: () => wave(81, 12),
+        gpuTemperatureCelsius: () => wave(68, 5),
+      }
+      const isGpuScope = serverIds.length === 0 || serverIds.some((serverId) => Number(serverId.split('-')[1]) <= 4)
+      const series = serverCount === 0 ? [] : requested
+        .filter((metric) => shapes[metric] && (!metric.startsWith('gpu') || isGpuScope))
+        .map((metric) => ({ metric, serverId: null, points: shapes[metric]() }))
+      return json(route, {
+        scope: { kind: serverIds.length ? 'servers' : poolId ? 'pool' : zoneId ? 'zone' : 'platform', id: poolId ?? zoneId ?? platformId, serverCount },
+        mode: 'aggregate',
+        start: new Date(start).toISOString(),
+        end: new Date(end).toISOString(),
+        stepSeconds: step,
+        series,
+        grafana: 'https://grafana.example',
+      })
+    }
     if (path === '/api/v1/monitoring/metrics') {
+      if (options.metricsBackendMissing) {
+        return json(route, { error: { code: 'provider_unavailable', message: 'No metrics backend is registered. Register a Prometheus metrics Integration for the Site to see usage.' } }, 503)
+      }
       const ids = (url.searchParams.get('serverIds') ?? '').split(',').filter(Boolean)
       const batch = metricBatchIndex++
       options.onMetricsRequest?.(ids)
@@ -2229,6 +2335,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           deployment: null,
           gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
           exporterOwner: 'ansible',
+          monitoringLinks: [],
           sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
           createdAt: now,
           updatedAt: now,
@@ -2264,6 +2371,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         deployment: { topology, roleAssignments },
         gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
         exporterOwner: 'ansible',
+        monitoringLinks: [],
         sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
         createdAt: now,
         updatedAt: now,

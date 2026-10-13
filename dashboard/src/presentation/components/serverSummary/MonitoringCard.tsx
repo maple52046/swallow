@@ -35,11 +35,14 @@ function MetricTile({ label, value }: { label: string; value: string | null }) {
 }
 
 /**
- * Truthful instant monitoring panel for one Server.
+ * Truthful current-value panel for one Server, shown above its usage charts on the Server
+ * detail Monitoring tab.
  *
- * Loading keeps a stable skeleton; backend failure remains a warning with explicit “No data”
- * tiles; exporter ownership and the backend-provided Grafana link stay visible only when they
- * are known. No historical series or dashboard URL is inferred by the client.
+ * Loading keeps a stable skeleton; a backend failure remains a warning with explicit “No data”
+ * tiles, except "no metrics backend registered", which the usage charts below explain once.
+ * Exporter ownership stays visible when known. Grafana is an optional, secondary "Explore in
+ * Grafana" link shown only when the metrics Integration configures it; swallow's own charts are
+ * the primary history view.
  */
 export function MonitoringCard({ monitoring }: { monitoring: ServerMonitoring }) {
   const { owner, gpu, metrics, grafana, metricsError, loading } = monitoring
@@ -47,16 +50,16 @@ export function MonitoringCard({ monitoring }: { monitoring: ServerMonitoring })
   return (
     <SectionSurface
       title="Current metrics"
-      description="Latest samples for this Server. Use Grafana for historical exploration when it is configured."
+      description="Latest samples for this Server."
       actions={!loading ? (
         <HStack gap="2" wrap="wrap">
           <Badge colorPalette={OWNER_COLOR[owner]} variant="subtle">
             {OWNER_LABEL[owner]}
           </Badge>
           {grafana && (
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="ghost" size="sm">
               <a href={grafana} target="_blank" rel="noreferrer">
-                Open Grafana
+                Explore in Grafana
                 <ExternalLink size={16} />
               </a>
             </Button>

@@ -15,7 +15,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | 分類呈現 Docker CE、Podman、NFS catalog、各 software deployment 與多 Server 安裝 |
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
-| Monitoring | Alert、silence、fixed metrics、fleet health 與 Grafana link |
+| Monitoring | Alert、silence、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、fleet health 與選用的 Grafana link |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 Swallow 的 key |
@@ -28,9 +28,10 @@ navigation 使用 Platforms 與 Workflows。
 以下三項 Dashboard 功能仍在開發中，Dashboard 的 release build 會隱藏它們；API 與 `swallow`
 CLI 不受影響。
 
-- **Monitoring**：沒有 Monitoring 頁面與 Server Monitoring tab。Overview、Server list 與
-  Server detail 上的 health 保留位置，但顯示「Not available in this release」。仍可註冊
-  metrics Integration。
+- **Monitoring**：沒有 Monitoring 頁面、含用量圖表的 Server Monitoring tab，以及 Platform 頁面的
+  「View usage charts」捷徑。Overview、Server list 與 Server detail 上的 health 保留位置，但顯示
+  「Not available in this release」。仍可註冊 metrics Integration，Platform 的 Monitoring Link
+  也仍會顯示。
 - **OS image upload**：OS images 沒有 Upload。既有 custom image 的 verification 仍可使用。
 - **Deployment Template**：沒有 Templates workspace、Create template，佈署時也不能選擇或保存
   template；佈署使用 custom configuration。

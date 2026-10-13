@@ -416,6 +416,47 @@ export interface VirtualMachineEnrollmentAccepted {
   workflowId: string;
 }
 
+/**
+ * The closed mode set of a Provisioner HTTP Proxy (glossary Provisioner HTTP Proxy, contract
+ * provisioner-http-proxy.md): which proxy a provisioner hands to the machines it deploys. The
+ * lowercase value is the domain term sent to and read from the API; UI labels ("Don't use a
+ * proxy", "MAAS built-in", …) belong to the presentation.
+ *
+ * - `none`: machines reach package repositories directly.
+ * - `builtin`: machines use the provisioner's own proxy, which goes out directly.
+ * - `external`: machines, and the provisioner, use `httpProxy` directly.
+ * - `peer`: machines use the provisioner's own proxy, which forwards to `httpProxy`.
+ */
+export type ProvisionerHttpProxyMode = "none" | "builtin" | "external" | "peer";
+
+/** Every Provisioner HTTP Proxy mode, in the order the operator chooses between them. */
+export const PROVISIONER_HTTP_PROXY_MODES: readonly ProvisionerHttpProxyMode[] = ["none", "builtin", "external", "peer"];
+
+/**
+ * One provisioner Integration's Provisioner HTTP Proxy, read live from the provisioner (decision
+ * 056). swallow stores none of it, and it is not part of the Integration's `settings`. `httpProxy`
+ * is `""` unless the mode routes through it, so a value read can be written back unchanged.
+ */
+export interface ProvisionerHttpProxy {
+  integrationId: string;
+  mode: ProvisionerHttpProxyMode;
+  httpProxy: string;
+}
+
+/**
+ * A replacement Provisioner HTTP Proxy. The write replaces mode and URL together; `httpProxy` must
+ * be `""` for `none` and `builtin`, and an `http(s)://host[:port]` URL otherwise.
+ */
+export interface SetProvisionerHttpProxyInput {
+  mode: ProvisionerHttpProxyMode;
+  httpProxy: string;
+}
+
+/** Whether `mode` routes deployed machines through an operator-given proxy URL. */
+export function httpProxyModeNeedsUrl(mode: ProvisionerHttpProxyMode): boolean {
+  return mode === "external" || mode === "peer";
+}
+
 /** The port the MAAS rack serves `ipxe.cfg` on when `rackAddress` names none (contract boot-isos.md). */
 export const DEFAULT_MAAS_RACK_PORT = 5248;
 

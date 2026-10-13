@@ -186,17 +186,23 @@ test.describe('operator interactions', () => {
     await page.goto('/workflows?site=site-a')
     await expect(page.locator('.sw-workflow-inventory')).toBeVisible()
   })
-  test('Monitoring is alert-first and keeps history in Grafana', async ({ page }) => {
+  test('Monitoring is alert-first and charts usage in swallow', async ({ page }) => {
     await page.goto('/monitoring?site=site-a')
     const alerts = page.getByRole('heading', { name: 'Alerts', exact: true })
+    const charts = page.getByRole('heading', { name: 'Usage charts', exact: true })
     const metrics = page.getByRole('heading', { name: 'Server metrics', exact: true })
     await expect(alerts).toBeVisible()
+    await expect(charts).toBeVisible()
     await expect(metrics).toBeVisible()
-    await expect(page.getByText('Current values only. Open Grafana for history.')).toBeVisible()
+    await expect(page.getByText('Current values per Server. Tick Servers to chart their usage together above.')).toBeVisible()
     const alertBox = await alerts.boundingBox()
+    const chartBox = await charts.boundingBox()
     const metricBox = await metrics.boundingBox()
-    expect(alertBox?.y ?? 0).toBeLessThan(metricBox?.y ?? 0)
-    await expect(page.getByRole('link', { name: 'Open Grafana' })).toBeVisible()
+    expect(alertBox?.y ?? 0).toBeLessThan(chartBox?.y ?? 0)
+    expect(chartBox?.y ?? 0).toBeLessThan(metricBox?.y ?? 0)
+    // Nothing is charted until a scope is chosen, and Grafana is a secondary escape hatch.
+    await expect(page.getByText('Nothing to chart yet')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Explore in Grafana' })).toBeVisible()
   })
   test('desktop navigation collapses to icons with tooltip and persists', async ({ page }) => {
     await page.goto('/')
@@ -412,6 +418,7 @@ test.describe('operator interactions', () => {
     await page.keyboard.press('Escape')
     await page.getByRole('tab', { name: 'Monitoring' }).click()
     await expect(page.getByRole('heading', { name: 'Current metrics' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Usage history' })).toBeVisible()
     await page.getByRole('tab', { name: 'Networking' }).click()
     await expect(page).toHaveURL('/servers/srv-1/network?site=site-a')
     await expect(page.getByText('eno1')).toBeVisible()
@@ -1249,7 +1256,7 @@ test.describe('operator interactions', () => {
 
   test('Monitoring filters, acknowledges, and exposes the provider Grafana link', async ({ page }) => {
     await page.goto('/monitoring?site=site-a')
-    const grafana = page.getByRole('link', { name: 'Open Grafana' })
+    const grafana = page.getByRole('link', { name: 'Explore in Grafana' }).first()
     await expect(grafana).toHaveAttribute('href', 'https://grafana.example')
     await expect(grafana).toHaveAttribute('target', '_blank')
     await chooseSingleSelectOption(page, 'Filter alert severity', 'Critical')

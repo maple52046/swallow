@@ -34,10 +34,12 @@ independently operated locations as separate Site integrations.
 
 ## 3. Register monitoring
 
-Create a `metrics` / `prometheus` Integration with the Prometheus endpoint
-and, where required by the contract, Alertmanager and Grafana settings. swallow
-queries fixed metric names and current alerts; it does not proxy arbitrary
-PromQL or store monitoring data.
+Run a per-Site Prometheus from `deploy/third-party/prometheus`, then create a
+`metrics` / `prometheus` Integration with its endpoint and, optionally,
+Alertmanager and Grafana settings. This is what lets swallow draw usage charts
+for deployed Servers. swallow queries fixed metric names, bounded usage history,
+and current alerts; it does not proxy arbitrary PromQL or store monitoring data.
+See [Monitoring](monitoring.md).
 
 Prometheus should use swallow's HTTP service-discovery endpoint so scraped
 series receive stable `server_id`, `site`, and Platform labels.

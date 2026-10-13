@@ -210,6 +210,59 @@ an AMD GPU server by the MAAS tag `amd-gpu` (mirrored into `observed.tags`), and
 Named GPU queries are vendor-neutral: each evaluates the DCGM series or the RDC series, so
 one metric name serves both stacks without the caller knowing which is present.
 
+## Amendment (2026-10-12): built-in usage charts, Monitoring Links, and runtimes with their own monitoring
+
+Driven by the product requirement that an operator who deploys a Server through swallow can see
+how much of it is used **without leaving swallow**.
+
+**swallow draws basic usage charts itself; Grafana becomes optional.** "How swallow queries"
+already anticipated named history queries ("temperature history for this server"); this amendment
+makes them a product responsibility rather than something deferred to Grafana. swallow exposes a
+bounded, named **range** query beside the instant one (`GET /api/v1/monitoring/metrics/range`,
+contract `server-metrics.md`) and the dashboard renders it as charts on Server detail and the
+Monitoring console. The bounds are what keep this inside the original reasoning against a PromQL
+passthrough: the expressions are the same fixed named set as the instant read, the window is at
+most 7 days, swallow chooses the step (about 180 points), and a scope resolves to at most 1000
+Servers. Grafana remains the tool for exploration beyond the named set, reached through the
+metrics Integration's optional Grafana URL, but basic visibility no longer requires it.
+
+**Scopes are joined at query time, not labelled.** A chart's scope is explicit Servers, or a Pool,
+Zone, or Platform. Consistent with the cardinality rules above, no grouping label is added to
+series: swallow resolves the grouping to its **current** members' `server_id`s when the request is
+served (Pool/Zone by the Server's provider-observed placement, Platform by the membership axis) and
+injects them into the named expression. The cost is that history follows current membership — a
+Server that left a Pool yesterday is not in today's Pool chart — which is the same trade the label
+rules already make for rack and tenant.
+
+**Each named query declares how Servers combine.** For a grouping charted as one line, utilisation
+and fill levels average, throughput and power sum, and temperature takes the maximum. The aggregate
+belongs to the query definition so a client cannot choose a misleading one.
+
+**Disk and network join the named set** (`diskUsedPercent` for the root filesystem;
+`networkReceiveBytesPerSecond` / `networkTransmitBytesPerSecond` summed over physical-looking
+interfaces), all from the host node-exporter already installed under the exporter-owner policy.
+
+**Runtimes with their own complete monitoring are linked, not scraped.** A Platform may carry
+operator-registered **Monitoring Links** (glossary) to the runtime's own UI — the motivating case is
+Omnistat on Slurm, which brings its own Prometheus and Grafana. swallow never queries a Monitoring
+Link and does not add such a stack as a second metrics backend; the host exporters keep running so
+Server charts are identical for every Platform type and survive the Platform. The runtime's own
+collectors must not bind the fixed ports 9100/5000. `unmanaged` remains an effective owner resolved
+only from a Server Lock, not a Platform policy value.
+
+Rejected in this amendment:
+
+- **Grafana embedded panels or iframes as the primary chart UI.** It would make Grafana mandatory
+  for basic visibility, couple the dashboard to Grafana's authentication, cookie, and embedding
+  settings and to its version, and hand the "no data is not zero" presentation rule to dashboards
+  swallow does not own.
+- **Querying a runtime's own Prometheus (for example Omnistat's) per Platform.** This is the fan-out
+  this decision already rejected for in-cluster stacks: a fleet question inherits the slowest stack,
+  Servers outside the Platform have no home, and history is lost when a Server changes Platform.
+- **A Platform-level `unmanaged` exporter policy for such runtimes.** Not needed when their
+  collectors use their own ports, and it would turn the single-owner rule into "sometimes nobody",
+  leaving Server charts empty for every member of that Platform.
+
 ## Consequences
 
 - swallow implements a Prometheus `http_sd` endpoint serving host-layer targets with
@@ -260,3 +313,4 @@ responsible for, and it exports the two-join-path complexity to every caller.
 - [001 — System Ownership Boundaries](001-system-ownership-boundaries.md)
 - [002 — Server Identity](002-server-identity.md)
 - [006 — Embedded Ansible execution](006-embedded-ansible-execution.md)
+- Glossary: Monitoring Link, Exporter Ownership, Pool, Zone

@@ -18,7 +18,7 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/platforms/deploy`, `/platforms/settings` | Platform deployment and Slurm requirements |
 | `/software`, `/software/:kind` | Managed Software catalog, deployments, and multi-Server installation |
 | `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
-| `/monitoring` | Alerts, silences, metrics, health, and Grafana |
+| `/monitoring` | Alerts, silences, usage charts (selected Servers, Pool, Zone, Platform), current metrics, health, and optional Grafana |
 | `/infrastructure/*` | Sites, Integrations, Zones, and Pools |
 | `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
 

@@ -1254,12 +1254,55 @@ type fakeQuerier struct {
 	// samples answers by expression substring, so a test can describe what a query
 	// returns without reproducing the exact PromQL.
 	samples map[string][]monitoringdomain.Sample
+	// series answers range queries the same way.
+	series  map[string][]monitoringdomain.Series
 	err     error
 	queries []string
+	// rangeQueries and ranges record every range query and its window, in call order.
+	rangeQueries []string
+	ranges       []monitoringdomain.TimeRange
 }
 
 func newFakeQuerier() *fakeQuerier {
-	return &fakeQuerier{samples: make(map[string][]monitoringdomain.Sample)}
+	return &fakeQuerier{
+		samples: make(map[string][]monitoringdomain.Sample),
+		series:  make(map[string][]monitoringdomain.Series),
+	}
+}
+
+func (q *fakeQuerier) QueryRange(
+	_ context.Context, expr string, window monitoringdomain.TimeRange,
+) ([]monitoringdomain.Series, error) {
+	q.rangeQueries = append(q.rangeQueries, expr)
+	q.ranges = append(q.ranges, window)
+	if q.err != nil {
+		return nil, q.err
+	}
+	for match, series := range q.series {
+		if strings.Contains(expr, match) {
+			return series, nil
+		}
+	}
+	return nil, nil
+}
+
+// fakeScopeResolver stands in for the composition-root adapter that resolves Pools, Zones, and
+// Platforms to Servers. members is keyed by "<kind>/<id>"; an unknown key is ErrScopeNotFound.
+type fakeScopeResolver struct {
+	members map[string][]string
+	calls   []string
+}
+
+func (r *fakeScopeResolver) ResolveScope(
+	_ context.Context, kind monitoringdomain.ScopeKind, id string,
+) ([]string, error) {
+	key := string(kind) + "/" + id
+	r.calls = append(r.calls, key)
+	ids, ok := r.members[key]
+	if !ok {
+		return nil, monitoringdomain.ErrScopeNotFound
+	}
+	return ids, nil
 }
 
 func (q *fakeQuerier) Name() string { return "prometheus" }

@@ -6,7 +6,12 @@ import {
   resolveExporterOwner,
   type EffectiveExporterOwner,
 } from '@/domain/monitoring/exporterOwner'
-import { METRIC_DESCRIPTORS, type MetricName, type ServerMetrics } from '@/domain/monitoring/types'
+import {
+  MetricsBackendUnavailableError,
+  METRIC_DESCRIPTORS,
+  type MetricName,
+  type ServerMetrics,
+} from '@/domain/monitoring/types'
 import type { Server } from '@/domain/server/types'
 
 /** The monitoring view for one server: its effective owner, current metrics, and links. */
@@ -17,13 +22,18 @@ export interface ServerMonitoring {
   gpu: boolean
   /** Current metric values; a metric with no data is absent from the map. */
   metrics: Partial<Record<MetricName, number>>
-  /** Grafana base URL to deep-link into, or null when unconfigured. */
+  /** Optional Grafana base URL for advanced exploration, or null when unconfigured. */
   grafana: string | null
   /**
-   * A metrics-backend problem, e.g. none registered. Surfaced as a notice rather than a
-   * page error: the metric cards still render empty so the absence is explicit.
+   * A metrics-backend problem other than "no backend registered". Surfaced as a notice rather
+   * than a page error: the metric cards still render empty so the absence is explicit.
    */
   metricsError: string | null
+  /**
+   * The Site has no reachable metrics backend. The usage charts below explain how to register
+   * one, so the current-value panel does not repeat the warning.
+   */
+  metricsUnavailable: boolean
   loading: boolean
 }
 
@@ -33,8 +43,8 @@ export interface ServerMonitoring {
  *
  * The owner is resolved the same way the backend does — locked hosts are `unmanaged`, a
  * platform member follows its platform policy, everything else is `ansible` — fetching the
- * one platform only when the server is a member and unlocked. Metrics failure (for example
- * no metrics backend registered) degrades to `metricsError` with empty values rather than
+ * one platform only when the server is a member and unlocked. Metrics failure degrades to
+ * `metricsUnavailable` (no backend registered) or `metricsError` with empty values rather than
  * failing, so the UI can show "no data" instead of an error.
  */
 export function useServerMonitoring(server: Server): ServerMonitoring {
@@ -46,6 +56,7 @@ export function useServerMonitoring(server: Server): ServerMonitoring {
     metrics: {},
     grafana: null,
     metricsError: null,
+    metricsUnavailable: false,
     loading: true,
   })
 
@@ -69,15 +80,20 @@ export function useServerMonitoring(server: Server): ServerMonitoring {
     const loadMetrics = monitoring.getServerMetrics([server.id], wanted).then(
       (result) => {
         const item = result.items.find((entry: ServerMetrics) => entry.serverId === server.id)
-        return { metrics: item?.metrics ?? {}, grafana: result.grafana, metricsError: null as string | null }
+        return { metrics: item?.metrics ?? {}, grafana: result.grafana, metricsError: null as string | null, metricsUnavailable: false }
       },
-      (err: Error) => ({ metrics: {}, grafana: null as string | null, metricsError: err.message }),
+      (err: Error) => ({
+        metrics: {},
+        grafana: null as string | null,
+        metricsError: err instanceof MetricsBackendUnavailableError ? null : err.message,
+        metricsUnavailable: err instanceof MetricsBackendUnavailableError,
+      }),
     )
 
     Promise.all([resolveOwner(), loadMetrics])
       .then(([owner, m]) => {
         if (cancelled) return
-        setState({ owner, gpu, metrics: m.metrics, grafana: m.grafana, metricsError: m.metricsError, loading: false })
+        setState({ owner, gpu, ...m, loading: false })
       })
       .catch(() => {
         if (!cancelled) setState((prev) => ({ ...prev, loading: false }))

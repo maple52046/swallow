@@ -377,6 +377,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		SSHKeyRegistration:   true,
 		PowerConfiguration:   true,
 		MachineRegistration:  true,
+		HTTPProxy:            true,
 	}
 }
 

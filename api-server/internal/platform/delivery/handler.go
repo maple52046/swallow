@@ -303,10 +303,13 @@ func (h *PlatformHandler) Get(c *fiber.Ctx) error {
 // updatePlatformRequest omits integrationId on purpose: a Platform's credential Integration is
 // set only by its deployment. Accepting it here would let an operator repoint a Platform at an
 // arbitrary Integration, a register-existing back door removed by decision 032.
+//
+// MonitoringLinks is a pointer so "absent" (leave unchanged) and "[]" (clear) stay distinct.
 type updatePlatformRequest struct {
-	Name          *string `json:"name"`
-	GPUStackOwner *string `json:"gpuStackOwner"`
-	ExporterOwner *string `json:"exporterOwner"`
+	Name            *string                           `json:"name"`
+	GPUStackOwner   *string                           `json:"gpuStackOwner"`
+	ExporterOwner   *string                           `json:"exporterOwner"`
+	MonitoringLinks *[]application.MonitoringLinkItem `json:"monitoringLinks"`
 }
 
 func (h *PlatformHandler) Update(c *fiber.Ctx) error {
@@ -316,9 +319,10 @@ func (h *PlatformHandler) Update(c *fiber.Ctx) error {
 	}
 
 	item, err := h.platforms.Update(c.Context(), c.Params("id"), application.UpdatePlatformInput{
-		Name:          req.Name,
-		GPUStackOwner: req.GPUStackOwner,
-		ExporterOwner: req.ExporterOwner,
+		Name:            req.Name,
+		GPUStackOwner:   req.GPUStackOwner,
+		ExporterOwner:   req.ExporterOwner,
+		MonitoringLinks: req.MonitoringLinks,
 	})
 	if err != nil {
 		return respondError(c, err)

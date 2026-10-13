@@ -12,12 +12,14 @@ import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentat
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
+import { FleetUsageCharts } from './FleetUsageCharts'
 
 type AlertsState = { status: 'loading' } | { status: 'ready'; alerts: MonitoringAlert[] } | { status: 'error'; message: string }
 type FleetState = { status: 'loading' } | { status: 'ready'; servers: Server[]; metrics: FleetMetricsResult } | { status: 'error'; message: string }
@@ -54,7 +56,12 @@ function severityColor(severity: string): 'red' | 'orange' | 'blue' | 'gray' {
 
 const currentIsoTime = () => new Date(Date.now()).toISOString()
 
-/** Fleet monitoring surface combining Alertmanager actions with bounded instant metrics. */
+/**
+ * Fleet monitoring console: Alertmanager alerts and silences first, then swallow's built-in usage
+ * charts (selected Servers, a Pool, a Zone, or a Platform), then bounded current values per Server.
+ * The Server metrics table's checkboxes feed the charts' Server selection through the URL.
+ * Grafana is an optional, secondary "Explore in Grafana" link when the metrics Integration sets one.
+ */
 export function MonitoringPage() {
   const { monitoring, servers: serverRepository } = useApp()
   const { siteId, loading: siteScopeLoading, scopedHref } = useSiteScope()
@@ -133,6 +140,32 @@ export function MonitoringPage() {
   const healthDown = fleet.filter((server) => server.health?.state === 'down').length
   const metricsByServer = fleetState.status === 'ready' ? new Map(fleetState.metrics.items.map((item) => [item.serverId, item])) : new Map<string, ServerMetrics>()
   const grafana = fleetState.status === 'ready' ? fleetState.metrics.grafana : null
+  // Servers ticked for the usage charts. URL-owned so a charted selection is shareable; ticking a
+  // Server switches the charts back to the Server selection scope.
+  const chartServerParam = searchParams.get('chartServers') ?? ''
+  const chartServerIds = useMemo(() => chartServerParam.split(',').filter(Boolean), [chartServerParam])
+  const chartServerSet = new Set(chartServerIds)
+  // Selection edits build on the live URL, not this render's searchParams: two quick ticks can
+  // both fire before the router re-renders, and the second must extend the first, not replace it.
+  const liveChartServers = () => (new URLSearchParams(window.location.search).get('chartServers') ?? '').split(',').filter(Boolean)
+  const setChartServers = (ids: string[]) => {
+    const next = new URLSearchParams(window.location.search)
+    if (ids.length > 0) next.set('chartServers', ids.join(','))
+    else next.delete('chartServers')
+    next.delete('chartScope')
+    next.delete('chartScopeId')
+    setSearchParams(next, { replace: true })
+  }
+  const toggleChartServer = (serverId: string, checked: boolean) => {
+    const others = liveChartServers().filter((id) => id !== serverId)
+    setChartServers(checked ? [...others, serverId] : others)
+  }
+  const visibleSelected = visibleServers.filter((server) => chartServerSet.has(server.id)).length
+  const toggleAllVisible = (checked: boolean) => {
+    const visibleIds = new Set(visibleServers.map((server) => server.id))
+    const others = liveChartServers().filter((id) => !visibleIds.has(id))
+    setChartServers(checked ? [...others, ...visibleServers.map((server) => server.id)] : others)
+  }
 
   const setFilter = (key: 'severity' | 'state', value: string) => {
     const next = new URLSearchParams(searchParams)
@@ -177,9 +210,9 @@ export function MonitoringPage() {
               Refresh
             </Button>
             {grafana && (
-              <Button asChild colorPalette="brand">
+              <Button asChild variant="ghost">
                 <a href={grafana} target="_blank" rel="noreferrer">
-                  Open Grafana
+                  Explore in Grafana
                   <ExternalLink size={16} />
                 </a>
               </Button>
@@ -315,9 +348,11 @@ export function MonitoringPage() {
         </div>
       </section>
 
+      <FleetUsageCharts selectedServerIds={chartServerIds} onClearSelection={() => setChartServers([])} refreshKey={nonce} />
+
       <section className="sw-section-group">
-        <SectionHeader variant="plain" title="Server metrics" description="Current values only. Open Grafana for history." />
-        <div className="sw-section">
+        <SectionHeader variant="plain" title="Server metrics" description="Current values per Server. Tick Servers to chart their usage together above." />
+        <div className="sw-section sw-server-metrics-section">
           <DataToolbar>
             <SearchInput value={serverQuery} onChange={setServerQuery} placeholder="Search server or address" aria-label="Search server metrics" />
           </DataToolbar>
@@ -331,13 +366,29 @@ export function MonitoringPage() {
                 <StickyTableFrame>
               <Table.Root size="sm" aria-label="Server metrics">
                 <Table.Header>
-                  <Table.Row><Table.ColumnHeader>Server</Table.ColumnHeader><Table.ColumnHeader>Health</Table.ColumnHeader><Table.ColumnHeader>CPU usage</Table.ColumnHeader><Table.ColumnHeader>Memory used</Table.ColumnHeader><Table.ColumnHeader>GPU utilization</Table.ColumnHeader></Table.Row>
+                  <Table.Row>
+                    <Table.ColumnHeader width="2.5rem">
+                      <Checkbox
+                        checked={visibleSelected === 0 ? false : visibleSelected === visibleServers.length ? true : 'indeterminate'}
+                        onCheckedChange={toggleAllVisible}
+                        aria-label="Chart all visible servers"
+                      />
+                    </Table.ColumnHeader>
+                    <Table.ColumnHeader>Server</Table.ColumnHeader><Table.ColumnHeader>Health</Table.ColumnHeader><Table.ColumnHeader>CPU usage</Table.ColumnHeader><Table.ColumnHeader>Memory used</Table.ColumnHeader><Table.ColumnHeader>GPU utilization</Table.ColumnHeader>
+                  </Table.Row>
                 </Table.Header>
                 <Table.Body>
                   {visibleServers.map((server) => {
                     const item = metricsByServer.get(server.id)
                     return (
                       <Table.Row key={server.id}>
+                        <Table.Cell>
+                          <Checkbox
+                            checked={chartServerSet.has(server.id)}
+                            onCheckedChange={(checked) => toggleChartServer(server.id, checked)}
+                            aria-label={`Chart ${serverDisplayName(server)}`}
+                          />
+                        </Table.Cell>
                         <Table.Cell>
                           <Link to={scopedHref(`/servers/${server.id}/monitoring`)}><strong>{serverDisplayName(server)}</strong></Link>
                           <Text as="small" display="block" color="fg.muted">{serverPrimaryAddress(server) ?? server.id}</Text>
@@ -363,6 +414,11 @@ export function MonitoringPage() {
                         title={<Link to={scopedHref(`/servers/${server.id}/monitoring`)}>{serverDisplayName(server)}</Link>}
                         description={serverPrimaryAddress(server) ?? server.id}
                         status={<StatusBadge status={server.health?.state ?? 'unknown'} />}
+                        actions={
+                          <Checkbox checked={chartServerSet.has(server.id)} onCheckedChange={(checked) => toggleChartServer(server.id, checked)}>
+                            Chart this server
+                          </Checkbox>
+                        }
                       >
                         <ResourceCardField label="CPU usage"><CompactMeter value={metricPercent(item, 'cpuUsagePercent')} label={`CPU usage for ${serverDisplayName(server)}`} /></ResourceCardField>
                         <ResourceCardField label="Memory used"><CompactMeter value={metricPercent(item, 'memoryUsedPercent')} label={`Memory used for ${serverDisplayName(server)}`} /></ResourceCardField>

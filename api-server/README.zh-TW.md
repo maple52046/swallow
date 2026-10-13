@@ -28,7 +28,7 @@ Integration 依 Site 在 runtime 註冊：
 | Kind | 目前 provider | 用途 |
 | --- | --- | --- |
 | `provisioner` | Ubuntu MAAS | Machine inventory、power、OS image、deploy/release、grouping、tag |
-| `metrics` | Prometheus/Alertmanager/Grafana | Fixed metric query、alert/silence、link |
+| `metrics` | Prometheus/Alertmanager/Grafana | Fixed metric query 與供圖表使用的有上限用量歷史、alert/silence、選用的 Grafana link |
 | Platform runtime | Kubernetes、Slurm | Self-deployed Platform 的 live membership 與 runtime management |
 
 swallow 儲存 intent 與 identity relationship，不把 hardware fact、live Platform

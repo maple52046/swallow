@@ -21,10 +21,19 @@ type platformDoc struct {
 	GPUStackOwner      string `bson:"gpuStackOwner"`
 	// ExporterOwner is omitempty so a document written before this field existed
 	// decodes as empty and is defaulted to ansible on read.
-	ExporterOwner string       `bson:"exporterOwner,omitempty"`
-	Sync          platformSync `bson:"sync"`
-	CreatedAt     time.Time    `bson:"createdAt"`
-	UpdatedAt     time.Time    `bson:"updatedAt"`
+	ExporterOwner string `bson:"exporterOwner,omitempty"`
+	// MonitoringLinks is omitempty so documents written before the field existed — and
+	// platforms that never had links — decode as nil, which toPlatform turns into [].
+	MonitoringLinks []monitoringLinkDoc `bson:"monitoringLinks,omitempty"`
+	Sync            platformSync        `bson:"sync"`
+	CreatedAt       time.Time           `bson:"createdAt"`
+	UpdatedAt       time.Time           `bson:"updatedAt"`
+}
+
+// monitoringLinkDoc persists one operator-registered Monitoring Link.
+type monitoringLinkDoc struct {
+	Name string `bson:"name"`
+	URL  string `bson:"url"`
 }
 
 type platformSync struct {
@@ -109,6 +118,7 @@ func (r *MongoPlatformRepo) Update(ctx context.Context, platform *platformdomain
 			"ownedIntegrationId": platform.OwnedIntegrationID,
 			"gpuStackOwner":      string(platform.GPUStackOwner),
 			"exporterOwner":      string(platform.ExporterOwner),
+			"monitoringLinks":    toMonitoringLinkDocs(platform.MonitoringLinks),
 			"updatedAt":          platform.UpdatedAt,
 		}},
 	)
@@ -169,6 +179,7 @@ func toDoc(platform *platformdomain.Platform) *platformDoc {
 		OwnedIntegrationID: platform.OwnedIntegrationID,
 		GPUStackOwner:      string(platform.GPUStackOwner),
 		ExporterOwner:      string(platform.ExporterOwner),
+		MonitoringLinks:    toMonitoringLinkDocs(platform.MonitoringLinks),
 		Sync: platformSync{
 			LastStartedAt:   platform.Sync.LastStartedAt,
 			LastSucceededAt: platform.Sync.LastSucceededAt,
@@ -197,6 +208,7 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		OwnedIntegrationID: doc.OwnedIntegrationID,
 		GPUStackOwner:      platformdomain.GPUStackOwner(doc.GPUStackOwner),
 		ExporterOwner:      exporterOwner,
+		MonitoringLinks:    toMonitoringLinks(doc.MonitoringLinks),
 		Sync: platformdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,
@@ -207,4 +219,23 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		CreatedAt: doc.CreatedAt,
 		UpdatedAt: doc.UpdatedAt,
 	}
+}
+
+// toMonitoringLinkDocs always returns a non-nil slice so an Update that clears the links stores
+// an empty array rather than null; the omitempty tag then keeps inserts free of an empty field.
+func toMonitoringLinkDocs(links []platformdomain.MonitoringLink) []monitoringLinkDoc {
+	docs := make([]monitoringLinkDoc, len(links))
+	for i, link := range links {
+		docs[i] = monitoringLinkDoc{Name: link.Name, URL: link.URL}
+	}
+	return docs
+}
+
+// toMonitoringLinks maps stored links, reading a missing field (pre-2026-10-12 documents) as [].
+func toMonitoringLinks(docs []monitoringLinkDoc) []platformdomain.MonitoringLink {
+	links := make([]platformdomain.MonitoringLink, len(docs))
+	for i, doc := range docs {
+		links[i] = platformdomain.MonitoringLink{Name: doc.Name, URL: doc.URL}
+	}
+	return links
 }

@@ -139,6 +139,26 @@ func (c *Client) postOperation(ctx context.Context, path, operation string, fiel
 	return c.do(req, out)
 }
 
+// postOperationExact is postOperation for operations where an empty value is meaningful: every
+// field is sent, including empty ones. MAAS set_config clears a setting such as http_proxy only when
+// it receives an explicit empty value, and a missing value is refused, so postOperation's dropping
+// of empty fields would turn a clear into an error.
+func (c *Client) postOperationExact(ctx context.Context, path, operation string, fields map[string]string, out any) error {
+	query := url.Values{}
+	query.Set("op", operation)
+
+	body, contentType, err := multipartExactBody(fields)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, path, query, body, contentType)
+	if err != nil {
+		return err
+	}
+	return c.do(req, out)
+}
+
 // postOperationValues invokes a MAAS named operation whose parameters may repeat under one name,
 // such as tag update_nodes with several add / remove system ids. Like postOperation it puts op= in
 // the query and the parameters in a multipart body, but it takes url.Values so a repeated field is

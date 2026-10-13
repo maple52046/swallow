@@ -64,6 +64,7 @@ type platformFixture struct {
 	platformLifecycle *fakeLifecycleReader
 	uninstallLauncher *fakeUninstallLauncher
 	monitoring        *fakeMonitoringFactory
+	metricScopes      *fakeScopeResolver
 	platformRepo      *fakePlatformRepo
 	platformReader    *fakeReaderFactory
 	kubernetesClient  *fakeKubernetesClientFactory
@@ -132,9 +133,12 @@ func setupPlatform(t *testing.T) *platformFixture {
 	)
 
 	monitoringFactory := newFakeMonitoringFactory()
+	scopeResolver := &fakeScopeResolver{members: map[string][]string{}}
 	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
 		monitoringapp.NewAlertService(monitoringFactory),
 		monitoringapp.NewServerMetricsService(monitoringFactory),
+		monitoringapp.NewMetricRangeService(monitoringFactory, scopeResolver).
+			WithClock(func() time.Time { return testMetricsNow }),
 	)
 
 	platformRepo := newFakePlatformRepo()
@@ -274,6 +278,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	monitoringGroup.Get("/alerts", monitoringHandler.ListAlerts)
 	monitoringGroup.Post("/alerts/:fingerprint/acknowledge", monitoringHandler.Acknowledge)
 	monitoringGroup.Get("/metrics", monitoringHandler.ServerMetrics)
+	monitoringGroup.Get("/metrics/range", monitoringHandler.MetricRange)
 	monitoringGroup.Get("/metrics/names", monitoringHandler.MetricNames)
 
 	machine := middleware.MachineAuth(jwtSvc, testMachineToken)
@@ -294,6 +299,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		health:            health,
 		activeWork:        activeWork,
 		monitoring:        monitoringFactory,
+		metricScopes:      scopeResolver,
 		platformRepo:      platformRepo,
 		platformReader:    readerFactory,
 		kubernetesClient:  kubernetesFactory,
@@ -326,6 +332,10 @@ func seedNonProvisionerIntegration(t *testing.T, f *platformFixture) {
 }
 
 const testMachineToken = "discovery-token-for-tests"
+
+// testMetricsNow is the fixed clock the usage-history service ends named windows at, so a
+// test can assert the exact evaluated range.
+var testMetricsNow = time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC)
 
 // errTestMetricsDown stands in for an unreachable metrics store.
 var errTestMetricsDown = errors.New("metrics store unreachable")

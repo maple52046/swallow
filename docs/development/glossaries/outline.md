@@ -80,6 +80,9 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   a Server NIC subnet link through its provisioner.
 - [Provisioning Task](terms/provisioning-task.md): Durable coordination for
   provider-backed cleanup that spans asynchronous provisioning transitions.
+- [Provisioner HTTP Proxy](terms/provisioner-http-proxy.md): The provisioner-owned proxy
+  setting handed to deployed machines — mode `none | builtin | external | peer` plus a URL —
+  read live and written through per provisioner Integration; not an Integration setting.
 
 ### Infrastructure Grouping
 
@@ -101,6 +104,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### Observability
 
 - [Exporter Ownership](terms/exporter-ownership.md): Which subsystem installs a host's Prometheus exporters — `ansible`, `k8s`, or `unmanaged` — resolved per host so exactly one owner exists and exporters never contend for a fixed port.
+- [Monitoring Link](terms/monitoring-link.md): An operator-registered, swallow-owned name and URL from a Platform to the runtime's own monitoring UI (e.g. Omnistat's Grafana); display only, never queried, not a metrics Integration.
 
 ### Software Deployment
 

@@ -104,6 +104,9 @@ type ProviderCapabilities struct {
 	// MachineRegistration reports that MachineRegistrar is implemented, i.e. swallow can register
 	// a virtual machine with the provider without commissioning it (decision 055).
 	MachineRegistration bool
+	// HTTPProxy reports that HTTPProxyReader and HTTPProxyWriter are implemented, i.e. the provider
+	// hands swallow the proxy it gives deployed machines and accepts a replacement (decision 056).
+	HTTPProxy bool
 }
 
 // The interfaces below are optional capabilities. The base OSProvisioningProvider is the

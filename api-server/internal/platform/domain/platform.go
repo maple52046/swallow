@@ -113,6 +113,9 @@ type Platform struct {
 	// ExporterOwner decides who installs this platform's exporters. Defaults to
 	// ExporterOwnerAnsible; only ExporterOwnerK8s is honoured as an alternative.
 	ExporterOwner ExporterOwner
+	// MonitoringLinks are operator-registered links to the runtime's own monitoring UI.
+	// Display data only; written through NormalizeMonitoringLinks and never nil once read.
+	MonitoringLinks []MonitoringLink
 
 	// OwnedIntegrationID is set only for a credential integration created by Swallow.
 	// It is private persistence metadata and is never exposed by the platform API.

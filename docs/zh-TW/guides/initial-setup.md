@@ -33,9 +33,11 @@ Credential 會使用 API credential key 加密，而且永遠不會回傳。建�
 
 ## 3. 註冊 monitoring
 
-建立 `metrics` / `prometheus` Integration，設定 Prometheus endpoint，以及
-contract 要求的 Alertmanager／Grafana settings。swallow 只查詢 fixed metric names
-與 current alerts，不提供任意 PromQL passthrough，也不儲存 monitoring data。
+先以 `deploy/third-party/prometheus` 執行 per-Site Prometheus，再建立
+`metrics` / `prometheus` Integration，設定其 endpoint，以及選用的 Alertmanager／Grafana
+settings。這讓 swallow 能為已佈署的 Server 繪製用量圖表。swallow 只查詢 fixed metric
+names、有上限的用量歷史與 current alerts，不提供任意 PromQL passthrough，也不儲存
+monitoring data。見 [Monitoring](monitoring.md)。
 
 Prometheus 應使用 swallow HTTP service-discovery endpoint，使 scraped series 帶有
 穩定的 `server_id`、`site` 與 Platform labels。

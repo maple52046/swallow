@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -284,6 +285,101 @@ func TestUpdatePlatform_RejectsUnknownGPUStackOwner(t *testing.T) {
 		map[string]any{"gpuStackOwner": &owner}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// A Platform without Monitoring Links reads as an empty array, never null.
+func TestGetPlatform_MonitoringLinksDefaultToEmpty(t *testing.T) {
+	f := setupPlatform(t)
+	seedPlatform(t, f, "platform-1", "research-slurm", "provisioning")
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/platforms/platform-1", nil, f.adminAuth(t))
+	links, ok := parseBody(t, resp)["monitoringLinks"].([]any)
+	if !ok || len(links) != 0 {
+		t.Errorf("monitoringLinks = %v, want []", links)
+	}
+}
+
+// PATCH replaces the whole list with trimmed links, and [] clears it.
+func TestUpdatePlatform_ReplacesAndClearsMonitoringLinks(t *testing.T) {
+	f := setupPlatform(t)
+	seedPlatform(t, f, "platform-1", "research-slurm", "provisioning")
+
+	resp := doRequest(t, f.app, "PATCH", "/api/v1/platforms/platform-1", map[string]any{
+		"monitoringLinks": []map[string]string{
+			{"name": "  Omnistat Grafana ", "url": " https://omnistat.example.internal/grafana "},
+			{"name": "Slurm accounting", "url": "http://10.0.0.5:3000/d/slurm"},
+		},
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	links := parseBody(t, resp)["monitoringLinks"].([]any)
+	first := links[0].(map[string]any)
+	if len(links) != 2 || first["name"] != "Omnistat Grafana" || first["url"] != "https://omnistat.example.internal/grafana" {
+		t.Errorf("monitoringLinks = %v, want two trimmed links", links)
+	}
+
+	resp = doRequest(t, f.app, "PATCH", "/api/v1/platforms/platform-1",
+		map[string]any{"monitoringLinks": []map[string]string{}}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("clear: expected 200, got %d", resp.StatusCode)
+	}
+	if links := parseBody(t, resp)["monitoringLinks"].([]any); len(links) != 0 {
+		t.Errorf("monitoringLinks after clear = %v, want []", links)
+	}
+}
+
+// Omitting monitoringLinks leaves them alone, so a rename does not wipe the shortcuts.
+func TestUpdatePlatform_OmittedMonitoringLinksAreUnchanged(t *testing.T) {
+	f := setupPlatform(t)
+	seedPlatform(t, f, "platform-1", "research-slurm", "provisioning")
+	f.platformRepo.platforms["platform-1"].MonitoringLinks = []platformdomain.MonitoringLink{
+		{Name: "Omnistat Grafana", URL: "https://omnistat.example.internal"},
+	}
+	name := "research-slurm-2"
+
+	resp := doRequest(t, f.app, "PATCH", "/api/v1/platforms/platform-1", map[string]any{"name": &name}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if links := parseBody(t, resp)["monitoringLinks"].([]any); len(links) != 1 {
+		t.Errorf("monitoringLinks = %v, want the existing link kept", links)
+	}
+}
+
+func TestUpdatePlatform_RejectsInvalidMonitoringLinks(t *testing.T) {
+	tooMany := make([]map[string]string, 11)
+	for i := range tooMany {
+		tooMany[i] = map[string]string{"name": fmt.Sprintf("link %d", i), "url": "https://grafana.example"}
+	}
+	tests := []struct {
+		name  string
+		links []map[string]string
+	}{
+		{"missing name", []map[string]string{{"name": " ", "url": "https://grafana.example"}}},
+		{"non-web scheme", []map[string]string{{"name": "x", "url": "javascript:alert(1)"}}},
+		{"relative url", []map[string]string{{"name": "x", "url": "/grafana"}}},
+		{"duplicate name", []map[string]string{
+			{"name": "Grafana", "url": "https://a.example"}, {"name": "grafana", "url": "https://b.example"},
+		}},
+		{"name too long", []map[string]string{{"name": strings.Repeat("n", 65), "url": "https://grafana.example"}}},
+		{"too many links", tooMany},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setupPlatform(t)
+			seedPlatform(t, f, "platform-1", "research-slurm", "provisioning")
+
+			resp := doRequest(t, f.app, "PATCH", "/api/v1/platforms/platform-1",
+				map[string]any{"monitoringLinks": tc.links}, f.adminAuth(t))
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("PATCH monitoringLinks %v = %d, want 400", tc.links, resp.StatusCode)
+			}
+			if links := f.platformRepo.platforms["platform-1"].MonitoringLinks; len(links) != 0 {
+				t.Errorf("a refused PATCH must not store links, got %v", links)
+			}
+		})
 	}
 }
 
