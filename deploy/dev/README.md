@@ -41,6 +41,21 @@ docker compose down -v       # destructive: removes local data and caches
 docker compose build --no-cache
 ```
 
+## Check and recover
+
+`swallowctl` checks and converges this stack against the same health contract as a production
+installation (minus the co-located MAAS and installation records):
+
+```bash
+../production/swallowctl doctor --profile dev
+../production/swallowctl ensure --profile dev
+```
+
+After a host reboot every container restarts at once, and Air can keep a container up whose
+process has exited, for example a worker that started before Temporal was ready. `ensure`
+starts the services that are not running, restarts those whose check fails, and ends with
+`doctor`; a check it cannot fix is printed with the service's recent logs. It needs no root.
+
 ## Configuration
 
 The stack starts without a `.env`. Copy `.env.example` only when overriding
@@ -149,7 +164,8 @@ For manual setup, follow the [initial setup guide](../../docs/en/guides/initial-
   reads environment values at process start.
 - **API keeps restarting:** inspect `docker compose logs api-server` for Air
   build/config errors.
-- **Workflow does not progress:** inspect Temporal, worker, and
-  `ansible-executor` health and logs.
+- **Workflow does not progress:** run `../production/swallowctl ensure --profile dev`; it
+  converges Temporal, the worker, and `ansible-executor`, and prints the logs of anything it
+  cannot fix.
 - **Integration data is old:** read its last success/error, validate the
   external endpoint and credential, then reconcile.

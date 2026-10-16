@@ -145,9 +145,9 @@ func RunWorker(cfg config.APIConfig) error {
 	cancelProjection()
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(tasks, servers, providers, 5*time.Second, 30*time.Second)
 
-	temporalClient, err := client.Dial(client.Options{
+	temporalClient, err := dialTemporal(ctx, client.Options{
 		HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace,
-	})
+	}, temporalDialTimeout)
 	if err != nil {
 		return fmt.Errorf("temporal connect: %w", err)
 	}

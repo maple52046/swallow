@@ -2,28 +2,41 @@
 
 [English](../en/troubleshooting.md) · [文件首頁](README.md)
 
-## 本機環境無法啟動
+## 本機環境無法啟動或 Workflow 一直 pending
+
+在 source checkout 中，各用一個指令檢查與收斂 development stack：
 
 ```bash
-cd deploy/dev
-docker compose ps
-docker compose logs api-server worker ansible-executor temporal
+./deploy/production/swallowctl doctor --profile dev
+./deploy/production/swallowctl ensure --profile dev
 ```
+
+`ensure --profile dev` 會啟動沒在執行的 services，並重啟檢查失敗的 services，例如主機
+reboot 後不再 poll Temporal 的 worker。無法修復的檢查會連同該 service 最近的 log 一起印出。
 
 - Docker socket permission error 通常表示目前 login session 沒有 `docker` group。
 - API restart loop 通常是 build 或 config validation error。
-- API healthy 但 Workflow 卡住時，通常是 Temporal、worker 或 Ansible executor 不可用。
+- API healthy 但 Workflow 卡住時，通常是 Temporal、worker 或 Ansible executor 不可用；
+  `ensure` 三者都會處理。
 
-## `swallowctl doctor` 回報失敗
+## 斷電、reboot 或 `swallowctl doctor` 回報失敗之後
 
-在 `/opt/swallow/production/`（安裝目錄）執行 `sudo ./swallowctl doctor`；每一行 `FAIL` 代表
-一個串接。重新執行 release 的 `install.sh` 是安全的，中途停下的安裝會接續完成。
+在 `/opt/swallow/production/`（安裝目錄）執行：
+
+```bash
+sudo ./swallowctl ensure
+```
+
+`ensure` 會把安裝收斂回 `doctor` 檢查的狀態：啟動宣告的 services、重啟檢查失敗的 services、
+在 MAAS 與 bootstrap 檢查失敗時重新執行它們的冪等步驟，最後執行 `doctor`。重複執行是安全的。
+仍留下的每一行 `FAIL` 代表一個串接，並附上擁有它的 services 最近的 log。重新執行 release 的
+`install.sh` 是安全的，中途停下的安裝會接續完成。
 
 - **Image pull 被拒：** 若是 `ghcr.io` 的 image，代表 GHCR package 是 private；請設為
   public，或安裝前先 `docker login ghcr.io`。若是 `docker.io` 的 image，代表遇到 Docker Hub
   的匿名拉取限制；稍後重跑，或先 `docker login` Docker Hub。
-- **Worker 沒有 poll task queue：** 查看 `docker compose logs worker`；它需要 MongoDB、
-  database schema 與 Temporal。
+- **`ensure` 之後 worker 仍沒有 poll task queue：** 印出的 worker log 會說明原因；它需要
+  MongoDB、database schema 與 Temporal。
 - **MAAS 沒有 complete 的 `ubuntu/noble`：** VM 連不到 `images.maas.io`，或仍在匯入中。
   請重新執行 `sudo ./local-maas.sh ensure-image`。
 - **MAAS Integration 未同步：** 該行會顯示 Integration 最後的錯誤。API 透過 `.env` 裡的

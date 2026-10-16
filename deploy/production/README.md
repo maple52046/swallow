@@ -97,7 +97,35 @@ sudo ./swallowctl doctor
 `swallow-operations` task queue, that the Ansible executor runs and `ansible-runner` executes
 the shipped `diagnostic-ping` playbook, the MAAS API and its `ubuntu/noble` boot resource,
 the admin login, the Deployment Key, Site automation, the MAAS Integration sync, and the
-`ubuntu/noble` entry in the OS Image catalog. It deploys nothing.
+`ubuntu/noble` entry in the OS Image catalog. It also prints how many Workflows have not reached
+a terminal status. It deploys nothing.
+
+## Recover
+
+The installation's desired state is the contract `doctor` checks:
+
+1. every declared Compose service runs;
+2. the Temporal cluster is healthy;
+3. the worker polls the `swallow-operations` task queue with workflow and activity pollers;
+4. the Ansible executor process runs and executes the shipped `diagnostic-ping` playbook;
+5. the Dashboard and API answer `/readyz` on the HTTP port;
+6. the co-located MAAS answers with a complete `ubuntu/noble` and its virsh SSH identity, and
+   the installation records (admin login, Deployment Key, Site automation, MAAS Integration
+   sync, OS Image catalog) exist.
+
+`doctor` only reports drift from this state. After a power loss, a host reboot, or any `FAIL`
+line, run one command:
+
+```bash
+sudo ./swallowctl ensure
+```
+
+`ensure` starts the declared services that are not running, then holds each condition in
+dependency order: when one fails, it restarts the services that own it (the MAAS snap for the
+MAAS API), runs the idempotent `local-maas.sh` ensure steps or `bootstrap.sh apply` when their
+checks fail, and finally runs `doctor`. A condition that still fails is printed with its
+services' recent logs. `ensure` is safe to rerun. It never recreates a running container or
+applies a changed `.env` (that is `upgrade`), and it never cancels or retries Workflows.
 
 ## Operate
 

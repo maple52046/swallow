@@ -41,6 +41,20 @@ docker compose down -v       # destructive：移除 local data 與 cache
 docker compose build --no-cache
 ```
 
+## 檢查與恢復
+
+`swallowctl` 以與 production installation 相同的健康契約（不含共置 MAAS 與安裝紀錄）檢查並
+收斂這個 stack：
+
+```bash
+../production/swallowctl doctor --profile dev
+../production/swallowctl ensure --profile dev
+```
+
+主機 reboot 後所有容器會同時重啟，Air 可能讓容器維持運作、但它監管的進程已經退出，例如在
+Temporal 就緒前啟動的 worker。`ensure` 會啟動沒在執行的 services、重啟檢查失敗的 services，
+最後執行 `doctor`；無法修復的檢查會連同該 service 最近的 log 一起印出。它不需要 root。
+
 ## Configuration
 
 沒有 `.env` 也能啟動。只有覆寫 default 時才建立：
@@ -135,5 +149,6 @@ SWALLOW_MAAS_VIRSH_SSH_PUBLIC_KEY_FILE=/tmp/maas-virsh.pub bash seed.sh
 - **Docker socket permission denied：** 加入 `docker` group 後重新登入。
 - **Dashboard environment change 未生效：** Restart `dashboard`。
 - **API 持續 restart：** 查看 `docker compose logs api-server` 的 Air build/config error。
-- **Workflow 沒有前進：** 檢查 Temporal、worker、`ansible-executor` health/log。
+- **Workflow 沒有前進：** 執行 `../production/swallowctl ensure --profile dev`；它會收斂
+  Temporal、worker 與 `ansible-executor`，並印出無法修復者的 log。
 - **Integration data 過舊：** 查看 last success/error、驗證 endpoint／credential，再 reconcile。

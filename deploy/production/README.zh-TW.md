@@ -94,7 +94,32 @@ sudo ./swallowctl doctor
 `swallow-operations` task queue、Ansible executor 是否執行且 `ansible-runner` 能跑附帶的
 `diagnostic-ping` playbook、MAAS API 與 `ubuntu/noble` boot resource、admin 登入、
 Deployment Key、Site automation、MAAS Integration 同步，以及 OS Image catalog 的
-`ubuntu/noble`。它不會佈署任何東西。
+`ubuntu/noble`，並列出尚未進入 terminal status 的 Workflow 數量。它不會佈署任何東西。
+
+## 恢復
+
+安裝的 desired state 就是 `doctor` 檢查的契約：
+
+1. 宣告的 Compose services 都在執行；
+2. Temporal cluster healthy；
+3. worker 在 `swallow-operations` task queue 同時有 workflow 與 activity poller；
+4. Ansible executor 進程在執行，且能跑附帶的 `diagnostic-ping` playbook；
+5. Dashboard 與 API 在 HTTP port 回應 `/readyz`；
+6. 共置 MAAS 的 API 回應、有 complete 的 `ubuntu/noble` 與 virsh SSH identity，且安裝紀錄
+   （admin 登入、Deployment Key、Site automation、MAAS Integration 同步、OS Image catalog）
+   存在。
+
+`doctor` 只回報與此狀態的差距。斷電、主機 reboot 或出現任何 `FAIL` 之後，執行一個指令：
+
+```bash
+sudo ./swallowctl ensure
+```
+
+`ensure` 會啟動尚未執行的宣告 services，再依 dependency 順序維持每個條件：條件不符時重啟
+擁有它的 services（MAAS API 則重啟 MAAS snap）；`local-maas.sh` 或 `bootstrap.sh` 的檢查
+失敗時，執行對應的冪等 ensure 步驟或 `bootstrap.sh apply`；最後執行 `doctor`。仍不符的條件
+會連同該 services 最近的 log 一起印出。`ensure` 可以重複執行；它不會重建執行中的容器、
+不會套用變更過的 `.env`（那是 `upgrade` 的工作），也不會 cancel 或 retry Workflow。
 
 ## 維運
 

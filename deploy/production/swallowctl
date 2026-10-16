@@ -5,11 +5,15 @@
 #
 #   swallowctl install [--profile production] [--release-manifest PATH]
 #   swallowctl upgrade [--force] [--release-manifest PATH]
-#   swallowctl preflight | doctor | backup | restore BACKUP_DIRECTORY
+#   swallowctl doctor | ensure [--profile production|dev]
+#   swallowctl preflight | backup | restore BACKUP_DIRECTORY
 #   swallowctl uninstall [--purge-data]
 #
-# install, upgrade, backup, restore, and uninstall need root: they install host packages and
-# the MAAS snap, and the secrets directory is root-owned (mode 0700).
+# install, upgrade, ensure, backup, restore, and uninstall need root: they install host
+# packages, manage the MAAS snap, and the secrets directory is root-owned (mode 0700).
+# doctor reports drift from the installation's desired state (see "Installation desired state"
+# below) and ensure converges back to it. The dev profile points both at a source checkout's
+# development stack (deploy/dev) instead of this installation; it needs no root.
 set -euo pipefail
 
 command_name="${1:-}"
@@ -33,6 +37,11 @@ installed_marker="${script_dir}/state/installed"
 setting_keys=(SWALLOW_ADDRESS SWALLOW_MAAS_URL SWALLOW_BOOT_MEDIA_BASE_URL SWALLOW_HTTP_PORT
   SWALLOW_POSTGRES_HOST_PORT SWALLOW_MAAS_IMAGE_TIMEOUT SWALLOW_SITE_NAME
   SWALLOW_TEMPORAL_UI_IMAGE SWALLOW_TEMPORAL_UI_PORT)
+# profile selects the declared stack doctor and ensure act on (see use_profile); every other
+# command acts on the production installation only.
+profile=production
+# playbook_dir is where the Ansible executor image keeps the shipped playbooks.
+playbook_dir=/opt/swallow/automation/playbooks
 
 log() { printf '[swallowctl] %s\n' "$*"; }
 die() { printf '[swallowctl] %s\n' "$*" >&2; exit 1; }
@@ -225,16 +234,38 @@ wait_for_ready() {
   die "the API did not become ready at ${url}"
 }
 
+# mongo_eval prints the result of one mongosh expression. The production MongoDB authenticates
+# the root user from secrets/ (readable by root only); the dev stack's MongoDB has none.
+mongo_eval() {
+  local -a auth=()
+  if [[ "${profile}" == production ]]; then
+    auth=(--username "$(<"${script_dir}/secrets/mongo-root-username")"
+      --password "$(<"${script_dir}/secrets/mongo-root-password")" --authenticationDatabase admin)
+  fi
+  "${compose[@]}" exec -T mongo mongosh --quiet "${auth[@]}" --eval "$1"
+}
+
+# mongo_database is the database the API uses: fixed in the production compose.yaml, and
+# overridable through the dev stack's .env.
+mongo_database() {
+  if [[ "${profile}" == dev ]]; then
+    printf '%s' "${SWALLOW_API_MONGO_DB:-swallow}"
+  else
+    printf 'swallow'
+  fi
+}
+
+# active_operations counts the Workflows that have not reached a terminal status, including
+# requires_attention ones still waiting for an operator. Schema v4 keeps them in `workflows`; an
+# installation upgrade has not migrated yet keeps them in `operations` (v2 `terminal`, v3
+# `status`), and upgrade asks before it migrates, so both collections are counted.
 active_operations() {
-  local user password
-  user="$(<"${script_dir}/secrets/mongo-root-username")"
-  password="$(<"${script_dir}/secrets/mongo-root-password")"
-  "${compose[@]}" exec -T mongo mongosh --quiet --username "${user}" --password "${password}" \
-    --authenticationDatabase admin --eval \
-    'db.getSiblingDB("swallow").operations.countDocuments({$or:[
-      {schemaVersion:2,terminal:false},
-      {schemaVersion:3,status:{$nin:["succeeded","failed","partially_succeeded","canceled"]}}
-    ]})'
+  mongo_eval "const d = db.getSiblingDB('$(mongo_database)');
+    const terminal = ['succeeded', 'failed', 'partially_succeeded', 'canceled'];
+    print(d.workflows.countDocuments({status: {\$nin: terminal}}) +
+      d.operations.countDocuments({\$or: [
+        {schemaVersion: 2, terminal: false},
+        {schemaVersion: 3, status: {\$nin: terminal}}]}))"
 }
 
 prune_backups() {
@@ -414,6 +445,61 @@ restore() {
   "${compose[@]}" up -d --force-recreate api-server dashboard
 }
 
+# --- Installation desired state ----------------------------------------------------------------
+#
+# The probes below are the installation's health contract: the state ensure converges to and
+# doctor reports drift from.
+#   1. every declared Compose service runs;
+#   2. the Temporal cluster is healthy;
+#   3. the worker polls the swallow-operations task queue with workflow and activity pollers;
+#   4. the Ansible executor process runs, and the shipped diagnostic-ping playbook runs;
+#   5. the Dashboard and API answer /readyz on the HTTP port;
+#   6. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
+#      identity (local-maas.sh check), and the installation records exist (bootstrap.sh verify).
+# The configuration itself (compose.yaml, the .env digests, secrets/) is declared, not converged
+# here: changing it is upgrade, which backs up and migrates first.
+
+# parse_profile_options reads the options doctor and ensure share.
+parse_profile_options() {
+  while (($# > 0)); do
+    case "$1" in
+      --profile) profile="${2:?--profile needs a value}"; shift 2 ;;
+      *) die "unknown ${command_name} option: $1" ;;
+    esac
+  done
+}
+
+# use_profile points the stack-facing helpers at the selected profile's declared stack. production
+# is the installation in this directory. dev is the source checkout's development stack
+# (deploy/dev): its services run bind-mounted source under Air, and it has no secrets, co-located
+# MAAS, or installation records of its own, so the release bundle (which ships no deploy/dev)
+# cannot use it.
+use_profile() {
+  local dev_dir="${script_dir}/../dev"
+  case "${profile}" in
+    production) ;;
+    dev)
+      [[ -f "${dev_dir}/compose.yaml" ]] ||
+        die "the dev profile needs a source checkout: ${dev_dir}/compose.yaml not found"
+      dev_dir="$(cd -- "${dev_dir}" && pwd)"
+      compose=(docker compose --project-directory "${dev_dir}" -f "${dev_dir}/compose.yaml")
+      env_file="${dev_dir}/.env"
+      playbook_dir=/app/automation/playbooks
+      ;;
+    *) die "unsupported profile '${profile}': use production or dev" ;;
+  esac
+}
+
+# http_port is where the Dashboard answers and proxies /readyz to the API: Nginx on the
+# production HTTP port, or the Vite dev server in the dev stack.
+http_port() {
+  if [[ "${profile}" == dev ]]; then
+    printf '%s' "${DASHBOARD_PORT:-5173}"
+  else
+    printf '%s' "${SWALLOW_HTTP_PORT:-80}"
+  fi
+}
+
 # check prints one ok/FAIL line and returns the probe's status; the probe's own output is
 # kept only when it fails.
 check() {
@@ -429,7 +515,7 @@ check() {
 }
 
 dashboard_ready() {
-  curl -fsS --max-time 5 "http://127.0.0.1:${SWALLOW_HTTP_PORT:-80}/readyz"
+  curl -fsS --max-time 5 "http://127.0.0.1:$(http_port)/readyz"
 }
 
 temporal_healthy() {
@@ -445,9 +531,12 @@ worker_polls_task_queue() {
       | ($types | any(contains("workflow"))) and ($types | any(contains("activity")))'
 }
 
-# grep reads its whole input (no -q) so pipefail never sees the producer die of SIGPIPE.
-ansible_executor_started() {
-  "${compose[@]}" ps --status running --services | grep -x ansible-executor >/dev/null &&
+# ansible_executor_running looks for the executor process, not just its container: in the dev
+# stack Air keeps the container up after the process it supervises has exited. The log line
+# shows the process got past startup. grep reads its whole input (no -q) so pipefail never sees
+# the producer die of SIGPIPE.
+ansible_executor_running() {
+  "${compose[@]}" top ansible-executor | grep -c 'swallow-api ansible-executor' >/dev/null &&
     "${compose[@]}" logs --no-log-prefix ansible-executor | grep -c 'Ansible executor started' >/dev/null
 }
 
@@ -458,7 +547,22 @@ ansible_executor_started() {
 ansible_runner_works() {
   "${compose[@]}" exec -T ansible-executor ansible-runner --version &&
     "${compose[@]}" exec -T -e ANSIBLE_REMOTE_TMP=/tmp/.ansible-doctor ansible-executor \
-      ansible-playbook -i localhost, -c local /opt/swallow/automation/playbooks/diagnostic-ping.yml
+      ansible-playbook -i localhost, -c local "${playbook_dir}/diagnostic-ping.yml"
+}
+
+maas_api_answers() {
+  curl -fsS --max-time 5 http://127.0.0.1:5240/MAAS/api/2.0/version/
+}
+
+# report_active_operations prints how many Workflows are still in flight. It is information for
+# the operator, not part of the contract: a busy installation is a healthy one.
+report_active_operations() {
+  local active
+  if active="$(active_operations 2>/dev/null)" && [[ "${active}" =~ ^[0-9]+$ ]]; then
+    printf 'info  %s Workflow(s) not yet in a terminal status\n' "${active}"
+  else
+    printf 'info  active Workflows unknown: MongoDB did not answer\n'
+  fi
 }
 
 doctor() {
@@ -466,18 +570,157 @@ doctor() {
   load_env
   "${compose[@]}" ps
   printf '\n'
-  check "Dashboard and API answer on HTTP port ${SWALLOW_HTTP_PORT:-80}" dashboard_ready || failed=1
+  check "Dashboard and API answer on HTTP port $(http_port)" dashboard_ready || failed=1
   check 'Temporal cluster is healthy' temporal_healthy || failed=1
   check 'worker polls the swallow-operations task queue' worker_polls_task_queue || failed=1
-  check 'Ansible executor is running' ansible_executor_started || failed=1
+  check 'Ansible executor is running' ansible_executor_running || failed=1
   check 'ansible-runner runs the shipped diagnostic-ping playbook' ansible_runner_works || failed=1
-  "${script_dir}/local-maas.sh" check || failed=1
-  "${script_dir}/bootstrap.sh" verify || failed=1
+  if [[ "${profile}" == production ]]; then
+    "${script_dir}/local-maas.sh" check || failed=1
+    "${script_dir}/bootstrap.sh" verify || failed=1
+  else
+    printf 'skip  co-located MAAS and installation records (production profile only)\n'
+  fi
+  report_active_operations
   if ((failed)); then
     printf '\ndoctor found problems\n' >&2
+    if [[ "${ensuring}" != true ]]; then
+      if [[ "${profile}" == dev ]]; then
+        printf 'run ./swallowctl ensure --profile dev to converge them\n' >&2
+      else
+        printf 'run sudo ./swallowctl ensure to converge them\n' >&2
+      fi
+    fi
     return 1
   fi
   printf '\nall checks passed\n'
+}
+
+# Seconds ensure gives a condition before acting on it. A service that was already running when
+# ensure began gets a short recheck, because a failing condition there is drift. A service ensure
+# just started gets its full startup window, which in the dev stack includes Air compiling it.
+ensure_recheck_seconds=20
+ensure_startup_seconds=240
+# running_before lists the services that were running before ensure started the stack.
+running_before=()
+# ensuring tells doctor it is verifying ensure's result, so it does not suggest running ensure.
+ensuring=false
+
+# wait_for polls a probe every five seconds until it passes or the given seconds elapse.
+wait_for() {
+  local deadline=$((SECONDS + $1))
+  shift
+  until "$@" >/dev/null 2>&1; do
+    ((SECONDS < deadline)) || return 1
+    sleep 5
+  done
+}
+
+# settle_seconds prints how long ensure waits on a condition owned by the given services before
+# acting: the startup window if ensure started any of them, else the recheck.
+settle_seconds() {
+  local service running
+  for service in "$@"; do
+    for running in "${running_before[@]}"; do
+      [[ "${running}" == "${service}" ]] && continue 2
+    done
+    printf '%s' "${ensure_startup_seconds}"
+    return
+  done
+  printf '%s' "${ensure_recheck_seconds}"
+}
+
+# converge holds one condition of the desired state whose owners are Compose services: after its
+# settle time it restarts them once and waits out their startup window. A condition that still
+# fails is reported with the owners' recent logs, so the operator sees why without running
+# Compose by hand. It returns the condition's final status.
+converge() {
+  local description="$1" probe="$2" output
+  shift 2
+  if wait_for "$(settle_seconds "$@")" "${probe}"; then
+    printf 'ok    %s\n' "${description}"
+    return 0
+  fi
+  printf 'fix   %s: restarting %s\n' "${description}" "$*"
+  if ! output="$("${compose[@]}" restart "$@" 2>&1)"; then
+    printf '%s\n' "${output}" | tail -n 15 | sed 's/^/      /'
+  fi
+  if wait_for "${ensure_startup_seconds}" "${probe}"; then
+    printf 'ok    %s\n' "${description}"
+    return 0
+  fi
+  printf 'FAIL  %s; recent logs:\n' "${description}"
+  "${compose[@]}" logs --tail 15 "$@" 2>&1 | sed 's/^/      /'
+  return 1
+}
+
+# converge_local_maas holds the co-located MAAS conditions. MAAS keeps its database in the
+# Compose PostgreSQL, so it gets the startup window when ensure just started postgres. Its boot
+# image and virsh identity are converged with the idempotent steps install and upgrade use, and
+# only when the read-only check fails; MAAS is never reinstalled or re-initialized here.
+converge_local_maas() {
+  if wait_for "$(settle_seconds postgres)" maas_api_answers; then
+    printf 'ok    MAAS API answers\n'
+  else
+    printf 'fix   MAAS API answers: restarting the MAAS snap\n'
+    snap restart maas >/dev/null 2>&1 || printf '      snap restart maas failed\n'
+    if ! wait_for 450 maas_api_answers; then
+      printf 'FAIL  MAAS API answers; see snap logs maas\n'
+      return 1
+    fi
+    printf 'ok    MAAS API answers\n'
+  fi
+  if "${script_dir}/local-maas.sh" check >/dev/null 2>&1; then
+    printf 'ok    MAAS has a complete ubuntu/noble and its virsh SSH identity\n'
+    return 0
+  fi
+  printf 'fix   MAAS boot image or virsh SSH identity: running the local-maas.sh ensure steps\n'
+  "${script_dir}/local-maas.sh" ensure-virsh-identity && "${script_dir}/local-maas.sh" ensure-image
+}
+
+# converge_installation_records reapplies the idempotent bootstrap (Site, MAAS Integration,
+# automation defaults that exist only when none do) when its read-only verify fails.
+converge_installation_records() {
+  if "${script_dir}/bootstrap.sh" verify >/dev/null 2>&1; then
+    printf 'ok    installation records exist\n'
+    return 0
+  fi
+  printf 'fix   installation records: running bootstrap.sh apply\n'
+  "${script_dir}/bootstrap.sh" apply
+}
+
+# ensure converges the selected stack to the installation's desired state (see "Installation
+# desired state") and returns doctor's verdict on the result. It is safe to rerun: a stack that
+# holds its contract is left untouched. It starts what is missing or stopped but never recreates
+# a running container, so configuration and image changes stay with upgrade. It never cancels or
+# retries Workflows; that is the operator's call.
+ensure() {
+  if [[ "${profile}" == production ]]; then
+    require_root
+    [[ -f "${env_file}" ]] || die "no .env in ${script_dir}: nothing is installed here; run swallowctl install"
+  fi
+  load_env
+  mapfile -t running_before < <("${compose[@]}" ps --status running --services)
+  log 'starting the declared services that are not running'
+  "${compose[@]}" up -d --no-recreate || printf 'FAIL  docker compose up did not start every service\n'
+  printf '\n'
+  converge 'Temporal cluster is healthy' temporal_healthy temporal || true
+  converge 'worker polls the swallow-operations task queue' worker_polls_task_queue worker || true
+  converge 'Ansible executor is running' ansible_executor_running ansible-executor || true
+  converge "Dashboard and API answer on HTTP port $(http_port)" dashboard_ready api-server dashboard || true
+  if [[ "${profile}" == production ]]; then
+    if [[ -f "${maas_marker}" ]]; then
+      converge_local_maas || printf 'FAIL  co-located MAAS did not converge\n'
+    fi
+    converge_installation_records || printf 'FAIL  installation records did not converge\n'
+  fi
+  printf '\n'
+  log 'verifying the desired state'
+  ensuring=true
+  if ! doctor; then
+    printf 'ensure could not converge every condition; the FAIL lines above show what remains\n' >&2
+    return 1
+  fi
 }
 
 uninstall_stack() {
@@ -504,10 +747,11 @@ case "${command_name}" in
   upgrade) upgrade "$@" ;;
   backup) backup ;;
   restore) restore "$@" ;;
-  doctor) doctor ;;
+  doctor) parse_profile_options "$@"; use_profile; doctor ;;
+  ensure) parse_profile_options "$@"; use_profile; ensure ;;
   uninstall) uninstall_stack "$@" ;;
   *)
-    printf 'usage: swallowctl {preflight|install|upgrade|backup|restore|doctor|uninstall}\n' >&2
+    printf 'usage: swallowctl {preflight|install|upgrade|ensure|backup|restore|doctor|uninstall}\n' >&2
     exit 2
     ;;
 esac

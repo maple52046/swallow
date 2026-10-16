@@ -2,31 +2,44 @@
 
 [繁體中文](../zh-TW/troubleshooting.md) · [Documentation home](README.md)
 
-## The local stack does not start
+## The local stack does not start or Workflows stay pending
+
+From a source checkout, check and converge the development stack with one command each:
 
 ```bash
-cd deploy/dev
-docker compose ps
-docker compose logs api-server worker ansible-executor temporal
+./deploy/production/swallowctl doctor --profile dev
+./deploy/production/swallowctl ensure --profile dev
 ```
+
+`ensure --profile dev` starts the services that are not running and restarts the ones whose
+check fails, such as a worker that no longer polls Temporal after a host reboot. A check it
+cannot fix is printed with the service's recent logs.
 
 - A Docker socket permission error usually means the current login session does
   not have the `docker` group.
 - API restart loops usually indicate a build or configuration validation error.
 - A healthy API with stuck Workflows usually means Temporal, the worker, or the
-  Ansible executor is unavailable.
+  Ansible executor is unavailable; `ensure` covers all three.
 
-## `swallowctl doctor` reports a failure
+## After a power loss, a reboot, or a `swallowctl doctor` failure
 
-Run `sudo ./swallowctl doctor` in `/opt/swallow/production/` (the installation directory); each
-`FAIL` line names one connection. Rerunning the release's `install.sh` is safe and resumes an
-installation that stopped part way.
+In `/opt/swallow/production/` (the installation directory), run:
+
+```bash
+sudo ./swallowctl ensure
+```
+
+`ensure` converges the installation back to the state `doctor` checks: it starts the declared
+services, restarts those whose check fails, reruns the idempotent MAAS and bootstrap steps when
+their checks fail, and ends with `doctor`. It is safe to rerun. Each `FAIL` line that remains
+names one connection, with the owning services' recent logs. Rerunning the release's
+`install.sh` is safe and resumes an installation that stopped part way.
 
 - **Image pull denied:** for a `ghcr.io` image, the GHCR package is private; make it public
   or run `docker login ghcr.io` before installing. For a `docker.io` image, Docker Hub limits
   anonymous pulls; wait and rerun, or `docker login` to Docker Hub first.
-- **Worker does not poll the task queue:** read `docker compose logs worker`; it needs
-  MongoDB, the database schema, and Temporal.
+- **Worker still does not poll the task queue after `ensure`:** the printed worker logs show
+  why; it needs MongoDB, the database schema, and Temporal.
 - **MAAS has no complete `ubuntu/noble`:** the VM cannot reach `images.maas.io`, or the
   import is still running. Rerun `sudo ./local-maas.sh ensure-image`.
 - **MAAS Integration not synced:** the line shows the Integration's last error. The API

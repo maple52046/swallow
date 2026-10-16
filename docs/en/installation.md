@@ -83,7 +83,8 @@ active.
    network-booted machines itself, and hosts that keep their OS enroll with one command (see
    [Add servers](guides/servers-and-infrastructure.md#add-servers)).
 4. Run `sudo /opt/swallow/production/swallowctl doctor` at any time to recheck every
-   connection.
+   connection. After a power loss, a reboot, or a `FAIL` line, run
+   `sudo /opt/swallow/production/swallowctl ensure` to converge the installation back.
 
 Backup, restore, uninstall, and installing from a downloaded bundle are described in the
 [production installation reference](../../deploy/production/README.md); third-party

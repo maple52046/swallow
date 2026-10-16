@@ -76,7 +76,9 @@ MB）、在 swallow 註冊 MAAS，最後執行 `swallowctl doctor`。重複執�
    access 由 site 負責。之後從 **Servers → Add servers** 新增機器：swallow 會自行檢視從
    網路開機的機器，保留 OS 的主機則以一行指令納管（見
    [新增 Server](guides/servers-and-infrastructure.md#新增-server)）。
-4. 隨時可執行 `sudo /opt/swallow/production/swallowctl doctor` 重新檢查所有串接。
+4. 隨時可執行 `sudo /opt/swallow/production/swallowctl doctor` 重新檢查所有串接。斷電、
+   reboot 或出現 `FAIL` 之後，執行 `sudo /opt/swallow/production/swallowctl ensure` 把安裝
+   收斂回來。
 
 Backup、restore、uninstall，以及從下載的 bundle 手動安裝，請見
 [production installation reference](../../deploy/production/README.zh-TW.md)；third-party
