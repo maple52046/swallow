@@ -39,7 +39,17 @@ const (
 // Histories written before versioning was introduced replay as workflow.DefaultVersion;
 // future incompatible changes must add a branch keyed on a higher value here rather than
 // editing existing decision paths, so completed and in-flight histories stay replayable.
-const operationWorkflowVersion = 2
+//
+// Version 2 retries ExecuteStep across activity-worker loss. Version 3 projects a Step that
+// was canceled mid-activity on a disconnected context: on the canceled workflow context that
+// projection is never dispatched, which left the Task and the Server Deployment result
+// reporting in-flight work after the Operation had already ended canceled.
+const operationWorkflowVersion = 3
+
+// cancelProjectionVersion is the operationWorkflowVersion from which a mid-activity cancel is
+// projected on a disconnected context. It is pinned to the version that introduced the change
+// and must never move: histories recorded at version 3 or later depend on that extra command.
+const cancelProjectionVersion = 3
 
 // WorkflowInput is a secret-free immutable snapshot. Workflows carry opaque references,
 // never credential, cloud-init, or automation secret values.
@@ -258,9 +268,8 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	if input.DefinitionVersion != 1 {
 		return temporal.NewNonRetryableApplicationError("unsupported workflow definition version", "unsupported_definition", nil)
 	}
-	// Versioning checkpoint. Discarded today because there is only one logic version;
-	// it exists so a future incompatible change can branch here without breaking the
-	// replay of histories recorded before that change.
+	// Versioning checkpoint. Every branch keyed on operationVersion keeps a history recorded
+	// before that change replaying its original commands (see operationWorkflowVersion).
 	operationVersion := workflow.GetVersion(ctx, "operation-workflow", workflow.DefaultVersion, operationWorkflowVersion)
 	if input.LeaseDuration <= 0 {
 		input.LeaseDuration = 90 * time.Second
@@ -417,9 +426,13 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				err := futures[pos].Get(ctx, &result)
 				finished := workflow.Now(ctx).UTC()
 				steps[index].FinishedAt = &finished
+				stepProjectionCtx := projectionCtx
 				if err != nil {
 					if temporal.IsCanceledError(err) || ctx.Err() != nil {
 						steps[index].Status = operationdomain.TaskCanceled
+						if operationVersion >= cancelProjectionVersion {
+							stepProjectionCtx = disconnectedProjectionContext(ctx, projectionOptions)
+						}
 					} else {
 						// A non-retryable activity failure (for example a lost lease
 						// fencing token) is terminal: marking it retryable would let the
@@ -442,7 +455,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 					steps[index].ExternalExecution = result.ExternalExecution
 					steps[index].Artifacts = result.Artifacts
 				}
-				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
+				_ = workflow.ExecuteActivity(stepProjectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(stepProjectionCtx, nil)
 			}
 			_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
 				OperationID: input.OperationID, Status: operationdomain.WorkflowRunning,
@@ -625,6 +638,9 @@ func runJobChild(ctx workflow.Context, input WorkflowInput, leases []operationdo
 // final status. Cross-Job dependencies are treated as already satisfied by parent ordering.
 func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, error) {
 	activityRetryVersion := workflow.GetVersion(ctx, "job-execute-step-worker-retry", workflow.DefaultVersion, 1)
+	// Version 1 projects a Task canceled mid-activity on a disconnected context, matching the
+	// flat path's cancelProjectionVersion; earlier Job histories keep their original commands.
+	jobCancelProjectionVersion := workflow.GetVersion(ctx, "job-cancel-projection-disconnected", workflow.DefaultVersion, 1)
 	if input.LeaseDuration <= 0 {
 		input.LeaseDuration = 90 * time.Second
 	}
@@ -689,9 +705,13 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 				err := futures[pos].Get(ctx, &result)
 				finished := workflow.Now(ctx).UTC()
 				tasks[index].FinishedAt = &finished
+				taskProjectionCtx := projectionCtx
 				if err != nil {
 					if temporal.IsCanceledError(err) || ctx.Err() != nil {
 						tasks[index].Status = operationdomain.TaskCanceled
+						if jobCancelProjectionVersion >= 1 {
+							taskProjectionCtx = disconnectedProjectionContext(ctx, projectionOptions)
+						}
 					} else {
 						code, message, retryable := normalizeActivityError(err)
 						status := operationdomain.TaskRequiresAttention
@@ -709,7 +729,7 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 					tasks[index].ExternalExecution = result.ExternalExecution
 					tasks[index].Artifacts = result.Artifacts
 				}
-				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: tasks[index]}).Get(projectionCtx, nil)
+				_ = workflow.ExecuteActivity(taskProjectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: tasks[index]}).Get(taskProjectionCtx, nil)
 			}
 		}
 	}
@@ -878,9 +898,22 @@ func normalizeActivityError(err error) (code string, message string, retryable b
 	return code, message, retryable
 }
 
+// finishCanceled records an operator cancel as the Operation's terminal outcome. Every write runs
+// on a disconnected context with unbounded retries, because the workflow context is already
+// canceled and a projection issued on it is never dispatched.
+//
+// Version 1 of "cancel-reprojects-canceled-steps" also re-projects Steps that are already
+// canceled in memory. A Step canceled mid-activity got that status before this function ran,
+// and on histories older than cancelProjectionVersion its own projection was issued on the
+// canceled context, so without this pass the Task and the Server Deployment result kept
+// reporting in-flight work forever. The re-projection is idempotent: UpdateStep overwrites the
+// same Task, the timeline event ID is derived from (step, status, attempt), and the Server
+// deployment observer refuses to regress an already succeeded or failed provision-os. Histories
+// that reached this function before the change replay as workflow.DefaultVersion and keep their
+// original commands.
 func finishCanceled(ctx workflow.Context, operationID string, steps []operationdomain.Task) error {
-	disconnected, _ := workflow.NewDisconnectedContext(ctx)
-	disconnected = workflow.WithActivityOptions(disconnected, workflow.ActivityOptions{
+	reprojectCanceled := workflow.GetVersion(ctx, "cancel-reprojects-canceled-steps", workflow.DefaultVersion, 1) >= 1
+	disconnected := disconnectedProjectionContext(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy:         &temporal.RetryPolicy{InitialInterval: time.Second, MaximumAttempts: 0},
 	})
@@ -899,6 +932,14 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 			steps[index].Status = operationdomain.TaskCanceled
 			steps[index].FinishedAt = &finished
 			_ = workflow.ExecuteActivity(disconnected, ActivityUpdateStep, StepUpdate{OperationID: operationID, Step: steps[index]}).Get(disconnected, nil)
+		case operationdomain.TaskCanceled:
+			if !reprojectCanceled {
+				continue
+			}
+			if steps[index].FinishedAt == nil {
+				steps[index].FinishedAt = &finished
+			}
+			_ = workflow.ExecuteActivity(disconnected, ActivityUpdateStep, StepUpdate{OperationID: operationID, Step: steps[index]}).Get(disconnected, nil)
 		}
 	}
 	_ = workflow.ExecuteActivity(disconnected, ActivityUpdateState, StateUpdate{
@@ -906,6 +947,14 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 		Reason: "Canceled by operator.", FinishedAt: &finished,
 	}).Get(disconnected, nil)
 	return nil
+}
+
+// disconnectedProjectionContext returns a context for projection activities that must still run
+// after the workflow is canceled. The disconnected context's cancel function is dropped on
+// purpose: these writes record the cancellation itself, so nothing should ever cancel them.
+func disconnectedProjectionContext(ctx workflow.Context, options workflow.ActivityOptions) workflow.Context {
+	disconnected, _ := workflow.NewDisconnectedContext(ctx)
+	return workflow.WithActivityOptions(disconnected, options)
 }
 
 // compensateVerifyCancel best-effort returns a verification-borrowed Server to Ready when its

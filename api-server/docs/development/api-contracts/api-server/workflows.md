@@ -219,6 +219,15 @@ and timeline results are JSON arrays and never `null`.
 canceled; active MAAS or Ansible execution receives best-effort abort and remains observed
 when the provider cannot stop it. Confirmed prior effects are preserved.
 
+A Task that was running when the cancel arrived also ends `canceled`. A canceled
+`provision-os` Task sets its Server's `deployment` result to `canceled`; a `provision-os` that
+already `succeeded` or `failed` keeps that outcome. The provider-owned `provisioning.state` is
+not rewritten and keeps following the provider after the abort. If a Server's `deployment`
+result is still `deploying` or `verifying` after the Workflow it names has ended, a background
+sweep settles it from that Workflow's Task outcome (`canceled` when the Workflow was canceled
+before the Task recorded one) within one reconcile interval. The sweep never acts while the
+Workflow is still advancing, `canceling`, or `requires_attention`.
+
 ## Retry Task
 
 `POST /{id}/tasks/{taskId}/retry` returns `202` only when the Task is `failed` or

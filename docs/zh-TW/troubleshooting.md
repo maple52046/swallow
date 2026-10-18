@@ -90,6 +90,26 @@ swallow workflows list --server server1
 繼續等待。各 state 與 recovery 提示見
 [Server 與 infrastructure](guides/servers-and-infrastructure.md#判讀-deployment-欄位)。
 
+## Workflow 已 cancel，但 Server 仍顯示 Deploying
+
+有兩種不同的狀態都會顯示為 Deploying：
+
+- **swallow 的 deployment 結果。** Cancel OS deployment Workflow 會把結果記錄為
+  Canceled。如果 Workflow 已經是 `canceled`，結果卻仍是 Deploying，請等待一個
+  reconcile 週期：swallow 會自行收斂已結束 Workflow 留下的結果。
+- **Provider 的 provisioning state。** Cancel 會 best-effort 要求 MAAS 中止安裝。
+  若 MAAS 本身仍回報 Deploying，swallow 會繼續顯示 `deploying`，因為那是 provider
+  的事實。Refresh Server 並查看 provider event，確認 abort 是否生效。MAAS 離開
+  Deploying 之後，依
+  [Server 與 infrastructure](guides/servers-and-infrastructure.md#判讀-deployment-欄位)
+  的 recovery 提示處理。
+
+```bash
+swallow workflows list --server server1
+swallow servers refresh server1
+swallow servers events server1 --limit 50
+```
+
 ## 更換 key 後 credential 失效
 
 Stored integration／automation credential 使用 `api.credentialKey` 加密。更換

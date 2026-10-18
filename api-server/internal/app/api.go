@@ -605,6 +605,7 @@ func RunAPI(cfg config.APIConfig) error {
 	})
 
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
+	go runDeploymentProjectionRepair(ctx, serverRepo, orchestrationRepo, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
 	go taskWorker.Run(ctx)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)

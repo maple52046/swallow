@@ -125,7 +125,9 @@ Full inventory reconciliation additionally clears a Server's terminal deployment
 (`succeeded`, `failed`, or `canceled`) once the machine is observed back in the provider's
 `ready` pool, so an available Server never keeps a stale deployment result from a canceled
 or abandoned run. An active (`deploying`/`verifying`) or operator-pending
-(`requires_attention`) deployment is left untouched.
+(`requires_attention`) deployment is left untouched. An active deployment whose Workflow has
+already ended is settled separately from that Workflow's Task outcome (see the Cancel section
+of `workflows.md`), after which this clearing applies to it like any other terminal outcome.
 
 A failed or attention-needing deployment axis carries the failed Step's stable error
 `code` (for example `deployment_address_unavailable`) alongside the verbose `statusReason`,

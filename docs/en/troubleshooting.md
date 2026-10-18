@@ -99,6 +99,27 @@ attention rather than more waiting. See
 [Servers and infrastructure](guides/servers-and-infrastructure.md#read-the-deployment-column)
 for the state and recovery cues.
 
+## A Server still shows Deploying after its Workflow was canceled
+
+Two separate states can read as Deploying:
+
+- **swallow's deployment result.** Canceling an OS deployment Workflow records
+  the result as Canceled. If the Workflow already shows `canceled` but the
+  result still reads Deploying, wait one reconcile interval: swallow settles a
+  result left behind by an ended Workflow on its own.
+- **The provider's provisioning state.** Cancel asks MAAS to abort the install,
+  best-effort. If MAAS itself still reports Deploying, swallow keeps showing
+  `deploying`, because that is the provider's fact. Refresh the Server and read
+  its provider events to see whether the abort took effect. Once MAAS leaves
+  Deploying, follow the recovery cues in
+  [Servers and infrastructure](guides/servers-and-infrastructure.md#read-the-deployment-column).
+
+```bash
+swallow workflows list --server server1
+swallow servers refresh server1
+swallow servers events server1 --limit 50
+```
+
 ## Credentials stopped working after a key change
 
 Stored integration and automation credentials are encrypted with
