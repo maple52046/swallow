@@ -174,6 +174,42 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(absent.getByRole('link', { name: 'Review activity for gpu-node-04' })).toHaveAttribute('href', '/servers/srv-4/activity?site=site-a#activity-provider-events')
 })
 
+// `fill` types the whole query at once, so it never sees a commit land mid-typing. Typing key by key
+// with pauses longer than the 300ms debounce commits the draft to the URL between keystrokes; the
+// field must keep focus and every keystroke across those commits instead of being rebuilt.
+test('discovery search keeps focus and every keystroke while the operator types slowly', async ({ page }) => {
+  await installApiFixtures(page, { readyServerCount: 1, extraTags: { 'srv-1': ['east', 'training'] } })
+  await page.goto('/servers?site=site-a')
+  const table = page.getByRole('table', { name: 'Servers' })
+  const search = page.getByRole('textbox', { name: 'Search Servers' })
+  await expect(table.getByText('gpu-node-01', { exact: true })).toBeVisible()
+
+  await search.click()
+  await search.pressSequentially('training', { delay: 400 })
+  await expect(page).toHaveURL(/q=training/)
+  await expect(search).toHaveValue('training')
+  await expect(search).toBeFocused()
+  await expect(table.getByText('gpu-node-01', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-02', { exact: true })).toHaveCount(0)
+
+  // The URL holds the trimmed query, but the trailing space is part of what the operator is still
+  // typing, so committing `gpu` must not strip it from the field.
+  await search.fill('')
+  await expect(page).not.toHaveURL(/q=/)
+  await search.pressSequentially('gpu ', { delay: 50 })
+  await expect(page).toHaveURL(/q=gpu(&|$)/)
+  await expect(search).toHaveValue('gpu ')
+  await expect(search).toBeFocused()
+  await search.pressSequentially('node')
+  await expect(page).toHaveURL(/q=gpu\+node/)
+  await expect(search).toHaveValue('gpu node')
+
+  // A URL change the field did not make (Clear filters) still replaces the draft.
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(page).toHaveURL('/servers?site=site-a')
+  await expect(search).toHaveValue('')
+})
+
 test('deployed status uses one tone regardless of deployment provenance', async ({ page }) => {
   await installApiFixtures(page, { existingServerIds: ['srv-2'] })
   await page.goto('/servers?site=site-a')

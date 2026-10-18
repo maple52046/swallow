@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { Badge, Box, Button, Flex, HStack, Table, Text } from '@chakra-ui/react'
 import {
   ArrowUpRight,
@@ -23,7 +23,7 @@ import { Pagination } from '@/presentation/components/Pagination'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
-import { SearchInput } from '@/presentation/components/ui/search-input'
+import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-search-input'
 import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDuration, formatRelative } from '@/shared/utils/time'
@@ -257,7 +257,6 @@ export function OperatorOperationsPage() {
   const active = params.get('active') === 'true' || params.get('active') === 'active'
   const kind = params.get('kind') ?? ''
   const page = Math.max(1, Number(params.get('page')) || 1)
-  const [kindDraft, setKindDraft] = useState(kind)
 
   const updateParams = useCallback((
     update: (next: URLSearchParams) => void,
@@ -268,21 +267,13 @@ export function OperatorOperationsPage() {
     setParams(next, { replace })
   }, [paramsKey, setParams])
 
-  useEffect(() => {
-    setKindDraft(kind)
-  }, [kind])
-
-  useEffect(() => {
-    if (kindDraft === kind) return
-    const timer = setTimeout(() => {
-      updateParams((next) => {
-        if (kindDraft) next.set('kind', kindDraft)
-        else next.delete('kind')
-        next.delete('page')
-      }, true)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [kind, kindDraft, updateParams])
+  const commitKind = useCallback((value: string) => {
+    updateParams((next) => {
+      if (value) next.set('kind', value)
+      else next.delete('kind')
+      next.delete('page')
+    }, true)
+  }, [updateParams])
 
   useEffect(() => {
     if ((!rawStatus || status) && !(active && rawStatus)) return
@@ -434,9 +425,9 @@ export function OperatorOperationsPage() {
               />
             </Flex>
             <Box className="sw-workflow-kind-filter">
-              <SearchInput
-                value={kindDraft}
-                onChange={setKindDraft}
+              <DebouncedSearchInput
+                value={kind}
+                onCommit={commitKind}
                 placeholder="Exact Workflow kind"
                 aria-label="Filter by Workflow kind"
                 maxW="100%"

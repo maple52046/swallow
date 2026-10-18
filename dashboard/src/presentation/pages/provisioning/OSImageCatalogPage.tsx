@@ -47,7 +47,7 @@ import { ResourceTag } from '@/presentation/components/ResourceTag'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
-import { SearchInput } from '@/presentation/components/ui/search-input'
+import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-search-input'
 import { Select } from '@/presentation/components/ui/select'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
@@ -143,16 +143,6 @@ function formatImageSize(sizeBytes?: number): string {
 
 function ImageID({ imageId }: { imageId: string }) {
   return <span className="sw-image-id"><span className="sw-mono">{imageId}</span><CopyButton value={imageId} label="Copy image ID" /></span>
-}
-
-function CatalogSearch({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => {
-    if (draft === value) return
-    const handle = setTimeout(() => onCommit(draft), 300)
-    return () => clearTimeout(handle)
-  }, [draft, onCommit, value])
-  return <SearchInput value={draft} onChange={setDraft} placeholder="Search image, ID, OS, release, tag, or user" aria-label="Search OS images" maxW="30rem" size="md" />
 }
 
 function PopoverButton({ title, trigger, children }: { title: string; trigger: ReactNode; children: ReactNode }) {
@@ -469,7 +459,7 @@ export function OSImageCatalogPage() {
     {state.status === 'ready' && <>
       <CatalogOverview facts={facts} partial={failures.length > 0} />
       <InventorySurface headingId="os-image-inventory-title" eyebrow="OS provisioning catalog" title="Deployment images" summary={summary} className="sw-os-image-inventory" toolbar={<div className="sw-os-image-toolbar-layout">
-        <CatalogSearch key={query.q} value={query.q} onCommit={commitSearch} />
+        <DebouncedSearchInput value={query.q} onCommit={commitSearch} placeholder="Search image, ID, OS, release, tag, or user" aria-label="Search OS images" maxW="30rem" size="md" />
         <Flex className="sw-os-image-toolbar-controls" align="center" gap="2" wrap="wrap">
           <Flex className="sw-platform-filter-group" role="group" aria-label="Filter OS Image catalog view">{[{ value: 'all', label: 'All' }, { value: 'verification_failed', label: 'Failed tests' }].map((view) => <Button key={view.value} className="sw-platform-filter-chip" variant="plain" size="sm" aria-pressed={query.view === view.value} data-active={query.view === view.value || undefined} onClick={() => updateParams((next) => { if (view.value === 'all') next.delete('view'); else next.set('view', view.value); next.delete('page') })}>{view.label}</Button>)}</Flex>
           <PopoverButton title="OS Image filters" trigger={<Button variant="outline" size="sm"><Filter size={16} />Filters{activeFilterCount(query) > 0 && <Badge variant="subtle">{activeFilterCount(query)}</Badge>}</Button>}><CatalogFilterPanel query={query} facets={facets} onSingle={(key, value) => updateParams((next) => { if (value) next.set(key, value); else next.delete(key); if (key === 'target' && !value) next.delete('readiness'); next.delete('page') })} onMulti={(key, values) => updateParams((next) => { next.delete(key); values.forEach((value) => next.append(key, value)); next.delete('page') })} onClear={clearFilters} /></PopoverButton>

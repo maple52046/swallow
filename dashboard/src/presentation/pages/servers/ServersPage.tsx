@@ -44,7 +44,7 @@ import { CopyButton } from '@/presentation/components/CopyButton'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Select } from '@/presentation/components/ui/select'
-import { SearchInput } from '@/presentation/components/ui/search-input'
+import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-search-input'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
@@ -862,7 +862,14 @@ export function ServersPage() {
             className="sw-server-inventory"
             toolbar={
               <div className="sw-server-toolbar-layout">
-                <ServerDiscoverySearch key={query.q} value={query.q} onCommit={commitSearch} />
+                <DebouncedSearchInput
+                  value={query.q}
+                  onCommit={commitSearch}
+                  placeholder="Search name, address, tag, or GPU"
+                  aria-label="Search Servers"
+                  maxW="28rem"
+                  size="md"
+                />
                 <Flex className="sw-server-view-filters" align="center" gap="2" wrap="wrap">
                   <Flex as="div" className="sw-platform-filter-group" role="group" aria-label="Filter Server operational view">
                     {SERVER_VIEWS.map((view) => (
@@ -1153,26 +1160,6 @@ export function ServersPage() {
         />
       )}
     </div>
-  )
-}
-
-/** Debounced dashboard-owned discovery search; URL changes remount it with canonical input. */
-function ServerDiscoverySearch({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => {
-    if (draft === value) return
-    const handle = setTimeout(() => onCommit(draft), 300)
-    return () => clearTimeout(handle)
-  }, [draft, onCommit, value])
-  return (
-    <SearchInput
-      value={draft}
-      onChange={setDraft}
-      placeholder="Search name, address, tag, or GPU"
-      aria-label="Search Servers"
-      maxW="28rem"
-      size="md"
-    />
   )
 }
 
