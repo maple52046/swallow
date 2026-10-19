@@ -139,7 +139,7 @@ func newRerunOldOp(status operationdomain.WorkflowStatus, installStatus operatio
 	}
 }
 
-func TestRerunClonesFailedOperationPreservingSucceededSteps(t *testing.T) {
+func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 	old := newRerunOldOp(operationdomain.WorkflowFailed, operationdomain.TaskFailed)
 	repo := &fakeRerunRepo{byID: map[string]*operationdomain.Workflow{old.ID: old}}
 	controller := &fakeRerunController{}
@@ -169,12 +169,15 @@ func TestRerunClonesFailedOperationPreservingSucceededSteps(t *testing.T) {
 		t.Fatalf("a terminal Operation must not be canceled, got %v", controller.canceled)
 	}
 
+	// Both Steps are ensure operations (decision 060): the succeeded readiness check runs again
+	// so the rerun observes the current state, and each continues its attempt sequence so its
+	// executor observes before acting the way an explicit retry does.
 	steps := repo.created.Steps
-	if steps[0].Status != operationdomain.TaskSucceeded {
-		t.Errorf("preserved Step status = %v, want succeeded (its side effects must not repeat)", steps[0].Status)
+	if steps[0].Status != operationdomain.TaskPending || steps[0].Attempt != 2 {
+		t.Errorf("succeeded ensure Step = (%v, attempt %d), want pending at attempt 2", steps[0].Status, steps[0].Attempt)
 	}
-	if steps[1].Status != operationdomain.TaskPending {
-		t.Errorf("incomplete Step status = %v, want pending", steps[1].Status)
+	if steps[1].Status != operationdomain.TaskPending || steps[1].Attempt != 3 {
+		t.Errorf("incomplete Step = (%v, attempt %d), want pending at attempt 3", steps[1].Status, steps[1].Attempt)
 	}
 	if steps[1].Error != nil {
 		t.Errorf("incomplete Step error = %v, want cleared", steps[1].Error)
@@ -185,6 +188,62 @@ func TestRerunClonesFailedOperationPreservingSucceededSteps(t *testing.T) {
 	if secrets.cloneFrom != old.ID || secrets.cloneTo != repo.created.ID {
 		t.Errorf("CloneForOperation(%q,%q), want (%q,%q)", secrets.cloneFrom, secrets.cloneTo, old.ID, repo.created.ID)
 	}
+}
+
+// TestCloneStepsForRerunConvergesOnlyEnsureSteps reproduces the test-amd-operator rerun: the
+// succeeded provision-os of lab-afde-mi308-1 and -2 were carried over, never ran, and their Server
+// results stayed canceled. Ensure Steps now run again; one-time actions keep the carry-over rule,
+// and a platform uninstall keeps its succeeded playbook once a release-os has taken hosts away.
+func TestCloneStepsForRerunConvergesOnlyEnsureSteps(t *testing.T) {
+	succeeded := func(id, kind string, attempt int) operationdomain.Task {
+		return operationdomain.Task{ID: id, Kind: kind, Status: operationdomain.TaskSucceeded, Attempt: attempt}
+	}
+	byID := func(steps []operationdomain.Task) map[string]operationdomain.Task {
+		out := map[string]operationdomain.Task{}
+		for _, step := range steps {
+			out[step.ID] = step
+		}
+		return out
+	}
+
+	t.Run("platform deployment", func(t *testing.T) {
+		steps := byID(cloneStepsForRerun([]operationdomain.Task{
+			succeeded("ensure-boot-media-a", "ensure-boot-media", 6),
+			succeeded("provision-a", "provision-os", 6),
+			{ID: "provision-c", Kind: "provision-os", Status: operationdomain.TaskFailed, Attempt: 6,
+				Error: &operationdomain.NormalizedError{Code: "deployment_failed"}},
+			{ID: "install-platform", Kind: "ansible-playbook", Status: operationdomain.TaskCanceled, Attempt: 1},
+			succeeded("record", "record-image-verification", 1),
+		}, nil))
+		for id, wantAttempt := range map[string]int{"ensure-boot-media-a": 7, "provision-a": 7, "provision-c": 7, "install-platform": 2} {
+			if got := steps[id]; got.Status != operationdomain.TaskPending || got.Attempt != wantAttempt || got.Error != nil {
+				t.Errorf("%s = (%v, attempt %d, error %v), want pending at attempt %d", id, got.Status, got.Attempt, got.Error, wantAttempt)
+			}
+		}
+		if got := steps["record"]; got.Status != operationdomain.TaskSucceeded || got.Attempt != 1 {
+			t.Errorf("one-time record Step = (%v, attempt %d), want it carried over", got.Status, got.Attempt)
+		}
+	})
+
+	t.Run("platform uninstall after a release", func(t *testing.T) {
+		steps := byID(cloneStepsForRerun([]operationdomain.Task{
+			succeeded("uninstall-platform", "ansible-playbook", 1),
+			succeeded("release-a", "release-os", 1),
+			{ID: "release-b", Kind: "release-os", Status: operationdomain.TaskFailed, Attempt: 1},
+			{ID: "complete-uninstall", Kind: "complete-uninstall", Status: operationdomain.TaskCanceled, Attempt: 1},
+		}, nil))
+		if got := steps["uninstall-platform"]; got.Status != operationdomain.TaskSucceeded {
+			t.Errorf("uninstall playbook = %v, want it carried over once a host was released", got.Status)
+		}
+		for _, id := range []string{"release-a", "release-b"} {
+			if got := steps[id]; got.Status != operationdomain.TaskPending || got.Attempt != 2 {
+				t.Errorf("%s = (%v, attempt %d), want pending at attempt 2", id, got.Status, got.Attempt)
+			}
+		}
+		if got := steps["complete-uninstall"]; got.Status != operationdomain.TaskPending || got.Attempt != 0 {
+			t.Errorf("complete-uninstall = (%v, attempt %d), want a fresh first attempt", got.Status, got.Attempt)
+		}
+	})
 }
 
 func TestRerunFinalizesNonTerminalOperationBeforeReplacing(t *testing.T) {

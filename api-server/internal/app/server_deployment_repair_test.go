@@ -205,6 +205,88 @@ func TestRepairStuckDeploymentProjections(t *testing.T) {
 	}
 }
 
+// TestRepairCanceledDeploymentFromRecordedOutcome reproduces lab-afde-mi308-1 and -2: their
+// provision-os succeeded at attempt 6, but canceling the platform Workflow rewrote the Server
+// result to canceled at attempt 1 (start and finish at the cancel time). The durable Task kept its
+// outcome, so the sweep restores it; a canceled result whose Task did not record an outcome at the
+// same or a later attempt stays canceled.
+func TestRepairCanceledDeploymentFromRecordedOutcome(t *testing.T) {
+	canceledAt := time.Date(2026, 10, 19, 6, 44, 3, 0, time.UTC)
+	taskStarted := time.Date(2026, 10, 19, 5, 22, 58, 0, time.UTC)
+	taskFinished := taskStarted.Add(time.Second)
+	staleCancel := func(attempt int) *serverdomain.DeploymentStatus {
+		return &serverdomain.DeploymentStatus{
+			State: serverdomain.DeploymentCanceled, OperationID: "operation-1", StepID: "provision-a",
+			Attempt: attempt, StartedAt: canceledAt, FinishedAt: &canceledAt,
+		}
+	}
+	workflowWith := func(status operationdomain.WorkflowStatus, task operationdomain.TaskStatus, attempt int) *operationdomain.Workflow {
+		return &operationdomain.Workflow{
+			ID: "operation-1", Kind: operationdomain.WorkflowKindDeployKubernetes, Status: status, FinishedAt: &canceledAt,
+			Steps: []operationdomain.Task{{
+				ID: "provision-a", Kind: "provision-os", Status: task, Attempt: attempt,
+				StartedAt: &taskStarted, FinishedAt: &taskFinished,
+				Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-a"}},
+			}},
+		}
+	}
+	tests := []struct {
+		name        string
+		deployment  *serverdomain.DeploymentStatus
+		workflow    *operationdomain.Workflow
+		wantState   serverdomain.DeploymentState
+		wantAttempt int
+	}{
+		{
+			name:       "succeeded task restores the result",
+			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskSucceeded, 6),
+			wantState: serverdomain.DeploymentSucceeded, wantAttempt: 6,
+		},
+		{
+			name:       "failed task restores the result",
+			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskFailed, 6),
+			wantState: serverdomain.DeploymentFailed, wantAttempt: 6,
+		},
+		{
+			name:       "task that was itself canceled keeps the canceled result",
+			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskCanceled, 1),
+			wantState: serverdomain.DeploymentCanceled, wantAttempt: 1,
+		},
+		{
+			name:       "outcome of an older attempt does not replace a newer cancel",
+			deployment: staleCancel(2), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskSucceeded, 1),
+			wantState: serverdomain.DeploymentCanceled, wantAttempt: 2,
+		},
+		{
+			name:       "workflow that has not ended is never touched",
+			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowRunning, operationdomain.TaskSucceeded, 6),
+			wantState: serverdomain.DeploymentCanceled, wantAttempt: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			servers := &repairServerRepo{servers: map[string]*serverdomain.Server{"server-a": {ID: "server-a", Deployment: tc.deployment}}}
+			workflows := &repairWorkflowRepo{workflows: map[string]*operationdomain.Workflow{tc.workflow.ID: tc.workflow}}
+
+			if err := repairStuckDeploymentProjections(context.Background(), servers, workflows); err != nil {
+				t.Fatalf("repairStuckDeploymentProjections() error = %v", err)
+			}
+
+			got := servers.servers["server-a"].Deployment
+			if got.State != tc.wantState || got.Attempt != tc.wantAttempt {
+				t.Fatalf("deployment = (%q, attempt %d), want (%q, attempt %d)", got.State, got.Attempt, tc.wantState, tc.wantAttempt)
+			}
+			restored := tc.wantState != serverdomain.DeploymentCanceled
+			if restored && (!got.StartedAt.Equal(taskStarted) || got.FinishedAt == nil || !got.FinishedAt.Equal(taskFinished)) {
+				t.Errorf("deployment timing = %v -> %v, want the Task's %v -> %v", got.StartedAt, got.FinishedAt, taskStarted, taskFinished)
+			}
+			if wantWrites := map[bool]int{true: 1, false: 0}[restored]; servers.writes != wantWrites {
+				t.Errorf("deployment writes = %d, want %d", servers.writes, wantWrites)
+			}
+		})
+	}
+}
+
 // cancelProjectionWorkflowRepo keeps the durable Task projection the workflow writes through the
 // real UpdateStep activity.
 type cancelProjectionWorkflowRepo struct {
@@ -265,7 +347,13 @@ func TestDeployOSCancelDuringProvisionSettlesServerDeployment(t *testing.T) {
 		mu.Unlock()
 		return nil
 	}, activity.RegisterOptions{Name: temporalworkflow.ActivityUpdateState})
-	env.RegisterActivityWithOptions(func(ctx context.Context, _ temporalworkflow.StepExecutionInput) (temporalworkflow.StepExecutionResult, error) {
+	env.RegisterActivityWithOptions(activities.AppendEvent, activity.RegisterOptions{Name: temporalworkflow.ActivityAppendEvent})
+	env.RegisterActivityWithOptions(func(ctx context.Context, input temporalworkflow.StepExecutionInput) (temporalworkflow.StepExecutionResult, error) {
+		// The cancel then returns the interrupted deployment; that step has its own executor
+		// tests, so here it only reports that it left the Server as it is.
+		if input.Step.Kind == temporalworkflow.ReturnCanceledDeploymentKind {
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSkipped, WaitingReason: "The Server is already Ready."}, nil
+		}
 		env.CancelWorkflow()
 		select {
 		case <-ctx.Done():

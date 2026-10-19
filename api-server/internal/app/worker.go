@@ -206,6 +206,8 @@ func RunWorker(cfg config.APIConfig) error {
 		activity.RegisterOptions{Name: temporalworkflow.ActivityUpdateStep})
 	temporalWorker.RegisterActivityWithOptions(activities.ExecuteStep,
 		activity.RegisterOptions{Name: temporalworkflow.ActivityExecuteStep})
+	temporalWorker.RegisterActivityWithOptions(activities.AppendEvent,
+		activity.RegisterOptions{Name: temporalworkflow.ActivityAppendEvent})
 
 	go taskWorker.Run(ctx)
 	if err := temporalWorker.Start(); err != nil {

@@ -46,6 +46,10 @@ Live Ansible event 可能早於 final Task state；terminal Workflow result 才�
    runtime API 或 resource eligibility。
 4. 支援時只 retry Task；需要重新評估整個 intent 時 rerun Workflow。
 
+Rerun 會讓 intent 收斂到它描述的目標狀態。每個 ensure Task 都會重跑，並先檢查目前的實際
+狀態：已用指定 image 部署且 SSH 可連的 Server 幾秒內完成，並更新它的 deployment 結果；
+failed 的 Server 會先收回 Ready 再重新部署。Platform 的設定 playbook 也會重跑，所需時間與平常相同。
+
 Expired／lost execution 可能變成 `indeterminate`；swallow 無法證明 external side
 effect 是否發生，因此不會自動 retry。
 
@@ -54,6 +58,11 @@ effect 是否發生，因此不會自動 retry。
 Cancellation 會記錄 intent，並要求 running orchestration 在安全邊界停止；無法撤銷
 已完成的 external side effect。開始另一個 conflicting Workflow 前先檢查 resulting
 Task states。
+
+取消不會改變已經結束的 OS 部署：已部署完成的 Server 保留結果，失敗的也一樣。取消若中斷了
+正在進行的 OS 部署，swallow 會在 Workflow 結束前中止它，並把該 Server 收回 Ready（保留
+static IP 綁定、不清磁碟）。該 Task 的時間軸會說明 Server 是否已收回，或為什麼保持原狀；
+無法收回的 Server 可以用 Recover 處理。
 
 State transition 與 supported control 請見 active
 [Workflows contract](../../../api-server/docs/development/api-contracts/api-server/workflows.md)。

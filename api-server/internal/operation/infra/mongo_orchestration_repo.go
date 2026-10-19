@@ -235,15 +235,16 @@ func (r *MongoWorkflowRepo) UpdateStep(ctx context.Context, operationID string, 
 	}
 	if result.MatchedCount == 0 {
 		// For a guarded `canceled` write, zero matches can mean the Task is already terminal (a
-		// monotonic no-op, not an error) rather than genuinely missing; distinguish the two so a
-		// real missing Task still surfaces ErrTaskNotFound.
+		// monotonic no-op) rather than genuinely missing; distinguish the two so a real missing
+		// Task still surfaces ErrTaskNotFound, and report the no-op so callers do not project the
+		// rejected Task onto other read models.
 		if step.Status == operationdomain.TaskCanceled {
 			exists, existErr := r.taskExists(ctx, operationID, step.ID)
 			if existErr != nil {
 				return existErr
 			}
 			if exists {
-				return nil
+				return operationdomain.ErrStepTransitionIgnored
 			}
 		}
 		return operationdomain.ErrTaskNotFound

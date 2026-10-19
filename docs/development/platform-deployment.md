@@ -360,9 +360,14 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
 - **execution 遺失的回復（不刪 Platform）**：Temporal Workflow ID 固定且 reject-duplicate，Starter
   只會啟動 `startState=pending` 的紀錄，因此終態或 execution 已消失的 Operation 無法就地重啟。回復
   路徑是 **rerun**（`POST /workflows/{id}/rerun`）：以新的 Operation（新 WorkflowID、`RetryOfOperationId`
-  指回原 Operation）重跑同一意圖，clone 舊 Steps 並**保留已成功/略過的 Step**（不重炸已部署節點，
-  只重跑未完成的工作）、把封存 secrets 複製到新 Operation。平台 lifecycle 以 `requestedAt` 最新的
-  deploy Operation 為準，新 Operation 自然接管，原 Operation 留作診斷；全程不需刪 Platform。
+  指回原 Operation）重跑同一意圖、把封存 secrets 複製到新 Operation。Rerun **收斂到目標狀態**
+  （decision 060）：ensure 類 Task（`provision-os`、`ensure-boot-media`、`wait-for-ssh`、
+  `ansible-playbook`、`validate-platform-health`、`release-os`、`recover-server`）不論先前結果一律重跑，
+  attempt 延續上次再加一，executor 先觀察再動作——已以凍結 image 部署且 SSH 可連的節點幾秒內成功並
+  以新 Operation 寫回 Server 的 deployment 結果（不重炸已部署節點），`failed`／`allocated` 等先回收再部署；
+  一次性動作（例如 image 驗證紀錄、uninstall 收尾）沿用舊結果，同一 Operation 已有 `release-os` 成功時，
+  已成功的 playbook 也沿用。平台 lifecycle 以 `requestedAt` 最新的 deploy Operation 為準，新 Operation
+  自然接管，原 Operation 留作診斷；全程不需刪 Platform。
 - **lost-execution reconciler**：週期性 sweep 會偵測「Mongo 仍非終態、但 Temporal execution 已關閉/
   消失」的 Operation，將其標為 `requires_attention`（lifecycle 顯示 `deploy_failed` 可 repair）。它
   只標記、不自動 rerun；rerun 一律是明確的 operator 動作。dashboard 的 Repair 會先試單一 Task 重試，
@@ -383,9 +388,16 @@ Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它�
 > `succeeded` 的 `provision-os`（OS 佈署）改成 `canceled`。Server 的 `deployment` 軸是它**自身的
 > OS 佈署結果**，與 platform 分離；platform 的取消由 Workflow 狀態與 `Platform.lifecycleState`
 > 表達，不寫進各 Server 的 deployment 軸（見 glossary [Server](glossaries/terms/server.md) 的
-> Deployment result 定義）。此不變式由 `UpdateStep` 的 monotonic guard 與 deployment observer 的
-> regression guard 共同保證：已終態（`succeeded`／`failed`）的 `provision-os` 不會被 workflow 取消
-> 覆寫成 `canceled`。
+> Deployment result 定義）。jobbed parent 以啟動時的快照（全部 pending、attempt 1）完成取消，所以
+> 此不變式由三道機制保證（decision 060）：`UpdateStep` 的 monotonic guard 拒絕退化並回報
+> `ErrStepTransitionIgnored`，被拒的轉換不會通知 observer 也不寫時間軸；deployment observer 對同一
+> Operation／Task 不以較舊或相同 attempt 的取消覆寫 `succeeded`／`failed`；修復 sweep 在 Workflow 結束後
+> 依 Task 還原被錯寫的 `canceled`。
+>
+> **取消會回收被中斷的部署**：取消當下仍在執行的 `provision-os`，由該 Workflow 在釋放 lease 前執行
+> internal step `return-canceled-deployment`：中止 Deploying、等它離開，Allocated（MAAS 中止部署後的
+> 狀態）以 Recover 計畫 Release 回 Ready（保留 static IP、不清磁碟）；deployed／failed／broken／rescue
+> 不動。結果寫在該 Task 的時間軸；parent 以 `WaitForCancellation` 等 Job child 做完。
 
 - **provider 層失敗（Server 的 `provisioning` 軸不是 `ready`）**：`ensure-os`／`provision-os`
   失敗會讓該 Server 落在 `failed`（或 `allocated`／`broken`／`rescue`）。Workflow 停在

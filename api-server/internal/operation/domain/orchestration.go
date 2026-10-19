@@ -199,6 +199,12 @@ var (
 	// ErrWorkflowControlConflict: callers that only tolerate a control conflict keep working,
 	// while Cancel recognises it and records the cancellation itself.
 	ErrWorkflowExecutionGone = errors.New("the workflow execution is no longer running")
+	// ErrStepTransitionIgnored reports that UpdateStep left a Task unchanged because the write
+	// would regress an outcome it already recorded: a `canceled` write for a Task that already
+	// succeeded, failed, or was skipped. A jobbed Workflow finalizes cancellation from its start
+	// snapshot, so such writes are expected. Callers treat it as success, but must not derive any
+	// further projection (Server deployment result, timeline event) from the rejected Task.
+	ErrStepTransitionIgnored = errors.New("operation step transition would regress a recorded outcome")
 )
 
 // WorkflowFilter narrows v3 Operation listings.
@@ -232,6 +238,9 @@ type WorkflowRepository interface {
 	ListParkedStarted(ctx context.Context, limit int) ([]*Workflow, error)
 	MarkWorkflowStarted(ctx context.Context, id, runID string) error
 	UpdateState(ctx context.Context, id string, status WorkflowStatus, reason string, startedAt, finishedAt *time.Time) error
+	// UpdateStep replaces one Task's projection. A `canceled` write never regresses a Task that
+	// already succeeded, failed, or was skipped; that write returns ErrStepTransitionIgnored and
+	// changes nothing. A missing Task is ErrTaskNotFound.
 	UpdateStep(ctx context.Context, operationID string, step Task) error
 	// UpdateStepLive projects a running Task's live fields without replacing the whole step, so a
 	// mid-run writer (the ansible activity) cannot clobber targets, parameters, or dependencies.

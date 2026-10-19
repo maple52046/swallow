@@ -198,7 +198,10 @@ Workflow and Task state transitions with no secret material. A Task status event
 (`type` `step_status`) is recorded once per status per attempt; its `details` carry `status`
 and `attempt`, and, when the Task has a normalized error, that error's `code`, `message`,
 `stage`, and `retryable`. The Task itself keeps only its latest error, so these events are
-where an earlier attempt's failure remains readable after a retry. Task logs are UTF-8
+where an earlier attempt's failure remains readable after a retry. A cancel that interrupted a
+`provision-os` records, on that Task's `stepId`, what happened to its Server (see Cancel):
+`canceled_deployment_returned_to_ready`, `canceled_deployment_left_as_is`, or
+`canceled_deployment_return_failed`, with an operator-facing `message` and `details.attempt`. Task logs are UTF-8
 `text/plain`; a non-Ansible Task or one without output returns an empty body. `GET
 /tasks/{taskId}/stderr` returns an error-only UTF-8 `text/plain` report for an Ansible Task —
 one block per failed or unreachable task (task, host, message, return code, and its captured
@@ -232,12 +235,27 @@ that already reached an outcome keep it. Cancel on a finished Workflow is still 
 
 A Task that was running when the cancel arrived also ends `canceled`. A canceled
 `provision-os` Task sets its Server's `deployment` result to `canceled`; a `provision-os` that
-already `succeeded` or `failed` keeps that outcome. The provider-owned `provisioning.state` is
-not rewritten and keeps following the provider after the abort. If a Server's `deployment`
-result is still `deploying` or `verifying` after the Workflow it names has ended, a background
-sweep settles it from that Workflow's Task outcome (`canceled` when the Workflow was canceled
-before the Task recorded one) within one reconcile interval. The sweep never acts while the
-Workflow is still advancing, `canceling`, or `requires_attention`.
+already `succeeded` or `failed` keeps that outcome, including in a platform deployment whose Jobs
+retried it. The provider-owned `provisioning.state` is not rewritten by the cancel itself and keeps
+following the provider. If a Server's `deployment` result is still `deploying` or `verifying` after
+the Workflow it names has ended, a background sweep settles it from that Workflow's Task outcome
+(`canceled` when the Workflow was canceled before the Task recorded one) within one reconcile
+interval. The same sweep restores a `canceled` result whose Task recorded `succeeded` or `failed`
+at the same or a later attempt. The sweep never acts while the Workflow is still advancing,
+`canceling`, or `requires_attention`.
+
+A cancel also returns the Servers whose `provision-os` it interrupted to Ready
+([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). Before the
+Workflow becomes `canceled`, and while it still holds its leases, Swallow aborts a deployment the
+provider still reports as Deploying, waits up to 10 minutes for the provider to leave it, and
+returns an Allocated Machine (where MAAS parks an aborted deployment) to Ready with the Recover
+plan: a plain Release that keeps static IP bindings and erases no disk. A Machine the provider
+reports as deployed, failed, broken, or in rescue holds the deployment's outcome and is left as
+it is; so is one already Ready. The return is best-effort; the Servers are returned in parallel,
+each bounded to 30 minutes. Each outcome is a timeline event on the interrupted Task (see
+Timeline), and a Server it could not return stays in a state Recover accepts. The Server's `deployment` result stays
+`canceled` until reconcile observes it Ready and clears it. A `verify-os-image` Workflow returns
+its borrowed Server through its own recover Task instead.
 
 ## Retry Task
 
@@ -258,9 +276,23 @@ whose Temporal execution was lost (a host restart or execution timeout left it n
 with no live execution), cannot be restarted or retried by Task. Rerun instead launches a new
 Workflow for the same intent, on the same Platform, and returns `202` with the new Workflow
 projection. The new Workflow's `retryOfOperationId` points at the original, it carries a later
-`requestedAt` so the platform lifecycle follows it, and the original stays in history. Already
-`succeeded` and `skipped` Tasks are preserved so their side effects are not repeated; only the
-incomplete Tasks run again. A Workflow that already `succeeded` or is still actively advancing
+`requestedAt` so the platform lifecycle follows it, and the original stays in history.
+
+A rerun converges the intent to its desired state
+([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). Every ensure
+Task runs again, whatever its earlier outcome, at the attempt after its last one: `provision-os`,
+`ensure-boot-media`, `wait-for-ssh`, `ansible-playbook`, `validate-platform-health`,
+`release-os`, and `recover-server`. Like an explicit Task retry, each observes before acting:
+`provision-os` succeeds without provider work when the Server is already deployed with the frozen
+image and reachable over SSH, and records that `succeeded` result on the Server under the new
+Workflow; it recovers a `failed`, `allocated`, `broken`, or `rescue` Machine before redeploying,
+and ends with `deployment_image_mismatch` rather than replace a different deployed image.
+`release-os` and `recover-server` succeed on a Server that is already Ready. A Server Default User
+is cleared only when a deployment is actually submitted. Any other Task keeps the earlier rule: an
+already `succeeded` or `skipped` one is preserved so its one-time side effect is not repeated, and
+the rest run again. A succeeded `ansible-playbook` is also preserved once a `release-os` in the
+same Workflow succeeded, because a released host no longer runs the OS the playbook needs. A
+Workflow that already `succeeded` or is still actively advancing
 (`pending`, `running`, `waiting_external`, `waiting_dependency`, `canceling`) is rejected with
 `conflict`; those cases use Task retry or cancel instead. The lost-execution reconciler
 independently marks a Workflow whose execution vanished as `requires_attention` (or annotates
@@ -301,3 +333,11 @@ Target overlap, lock, policy, and invalid control state return `conflict`. Inval
 state, Task retry eligibility, or unregistered playbook returns `validation_error`. Disabled
 or missing Site automation and credential return `provider_unavailable`. Unknown Workflow or
 Task returns `not_found`.
+
+## Compatibility Notes
+
+On 2026-10-19 ([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)) a
+cancel began returning the Servers of interrupted `provision-os` Tasks to Ready and recording
+three new timeline event types, and a rerun began running every ensure Task again instead of
+carrying succeeded ones over. Routes, statuses, and error codes are unchanged. A rerun of a
+platform deployment now takes the time of its idempotent playbook again.

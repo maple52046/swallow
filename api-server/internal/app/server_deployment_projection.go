@@ -51,12 +51,15 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 	// stale step snapshot) would otherwise regress deployment succeeded/failed to canceled and
 	// hide the real OS result. The cancellation is carried by the Workflow status and the
 	// Platform lifecycle, not by this per-Server axis. The guard is scoped to the same
-	// operation/step/attempt, so a fresh attempt or a different operation still applies, and a
-	// genuinely in-flight (deploying/verifying) or attention-pending deploy can still be canceled.
+	// operation and step, and to an attempt no newer than the recorded outcome: a jobbed parent
+	// cancels from its start snapshot (attempt 1) after a Job retry finished a later attempt, so
+	// requiring the exact attempt let that stale cancel through. A newer attempt or a different
+	// operation still applies, and a genuinely in-flight (deploying/verifying) or
+	// attention-pending deploy can still be canceled.
 	if step.Status == operationdomain.TaskCanceled || step.Status == operationdomain.TaskSkipped {
 		if current := server.Deployment; current != nil &&
 			current.OperationID == operationID && current.StepID == step.ID &&
-			current.Attempt == step.Attempt &&
+			step.Attempt <= current.Attempt &&
 			(current.State == serverdomain.DeploymentSucceeded || current.State == serverdomain.DeploymentFailed) {
 			return nil
 		}
@@ -110,22 +113,27 @@ func deploymentStateFromStep(status operationdomain.TaskStatus) (serverdomain.De
 	}
 }
 
-// repairStuckDeploymentProjections settles Server Deployment results that still report
-// in-flight work (deploying or verifying) although the Workflow they name has already ended.
+// repairStuckDeploymentProjections settles Server Deployment results that disagree with the
+// Workflow they name once that Workflow has ended: results that still report in-flight work
+// (deploying or verifying), and `canceled` results whose Task actually recorded an outcome.
 //
 // The Deployment result is written only from durable provision-os Step transitions, so a
 // projection the workflow failed to deliver leaves it in-flight forever: provisioning reconcile
 // deliberately never clears an active deployment, and no later Step of that Workflow will run.
-// This sweep is the safety net for that gap. It only acts when the named Workflow is terminal,
-// which is what keeps it from racing an in-flight Operation, and it never touches the
-// provider-owned provisioning axis.
+// A `canceled` result can also be wrong: before transitions ignored as regressions stopped
+// reaching the observer, canceling a jobbed Workflow rewrote an already succeeded provision-os
+// from the parent's start snapshot. This sweep is the safety net for both. It only acts when the
+// named Workflow is terminal, which is what keeps it from racing an in-flight Operation, and it
+// never touches the provider-owned provisioning axis.
 //
 // Each candidate is settled from the durable Task: a Task that already recorded an outcome is
 // projected as-is, and a Task left non-terminal by a canceled Workflow is projected as canceled.
 // A Workflow that ended any other way without a Task outcome says nothing about this Server's OS
-// result, so that Server is left for the operator instead of being guessed. A missing Workflow or
-// Task is skipped for the same reason. Per-Server failures are joined and returned so one bad
-// record never stops the rest of the sweep; callers treat the error as a log-and-retry signal.
+// result, so that Server is left for the operator instead of being guessed; a `canceled` result is
+// changed only when its Task succeeded or failed at the same or a later attempt. A missing
+// Workflow or Task is skipped for the same reason. Per-Server failures are joined and returned so
+// one bad record never stops the rest of the sweep; callers treat the error as a log-and-retry
+// signal.
 func repairStuckDeploymentProjections(
 	ctx context.Context,
 	servers serverdomain.ServerRepository,
@@ -143,7 +151,7 @@ func repairStuckDeploymentProjections(
 	observer := serverDeploymentStepObserver{servers: servers}
 	var joined error
 	for _, server := range result.Servers {
-		if server.Deployment == nil || !deploymentInFlight(server.Deployment.State) {
+		if server.Deployment == nil || !deploymentRepairable(server.Deployment.State) {
 			continue
 		}
 		if err := repairStuckDeployment(ctx, servers, operations, observer, server.ID, *server.Deployment); err != nil {
@@ -153,11 +161,11 @@ func repairStuckDeploymentProjections(
 	return joined
 }
 
-// repairStuckDeployment settles one Server's in-flight Deployment result when its Workflow is
-// terminal. The Server is re-read right before the write and skipped unless it still carries
-// the same in-flight Operation/Step/attempt, so a deploy accepted after the list was taken is
-// not overwritten. The remaining read-then-write window is accepted: a newer Operation's own
-// Step projections rewrite the result on its next transition.
+// repairStuckDeployment settles one Server's in-flight or `canceled` Deployment result when its
+// Workflow is terminal. The Server is re-read right before the write and skipped unless it still
+// carries the same result (state, Operation, Step, and attempt), so a deploy accepted after the
+// list was taken is not overwritten. The remaining read-then-write window is accepted: a newer
+// Operation's own Step projections rewrite the result on its next transition.
 func repairStuckDeployment(
 	ctx context.Context,
 	servers serverdomain.ServerRepository,
@@ -186,7 +194,13 @@ func repairStuckDeployment(
 	if task == nil {
 		return nil
 	}
-	step, ok := settledDeploymentStep(operation, *task, deployment)
+	var step operationdomain.Task
+	var ok bool
+	if deployment.State == serverdomain.DeploymentCanceled {
+		step, ok = recordedDeploymentOutcome(*task, deployment)
+	} else {
+		step, ok = settledDeploymentStep(operation, *task, deployment)
+	}
 	if !ok {
 		return nil
 	}
@@ -197,10 +211,23 @@ func repairStuckDeployment(
 	if err != nil {
 		return fmt.Errorf("re-read server: %w", err)
 	}
-	if !sameInFlightDeployment(current.Deployment, deployment) {
+	if !sameDeployment(current.Deployment, deployment) {
 		return nil
 	}
 	return observer.ObserveStep(ctx, operation.ID, step)
+}
+
+// recordedDeploymentOutcome reports the Task outcome that replaces a `canceled` Deployment result:
+// only a Task that succeeded or failed at the same or a later attempt proves the cancel was a
+// stale rewrite. Any other Task state leaves the canceled result as it is.
+func recordedDeploymentOutcome(task operationdomain.Task, deployment serverdomain.DeploymentStatus) (operationdomain.Task, bool) {
+	if task.Attempt < deployment.Attempt {
+		return operationdomain.Task{}, false
+	}
+	if task.Status != operationdomain.TaskSucceeded && task.Status != operationdomain.TaskFailed {
+		return operationdomain.Task{}, false
+	}
+	return task, true
 }
 
 // settledDeploymentStep decides the Step outcome to project for an in-flight Deployment whose
@@ -239,10 +266,16 @@ func deploymentInFlight(state serverdomain.DeploymentState) bool {
 	return state == serverdomain.DeploymentDeploying || state == serverdomain.DeploymentVerifying
 }
 
-// sameInFlightDeployment reports whether current is still the in-flight Deployment the repair
-// sweep decided on, matching by Operation, Step, and attempt.
-func sameInFlightDeployment(current *serverdomain.DeploymentStatus, observed serverdomain.DeploymentStatus) bool {
-	return current != nil && deploymentInFlight(current.State) &&
+// deploymentRepairable reports whether the repair sweep inspects a Deployment result: in-flight
+// results can be stranded by a lost projection, and `canceled` ones by a stale cancel.
+func deploymentRepairable(state serverdomain.DeploymentState) bool {
+	return deploymentInFlight(state) || state == serverdomain.DeploymentCanceled
+}
+
+// sameDeployment reports whether current is still the Deployment result the repair sweep decided
+// on, matching by state, Operation, Step, and attempt.
+func sameDeployment(current *serverdomain.DeploymentStatus, observed serverdomain.DeploymentStatus) bool {
+	return current != nil && current.State == observed.State &&
 		current.OperationID == observed.OperationID &&
 		current.StepID == observed.StepID &&
 		current.Attempt == observed.Attempt

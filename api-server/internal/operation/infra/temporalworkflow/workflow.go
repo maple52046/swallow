@@ -33,7 +33,18 @@ const (
 	ActivityUpdateState   = "swallow.operation.update-state"
 	ActivityUpdateStep    = "swallow.operation.update-step"
 	ActivityExecuteStep   = "swallow.operation.execute-step"
+	ActivityAppendEvent   = "swallow.operation.append-event"
 )
+
+// ReturnCanceledDeploymentKind is the internal Step kind a canceled Workflow executes, outside its
+// Task list, for every provision-os the cancel interrupted, so the Server that deployment left in
+// flight returns to Ready (decision 060). The provider executor owns its behavior.
+const ReturnCanceledDeploymentKind = "return-canceled-deployment"
+
+// cancelReturnsInflightDeploysVersion is the "cancel-returns-inflight-deploys" version from which
+// a canceled Workflow returns its interrupted deployments to Ready and a parent waits for a Job
+// child's cancellation to finish. Histories recorded before replay without those commands.
+const cancelReturnsInflightDeploysVersion = 1
 
 // operationWorkflowVersion is the current logic version recorded via workflow.GetVersion.
 // Histories written before versioning was introduced replay as workflow.DefaultVersion;
@@ -173,8 +184,15 @@ func (a *Activities) UpdateState(ctx context.Context, input StateUpdate) error {
 	})
 }
 
+// UpdateStep projects one Task transition, then the read models derived from it. A transition the
+// repository ignored as a regression (a jobbed Workflow canceling from its start snapshot) stops
+// here: observers and the timeline see only transitions that were recorded, so a stale cancel can
+// never rewrite a Server's finished deployment or add a false "canceled" event.
 func (a *Activities) UpdateStep(ctx context.Context, input StepUpdate) error {
 	if err := a.operations.UpdateStep(ctx, input.OperationID, input.Step); err != nil {
+		if errors.Is(err, operationdomain.ErrStepTransitionIgnored) {
+			return nil
+		}
 		return err
 	}
 	for _, observer := range a.observers {
@@ -201,6 +219,13 @@ func (a *Activities) UpdateStep(ctx context.Context, input StepUpdate) error {
 		Details:   details,
 		CreatedAt: time.Now().UTC(),
 	})
+}
+
+// AppendEvent records a timeline event the workflow composes itself, such as the outcome of
+// returning a canceled deployment's Server to Ready. The workflow derives the event ID from the
+// Operation, Task, and attempt, so a retried activity upserts instead of duplicating.
+func (a *Activities) AppendEvent(ctx context.Context, event operationdomain.TimelineEvent) error {
+	return a.operations.AppendEvent(ctx, event)
 }
 
 func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) (StepExecutionResult, error) {
@@ -335,9 +360,16 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 
 	steps := append([]operationdomain.Task(nil), input.Steps...)
 	retryChannel := workflow.GetSignalChannel(ctx, RetryStepSignal)
+	// interrupted collects the provision-os Tasks whose activity was already running when the
+	// cancel arrived; only those left a deployment in flight to return to Ready.
+	var interrupted []operationdomain.Task
 	for {
 		if ctx.Err() != nil {
 			compensateVerifyCancel(ctx, input, steps, leases)
+			returnInterruptedDeployments(ctx, canceledDeploymentScope{
+				OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
+				Leases: leases, LeaseDuration: input.LeaseDuration,
+			}, interrupted)
 			return finishCanceled(ctx, input.OperationID, steps)
 		}
 		// Resolve each pending Task against the settled outcomes of its dependencies: run it, skip
@@ -420,12 +452,14 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 			}
 			batch := ready[start:end]
 			futures := make([]workflow.Future, len(batch))
+			dispatched := make([]bool, len(batch))
 			for pos, index := range batch {
 				started := workflow.Now(ctx).UTC()
 				steps[index].Status = operationdomain.TaskRunning
 				steps[index].StartedAt = &started
 				steps[index].WaitingReason = ""
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
+				dispatched[pos] = ctx.Err() == nil
 				executionCtx := workflow.WithActivityOptions(ctx, executeStepActivityOptions(operationVersion >= 2))
 				futures[pos] = workflow.ExecuteActivity(executionCtx, ActivityExecuteStep, StepExecutionInput{
 					OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID, Step: steps[index], Leases: leases, LeaseDuration: input.LeaseDuration,
@@ -442,6 +476,9 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 						steps[index].Status = operationdomain.TaskCanceled
 						if operationVersion >= cancelProjectionVersion {
 							stepProjectionCtx = disconnectedProjectionContext(ctx, projectionOptions)
+						}
+						if dispatched[pos] && steps[index].Kind == provisionOSTaskKind {
+							interrupted = append(interrupted, steps[index])
 						}
 					} else {
 						// A non-retryable activity failure (for example a lost lease
@@ -615,7 +652,14 @@ func runJobChild(ctx workflow.Context, input WorkflowInput, leases []operationdo
 			Reason: "Running job " + job + ".",
 		}).Get(projectionCtx, nil)
 		childID := fmt.Sprintf("%s/job/%s/%d", workflow.GetInfo(ctx).WorkflowExecution.ID, job, attempt)
-		childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: childID})
+		// From "cancel-returns-inflight-deploys" the parent waits for a canceled child to finish,
+		// because the child returns interrupted deployments to Ready under the parent's leases;
+		// without the wait the parent would close, release the leases, and terminate the child.
+		waitVersion := workflow.GetVersion(ctx, "cancel-returns-inflight-deploys", workflow.DefaultVersion, cancelReturnsInflightDeploysVersion)
+		childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+			WorkflowID:          childID,
+			WaitForCancellation: waitVersion >= cancelReturnsInflightDeploysVersion,
+		})
 		var result JobResult
 		err := workflow.ExecuteChildWorkflow(childCtx, JobWorkflowName, JobWorkflowInput{
 			OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
@@ -676,8 +720,15 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 	for _, task := range tasks {
 		known[task.ID] = true
 	}
+	// interrupted collects the provision-os Tasks whose activity was already running when the
+	// cancel arrived. Only this child knows them: the parent cancels from its start snapshot.
+	var interrupted []operationdomain.Task
 	for {
 		if ctx.Err() != nil {
+			returnInterruptedDeployments(ctx, canceledDeploymentScope{
+				OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
+				Leases: input.Leases, LeaseDuration: input.LeaseDuration,
+			}, interrupted)
 			return JobResult{Succeeded: false, Retryable: false, Reason: "canceled"}, nil
 		}
 		ready := readyJobTasks(tasks, known)
@@ -699,12 +750,14 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 			}
 			batch := ready[start:end]
 			futures := make([]workflow.Future, len(batch))
+			dispatched := make([]bool, len(batch))
 			for pos, index := range batch {
 				started := workflow.Now(ctx).UTC()
 				tasks[index].Status = operationdomain.TaskRunning
 				tasks[index].StartedAt = &started
 				tasks[index].WaitingReason = ""
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: tasks[index]}).Get(projectionCtx, nil)
+				dispatched[pos] = ctx.Err() == nil
 				executionCtx := workflow.WithActivityOptions(ctx, executeStepActivityOptions(activityRetryVersion >= 1))
 				futures[pos] = workflow.ExecuteActivity(executionCtx, ActivityExecuteStep, StepExecutionInput{
 					OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID, Step: tasks[index], Leases: input.Leases, LeaseDuration: input.LeaseDuration,
@@ -721,6 +774,9 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 						tasks[index].Status = operationdomain.TaskCanceled
 						if jobCancelProjectionVersion >= 1 {
 							taskProjectionCtx = disconnectedProjectionContext(ctx, projectionOptions)
+						}
+						if dispatched[pos] && tasks[index].Kind == provisionOSTaskKind {
+							interrupted = append(interrupted, tasks[index])
 						}
 					} else {
 						code, message, retryable := normalizeActivityError(err)
@@ -965,6 +1021,105 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 func disconnectedProjectionContext(ctx workflow.Context, options workflow.ActivityOptions) workflow.Context {
 	disconnected, _ := workflow.NewDisconnectedContext(ctx)
 	return workflow.WithActivityOptions(disconnected, options)
+}
+
+// provisionOSTaskKind is the Task kind whose interrupted deployment a cancel returns to Ready.
+const provisionOSTaskKind = "provision-os"
+
+// returnInterruptedDeployments applies decision 060 to a canceled execution under the
+// "cancel-returns-inflight-deploys" version gate. The version is read only when a deployment was
+// interrupted, so a cancel with nothing in flight records no marker; histories recorded before the
+// gate replay as workflow.DefaultVersion and issue no extra commands.
+func returnInterruptedDeployments(ctx workflow.Context, scope canceledDeploymentScope, interrupted []operationdomain.Task) {
+	if len(interrupted) == 0 {
+		return
+	}
+	if workflow.GetVersion(ctx, "cancel-returns-inflight-deploys", workflow.DefaultVersion, cancelReturnsInflightDeploysVersion) <
+		cancelReturnsInflightDeploysVersion {
+		return
+	}
+	returnCanceledDeployments(ctx, scope, interrupted)
+}
+
+// canceledDeploymentScope is the Workflow on whose behalf returnCanceledDeployments acts, with
+// the leases its steps are fenced by.
+type canceledDeploymentScope struct {
+	OperationID   string
+	Kind          operationdomain.WorkflowKind
+	PlatformID    string
+	SiteID        string
+	Leases        []operationdomain.ResourceLease
+	LeaseDuration time.Duration
+}
+
+// returnCanceledDeployments returns the Servers of the provision-os Tasks a cancel interrupted to
+// Ready (decision 060) and records each outcome on the Operation timeline. Only Tasks whose
+// activity was already dispatched when the cancel arrived are passed in; Tasks that never started
+// left nothing in flight.
+//
+// It runs on a disconnected context because the Workflow context is already canceled, while the
+// caller still holds the Operation's leases, so no other Operation can act on these Servers until
+// it returns. Each Server's step runs in parallel, bounded to 30 minutes, once, and is best-effort:
+// a step that cannot return its Server is recorded with its reason and the Server is left in a
+// state Recover accepts. The step uses a Task ID outside the Operation's Task list, so it never
+// rewrites the canceled provision-os projection. A verification borrow is excluded: its own
+// recover Task returns the Server (compensateVerifyCancel).
+func returnCanceledDeployments(ctx workflow.Context, scope canceledDeploymentScope, interrupted []operationdomain.Task) {
+	if scope.Kind == operationdomain.WorkflowKindVerifyOSImage || len(interrupted) == 0 {
+		return
+	}
+	disconnected, _ := workflow.NewDisconnectedContext(ctx)
+	execCtx := workflow.WithActivityOptions(disconnected, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Minute,
+		HeartbeatTimeout:    30 * time.Second,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	})
+	eventCtx := workflow.WithActivityOptions(disconnected, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy:         &temporal.RetryPolicy{InitialInterval: time.Second, MaximumAttempts: 0},
+	})
+	futures := make([]workflow.Future, len(interrupted))
+	for index, task := range interrupted {
+		futures[index] = workflow.ExecuteActivity(execCtx, ActivityExecuteStep, StepExecutionInput{
+			OperationID: scope.OperationID, Kind: scope.Kind, PlatformID: scope.PlatformID, SiteID: scope.SiteID,
+			Step: operationdomain.Task{
+				ID: task.ID + "/" + ReturnCanceledDeploymentKind, Kind: ReturnCanceledDeploymentKind,
+				Name: task.Name, Executor: task.Executor, Targets: task.Targets,
+				Attempt: task.Attempt, Status: operationdomain.TaskRunning,
+			},
+			Leases: scope.Leases, LeaseDuration: scope.LeaseDuration,
+		})
+	}
+	for index, task := range interrupted {
+		var result StepExecutionResult
+		err := futures[index].Get(disconnected, &result)
+		eventType, message := canceledDeploymentReturnEvent(result, err)
+		_ = workflow.ExecuteActivity(eventCtx, ActivityAppendEvent, operationdomain.TimelineEvent{
+			ID:          fmt.Sprintf("%s/step/%s/%s/%d", scope.OperationID, task.ID, ReturnCanceledDeploymentKind, task.Attempt),
+			OperationID: scope.OperationID, StepID: task.ID, Type: eventType, Message: message,
+			Details:   map[string]any{"attempt": task.Attempt},
+			CreatedAt: workflow.Now(disconnected).UTC(),
+		}).Get(eventCtx, nil)
+	}
+}
+
+// canceledDeploymentReturnEvent turns one return-canceled-deployment outcome into its timeline
+// event type and operator-facing message.
+func canceledDeploymentReturnEvent(result StepExecutionResult, err error) (string, string) {
+	switch {
+	case err == nil && result.Status == operationdomain.TaskSucceeded:
+		return "canceled_deployment_returned_to_ready",
+			"The deployment was canceled; Swallow returned the Server to Ready."
+	case err == nil && result.Status == operationdomain.TaskSkipped:
+		return "canceled_deployment_left_as_is",
+			"The deployment was canceled; Swallow left the Server as it is. " + result.WaitingReason
+	}
+	reason := "The provider step did not finish."
+	if err == nil && result.Error != nil && result.Error.Message != "" {
+		reason = result.Error.Message
+	}
+	return "canceled_deployment_return_failed",
+		"The deployment was canceled, but Swallow could not return the Server to Ready: " + reason + " Recover the Server."
 }
 
 // compensateVerifyCancel best-effort returns a verification-borrowed Server to Ready when its

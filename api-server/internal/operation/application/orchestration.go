@@ -143,15 +143,16 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 	}
 	steps := append([]operationdomain.Task(nil), input.Steps...)
 	for index := range steps {
-		// A recovery rerun (see Rerun) clones an Operation's Steps and carries the
-		// already-succeeded (or skipped) ones so their side effects are not repeated: the
-		// fresh execution treats them as satisfied dependencies and re-drives only the rest.
-		// Reset every other Step to a clean first attempt. A normal launch supplies Steps with
-		// no status, so both branches leave it at a pending first attempt, unchanged.
+		// A recovery rerun (see Rerun) clones an Operation's Steps: it carries the succeeded (or
+		// skipped) Steps that must not repeat, which the fresh execution treats as satisfied
+		// dependencies, and resets the rest to pending. A convergent Step it re-runs keeps its
+		// next attempt number, so its executor observes before acting the way an explicit retry
+		// does; every other pending Step starts at attempt 1. A normal launch supplies Steps with
+		// no status and attempt 0 or 1, so it gets a pending first attempt, unchanged.
 		if steps[index].Status != operationdomain.TaskSucceeded && steps[index].Status != operationdomain.TaskSkipped {
 			steps[index].Status = operationdomain.TaskPending
-			steps[index].Attempt = 1
-		} else if steps[index].Attempt < 1 {
+		}
+		if steps[index].Attempt < 1 {
 			steps[index].Attempt = 1
 		}
 		if steps[index].Artifacts == nil {
@@ -502,14 +503,24 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 	return item, nil
 }
 
-// cloneStepsForRerun copies an Operation's Steps for a fresh execution. Succeeded and skipped
-// Steps are preserved so their side effects are not repeated (the workflow's ready/complete
-// scan treats them as satisfied dependencies), and every other Step is reset to a clean pending
-// attempt with its error, timing, and external-execution correlation cleared so only the
-// incomplete work runs again. Secret references are remapped through references (source ->
-// clone) so the new Operation resolves its own sealed copies; a reference missing from the map
-// is kept as-is.
+// cloneStepsForRerun copies an Operation's Steps for a fresh execution that converges the
+// intent to its desired state (decision 060). A convergent Step (rerunConverges) runs again
+// whatever its earlier outcome, at the attempt after its last one, so its executor first
+// observes the resource and acts only where it has not converged: a Server already deployed with
+// the frozen image succeeds in seconds and records that outcome under the new Operation. Any
+// other Step keeps the earlier rule: a succeeded or skipped one is preserved so its side effects
+// are not repeated (the workflow treats it as a satisfied dependency), and the rest restart at a
+// clean first attempt. A re-run Step has its error, timing, and external-execution correlation
+// cleared. Secret references are remapped through references (source -> clone) so the new
+// Operation resolves its own sealed copies; a reference missing from the map is kept as-is.
 func cloneStepsForRerun(source []operationdomain.Task, references map[string]string) []operationdomain.Task {
+	hostsReleased := false
+	for _, step := range source {
+		if step.Kind == "release-os" && step.Status == operationdomain.TaskSucceeded {
+			hostsReleased = true
+			break
+		}
+	}
 	steps := make([]operationdomain.Task, len(source))
 	for index, step := range source {
 		clone := step
@@ -527,19 +538,45 @@ func cloneStepsForRerun(source []operationdomain.Task, references map[string]str
 			}
 			clone.SecretRefs = remapped
 		}
-		if step.Status != operationdomain.TaskSucceeded && step.Status != operationdomain.TaskSkipped {
+		converges := rerunConverges(step, hostsReleased)
+		if converges || (step.Status != operationdomain.TaskSucceeded && step.Status != operationdomain.TaskSkipped) {
 			clone.Status = operationdomain.TaskPending
 			clone.Attempt = 0
+			if converges {
+				clone.Attempt = max(step.Attempt, 1) + 1
+			}
 			clone.Progress = 0
 			clone.WaitingReason = ""
 			clone.Error = nil
 			clone.StartedAt = nil
 			clone.FinishedAt = nil
 			clone.ExternalExecution = nil
+			clone.Live = nil
 		}
 		steps[index] = clone
 	}
 	return steps
+}
+
+// rerunConverges reports whether a rerun executes a Step again even when its earlier run
+// succeeded. These Step kinds are ensure operations whose executor observes before it acts on a
+// later attempt (decision 060): provision-os succeeds without provider work when the Server is
+// already deployed with the frozen image, release-os and recover-server succeed on a Server that
+// is already Ready, ensure-boot-media re-applies Boot Media, and wait-for-ssh and
+// validate-platform-health only read. Ansible playbooks are idempotent (decision 017), but once a
+// release-os in the Operation succeeded, a host it released no longer runs the OS the playbook
+// needs; a playbook that already succeeded there is kept. Every other kind (for example image
+// verification records, platform uninstall finalization, inspection) records a one-time action
+// and keeps the carry-over rule.
+func rerunConverges(step operationdomain.Task, hostsReleased bool) bool {
+	switch step.Kind {
+	case "provision-os", "ensure-boot-media", "wait-for-ssh", "validate-platform-health", "release-os", "recover-server":
+		return true
+	case "ansible-playbook":
+		return !hostsReleased || step.Status != operationdomain.TaskSucceeded
+	default:
+		return false
+	}
 }
 
 // rerunSummary keeps the original operator-facing summary so the recovery Operation reads as

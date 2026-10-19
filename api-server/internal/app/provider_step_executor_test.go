@@ -176,8 +176,8 @@ func TestDeploymentReadinessFailureWithAddressDoesNotOfferRedeploy(t *testing.T)
 }
 
 func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
-	// The value set on the Server belongs to the OS being replaced (decision 045), so a new OS
-	// deployment clears it even when the deploy itself then fails.
+	// The Step fails before any deployment is submitted (no frozen image), so no OS is replaced
+	// and the Server Default User set for the installed one is kept (decision 045).
 	server := &serverdomain.Server{ID: "server-id", DefaultUser: "amd"}
 	executor := providerStepExecutor{servers: &deploymentProjectionTestRepo{server: server}}
 	result := executor.Execute(context.Background(), temporalworkflow.StepExecutionInput{
@@ -206,9 +206,44 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 	if server.Deployment.StatusReason == "" || server.Deployment.FinishedAt == nil {
 		t.Fatalf("deployment terminal details = %+v", server.Deployment)
 	}
-	if server.DefaultUser != "" {
-		t.Errorf("DefaultUser after a new OS deployment = %q, want it cleared", server.DefaultUser)
+	if server.DefaultUser != "amd" {
+		t.Errorf("DefaultUser after a Step that submitted no deployment = %q, want amd kept", server.DefaultUser)
 	}
+}
+
+// TestProviderStepClearsDefaultUserOnlyWhenSubmittingDeployment guards decision 045 under
+// convergent reruns (decision 060): the account set on the Server belongs to the OS a submitted
+// deployment replaces, even when the provider then fails it, but a Step that only observes the
+// frozen image already deployed and reachable replaces nothing and keeps it.
+func TestProviderStepClearsDefaultUserOnlyWhenSubmittingDeployment(t *testing.T) {
+	t.Run("a submitted deployment clears it", func(t *testing.T) {
+		executor, server, _, _, deployments := retryHarness(provisioningdomain.MachineStatusReady, "")
+		server.DefaultUser = "amd"
+		deployments.fails = true
+
+		result := executor.Execute(context.Background(), provisionStep(1, 1))
+
+		if result.Status != operationdomain.TaskFailed || deployments.calls != 1 {
+			t.Fatalf("result = %+v after %d deployments, want a submitted deployment that failed", result, deployments.calls)
+		}
+		if server.DefaultUser != "" {
+			t.Errorf("DefaultUser = %q, want it cleared for the replaced OS", server.DefaultUser)
+		}
+	})
+	t.Run("an already converged deployment keeps it", func(t *testing.T) {
+		executor, server, provider, _, deployments := retryHarness(provisioningdomain.MachineStatusDeployed, retryTestImage)
+		provider.machine.IPAddresses = []string{"10.0.0.5"}
+		server.DefaultUser = "amd"
+
+		result := executor.Execute(context.Background(), provisionStep(2, 1))
+
+		if result.Status != operationdomain.TaskSucceeded || deployments.calls != 0 {
+			t.Fatalf("result = %+v after %d deployments, want success without a deployment", result, deployments.calls)
+		}
+		if server.DefaultUser != "amd" {
+			t.Errorf("DefaultUser = %q, want amd kept", server.DefaultUser)
+		}
+	})
 }
 
 func TestProviderStepReadinessTimeout(t *testing.T) {

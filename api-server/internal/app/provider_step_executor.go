@@ -44,7 +44,9 @@ type providerStepExecutor struct {
 	readinessWait  time.Duration
 	powerOnWait    time.Duration
 	stageStallWait time.Duration
-	sshProbe       func(context.Context, string, int) error
+	// canceledDeploymentWait overrides defaultCanceledDeploymentAbortWait in tests.
+	canceledDeploymentWait time.Duration
+	sshProbe               func(context.Context, string, int) error
 	// bootMedia recovers the deployment boot of a Boot Media Server that did not boot the ISO
 	// after the provisioner's power-on (decision 047). Nil disables the watch.
 	bootMedia bootMediaBootRecoverer
@@ -70,6 +72,10 @@ const (
 	// stay longer than defaultDeploymentPowerOnWait so a powered-off Machine keeps its more
 	// specific power-on diagnosis.
 	defaultDeploymentStageStallWait = 25 * time.Minute
+	// defaultCanceledDeploymentAbortWait is how long returning a canceled deployment waits for the
+	// provider to leave Deploying after the abort. MAAS applies an abort within seconds; the window
+	// covers a slow provider while staying well inside the Workflow's 30-minute compensation cap.
+	defaultCanceledDeploymentAbortWait = 10 * time.Minute
 )
 
 func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
@@ -80,12 +86,6 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 			return e.deploy(ctx, input)
 		}
 		if err := e.setDeployment(ctx, input, serverID, serverdomain.DeploymentDeploying, nil, false); err != nil {
-			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
-		}
-		// A Server Default User set on the Server belongs to the OS being replaced (decision 045).
-		// Clear it before the deploy so the new OS's readiness check and every later run log in as
-		// the new image's default user rather than an account that may not exist there.
-		if err := e.servers.SetDefaultUser(ctx, serverID, ""); err != nil {
 			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
 		}
 		result := e.deploy(ctx, input)
@@ -123,6 +123,8 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 			}
 		}
 		return result
+	case temporalworkflow.ReturnCanceledDeploymentKind:
+		return e.returnCanceledDeployment(ctx, input)
 	case waitEnrollmentTaskKind:
 		return e.waitEnrollmentSettled(ctx, input)
 	case inspectTaskKind:
@@ -290,6 +292,9 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 	}
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
 		return *locked
+	}
+	if cleared := e.clearReplacedDefaultUser(ctx, serverID); cleared != nil {
+		return *cleared
 	}
 	result, err := e.deployments.Execute(ctx, input)
 	if err != nil {
@@ -530,6 +535,9 @@ func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Contex
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
 		return *locked
 	}
+	if cleared := e.clearReplacedDefaultUser(ctx, serverID); cleared != nil {
+		return *cleared
+	}
 	result, err := e.deployments.Execute(ctx, input)
 	if err != nil {
 		return normalizeProviderError(err, "deployment_recovery_redeploy")
@@ -594,6 +602,9 @@ func (e providerStepExecutor) recoverAndRedeploy(
 	}
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
 		return *locked
+	}
+	if cleared := e.clearReplacedDefaultUser(ctx, serverID); cleared != nil {
+		return *cleared
 	}
 	result, err := e.deployments.Execute(ctx, input)
 	if err != nil {
@@ -698,6 +709,82 @@ func (e providerStepExecutor) recoverServer(ctx context.Context, step temporalwo
 		return providerFailed("invalid_step", "The recovery Step has no Server target.", false).StepExecutionResult
 	}
 	return e.recoverToReady(ctx, step, serverID, input)
+}
+
+// returnCanceledDeployment runs the internal step a canceled Workflow issues for each
+// provision-os the cancel interrupted: it returns that deployment's Server to Ready
+// (decision 060). It acts only on what the canceled deployment left in flight. A Deploying
+// Machine is aborted once and watched until the provider leaves Deploying (a Releasing one is
+// watched until the Release ends), and an Allocated Machine, which is where MAAS parks an aborted
+// deployment, is returned to Ready with the Recover plan: a plain Release, with static IP bindings
+// kept and no disk erase. A Machine that is deployed, failed, broken, or in rescue holds the
+// deployment's outcome and is left as it is; so is one already Ready.
+//
+// The result tells the Workflow what happened: succeeded means the Server was returned to Ready,
+// skipped means nothing was done and WaitingReason says why, and any other status carries the
+// reason in Error. The step never writes the Server's deployment result; once the Server is
+// observed Ready, reconcile clears the canceled result.
+func (e providerStepExecutor) returnCanceledDeployment(ctx context.Context, step temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	serverID := firstTargetServer(step.Step)
+	if serverID == "" {
+		return providerFailed("invalid_step", "The canceled deployment has no Server target.", false).StepExecutionResult
+	}
+	deadline := time.Now().Add(e.canceledDeploymentAbortTimeout())
+	ticker := time.NewTicker(e.pollInterval())
+	defer ticker.Stop()
+	aborted := false
+	for {
+		state, err := e.refresh.Execute(ctx, serverID)
+		if err == nil {
+			switch machineState := provisioningdomain.MachineStatus(state.State); machineState {
+			case provisioningdomain.MachineStatusDeploying:
+				if !aborted {
+					e.abort(serverID)
+					aborted = true
+				}
+			case provisioningdomain.MachineStatusReleasing:
+				// A Release (an explicit retry's Recover) is already returning it; keep watching.
+			case provisioningdomain.MachineStatusAllocated:
+				return e.recoverToReady(ctx, step, serverID, provisioningapp.RecoverServerInput{
+					ServerID:  serverID,
+					RequestID: step.OperationID,
+					Comment: fmt.Sprintf("Return canceled deployment of Swallow operation %s step %s attempt %d",
+						step.OperationID, step.Step.ID, step.Step.Attempt),
+				})
+			case provisioningdomain.MachineStatusReady:
+				return canceledDeploymentLeft("The Server is already Ready.")
+			default:
+				return canceledDeploymentLeft(fmt.Sprintf(
+					"The provisioner reports the Server as %s, which Swallow keeps as the outcome of the canceled deployment.",
+					machineState))
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return providerAttention("canceled_deployment_still_in_progress",
+				"The provisioner still reports the canceled deployment as in progress. Check the provider, then Recover the Server.",
+				"deployment_cancel")
+		}
+		select {
+		case <-ctx.Done():
+			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+		case <-ticker.C:
+		}
+	}
+}
+
+// canceledDeploymentLeft reports a return-canceled-deployment step that did nothing, with the
+// reason the Workflow records on its timeline.
+func canceledDeploymentLeft(reason string) temporalworkflow.StepExecutionResult {
+	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSkipped, WaitingReason: reason}
+}
+
+// canceledDeploymentAbortTimeout bounds how long a canceled deployment may still report Deploying
+// or Releasing after the abort; the field override exists for tests.
+func (e providerStepExecutor) canceledDeploymentAbortTimeout() time.Duration {
+	if e.canceledDeploymentWait <= 0 {
+		return defaultCanceledDeploymentAbortWait
+	}
+	return e.canceledDeploymentWait
 }
 
 // recoverToReady converges a Server whose provisioning axis is not usable back to ready by
@@ -1182,6 +1269,19 @@ func (e providerStepExecutor) installationFailure(ctx context.Context, step temp
 		return ""
 	}
 	return line
+}
+
+// clearReplacedDefaultUser clears the Server Default User right before a deployment is submitted:
+// an account set on the Server belongs to the OS that deployment replaces (decision 045), and the
+// new OS's readiness check and every later run must log in as the new image's default user. It is
+// never called when a Step only observes an OS that already converged, so a rerun or Job retry of
+// a deployed Server keeps the operator's account. A projection write failure asks for attention.
+func (e providerStepExecutor) clearReplacedDefaultUser(ctx context.Context, serverID string) *temporalworkflow.StepExecutionResult {
+	if err := e.servers.SetDefaultUser(ctx, serverID, ""); err != nil {
+		attention := providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
+		return &attention
+	}
+	return nil
 }
 
 // deploysFromMemory reports a frozen memory (RAM) deployment; a frozen intent without the

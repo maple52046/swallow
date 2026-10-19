@@ -26,6 +26,17 @@ type retryProvider struct {
 	installationLine  string
 	installationErr   error
 	installationSince time.Time
+	// abortTo, when set, is the state Abort leaves the Machine in, the way MAAS parks an aborted
+	// deployment at Allocated.
+	abortTo provisioningdomain.MachineStatus
+}
+
+func (p *retryProvider) Abort(context.Context, string) (*provisioningdomain.Machine, error) {
+	p.aborts++
+	if p.abortTo != "" {
+		p.machine.Status = p.abortTo
+	}
+	return p.machine, nil
 }
 
 func (p *retryProvider) LatestInstallationFailure(_ context.Context, _ string, since time.Time) (string, error) {

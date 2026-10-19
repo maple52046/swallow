@@ -26,6 +26,22 @@ type cancelProjectionRecorder struct {
 	mu     sync.Mutex
 	states []operationdomain.WorkflowStatus
 	steps  map[string]operationdomain.TaskStatus
+	// returned lists the Tasks a return-canceled-deployment step ran for, and events the
+	// timeline events the workflow appended for them.
+	returned []StepExecutionInput
+	events   []operationdomain.TimelineEvent
+}
+
+func (r *cancelProjectionRecorder) returnedSteps() []StepExecutionInput {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]StepExecutionInput(nil), r.returned...)
+}
+
+func (r *cancelProjectionRecorder) appendedEvents() []operationdomain.TimelineEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]operationdomain.TimelineEvent(nil), r.events...)
 }
 
 func (r *cancelProjectionRecorder) stepStatus(id string) operationdomain.TaskStatus {
@@ -45,7 +61,8 @@ func (r *cancelProjectionRecorder) lastState() operationdomain.WorkflowStatus {
 
 // registerMidActivityCancel registers activity mocks in which ExecuteStep asks the environment to
 // cancel the workflow and then keeps running, standing in for an operator cancel that arrives
-// while MAAS is installing the operating system.
+// while MAAS is installing the operating system. The return-canceled-deployment step the cancel
+// then issues succeeds at once and is recorded, as is every appended timeline event.
 func registerMidActivityCancel(t *testing.T, env *testsuite.TestWorkflowEnvironment) *cancelProjectionRecorder {
 	t.Helper()
 	recorder := &cancelProjectionRecorder{steps: map[string]operationdomain.TaskStatus{}}
@@ -74,7 +91,19 @@ func registerMidActivityCancel(t *testing.T, env *testsuite.TestWorkflowEnvironm
 		recorder.mu.Unlock()
 		return nil
 	}, activity.RegisterOptions{Name: ActivityUpdateState})
-	env.RegisterActivityWithOptions(func(ctx context.Context, _ StepExecutionInput) (StepExecutionResult, error) {
+	env.RegisterActivityWithOptions(func(_ context.Context, event operationdomain.TimelineEvent) error {
+		recorder.mu.Lock()
+		recorder.events = append(recorder.events, event)
+		recorder.mu.Unlock()
+		return nil
+	}, activity.RegisterOptions{Name: ActivityAppendEvent})
+	env.RegisterActivityWithOptions(func(ctx context.Context, input StepExecutionInput) (StepExecutionResult, error) {
+		if input.Step.Kind == ReturnCanceledDeploymentKind {
+			recorder.mu.Lock()
+			recorder.returned = append(recorder.returned, input)
+			recorder.mu.Unlock()
+			return StepExecutionResult{Status: operationdomain.TaskSucceeded}, nil
+		}
 		env.CancelWorkflow()
 		select {
 		case <-ctx.Done():
@@ -114,6 +143,31 @@ func TestOperationWorkflowV1CancelDuringActivityProjectsCanceledStep(t *testing.
 	}
 	if got := recorder.stepStatus("provision-a"); got != operationdomain.TaskCanceled {
 		t.Errorf("provision-a projected status = %q, want %q", got, operationdomain.TaskCanceled)
+	}
+	assertInterruptedDeploymentReturned(t, recorder, "operation-deploy-os")
+}
+
+// assertInterruptedDeploymentReturned checks decision 060 after a cancel interrupted provision-a:
+// one return-canceled-deployment step ran for its Server under a Task ID outside the Operation's
+// Task list (so the canceled provision-os projection is untouched), and its outcome reached the
+// timeline on provision-a.
+func assertInterruptedDeploymentReturned(t *testing.T, recorder *cancelProjectionRecorder, operationID string) {
+	t.Helper()
+	returned := recorder.returnedSteps()
+	if len(returned) != 1 {
+		t.Fatalf("return-canceled-deployment steps = %d, want 1", len(returned))
+	}
+	step := returned[0].Step
+	if step.ID == "provision-a" || len(step.Targets) != 1 || step.Targets[0].ID != "a" || len(returned[0].Leases) == 0 {
+		t.Errorf("return step = %+v (leases %d), want a separate ID targeting server a under the Operation's leases", step, len(returned[0].Leases))
+	}
+	if got := recorder.stepStatus(step.ID); got != "" {
+		t.Errorf("return step projected status %q, want no Task projection", got)
+	}
+	events := recorder.appendedEvents()
+	if len(events) != 1 || events[0].StepID != "provision-a" || events[0].OperationID != operationID ||
+		events[0].Type != "canceled_deployment_returned_to_ready" {
+		t.Errorf("timeline events = %+v, want one returned_to_ready event on provision-a", events)
 	}
 }
 
@@ -173,4 +227,7 @@ func TestJobWorkflowV1CancelDuringActivityProjectsCanceledStep(t *testing.T) {
 	if got := recorder.stepStatus("provision-a"); got != operationdomain.TaskCanceled {
 		t.Errorf("provision-a projected status = %q, want %q", got, operationdomain.TaskCanceled)
 	}
+	// The parent must wait for the child's cancellation, or the child returning the deployment
+	// would be terminated when the parent closes and releases the leases.
+	assertInterruptedDeploymentReturned(t, recorder, "operation-platform")
 }

@@ -184,9 +184,38 @@ func TestServerDeploymentObserverCancelsInFlightDeploy(t *testing.T) {
 	}
 }
 
-// TestServerDeploymentObserverCancelAppliesToNewerAttempt verifies the guard is scoped to the
-// same attempt: a cancel for a later attempt of the same Step still applies, so a re-run that is
-// canceled is not masked by an older succeeded attempt.
+// TestServerDeploymentObserverIgnoresStaleCancelOfLaterOutcome reproduces lab-afde-mi308-1: its
+// provision-os succeeded at attempt 6 after Job retries, and canceling the platform Workflow
+// re-emitted the Task as canceled from the parent's start snapshot at attempt 1. The older
+// attempt's cancel must not regress the recorded outcome.
+func TestServerDeploymentObserverIgnoresStaleCancelOfLaterOutcome(t *testing.T) {
+	for _, state := range []serverdomain.DeploymentState{serverdomain.DeploymentSucceeded, serverdomain.DeploymentFailed} {
+		t.Run(string(state), func(t *testing.T) {
+			server := &serverdomain.Server{
+				ID: "server-id",
+				Deployment: &serverdomain.DeploymentStatus{
+					State: state, OperationID: "operation-id", StepID: "provision-server-id", Attempt: 6,
+				},
+			}
+			observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
+			err := observer.ObserveStep(context.Background(), "operation-id", operationdomain.Task{
+				ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
+				Status:  operationdomain.TaskCanceled,
+				Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if server.Deployment.State != state || server.Deployment.Attempt != 6 {
+				t.Fatalf("deployment = %+v, want %s at attempt 6 kept", server.Deployment, state)
+			}
+		})
+	}
+}
+
+// TestServerDeploymentObserverCancelAppliesToNewerAttempt verifies the guard covers only attempts
+// no newer than the recorded outcome: a cancel for a later attempt of the same Step still applies,
+// so a re-run that is canceled is not masked by an older succeeded attempt.
 func TestServerDeploymentObserverCancelAppliesToNewerAttempt(t *testing.T) {
 	server := &serverdomain.Server{
 		ID: "server-id",

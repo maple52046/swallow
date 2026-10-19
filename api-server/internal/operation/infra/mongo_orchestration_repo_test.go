@@ -81,10 +81,11 @@ func TestUpdateStepIsMonotonicForCancel(t *testing.T) {
 
 	cancel := operationdomain.Task{ID: "provision-a", Kind: "provision-os", Attempt: 1, Status: operationdomain.TaskCanceled}
 
-	// A succeeded Task is not regressed to canceled (the reported bug).
+	// A succeeded Task is not regressed to canceled (the reported bug), and the no-op is reported
+	// so the caller does not project the rejected Task onto the Server deployment result.
 	insert("op-succeeded", operationdomain.TaskSucceeded)
-	if err := repo.UpdateStep(ctx, "op-succeeded", cancel); err != nil {
-		t.Fatalf("cancel of succeeded task: %v", err)
+	if err := repo.UpdateStep(ctx, "op-succeeded", cancel); !errors.Is(err, operationdomain.ErrStepTransitionIgnored) {
+		t.Fatalf("cancel of succeeded task err = %v, want ErrStepTransitionIgnored", err)
 	}
 	if got := statusOf("op-succeeded"); got != "succeeded" {
 		t.Fatalf("status = %q, want succeeded preserved", got)

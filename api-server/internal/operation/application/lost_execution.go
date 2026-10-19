@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -39,7 +40,8 @@ func FinalizeCanceledProjection(
 			operationdomain.TaskRequiresAttention:
 			step.Status = operationdomain.TaskCanceled
 			step.FinishedAt = &at
-			if err := operations.UpdateStep(ctx, operation.ID, step); err != nil {
+			if err := operations.UpdateStep(ctx, operation.ID, step); err != nil &&
+				!errors.Is(err, operationdomain.ErrStepTransitionIgnored) {
 				return fmt.Errorf("record task %s canceled: %w", step.ID, err)
 			}
 		}

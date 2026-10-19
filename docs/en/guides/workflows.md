@@ -51,6 +51,12 @@ Workflow result as authoritative.
 4. Retry only the Task when supported; rerun the Workflow when the whole intent
    must be reevaluated.
 
+A rerun converges the intent to what it describes now. Every ensure Task runs
+again and first checks the current state: a Server already deployed with the
+requested image and reachable over SSH completes in seconds, and its deployment
+result is updated; a failed Server is returned to Ready and deployed again. The
+Platform's configuration playbook also runs again, which takes its usual time.
+
 An expired or lost execution can become `indeterminate`; it is never retried
 automatically because swallow cannot prove whether the external side effect
 occurred.
@@ -60,6 +66,14 @@ occurred.
 Cancellation records intent and asks the running orchestration to stop at a safe
 boundary. It cannot undo an external side effect that already completed. Read
 the resulting task states before starting another conflicting Workflow.
+
+Canceling never changes an OS deployment that already finished: a Server that
+deployed keeps its result, and so does one that failed. When the cancel
+interrupts an OS deployment in progress, swallow stops it and returns that
+Server to Ready, keeping its static IP bindings and without erasing disks,
+before the Workflow ends. The Task's timeline says whether the Server was
+returned or why it was left as it is; a Server that could not be returned can be
+recovered with Recover.
 
 See the active
 [Workflows contract](../../../api-server/docs/development/api-contracts/api-server/workflows.md)
