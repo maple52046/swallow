@@ -15,6 +15,14 @@ export function platformLifecycleLabel(state: PlatformLifecycleState): string {
   return LABELS[state]
 }
 
+/**
+ * Whether the lifecycle has durable work running (a deployment or an uninstall), so the state
+ * changes without operator action. Drives the in-progress cue, polling, and filtering.
+ */
+export function isPlatformLifecycleInProgress(state: PlatformLifecycleState): boolean {
+  return state === 'deploying' || state === 'uninstalling'
+}
+
 /** Shared semantic status family for lifecycle labels. */
 export function platformLifecycleStatus(state: PlatformLifecycleState): string {
   switch (state) {

@@ -11,7 +11,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
-import { platformLifecycleLabel, platformLifecycleStatus, platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
+import { isPlatformLifecycleInProgress, platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
 import type { Platform, PlatformLifecycleState, PlatformType } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -26,6 +26,7 @@ import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
 import { PlatformBulkActionDialog } from './PlatformBulkActionDialog'
+import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
 import { usePlatforms } from './usePlatforms'
 import type { PlatformBulkAction } from './usePlatformBulkActions'
 
@@ -67,18 +68,13 @@ function needsAttention(platform: Platform): boolean {
   return lifecycleFailed || unreachable || Boolean(platform.sync.lastError) || unmatchedMembers(platform) > 0
 }
 
-/** Groups non-terminal lifecycle states for filtering and activity treatment. */
-function isLifecycleInProgress(state: PlatformLifecycleState): boolean {
-  return state === 'deploying' || state === 'uninstalling'
-}
-
 function isLifecycleFailed(state: PlatformLifecycleState): boolean {
   return state === 'deploy_failed' || state === 'uninstall_failed'
 }
 
 /** Ranks active pipeline work first, then failures and runtime issues, while archived records sink. */
 function platformPriority(platform: Platform): number {
-  if (isLifecycleInProgress(platform.lifecycleState)) return 0
+  if (isPlatformLifecycleInProgress(platform.lifecycleState)) return 0
   if (isLifecycleFailed(platform.lifecycleState)) return 1
   if (needsAttention(platform)) return 2
   if (platform.lifecycleState === 'active') return 3
@@ -104,7 +100,7 @@ function platformTypeLabel(type: PlatformType): string {
 function exposesLifecycleWorkflow(platform: Platform): boolean {
   return Boolean(
     platform.lifecycleOperationId &&
-      (isLifecycleInProgress(platform.lifecycleState) || isLifecycleFailed(platform.lifecycleState)),
+      (isPlatformLifecycleInProgress(platform.lifecycleState) || isLifecycleFailed(platform.lifecycleState)),
   )
 }
 
@@ -143,15 +139,7 @@ function PlatformLifecycle({
 }) {
   return (
     <div className="sw-platform-lifecycle">
-      <div className="sw-platform-lifecycle__status">
-        {isLifecycleInProgress(platform.lifecycleState) && (
-          <LoaderCircle className="sw-platform-lifecycle__spinner" size={14} aria-hidden />
-        )}
-        <StatusBadge
-          status={platformLifecycleStatus(platform.lifecycleState)}
-          label={platformLifecycleLabel(platform.lifecycleState)}
-        />
-      </div>
+      <PlatformLifecycleBadge state={platform.lifecycleState} />
       {workflowHref && (
         <RouterLink className="sw-platform-workflow-link" to={workflowHref}>
           View workflow
@@ -195,7 +183,7 @@ function PlatformMembership({ platform }: { platform: Platform }) {
 function PlatformFleetOverview({ platforms }: { platforms: readonly Platform[] }) {
   const attention = platforms.filter(needsAttention).length
   const active = platforms.filter((platform) => platform.lifecycleState === 'active').length
-  const inProgress = platforms.filter((platform) => isLifecycleInProgress(platform.lifecycleState)).length
+  const inProgress = platforms.filter((platform) => isPlatformLifecycleInProgress(platform.lifecycleState)).length
   const failed = platforms.filter((platform) => isLifecycleFailed(platform.lifecycleState)).length
   const unmatched = platforms.reduce((total, platform) => total + unmatchedMembers(platform), 0)
   const hasAttention = attention > 0
@@ -277,12 +265,7 @@ function PlatformRuntimeCard({
             <PlatformIdentity platform={platform} href={platformHref} />
           </HStack>
         }
-        status={
-          <StatusBadge
-            status={platformLifecycleStatus(platform.lifecycleState)}
-            label={platformLifecycleLabel(platform.lifecycleState)}
-          />
-        }
+        status={<PlatformLifecycleBadge state={platform.lifecycleState} />}
         actions={
           <>
             <Button asChild colorPalette="brand" size="sm">
@@ -338,7 +321,7 @@ export function PlatformsPage() {
     .filter((platform) => !typeFilter || platform.type === typeFilter)
     .filter((platform) => {
       if (statusFilter === 'attention') return needsAttention(platform)
-      if (statusFilter === 'in_progress') return isLifecycleInProgress(platform.lifecycleState)
+      if (statusFilter === 'in_progress') return isPlatformLifecycleInProgress(platform.lifecycleState)
       return true
     })
     .sort((left, right) => (

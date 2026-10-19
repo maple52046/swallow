@@ -136,6 +136,11 @@ transition time；其精確度約等於 inventory reconcile 或 targeted Server 
 Release 接受後可留在 list：provider 執行期間該列會變成 **Releasing**，Server
 回到 pool 後再變成 **Ready**。
 
+仍被執行中 Workflow 佔用的 Server 無法 release。Release 對話框會列出這些工作；勾選
+**Cancel running operations before releasing** 會由 swallow 取消它們。Release 會立刻被
+接受，等被取消的工作結束後自動開始，可能需要幾分鐘；被取消的 OS 部署可能已先把 Server
+收回 **Ready**。Failed Server 上的 **Cancel blocking Operations and Recover** 也是同樣的做法。
+
 在 Server detail 頁，**Releasing** 的 Server 會顯示一個 banner，連到正在追蹤這次
 release 的 Workflow（Release、Recover，或會 release Server 的 Platform uninstall）。
 若該 Workflow 需要處理，或在 provider 仍在 release 時已結束，banner 會說明並另外連到
@@ -268,6 +273,11 @@ placement action 也受 provider capability 與 current state 限制。
 
 刪除 Server 是 provider-backed action：先刪除 backing machine，再刪除 projection，
 避免下一輪 reconcile 立刻重建。
+
+要一次刪除多台 Server，先勾選它們，再從 **Take action** 選 **Delete server**。對話框會
+列出所有目標，並標出屬於某個 Platform 或仍被執行中 Workflow 佔用的 Server；刪除不會
+uninstall 該 Platform，也不會取消那些工作。輸入要刪除的台數即可確認。若 provisioner
+拒絕其中幾台，其他仍會繼續刪除，結果明細會列出每一台被拒絕的原因。
 
 ## CLI 範例
 

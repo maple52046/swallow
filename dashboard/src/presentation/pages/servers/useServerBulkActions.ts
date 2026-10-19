@@ -94,7 +94,9 @@ export function useServerBulkActions() {
         showToast({
           tone: "success",
           title: "Release Operation created",
-          description: `Swallow is tracking ${targets.length} Server${targets.length === 1 ? "" : "s"}.`,
+          description: input.cancelActiveWorkflows
+            ? `The running operations are being canceled; the Release of ${targets.length} Server${targets.length === 1 ? "" : "s"} starts once they end.`
+            : `Swallow is tracking ${targets.length} Server${targets.length === 1 ? "" : "s"}.`,
         });
         return operation;
       } finally {

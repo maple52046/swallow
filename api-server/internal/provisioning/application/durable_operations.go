@@ -43,15 +43,27 @@ type ImageVerificationInput struct {
 // the provisioning context depend on Temporal or Operation persistence.
 type DurableOperationLauncher interface {
 	LaunchDeployment(ctx context.Context, input DeployServersInput, requestedBy, requestID string) (*OperationReference, error)
-	LaunchRelease(ctx context.Context, inputs []ReleaseServerInput, requestedBy, requestID string) (*OperationReference, error)
+	LaunchRelease(ctx context.Context, inputs []ReleaseServerInput, options RecoveryLaunchOptions, requestedBy, requestID string) (*OperationReference, error)
 	// LaunchRecover accepts a bounded batch of "Return to Ready" intents for Servers whose
 	// provisioning axis is not usable, gating each target on the recovery policy before
 	// persisting one recover-server Step per Server.
-	LaunchRecover(ctx context.Context, inputs []RecoverServerInput, requestedBy, requestID string) (*OperationReference, error)
+	LaunchRecover(ctx context.Context, inputs []RecoverServerInput, options RecoveryLaunchOptions, requestedBy, requestID string) (*OperationReference, error)
 	// LaunchImageVerification proves an image for a deploy target: a provision-os step in the
 	// target mode, a record finalize step (success or failure), then — unless the input keeps the
 	// Server — a recover-server step that returns the chosen Server to the ready pool.
 	LaunchImageVerification(ctx context.Context, input ImageVerificationInput, requestedBy, requestID string) (*OperationReference, error)
+}
+
+// RecoveryLaunchOptions are batch-level choices for a Release or Recover Operation.
+//
+// CancelActiveWorkflows lets the Operation supersede the unfinished Workflows holding its targets
+// (decision 061): after every target passed validation, each such Workflow is asked to cancel and
+// the Operation is created at once instead of being refused as busy. It still starts only after
+// those Workflows end and release their resource leases, so it never acts beside them. A cancel
+// the backend refuses for a Workflow that is still running fails the request as a conflict and
+// creates nothing.
+type RecoveryLaunchOptions struct {
+	CancelActiveWorkflows bool
 }
 
 // DeployTarget is re-exported from the domain vocabulary for the launcher input; disk installs to

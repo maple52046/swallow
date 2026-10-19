@@ -511,6 +511,11 @@ export interface ReleaseServerInput {
   quickErase: boolean
   comment?: string
   unbindStaticIPs: boolean
+  /**
+   * Supersede the unfinished Workflows holding the Server: the backend cancels them and the
+   * Release starts once they end (decision 061). Sent only with a durable Release Operation.
+   */
+  cancelActiveWorkflows?: boolean
 }
 
 /** The state a lifecycle action returned. A snapshot, not a completion report. */

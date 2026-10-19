@@ -237,6 +237,65 @@ test.describe('dashboard visual review', () => {
   }
 })
 
+/**
+ * Captures the Server and Platform operations polish: a deploying Platform's running cue on the
+ * list and detail header, the Deployed OS link of a Server whose last deployment failed, the bulk
+ * delete dialog with its Platform and running-work warnings, and the Release dialog opting in to
+ * cancel the running work.
+ */
+test.describe('Server and Platform operations visual review', () => {
+  test('ops-polish', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'deploying' } })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms?site=site-a')
+    await expect(page.getByText('Deploying', { exact: true }).filter({ visible: true }).first()).toBeVisible()
+    const listSpinner = page.locator('.sw-platform-lifecycle-badge .sw-progress-spinner').filter({ visible: true }).first()
+    await prepareCapture(page, appearance, () => expect(listSpinner).toBeVisible())
+    if (mobile) {
+      await expectNoHorizontalOverflow(page)
+      await page.locator('.sw-platform-lifecycle-badge:has(.sw-progress-spinner)').filter({ visible: true }).first()
+        .evaluate((badge) => badge.scrollIntoView({ block: 'center' }))
+    }
+    await capture(page, testInfo, 'platform-list-deploying', false)
+
+    await page.goto('/platforms/platform-a?site=site-a')
+    await prepareCapture(page, appearance, () => expect(page.locator('.sw-platform-lifecycle-badge .sw-progress-spinner')).toBeVisible())
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-detail-deploying', false)
+
+    await page.goto('/servers/srv-4/summary?site=site-a')
+    const statusCard = page.getByRole('heading', { name: 'Current state' }).locator('xpath=../../..')
+    await expect(statusCard.getByRole('link', { name: 'Ubuntu 24.04 LTS' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await statusCard.screenshot({ path: testInfo.outputPath(`server-detail-os-link-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+
+    await page.goto('/servers?site=site-a')
+    // Mobile cards label their selection control differently from the desktop table rows.
+    const selection = mobile ? 'Mobile selection: ' : 'Select '
+    await page.getByLabel(`${selection}gpu-node-01`, { exact: true }).check()
+    await page.getByLabel(`${selection}gpu-node-04`, { exact: true }).check()
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Delete server', exact: true }).click()
+    const deleteDialog = page.getByRole('alertdialog', { name: 'Delete 2 servers' })
+    await expect(deleteDialog).toContainText('2 of these servers have running operations')
+    await deleteDialog.getByLabel('Server count confirmation').fill('2')
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'server-bulk-delete-dialog', false)
+    await deleteDialog.getByRole('button', { name: 'Cancel' }).click()
+
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Release', exact: true }).click()
+    const releaseDialog = page.getByRole('dialog', { name: 'Release 2 servers' })
+    await expect(releaseDialog).toContainText('These servers have 2 running operations')
+    await releaseDialog.getByLabel('Cancel running operations before releasing').locator('..').click()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'server-release-cancel-running', false)
+  })
+})
+
 /** Captures the experimental Add servers path for libvirt virtual machines with a listed hypervisor. */
 test.describe('Add servers virtual machines visual review', () => {
   test('add-servers-virtual-machines', async ({ page }, testInfo) => {

@@ -8,6 +8,7 @@ import (
 
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )
 
@@ -77,6 +78,59 @@ func TestReturnCanceledDeployment(t *testing.T) {
 			}
 			if server.Deployment != nil {
 				t.Errorf("Server deployment = %+v, want the step to leave it to reconcile", server.Deployment)
+			}
+		})
+	}
+}
+
+// releaseStep is a first-attempt release-os Step for the harness Server.
+func releaseStep(unbindStaticIPs bool) temporalworkflow.StepExecutionInput {
+	return temporalworkflow.StepExecutionInput{
+		OperationID: "operation-id", SiteID: "site-id", ActivityAttempt: 1,
+		Step: operationdomain.Task{
+			ID: "release-server-id", Kind: "release-os", Attempt: 1,
+			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
+			Parameters: map[string]any{"request": provisioningapp.ReleaseServerInput{
+				ServerID: "server-id", UnbindStaticIPs: unbindStaticIPs,
+			}},
+		},
+	}
+}
+
+// TestReleaseObservesBeforeActingOnFirstAttempt covers decision 061: a Release that superseded a
+// Workflow starts only after it ends, and a canceled deployment may already have returned the
+// Server to Ready. The first attempt therefore observes first: Ready meets the goal without a provider
+// Release, and a requested static IP cleanup that never ran is reported instead of hidden.
+func TestReleaseObservesBeforeActingOnFirstAttempt(t *testing.T) {
+	tests := []struct {
+		name         string
+		state        provisioningdomain.MachineStatus
+		unbind       bool
+		wantStatus   operationdomain.TaskStatus
+		wantCode     string
+		wantReleases int
+	}{
+		{name: "already ready", state: provisioningdomain.MachineStatusReady, wantStatus: operationdomain.TaskSucceeded},
+		{
+			name: "already ready with static IP cleanup requested", state: provisioningdomain.MachineStatusReady, unbind: true,
+			wantStatus: operationdomain.TaskFailed, wantCode: "release_cleanup_not_applied",
+		},
+		{name: "deployed is released", state: provisioningdomain.MachineStatusDeployed, wantStatus: operationdomain.TaskSucceeded, wantReleases: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			executor, _, _, release, _ := retryHarness(tc.state, "")
+
+			result := executor.Execute(context.Background(), releaseStep(tc.unbind))
+
+			if result.Status != tc.wantStatus {
+				t.Fatalf("result = %+v, want status %q", result, tc.wantStatus)
+			}
+			if tc.wantCode != "" && (result.Error == nil || result.Error.Code != tc.wantCode || result.Error.Retryable) {
+				t.Errorf("result error = %+v, want non-retryable %s", result.Error, tc.wantCode)
+			}
+			if release.calls != tc.wantReleases {
+				t.Errorf("provider releases = %d, want %d", release.calls, tc.wantReleases)
 			}
 		})
 	}

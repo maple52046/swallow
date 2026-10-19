@@ -33,18 +33,17 @@ import { useBootMediaApplyWatch } from './useBootMediaApplyWatch'
 import { useServerDetailContext } from './useServerDetail'
 
 /**
- * Builds a catalog deep link only for an OS deployment Swallow completed successfully. The
- * effective image name is paired with its integration and primary architecture; OS Images
- * applies those identities before falling back to the observed OS/release tuple.
+ * Builds a catalog deep link for the OS the provisioner reports installed, whoever deployed it
+ * and whatever Swallow's last deployment result says: `deployedImageName` is present only when
+ * the installed image resolved from the provisioner's catalog (servers-list.md), so a deployed
+ * Server with that name always has an image to open. A canceled or failed Swallow deployment, or
+ * an OS installed outside Swallow, therefore keeps the link. The effective image name is paired
+ * with its integration and primary architecture; OS Images applies those identities before
+ * falling back to the observed OS/release tuple.
  */
 function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => string): string | undefined {
   const axis = server.provisioning
-  if (
-    server.deployment?.state !== 'succeeded' ||
-    axis?.state !== 'deployed' ||
-    !axis.deployedImageName ||
-    !axis.integrationId
-  ) {
+  if (axis?.state !== 'deployed' || !axis.deployedImageName || !axis.integrationId) {
     return undefined
   }
 

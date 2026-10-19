@@ -132,17 +132,20 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   await expect(updating).toBeHidden({ timeout: 7_000 })
 })
 
-test('Release detects running operations and cancels them before releasing', async ({ page }) => {
+// The dialog used to cancel the blocking Workflow itself and poll up to 30 seconds with every
+// control disabled, which read as a frozen page. The release request now asks the backend to
+// cancel that work (decision 061): it is accepted at once and the dialog closes, with no cancel
+// or poll from the browser.
+test('Release hands canceling the running operations to the backend and closes at once', async ({ page }) => {
   const releases: Array<{ serverId: string; body: Record<string, unknown> | null }> = []
-  const cancels: string[] = []
+  const superseded: string[] = []
+  const browserCancels: string[] = []
   await installApiFixtures(page, {
-    cancelMarksTerminal: true,
     onServerReleaseRequest: (serverId, body) => releases.push({ serverId, body }),
+    onWorkflowSuperseded: (operationId) => superseded.push(operationId),
   })
   page.on('request', (request) => {
-    const path = new URL(request.url()).pathname
-    const match = path.match(/^\/api\/v1\/workflows\/([^/]+)\/cancel$/)
-    if (match && request.method() === 'POST') cancels.push(match[1])
+    if (/\/api\/v1\/workflows\/[^/]+\/cancel$/.test(new URL(request.url()).pathname)) browserCancels.push(request.url())
   })
 
   await page.goto('/servers?site=site-a')
@@ -154,20 +157,20 @@ test('Release detects running operations and cancels them before releasing', asy
   await expect(confirmation).toContainText('This server has a running operation')
   await expect(confirmation).toContainText('Deploy production k0s platform')
 
-  // Leaving the box unchecked would release straight away; opting in must cancel the
-  // blocking Operation first and only then submit the release.
   await confirmation.getByLabel('Cancel running operations before releasing').locator('..').click()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
-  await expect.poll(() => releases.map((entry) => entry.serverId)).toContain('srv-1')
-  expect(cancels).toContain('op-running')
+  await expect(confirmation).toBeHidden({ timeout: 2_000 })
+  expect(releases).toEqual([{ serverId: 'srv-1', body: expect.objectContaining({ cancelActiveWorkflows: true }) }])
+  expect(superseded).toContain('op-running')
+  expect(browserCancels).toEqual([])
+  await expect(page.getByText('The running operations are being canceled; the Release of 1 Server starts once they end.')).toBeVisible()
   // Releasing stays on the Server list rather than navigating to the Operation.
   await expect(page).toHaveURL(/\/servers(\?|$)/)
 })
 
-// A refused cancel for work that is still active cannot clear by waiting. The dialog used to poll
-// for 30 seconds and then blame slowness; it must report the backend's reason at once and never
-// submit the release.
+// A refused cancel for work that is still active cannot clear by waiting. The backend reports it
+// as a conflict naming the Workflow, and the dialog shows that reason at once.
 test('Release reports a refused cancel at once instead of waiting it out', async ({ page }) => {
   const releases: string[] = []
   const refusal = 'operation cannot accept this control in its current state'
@@ -186,8 +189,7 @@ test('Release reports a refused cancel at once instead of waiting it out', async
   await confirmation.getByLabel('Cancel running operations before releasing').locator('..').click()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
-  await expect(confirmation).toContainText(`Could not cancel Deploy production k0s platform: ${refusal}`)
-  await expect(confirmation).not.toContainText('did not stop in time')
+  await expect(confirmation).toContainText(`Deploy production k0s platform could not be canceled: ${refusal}`)
   expect(releases).toEqual([])
 })
 

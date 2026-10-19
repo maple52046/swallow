@@ -255,14 +255,8 @@ export interface FixtureOptions {
   inspectionRequiredServerIds?: string[]
   /** Called for every per-Server provisioner action POST (inspect, power-on, lock, ...). */
   onServerActionRequest?: (serverId: string, action: string) => void
-  /**
-   * Servers whose provisioner storage layout needs a new inspection before a disk deployment
-   * (`provisioning.inspectionRequired` with the MAAS UEFI-without-ESP reason). An accepted Inspect
-   * moves them to `inspecting`; the flag stays until the inspection would finish.
-   */
-  inspectionRequiredServerIds?: string[]
-  /** Called for every per-Server provisioner action POST (inspect, power-on, lock, ...). */
-  onServerActionRequest?: (serverId: string, action: string) => void
+  /** Overrides a seeded Platform's lifecycle state by id, e.g. `{ 'platform-a': 'deploying' }`. */
+  platformLifecycleStates?: Record<string, 'deploying' | 'uninstalling' | 'active' | 'deploy_failed'>
   /**
    * Provider-only running work: sets the OS Provisioning State and leaves the Swallow deployment
    * record alone, so no Swallow Workflow is running for the Server (unlike `changingServerIds`).
@@ -324,6 +318,12 @@ export interface FixtureOptions {
    * accepted.
    */
   cancelRefusedMessage?: string
+  /** Called for every `DELETE /servers/{id}`, in order. */
+  onServerDeleteRequest?: (serverId: string) => void
+  /** Servers whose deletion the provisioner refuses with `409 conflict`. */
+  serverDeleteFailureIds?: string[]
+  /** Called with each Operation a Release or Recover with `cancelActiveWorkflows` canceled. */
+  onWorkflowSuperseded?: (operationId: string) => void
   providerFailureRetryable?: boolean
   /**
    * Makes the canonical Task-retry endpoint answer `409 conflict`, modelling a durable Workflow
@@ -877,14 +877,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         'MAAS boots this Server with UEFI, but its storage layout has no EFI system partition because it was inspected while booting BIOS. Inspect the Server again before a disk deployment.'
     }
   }
-  for (const serverId of options.inspectionRequiredServerIds ?? []) {
-    const server = fleet.find((item) => item.id === serverId)
-    if (server) {
-      server.provisioning.inspectionRequired = true
-      server.provisioning.inspectionRequiredReason =
-        'MAAS boots this Server with UEFI, but its storage layout has no EFI system partition because it was inspected while booting BIOS. Inspect the Server again before a disk deployment.'
-    }
-  }
   const providerWorkLabels = { releasing: 'Releasing', inspecting: 'Commissioning', testing: 'Testing', deploying: 'Deploying' }
   for (const [serverId, state] of Object.entries(options.providerWorkServerIds ?? {})) {
     seedProviderState([serverId], state, providerWorkLabels[state])
@@ -1063,7 +1055,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       deploymentRefreshesRemaining.set(serverId, remaining - 1)
     }
   }
-  const platformItems = platforms.map((platform) => ({ ...platform }))
+  const platformItems = platforms.map((platform) => ({
+    ...platform,
+    lifecycleState: options.platformLifecycleStates?.[platform.id] ?? platform.lifecycleState,
+  }))
   if (options.slurmDeployed) {
     // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
     // nodes do. getServer reads from the fleet, so the controllers must live here for the
@@ -1939,9 +1934,33 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, { operationId }, 202)
     }
 
+    // Models `cancelActiveWorkflows` (decision 061): the backend cancels every unfinished Operation
+    // holding a target and accepts the request, or answers 409 naming one whose cancel it refused.
+    const supersedeActiveOperations = (serverIds: string[]): string | null => {
+      const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled', 'indeterminate'])
+      const holders = operationItems.filter((item) =>
+        item.targetServerIds.some((serverId) => serverIds.includes(serverId)) &&
+        !terminal.has(item.status ?? item.execution.status))
+      if (holders.length > 0 && options.cancelRefusedMessage) {
+        return `${holders[0].intent} could not be canceled: ${options.cancelRefusedMessage}`
+      }
+      for (const holder of holders) {
+        const operation = holder as unknown as Record<string, unknown>
+        operation.status = 'canceling'
+        operation.statusReason = 'Canceling active work.'
+        operation.execution = { ...(operation.execution as Record<string, unknown>), status: 'canceling', statusReason: 'Canceling active work.' }
+        options.onWorkflowSuperseded?.(holder.id)
+      }
+      return null
+    }
+
     if (path === '/api/v1/provisioning/release-operations' && request.method() === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       const serverIds = body.serverIds as string[]
+      if (body.cancelActiveWorkflows) {
+        const refused = supersedeActiveOperations(serverIds)
+        if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-release-busy' } }, 409)
+      }
       const releaseBody = { ...body }
       delete releaseBody.serverIds
       for (const serverId of serverIds) {
@@ -1980,6 +1999,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/provisioning/recover-operations' && request.method() === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       const serverIds = body.serverIds as string[]
+      if (body.cancelActiveWorkflows) {
+        const refused = supersedeActiveOperations(serverIds)
+        if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-recover-busy' } }, 409)
+      }
       const recoverBody = { ...body }
       delete recoverBody.serverIds
       for (const serverId of serverIds) {
@@ -2360,6 +2383,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const index = fleet.findIndex((item) => item.id === serverMatch[1])
       if (request.method() === 'DELETE') {
         if (index < 0) return json(route, { error: { code: 'not_found', message: 'Server not found' } }, 404)
+        options.onServerDeleteRequest?.(serverMatch[1])
+        if (options.serverDeleteFailureIds?.includes(serverMatch[1])) {
+          return json(route, { error: { code: 'conflict', message: 'MAAS refused to delete the machine: it hosts running virtual machines.', requestId: 'req-delete-' + serverMatch[1] } }, 409)
+        }
         fleet.splice(index, 1)
         return route.fulfill({ status: 204 })
       }

@@ -1,4 +1,4 @@
-import type { BulkAction } from './serverActions'
+import type { ServerMenuAction } from './serverActions'
 
 /** Identifies a Server in operator-facing action results. */
 export interface ServerActionTarget {
@@ -16,9 +16,9 @@ export interface ServerActionOutcome extends ServerActionTarget {
   taskId?: string
 }
 
-/** Complete result of one single- or multi-Server action run. */
+/** Complete result of one single- or multi-Server action run, including a bulk delete. */
 export interface ServerActionRunResult {
-  action: BulkAction
+  action: ServerMenuAction
   total: number
   succeeded: number
   outcomes: ServerActionOutcome[]
@@ -52,7 +52,7 @@ export function rejectedServerActionOutcome(
 
 /** Builds the result shape shared by list and detail Server actions. */
 export function serverActionRunResult(
-  action: BulkAction,
+  action: ServerMenuAction,
   outcomes: ServerActionOutcome[],
 ): ServerActionRunResult {
   return {

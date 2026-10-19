@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Field, HStack, List, Spinner, Stack, Text, Textarea } from '@chakra-ui/react'
+import { Button, Field, List, Stack, Text, Textarea } from '@chakra-ui/react'
 import type { ReleaseServerInput } from '@/domain/server/types'
 import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
@@ -17,17 +17,17 @@ interface ServerReleaseDialogProps {
   onRelease: (input: ReleaseServerInput) => Promise<void>
 }
 
-/** Submit progress so the primary button and body can explain the current phase. */
-type ReleasePhase = 'idle' | 'canceling' | 'releasing'
-
 /**
  * Confirms a single or multi-Server release and makes MAAS disk-erasure semantics explicit
  * before any provider request is sent.
  *
  * A release is rejected while a target still has running durable Operations, so the dialog
- * detects that work on open and, when the operator opts in, cancels it and waits for the
- * targets to clear before releasing. The opt-in keeps the default path unchanged: leaving the
- * box unchecked releases exactly as before and surfaces the backend's conflict message.
+ * detects that work on open. When the operator opts in, the release request asks the backend to
+ * cancel that work (`cancelActiveWorkflows`, decision 061): the Release Operation is accepted at
+ * once and starts by itself after the canceled work ends, so the dialog closes within the request
+ * instead of polling for minutes with every control disabled. Leaving the box unchecked releases
+ * exactly as before and surfaces the backend's conflict message; a cancel the backend refuses is
+ * shown the same way.
  */
 export function ServerReleaseDialog({
   targets,
@@ -39,17 +39,20 @@ export function ServerReleaseDialog({
   const [options, setOptions] = useState<ReleaseOptionsValue>(emptyReleaseOptions)
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [phase, setPhase] = useState<ReleasePhase>('idle')
   const [cancelRunning, setCancelRunning] = useState(false)
   const [error, setError] = useState('')
 
-  const { activeOperations, cancelAll } = useServerActiveOperations(targets.map((target) => target.serverId))
+  const { activeOperations } = useServerActiveOperations(targets.map((target) => target.serverId))
 
   const multiple = targets.length > 1
   const title = multiple ? `Release ${targets.length} servers` : 'Release server'
   const shownNames = targets.slice(0, 5).map((target) => target.serverName)
   const remaining = targets.length - shownNames.length
   const hasActiveOperations = activeOperations.length > 0
+  const holder = multiple ? 'These servers have' : 'This server has'
+  const activeOperationsTitle = activeOperations.length === 1
+    ? `${holder} a running operation`
+    : `${holder} ${activeOperations.length} running operations`
 
   const close = () => {
     if (!submitting) onClose()
@@ -60,24 +63,19 @@ export function ServerReleaseDialog({
     setSubmitting(true)
     setError('')
     try {
-      if (cancelRunning && hasActiveOperations) {
-        setPhase('canceling')
-        await cancelAll()
-      }
-      setPhase('releasing')
       await onRelease({
         erase: supportsReleaseOptions && options.erase,
         secureErase: supportsReleaseOptions && options.erase && options.secureErase,
         quickErase: supportsReleaseOptions && options.erase && options.quickErase,
         comment: supportsReleaseOptions ? comment.trim() || undefined : undefined,
         unbindStaticIPs: supportsNetworkConfiguration && options.unbindStaticIPs,
+        cancelActiveWorkflows: cancelRunning && hasActiveOperations ? true : undefined,
       })
       onClose()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not release the selected Server.')
     } finally {
       setSubmitting(false)
-      setPhase('idle')
     }
   }
 
@@ -117,10 +115,13 @@ export function ServerReleaseDialog({
         {hasActiveOperations && (
           <Alert
             status="warning"
-            title={activeOperations.length === 1 ? 'This server has a running operation' : `This server has ${activeOperations.length} running operations`}
+            title={activeOperationsTitle}
           >
             <Stack gap="2">
-              <Text>A release is rejected while durable work is still running. Cancel the running operations first, or wait for them to finish.</Text>
+              <Text>
+                A release is rejected while durable work is still running. Check the box to cancel it: the Release is
+                accepted now and starts by itself once the canceled work has ended, which can take a few minutes.
+              </Text>
               <List.Root aria-label="Running operations blocking release">
                 {activeOperations.map((operation) => (
                   <List.Item key={operation.id}>
@@ -133,12 +134,6 @@ export function ServerReleaseDialog({
               </Checkbox>
             </Stack>
           </Alert>
-        )}
-        {phase === 'canceling' && (
-          <HStack gap="2">
-            <Spinner size="sm" aria-hidden />
-            <Text>Canceling running operations. This can take a moment...</Text>
-          </HStack>
         )}
         <ReleaseOptionsFields
           idPrefix="release"

@@ -1,0 +1,149 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+)
+
+// supersedeWorkflowRepo serves one parked Workflow holding the target Server, the way the
+// projection still reports it right after a cancel request (the workflow writes canceling itself),
+// and records the Operation a launch creates.
+type supersedeWorkflowRepo struct {
+	operationdomain.WorkflowRepository
+	parked  *operationdomain.Workflow
+	created *operationdomain.Workflow
+}
+
+func (r *supersedeWorkflowRepo) FindByID(_ context.Context, id string) (*operationdomain.Workflow, error) {
+	if id == r.parked.ID {
+		return r.parked, nil
+	}
+	return nil, operationdomain.ErrWorkflowNotFound
+}
+
+func (r *supersedeWorkflowRepo) List(_ context.Context, filter operationdomain.WorkflowFilter) ([]*operationdomain.Workflow, int, error) {
+	if filter.ActiveOnly && filter.ServerID == "server-id" && !r.parked.Status.Terminal() {
+		return []*operationdomain.Workflow{r.parked}, 1, nil
+	}
+	return nil, 0, nil
+}
+
+func (r *supersedeWorkflowRepo) Create(_ context.Context, operation *operationdomain.Workflow) error {
+	r.created = operation
+	return nil
+}
+
+func (r *supersedeWorkflowRepo) AppendEvent(context.Context, operationdomain.TimelineEvent) error {
+	return nil
+}
+
+// supersedeController records cancel requests; refuse makes the cancel fail, and finish models a
+// Workflow that ended on its own between the list and the cancel.
+type supersedeController struct {
+	repo     *supersedeWorkflowRepo
+	canceled []string
+	refuse   bool
+	finish   bool
+}
+
+func (c *supersedeController) Cancel(_ context.Context, operation *operationdomain.Workflow) error {
+	c.canceled = append(c.canceled, operation.ID)
+	if c.finish {
+		c.repo.parked.Status = operationdomain.WorkflowSucceeded
+	}
+	if c.refuse {
+		return operationdomain.ErrWorkflowControlConflict
+	}
+	return nil
+}
+
+func (c *supersedeController) RetryStep(context.Context, *operationdomain.Workflow, string) error {
+	return nil
+}
+
+func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *supersedeController) {
+	repo := &supersedeWorkflowRepo{parked: &operationdomain.Workflow{
+		ID: "op-parked", SchemaVersion: 4, Kind: operationdomain.WorkflowKindDeployKubernetes,
+		Intent: map[string]any{"summary": "Deploy k0s Platform test-amd-operator"},
+		Status: operationdomain.WorkflowRequiresAttention, TargetServerIDs: []string{"server-id"},
+	}}
+	controller := &supersedeController{repo: repo}
+	server := &serverdomain.Server{
+		ID: "server-id", Observed: serverdomain.Observed{Hostname: "lab-afde-mi308-3"},
+		Source:       serverdomain.Source{SiteID: "site-id", IntegrationID: "integration-id", ProviderMachineID: "machine-id"},
+		Provisioning: &serverdomain.ProvisioningStatus{State: "failed"},
+	}
+	return durableProvisioningLauncher{
+		operations: operationapp.NewWorkflowService(repo, controller),
+		servers:    &deploymentProjectionTestRepo{server: server},
+	}, repo, controller
+}
+
+// TestRecoveryLaunchSupersedesActiveWorkflows covers decision 061: the Release dialog used to
+// cancel the Workflow holding the Server and poll up to 30 seconds with every control disabled
+// before it could release. Asked to, the backend now cancels that Workflow and creates the
+// Release at once; the Release waits for the canceled Workflow's leases instead of the browser.
+func TestRecoveryLaunchSupersedesActiveWorkflows(t *testing.T) {
+	release := []provisioningapp.ReleaseServerInput{{ServerID: "server-id"}}
+	recoverInputs := []provisioningapp.RecoverServerInput{{ServerID: "server-id"}}
+	cancelActive := provisioningapp.RecoveryLaunchOptions{CancelActiveWorkflows: true}
+	launches := map[string]func(durableProvisioningLauncher, provisioningapp.RecoveryLaunchOptions) error{
+		"release": func(l durableProvisioningLauncher, options provisioningapp.RecoveryLaunchOptions) error {
+			_, err := l.LaunchRelease(context.Background(), release, options, "admin", "request-id")
+			return err
+		},
+		"recover": func(l durableProvisioningLauncher, options provisioningapp.RecoveryLaunchOptions) error {
+			_, err := l.LaunchRecover(context.Background(), recoverInputs, options, "admin", "request-id")
+			return err
+		},
+	}
+	for name, launch := range launches {
+		t.Run(name+" without the option stays refused as busy", func(t *testing.T) {
+			launcher, repo, controller := supersedeLauncher()
+			err := launch(launcher, provisioningapp.RecoveryLaunchOptions{})
+			if !errors.Is(err, operationdomain.ErrTargetsBusy) || repo.created != nil || len(controller.canceled) != 0 {
+				t.Fatalf("err = %v, created %v, canceled %v; want busy, nothing created or canceled", err, repo.created != nil, controller.canceled)
+			}
+		})
+		t.Run(name+" cancels the holder and is created at once", func(t *testing.T) {
+			launcher, repo, controller := supersedeLauncher()
+			if err := launch(launcher, cancelActive); err != nil {
+				t.Fatalf("launch error = %v", err)
+			}
+			if len(controller.canceled) != 1 || controller.canceled[0] != "op-parked" {
+				t.Errorf("canceled = %v, want op-parked", controller.canceled)
+			}
+			if repo.created == nil || len(repo.created.TargetServerIDs) != 1 {
+				t.Fatalf("created = %+v, want one Operation for the Server", repo.created)
+			}
+		})
+		t.Run(name+" refused cancel of running work creates nothing", func(t *testing.T) {
+			launcher, repo, controller := supersedeLauncher()
+			controller.refuse = true
+			err := launch(launcher, cancelActive)
+			if !errors.Is(err, operationdomain.ErrTargetsBusy) || !strings.Contains(err.Error(), "Deploy k0s Platform test-amd-operator") {
+				t.Fatalf("err = %v, want a busy conflict naming the Workflow", err)
+			}
+			if repo.created != nil {
+				t.Error("an Operation was created behind a Workflow that would not stop")
+			}
+		})
+		t.Run(name+" refused cancel of finished work proceeds", func(t *testing.T) {
+			launcher, repo, controller := supersedeLauncher()
+			controller.refuse, controller.finish = true, true
+			if err := launch(launcher, cancelActive); err != nil {
+				t.Fatalf("launch error = %v, want the race with a natural finish to be accepted", err)
+			}
+			if repo.created == nil {
+				t.Error("no Operation was created after the holder finished")
+			}
+		})
+	}
+}

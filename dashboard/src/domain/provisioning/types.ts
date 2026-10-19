@@ -181,6 +181,12 @@ export interface ReleaseServersOperationInput {
   quickErase?: boolean;
   comment?: string;
   unbindStaticIPs?: boolean;
+  /**
+   * Asks the backend to cancel the unfinished Workflows holding the targets and accept the
+   * Operation at once (provisioning.md, decision 061). The Operation then waits for those
+   * Workflows to end before it acts, so the caller never polls for them.
+   */
+  cancelActiveWorkflows?: boolean;
 }
 
 /**
@@ -192,6 +198,8 @@ export interface RecoverServersOperationInput {
   serverIds: string[];
   comment?: string;
   unbindStaticIPs?: boolean;
+  /** Same meaning as on {@link ReleaseServersOperationInput}. */
+  cancelActiveWorkflows?: boolean;
 }
 
 /** Session-safe result shape. It intentionally has nowhere to store cloud-init. */

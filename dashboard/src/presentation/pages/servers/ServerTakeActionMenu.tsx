@@ -121,7 +121,8 @@ export type ServerTakeActionTrigger = 'take-action' | 'actions'
  *
  * - Detail passes `capabilities` so unsupported groups hide; list omits it and shows every
  *   catalogue group (backend refuses per Server).
- * - `includeSingleOnly` keeps Delete on single-Server menus and out of bulk.
+ * - `includeSingleOnly` keeps actions marked `bulk: false` on single-Server menus and out of bulk.
+ *   Delete is offered in bulk too; its dialog is confirmed by typing the Server count.
  * - Deploy OS / Install software / Query power are optional slots owned by detail; the list
  *   offers Deploy OS as the Deployment cell's contextual icon and never repeats navigation here.
  *   A disabled slot shows its reason under the command.
@@ -151,7 +152,7 @@ export function ServerTakeActionMenu({
   capabilities?: ProvisionerCapabilities | null
   /** Detail hides unsupported groups; list leaves every group visible. */
   filterByCapabilities?: boolean
-  /** When false, actions marked `bulk: false` (Delete) are omitted. */
+  /** When false, actions marked `bulk: false` are omitted. */
   includeSingleOnly?: boolean
   includeDeploy?: boolean
   includeQueryPower?: boolean

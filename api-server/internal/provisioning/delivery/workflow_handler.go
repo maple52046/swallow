@@ -396,6 +396,9 @@ type releaseOperationsRequest struct {
 	QuickErase      bool     `json:"quickErase"`
 	Comment         string   `json:"comment"`
 	UnbindStaticIPs bool     `json:"unbindStaticIPs"`
+	// CancelActiveWorkflows supersedes the unfinished Workflows holding the targets instead of
+	// refusing the request as busy (provisioning.md, decision 061).
+	CancelActiveWorkflows bool `json:"cancelActiveWorkflows"`
 }
 
 // CreateReleaseOperation accepts a bounded batch of provider-neutral release intents.
@@ -420,7 +423,9 @@ func (h *ProvisioningHandler) CreateReleaseOperation(c *fiber.Ctx) error {
 	if principal := middleware.GetPrincipal(c); principal != nil {
 		requestedBy = principal.Username
 	}
-	result, err := h.durable.LaunchRelease(c.Context(), inputs, requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
+	result, err := h.durable.LaunchRelease(c.Context(), inputs,
+		application.RecoveryLaunchOptions{CancelActiveWorkflows: req.CancelActiveWorkflows},
+		requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
 	if err != nil {
 		return RespondError(c, err)
 	}
@@ -431,6 +436,8 @@ type recoverOperationsRequest struct {
 	ServerIDs       []string `json:"serverIds"`
 	Comment         string   `json:"comment"`
 	UnbindStaticIPs bool     `json:"unbindStaticIPs"`
+	// CancelActiveWorkflows has the same meaning as on a Release request.
+	CancelActiveWorkflows bool `json:"cancelActiveWorkflows"`
 }
 
 // CreateRecoverOperation accepts a bounded batch of "Return to Ready" intents for Servers
@@ -456,7 +463,9 @@ func (h *ProvisioningHandler) CreateRecoverOperation(c *fiber.Ctx) error {
 	if principal := middleware.GetPrincipal(c); principal != nil {
 		requestedBy = principal.Username
 	}
-	result, err := h.durable.LaunchRecover(c.Context(), inputs, requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
+	result, err := h.durable.LaunchRecover(c.Context(), inputs,
+		application.RecoveryLaunchOptions{CancelActiveWorkflows: req.CancelActiveWorkflows},
+		requestedBy, c.GetRespHeader(fiber.HeaderXRequestID))
 	if err != nil {
 		return RespondError(c, err)
 	}

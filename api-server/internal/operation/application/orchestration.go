@@ -41,6 +41,10 @@ type CreateWorkflowInput struct {
 	SecretStepIDs      []string
 	SecretValues       map[string]any
 	StepSecretValues   map[string]map[string]any
+	// SupersededOperationIDs names unfinished Operations on the targets whose cancellation the
+	// caller has just requested, so the target-busy check ignores them (decision 061). The new
+	// Workflow still cannot act before they end: it waits for their resource leases.
+	SupersededOperationIDs []string
 }
 
 // WorkflowItem is the public orchestration projection. Execution remains as a
@@ -119,12 +123,26 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 	if err := validateSteps(input.Steps); err != nil {
 		return nil, err
 	}
+	superseded := make(map[string]bool, len(input.SupersededOperationIDs))
+	for _, operationID := range input.SupersededOperationIDs {
+		superseded[operationID] = true
+	}
 	for _, serverID := range input.TargetServerIDs {
-		_, total, err := s.operations.List(ctx, operationdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true, Limit: 1})
+		limit := 1
+		if len(superseded) > 0 {
+			limit = 100
+		}
+		active, total, err := s.operations.List(ctx, operationdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true, Limit: limit})
 		if err != nil {
 			return nil, err
 		}
-		if total > 0 {
+		blocking := total
+		for _, operation := range active {
+			if superseded[operation.ID] {
+				blocking--
+			}
+		}
+		if blocking > 0 {
 			// A target already inside an unfinished Operation is a conflict, not a
 			// malformed request: it is exactly operationdomain.ErrTargetsBusy, which
 			// every delivery mapper renders as 409 with this message. Classifying it

@@ -22,9 +22,10 @@ import { useServerActiveOperations } from './useServerActiveOperations'
  *   work (for example the other Servers of a platform deployment). A Server whose layout needs a
  *   new inspection (`inspectionRequired`) is the exception: the retry ends the Step instead, so
  *   the guidance says that rather than promising a redeploy; and
- * - a single Recover action that cancels those blocking Operations first when present, so the
- *   operator is not left to discover the busy state and cancel by hand. It stops the whole
- *   Operation, so it is the choice for abandoning that work, not for redeploying this Server.
+ * - a single Recover action that has the backend cancel those blocking Operations when present
+ *   (decision 061): the Recover is accepted at once and starts after they end, so the operator is
+ *   neither left to cancel by hand nor kept waiting here. It stops the whole Operation, so it is
+ *   the choice for abandoning that work, not for redeploying this Server.
  */
 export function ProviderFailureAlert({
   serverId,
@@ -39,7 +40,7 @@ export function ProviderFailureAlert({
   const { provisioning: repo } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
-  const { activeOperations, cancelAll, refresh } = useServerActiveOperations([serverId])
+  const { activeOperations, refresh } = useServerActiveOperations([serverId])
   const [busy, setBusy] = useState(false)
 
   const blocking = activeOperations.length > 0
@@ -51,10 +52,16 @@ export function ProviderFailureAlert({
     setBusy(true)
     try {
       // A parked Operation (for example a failed Release) keeps this Server "busy", so the backend
-      // rejects a new recovery with 409. Cancel those first so the one-click recovery actually runs.
-      if (blocking) await cancelAll()
-      await repo.createRecoverOperation({ serverIds: [serverId] })
-      showToast({ tone: 'success', title: 'Recover Operation created', description: 'Swallow will return the Server to the ready pool.' })
+      // rejects a new recovery with 409. Asking the backend to cancel it (decision 061) accepts the
+      // Recover at once; it starts after the canceled work ends, so nothing here waits for that.
+      await repo.createRecoverOperation({ serverIds: [serverId], cancelActiveWorkflows: blocking || undefined })
+      showToast({
+        tone: 'success',
+        title: 'Recover Operation created',
+        description: blocking
+          ? 'The blocking operations are being canceled; Swallow returns the Server to the ready pool once they end.'
+          : 'Swallow will return the Server to the ready pool.',
+      })
       onRecoverStarted()
     } catch (error) {
       showToast({ tone: 'error', title: 'Recovery could not start', description: error instanceof Error ? error.message : 'Try again in a moment.' })

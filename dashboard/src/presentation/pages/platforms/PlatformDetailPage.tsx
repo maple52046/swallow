@@ -4,7 +4,6 @@ import { ChartLine, ExternalLink, RefreshCw } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
-import { platformLifecycleLabel, platformLifecycleStatus } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -21,6 +20,7 @@ import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { KubernetesPlatformView } from './KubernetesPlatformView'
 import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
+import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
 import { SlurmPlatformView } from './SlurmPlatformView'
 import { usePlatformDetail } from './usePlatformDetail'
 
@@ -109,7 +109,7 @@ export function PlatformDetailPage() {
             <Badge colorPalette={isKubernetes ? 'blue' : 'gray'} variant="subtle">
               {platform.type}
             </Badge>
-            <StatusBadge status={platformLifecycleStatus(platform.lifecycleState)} label={platformLifecycleLabel(platform.lifecycleState)} />
+            <PlatformLifecycleBadge state={platform.lifecycleState} />
           </HStack>
         }
         actions={

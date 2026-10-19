@@ -674,13 +674,26 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 	} else {
 		input.Comment = input.Comment + " | " + correlation
 	}
-	if step.Step.Attempt > 1 || step.ActivityAttempt > 1 {
-		state, err := e.refresh.Execute(ctx, serverID)
-		if err == nil && state.State == string(provisioningdomain.MachineStatusReady) {
-			return e.observeReleaseCleanup(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
-		}
-		if err == nil && state.State == string(provisioningdomain.MachineStatusReleasing) {
-			return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+	// Observe before acting on every attempt, not only on a retry (decision 061): a Release that
+	// superseded other Workflows starts only after they end, and a canceled deployment returns its
+	// Server to Ready before its Workflow ends, so a first attempt can find the Server already Ready
+	// or Releasing. A retry resumes the Release this Step sent; a first attempt did not send one.
+	resumed := step.Step.Attempt > 1 || step.ActivityAttempt > 1
+	if state, err := e.refresh.Execute(ctx, serverID); err == nil {
+		switch provisioningdomain.MachineStatus(state.State) {
+		case provisioningdomain.MachineStatusReady:
+			if resumed {
+				return e.observeReleaseCleanup(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+			}
+			return releaseFoundReady(input)
+		case provisioningdomain.MachineStatusReleasing:
+			if resumed {
+				return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+			}
+			if released := e.observeRelease(ctx, serverID, step.OperationID, false, true); released.Status != operationdomain.TaskSucceeded {
+				return released
+			}
+			return releaseFoundReady(input)
 		}
 	}
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
@@ -695,6 +708,19 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 		return normalizeProviderError(err, "release")
 	}
 	return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+}
+
+// releaseFoundReady settles a first Release attempt that found its Server already Ready without
+// this Step releasing it. Ready is the Release's goal, so it succeeds; but the static IP bindings
+// a cleanup would remove were never captured, so a request that asked for that cleanup fails,
+// not retryable, saying the bindings are still there rather than reporting work that never ran.
+func releaseFoundReady(input provisioningapp.ReleaseServerInput) temporalworkflow.StepExecutionResult {
+	if input.UnbindStaticIPs {
+		return providerFailed("release_cleanup_not_applied",
+			"The Server was already Ready when this Release started, so Swallow did not release it and did not remove its static IP bindings. Remove them on the Server's Networking tab if they are no longer wanted.",
+			false).withStage("network_cleanup")
+	}
+	return providerSucceeded()
 }
 
 // recoverServer runs a recover-server Step: it decodes the frozen Recover intent and converges

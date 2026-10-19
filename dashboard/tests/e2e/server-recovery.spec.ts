@@ -51,6 +51,25 @@ test('a failed Server links the work blocking recovery and explains retrying it'
   await expect(page).toHaveURL('/workflows/op-running?site=site-a')
 })
 
+// Cancel-and-Recover used to cancel and poll from the browser; the backend now cancels the
+// blocking work and accepts the Recover at once (decision 061).
+test('Cancel blocking Operations and Recover hands the cancel to the backend', async ({ page }) => {
+  const recovered: Array<{ serverId: string; body: Record<string, unknown> | null }> = []
+  const superseded: string[] = []
+  await installApiFixtures(page, {
+    failedServerIds: ['srv-1'],
+    onServerRecoverRequest: (serverId, body) => recovered.push({ serverId, body }),
+    onWorkflowSuperseded: (operationId) => superseded.push(operationId),
+  })
+  await page.goto('/servers/srv-1/summary?site=site-a')
+
+  await page.getByRole('button', { name: 'Cancel blocking Operations and Recover' }).click()
+
+  await expect.poll(() => recovered).toEqual([{ serverId: 'srv-1', body: expect.objectContaining({ cancelActiveWorkflows: true }) }])
+  expect(superseded).toContain('op-running')
+  await expect(page.getByText('The blocking operations are being canceled; Swallow returns the Server to the ready pool once they end.')).toBeVisible()
+})
+
 test('the detail page explains recovery for failed and rescue Servers', async ({ page }) => {
   await installApiFixtures(page, { failedServerIds: ['srv-1'] })
   await page.goto('/servers/srv-1/summary?site=site-a')

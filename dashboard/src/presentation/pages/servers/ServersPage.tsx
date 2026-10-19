@@ -435,7 +435,7 @@ export function ServersPage() {
   // provisioners (or decides the empty state) before its own read returns.
   const [provisionerState, setProvisionerState] = useState<{ siteKey: string | null; items: Integration[] }>({ siteKey: null, items: [] })
   const [addingServers, setAddingServers] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<Server | null>(null)
+  const [deleteTargets, setDeleteTargets] = useState<Server[] | null>(null)
   const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
   const [tagEditorTargets, setTagEditorTargets] = useState<Server[] | null>(null)
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
@@ -672,8 +672,7 @@ export function ServersPage() {
     }
     const eligibleIds = availability.eligible.map((server) => server.id)
     if (action === 'delete') {
-      const target = workingSet.find((server) => server.id === eligibleIds[0])
-      if (target) setDeleteTarget(target)
+      if (availability.eligible.length > 0) setDeleteTargets([...availability.eligible])
       return
     }
     const actionTargets = eligibleIds.map((id) => {
@@ -967,9 +966,7 @@ export function ServersPage() {
                 busy={bulk.running}
                 trigger="take-action"
                 size="sm"
-                onAction={(action) => {
-                  if (action !== 'delete') void runAction(action, [...selected])
-                }}
+                onAction={(action) => void runAction(action, [...selected])}
               />
               {selected.size < visibleServers.length && (
                 <Button variant="plain" size="sm" onClick={() => setMany(visibleServers.map((server) => server.id), true)}>
@@ -1104,15 +1101,18 @@ export function ServersPage() {
         />
       )}
       {lastActionResult && resultDialogOpen && <ServerActionResultDialog result={lastActionResult} onClose={() => setResultDialogOpen(false)} />}
-      {deleteTarget && (
+      {deleteTargets && (
         <ServerDeleteDialog
-          serverId={deleteTarget.id}
-          serverName={serverDisplayName(deleteTarget)}
-          onClose={() => setDeleteTarget(null)}
-          onDeleted={() => {
-            setDeleteTarget(null)
+          targets={deleteTargets}
+          onClose={() => setDeleteTargets(null)}
+          onDeleted={(result) => {
+            setDeleteTargets(null)
             clearSelection()
             reload()
+            if (failedServerActionOutcomes(result).length > 0) {
+              setLastActionResult(result)
+              setResultDialogOpen(true)
+            }
           }}
         />
       )}

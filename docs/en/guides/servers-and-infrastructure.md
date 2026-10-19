@@ -152,6 +152,13 @@ After Release is accepted, stay on the list: the row changes to **Releasing**
 while the provider works and then to **Ready** when the Server returns to the
 pool.
 
+A Server that a running Workflow still holds cannot be released. The Release
+dialog lists that work; check **Cancel running operations before releasing** to
+have swallow cancel it. The Release is accepted at once and starts by itself
+when the canceled work has ended, which can take a few minutes. A canceled OS
+deployment may already return the Server to **Ready** by then. **Cancel blocking
+Operations and Recover** on a failed Server works the same way.
+
 On the Server detail page, a **Releasing** Server shows a banner that links to
 the Workflow following the release (a Release, a Recover, or a Platform
 uninstall that releases its Servers). If that Workflow needs attention or has
@@ -308,6 +315,13 @@ also gated by provider capability and current state.
 
 Deleting a Server is provider-backed: it removes the backing machine before the
 projection, preventing reconcile from immediately recreating it.
+
+To delete several Servers, select them and choose **Delete server** from
+**Take action**. The dialog lists them and names any that belong to a Platform or
+that a running Workflow holds; deleting does not uninstall the Platform or cancel
+that work. Type the number of Servers to confirm. If the provisioner refuses
+some deletions, the others still go ahead and the result details show each
+refusal.
 
 ## CLI examples
 

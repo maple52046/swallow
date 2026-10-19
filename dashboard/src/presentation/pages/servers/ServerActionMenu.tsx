@@ -104,7 +104,9 @@ export function ServerActionMenu({
         showToast({
           tone: 'success',
           title: 'Release Operation created',
-          description: 'Swallow will observe the provider until the Server is ready.',
+          description: releaseInput?.cancelActiveWorkflows
+            ? 'The running operations are being canceled; the Release starts once they end.'
+            : 'Swallow will observe the provider until the Server is ready.',
         })
         onActed(action, releaseInput)
         return
@@ -273,8 +275,7 @@ export function ServerActionMenu({
       )}
       {deleteOpen && (
         <ServerDeleteDialog
-          serverId={serverId}
-          serverName={serverName}
+          targets={[server]}
           onClose={() => setDeleteOpen(false)}
           onDeleted={() => navigate(scopedHref('/servers'), { replace: true })}
         />

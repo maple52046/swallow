@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
+import { isPlatformLifecycleInProgress } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
 import type { Operation } from '@/domain/operation/types'
 import type { Server } from '@/domain/server/types'
@@ -66,7 +67,7 @@ export type PlatformDetailState =
 
 /** Only accepted automation states continue polling without an operator action. */
 function lifecycleCanChangeWithoutInput(platform: Platform): boolean {
-  return platform.lifecycleState === 'deploying' || platform.lifecycleState === 'uninstalling'
+  return isPlatformLifecycleInProgress(platform.lifecycleState)
 }
 
 /**

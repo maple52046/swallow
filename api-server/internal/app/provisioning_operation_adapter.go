@@ -13,6 +13,7 @@ import (
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/pagination"
 )
 
 // durableProvisioningLauncher performs full preflight before saving a v3 Operation.
@@ -139,7 +140,7 @@ func materializeInitialDeployments(ctx context.Context, servers serverdomain.Ser
 	}
 }
 
-func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs []provisioningapp.ReleaseServerInput, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
+func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs []provisioningapp.ReleaseServerInput, options provisioningapp.RecoveryLaunchOptions, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
 	if len(inputs) == 0 || len(inputs) > 100 {
 		return nil, fmt.Errorf("%w: release requires between 1 and 100 Servers", provisioningdomain.ErrInvalidReleaseRequest)
 	}
@@ -186,10 +187,15 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			return nil, err
 		}
 	}
+	superseded, err := l.supersedeActiveWorkflows(ctx, targetIDs, options)
+	if err != nil {
+		return nil, err
+	}
 	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
 		Kind: operationdomain.WorkflowKindReleaseOS, IntentSummary: fmt.Sprintf("Release %d Server(s)", len(inputs)),
 		IntentSnapshot: map[string]any{"requests": structsToMaps(inputs)}, Definition: "os-release", DefinitionVersion: 1,
 		SiteID: siteID, TargetServerIDs: targetIDs, Steps: steps, RequestedBy: requestedBy, RequestCorrelation: requestID,
+		SupersededOperationIDs: superseded,
 	})
 	if err != nil {
 		return nil, err
@@ -197,12 +203,51 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 	return &provisioningapp.OperationReference{OperationID: created.ID}, nil
 }
 
+// supersedeActiveWorkflows applies RecoveryLaunchOptions.CancelActiveWorkflows (decision 061) once
+// every target passed validation: it asks each unfinished Workflow holding a target to cancel and
+// returns their IDs so Create does not refuse the Release or Recover as busy. The new Operation
+// waits for those Workflows' resource leases, so it acts only after they end, including after a
+// canceled deployment returned its Server to Ready (decision 060). A refused cancel is accepted
+// only when the Workflow finished meanwhile; one still running fails the request as a conflict
+// naming it, because the new Operation would otherwise wait behind it with no end. Without the
+// option it does nothing and Create's busy check applies as before.
+func (l durableProvisioningLauncher) supersedeActiveWorkflows(ctx context.Context, targetIDs []string, options provisioningapp.RecoveryLaunchOptions) ([]string, error) {
+	if !options.CancelActiveWorkflows {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	var superseded []string
+	for _, serverID := range targetIDs {
+		active, _, err := l.operations.List(ctx, operationapp.ListOperationsInput{
+			ServerID: serverID, Active: true, Page: pagination.Page{Page: 1, PageSize: 100},
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, operation := range active {
+			if seen[operation.ID] {
+				continue
+			}
+			seen[operation.ID] = true
+			if err := l.operations.Cancel(ctx, operation.ID); err != nil {
+				current, findErr := l.operations.Get(ctx, operation.ID)
+				if findErr != nil || !operationdomain.WorkflowStatus(current.Status).Terminal() {
+					return nil, fmt.Errorf("%w: %s could not be canceled: %v", operationdomain.ErrTargetsBusy, operation.Intent, err)
+				}
+				continue
+			}
+			superseded = append(superseded, operation.ID)
+		}
+	}
+	return superseded, nil
+}
+
 // LaunchRecover validates a bounded batch of "Return to Ready" intents and persists one
 // recover-server Step per Server. Gating mirrors LaunchRelease (presence, single Site,
 // duplicate target, recovery-state, and live lock) so Recover and Release cannot diverge
 // on which targets they accept. A Server already ready is accepted and recorded as an
 // immediate success by its Step rather than rejected, so a mixed batch converges.
-func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs []provisioningapp.RecoverServerInput, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
+func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs []provisioningapp.RecoverServerInput, options provisioningapp.RecoveryLaunchOptions, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
 	if len(inputs) == 0 || len(inputs) > 100 {
 		return nil, fmt.Errorf("%w: recover requires between 1 and 100 Servers", provisioningdomain.ErrInvalidReleaseRequest)
 	}
@@ -246,10 +291,15 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 			return nil, err
 		}
 	}
+	superseded, err := l.supersedeActiveWorkflows(ctx, targetIDs, options)
+	if err != nil {
+		return nil, err
+	}
 	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
 		Kind: operationdomain.WorkflowKindRecoverServer, IntentSummary: fmt.Sprintf("Recover %d Server(s) to Ready", len(inputs)),
 		IntentSnapshot: map[string]any{"requests": recoverInputsToMaps(inputs)}, Definition: "server-recovery", DefinitionVersion: 1,
 		SiteID: siteID, TargetServerIDs: targetIDs, Steps: steps, RequestedBy: requestedBy, RequestCorrelation: requestID,
+		SupersededOperationIDs: superseded,
 	})
 	if err != nil {
 		return nil, err

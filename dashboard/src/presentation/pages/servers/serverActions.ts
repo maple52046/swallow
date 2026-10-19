@@ -47,7 +47,8 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
   {
     label: 'Removal',
     capability: 'machineRemoval',
-    actions: [{ action: 'delete', label: 'Delete server', destructive: true, bulk: false }],
+    // Bulk delete is confirmed by typing the Server count (ServerDeleteDialog).
+    actions: [{ action: 'delete', label: 'Delete server', destructive: true }],
   },
   {
     label: 'Power',

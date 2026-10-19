@@ -707,7 +707,8 @@ removed from the intent snapshot and stored as an encrypted opaque Step referenc
   "secureErase": false,
   "quickErase": false,
   "comment": "Return machines to the ready pool",
-  "unbindStaticIPs": true
+  "unbindStaticIPs": true,
+  "cancelActiveWorkflows": false
 }
 ```
 
@@ -717,6 +718,23 @@ Server. A Step succeeds only after Ready is observed. When static cleanup is req
 the same Step also waits for its durable Provisioning Task; Step Retry after a cleanup
 failure retries cleanup only and never sends Release again. Provider cancellation is
 best-effort and confirmed prior effects are preserved.
+
+Every attempt of a `release-os` Step reads the Server first. A Server already `releasing` is
+followed to Ready, and one already `ready` meets the Step's goal without a provider Release.
+When static cleanup was requested and this Step did not send the Release, nothing captured the
+bindings to remove: the Step fails with `release_cleanup_not_applied` (stage `network_cleanup`,
+not retryable) and its message says the bindings remain.
+
+`cancelActiveWorkflows` (optional, default `false`) supersedes the unfinished Workflows that
+hold any target instead of refusing the request as busy
+([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md)). After
+every other validation passes, Swallow requests cancellation of each such Workflow (see the
+Workflows contract's Cancel) and creates the Operation at once, so the response returns
+within the request. The Operation waits in `waiting_dependency` ("Waiting for resource leases.")
+until those Workflows end and release their leases, then runs; a canceled deployment may have
+returned its Server to Ready by then, which the Step accepts as above. A cancel Swallow refuses
+for a Workflow that is still running fails the request with `409 conflict` naming that Workflow,
+and nothing is created.
 
 Release is the primary provider-recovery path and is not restricted to `deployed`. The
 Swallow-owned recovery policy (decision 033, extended by decision 036) allows Release from
@@ -744,12 +762,14 @@ the same bounded batch shape as Release, without the disk-erase controls:
 {
   "serverIds": ["server-1"],
   "comment": "Return failed nodes to the ready pool",
-  "unbindStaticIPs": true
+  "unbindStaticIPs": true,
+  "cancelActiveWorkflows": false
 }
 ```
 
 It performs the same presence, Site, duplicate-target, active-work, and live lock
-validation, then creates one `recover-server` MAAS Step per Server. Recover is allowed
+validation, then creates one `recover-server` MAAS Step per Server. `cancelActiveWorkflows`
+behaves as it does for Release. Recover is allowed
 from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target already `ready` is
 accepted as an immediate success (no-op) and any other state is a `400 validation_error`
 with a Swallow reason. Each Step chooses the provider primitive by observed state — `broken`
@@ -846,6 +866,11 @@ refused Release remains diagnostic and is not retryable. Unknown tasks are
 return `Deprecation: true` plus a successor `Link` header. Dashboard command flows use the
 durable Operation endpoints. Existing Server projections, authorization, and provider
 action behavior are unchanged.
+
+On 2026-10-19 `POST /release-operations` and `POST /recover-operations` gained the optional
+`cancelActiveWorkflows` field, and a first `release-os` attempt began observing a Server that is
+already Ready or Releasing instead of sending another Release; clients that omit the field are
+unaffected ([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md)).
 
 On 2026-10-19 the deployment preflight began refusing a disk deployment of a Server whose
 layout needs a new inspection (`inspection_required`), and `deployment_failed` messages began

@@ -13,34 +13,27 @@ export interface ActiveOperationSummary {
   /** Human-readable operator intent, e.g. "Deploy production k0s platform". */
   intent: string
   status: string
+  /** Servers the Operation targets, so a multi-Server prompt can say which ones are held. */
+  serverIds: readonly string[]
 }
 
 /**
- * Detects and clears the durable Operations that would make a Server release fail.
+ * Detects the durable Operations that would make a Server Release or Recover fail.
  *
- * The backend rejects a release while any target Server still has unfinished durable
- * work, so this hook lets the Release dialog (and the provider-failure Recover action)
- * surface that work up front and, on request, cancel it first. Cancellation is usually
- * asynchronous — the Temporal workflow records it — so {@link cancelAll} issues the cancels
- * and then polls until no target reports active work. A cancel the backend refuses for an
- * Operation that is still active rejects at once with the backend's reason instead of
- * waiting out the poll, because waiting cannot clear it. A bounded wait keeps a slow
- * cancellation from hanging the dialog forever; the backend 409 on the release itself
- * remains the final backstop if a race still slips through.
+ * The backend rejects a Release or Recover while any target Server still has unfinished
+ * durable work, so this hook lets the Release dialog (and the provider-failure Recover action)
+ * surface that work up front. Canceling it is the backend's job (`cancelActiveWorkflows`,
+ * decision 061): the browser never waits for a cancellation, which can take minutes once a
+ * canceled deployment returns its Server to Ready.
  */
 export interface UseServerActiveOperationsResult {
   /** True while the initial detection request is in flight. */
   loading: boolean
   /** The unique non-terminal Operations found across all target Servers. */
   activeOperations: ActiveOperationSummary[]
-  /** Cancels every detected Operation and resolves once the targets are clear. */
-  cancelAll: () => Promise<void>
   /** Re-reads active Operations for the current targets. */
   refresh: () => Promise<void>
 }
-
-const POLL_INTERVAL_MS = 1000
-const MAX_POLL_ATTEMPTS = 30
 
 function summarize(operation: Operation): ActiveOperationSummary {
   return {
@@ -48,6 +41,7 @@ function summarize(operation: Operation): ActiveOperationSummary {
     kind: operation.kind,
     intent: operation.intent,
     status: operationStatus(operation),
+    serverIds: operation.targetServerIds,
   }
 }
 
@@ -116,37 +110,5 @@ export function useServerActiveOperations(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, refresh])
 
-  const cancelAll = useCallback(async () => {
-    const current = await read()
-    if (current.length === 0) return
-    const results = await Promise.allSettled(current.map((operation) => operations.cancelOperation(operation.id)))
-    const refused: Array<{ operation: ActiveOperationSummary; reason: unknown }> = current.flatMap((operation, index) => {
-      const result = results[index]
-      return result.status === 'rejected' ? [{ operation, reason: result.reason }] : []
-    })
-    if (refused.length > 0) {
-      // A cancel that races a natural finish is refused too, and that is success for our
-      // purpose: the work is gone. A refused Operation that is still active will not stop by
-      // waiting, so report the backend's reason now rather than polling into a timeout that
-      // blames slowness for a cancel that was never accepted.
-      const stillActive = new Set((await read()).map((operation) => operation.id))
-      const blocking = refused.find(({ operation }) => stillActive.has(operation.id))
-      if (blocking) {
-        const reason = blocking.reason instanceof Error ? blocking.reason.message : 'Unknown error'
-        throw new Error(`Could not cancel ${blocking.operation.intent}: ${reason}`)
-      }
-    }
-
-    for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-      const remaining = await read()
-      if (mounted.current) setActiveOperations(remaining)
-      if (remaining.length === 0) return
-    }
-    throw new Error(
-      'The running operations did not stop in time. Please wait a moment and try again.',
-    )
-  }, [operations, read])
-
-  return { loading, activeOperations, cancelAll, refresh }
+  return { loading, activeOperations, refresh }
 }

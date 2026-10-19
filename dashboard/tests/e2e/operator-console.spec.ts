@@ -452,9 +452,23 @@ test.describe('operator interactions', () => {
     await expect(statusCard.getByText('deployed', { exact: true }).first()).toBeVisible()
     await expect(statusCard.getByText('Power', { exact: true })).toBeVisible()
     await expect(statusCard.getByText('Deployed OS', { exact: true })).toBeVisible()
-    await expect(statusCard.getByText('Ubuntu 24.04 LTS', { exact: true })).toBeVisible()
-    await expect(statusCard.getByRole('link', { name: 'Ubuntu 24.04 LTS' })).toHaveCount(0)
+    // The installed image is still the catalog image, so it stays a link after a failed verification.
+    await expect(statusCard.getByRole('link', { name: 'Ubuntu 24.04 LTS' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'View operation' })).toBeVisible()
+  })
+
+  // lab-afde-mi308-1 lost its Deployed OS link when a canceled platform deployment rewrote its
+  // result, and Servers installed outside Swallow never had one. The link follows the installed
+  // catalog image, not Swallow's deployment result or who deployed the OS.
+  test('Deployed OS links to the catalog image whatever the deployment result', async ({ page }) => {
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, { existingServerIds: ['srv-2'] })
+    for (const serverId of ['srv-2', 'srv-4']) {
+      await page.goto(`/servers/${serverId}/summary?site=site-a`)
+      const statusCard = page.getByRole('heading', { name: 'Current state' }).locator('xpath=../../..')
+      await expect(statusCard.getByRole('link', { name: 'Ubuntu 24.04 LTS' }))
+        .toHaveAttribute('href', /\/provisioning\/images\?.*integrationId=maas-a.*imageName=Ubuntu/)
+    }
   })
 
   test('Server Network separates physical state from Swallow configuration actions', async ({ page }) => {
@@ -938,7 +952,7 @@ test.describe('operator interactions', () => {
     const inProgressRow = page.getByRole('table', { name: 'Platforms' })
       .getByRole('row', { name: /edge-staging/ })
     await expect(inProgressRow).toContainText('Deploying')
-    await expect(inProgressRow.locator('.sw-platform-lifecycle__spinner')).toBeVisible()
+    await expect(inProgressRow.locator('.sw-platform-lifecycle-badge .sw-progress-spinner')).toBeVisible()
     await expect(inProgressRow.getByRole('link', { name: 'View workflow' }))
       .toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
     await page.getByRole('button', { name: 'In progress', exact: true }).click()
