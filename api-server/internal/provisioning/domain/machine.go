@@ -133,6 +133,15 @@ type Machine struct {
 	// machine, which is why a deploy or release may be rejected even when the state
 	// otherwise allows it.
 	Locked bool
+	// InspectionRequired reports that the provider's storage layout for this machine cannot
+	// be used for a disk deployment and a new inspection would rebuild it — for example a
+	// UEFI machine whose layout was created while the provider believed it booted BIOS, so
+	// it has no EFI system partition. The adapter sets it only when the provider's data
+	// proves the mismatch; missing data never sets it. A memory (ephemeral) deployment does
+	// not use the layout and is unaffected. InspectionRequiredReason is the Swallow-authored
+	// explanation shown to operators.
+	InspectionRequired       bool
+	InspectionRequiredReason string
 	// CommissioningStatus and TestingStatus are the provisioner's own labels for the
 	// last hardware inspection and test run, e.g. "Passed" or "Failed". Display only.
 	CommissioningStatus string

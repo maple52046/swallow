@@ -144,6 +144,15 @@ export interface ProvisioningAxis {
   /** The provisioner is refusing state-changing actions; explains a rejected deploy. */
   locked: boolean
   /**
+   * The provisioner's storage layout cannot take a disk deployment until the Server is inspected
+   * again (servers-list.md), for example a UEFI Server whose layout was built while it booted
+   * BIOS. Swallow refuses disk deployments while it is set; a RAM deployment is unaffected. A new
+   * inspection that rebuilds the layout clears it. Absent means false.
+   */
+  inspectionRequired?: boolean
+  /** Swallow-authored explanation shown with `inspectionRequired`; absent when it is false. */
+  inspectionRequiredReason?: string
+  /**
    * The provisioner's labels for the last inspection and test run. Display only. The field
    * keeps its published name because it is the provider's result label, not a lifecycle state.
    */

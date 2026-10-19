@@ -106,6 +106,29 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, out any
 	return c.do(req, out)
 }
 
+// getText issues an authenticated GET for a plain-text download, such as a script result log,
+// and returns at most limit bytes of its body.
+func (c *Client) getText(ctx context.Context, path string, query url.Values, limit int64) (string, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, path, query, nil, "")
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "text/plain, */*")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", &transportError{err: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return "", &apiError{StatusCode: resp.StatusCode, Body: readErrorBody(resp.Body)}
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return "", &transportError{err: err}
+	}
+	return string(raw), nil
+}
+
 // delete issues an authenticated DELETE with no provider-specific override parameters.
 // MAAS deletion safeguards therefore remain authoritative; callers cannot accidentally
 // force-delete hosted virtual machines through this transport.

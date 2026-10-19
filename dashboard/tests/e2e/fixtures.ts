@@ -248,6 +248,22 @@ export interface FixtureOptions {
   brokenServerIds?: string[]
   rescueServerIds?: string[]
   /**
+   * Servers whose provisioner storage layout needs a new inspection before a disk deployment
+   * (`provisioning.inspectionRequired` with the MAAS UEFI-without-ESP reason). An accepted Inspect
+   * moves them to `inspecting`; the flag stays until the inspection would finish.
+   */
+  inspectionRequiredServerIds?: string[]
+  /** Called for every per-Server provisioner action POST (inspect, power-on, lock, ...). */
+  onServerActionRequest?: (serverId: string, action: string) => void
+  /**
+   * Servers whose provisioner storage layout needs a new inspection before a disk deployment
+   * (`provisioning.inspectionRequired` with the MAAS UEFI-without-ESP reason). An accepted Inspect
+   * moves them to `inspecting`; the flag stays until the inspection would finish.
+   */
+  inspectionRequiredServerIds?: string[]
+  /** Called for every per-Server provisioner action POST (inspect, power-on, lock, ...). */
+  onServerActionRequest?: (serverId: string, action: string) => void
+  /**
    * Provider-only running work: sets the OS Provisioning State and leaves the Swallow deployment
    * record alone, so no Swallow Workflow is running for the Server (unlike `changingServerIds`).
    */
@@ -853,6 +869,22 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   seedProviderState(options.failedServerIds, 'failed', 'Failed deployment')
   seedProviderState(options.brokenServerIds, 'broken', 'Broken')
   seedProviderState(options.rescueServerIds, 'rescue', 'Rescue mode')
+  for (const serverId of options.inspectionRequiredServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) {
+      server.provisioning.inspectionRequired = true
+      server.provisioning.inspectionRequiredReason =
+        'MAAS boots this Server with UEFI, but its storage layout has no EFI system partition because it was inspected while booting BIOS. Inspect the Server again before a disk deployment.'
+    }
+  }
+  for (const serverId of options.inspectionRequiredServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) {
+      server.provisioning.inspectionRequired = true
+      server.provisioning.inspectionRequiredReason =
+        'MAAS boots this Server with UEFI, but its storage layout has no EFI system partition because it was inspected while booting BIOS. Inspect the Server again before a disk deployment.'
+    }
+  }
   const providerWorkLabels = { releasing: 'Releasing', inspecting: 'Commissioning', testing: 'Testing', deploying: 'Deploying' }
   for (const [serverId, state] of Object.entries(options.providerWorkServerIds ?? {})) {
     seedProviderState([serverId], state, providerWorkLabels[state])
@@ -2162,9 +2194,15 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null
         options.onServerReleaseRequest?.(serverId, body)
       }
+      options.onServerActionRequest?.(serverId, action)
       const actionServer = fleet.find((item) => item.id === serverId)
       if (actionServer && action === "lock") actionServer.provisioning.locked = true
       if (actionServer && action === "unlock") actionServer.provisioning.locked = false
+      if (actionServer && action === "inspect" && actionServer.provisioning.inspectionRequired) {
+        actionServer.provisioning.state = "inspecting"
+        actionServer.provisioning.providerState = "Commissioning"
+        actionServer.provisioning.stateSince = new Date().toISOString()
+      }
       if (options.serverActionFailureIds?.includes(serverId)) {
         return json(route, {
           error: {

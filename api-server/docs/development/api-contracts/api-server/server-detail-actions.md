@@ -117,7 +117,10 @@ endpoint. URL userinfo, query parameters, and fragments are removed from `Addres
 provisioner and updates its provisioning axis plus observed addresses. It returns `200`
 with the same `ProvisioningStateItem` shape used by accepted lifecycle actions. Clients
 use this bounded endpoint to follow an asynchronous action such as Release without
-waiting for the fleet inventory interval. It is not a full inventory reconciliation: it
+waiting for the fleet inventory interval. That shape also carries the optional
+`inspectionRequired` and `inspectionRequiredReason` with the meaning of the Server's
+provisioning axis ([servers-list.md](servers-list.md#provisioning-axis-fields)), omitted when
+false. It is not a full inventory reconciliation: it
 does not create Servers, mark missing machines absent, or rewrite identity and hardware
 fields.
 

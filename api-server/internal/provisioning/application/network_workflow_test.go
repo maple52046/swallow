@@ -163,6 +163,9 @@ type networkWorkflowProvider struct {
 	releaseErr        error
 	unlinked          []string
 	locked            bool
+	// inspectionReason, when set, flags every machine as needing a new inspection.
+	inspectionReason string
+	ephemeralDeploy  bool
 }
 
 func (p *networkWorkflowProvider) Name() string { return "test" }
@@ -172,7 +175,7 @@ func (p *networkWorkflowProvider) Probe(context.Context) (provisioningdomain.Pro
 }
 
 func (p *networkWorkflowProvider) Capabilities() provisioningdomain.ProviderCapabilities {
-	return provisioningdomain.ProviderCapabilities{NetworkConfiguration: true}
+	return provisioningdomain.ProviderCapabilities{NetworkConfiguration: true, EphemeralDeploy: p.ephemeralDeploy}
 }
 
 func (p *networkWorkflowProvider) ListMachines(context.Context, provisioningdomain.MachineFilter) ([]*provisioningdomain.Machine, error) {
@@ -181,11 +184,13 @@ func (p *networkWorkflowProvider) ListMachines(context.Context, provisioningdoma
 
 func (p *networkWorkflowProvider) GetMachine(_ context.Context, machineID string) (*provisioningdomain.Machine, error) {
 	return &provisioningdomain.Machine{
-		ID:          machineID,
-		Status:      provisioningdomain.MachineStatusReady,
-		PowerState:  provisioningdomain.PowerStateOff,
-		IPAddresses: []string{"192.0.2.20"},
-		Locked:      p.locked,
+		ID:                       machineID,
+		Status:                   provisioningdomain.MachineStatusReady,
+		PowerState:               provisioningdomain.PowerStateOff,
+		IPAddresses:              []string{"192.0.2.20"},
+		Locked:                   p.locked,
+		InspectionRequired:       p.inspectionReason != "",
+		InspectionRequiredReason: p.inspectionReason,
 	}, nil
 }
 

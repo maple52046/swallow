@@ -711,6 +711,8 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 		Ephemeral:                projectedEphemeral(machine),
 		HWEKernel:                machine.HWEKernel,
 		Locked:                   machine.Locked,
+		InspectionRequired:       machine.InspectionRequired,
+		InspectionRequiredReason: machine.InspectionRequiredReason,
 		CommissioningStatus:      machine.CommissioningStatus,
 		TestingStatus:            machine.TestingStatus,
 		IntegrationID:            integrationID,

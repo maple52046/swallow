@@ -121,10 +121,14 @@ type provisioningDoc struct {
 	DeployedImageName string    `bson:"deployedImageName,omitempty"`
 	// DeployedImageDefaultUser mirrors the deployed image's effective default login user
 	// (decision 039); absent on documents written before it existed, which reads as unknown.
-	DeployedImageDefaultUser string    `bson:"deployedImageDefaultUser,omitempty"`
-	Ephemeral                bool      `bson:"ephemeral"`
-	HWEKernel                string    `bson:"hweKernel,omitempty"`
-	Locked                   bool      `bson:"locked"`
+	DeployedImageDefaultUser string `bson:"deployedImageDefaultUser,omitempty"`
+	Ephemeral                bool   `bson:"ephemeral"`
+	HWEKernel                string `bson:"hweKernel,omitempty"`
+	Locked                   bool   `bson:"locked"`
+	// InspectionRequired and its reason are a mirrored provider observation rewritten every
+	// reconcile pass; absent on older documents, which reads as not required.
+	InspectionRequired       bool      `bson:"inspectionRequired,omitempty"`
+	InspectionRequiredReason string    `bson:"inspectionRequiredReason,omitempty"`
 	CommissioningStatus      string    `bson:"commissioningStatus,omitempty"`
 	TestingStatus            string    `bson:"testingStatus,omitempty"`
 	IntegrationID            string    `bson:"integrationId"`
@@ -819,6 +823,8 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 			Ephemeral:                p.Ephemeral,
 			HWEKernel:                p.HWEKernel,
 			Locked:                   p.Locked,
+			InspectionRequired:       p.InspectionRequired,
+			InspectionRequiredReason: p.InspectionRequiredReason,
 			CommissioningStatus:      p.CommissioningStatus,
 			TestingStatus:            p.TestingStatus,
 			IntegrationID:            p.IntegrationID,
@@ -947,6 +953,8 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			Ephemeral:                p.Ephemeral,
 			HWEKernel:                p.HWEKernel,
 			Locked:                   p.Locked,
+			InspectionRequired:       p.InspectionRequired,
+			InspectionRequiredReason: p.InspectionRequiredReason,
 			CommissioningStatus:      p.CommissioningStatus,
 			TestingStatus:            p.TestingStatus,
 			IntegrationID:            p.IntegrationID,

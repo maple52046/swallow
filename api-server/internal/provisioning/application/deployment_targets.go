@@ -33,17 +33,31 @@ type PreflightDeploymentTargetsResult struct {
 
 // validatedDeploymentTargets carries canonical Server projections and ordered
 // readiness issues between the shared inspection and final deployment use cases.
+// diskIssues block only a disk deployment; the read-only inspection runs before a
+// deploy target is chosen, so the deployment use case applies them once it is resolved.
 type validatedDeploymentTargets struct {
 	servers       []*serverdomain.Server
 	integrationID string
 	issues        []DeploymentTargetIssue
+	diskIssues    []DeploymentTargetIssue
 }
 
 // targetReadinessOutcome keeps concurrent provider reads deterministic by storing
 // each result at its input index until all workers have joined.
 type targetReadinessOutcome struct {
-	issue *DeploymentTargetIssue
-	err   error
+	issue     *DeploymentTargetIssue
+	diskIssue *DeploymentTargetIssue
+	err       error
+}
+
+// InspectionRequiredMessage returns the operator explanation for a machine whose layout
+// needs a new inspection before a disk deployment, falling back to a generic one when the
+// provider flagged it without a reason.
+func InspectionRequiredMessage(reason string) string {
+	if reason != "" {
+		return reason
+	}
+	return "The provisioner's storage layout for this Server cannot be used for a disk deployment. Inspect the Server again before a disk deployment."
 }
 
 // DeploymentTargetPreflightService applies the target rules shared by the read-only
@@ -150,6 +164,8 @@ func (s *DeploymentTargetPreflightService) validate(
 
 	// A direct MAAS Lock can be newer than the cached projection, so preflight reads
 	// every target again with the same bounded concurrency used for readiness checks.
+	// The same live read decides whether a disk deployment needs a new inspection first,
+	// so an inspection finished since the last reconcile is honored.
 	lockOutcomes := make([]targetReadinessOutcome, len(serverIDs))
 	lockJobs := make(chan int)
 	lockWorkers := deploymentReadinessWorkers
@@ -179,6 +195,13 @@ func (s *DeploymentTargetPreflightService) validate(
 						),
 					}
 				}
+				if machine.InspectionRequired {
+					lockOutcomes[index].diskIssue = &DeploymentTargetIssue{
+						ServerID: serverIDs[index],
+						Code:     "inspection_required",
+						Message:  InspectionRequiredMessage(machine.InspectionRequiredReason),
+					}
+				}
 			}
 		}()
 	}
@@ -193,6 +216,9 @@ func (s *DeploymentTargetPreflightService) validate(
 		}
 		if outcome.issue != nil {
 			validated.issues = append(validated.issues, *outcome.issue)
+		}
+		if outcome.diskIssue != nil {
+			validated.diskIssues = append(validated.diskIssues, *outcome.diskIssue)
 		}
 	}
 	if len(validated.issues) > 0 {

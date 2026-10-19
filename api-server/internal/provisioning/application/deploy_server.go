@@ -28,6 +28,10 @@ type ProvisioningStateItem struct {
 	TaskID              string `json:"taskId,omitempty"`
 	TestingStatus       string `json:"testingStatus"`
 	ObservedAt          string `json:"observedAt"`
+	// InspectionRequired reports that the provisioner's storage layout cannot take a disk
+	// deployment until the Server is inspected again; the reason says why. Omitted when false.
+	InspectionRequired       bool   `json:"inspectionRequired,omitempty"`
+	InspectionRequiredReason string `json:"inspectionRequiredReason,omitempty"`
 }
 
 type DeployServerInput struct {
@@ -188,6 +192,8 @@ func updateProvisioningProjection(
 		Ephemeral:                projectedEphemeral(machine),
 		HWEKernel:                machine.HWEKernel,
 		Locked:                   machine.Locked,
+		InspectionRequired:       machine.InspectionRequired,
+		InspectionRequiredReason: machine.InspectionRequiredReason,
 		CommissioningStatus:      machine.CommissioningStatus,
 		TestingStatus:            machine.TestingStatus,
 		IntegrationID:            server.Source.IntegrationID,
@@ -196,17 +202,19 @@ func updateProvisioningProjection(
 	server.UpdatedAt = now
 
 	return &ProvisioningStateItem{
-		ServerID:            server.ID,
-		State:               server.Provisioning.State,
-		ProviderState:       server.Provisioning.ProviderState,
-		PowerState:          server.Provisioning.PowerState,
-		OSSystem:            server.Provisioning.OSSystem,
-		DistroSeries:        server.Provisioning.DistroSeries,
-		Ephemeral:           server.Provisioning.Ephemeral,
-		HWEKernel:           server.Provisioning.HWEKernel,
-		Locked:              server.Provisioning.Locked,
-		CommissioningStatus: server.Provisioning.CommissioningStatus,
-		TestingStatus:       server.Provisioning.TestingStatus,
-		ObservedAt:          now.Format(time.RFC3339),
+		ServerID:                 server.ID,
+		State:                    server.Provisioning.State,
+		ProviderState:            server.Provisioning.ProviderState,
+		PowerState:               server.Provisioning.PowerState,
+		OSSystem:                 server.Provisioning.OSSystem,
+		DistroSeries:             server.Provisioning.DistroSeries,
+		Ephemeral:                server.Provisioning.Ephemeral,
+		HWEKernel:                server.Provisioning.HWEKernel,
+		Locked:                   server.Provisioning.Locked,
+		CommissioningStatus:      server.Provisioning.CommissioningStatus,
+		TestingStatus:            server.Provisioning.TestingStatus,
+		ObservedAt:               now.Format(time.RFC3339),
+		InspectionRequired:       server.Provisioning.InspectionRequired,
+		InspectionRequiredReason: server.Provisioning.InspectionRequiredReason,
 	}
 }

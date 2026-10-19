@@ -212,6 +212,18 @@ other state so a healthy Server never carries a stale error. It is display and
 diagnostics only — never branch on it — and lets a client show why a lifecycle
 action failed without reading the provider event log.
 
+`inspectionRequired` is `true` when the provisioner's storage layout for the Server cannot
+take a disk deployment until the Server is inspected again, and `inspectionRequiredReason`
+is the Swallow-authored explanation to show with it. Both are **omitted** when the flag is
+false. Swallow refuses a disk deployment of such a Server with the deployment-target issue
+`inspection_required` ([provisioning.md](provisioning.md#multi-server-deployment)); a RAM
+deployment does not partition the disk and is not affected. A new inspection that rebuilds
+the layout clears it. The flag is set only on proof: for MAAS, a machine that boots UEFI
+(`bios_boot_method=uefi`) while its boot disk has partitions but no EFI system partition
+(FAT mounted at `/boot/efi`) — the layout of a Server inspected while it booted BIOS
+([decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)). A Server without a
+layout, or whose layout MAAS did not report, is never flagged.
+
 ### Error Response
 
 See [`conventions.md`](conventions.md) for the envelope.
@@ -240,6 +252,10 @@ also matches it until the next reconcile rewrites it.
 
 `provisioning.stateSince` was added on 2026-10-04 as an optional field; clients must accept
 its absence.
+
+`provisioning.inspectionRequired` and `provisioning.inspectionRequiredReason` were added on
+2026-10-19 as optional fields; their absence means false. A projection stored before then
+gains them at the next reconcile or refresh of the Server.
 
 `gpus[].kind` was added on 2026-10-06. It is additive for clients that ignore unknown fields;
 the server always emits it, including for inventory stored before the field existed by deriving

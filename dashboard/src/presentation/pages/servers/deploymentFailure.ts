@@ -23,6 +23,8 @@ const DEPLOYMENT_FAILURE_SUMMARIES: Record<string, string> = {
   deployment_projection_unavailable: 'Swallow could not record the deployment state.',
   intent_snapshot_incomplete:
     'The deployment intent is incomplete; start a new deployment.',
+  inspection_required:
+    'The server’s storage layout cannot take a disk deployment; inspect the server again first.',
   target_locked: 'The server is locked, so the deployment could not proceed.',
   provider_auth: 'The provider rejected the configured credentials.',
   provider_rejected: 'The provider rejected the deployment request.',

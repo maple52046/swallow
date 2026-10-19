@@ -88,10 +88,44 @@ Server already using one.
   because its SHA-256 no longer matches.
 - Secure Boot must stay off: neither iPXE nor swallow's GRUB is signed.
 
+## Amendment (2026-10-19): Swallow detects a layout that needs a new inspection
+
+The new inspection the Decision requires stayed a manual step, and `lab-afde-mi308-3` was missed:
+it had been commissioned once, on 2026-10-09, through the old path. Its MAAS layout held only an
+ext4 root numbered as partition 2 (partition 1 had been the `bios_grub` partition), with no EFI
+system partition, while MAAS now booted it UEFI. Every disk deployment failed in curtin's
+partitioning step (`Cannot find previous partition on disk /dev/nvme0n1`), and each explicit retry
+([ADR 059](059-retry-recovers-failed-deployment.md)) released the Machine and redeployed onto the
+same layout. Its earlier success had been a RAM deployment, which never partitions the disk. The
+Step error said only that the deployment failed.
+
+- **Detection is provider-owned and proof-based.** A provisioner adapter flags a Machine whose
+  layout cannot take a disk deployment until it is inspected again (`InspectionRequired` with a
+  Swallow-authored reason). MAAS flags a Machine that boots UEFI (`bios_boot_method=uefi`) while its
+  boot disk has partitions and no EFI system partition (FAT mounted at `/boot/efi`) exists; a
+  Machine without a layout, or with data missing, is never flagged. The flag is projected onto the
+  Server as `provisioning.inspectionRequired` / `inspectionRequiredReason`.
+- **A disk deployment is refused before it starts.** The deployment preflight shared by acceptance,
+  platform validation, and Step execution reads the flag live with the lock and refuses a disk
+  deployment with the target issue `inspection_required`; a RAM deployment is allowed. An explicit
+  retry checks it before Recover and ends the Step with a non-retryable `inspection_required`, so
+  the Operation frees the Server for Inspect instead of wiping it only to be refused.
+- **A failed deployment names its cause.** `deployment_failed` carries the provisioner's error
+  description and the most specific line of this attempt's installation log (optional
+  `InstallationFailureReader` capability; MAAS reads the newest failed installation result that
+  started after the Step attempt, downloads only its `install.log`, bounds the line to 300
+  characters, removes URL credentials, and drops any line that mentions a password, token, or
+  secret).
+- **Rejected: adding the EFI system partition to the MAAS layout before deployment** stays rejected
+  for the reason above. **Rejected: only warning** — every disk deployment of such a Server fails
+  after minutes of work, so accepting it gains nothing.
+
 ## Current status
 
 Implemented in `api-server` and `dashboard`; verified on `lab-afde-mi308-1` and
 `lab-afde-mi308-2`: after a rebuild and a new inspection MAAS recorded `uefi` and commissioned a
 512 MiB fat32 `/boot/efi`, and a disk deployment of `ubuntu/noble` rebooted through the Boot ISO
 into MAAS's local-boot configuration, which chainloaded the installed bootloader. The CLI has no
-rebuild command yet.
+rebuild command yet. The 2026-10-19 amendment is implemented in `api-server` and `dashboard`; the
+MAAS detection was checked against the real layouts of `lab-afde-mi308-3` (flagged) and
+`lab-afde-mi308-1` (not flagged), and the installation-log line against its failed installation.

@@ -68,6 +68,7 @@ func ProvisioningStateItemOf(server *serverdomain.Server) ProvisioningStateItem 
 		item.OSSystem, item.DistroSeries, item.Ephemeral = p.OSSystem, p.DistroSeries, p.Ephemeral
 		item.HWEKernel, item.Locked = p.HWEKernel, p.Locked
 		item.CommissioningStatus, item.TestingStatus = p.CommissioningStatus, p.TestingStatus
+		item.InspectionRequired, item.InspectionRequiredReason = p.InspectionRequired, p.InspectionRequiredReason
 		if !p.ObservedAt.IsZero() {
 			item.ObservedAt = p.ObservedAt.UTC().Format(time.RFC3339)
 		}

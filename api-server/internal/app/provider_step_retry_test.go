@@ -21,6 +21,16 @@ const retryTestImage = "custom/ubuntu-24.04-rocm"
 type retryProvider struct {
 	cancellationProvider
 	markFixed int
+	// installationLine and installationErr are what the fake installation log read returns;
+	// installationSince records the lower bound the executor asked for.
+	installationLine  string
+	installationErr   error
+	installationSince time.Time
+}
+
+func (p *retryProvider) LatestInstallationFailure(_ context.Context, _ string, since time.Time) (string, error) {
+	p.installationSince = since
+	return p.installationLine, p.installationErr
 }
 
 func (p *retryProvider) Lock(context.Context, string) (*provisioningdomain.Machine, error) {
@@ -65,11 +75,14 @@ func (r *retryRelease) ExecuteWithOptions(context.Context, provisioningapp.Relea
 
 // retryDeployments installs the requested image with a reachable address. Like Swallow's real
 // preflight it refuses a Machine that is not ready before any provider write, and err forces that
-// refusal regardless of state.
+// refusal regardless of state. ephemeral installs the image as a memory deployment, and fails
+// leaves the Machine failed the way a provider-side installation failure does.
 type retryDeployments struct {
-	provider *retryProvider
-	calls    int
-	err      error
+	provider  *retryProvider
+	calls     int
+	err       error
+	ephemeral bool
+	fails     bool
 }
 
 func (d *retryDeployments) Execute(context.Context, provisioningapp.DeployServersInput) (*provisioningapp.DeployServersResult, error) {
@@ -80,9 +93,14 @@ func (d *retryDeployments) Execute(context.Context, provisioningapp.DeployServer
 	if d.provider.machine.Status != provisioningdomain.MachineStatusReady {
 		return nil, fmt.Errorf("%w: server server-id: The Server provisioning state is not ready.", provisioningdomain.ErrDeploymentBatchConflict)
 	}
+	if d.fails {
+		d.provider.machine.Status = provisioningdomain.MachineStatusFailed
+		return &provisioningapp.DeployServersResult{Requested: 1}, nil
+	}
 	d.provider.machine.Status = provisioningdomain.MachineStatusDeployed
 	d.provider.machine.DistroSeries = retryTestImage
 	d.provider.machine.IPAddresses = []string{"10.0.0.5"}
+	d.provider.machine.Ephemeral = d.ephemeral
 	return &provisioningapp.DeployServersResult{Requested: 1}, nil
 }
 
@@ -209,6 +227,124 @@ func TestDeploymentRetryLeavesOtherStatesToTheirOwnRules(t *testing.T) {
 					release.calls, provider.markFixed, deployments.calls)
 			}
 		})
+	}
+}
+
+// TestDeploymentRetryRefusesLayoutThatNeedsInspection reproduces the second lab-afde-mi308-3
+// failure: each retry released the Machine and redeployed onto a storage layout that cannot boot
+// UEFI, failing in curtin the same way. A disk retry now ends before Recover with a non-retryable
+// inspection_required, so the Operation frees the Server for Inspect; a memory retry never
+// partitions the disk and still recovers and redeploys.
+func TestDeploymentRetryRefusesLayoutThatNeedsInspection(t *testing.T) {
+	const reason = "MAAS boots this Server with UEFI, but its storage layout has no EFI system partition."
+
+	t.Run("disk retry", func(t *testing.T) {
+		executor, _, provider, release, deployments := retryHarness(provisioningdomain.MachineStatusFailed, "")
+		provider.machine.InspectionRequired = true
+		provider.machine.InspectionRequiredReason = reason
+
+		result := executor.Execute(context.Background(), provisionStep(2, 1))
+
+		if result.Status != operationdomain.TaskFailed || result.Error == nil {
+			t.Fatalf("result = %+v, want a failed Step", result)
+		}
+		if result.Error.Code != "inspection_required" || result.Error.Retryable ||
+			result.Error.Stage != "deployment_preflight" || result.Error.Message != reason {
+			t.Errorf("result error = %+v, want non-retryable inspection_required at deployment_preflight with the reason", result.Error)
+		}
+		if release.calls != 0 || provider.markFixed != 0 || deployments.calls != 0 {
+			t.Errorf("provider writes = %d releases, %d mark fixed, %d deployments; want none",
+				release.calls, provider.markFixed, deployments.calls)
+		}
+	})
+
+	t.Run("memory retry", func(t *testing.T) {
+		executor, _, provider, release, deployments := retryHarness(provisioningdomain.MachineStatusFailed, "")
+		provider.machine.InspectionRequired = true
+		provider.machine.InspectionRequiredReason = reason
+		step := provisionStep(2, 1)
+		request := step.Step.Parameters["request"].(provisioningapp.DeployServersInput)
+		ram := true
+		request.Settings.Ephemeral = &ram
+		step.Step.Parameters["request"] = request
+		deployments.ephemeral = true
+
+		result := executor.Execute(context.Background(), step)
+
+		if result.Status != operationdomain.TaskSucceeded {
+			t.Fatalf("result = %+v, want succeeded after recovery and redeploy", result)
+		}
+		if release.calls != 1 || deployments.calls != 1 {
+			t.Errorf("releases = %d, deployments = %d; want 1 and 1", release.calls, deployments.calls)
+		}
+	})
+}
+
+// TestDeploymentFailureNamesTheProvisionerCause guards the diagnosis gap behind the repeated
+// lab-afde-mi308-3 retries: the Step said only that deployment failed, while MAAS knew why. The
+// message now carries the provider's error description and this attempt's installation error
+// line, falling back step by step; the code and retryability do not change.
+func TestDeploymentFailureNamesTheProvisionerCause(t *testing.T) {
+	const (
+		description = "Installation failed (refer to the installation log for more information)."
+		line        = "An error occured handling 'nvme0n1-part2': RuntimeError - Cannot find previous partition on disk /dev/nvme0n1"
+	)
+	tests := []struct {
+		name        string
+		description string
+		line        string
+		readErr     error
+		want        string
+	}{
+		{
+			name: "description and installation error", description: description, line: line,
+			want: "The provisioner reported that OS deployment failed: Installation failed (refer to the installation log for more information). Installation error: " + line,
+		},
+		{
+			name: "unreadable installation log", description: description, readErr: fmt.Errorf("MAAS unavailable"),
+			want: "The provisioner reported that OS deployment failed: Installation failed (refer to the installation log for more information).",
+		},
+		{
+			name: "nothing to explain",
+			want: "The provisioner reported that OS deployment failed.",
+		},
+	}
+	startedAt := time.Date(2026, 10, 19, 5, 22, 0, 0, time.UTC)
+	for _, tc := range tests {
+		for _, path := range []struct {
+			name string
+			step temporalworkflow.StepExecutionInput
+			prep func(*retryProvider, *retryDeployments)
+		}{
+			{name: "observed", step: provisionStep(1, 1), prep: func(_ *retryProvider, d *retryDeployments) { d.fails = true }},
+			{name: "activity retry", step: provisionStep(1, 2), prep: func(p *retryProvider, _ *retryDeployments) {
+				p.machine.Status = provisioningdomain.MachineStatusFailed
+			}},
+		} {
+			t.Run(tc.name+"/"+path.name, func(t *testing.T) {
+				executor, _, provider, _, deployments := retryHarness(provisioningdomain.MachineStatusReady, "")
+				provider.machine.ErrorDescription = tc.description
+				provider.installationLine, provider.installationErr = tc.line, tc.readErr
+				path.prep(provider, deployments)
+				step := path.step
+				step.Step.StartedAt = &startedAt
+
+				result := executor.Execute(context.Background(), step)
+
+				if result.Status != operationdomain.TaskFailed || result.Error == nil {
+					t.Fatalf("result = %+v, want a failed Step", result)
+				}
+				if result.Error.Code != "deployment_failed" || !result.Error.Retryable || result.Error.Stage != "deployment" {
+					t.Errorf("result error = %+v, want retryable deployment_failed at deployment", result.Error)
+				}
+				if result.Error.Message != tc.want {
+					t.Errorf("message = %q\nwant      %q", result.Error.Message, tc.want)
+				}
+				if !provider.installationSince.Equal(startedAt) {
+					t.Errorf("installation read since = %v, want the attempt start %v", provider.installationSince, startedAt)
+				}
+			})
+		}
 	}
 }
 

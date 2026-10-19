@@ -19,6 +19,7 @@ import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
 import { ProviderFailureAlert } from './ProviderFailureAlert'
 import { InspectionAttentionAlert } from './InspectionAttentionAlert'
+import { InspectionRequiredAlert } from './InspectionRequiredAlert'
 import { ReleaseInProgressAlert } from './ReleaseInProgressAlert'
 import { useInspectionAttention } from './useInspectionAttention'
 import { useServerDetail } from './useServerDetail'
@@ -217,6 +218,17 @@ export function ServerDetailPage() {
           onViewOperation={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
         />
       )}
+      {/* Directly under a failed deployment, because a layout that needs a new inspection is the
+          usual reason that deployment failed. */}
+      <InspectionRequiredAlert
+        server={server}
+        capabilities={detail?.capabilities ?? null}
+        onInspectStarted={() => {
+          reload()
+          mutationHandedOffRef.current = false
+          setMutationFollow({ id: server.id, token: Date.now() })
+        }}
+      />
       <InspectionAttentionAlert
         operations={inspectionAttention}
         onView={(operationId) => navigate(scopedHref(`/workflows/${operationId ?? inspectionAttention[0]?.id ?? ''}`))}

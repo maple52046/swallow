@@ -269,6 +269,12 @@ type ProvisioningStatus struct {
 	// machine, which explains why a deploy or release can be rejected in a state that
 	// would otherwise allow it.
 	Locked bool
+	// InspectionRequired reports that the provisioner's storage layout for this Server cannot
+	// take a disk deployment until the Server is inspected again (for example a UEFI Server
+	// whose layout was built while it booted BIOS). Disk deployments are refused while it is
+	// set; a memory deployment is unaffected. InspectionRequiredReason explains it to operators.
+	InspectionRequired       bool
+	InspectionRequiredReason string
 	// CommissioningStatus and TestingStatus are the provisioner's own labels for the
 	// last hardware inspection and test run. Display only; the normalized State above
 	// is what to branch on.

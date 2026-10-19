@@ -451,6 +451,11 @@ Issue codes are `integration_mismatch`, `absent`, `not_ready`, or `locked`. An
 empty or duplicate target list, or a list longer than 100, is
 `400 validation_error`; a Server unknown to Swallow is `404 not_found`.
 
+The request names no deploy target, so this check does not report `inspection_required`,
+which blocks only a disk deployment: `POST /deployments`, `POST /deployment-operations`, and
+Platform deployment acceptance report it once the target is resolved (see
+[Multi-Server Deployment](#multi-server-deployment)).
+
 ## Multi-Server Deployment
 
 `POST /deployments` accepts:
@@ -536,6 +541,10 @@ Templates may supply mode, subnet, and gateway intent but never a NIC ID or stat
 Before any provider write, every Server must exist, be present, have provisioning
 state `ready`, be unlocked, belong to the same Integration, and match the
 template Integration when one is used. The lock preflight reads each target live from the provider before dispatch. The
+same live read refuses a **disk** deployment (`deployTarget` `disk`, or `ephemeral` false or
+omitted) of a Server whose storage layout needs a new inspection (`provisioning.inspectionRequired`,
+see [servers-list.md](servers-list.md#provisioning-axis-fields)) with `409 conflict` naming the
+Server and its `inspection_required` reason; a RAM deployment of that Server is allowed. The
 resolved image must exist in the
 current live catalog. Swallow inspects every target's live network capability,
 NICs, subnets, existing links, and Static address before the first write. A
@@ -660,13 +669,28 @@ the frozen automatic/static intent, and redeploys the same image and cloud-init.
 reports the Machine `failed`, `allocated`, `broken`, or `rescue`, explicit Retry first
 returns it to Ready with the same state-driven plan as Recover (static IP bindings are
 kept), and then redeploys the same frozen intent; failures on that path carry a stage
-prefixed `deployment_recovery_`. A Machine already deployed with a different image is not
+prefixed `deployment_recovery_`. When the frozen intent is a disk deployment and the
+Server's layout needs a new inspection, Retry does neither: the Step fails before Recover
+with code `inspection_required` (stage `deployment_preflight`, not retryable, message is the
+Server's `inspectionRequiredReason`), so the Workflow ends and the Server can be inspected. A Machine already deployed with a different image is not
 replaced: the Step fails with `deployment_image_mismatch` (not retryable) so the Workflow
 ends and the Server can be released explicitly. This destructive recovery is never
 automatic: a first attempt, or a Temporal activity retry of it after worker turnover,
 reports a provider failure as `deployment_failed` instead. If an address exists but SSH
 remains unreachable, Retry only observes so routing, firewall, image, or service
-remediation does not discard an installed OS. Lost provider responses enter observation
+remediation does not discard an installed OS.
+
+A provider-reported deployment failure (`failed` or `broken` while observing) fails the
+Step with `deployment_failed` (stage `deployment`, retryable). Its message names the cause
+when the provisioner can explain it:
+`The provisioner reported that OS deployment failed: <provider error description>. Installation error: <line>`.
+The description is the Server's `provisioning.errorDescription`; the installation error is the
+most specific line of the provider's newest failed installation log that started after the
+Step attempt started (for MAAS: the curtin handler error, else the exception that ended its
+traceback, else the first failed stage), at most 300 characters, with URL credentials removed
+and any line that mentions a password, token, or secret never used. Each part is omitted when
+unavailable, down to `The provisioner reported that OS deployment failed.`; reading the
+installation log never changes the Step outcome. Lost provider responses enter observation
 first; Swallow does not immediately submit a second deployment. An unknown outcome becomes
 `requires_attention`. A deployment Swallow's own preflight refuses before any provider
 write (for example a target that is not ready, an image that is not staged or verified, or
@@ -822,3 +846,9 @@ refused Release remains diagnostic and is not retryable. Unknown tasks are
 return `Deprecation: true` plus a successor `Link` header. Dashboard command flows use the
 durable Operation endpoints. Existing Server projections, authorization, and provider
 action behavior are unchanged.
+
+On 2026-10-19 the deployment preflight began refusing a disk deployment of a Server whose
+layout needs a new inspection (`inspection_required`), and `deployment_failed` messages began
+carrying the provider's error description and installation error line. Both keep their status
+codes and error codes; clients that branch on codes are unaffected
+([decision 057 amendment](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)).

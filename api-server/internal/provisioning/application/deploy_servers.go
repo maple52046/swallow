@@ -336,6 +336,11 @@ func (uc *DeployServersUseCase) preflight(
 			ephemeral = *input.Settings.Ephemeral
 		}
 	}
+	// A memory deployment never partitions the disk, so a layout that needs a new
+	// inspection blocks only a disk deployment.
+	if !ephemeral && len(targets.diskIssues) > 0 {
+		return nil, deploymentTargetConflict(targets.diskIssues[0])
+	}
 	if input.Network != nil {
 		networkMode = provisioningdomain.DeploymentNetworkMode(
 			strings.ToLower(strings.TrimSpace(input.Network.Mode)),

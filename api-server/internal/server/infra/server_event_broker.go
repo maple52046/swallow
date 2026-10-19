@@ -151,6 +151,9 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 		DeployedImageDefaultUser                      string
 		Ephemeral, Locked                             bool
 		HWEKernel, CommissioningStatus, TestingStatus string
+		// InspectionRequired is included because a new inspection can clear it without changing
+		// any other field here; suppressing that event would keep the stale warning on screen.
+		InspectionRequired bool
 	}
 	type membership struct{ PlatformID, NodeName, Role, State string }
 	type deployment struct {
@@ -183,6 +186,7 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 			Ephemeral:                s.Provisioning.Ephemeral,
 			Locked:                   s.Provisioning.Locked, HWEKernel: s.Provisioning.HWEKernel,
 			CommissioningStatus: s.Provisioning.CommissioningStatus, TestingStatus: s.Provisioning.TestingStatus,
+			InspectionRequired: s.Provisioning.InspectionRequired,
 		}
 	}
 	if s.Membership != nil {

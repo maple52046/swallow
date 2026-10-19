@@ -146,6 +146,44 @@ credential again.
   image. Other Servers in the same deployment keep their progress. Each
   attempt's failure reason stays on the Workflow timeline.
 
+## A disk deployment fails while configuring storage
+
+When a disk deployment fails, the deployment Task's message carries MAAS's
+reason and, when MAAS kept an installation log for that attempt, its most
+specific error line, for example:
+
+```text
+The provisioner reported that OS deployment failed: Installation failed (refer to the
+installation log for more information). Installation error: An error occured handling
+'nvme0n1-part2': RuntimeError - Cannot find previous partition on disk /dev/nvme0n1
+```
+
+That error on a UEFI Server means its MAAS storage layout was built while it
+booted BIOS, for example through a Boot ISO built before it could hand UEFI
+Servers to MAAS's UEFI path. The layout has no EFI system partition, so every
+disk deployment fails the same way, and retrying does not help.
+
+swallow detects this layout. The Server detail page shows **Inspect this Server
+before a disk deployment**, and swallow refuses a disk deployment of the Server
+until it is inspected again. A RAM deployment does not use the disk and is still
+allowed.
+
+1. Rebuild the Server's Boot ISO first if it predates the UEFI hand-off; the
+   Boot ISOs page flags it as needing a rebuild.
+2. End the deployment that holds the Server. Retrying its failed Task now ends
+   the Task with `inspection_required` instead of redeploying; or cancel the
+   Workflow.
+3. Select **Inspect hardware** on the warning, or run `swallow servers inspect`.
+   The warning clears when the inspection finishes and MAAS has rebuilt the
+   layout with an EFI system partition.
+4. Deploy again. For a platform deployment, use Repair: Servers that already
+   finished keep their work.
+
+```bash
+swallow -o json servers get server1   # provisioning.inspectionRequired
+swallow servers inspect server1
+```
+
 ## Monitoring is empty
 
 - "No metrics backend for this Site" on the usage charts means no metrics

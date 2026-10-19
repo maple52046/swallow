@@ -110,13 +110,19 @@ type ProvisioningAxisItem struct {
 	// Ephemeral means the deployed OS runs from memory: anything written to it is
 	// lost on reboot. Clients must show it, because no other field distinguishes such
 	// a machine from one with the same OS installed on disk.
-	Ephemeral           bool   `json:"ephemeral"`
-	HWEKernel           string `json:"hweKernel"`
-	Locked              bool   `json:"locked"`
-	CommissioningStatus string `json:"commissioningStatus"`
-	TestingStatus       string `json:"testingStatus"`
-	IntegrationID       string `json:"integrationId"`
-	ObservedAt          string `json:"observedAt"`
+	Ephemeral bool   `json:"ephemeral"`
+	HWEKernel string `json:"hweKernel"`
+	Locked    bool   `json:"locked"`
+	// InspectionRequired means the provisioner's storage layout cannot take a disk deployment
+	// until the Server is inspected again (servers-list.md); disk deployments are refused while
+	// it is set. InspectionRequiredReason is the operator-facing explanation. Both are omitted
+	// when not required.
+	InspectionRequired       bool   `json:"inspectionRequired,omitempty"`
+	InspectionRequiredReason string `json:"inspectionRequiredReason,omitempty"`
+	CommissioningStatus      string `json:"commissioningStatus"`
+	TestingStatus            string `json:"testingStatus"`
+	IntegrationID            string `json:"integrationId"`
+	ObservedAt               string `json:"observedAt"`
 }
 
 type MembershipAxisItem struct {
@@ -227,6 +233,8 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 			Ephemeral:                p.Ephemeral,
 			HWEKernel:                p.HWEKernel,
 			Locked:                   p.Locked,
+			InspectionRequired:       p.InspectionRequired,
+			InspectionRequiredReason: p.InspectionRequiredReason,
 			CommissioningStatus:      p.CommissioningStatus,
 			TestingStatus:            p.TestingStatus,
 			IntegrationID:            p.IntegrationID,

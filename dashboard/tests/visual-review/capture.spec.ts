@@ -26,6 +26,7 @@ const visualCases = [
   { name: 'server-activity', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-detail-releasing', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-detail-failed', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
+  { name: 'server-detail-inspection-required', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-activity-releasing', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
@@ -134,6 +135,10 @@ test.describe('dashboard visual review', () => {
         // A failed Server still held by the unfinished platform deployment: the provider-failure
         // banner lists the blocking Workflow as a link and explains retrying it there.
         ...(visualCase.name === 'server-detail-failed' ? { failedServerIds: ['srv-1'] } : {}),
+        // lab-afde-mi308-3: a failed disk deployment onto a layout that needs a new inspection.
+        ...(visualCase.name === 'server-detail-inspection-required'
+          ? { failedServerIds: ['srv-1'], inspectionRequiredServerIds: ['srv-1'] }
+          : {}),
         // A lab VM that enlisted without a power driver, its inspection stopped for it (decision 054).
         ...(visualCase.name === 'server-detail-vm-power'
           ? { powerConfigurations: { 'srv-2': { driver: '' } }, powerAttentionServerIds: ['srv-2'] }
@@ -179,8 +184,11 @@ test.describe('dashboard visual review', () => {
         : undefined)
       // The provider-failure banner and its blocking list load after the heading; wait for them so
       // the capture never shows the page before the Server's failed state arrived.
-      if (visualCase.name === 'server-detail-failed') {
+      if (visualCase.name === 'server-detail-failed' || visualCase.name === 'server-detail-inspection-required') {
         await expect(page.getByRole('list', { name: 'Operations blocking recovery' })).toBeVisible()
+      }
+      if (visualCase.name === 'server-detail-inspection-required') {
+        await expect(page.getByRole('button', { name: 'Inspect hardware' })).toBeVisible()
       }
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
@@ -192,6 +200,12 @@ test.describe('dashboard visual review', () => {
       }
       if (releasing) {
         await releaseBanner.screenshot({
+          path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+        })
+      }
+      if (visualCase.name === 'server-detail-inspection-required') {
+        await page.getByText('Inspect this Server before a disk deployment', { exact: true })
+          .locator('xpath=ancestor::div[.//button[normalize-space()="Inspect hardware"]][1]').screenshot({
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }

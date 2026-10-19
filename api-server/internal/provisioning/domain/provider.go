@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 )
 
 // MachineFilter narrows a machine listing. Zero values mean "no constraint".
@@ -192,6 +193,15 @@ type MachineDetailInspector interface {
 // that this is a complete audit record of every swallow action.
 type MachineEventReader interface {
 	ListMachineEvents(ctx context.Context, machineID string, limit int) ([]MachineEvent, error)
+}
+
+// InstallationFailureReader explains a failed OS installation with the most specific line of
+// the provisioner's latest failed installation log, so a deployment failure names its cause
+// instead of a generic "failed". An installation that started before since belongs to an
+// earlier deployment and is ignored; a zero since accepts any. The line is bounded and
+// stripped of credentials; an empty string means no such log or no recognizable error line.
+type InstallationFailureReader interface {
+	LatestInstallationFailure(ctx context.Context, machineID string, since time.Time) (string, error)
 }
 
 // EnrollmentState is what one reading of a provider's enrollment of a newly discovered machine

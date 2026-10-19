@@ -55,6 +55,28 @@ type machineJSON struct {
 	InterfaceSet    []interfaceJSON    `json:"interface_set"`
 	BootInterface   *interfaceJSON     `json:"boot_interface"`
 	GatewayLinkIPv4 *interfaceLinkJSON `json:"gateway_link_ipv4"`
+
+	// BIOSBootMethod is the boot method MAAS last recorded for the machine ("uefi", "pxe",
+	// "ipxe", ...). MAAS builds the storage layout from it when commissioning ends, so a
+	// layout made while it was not "uefi" has no EFI system partition. BootDisk and
+	// StorageDevices are that layout as MAAS will hand it to curtin.
+	BIOSBootMethod string              `json:"bios_boot_method"`
+	BootDisk       *storageDeviceJSON  `json:"boot_disk"`
+	StorageDevices []storageDeviceJSON `json:"blockdevice_set"`
+}
+
+// storageDeviceJSON is a MAAS block device reduced to what the deploy-layout check reads.
+type storageDeviceJSON struct {
+	ID         int                    `json:"id"`
+	Partitions []storagePartitionJSON `json:"partitions"`
+}
+
+// storagePartitionJSON is one partition of a MAAS storage layout with its filesystem, if any.
+type storagePartitionJSON struct {
+	Filesystem *struct {
+		FSType     string `json:"fstype"`
+		MountPoint string `json:"mount_point"`
+	} `json:"filesystem"`
 }
 
 // namedJSON covers the MAAS objects swallow only needs a name from.
@@ -316,8 +338,73 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 			machine.MACAddresses = append(machine.MACAddresses, iface.MACAddress)
 		}
 	}
+	if uefiLayoutWithoutESP(m) {
+		machine.InspectionRequired = true
+		machine.InspectionRequiredReason = uefiLayoutWithoutESPReason
+	}
 
 	return machine
+}
+
+// uefiLayoutWithoutESPReason explains InspectionRequired for a UEFI machine whose layout lacks
+// an EFI system partition, and what fixes it.
+const uefiLayoutWithoutESPReason = "MAAS boots this Server with UEFI, but its storage layout has no EFI system " +
+	"partition because it was inspected while booting BIOS. Inspect the Server again before a disk deployment."
+
+// uefiLayoutWithoutESP reports a machine MAAS records as booting UEFI whose boot disk carries
+// a storage layout without an EFI system partition (a FAT filesystem mounted at /boot/efi). MAAS 3.7 builds the layout from the boot method recorded when commissioning ends,
+// so a machine commissioned through a BIOS boot path keeps a BIOS layout — partition 1 left for
+// curtin's bios_grub — even after it later boots UEFI. curtin then fails a disk deployment at
+// partitioning ("Cannot find previous partition"). See docs/decisions/057.
+//
+// It reports true only when the data proves the mismatch: a non-UEFI boot method, an unknown
+// boot disk, or a boot disk with no partitions (no layout yet) all report false.
+func uefiLayoutWithoutESP(m *machineJSON) bool {
+	if !strings.EqualFold(strings.TrimSpace(m.BIOSBootMethod), "uefi") || m.BootDisk == nil {
+		return false
+	}
+	var bootDisk *storageDeviceJSON
+	for index := range m.StorageDevices {
+		if m.StorageDevices[index].ID == m.BootDisk.ID {
+			bootDisk = &m.StorageDevices[index]
+			break
+		}
+	}
+	if bootDisk == nil {
+		// Older responses embed the partitions only on boot_disk itself.
+		bootDisk = m.BootDisk
+	}
+	if len(bootDisk.Partitions) == 0 {
+		return false
+	}
+	for _, device := range m.StorageDevices {
+		for _, partition := range device.Partitions {
+			if isEFISystemPartition(partition) {
+				return false
+			}
+		}
+	}
+	for _, partition := range bootDisk.Partitions {
+		if isEFISystemPartition(partition) {
+			return false
+		}
+	}
+	return true
+}
+
+// isEFISystemPartition reports a partition formatted as FAT and mounted at /boot/efi, which is
+// how MAAS's default UEFI layout provides the EFI system partition.
+func isEFISystemPartition(partition storagePartitionJSON) bool {
+	filesystem := partition.Filesystem
+	if filesystem == nil || strings.TrimRight(strings.TrimSpace(filesystem.MountPoint), "/") != "/boot/efi" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(filesystem.FSType)) {
+	case "fat32", "vfat", "fat16":
+		return true
+	default:
+		return false
+	}
 }
 
 // isMAASBootloaderOSSystem identifies bootstrap artifacts returned by the MAAS

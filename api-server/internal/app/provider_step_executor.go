@@ -257,6 +257,14 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 			machineState := provisioningdomain.MachineStatus(state.State)
 			switch {
 			case step.Step.Attempt > 1 && recoverableBeforeRedeploy(machineState):
+				// A layout that needs a new inspection fails every disk deployment the same way;
+				// refuse before Recover wipes the Machine only for the redeploy preflight to
+				// refuse it, and end the Step so the Operation frees the Server for Inspect.
+				if state.InspectionRequired && !deploysFromMemory(input) {
+					return providerFailed("inspection_required",
+						provisioningapp.InspectionRequiredMessage(state.InspectionRequiredReason), false).
+						withStage("deployment_preflight")
+				}
 				// The operator retried a deployment the provider left unusable. The deploy
 				// preflight accepts only ready, so without returning the Machine to ready first
 				// every retry was refused and parked again, forever.
@@ -272,7 +280,7 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 				// An activity retry of the first attempt (worker turnover), not an operator retry:
 				// the deployment this attempt submitted failed while the worker was away. Report
 				// it exactly as observation would, and leave recovery to an explicit retry.
-				return providerFailed("deployment_failed", "The provisioner reported that OS deployment failed.", true).withStage("deployment")
+				return providerFailed("deployment_failed", e.deploymentFailureMessage(ctx, step, serverID), true).withStage("deployment")
 			case machineState == provisioningdomain.MachineStatusAllocated:
 				// Same activity retry, with the submitted deployment reserved but not yet
 				// installing: keep observing it rather than submitting a second deployment.
@@ -391,7 +399,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 					return providerAttention("provider_outcome_unknown", "The provider response was lost and the Server is deployed with a different image. Verify MAAS before retrying.", "deployment")
 				}
 			case string(provisioningdomain.MachineStatusFailed), string(provisioningdomain.MachineStatusBroken):
-				return providerFailed("deployment_failed", "The provisioner reported that OS deployment failed.", true).withStage("deployment")
+				return providerFailed("deployment_failed", e.deploymentFailureMessage(ctx, step, serverID), true).withStage("deployment")
 			case string(provisioningdomain.MachineStatusReady):
 				deployingSince = time.Time{}
 				allocatedSince = time.Time{}
@@ -1120,6 +1128,66 @@ func imageMatches(state *provisioningapp.ProvisioningStateItem, input provisioni
 		return false
 	}
 	return input.Settings.Ephemeral == nil || state.Ephemeral == *input.Settings.Ephemeral
+}
+
+// installationFailureReadWait bounds the best-effort installation log read on a failed
+// deployment, so a slow provisioner cannot delay the Step outcome.
+const installationFailureReadWait = 30 * time.Second
+
+// deploymentFailureMessage names why the provisioner failed the OS deployment: its error
+// description, then the most specific line of this attempt's installation log, each when
+// available. Either read failing only shortens the message; the Step outcome never changes.
+func (e providerStepExecutor) deploymentFailureMessage(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string) string {
+	const generic = "The provisioner reported that OS deployment failed"
+	server, err := e.servers.FindByID(ctx, serverID)
+	if err != nil {
+		return generic + "."
+	}
+	message := generic
+	if server.Provisioning != nil {
+		if description := strings.TrimRight(strings.TrimSpace(server.Provisioning.ErrorDescription), "."); description != "" {
+			message += ": " + description
+		}
+	}
+	message += "."
+	if line := e.installationFailure(ctx, step, server); line != "" {
+		message += " Installation error: " + line
+	}
+	return message
+}
+
+// installationFailure reads the error line of this attempt's failed installation when the
+// provisioner can explain one. An installation that started before the Step attempt belongs to
+// an earlier deployment and is never reported as this one's cause.
+func (e providerStepExecutor) installationFailure(ctx context.Context, step temporalworkflow.StepExecutionInput, server *serverdomain.Server) string {
+	if e.providers == nil {
+		return ""
+	}
+	provider, err := e.providers.For(ctx, server.Source.IntegrationID)
+	if err != nil {
+		return ""
+	}
+	reader, ok := provider.(provisioningdomain.InstallationFailureReader)
+	if !ok {
+		return ""
+	}
+	var since time.Time
+	if step.Step.StartedAt != nil {
+		since = *step.Step.StartedAt
+	}
+	readCtx, cancel := context.WithTimeout(ctx, installationFailureReadWait)
+	defer cancel()
+	line, err := reader.LatestInstallationFailure(readCtx, server.Source.ProviderMachineID, since)
+	if err != nil {
+		return ""
+	}
+	return line
+}
+
+// deploysFromMemory reports a frozen memory (RAM) deployment; a frozen intent without the
+// setting resolves to a disk deployment, as the deployment preflight does.
+func deploysFromMemory(input provisioningapp.DeployServersInput) bool {
+	return input.Settings.Ephemeral != nil && *input.Settings.Ephemeral
 }
 
 type providerResult struct {

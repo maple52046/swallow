@@ -131,6 +131,37 @@ affected credential。
   Recover 一樣先把 Server 收回 Ready，再重新部署同一個 image；同一個部署裡的其他 Server 保留進度。
   每次 attempt 的失敗原因都會留在 Workflow 的時間軸上。
 
+## 磁碟部署在設定 storage 時失敗
+
+磁碟部署失敗時，部署 Task 的訊息會帶出 MAAS 的原因；若 MAAS 保留了該次 attempt 的安裝
+log，也會帶出其中最具體的一行錯誤，例如：
+
+```text
+The provisioner reported that OS deployment failed: Installation failed (refer to the
+installation log for more information). Installation error: An error occured handling
+'nvme0n1-part2': RuntimeError - Cannot find previous partition on disk /dev/nvme0n1
+```
+
+UEFI Server 出現這個錯誤，代表它在 MAAS 的 storage layout 是以 BIOS 開機時建立的，例如
+當時使用的是還不能把 UEFI Server 交給 MAAS UEFI 路徑的舊版 Boot ISO。這個 layout 沒有
+EFI 分割區，所以每次磁碟部署都會以同樣方式失敗，retry 也沒有用。
+
+swallow 會偵測這種 layout。Server detail 頁會顯示 **Inspect this Server before a disk
+deployment**，在重新 inspect 之前，swallow 會拒絕這台 Server 的磁碟部署。RAM 部署不使用
+磁碟，仍然可以進行。
+
+1. 如果 Server 的 Boot ISO 早於 UEFI 交接的修正，先重建它；Boot ISOs 頁會標示需要重建。
+2. 結束佔著 Server 的部署。現在 retry 它失敗的 Task 會以 `inspection_required` 結束該
+   Task，而不是重新部署；也可以直接 cancel Workflow。
+3. 在提示上按 **Inspect hardware**，或執行 `swallow servers inspect`。inspect 完成、MAAS
+   以含 EFI 分割區的 layout 重建後，提示就會消失。
+4. 重新部署。若是 platform 部署，使用 Repair：已完成的 Server 會保留進度。
+
+```bash
+swallow -o json servers get server1   # provisioning.inspectionRequired
+swallow servers inspect server1
+```
+
 ## Monitoring 是空的
 
 - 用量圖表顯示「No metrics backend for this Site」代表尚未註冊 metrics Integration（或無法
