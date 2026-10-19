@@ -194,7 +194,11 @@ history and sort by `requestedAt` descending.
 ## Timeline And Task Diagnostics
 
 `GET /timeline` returns normalized immutable events ordered by `createdAt` and ID, naming
-Workflow and Task state transitions with no secret material. Task logs are UTF-8
+Workflow and Task state transitions with no secret material. A Task status event
+(`type` `step_status`) is recorded once per status per attempt; its `details` carry `status`
+and `attempt`, and, when the Task has a normalized error, that error's `code`, `message`,
+`stage`, and `retryable`. The Task itself keeps only its latest error, so these events are
+where an earlier attempt's failure remains readable after a retry. Task logs are UTF-8
 `text/plain`; a non-Ansible Task or one without output returns an empty body. `GET
 /tasks/{taskId}/stderr` returns an error-only UTF-8 `text/plain` report for an Ansible Task —
 one block per failed or unreachable task (task, host, message, return code, and its captured

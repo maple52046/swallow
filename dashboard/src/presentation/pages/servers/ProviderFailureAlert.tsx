@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { Box, Button, List, Stack, Text } from '@chakra-ui/react'
+import { Box, Button, Link, List, Stack, Text } from '@chakra-ui/react'
+import { Link as RouterLink } from 'react-router-dom'
 import type { ProvisioningAxis } from '@/domain/server/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useServerActiveOperations } from './useServerActiveOperations'
 
 /**
@@ -14,9 +16,13 @@ import { useServerActiveOperations } from './useServerActiveOperations'
  *   only buried in the provider event log;
  * - state- and reason-specific guidance (a failed disk erase is recovered without wiping);
  * - the durable Operations still active on this Server, which block a new recovery with a 409 —
- *   the trap where a parked failed Release keeps the operator from recovering; and
+ *   the trap where a parked failed Release keeps the operator from recovering. Each links to its
+ *   Workflow, because when the blocking work is the deployment that failed here, retrying its
+ *   failed Step returns this Server to Ready and redeploys it without stopping the rest of that
+ *   work (for example the other Servers of a platform deployment); and
  * - a single Recover action that cancels those blocking Operations first when present, so the
- *   operator is not left to discover the busy state and cancel by hand.
+ *   operator is not left to discover the busy state and cancel by hand. It stops the whole
+ *   Operation, so it is the choice for abandoning that work, not for redeploying this Server.
  */
 export function ProviderFailureAlert({
   serverId,
@@ -30,6 +36,7 @@ export function ProviderFailureAlert({
 }) {
   const { provisioning: repo } = useApp()
   const { showToast } = useToast()
+  const { scopedHref } = useSiteScope()
   const { activeOperations, cancelAll, refresh } = useServerActiveOperations([serverId])
   const [busy, setBusy] = useState(false)
 
@@ -74,10 +81,18 @@ export function ProviderFailureAlert({
             <List.Root aria-label="Operations blocking recovery">
               {activeOperations.map((operation) => (
                 <List.Item key={operation.id}>
-                  {operation.intent} — {operation.status}
+                  <Link asChild colorPalette="brand" fontWeight="medium">
+                    <RouterLink to={scopedHref(`/workflows/${operation.id}`)}>{operation.intent}</RouterLink>
+                  </Link>{' '}
+                  — {operation.status}
                 </List.Item>
               ))}
             </List.Root>
+            <Text mt="2">
+              If one of them is the deployment that failed on this Server, open it and retry the failed Step:
+              Swallow returns this Server to Ready and redeploys it, and keeps the rest of that work. The button
+              below cancels the whole Operation instead.
+            </Text>
           </Box>
         )}
         {locked && <Text>The Server is locked; unlock it before recovering.</Text>}

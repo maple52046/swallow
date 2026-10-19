@@ -16,11 +16,23 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
+// deploymentSubmitter submits one frozen OS deployment intent after Swallow's preflight. The
+// worker binds DeployServersUseCase; tests substitute a fake that moves a fake provider's state.
+type deploymentSubmitter interface {
+	Execute(ctx context.Context, input provisioningapp.DeployServersInput) (*provisioningapp.DeployServersResult, error)
+}
+
+// releaseSubmitter asks the provisioner to release one Server. The worker binds
+// ReleaseServerUseCase, which enforces the recovery policy and lock before the provider call.
+type releaseSubmitter interface {
+	ExecuteWithOptions(ctx context.Context, input provisioningapp.ReleaseServerInput) (*provisioningapp.ProvisioningStateItem, error)
+}
+
 // providerStepExecutor translates durable Step intent into Swallow provisioning use
 // cases, then observes provider state until the requested end state is proven.
 type providerStepExecutor struct {
-	deployments    *provisioningapp.DeployServersUseCase
-	release        *provisioningapp.ReleaseServerUseCase
+	deployments    deploymentSubmitter
+	release        releaseSubmitter
 	refresh        *provisioningapp.RefreshServerUseCase
 	servers        serverdomain.ServerRepository
 	providers      provisioningdomain.ProviderFactory
@@ -240,6 +252,32 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 		}
 		if err == nil && state.State == string(provisioningdomain.MachineStatusDeploying) {
 			return e.observeDeploy(ctx, step, serverID, input, true)
+		}
+		if err == nil {
+			machineState := provisioningdomain.MachineStatus(state.State)
+			switch {
+			case step.Step.Attempt > 1 && recoverableBeforeRedeploy(machineState):
+				// The operator retried a deployment the provider left unusable. The deploy
+				// preflight accepts only ready, so without returning the Machine to ready first
+				// every retry was refused and parked again, forever.
+				return e.recoverAndRedeploy(ctx, step, serverID, machineState, input)
+			case step.Step.Attempt > 1 && machineState == provisioningdomain.MachineStatusDeployed:
+				// Deployed with a different image (a match returned above). Replacing a running
+				// OS is not something a retry may do on its own; end the Step so the Operation
+				// frees the Server for an explicit Release.
+				return providerFailed("deployment_image_mismatch",
+					"The Server is already deployed with a different image. Release it, then deploy again.", false).
+					withStage("deployment_preflight")
+			case machineState == provisioningdomain.MachineStatusFailed || machineState == provisioningdomain.MachineStatusBroken:
+				// An activity retry of the first attempt (worker turnover), not an operator retry:
+				// the deployment this attempt submitted failed while the worker was away. Report
+				// it exactly as observation would, and leave recovery to an explicit retry.
+				return providerFailed("deployment_failed", "The provisioner reported that OS deployment failed.", true).withStage("deployment")
+			case machineState == provisioningdomain.MachineStatusAllocated:
+				// Same activity retry, with the submitted deployment reserved but not yet
+				// installing: keep observing it rather than submitting a second deployment.
+				return e.observeDeploy(ctx, step, serverID, input, true)
+			}
 		}
 	}
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
@@ -495,6 +533,74 @@ func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Contex
 	return e.observeDeploy(ctx, step, serverID, input, true)
 }
 
+// recoverableBeforeRedeploy reports the provider states an explicit deployment retry returns to
+// ready before redeploying: the Recover sources other than deployed. A failed deploy leaves the
+// Machine failed (or broken), a reservation that never started installing leaves it allocated,
+// and rescue is a diagnostic detour; none of them can take a new deployment, and every one has a
+// Recover plan. deployed is excluded because it may carry a running OS a retry must not discard.
+func recoverableBeforeRedeploy(state provisioningdomain.MachineStatus) bool {
+	switch state {
+	case provisioningdomain.MachineStatusFailed, provisioningdomain.MachineStatusAllocated,
+		provisioningdomain.MachineStatusBroken, provisioningdomain.MachineStatusRescue:
+		return provisioningdomain.EvaluateRecovery(provisioningdomain.RecoveryIntentRecover, state).Allowed
+	default:
+		return false
+	}
+}
+
+// recoverAndRedeploy is entered only by an explicit failed-Step retry (Attempt > 1) of a
+// provision-os whose Machine the provider left unusable (see recoverableBeforeRedeploy). The
+// operator's retry is the request to redeploy, so the Step runs the same state-driven Recover
+// the Recover Operation runs — without unbinding static IPs, so the frozen network intent still
+// applies — and then replays the frozen deployment. It runs inside the deploying Operation, under
+// its resource leases, because a separate Recover Operation would be refused while this one
+// holds the Server. Recovery is never automatic: a first attempt or an activity retry never
+// reaches it. Failures carry a "deployment_recovery_" stage so they read as part of the retry.
+func (e providerStepExecutor) recoverAndRedeploy(
+	ctx context.Context,
+	step temporalworkflow.StepExecutionInput,
+	serverID string,
+	state provisioningdomain.MachineStatus,
+	input provisioningapp.DeployServersInput,
+) temporalworkflow.StepExecutionResult {
+	if e.release == nil || e.deployments == nil {
+		return providerFailed("deployment_recovery_unavailable", "OS deployment recovery is unavailable.", false).withStage("deployment_recovery")
+	}
+	recovering := &operationdomain.NormalizedError{
+		Stage:   "deployment_recovery",
+		Message: fmt.Sprintf("The provisioner reports the Server as %s; returning it to Ready before redeploying.", state),
+	}
+	if err := e.setDeployment(ctx, step, serverID, serverdomain.DeploymentDeploying, recovering, false); err != nil {
+		return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
+	}
+	recovered := e.recoverToReady(ctx, step, serverID, provisioningapp.RecoverServerInput{
+		ServerID:  serverID,
+		Comment:   fmt.Sprintf("Redeploy Swallow operation %s step %s attempt %d", step.OperationID, step.Step.ID, step.Step.Attempt),
+		RequestID: step.OperationID,
+	})
+	if recovered.Status != operationdomain.TaskSucceeded {
+		if recovered.Error != nil && !strings.HasPrefix(recovered.Error.Stage, "deployment_recovery") {
+			recovered.Error.Stage = "deployment_recovery_" + recovered.Error.Stage
+		}
+		return recovered
+	}
+	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
+		return *locked
+	}
+	result, err := e.deployments.Execute(ctx, input)
+	if err != nil {
+		return normalizeProviderError(err, "deployment_recovery_redeploy")
+	}
+	if len(result.Failed) > 0 {
+		failure := result.Failed[0]
+		if failure.Code == "provider_unavailable" {
+			return e.observeDeploy(ctx, step, serverID, input, false)
+		}
+		return providerFailed(failure.Code, failure.Message, failure.Code != "provider_rejected").withStage("deployment_recovery_" + failure.Stage)
+	}
+	return e.observeDeploy(ctx, step, serverID, input, true)
+}
+
 func (e providerStepExecutor) readinessTimeout() time.Duration {
 	if e.readinessWait <= 0 {
 		return defaultDeploymentReadinessWait
@@ -572,12 +678,8 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 	return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
 }
 
-// recoverServer converges a Server whose provisioning axis is not usable back to ready by
-// choosing the provider primitive for its observed state per the recovery policy: broken is
-// cleared with Mark fixed, rescue is exited and then, if still not ready, released, and
-// failed or deployed is released. It is state-driven rather than plan-fixed so a Machine
-// that changes state between primitives (rescue -> failed after exit) is re-evaluated. Each
-// primitive is issued at most once so a stuck state fails for attention rather than looping.
+// recoverServer runs a recover-server Step: it decodes the frozen Recover intent and converges
+// the Step's target Server back to ready with recoverToReady.
 func (e providerStepExecutor) recoverServer(ctx context.Context, step temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	var input provisioningapp.RecoverServerInput
 	if err := decodeStepRequest(step.Step.Parameters, &input); err != nil {
@@ -587,6 +689,19 @@ func (e providerStepExecutor) recoverServer(ctx context.Context, step temporalwo
 	if serverID == "" {
 		return providerFailed("invalid_step", "The recovery Step has no Server target.", false).StepExecutionResult
 	}
+	return e.recoverToReady(ctx, step, serverID, input)
+}
+
+// recoverToReady converges a Server whose provisioning axis is not usable back to ready by
+// choosing the provider primitive for its observed state per the recovery policy: broken is
+// cleared with Mark fixed, rescue is exited and then, if still not ready, released, and
+// failed, allocated, or deployed is released. It is state-driven rather than plan-fixed so a
+// Machine that changes state between primitives (rescue -> failed after exit) is re-evaluated.
+// Each primitive is issued at most once so a stuck state fails for attention rather than
+// looping. It is shared by the Recover Operation and by an explicit retry of a failed
+// provision-os, which returns its Server to ready before redeploying; the caller owns the
+// Server's deployment projection.
+func (e providerStepExecutor) recoverToReady(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string, input provisioningapp.RecoverServerInput) temporalworkflow.StepExecutionResult {
 	deadline := time.NewTimer(2 * time.Hour)
 	defer deadline.Stop()
 	ticker := time.NewTicker(e.pollInterval())
@@ -1062,6 +1177,14 @@ func normalizeProviderError(err error, stage string) temporalworkflow.StepExecut
 	// provider, so the operator can create the key and retry the Task.
 	if errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing) {
 		return providerAttention("deployment_key_missing", err.Error(), stage)
+	}
+	// Swallow's own deployment preflight refused the request before any provider write (a target
+	// that is not ready, an image that is not staged or verified, a network conflict), so the
+	// outcome is known. Reporting it as an unknown outcome invited the operator to retry the same
+	// refusal forever; ending the Step lets the Operation finish and free its Servers so the cause
+	// can be fixed and the work started again.
+	if errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict) {
+		return providerFailed("deployment_preflight_rejected", err.Error(), false).withStage(stage)
 	}
 	var providerErr *provisioningdomain.ProviderError
 	if errors.As(err, &providerErr) {

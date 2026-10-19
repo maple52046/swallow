@@ -656,13 +656,23 @@ stall; the power-on check and the two-hour observation timeout stay authoritativ
 Retry observes before writing. If the expected image is now SSH-reachable, the Step
 succeeds without repeating provider work. If MAAS installed the image but reports no
 address, explicit Retry releases that unusable installation, waits for Ready, reapplies
-the frozen automatic/static intent, and redeploys the same image and cloud-init. This
-destructive recovery is never automatic. If an address exists but SSH remains
-unreachable, Retry only observes so routing, firewall, image, or service remediation does
-not discard an installed OS. Lost provider responses enter observation first; Swallow
-does not immediately submit a second deployment. An unknown outcome becomes
-`requires_attention`. Cloud-init is removed from the intent snapshot and stored as an
-encrypted opaque Step reference.
+the frozen automatic/static intent, and redeploys the same image and cloud-init. If MAAS
+reports the Machine `failed`, `allocated`, `broken`, or `rescue`, explicit Retry first
+returns it to Ready with the same state-driven plan as Recover (static IP bindings are
+kept), and then redeploys the same frozen intent; failures on that path carry a stage
+prefixed `deployment_recovery_`. A Machine already deployed with a different image is not
+replaced: the Step fails with `deployment_image_mismatch` (not retryable) so the Workflow
+ends and the Server can be released explicitly. This destructive recovery is never
+automatic: a first attempt, or a Temporal activity retry of it after worker turnover,
+reports a provider failure as `deployment_failed` instead. If an address exists but SSH
+remains unreachable, Retry only observes so routing, firewall, image, or service
+remediation does not discard an installed OS. Lost provider responses enter observation
+first; Swallow does not immediately submit a second deployment. An unknown outcome becomes
+`requires_attention`. A deployment Swallow's own preflight refuses before any provider
+write (for example a target that is not ready, an image that is not staged or verified, or
+a network conflict) fails with `deployment_preflight_rejected` (not retryable), so the
+Workflow ends instead of parking on a retry that repeats the refusal. Cloud-init is
+removed from the intent snapshot and stored as an encrypted opaque Step reference.
 
 `POST /release-operations` accepts 1-100 Servers:
 

@@ -25,6 +25,7 @@ const visualCases = [
   { name: 'server-detail-vm-boot-media', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-activity', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-detail-releasing', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
+  { name: 'server-detail-failed', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-activity-releasing', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
@@ -130,6 +131,9 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'server-activity-releasing'
           ? { providerWorkServerIds: { 'srv-1': 'releasing' as const }, releaseWorkflows: { 'srv-1': null } }
           : {}),
+        // A failed Server still held by the unfinished platform deployment: the provider-failure
+        // banner lists the blocking Workflow as a link and explains retrying it there.
+        ...(visualCase.name === 'server-detail-failed' ? { failedServerIds: ['srv-1'] } : {}),
         // A lab VM that enlisted without a power driver, its inspection stopped for it (decision 054).
         ...(visualCase.name === 'server-detail-vm-power'
           ? { powerConfigurations: { 'srv-2': { driver: '' } }, powerAttentionServerIds: ['srv-2'] }
@@ -173,6 +177,11 @@ test.describe('dashboard visual review', () => {
             }
           }
         : undefined)
+      // The provider-failure banner and its blocking list load after the heading; wait for them so
+      // the capture never shows the page before the Server's failed state arrived.
+      if (visualCase.name === 'server-detail-failed') {
+        await expect(page.getByRole('list', { name: 'Operations blocking recovery' })).toBeVisible()
+      }
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
       // The full mobile page is too long to read at its own scale; the changed card is captured too.
@@ -183,6 +192,13 @@ test.describe('dashboard visual review', () => {
       }
       if (releasing) {
         await releaseBanner.screenshot({
+          path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+        })
+      }
+      if (visualCase.name === 'server-detail-failed') {
+        // The banner root has no role, so crop the nearest ancestor holding its title and its action.
+        await page.getByText('Provider lifecycle failed', { exact: true })
+          .locator('xpath=ancestor::div[.//button[normalize-space()="Cancel blocking Operations and Recover"]][1]').screenshot({
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }

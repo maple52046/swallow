@@ -404,10 +404,12 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
       >
         <Stack gap="3">
           <Alert status="warning" title="This retry may redeploy the Server">
-            Swallow first rechecks the installed image, provider address, and SSH. If MAAS still reports no address,
-            Swallow will release the unusable installation, wait for Ready, then redeploy the same image, network
-            settings, and protected cloud-init data. An SSH-only failure is not redeployed. Other successful targets
-            and completed Steps are preserved.
+            Swallow first rechecks the installed image, provider address, and SSH. If MAAS reports the deployment
+            failed, or reserved the Server without installing, Swallow returns it to Ready the way Recover does,
+            then redeploys. If MAAS installed the image but reports no address, Swallow releases the unusable
+            installation, waits for Ready, then redeploys. A redeploy uses the same image, network settings, and
+            protected cloud-init data. An SSH-only failure is not redeployed, and a Server already running a
+            different image is never replaced. Other successful targets and completed Steps are preserved.
           </Alert>
         </Stack>
       </Modal>

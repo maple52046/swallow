@@ -34,6 +34,23 @@ test('a failed Server offers Recover and Release, but Mark fixed is gated to Bro
   await expect(page).toHaveURL(/\/servers(\?|$)/)
 })
 
+// A failed Server held by an unfinished deployment must point the operator at that Workflow, where
+// retrying the failed Step recovers and redeploys this Server, instead of offering only a Recover
+// that cancels the whole Operation (every Server of a platform deployment with it).
+test('a failed Server links the work blocking recovery and explains retrying it', async ({ page }) => {
+  await installApiFixtures(page, { failedServerIds: ['srv-1'] })
+  await page.goto('/servers/srv-1/summary?site=site-a')
+
+  const blocking = page.getByRole('list', { name: 'Operations blocking recovery' })
+  const workflow = blocking.getByRole('link', { name: 'Deploy production k0s platform' })
+  await expect(workflow).toHaveAttribute('href', '/workflows/op-running?site=site-a')
+  await expect(page.getByText(/retry the failed Step: Swallow returns this Server to Ready and redeploys it/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel blocking Operations and Recover' })).toBeVisible()
+
+  await workflow.click()
+  await expect(page).toHaveURL('/workflows/op-running?site=site-a')
+})
+
 test('the detail page explains recovery for failed and rescue Servers', async ({ page }) => {
   await installApiFixtures(page, { failedServerIds: ['srv-1'] })
   await page.goto('/servers/srv-1/summary?site=site-a')

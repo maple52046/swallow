@@ -93,3 +93,10 @@ Refined by [decision 036](036-provisioning-lifecycle-integrity.md): the
 allowed-source set adds `allocated` (reserved but not deployed), so Recover and
 Release converge it to `ready` instead of dead-ending; the recovery matrix and
 dashboard gate are otherwise unchanged.
+
+Refined by [decision 059](059-retry-recovers-failed-deployment.md): the
+documented "Recover the node, then retry the Task" path could not run while the
+deployment parked, because that Operation keeps the Server busy. An explicit
+retry of a failed `provision-os` now runs the Recover plan itself before
+redeploying. Recovery is still operator-initiated: only the operator's retry
+triggers it.

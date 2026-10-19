@@ -971,6 +971,8 @@ test.describe('operator interactions', () => {
     const dialog = page.getByRole('dialog', { name: 'Retry failed OS deployment' })
     await expect(dialog.getByText('This retry may redeploy the Server')).toBeVisible()
     await expect(dialog.getByText(/same image, network settings, and protected cloud-init/)).toBeVisible()
+    // A deployment MAAS reports as failed is returned to Ready first, so the retry can redeploy it.
+    await expect(dialog.getByText(/reports the deployment\s+failed.*returns it to Ready the way Recover does/s)).toBeVisible()
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(dialog).toBeHidden()
   })

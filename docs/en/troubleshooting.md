@@ -139,6 +139,12 @@ credential again.
   retried, and it keeps its Servers busy until you act. Cancel it (swallow
   records the cancellation itself and frees the Servers), then start the
   Release, Recover, or deployment again.
+- If an OS deployment Task failed and its Server shows Failed (or Allocated,
+  Broken, or Rescue), retry that Task from the Workflow. Recover is refused
+  while the Workflow holds the Server, so the retry does the recovery: swallow
+  returns the Server to Ready the way Recover does, then redeploys the same
+  image. Other Servers in the same deployment keep their progress. Each
+  attempt's failure reason stays on the Workflow timeline.
 
 ## Monitoring is empty
 

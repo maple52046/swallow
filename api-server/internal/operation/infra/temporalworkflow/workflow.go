@@ -185,10 +185,20 @@ func (a *Activities) UpdateStep(ctx context.Context, input StepUpdate) error {
 	// Deterministic ID per (step, status, attempt): a step reaches a given status at most
 	// once per attempt, so a retried projection activity upserts rather than duplicates.
 	eventID := fmt.Sprintf("%s/step/%s/%s/%d", input.OperationID, input.Step.ID, input.Step.Status, input.Step.Attempt)
+	details := map[string]any{"status": string(input.Step.Status), "attempt": input.Step.Attempt}
+	// The Task projection keeps only its latest error, so a retry overwrites why the previous
+	// attempt failed. Recording the normalized error on the attempt's own event keeps every
+	// attempt's reason. It is the already-redacted operator-facing error, never raw provider text.
+	if failure := input.Step.Error; failure != nil {
+		details["code"] = failure.Code
+		details["message"] = failure.Message
+		details["stage"] = failure.Stage
+		details["retryable"] = failure.Retryable
+	}
 	return a.operations.AppendEvent(ctx, operationdomain.TimelineEvent{
 		ID: eventID, OperationID: input.OperationID, StepID: input.Step.ID,
 		Type: "step_status", Message: input.Step.Name + " changed to " + string(input.Step.Status) + ".",
-		Details:   map[string]any{"status": string(input.Step.Status), "attempt": input.Step.Attempt},
+		Details:   details,
 		CreatedAt: time.Now().UTC(),
 	})
 }

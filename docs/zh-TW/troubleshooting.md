@@ -126,6 +126,10 @@ affected credential。
 - 如果 Workflow 的 reason 顯示 execution 已遺失（lost），它就無法再 retry，而且在你處理之前會
   一直讓它的 Server 保持 busy。直接 Cancel 它（swallow 會自行記錄 cancel 並釋放 Server），
   再重新發起 Release、Recover 或部署。
+- 如果 OS 部署的 Task 失敗，而且 Server 顯示 Failed（或 Allocated、Broken、Rescue），請在 Workflow
+  上 retry 該 Task。Workflow 佔著 Server 時 Recover 會被拒，所以由 retry 負責回復：swallow 會像
+  Recover 一樣先把 Server 收回 Ready，再重新部署同一個 image；同一個部署裡的其他 Server 保留進度。
+  每次 attempt 的失敗原因都會留在 Workflow 的時間軸上。
 
 ## Monitoring 是空的
 

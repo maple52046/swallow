@@ -388,14 +388,16 @@ Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它�
 > 覆寫成 `canceled`。
 
 - **provider 層失敗（Server 的 `provisioning` 軸不是 `ready`）**：`ensure-os`／`provision-os`
-  失敗會讓該 Server 落在 `failed`（或 `broken`／`rescue`）。這類「錯誤節點」用 Swallow 的
-  **provider recovery**（decision 033）收斂：**Recover**（Return to Ready）或 **Release** 把 Server
-  收斂回 `ready`，再對該 Task 重試或對 Workflow rerun。不要用 Mark fixed 去修一個 `failed` 節點
-  （Mark fixed 只清 `broken`），也不要期待 Rescue 讓它變 `ready`——Rescue 是診斷環境，Exit 只會
-  回到進入前狀態（見 glossary [Rescue Mode](glossaries/terms/rescue-mode.md)、
-  [Provider Recovery](glossaries/terms/provider-recovery.md)）。Platform Repair 對「`provision-os`
-  失敗且 Server 仍非 `ready`」的節點，應把 operator 導向 Recover，而不是重試一個必然再撞
-  `ready` preflight 的 Task。
+  失敗會讓該 Server 落在 `failed`（或 `allocated`／`broken`／`rescue`）。Workflow 停在
+  `requires_attention` 時仍佔著該 Server，另開的 Recover Operation 會被拒為 busy，所以收斂方式是
+  **直接重試該 `provision-os` Task**：明確 Retry 會先在同一個 Workflow 內、以它的 lease 執行與
+  **Recover**（Return to Ready）相同的 provider recovery（decision 033）把 Server 收回 `ready`
+  （不解除 static IP），再重送凍結的部署內容；同批其他 Server 與已完成的 Task 保留（decision 059）。
+  首次 attempt 與 activity 重試不會自動回復，已 `deployed` 但 image 不符的 Server 也不會被覆蓋。
+  若要放棄整個部署，才 cancel Workflow，再對錯誤節點 Recover／Release。不要用 Mark fixed 去修一個
+  `failed` 節點（Mark fixed 只清 `broken`），也不要期待 Rescue 讓它變 `ready`——Rescue 是診斷環境，
+  Exit 只會回到進入前狀態（見 glossary [Rescue Mode](glossaries/terms/rescue-mode.md)、
+  [Provider Recovery](glossaries/terms/provider-recovery.md)）。
 - **ansible 層失敗（OS 已 `deployed`、平台軟體未就緒）**：Server 的 `provisioning` 仍是
   `deployed`，**不要**對節點做 Recover／Release；改用既有 **Repair／Rerun**（§4.7）或
   **Uninstall**。節點可留在池中供重配。
