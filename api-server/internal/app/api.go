@@ -408,7 +408,10 @@ func RunAPI(cfg config.APIConfig) error {
 	orchestrationService := operationapp.NewWorkflowService(
 		orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
 	)
-	orchestrationService.AttachLeaseReader(operationinfra.NewMongoResourceLeaseRepo(db))
+	resourceLeases := operationinfra.NewMongoResourceLeaseRepo(db)
+	orchestrationService.AttachLeaseReader(resourceLeases)
+	// Cancel and Rerun free the leases a Workflow whose execution is gone can never release.
+	orchestrationService.AttachLeaseReleaser(resourceLeases)
 	operationService.AttachWorkflow(orchestrationService)
 	// Deleting a platform cancels its in-flight durable operations so their leases are
 	// released and the member servers are freed rather than left blocked by orphaned work.
@@ -449,6 +452,7 @@ func RunAPI(cfg config.APIConfig) error {
 	orchestrationReconciler := temporalworkflow.NewReconciler(
 		temporalClient, orchestrationRepo, cfg.ReconcileInterval,
 	)
+	orchestrationReconciler.AttachLeaseReleaser(resourceLeases)
 
 	overviewReader := overviewinfra.NewReader(
 		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, operationRepo,

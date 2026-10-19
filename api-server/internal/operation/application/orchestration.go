@@ -76,10 +76,11 @@ type WorkflowItem struct {
 
 // WorkflowService accepts durable workflows and exposes their query projection.
 type WorkflowService struct {
-	operations operationdomain.WorkflowRepository
-	controller WorkflowController
-	secrets    operationdomain.OperationSecretRepository
-	leases     operationdomain.ResourceLeaseReader
+	operations    operationdomain.WorkflowRepository
+	controller    WorkflowController
+	secrets       operationdomain.OperationSecretRepository
+	leases        operationdomain.ResourceLeaseReader
+	leaseReleaser operationdomain.ResourceLeaseReleaser
 }
 
 func NewWorkflowService(operations operationdomain.WorkflowRepository, controller WorkflowController, secrets ...operationdomain.OperationSecretRepository) *WorkflowService {
@@ -93,6 +94,12 @@ func NewWorkflowService(operations operationdomain.WorkflowRepository, controlle
 // AttachLeaseReader adds active fencing diagnostics without coupling command creation to Mongo.
 func (s *WorkflowService) AttachLeaseReader(reader operationdomain.ResourceLeaseReader) {
 	s.leases = reader
+}
+
+// AttachLeaseReleaser lets Cancel and Rerun free the leases of a Workflow whose execution is
+// gone. Without it the projection is still closed, but the leases stay until they expire.
+func (s *WorkflowService) AttachLeaseReleaser(releaser operationdomain.ResourceLeaseReleaser) {
+	s.leaseReleaser = releaser
 }
 
 // Create persists pending intent before the starter attempts to contact Temporal.
@@ -364,6 +371,15 @@ func (s *WorkflowService) Timeline(ctx context.Context, id string) ([]operationd
 	return s.operations.Timeline(ctx, id)
 }
 
+// Cancel asks the Workflow's execution to cancel; the workflow then records canceling and
+// canceled itself. A finished Workflow is a control conflict.
+//
+// When the execution is already gone (ErrWorkflowExecutionGone) no workflow code will ever record
+// the outcome, so Cancel records it here: the leases the dead execution still holds are released
+// first, then the projection is closed as canceled with CanceledWithoutExecutionReason. Releasing
+// first means a failure leaves the Workflow cancelable again rather than canceled with its
+// Servers still leased. Without this a Workflow whose execution Temporal had terminated stayed
+// non-terminal forever and blocked every new Workflow on its Servers.
 func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
@@ -372,7 +388,14 @@ func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	if operation.Status.Terminal() {
 		return fmt.Errorf("%w: a finished Operation cannot be canceled", operationdomain.ErrWorkflowControlConflict)
 	}
-	return s.controller.Cancel(ctx, operation)
+	err = s.controller.Cancel(ctx, operation)
+	if !errors.Is(err, operationdomain.ErrWorkflowExecutionGone) {
+		return err
+	}
+	if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, operation); err != nil {
+		return err
+	}
+	return FinalizeCanceledProjection(ctx, s.operations, operation, CanceledWithoutExecutionReason, time.Now().UTC())
 }
 
 func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) error {
@@ -433,13 +456,21 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 	// requires_attention Operation is non-terminal, so Create would reject the new one with
 	// ErrTargetsBusy until the original finishes. Best-effort cancel stops a still-live parked
 	// execution; a lost execution surfaces a control conflict we tolerate. Then force the
-	// projection terminal so the targets are free for the same-request Create below.
+	// projection terminal so the targets are free for the same-request Create below. Leases are
+	// released here only for a lost execution: a live one still needs them for its own cancel
+	// path (for example a verification's compensation) and releases them as it exits.
 	now := time.Now().UTC()
 	if !old.Status.Terminal() {
-		if cancelErr := s.controller.Cancel(ctx, old); cancelErr != nil && !errors.Is(cancelErr, operationdomain.ErrWorkflowControlConflict) {
+		cancelErr := s.controller.Cancel(ctx, old)
+		if cancelErr != nil && !errors.Is(cancelErr, operationdomain.ErrWorkflowControlConflict) {
 			return nil, cancelErr
 		}
-		if err := s.finalizeSuperseded(ctx, old, now); err != nil {
+		if errors.Is(cancelErr, operationdomain.ErrWorkflowExecutionGone) {
+			if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, old); err != nil {
+				return nil, err
+			}
+		}
+		if err := FinalizeCanceledProjection(ctx, s.operations, old, "Superseded by a rerun.", now); err != nil {
 			return nil, err
 		}
 	}
@@ -469,29 +500,6 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 		return nil, err
 	}
 	return item, nil
-}
-
-// finalizeSuperseded drives a non-terminal Operation to canceled so a rerun can immediately
-// claim the same targets. It mirrors the workflow's own cancel projection: the Operation
-// becomes canceled and every non-terminal Step becomes canceled, so a superseded Operation
-// stops reporting active Steps. The rerun links back to it through RetryOfOperationID.
-func (s *WorkflowService) finalizeSuperseded(ctx context.Context, operation *operationdomain.Workflow, at time.Time) error {
-	if err := s.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowCanceled, "Superseded by a rerun.", nil, &at); err != nil {
-		return err
-	}
-	for _, step := range operation.Steps {
-		switch step.Status {
-		case operationdomain.TaskPending, operationdomain.TaskWaitingDependency,
-			operationdomain.TaskWaitingExternal, operationdomain.TaskRunning,
-			operationdomain.TaskRequiresAttention:
-			step.Status = operationdomain.TaskCanceled
-			step.FinishedAt = &at
-			if err := s.operations.UpdateStep(ctx, operation.ID, step); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // cloneStepsForRerun copies an Operation's Steps for a fresh execution. Succeeded and skipped

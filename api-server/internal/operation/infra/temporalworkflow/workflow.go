@@ -1007,10 +1007,11 @@ func (c *Controller) Cancel(ctx context.Context, operation *operationdomain.Work
 	err := c.client.CancelWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID)
 	if isWorkflowExecutionGone(err) {
 		// The persisted Operation is still non-terminal, but its Temporal execution has already
-		// ended (e.g. a host reboot or an execution timeout terminated it). It cannot be
-		// canceled; surface a control conflict so callers such as the platform-delete cancel
-		// sweep tolerate it instead of failing with an internal error.
-		return fmt.Errorf("%w: the operation's workflow execution is no longer running", operationdomain.ErrWorkflowControlConflict)
+		// ended (a host reboot, an execution timeout, or Temporal's history limit terminated it).
+		// The signal cannot be delivered. Report ErrWorkflowExecutionGone so WorkflowService.Cancel
+		// records the cancellation itself, wrapped as a control conflict so callers that only
+		// tolerate a conflict (Rerun) keep working instead of failing with an internal error.
+		return fmt.Errorf("%w: %w", operationdomain.ErrWorkflowControlConflict, operationdomain.ErrWorkflowExecutionGone)
 	}
 	return err
 }
@@ -1020,8 +1021,10 @@ func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.W
 	if isWorkflowExecutionGone(err) {
 		// Same desync as Cancel: the Step shows retryable but the workflow execution is gone, so
 		// the retry signal cannot be delivered. Report a control conflict (mapped to 409) rather
-		// than a raw Temporal error (500). The operator must start a new deployment/repair.
-		return fmt.Errorf("%w: the operation's workflow execution is no longer running, so this Step cannot be retried", operationdomain.ErrWorkflowControlConflict)
+		// than a raw Temporal error (500), and point the operator at Cancel, which closes such an
+		// Operation so new work on its Servers can start.
+		return fmt.Errorf("%w: %w, so this Step cannot be retried; cancel the Operation, then start the work again",
+			operationdomain.ErrWorkflowControlConflict, operationdomain.ErrWorkflowExecutionGone)
 	}
 	return err
 }
@@ -1137,14 +1140,21 @@ func resourceKeys(resources []operationdomain.ResourceReference) []string {
 // "deploying" state with no way forward.
 //
 // The sweep only marks such an Operation requires_attention with an operator-facing reason so
-// the lifecycle renders it as repairable; recovery itself (a rerun that launches a fresh
-// execution) is an explicit operator action, never automatic here. It is safe to run in more
-// than one process because each write is an idempotent status update.
+// the lifecycle renders it as repairable; recovery itself (Cancel, or a rerun that launches a
+// fresh execution) is an explicit operator action, never automatic here. The one exception is a
+// canceling Operation whose execution is gone: its cancel was already requested, so the sweep
+// completes it. It is safe to run in more than one process because each write is idempotent.
 type Reconciler struct {
 	client     client.Client
 	operations operationdomain.WorkflowRepository
+	leases     operationdomain.ResourceLeaseReleaser
 	interval   time.Duration
 }
+
+// lostExecutionReason is the status reason the sweep writes on an Operation whose execution is
+// gone, so the operator sees why its Steps stopped and that Cancel or repair is the way out.
+const lostExecutionReason = "The workflow execution was lost (a host restart, an execution timeout, or the history limit). " +
+	"Cancel it to free its Servers, or repair it to resume."
 
 // NewReconciler builds the lost-execution sweeper. A non-positive interval falls back to a safe
 // default so a misconfigured interval cannot spin.
@@ -1153,6 +1163,12 @@ func NewReconciler(temporalClient client.Client, operations operationdomain.Work
 		interval = 30 * time.Second
 	}
 	return &Reconciler{client: temporalClient, operations: operations, interval: interval}
+}
+
+// AttachLeaseReleaser lets the sweep free the leases of a canceling Operation whose execution is
+// gone. Without it the Operation is still completed, but its leases stay until they expire.
+func (r *Reconciler) AttachLeaseReleaser(releaser operationdomain.ResourceLeaseReleaser) {
+	r.leases = releaser
 }
 
 // Run sweeps on a fixed interval until ctx is canceled; it owns no other lifecycle. It never
@@ -1171,25 +1187,55 @@ func (r *Reconciler) Run(ctx context.Context) {
 	}
 }
 
-// SweepLostExecutions marks every started, forward-progress Operation whose Temporal execution
-// is no longer running as requires_attention. It describes each candidate's execution: one that
-// is absent or already closed while Mongo is still non-terminal is treated as lost, while a
-// still-running execution is left untouched so an Operation legitimately parked for operator
-// input (its execution alive) is never disturbed. A transient describe error skips that record
-// for this pass.
+// SweepLostExecutions reconciles every started, non-terminal Operation whose Temporal execution
+// is no longer running. It describes each candidate's execution: one that is absent or already
+// closed while Mongo is still non-terminal is treated as lost, while a still-running execution is
+// left untouched so an Operation legitimately parked for operator input (its execution alive) is
+// never disturbed. A transient describe error skips that record for this pass.
+//
+//   - A forward-progress Operation (pending, waiting, running) is marked requires_attention.
+//   - A requires_attention Operation keeps its status; only its reason changes to the lost-execution
+//     reason, so the operator can tell a parked Operation that can still be retried from one
+//     Temporal already terminated (for example for outgrowing its history limit).
+//   - A canceling Operation is completed: its leases are released and it is recorded canceled,
+//     because the cancel it was waiting on was already requested and nothing will record it.
 func (r *Reconciler) SweepLostExecutions(ctx context.Context) {
-	operations, err := r.operations.ListNonTerminalStarted(ctx, 100)
+	if operations, err := r.operations.ListNonTerminalStarted(ctx, 100); err == nil {
+		for _, operation := range operations {
+			if r.lost(ctx, operation) {
+				_ = r.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowRequiresAttention, lostExecutionReason, nil, nil)
+			}
+		}
+	}
+	parked, err := r.operations.ListParkedStarted(ctx, 100)
 	if err != nil {
 		return
 	}
-	for _, operation := range operations {
-		lost, describeErr := r.executionLost(ctx, operation)
-		if describeErr != nil || !lost {
+	for _, operation := range parked {
+		if !r.lost(ctx, operation) {
 			continue
 		}
-		_ = r.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowRequiresAttention,
-			"The workflow execution was lost (a host restart or execution timeout). Repair to resume.", nil, nil)
+		switch operation.Status {
+		case operationdomain.WorkflowRequiresAttention:
+			if operation.StatusReason != lostExecutionReason {
+				_ = r.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowRequiresAttention, lostExecutionReason, nil, nil)
+			}
+		case operationdomain.WorkflowCanceling:
+			// Release before closing, as Cancel does: a failed release leaves the record canceling,
+			// so the next sweep tries again instead of leaving a canceled Operation's leases held.
+			if operationapp.ReleaseExecutionLeases(ctx, r.leases, operation) == nil {
+				_ = operationapp.FinalizeCanceledProjection(ctx, r.operations, operation,
+					operationapp.CanceledWithoutExecutionReason, time.Now().UTC())
+			}
+		}
 	}
+}
+
+// lost reports whether an Operation's execution is gone, treating a transient describe error as
+// not lost so the record is retried on the next sweep rather than acted on.
+func (r *Reconciler) lost(ctx context.Context, operation *operationdomain.Workflow) bool {
+	lost, err := r.executionLost(ctx, operation)
+	return err == nil && lost
 }
 
 // executionLost reports whether an Operation's Temporal execution is no longer running. A
@@ -1210,10 +1256,35 @@ func (r *Reconciler) executionLost(ctx context.Context, operation *operationdoma
 
 var _ operationapp.WorkflowController = (*Controller)(nil)
 
-// awaitRetryStep keeps resource leases fenced while an Operation requires operator input.
+const (
+	// parkedLeaseTTL is how long a parked Operation's leases stay valid between renewals. A
+	// parked Operation mutates nothing, so the long TTL only delays another owner taking over a
+	// lease whose execution died; Cancel and Rerun release such leases by owner, so that delay
+	// applies only when nobody acts on the dead Operation.
+	parkedLeaseTTL = 24 * time.Hour
+	// parkedRenewInterval renews a parked Operation's leases well inside parkedLeaseTTL. Each
+	// renewal costs about 11 history events, so this cadence (about 33 events a day) keeps an
+	// Operation parked for years under Temporal's 51,200-event history limit, where the old
+	// leaseDuration/3 cadence reached it in about 39 hours and Temporal terminated the execution.
+	parkedRenewInterval = 8 * time.Hour
+)
+
+// awaitRetryStep keeps resource leases fenced while an Operation requires operator input, and
+// returns when the operator signals a Step retry or cancels the Operation (ctx).
+//
+// From version 1 of "parked-lease-renewal" the wait extends the leases to parkedLeaseTTL as it
+// parks and renews them every parkedRenewInterval, so a long wait cannot grow the history until
+// Temporal terminates the execution. The next ExecuteStep heartbeat returns the leases to the
+// normal leaseDuration cadence. Histories recorded before the change replay as
+// workflow.DefaultVersion and keep renewing every leaseDuration/3.
 func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, leases []operationdomain.ResourceLease, leaseDuration time.Duration) (RetryStepCommand, error) {
 	if leaseDuration <= 0 {
 		leaseDuration = 90 * time.Second
+	}
+	renewInterval, renewTTL := leaseDuration/3, leaseDuration
+	if workflow.GetVersion(ctx, "parked-lease-renewal", workflow.DefaultVersion, 1) >= 1 {
+		renewInterval, renewTTL = parkedRenewInterval, parkedLeaseTTL
+		renewLeasesWhileParked(ctx, leases, renewTTL)
 	}
 	for {
 		var command RetryStepCommand
@@ -1223,7 +1294,7 @@ func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, 
 			channel.Receive(ctx, &command)
 			received = true
 		})
-		selector.AddFuture(workflow.NewTimer(ctx, leaseDuration/3), func(future workflow.Future) {
+		selector.AddFuture(workflow.NewTimer(ctx, renewInterval), func(future workflow.Future) {
 			_ = future.Get(ctx, nil)
 		})
 		selector.Select(ctx)
@@ -1233,33 +1304,38 @@ func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, 
 		if received {
 			return command, nil
 		}
-		renewCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval: time.Second, MaximumInterval: 10 * time.Second, MaximumAttempts: 3,
-			},
-		})
-		if err := workflow.ExecuteActivity(renewCtx, ActivityRenewLeases, LeaseRenewal{
-			Leases: leases, Duration: leaseDuration,
-		}).Get(renewCtx, nil); err != nil {
-			// A renewal failure while parked for operator input must not end the Operation.
-			// Returning here (as this once did) turned a transient outage — a host restart, a
-			// brief database blip during the wait — into a permanently canceled Operation that
-			// could only be recovered by redeploying the Platform. Log and keep waiting: the
-			// next tick renews again, and a lease that merely expired without being taken by
-			// another owner is re-extended. The only exits stay a retry signal and a real
-			// operator cancel (ctx). This is safe because no host mutation happens while parked,
-			// and a Step retry re-validates and re-acquires leases before any side effect, so
-			// waiting without a currently valid lease cannot cause a double execution. Recovery
-			// of an execution that is genuinely gone is handled out of band by the rerun path.
-			//
-			// Replay safety: this only changes the branch taken after a future renewal-failure
-			// event. Any history that already recorded a renewal failure ran the old return path
-			// to completion and is no longer open, so no open history replays differently.
-			workflow.GetLogger(ctx).Warn(
-				"resource lease renewal failed while awaiting operator input; continuing to wait",
-				"error", err)
-			continue
-		}
+		renewLeasesWhileParked(ctx, leases, renewTTL)
+	}
+}
+
+// renewLeasesWhileParked extends a parked Operation's leases to ttl from now.
+//
+// A renewal failure while parked for operator input must not end the Operation. Returning on
+// failure (as this once did) turned a transient outage — a host restart, a brief database blip
+// during the wait — into a permanently canceled Operation that could only be recovered by
+// redeploying the Platform. The failure is logged and the wait continues: the next renewal tries
+// again, and a lease that merely expired without being taken by another owner is re-extended.
+// The only exits from the wait stay a retry signal and a real operator cancel. This is safe
+// because no host mutation happens while parked, and a Step retry re-validates leases before
+// any side effect, so waiting without a currently valid lease cannot cause a double execution.
+// An execution that is genuinely gone is detected by the lost-execution reconciler and closed by
+// Cancel or Rerun.
+//
+// Replay safety: continuing after a failure only changes the branch taken after a future
+// renewal-failure event. A history that already recorded a renewal failure ran the old return
+// path to completion and is no longer open, so no open history replays differently.
+func renewLeasesWhileParked(ctx workflow.Context, leases []operationdomain.ResourceLease, ttl time.Duration) {
+	renewCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: time.Second, MaximumInterval: 10 * time.Second, MaximumAttempts: 3,
+		},
+	})
+	if err := workflow.ExecuteActivity(renewCtx, ActivityRenewLeases, LeaseRenewal{
+		Leases: leases, Duration: ttl,
+	}).Get(renewCtx, nil); err != nil {
+		workflow.GetLogger(ctx).Warn(
+			"resource lease renewal failed while awaiting operator input; continuing to wait",
+			"error", err)
 	}
 }

@@ -131,25 +131,35 @@ func (r *MongoWorkflowRepo) ListPendingStart(ctx context.Context, limit int) ([]
 }
 
 // ListNonTerminalStarted returns started Operations still in a forward-progress status so the
-// lost-execution reconciler can check each against Temporal. It excludes requires_attention
-// (already surfaced as repairable) and canceling (a deliberate teardown), and only ever reads
-// started records, so an unstarted pending record awaiting the starter is never mistaken for a
-// lost execution.
+// lost-execution reconciler can check each against Temporal. requires_attention and canceling
+// records are read separately through ListParkedStarted, because a lost one is settled
+// differently.
 func (r *MongoWorkflowRepo) ListNonTerminalStarted(ctx context.Context, limit int) ([]*operationdomain.Workflow, error) {
+	return r.listStartedWithStatus(ctx, limit,
+		operationdomain.WorkflowPending, operationdomain.WorkflowWaitingDependency,
+		operationdomain.WorkflowRunning, operationdomain.WorkflowWaitingExternal)
+}
+
+// ListParkedStarted returns started requires_attention and canceling Operations, oldest first,
+// so the reconciler can find a parked Operation whose execution Temporal already terminated.
+func (r *MongoWorkflowRepo) ListParkedStarted(ctx context.Context, limit int) ([]*operationdomain.Workflow, error) {
+	return r.listStartedWithStatus(ctx, limit,
+		operationdomain.WorkflowRequiresAttention, operationdomain.WorkflowCanceling)
+}
+
+// listStartedWithStatus reads started schema-v4 Operations in the given statuses by requestedAt
+// ascending, bounded by limit (a non-positive limit falls back to 100). An unstarted pending record
+// awaiting the starter is never returned, so it cannot be mistaken for a lost execution.
+func (r *MongoWorkflowRepo) listStartedWithStatus(ctx context.Context, limit int, statuses ...operationdomain.WorkflowStatus) ([]*operationdomain.Workflow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
+	values := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		values = append(values, string(status))
+	}
 	cursor, err := r.operations.Find(ctx,
-		bson.M{
-			"schemaVersion": 4,
-			"startState":    "started",
-			"status": bson.M{"$in": []string{
-				string(operationdomain.WorkflowPending),
-				string(operationdomain.WorkflowWaitingDependency),
-				string(operationdomain.WorkflowRunning),
-				string(operationdomain.WorkflowWaitingExternal),
-			}},
-		},
+		bson.M{"schemaVersion": 4, "startState": "started", "status": bson.M{"$in": values}},
 		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
 	)
 	if err != nil {

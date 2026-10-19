@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -18,6 +17,7 @@ type fakeRerunRepo struct {
 	byID        map[string]*operationdomain.Workflow
 	created     *operationdomain.Workflow
 	stateWrites map[string]operationdomain.WorkflowStatus
+	reasons     map[string]string
 	canceledStp []operationdomain.Task
 }
 
@@ -49,11 +49,13 @@ func (r *fakeRerunRepo) AppendEvent(context.Context, operationdomain.TimelineEve
 	return nil
 }
 
-func (r *fakeRerunRepo) UpdateState(_ context.Context, id string, status operationdomain.WorkflowStatus, _ string, _, _ *time.Time) error {
+func (r *fakeRerunRepo) UpdateState(_ context.Context, id string, status operationdomain.WorkflowStatus, reason string, _, _ *time.Time) error {
 	if r.stateWrites == nil {
 		r.stateWrites = map[string]operationdomain.WorkflowStatus{}
+		r.reasons = map[string]string{}
 	}
 	r.stateWrites[id] = status
+	r.reasons[id] = reason
 	if op, ok := r.byID[id]; ok {
 		op.Status = status
 	}
@@ -188,11 +190,17 @@ func TestRerunClonesFailedOperationPreservingSucceededSteps(t *testing.T) {
 func TestRerunFinalizesNonTerminalOperationBeforeReplacing(t *testing.T) {
 	// A requires_attention Operation whose execution is already gone: cancel reports a control
 	// conflict, and Rerun must still force it terminal so the replacement can claim the targets.
+	// Its leases are freed too, because a dead parked execution can hold them for up to a day.
 	old := newRerunOldOp(operationdomain.WorkflowRequiresAttention, operationdomain.TaskRequiresAttention)
+	old.Temporal.WorkflowID = "swallow-operation/" + old.ID
 	repo := &fakeRerunRepo{byID: map[string]*operationdomain.Workflow{old.ID: old}}
-	controller := &fakeRerunController{cancelErr: fmt.Errorf("%w: gone", operationdomain.ErrWorkflowControlConflict)}
+	controller := &fakeRerunController{cancelErr: executionGoneErr()}
 	secrets := &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}
+	leases := &fakeLeaseReleaser{held: map[string][]operationdomain.ResourceLease{
+		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
+	}}
 	service := NewWorkflowService(repo, controller, secrets)
+	service.AttachLeaseReleaser(leases)
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
 		t.Fatalf("Rerun() error = %v, want nil", err)
@@ -203,8 +211,32 @@ func TestRerunFinalizesNonTerminalOperationBeforeReplacing(t *testing.T) {
 	if repo.stateWrites[old.ID] != operationdomain.WorkflowCanceled {
 		t.Fatalf("superseded Operation state = %v, want canceled", repo.stateWrites[old.ID])
 	}
+	if len(leases.released) != 1 {
+		t.Errorf("released leases = %v, want the lost execution's one lease", leases.released)
+	}
 	if repo.created == nil || repo.created.ID == old.ID {
 		t.Fatal("Rerun() did not create a replacement Operation after freeing the targets")
+	}
+}
+
+// TestRerunKeepsLeasesOfLiveParkedExecution verifies that a still-live parked execution keeps its
+// leases when Rerun supersedes it: its own cancel path may still need them (a verification's
+// compensation) and it releases them as it exits.
+func TestRerunKeepsLeasesOfLiveParkedExecution(t *testing.T) {
+	old := newRerunOldOp(operationdomain.WorkflowRequiresAttention, operationdomain.TaskRequiresAttention)
+	old.Temporal.WorkflowID = "swallow-operation/" + old.ID
+	repo := &fakeRerunRepo{byID: map[string]*operationdomain.Workflow{old.ID: old}}
+	leases := &fakeLeaseReleaser{held: map[string][]operationdomain.ResourceLease{
+		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
+	}}
+	service := NewWorkflowService(repo, &fakeRerunController{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
+	service.AttachLeaseReleaser(leases)
+
+	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
+		t.Fatalf("Rerun() error = %v, want nil", err)
+	}
+	if len(leases.released) != 0 {
+		t.Errorf("released leases = %v, want none while the execution is live", leases.released)
 	}
 }
 

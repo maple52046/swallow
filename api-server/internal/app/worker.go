@@ -224,6 +224,7 @@ func RunWorker(cfg config.APIConfig) error {
 	// deployment still surfaces Operations whose execution was lost as repairable. Duplicate
 	// sweeps are safe: each write is an idempotent status update.
 	reconciler := temporalworkflow.NewReconciler(temporalClient, operations, cfg.ReconcileInterval)
+	reconciler.AttachLeaseReleaser(leases)
 	go reconciler.Run(ctx)
 	slog.Info("Temporal worker started", "address", cfg.TemporalAddress,
 		"namespace", cfg.TemporalNamespace, "taskQueue", cfg.TemporalTaskQueue)

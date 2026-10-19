@@ -303,11 +303,12 @@ func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T
 		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}, nil
 	}, activity.RegisterOptions{Name: ActivityExecuteStep})
 
-	// The wait renews every LeaseDuration/3 = 20s. Delaying the signal to 40s guarantees at
-	// least one renewal was attempted and failed while parked before the retry arrives.
+	// The wait renews as it parks and then every parkedRenewInterval. Delaying the signal past
+	// one interval guarantees both the parking renewal and a periodic renewal failed while parked
+	// before the retry arrives.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(RetryStepSignal, RetryStepCommand{StepID: "step-a"})
-	}, 40*time.Second)
+	}, parkedRenewInterval+time.Hour)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
 		OperationID: "operation-renew-fail", Kind: operationdomain.WorkflowKindCustom,

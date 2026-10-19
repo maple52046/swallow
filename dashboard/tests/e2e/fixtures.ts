@@ -302,6 +302,12 @@ export interface FixtureOptions {
    * active work converges. Off by default to preserve the `canceling`-visible assertion.
    */
   cancelMarksTerminal?: boolean
+  /**
+   * Makes the Workflow cancel endpoint answer `409 conflict` with this message and leave the
+   * Operation active, modelling a cancel the backend refuses. Unset by default, so cancels are
+   * accepted.
+   */
+  cancelRefusedMessage?: string
   providerFailureRetryable?: boolean
   /**
    * Makes the canonical Task-retry endpoint answer `409 conflict`, modelling a durable Workflow
@@ -2724,6 +2730,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (cancelMatch && request.method() === 'POST') {
       const operation = operationItems.find((item) => item.id === cancelMatch[1]) as unknown as Record<string, unknown> | undefined
       if (!operation) return json(route, { error: { code: 'not_found', message: 'Operation not found' } }, 404)
+      if (options.cancelRefusedMessage) {
+        return json(route, { error: { code: 'conflict', message: options.cancelRefusedMessage, requestId: 'req-cancel-refused' } }, 409)
+      }
       const cancelStatus = options.cancelMarksTerminal ? 'canceled' : 'canceling'
       const cancelReason = options.cancelMarksTerminal ? 'Canceled by operator.' : 'Canceling active work.'
       operation.status = cancelStatus

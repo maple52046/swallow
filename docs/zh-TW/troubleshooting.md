@@ -123,6 +123,9 @@ affected credential。
 - 檢查 Site lease conflict、Server lock、SSH known host、resolved SSH user
   與 external provider availability。
 - 第一個 Workflow terminal 或安全 cancel 前，不要開始 conflicting Workflow。
+- 如果 Workflow 的 reason 顯示 execution 已遺失（lost），它就無法再 retry，而且在你處理之前會
+  一直讓它的 Server 保持 busy。直接 Cancel 它（swallow 會自行記錄 cancel 並釋放 Server），
+  再重新發起 Release、Recover 或部署。
 
 ## Monitoring 是空的
 

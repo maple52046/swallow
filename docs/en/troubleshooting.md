@@ -135,6 +135,10 @@ credential again.
   and external provider availability.
 - Do not start a conflicting Workflow until the first reaches a terminal state
   or is safely cancelled.
+- If the Workflow's reason says its execution was lost, it can no longer be
+  retried, and it keeps its Servers busy until you act. Cancel it (swallow
+  records the cancellation itself and frees the Servers), then start the
+  Release, Recover, or deployment again.
 
 ## Monitoring is empty
 

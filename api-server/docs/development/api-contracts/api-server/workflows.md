@@ -219,6 +219,13 @@ and timeline results are JSON arrays and never `null`.
 canceled; active MAAS or Ansible execution receives best-effort abort and remains observed
 when the provider cannot stop it. Confirmed prior effects are preserved.
 
+When the Workflow's Temporal execution no longer exists (terminated, timed out, or past
+retention), no workflow code will ever record the outcome, so swallow records it instead and
+still returns `202`: the leases the execution held are released, the Workflow becomes
+`canceled` with `statusReason` `Canceled by operator; its workflow execution had already
+ended.`, and every non-terminal Task (including `requires_attention`) becomes `canceled`. Tasks
+that already reached an outcome keep it. Cancel on a finished Workflow is still `conflict`.
+
 A Task that was running when the cancel arrived also ends `canceled`. A canceled
 `provision-os` Task sets its Server's `deployment` result to `canceled`; a `provision-os` that
 already `succeeded` or `failed` keeps that outcome. The provider-owned `provisioning.state` is
@@ -233,7 +240,10 @@ Workflow is still advancing, `canceling`, or `requires_attention`.
 `POST /{id}/tasks/{taskId}/retry` returns `202` only when the Task is `failed` or
 `requires_attention` and its normalized error has `retryable=true`. Temporal increments the
 Task attempt in the same Workflow; successful dependencies are not repeated. A provider or
-Ansible idempotency identity includes Workflow, Task, target, and attempt.
+Ansible idempotency identity includes Workflow, Task, target, and attempt. When the
+Workflow's Temporal execution no longer exists the retry cannot be delivered and returns
+`conflict`; its message directs the operator to cancel the Workflow (see Cancel) and start the
+work again.
 
 ## Rerun (recovery)
 
@@ -249,8 +259,8 @@ projection. The new Workflow's `retryOfOperationId` points at the original, it c
 incomplete Tasks run again. A Workflow that already `succeeded` or is still actively advancing
 (`pending`, `running`, `waiting_external`, `waiting_dependency`, `canceling`) is rejected with
 `conflict`; those cases use Task retry or cancel instead. The lost-execution reconciler
-independently marks a Workflow whose execution vanished as `requires_attention` so it surfaces
-as repairable rather than stuck.
+independently marks a Workflow whose execution vanished as `requires_attention` (or annotates
+one already there) so it surfaces as repairable rather than stuck.
 
 ## Durability And Protection
 
@@ -258,12 +268,20 @@ The stable Temporal Workflow ID is `swallow-operation/<workflowId>` (the Tempora
 history-tied and retained). The starter retries records with `startState=pending`, and
 duplicate starts are rejected by Temporal. Resource mutations acquire sorted `server:<id>`
 and `platform:<id>` leases, each with a monotonically increasing fencing token, renewed
-while waiting and verified before side effects. A lease-renewal failure while a Workflow is
-parked in `requires_attention` does not end it: the Workflow keeps waiting (it exits only on a
-Task retry or an operator cancel), so a transient outage cannot cancel work that only needs to
-be resumed. A background reconciler marks a started Workflow whose Temporal execution is gone
-while its status is still non-terminal as `requires_attention`, and `POST /{id}/rerun` recovers
-it without deleting the Platform (see Rerun).
+while waiting and verified before side effects. While a Workflow is parked in
+`requires_attention` its leases are extended to 24 hours and renewed every 8 hours, so a long
+wait for the operator stays far below Temporal's per-execution history limit (an execution
+that outgrows it is terminated by Temporal). A lease-renewal failure while parked does not end
+the Workflow: it keeps waiting (it exits only on a Task retry or an operator cancel), so a
+transient outage cannot cancel work that only needs to be resumed.
+
+A background reconciler checks every started, non-terminal Workflow against Temporal. When the
+execution is gone, a forward-progress Workflow (`pending`, `waiting_dependency`, `running`,
+`waiting_external`) is marked `requires_attention`; a Workflow already in `requires_attention`
+keeps its status and gets the same lost-execution `statusReason`; a `canceling` Workflow has its
+leases released and becomes `canceled`, because its cancel was already requested. The
+lost-execution `statusReason` tells the operator to cancel the Workflow to free its Servers, or
+to recover it with `POST /{id}/rerun`, which does so without deleting the Platform (see Rerun).
 
 ## Schema-v2 Compatibility
 

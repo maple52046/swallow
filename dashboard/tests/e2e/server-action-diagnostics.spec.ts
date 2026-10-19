@@ -165,6 +165,32 @@ test('Release detects running operations and cancels them before releasing', asy
   await expect(page).toHaveURL(/\/servers(\?|$)/)
 })
 
+// A refused cancel for work that is still active cannot clear by waiting. The dialog used to poll
+// for 30 seconds and then blame slowness; it must report the backend's reason at once and never
+// submit the release.
+test('Release reports a refused cancel at once instead of waiting it out', async ({ page }) => {
+  const releases: string[] = []
+  const refusal = 'operation cannot accept this control in its current state'
+  await installApiFixtures(page, {
+    cancelRefusedMessage: refusal,
+    onServerReleaseRequest: (serverId) => releases.push(serverId),
+  })
+
+  await page.goto('/servers?site=site-a')
+  await page.getByLabel('Select gpu-node-01').check()
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await chooseMenuItem(page, 'Release')
+
+  const confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
+  await expect(confirmation).toContainText('Deploy production k0s platform')
+  await confirmation.getByLabel('Cancel running operations before releasing').locator('..').click()
+  await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
+
+  await expect(confirmation).toContainText(`Could not cancel Deploy production k0s platform: ${refusal}`)
+  await expect(confirmation).not.toContainText('did not stop in time')
+  expect(releases).toEqual([])
+})
+
 test('Server list waits for release cleanup and refreshes addresses and Ephemeral state', async ({ page }) => {
   await installApiFixtures(page, {
     staticNetworkServerIds: ['srv-1'],
