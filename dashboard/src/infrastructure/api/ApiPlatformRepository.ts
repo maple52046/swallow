@@ -8,6 +8,9 @@ import type {
   UninstallPlatformOptions,
   MinimumResources,
   SlurmDeploymentRequirement,
+  GPUOperatorRelease,
+  GPUOperatorSettings,
+  ConfigureGPUOperatorResult,
 } from '@/domain/platform/types'
 import type {
   KubernetesApplication,
@@ -185,6 +188,18 @@ export class ApiPlatformRepository implements PlatformRepository {
     return apiRequest<SlurmDeploymentRequirement>('/api/v1/platforms/deployment-requirements/slurm', {
       method: 'PUT',
       body: JSON.stringify({ minimumResources: minimum }),
+    })
+  }
+
+  async listGPUOperatorReleases(): Promise<GPUOperatorRelease[]> {
+    const body = await apiRequest<{ items: GPUOperatorRelease[] }>('/api/v1/platforms/gpu-operator/releases')
+    return body.items ?? []
+  }
+
+  async configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<ConfigureGPUOperatorResult> {
+    return apiRequest<ConfigureGPUOperatorResult>(`/api/v1/platforms/${encodeURIComponent(id)}/gpu-operator`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
     })
   }
 

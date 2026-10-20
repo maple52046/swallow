@@ -25,9 +25,26 @@ type platformDoc struct {
 	// MonitoringLinks is omitempty so documents written before the field existed — and
 	// platforms that never had links — decode as nil, which toPlatform turns into [].
 	MonitoringLinks []monitoringLinkDoc `bson:"monitoringLinks,omitempty"`
-	Sync            platformSync        `bson:"sync"`
-	CreatedAt       time.Time           `bson:"createdAt"`
-	UpdatedAt       time.Time           `bson:"updatedAt"`
+	// GPUOperator is absent on every Platform Swallow never managed an operator on.
+	GPUOperator *gpuOperatorDoc `bson:"gpuOperator,omitempty"`
+	Sync        platformSync    `bson:"sync"`
+	CreatedAt   time.Time       `bson:"createdAt"`
+	UpdatedAt   time.Time       `bson:"updatedAt"`
+}
+
+// gpuOperatorDoc persists the Swallow-managed GPU Operator record. lastWorkflowId is the fence
+// UpdateGPUOperatorState matches on.
+type gpuOperatorDoc struct {
+	Enabled          bool      `bson:"enabled"`
+	Version          string    `bson:"version"`
+	AllocationMode   string    `bson:"allocationMode"`
+	DRADriverVersion string    `bson:"draDriverVersion,omitempty"`
+	ResourceNaming   string    `bson:"resourceNaming"`
+	NodeLabeller     bool      `bson:"nodeLabeller"`
+	MetricsExporter  bool      `bson:"metricsExporter"`
+	State            string    `bson:"state"`
+	LastWorkflowID   string    `bson:"lastWorkflowId"`
+	UpdatedAt        time.Time `bson:"updatedAt"`
 }
 
 // monitoringLinkDoc persists one operator-registered Monitoring Link.
@@ -158,6 +175,93 @@ func (r *MongoPlatformRepo) UpdateSyncState(
 	return nil
 }
 
+// SetGPUOperator implements platformdomain.GPUOperatorRecorder. It writes the record (or unsets
+// it for nil) and the gpuStackOwner policy in one document update so a reader never sees them
+// disagree.
+func (r *MongoPlatformRepo) SetGPUOperator(
+	ctx context.Context,
+	platformID string,
+	operator *platformdomain.GPUOperator,
+	owner platformdomain.GPUStackOwner,
+) error {
+	update := bson.M{"$set": bson.M{"gpuStackOwner": string(owner), "updatedAt": time.Now().UTC()}}
+	if operator == nil {
+		update["$unset"] = bson.M{"gpuOperator": ""}
+	} else {
+		update["$set"].(bson.M)["gpuOperator"] = toGPUOperatorDoc(*operator)
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return platformdomain.ErrPlatformNotFound
+	}
+	return nil
+}
+
+// UpdateGPUOperatorState implements platformdomain.GPUOperatorRecorder. The filter on
+// lastWorkflowId is the fence: a Task of a superseded Workflow matches nothing and changes
+// nothing, which is reported as false rather than an error.
+func (r *MongoPlatformRepo) UpdateGPUOperatorState(
+	ctx context.Context,
+	platformID, workflowID string,
+	state platformdomain.GPUOperatorState,
+	at time.Time,
+) (bool, error) {
+	if workflowID == "" {
+		return false, nil
+	}
+	set := bson.M{"gpuOperator.state": string(state), "gpuOperator.updatedAt": at}
+	if state == platformdomain.GPUOperatorAbsent {
+		set["gpuStackOwner"] = string(platformdomain.GPUStackOwnerProvisioning)
+	}
+	result, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": platformID, "gpuOperator.lastWorkflowId": workflowID},
+		bson.M{"$set": set},
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.MatchedCount > 0, nil
+}
+
+func toGPUOperatorDoc(operator platformdomain.GPUOperator) *gpuOperatorDoc {
+	settings := operator.Settings
+	return &gpuOperatorDoc{
+		Enabled: settings.Enabled, Version: settings.Version,
+		AllocationMode: string(settings.AllocationMode), DRADriverVersion: settings.DRADriverVersion,
+		ResourceNaming: string(settings.ResourceNaming),
+		NodeLabeller:   settings.NodeLabeller, MetricsExporter: settings.MetricsExporter,
+		State: string(operator.State), LastWorkflowID: operator.LastWorkflowID,
+		UpdatedAt: operator.UpdatedAt,
+	}
+}
+
+func optionalGPUOperatorDoc(operator *platformdomain.GPUOperator) *gpuOperatorDoc {
+	if operator == nil {
+		return nil
+	}
+	return toGPUOperatorDoc(*operator)
+}
+
+func toGPUOperator(doc *gpuOperatorDoc) *platformdomain.GPUOperator {
+	if doc == nil {
+		return nil
+	}
+	return &platformdomain.GPUOperator{
+		Settings: platformdomain.GPUOperatorSettings{
+			Enabled: doc.Enabled, Version: doc.Version,
+			AllocationMode:   platformdomain.GPUAllocationMode(doc.AllocationMode),
+			DRADriverVersion: doc.DRADriverVersion,
+			ResourceNaming:   platformdomain.GPUResourceNaming(doc.ResourceNaming),
+			NodeLabeller:     doc.NodeLabeller, MetricsExporter: doc.MetricsExporter,
+		},
+		State: platformdomain.GPUOperatorState(doc.State), LastWorkflowID: doc.LastWorkflowID,
+		UpdatedAt: doc.UpdatedAt,
+	}
+}
+
 func (r *MongoPlatformRepo) Delete(ctx context.Context, id string) error {
 	result, err := r.col.DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {
@@ -180,6 +284,7 @@ func toDoc(platform *platformdomain.Platform) *platformDoc {
 		GPUStackOwner:      string(platform.GPUStackOwner),
 		ExporterOwner:      string(platform.ExporterOwner),
 		MonitoringLinks:    toMonitoringLinkDocs(platform.MonitoringLinks),
+		GPUOperator:        optionalGPUOperatorDoc(platform.GPUOperator),
 		Sync: platformSync{
 			LastStartedAt:   platform.Sync.LastStartedAt,
 			LastSucceededAt: platform.Sync.LastSucceededAt,
@@ -209,6 +314,7 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		GPUStackOwner:      platformdomain.GPUStackOwner(doc.GPUStackOwner),
 		ExporterOwner:      exporterOwner,
 		MonitoringLinks:    toMonitoringLinks(doc.MonitoringLinks),
+		GPUOperator:        toGPUOperator(doc.GPUOperator),
 		Sync: platformdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,

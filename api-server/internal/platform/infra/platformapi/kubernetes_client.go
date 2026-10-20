@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -187,8 +188,15 @@ type nodeItemJSON struct {
 		NodeInfo struct {
 			KubeletVersion string `json:"kubeletVersion"`
 		} `json:"nodeInfo"`
+		Allocatable map[string]string `json:"allocatable"`
 	} `json:"status"`
 }
+
+// gpuResourcePrefix names the extended resources the AMD device plugin registers.
+const gpuResourcePrefix = "amd.com/"
+
+// draGPUDriver is the DRA driver name the AMD GPU Operator publishes ResourceSlices under.
+const draGPUDriver = "gpu.amd.com"
 
 func (item nodeItemJSON) toNode() platformdomain.KubernetesNode {
 	node := platformdomain.KubernetesNode{
@@ -196,6 +204,16 @@ func (item nodeItemJSON) toNode() platformdomain.KubernetesNode {
 		Role:           "worker",
 		Unschedulable:  item.Spec.Unschedulable,
 		KubeletVersion: item.Status.NodeInfo.KubeletVersion,
+		GPUAllocatable: map[string]int64{},
+	}
+	for name, quantity := range item.Status.Allocatable {
+		if !strings.HasPrefix(name, gpuResourcePrefix) {
+			continue
+		}
+		// Extended resources are whole devices, so a non-integer quantity is not a GPU count.
+		if count, err := strconv.ParseInt(quantity, 10, 64); err == nil {
+			node.GPUAllocatable[name] = count
+		}
 	}
 	if _, ok := item.Metadata.Labels[labelControlPlane]; ok {
 		node.Role = "control-plane"
@@ -215,7 +233,10 @@ func (item nodeItemJSON) toNode() platformdomain.KubernetesNode {
 	return node
 }
 
-// ListNodes lists cluster nodes. ServerID correlation is added by the application layer.
+// ListNodes lists cluster nodes with their AMD GPU resources. ServerID correlation is added by
+// the application layer. The DRA device counts come from a second, best-effort read: a cluster
+// without resource.k8s.io/v1, or a failed read, leaves every node's GPUDRADevices nil instead of
+// failing the node list.
 func (c *KubernetesClient) ListNodes(ctx context.Context) ([]platformdomain.KubernetesNode, error) {
 	var out struct {
 		Items []nodeItemJSON `json:"items"`
@@ -223,11 +244,42 @@ func (c *KubernetesClient) ListNodes(ctx context.Context) ([]platformdomain.Kube
 	if err := c.getJSON(ctx, "/api/v1/nodes", &out); err != nil {
 		return nil, err
 	}
+	draDevices, draKnown := c.draGPUDevicesByNode(ctx)
 	nodes := make([]platformdomain.KubernetesNode, 0, len(out.Items))
 	for _, item := range out.Items {
-		nodes = append(nodes, item.toNode())
+		node := item.toNode()
+		if draKnown {
+			count := draDevices[node.Name]
+			node.GPUDRADevices = &count
+		}
+		nodes = append(nodes, node)
 	}
 	return nodes, nil
+}
+
+// draGPUDevicesByNode counts the devices in the gpu.amd.com ResourceSlices per node. It reports
+// false when the slices cannot be read, which the caller turns into an unknown count.
+func (c *KubernetesClient) draGPUDevicesByNode(ctx context.Context) (map[string]int, bool) {
+	var out struct {
+		Items []struct {
+			Spec struct {
+				Driver   string            `json:"driver"`
+				NodeName string            `json:"nodeName"`
+				Devices  []json.RawMessage `json:"devices"`
+			} `json:"spec"`
+		} `json:"items"`
+	}
+	path := "/apis/resource.k8s.io/v1/resourceslices?fieldSelector=" + url.QueryEscape("spec.driver="+draGPUDriver)
+	if err := c.getJSON(ctx, path, &out); err != nil {
+		return nil, false
+	}
+	counts := make(map[string]int, len(out.Items))
+	for _, slice := range out.Items {
+		if slice.Spec.Driver == draGPUDriver && slice.Spec.NodeName != "" {
+			counts[slice.Spec.NodeName] += len(slice.Spec.Devices)
+		}
+	}
+	return counts, true
 }
 
 // SetNodeSchedulable cordons or uncordons a node with a merge patch on spec.unschedulable.

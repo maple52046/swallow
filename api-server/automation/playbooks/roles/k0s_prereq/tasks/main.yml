@@ -10,6 +10,13 @@
       - util-linux
     state: present
     update_cache: true
+    lock_timeout: 300
+  # A freshly deployed host may still be running unattended-upgrades, which holds the dpkg lock
+  # past lock_timeout on some ansible-core/apt combinations; retrying the operation closes that.
+  register: k0s_prereq_packages
+  until: k0s_prereq_packages is succeeded
+  retries: 120
+  delay: 5
   become: true
   when: ansible_facts['os_family'] == 'Debian'
 

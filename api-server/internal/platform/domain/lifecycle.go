@@ -44,10 +44,14 @@ type LifecycleOperation struct {
 // controller/worker projection) nor the membership axis; they are surfaced here so a read model
 // can tell an operator which host to use to operate the cluster. Empty for Kubernetes and for
 // a Slurm cluster deployed without a login node.
+//
+// K0sVersion is the k0s version a Kubernetes deployment installed, empty for Slurm and for
+// history that did not record it; GPU Operator changes read the Kubernetes version from it.
 type LifecycleDeployment struct {
 	Topology        KubernetesTopology
 	RoleAssignments []RoleAssignment
 	LoginServerIDs  []string
+	K0sVersion      string
 }
 
 // LifecycleSnapshot describes a platform using durable deployment and uninstall history.

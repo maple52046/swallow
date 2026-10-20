@@ -63,6 +63,13 @@ type KubernetesNode struct {
 	// ServerID is Swallow's matched Server, filled by the application layer through identity
 	// correlation; empty when no Server projection matches the node. The client never sets it.
 	ServerID string
+	// GPUAllocatable holds the node's allocatable extended resources named amd.com/*, which the
+	// GPU Operator's device plugin registers; empty when it has none.
+	GPUAllocatable map[string]int64
+	// GPUDRADevices counts the devices the gpu.amd.com DRA driver publishes for this node. It is
+	// nil when the cluster has no resource.k8s.io/v1 API or the slices could not be read, so an
+	// unknown count is never shown as zero.
+	GPUDRADevices *int
 }
 
 // KubernetesNamespace is one namespace in the explorer.

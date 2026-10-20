@@ -34,12 +34,16 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 				"ephemeral-snapshotter.toml",
 				"snapshotter = \"native\"",
 				"use_local_image_pull = true",
+				// An HA VIP whose prefix differs from the host subnet makes etcd reject the VIP holder.
+				"swallow_k0s_api_vip_prefix | int != k0s_pf_host_ipv4.prefix | int",
 			},
 		},
 		{
 			path: filepath.Join("roles", "k0s_config", "templates", "k0s.yaml.j2"),
 			required: []string{
 				"swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true)",
+				// A controller never auto-detects its API address: join tokens embed it.
+				"address: {{ ansible_host }}",
 				"swallow_k0s_high_availability | default(true)",
 				"{% if k0s_ha %}",
 			},

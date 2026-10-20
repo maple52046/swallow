@@ -115,7 +115,11 @@ report one). Counts are observed at read time.
       "unschedulable": false,
       "serverId": "server-a",
       "addresses": ["10.0.0.1"],
-      "kubeletVersion": "v1.30.2+k0s"
+      "kubeletVersion": "v1.30.2+k0s",
+      "gpu": {
+        "allocatable": { "amd.com/gpu": 8 },
+        "draDevices": 0
+      }
     }
   ]
 }
@@ -124,6 +128,14 @@ report one). Counts are observed at read time.
 `role` is `control-plane` or `worker`. `serverId` is Swallow's matched Server, or `null` when
 no Server projection matches the node's name or addresses. This read is separate from
 membership sync and does not write the membership axis.
+
+`gpu` reports the node's GPUs as Kubernetes exposes them, for the GPU Operator (see
+[platforms.md](platforms.md#manage-the-gpu-operator)). `gpu.allocatable` holds every
+`status.allocatable` resource whose name starts with `amd.com/` (an extended resource from the
+device plugin), as an integer; it is empty when the node has none. `gpu.draDevices` counts the
+devices in this node's `ResourceSlice`s published by the `gpu.amd.com` DRA driver. It is `null`
+when the cluster has no `resource.k8s.io/v1` API or the slices could not be read; the rest of
+the node list is still returned.
 
 `POST .../nodes/{nodeName}/cordon` marks a node unschedulable; `POST .../nodes/{nodeName}/uncordon`
 clears it. Both return the updated node object above. Draining (evicting pods) is not part of

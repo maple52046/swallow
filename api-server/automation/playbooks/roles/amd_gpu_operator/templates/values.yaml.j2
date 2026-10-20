@@ -1,0 +1,16 @@
+# Rendered by Swallow (decision 062). The OS image provides the amdgpu driver, so KMM, its
+# cert-manager dependency, and the bare-metal remediation workflow stay off. Swallow applies its
+# own DeviceConfig, so the chart's default one is never installed. Node Feature Discovery keeps
+# the chart's defaults and runs on every node, because it decides which nodes have AMD GPUs.
+kmm:
+  enabled: false
+  watch: false
+remediation:
+  enabled: false
+  installCRDs: false
+crds:
+  defaultCR:
+    install: false
+    upgrade: false
+defaultDCMConfigMap:
+  install: false

@@ -31,7 +31,32 @@ Platform 是由 swallow 佈署的 Kubernetes 或 Slurm runtime。swallow 不會�
 - Node cordon state。
 
 這些 view 會 live query Kubernetes API，不會在 swallow 建立 in-cluster state
-的 durable copy。
+的 durable copy。Cluster 頁籤也會顯示每個節點提供的 AMD GPU。
+
+### AMD GPU Operator
+
+佈署精靈的 **Features** 步驟可以在佈署 Platform 時一併安裝 AMD GPU Operator。勾選
+**Install AMD GPU Operator** 後才會展開選項：
+
+- **Allocation mode**：**Device Plugin**（Pod 以 `amd.com/gpu` 請求 GPU）或 **DRA**
+  （Pod 透過 ResourceClaim 取得 GPU，需要 Kubernetes 1.34 以上）。
+- **GPU Operator version**，選 DRA 時另有 **DRA driver version**，都來自 swallow 驗證過的版本。
+- Device Plugin 的 **Resource naming**、**Node Labeller** 與 **Device Metrics Exporter**。
+
+不需要挑選節點。operator 附帶的 Node Feature Discovery 會找出所有有支援 AMD GPU 的節點（實體 GPU 或
+SR-IOV VF），operator 全部納管；之後加入叢集的節點，會在下一次調整 operator 時納入。
+
+operator 使用 OS image 內建的 GPU driver，請選擇含 `amdgpu` driver 的 image。若 image 開機時不載入
+`amdgpu`（部分 Instinct 與 SR-IOV image 會刻意 blacklist），swallow 會在每個納管節點載入它，並在每次重開機、
+SSH 起來之後再載入一次，Kubernetes 會等它載入後才啟動。所有納管節點都提供
+GPU 之後，佈署才算成功。選取的 workload 節點都沒有 AMD GPU 時，無法勾選這個功能。
+
+佈署完成後，Platform Overview 的 **AMD GPU Operator** 區塊會顯示狀態與設定，並提供
+**Install**、**Configure** 與 **Uninstall**。仍有 Pod 使用 AMD GPU 時，切換 Device Plugin 與 DRA
+或卸載都會被拒絕，請先停止那些工作。卸載 operator 不會影響 Platform 本身。swallow 不會
+接管手動安裝的 operator。
+
+Device Metrics Exporter 供叢集自己的監控使用；swallow 的 GPU 圖表照舊讀取主機上的 exporter。
 
 ## Slurm
 

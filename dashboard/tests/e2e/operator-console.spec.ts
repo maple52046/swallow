@@ -558,6 +558,8 @@ test.describe('operator interactions', () => {
     }
     await chooseSingleSelectOption(page, 'Role for gpu-node-04', 'Worker')
     await next.click()
+    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
+    await next.click()
     await expect(page.getByRole('heading', { name: 'Selected machine addresses', exact: true })).toBeVisible()
     await page.getByLabel('API virtual IP').fill('192.168.40.200')
     await next.click()
@@ -642,6 +644,7 @@ test.describe('operator interactions', () => {
     await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
     await next.click()
+    await next.click()
 
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Custom 1', exact: true }).click()
@@ -673,6 +676,7 @@ test.describe('operator interactions', () => {
 
     await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
+    await next.click()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
@@ -708,13 +712,16 @@ test.describe('operator interactions', () => {
     await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
     await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Next' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
     await expect(page.getByText(/192\.168\.40\.21:6443/)).toBeVisible()
 
     await page.getByRole('button', { name: 'Back' }).click()
+    await page.getByRole('button', { name: 'Back' }).click()
     await chooseSingleSelectOption(page, 'Topology', 'Multi-node (non-HA)')
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Control-plane')
     await chooseSingleSelectOption(page, 'Role for gpu-node-02', 'Worker')
+    await page.getByRole('button', { name: 'Next' }).click()
     await page.getByRole('button', { name: 'Next' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
     await expect(page.getByText('Direct control-plane endpoint')).toBeVisible()

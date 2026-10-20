@@ -1,0 +1,81 @@
+---
+# Converge the k0s DRA compatibility links on every target. They exist only on a managed node
+# while DRA is wanted; anywhere else they are removed, but only when they are exactly the links
+# Swallow creates. This runs after the cluster play turned DRA off or moved it away from a node,
+# so no DRA driver still uses a link that is removed.
+
+- name: Decide whether this node needs the DRA links
+  ansible.builtin.set_fact:
+    amd_gpu_operator_wants_dra: >-
+      {{ amd_gpu_operator_managed | bool and swallow_amd_gpu_operator_allocation_mode == 'dra' }}
+
+- name: Read the DRA link paths
+  ansible.builtin.stat:
+    path: "{{ item.link }}"
+    follow: false
+  loop: "{{ amd_gpu_operator_dra_links }}"
+  register: amd_gpu_operator_link_stats
+
+- name: Read the k0s kubelet plugin directories
+  ansible.builtin.stat:
+    path: "{{ item.target }}"
+  loop: "{{ amd_gpu_operator_dra_links }}"
+  register: amd_gpu_operator_target_stats
+  when: amd_gpu_operator_wants_dra | bool
+
+- name: Refuse a DRA path that something else owns
+  ansible.builtin.fail:
+    msg: >-
+      [dra_unavailable] {{ item.item.link }} on {{ amd_gpu_operator_node_name }} exists and is not
+      a link to {{ item.item.target }}; Swallow does not replace it. Remove it, or use the device
+      plugin.
+  loop: "{{ amd_gpu_operator_link_stats.results }}"
+  loop_control:
+    label: "{{ item.item.link }}"
+  when:
+    - amd_gpu_operator_wants_dra | bool
+    - item.stat.exists
+    - not item.stat.islnk or item.stat.lnk_source != item.item.target
+
+- name: Refuse DRA on a node without the k0s kubelet plugin directories
+  ansible.builtin.fail:
+    msg: >-
+      [dra_unavailable] {{ item.item.target }} does not exist on {{ amd_gpu_operator_node_name }},
+      so the DRA driver cannot register with the k0s kubelet.
+  loop: "{{ amd_gpu_operator_target_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.target }}"
+  when:
+    - amd_gpu_operator_wants_dra | bool
+    - not item.stat.isdir | default(false)
+
+- name: Link the upstream kubelet plugin paths to k0s
+  ansible.builtin.file:
+    src: "{{ item.item.target }}"
+    path: "{{ item.item.link }}"
+    state: link
+  loop: "{{ amd_gpu_operator_link_stats.results }}"
+  loop_control:
+    label: "{{ item.item.link }}"
+  when:
+    - amd_gpu_operator_wants_dra | bool
+    - not item.stat.exists
+
+- name: Remove the DRA links Swallow created
+  ansible.builtin.file:
+    path: "{{ item.item.link }}"
+    state: absent
+  loop: "{{ amd_gpu_operator_link_stats.results }}"
+  loop_control:
+    label: "{{ item.item.link }}"
+  when:
+    - not amd_gpu_operator_wants_dra | bool
+    - item.stat.exists
+    - item.stat.islnk
+    - item.stat.lnk_source == item.item.target
+
+- name: Remove the DRA driver's common CDI spec
+  ansible.builtin.file:
+    path: "{{ amd_gpu_operator_dra_common_cdi }}"
+    state: absent
+  when: not amd_gpu_operator_wants_dra | bool

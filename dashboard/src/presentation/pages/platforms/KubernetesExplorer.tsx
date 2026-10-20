@@ -43,6 +43,20 @@ function AsyncSection<T>({ state, children }: { state: AsyncData<T>; children: (
 
 // ---- Cluster tab: summary + nodes with cordon ----
 
+/**
+ * The GPUs a node exposes for scheduling: each allocatable `amd.com/*` resource from the device
+ * plugin and the DRA device count. A node with neither shows a dash; an unknown DRA count (no DRA
+ * API) is omitted rather than shown as zero.
+ */
+function nodeGPUSummary(node: KubernetesNode): string {
+  const parts = Object.entries(node.gpu?.allocatable ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([resource, count]) => `${count} × ${resource}`)
+  const dra = node.gpu?.draDevices
+  if (dra) parts.push(`${dra} DRA device${dra === 1 ? '' : 's'}`)
+  return parts.length > 0 ? parts.join(', ') : '-'
+}
+
 /** Summary metrics and the node table with cordon/uncordon actions. */
 export function KubernetesClusterTab({ platform, onOpenServer }: { platform: Platform; onOpenServer: (serverId: string) => void }) {
   const { platforms } = useApp()
@@ -99,6 +113,7 @@ export function KubernetesClusterTab({ platform, onOpenServer }: { platform: Pla
                       <Table.ColumnHeader>Role</Table.ColumnHeader>
                       <Table.ColumnHeader>Ready</Table.ColumnHeader>
                       <Table.ColumnHeader>Scheduling</Table.ColumnHeader>
+                      <Table.ColumnHeader>GPUs</Table.ColumnHeader>
                       <Table.ColumnHeader>Server</Table.ColumnHeader>
                       <Table.ColumnHeader>Actions</Table.ColumnHeader>
                     </Table.Row>
@@ -125,6 +140,7 @@ export function KubernetesClusterTab({ platform, onOpenServer }: { platform: Pla
                             <StatusBadge status="neutral" label="Schedulable" />
                           )}
                         </Table.Cell>
+                        <Table.Cell>{nodeGPUSummary(node)}</Table.Cell>
                         <Table.Cell>
                           {node.serverId ? (
                             <Button variant="plain" size="sm" px="0" onClick={() => onOpenServer(node.serverId!)}>

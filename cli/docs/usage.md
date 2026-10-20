@@ -538,6 +538,9 @@ swallow platforms sync-all
 swallow platforms slurm plat1                         # live Slurm cluster state
 swallow platforms slurm-requirements get
 swallow platforms slurm-requirements set -f slurm-req.yaml
+swallow platforms gpu-operator releases                       # AMD GPU Operator versions Swallow ships
+swallow platforms gpu-operator set plat1 -f gpu-operator.yaml  # install or change the operator
+swallow platforms gpu-operator uninstall plat1                 # remove it; the platform keeps running
 ```
 
 `platform-k8s.yaml` (see [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)):
@@ -546,10 +549,80 @@ swallow platforms slurm-requirements set -f slurm-req.yaml
 siteId: site1
 name: lab-k0s
 type: kubernetes
-gpuStackOwner: provisioning
 roleAssignments:
   - { serverId: srva, role: control-plane, runWorkloads: true }
   - { serverId: srvb, role: worker }
+```
+
+To install the AMD GPU Operator with the platform, add `gpuOperator` to the deploy file.
+`gpuStackOwner` is then derived and can be left out. This `platform-k8s-gpu.yaml` is the file
+of a lab run: three Servers get a fresh OS by DHCP on their boot interface, all are control
+plane and workload nodes, and the operator runs in Device Plugin mode on every node its Node
+Feature Discovery marks as an AMD GPU node. `apiVipPrefix` may be left out: it then takes the
+prefix of the control plane's subnet (here `/23`), the only prefix the deploy accepts.
+
+```yaml
+siteId: site1
+name: gpu-run3
+type: kubernetes
+k0sVersion: v1.36.3+k0s.2
+podCidr: 172.21.0.0/20
+serviceCidr: 172.21.22.0/24
+apiVip: 10.170.168.13
+apiVipPrefix: 23
+roleAssignments:
+  - { serverId: srva, role: control-plane, runWorkloads: true }
+  - { serverId: srvb, role: control-plane, runWorkloads: true }
+  - { serverId: srvc, role: control-plane, runWorkloads: true }
+machinePreparation:
+  mode: provision_os
+  settings:
+    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
+    deployTarget: disk
+  network:
+    mode: dhcp
+    assignments:   # each Server's boot interface and subnet, from `swallow servers get`
+      - { serverId: srva, interfaceId: "131", subnetId: "1" }
+      - { serverId: srvb, interfaceId: "132", subnetId: "1" }
+      - { serverId: srvc, interfaceId: "133", subnetId: "1" }
+gpuOperator:
+  enabled: true
+  allocationMode: device-plugin   # or dra (Kubernetes 1.34 or later)
+```
+
+The run then followed the deployment, switched the operator, removed it, and released the
+Servers:
+
+```bash
+swallow platforms gpu-operator releases
+swallow platforms deploy -f platform-k8s-gpu.yaml             # prints platformId and operationId
+swallow workflows get <operationId>
+swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml
+swallow platforms gpu-operator uninstall <platformId>         # the platform stays active
+swallow platforms uninstall <platformId> -f uninstall.yaml
+swallow platforms delete <platformId>
+```
+
+`uninstall.yaml` releases the Servers instead of uninstalling the platform software:
+
+```yaml
+releaseServers: true
+releaseOptions:
+  erase: false
+  unbindStaticIps: false
+```
+
+`gpu-operator.yaml` changes the operator of a deployed platform; omitted fields take the
+contract defaults (the default release, `single` resource naming, the node labeller on, the
+Device Metrics Exporter off). No file names nodes: the operator manages every node its Node
+Feature Discovery marks as an AMD GPU node. Switching the allocation mode is refused while a Pod
+still uses an AMD GPU. Follow the change with
+`swallow workflows get <workflowId>`, or read `gpuOperator.state` with `swallow platforms get`:
+
+```yaml
+enabled: true
+allocationMode: dra
+draDriverVersion: v1.0.1
 ```
 
 `slurm-req.yaml`: `{ minimumResources: { cpuCores: 4, memoryMiB: 24576, storageGB: 80 } }`

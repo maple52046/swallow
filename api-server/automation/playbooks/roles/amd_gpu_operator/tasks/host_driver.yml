@@ -1,0 +1,115 @@
+---
+# Keep the image's amdgpu driver loaded on every managed node (decision 062). An image may keep
+# amdgpu out of the boot path (modprobe.blacklist=amdgpu, AMD's guidance for Instinct hosts and
+# SR-IOV guests) and expect it to be loaded afterwards. A managed node therefore gets a Swallow
+# unit that loads it once SSH is up, and k0s is ordered after that unit so the operator's device
+# plugin or DRA driver finds the GPUs when it starts. A node Swallow does not manage loses the
+# unit and the ordering; a loaded driver is never unloaded.
+
+- name: Find the k0s service units on this node
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item }}.service"
+  loop: "{{ amd_gpu_operator_k0s_units }}"
+  register: amd_gpu_operator_k0s_unit_stats
+
+- name: Install and start the amdgpu loader
+  when: amd_gpu_operator_managed | bool
+  block:
+    - name: Install the post-boot amdgpu loader
+      ansible.builtin.template:
+        src: amdgpu-load.service.j2
+        dest: "/etc/systemd/system/{{ amd_gpu_operator_driver_unit }}"
+        mode: "0644"
+
+    - name: Create the k0s unit drop-in directories
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ item.item }}.service.d"
+        state: directory
+        mode: "0755"
+      loop: "{{ amd_gpu_operator_k0s_unit_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stat.exists
+
+    - name: Order k0s after the amdgpu loader
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ item.item }}.service.d/{{ amd_gpu_operator_driver_dropin }}"
+        content: |
+          # Managed by Swallow (AMD GPU Operator): start once the GPUs are initialized.
+          [Unit]
+          Wants={{ amd_gpu_operator_driver_unit }}
+          After={{ amd_gpu_operator_driver_unit }}
+        mode: "0644"
+      loop: "{{ amd_gpu_operator_k0s_unit_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stat.exists
+
+    - name: Enable and start the amdgpu loader
+      # Starting it runs modprobe now when the driver is not loaded yet; a driver that is already
+      # loaded makes it a no-op.
+      ansible.builtin.systemd:
+        name: "{{ amd_gpu_operator_driver_unit }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      register: amd_gpu_operator_driver_load
+      failed_when: false
+
+    - name: Refuse a node whose amdgpu driver did not load
+      ansible.builtin.fail:
+        msg: >-
+          [amdgpu_driver_missing] the amdgpu driver did not load on {{ amd_gpu_operator_node_name }}:
+          {{ amd_gpu_operator_driver_load.msg | default('modprobe amdgpu failed') }}. Check
+          "journalctl -u {{ amd_gpu_operator_driver_unit }}" on the node.
+      when: amd_gpu_operator_driver_load is failed
+
+    - name: Wait for the KFD device
+      ansible.builtin.stat:
+        path: /dev/kfd
+      register: amd_gpu_operator_kfd
+      until: amd_gpu_operator_kfd.stat.exists
+      retries: 30
+      delay: 2
+      failed_when: false
+
+    - name: Refuse a node without the KFD device
+      ansible.builtin.fail:
+        msg: >-
+          [amdgpu_driver_missing] {{ amd_gpu_operator_node_name }} loaded amdgpu but has no
+          /dev/kfd, so no GPU can run workloads. Check the driver messages in the node's kernel
+          log.
+      when: not amd_gpu_operator_kfd.stat.exists
+
+- name: Remove the amdgpu loader from a node Swallow does not manage
+  when: not amd_gpu_operator_managed | bool
+  block:
+    - name: Read the amdgpu loader unit
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ amd_gpu_operator_driver_unit }}"
+      register: amd_gpu_operator_loader_stat
+
+    - name: Disable the amdgpu loader
+      # Only the next boot changes; the loaded driver stays.
+      ansible.builtin.systemd:
+        name: "{{ amd_gpu_operator_driver_unit }}"
+        enabled: false
+      when: amd_gpu_operator_loader_stat.stat.exists
+
+    - name: Remove the amdgpu loader
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ amd_gpu_operator_driver_unit }}"
+        state: absent
+      register: amd_gpu_operator_loader_removed
+
+    - name: Remove the k0s ordering after the amdgpu loader
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ item }}.service.d/{{ amd_gpu_operator_driver_dropin }}"
+        state: absent
+      loop: "{{ amd_gpu_operator_k0s_units }}"
+      register: amd_gpu_operator_ordering_removed
+
+    - name: Reload systemd after removing the amdgpu loader
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: amd_gpu_operator_loader_removed is changed or amd_gpu_operator_ordering_removed is changed

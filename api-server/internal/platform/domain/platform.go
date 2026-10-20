@@ -116,6 +116,10 @@ type Platform struct {
 	// MonitoringLinks are operator-registered links to the runtime's own monitoring UI.
 	// Display data only; written through NormalizeMonitoringLinks and never nil once read.
 	MonitoringLinks []MonitoringLink
+	// GPUOperator is the Swallow-managed GPU Operator, nil when Swallow has never managed one on
+	// this Platform. It is written only through GPUOperatorRecorder, never by Update, so a policy
+	// PATCH holding an older copy cannot roll back a state the Workflow observer recorded.
+	GPUOperator *GPUOperator
 
 	// OwnedIntegrationID is set only for a credential integration created by Swallow.
 	// It is private persistence metadata and is never exposed by the platform API.
@@ -268,4 +272,21 @@ type PlatformRepository interface {
 	// preventing an in-flight membership read from restoring state after uninstall.
 	UpdateSyncState(ctx context.Context, id, integrationID string, state SyncState) error
 	Delete(ctx context.Context, id string) error
+}
+
+// GPUOperatorRecorder persists a Platform's Swallow-managed GPU Operator record. It is separate
+// from PlatformRepository so the record has exactly two writers: the use case accepting a change
+// and the observer of the Task applying it.
+type GPUOperatorRecorder interface {
+	// SetGPUOperator replaces the record and sets gpuStackOwner in one write, so the policy and
+	// the operator never disagree. A nil operator removes the record, which restores a Platform
+	// whose first install could not be launched. It returns ErrPlatformNotFound for a missing
+	// Platform.
+	SetGPUOperator(ctx context.Context, platformID string, operator *GPUOperator, owner GPUStackOwner) error
+	// UpdateGPUOperatorState moves the state only while the record's LastWorkflowID equals
+	// workflowID, and reports whether it did. Reaching GPUOperatorAbsent also sets gpuStackOwner
+	// back to provisioning, because no operator owns the GPU stack any more. A missing Platform
+	// or a different latest Workflow is not an error: an observer of a superseded or deleted
+	// Platform's Task has nothing to do.
+	UpdateGPUOperatorState(ctx context.Context, platformID, workflowID string, state GPUOperatorState, at time.Time) (bool, error)
 }

@@ -1,0 +1,16 @@
+---
+# Wait until the operand DaemonSets named <DeviceConfig>-<suffix> for every suffix in
+# amd_gpu_operator_wait_daemonsets no longer exist. The operator deletes them through owner
+# references after a DeviceConfig change, so this is what "the old mode is off" means.
+
+- name: Wait for {{ amd_gpu_operator_wait_daemonsets | join(', ') }} to disappear
+  ansible.builtin.command:
+    cmd: >-
+      {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} get daemonset
+      {% for suffix in amd_gpu_operator_wait_daemonsets %}{{ amd_gpu_operator_deviceconfig }}-{{ suffix }} {% endfor %}
+      --ignore-not-found -o name
+  register: amd_gpu_operator_remaining
+  changed_when: false
+  until: amd_gpu_operator_remaining.stdout | trim | length == 0
+  retries: "{{ amd_gpu_operator_wait_retries }}"
+  delay: "{{ amd_gpu_operator_wait_delay }}"

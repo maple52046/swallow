@@ -1,0 +1,22 @@
+---
+# Runs on each node the operator will manage, once Node Feature Discovery has named them and
+# before the DeviceConfig starts any operand. The operator uses the driver the OS image ships
+# (decision 062), so a node whose image has no amdgpu module is refused. Whether the driver is
+# loaded is not checked here: an image may keep amdgpu out of the boot path, and host_driver
+# loads it.
+
+- name: Check for the amdgpu kernel module
+  ansible.builtin.command:
+    argv: [/sbin/modinfo, -F, filename, amdgpu]
+  register: amd_gpu_operator_module
+  changed_when: false
+  failed_when: false
+
+- name: Refuse a node whose image has no amdgpu driver
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_driver_missing] {{ amd_gpu_operator_node_name }} has no amdgpu kernel module for
+      kernel {{ ansible_facts['kernel'] }}. The GPU Operator uses the driver the OS image
+      provides; deploy an image with the amdgpu driver, or remove this Server from the managed
+      nodes.
+  when: amd_gpu_operator_module.rc != 0

@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import { evaluateMinimumResourceEligibility, formatGiB, formatMinimumResources } from '@/domain/platform/resourceEligibility'
-import type { Platform, GPUStackOwner, NodeRole, PlatformType, PlatformMachinePreparation, RoleAssignment } from '@/domain/platform/types'
+import { GPU_ALLOCATION_MODE_LABELS, hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
+import type { Platform, NodeRole, PlatformType, PlatformMachinePreparation, RoleAssignment } from '@/domain/platform/types'
 import type { DeploymentNetworkMode, DeploymentTemplate, DeployTarget, NetworkInspectionResult } from '@/domain/provisioning/types'
 import type { Integration, OSImage } from '@/domain/site/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
@@ -37,6 +38,15 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useDeployableServers } from './useDeployableServers'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
+import { GPUOperatorOptionsFields } from './GPUOperatorOptionsFields'
+import {
+  DEFAULT_GPU_OPERATOR_FORM,
+  gpuOperatorFormProblem,
+  gpuOperatorFormSettings,
+  resolveGPUOperatorRelease,
+  type GPUOperatorFormValue,
+} from './gpuOperatorForm'
+import { useGPUOperatorReleases } from './useGPUOperatorReleases'
 
 const DEFAULT_K0S_VERSION = 'v1.36.3+k0s.2'
 const DEFAULT_POD_CIDR = '10.244.0.0/16'
@@ -164,7 +174,9 @@ export function DeployPlatformWizardPage() {
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
   const [name, setName] = useState('')
   const [platformType, setPlatformType] = useState<PlatformType>('kubernetes')
-  const [gpuStackOwner, setGPUStackOwner] = useState<GPUStackOwner>('provisioning')
+  // The optional AMD GPU Operator feature (decision 062). The backend derives gpuStackOwner from
+  // it, so the wizard never asks for the policy directly.
+  const [gpuOperatorForm, setGPUOperatorForm] = useState<GPUOperatorFormValue>(DEFAULT_GPU_OPERATOR_FORM)
   const [k0sVersion, setK0sVersion] = useState(DEFAULT_K0S_VERSION)
   // Slurm intent. Node roles are per-daemon (a Server may run slurmctld, slurmd, or both).
   const [clusterName, setClusterName] = useState('')
@@ -178,7 +190,9 @@ export function DeployPlatformWizardPage() {
   const [slurmWorkloadMountOptions, setSlurmWorkloadMountOptions] = useState('')
   const [topology, setTopology] = useState<TopologyChoice>('high-availability')
   const [apiVip, setAPIVip] = useState('')
-  const [apiVipPrefix, setAPIVipPrefix] = useState('24')
+  // Empty means the backend takes the prefix of the control plane's subnet, which is the only
+  // prefix it accepts when it can read that subnet.
+  const [apiVipPrefix, setAPIVipPrefix] = useState('')
   const [podCidr, setPodCidr] = useState(DEFAULT_POD_CIDR)
   const [serviceCidr, setServiceCidr] = useState(DEFAULT_SERVICE_CIDR)
   const [roles, setRoles] = useState<Record<string, RoleChoice>>({})
@@ -310,7 +324,32 @@ export function DeployPlatformWizardPage() {
   const networkingValid =
     validCIDR(podCidr.trim()) &&
     validCIDR(serviceCidr.trim()) &&
-    (topology !== 'high-availability' || (validAddress(apiVip.trim()) && Number(apiVipPrefix) >= 1 && Number(apiVipPrefix) <= 32))
+    (topology !== 'high-availability' || (validAddress(apiVip.trim()) &&
+      (apiVipPrefix.trim() === '' || (Number(apiVipPrefix) >= 1 && Number(apiVipPrefix) <= 32))))
+
+  // The GPU Operator can be enabled when a workload-capable assignment's inventory has an AMD
+  // compute GPU; the operator itself finds the nodes it manages. The release catalog is fetched
+  // only once the feature is chosen.
+  const hasAMDGPUWorkload = useMemo(() => {
+    if (state.status !== 'ready') return false
+    return assignments
+      .filter((assignment) => assignment.role === 'worker' || assignment.runWorkloads)
+      .some((assignment) => {
+        const server = state.data.servers.find((candidate) => candidate.id === assignment.serverId)
+        return Boolean(server && hasAMDComputeGPU(server.gpus))
+      })
+  }, [assignments, state])
+  const { state: gpuOperatorReleases, reload: reloadGPUOperatorReleases } = useGPUOperatorReleases(!isSlurm && gpuOperatorForm.enabled)
+  const gpuOperatorCatalog = gpuOperatorReleases.status === 'ready' ? gpuOperatorReleases.releases : null
+  const gpuOperatorProblem = isSlurm
+    ? null
+    : gpuOperatorFormProblem(gpuOperatorForm, hasAMDGPUWorkload, gpuOperatorCatalog, k0sVersion.trim())
+  const featuresValid = isSlurm || gpuOperatorProblem === null
+  const gpuOperatorReview = (() => {
+    if (!gpuOperatorForm.enabled) return 'Not installed'
+    const release = gpuOperatorCatalog ? resolveGPUOperatorRelease(gpuOperatorForm, gpuOperatorCatalog) : undefined
+    return `${release?.version ?? 'Default release'} · ${GPU_ALLOCATION_MODE_LABELS[gpuOperatorForm.allocationMode]}`
+  })()
 
   // Kubernetes selection comes from role assignments; Slurm from the per-daemon checkboxes.
   const selectedServerIds = isSlurm ? slurmSelectedIds : assignments.map((assignment) => assignment.serverId)
@@ -500,7 +539,7 @@ export function DeployPlatformWizardPage() {
   }
 
   // Switching platform type clears every selection so a k0s topology never leaks into a Slurm
-  // deploy or vice versa. Slurm forces the provisioning GPU owner (it has no GPU operator).
+  // deploy or vice versa. Slurm has no GPU Operator, so the feature is reset with it.
   const changeType = (next: PlatformType) => {
     setPlatformType(next)
     setRoles({})
@@ -516,7 +555,7 @@ export function DeployPlatformWizardPage() {
     setDeployTarget('ram')
     setNetworkInspection(null)
     setNetworkAssignments({})
-    if (next === 'slurm') setGPUStackOwner('provisioning')
+    setGPUOperatorForm(DEFAULT_GPU_OPERATOR_FORM)
   }
 
   // Toggle one Slurm role on a node. A node keeps whichever roles are checked; a node with none
@@ -555,7 +594,7 @@ export function DeployPlatformWizardPage() {
   }
 
   const deploy = async () => {
-    if (!effectiveSiteId || !basicsValid || !machinesValid || !osConfigurationValid || !platformNetworkingValid || submitting) return
+    if (!effectiveSiteId || !basicsValid || !machinesValid || !featuresValid || !osConfigurationValid || !platformNetworkingValid || submitting) return
     setSubmitting(true)
     // The mode is derived from the selection, not chosen: reuse existing-OS Servers when nothing
     // needs provisioning, otherwise converge — provision the ready Servers and reuse deployed.
@@ -624,9 +663,11 @@ export function DeployPlatformWizardPage() {
               siteId: effectiveSiteId,
               name: name.trim(),
               type: 'kubernetes',
-              gpuStackOwner,
+              ...(gpuOperatorForm.enabled ? { gpuOperator: gpuOperatorFormSettings(gpuOperatorForm) } : {}),
               k0sVersion: k0sVersion.trim(),
-              ...(topology === 'high-availability' ? { apiVip: apiVip.trim(), apiVipPrefix: Number(apiVipPrefix) } : {}),
+              ...(topology === 'high-availability'
+                ? { apiVip: apiVip.trim(), ...(apiVipPrefix.trim() ? { apiVipPrefix: Number(apiVipPrefix) } : {}) }
+                : {}),
               podCidr: podCidr.trim(),
               serviceCidr: serviceCidr.trim(),
               roleAssignments: assignments,
@@ -696,20 +737,6 @@ export function DeployPlatformWizardPage() {
               <Field.Label>Platform name</Field.Label>
               <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={isSlurm ? 'lab-slurm' : 'lab-k0s'} />
             </Field.Root>
-            {!isSlurm && (
-              <Field.Root required>
-                <Field.Label>GPU stack owner</Field.Label>
-                <Select
-                  value={gpuStackOwner}
-                  aria-label="GPU stack owner"
-                  onChange={(value) => setGPUStackOwner(value as GPUStackOwner)}
-                  options={[
-                    { value: 'provisioning', label: 'Provisioning' },
-                    { value: 'gpu-operator', label: 'GPU Operator' },
-                  ]}
-                />
-              </Field.Root>
-            )}
             {!isSlurm && (
               <Field.Root required>
                 <Field.Label>k0s version</Field.Label>
@@ -1029,6 +1056,30 @@ export function DeployPlatformWizardPage() {
       ),
     })
 
+    if (!isSlurm) {
+      // Optional platform features follow the machine choice, because which nodes can run a
+      // feature (here: workload nodes with AMD GPUs) depends on the roles just assigned.
+      steps.push({
+        id: 'deploy-features',
+        name: 'Features',
+        canProceed: featuresValid,
+        content: (
+          <WizardSection title="Platform features">
+            <GPUOperatorOptionsFields
+              value={gpuOperatorForm}
+              onChange={setGPUOperatorForm}
+              hasAMDGPUWorkload={hasAMDGPUWorkload}
+              releases={gpuOperatorReleases}
+              onRetryReleases={reloadGPUOperatorReleases}
+              k0sVersion={k0sVersion.trim() || null}
+              showInstallToggle
+              idPrefix="deploy-gpu-operator"
+            />
+          </WizardSection>
+        ),
+      })
+    }
+
     if (needsProvisioning) {
       const preparationScopeTitle =
         'Preparing ' + readySelectedServers.length + ' Server' +
@@ -1247,9 +1298,17 @@ export function DeployPlatformWizardPage() {
                     <Field.HelperText>Enter an unused IPv4 address on the machine network.</Field.HelperText>
                     <Field.ErrorText>Enter an unused IPv4 address on the machine network.</Field.ErrorText>
                   </Field.Root>
-                  <Field.Root required>
+                  <Field.Root>
                     <Field.Label>VIP prefix length</Field.Label>
-                    <Input type="number" value={apiVipPrefix} onChange={(event) => setAPIVipPrefix(event.target.value)} min={1} max={32} />
+                    <Input
+                      type="number"
+                      value={apiVipPrefix}
+                      onChange={(event) => setAPIVipPrefix(event.target.value)}
+                      min={1}
+                      max={32}
+                      placeholder="Machine subnet prefix"
+                    />
+                    <Field.HelperText>Leave empty to use the machine subnet's prefix. A different prefix is refused.</Field.HelperText>
                   </Field.Root>
                 </>
               )}
@@ -1274,7 +1333,7 @@ export function DeployPlatformWizardPage() {
     steps.push({
       id: 'deploy-review',
       name: 'Review',
-      canProceed: basicsValid && machinesValid && osConfigurationValid && platformNetworkingValid && !submitting,
+      canProceed: basicsValid && machinesValid && featuresValid && osConfigurationValid && platformNetworkingValid && !submitting,
       content: (
         <WizardSection title="Review deployment">
           <Card.Root size="sm">
@@ -1319,8 +1378,10 @@ export function DeployPlatformWizardPage() {
                           ]
                         : []),
                       ['k0s version', k0sVersion],
-                      ['GPU stack owner', gpuStackOwner],
-                      ['API endpoint', topology === 'high-availability' ? `${apiVip}/${apiVipPrefix} (virtual IP)` : `${initialControllerAddress ?? '-'}:6443 (direct)`],
+                      ['AMD GPU Operator', gpuOperatorReview],
+                      ['API endpoint', topology === 'high-availability'
+                        ? (apiVipPrefix.trim() ? `${apiVip}/${apiVipPrefix} (virtual IP)` : `${apiVip} (virtual IP, machine subnet prefix)`)
+                        : `${initialControllerAddress ?? '-'}:6443 (direct)`],
                       ['Pod CIDR', podCidr],
                       ['Service CIDR', serviceCidr],
                       ['Machines', `${assignments.length} selected`],

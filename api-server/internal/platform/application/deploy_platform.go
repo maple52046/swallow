@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -83,8 +86,10 @@ type DeployService struct {
 	launcher           platformdomain.DeploymentLauncher
 	protection         serverdomain.MutationGuard
 	machinePreparation platformdomain.MachinePreparationValidator
+	nodeSubnets        platformdomain.NodeSubnetResolver
 	requirements       platformdomain.DeploymentRequirementReader
 	deploymentKeys     platformdomain.DeploymentKeyChecker
+	gpuOperators       platformdomain.GPUOperatorRecorder
 }
 
 // NewDeployService constructs deployment preflight with both Server observations and the
@@ -114,11 +119,15 @@ func NewDeployService(
 // PlatformTypeKubernetes (k0s) and SlurmSpec for PlatformTypeSlurm. An empty Type defaults
 // to Kubernetes so existing callers that predate the type field keep working. The other
 // spec is ignored for the type that is not selected.
+//
+// GPUOperator, when non-nil and enabled, installs the AMD GPU Operator in the same Workflow
+// (Kubernetes only). GPUStackOwner may then be empty and is derived from it.
 type DeployPlatformInput struct {
 	SiteID             string
 	Name               string
 	Type               platformdomain.PlatformType
 	GPUStackOwner      string
+	GPUOperator        *platformdomain.GPUOperatorSettings
 	Spec               platformdomain.DeploymentSpec
 	SlurmSpec          platformdomain.SlurmDeploymentSpec
 	RequestedBy        string
@@ -162,11 +171,24 @@ func (s *DeployService) AttachMachinePreparationValidator(validator platformdoma
 	s.machinePreparation = validator
 }
 
+// AttachNodeSubnetResolver lets an HA deploy take the API VIP prefix from the control plane's
+// subnet and refuse a VIP outside it. Without it (tests, a provisioner without network reads)
+// the requested prefix is used as given and defaults to 24.
+func (s *DeployService) AttachNodeSubnetResolver(resolver platformdomain.NodeSubnetResolver) {
+	s.nodeSubnets = resolver
+}
+
 // AttachDeploymentKeyChecker makes every deploy, existing_os or provision_os, require the
 // installation's Deployment Key before any validation, Platform record, or Workflow is created.
 // Without it (tests) the check is skipped.
 func (s *DeployService) AttachDeploymentKeyChecker(checker platformdomain.DeploymentKeyChecker) {
 	s.deploymentKeys = checker
+}
+
+// AttachGPUOperatorRecorder enables installing the GPU Operator as part of a Kubernetes deploy.
+// Without it a deploy that requests the operator is refused instead of silently skipping it.
+func (s *DeployService) AttachGPUOperatorRecorder(recorder platformdomain.GPUOperatorRecorder) {
+	s.gpuOperators = recorder
 }
 
 // AttachDeploymentRequirementReader enables authoritative resource eligibility checks for
@@ -207,12 +229,16 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	if err != nil {
 		return nil, err
 	}
+	gpuOperator, gpuStackOwner, err := s.validateDeployGPUOperator(input, validated)
+	if err != nil {
+		return nil, err
+	}
 
 	created, err := s.platformService.Create(ctx, CreatePlatformInput{
 		SiteID:        input.SiteID,
 		Name:          input.Name,
 		Type:          string(platformdomain.PlatformTypeKubernetes),
-		GPUStackOwner: input.GPUStackOwner,
+		GPUStackOwner: gpuStackOwner,
 	})
 	if err != nil {
 		return nil, err
@@ -221,6 +247,23 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	platform, err := s.platforms.FindByID(ctx, created.ID)
 	if err != nil {
 		return nil, err
+	}
+
+	var operationID string
+	var gpuOperatorVars map[string]any
+	if gpuOperator != nil {
+		// The record names the deploy Workflow before it exists, so the observer of the
+		// GPU Operator Task matches from its first transition.
+		operationID = uuid.NewString()
+		record := &platformdomain.GPUOperator{
+			Settings: *gpuOperator, State: platformdomain.GPUOperatorInstalling,
+			LastWorkflowID: operationID, UpdatedAt: time.Now().UTC(),
+		}
+		if err := s.gpuOperators.SetGPUOperator(ctx, platform.ID, record, platform.GPUStackOwner); err != nil {
+			_ = s.platforms.Delete(ctx, platform.ID)
+			return nil, err
+		}
+		gpuOperatorVars = buildGPUOperatorVars(*gpuOperator, validated.spec.ControlPlaneServerIDs()[0])
 	}
 
 	secretVars := map[string]any{}
@@ -242,13 +285,15 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	}
 	launch := platformdomain.DeploymentLaunch{
 		Platform:        platform,
+		OperationID:     operationID,
 		TargetServerIDs: serverIDs(validated.targets),
 		TrustedVars:     trustedVars,
 		SecretVars:      secretVars,
+		GPUOperatorVars: gpuOperatorVars,
 		RequestedBy:     input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 		MachinePreparation: validated.machinePreparation,
 	}
-	operationID, err := s.launcher.Launch(ctx, launch)
+	launchedID, err := s.launcher.Launch(ctx, launch)
 	if err != nil {
 		// The operation was refused, so nothing is building this platform; remove it
 		// rather than leave a platform that will never converge.
@@ -256,7 +301,52 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 		return nil, err
 	}
 
-	return &DeployPlatformResult{PlatformID: platform.ID, OperationID: operationID}, nil
+	return &DeployPlatformResult{PlatformID: platform.ID, OperationID: launchedID}, nil
+}
+
+// validateDeployGPUOperator normalizes an optional GPU Operator request against the validated
+// topology, before any record exists. It returns the normalized settings (nil when no operator
+// is requested) and the effective gpuStackOwner: gpu-operator for an enabled operator, the
+// requested owner otherwise (defaulting to provisioning). A provisioning owner with an enabled
+// operator is contradictory and rejected. Whether any workload target has an AMD GPU is read from
+// the targets' current GPU inventory.
+func (s *DeployService) validateDeployGPUOperator(
+	input DeployPlatformInput,
+	validated validatedDeployment,
+) (*platformdomain.GPUOperatorSettings, string, error) {
+	owner := strings.TrimSpace(input.GPUStackOwner)
+	if input.GPUOperator == nil || !input.GPUOperator.Enabled {
+		if owner == "" {
+			owner = string(platformdomain.GPUStackOwnerProvisioning)
+		}
+		return nil, owner, nil
+	}
+	if owner == string(platformdomain.GPUStackOwnerProvisioning) {
+		return nil, "", fmt.Errorf("%w: gpuStackOwner provisioning contradicts an enabled gpuOperator", platformdomain.ErrInvalidGPUOperator)
+	}
+	if s.gpuOperators == nil {
+		return nil, "", fmt.Errorf("%w: GPU Operator installation is unavailable", platformdomain.ErrInvalidGPUOperator)
+	}
+	kubernetes, ok := platformdomain.ParseKubernetesMinorVersion(validated.spec.K0sVersion)
+	if !ok {
+		return nil, "", fmt.Errorf("%w: k0sVersion %q does not name a Kubernetes version", platformdomain.ErrInvalidGPUOperator, validated.spec.K0sVersion)
+	}
+	byID := make(map[string]*serverdomain.Server, len(validated.targets))
+	for _, server := range validated.targets {
+		byID[server.ID] = server
+	}
+	hasGPU := false
+	for _, id := range validated.spec.WorkloadServerIDs() {
+		if server := byID[id]; server != nil && serverdomain.HasAMDComputeGPU(server.Observed.GPUs) {
+			hasGPU = true
+			break
+		}
+	}
+	settings, err := platformdomain.NormalizeGPUOperatorSettings(*input.GPUOperator, kubernetes, hasGPU)
+	if err != nil {
+		return nil, "", err
+	}
+	return &settings, string(platformdomain.GPUStackOwnerGPUOperator), nil
 }
 
 // deploySlurm validates the Slurm topology, registers the platform, and launches the build
@@ -265,6 +355,9 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 // mints the shared MUNGE key and the slurmrestd JWT on the primary controller itself, and the
 // resulting reader credential is recorded from the run's result file.
 func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
+	if input.GPUOperator != nil && input.GPUOperator.Enabled {
+		return nil, fmt.Errorf("%w: a Slurm Platform has no GPU Operator", platformdomain.ErrInvalidGPUOperator)
+	}
 	validated, err := s.validateSlurm(ctx, input)
 	if err != nil {
 		return nil, err
@@ -679,9 +772,11 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 
 	if spec.HighlyAvailable() {
 		spec.APIVIP = strings.TrimSpace(spec.APIVIP)
-		if spec.APIVIPPrefix == 0 {
-			spec.APIVIPPrefix = defaultAPIVIPPrefix
+		prefix, err := s.apiVIPPrefix(ctx, spec, preparation)
+		if err != nil {
+			return invalid, err
 		}
+		spec.APIVIPPrefix = prefix
 	}
 
 	apiAddress, vip, err := deploymentAPIAddressForPreparation(spec, targets, preparation)
@@ -751,6 +846,55 @@ func (s *DeployService) targetAvailability(
 		}
 	}
 	return availability, nil
+}
+
+// apiVIPPrefix resolves the HA API VIP prefix against the control plane's subnet. The VIP must lie
+// in that subnet, an omitted prefix takes the subnet's, and a different prefix is refused: with a
+// longer one the VIP holder adds a narrower route whose source is the VIP, so its traffic to part
+// of the subnet leaves from the VIP and etcd rejects it as a peer (the certificate names the node
+// address). When no control-plane subnet can be read, the requested prefix is used, defaulting to
+// 24, and the deploy playbook checks it against the host instead.
+func (s *DeployService) apiVIPPrefix(
+	ctx context.Context,
+	spec platformdomain.DeploymentSpec,
+	preparation platformdomain.MachinePreparation,
+) (int, error) {
+	requested := spec.APIVIPPrefix
+	fallback := requested
+	if fallback == 0 {
+		fallback = defaultAPIVIPPrefix
+	}
+	vip, err := netip.ParseAddr(spec.APIVIP)
+	if s.nodeSubnets == nil || err != nil || !vip.Is4() {
+		// deploymentAPIAddress reports an unparseable VIP.
+		return fallback, nil
+	}
+	controllers := spec.ControlPlaneServerIDs()
+	subnets, err := s.nodeSubnets.NodeSubnets(ctx, controllers, preparation)
+	if err != nil || len(subnets) == 0 {
+		return fallback, nil
+	}
+	var subnet netip.Prefix
+	for _, id := range controllers {
+		current, ok := subnets[id]
+		if !ok {
+			continue
+		}
+		if subnet.IsValid() && current != subnet {
+			return 0, fmt.Errorf("%w: the control-plane Servers are on different subnets (%s and %s); an HA API VIP needs them on one subnet",
+				platformdomain.ErrInvalidDeployment, subnet, current)
+		}
+		subnet = current
+	}
+	if !subnet.Contains(vip) {
+		return 0, fmt.Errorf("%w: apiVip %s is outside the control-plane subnet %s",
+			platformdomain.ErrInvalidDeployment, vip, subnet)
+	}
+	if requested != 0 && requested != subnet.Bits() {
+		return 0, fmt.Errorf("%w: apiVipPrefix %d must be the control-plane subnet's prefix %d (%s); a longer prefix makes the VIP holder send traffic to part of the subnet from the VIP, which etcd rejects",
+			platformdomain.ErrInvalidDeployment, requested, subnet.Bits(), subnet)
+	}
+	return subnet.Bits(), nil
 }
 
 // deploymentAPIAddress enforces the conditional VIP contract and resolves the endpoint

@@ -25,6 +25,14 @@ type PlatformHandler struct {
 	slurmCluster *application.GetSlurmClusterUseCase
 	kubernetes   *application.KubernetesExplorerUseCase
 	requirements *application.DeploymentRequirementService
+	gpuOperators *application.GPUOperatorService
+}
+
+// AttachGPUOperatorService enables PUT /platforms/{id}/gpu-operator. Without it the route
+// answers 404, so a process wired without durable orchestration does not accept changes it
+// cannot run.
+func (h *PlatformHandler) AttachGPUOperatorService(service *application.GPUOperatorService) {
+	h.gpuOperators = service
 }
 
 func NewPlatformHandler(
@@ -178,10 +186,43 @@ func slurmWorkloadStorageFromRequest(request *slurmWorkloadStorageReq) platformd
 	return spec
 }
 
+// gpuOperatorRequest is the GPU Operator settings body shared by the deploy request and
+// PUT .../gpu-operator (platforms.md, "Settings"). Pointers keep "omitted" distinct from false so
+// the documented defaults apply: enabled is required on PUT, nodeLabeller defaults to true.
+type gpuOperatorRequest struct {
+	Enabled          *bool  `json:"enabled"`
+	Version          string `json:"version"`
+	AllocationMode   string `json:"allocationMode"`
+	DRADriverVersion string `json:"draDriverVersion"`
+	ResourceNaming   string `json:"resourceNaming"`
+	NodeLabeller     *bool  `json:"nodeLabeller"`
+	MetricsExporter  *bool  `json:"metricsExporter"`
+}
+
+// settings maps the body into domain intent, applying the transport-level boolean defaults;
+// the application applies the catalog-dependent ones.
+func (r gpuOperatorRequest) settings() platformdomain.GPUOperatorSettings {
+	nodeLabeller := true
+	if r.NodeLabeller != nil {
+		nodeLabeller = *r.NodeLabeller
+	}
+	return platformdomain.GPUOperatorSettings{
+		Enabled:          r.Enabled != nil && *r.Enabled,
+		Version:          r.Version,
+		AllocationMode:   platformdomain.GPUAllocationMode(r.AllocationMode),
+		DRADriverVersion: r.DRADriverVersion,
+		ResourceNaming:   platformdomain.GPUResourceNaming(r.ResourceNaming),
+		NodeLabeller:     nodeLabeller,
+		MetricsExporter:  r.MetricsExporter != nil && *r.MetricsExporter,
+	}
+}
+
 type deployPlatformRequest struct {
 	SiteID        string `json:"siteId"`
 	Name          string `json:"name"`
 	GPUStackOwner string `json:"gpuStackOwner"`
+	// GPUOperator optionally installs the AMD GPU Operator with a Kubernetes deploy.
+	GPUOperator *gpuOperatorRequest `json:"gpuOperator"`
 	// Type selects the platform to build: "kubernetes" (default when omitted) or "slurm".
 	// The Kubernetes fields below are read for kubernetes; Slurm is read for slurm.
 	Type               string                    `json:"type"`
@@ -258,11 +299,17 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		requestedBy = principal.Username
 	}
 
+	var gpuOperator *platformdomain.GPUOperatorSettings
+	if req.GPUOperator != nil {
+		settings := req.GPUOperator.settings()
+		gpuOperator = &settings
+	}
 	result, err := h.deploy.Deploy(c.Context(), application.DeployPlatformInput{
 		SiteID:        req.SiteID,
 		Name:          req.Name,
 		Type:          platformdomain.PlatformType(req.Type),
 		GPUStackOwner: req.GPUStackOwner,
+		GPUOperator:   gpuOperator,
 		Spec: platformdomain.DeploymentSpec{
 			K0sVersion:      req.K0sVersion,
 			PodCIDR:         req.PodCIDR,
@@ -376,6 +423,40 @@ func (h *PlatformHandler) Uninstall(c *fiber.Ctx) error {
 		PlatformID: result.PlatformID, ClusterID: result.PlatformID,
 		OperationID: result.OperationID,
 	})
+}
+
+// GPUOperatorReleases handles GET /platforms/gpu-operator/releases: the release catalog the
+// settings' version and draDriverVersion must come from.
+func (h *PlatformHandler) GPUOperatorReleases(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{"items": application.GPUOperatorReleaseItems()})
+}
+
+// ConfigureGPUOperator handles PUT /platforms/{id}/gpu-operator (platforms.md, "Change The GPU
+// Operator"): enabled is required, the rest follows the settings defaults. It answers 202 with
+// the Workflow applying the change; refusals map through respondError.
+func (h *PlatformHandler) ConfigureGPUOperator(c *fiber.Ctx) error {
+	if h.gpuOperators == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "GPU Operator management is unavailable."))
+	}
+	var req gpuOperatorRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if req.Enabled == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "enabled is required."))
+	}
+	requestedBy := ""
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		requestedBy = principal.Username
+	}
+	result, err := h.gpuOperators.Configure(c.Context(), application.ConfigureGPUOperatorInput{
+		PlatformID: c.Params("id"), Settings: req.settings(),
+		RequestedBy: requestedBy, RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
+	})
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(result)
 }
 
 func (h *PlatformHandler) Delete(c *fiber.Ctx) error {
@@ -513,6 +594,7 @@ func respondError(c *fiber.Ctx, err error) error {
 			"A platform with this name already exists at this site."))
 
 	case errors.Is(err, platformdomain.ErrPlatformNotDeployManaged),
+		errors.Is(err, platformdomain.ErrGPUOperatorConflict),
 		errors.Is(err, platformdomain.ErrPlatformAlreadyUninstalled),
 		errors.Is(err, platformdomain.ErrPlatformUninstallConflict),
 		errors.Is(err, operationdomain.ErrTargetsBusy),
@@ -539,6 +621,7 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, application.ErrInvalidPlatform),
 		errors.Is(err, platformdomain.ErrInvalidDeploymentRequirement),
 		errors.Is(err, platformdomain.ErrInvalidDeployment),
+		errors.Is(err, platformdomain.ErrInvalidGPUOperator),
 		errors.Is(err, serverdomain.ErrServerNotFound),
 		errors.Is(err, platformdomain.ErrUnsupportedPlatformType):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))

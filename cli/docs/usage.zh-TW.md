@@ -527,6 +527,9 @@ swallow platforms sync-all
 swallow platforms slurm plat1                         # live Slurm cluster state
 swallow platforms slurm-requirements get
 swallow platforms slurm-requirements set -f slurm-req.yaml
+swallow platforms gpu-operator releases                       # Swallow 提供的 AMD GPU Operator 版本
+swallow platforms gpu-operator set plat1 -f gpu-operator.yaml  # 安裝或調整 operator
+swallow platforms gpu-operator uninstall plat1                 # 移除 operator，平台照常運作
 ```
 
 `platform-k8s.yaml`（見 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)）：
@@ -535,10 +538,74 @@ swallow platforms slurm-requirements set -f slurm-req.yaml
 siteId: site1
 name: lab-k0s
 type: kubernetes
-gpuStackOwner: provisioning
 roleAssignments:
   - { serverId: srva, role: control-plane, runWorkloads: true }
   - { serverId: srvb, role: worker }
+```
+
+要在部署平台時一併安裝 AMD GPU Operator，就在部署檔加上 `gpuOperator`，`gpuStackOwner` 會自動推導，可以不寫。
+下面的 `platform-k8s-gpu.yaml` 是一次實機測試用的檔案：三台 Server 在開機網卡上以 DHCP 重新安裝 OS，三台都是
+control plane 也跑 workload，operator 以 Device Plugin 模式納管 Node Feature Discovery 判定為 AMD GPU 節點的所有節點。`apiVipPrefix`
+可以不寫，會採用 control plane 子網的 prefix（這裡是 `/23`），部署也只接受這個值。
+
+```yaml
+siteId: site1
+name: gpu-run3
+type: kubernetes
+k0sVersion: v1.36.3+k0s.2
+podCidr: 172.21.0.0/20
+serviceCidr: 172.21.22.0/24
+apiVip: 10.170.168.13
+apiVipPrefix: 23
+roleAssignments:
+  - { serverId: srva, role: control-plane, runWorkloads: true }
+  - { serverId: srvb, role: control-plane, runWorkloads: true }
+  - { serverId: srvc, role: control-plane, runWorkloads: true }
+machinePreparation:
+  mode: provision_os
+  settings:
+    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
+    deployTarget: disk
+  network:
+    mode: dhcp
+    assignments:   # 每台 Server 的開機網卡與子網，可從 `swallow servers get` 取得
+      - { serverId: srva, interfaceId: "131", subnetId: "1" }
+      - { serverId: srvb, interfaceId: "132", subnetId: "1" }
+      - { serverId: srvc, interfaceId: "133", subnetId: "1" }
+gpuOperator:
+  enabled: true
+  allocationMode: device-plugin   # 或 dra（Kubernetes 1.34 以上）
+```
+
+接著追蹤部署、切換 operator、移除 operator，最後 release Server：
+
+```bash
+swallow platforms gpu-operator releases
+swallow platforms deploy -f platform-k8s-gpu.yaml             # 輸出 platformId 與 operationId
+swallow workflows get <operationId>
+swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml
+swallow platforms gpu-operator uninstall <platformId>         # 平台仍繼續運作
+swallow platforms uninstall <platformId> -f uninstall.yaml
+swallow platforms delete <platformId>
+```
+
+`uninstall.yaml` 直接 release Server，不先移除平台軟體：
+
+```yaml
+releaseServers: true
+releaseOptions:
+  erase: false
+  unbindStaticIps: false
+```
+
+`gpu-operator.yaml` 用來調整已部署平台的 operator；沒寫的欄位採用契約的預設值（預設版本、`single` 資源命名、
+Node Labeller 開啟、Device Metrics Exporter 關閉）。檔案裡不列節點：operator 會納管 Node Feature Discovery
+判定為 AMD GPU 節點的所有節點。仍有 Pod 使用 AMD GPU 時，切換分配方式會被拒絕。之後用 `swallow workflows get <workflowId>` 追蹤，或用 `swallow platforms get` 看 `gpuOperator.state`：
+
+```yaml
+enabled: true
+allocationMode: dra
+draDriverVersion: v1.0.1
 ```
 
 `slurm-req.yaml`：

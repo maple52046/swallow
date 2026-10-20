@@ -1,0 +1,40 @@
+{% set images = swallow_amd_gpu_operator_images %}
+{% set dra = swallow_amd_gpu_operator_allocation_mode == 'dra' %}
+# Rendered by Swallow (decision 062). Exactly one of the device plugin and the DRA driver is on.
+apiVersion: amd.com/v1alpha1
+kind: DeviceConfig
+metadata:
+  name: {{ amd_gpu_operator_deviceconfig }}
+  namespace: {{ amd_gpu_operator_namespace }}
+  labels:
+    {{ amd_gpu_operator_owner_label }}: {{ amd_gpu_operator_owner_value }}
+spec:
+  selector:
+    {{ amd_gpu_operator_node_label }}: {{ amd_gpu_operator_node_label_value }}
+  driver:
+    enable: false
+  commonConfig:
+    utilsContainer:
+      image: {{ images.utils }}
+  devicePlugin:
+    enableDevicePlugin: {{ (not dra) | lower }}
+    devicePluginImage: {{ images.devicePlugin }}
+    devicePluginArguments:
+      resource_naming_strategy: {{ swallow_amd_gpu_operator_resource_naming }}
+    enableNodeLabeller: {{ swallow_amd_gpu_operator_node_labeller | bool | lower }}
+    nodeLabellerImage: {{ images.nodeLabeller }}
+    nodeLabellerArguments: {{ amd_gpu_operator_labeller_arguments | to_json }}
+    # The device plugin registration socket is a kubelet constant, the same on k0s.
+    kubeletSocketPath: /var/lib/kubelet/device-plugins
+  draDriver:
+    enable: {{ dra | lower }}
+{% if dra %}
+    image: {{ images.draDriver }}
+{% endif %}
+  metricsExporter:
+    enable: {{ swallow_amd_gpu_operator_metrics_exporter | bool | lower }}
+    image: {{ images.metricsExporter }}
+    # Pod network only: the host ports 9100 and 5000 belong to Swallow's exporters (decision 003).
+    hostNetwork: false
+    serviceType: ClusterIP
+    podResourceAPISocketPath: {{ amd_gpu_operator_pod_resources_socket_dir }}

@@ -28,6 +28,19 @@ export interface KubernetesNode {
   serverId: string | null
   addresses: string[]
   kubeletVersion: string
+  /** The node's GPUs as Kubernetes exposes them for the GPU Operator. */
+  gpu: KubernetesNodeGPU
+}
+
+/**
+ * A node's AMD GPUs (platforms-kubernetes.md): `allocatable` holds every `amd.com/*` extended
+ * resource the device plugin registered (empty when none); `draDevices` counts the devices the
+ * `gpu.amd.com` DRA driver publishes, and is null when the cluster has no DRA API or the slices
+ * could not be read — unknown, never shown as zero.
+ */
+export interface KubernetesNodeGPU {
+  allocatable: Record<string, number>
+  draDevices: number | null
 }
 
 /** One namespace; `system` marks a cluster-owned namespace hidden by default. */

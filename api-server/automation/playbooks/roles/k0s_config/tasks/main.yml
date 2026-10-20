@@ -1,7 +1,8 @@
 ---
-# Write the shared k0s configuration. Every controller uses an identical file, so this role
-# is included by both the bootstrap and the controller-join roles. The template carries the
-# optional VRRP password for HA, so the write remains no_log for every topology.
+# Write the shared k0s configuration. Every controller uses the same file apart from its own
+# API address, so this role is included by both the bootstrap and the controller-join roles.
+# The template carries the optional VRRP password for HA, so the write remains no_log for every
+# topology.
 
 - name: Ensure /etc/k0s exists
   ansible.builtin.file:

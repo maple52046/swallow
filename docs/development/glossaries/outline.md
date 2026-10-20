@@ -50,6 +50,9 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   DaemonSet, StatefulSet, or owner-less Pod) the cluster explorer aggregates on demand; never a
   stored entity.
 - [Minimum Resource Requirement](terms/minimum-resource-requirement.md): An optional system-wide deployment eligibility floor for observed Server CPU, memory, and storage; not a reservation or capacity promise.
+- [GPU Operator](terms/gpu-operator.md): The in-cluster operator that makes a Platform's GPUs schedulable; Swallow installs and configures the AMD GPU Operator on a Swallow-deployed Kubernetes Platform, using the OS image's driver.
+- [GPU Allocation Mode](terms/gpu-allocation-mode.md): How the GPU Operator exposes GPUs — `device-plugin` (extended resource) or `dra` (ResourceSlice devices); one at a time.
+- [GPU Operator State](terms/gpu-operator-state.md): Where the latest Swallow change to a Platform's GPU Operator stands — `installing | ready | failed | uninstalling | absent`.
 
 ### OS Provisioning
 

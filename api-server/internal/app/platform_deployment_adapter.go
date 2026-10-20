@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -13,6 +15,7 @@ import (
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/pagination"
 )
@@ -92,6 +95,9 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 		if provisionFirst {
 			return "", fmt.Errorf("durable Platform provisioning is unavailable")
 		}
+		if launch.GPUOperatorVars != nil {
+			return "", fmt.Errorf("durable GPU Operator installation is unavailable")
+		}
 		item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
 			Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
 			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
@@ -104,7 +110,10 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 		return item.ID, nil
 	}
 
-	operationID := uuid.NewString()
+	operationID := launch.OperationID
+	if operationID == "" {
+		operationID = uuid.NewString()
+	}
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
 		Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
@@ -113,6 +122,15 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 	}, operationID, provisionFirst)
 	if err != nil {
 		return "", err
+	}
+	var gpuPrepared *operationapp.PreparedAnsibleStep
+	if launch.GPUOperatorVars != nil {
+		gpuPrepared, err = prepareGPUOperatorStep(ctx, l.operations, operationID, launch.Platform.ID,
+			"Install AMD GPU Operator on "+launch.Platform.Name, launch.TargetServerIDs,
+			launch.GPUOperatorVars, launch.RequestedBy, provisionFirst)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	ensure, err := l.buildEnsureOS(ctx, launch, provisionFirst, prepared.Targets)
@@ -133,6 +151,12 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 		Executor: operationdomain.RunnerKindInternal, DependsOn: []string{installPlatformStepID},
 		Targets: prepared.Targets,
 	})
+	if gpuPrepared != nil {
+		// The operator is installed only on a validated cluster, so its Job depends on the
+		// health gate and the deployment succeeds only when the operator does (decision 062).
+		steps = append(steps, gpuOperatorTask(gpuPrepared, launch.Platform.ID, operationID,
+			[]string{"validate-platform"}, "Install AMD GPU Operator"))
+	}
 
 	created, err := l.createDeploymentWorkflow(ctx, operationID, operationdomain.WorkflowKindDeployKubernetes,
 		"Deploy k0s Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
@@ -384,6 +408,77 @@ type platformMachinePreparationValidator struct {
 
 func (v platformMachinePreparationValidator) Validate(ctx context.Context, _ string, serverIDs []string, preparation platformdomain.MachinePreparation) error {
 	return v.deployments.Validate(ctx, platformProvisioningInput(preparation, serverIDs))
+}
+
+// platformNodeSubnetResolver implements platformdomain.NodeSubnetResolver from the provisioner's
+// live NIC view. A provisioned Server's subnet is the one its network assignment names; any other
+// Server's is the IPv4 subnet linked to its boot interface. A Server whose network cannot be read
+// is left out, so the caller falls back rather than failing the deploy on an inspection error.
+type platformNodeSubnetResolver struct {
+	networks *provisioningapp.NetworkConfigurationService
+}
+
+func (r platformNodeSubnetResolver) NodeSubnets(
+	ctx context.Context,
+	serverIDs []string,
+	preparation platformdomain.MachinePreparation,
+) (map[string]netip.Prefix, error) {
+	assigned := map[string]platformdomain.MachineNetworkAssignment{}
+	if preparation.Mode == platformdomain.MachinePreparationProvisionOS {
+		for _, assignment := range preparation.Assignments {
+			assigned[assignment.ServerID] = assignment
+		}
+	}
+	subnets := make(map[string]netip.Prefix, len(serverIDs))
+	for _, id := range serverIDs {
+		target, err := r.networks.Get(ctx, id)
+		if err != nil || target == nil || target.Network == nil {
+			continue
+		}
+		if subnet, ok := nodeSubnet(target.Network.Interfaces, assigned[id]); ok {
+			subnets[id] = subnet
+		}
+	}
+	return subnets, nil
+}
+
+// nodeSubnet picks the IPv4 subnet of the assigned interface and subnet when there is an
+// assignment, otherwise of the boot interface's first IPv4 link.
+func nodeSubnet(interfaces []provisioningdomain.NetworkInterface, assignment platformdomain.MachineNetworkAssignment) (netip.Prefix, bool) {
+	parse := func(cidr string) (netip.Prefix, bool) {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(cidr))
+		if err != nil || !prefix.Addr().Is4() {
+			return netip.Prefix{}, false
+		}
+		return prefix.Masked(), true
+	}
+	for _, nic := range interfaces {
+		if assignment.InterfaceID != "" {
+			if nic.ID != assignment.InterfaceID {
+				continue
+			}
+			for _, subnet := range nic.AvailableSubnets {
+				if subnet.ID == assignment.SubnetID {
+					return parse(subnet.CIDR)
+				}
+			}
+			for _, link := range nic.Links {
+				if link.SubnetID == assignment.SubnetID {
+					return parse(link.CIDR)
+				}
+			}
+			return netip.Prefix{}, false
+		}
+		if !nic.Boot {
+			continue
+		}
+		for _, link := range nic.Links {
+			if prefix, ok := parse(link.CIDR); ok {
+				return prefix, true
+			}
+		}
+	}
+	return netip.Prefix{}, false
 }
 
 func platformProvisioningInput(preparation platformdomain.MachinePreparation, serverIDs []string) provisioningapp.DeployServersInput {
@@ -737,6 +832,12 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 	}
 	switch execution.Kind {
 	case operationdomain.WorkflowKindDeployKubernetes:
+		// An execution carries its Workflow's kind, so the GPU Operator Task of a deploy arrives
+		// here too. Only the k0s install produces the credential; the GPU Task's own outcome is
+		// projected by gpuOperatorStepObserver.
+		if execution.StepID == gpuOperatorStepID {
+			return nil
+		}
 		credential := platformCredentialFromResult(result)
 		if credential == nil {
 			return fmt.Errorf("deployment returned no Kubernetes credential")

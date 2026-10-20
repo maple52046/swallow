@@ -1,0 +1,106 @@
+---
+# Runs on the controller after the DRA links are converged (state present). It applies the
+# desired DeviceConfig, waits for the operator's verdict on exactly that generation, and accepts
+# the change only when every managed node exposes its GPUs in the requested allocation mode.
+
+- name: Render the DeviceConfig
+  ansible.builtin.template:
+    src: deviceconfig.yaml.j2
+    dest: "{{ amd_gpu_operator_home }}/config/deviceconfig.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply the DeviceConfig
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} apply -f {{ amd_gpu_operator_home }}/config/deviceconfig.yaml"
+  register: amd_gpu_operator_dc_apply
+  changed_when: "'unchanged' not in amd_gpu_operator_dc_apply.stdout"
+
+- name: Wait for the operator to evaluate this DeviceConfig
+  # The API accepts settings the operator rejects (both modes on), so the controller's status on
+  # the applied generation is the only verdict: Ready, or an Error condition such as
+  # ValidationError.
+  ansible.builtin.command:
+    cmd: >-
+      {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} get deviceconfig
+      {{ amd_gpu_operator_deviceconfig }} -o json
+  register: amd_gpu_operator_dc_status
+  changed_when: false
+  until: >-
+    (amd_gpu_operator_dc_status.stdout | from_json).status.observedGeneration | default(0)
+      == (amd_gpu_operator_dc_status.stdout | from_json).metadata.generation
+    and ((amd_gpu_operator_dc_status.stdout | from_json).status.conditions | default([])
+         | selectattr('status', 'equalto', 'True')
+         | selectattr('type', 'in', ['Ready', 'Error']) | list | length > 0)
+  retries: "{{ amd_gpu_operator_wait_retries }}"
+  delay: "{{ amd_gpu_operator_wait_delay }}"
+  failed_when: false
+
+- name: Read the DeviceConfig verdict
+  ansible.builtin.set_fact:
+    amd_gpu_operator_conditions: "{{ (amd_gpu_operator_dc_status.stdout | from_json).status.conditions | default([]) }}"
+
+- name: Refuse a DeviceConfig the operator did not accept
+  ansible.builtin.fail:
+    msg: >-
+      [gpu_operator_not_ready] the GPU Operator did not report the DeviceConfig Ready:
+      {{ amd_gpu_operator_conditions | selectattr('type', 'equalto', 'Error') | map(attribute='message') | join('; ')
+         | default('no verdict within the timeout', true) }}
+  when: >-
+    amd_gpu_operator_conditions | selectattr('type', 'equalto', 'Ready')
+    | selectattr('status', 'equalto', 'True') | list | length == 0
+    or amd_gpu_operator_conditions | selectattr('type', 'equalto', 'Error')
+    | selectattr('status', 'equalto', 'True') | list | length > 0
+
+- name: Wait for the device plugin to expose GPUs on every managed node
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get node {{ item }} -o json"
+  loop: "{{ amd_gpu_operator_desired_nodes }}"
+  register: amd_gpu_operator_node_reads
+  changed_when: false
+  until: >-
+    (amd_gpu_operator_node_reads.stdout | from_json).status.allocatable | default({})
+    | dict2items | selectattr('key', 'match', '^amd\.com/')
+    | rejectattr('value', 'in', ['0', '']) | list | length > 0
+  retries: "{{ amd_gpu_operator_wait_retries }}"
+  delay: "{{ amd_gpu_operator_wait_delay }}"
+  when: swallow_amd_gpu_operator_allocation_mode == 'device-plugin'
+
+- name: Wait for the DRA driver to publish GPUs on every managed node
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get resourceslices -o json"
+  register: amd_gpu_operator_slices
+  changed_when: false
+  until: >-
+    amd_gpu_operator_desired_nodes | difference(
+      (amd_gpu_operator_slices.stdout | from_json)['items']
+      | selectattr('spec.driver', 'equalto', 'gpu.amd.com')
+      | selectattr('spec.devices', 'defined') | rejectattr('spec.devices', 'equalto', [])
+      | map(attribute='spec.nodeName') | list
+    ) | length == 0
+  retries: "{{ amd_gpu_operator_wait_retries }}"
+  delay: "{{ amd_gpu_operator_wait_delay }}"
+  when: swallow_amd_gpu_operator_allocation_mode == 'dra'
+
+- name: Remove the node labeller's labels it no longer maintains
+  when: not swallow_amd_gpu_operator_node_labeller | bool
+  block:
+    - name: Wait for the node labeller to stop
+      ansible.builtin.include_tasks: wait_operands_gone.yml
+      vars:
+        amd_gpu_operator_wait_daemonsets: ["node-labeller"]
+
+    - name: Remove the GPU property labels
+      ansible.builtin.include_tasks: strip_node_labels.yml
+      vars:
+        amd_gpu_operator_strip_prefixes: ["amd.com/gpu", "beta.amd.com/gpu"]
+      loop: "{{ amd_gpu_operator_desired_nodes }}"
+      loop_control:
+        loop_var: amd_gpu_operator_strip_node
+
+- name: Report the GPUs each managed node exposes
+  ansible.builtin.debug:
+    msg: >-
+      GPU Operator {{ swallow_amd_gpu_operator_version }} is Ready in {{ swallow_amd_gpu_operator_allocation_mode }}
+      mode on {{ amd_gpu_operator_desired_nodes | join(', ') }}.

@@ -26,8 +26,59 @@ func newPlatformsCommand() *cobra.Command {
 		platformsSyncAllCmd(),
 		platformsSlurmCmd(),
 		platformsSlurmRequirementsCmd(),
+		platformsGPUOperatorCmd(),
 		platformsKubernetesCmd(),
 	)
+	return cmd
+}
+
+// platformsGPUOperatorCmd groups the Swallow-managed AMD GPU Operator of a deployed Kubernetes
+// Platform (platforms.md, "Manage The GPU Operator"; decision 062). `set` passes the settings
+// file through unchanged so its fields track the contract; `uninstall` sends the contract's
+// fixed `{"enabled": false}` body. Every change answers with the Workflow that applies it; the
+// outcome is the Platform's gpuOperator.state (`platforms get`). Installing with a new Platform
+// needs no command here: put `gpuOperator` in the `platforms deploy` file.
+func platformsGPUOperatorCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "gpu-operator",
+		Short: "Install, change, or uninstall a Kubernetes platform's AMD GPU Operator",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "releases",
+		Short: "List the AMD GPU Operator releases Swallow ships (version and DRA driver choices)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return getJSON(cmd, "platforms/gpu-operator/releases", nil)
+		},
+	})
+	set := &cobra.Command{
+		Use:   "set <platformId>",
+		Short: "Install or change the GPU Operator from a JSON/YAML settings body",
+		Long: "Install or change the GPU Operator from a JSON/YAML settings body.\n\n" +
+			"The body is the settings object of the platforms contract: enabled (required),\n" +
+			"version, allocationMode (device-plugin or dra), draDriverVersion, resourceNaming\n" +
+			"(single or mixed), nodeLabeller, and metricsExporter. Omitted fields take the\n" +
+			"documented defaults. No field names nodes: the operator manages every node its Node\n" +
+			"Feature Discovery marks as an AMD GPU node. Switching the allocation mode is refused\n" +
+			"while a Pod still uses an AMD GPU.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body, err := requireBodyFile(cmd)
+			if err != nil {
+				return err
+			}
+			return sendJSON(cmd, "PUT", fmt.Sprintf("platforms/%s/gpu-operator", args[0]), nil, body)
+		},
+	}
+	addFileFlag(set, "GPU Operator settings (enabled, version, allocationMode, draDriverVersion, resourceNaming, nodeLabeller, metricsExporter)")
+	uninstall := &cobra.Command{
+		Use:   "uninstall <platformId>",
+		Short: "Uninstall the GPU Operator; the platform keeps running",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sendJSON(cmd, "PUT", fmt.Sprintf("platforms/%s/gpu-operator", args[0]), nil, map[string]any{"enabled": false})
+		},
+	}
+	cmd.AddCommand(set, uninstall)
 	return cmd
 }
 
@@ -68,14 +119,14 @@ func platformsDeployCmd() *cobra.Command {
 			return sendJSON(cmd, "POST", "platforms/deploy", nil, body)
 		},
 	}
-	addFileFlag(cmd, "deploy body (siteId, name, type, roleAssignments/slurm, machinePreparation, ...)")
+	addFileFlag(cmd, "deploy body (siteId, name, type, roleAssignments/slurm, machinePreparation, gpuOperator, ...)")
 	return cmd
 }
 
 func platformsUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <platformId>",
-		Short: "Update name, gpuStackOwner, or exporterOwner from a JSON/YAML body",
+		Short: "Update name, gpuStackOwner, exporterOwner, or monitoringLinks from a JSON/YAML body",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := requireBodyFile(cmd)
@@ -85,7 +136,9 @@ func platformsUpdateCmd() *cobra.Command {
 			return sendJSON(cmd, "PATCH", "platforms/"+args[0], nil, body)
 		},
 	}
-	addFileFlag(cmd, "changed platform fields (name, gpuStackOwner, exporterOwner)")
+	// gpuStackOwner cannot be set back to provisioning while Swallow manages a GPU Operator; use
+	// `platforms gpu-operator uninstall` instead.
+	addFileFlag(cmd, "changed platform fields (name, gpuStackOwner, exporterOwner, monitoringLinks)")
 	return cmd
 }
 

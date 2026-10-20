@@ -1,0 +1,81 @@
+---
+# Install, change, or remove the Swallow-managed AMD GPU Operator on a Swallow-deployed k0s
+# Platform (decision 062). The intent arrives only through trusted variables
+# (swallow_amd_gpu_operator_*); the inventory is the Platform's deployment targets. No variable
+# names the nodes to manage: the operator's Node Feature Discovery decides, and the cluster play
+# records its result as amd_gpu_operator_desired_nodes on the controller. The play order is
+# load-bearing: the cluster-level checks pass before anything changes, the old allocation mode is
+# switched off before the DRA links are removed, and the driver and links are ready before the
+# DeviceConfig starts the operands.
+
+- name: Read every target
+  hosts: all
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Resolve this host's Kubernetes node name
+      ansible.builtin.set_fact:
+        # The Kubernetes node name is the host's short name (deploy-kubernetes passes it as
+        # --hostname-override), not the serverId that keys the inventory.
+        amd_gpu_operator_node_name: "{{ ansible_hostname }}"
+
+    - name: Refuse a run whose helm controller is not a target
+      ansible.builtin.assert:
+        that:
+          - swallow_amd_gpu_operator_controller_id in ansible_play_hosts_all
+        fail_msg: >-
+          the GPU Operator controller {{ swallow_amd_gpu_operator_controller_id }} is not among this
+          run's reachable targets
+      run_once: true
+
+    - name: Group the helm controller
+      ansible.builtin.group_by:
+        key: "{{ 'amd_gpu_operator_controller' if inventory_hostname == swallow_amd_gpu_operator_controller_id else 'amd_gpu_operator_node' }}"
+
+- name: Prepare or remove the operator in the cluster
+  hosts: amd_gpu_operator_controller
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Converge the release, the managed nodes, and the allocation mode
+      ansible.builtin.include_role:
+        name: amd_gpu_operator
+        tasks_from: cluster
+
+- name: Prepare the managed nodes on every target
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Resolve whether the operator manages this node
+      ansible.builtin.set_fact:
+        amd_gpu_operator_managed: >-
+          {{ swallow_amd_gpu_operator_state == 'present' and amd_gpu_operator_node_name in
+             (hostvars[swallow_amd_gpu_operator_controller_id].amd_gpu_operator_desired_nodes | default([])) }}
+
+    - name: Check the managed node's image ships the driver
+      ansible.builtin.include_role:
+        name: amd_gpu_operator
+        tasks_from: host_preflight
+      when: amd_gpu_operator_managed | bool
+
+    - name: Load the image's amdgpu driver, or stop loading it
+      ansible.builtin.include_role:
+        name: amd_gpu_operator
+        tasks_from: host_driver
+
+    - name: Create or remove the k0s DRA links
+      ansible.builtin.include_role:
+        name: amd_gpu_operator
+        tasks_from: host_paths
+
+- name: Apply and verify the DeviceConfig
+  hosts: amd_gpu_operator_controller
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Apply the DeviceConfig and wait for the GPUs
+      ansible.builtin.include_role:
+        name: amd_gpu_operator
+        tasks_from: apply
+      when: swallow_amd_gpu_operator_state == 'present'

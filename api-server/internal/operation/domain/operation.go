@@ -37,6 +37,13 @@ const (
 	// deploy-kubernetes operation while preserving the host operating system.
 	WorkflowKindUninstallKubernetes WorkflowKind = "uninstall-kubernetes"
 
+	// WorkflowKindConfigureGPUOperator installs, changes, or uninstalls the Swallow-managed AMD
+	// GPU Operator of a Kubernetes Platform (decision 062). It is both the kind of the ansible
+	// Task inside a deploy-kubernetes Workflow that installs the operator and the kind of the
+	// standalone Workflow that changes it later; launched by the platform context, never by a
+	// site playbook mapping.
+	WorkflowKindConfigureGPUOperator WorkflowKind = "configure-gpu-operator"
+
 	WorkflowKindConfigureSlurm WorkflowKind = "configure-slurm"
 	// WorkflowKindUninstallSlurm removes the Slurm configuration and daemons Swallow
 	// deployed while preserving the host operating system and the image-supplied packages.
@@ -85,6 +92,7 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindInstallGPUDriver,
 	WorkflowKindDeployKubernetes,
 	WorkflowKindUninstallKubernetes,
+	WorkflowKindConfigureGPUOperator,
 	WorkflowKindConfigureSlurm,
 	WorkflowKindUninstallSlurm,
 	WorkflowKindInstallExporters,
@@ -117,6 +125,7 @@ func (k WorkflowKind) Valid() bool {
 func (k WorkflowKind) RequiredProvisioningState() string {
 	switch k {
 	case WorkflowKindInstallGPUDriver, WorkflowKindDeployKubernetes, WorkflowKindConfigureSlurm,
+		WorkflowKindConfigureGPUOperator,
 		WorkflowKindInstallExporters, WorkflowKindDeployK8sExporters,
 		// Software deployment reaches a host over SSH via Ansible, so both install and uninstall
 		// require a booted, deployed OS. A Server that has left `deployed` has its assignments

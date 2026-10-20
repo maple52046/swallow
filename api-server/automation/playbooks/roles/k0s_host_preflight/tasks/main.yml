@@ -140,6 +140,50 @@
 # Every task below is gated on the RedHat family, so the Debian/Ubuntu path is unchanged.
 # The role is taken from the swallow trusted var, which keys serverId -> role.
 
+- name: Read the subnet of the address Swallow reaches this control-plane host on
+  # The deploy request was checked against the provisioner's subnet; this re-checks the HA API VIP
+  # against the host itself, for a provisioner whose subnets Swallow cannot read.
+  ansible.builtin.set_fact:
+    k0s_pf_host_ipv4: >-
+      {%- set found = namespace(value={}) -%}
+      {%- for name in ansible_facts['interfaces'] -%}
+      {%- set nic = ansible_facts[name | replace('-', '_')] | default({}) -%}
+      {%- if (nic.ipv4 | default({})).address | default('') == ansible_host -%}
+      {%- set found.value = nic.ipv4 -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ found.value }}
+  when:
+    - swallow_k0s_high_availability | default(false) | bool
+    - swallow_k0s_roles[inventory_hostname] | default('') == 'control-plane'
+
+- name: Refuse an HA API VIP that does not match this host's subnet
+  # keepalived adds the VIP with swallow_k0s_api_vip_prefix. A longer prefix than the subnet's adds
+  # a narrower route whose source is the VIP, so this host reaches part of the subnet from the VIP
+  # and etcd rejects it as a peer; a VIP outside the subnet cannot move between the controllers.
+  ansible.builtin.fail:
+    msg: >-
+      The API VIP {{ swallow_k0s_api_vip }}/{{ swallow_k0s_api_vip_prefix }} does not match
+      {{ k0s_node_name }}'s subnet {{ k0s_pf_host_ipv4.network }}/{{ k0s_pf_host_ipv4.prefix }}.
+      Use a VIP inside that subnet with prefix {{ k0s_pf_host_ipv4.prefix }}.
+  vars:
+    k0s_pf_vip_octets: "{{ swallow_k0s_api_vip.split('.') | map('int') | list }}"
+    k0s_pf_net_octets: "{{ k0s_pf_host_ipv4.network.split('.') | map('int') | list }}"
+    k0s_pf_block: "{{ 2 ** (32 - k0s_pf_host_ipv4.prefix | int) }}"
+    k0s_pf_vip_network: >-
+      {{ ((k0s_pf_vip_octets[0] * 16777216 + k0s_pf_vip_octets[1] * 65536 + k0s_pf_vip_octets[2] * 256
+           + k0s_pf_vip_octets[3]) // (k0s_pf_block | int)) * (k0s_pf_block | int) }}
+    k0s_pf_host_network: >-
+      {{ k0s_pf_net_octets[0] * 16777216 + k0s_pf_net_octets[1] * 65536 + k0s_pf_net_octets[2] * 256
+         + k0s_pf_net_octets[3] }}
+  when:
+    - swallow_k0s_high_availability | default(false) | bool
+    - swallow_k0s_roles[inventory_hostname] | default('') == 'control-plane'
+    - k0s_pf_host_ipv4.prefix is defined
+    - >-
+      swallow_k0s_api_vip_prefix | int != k0s_pf_host_ipv4.prefix | int
+      or k0s_pf_vip_network | int != k0s_pf_host_network | int
+
 - name: Resolve this host's k0s role and HA flag for RHEL hardening
   ansible.builtin.set_fact:
     k0s_pf_role: "{{ swallow_k0s_roles[inventory_hostname] | default('') }}"

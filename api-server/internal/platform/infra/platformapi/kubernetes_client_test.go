@@ -76,6 +76,64 @@ func TestListApplicationsAggregatesWorkloadsAndBarePods(t *testing.T) {
 	}
 }
 
+// TestListNodesReportsAMDGPUResources verifies the explorer's GPU read: allocatable amd.com/*
+// resources come from the node status, DRA devices are counted per node from gpu.amd.com
+// ResourceSlices, and a cluster without the DRA API reports the count as unknown, not zero.
+func TestListNodesReportsAMDGPUResources(t *testing.T) {
+	serve := func(dra bool) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/api/v1/nodes":
+				_, _ = w.Write([]byte(`{"items":[
+					{"metadata":{"name":"gpu-1"},"status":{"allocatable":{"cpu":"64","amd.com/gpu":"8"}}},
+					{"metadata":{"name":"cpu-1"},"status":{"allocatable":{"cpu":"16"}}}
+				]}`))
+			case "/apis/resource.k8s.io/v1/resourceslices":
+				if !dra {
+					http.NotFound(w, r)
+					return
+				}
+				if r.URL.Query().Get("fieldSelector") != "spec.driver=gpu.amd.com" {
+					t.Errorf("resourceslices fieldSelector = %q, want spec.driver=gpu.amd.com", r.URL.Query().Get("fieldSelector"))
+				}
+				_, _ = w.Write([]byte(`{"items":[
+					{"spec":{"driver":"gpu.amd.com","nodeName":"gpu-1","devices":[{"name":"gpu-0"},{"name":"gpu-1"}]}},
+					{"spec":{"driver":"gpu.amd.com","nodeName":"gpu-1","devices":[{"name":"gpu-2"}]}}
+				]}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+	}
+
+	server := serve(true)
+	defer server.Close()
+	nodes, err := newTestKubernetesClient(t, server.URL).ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("ListNodes: %v", err)
+	}
+	if got := nodes[0].GPUAllocatable["amd.com/gpu"]; got != 8 || len(nodes[0].GPUAllocatable) != 1 {
+		t.Errorf("gpu-1 allocatable = %v, want only amd.com/gpu=8", nodes[0].GPUAllocatable)
+	}
+	if nodes[0].GPUDRADevices == nil || *nodes[0].GPUDRADevices != 3 {
+		t.Errorf("gpu-1 DRA devices = %v, want 3 across its slices", nodes[0].GPUDRADevices)
+	}
+	if nodes[1].GPUDRADevices == nil || *nodes[1].GPUDRADevices != 0 || len(nodes[1].GPUAllocatable) != 0 {
+		t.Errorf("cpu-1 GPU = %v / %v, want no allocatable and 0 DRA devices", nodes[1].GPUAllocatable, nodes[1].GPUDRADevices)
+	}
+
+	legacy := serve(false)
+	defer legacy.Close()
+	nodes, err = newTestKubernetesClient(t, legacy.URL).ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("ListNodes without DRA: %v", err)
+	}
+	if nodes[0].GPUDRADevices != nil {
+		t.Errorf("DRA devices without resource.k8s.io/v1 = %v, want unknown", *nodes[0].GPUDRADevices)
+	}
+}
+
 // TestScaleApplicationRejectsUnscalableKinds verifies scaling is refused for a DaemonSet and a
 // bare Pod before any request is sent.
 func TestScaleApplicationRejectsUnscalableKinds(t *testing.T) {

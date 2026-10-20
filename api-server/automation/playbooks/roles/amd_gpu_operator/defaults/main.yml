@@ -1,0 +1,79 @@
+---
+# Implementation details of the Swallow-managed AMD GPU Operator (decision 062). The intent
+# (state, release, allocation mode, managed nodes, pinned images) arrives only as trusted
+# swallow_amd_gpu_operator_* variables; nothing here is an operator choice.
+
+amd_gpu_operator_kubectl: /usr/local/bin/k0s kubectl
+# k0s writes the cluster-admin kubeconfig here on every controller; helm reads it.
+amd_gpu_operator_kubeconfig: /var/lib/k0s/pki/admin.conf
+amd_gpu_operator_namespace: kube-amd-gpu
+amd_gpu_operator_release: amd-gpu-operator
+amd_gpu_operator_deviceconfig: swallow
+# The chart's Node Feature Discovery marks physical GPUs and SR-IOV virtual functions with
+# different labels, and a DeviceConfig selector can only AND labels. The playbook therefore copies
+# "either label is true" onto Swallow's own label, which the single DeviceConfig selects. NFD
+# decides the nodes; nobody lists them (decision 062).
+amd_gpu_operator_nfd_gpu_labels:
+  - feature.node.kubernetes.io/amd-gpu
+  - feature.node.kubernetes.io/amd-vgpu
+# The NFD master writes this annotation once it has applied a node's labels.
+amd_gpu_operator_nfd_evaluated_annotation: nfd.node.kubernetes.io/feature-labels
+amd_gpu_operator_node_label: swallow.dev/amd-gpu-operator
+amd_gpu_operator_node_label_value: managed
+# Marks the Helm release, namespace, and DeviceConfig Swallow created, so preflight can tell its
+# own operator from one installed by hand.
+amd_gpu_operator_owner_label: app.kubernetes.io/managed-by
+amd_gpu_operator_owner_value: swallow
+
+# Pinned Helm v3 used only by this role. It is downloaded once and verified against the official
+# SHA-256; it lives under Swallow's directory so it never replaces an operator's own helm.
+amd_gpu_operator_helm_version: v3.22.1
+amd_gpu_operator_helm_checksums:
+  amd64: 896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
+  arm64: 4c29e286b279d170fa048ddfc3e4e83dcd069ca9c52102766ba672d7149e694d
+amd_gpu_operator_home: /usr/local/lib/swallow/amd-gpu-operator
+
+# DRA on k0s: the v1.5.1 DRA DaemonSet mounts the upstream kubelet plugin paths, while k0s keeps
+# them under its data directory. These exact links are created only while DRA is wanted.
+amd_gpu_operator_dra_links:
+  - link: /var/lib/kubelet/plugins
+    target: /var/lib/k0s/kubelet/plugins
+  - link: /var/lib/kubelet/plugins_registry
+    target: /var/lib/k0s/kubelet/plugins_registry
+# The CDI spec the DRA driver writes for every node; removed only after DRA is off on the node.
+amd_gpu_operator_dra_common_cdi: /var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml
+amd_gpu_operator_pod_resources_socket_dir: /var/lib/k0s/kubelet/pod-resources
+
+# Every managed node gets this post-boot amdgpu loader, and the k0s units on it are ordered after
+# it with the drop-in, so a node whose image keeps amdgpu out of the boot path still exposes its
+# GPUs after a reboot. Loading many GPUs can exceed systemd's default 90 s start timeout.
+amd_gpu_operator_driver_unit: swallow-amdgpu-load.service
+amd_gpu_operator_driver_dropin: 10-swallow-after-amdgpu.conf
+amd_gpu_operator_driver_load_timeout: 300
+amd_gpu_operator_k0s_units:
+  - k0scontroller
+  - k0sworker
+amd_gpu_operator_ssh_unit: "{{ 'ssh.service' if ansible_facts['os_family'] == 'Debian' else 'sshd.service' }}"
+
+# Node label prefixes the operator's node labeller and NFD write. They are removed from a node the
+# operator stops managing; the labeller does not clean up after itself.
+amd_gpu_operator_node_label_prefixes:
+  - amd.com/gpu
+  - beta.amd.com/gpu
+  - feature.node.kubernetes.io/
+amd_gpu_operator_labeller_arguments:
+  - vram
+  - cu-count
+  - simd-count
+  - device-id
+  - family
+  - product-name
+  - driver-version
+  - compute-memory-partition
+  - compute-partitioning-supported
+  - memory-partitioning-supported
+
+# Bounded waits (retries x delay seconds).
+amd_gpu_operator_wait_retries: 60
+amd_gpu_operator_wait_delay: 10
+amd_gpu_operator_helm_timeout: 10m

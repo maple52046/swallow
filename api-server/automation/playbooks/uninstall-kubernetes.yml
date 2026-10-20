@@ -76,6 +76,63 @@
         - /tmp/get-k0s.sh
         - /usr/local/bin/k0s
 
+    - name: Read the GPU Operator's DRA link paths
+      # k0s reset removed the operator with the cluster, but the DRA links live outside k0s
+      # state (decision 062). Only the exact links Swallow creates are removed.
+      ansible.builtin.stat:
+        path: "{{ item.link }}"
+        follow: false
+      loop:
+        - link: /var/lib/kubelet/plugins
+          target: /var/lib/k0s/kubelet/plugins
+        - link: /var/lib/kubelet/plugins_registry
+          target: /var/lib/k0s/kubelet/plugins_registry
+      register: k0s_uninstall_dra_links
+
+    - name: Remove the GPU Operator's DRA links
+      ansible.builtin.file:
+        path: "{{ item.item.link }}"
+        state: absent
+      loop: "{{ k0s_uninstall_dra_links.results }}"
+      loop_control:
+        label: "{{ item.item.link }}"
+      when:
+        - item.stat.exists
+        - item.stat.islnk
+        - item.stat.lnk_source == item.item.target
+
+    - name: Remove the GPU Operator's DRA common CDI spec
+      # The DRA driver writes it outside k0s state; k0s reset leaves it behind.
+      ansible.builtin.file:
+        path: /var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml
+        state: absent
+
+    - name: Remove the GPU Operator's helm and chart
+      ansible.builtin.file:
+        path: /usr/local/lib/swallow/amd-gpu-operator
+        state: absent
+
+    - name: Read the GPU Operator's amdgpu loader
+      ansible.builtin.stat:
+        path: /etc/systemd/system/swallow-amdgpu-load.service
+      register: k0s_uninstall_amdgpu_loader
+
+    - name: Disable the GPU Operator's amdgpu loader
+      # The loaded driver stays; only the next boot goes back to the image's own policy.
+      ansible.builtin.systemd:
+        name: swallow-amdgpu-load.service
+        enabled: false
+      when: k0s_uninstall_amdgpu_loader.stat.exists
+
+    - name: Remove the GPU Operator's amdgpu loader and its k0s ordering
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/swallow-amdgpu-load.service
+        - /etc/systemd/system/k0scontroller.service.d/10-swallow-after-amdgpu.conf
+        - /etc/systemd/system/k0sworker.service.d/10-swallow-after-amdgpu.conf
+
     - name: Reload systemd after removing k0s units
       ansible.builtin.systemd:
         daemon_reload: true

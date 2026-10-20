@@ -1,0 +1,514 @@
+---
+# Runs on the controller helm uses (swallow_amd_gpu_operator_controller_id), before the hosts are
+# prepared. It refuses what Swallow must not touch, then either brings the release, the managed
+# nodes, and the allocation mode to the point where the new DeviceConfig can be applied (state
+# present), or removes the operator entirely (state absent). The cluster-level checks pass before
+# anything changes. The managed nodes are the ones the chart's Node Feature Discovery marks as AMD
+# GPU nodes, so they are known only after the release is installed; this play records them as
+# amd_gpu_operator_desired_nodes for the host and apply plays.
+
+- name: Resolve the run's intent
+  ansible.builtin.set_fact:
+    amd_gpu_operator_present: "{{ swallow_amd_gpu_operator_state == 'present' }}"
+    amd_gpu_operator_desired_nodes: []
+    amd_gpu_operator_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture) }}"
+    amd_gpu_operator_helm: "{{ amd_gpu_operator_home }}/bin/{{ amd_gpu_operator_helm_version }}/helm"
+    amd_gpu_operator_helm_env:
+      KUBECONFIG: "{{ amd_gpu_operator_kubeconfig }}"
+
+- name: Create Swallow's GPU Operator directories
+  ansible.builtin.file:
+    path: "{{ amd_gpu_operator_home }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "bin/{{ amd_gpu_operator_helm_version }}"
+    - charts
+    - config
+
+- name: Download the pinned helm release
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-{{ amd_gpu_operator_helm_version }}-linux-{{ amd_gpu_operator_arch }}.tar.gz"
+    dest: "{{ amd_gpu_operator_home }}/helm-{{ amd_gpu_operator_helm_version }}-linux-{{ amd_gpu_operator_arch }}.tar.gz"
+    checksum: "sha256:{{ amd_gpu_operator_helm_checksums[amd_gpu_operator_arch] }}"
+    mode: "0644"
+
+- name: Unpack helm
+  ansible.builtin.unarchive:
+    src: "{{ amd_gpu_operator_home }}/helm-{{ amd_gpu_operator_helm_version }}-linux-{{ amd_gpu_operator_arch }}.tar.gz"
+    dest: "{{ amd_gpu_operator_home }}/bin/{{ amd_gpu_operator_helm_version }}"
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+      - "linux-{{ amd_gpu_operator_arch }}/helm"
+    creates: "{{ amd_gpu_operator_helm }}"
+
+# --- Preflight: things Swallow refuses to take over ---------------------------------------------
+
+- name: Look for a hand-applied AMD device plugin or node labeller
+  ansible.builtin.command:
+    cmd: >-
+      {{ amd_gpu_operator_kubectl }} -n kube-system get daemonset
+      amdgpu-device-plugin-daemonset amdgpu-labeller-daemonset --ignore-not-found -o name
+  register: amd_gpu_operator_legacy
+  changed_when: false
+
+- name: Refuse a hand-applied AMD device plugin or node labeller
+  ansible.builtin.fail:
+    msg: >-
+      [gpu_operator_unmanaged] kube-system runs {{ amd_gpu_operator_legacy.stdout_lines | join(', ') }},
+      which Swallow did not install. Two device plugins would fight over the kubelet socket; delete
+      them first (and their amd.com/gpu.* node labels).
+  when: amd_gpu_operator_legacy.stdout | trim | length > 0
+
+- name: List the Helm releases in the cluster
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_helm }} list -A -o json"
+  environment: "{{ amd_gpu_operator_helm_env }}"
+  register: amd_gpu_operator_releases
+  changed_when: false
+
+- name: List the Helm releases Swallow owns
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_helm }} list -A -o json -l swallow-managed=true"
+  environment: "{{ amd_gpu_operator_helm_env }}"
+  register: amd_gpu_operator_owned_releases
+  changed_when: false
+
+- name: Classify the AMD GPU Operator releases
+  ansible.builtin.set_fact:
+    amd_gpu_operator_release_exists: >-
+      {{ (amd_gpu_operator_owned_releases.stdout | from_json)
+         | selectattr('name', 'equalto', amd_gpu_operator_release)
+         | selectattr('namespace', 'equalto', amd_gpu_operator_namespace) | list | length > 0 }}
+    amd_gpu_operator_foreign_releases: >-
+      {%- set owned = [] -%}
+      {%- for release in amd_gpu_operator_owned_releases.stdout | from_json -%}
+      {%- set _ = owned.append(release.namespace ~ '/' ~ release.name) -%}
+      {%- endfor -%}
+      {%- set foreign = [] -%}
+      {%- for release in amd_gpu_operator_releases.stdout | from_json -%}
+      {%- if release.chart.startswith('gpu-operator-charts') and (release.namespace ~ '/' ~ release.name) not in owned -%}
+      {%- set _ = foreign.append(release.namespace ~ '/' ~ release.name) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ foreign }}
+
+- name: Refuse an AMD GPU Operator Swallow did not install
+  ansible.builtin.fail:
+    msg: >-
+      [gpu_operator_unmanaged] the cluster already runs the AMD GPU Operator Helm release
+      {{ amd_gpu_operator_foreign_releases | join(', ') }}, which Swallow did not install. Uninstall
+      it first; Swallow does not adopt an operator it did not create.
+  when: amd_gpu_operator_foreign_releases | length > 0
+
+- name: Check for the DeviceConfig API
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get crd deviceconfigs.amd.com --ignore-not-found -o name"
+  register: amd_gpu_operator_crd
+  changed_when: false
+
+- name: List the DeviceConfigs
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get deviceconfigs.amd.com -A -o json"
+  register: amd_gpu_operator_deviceconfigs
+  changed_when: false
+  when: amd_gpu_operator_crd.stdout | trim | length > 0
+
+- name: Classify the DeviceConfigs
+  ansible.builtin.set_fact:
+    amd_gpu_operator_current: >-
+      {%- set found = namespace(value={}) -%}
+      {%- for item in (amd_gpu_operator_deviceconfigs.stdout | default('{"items": []}', true) | from_json)['items'] -%}
+      {%- if item.metadata.namespace == amd_gpu_operator_namespace and item.metadata.name == amd_gpu_operator_deviceconfig -%}
+      {%- set found.value = item -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ found.value }}
+    amd_gpu_operator_foreign_deviceconfigs: >-
+      {%- set foreign = [] -%}
+      {%- for item in (amd_gpu_operator_deviceconfigs.stdout | default('{"items": []}', true) | from_json)['items'] -%}
+      {%- set ours = item.metadata.namespace == amd_gpu_operator_namespace and item.metadata.name == amd_gpu_operator_deviceconfig
+             and (item.metadata.labels | default({}))[amd_gpu_operator_owner_label] | default('') == amd_gpu_operator_owner_value -%}
+      {%- if not ours -%}
+      {%- set _ = foreign.append(item.metadata.namespace ~ '/' ~ item.metadata.name) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ foreign }}
+
+- name: Refuse DeviceConfigs Swallow did not create
+  ansible.builtin.fail:
+    msg: >-
+      [gpu_operator_unmanaged] the cluster has the DeviceConfig {{ amd_gpu_operator_foreign_deviceconfigs | join(', ') }},
+      which Swallow did not create. Delete it first.
+  when: amd_gpu_operator_foreign_deviceconfigs | length > 0
+
+- name: Resolve the current allocation mode
+  ansible.builtin.set_fact:
+    amd_gpu_operator_current_mode: >-
+      {{ 'dra' if (amd_gpu_operator_current.spec.draDriver.enable | default(false) | bool)
+         else ('device-plugin' if (amd_gpu_operator_current.spec.devicePlugin.enableDevicePlugin | default(false) | bool)
+         else 'none') }}
+
+- name: Read the nodes the operator manages now
+  ansible.builtin.command:
+    cmd: >-
+      {{ amd_gpu_operator_kubectl }} get nodes
+      -l {{ amd_gpu_operator_node_label }}={{ amd_gpu_operator_node_label_value }}
+      -o jsonpath={.items[*].metadata.name}
+  register: amd_gpu_operator_labelled
+  changed_when: false
+
+- name: Check for the DRA API
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get --raw /apis/resource.k8s.io/v1"
+  register: amd_gpu_operator_dra_api
+  changed_when: false
+  failed_when: false
+
+- name: Refuse DRA on a cluster without resource.k8s.io/v1
+  ansible.builtin.fail:
+    msg: >-
+      [dra_unavailable] the cluster does not serve resource.k8s.io/v1, which the DRA driver needs
+      (Kubernetes 1.34 or later). Use the device plugin.
+  when:
+    - amd_gpu_operator_present | bool
+    - swallow_amd_gpu_operator_allocation_mode == 'dra'
+    - amd_gpu_operator_dra_api.rc != 0
+
+- name: Decide whether running GPU work blocks the change
+  ansible.builtin.set_fact:
+    amd_gpu_operator_check_all_workloads: >-
+      {{ not amd_gpu_operator_present | bool or
+         amd_gpu_operator_current_mode not in ['none', swallow_amd_gpu_operator_allocation_mode] }}
+
+- name: List the Pods that may hold an AMD GPU
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get pods -A -o json --field-selector=status.phase!=Succeeded,status.phase!=Failed"
+  register: amd_gpu_operator_pods
+  changed_when: false
+  when: amd_gpu_operator_check_all_workloads | bool
+
+- name: List the allocated DRA claims
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get resourceclaims -A -o json"
+  register: amd_gpu_operator_claims
+  changed_when: false
+  when:
+    - amd_gpu_operator_check_all_workloads | bool
+    - amd_gpu_operator_dra_api.rc == 0
+
+- name: Find the GPU work the change would disrupt
+  ansible.builtin.set_fact:
+    amd_gpu_operator_blocking: >-
+      {%- set found = [] -%}
+      {%- for pod in (amd_gpu_operator_pods.stdout | default('{"items": []}', true) | from_json)['items'] -%}
+      {%- set gpu = namespace(value=false) -%}
+      {%- for container in (pod.spec.containers | default([])) + (pod.spec.initContainers | default([])) -%}
+      {%- for section in ['limits', 'requests'] -%}
+      {%- for key in ((container.resources | default({}))[section] | default({})).keys() if key.startswith('amd.com/') -%}
+      {%- set gpu.value = true -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- if gpu.value -%}
+      {%- set _ = found.append('Pod ' ~ pod.metadata.namespace ~ '/' ~ pod.metadata.name) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- for claim in (amd_gpu_operator_claims.stdout | default('{"items": []}', true) | from_json)['items'] -%}
+      {%- for result in ((claim.status | default({})).allocation | default({})).devices.results | default([]) if result.driver == 'gpu.amd.com' -%}
+      {%- set _ = found.append('ResourceClaim ' ~ claim.metadata.namespace ~ '/' ~ claim.metadata.name) -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ found | unique }}
+
+- name: Refuse a change that would take GPUs away from running work
+  ansible.builtin.fail:
+    msg: >-
+      [gpu_workloads_present] {{ 'uninstalling the GPU Operator' if not amd_gpu_operator_present | bool
+      else 'switching to ' ~ swallow_amd_gpu_operator_allocation_mode }}
+      would take GPUs from {{ amd_gpu_operator_blocking[:10] | join(', ') }}{{ ' and more' if amd_gpu_operator_blocking | length > 10 else '' }}.
+      Stop that work first.
+  when: amd_gpu_operator_blocking | length > 0
+
+# --- State absent: remove the operator ----------------------------------------------------------
+
+- name: Remove the operator
+  when: not amd_gpu_operator_present | bool
+  block:
+    - name: Delete Swallow's DeviceConfig
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} delete deviceconfig
+          {{ amd_gpu_operator_deviceconfig }} --ignore-not-found --wait=true --timeout=300s
+      register: amd_gpu_operator_dc_deleted
+      changed_when: "'deleted' in amd_gpu_operator_dc_deleted.stdout"
+      when: amd_gpu_operator_crd.stdout | trim | length > 0
+
+    - name: Wait for the operator's DaemonSets to disappear
+      ansible.builtin.include_tasks: wait_operands_gone.yml
+      vars:
+        amd_gpu_operator_wait_daemonsets: ["device-plugin", "node-labeller", "dra-driver", "metrics-exporter"]
+      when: amd_gpu_operator_crd.stdout | trim | length > 0
+
+    - name: Uninstall the Helm release
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_helm }} uninstall {{ amd_gpu_operator_release }}
+          -n {{ amd_gpu_operator_namespace }} --wait --timeout {{ amd_gpu_operator_helm_timeout }}
+      environment: "{{ amd_gpu_operator_helm_env }}"
+      changed_when: true
+      when: amd_gpu_operator_release_exists | bool
+
+    - name: List every node
+      # Node Feature Discovery ran on every node, so its labels are on CPU-only nodes too.
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_kubectl }} get nodes -o jsonpath={.items[*].metadata.name}"
+      register: amd_gpu_operator_all_nodes
+      changed_when: false
+
+    - name: Remove the operator's labels from every node
+      ansible.builtin.include_tasks: strip_node_labels.yml
+      vars:
+        amd_gpu_operator_strip_prefixes: "{{ amd_gpu_operator_node_label_prefixes + [amd_gpu_operator_node_label] }}"
+      loop: "{{ amd_gpu_operator_all_nodes.stdout.split() }}"
+      loop_control:
+        loop_var: amd_gpu_operator_strip_node
+
+    - name: Read the operator namespace
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_kubectl }} get namespace {{ amd_gpu_operator_namespace }} --ignore-not-found -o json"
+      register: amd_gpu_operator_namespace_read
+      changed_when: false
+
+    - name: Delete the namespace Swallow created
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_kubectl }} delete namespace {{ amd_gpu_operator_namespace }} --wait=true --timeout=180s"
+      changed_when: true
+      when:
+        - amd_gpu_operator_namespace_read.stdout | trim | length > 0
+        - ((amd_gpu_operator_namespace_read.stdout | from_json).metadata.labels | default({}))[amd_gpu_operator_owner_label] | default('') == amd_gpu_operator_owner_value
+
+# --- State present: release, node labels, and the old allocation mode ---------------------------
+
+- name: Prepare the operator
+  when: amd_gpu_operator_present | bool
+  block:
+    - name: Copy the bundled chart
+      ansible.builtin.copy:
+        src: "gpu-operator-charts-{{ swallow_amd_gpu_operator_version }}.tgz"
+        dest: "{{ amd_gpu_operator_home }}/charts/gpu-operator-charts-{{ swallow_amd_gpu_operator_version }}.tgz"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Render the chart values
+      ansible.builtin.template:
+        src: values.yaml.j2
+        dest: "{{ amd_gpu_operator_home }}/config/values.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Render the operator namespace
+      ansible.builtin.template:
+        src: namespace.yaml.j2
+        dest: "{{ amd_gpu_operator_home }}/config/namespace.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Apply the operator namespace
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_kubectl }} apply -f {{ amd_gpu_operator_home }}/config/namespace.yaml"
+      register: amd_gpu_operator_namespace_apply
+      changed_when: "'unchanged' not in amd_gpu_operator_namespace_apply.stdout"
+
+    - name: Read the deployed release
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_helm }} get metadata {{ amd_gpu_operator_release }} -n {{ amd_gpu_operator_namespace }} -o json"
+      environment: "{{ amd_gpu_operator_helm_env }}"
+      register: amd_gpu_operator_release_metadata
+      changed_when: false
+      failed_when: false
+      when: amd_gpu_operator_release_exists | bool
+
+    - name: Read the deployed values
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_helm }} get values {{ amd_gpu_operator_release }} -n {{ amd_gpu_operator_namespace }} -o json"
+      environment: "{{ amd_gpu_operator_helm_env }}"
+      register: amd_gpu_operator_release_values
+      changed_when: false
+      failed_when: false
+      when: amd_gpu_operator_release_exists | bool
+
+    - name: Decide whether the release must be installed or upgraded
+      ansible.builtin.set_fact:
+        amd_gpu_operator_release_current: >-
+          {{ amd_gpu_operator_release_exists | bool
+             and amd_gpu_operator_release_metadata.rc | default(1) == 0
+             and (amd_gpu_operator_release_metadata.stdout | from_json).status | default('') == 'deployed'
+             and (amd_gpu_operator_release_metadata.stdout | from_json).version | default('') == swallow_amd_gpu_operator_version
+             and (amd_gpu_operator_release_values.stdout | default('{}', true) | from_json) == (lookup('ansible.builtin.template', 'values.yaml.j2') | from_yaml) }}
+
+    - name: Install or upgrade the operator release
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_helm }} upgrade --install {{ amd_gpu_operator_release }}
+          {{ amd_gpu_operator_home }}/charts/gpu-operator-charts-{{ swallow_amd_gpu_operator_version }}.tgz
+          -n {{ amd_gpu_operator_namespace }} --version {{ swallow_amd_gpu_operator_version }}
+          -f {{ amd_gpu_operator_home }}/config/values.yaml --labels swallow-managed=true
+          --wait --timeout {{ amd_gpu_operator_helm_timeout }}
+      environment: "{{ amd_gpu_operator_helm_env }}"
+      changed_when: true
+      when: not amd_gpu_operator_release_current | bool
+
+    - name: Wait for Node Feature Discovery to run on every node it can
+      # A node whose taints the NFD worker does not tolerate gets no worker and is not managed, as
+      # the operator's own DaemonSets would not run there either.
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} get daemonset
+          {{ amd_gpu_operator_release }}-node-feature-discovery-worker -o json
+      register: amd_gpu_operator_nfd_worker
+      changed_when: false
+      failed_when: false
+      until: >-
+        amd_gpu_operator_nfd_worker.rc == 0
+        and (amd_gpu_operator_nfd_worker.stdout | from_json).status.desiredNumberScheduled | default(0) > 0
+        and (amd_gpu_operator_nfd_worker.stdout | from_json).status.numberReady | default(0)
+            == (amd_gpu_operator_nfd_worker.stdout | from_json).status.desiredNumberScheduled
+        and (amd_gpu_operator_nfd_worker.stdout | from_json).status.updatedNumberScheduled | default(0)
+            == (amd_gpu_operator_nfd_worker.stdout | from_json).status.desiredNumberScheduled
+      retries: "{{ amd_gpu_operator_wait_retries }}"
+      delay: "{{ amd_gpu_operator_wait_delay }}"
+
+    - name: List the nodes Node Feature Discovery runs on
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} get pods
+          -l app.kubernetes.io/instance={{ amd_gpu_operator_release }},app.kubernetes.io/name=node-feature-discovery,role=worker
+          -o jsonpath={.items[*].spec.nodeName}
+      register: amd_gpu_operator_nfd_nodes
+      changed_when: false
+
+    - name: Wait for Node Feature Discovery to evaluate those nodes
+      # The NFD master records the labels it applied in this annotation, so its presence means
+      # the node's GPU labels are final.
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_kubectl }} get nodes -o json"
+      register: amd_gpu_operator_nodes_read
+      changed_when: false
+      until: >-
+        amd_gpu_operator_nfd_nodes.stdout.split() | difference(
+          (amd_gpu_operator_nodes_read.stdout | from_json)['items']
+          | selectattr('metadata.annotations', 'defined')
+          | selectattr('metadata.annotations', 'contains', amd_gpu_operator_nfd_evaluated_annotation)
+          | map(attribute='metadata.name') | list
+        ) | length == 0
+      retries: "{{ amd_gpu_operator_wait_retries }}"
+      delay: "{{ amd_gpu_operator_wait_delay }}"
+      failed_when: false
+
+    - name: Resolve the nodes Node Feature Discovery marks as AMD GPU nodes
+      # The waits above tolerate a timeout, so whether NFD finished is decided here.
+      ansible.builtin.set_fact:
+        amd_gpu_operator_nfd_status: "{{ (amd_gpu_operator_nfd_worker.stdout | default('{}', true) | from_json).status | default({}) }}"
+        amd_gpu_operator_nfd_pending: >-
+          {{ amd_gpu_operator_nfd_nodes.stdout.split() | difference(
+               (amd_gpu_operator_nodes_read.stdout | from_json)['items']
+               | selectattr('metadata.annotations', 'defined')
+               | selectattr('metadata.annotations', 'contains', amd_gpu_operator_nfd_evaluated_annotation)
+               | map(attribute='metadata.name') | list) }}
+        amd_gpu_operator_desired_nodes: >-
+          {%- set found = [] -%}
+          {%- for node in (amd_gpu_operator_nodes_read.stdout | from_json)['items'] -%}
+          {%- set labels = node.metadata.labels | default({}) -%}
+          {%- for key in amd_gpu_operator_nfd_gpu_labels if labels[key] | default('') == 'true' -%}
+          {%- set _ = found.append(node.metadata.name) -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {{ found | unique }}
+
+    - name: Refuse a cluster where Node Feature Discovery did not finish
+      ansible.builtin.fail:
+        msg: >-
+          [amd_gpu_not_detected] Node Feature Discovery did not finish within the timeout: its worker
+          is ready on {{ amd_gpu_operator_nfd_status.numberReady | default(0) }} of
+          {{ amd_gpu_operator_nfd_status.desiredNumberScheduled | default(0) }} nodes, and it has not
+          evaluated {{ amd_gpu_operator_nfd_pending | join(', ') | default('-', true) }}.
+      when: >-
+        amd_gpu_operator_nfd_worker.rc != 0
+        or amd_gpu_operator_nfd_status.desiredNumberScheduled | default(0) == 0
+        or amd_gpu_operator_nfd_status.numberReady | default(0) != amd_gpu_operator_nfd_status.desiredNumberScheduled
+        or amd_gpu_operator_nfd_status.updatedNumberScheduled | default(0) != amd_gpu_operator_nfd_status.desiredNumberScheduled
+        or amd_gpu_operator_nfd_pending | length > 0
+
+    - name: Refuse a cluster without a supported AMD GPU
+      ansible.builtin.fail:
+        msg: >-
+          [amd_gpu_not_detected] Node Feature Discovery marked no node as an AMD GPU node
+          ({{ amd_gpu_operator_nfd_gpu_labels | join(' or ') }}), so the operator has nothing to manage.
+          Check that the GPUs are supported by GPU Operator {{ swallow_amd_gpu_operator_version }}.
+      when: amd_gpu_operator_desired_nodes | length == 0
+
+    - name: Resolve the nodes leaving the operator
+      ansible.builtin.set_fact:
+        amd_gpu_operator_leaving_nodes: >-
+          {{ amd_gpu_operator_labelled.stdout.split() | difference(amd_gpu_operator_desired_nodes) }}
+
+    - name: Label the nodes the operator manages
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_kubectl }} label node {{ item }}
+          {{ amd_gpu_operator_node_label }}={{ amd_gpu_operator_node_label_value }} --overwrite
+      loop: "{{ amd_gpu_operator_desired_nodes }}"
+      register: amd_gpu_operator_labelling
+      changed_when: "'not labeled' not in amd_gpu_operator_labelling.stdout"
+
+    - name: Stop managing the nodes that left
+      ansible.builtin.command:
+        cmd: "{{ amd_gpu_operator_kubectl }} label node {{ item }} {{ amd_gpu_operator_node_label }}-"
+      loop: "{{ amd_gpu_operator_leaving_nodes }}"
+      changed_when: true
+
+    - name: Wait for the operator to leave those nodes
+      # Every operand DaemonSet is named after the DeviceConfig, so its Pods share that prefix.
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} get pods
+          --field-selector spec.nodeName={{ item }} -o jsonpath={.items[*].metadata.name}
+      loop: "{{ amd_gpu_operator_leaving_nodes }}"
+      register: amd_gpu_operator_leaving_pods
+      changed_when: false
+      until: >-
+        amd_gpu_operator_leaving_pods.stdout.split()
+        | select('match', '^' ~ amd_gpu_operator_deviceconfig ~ '-') | list | length == 0
+      retries: "{{ amd_gpu_operator_wait_retries }}"
+      delay: "{{ amd_gpu_operator_wait_delay }}"
+
+    - name: Remove the operator's labels from the nodes that left
+      ansible.builtin.include_tasks: strip_node_labels.yml
+      vars:
+        amd_gpu_operator_strip_prefixes: "{{ amd_gpu_operator_node_label_prefixes }}"
+      loop: "{{ amd_gpu_operator_leaving_nodes }}"
+      loop_control:
+        loop_var: amd_gpu_operator_strip_node
+
+    - name: Turn the previous allocation mode off first
+      ansible.builtin.command:
+        cmd: >-
+          {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} patch deviceconfig
+          {{ amd_gpu_operator_deviceconfig }} --type=merge
+          -p {{ ({'spec': {'draDriver': {'enable': false}}} if amd_gpu_operator_current_mode == 'dra'
+                 else {'spec': {'devicePlugin': {'enableDevicePlugin': false}}}) | to_json | quote }}
+      changed_when: true
+      when: amd_gpu_operator_current_mode not in ['none', swallow_amd_gpu_operator_allocation_mode]
+
+    - name: Wait for the previous allocation mode to disappear
+      ansible.builtin.include_tasks: wait_operands_gone.yml
+      vars:
+        amd_gpu_operator_wait_daemonsets: "{{ ['dra-driver'] if amd_gpu_operator_current_mode == 'dra' else ['device-plugin'] }}"
+      when: amd_gpu_operator_current_mode not in ['none', swallow_amd_gpu_operator_allocation_mode]

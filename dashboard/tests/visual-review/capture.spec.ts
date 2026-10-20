@@ -296,6 +296,56 @@ test.describe('Server and Platform operations visual review', () => {
   })
 })
 
+/**
+ * Captures the AMD GPU Operator feature (decision 062): the deploy wizard's Features step with the
+ * options expanded in DRA mode, the Platform's GPU Operator section, its Configure dialog, and the
+ * Cluster tab's GPU column.
+ */
+test.describe('AMD GPU Operator visual review', () => {
+  test('gpu-operator', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/deploy?site=site-a')
+    await page.getByLabel('Platform name').fill('gpu-k0s')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await chooseOption(page, 'Topology', 'Multi-node (non-HA)')
+    await chooseOption(page, 'Role for gpu-node-01', 'Control-plane')
+    await chooseOption(page, 'Role for gpu-node-02', 'Worker')
+    await chooseOption(page, 'Role for gpu-node-03', 'Worker')
+    await next.click()
+    await page.getByRole('checkbox', { name: 'Install AMD GPU Operator' }).locator('..').click()
+    await chooseOption(page, 'GPU allocation mode', 'DRA')
+    await expect(page.getByRole('combobox', { name: 'DRA driver version' })).toContainText('v1.0.1')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'gpu-operator-wizard-features')
+
+    await page.goto('/platforms/platform-a?site=site-a')
+    const section = page.getByRole('region', { name: 'AMD GPU Operator' })
+    await expect(section.getByText('Ready', { exact: true })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await section.screenshot({ path: testInfo.outputPath(`gpu-operator-platform-section-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+
+    await section.getByRole('button', { name: 'Configure' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Configure AMD GPU Operator' })
+    await expect(dialog.getByRole('combobox', { name: 'GPU Operator version' })).toContainText('v1.5.1')
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'gpu-operator-configure-dialog', false)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+    await page.getByRole('tab', { name: 'Cluster' }).click()
+    await expect(page.getByText('8 × amd.com/gpu')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'gpu-operator-cluster-nodes')
+  })
+})
+
 /** Captures the experimental Add servers path for libvirt virtual machines with a listed hypervisor. */
 test.describe('Add servers virtual machines visual review', () => {
   test('add-servers-virtual-machines', async ({ page }, testInfo) => {
@@ -641,6 +691,8 @@ test.describe('OS deployment flow visual review', () => {
     await next.click()
     await chooseOption(page, 'Topology', 'Standalone (single Server)')
     await chooseOption(page, 'Role for gpu-node-01', 'Standalone node')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
     await next.click()
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
     const sharedImageStep = page.locator('.sw-os-image-selection-step')

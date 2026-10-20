@@ -478,6 +478,7 @@ const JOB_LABELS: Record<string, string> = {
   'ensure-os': 'Provision OS',
   'configure-k0s': 'Configure Kubernetes',
   'configure-slurm': 'Configure Slurm',
+  'configure-gpu-operator': 'Configure AMD GPU Operator',
   'uninstall-platform': 'Remove Platform Software',
   'release-servers': 'Release Servers',
   'finalize-uninstall': 'Finalize Uninstall',

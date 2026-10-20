@@ -121,6 +121,11 @@ const platforms = [
       ],
     },
     gpuStackOwner: 'gpu-operator', exporterOwner: 'k8s', monitoringLinks: [],
+    gpuOperator: {
+      enabled: true, version: 'v1.5.1', allocationMode: 'device-plugin', draDriverVersion: null,
+      resourceNaming: 'single', nodeLabeller: true, metricsExporter: false,
+      state: 'ready', lastWorkflowId: 'op-gpu-operator', updatedAt: now,
+    } as Record<string, unknown> | null,
     sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 5, matchedCount: 4 },
     createdAt: '2026-08-10T00:00:00Z', updatedAt: now,
   },
@@ -134,7 +139,7 @@ const platforms = [
         { serverId: 'srv-4', role: 'control-plane', runWorkloads: true },
       ],
     },
-    gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [],
+    gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [], gpuOperator: null,
     sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
     createdAt: '2026-08-20T00:00:00Z', updatedAt: now,
   },
@@ -142,7 +147,7 @@ const platforms = [
     id: 'platform-slurm', siteId: 'site-a', name: 'research-slurm', type: 'slurm',
     integrationId: 'slurm-a', origin: 'registered', lifecycleState: 'registered',
     lifecycleOperationId: null, deployment: null,
-    gpuStackOwner: 'provisioning', exporterOwner: 'ansible',
+    gpuStackOwner: 'provisioning', exporterOwner: 'ansible', gpuOperator: null,
     monitoringLinks: [{ name: 'Omnistat Grafana', url: 'https://omnistat.example/grafana' }],
     sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 0, matchedCount: 0 },
     createdAt: '2026-08-22T00:00:00Z', updatedAt: now,
@@ -257,6 +262,12 @@ export interface FixtureOptions {
   onServerActionRequest?: (serverId: string, action: string) => void
   /** Overrides a seeded Platform's lifecycle state by id, e.g. `{ 'platform-a': 'deploying' }`. */
   platformLifecycleStates?: Record<string, 'deploying' | 'uninstalling' | 'active' | 'deploy_failed'>
+  /** Removes platform-a's seeded GPU Operator, modelling a Platform that never had one. */
+  withoutPlatformGPUOperator?: boolean
+  /** Receives every `PUT /platforms/{id}/gpu-operator` body. */
+  onGPUOperatorRequest?: (platformId: string, body: Record<string, unknown>) => void
+  /** Makes `PUT .../gpu-operator` answer 409 as if a target were held by another Workflow. */
+  gpuOperatorBusy?: boolean
   /**
    * Provider-only running work: sets the OS Provisioning State and leaves the Swallow deployment
    * record alone, so no Swallow Workflow is running for the Server (unlike `changingServerIds`).
@@ -1056,8 +1067,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
   }
   const platformItems = platforms.map((platform) => ({
-    ...platform,
+    ...structuredClone(platform),
     lifecycleState: options.platformLifecycleStates?.[platform.id] ?? platform.lifecycleState,
+    gpuOperator: options.withoutPlatformGPUOperator && platform.id === 'platform-a' ? null : structuredClone(platform.gpuOperator),
   }))
   if (options.slurmDeployed) {
     // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
@@ -1096,7 +1108,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           { serverId: 'slurm-cpt-2', role: 'worker', runWorkloads: false },
         ],
       },
-      gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [],
+      gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [], gpuOperator: null,
       sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 2, matchedCount: 2 },
       createdAt: now, updatedAt: now,
     })
@@ -2473,6 +2485,43 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, slurmRequirement)
     }
 
+    if (path === '/api/v1/platforms/gpu-operator/releases' && request.method() === 'GET') {
+      return json(route, {
+        items: [{
+          version: 'v1.5.1', default: true, minKubernetesVersion: '1.29', draMinKubernetesVersion: '1.34',
+          draDriverVersions: ['v1.0.1'], defaultDraDriverVersion: 'v1.0.1',
+        }],
+      })
+    }
+
+    // GPU Operator change (platforms.md "Change The GPU Operator"): records the normalized
+    // settings on the Platform as installing/uninstalling, the way the backend does on accept.
+    const gpuOperatorMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/gpu-operator$/)
+    if (gpuOperatorMatch && request.method() === 'PUT') {
+      const platformId = gpuOperatorMatch[1]
+      const body = request.postDataJSON() as Record<string, unknown>
+      options.onGPUOperatorRequest?.(platformId, body)
+      if (options.gpuOperatorBusy) {
+        return json(route, { error: { code: 'conflict', message: 'targets are busy: gpu-node-01 is held by Deploy production k0s platform' } }, 409)
+      }
+      const platform = platformItems.find((item) => item.id === platformId)
+      if (!platform) return json(route, { error: { code: 'not_found', message: 'Platform not found.' } }, 404)
+      const previous = (platform.gpuOperator ?? {}) as Record<string, unknown>
+      const enabled = body.enabled === true
+      platform.gpuOperator = enabled
+        ? {
+            enabled: true, version: (body.version as string | undefined) ?? 'v1.5.1',
+            allocationMode: body.allocationMode ?? 'device-plugin',
+            draDriverVersion: body.allocationMode === 'dra' ? (body.draDriverVersion as string | undefined) ?? 'v1.0.1' : null,
+            resourceNaming: body.resourceNaming ?? 'single', nodeLabeller: body.nodeLabeller ?? true,
+            metricsExporter: body.metricsExporter ?? false,
+            state: 'installing', lastWorkflowId: 'op-gpu-operator-new', updatedAt: now,
+          }
+        : { ...previous, enabled: false, state: 'uninstalling', lastWorkflowId: 'op-gpu-operator-new', updatedAt: now }
+      if (enabled) platform.gpuStackOwner = 'gpu-operator'
+      return json(route, { platformId, workflowId: 'op-gpu-operator-new' }, 202)
+    }
+
     if (path === '/api/v1/platforms/deploy' && request.method() === 'POST') {
       const rawBody = request.postDataJSON() as Record<string, unknown>
       options.onPlatformDeploymentRequest?.(rawBody)
@@ -2480,6 +2529,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         name: string
         type?: 'kubernetes' | 'slurm'
         gpuStackOwner?: string
+        gpuOperator?: Record<string, unknown> & { enabled?: boolean }
         roleAssignments?: Array<{
           serverId: string
           role: 'control-plane' | 'worker'
@@ -2514,6 +2564,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
           exporterOwner: 'ansible',
           monitoringLinks: [],
+          gpuOperator: null,
           sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
           createdAt: now,
           updatedAt: now,
@@ -2547,9 +2598,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         lifecycleState: 'deploying',
         lifecycleOperationId: operationId,
         deployment: { topology, roleAssignments },
-        gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
+        gpuStackOwner: body.gpuOperator?.enabled ? 'gpu-operator' : body.gpuStackOwner ?? 'provisioning',
         exporterOwner: 'ansible',
         monitoringLinks: [],
+        gpuOperator: body.gpuOperator?.enabled
+          ? {
+              enabled: true, version: 'v1.5.1', allocationMode: body.gpuOperator.allocationMode ?? 'device-plugin',
+              draDriverVersion: body.gpuOperator.allocationMode === 'dra' ? 'v1.0.1' : null,
+              resourceNaming: body.gpuOperator.resourceNaming ?? 'single', nodeLabeller: body.gpuOperator.nodeLabeller ?? true,
+              metricsExporter: body.gpuOperator.metricsExporter ?? false,
+              state: 'installing', lastWorkflowId: operationId, updatedAt: now,
+            }
+          : null,
         sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
         createdAt: now,
         updatedAt: now,
@@ -2595,14 +2655,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (sub === '/nodes' && request.method() === 'GET') {
         return json(route, {
           items: [
-            { name: 'gpu-node-01', role: 'control-plane', ready: true, unschedulable: false, serverId: 'srv-1', addresses: ['192.168.40.21'], kubeletVersion: 'v1.30.2+k0s' },
-            { name: 'gpu-node-02', role: 'worker', ready: true, unschedulable: false, serverId: 'srv-2', addresses: ['192.168.40.22'], kubeletVersion: 'v1.30.2+k0s' },
+            { name: 'gpu-node-01', role: 'control-plane', ready: true, unschedulable: false, serverId: 'srv-1', addresses: ['192.168.40.21'], kubeletVersion: 'v1.30.2+k0s', gpu: { allocatable: { 'amd.com/gpu': 8 }, draDevices: 0 } },
+            { name: 'gpu-node-02', role: 'worker', ready: true, unschedulable: false, serverId: 'srv-2', addresses: ['192.168.40.22'], kubeletVersion: 'v1.30.2+k0s', gpu: { allocatable: {}, draDevices: 0 } },
           ],
         })
       }
       const cordonMatch = sub.match(/^\/nodes\/([^/]+)\/(cordon|uncordon)$/)
       if (cordonMatch && request.method() === 'POST') {
-        return json(route, { name: cordonMatch[1], role: 'worker', ready: true, unschedulable: cordonMatch[2] === 'cordon', serverId: null, addresses: [], kubeletVersion: 'v1.30.2+k0s' })
+        return json(route, { name: cordonMatch[1], role: 'worker', ready: true, unschedulable: cordonMatch[2] === 'cordon', serverId: null, addresses: [], kubeletVersion: 'v1.30.2+k0s', gpu: { allocatable: {}, draDevices: null } })
       }
       if (sub === '/namespaces' && request.method() === 'GET') {
         return json(route, {

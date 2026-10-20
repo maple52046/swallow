@@ -353,6 +353,7 @@ func RunAPI(cfg config.APIConfig) error {
 	platformService := platformapp.NewPlatformService(
 		platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
 	)
+	platformService.AttachGPUOperatorRecorder(platformRepo)
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
 	// derived credential source; the configuration service reads the plain repository and derives
@@ -471,8 +472,10 @@ func RunAPI(cfg config.APIConfig) error {
 		serverProtection,
 	)
 	deployService.AttachMachinePreparationValidator(platformMachinePreparationValidator{deployments: deploymentsUC})
+	deployService.AttachNodeSubnetResolver(platformNodeSubnetResolver{networks: networkService})
 	deployService.AttachDeploymentRequirementReader(requirementRepo)
 	deployService.AttachDeploymentKeyChecker(sshKeyService)
+	deployService.AttachGPUOperatorRecorder(platformRepo)
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
@@ -482,6 +485,12 @@ func RunAPI(cfg config.APIConfig) error {
 	platformHandler := platformdelivery.NewPlatformHandler(
 		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
 		kubernetesExplorer, requirementService)
+	// GPU Operator changes after deployment (decision 062) run as their own durable Workflow.
+	platformHandler.AttachGPUOperatorService(platformapp.NewGPUOperatorService(
+		platformRepo, platformRepo, serverRepo, lifecycleReader,
+		gpuOperatorLauncher{operations: operationService, orchestrations: orchestrationService},
+		sshKeyService,
+	))
 
 	// Software deployment (Managed Software, decision 038): install/uninstall a single piece of
 	// host software on deployed Servers, tracked by a swallow-owned Software Assignment. It reuses
@@ -958,6 +967,10 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	platforms := v1.Group("/platforms", admin...)
 	platforms.Get("/deployment-requirements/slurm", deps.platforms.GetSlurmDeploymentRequirement)
 	platforms.Put("/deployment-requirements/slurm", deps.platforms.PutSlurmDeploymentRequirement)
+	// The GPU Operator routes (decision 062) exist only on the canonical surface. The static
+	// releases route is registered before the /:id routes so "gpu-operator" is never read as an id.
+	platforms.Get("/gpu-operator/releases", deps.platforms.GPUOperatorReleases)
+	platforms.Put("/:id/gpu-operator", deps.platforms.ConfigureGPUOperator)
 	registerPlatformRoutes(platforms, deps.platforms)
 	legacyPlatforms := v1.Group("/clusters", admin...)
 	legacyPlatforms.Use(markDeprecatedPlatformRoute)

@@ -152,9 +152,69 @@ swallow 的短 hostname。這是必要的：RHEL/Rocky 的 OS hostname 是 FQDN�
 若不覆寫，kubelet 會以 FQDN 註冊，而 readiness 等待與 membership sync 都以短名為 key，會誤判節點
 `NotFound`。Ubuntu 短名一致故行為不變。
 
+**HA VIP 契約**：VIP 必須落在 control plane 共用的子網內，prefix 必須等於該子網的 prefix。部署 API 從 provisioner
+讀各 control-plane 開機網卡的子網（provision_os 則看 network assignment 指定的子網）：`apiVipPrefix` 未填就採用它，
+不符就在建立任何東西前回 `validation_error`；讀不到子網時，`k0s_host_preflight` 在每台 control-plane 以主機自己的
+IPv4 子網再檢查一次。理由（lab 實測）：VIP 用較長的 prefix（例如 `/23` 子網用 `/24`）時，keepalived 會新增一條
+來源為 VIP 的較窄路由，持有 VIP 的節點對那段子網改以 VIP 連線，etcd 依憑證拒絕它，其他 controller 無法 join。
+
+**API 位址契約**：每台 controller 的 `k0s.yaml` 都以 `spec.api.address: <ansible_host>` 明示自己的位址（其餘設定各台
+相同），不交給 k0s 自動偵測。join token 會內嵌 initial controller 的這個位址；新部署的主機常在佈署期間跑
+unattended-upgrades，升級 systemd 時 `systemd-networkd` 重啟、DHCP 位址消失數秒，若此時建立 token，自動偵測只
+找得到 IPv6 link-local，其他 controller 便無法 join（lab 實測）。同一原因也會讓 sshd 短暫拒絕連線與 dpkg lock
+被占用，所以 ansible-runner 以 `ANSIBLE_SSH_RETRIES` 重連、`k0s_prereq` 的 apt 會等 lock 並重試。
+
 此流程已在 lab 以全 Rocky 10.2 的 3 controller + 4 worker HA k0s 驗證（platform active、4 worker
 Ready、membership matched 7/7）。cgroup v1 fallback、cri-dockerd、RHEL DNS nmcli fallback 與「單一
 cluster 內混合 OS」不在目前範圍。
+
+### 2.3.1 選用功能：AMD GPU Operator（decision 062）
+
+Kubernetes deploy 可帶 `gpuOperator` 設定，在同一個 Workflow 安裝 AMD GPU Operator；部署後也能以
+`PUT /platforms/{id}/gpu-operator` 另開 Workflow 調整或卸載（契約見
+[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#manage-the-gpu-operator)）。
+它是 platform 的元件（deploy target 是 Platform），不是 Managed Software。
+
+**規範：節點範圍自動判斷，不讓使用者列舉 Server。** 作用在叢集節點上的平台功能（GPU Operator 是第一個），
+要處理哪些節點一律由叢集本身或 swallow 自動判斷；API、CLI、dashboard 都不提供讓使用者逐台挑選或確認
+Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。理由：一個叢集可能混著上萬台 CPU-only 與 GPU
+節點，要求使用者逐台檢查不可行，而且叢集內的偵測（例如 NFD）比 swallow 的 inventory 更接近實況。若日後確實
+需要個別控制，只能設計成「從自動判斷的結果排除特定 Server」，不能改回逐台納入。
+
+| Workflow | Job | Task | Runner | DependsOn |
+| --- | --- | --- | --- | --- |
+| `deploy-kubernetes`（帶 `gpuOperator.enabled`） | `configure-gpu-operator` | `install-gpu-operator`（`ansible-playbook`，playbook `configure-amd-gpu-operator`） | `ansible` | `validate-platform` |
+| `configure-gpu-operator`（部署後調整） | `prepare-hosts` → `configure-gpu-operator` | `wait-for-ssh` → `install-gpu-operator` | `internal` → `ansible` | — → `wait-for-ssh` |
+
+- 兩種 Workflow 的 ansible Task 都以 Platform 的全部 deployment targets 為 targets，playbook 名由 launcher 硬編碼，
+  不需 site `playbookMappings`。ansible execution 帶的是 Workflow 的 kind：部署內的 GPU Task 是 `deploy-kubernetes`，
+  completion observer 以 step id `install-gpu-operator` 略過 k0s 的 credential 記錄（只有 `install-platform` 產生
+  credential）；部署後調整的 Workflow kind 是 `configure-gpu-operator`，本來就不觸發。
+- Platform 保存目標設定與 GPU Operator State；step observer 依 ansible Task 狀態寫回，只有
+  `lastWorkflowId` 相符的 Workflow 能改狀態。
+- 只沿用 OS image 的 driver：chart 以 `kmm.enabled=false`、`remediation.enabled=false` 安裝，不需 cert-manager。
+  節點檢查只確認 image 有 `amdgpu` module（`modinfo`）；image 可能以 `modprobe.blacklist=amdgpu` 讓開機時不載入，
+  所以 cluster play 之後、DeviceConfig 之前，每個納管節點都裝 `swallow-amdgpu-load.service`（SSH 起來後才
+  `modprobe amdgpu`，`TimeoutStartSec=300`），並以 drop-in 讓 `k0scontroller`／`k0sworker` 排在它之後，再啟動它並等
+  `/dev/kfd`。不再納管的節點、卸載 operator、`uninstall-kubernetes` 保留主機時都移除 unit 與 drop-in，但不卸載已載入的 driver。
+- helm 在 `swallow_amd_gpu_operator_controller_id`（初始 controller）上執行：playbook 下載固定版本的 helm、核對
+  SHA-256，複製隨發行包附帶的 chart（`roles/amd_gpu_operator/files/`），以 `/var/lib/k0s/pki/admin.conf`
+  `upgrade --install --wait`。k0s 的 Chart CR 已否決：卸載時 helm timeout 為 0，chart 的 pre-delete hook 永遠失敗。
+- 納管節點依上面的規範由 chart 附帶的 NFD 判斷：NFD worker 照官方預設跑在所有節點，依 PCI id 把實體 GPU 標成
+  `feature.node.kubernetes.io/amd-gpu=true`、SR-IOV VF 標成 `feature.node.kubernetes.io/amd-vgpu=true`。playbook 在
+  helm 之後等 NFD 處理完每個節點（每個 node 都有 NFD 的 `nfd.node.kubernetes.io/feature-labels` annotation），
+  把帶這兩個 label 之一的節點鏡射成 `swallow.dev/amd-gpu-operator=managed`，不再帶的節點則移除該 label 與
+  `amd.com/gpu.*` label。單一 DeviceConfig（`kube-amd-gpu/swallow`）只選 swallow 的 label：DeviceConfig 的 selector
+  是只能 AND 的 label map，無法同時選 `amd-gpu` 與 `amd-vgpu`。NFD 沒標到任何 GPU 節點時以
+  `[amd_gpu_not_detected]` 失敗。日後若要支援排除，只需要在鏡射時跳過被排除的 Server。
+- 節點層級的檢查與準備（driver module、amdgpu loader、DRA link）只套用在 NFD 選中的節點，所以排在 cluster play
+  之後；`[amdgpu_driver_missing]` 因此在 helm release 安裝之後、DeviceConfig 之前回報。
+- swallow 端只保留一個開關前提：Platform 至少一台 workload 節點的 GPU inventory 有 AMD 運算 GPU，才能啟用。
+  這決定功能能不能開，不決定納管哪些節點。
+- DRA 在 k0s 需要 `/var/lib/kubelet/plugins{,_registry}` → `/var/lib/k0s/kubelet/plugins{,_registry}` 兩個精確
+  symlink；playbook 只建立目的地不存在的 link，關閉 DRA 或卸載時以 `readlink` 確認後才移除。
+  `uninstall-kubernetes` 保留主機時也移除它們，以及 DRA driver 寫在 k0s 狀態之外的
+  `/var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml`。
 
 ### 2.4 Uninstall 的 Job 分組（對稱於 deploy）
 
@@ -265,6 +325,18 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
 
   注意 `inventory_hostname` 即 serverId，因此 `swallow_k0s_roles[inventory_hostname]` 可在
   playbook 內解析每台角色（deploy-kubernetes.yml 即如此）。
+
+  AMD GPU Operator（§2.3.1）的 trusted vars 由 `buildGPUOperatorVars` 組裝，部署與部署後調整共用：
+
+  | 變數 | 意義 |
+  | --- | --- |
+  | `swallow_amd_gpu_operator_state` | `present`（安裝或調整）或 `absent`（卸載） |
+  | `swallow_amd_gpu_operator_version` | chart 版本（版本清單內） |
+  | `swallow_amd_gpu_operator_allocation_mode` | `device-plugin` 或 `dra` |
+  | `swallow_amd_gpu_operator_resource_naming` | `single` 或 `mixed` |
+  | `swallow_amd_gpu_operator_node_labeller` / `_metrics_exporter` | 布林 |
+  | `swallow_amd_gpu_operator_controller_id` | 執行 helm 的 controller serverId |
+  | `swallow_amd_gpu_operator_images` | 該版本固定的 operand image（`devicePlugin`、`nodeLabeller`、`utils`、`metricsExporter`、`draDriver`） |
 
 ### 4.3 Secrets
 
@@ -582,6 +654,8 @@ API 契約的 "Read Slurm Cluster State"。
 | 職責 | 路徑 |
 | --- | --- |
 | Deploy 意圖與驗證（trusted vars、ephemeral 防呆） | `internal/platform/application/deploy_platform.go` |
+| GPU Operator 設定、版本清單與驗證 | `internal/platform/domain/gpu_operator.go`、`internal/platform/application/gpu_operator.go` |
+| GPU Operator Workflow 組裝與狀態 observer | `internal/app/gpu_operator_adapter.go` |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
 | Workflow/Task/Runner domain model | `internal/operation/domain/orchestration.go` |
 | Workflow 持久化與 secret sealing | `internal/operation/application/orchestration.go` |
@@ -604,6 +678,7 @@ API 契約的 "Read Slurm Cluster State"。
 | Playbooks | `playbooks/*.yml`（`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、exporters…） |
 | k0s roles（reference 範本） | `playbooks/roles/k0s_*`（`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`） |
 | Slurm playbook 與 roles | `playbooks/deploy-slurm.yml`、`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`） |
+| AMD GPU Operator playbook 與 role | `playbooks/configure-amd-gpu-operator.yml`、`playbooks/roles/amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
 
 映像：production 於 build 時 `COPY api-server/automation → /opt/swallow/automation`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

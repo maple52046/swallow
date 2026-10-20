@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { ServerRepository } from '@/application/ports/ServerRepository'
+import { isGPUOperatorInProgress } from '@/domain/platform/gpuOperator'
 import { isPlatformLifecycleInProgress } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
 import type { Operation } from '@/domain/operation/types'
@@ -65,18 +66,22 @@ export type PlatformDetailState =
   | { status: 'error'; message: string }
   | { status: 'ready'; data: PlatformDetailData }
 
-/** Only accepted automation states continue polling without an operator action. */
+/**
+ * Only accepted automation states continue polling without an operator action: a running
+ * deployment or uninstall, or a running GPU Operator change.
+ */
 function lifecycleCanChangeWithoutInput(platform: Platform): boolean {
-  return isPlatformLifecycleInProgress(platform.lifecycleState)
+  return isPlatformLifecycleInProgress(platform.lifecycleState) ||
+    (platform.gpuOperator !== null && isGPUOperatorInProgress(platform.gpuOperator.state))
 }
 
 /**
  * Loads one Platform with members and related Operations, polling active lifecycle work.
  *
  * Membership and Operation reads degrade independently to empty collections so a provider
- * outage cannot hide the durable Platform record. While deploy or uninstall is active, the
- * full projection is refreshed every five seconds and the timer is always cleared when the
- * route unmounts or lifecycle reaches a terminal state.
+ * outage cannot hide the durable Platform record. While deploy, uninstall, or a GPU Operator
+ * change is active, the full projection is refreshed every five seconds and the timer is always
+ * cleared when the route unmounts or that work reaches a terminal state.
  */
 export function usePlatformDetail(id: string | undefined): PlatformDetailState {
   const { platforms, servers, operations } = useApp()

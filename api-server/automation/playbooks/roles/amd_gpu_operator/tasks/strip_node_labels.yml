@@ -1,0 +1,30 @@
+---
+# Remove every label whose key starts with one of amd_gpu_operator_strip_prefixes from one node
+# (amd_gpu_operator_strip_node). A node that no longer exists is skipped.
+
+- name: Read the labels of {{ amd_gpu_operator_strip_node }}
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} get node {{ amd_gpu_operator_strip_node }} --ignore-not-found -o json"
+  register: amd_gpu_operator_strip_read
+  changed_when: false
+
+- name: Select the labels to remove from {{ amd_gpu_operator_strip_node }}
+  ansible.builtin.set_fact:
+    amd_gpu_operator_strip_keys: >-
+      {%- set keys = [] -%}
+      {%- if amd_gpu_operator_strip_read.stdout | trim | length > 0 -%}
+      {%- for key in ((amd_gpu_operator_strip_read.stdout | from_json).metadata.labels | default({})).keys() -%}
+      {%- for prefix in amd_gpu_operator_strip_prefixes if key.startswith(prefix) -%}
+      {%- set _ = keys.append(key) -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ keys | unique }}
+
+- name: Remove the labels from {{ amd_gpu_operator_strip_node }}
+  ansible.builtin.command:
+    cmd: >-
+      {{ amd_gpu_operator_kubectl }} label node {{ amd_gpu_operator_strip_node }}
+      {% for key in amd_gpu_operator_strip_keys %}{{ key }}- {% endfor %}
+  changed_when: true
+  when: amd_gpu_operator_strip_keys | length > 0

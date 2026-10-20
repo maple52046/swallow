@@ -8,17 +8,30 @@
   when: k8s_exporters_state == 'present'
   become: true
   block:
+    - name: Check for an AMD GPU Operator
+      # The GPU Operator (decision 062) runs its own device plugin and labeller; a second,
+      # hand-applied pair would fight over the kubelet device-plugin socket.
+      ansible.builtin.command:
+        cmd: "{{ k8s_exporters_kubectl }} get crd deviceconfigs.amd.com --ignore-not-found -o name"
+      register: k8s_exporters_gpu_operator
+      changed_when: false
+      when: k8s_exporters_install_amd_gpu_prereqs | bool
+
     - name: Install the AMD GPU node-labeller
       ansible.builtin.command:
         cmd: "{{ k8s_exporters_kubectl }} apply -f {{ amd_gpu_node_labeller_url }}"
       changed_when: true
-      when: k8s_exporters_install_amd_gpu_prereqs | bool
+      when:
+        - k8s_exporters_install_amd_gpu_prereqs | bool
+        - k8s_exporters_gpu_operator.stdout | trim | length == 0
 
     - name: Install the AMD GPU device-plugin
       ansible.builtin.command:
         cmd: "{{ k8s_exporters_kubectl }} apply -f {{ amd_gpu_device_plugin_url }}"
       changed_when: true
-      when: k8s_exporters_install_amd_gpu_prereqs | bool
+      when:
+        - k8s_exporters_install_amd_gpu_prereqs | bool
+        - k8s_exporters_gpu_operator.stdout | trim | length == 0
 
     - name: Ensure the manifest directory exists
       ansible.builtin.file:

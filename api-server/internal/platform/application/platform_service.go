@@ -27,6 +27,9 @@ type PlatformService struct {
 	// canceler is optional. When wired, Delete cancels the platform's in-flight durable
 	// operations first so their resource leases are released instead of orphaned.
 	canceler platformdomain.PlatformOperationCanceler
+	// gpuOperators is optional. When wired, a completed Platform uninstall marks a managed GPU
+	// Operator absent, because removing k0s removed the operator with it.
+	gpuOperators platformdomain.GPUOperatorRecorder
 }
 
 // NewPlatformService constructs the platform application service.
@@ -48,6 +51,13 @@ func NewPlatformService(
 // composed at the API wiring root, where the orchestration service already exists.
 func (s *PlatformService) AttachOperationCanceler(canceler platformdomain.PlatformOperationCanceler) {
 	s.canceler = canceler
+}
+
+// AttachGPUOperatorRecorder lets CompleteUninstall record that a Platform uninstall also removed
+// its Swallow-managed GPU Operator. Every process that completes uninstalls must wire it, or the
+// Platform keeps reporting an operator that no longer exists.
+func (s *PlatformService) AttachGPUOperatorRecorder(recorder platformdomain.GPUOperatorRecorder) {
+	s.gpuOperators = recorder
 }
 
 // PlatformItem is the public platform projection.
@@ -72,9 +82,27 @@ type PlatformItem struct {
 	// MonitoringLinks are the operator-registered links to the runtime's own monitoring UI.
 	// Always an array (empty when none), so clients never branch on null.
 	MonitoringLinks []MonitoringLinkItem `json:"monitoringLinks"`
-	Sync            PlatformSyncItem     `json:"sync"`
-	CreatedAt       string               `json:"createdAt"`
-	UpdatedAt       string               `json:"updatedAt"`
+	// GPUOperator is the Swallow-managed GPU Operator, null when Swallow never managed one here.
+	GPUOperator *GPUOperatorItem `json:"gpuOperator"`
+	Sync        PlatformSyncItem `json:"sync"`
+	CreatedAt   string           `json:"createdAt"`
+	UpdatedAt   string           `json:"updatedAt"`
+}
+
+// GPUOperatorItem is the wire shape of a Platform's Swallow-managed GPU Operator (platforms.md,
+// "Manage The GPU Operator"): the latest requested settings plus the GPU Operator State of the
+// Workflow applying them. DRADriverVersion is null outside DRA mode.
+type GPUOperatorItem struct {
+	Enabled          bool    `json:"enabled"`
+	Version          string  `json:"version"`
+	AllocationMode   string  `json:"allocationMode"`
+	DRADriverVersion *string `json:"draDriverVersion"`
+	ResourceNaming   string  `json:"resourceNaming"`
+	NodeLabeller     bool    `json:"nodeLabeller"`
+	MetricsExporter  bool    `json:"metricsExporter"`
+	State            string  `json:"state"`
+	LastWorkflowID   *string `json:"lastWorkflowId"`
+	UpdatedAt        string  `json:"updatedAt"`
 }
 
 // MonitoringLinkItem is the wire shape of one Monitoring Link, used both in the projection and
@@ -237,6 +265,10 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 			return nil, fmt.Errorf("%w: gpuStackOwner must be one of %v",
 				ErrInvalidPlatform, platformdomain.ValidGPUStackOwners)
 		}
+		if owner == platformdomain.GPUStackOwnerProvisioning && platform.GPUOperator.Managed() {
+			return nil, fmt.Errorf("%w: Swallow manages a GPU Operator on this Platform; uninstall it before setting gpuStackOwner to provisioning",
+				platformdomain.ErrGPUOperatorConflict)
+		}
 		platform.GPUStackOwner = owner
 	}
 	if input.ExporterOwner != nil {
@@ -327,6 +359,16 @@ func (s *PlatformService) CompleteUninstall(ctx context.Context, id string) erro
 	if err := s.platforms.Update(ctx, platform); err != nil {
 		return err
 	}
+	if s.gpuOperators != nil && platform.GPUOperator.Managed() {
+		// k0s reset (or the release that wiped the hosts) removed the operator with the cluster.
+		// The record keeps its last workflow, so its own fence still matches.
+		operator := *platform.GPUOperator
+		operator.State = platformdomain.GPUOperatorAbsent
+		operator.UpdatedAt = platform.UpdatedAt
+		if err := s.gpuOperators.SetGPUOperator(ctx, id, &operator, platformdomain.GPUStackOwnerProvisioning); err != nil {
+			return err
+		}
+	}
 	return s.platforms.UpdateSyncState(ctx, id, "", platformdomain.SyncState{})
 }
 
@@ -401,6 +443,7 @@ func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.
 		Deployment:           toPlatformDeploymentItem(lifecycle.Deployment),
 		GPUStackOwner:        string(platform.GPUStackOwner), ExporterOwner: string(platform.ExporterOwner),
 		MonitoringLinks: toMonitoringLinkItems(platform.MonitoringLinks),
+		GPUOperator:     toGPUOperatorItem(platform.GPUOperator),
 		Sync: PlatformSyncItem{
 			LastStartedAt:   optionalTime(platform.Sync.LastStartedAt),
 			LastSucceededAt: optionalTime(platform.Sync.LastSucceededAt),
@@ -425,6 +468,23 @@ func toPlatformDeploymentItem(operation *platformdomain.LifecycleOperation) *Pla
 	return &PlatformDeploymentItem{
 		Topology: string(operation.Intent.Topology), RoleAssignments: assignments,
 		LoginServerIDs: operation.Intent.LoginServerIDs,
+	}
+}
+
+// toGPUOperatorItem projects the record.
+func toGPUOperatorItem(operator *platformdomain.GPUOperator) *GPUOperatorItem {
+	if operator == nil {
+		return nil
+	}
+	settings := operator.Settings
+	return &GPUOperatorItem{
+		Enabled: settings.Enabled, Version: settings.Version,
+		AllocationMode:   string(settings.AllocationMode),
+		DRADriverVersion: wire.String(settings.DRADriverVersion),
+		ResourceNaming:   string(settings.ResourceNaming),
+		NodeLabeller:     settings.NodeLabeller, MetricsExporter: settings.MetricsExporter,
+		State:          string(operator.State),
+		LastWorkflowID: wire.String(operator.LastWorkflowID), UpdatedAt: wire.Time(operator.UpdatedAt),
 	}
 }
 

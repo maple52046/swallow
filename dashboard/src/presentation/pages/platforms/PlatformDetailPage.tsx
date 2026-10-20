@@ -19,6 +19,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { KubernetesPlatformView } from './KubernetesPlatformView'
 import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
+import { PlatformGPUOperatorSection } from './PlatformGPUOperatorSection'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
 import { SlurmPlatformView } from './SlurmPlatformView'
@@ -143,7 +144,15 @@ export function PlatformDetailPage() {
               </Alert>
             )}
             {isKubernetes ? (
-              <KubernetesPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
+              <>
+                <KubernetesPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
+                <PlatformGPUOperatorSection
+                  platform={platform}
+                  members={members}
+                  onChanged={reload}
+                  onOpenWorkflow={(workflowId) => navigate(scopedHref('/workflows/' + workflowId))}
+                />
+              </>
             ) : (
               <SlurmPlatformView platform={platform} members={members} loginNodes={loginNodes} onSelect={(server) => openServer(server.id)} />
             )}

@@ -138,8 +138,9 @@ func deploymentIntent(operation *operationdomain.ExecutionOperation) *platformdo
 	if topology == "" {
 		return nil
 	}
+	k0sVersion, _ := operation.ExtraVars["swallow_k0s_version"].(string)
 	return &platformdomain.LifecycleDeployment{
-		Topology: topology, RoleAssignments: assignments,
+		Topology: topology, RoleAssignments: assignments, K0sVersion: k0sVersion,
 	}
 }
 

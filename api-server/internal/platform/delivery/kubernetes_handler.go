@@ -52,13 +52,21 @@ type kubernetesSummaryResponse struct {
 }
 
 type kubernetesNodeResponse struct {
-	Name           string   `json:"name"`
-	Role           string   `json:"role"`
-	Ready          bool     `json:"ready"`
-	Unschedulable  bool     `json:"unschedulable"`
-	ServerID       *string  `json:"serverId"`
-	Addresses      []string `json:"addresses"`
-	KubeletVersion string   `json:"kubeletVersion"`
+	Name           string                    `json:"name"`
+	Role           string                    `json:"role"`
+	Ready          bool                      `json:"ready"`
+	Unschedulable  bool                      `json:"unschedulable"`
+	ServerID       *string                   `json:"serverId"`
+	Addresses      []string                  `json:"addresses"`
+	KubeletVersion string                    `json:"kubeletVersion"`
+	GPU            kubernetesNodeGPUResponse `json:"gpu"`
+}
+
+// kubernetesNodeGPUResponse is the node's GPUs as Kubernetes exposes them (platforms-kubernetes.md):
+// allocatable amd.com/* extended resources, and the DRA device count, null when unknown.
+type kubernetesNodeGPUResponse struct {
+	Allocatable map[string]int64 `json:"allocatable"`
+	DRADevices  *int             `json:"draDevices"`
 }
 
 func nodeResponse(node platformdomain.KubernetesNode) kubernetesNodeResponse {
@@ -71,9 +79,14 @@ func nodeResponse(node platformdomain.KubernetesNode) kubernetesNodeResponse {
 	if addresses == nil {
 		addresses = []string{}
 	}
+	allocatable := node.GPUAllocatable
+	if allocatable == nil {
+		allocatable = map[string]int64{}
+	}
 	return kubernetesNodeResponse{
 		Name: node.Name, Role: node.Role, Ready: node.Ready, Unschedulable: node.Unschedulable,
 		ServerID: serverID, Addresses: addresses, KubeletVersion: node.KubeletVersion,
+		GPU: kubernetesNodeGPUResponse{Allocatable: allocatable, DRADevices: node.GPUDRADevices},
 	}
 }
 

@@ -69,8 +69,87 @@ export interface PlatformDeployment {
   machinePreparation?: PlatformMachinePreparation;
 }
 
-/** Which subsystem installs GPU drivers; has no default at creation. */
+/**
+ * Which subsystem owns the GPU stack. A Kubernetes deploy derives it from the GPU Operator
+ * feature (`gpu-operator` when enabled, `provisioning` otherwise), so the dashboard never asks
+ * for it directly; `gpu-operator` without a Swallow-managed operator means one managed elsewhere.
+ */
 export type GPUStackOwner = "provisioning" | "gpu-operator";
+
+/**
+ * The GPU Allocation Mode (glossary): how the GPU Operator exposes GPUs to workloads.
+ * `device-plugin` registers the `amd.com/gpu` extended resource; `dra` publishes ResourceSlice
+ * devices claimed through ResourceClaims. Exactly one is active at a time.
+ */
+export type GPUAllocationMode = "device-plugin" | "dra";
+
+/**
+ * Device plugin resource naming: `single` always names the resource `amd.com/gpu`; `mixed`
+ * names partitioned GPUs per partition type.
+ */
+export type GPUResourceNaming = "single" | "mixed";
+
+/**
+ * The GPU Operator State (glossary): where the latest Swallow change to a Platform's GPU
+ * Operator stands, projected from the Task applying it. `failed` means the cluster may still run
+ * the previous settings; `absent` means Swallow manages no operator there any more.
+ */
+export type GPUOperatorState = "installing" | "ready" | "failed" | "uninstalling" | "absent";
+
+/**
+ * The settings a client sends to install or change the GPU Operator — the deploy request's
+ * `gpuOperator` and the `PUT .../gpu-operator` body share it (platforms.md, "Settings"). Omitted
+ * fields take the backend defaults: the default release, `device-plugin`, `single`, the node
+ * labeller on, and the Device Metrics Exporter off. No field names nodes: the operator manages
+ * every node its Node Feature Discovery marks as an AMD GPU node. `{ enabled: false }` uninstalls.
+ */
+export interface GPUOperatorSettings {
+  enabled: boolean;
+  version?: string;
+  allocationMode?: GPUAllocationMode;
+  draDriverVersion?: string;
+  resourceNaming?: GPUResourceNaming;
+  nodeLabeller?: boolean;
+  metricsExporter?: boolean;
+}
+
+/**
+ * A Platform's Swallow-managed GPU Operator as the API records it: the latest requested settings
+ * (normalized, so every field is present) and the state of the Workflow applying them.
+ * `draDriverVersion` is null outside DRA mode; `lastWorkflowId` links to that Workflow.
+ */
+export interface PlatformGPUOperator {
+  enabled: boolean;
+  version: string;
+  allocationMode: GPUAllocationMode;
+  draDriverVersion: string | null;
+  resourceNaming: GPUResourceNaming;
+  nodeLabeller: boolean;
+  metricsExporter: boolean;
+  state: GPUOperatorState;
+  lastWorkflowId: string | null;
+  updatedAt: string;
+}
+
+/**
+ * One AMD GPU Operator release Swallow ships and verified (`GET .../gpu-operator/releases`).
+ * Kubernetes versions are `major.minor`; a Platform's k0s version must be at least
+ * `minKubernetesVersion`, and `draMinKubernetesVersion` for DRA.
+ */
+export interface GPUOperatorRelease {
+  version: string;
+  default: boolean;
+  minKubernetesVersion: string;
+  draMinKubernetesVersion: string;
+  draDriverVersions: string[];
+  defaultDraDriverVersion: string;
+}
+
+/** The accepted GPU Operator change and the Workflow applying it. */
+export interface ConfigureGPUOperatorResult {
+  platformId: string;
+  workflowId: string;
+}
 
 /** Which subsystem installs this platform's Prometheus exporters. Defaults to `ansible`. */
 export type ExporterOwner = "ansible" | "k8s";
@@ -111,6 +190,8 @@ export interface Platform {
   /** Null while a platform is registered or declared but not yet reachable. */
   integrationId: string | null;
   gpuStackOwner: GPUStackOwner;
+  /** The Swallow-managed GPU Operator; null when Swallow never managed one on this Platform. */
+  gpuOperator: PlatformGPUOperator | null;
   /** Which subsystem installs this platform's exporters; `ansible` unless set to `k8s`. */
   exporterOwner: ExporterOwner;
   /** Operator-registered links to the runtime's own monitoring UI; always an array. */
@@ -202,12 +283,15 @@ export interface SlurmDeploymentSpec {
  * platform: "kubernetes" (default) reads the k0s fields; "slurm" reads `slurm`. Optional CIDRs
  * fall back to backend defaults. `apiVip` is required only when role assignments infer a highly
  * available control plane; one-control-plane deployments use that Server's observed address.
+ * `gpuOperator` installs the AMD GPU Operator with a Kubernetes deploy; `gpuStackOwner` is then
+ * derived by the backend and may be omitted.
  */
 export interface DeployPlatformInput {
   siteId: string;
   name: string;
   type?: PlatformType;
-  gpuStackOwner: GPUStackOwner;
+  gpuStackOwner?: GPUStackOwner;
+  gpuOperator?: GPUOperatorSettings;
   k0sVersion?: string;
   podCidr?: string;
   serviceCidr?: string;

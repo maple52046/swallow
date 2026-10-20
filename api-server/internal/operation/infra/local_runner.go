@@ -152,6 +152,9 @@ func (r *LocalRunner) Run(ctx context.Context, input operationdomain.RunnerInput
 	command.Env = append(os.Environ(),
 		"ANSIBLE_HOST_KEY_CHECKING=True",
 		"ANSIBLE_SSH_ARGS=-o UserKnownHostsFile="+knownHostsPath,
+		// A freshly deployed host runs unattended-upgrades, which can restart sshd mid-play;
+		// retrying a refused connection (ssh exit 255 only, with backoff) rides that out.
+		"ANSIBLE_SSH_RETRIES=5",
 	)
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {

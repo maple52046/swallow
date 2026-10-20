@@ -34,6 +34,9 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 - [Minimum Resource Requirement](../../../../../docs/development/glossaries/terms/minimum-resource-requirement.md)
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
 - [Monitoring Link](../../../../../docs/development/glossaries/terms/monitoring-link.md)
+- [GPU Operator](../../../../../docs/development/glossaries/terms/gpu-operator.md)
+- [GPU Allocation Mode](../../../../../docs/development/glossaries/terms/gpu-allocation-mode.md)
+- [GPU Operator State](../../../../../docs/development/glossaries/terms/gpu-operator-state.md)
 
 ## Endpoints
 
@@ -41,11 +44,13 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 GET    /api/v1/platforms/
 GET    /api/v1/platforms/deployment-requirements/slurm
 PUT    /api/v1/platforms/deployment-requirements/slurm
+GET    /api/v1/platforms/gpu-operator/releases
 POST   /api/v1/platforms/deploy
 GET    /api/v1/platforms/{platformId}
 PATCH  /api/v1/platforms/{platformId}
 DELETE /api/v1/platforms/{platformId}
 POST   /api/v1/platforms/{platformId}/uninstall
+PUT    /api/v1/platforms/{platformId}/gpu-operator
 POST   /api/v1/platforms/{platformId}/sync
 POST   /api/v1/platforms/sync
 GET    /api/v1/platforms/{platformId}/slurm
@@ -77,7 +82,19 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
       { "serverId": "server-a", "role": "control-plane", "runWorkloads": true }
     ]
   },
-  "gpuStackOwner": "provisioning",
+  "gpuStackOwner": "gpu-operator",
+  "gpuOperator": {
+    "enabled": true,
+    "version": "v1.5.1",
+    "allocationMode": "device-plugin",
+    "draDriverVersion": null,
+    "resourceNaming": "single",
+    "nodeLabeller": true,
+    "metricsExporter": false,
+    "state": "ready",
+    "lastWorkflowId": "workflow-id",
+    "updatedAt": "2026-10-20T00:00:00Z"
+  },
   "exporterOwner": "ansible",
   "monitoringLinks": [
     { "name": "Omnistat Grafana", "url": "https://omnistat.example.internal/grafana" }
@@ -95,7 +112,13 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 ```
 
 `type` is `kubernetes` or `slurm`. `gpuStackOwner` is `provisioning` or
-`gpu-operator` and has no default. `exporterOwner` is `ansible` (default) or `k8s`.
+`gpu-operator`. `exporterOwner` is `ansible` (default) or `k8s`.
+
+`gpuOperator` is the Swallow-managed GPU Operator of a Kubernetes Platform (see
+[Manage The GPU Operator](#manage-the-gpu-operator)). It is `null` when Swallow has never managed
+one on the Platform. `enabled` is the latest requested intent; `state` is exactly
+`installing | ready | failed | uninstalling | absent`; `lastWorkflowId` is the Workflow applying
+or last applying it. `draDriverVersion` is `null` unless `allocationMode` is `dra`.
 
 `monitoringLinks` lists the Platform's **Monitoring Links**: operator-registered links to an
 external monitoring UI that belongs to the runtime itself — for example the Grafana that Omnistat
@@ -265,9 +288,43 @@ The role assignments infer one of these supported topologies:
 
 Two control-plane assignments and even control-plane counts are rejected. Every topology
 must supply workload capacity. Pod and service ranges may not cover target addresses.
-`apiVip` and `apiVipPrefix` are required only for high availability; standalone and
-non-HA multi-node deployments omit them and use the initial control-plane Server address
-as the API endpoint. An HA virtual IP may not equal a selected Server address.
+`apiVip` is required only for high availability; standalone and non-HA multi-node
+deployments omit `apiVip` and `apiVipPrefix` and use the initial control-plane Server
+address as the API endpoint. An HA virtual IP may not equal a selected Server address.
+
+For HA, Swallow reads from the provisioner the IPv4 subnet of each control-plane Server's
+boot interface (or, for a Server the deploy provisions, the subnet its network assignment
+names). The control-plane Servers must share one subnet, `apiVip` must lie inside it, and
+`apiVipPrefix` must equal its prefix; an omitted `apiVipPrefix` takes it. Each violation is a
+`validation_error` before anything is created. A different prefix is refused because a longer
+one makes the VIP holder reach part of the subnet from the VIP, which etcd rejects as a peer.
+When the provisioner reports no subnet, `apiVipPrefix` is used as given (default `24`) and the
+deploy fails early on a control-plane host whose own subnet it does not match.
+
+A Kubernetes deploy may install the AMD GPU Operator as part of the same Operation with an
+optional `gpuOperator` object (the settings of [Manage The GPU Operator](#manage-the-gpu-operator)):
+
+```json
+{
+  "gpuOperator": {
+    "enabled": true,
+    "version": "v1.5.1",
+    "allocationMode": "device-plugin",
+    "resourceNaming": "single",
+    "nodeLabeller": true,
+    "metricsExporter": false
+  }
+}
+```
+
+Omitting it, or `enabled=false`, installs no operator. `gpuStackOwner` is optional for
+Kubernetes: it defaults to `gpu-operator` when `gpuOperator.enabled` is true and to
+`provisioning` otherwise; `gpuStackOwner=provisioning` together with an enabled `gpuOperator` is
+a `validation_error`. A client that sends `gpuStackOwner=gpu-operator` without `gpuOperator`
+records an operator managed outside Swallow, and Swallow installs nothing. The `gpuOperator`
+validation runs before any Platform or Operation is created. The Operation adds a
+`configure-gpu-operator` Job after `validate-platform`; the deployment succeeds only when it
+does.
 
 Success is `202 Accepted` after both records are persisted:
 
@@ -357,6 +414,133 @@ whose credential is required). A Slurm platform can be uninstalled like Kubernet
 Operation that removes the Slurm configuration and daemons while keeping the host OS and
 image-supplied packages, and can optionally release the member servers.
 
+## Manage The GPU Operator
+
+Swallow installs the AMD GPU Operator into a Swallow-deployed Kubernetes Platform, either during
+the deploy or later, and changes or removes it on request
+([decision 062](../../../../../docs/decisions/062-swallow-managed-gpu-operator.md)). The operator
+uses the GPU driver the OS image provides; Swallow does not build or install drivers. An image may
+keep `amdgpu` out of the boot path, so Swallow loads the image's driver on every managed node,
+now and after each boot.
+
+### Managed Nodes
+
+No request names nodes or Servers. The operator manages every node of the Platform that its own
+Node Feature Discovery marks as an AMD GPU node: `feature.node.kubernetes.io/amd-gpu=true` for a
+physical GPU or `feature.node.kubernetes.io/amd-vgpu=true` for an SR-IOV virtual function, by the
+chart's PCI device rules. Each Operation re-reads that result, so a node that joins the cluster is
+managed after the next change. A per-node control, if one is ever added, excludes named Servers
+from that result; it never asks a client to enumerate the nodes to manage.
+
+### Settings
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `enabled` | boolean | — (required on `PUT`) | `true` installs or changes the operator, `false` uninstalls it |
+| `version` | string | the release marked `default` | a `version` from the release catalog |
+| `allocationMode` | `device-plugin` \| `dra` | `device-plugin` | the GPU Allocation Mode |
+| `draDriverVersion` | string | the release's `defaultDraDriverVersion` | used only when `allocationMode` is `dra`; must be one of the release's `draDriverVersions` |
+| `resourceNaming` | `single` \| `mixed` | `single` | device plugin resource names: `single` always uses `amd.com/gpu`; `mixed` names partitioned GPUs per partition type |
+| `nodeLabeller` | boolean | `true` | label nodes with `amd.com/gpu.*` GPU properties |
+| `metricsExporter` | boolean | `false` | run AMD's Device Metrics Exporter (pod network only; Swallow does not scrape it) |
+
+Enabling the operator requires at least one workload-capable target of the Platform's deployment
+whose GPU inventory has an AMD `compute` GPU; otherwise it is a `validation_error`. This only
+decides whether the feature is available; the nodes it manages are the ones described in
+[Managed Nodes](#managed-nodes). `dra` requires the release's `draMinKubernetesVersion`, and every release requires its
+`minKubernetesVersion`; the Kubernetes version is the deployment's `k0sVersion` without its
+`+k0s` suffix. Unknown values, an unknown `version` or `draDriverVersion`, a too-old Kubernetes
+version, or enabling the operator on a Slurm Platform is a `validation_error`.
+
+### List The Supported Releases
+
+`GET /api/v1/platforms/gpu-operator/releases` lists the operator releases Swallow ships and has
+verified, newest first:
+
+```json
+{
+  "items": [
+    {
+      "version": "v1.5.1",
+      "default": true,
+      "minKubernetesVersion": "1.29",
+      "draMinKubernetesVersion": "1.34",
+      "draDriverVersions": ["v1.0.1"],
+      "defaultDraDriverVersion": "v1.0.1"
+    }
+  ]
+}
+```
+
+### Change The GPU Operator
+
+`PUT /api/v1/platforms/{platformId}/gpu-operator` replaces the settings and starts a
+`configure-gpu-operator` Operation that applies them. The body is the settings object above.
+`{ "enabled": false }` uninstalls the operator and keeps the other recorded settings, so a later
+install can start from them.
+
+```json
+{
+  "platformId": "platform-id",
+  "workflowId": "workflow-id"
+}
+```
+
+Success is `202 Accepted` once the Operation is persisted; `gpuOperator.state` becomes
+`installing` (or `uninstalling`) and `gpuOperator.lastWorkflowId` names the Operation. The
+Operation targets the Platform's deployment targets: it verifies SSH readiness, then runs one
+ansible Task (`configure-gpu-operator`). Errors:
+
+- `400 validation_error` for invalid settings.
+- `404 not_found` when the Platform does not exist.
+- `409 conflict` when the Platform is not a Swallow-deployed Kubernetes Platform whose lifecycle
+  is `active`; when `enabled=false` and Swallow manages no operator on it (`gpuOperator` is
+  `null` or `absent`); when a target is locked or held by another unfinished Operation; or when
+  the installation has no Deployment Key.
+
+### What The Operation Does
+
+The Task fails (`ansible_failed`, retryable) with a message that starts with a bracketed code when
+a precondition does not hold. The cluster-level refusals (`gpu_operator_unmanaged`,
+`dra_unavailable`, `gpu_workloads_present`) are reported before the Task changes anything; the
+node-level ones need Node Feature Discovery, so they are reported after the release is installed
+or upgraded and before the `DeviceConfig` is applied:
+
+| Code | Meaning |
+| --- | --- |
+| `gpu_operator_unmanaged` | the cluster already runs an AMD GPU Operator, a `DeviceConfig`, or a hand-applied AMD device plugin or labeller that Swallow did not install |
+| `dra_unavailable` | `dra` was requested but the cluster has no `resource.k8s.io/v1` API |
+| `gpu_workloads_present` | the change switches the allocation mode or uninstalls while a Pod requests an AMD GPU resource or a `gpu.amd.com` `ResourceClaim` is allocated |
+| `amd_gpu_not_detected` | Node Feature Discovery marked no node as an AMD GPU node, for example because no node has a GPU the chart supports |
+| `amdgpu_driver_missing` | a managed node's image has no `amdgpu` kernel module, or the driver did not load or exposed no `/dev/kfd` when Swallow loaded it |
+| `gpu_operator_not_ready` | the operator did not become Ready, or a managed node did not expose its GPUs, within the timeout |
+
+Applying the settings installs or upgrades the pinned chart with KMM and remediation disabled,
+waits for its Node Feature Discovery to evaluate every node, and labels the nodes it marks as AMD
+GPU nodes `swallow.dev/amd-gpu-operator=managed`; a node that carries the label but is no longer
+marked loses it together with its `amd.com/gpu.*` / `beta.amd.com/gpu.*` labels. One
+`DeviceConfig` named `swallow` in namespace `kube-amd-gpu` selects that label, so physical GPUs and
+SR-IOV virtual functions are managed by the same `DeviceConfig`. A change of allocation mode turns
+the old mode off and waits for it to disappear before the new one starts.
+Before the `DeviceConfig` is applied, every managed node gets `swallow-amdgpu-load.service`, which
+loads the image's `amdgpu` once SSH is up, with the k0s unit ordered after it; the Task starts it,
+so the GPUs exist now and after every reboot even when the image blacklists `amdgpu` at boot.
+Nodes no longer managed lose the unit and the ordering; a loaded driver is never unloaded.
+For `dra` on k0s, the Task links `/var/lib/kubelet/plugins` and `/var/lib/kubelet/plugins_registry`
+to the k0s kubelet directories on managed nodes and removes those exact links when DRA is turned
+off or the operator is uninstalled. The Task succeeds when the `DeviceConfig` is Ready and every
+managed node exposes a positive `amd.com/*` allocatable (`device-plugin`) or a `gpu.amd.com`
+`ResourceSlice` with devices (`dra`). Uninstalling removes the `DeviceConfig`, the Helm release,
+the node labels, the DRA links, and the amdgpu loader; the Platform stays `active`.
+
+`gpuOperator.state` follows the Task: `installing` / `uninstalling` while it waits or runs,
+`ready` / `absent` when it succeeds, and `failed` when it fails, needs attention, or is canceled.
+Only the Operation named by `lastWorkflowId` moves the state. A refused or failed Task leaves its
+Operation in `requires_attention`, still holding the targets: retry the Task once the cause is
+fixed, or cancel the Operation before submitting other settings, which are `409 conflict` until
+then. While the state is anything other
+than `absent`, `PATCH` cannot set `gpuStackOwner` back to `provisioning` (`409 conflict`).
+
 ## Uninstall A Deployed Platform
 
 `POST /api/v1/platforms/{platformId}/uninstall` starts an
@@ -408,9 +592,12 @@ absent, locked, or busy target, a registered Platform, or a Slurm Platform retur
 new Operation records `retryOfOperationId` pointing to the latest uninstall.
 
 When servers are kept, the release-owned playbook stops k0s services, runs `k0s reset`,
-removes Swallow-created k0s state, units, join token, installer, and binary, and reloads
-systemd. It preserves the OS, user data, `conntrack`, unrelated packages, and power state, and
-does not reboot. When servers are released, this uninstall playbook is skipped entirely.
+removes Swallow-created k0s state, units, join token, installer, and binary, and the GPU
+Operator's DRA links, DRA common CDI spec, and amdgpu loader (a loaded driver stays loaded until
+the next boot), and reloads systemd. It preserves the OS, user data, `conntrack`, unrelated
+packages, and power state, and does not reboot. When servers are released, this uninstall
+playbook is skipped entirely. Either way a successful uninstall sets `gpuOperator.state` to
+`absent` when Swallow managed one.
 
 On success Swallow clears membership, deletes only a credential Integration proven to be
 Swallow-owned, and clears the Platform integration/sync projection. If Kubernetes owned
@@ -425,7 +612,8 @@ the uninstall.
 for list requests; the API does not fan out one Operation query per Platform.
 
 `PATCH /api/v1/platforms/{platformId}` updates `name`, `gpuStackOwner`, `exporterOwner`, or
-`monitoringLinks`; omitted fields do not change.
+`monitoringLinks`; omitted fields do not change. `PATCH` never changes `gpuOperator`; use
+`PUT .../gpu-operator`.
 
 `monitoringLinks` replaces the whole list; `[]` clears it. At most 10 links. Each `name` is
 trimmed, required, at most 64 characters, and unique within the Platform (case-insensitive).
@@ -549,6 +737,9 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   existing HA requests retain dedicated control-plane behavior.
 - `apiVip` remains accepted exactly as before for HA requests and is now optional for a
   one-control-plane deployment.
+- Since 2026-10-21 an HA `apiVipPrefix` defaults to the control-plane subnet's prefix instead
+  of `24`, and a VIP or prefix that does not fit that subnet is a `validation_error`; such a
+  deploy could never form its etcd cluster.
 - Control-plane lease discovery remains per Integration because its naming is k0s-specific.
 - `monitoringLinks` was added on 2026-10-12. It is additive: a Platform stored before the field
   existed reads as `[]`, and a `PATCH` that omits it leaves the links unchanged.

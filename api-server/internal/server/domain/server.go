@@ -179,6 +179,29 @@ func (g GPU) ClassifiedKind() GPUKind {
 	return ClassifyGPUKind(g.Vendor, g.Model)
 }
 
+// IsAMDCompute reports whether the group is AMD workload capacity: a compute GPU whose provider
+// vendor names AMD, or whose model is the "1002:product" PCI id a provider falls back to when it
+// cannot name the device. AMD display controllers are not workload capacity and never match.
+func (g GPU) IsAMDCompute() bool {
+	if g.ClassifiedKind() != GPUKindCompute {
+		return false
+	}
+	vendor := strings.ToLower(g.Vendor)
+	return strings.Contains(vendor, "advanced micro devices") ||
+		strings.Contains(vendor, "amd") ||
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(g.Model)), "1002:")
+}
+
+// HasAMDComputeGPU reports whether any group is AMD workload capacity (see GPU.IsAMDCompute).
+func HasAMDComputeGPU(gpus []GPU) bool {
+	for _, gpu := range gpus {
+		if gpu.IsAMDCompute() {
+			return true
+		}
+	}
+	return false
+}
+
 // GPUCountByKind returns physical devices of one classified kind, including legacy groups whose
 // stored kind is absent. Display controllers therefore never inflate compute capacity.
 func GPUCountByKind(gpus []GPU, kind GPUKind) int {

@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"net/netip"
 )
 
 // NodeRole is the part a server plays in a platform: running the control plane or running
@@ -257,11 +258,18 @@ func (s SlurmDeploymentSpec) HighlyAvailable() bool {
 // platform. The trusted and secret vars are assembled by the deploy use case, which owns
 // the translation from a DeploymentSpec to the playbook's variables; the launcher only
 // forwards them to the operation context.
+//
+// OperationID, when set, is the id the launcher must give the Workflow; the deploy use case
+// preassigns it so the GPU Operator record names its Workflow before any Task can run.
+// GPUOperatorVars, when non-nil, adds the configure-gpu-operator Job with these trusted vars
+// after the Platform validates; nil installs no GPU Operator.
 type DeploymentLaunch struct {
 	Platform           *Platform
+	OperationID        string
 	TargetServerIDs    []string
 	TrustedVars        map[string]any
 	SecretVars         map[string]any
+	GPUOperatorVars    map[string]any
 	RequestedBy        string
 	RequestCorrelation string
 	MachinePreparation MachinePreparation
@@ -329,4 +337,12 @@ type MachinePreparation struct {
 // a Platform record or Operation is created.
 type MachinePreparationValidator interface {
 	Validate(ctx context.Context, siteID string, serverIDs []string, preparation MachinePreparation) error
+}
+
+// NodeSubnetResolver reads, from the provisioner, the IPv4 subnet each Server's boot interface is
+// on, or for a Server the deploy provisions, the subnet its network assignment puts it on. A
+// Server whose subnet cannot be read is left out of the result. An HA deploy uses it to check the
+// API VIP against the control plane's subnet before anything is created.
+type NodeSubnetResolver interface {
+	NodeSubnets(ctx context.Context, serverIDs []string, preparation MachinePreparation) (map[string]netip.Prefix, error)
 }

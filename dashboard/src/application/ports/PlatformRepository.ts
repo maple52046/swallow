@@ -7,6 +7,9 @@ import type {
   UninstallPlatformOptions,
   MinimumResources,
   SlurmDeploymentRequirement,
+  GPUOperatorRelease,
+  GPUOperatorSettings,
+  ConfigureGPUOperatorResult,
 } from '@/domain/platform/types'
 import type {
   KubernetesApplication,
@@ -60,6 +63,15 @@ export interface PlatformRepository {
   getSlurmDeploymentRequirement(): Promise<SlurmDeploymentRequirement>
   /** Replaces the Slurm eligibility floor, or disables it when minimum is null. */
   putSlurmDeploymentRequirement(minimum: MinimumResources | null): Promise<SlurmDeploymentRequirement>
+  /** The AMD GPU Operator releases Swallow ships, newest first; the source of `version` choices. */
+  listGPUOperatorReleases(): Promise<GPUOperatorRelease[]>
+  /**
+   * Installs, changes, or (with `{ enabled: false }`) uninstalls a deployed Kubernetes
+   * Platform's GPU Operator. Resolves once the change Workflow is accepted; the outcome is the
+   * Platform's `gpuOperator.state`. Rejects with the API error when the Platform is not active,
+   * a target is busy, or the settings are invalid.
+   */
+  configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<ConfigureGPUOperatorResult>
 
   /**
    * The live Kubernetes cluster explorer for a Swallow-deployed Kubernetes Platform. Every call
