@@ -14,8 +14,8 @@ Open **SSH keys** from the account menu (top right).
   it (ed25519): `swallowctl install` and `swallowctl upgrade` run
   `swallow-api deployment-key ensure` after the database migration. swallow keeps the
   private key encrypted and never shows it. OS and Platform deployments are refused until
-  it exists. swallow uses it for SSH readiness and Ansible on every Site
-  unless that Site sets its own automation key.
+  it exists. swallow uses it for SSH readiness and Ansible on every Site; a Site
+  cannot override it with another private key.
 - **Access keys** — your own keys for logging in to Servers. swallow stores only
   the public key. You can import an existing public key, or generate a key pair; a
   generated private key is shown exactly once, so download or copy it before you

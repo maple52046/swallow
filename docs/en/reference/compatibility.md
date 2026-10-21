@@ -48,8 +48,8 @@ third-party manifests, not to this overview.
 ## Not implemented
 
 Planned API design mentions Teams, user administration, physical datacenter/
-room/rack topology, access/SSH-key management, workload abstractions, and
-GPU-specific observability. They must not be presented as active capability.
+room/rack topology, workload abstractions, and GPU-specific observability. They
+must not be presented as active capability.
 
 ## Security and support
 

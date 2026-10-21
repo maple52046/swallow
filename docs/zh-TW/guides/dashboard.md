@@ -10,7 +10,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | 區域 | 用途 |
 | --- | --- |
 | Overview | Site-scoped fleet health、attention items、integration、Platform 與 recent Workflow |
-| Servers | Inventory、Add servers（納管引導）、filter、saved view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
+| Servers | Inventory、Add servers（納管引導）、可分享的 filter view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
 | Provisioning | OS deployment、template、image、Boot ISO、upload 與 verification |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | 分類呈現 Docker CE、Podman、NFS catalog、各 software deployment 與多 Server 安裝 |
@@ -18,10 +18,31 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Monitoring | Alert、silence、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、fleet health 與選用的 Grafana link |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
-| API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 Swallow 的 key |
+| API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 Swallow 的 key，見 [API key](api-keys.md) |
 
 `/clusters` 與 `/operations` 下的 route 是 compatibility redirect；canonical
 navigation 使用 Platforms 與 Workflows。
+
+## 使用 Overview
+
+Overview 是一份唯讀、point-in-time 的摘要，彙整其他 context 擁有的事實。選擇 Site
+可限制範圍；清除 Site selection 則查看整個 swallow。**Updated** 時間表示 aggregate
+產生的時間。
+
+- **Capacity** 與 **Workflows** 摘要 compute GPU 與 deployment 數量，以及 active／
+  近期失敗工作。Development build 啟用 Monitoring 時，**Fleet health** 與 **Alerts**
+  也會摘要 Server reachability 與選用的 Alertmanager source。沒有 Alertmanager 時顯示
+  **Not configured**；已設定但讀不到時顯示 **Unavailable**。Release build 保留這兩張
+  card 的位置，但標示為 unavailable。
+- **Needs attention** 最多顯示十項 Integration sync failure、unreachable Platform、
+  unmatched member，以及過去 24 小時失敗的 Workflow。啟用 Monitoring 時也會包含
+  current alert 與 down Server。請從項目進入 owner page 處理；問題解除後，之後的
+  Overview read 就不再顯示。
+- **Recent workflows** 最多連到最近要求的八個 Workflow。**Integrations** 顯示各
+  Integration 最近成功 sync 或 failure，並連到管理頁。
+
+Overview 不保存第二份 status，也不執行修復；請用它找到實際擁有該狀態的 Server、
+Integration、Platform、Workflow 或 alert view。
 
 ## 開發中的功能
 
@@ -84,7 +105,8 @@ cookie 自動換發，因此使用中不會被踢回登入頁。每個分頁載�
 7 天未使用或登入 30 天後結束（server 預設值）；此時 Dashboard 回到登入頁並說明 session 已結束，重新
 登入後會回到原本的頁面。
 
-Script 與 CLI 可在 **Account menu → API keys** 建立 API key。Secret 只顯示一次；刪除 key 即撤銷。
+Script 與 CLI 可在 **Account menu → API keys** 建立 API key。Secret 只顯示一次；
+刪除 key 即撤銷。到期、保存與 CLI 使用方式請見 [API key](api-keys.md)。
 
 Dashboard 透過 `/auth/me` 讀取目前的 caller，不解析 token claims。Role-gated control 只是
 presentation guidance；authorization 仍以 API 為準。

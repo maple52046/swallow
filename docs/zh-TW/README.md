@@ -21,6 +21,7 @@ CLI、API、automation 與 installation assets。
 - [Platform](guides/platforms.md)
 - [Managed Software](guides/managed-software.md)
 - [SSH key 與 image 登入帳號](guides/ssh-keys.md)
+- [API key](guides/api-keys.md)
 - [Workflow](guides/workflows.md)
 - [Monitoring](guides/monitoring.md)
 - [疑難排解](troubleshooting.md)

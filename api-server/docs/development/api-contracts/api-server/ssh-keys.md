@@ -184,8 +184,11 @@ is never returned.
 
 Replacing or regenerating the Deployment Key does **not** re-authorize Servers deployed
 earlier: they authorize only the public key present when they were deployed, so swallow can
-no longer log in to them with the new key unless a Site Automation Configuration overrides
-the credential or the Server is redeployed.
+no longer log in to them with the new key. Redeploying injects the current key. For a Server
+whose existing OS must remain, setting its Server Default User with the account's one-time
+password can install and verify the current key (see
+[server-detail-actions.md](server-detail-actions.md#default-user)). Site Automation
+cannot override the Deployment Key.
 
 ## Trigger a sync
 

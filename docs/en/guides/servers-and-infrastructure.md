@@ -90,7 +90,7 @@ A domain that does not exist or has an architecture other than `x86_64` or
 ## Inventory and details
 
 The Servers list supports Site scope, pagination, search, status and capability
-filters, saved views, live row updates, and bulk selection. A Server detail
+filters, shareable URL-owned views, live row updates, and bulk selection. A Server detail
 workspace separates summary, activity, monitoring, network, storage, and PCI
 observations. A Server where swallow installed Docker CE also gets a
 **Containers** tab for its Docker images, containers, volumes, and networks (see
@@ -98,6 +98,36 @@ observations. A Server where swallow installed Docker CE also gets a
 
 Always use the opaque Server ID in links and automation. Duplicate hostnames and
 addresses are valid across Sites.
+
+### Filter views and display preferences
+
+The chips above the inventory are built-in operational views: **All**,
+**Deployable**, **Active deployments**, and **Needs attention**. **Filters**
+adds provisioning, health, membership, GPU, hardware, placement, tag, lock, and
+absent-Server facets. Choosing an explicit provisioning state leaves the
+built-in view so the two do not silently conflict.
+
+Search, view, filters, grouping, sort, direction, Site scope, and page are
+encoded in the URL. Copy or bookmark that URL to reapply the same view; there
+is no separate named saved-view record. **Display** density and page size are
+browser-local preferences, so they do not travel with a shared URL. Selection
+is cleared when the filter set changes and is never stored in the link.
+
+### GPU inventory
+
+The Server Summary's **Capacity** card separates **Compute GPUs** from
+**Display GPUs**. Compute GPUs are workload accelerators and contribute to
+fleet capacity; this includes recognized physical accelerators and passed-through
+virtual functions. Display GPUs are local-console, BMC, or virtual-machine
+console controllers such as ASPEED, Matrox G200, and virtio-gpu. They remain
+visible as hardware but do not inflate accelerator capacity or make a Server
+GPU-eligible.
+
+The classification preserves the provisioner's complete observation while
+preventing a console controller from being counted as a workload device. An
+unknown provider-reported GPU defaults to compute so a real accelerator is not
+silently discarded. See the canonical
+[GPU Inventory definition](../../development/glossaries/terms/gpu-inventory.md).
 
 ## Read the Deployment column
 

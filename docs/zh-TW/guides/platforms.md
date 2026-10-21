@@ -30,6 +30,18 @@ Platform 是由 swallow 佈署的 Kubernetes 或 Slurm runtime。swallow 不會�
 - YAML apply。
 - Node cordon state。
 
+開啟 Kubernetes Platform 後，使用 **Applications**、**Namespaces** 與
+**Cluster** 分頁：
+
+- **Applications** 會列出 Deployment、DaemonSet、StatefulSet 與 bare Pod。可依
+  namespace 篩選；Deployment 與 StatefulSet 可 scale；Deployment、DaemonSet 與
+  StatefulSet 可 restart；也可讀取第一個 Pod 的 bounded log snapshot，或刪除
+  workload。**Apply YAML** 可先執行 server-side dry run，再套用一個或多個 object。
+- **Namespaces** 可建立與刪除 namespace；system namespace 會標示出來且不能刪除。
+- **Cluster** 顯示 version、readiness、schedulable GPU resource，以及每個 node
+  對應的 Server。**Cordon** 會阻止新工作排入 node；**Uncordon** 讓它恢復可排程。
+  兩者都不會 drain 既有 Pod。
+
 這些 view 會 live query Kubernetes API，不會在 swallow 建立 in-cluster state
 的 durable copy。Cluster 頁籤也會顯示每個節點提供的 AMD GPU。
 
@@ -61,8 +73,15 @@ Device Metrics Exporter 供叢集自己的監控使用；swallow 的 GPU 圖表�
 ## Slurm
 
 Slurm deployment 會依 topology 指派 controller、compute、login、state-server
-與 workload storage responsibility。送出前先設定並檢查 Site 的 Slurm deployment
-requirement。Resource minimum 是 policy，不是建議；target set 不符合時 API 會拒絕。
+與 workload storage responsibility。
+
+從 **Platforms → Settings** 設定 system-wide Slurm deployment requirement。
+啟用 policy 後，設定每個選取的 Slurm node 必須提供的最低 **CPU cores**、
+**Memory GiB** 與 **Storage GB**。啟用時三個值都必填；停用則移除這個 floor。
+Deploy wizard 會說明無法選擇某個 Server 的原因，並在送出時重新檢查 policy。
+
+Requirement 是 hardware eligibility floor，不會保留 resource、不表示 Slurm
+scheduler capacity，也不保證 OS image 能放進 ephemeral root filesystem。
 
 Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯回 Server ID。
 

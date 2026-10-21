@@ -11,8 +11,8 @@ swallow 會登入它所佈署的 Server，以確認 SSH 就緒並執行 Ansible�
 
 - **Deployment key**：整個安裝只有一組 key pair，由安裝流程產生（ed25519）：`swallowctl install` 與
   `swallowctl upgrade` 會在資料庫 migration 之後執行 `swallow-api deployment-key ensure`。私鑰加密保存，
-  且不會顯示。它不存在時，OS 與 Platform 佈署會被拒絕。除非某個 Site 設定了自己的 automation key，swallow 在所有 Site 都用它
-  進行 SSH 就緒檢查與 Ansible。
+  且不會顯示。它不存在時，OS 與 Platform 佈署會被拒絕。swallow 在所有 Site 都用它進行
+  SSH 就緒檢查與 Ansible；Site 不能以另一把私鑰覆寫它。
 - **Access keys**：你自己登入 Server 用的 key。swallow 只保存公鑰。你可以匯入既有公鑰，或產生新的
   key pair；產生的私鑰只會顯示一次，關閉對話框前請先下載或複製。
 

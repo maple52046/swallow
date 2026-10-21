@@ -37,6 +37,29 @@ provider-specific settings), and **Credential** (set or replace the key). A MAAS
 provisioner also has **HTTP proxy** and **Subnet DNS**, which are applied to MAAS
 directly. Each tab has its own URL and its own Save or Apply.
 
+Use the tabs according to who owns the value:
+
+- **General** and **Connection** update the Integration that swallow stores.
+  Disabling it stops provider reads; connection settings control how swallow
+  reaches it. **Inspect newly enrolled Servers automatically** changes whether
+  a newly discovered, never-inspected Server starts an inspection Workflow.
+- **Credential** replaces the write-only MAAS API key. Saving another tab does
+  not resend or clear it.
+- **HTTP proxy** reads and writes MAAS live; it is not an Integration setting.
+  **None** gives deployed machines no proxy, **Built-in** uses the MAAS proxy
+  directly, **External** gives MAAS and deployed machines the supplied proxy,
+  and **Peer** sends them through the MAAS proxy with the supplied proxy as its
+  upstream. The proxy URL cannot contain credentials. A change affects later
+  deployments, not machines already deployed.
+- **Subnet DNS** reads MAAS subnets live and applies up to eight DNS server
+  addresses to one subnet at a time. Automatic and Static deployments use this
+  list (or MAAS DNS when it is empty); DHCP deployments get DNS from their DHCP
+  server. A change affects later deployments only.
+
+Because the last two tabs are live provider settings, a read or write can fail
+when MAAS is unavailable, the Integration has no credential, or its MAAS
+account is not an administrator.
+
 One Site has one provisioner boundary. Model a MAAS installation spanning
 independently operated locations as separate Site integrations.
 

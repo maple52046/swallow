@@ -81,13 +81,39 @@ Server 的 domain 會沿用，不會重複建立。
 ## Inventory 與 detail
 
 Servers list 支援 Site scope、pagination、search、status／capability filter、
-saved view、live row update 與 bulk selection。Server detail workspace 將 summary、
+可分享且由 URL 擁有的 view、live row update 與 bulk selection。Server detail workspace 將 summary、
 activity、monitoring、network、storage 與 PCI observations 分開。swallow 安裝過 Docker CE
 的 Server 另有 **Containers** tab，管理該 host 的 Docker images、containers、volumes 與
 networks（見 [Managed Software](managed-software.md#docker-engine-api-與-containers-tab)）。
 
 Link 與 automation 一律使用 opaque Server ID。不同 Site 擁有相同 hostname 或
 address 是合法狀況。
+
+### Filter view 與 display preference
+
+Inventory 上方的 chip 是內建 operational view：**All**、**Deployable**、
+**Active deployments** 與 **Needs attention**。**Filters** 可再設定 provisioning、
+health、membership、GPU、hardware、placement、tag、lock 與 absent Server facet。
+明確選擇 provisioning state 時會離開內建 view，避免兩者形成不明顯的衝突。
+
+Search、view、filter、grouping、sort、direction、Site scope 與 page 都編碼在 URL；
+複製或加入書籤即可重新套用相同 view，沒有另一筆有名稱的 saved-view record。
+**Display** 的 density 與 page size 是 browser-local preference，因此不會隨分享的 URL
+傳遞。Filter set 改變時 selection 會清除，且永遠不會存進 link。
+
+### GPU inventory
+
+Server Summary 的 **Capacity** card 會區分 **Compute GPUs** 與 **Display GPUs**。
+Compute GPU 是 workload accelerator，會計入 fleet capacity，包含辨識出的實體
+accelerator 與 passthrough virtual function。Display GPU 是 local-console、BMC 或
+virtual-machine console controller，例如 ASPEED、Matrox G200 與 virtio-gpu。它們仍
+保留在 hardware inventory 中，但不會膨脹 accelerator capacity，也不會讓 Server
+因此變成 GPU-eligible。
+
+此分類會保留 provisioner 的完整 observation，同時避免把 console controller 當成
+workload device。Provider 回報但無法辨識的 GPU 預設為 compute，避免真正的 accelerator
+被無聲略過。Canonical 定義請見
+[GPU Inventory](../../development/glossaries/terms/gpu-inventory.md)。
 
 ## 判讀 Deployment 欄位
 

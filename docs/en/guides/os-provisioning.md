@@ -241,6 +241,28 @@ Recovery handles allocated, failed, broken, or rescue states according to the
 configured provider recovery policy. Power-off warnings must be reviewed when
 memory-backed state or active work could be lost.
 
+For a failed OS deployment, retry the failed `provision-os` Task from its
+Workflow. An explicit retry first observes the Server. If the requested image
+is already installed and reachable, it completes without writing again. If the
+provider reports `failed`, `allocated`, `broken`, or `rescue`, swallow returns
+the Server to Ready, keeps static IP bindings, and redeploys the same frozen
+image, network, and cloud-init intent. Activity retries caused by worker
+turnover never perform this destructive recovery.
+
+A disk deployment is refused when
+`provisioning.inspectionRequired` says an earlier UEFI inspection left the boot
+disk without the required EFI partition. Retry stops before recovery with
+`inspection_required`; run **Inspect hardware**, then start a new deployment.
+A RAM deployment is not blocked by the disk layout.
+
+If unfinished Workflows still hold a Server, the Release dialog lists them.
+Check **Cancel running operations before releasing** to request their
+cancellation and queue Release. On a failed Server,
+**Cancel blocking Operations and Recover** performs the same hand-off for
+Recover. The new action waits for their resource leases instead of requiring
+you to resubmit later. Review the canceled Workflow first when a completed
+external effect may still matter. See [Workflows](workflows.md#cancellation).
+
 ## Network inspection
 
 Network configuration reads and writes provider-owned interfaces and links. A

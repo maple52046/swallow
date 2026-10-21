@@ -44,8 +44,8 @@ Exact release media version／digest 屬於 candidate/release 與 third-party ma
 ## 尚未實作
 
 Planned API design 提到 Team、user administration、datacenter/room/rack physical
-topology、access/SSH-key management、workload abstraction 與 GPU-specific
-observability。它們不能被呈現成 active capability。
+topology、workload abstraction 與 GPU-specific observability。它們不能被呈現成
+active capability。
 
 ## Security 與 support
 

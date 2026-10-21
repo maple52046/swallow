@@ -34,6 +34,20 @@ After deployment, the Platform detail provides a live Kubernetes explorer for:
 - YAML apply;
 - node cordon state.
 
+Open the Kubernetes Platform, then use its **Applications**, **Namespaces**, and
+**Cluster** tabs:
+
+- **Applications** lists Deployments, DaemonSets, StatefulSets, and bare Pods.
+  Filter by namespace; scale Deployments and StatefulSets, restart Deployments,
+  DaemonSets, and StatefulSets, read a bounded snapshot of the first Pod's
+  logs, or delete a workload. **Apply YAML** supports a server-side dry run
+  before applying one or more objects.
+- **Namespaces** creates and deletes namespaces. System namespaces are
+  identified and cannot be deleted.
+- **Cluster** shows version, readiness, schedulable GPU resources, and the
+  Server matched to each node. **Cordon** stops new scheduling on a node;
+  **Uncordon** makes it schedulable again. Neither action drains existing Pods.
+
 These views query the Kubernetes API live and do not create a durable copy of
 in-cluster state in swallow. The Cluster tab also shows the AMD GPUs each node
 exposes.
@@ -76,9 +90,18 @@ GPU charts keep using the host exporter.
 ## Slurm
 
 Slurm deployment assigns controller, compute, login, state-server, and workload
-storage responsibilities according to the selected topology. Configure and
-review the Site's Slurm deployment requirement before submission. Resource
-minimums are policy, not suggestions; the API rejects an invalid target set.
+storage responsibilities according to the selected topology.
+
+Open **Platforms → Settings** to configure the system-wide Slurm deployment
+requirement. Enable the policy and set the minimum **CPU cores**, **Memory GiB**,
+and **Storage GB** that every selected Slurm node must report. All three values
+are required while it is enabled; disabling it removes the floor. The deploy
+wizard shows why an ineligible Server cannot be selected and rechecks the
+policy on submission.
+
+The requirement is a hardware eligibility floor. It does not reserve resources,
+express Slurm scheduler capacity, or prove that an OS image fits an ephemeral
+root filesystem.
 
 Platform detail reads live Slurm state through the Platform API and correlates
 nodes back to Server IDs.

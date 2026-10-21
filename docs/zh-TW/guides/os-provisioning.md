@@ -207,6 +207,24 @@ machine 回到 pool 後顯示 **Ready**；不需離開該頁即可追蹤這段�
 Recovery 會依 provider recovery policy 處理 allocated、failed、broken 或 rescue
 state。若 memory-backed state 或 active work 可能遺失，必須閱讀 power-off warning。
 
+OS deployment 失敗後，請從對應 Workflow retry 失敗的 `provision-os` Task。明確
+retry 會先觀察 Server；要求的 image 已安裝且可連線時，不會重複寫入。若 provider
+回報 `failed`、`allocated`、`broken` 或 `rescue`，swallow 會保留 static IP binding，
+先讓 Server 回到 Ready，再以同一份凍結的 image、network 與 cloud-init intent
+重新佈署。Worker turnover 造成的 activity retry 不會執行這種 destructive recovery。
+
+若 `provisioning.inspectionRequired` 表示先前 UEFI inspection 留下的 boot disk
+沒有必要的 EFI partition，disk deployment 會被拒絕。Retry 會在 recovery 前以
+`inspection_required` 停止；請先執行 **Inspect hardware**，再開始新的 deployment。
+RAM deployment 不受 disk layout 限制。
+
+若 unfinished Workflow 仍佔用 Server，Release dialog 會列出它們。勾選
+**Cancel running operations before releasing** 會要求取消這些 Workflow，並排入
+Release。Failed Server 上的 **Cancel blocking Operations and Recover** 會對
+Recover 執行相同 hand-off。新 action 會等待 resource lease，不必稍後再手動送出。
+若已完成的 external effect 仍可能有影響，請先檢查被取消的 Workflow。見
+[Workflow](workflows.md#cancellation)。
+
 ## Network inspection
 
 Network configuration 讀寫 provider-owned interface 與 link。部署時從三種

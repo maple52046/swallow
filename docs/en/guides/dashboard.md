@@ -11,7 +11,7 @@ current session in the browser.
 | Area | What it is for |
 | --- | --- |
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
-| Servers | Inventory, Add servers (enrollment guidance), filters, saved views, bulk actions, tags, locks, and Server details including Boot Media |
+| Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
 | Provisioning | OS deployment, templates, images, Boot ISOs, upload, and verification |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Grouped Docker CE, Podman, and NFS catalog, per-software deployments, and multi-Server installation |
@@ -19,10 +19,34 @@ current session in the browser.
 | Monitoring | Alerts, silences, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, fleet health, and optional Grafana links |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
-| API keys (account menu) | Keys that let scripts, CI, and the CLI call Swallow as you without a password |
+| API keys (account menu) | Keys that let scripts, CI, and the CLI call Swallow as you without a password — see [API keys](api-keys.md) |
 
 Routes under `/clusters` and `/operations` are compatibility redirects.
 Canonical navigation uses Platforms and Workflows.
+
+## Use Overview
+
+Overview is a read-only, point-in-time summary of facts owned elsewhere. Choose
+a Site to scope it, or clear the Site selection for the swallow-wide view. The
+**Updated** time says when the aggregate was generated.
+
+- **Capacity** and **Workflows** summarize compute GPU and deployment counts and
+  active and recently failed work. With Monitoring enabled in a development
+  build, **Fleet health** and **Alerts** also summarize Server reachability and
+  the optional Alertmanager source. A missing Alertmanager reads **Not
+  configured**; an unreadable configured source reads **Unavailable**. Release
+  builds keep those two cards in place but mark them unavailable.
+- **Needs attention** shows up to ten failed Integration syncs, unreachable
+  Platforms, unmatched members, and Workflows that failed in the last 24 hours.
+  With Monitoring enabled it also includes current alerts and down Servers.
+  Follow an item to the owning page to act on it; resolving it there removes it
+  from a later Overview read.
+- **Recent workflows** links to at most the eight most recently requested
+  Workflows. **Integrations** shows each Integration's latest successful sync or
+  failure and links to its management page.
+
+Overview does not store a second status or execute repairs. Use it to find the
+owning Server, Integration, Platform, Workflow, or alert view.
 
 ## Features in development
 
@@ -99,8 +123,9 @@ or 30 days after sign-in (server defaults); the Dashboard then returns to the
 login page, says the session ended, and brings you back to the same page after
 you sign in again.
 
-For scripts and the CLI, create an API key under **Account menu → API keys**. The
-secret is shown once; delete the key to revoke it.
+For scripts and the CLI, create an API key under **Account menu → API keys**.
+The secret is shown once; delete the key to revoke it. See
+[API keys](api-keys.md) for expiry, storage, and CLI guidance.
 
 The Dashboard reads the current caller from `/auth/me` and does not decode token
 claims. Role-gated controls are presentation guidance; the API remains
