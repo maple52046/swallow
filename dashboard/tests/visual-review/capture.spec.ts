@@ -346,6 +346,37 @@ test.describe('AMD GPU Operator visual review', () => {
   })
 })
 
+/**
+ * Captures the Slurm deploy wizard's Features step with Podman as the container runtime and
+ * Omnistat selected (decision 063): the runtime choice, the Omnistat toggle and its install-method
+ * choice naming the primary controller, and the automatic GPU GRES notice.
+ */
+test.describe('Slurm Omnistat visual review', () => {
+  test('slurm-omnistat', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/deploy?site=site-a')
+    await chooseOption(page, 'Platform type', 'Slurm')
+    await page.getByLabel('Platform name').fill('omnistat-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-03' }).locator('..').click()
+    await next.click()
+    await chooseOption(page, 'Container runtime', 'Podman')
+    await page.getByRole('checkbox', { name: 'Install Omnistat GPU monitoring' }).locator('..').click()
+    await expect(page.getByRole('checkbox', { name: 'Install Omnistat GPU monitoring' })).toBeChecked()
+    await expect(page.getByText('Runs both as containers on gpu-node-01, which gets Podman.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-omnistat-wizard-features')
+  })
+})
+
 /** Captures the experimental Add servers path for libvirt virtual machines with a listed hypervisor. */
 test.describe('Add servers virtual machines visual review', () => {
   test('add-servers-virtual-machines', async ({ page }, testInfo) => {
@@ -446,6 +477,22 @@ test.describe('Software installation flow visual review', () => {
     await prepareCapture(page, appearance)
     if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'software-multi-node-dialog', false)
+  })
+
+  test('install method with a missing container runtime', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { fleetSize: 5, softwareAssignments: visualSoftwareAssignments })
+    await setAppearance(page, appearance)
+    await page.goto('/software/grafana?site=site-a')
+    await page.getByRole('button', { name: 'Install software', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Install software' })
+    await dialog.getByRole('checkbox', { name: 'Select compute-node-005' }).locator('..').click()
+    await dialog.getByRole('checkbox', { name: 'Select gpu-node-03' }).locator('..').click()
+    await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+    await expect(dialog.getByText('No container runtime installed')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-install-method-missing-runtime', false)
   })
 
   test('Server detail fixed-target dialog', async ({ page }, testInfo) => {

@@ -354,6 +354,7 @@ func RunAPI(cfg config.APIConfig) error {
 		platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
 	)
 	platformService.AttachGPUOperatorRecorder(platformRepo)
+	platformService.AttachOmnistatRecorder(platformRepo)
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
 	// derived credential source; the configuration service reads the plain repository and derives
@@ -462,10 +463,27 @@ func RunAPI(cfg config.APIConfig) error {
 	overviewHandler := overviewdelivery.NewHandler(
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
+	// Software deployment (Managed Software, decision 038): install/uninstall a single piece of
+	// host software on deployed Servers, tracked by a swallow-owned Software Assignment. It reuses
+	// the operation orchestration (PrepareAnsibleStep + WorkflowService) through a launcher, so it
+	// shares the platform deployment engine rather than owning a second one. It is built before the
+	// platform launcher because a Slurm deployment with Omnistat composes software (decision 063).
+	softwareAssignmentRepo, err := softwareinfra.NewMongoAssignmentRepo(db)
+	if err != nil {
+		return fmt.Errorf("software assignment repo init: %w", err)
+	}
+	softwareService := softwareapp.NewSoftwareService(
+		softwareAssignmentRepo, serverRepo,
+		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
+	)
+	softwareService.AttachLauncher(softwareDeploymentLauncher{
+		operations: operationService, orchestrations: orchestrationService,
+	})
+
 	// Platform lifecycle adapters keep durable operations outside the platform context.
 	platformLauncher := platformDeploymentLauncher{
 		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC, servers: serverRepo,
-		bootMedia: bootMediaPlan,
+		bootMedia: bootMediaPlan, software: softwareService,
 	}
 	deployService := platformapp.NewDeployService(
 		platformService, platformRepo, serverRepo, lifecycleReader, platformLauncher,
@@ -476,6 +494,7 @@ func RunAPI(cfg config.APIConfig) error {
 	deployService.AttachDeploymentRequirementReader(requirementRepo)
 	deployService.AttachDeploymentKeyChecker(sshKeyService)
 	deployService.AttachGPUOperatorRecorder(platformRepo)
+	deployService.AttachOmnistatRecorder(platformRepo)
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
@@ -492,21 +511,6 @@ func RunAPI(cfg config.APIConfig) error {
 		sshKeyService,
 	))
 
-	// Software deployment (Managed Software, decision 038): install/uninstall a single piece of
-	// host software on deployed Servers, tracked by a swallow-owned Software Assignment. It reuses
-	// the operation orchestration (PrepareAnsibleStep + WorkflowService) through a launcher, so it
-	// shares the platform deployment engine rather than owning a second one.
-	softwareAssignmentRepo, err := softwareinfra.NewMongoAssignmentRepo(db)
-	if err != nil {
-		return fmt.Errorf("software assignment repo init: %w", err)
-	}
-	softwareService := softwareapp.NewSoftwareService(
-		softwareAssignmentRepo, serverRepo,
-		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
-	)
-	softwareService.AttachLauncher(softwareDeploymentLauncher{
-		operations: operationService, orchestrations: orchestrationService,
-	})
 	softwareHandler := softwaredelivery.NewSoftwareHandler(softwareService)
 	softwareSweeper := softwareapp.NewSoftwareAssignmentSweeper(softwareAssignmentRepo, serverRepo)
 	// Docker Host Explorer (decision 043): live management of the Docker Engine on a Server where

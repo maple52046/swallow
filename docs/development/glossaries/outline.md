@@ -53,6 +53,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [GPU Operator](terms/gpu-operator.md): The in-cluster operator that makes a Platform's GPUs schedulable; Swallow installs and configures the AMD GPU Operator on a Swallow-deployed Kubernetes Platform, using the OS image's driver.
 - [GPU Allocation Mode](terms/gpu-allocation-mode.md): How the GPU Operator exposes GPUs — `device-plugin` (extended resource) or `dra` (ResourceSlice devices); one at a time.
 - [GPU Operator State](terms/gpu-operator-state.md): Where the latest Swallow change to a Platform's GPU Operator stands — `installing | ready | failed | uninstalling | absent`.
+- [Omnistat](terms/omnistat.md): AMD's Slurm-aware GPU monitoring that Swallow optionally installs with a Slurm deployment — exporter and job attribution on the Platform, Prometheus and Grafana composed as Managed Software; Omnistat State `installing | ready | failed | absent`.
 
 ### OS Provisioning
 

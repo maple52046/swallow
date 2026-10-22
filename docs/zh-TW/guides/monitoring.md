@@ -75,8 +75,12 @@ GPU 圖表。線條中斷代表該 Server 當時沒有回報。兩者都不會�
 ## 自帶監控的 Platform
 
 有些 runtime 自帶完整監控方案——例如 Slurm Platform 上的
-[Omnistat](https://github.com/ROCm/omnistat)，有自己的 Prometheus 與 Grafana。swallow 不會
-scrape 或查詢這類方案，而是：
+[Omnistat](https://github.com/ROCm/omnistat)，有自己的 Prometheus 與 Grafana。部署 Slurm Platform 時
+可以讓 swallow 代為安裝 Omnistat（部署精靈的 **Features → Install Omnistat GPU monitoring**，或在部署檔
+加上 `omnistat: { enabled: true }`）：primary controller 會裝 Prometheus 與帶有 Omnistat job
+dashboards 的唯讀 Grafana，每台 compute node 裝 exporter，Platform 頁面會顯示 Omnistat 狀態與
+`Omnistat Grafana` 連結。Prometheus 與 Grafana 預設以 container 執行；也可選擇 native 安裝方法，改由
+官方 release 與 apt／yum repository 安裝。swallow 不會 scrape 或查詢這類方案，而是：
 
 - 把它的 UI 登記為 Platform 的 **Monitoring Link**。Platform 頁面會顯示它，旁邊並有前往
   swallow 內該 Platform 用量圖表的捷徑。

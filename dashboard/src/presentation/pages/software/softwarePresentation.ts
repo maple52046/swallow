@@ -46,6 +46,10 @@ export function softwareKindLabel(kind: SoftwareKind, catalogLabel?: string): st
       return 'Podman'
     case 'nfs':
       return 'NFS'
+    case 'prometheus':
+      return 'Prometheus'
+    case 'grafana':
+      return 'Grafana'
     default:
       return kind
   }

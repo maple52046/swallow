@@ -94,6 +94,19 @@
   become: true
   notify: Restart slurmctld
 
+- name: Render gres.conf
+  # Always rendered (AutoDetect=off with no node lines on a CPU-only cluster) so a rerun that
+  # drops the GPUs also drops their mapping; configless compute nodes fetch it with slurm.conf.
+  ansible.builtin.template:
+    src: gres.conf.j2
+    dest: "{{ slurm_conf_dir }}/gres.conf"
+    owner: slurm
+    group: slurm
+    mode: "0644"
+  become: true
+  register: slurm_config_gres
+  notify: Restart slurmctld
+
 - name: Render slurm.conf
   ansible.builtin.template:
     src: slurm.conf.j2
@@ -102,4 +115,11 @@
     group: slurm
     mode: "0644"
   become: true
+  register: slurm_config_conf
   notify: Restart slurmctld
+
+- name: Remember whether this run changed the cluster configuration
+  # Read by slurm_compute on the primary's hostvars: a slurmd that was already running must
+  # restart to fetch a changed configless slurm.conf or gres.conf (for example new GPU GRES).
+  ansible.builtin.set_fact:
+    slurm_config_changed: "{{ slurm_config_gres is changed or slurm_config_conf is changed }}"

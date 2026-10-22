@@ -1,0 +1,60 @@
+---
+# Remove the native install. The Swallow drop-in marks a package Swallow installed, so a Grafana the
+# operator installed outside Swallow is never removed.
+
+- name: Read the Grafana drop-in
+  ansible.builtin.stat:
+    path: "{{ grafana_native_dropin }}"
+  register: grafana_native_dropin_stat
+
+- name: Remove the native Grafana
+  when: grafana_native_dropin_stat.stat.exists
+  block:
+    - name: Stop and disable Grafana
+      ansible.builtin.systemd_service:
+        name: "{{ grafana_native_unit }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the Grafana drop-in
+      ansible.builtin.file:
+        path: "{{ grafana_native_dropin | dirname }}"
+        state: absent
+
+    - name: Remove the Grafana package (apt)
+      ansible.builtin.apt:
+        name: grafana
+        state: absent
+        purge: true
+        lock_timeout: 300
+      register: grafana_apt_remove
+      until: grafana_apt_remove is succeeded
+      retries: 60
+      delay: 5
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Remove the Grafana apt repository
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/grafana.list
+        - /etc/apt/keyrings/grafana.asc
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Remove the Grafana package (dnf)
+      ansible.builtin.dnf:
+        name: grafana
+        state: absent
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Remove the Grafana yum repository
+      ansible.builtin.yum_repository:
+        name: grafana
+        state: absent
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Reload systemd without Grafana
+      ansible.builtin.systemd_service:
+        daemon_reload: true

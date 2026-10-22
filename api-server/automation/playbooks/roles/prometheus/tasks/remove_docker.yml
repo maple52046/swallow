@@ -1,0 +1,22 @@
+---
+# Remove the Docker Compose container. Tolerates a host whose Docker CE is already gone.
+
+- name: Read the Prometheus Compose project
+  ansible.builtin.stat:
+    path: "{{ prometheus_config_dir }}/compose.yaml"
+  register: prometheus_compose_file
+
+- name: Stop and remove the Prometheus Compose container
+  when: prometheus_compose_file.stat.exists
+  block:
+    - name: Stop and remove the Prometheus Compose container
+      ansible.builtin.command:
+        argv: [docker, compose, -f, "{{ prometheus_config_dir }}/compose.yaml", down, --remove-orphans]
+      register: prometheus_compose_down
+      changed_when: true
+      failed_when: prometheus_compose_down.rc != 0 and 'No such file or directory' not in (prometheus_compose_down.msg | default(''))
+
+    - name: Remove the Prometheus Compose project
+      ansible.builtin.file:
+        path: "{{ prometheus_config_dir }}/compose.yaml"
+        state: absent

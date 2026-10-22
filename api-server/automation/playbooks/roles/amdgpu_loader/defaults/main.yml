@@ -1,0 +1,22 @@
+---
+# Post-boot amdgpu loader shared by every Swallow feature that schedules AMD GPUs (decision 062
+# for the GPU Operator, decision 063 for Slurm GPU GRES). An image may keep amdgpu out of the boot
+# path (modprobe.blacklist=amdgpu, AMD's guidance for Instinct hosts and SR-IOV guests); this unit
+# loads it once SSH is up, so a GPU probe that hangs never locks an operator out of the node.
+# Module options (for example pcie_p2p=0 on MI308X SR-IOV guests) are deployment policy and come
+# from /etc/modprobe.d written by the deployment's cloud-init, never from this role.
+
+# present installs, enables, and starts the loader; absent stops loading it at the next boot.
+amdgpu_loader_state: present
+amdgpu_loader_unit: swallow-amdgpu-load.service
+# Systemd units (base names) that need the GPUs; each gets a drop-in ordering it after the loader.
+# A unit that does not exist on the host is skipped.
+amdgpu_loader_dependents: []
+amdgpu_loader_dropin: 10-swallow-after-amdgpu.conf
+# Who asked for the loader, written into the drop-in comment so a person reading the host knows.
+amdgpu_loader_owner: Swallow
+# Name used in failure messages; defaults to the host's short name.
+amdgpu_loader_node_name: "{{ ansible_hostname }}"
+# Loading many GPUs can exceed systemd's default 90 s start timeout.
+amdgpu_loader_timeout: 300
+amdgpu_loader_ssh_unit: "{{ 'ssh.service' if ansible_facts['os_family'] == 'Debian' else 'sshd.service' }}"

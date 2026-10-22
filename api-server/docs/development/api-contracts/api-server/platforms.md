@@ -37,6 +37,8 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 - [GPU Operator](../../../../../docs/development/glossaries/terms/gpu-operator.md)
 - [GPU Allocation Mode](../../../../../docs/development/glossaries/terms/gpu-allocation-mode.md)
 - [GPU Operator State](../../../../../docs/development/glossaries/terms/gpu-operator-state.md)
+- [Omnistat](../../../../../docs/development/glossaries/terms/omnistat.md)
+- [Managed Software](../../../../../docs/development/glossaries/terms/managed-software.md)
 
 ## Endpoints
 
@@ -99,6 +101,8 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
   "monitoringLinks": [
     { "name": "Omnistat Grafana", "url": "https://omnistat.example.internal/grafana" }
   ],
+  "omnistat": null,
+  "containerRuntime": null,
   "sync": {
     "lastStartedAt": null,
     "lastSucceededAt": null,
@@ -127,6 +131,15 @@ brings for a Slurm Platform. It is always an array, empty by default. Each link 
 swallow-owned display data: swallow never connects to, authenticates against, or checks the
 URL, and they are not a metrics Integration — swallow's own usage charts keep reading the Site
 metrics backend (see [server-metrics.md](server-metrics.md)). They are set with `PATCH`.
+Swallow itself replaces (or adds) only the link named `Omnistat Grafana` when it installs
+Omnistat, and removes only that link when the Platform is uninstalled (see [Omnistat](#omnistat)).
+
+`omnistat` is the Swallow-managed Omnistat of a Slurm Platform (see [Omnistat](#omnistat)). It is
+`null` when Swallow never installed Omnistat on the Platform (always for Kubernetes).
+
+`containerRuntime` is the container runtime a Slurm deploy installed on its compute and login
+nodes, `docker-ce` or `podman` (see [Container Runtime](#container-runtime)). It is `null` when
+the feature was off (always for Kubernetes).
 
 `origin` is `registered | deployed`. New Platforms are always `deployed`; `origin=registered`
 is a one-release compatibility value for records created before the register-existing path was
@@ -413,6 +426,101 @@ whose credential is required). A Slurm platform can be uninstalled like Kubernet
 [Uninstall A Deployed Platform](#uninstall-a-deployed-platform)); it starts an `uninstall-slurm`
 Operation that removes the Slurm configuration and daemons while keeping the host OS and
 image-supplied packages, and can optionally release the member servers.
+
+**GPU GRES.** Every Slurm deployment schedules AMD GPUs without extra request fields
+([decision 063](../../../../../docs/decisions/063-omnistat-slurm-observability.md)). Swallow selects
+the compute Servers whose GPU Inventory lists AMD `compute` GPUs; on each it loads the image's
+`amdgpu` driver after boot (`swallow-amdgpu-load.service`, `slurmd` ordered after it), maps every
+GPU from the KFD topology, and configures `GresTypes=gpu`, `Gres=gpu:<gfx target>:<count>` (for
+example `gpu:gfx942:8`), and a `gres.conf` with explicit render nodes and
+`Flags=amd_gpu_env,explicit`. Jobs therefore see GPUs only when they request them
+(`--gres=gpu:N` or `--gres=gpu:gfx942:N`), receive `ROCR_VISIBLE_DEVICES`, and are confined to their
+GPUs by the device cgroup; the GPU device nodes are opened to every job user because that cgroup
+is the access boundary. A selected Server whose KFD topology shows no GPU fails the deployment
+(`slurm_gpu_missing`), and the deployment verifies that each GPU node hands out one GPU to a job.
+Driver module options a deployment needs (for example `options amdgpu pcie_p2p=0` on MI308X SR-IOV
+guests) belong in the deployment's cloud-init user data. The live
+[Slurm cluster read](#read-slurm-cluster-state) reports each node's `gres`.
+
+## Container Runtime
+
+Slurm runs no containers itself, but its workloads (AI ones especially) usually do, so a Slurm
+deploy may install a container runtime on every compute and login node
+([decision 063](../../../../../docs/decisions/063-omnistat-slurm-observability.md)):
+
+```json
+"containerRuntime": { "kind": "podman" }
+```
+
+`kind` is `docker-ce` or `podman`. Omitting `containerRuntime`, or an empty `kind`, installs no
+runtime; another kind, or `containerRuntime` on a Kubernetes deploy, is a `validation_error`. The
+runtime is Managed Software, not a Platform component: after the Slurm install the Workflow
+composes a `configure-docker-ce` or `configure-podman` Job (see
+[software](software.md#composition-into-platform-deployments)) onto every compute and login node
+where that runtime is not already `installed` (Docker CE with its Engine API off). Each Server's
+install state is its Software Assignment, and the Platform reports the choice as
+`containerRuntime`. A target where the other, mutually exclusive runtime is installed returns
+`409 conflict` before anything is created. Uninstalling the Platform leaves the runtime's Software
+Assignments until they are uninstalled through the software API.
+
+## Omnistat
+
+A Slurm deploy may install [Omnistat](../../../../../docs/development/glossaries/terms/omnistat.md),
+AMD's Slurm-aware GPU monitoring, in the same Workflow
+([decision 063](../../../../../docs/decisions/063-omnistat-slurm-observability.md)):
+
+```json
+{
+  "siteId": "site-id",
+  "name": "lab-slurm",
+  "type": "slurm",
+  "omnistat": { "enabled": true, "installMethod": "container" },
+  "slurm": { "nodeAssignments": [ /* ... */ ] },
+  "machinePreparation": { "mode": "provision_os", "settings": { "imageId": "slurm-os-image-id" } }
+}
+```
+
+Omitting `omnistat`, or `enabled: false`, installs nothing. `omnistat` on a Kubernetes deploy is a
+`validation_error`. `installMethod` is how the Prometheus and Grafana Omnistat uses are installed,
+`container` (default) or `native` (see
+[software](software.md#prometheus-and-grafana-spec)); another value is a `validation_error`. The
+primary controller (the first controller in `nodeAssignments`) becomes the observability Server.
+After the Slurm install the Workflow composes Managed Software Jobs onto it (see
+[software](software.md#composition-into-platform-deployments)): with the `container` method a
+container runtime Job first — the [container runtime](#container-runtime) the deploy chose, or
+else the runtime already assigned to the observability Server, or Docker CE — then
+`configure-prometheus` and `configure-grafana`, and finally a `configure-omnistat` Job that
+installs Omnistat `1.15.0` on every compute node (exporter on port `8001`, reachable only from the
+node itself and the observability Server). The Slurm side is part of the Slurm install: a
+Prolog/Epilog pair records each job for Omnistat, `PrologFlags=Alloc,Contain`, and the `main`
+partition is `OverSubscribe=EXCLUSIVE`, because Omnistat attributes a whole node to one job. The
+deployment succeeds only when every composed Job does. A composed software install that the
+software rules refuse (for example Docker CE requested where Podman is installed, the two being
+mutually exclusive) returns `409 conflict` before anything is created.
+
+The Platform then reports:
+
+```json
+"omnistat": {
+  "enabled": true,
+  "version": "1.15.0",
+  "installMethod": "container",
+  "observabilityServerId": "server-a",
+  "state": "ready",
+  "lastWorkflowId": "operation-id",
+  "updatedAt": "2026-10-21T00:00:00Z"
+}
+```
+
+`state` is the Omnistat State, exactly `installing | ready | failed | absent`: `installing` from
+acceptance until the Omnistat Task finishes, `ready` when it succeeded (every exporter is scraped
+and the dashboards are provisioned), `failed` when it failed or never ran because an earlier Job
+failed, and `absent` after the Platform was uninstalled. Only `lastWorkflowId` may move it. On
+success Swallow also sets the Monitoring Link `Omnistat Grafana` to the observability Server's
+Grafana (`http://<primary address>:3000`, read-only, no login). Swallow never queries Omnistat's
+Prometheus. Uninstalling the Platform removes the exporter and the Slurm side, marks the state
+`absent`, and removes the link; the container runtime, Prometheus, and Grafana Software
+Assignments stay until they are uninstalled through the software API.
 
 ## Manage The GPU Operator
 

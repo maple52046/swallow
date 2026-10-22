@@ -36,6 +36,8 @@ type catalogEntryResponse struct {
 	Roles                       []string `json:"roles"`
 	MutuallyExclusiveWith       []string `json:"mutuallyExclusiveWith"`
 	RefusedForKubernetesMembers bool     `json:"refusedForKubernetesMembers"`
+	InstallMethods              []string `json:"installMethods"`
+	ContainerRuntimes           []string `json:"containerRuntimes"`
 	SpecFields                  []string `json:"specFields"`
 }
 
@@ -65,7 +67,10 @@ func (h *SoftwareHandler) Catalog(c *fiber.Ctx) error {
 		items = append(items, catalogEntryResponse{
 			Kind: string(entry.Kind), Label: entry.Label,
 			Roles: rolesToStrings(entry.Roles), MutuallyExclusiveWith: kindsToStrings(entry.MutuallyExclusiveWith),
-			RefusedForKubernetesMembers: entry.RefusedForKubernetesMembers, SpecFields: stringsOrEmpty(entry.SpecFields),
+			RefusedForKubernetesMembers: entry.RefusedForKubernetesMembers,
+			InstallMethods:              methodsToStrings(entry.InstallMethods),
+			ContainerRuntimes:           kindsToStrings(entry.ContainerRuntimes),
+			SpecFields:                  stringsOrEmpty(entry.SpecFields),
 		})
 	}
 	return c.JSON(fiber.Map{"items": items})
@@ -187,6 +192,14 @@ func kindsToStrings(kinds []softwaredomain.Kind) []string {
 	return out
 }
 
+func methodsToStrings(methods []softwaredomain.InstallMethod) []string {
+	out := make([]string, 0, len(methods))
+	for _, method := range methods {
+		out = append(out, string(method))
+	}
+	return out
+}
+
 func stringsOrEmpty(values []string) []string {
 	if values == nil {
 		return []string{}
@@ -217,6 +230,7 @@ func respondError(c *fiber.Ctx, err error) error {
 
 	case errors.Is(err, softwaredomain.ErrMutuallyExclusive),
 		errors.Is(err, softwaredomain.ErrKubernetesMember),
+		errors.Is(err, softwaredomain.ErrRequiredSoftwareMissing),
 		errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrTargetLocked),
 		errors.Is(err, operationdomain.ErrTargetStateInvalid),

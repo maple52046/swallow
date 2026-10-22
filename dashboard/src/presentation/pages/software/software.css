@@ -188,8 +188,12 @@
   max-height: min(48rem, calc(100dvh - 2rem));
 }
 
-.sw-software-install-dialog [data-scope='dialog'][data-part='body'] {
+/* The body is a flex item of the bounded dialog (through the form's display: contents); without
+   min-height: 0 it keeps its content height and spills the footer past the dialog on short
+   viewports instead of scrolling. Chakra marks dialog parts by class, not data-part. */
+.sw-software-install-dialog .chakra-dialog__body {
   overflow-y: auto;
+  min-height: 0;
 }
 
 .sw-software-install-progress {

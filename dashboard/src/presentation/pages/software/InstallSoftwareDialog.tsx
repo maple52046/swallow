@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react'
-import { Badge, Box, Button, Field, HStack, Input, RadioCard, Stack, Text } from '@chakra-ui/react'
+import { Badge, Box, Button, Field, HStack, Input, RadioCard, Stack, Text, Textarea } from '@chakra-ui/react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
+import {
+  defaultInstallMethod,
+  resolveContainerRuntime,
+  type ContainerRuntimeResolution,
+  type SoftwareInstallMethod,
+} from '@/domain/software/installMethod'
 import type {
   SoftwareAssignment,
   SoftwareCatalogEntry,
@@ -16,8 +22,10 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { SearchInput } from '@/presentation/components/ui/search-input'
+import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import {
+  containerRuntimeLabel,
   groupSoftwareCatalog,
   softwareCatalogPresentation,
   softwareTargetBlocker,
@@ -158,21 +166,39 @@ export function InstallSoftwareDialog({
     roles: selected,
     spec,
   })
+  // A kind with install methods records the chosen one in `spec.installMethod` (prefilled from the
+  // assignment on Retry/Reconfigure); the catalog default applies until the operator picks one.
+  const installMethod = entry
+    ? (spec.installMethod as SoftwareInstallMethod | undefined) || defaultInstallMethod(entry)
+    : null
+  const runtimeResolution = entry && installMethod === 'container'
+    ? resolveContainerRuntime(entry, selectedIds, assignments)
+    : null
+  const runtimeReady = runtimeResolution === null || runtimeResolution.status === 'resolved'
 
   const close = () => {
     if (!submitting) onClose()
   }
 
   const submit = async () => {
-    if (!entry || !configurationValid || submitting) return
+    if (!entry || !configurationValid || !runtimeReady || submitting) return
     setSubmitting(true)
     setError('')
     try {
+      // The runtime is sent explicitly (the one installed on the targets) so a recorded value from
+      // an older runtime never travels; the native method sends none.
+      const submittedSpec = installMethod
+        ? {
+            ...spec,
+            installMethod,
+            containerRuntime: runtimeResolution?.status === 'resolved' ? runtimeResolution.runtime : '',
+          }
+        : spec
       const result = await software.installSoftware(buildSoftwareInstallInput({
         entry,
         serverIds: selectedIds,
         roles: selected,
-        spec,
+        spec: submittedSpec,
         enableApi,
       }))
       onLaunched(result.operationId)
@@ -229,7 +255,7 @@ export function InstallSoftwareDialog({
                 type="submit"
                 colorPalette="brand"
                 loading={submitting}
-                disabled={!configurationValid || submitting}
+                disabled={!configurationValid || !runtimeReady || submitting}
               >
                 {softwareInstallActionLabel(mode)}
               </Button>
@@ -433,6 +459,19 @@ export function InstallSoftwareDialog({
               </Box>
             )}
 
+            {installMethod && (
+              <SoftwareInstallMethodField
+                entry={entry}
+                method={installMethod}
+                resolution={runtimeResolution}
+                serverName={(serverId) => {
+                  const server = servers.find((candidate) => candidate.id === serverId)
+                  return server ? serverDisplayName(server) : serverId
+                }}
+                onChange={(next) => setSpec((current) => ({ ...current, installMethod: next }))}
+              />
+            )}
+
             <SoftwareSpecFields
               entry={entry}
               value={specValue}
@@ -451,6 +490,69 @@ export function InstallSoftwareDialog({
         )}
       </Stack>
     </Modal>
+  )
+}
+
+const INSTALL_METHOD_LABELS: Record<SoftwareInstallMethod, string> = {
+  container: 'Container',
+  native: 'Native (official release or package)',
+}
+
+/**
+ * Install-method choice for a kind that offers several (Prometheus, Grafana).
+ *
+ * The container method runs on the runtime already installed on the selected Servers; its
+ * resolution is announced as text (never colour alone) and a missing or mixed runtime is reported
+ * as a warning that names the Servers and the way out, while the parent keeps submit disabled.
+ * The native method needs no runtime. The API re-checks the same rule and answers 409.
+ */
+function SoftwareInstallMethodField({
+  entry,
+  method,
+  resolution,
+  serverName,
+  onChange,
+}: {
+  entry: SoftwareCatalogEntry
+  method: SoftwareInstallMethod
+  resolution: ContainerRuntimeResolution | null
+  serverName: (serverId: string) => string
+  onChange: (method: SoftwareInstallMethod) => void
+}) {
+  const runtimes = entry.containerRuntimes.map(containerRuntimeLabel).join(' or ')
+  return (
+    <Stack gap="2">
+      <Field.Root>
+        <Field.Label id="software-install-method-label">Install method</Field.Label>
+        <Select
+          id="software-install-method"
+          aria-label="Install method"
+          value={method}
+          onChange={(value) => onChange(value as SoftwareInstallMethod)}
+          options={entry.installMethods.map((value) => ({ value, label: INSTALL_METHOD_LABELS[value] ?? value }))}
+        />
+        <Field.HelperText>
+          {method === 'container'
+            ? `Runs the official image on the Server's container runtime (${runtimes}).`
+            : 'Installs the official release or package; no container runtime is needed.'}
+        </Field.HelperText>
+      </Field.Root>
+      {resolution?.status === 'resolved' && (
+        <Text color="fg.muted" fontSize="sm" role="status">
+          Runs on {containerRuntimeLabel(resolution.runtime)}, the runtime installed on the selected Servers.
+        </Text>
+      )}
+      {resolution?.status === 'missing' && resolution.serverIds.length > 0 && (
+        <Alert status="warning" title="No container runtime installed">
+          Install {runtimes} on {resolution.serverIds.map(serverName).join(', ')} first, or choose the native method.
+        </Alert>
+      )}
+      {resolution?.status === 'mixed' && (
+        <Alert status="warning" title="Different container runtimes">
+          The selected Servers run {resolution.runtimes.map(containerRuntimeLabel).join(' and ')}. Install on them separately, or choose the native method.
+        </Alert>
+      )}
+    </Stack>
   )
 }
 
@@ -488,6 +590,67 @@ function SoftwareSpecFields({
         <Field.Root>
           <Field.Label>Mount options (client)</Field.Label>
           <Input value={value('mountOptions')} onChange={(event) => onChange('mountOptions', event.target.value)} placeholder="rw,_netdev" />
+        </Field.Root>
+      </Stack>
+    )
+  }
+  if (entry.kind === 'prometheus') {
+    return (
+      <Stack gap="4">
+        <Field.Root>
+          <Field.Label>Version</Field.Label>
+          <Input value={value('version')} onChange={(event) => onChange('version', event.target.value)} placeholder="3.15.0" />
+          <Field.HelperText>Prometheus release (x.y.z); leave blank for the pinned default.</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label>Scrape job</Field.Label>
+          <Input value={value('scrapeJob')} onChange={(event) => onChange('scrapeJob', event.target.value)} placeholder="swallow" />
+        </Field.Root>
+        <Field.Root>
+          <Field.Label>Scrape targets</Field.Label>
+          <Textarea
+            value={value('scrapeTargets')}
+            onChange={(event) => onChange('scrapeTargets', event.target.value)}
+            placeholder={'10.0.0.21:9100\n10.0.0.22:9100'}
+            rows={4}
+          />
+          <Field.HelperText>One host:port per line (commas also work), scraped every 15 seconds.</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label>Scraped Server IDs</Field.Label>
+          <Textarea
+            value={value('scrapeServerIds')}
+            onChange={(event) => onChange('scrapeServerIds', event.target.value)}
+            placeholder="One Server ID per line"
+            rows={2}
+          />
+          <Field.HelperText>Servers of this Site, resolved to their current address on every run.</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label>Scraped Server port</Field.Label>
+          <Input inputMode="numeric" value={value('scrapePort')} onChange={(event) => onChange('scrapePort', event.target.value)} placeholder="8001" />
+          <Field.HelperText>Required when Server IDs are listed.</Field.HelperText>
+        </Field.Root>
+      </Stack>
+    )
+  }
+  if (entry.kind === 'grafana') {
+    return (
+      <Stack gap="4">
+        <Field.Root>
+          <Field.Label>Version</Field.Label>
+          <Input value={value('version')} onChange={(event) => onChange('version', event.target.value)} placeholder="12.4.12" />
+          <Field.HelperText>Grafana release (x.y.z); leave blank for the pinned default.</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label>Prometheus URL</Field.Label>
+          <Input value={value('prometheusUrl')} onChange={(event) => onChange('prometheusUrl', event.target.value)} placeholder="http://10.0.0.5:9090" />
+          <Field.HelperText>Leave blank to read the Prometheus on the same Server.</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label>Dashboard bundles</Field.Label>
+          <Input value={value('dashboards')} onChange={(event) => onChange('dashboards', event.target.value)} placeholder="omnistat" />
+          <Field.HelperText>Swallow-shipped bundles to provision; the only bundle is omnistat.</Field.HelperText>
         </Field.Root>
       </Stack>
     )

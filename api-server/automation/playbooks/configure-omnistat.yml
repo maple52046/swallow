@@ -1,0 +1,66 @@
+---
+# Install Omnistat on a Swallow-deployed Slurm Platform (decision 063). It runs as the last Job of
+# a configure-slurm Workflow, after deploy-slurm (which renders the Slurm side: Prolog/Epilog,
+# PrologFlags=Alloc, exclusive partition) and after Docker CE, Prometheus, and Grafana were
+# composed onto the observability Server. Topology arrives only through trusted variables:
+#   swallow_omnistat_version          pinned Omnistat release
+#   swallow_omnistat_port             exporter port on every compute node
+#   swallow_omnistat_compute_ids      compute nodes (serverIds) that run the exporter
+#   swallow_omnistat_observability_id Server running Prometheus and Grafana (primary controller)
+#   swallow_omnistat_prometheus_port / swallow_omnistat_grafana_port   their ports
+#   swallow_omnistat_system_name      label for omnistat-query reports
+#   swallow_slurm_gpu_compute_ids     compute nodes with AMD GPUs (AMD SMI collection)
+# On success it writes {grafanaUrl, prometheusUrl} to the run's result file; Swallow records the
+# Grafana URL as the Platform's "Omnistat Grafana" Monitoring Link. Idempotent.
+
+- name: Classify the Omnistat hosts
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Group the exporter hosts
+      ansible.builtin.group_by:
+        key: "omnistat_{{ 'exporter' if inventory_hostname in swallow_omnistat_compute_ids else 'other' }}"
+
+    - name: Group the observability host
+      ansible.builtin.group_by:
+        key: "omnistat_{{ 'observability' if inventory_hostname == swallow_omnistat_observability_id else 'member' }}"
+
+- name: Install the Omnistat exporter on every compute node
+  hosts: omnistat_exporter
+  gather_facts: false
+  become: true
+  roles:
+    - role: omnistat
+
+- name: Verify Prometheus scrapes every exporter and record the Grafana URL
+  hosts: omnistat_observability
+  gather_facts: false
+  vars:
+    omnistat_prometheus_url: "http://{{ ansible_host }}:{{ swallow_omnistat_prometheus_port | default(9090) }}"
+    omnistat_grafana_url: "http://{{ ansible_host }}:{{ swallow_omnistat_grafana_port | default(3000) }}"
+    omnistat_expected_targets: >-
+      {{ swallow_omnistat_compute_ids | map('extract', hostvars, 'ansible_host')
+         | map('regex_replace', '$', ':' ~ (swallow_omnistat_port | default(8001) | string)) | list }}
+  tasks:
+    - name: Wait until Prometheus reports every exporter up
+      ansible.builtin.uri:
+        url: "{{ omnistat_prometheus_url }}/api/v1/targets?state=active"
+        return_content: true
+      register: omnistat_targets
+      until: >-
+        omnistat_targets.status == 200 and
+        (omnistat_expected_targets
+         | difference(omnistat_targets.json.data.activeTargets
+                      | selectattr('health', 'equalto', 'up')
+                      | map(attribute='labels.instance') | list)
+         | length) == 0
+      retries: 30
+      delay: 5
+
+    - name: Write the Omnistat result for Swallow
+      ansible.builtin.copy:
+        dest: "{{ swallow_result_path }}"
+        content: "{{ {'grafanaUrl': omnistat_grafana_url, 'prometheusUrl': omnistat_prometheus_url} | to_json }}"
+        mode: "0600"
+      delegate_to: localhost
+      when: swallow_result_path is defined and swallow_result_path | length > 0

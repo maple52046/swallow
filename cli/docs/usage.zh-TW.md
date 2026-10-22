@@ -612,6 +612,56 @@ draDriverVersion: v1.0.1
 `{ minimumResources: { cpuCores: 4, memoryMiB: 24576, storageGB: 80 } }`
 （傳送 `{ minimumResources: null }` 可停用）。
 
+Slurm 部署會自動把 compute node 的 AMD GPU 設成 GRES（以 `--gres=gpu:N` 申請）。加上
+`containerRuntime` 可在每台 compute 與 login node 安裝 Docker CE 或 Podman，供容器化 workload 使用。若要
+一併安裝 Omnistat，加上 `omnistat`：primary controller（第一個 controller）會裝 Prometheus 與帶有
+Omnistat dashboards 的唯讀 Grafana，每台 compute node 裝 exporter，platform 也會多一個 Monitoring Link
+`Omnistat Grafana`。`installMethod: container`（預設）讓 Prometheus 與 Grafana 以 container 跑在 primary
+controller 的 runtime 上（即上面的 `containerRuntime`，否則為 Docker CE）；`native` 則改由官方 release
+與 apt／yum repository 安裝。以下 `platform-slurm-omnistat.yaml` 是在 MI308X SR-IOV guest 上實跑的檔案；
+該 image 需要由 cloud-init 提供部署專屬的 `pcie_p2p=0` driver 選項：
+
+```yaml
+siteId: site1
+name: omnistat-slurm-run1
+type: slurm
+containerRuntime:
+  kind: podman            # 或 docker-ce；省略即不裝 runtime
+omnistat:
+  enabled: true
+  installMethod: container   # 或 native
+slurm:
+  clusterName: omnistat-run1
+  nodeAssignments:
+    - { serverId: srva, controller: true, compute: false, login: false }
+    - { serverId: srvb, controller: false, compute: true, login: false }
+    - { serverId: srvc, controller: false, compute: true, login: false }
+machinePreparation:
+  mode: provision_os
+  settings:
+    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
+    ephemeral: false
+  userData:
+    mode: replace
+    value: |
+      #cloud-config
+      write_files:
+        - path: /etc/modprobe.d/amdgpu-pcie-p2p.conf
+          permissions: "0644"
+          content: |
+            options amdgpu pcie_p2p=0
+  network:
+    mode: automatic
+    defaultGateway: false
+    assignments: []
+```
+
+```bash
+swallow platforms deploy -f platform-slurm-omnistat.yaml
+swallow workflows get <operationId>   # ensure-os、configure-slurm、configure-podman、configure-prometheus/-grafana、configure-omnistat
+swallow platforms get <platformId>    # containerRuntime、omnistat.state，以及 monitoringLinks 中的 Omnistat Grafana
+```
+
 #### Kubernetes cluster explorer
 
 ```bash

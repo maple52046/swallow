@@ -1,0 +1,125 @@
+# Omnistat v1.15.0 compatibility patch for SR-IOV virtual functions (decision 063).
+# An MI308X VF exposes inventory and memory APIs but rejects amdsmi_get_gpu_metrics_info and
+# the temperature query; upstream v1.15.0 then aborts the exporter. This degrades only the bulk
+# metrics path to unavailable and never fabricates utilization, power, clock, or temperature.
+# Re-check upstream before bumping the Omnistat version.
+--- a/omnistat/collector_amdsmi.py
++++ b/omnistat/collector_amdsmi.py
+@@ -106,6 +106,7 @@
+         self.__devices = []
+         self.__GPUMetrics = {}
+         self.__metricMapping = {}
++        self.__bulk_metrics_supported = True
+         self.__eccBlocks = {}
+         self.__ecc_ras_monitoring = config["omnistat.collectors"].getboolean("enable_ras_ecc", True)
+         self.__power_cap_monitoring = config["omnistat.collectors"].getboolean("enable_power_cap", False)
+@@ -255,6 +256,7 @@
+                     logging.debug("Skipping RAS definition for %s" % block)
+ 
+         # Cache valid primary temperature location and register with location label
++        self.__temp_location_index = None
+         dev0 = self.__devices[0]
+         for item in smi.AmdSmiTemperatureType:
+             try:
+@@ -266,9 +268,10 @@
+                 self.__temp_location_name = item.name.lower()
+                 logging.info("--> Using primary temperature location at %s" % self.__temp_location_name)
+                 break
+-        self.__GPUMetrics["temperature_celsius"] = Gauge(
+-            self.__prefix + "temperature_celsius", "Temperature (C)", labelnames=["card", "location"]
+-        )
++        if self.__temp_location_index:
++            self.__GPUMetrics["temperature_celsius"] = Gauge(
++                self.__prefix + "temperature_celsius", "Temperature (C)", labelnames=["card", "location"]
++            )
+ 
+         # Cache valid memory temperature location and register with location label
+         self.__temp_memory_location_index = None
+@@ -310,12 +313,22 @@
+         }
+ 
+         dev0 = self.__devices[0]
+-        metrics = smi.amdsmi_get_gpu_metrics_info(dev0)
++        try:
++            metrics = smi.amdsmi_get_gpu_metrics_info(dev0)
++        except smi.AmdSmiException as error:
++            # SR-IOV VFs may expose inventory and memory APIs while rejecting
++            # the aggregate gpu_metrics_info query.  Keep those supported
++            # metrics available instead of preventing the exporter from
++            # starting.  Unsupported values are intentionally not fabricated.
++            logging.warning("--> AMD SMI bulk GPU metrics unavailable; using supported per-metric APIs: %s", error)
++            self.__bulk_metrics_supported = False
++            self.__metricMapping = {}
++            metrics = {}
+ 
+         for desired_metric in source_check:
+             found = None
+             for source_metric in source_check[desired_metric]:
+-                if is_positive_int(metrics[source_metric]):
++                if is_positive_int(metrics.get(source_metric)):
+                     self.__sourceMetricMapping[desired_metric] = source_metric
+                     found = source_metric
+                     break
+@@ -380,13 +393,14 @@
+                 self.__GPUMetrics[metric_name] = Gauge(metric_name, target_metric, labelnames=["card"])
+ 
+         # Register remaining metrics of interest available from get_gpu_metrics()
+-        for idx, device in enumerate(self.__devices):
+-            metrics, _, _, _ = self.get_gpu_metrics(device)
+-            for metric in metrics:
+-                metric_name = self.__prefix + metric
+-                # add Gauge metric only once
+-                if metric_name not in self.__GPUMetrics.keys():
+-                    self.__GPUMetrics[metric_name] = Gauge(metric_name, f"{metric}", labelnames=["card"])
++        if self.__bulk_metrics_supported:
++            for idx, device in enumerate(self.__devices):
++                metrics, _, _, _ = self.get_gpu_metrics(device)
++                for metric in metrics:
++                    metric_name = self.__prefix + metric
++                    # add Gauge metric only once
++                    if metric_name not in self.__GPUMetrics.keys():
++                        self.__GPUMetrics[metric_name] = Gauge(metric_name, f"{metric}", labelnames=["card"])
+ 
+         # Register power capping setting
+         if self.__power_cap_monitoring:
+@@ -405,7 +419,7 @@
+                 labelnames=["card"],
+             )
+             logging.info("--> Energy accumulator available")
+-        except smi.AmdSmiLibraryException:
++        except smi.AmdSmiException:
+             logging.warning("--> Energy accumulator not supported on this hardware, skipping energy_joules metric")
+ 
+         if self.__cu_occupancy_monitoring:
+@@ -436,7 +450,10 @@
+             guid = self.__guidMapping[idx]
+ 
+             #  stats available via get_gpu_metrics
+-            simple_metrics, source_metrics, sum_metrics, avg_metrics = self.get_gpu_metrics(device)
++            if self.__bulk_metrics_supported:
++                simple_metrics, source_metrics, sum_metrics, avg_metrics = self.get_gpu_metrics(device)
++            else:
++                simple_metrics, source_metrics, sum_metrics, avg_metrics = {}, {}, {}, {}
+ 
+             for metricName, value in simple_metrics.items():
+                 metric = self.__GPUMetrics[self.__prefix + metricName]
+@@ -468,12 +485,13 @@
+             self.__GPUMetrics["vram_used_percentage"].labels(card=cardId).set(percentage)
+ 
+             # additional temperature-related stats
+-            temperature = smi.amdsmi_get_temp_metric(
+-                device, self.__temp_location_index, smi.AmdSmiTemperatureMetric.CURRENT
+-            )
+-            self.__GPUMetrics["temperature_celsius"].labels(card=cardId, location=self.__temp_location_name).set(
+-                temperature
+-            )
++            if self.__temp_location_index:
++                temperature = smi.amdsmi_get_temp_metric(
++                    device, self.__temp_location_index, smi.AmdSmiTemperatureMetric.CURRENT
++                )
++                self.__GPUMetrics["temperature_celsius"].labels(card=cardId, location=self.__temp_location_name).set(
++                    temperature
++                )
+             if self.__temp_memory_location_index:
+                 hbm_temperature = smi.amdsmi_get_temp_metric(
+                     device, self.__temp_memory_location_index, smi.AmdSmiTemperatureMetric.CURRENT

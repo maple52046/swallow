@@ -1,0 +1,139 @@
+---
+# Install or remove Grafana by its install method (defaults/main.yml) with a provisioned Prometheus
+# datasource and the requested Swallow-shipped dashboard bundles. Idempotent: a converged host
+# reruns with no changes; a changed datasource or provider list restarts Grafana (they are read
+# only at start), while dashboard files are picked up by the provider's polling. Switching the
+# method or the container runtime removes the previous one's artifacts first.
+
+- name: Install Grafana
+  when: grafana_state == 'present'
+  become: true
+  block:
+    - name: Refuse an unknown install method or container runtime
+      ansible.builtin.fail:
+        msg: >-
+          [install_method_invalid] Grafana install method "{{ grafana_install_method }}"
+          (container runtime "{{ grafana_container_runtime }}") is not one of container on
+          docker-ce or podman, or native.
+      when: >-
+        grafana_install_method not in ['container', 'native']
+        or (grafana_install_method == 'container'
+            and grafana_container_runtime not in ['docker-ce', 'podman'])
+
+    - name: Select the install method
+      ansible.builtin.set_fact:
+        grafana_method_key: >-
+          {{ 'native' if grafana_install_method == 'native'
+             else ('podman' if grafana_container_runtime == 'podman' else 'docker') }}
+        grafana_dashboards_path: >-
+          {{ (grafana_config_dir ~ '/dashboards') if grafana_install_method == 'native'
+             else grafana_container_dashboards_dir }}
+
+    - name: Remove the artifacts of the other install methods
+      ansible.builtin.include_tasks: "remove_{{ item }}.yml"
+      loop: "{{ ['docker', 'podman', 'native'] | difference([grafana_method_key]) }}"
+
+    - name: Create the Grafana configuration directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ grafana_config_dir }}"
+        - "{{ grafana_config_dir }}/provisioning"
+        - "{{ grafana_config_dir }}/provisioning/datasources"
+        - "{{ grafana_config_dir }}/provisioning/dashboards"
+        - "{{ grafana_config_dir }}/dashboards"
+
+    - name: Provision the Prometheus datasource
+      ansible.builtin.template:
+        src: datasource.yaml.j2
+        dest: "{{ grafana_config_dir }}/provisioning/datasources/swallow.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: grafana_datasource
+
+    - name: Provision the dashboard providers
+      ansible.builtin.template:
+        src: dashboards.yaml.j2
+        dest: "{{ grafana_config_dir }}/provisioning/dashboards/swallow.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: grafana_providers
+
+    - name: Copy the requested dashboard bundles
+      ansible.builtin.copy:
+        src: "dashboards/{{ item }}/"
+        dest: "{{ grafana_config_dir }}/dashboards/{{ item }}/"
+        owner: root
+        group: root
+        mode: "0644"
+        directory_mode: "0755"
+      loop: "{{ grafana_dashboards }}"
+
+    - name: Find the provisioned dashboard bundles
+      ansible.builtin.find:
+        paths: "{{ grafana_config_dir }}/dashboards"
+        file_type: directory
+      register: grafana_bundle_dirs
+
+    - name: Remove dashboard bundles that are no longer requested
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ grafana_bundle_dirs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: (item.path | basename) not in grafana_dashboards
+
+    - name: Install and start Grafana by its install method
+      ansible.builtin.include_tasks: "{{ grafana_method_key }}.yml"
+      vars:
+        grafana_provisioning_changed: "{{ grafana_datasource is changed or grafana_providers is changed }}"
+
+    - name: Wait for Grafana to be healthy
+      ansible.builtin.uri:
+        url: "http://{{ grafana_listen_address }}:{{ grafana_port }}/api/health"
+        status_code: 200
+      register: grafana_health
+      until: grafana_health.status == 200
+      retries: 30
+      delay: 2
+
+    - name: Count the dashboards each requested bundle ships
+      ansible.builtin.find:
+        paths: "{{ grafana_dashboards | map('regex_replace', '^', grafana_config_dir ~ '/dashboards/') | list }}"
+        patterns: "*.json"
+      register: grafana_bundle_files
+      when: grafana_dashboards | length > 0
+
+    - name: Wait for Grafana to serve every provisioned dashboard
+      # Anonymous Viewers may search, so this proves the dashboards are visible without a login.
+      ansible.builtin.uri:
+        url: "http://{{ grafana_listen_address }}:{{ grafana_port }}/api/search?type=dash-db"
+        return_content: true
+      register: grafana_search
+      until: grafana_search.status == 200 and (grafana_search.json | length) >= grafana_bundle_files.matched
+      retries: 30
+      delay: 2
+      when: grafana_dashboards | length > 0
+
+- name: Remove Grafana
+  when: grafana_state == 'absent'
+  become: true
+  block:
+    - name: Remove every install method's artifacts
+      ansible.builtin.include_tasks: "remove_{{ item }}.yml"
+      loop: [docker, podman, native]
+
+    - name: Remove the Grafana configuration and data
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ grafana_config_dir }}"
+        - "{{ grafana_data_dir }}"

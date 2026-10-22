@@ -74,6 +74,24 @@ const (
 	varSlurmWorkloadExport      = "swallow_slurm_workload_export"
 	varSlurmWorkloadSource      = "swallow_slurm_workload_source"
 	varSlurmAPIVersion          = "swallow_slurm_api_version"
+	// varSlurmGPUComputeIDs lists the compute Servers whose GPU Inventory has AMD compute GPUs.
+	// The playbook loads amdgpu on them and configures their GPU GRES (decision 063); a
+	// listed host whose KFD topology shows no GPU fails the run instead of joining without GRES.
+	varSlurmGPUComputeIDs = "swallow_slurm_gpu_compute_ids"
+	// varSlurmOmnistatEnabled makes deploy-slurm render the Slurm side of Omnistat (Prolog/Epilog,
+	// PrologFlags=Alloc, exclusive partition), so a redeploy re-applies it (decision 063).
+	varSlurmOmnistatEnabled = "swallow_slurm_omnistat_enabled"
+)
+
+// Trusted extra-var names of the configure-omnistat playbook (decision 063). The Prometheus and
+// Grafana ports (swallow_omnistat_prometheus_port / _grafana_port) are added by the launcher from
+// the software domain, which owns them.
+const (
+	varOmnistatVersion         = "swallow_omnistat_version"
+	varOmnistatPort            = "swallow_omnistat_port"
+	varOmnistatComputeIDs      = "swallow_omnistat_compute_ids"
+	varOmnistatObservabilityID = "swallow_omnistat_observability_id"
+	varOmnistatSystemName      = "swallow_omnistat_system_name"
 )
 
 // DeployService owns the intent to build a platform: it validates the topology, creates the
@@ -90,6 +108,7 @@ type DeployService struct {
 	requirements       platformdomain.DeploymentRequirementReader
 	deploymentKeys     platformdomain.DeploymentKeyChecker
 	gpuOperators       platformdomain.GPUOperatorRecorder
+	omnistats          platformdomain.OmnistatRecorder
 }
 
 // NewDeployService constructs deployment preflight with both Server observations and the
@@ -121,13 +140,18 @@ func NewDeployService(
 // spec is ignored for the type that is not selected.
 //
 // GPUOperator, when non-nil and enabled, installs the AMD GPU Operator in the same Workflow
-// (Kubernetes only). GPUStackOwner may then be empty and is derived from it.
+// (Kubernetes only). GPUStackOwner may then be empty and is derived from it. ContainerRuntime,
+// when set, installs that container runtime on every compute and login node, and Omnistat, when
+// non-nil and enabled, installs Omnistat with Prometheus and Grafana, both in the same Workflow
+// (Slurm only, decision 063).
 type DeployPlatformInput struct {
 	SiteID             string
 	Name               string
 	Type               platformdomain.PlatformType
 	GPUStackOwner      string
 	GPUOperator        *platformdomain.GPUOperatorSettings
+	ContainerRuntime   string
+	Omnistat           *platformdomain.OmnistatSettings
 	Spec               platformdomain.DeploymentSpec
 	SlurmSpec          platformdomain.SlurmDeploymentSpec
 	RequestedBy        string
@@ -191,6 +215,12 @@ func (s *DeployService) AttachGPUOperatorRecorder(recorder platformdomain.GPUOpe
 	s.gpuOperators = recorder
 }
 
+// AttachOmnistatRecorder enables installing Omnistat as part of a Slurm deploy. Without it a
+// deploy that requests Omnistat is refused instead of silently skipping it.
+func (s *DeployService) AttachOmnistatRecorder(recorder platformdomain.OmnistatRecorder) {
+	s.omnistats = recorder
+}
+
 // AttachDeploymentRequirementReader enables authoritative resource eligibility checks for
 // Slurm. Repository failures are returned before any Platform or Workflow is created.
 func (s *DeployService) AttachDeploymentRequirementReader(reader platformdomain.DeploymentRequirementReader) {
@@ -225,6 +255,12 @@ func (s *DeployService) Deploy(ctx context.Context, input DeployPlatformInput) (
 }
 
 func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
+	if input.Omnistat != nil && input.Omnistat.Enabled {
+		return nil, fmt.Errorf("%w: Omnistat is a Slurm Platform feature", platformdomain.ErrInvalidOmnistat)
+	}
+	if strings.TrimSpace(input.ContainerRuntime) != "" {
+		return nil, fmt.Errorf("%w: a Kubernetes Platform runs containers on its own containerd", platformdomain.ErrInvalidContainerRuntime)
+	}
 	validated, err := s.validate(ctx, input)
 	if err != nil {
 		return nil, err
@@ -358,6 +394,20 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if input.GPUOperator != nil && input.GPUOperator.Enabled {
 		return nil, fmt.Errorf("%w: a Slurm Platform has no GPU Operator", platformdomain.ErrInvalidGPUOperator)
 	}
+	containerRuntime, err := platformdomain.ParseContainerRuntime(input.ContainerRuntime)
+	if err != nil {
+		return nil, err
+	}
+	omnistatEnabled := input.Omnistat != nil && input.Omnistat.Enabled
+	var omnistat platformdomain.OmnistatSettings
+	if omnistatEnabled {
+		if s.omnistats == nil {
+			return nil, fmt.Errorf("%w: Omnistat installation is unavailable", platformdomain.ErrInvalidOmnistat)
+		}
+		if omnistat, err = platformdomain.NormalizeOmnistatSettings(*input.Omnistat); err != nil {
+			return nil, err
+		}
+	}
 	validated, err := s.validateSlurm(ctx, input)
 	if err != nil {
 		return nil, err
@@ -374,7 +424,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		SiteID:        input.SiteID,
 		Name:          input.Name,
 		Type:          string(platformdomain.PlatformTypeSlurm),
-		GPUStackOwner: gpuStackOwner,
+		GPUStackOwner: gpuStackOwner, ContainerRuntime: containerRuntime,
 	})
 	if err != nil {
 		return nil, err
@@ -385,13 +435,42 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		return nil, err
 	}
 
+	gpuComputeIDs := slurmGPUComputeIDs(validated.slurmSpec, validated.targets)
 	launch := platformdomain.DeploymentLaunch{
 		Platform:           platform,
 		TargetServerIDs:    validated.slurmSpec.ServerIDs(),
-		TrustedVars:        buildSlurmVars(platform, validated.slurmSpec),
+		TrustedVars:        buildSlurmVars(platform, validated.slurmSpec, gpuComputeIDs),
 		RequestedBy:        input.RequestedBy,
 		RequestCorrelation: input.RequestCorrelation,
 		MachinePreparation: validated.machinePreparation,
+	}
+	if containerRuntime != "" {
+		launch.ContainerRuntime = &platformdomain.ContainerRuntimeLaunch{
+			Kind:      containerRuntime,
+			ServerIDs: slurmContainerRuntimeIDs(validated.slurmSpec),
+		}
+	}
+	if omnistatEnabled {
+		// The record names the deploy Workflow before it exists, so the observer of the Omnistat
+		// Task matches from its first transition (the same fence as the GPU Operator).
+		launch.OperationID = uuid.NewString()
+		observability := validated.slurmSpec.PrimaryControllerID()
+		record := &platformdomain.Omnistat{
+			Enabled: true, Version: platformdomain.OmnistatVersion, InstallMethod: omnistat.InstallMethod,
+			ObservabilityServerID: observability, State: platformdomain.OmnistatInstalling,
+			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
+		}
+		if err := s.omnistats.SetOmnistat(ctx, platform.ID, record); err != nil {
+			_ = s.platforms.Delete(ctx, platform.ID)
+			return nil, err
+		}
+		launch.TrustedVars[varSlurmOmnistatEnabled] = true
+		launch.Omnistat = &platformdomain.OmnistatLaunch{
+			ObservabilityServerID: observability,
+			ComputeServerIDs:      validated.slurmSpec.ComputeServerIDs(),
+			InstallMethod:         omnistat.InstallMethod,
+			TrustedVars:           buildOmnistatVars(platform, validated.slurmSpec, observability, gpuComputeIDs),
+		}
 	}
 	operationID, err := s.launcher.Launch(ctx, launch)
 	if err != nil {
@@ -975,7 +1054,8 @@ func buildDeploymentVars(platform *platformdomain.Platform, spec platformdomain.
 // controller stays "local" with a controller-local StateSaveLocation. Optional vars are
 // omitted when empty so the playbook applies its own defaults; an operator-supplied
 // stateSaveLocation, when present, overrides the state directory path in either mode.
-func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.SlurmDeploymentSpec) map[string]any {
+// gpuComputeIDs is always sent (possibly empty) so a rerun converges GPU GRES both ways.
+func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.SlurmDeploymentSpec, gpuComputeIDs []string) map[string]any {
 	vars := map[string]any{
 		varSlurmClusterName:       slurmClusterName(spec.ClusterName, platform.Name),
 		varSlurmPlatformName:      platform.Name,
@@ -984,6 +1064,7 @@ func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.Slurm
 		varSlurmLoginIDs:          spec.LoginServerIDs(),
 		varSlurmPrimaryController: spec.PrimaryControllerID(),
 		varSlurmHighAvailability:  spec.HighlyAvailable(),
+		varSlurmGPUComputeIDs:     gpuComputeIDs,
 	}
 	if len(spec.LoginServerIDs()) > 0 {
 		// Login hosts are pure submission/client nodes here, so they use the cluster's
@@ -1042,6 +1123,61 @@ func addSlurmWorkloadVars(vars map[string]any, spec platformdomain.SlurmDeployme
 		}
 		vars[varSlurmWorkloadSource] = ws.NFSURL
 	}
+}
+
+// buildOmnistatVars translates the Slurm topology into the configure-omnistat playbook's trusted
+// variables: every compute node runs the exporter, and the observability Server (the primary
+// controller, which runs Prometheus and Grafana) is the only remote address the exporter answers
+// and the source of the result URLs. GPU compute nodes collect through AMD SMI.
+func buildOmnistatVars(
+	platform *platformdomain.Platform,
+	spec platformdomain.SlurmDeploymentSpec,
+	observabilityID string,
+	gpuComputeIDs []string,
+) map[string]any {
+	return map[string]any{
+		varOmnistatVersion:         platformdomain.OmnistatVersion,
+		varOmnistatPort:            platformdomain.OmnistatExporterPort,
+		varOmnistatComputeIDs:      spec.ComputeServerIDs(),
+		varOmnistatObservabilityID: observabilityID,
+		varOmnistatSystemName:      slurmClusterName(spec.ClusterName, platform.Name),
+		varSlurmGPUComputeIDs:      gpuComputeIDs,
+	}
+}
+
+// slurmGPUComputeIDs returns, in request order, the compute Servers whose GPU Inventory has AMD
+// compute GPUs; those become Slurm GPU nodes (decision 063). The selection reads Swallow's
+// provider-observed inventory rather than probing hosts, like the GPU Operator's eligibility
+// check, and the playbook then proves each selected host really exposes GPUs through KFD. A
+// controller-only or login-only Server never gets GRES because it runs no slurmd. The result is
+// never nil so the trusted variable is always a list.
+func slurmGPUComputeIDs(spec platformdomain.SlurmDeploymentSpec, targets []*serverdomain.Server) []string {
+	byID := make(map[string]*serverdomain.Server, len(targets))
+	for _, server := range targets {
+		byID[server.ID] = server
+	}
+	ids := []string{}
+	for _, id := range spec.ComputeServerIDs() {
+		if server := byID[id]; server != nil && serverdomain.HasAMDComputeGPU(server.Observed.GPUs) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// slurmContainerRuntimeIDs selects the Servers the container runtime feature installs on: every
+// compute node (where jobs run) and login node (where users build and test images), in request
+// order. A controller-only Server runs no workload and gets no runtime.
+func slurmContainerRuntimeIDs(spec platformdomain.SlurmDeploymentSpec) []string {
+	seen := map[string]bool{}
+	ids := []string{}
+	for _, assignment := range spec.NodeAssignments {
+		if (assignment.Compute || assignment.Login) && !seen[assignment.ServerID] {
+			seen[assignment.ServerID] = true
+			ids = append(ids, assignment.ServerID)
+		}
+	}
+	return ids
 }
 
 // slurmStateServerID selects the host that exports the shared controller StateSaveLocation for

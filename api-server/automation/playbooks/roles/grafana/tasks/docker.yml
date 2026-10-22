@@ -1,0 +1,58 @@
+---
+# container method on Docker CE: one pinned container under a Swallow-owned Compose project.
+
+- name: Refuse a host without Docker Compose
+  ansible.builtin.command:
+    argv: [docker, compose, version]
+  register: grafana_compose_check
+  changed_when: false
+  failed_when: false
+
+- name: Report the missing Docker CE
+  ansible.builtin.fail:
+    msg: >-
+      [docker_missing] The Grafana container method on docker-ce needs "docker compose", which is
+      not available on {{ inventory_hostname }}: {{ grafana_compose_check.stderr | default('') }}.
+      Install Docker CE on the Server first.
+  when: grafana_compose_check.rc != 0
+
+- name: Create the Grafana data directory
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}"
+    state: directory
+    owner: "{{ grafana_container_uid }}"
+    group: "{{ grafana_container_uid }}"
+    mode: "0755"
+
+- name: Give the Grafana data to its user
+  # Another install method may have left the data owned by a different user. Only ownership
+  # is recursive, so files keep the modes Grafana gave them and a converged host reports no change.
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}"
+    state: directory
+    owner: "{{ grafana_container_uid }}"
+    group: "{{ grafana_container_uid }}"
+    recurse: true
+
+- name: Render the Compose project
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ grafana_config_dir }}/compose.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Start Grafana
+  ansible.builtin.command:
+    argv: [docker, compose, -f, "{{ grafana_config_dir }}/compose.yaml", up, -d, --remove-orphans]
+  register: grafana_up
+  changed_when: "'Started' in grafana_up.stderr or 'Recreated' in grafana_up.stderr or 'Created' in grafana_up.stderr"
+  retries: 5
+  delay: 10
+  until: grafana_up.rc == 0
+
+- name: Restart Grafana to read a changed datasource or provider list
+  ansible.builtin.command:
+    argv: [docker, compose, -f, "{{ grafana_config_dir }}/compose.yaml", restart]
+  when: grafana_provisioning_changed | bool and grafana_up is not changed
+  changed_when: true

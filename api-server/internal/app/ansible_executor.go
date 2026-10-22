@@ -109,6 +109,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	lifecycles := platformLifecycleReader{operations: legacyOperations, orchestrations: orchestrations}
 	platformService := platformapp.NewPlatformService(platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
 	platformService.AttachGPUOperatorRecorder(platforms)
+	platformService.AttachOmnistatRecorder(platforms)
 	credentials := platformapp.NewDeploymentCredentialService(platforms, integrations, membership)
 	durable := operationapp.NewWorkflowService(orchestrations, nil, operationSecrets)
 	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)

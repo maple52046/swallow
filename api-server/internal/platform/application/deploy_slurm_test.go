@@ -89,6 +89,42 @@ func TestDeploySlurmSucceedsAndBuildsTrustedVars(t *testing.T) {
 	}
 }
 
+// GPU GRES nodes come from the GPU Inventory: only compute Servers with an AMD compute GPU are
+// listed, a controller-only GPU Server is not (it runs no slurmd), and a CPU-only cluster still
+// receives an empty list so a rerun removes stale GRES (decision 063).
+func TestDeploySlurmListsAMDComputeGPUNodes(t *testing.T) {
+	amd := []serverdomain.GPU{{Vendor: "Advanced Micro Devices, Inc. [AMD/ATI]", Count: 2, Kind: serverdomain.GPUKindCompute}}
+	display := []serverdomain.GPU{{Vendor: "Red Hat, Inc.", Model: "Virtio 1.0 GPU", Count: 1, Kind: serverdomain.GPUKindDisplay}}
+	servers := slurmServers()
+	servers[0].Observed.GPUs = amd
+	servers[1].Observed.GPUs = append(append([]serverdomain.GPU{}, display...), amd...)
+	servers[2].Observed.GPUs = display
+	service, launcher, _ := newDeployHarness(servers...)
+	input := validSlurmInput()
+	input.SlurmSpec.NodeAssignments = []platformdomain.SlurmNodeAssignment{
+		{ServerID: "s1", Controller: true},
+		{ServerID: "s2", Compute: true},
+		{ServerID: "s3", Compute: true},
+	}
+
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	got, _ := launcher.launched.TrustedVars[varSlurmGPUComputeIDs].([]string)
+	if !slices.Equal(got, []string{"s2"}) {
+		t.Errorf("%s = %v, want [s2]", varSlurmGPUComputeIDs, launcher.launched.TrustedVars[varSlurmGPUComputeIDs])
+	}
+
+	cpuOnly, cpuLauncher, _ := newDeployHarness(slurmServers()...)
+	if _, err := cpuOnly.Deploy(context.Background(), validSlurmInput()); err != nil {
+		t.Fatalf("Deploy() CPU-only error = %v", err)
+	}
+	empty, ok := cpuLauncher.launched.TrustedVars[varSlurmGPUComputeIDs].([]string)
+	if !ok || len(empty) != 0 {
+		t.Errorf("%s = %#v, want an empty list", varSlurmGPUComputeIDs, cpuLauncher.launched.TrustedVars[varSlurmGPUComputeIDs])
+	}
+}
+
 func TestDeploySlurmRejectsNoController(t *testing.T) {
 	service, launcher, platforms := newDeployHarness(slurmServers()...)
 	input := validSlurmInput()

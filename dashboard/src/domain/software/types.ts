@@ -6,11 +6,16 @@
  * variants, deliberately distinct from a Platform. The API contract that owns these shapes is
  * `api-server` `software.md`; this module holds no transport or React detail.
  */
+import type { SoftwareInstallMethod } from './installMethod'
 
-/** A single installable software. Values are domain language owned by swallow's glossary. */
-export type SoftwareKind = 'docker-ce' | 'podman' | 'nfs'
+/**
+ * A single installable software. Values are domain language owned by swallow's glossary;
+ * `prometheus` and `grafana` install as containers (on Docker CE or Podman) or natively
+ * (decision 063).
+ */
+export type SoftwareKind = 'docker-ce' | 'podman' | 'nfs' | 'prometheus' | 'grafana'
 
-const SOFTWARE_KINDS: ReadonlySet<string> = new Set<SoftwareKind>(['docker-ce', 'podman', 'nfs'])
+const SOFTWARE_KINDS: ReadonlySet<string> = new Set<SoftwareKind>(['docker-ce', 'podman', 'nfs', 'prometheus', 'grafana'])
 
 /** Narrows an untyped value (for example the kind inside a Workflow Job id) to a known SoftwareKind. */
 export function isSoftwareKind(value: string): value is SoftwareKind {
@@ -41,9 +46,31 @@ export interface SoftwareCatalogEntry {
   mutuallyExclusiveWith: SoftwareKind[]
   /** Whether installing this kind is refused on a Kubernetes Platform member. */
   refusedForKubernetesMembers: boolean
+  /**
+   * Ways this kind can be installed, the default first (`container`, `native`). Empty for a kind
+   * with one built-in way. Always an array.
+   */
+  installMethods: SoftwareInstallMethod[]
+  /**
+   * Runtime kinds the `container` method runs on (Docker CE, Podman); a standalone install needs
+   * one `installed` on every target, which the API re-checks. Empty without a container method.
+   */
+  containerRuntimes: SoftwareKind[]
   /** Kind-specific spec keys the API accepts, for the install form. */
   specFields: string[]
 }
+
+/**
+ * Spec keys whose contract value is an array of strings rather than a string. The install form
+ * edits them as comma- or newline-separated text and sends arrays (software.md).
+ */
+export const SOFTWARE_LIST_SPEC_FIELDS: ReadonlySet<string> = new Set(['scrapeTargets', 'scrapeServerIds', 'dashboards'])
+
+/**
+ * Spec keys whose contract value is an integer. The form edits them as text and sends a number,
+ * so a Reconfigure resends a recorded value (for example a composed Prometheus's `scrapePort`).
+ */
+export const SOFTWARE_INTEGER_SPEC_FIELDS: ReadonlySet<string> = new Set(['scrapePort'])
 
 /**
  * A swallow-owned record of one Managed Software kind on one Server, keyed by `(serverId, kind)`.

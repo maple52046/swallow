@@ -47,6 +47,49 @@
   when: not (slurm_is_controller | bool)
   notify: Restart slurmd
 
+- name: Install the Omnistat job-attribution Prolog and Epilog
+  # slurmd runs these on the compute node at allocation start and end (decision 063). The Prolog
+  # succeeds without attribution until configure-omnistat has installed the exporter, so the
+  # order of the deployment's Jobs never fails a job or drains the node.
+  ansible.builtin.copy:
+    dest: "{{ slurm_conf_dir }}/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  loop:
+    - name: "{{ slurm_omnistat_prolog }}"
+      content: |
+        #!/bin/bash
+        # Managed by Swallow (deploy-slurm): Omnistat job attribution Prolog.
+        set -u
+        readonly rms_env=/opt/omnistat/current/venv/bin/omnistat-rms-env
+        readonly job_file=/tmp/omni_rmsjobinfo
+        if [ ! -x "$rms_env" ] || ! id omnistat >/dev/null 2>&1; then
+          exit 0
+        fi
+        exec /usr/sbin/runuser --user omnistat --preserve-environment -- "$rms_env" "$job_file"
+    - name: "{{ slurm_omnistat_epilog }}"
+      content: |
+        #!/bin/bash
+        # Managed by Swallow (deploy-slurm): Omnistat job attribution Epilog.
+        rm -f /tmp/omni_rmsjobinfo
+        exit 0
+  loop_control:
+    label: "{{ item.name }}"
+  when: slurm_omnistat_enabled | bool
+
+- name: Remove the Omnistat Prolog and Epilog when Omnistat is off
+  ansible.builtin.file:
+    path: "{{ slurm_conf_dir }}/{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - "{{ slurm_omnistat_prolog }}"
+    - "{{ slurm_omnistat_epilog }}"
+  when: not (slurm_omnistat_enabled | bool)
+
 - name: Enable and start slurmd
   ansible.builtin.systemd:
     name: slurmd
@@ -54,3 +97,15 @@
     enabled: true
     daemon_reload: true
   become: true
+  register: slurm_compute_started
+
+- name: Restart slurmd to fetch a changed configuration
+  # A slurmd that was already running keeps the configless slurm.conf/gres.conf it fetched at
+  # start; one this run just started already has the new files.
+  ansible.builtin.systemd:
+    name: slurmd
+    state: restarted
+  become: true
+  when:
+    - slurm_compute_started is not changed
+    - hostvars[swallow_slurm_primary_controller_id].slurm_config_changed | default(false) | bool

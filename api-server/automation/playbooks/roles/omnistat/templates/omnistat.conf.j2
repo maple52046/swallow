@@ -1,0 +1,29 @@
+# Managed by Swallow (configure-omnistat). Do not edit by hand; changes are overwritten.
+[omnistat.collectors]
+port = {{ omnistat_port }}
+enable_rocm_smi = False
+enable_amd_smi = {{ 'True' if omnistat_gpu | bool else 'False' }}
+enable_ras_ecc = False
+enable_rms = True
+enable_rocprofiler = False
+enable_network = True
+enable_vendor_counters = False
+enable_host_metrics = True
+enable_kernel_trace = False
+enable_external = False
+rocm_path = {{ omnistat_rocm_path }}
+# Only this node and the observability Server's Prometheus may scrape the exporter.
+allowed_ips = 127.0.0.1, {{ omnistat_observability_address }}
+
+[omnistat.collectors.rms]
+enable_annotations = True
+job_detection_mode = file-based
+job_detection_file = {{ omnistat_job_file }}
+
+[omnistat.collectors.host]
+enable_proc_io_stats = False
+cpu_load_sampling_interval = 0.05
+
+[omnistat.query]
+prometheus_url = http://{{ omnistat_observability_address }}:{{ omnistat_prometheus_port }}
+system_name = {{ omnistat_system_name }}

@@ -119,7 +119,7 @@ func platformsDeployCmd() *cobra.Command {
 			return sendJSON(cmd, "POST", "platforms/deploy", nil, body)
 		},
 	}
-	addFileFlag(cmd, "deploy body (siteId, name, type, roleAssignments/slurm, machinePreparation, gpuOperator, ...)")
+	addFileFlag(cmd, "deploy body (siteId, name, type, roleAssignments/slurm, machinePreparation, gpuOperator, containerRuntime, omnistat, ...)")
 	return cmd
 }
 

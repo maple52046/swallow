@@ -80,6 +80,16 @@ const (
 	WorkflowKindUninstallPodman   WorkflowKind = "uninstall-podman"
 	WorkflowKindConfigureNFS      WorkflowKind = "configure-nfs"
 	WorkflowKindUninstallNFS      WorkflowKind = "uninstall-nfs"
+	// Prometheus and Grafana are container software that need Docker CE (decision 063). Their
+	// configure kinds also label the ansible Tasks of a Slurm deploy that composes them.
+	WorkflowKindConfigurePrometheus WorkflowKind = "configure-prometheus"
+	WorkflowKindUninstallPrometheus WorkflowKind = "uninstall-prometheus"
+	WorkflowKindConfigureGrafana    WorkflowKind = "configure-grafana"
+	WorkflowKindUninstallGrafana    WorkflowKind = "uninstall-grafana"
+	// WorkflowKindConfigureOmnistat labels the ansible Task of a Slurm deploy that installs the
+	// Omnistat exporter on the Slurm Platform (decision 063). It is never a standalone Workflow
+	// and never resolved through a site playbook mapping.
+	WorkflowKindConfigureOmnistat WorkflowKind = "configure-omnistat"
 )
 
 var ValidWorkflowKinds = []WorkflowKind{
@@ -105,6 +115,11 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindUninstallPodman,
 	WorkflowKindConfigureNFS,
 	WorkflowKindUninstallNFS,
+	WorkflowKindConfigurePrometheus,
+	WorkflowKindUninstallPrometheus,
+	WorkflowKindConfigureGrafana,
+	WorkflowKindUninstallGrafana,
+	WorkflowKindConfigureOmnistat,
 	WorkflowKindCustom,
 }
 
@@ -132,7 +147,10 @@ func (k WorkflowKind) RequiredProvisioningState() string {
 		// swept to `absent`, so uninstall is never the path for a wiped host.
 		WorkflowKindConfigureDockerCE, WorkflowKindUninstallDockerCE,
 		WorkflowKindConfigurePodman, WorkflowKindUninstallPodman,
-		WorkflowKindConfigureNFS, WorkflowKindUninstallNFS:
+		WorkflowKindConfigureNFS, WorkflowKindUninstallNFS,
+		WorkflowKindConfigurePrometheus, WorkflowKindUninstallPrometheus,
+		WorkflowKindConfigureGrafana, WorkflowKindUninstallGrafana,
+		WorkflowKindConfigureOmnistat:
 		return "deployed"
 	default:
 		// Uninstalling exporters intentionally has no state requirement: a machine

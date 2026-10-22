@@ -262,7 +262,9 @@ func (s SlurmDeploymentSpec) HighlyAvailable() bool {
 // OperationID, when set, is the id the launcher must give the Workflow; the deploy use case
 // preassigns it so the GPU Operator record names its Workflow before any Task can run.
 // GPUOperatorVars, when non-nil, adds the configure-gpu-operator Job with these trusted vars
-// after the Platform validates; nil installs no GPU Operator.
+// after the Platform validates; nil installs no GPU Operator. ContainerRuntime and Omnistat, when
+// non-nil, add the container runtime and Omnistat Jobs to a Slurm deployment (decision 063); nil
+// installs neither.
 type DeploymentLaunch struct {
 	Platform           *Platform
 	OperationID        string
@@ -270,6 +272,8 @@ type DeploymentLaunch struct {
 	TrustedVars        map[string]any
 	SecretVars         map[string]any
 	GPUOperatorVars    map[string]any
+	ContainerRuntime   *ContainerRuntimeLaunch
+	Omnistat           *OmnistatLaunch
 	RequestedBy        string
 	RequestCorrelation string
 	MachinePreparation MachinePreparation

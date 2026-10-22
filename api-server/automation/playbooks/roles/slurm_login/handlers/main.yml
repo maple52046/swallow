@@ -1,9 +1,14 @@
 ---
 - name: Restart sackd
   # Notified when the sackd conf-server changes, so the login cache picks up the new controller
-  # list without waiting for a reboot.
+  # list without waiting for a reboot. Retried like the slurmctld restart: a concurrent
+  # unattended-upgrades run can briefly reset systemd's D-Bus connection on a fresh image.
   ansible.builtin.systemd:
     name: sackd
     state: restarted
     daemon_reload: true
   become: true
+  register: slurm_login_restart
+  until: slurm_login_restart is succeeded
+  retries: 5
+  delay: 6

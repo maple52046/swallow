@@ -1,0 +1,11 @@
+# Managed by Swallow (Prometheus Managed Software). Do not edit by hand; changes are overwritten.
+global:
+  scrape_interval: {{ prometheus_scrape_interval }}
+  evaluation_interval: {{ prometheus_scrape_interval }}
+
+scrape_configs:
+  - job_name: {{ prometheus_scrape_job | to_json }}
+    scrape_interval: {{ prometheus_scrape_interval }}
+    scrape_timeout: {{ prometheus_scrape_timeout }}
+    static_configs:
+      - targets: {{ prometheus_resolved_targets | to_json }}

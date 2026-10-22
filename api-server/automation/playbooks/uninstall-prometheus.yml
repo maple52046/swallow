@@ -1,0 +1,12 @@
+---
+# Remove the Prometheus Managed Software whichever install method placed it: the container, Quadlet
+# unit, or native release and unit, plus its configuration and data, leaving the container runtime
+# and the host OS. Idempotent: a host without it reruns with no changes.
+
+- name: Uninstall Prometheus
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: prometheus
+      vars:
+        prometheus_state: absent

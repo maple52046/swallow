@@ -60,19 +60,27 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 		{
 			path: filepath.Join(role, "tasks", "host_driver.yml"),
 			required: []string{
+				"name: amdgpu_loader",
+				"'present' if amd_gpu_operator_managed | bool else 'absent'",
+				"amdgpu_loader_unit: \"{{ amd_gpu_operator_driver_unit }}\"",
+				"amdgpu_loader_dependents: \"{{ amd_gpu_operator_k0s_units }}\"",
+			},
+		},
+		{
+			path: filepath.Join("roles", "amdgpu_loader", "tasks", "main.yml"),
+			required: []string{
 				"[amdgpu_driver_missing]",
 				"/dev/kfd",
-				"amd_gpu_operator_driver_unit",
-				"After={{ amd_gpu_operator_driver_unit }}",
+				"After={{ amdgpu_loader_unit }}",
 				"enabled: false",
 			},
 		},
 		{
-			path: filepath.Join(role, "templates", "amdgpu-load.service.j2"),
+			path: filepath.Join("roles", "amdgpu_loader", "templates", "amdgpu-load.service.j2"),
 			required: []string{
-				"After=network-online.target {{ amd_gpu_operator_ssh_unit }}",
+				"After=network-online.target {{ amdgpu_loader_ssh_unit }}",
 				"ExecStart=/sbin/modprobe amdgpu",
-				"TimeoutStartSec={{ amd_gpu_operator_driver_load_timeout }}",
+				"TimeoutStartSec={{ amdgpu_loader_timeout }}",
 			},
 		},
 		{

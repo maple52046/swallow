@@ -10,11 +10,17 @@
   software; for a container runtime an optional pinned version is a variant, and for Docker CE
   whether the Docker Engine API listens on the network (`enableApi`, default on) is a variant
   that makes the Server eligible for the Docker Host Explorer. A Managed
-  Software install is a convergent Workflow (`configure-<kind>`) whose remote host work is one
-  idempotent playbook; uninstall is the symmetric `uninstall-<kind>`. The same software kind
-  can also be composed as a Job into a platform deployment (for example a future Slurm or
-  Kubernetes deploy composing `configure-nfs`), sharing the same Ansible roles. Docker CE and
-  Podman are distinct kinds and are mutually exclusive on one Server.
+  Software install is a convergent   Workflow (`configure-<kind>`) whose remote host work is one
+  idempotent playbook; uninstall is the symmetric `uninstall-<kind>`. A kind may offer several
+  install methods, the first being its default: Prometheus and Grafana install by `container`
+  (the official image on the Server's container runtime, Docker CE or Podman, which must already
+  be installed) or `native` (the official release binary or the official apt/yum package); the
+  method and the runtime are variants of the same software. The same software kind can also be
+  composed as a Job into a platform deployment, sharing the same Ansible roles and recording the
+  same Software Assignment — a Slurm deploy composes its container runtime onto its compute and
+  login nodes, and with Omnistat composes `prometheus` and `grafana` (plus their runtime, for the
+  `container` method) onto its primary controller. Docker CE and Podman are distinct kinds and
+  are mutually exclusive on one Server.
 - Disallowed meaning: Not a Platform — the target is a single software, not a multi-component
   runtime, and Managed Software has no cluster membership, no platform credential, and no
   whole-batch target claim. Not defined by whether OS provisioning runs, whether a batch of
@@ -26,12 +32,19 @@
 - Deprecated terms: None.
 - Examples: "Installing Docker CE on three deployed Servers is one Managed Software
   Workflow." / "An NFS install can make one Server a `server` and others `client` in a single
-  Workflow; each Server still gets its own Software Assignment." / "A future Slurm deploy
-  composes the `nfs` software as a Job rather than duplicating its playbook."
+  Workflow; each Server still gets its own Software Assignment." / "A Slurm deploy with Podman as
+  its container runtime and Omnistat by the `container` method composes `podman`, `prometheus`,
+  and `grafana` as Jobs rather than duplicating their playbooks; the primary controller ends up
+  with three ordinary Software Assignments." / "Grafana installed by the `native` method comes
+  from Grafana's apt repository and needs no container runtime."
 - Related terms: Software Assignment, Docker Host Explorer, Platform, Workflow, Job, Task, Runner,
   Server.
 - Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md))
   to name single-software deployment as distinct from platform deployment, with the deploy
   target's granularity as the authoritative boundary. 2026-10-02
   ([decision 043](../../../decisions/043-docker-host-management.md)): Docker CE gained the
-  `enableApi` variant.
+  `enableApi` variant. 2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md)):
+  added `prometheus` and `grafana`, and the first composition into a platform deployment.
+  2026-10-22 (decision 063): install methods (`container` default, `native`) replaced
+  Prometheus's and Grafana's Docker CE requirement, and a Slurm deploy may compose a container
+  runtime onto its compute and login nodes.

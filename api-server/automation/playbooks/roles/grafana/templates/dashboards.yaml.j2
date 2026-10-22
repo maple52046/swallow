@@ -1,0 +1,18 @@
+# Managed by Swallow (Grafana Managed Software). Do not edit by hand; changes are overwritten.
+apiVersion: 1
+
+providers:
+{% for bundle in grafana_dashboards %}
+  - name: {{ bundle | to_json }}
+    orgId: 1
+    folder: {{ grafana_dashboard_folders[bundle] | default(bundle) | to_json }}
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: {{ grafana_dashboards_path | trim }}/{{ bundle }}
+      foldersFromFilesStructure: false
+{% else %}
+  []
+{% endfor %}

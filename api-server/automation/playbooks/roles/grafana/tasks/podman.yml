@@ -1,0 +1,68 @@
+---
+# container method on Podman: one pinned container under a Swallow-owned Quadlet unit, so systemd
+# owns its lifecycle and starts it at boot. Quadlet needs Podman 4.4 or later.
+
+- name: Refuse a host without Podman Quadlet
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system-generators/podman-system-generator
+  register: grafana_quadlet_generator
+
+- name: Report the missing Podman
+  ansible.builtin.fail:
+    msg: >-
+      [podman_missing] The Grafana container method on podman needs Podman 4.4 or later (Quadlet),
+      which is not available on {{ inventory_hostname }}. Install Podman on the Server first.
+  when: not grafana_quadlet_generator.stat.exists
+
+- name: Create the Grafana data directory
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}"
+    state: directory
+    owner: "{{ grafana_container_uid }}"
+    group: "{{ grafana_container_uid }}"
+    mode: "0755"
+
+- name: Give the Grafana data to its user
+  # Another install method may have left the data owned by a different user. Only ownership
+  # is recursive, so files keep the modes Grafana gave them and a converged host reports no change.
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}"
+    state: directory
+    owner: "{{ grafana_container_uid }}"
+    group: "{{ grafana_container_uid }}"
+    recurse: true
+
+- name: Pull the Grafana image
+  # Pulled before the unit starts, so a registry failure reports here instead of as a unit
+  # start timeout.
+  ansible.builtin.command:
+    argv: [podman, pull, "{{ grafana_image }}"]
+  register: grafana_pull
+  changed_when: false
+  retries: 5
+  delay: 10
+  until: grafana_pull.rc == 0
+
+- name: Ensure the Quadlet directory exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render the Quadlet unit
+  ansible.builtin.template:
+    src: grafana.container.j2
+    dest: "/etc/containers/systemd/{{ grafana_quadlet_unit }}.container"
+    owner: root
+    group: root
+    mode: "0644"
+  register: grafana_quadlet
+
+- name: Start Grafana
+  # A generated unit cannot be enabled; its [Install] section is applied by the generator.
+  ansible.builtin.systemd_service:
+    name: "{{ grafana_quadlet_unit }}.service"
+    state: "{{ 'restarted' if (grafana_quadlet is changed or grafana_provisioning_changed | bool) else 'started' }}"
+    daemon_reload: "{{ grafana_quadlet is changed }}"

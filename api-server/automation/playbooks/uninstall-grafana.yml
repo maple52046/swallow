@@ -1,0 +1,12 @@
+---
+# Remove the Grafana Managed Software whichever install method placed it: the container, Quadlet
+# unit, or Swallow-installed package and drop-in, plus its configuration and data, leaving the
+# container runtime and the host OS. Idempotent: a host without it reruns with no changes.
+
+- name: Uninstall Grafana
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: grafana
+      vars:
+        grafana_state: absent

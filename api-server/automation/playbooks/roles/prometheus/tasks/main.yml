@@ -1,0 +1,95 @@
+---
+# Install or remove Prometheus by its install method (defaults/main.yml). Idempotent: a converged
+# host reruns with no changes; a changed scrape configuration reloads Prometheus through its
+# lifecycle endpoint and a changed image, binary, or unit restarts it. Switching the method or the
+# container runtime removes the previous one's artifacts first and keeps the data directory.
+
+- name: Install Prometheus
+  when: prometheus_state == 'present'
+  become: true
+  block:
+    - name: Refuse an unknown install method or container runtime
+      ansible.builtin.fail:
+        msg: >-
+          [install_method_invalid] Prometheus install method "{{ prometheus_install_method }}"
+          (container runtime "{{ prometheus_container_runtime }}") is not one of container on
+          docker-ce or podman, or native.
+      when: >-
+        prometheus_install_method not in ['container', 'native']
+        or (prometheus_install_method == 'container'
+            and prometheus_container_runtime not in ['docker-ce', 'podman'])
+
+    - name: Refuse a scraped Server without a current address
+      ansible.builtin.fail:
+        msg: >-
+          [scrape_server_unresolved] Prometheus should scrape Server {{ item }}, but this run's
+          inventory has no address for it (absent, or no primary address observed).
+      loop: "{{ prometheus_scrape_server_ids }}"
+      when: hostvars[item] is not defined or hostvars[item].ansible_host is not defined
+
+    - name: Resolve every scrape target
+      ansible.builtin.set_fact:
+        prometheus_resolved_targets: >-
+          {{ (prometheus_scrape_targets | list)
+             + (prometheus_scrape_server_ids | map('extract', hostvars, 'ansible_host')
+                | map('regex_replace', '$', ':' ~ (prometheus_scrape_port | string)) | list) }}
+        prometheus_method_key: >-
+          {{ 'native' if prometheus_install_method == 'native'
+             else ('podman' if prometheus_container_runtime == 'podman' else 'docker') }}
+
+    - name: Remove the artifacts of the other install methods
+      ansible.builtin.include_tasks: "remove_{{ item }}.yml"
+      loop: "{{ ['docker', 'podman', 'native'] | difference([prometheus_method_key]) }}"
+
+    - name: Create the Prometheus configuration directory
+      ansible.builtin.file:
+        path: "{{ prometheus_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Render the scrape configuration
+      ansible.builtin.template:
+        src: prometheus.yml.j2
+        dest: "{{ prometheus_config_dir }}/prometheus.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: prometheus_config
+
+    - name: Install and start Prometheus by its install method
+      ansible.builtin.include_tasks: "{{ prometheus_method_key }}.yml"
+
+    - name: Wait for Prometheus to be ready
+      ansible.builtin.uri:
+        url: "http://{{ prometheus_listen_address }}:{{ prometheus_port }}/-/ready"
+        status_code: 200
+      register: prometheus_ready
+      until: prometheus_ready.status == 200
+      retries: 30
+      delay: 2
+
+    - name: Reload a changed scrape configuration
+      # A Prometheus that was not restarted still reads the old file until it reloads.
+      ansible.builtin.uri:
+        url: "http://{{ prometheus_listen_address }}:{{ prometheus_port }}/-/reload"
+        method: POST
+        status_code: 200
+      when: prometheus_config is changed and not prometheus_restarted | bool
+
+- name: Remove Prometheus
+  when: prometheus_state == 'absent'
+  become: true
+  block:
+    - name: Remove every install method's artifacts
+      ansible.builtin.include_tasks: "remove_{{ item }}.yml"
+      loop: [docker, podman, native]
+
+    - name: Remove the Prometheus configuration and data
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ prometheus_config_dir }}"
+        - "{{ prometheus_data_dir }}"

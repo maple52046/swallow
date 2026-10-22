@@ -1,0 +1,108 @@
+---
+# native method: the pinned official release binary, verified against the release's published
+# checksums, under a Swallow-owned systemd unit and an unprivileged system user.
+
+- name: Create the Prometheus system user
+  ansible.builtin.user:
+    name: "{{ prometheus_native_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: "{{ prometheus_data_dir }}"
+
+- name: Create the Prometheus data directory
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "{{ prometheus_native_user }}"
+    group: "{{ prometheus_native_user }}"
+    mode: "0755"
+
+- name: Give the Prometheus data to its user
+  # Another install method may have left the data owned by a different user. Only ownership
+  # is recursive, so files keep the modes Prometheus gave them and a converged host reports no change.
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "{{ prometheus_native_user }}"
+    group: "{{ prometheus_native_user }}"
+    recurse: true
+
+- name: Read the installed Prometheus release
+  ansible.builtin.stat:
+    path: "{{ prometheus_native_root }}/{{ prometheus_version }}/prometheus"
+  register: prometheus_binary
+
+- name: Install the Prometheus release
+  when: not prometheus_binary.stat.exists
+  block:
+    - name: Create the Prometheus release directory
+      ansible.builtin.file:
+        path: "{{ prometheus_native_root }}/{{ prometheus_version }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download the Prometheus release
+      ansible.builtin.get_url:
+        url: "{{ prometheus_release_url }}/{{ prometheus_release_archive }}"
+        dest: "{{ prometheus_native_root }}/{{ prometheus_release_archive }}"
+        checksum: "sha256:{{ prometheus_release_url }}/sha256sums.txt"
+        owner: root
+        group: root
+        mode: "0644"
+      register: prometheus_download
+      until: prometheus_download is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Unpack the Prometheus release
+      ansible.builtin.unarchive:
+        src: "{{ prometheus_native_root }}/{{ prometheus_release_archive }}"
+        dest: "{{ prometheus_native_root }}/{{ prometheus_version }}"
+        remote_src: true
+        extra_opts: [--strip-components=1]
+        owner: root
+        group: root
+
+    - name: Remove the downloaded archive
+      ansible.builtin.file:
+        path: "{{ prometheus_native_root }}/{{ prometheus_release_archive }}"
+        state: absent
+
+- name: Find older Prometheus releases
+  ansible.builtin.find:
+    paths: "{{ prometheus_native_root }}"
+    file_type: any
+    excludes: ["{{ prometheus_version }}"]
+  register: prometheus_old_releases
+
+- name: Remove older Prometheus releases
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ prometheus_old_releases.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+- name: Render the Prometheus systemd unit
+  ansible.builtin.template:
+    src: swallow-prometheus.service.j2
+    dest: "/etc/systemd/system/{{ prometheus_native_unit }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: prometheus_native_unit_file
+
+- name: Enable and start Prometheus
+  ansible.builtin.systemd_service:
+    name: "{{ prometheus_native_unit }}"
+    state: "{{ 'restarted' if prometheus_native_unit_file is changed else 'started' }}"
+    enabled: true
+    daemon_reload: "{{ prometheus_native_unit_file is changed }}"
+  register: prometheus_unit
+
+- name: Record whether Prometheus restarted
+  ansible.builtin.set_fact:
+    prometheus_restarted: "{{ prometheus_unit is changed }}"

@@ -1,0 +1,119 @@
+---
+# Prepare a compute node's GPUs for Slurm GRES and record them as facts the controller's
+# slurm.conf and gres.conf read (decision 063):
+#   slurm_is_gpu_compute  whether swallow selected this node as a GPU node
+#   slurm_gpus            [{minor, type}] from the KFD topology, sorted by render minor
+#   slurm_node_gres       the slurm.conf Gres= value, for example gpu:gfx942:8 ('' without GPUs)
+# A GPU node loads amdgpu through the shared post-boot loader (the image may keep the driver out of
+# the boot path) with slurmd ordered after it; a CPU node stops loading it, so a rerun converges
+# both ways.
+
+- name: Resolve whether this compute node schedules AMD GPUs
+  ansible.builtin.set_fact:
+    slurm_is_gpu_compute: "{{ inventory_hostname in (swallow_slurm_gpu_compute_ids | default([])) }}"
+
+- name: Open the GPU device nodes to job users, Slurm's device cgroup being the boundary
+  ansible.builtin.copy:
+    dest: "{{ slurm_gpu_udev_rule }}"
+    content: |
+      # Managed by Swallow (Slurm GPU GRES, decision 063). Slurm's device cgroup
+      # (ConstrainDevices=yes) admits a job only to the GPUs allocated to it, so every job user
+      # may open the GPU device nodes.
+      KERNEL=="kfd", MODE="0666"
+      SUBSYSTEM=="drm", KERNEL=="renderD*", MODE="0666"
+    owner: root
+    group: root
+    mode: "0644"
+  register: slurm_gpu_rule_installed
+  when: slurm_is_gpu_compute | bool
+
+- name: Remove the GPU device rule from a CPU compute node
+  ansible.builtin.file:
+    path: "{{ slurm_gpu_udev_rule }}"
+    state: absent
+  register: slurm_gpu_rule_removed
+  when: not (slurm_is_gpu_compute | bool)
+
+- name: Reload the udev rules
+  ansible.builtin.command:
+    cmd: udevadm control --reload-rules
+  when: slurm_gpu_rule_installed is changed or slurm_gpu_rule_removed is changed
+
+- name: Load amdgpu on a GPU compute node, or stop loading it on a CPU one
+  ansible.builtin.include_role:
+    name: amdgpu_loader
+    apply:
+      become: true
+  vars:
+    amdgpu_loader_state: "{{ 'present' if slurm_is_gpu_compute | bool else 'absent' }}"
+    amdgpu_loader_dependents:
+      - slurmd
+    amdgpu_loader_owner: Slurm GPU GRES
+
+- name: Apply the GPU device rule to devices that already exist
+  # A driver loaded before the rule existed created its nodes with the default mode.
+  ansible.builtin.command:
+    cmd: udevadm trigger --action=change --subsystem-match=drm --subsystem-match=kfd
+  when: slurm_gpu_rule_installed is changed or slurm_gpu_rule_removed is changed
+
+- name: Read the GPUs from the KFD topology
+  # One KFD node per logical GPU (an XCP partition is its own logical GPU); CPU nodes have no
+  # gfx target. drm_render_minor is the render node HIP uses, so counting /dev/dri/renderD*
+  # would be wrong. The type is the gfx target (90402 -> gfx942). KFD fills the topology a
+  # moment after /dev/kfd appears, so the script waits briefly for a stable GPU list.
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import glob, json, time
+        def read():
+            gpus = []
+            for path in glob.glob('/sys/class/kfd/kfd/topology/nodes/*/properties'):
+                props = {}
+                with open(path) as handle:
+                    for line in handle:
+                        parts = line.split()
+                        if len(parts) == 2:
+                            props[parts[0]] = parts[1]
+                version = int(props.get('gfx_target_version', '0'))
+                minor = int(props.get('drm_render_minor', '0'))
+                if version > 0 and minor > 0:
+                    name = 'gfx%d%d%x' % (version // 10000, version // 100 % 100, version % 100)
+                    gpus.append({'minor': minor, 'type': name})
+            return sorted(gpus, key=lambda gpu: gpu['minor'])
+        previous = None
+        for _ in range(15):
+            current = read()
+            if current and current == previous:
+                break
+            previous = current
+            time.sleep(2)
+        print(json.dumps(previous or []))
+  register: slurm_kfd_gpus
+  changed_when: false
+  when: slurm_is_gpu_compute | bool
+
+- name: Remember this node's GPUs
+  ansible.builtin.set_fact:
+    slurm_gpus: "{{ (slurm_kfd_gpus.stdout | from_json) if slurm_is_gpu_compute | bool else [] }}"
+
+- name: Refuse a GPU compute node whose KFD topology shows no GPU
+  ansible.builtin.fail:
+    msg: >-
+      [slurm_gpu_missing] {{ slurm_node_name }} has AMD compute GPUs in its inventory but
+      its KFD topology lists none after loading amdgpu, so Slurm cannot schedule them. Check
+      "dmesg | grep amdgpu" and the module options in /etc/modprobe.d on the node.
+  when:
+    - slurm_is_gpu_compute | bool
+    - slurm_gpus | length == 0
+
+- name: Summarize this node's GPU GRES for slurm.conf
+  # For example gpu:gfx942:8; a node with several GPU models lists one entry per gfx target.
+  ansible.builtin.set_fact:
+    slurm_node_gres: >-
+      {%- set entries = [] -%}
+      {%- for type in slurm_gpus | map(attribute='type') | unique -%}
+      {%- set _ = entries.append('gpu:' ~ type ~ ':' ~ (slurm_gpus | selectattr('type', 'equalto', type) | list | length)) -%}
+      {%- endfor -%}
+      {{ entries | join(',') }}

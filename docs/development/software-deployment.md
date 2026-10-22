@@ -63,9 +63,32 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `docker-ce` | 無 role；選用 `version`；`enableApi` | `version`（選用，pin apt 套件版本）；`enableApi`（boolean，省略即 `true`，見 §4.6） | 與 `podman` 互斥；拒絕已是 Kubernetes member 的 Server |
 | `podman` | 無 role；選用 `version` | `version`（選用） | 與 `docker-ce` 互斥；拒絕已是 Kubernetes member 的 Server |
 | `nfs` | `server` / `client`（可同時） | server：`exportPath`、`exportOptions`；client：`source`（`host:/path`）、`mountPath`、`mountOptions` | 可與 Platform 共存 |
+| `prometheus` | 無 role；`installMethod`；`containerRuntime` | `installMethod`（`container` 預設／`native`）、`containerRuntime`（container method：`docker-ce`／`podman`）、`version`（release 版本 `x.y.z`，預設 `3.15.0`）、`scrapeJob`、`scrapeTargets`（`host:port`）、`scrapeServerIds` + `scrapePort`（同 Site 的 Server，每次執行時以 inventory 解析成當下的 primary address） | container method 需 runtime 已 `installed` |
+| `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle，目前只有 `omnistat`） | container method 需 runtime 已 `installed` |
 
 擴充新 kind（未來 PostgreSQL、LDAP client）就是新增一筆目錄 + 一支 playbook，前提是仍只依賴
 本文件的契約。
+
+**安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)）：catalog 的
+`installMethods` 列出 kind 可用的安裝方法（第一個是預設），`containerRuntimes` 列出 `container` method
+可用的 runtime kind。Prometheus／Grafana：
+
+- `container`（預設）：官方 image（`docker.io/prom/prometheus:v<version>`、
+  `docker.io/grafana/grafana:<version>`），`docker-ce` 上用 Docker Compose project，`podman` 上用
+  Quadlet unit（`/etc/containers/systemd/swallow-<kind>-container.container`，systemd 擁有生命週期，
+  需 Podman ≥ 4.4）。獨立 install 時 runtime 必須已在每個 target `installed` 且一致；省略
+  `containerRuntime` 即採 target 上已裝的 runtime，不滿足回 409。被 platform 組入時由同一個 Workflow
+  較早的 runtime Job 安裝，因此不檢查狀態。
+- `native`：Prometheus 為官方 release tarball（以 release 的 `sha256sums.txt` 驗證），放在
+  `/opt/swallow/prometheus/<version>`，由 `swallow-prometheus.service`（系統使用者
+  `swallow-prometheus`）執行；Grafana 為 Grafana 官方 apt／yum repository 的 pinned `grafana` 套件，
+  由套件自己的 `grafana-server.service` 執行，Swallow 只加 drop-in
+  （`grafana-server.service.d/10-swallow.conf`，`GF_*` 指向 management address 與 Swallow 擁有的
+  provisioning／data 目錄），不改 `/etc/grafana`。uninstall 只移除帶 Swallow drop-in 的套件。
+
+切換方法或 runtime 會先移除前一種的 artifacts（data 目錄保留並改 owner）。兩者都只綁 Server 的
+management address（`ansible_host`）；Grafana 是唯讀（anonymous Viewer、無 login form、無 admin），
+不持有任何 secret。
 
 ## 3. Software Assignment（durable record）
 
@@ -111,6 +134,14 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
   - Docker/Podman：`swallow_docker_version` / `swallow_podman_version`（選用）
   - Docker CE Engine API：`swallow_docker_enable_api`（boolean，每次 docker-ce run 都帶）、
     `swallow_docker_api_port`（目前固定 `2375`；由 api-server domain 擁有，explorer 連線用同一值）
+  - Prometheus：`swallow_prometheus_install_method`、`swallow_prometheus_container_runtime`
+    （native 時為空）、`swallow_prometheus_version`、`swallow_prometheus_port`（固定 `9090`，domain 擁有）、
+    `swallow_prometheus_scrape_job`、`swallow_prometheus_scrape_targets`、
+    `swallow_prometheus_scrape_server_ids` + `swallow_prometheus_scrape_port`（由 playbook 以
+    `hostvars[id].ansible_host` 解析；inventory 是該 Site 的執行當下快照）
+  - Grafana：`swallow_grafana_install_method`、`swallow_grafana_container_runtime`、
+    `swallow_grafana_version`、`swallow_grafana_port`（固定 `3000`）、
+    `swallow_grafana_prometheus_url`（空＝同機）、`swallow_grafana_prometheus_port`、`swallow_grafana_dashboards`
 
 ### 4.3 record / failure 契約
 
@@ -124,7 +155,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 
 - 於 [`api-server/automation/manifest.json`](../../api-server/automation/manifest.json) 註冊：
   `deploy-docker-ce` / `uninstall-docker-ce`、`deploy-podman` / `uninstall-podman`、
-  `deploy-nfs` / `uninstall-nfs`。
+  `deploy-nfs` / `uninstall-nfs`、`deploy-prometheus` / `uninstall-prometheus`、
+  `deploy-grafana` / `uninstall-grafana`。
 - playbook 名由 launcher **硬編碼**（比照 Slurm / uninstall-kubernetes），**不需**站台
   `playbookMappings`。
 - Python/collection 依賴 pin 於 `requirements.txt` / `requirements.yml`；只用 `ansible.builtin`
@@ -171,10 +203,24 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
   下次登入後生效。不另帶 trusted var；043 之前或本變更之前安裝的主機重跑 install 即補上。卸載不移除該帳號
   的 group membership。
 
-## 5. 與 Platform deployment 的連動（規範；第一刀只定契約）
+## 5. 與 Platform deployment 的連動（規範）
 
 - Platform launcher 需要某個 software component 時，**把該 software 的 Job 組入 platform 的
   parent Workflow**（cross-Job `DependsOn`），共用同一組 Ansible roles。
+- **首個實作**（[decision 063](../decisions/063-omnistat-slurm-observability.md)）：Slurm deploy 在
+  `install-platform` 之後依序組入：
+  1. container runtime Job（`configure-docker-ce` 或 `configure-podman`）：`containerRuntime` 功能的
+     compute＋login node，加上 Omnistat `container` method 的 primary controller（無功能時採該機已
+     assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過，不覆蓋 operator 的 spec；
+  2. Omnistat 開啟時 `configure-prometheus`、`configure-grafana`（目標＝primary controller，spec 帶
+     Omnistat 的 `installMethod` 與 runtime）。
+
+  每個 Job 是「該 kind 的 ansible Task（`install-<kind>`，帶 `softwareKind`／`serverIds`／
+  `softwareMode=install`）＋ `record-<kind>` internal record Task」，下一個 Job 依賴上一個的 record
+  Task。組入用的 trusted vars 與驗證由 `SoftwareService.PlanComposedInstall` 產生（同樣的
+  catalog／role／spec／互斥／k8s 規則，但不檢查 deployed 與 runtime 狀態，因為由 Job 順序保證）；
+  launcher 在 Workflow 建立後呼叫 `RecordComposedInstall` 寫入 pending assignment，失敗由既有 step
+  observer 標 `failed`。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
   per-Server lease、retry/cancel 歸屬混亂、出現兩個 operator-visible Workflow）。
 - **禁止**只用 ansible `include_role` 當唯一連動（會抹掉 Job 邊界與 dashboard 分組）。playbook 內部
@@ -185,8 +231,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 - **不拆 Slurm 內嵌的 NFS**：Slurm HA state（`slurm_state_server` / `slurm_controller_state`）與
   workload storage 仍留在 `slurm_*` roles。過渡期存在「兩套 NFS 故事」——**generic NFS ≠ Slurm
   managed state NFS**，直到 slice 2 收斂。
-- **不改 Slurm launcher**、不做 k8s + Docker runtime、不做 PostgreSQL / LDAP、不把 software 做成
-  Platform 形狀的聚合、不做持續 package 輪詢、不做 air-gap 套件庫。
+- 不做 k8s + Docker runtime、不做 PostgreSQL / LDAP、不把 software 做成 Platform 形狀的聚合、
+  不做持續 package 輪詢、不做 air-gap 套件庫。（Slurm launcher 的組入已由 decision 063 實作，見 §5。）
 
 ## 7. 程式與內容位置對照（導航用）
 

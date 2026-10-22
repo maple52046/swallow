@@ -5,7 +5,15 @@ import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import { evaluateMinimumResourceEligibility, formatGiB, formatMinimumResources } from '@/domain/platform/resourceEligibility'
 import { GPU_ALLOCATION_MODE_LABELS, hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
-import type { Platform, NodeRole, PlatformType, PlatformMachinePreparation, RoleAssignment } from '@/domain/platform/types'
+import type {
+  NodeRole,
+  OmnistatInstallMethod,
+  Platform,
+  PlatformMachinePreparation,
+  PlatformType,
+  RoleAssignment,
+  SlurmContainerRuntime,
+} from '@/domain/platform/types'
 import type { DeploymentNetworkMode, DeploymentTemplate, DeployTarget, NetworkInspectionResult } from '@/domain/provisioning/types'
 import type { Integration, OSImage } from '@/domain/site/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
@@ -61,6 +69,24 @@ type TopologyChoice = 'standalone' | 'multi-node' | 'high-availability'
 // asking the operator to pick it up front. Kept module-level so its reference is stable for the
 // candidate-loading effect.
 const CANDIDATE_PROVISIONING_STATES = ['ready', 'deployed'] as const
+
+/** Display name of a Slurm container runtime choice; the domain value is what the request sends. */
+function slurmContainerRuntimeLabel(runtime: SlurmContainerRuntime): string {
+  return runtime === 'podman' ? 'Podman' : 'Docker CE'
+}
+
+/** The Slurm container runtime choices; '' is the real "no runtime" choice, which is the default. */
+const SLURM_CONTAINER_RUNTIME_OPTIONS = [
+  { value: '', label: 'None' },
+  { value: 'docker-ce', label: slurmContainerRuntimeLabel('docker-ce') },
+  { value: 'podman', label: slurmContainerRuntimeLabel('podman') },
+]
+
+/** Omnistat's Prometheus and Grafana install methods, container (the API default) first. */
+const OMNISTAT_INSTALL_METHOD_OPTIONS: { value: OmnistatInstallMethod; label: string }[] = [
+  { value: 'container', label: 'Container' },
+  { value: 'native', label: 'Native (official release and package repository)' },
+]
 
 function validAddress(value: string): boolean {
   const parts = value.split('.')
@@ -188,6 +214,13 @@ export function DeployPlatformWizardPage() {
   const [slurmWorkloadMountPath, setSlurmWorkloadMountPath] = useState('/shared')
   const [slurmWorkloadNfsUrl, setSlurmWorkloadNfsUrl] = useState('')
   const [slurmWorkloadMountOptions, setSlurmWorkloadMountOptions] = useState('')
+  // Optional container runtime (decision 063): Docker CE or Podman on every compute and login node
+  // for containerized workloads; '' installs none. Off by default because Slurm needs none.
+  const [slurmContainerRuntime, setSlurmContainerRuntime] = useState<SlurmContainerRuntime | ''>('')
+  // Optional Omnistat (decision 063): exporter on every compute node, Prometheus and Grafana on the
+  // primary controller by the chosen install method. Off by default because it adds software there.
+  const [omnistatEnabled, setOmnistatEnabled] = useState(false)
+  const [omnistatInstallMethod, setOmnistatInstallMethod] = useState<OmnistatInstallMethod>('container')
   const [topology, setTopology] = useState<TopologyChoice>('high-availability')
   const [apiVip, setAPIVip] = useState('')
   // Empty means the backend takes the prefix of the control plane's subnet, which is the only
@@ -361,6 +394,10 @@ export function DeployPlatformWizardPage() {
         })
       : []
   const selectedAddresses = selectedServers.flatMap((server) => server.addresses)
+  // The backend makes the first controller in nodeAssignments (which follow slurmSelectedIds) the
+  // primary; with Omnistat it also hosts Prometheus and Grafana.
+  const slurmPrimaryController = selectedServers.find((server) => server.id === slurmControllerIds[0])
+  const slurmPrimaryControllerName = slurmPrimaryController ? serverDisplayName(slurmPrimaryController) : 'the primary controller'
   const initialController = selectedServers.find((server) => roles[server.id] === 'control-plane')
   const initialControllerAddress = initialController ? serverPrimaryAddress(initialController) : null
 
@@ -635,6 +672,8 @@ export function DeployPlatformWizardPage() {
               name: name.trim(),
               type: 'slurm',
               gpuStackOwner: 'provisioning',
+              ...(slurmContainerRuntime ? { containerRuntime: { kind: slurmContainerRuntime } } : {}),
+              ...(omnistatEnabled ? { omnistat: { enabled: true, installMethod: omnistatInstallMethod } } : {}),
               slurm: {
                 clusterName: clusterName.trim() || undefined,
                 apiVersion: slurmApiVersion.trim() || undefined,
@@ -1056,6 +1095,73 @@ export function DeployPlatformWizardPage() {
       ),
     })
 
+    if (isSlurm) {
+      // Slurm's optional features follow the machine choice, because the compute and login nodes
+      // just picked get the container runtime and the primary controller is where Omnistat's
+      // Prometheus and Grafana run. GPU GRES needs no choice: every compute node with AMD GPUs
+      // schedules them.
+      steps.push({
+        id: 'deploy-features',
+        name: 'Features',
+        canProceed: true,
+        content: (
+          <WizardSection title="Platform features">
+            <Field.Root>
+              <Field.Label id="slurm-container-runtime-label">Container runtime</Field.Label>
+              <Select
+                id="slurm-container-runtime"
+                aria-label="Container runtime"
+                value={slurmContainerRuntime}
+                onChange={(value) => setSlurmContainerRuntime(value as SlurmContainerRuntime | '')}
+                options={SLURM_CONTAINER_RUNTIME_OPTIONS}
+              />
+              <Field.HelperText>
+                Installs the runtime on every compute and login node for containerized workloads such
+                as AI jobs. Slurm itself does not need one. Each Server&apos;s runtime is then listed
+                under Software.
+              </Field.HelperText>
+            </Field.Root>
+            <Field.Root>
+              <Checkbox checked={omnistatEnabled} onCheckedChange={setOmnistatEnabled}>
+                Install Omnistat GPU monitoring
+              </Checkbox>
+              <Field.HelperText>
+                Adds AMD Omnistat to every compute node and runs Prometheus and a read-only Grafana with
+                Omnistat&apos;s job dashboards on {slurmPrimaryControllerName}. Each node then runs one
+                job at a time so metrics map to a single job. The Platform page links to the Grafana
+                when the deployment finishes.
+              </Field.HelperText>
+            </Field.Root>
+            {omnistatEnabled && (
+              <Field.Root>
+                <Field.Label id="omnistat-install-method-label">Prometheus and Grafana install method</Field.Label>
+                <Select
+                  id="omnistat-install-method"
+                  aria-label="Prometheus and Grafana install method"
+                  value={omnistatInstallMethod}
+                  onChange={(value) => setOmnistatInstallMethod(value as OmnistatInstallMethod)}
+                  options={OMNISTAT_INSTALL_METHOD_OPTIONS}
+                />
+                <Field.HelperText>
+                  {omnistatInstallMethod === 'container'
+                    ? `Runs both as containers on ${slurmPrimaryControllerName}, which gets ${
+                        slurmContainerRuntime
+                          ? slurmContainerRuntimeLabel(slurmContainerRuntime)
+                          : 'Docker CE unless a container runtime is already installed there'
+                      }.`
+                    : `Installs both on ${slurmPrimaryControllerName} from the official Prometheus release and Grafana package repository, with no container runtime.`}
+                </Field.HelperText>
+              </Field.Root>
+            )}
+            <Alert status="info" title="GPU scheduling is automatic">
+              Compute nodes with AMD GPUs schedule them as Slurm GRES. Jobs request GPUs explicitly, for
+              example <Text as="code" whiteSpace="nowrap">--gres=gpu:1</Text>, and see only the GPUs they were given.
+            </Alert>
+          </WizardSection>
+        ),
+      })
+    }
+
     if (!isSlurm) {
       // Optional platform features follow the machine choice, because which nodes can run a
       // feature (here: workload nodes with AMD GPUs) depends on the roles just assigned.
@@ -1364,6 +1470,12 @@ export function DeployPlatformWizardPage() {
                           ? [['Workload storage', `External ${slurmWorkloadNfsUrl.trim()} at ${slurmWorkloadMountPath.trim() || '/shared'}`]]
                           : []),
                       ...(slurmApiVersion.trim() ? [['slurmrestd API version', slurmApiVersion.trim()]] : []),
+                      ['Container runtime', slurmContainerRuntime
+                        ? `${slurmContainerRuntimeLabel(slurmContainerRuntime)} on compute and login nodes`
+                        : 'None'],
+                      ['Omnistat', omnistatEnabled
+                        ? `Install (Prometheus and Grafana on ${slurmPrimaryControllerName}, ${omnistatInstallMethod === 'native' ? 'native' : 'as containers'})`
+                        : 'Not installed'],
                     ]
                   : [
                       ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],

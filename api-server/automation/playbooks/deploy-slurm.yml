@@ -78,6 +78,12 @@
         slurm_log_dir: /var/log/slurm
         slurm_jwt_key_path: /etc/slurm/jwt_hs256.key
         slurmrestd_port: 6820
+        # Omnistat (decision 063): deploy-slurm owns the Slurm side of the overlay (Prolog/Epilog,
+        # PrologFlags=Alloc, exclusive partition) so a redeploy re-applies it; configure-omnistat
+        # installs the exporter the Prolog hands the job to.
+        slurm_omnistat_enabled: "{{ swallow_slurm_omnistat_enabled | default(false) | bool }}"
+        slurm_omnistat_prolog: swallow-omnistat-prolog
+        slurm_omnistat_epilog: swallow-omnistat-epilog
 
     - name: Fail on a host with no Slurm role
       ansible.builtin.fail:
@@ -163,6 +169,14 @@
     - name: Remember this node's detected NodeName line
       ansible.builtin.set_fact:
         slurm_node_line: "{{ slurm_node_detect.stdout_lines | select('match', '^NodeName=') | first }}"
+
+    - name: Load amdgpu and map the GPUs of a GPU compute node
+      # GPU GRES (decision 063): see the slurm_gpu role. A CPU compute node stops loading amdgpu
+      # and reports no GPUs, so a rerun converges both ways.
+      ansible.builtin.include_role:
+        name: slurm_gpu
+        apply:
+          become: true
 
 - name: Provision the shared controller-state NFS export
   # HA only: no host joins slurm_state_server for a single-controller deploy, so this no-ops.

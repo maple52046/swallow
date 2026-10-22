@@ -165,6 +165,42 @@ export interface MonitoringLink {
 }
 
 /**
+ * Where the latest Swallow change to a Slurm Platform's Omnistat stands (glossary Omnistat State,
+ * platforms.md "Omnistat"): projected from the Workflow Task installing it, never a live probe.
+ */
+export type OmnistatState = "installing" | "ready" | "failed" | "absent";
+
+/**
+ * How a Slurm deploy installs the Prometheus and Grafana Omnistat uses (platforms.md "Omnistat"):
+ * `container` (default) on the primary controller's container runtime, or `native` from the
+ * official release and package repository.
+ */
+export type OmnistatInstallMethod = "container" | "native";
+
+/**
+ * The container runtime a Slurm deploy installs on its compute and login nodes for containerized
+ * workloads (platforms.md "Container Runtime"). It is Managed Software on each Server, not a
+ * Platform component; the Platform records only the choice.
+ */
+export type SlurmContainerRuntime = "docker-ce" | "podman";
+
+/**
+ * The Swallow-managed Omnistat of a Slurm Platform: AMD's Slurm-aware GPU monitoring, with its
+ * exporter on every compute node and Prometheus and Grafana on `observabilityServerId` (the
+ * primary controller), installed by `installMethod`. The Grafana itself is reached through the
+ * `Omnistat Grafana` Monitoring Link Swallow registers on success; swallow never queries Omnistat.
+ */
+export interface PlatformOmnistat {
+  enabled: boolean;
+  version: string;
+  installMethod: OmnistatInstallMethod;
+  observabilityServerId: string;
+  state: OmnistatState;
+  lastWorkflowId: string | null;
+  updatedAt: string;
+}
+
+/**
  * Freshness of the last membership read. `matchedCount` below `memberCount` means the
  * platform contains machines swallow does not manage, which is worth showing rather than
  * hiding.
@@ -196,6 +232,10 @@ export interface Platform {
   exporterOwner: ExporterOwner;
   /** Operator-registered links to the runtime's own monitoring UI; always an array. */
   monitoringLinks: MonitoringLink[];
+  /** The Swallow-managed Omnistat of a Slurm Platform; null when Swallow never installed it. */
+  omnistat: PlatformOmnistat | null;
+  /** The container runtime a Slurm deploy installed on compute and login nodes; null when off. */
+  containerRuntime: SlurmContainerRuntime | null;
   sync: PlatformSyncState;
   createdAt: string;
   updatedAt: string;
@@ -284,7 +324,9 @@ export interface SlurmDeploymentSpec {
  * fall back to backend defaults. `apiVip` is required only when role assignments infer a highly
  * available control plane; one-control-plane deployments use that Server's observed address.
  * `gpuOperator` installs the AMD GPU Operator with a Kubernetes deploy; `gpuStackOwner` is then
- * derived by the backend and may be omitted.
+ * derived by the backend and may be omitted. `containerRuntime` installs Docker CE or Podman on
+ * every compute and login node, and `omnistat` installs Omnistat (with Prometheus and Grafana on
+ * the primary controller, by `installMethod`); both are Slurm-only and rejected for Kubernetes.
  */
 export interface DeployPlatformInput {
   siteId: string;
@@ -292,6 +334,8 @@ export interface DeployPlatformInput {
   type?: PlatformType;
   gpuStackOwner?: GPUStackOwner;
   gpuOperator?: GPUOperatorSettings;
+  containerRuntime?: { kind: SlurmContainerRuntime };
+  omnistat?: { enabled: boolean; installMethod?: OmnistatInstallMethod };
   k0sVersion?: string;
   podCidr?: string;
   serviceCidr?: string;

@@ -223,6 +223,11 @@ type deployPlatformRequest struct {
 	GPUStackOwner string `json:"gpuStackOwner"`
 	// GPUOperator optionally installs the AMD GPU Operator with a Kubernetes deploy.
 	GPUOperator *gpuOperatorRequest `json:"gpuOperator"`
+	// Omnistat optionally installs Omnistat (with Prometheus and Grafana) with a Slurm deploy.
+	Omnistat *omnistatRequest `json:"omnistat"`
+	// ContainerRuntime optionally installs a container runtime on a Slurm Platform's compute and
+	// login nodes.
+	ContainerRuntime *containerRuntimeRequest `json:"containerRuntime"`
 	// Type selects the platform to build: "kubernetes" (default when omitted) or "slurm".
 	// The Kubernetes fields below are read for kubernetes; Slurm is read for slurm.
 	Type               string                    `json:"type"`
@@ -234,6 +239,19 @@ type deployPlatformRequest struct {
 	RoleAssignments    []roleAssignmentRequest   `json:"roleAssignments"`
 	Slurm              *slurmDeployRequest       `json:"slurm"`
 	MachinePreparation machinePreparationRequest `json:"machinePreparation"`
+}
+
+// omnistatRequest is the deploy body's optional Omnistat intent (platforms.md, "Omnistat"). An
+// omitted object or enabled=false installs no Omnistat; an omitted installMethod is container.
+type omnistatRequest struct {
+	Enabled       bool   `json:"enabled"`
+	InstallMethod string `json:"installMethod"`
+}
+
+// containerRuntimeRequest is the deploy body's optional container runtime feature (platforms.md,
+// "Container Runtime"). An omitted object or an empty kind installs no runtime.
+type containerRuntimeRequest struct {
+	Kind string `json:"kind"`
 }
 
 // slurmDeployRequest is the Slurm-specific deploy body. Node roles are per-role flags because
@@ -304,12 +322,24 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		settings := req.GPUOperator.settings()
 		gpuOperator = &settings
 	}
+	var omnistat *platformdomain.OmnistatSettings
+	if req.Omnistat != nil {
+		omnistat = &platformdomain.OmnistatSettings{
+			Enabled: req.Omnistat.Enabled, InstallMethod: platformdomain.OmnistatInstallMethod(req.Omnistat.InstallMethod),
+		}
+	}
+	containerRuntime := ""
+	if req.ContainerRuntime != nil {
+		containerRuntime = req.ContainerRuntime.Kind
+	}
 	result, err := h.deploy.Deploy(c.Context(), application.DeployPlatformInput{
-		SiteID:        req.SiteID,
-		Name:          req.Name,
-		Type:          platformdomain.PlatformType(req.Type),
-		GPUStackOwner: req.GPUStackOwner,
-		GPUOperator:   gpuOperator,
+		SiteID:           req.SiteID,
+		Name:             req.Name,
+		Type:             platformdomain.PlatformType(req.Type),
+		GPUStackOwner:    req.GPUStackOwner,
+		GPUOperator:      gpuOperator,
+		ContainerRuntime: containerRuntime,
+		Omnistat:         omnistat,
 		Spec: platformdomain.DeploymentSpec{
 			K0sVersion:      req.K0sVersion,
 			PodCIDR:         req.PodCIDR,
@@ -608,6 +638,8 @@ func respondError(c *fiber.Ctx, err error) error {
 		// install step, reported with the command to run (decision 039).
 		errors.Is(err, platformdomain.ErrDeploymentKeyMissing),
 		errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing),
+		// A target cannot take the Managed Software the deployment composes (decision 063).
+		errors.Is(err, platformdomain.ErrComposedSoftwareConflict),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
@@ -622,6 +654,8 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, platformdomain.ErrInvalidDeploymentRequirement),
 		errors.Is(err, platformdomain.ErrInvalidDeployment),
 		errors.Is(err, platformdomain.ErrInvalidGPUOperator),
+		errors.Is(err, platformdomain.ErrInvalidOmnistat),
+		errors.Is(err, platformdomain.ErrInvalidContainerRuntime),
 		errors.Is(err, serverdomain.ErrServerNotFound),
 		errors.Is(err, platformdomain.ErrUnsupportedPlatformType):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))

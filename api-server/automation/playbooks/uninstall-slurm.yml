@@ -44,8 +44,40 @@
       loop:
         - /etc/slurm/slurm.conf
         - /etc/slurm/cgroup.conf
+        - /etc/slurm/gres.conf
+        - /etc/slurm/swallow-omnistat-prolog
+        - /etc/slurm/swallow-omnistat-epilog
         - /etc/slurm/jwt_hs256.key
+        - /etc/udev/rules.d/70-swallow-slurm-gpu.rules
         - /etc/default/slurmd
         - /var/spool/slurmctld
         - /var/spool/slurmd
         - /etc/munge/munge.key
+
+    - name: Stop and disable the Omnistat exporter
+      # Omnistat is part of the Slurm Platform (decision 063); a node that never ran it is fine.
+      ansible.builtin.systemd:
+        name: omnistat
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the Omnistat exporter, its configuration, and its job file
+      # Prometheus, Grafana, and Docker CE are Managed Software with their own assignments and are
+      # left for the software uninstall.
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/omnistat.service
+        - /etc/omnistat
+        - /opt/omnistat
+        - /tmp/omni_rmsjobinfo
+
+    - name: Stop loading amdgpu for Slurm and remove slurmd's ordering after it
+      ansible.builtin.include_role:
+        name: amdgpu_loader
+      vars:
+        amdgpu_loader_state: absent
+        amdgpu_loader_dependents:
+          - slurmd

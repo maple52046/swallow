@@ -116,6 +116,9 @@ validated in the lab (a five-node Slurm platform uninstalled cleanly, rc=0 on ev
 the platform reached `uninstalled`). Accounting, GRES scheduling, HA shared storage, and
 login-node roles are Planned.
 
+2026-10-21: AMD GPU GRES scheduling (and optional Omnistat) is Implemented by
+[decision 063](063-omnistat-slurm-observability.md); accounting remains Planned.
+
 ## Related
 
 - [ADR 017](017-workflow-job-task-runner-model.md) — the Workflow/Job/Task/Runner model and the

@@ -17,8 +17,9 @@ import (
 // Software deployment Jobs (ADR 017 / decision 038). A standalone software install composes three
 // convergent Jobs on one parent Workflow: prepare-hosts brings each already-deployed target to SSH
 // readiness, configure-<kind> runs the one idempotent software playbook, and record-software writes
-// the swallow-owned Software Assignment. This is the same Job-composition a future platform deploy
-// would reuse to pull in a software component; it must never be a nested child Workflow.
+// the swallow-owned Software Assignment. A platform deploy that pulls in a software component
+// reuses the same playbooks and record step as Jobs of its own Workflow (omnistat_adapter.go); it
+// must never be a nested child Workflow.
 const (
 	jobPrepareHosts   = "prepare-hosts"
 	jobRecordSoftware = "record-software"
@@ -50,15 +51,19 @@ type softwarePlaybook struct {
 }
 
 var softwareInstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
-	softwaredomain.KindDockerCE: {operationdomain.WorkflowKindConfigureDockerCE, "deploy-docker-ce"},
-	softwaredomain.KindPodman:   {operationdomain.WorkflowKindConfigurePodman, "deploy-podman"},
-	softwaredomain.KindNFS:      {operationdomain.WorkflowKindConfigureNFS, "deploy-nfs"},
+	softwaredomain.KindDockerCE:   {operationdomain.WorkflowKindConfigureDockerCE, "deploy-docker-ce"},
+	softwaredomain.KindPodman:     {operationdomain.WorkflowKindConfigurePodman, "deploy-podman"},
+	softwaredomain.KindNFS:        {operationdomain.WorkflowKindConfigureNFS, "deploy-nfs"},
+	softwaredomain.KindPrometheus: {operationdomain.WorkflowKindConfigurePrometheus, "deploy-prometheus"},
+	softwaredomain.KindGrafana:    {operationdomain.WorkflowKindConfigureGrafana, "deploy-grafana"},
 }
 
 var softwareUninstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
-	softwaredomain.KindDockerCE: {operationdomain.WorkflowKindUninstallDockerCE, "uninstall-docker-ce"},
-	softwaredomain.KindPodman:   {operationdomain.WorkflowKindUninstallPodman, "uninstall-podman"},
-	softwaredomain.KindNFS:      {operationdomain.WorkflowKindUninstallNFS, "uninstall-nfs"},
+	softwaredomain.KindDockerCE:   {operationdomain.WorkflowKindUninstallDockerCE, "uninstall-docker-ce"},
+	softwaredomain.KindPodman:     {operationdomain.WorkflowKindUninstallPodman, "uninstall-podman"},
+	softwaredomain.KindNFS:        {operationdomain.WorkflowKindUninstallNFS, "uninstall-nfs"},
+	softwaredomain.KindPrometheus: {operationdomain.WorkflowKindUninstallPrometheus, "uninstall-prometheus"},
+	softwaredomain.KindGrafana:    {operationdomain.WorkflowKindUninstallGrafana, "uninstall-grafana"},
 }
 
 // softwareDeploymentLauncher composes the durable software Workflow. It reuses the operation

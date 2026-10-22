@@ -11,7 +11,9 @@
   only on records written before that variant existed, which read as disabled), a `state`
   (`pending` | `installed` | `failed` | `uninstalling` | `absent`), the Workflow that last
   wrote it, and the last successful apply time. It is swallow-owned intent plus a last-applied
-  fact, updated by the install/uninstall Workflow's internal record step.
+  fact, updated by the install/uninstall Workflow's internal record step — including the record
+  step of a software Job composed into a platform deployment (Prometheus and Grafana of a Slurm
+  deploy with Omnistat).
 - Disallowed meaning: Not a fourth Server status axis — the three axes
   (`provisioning`/`membership`/`health`) are unchanged, and a Software Assignment is neither
   provisioning state nor membership nor health. Not a live probe of the host's packages: it is
@@ -30,3 +32,5 @@
   Platform membership and from the three Server status axes. 2026-10-02
   ([decision 043](../../../decisions/043-docker-host-management.md)): an installed `docker-ce`
   assignment with `enableApi` is the only eligibility source for the Docker Host Explorer.
+  2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md)): composed
+  software Jobs record assignments too.

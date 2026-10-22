@@ -1,0 +1,18 @@
+---
+# Install Grafana as Managed Software (docs/development/software-deployment.md, decision 063).
+# One pinned, read-only Grafana per Server (anonymous Viewer, no login, no admin) on the Server's
+# management address. Intent arrives only through trusted variables:
+#   swallow_grafana_install_method    container (default) or native (official apt/yum repository)
+#   swallow_grafana_container_runtime docker-ce or podman (container method; already installed)
+#   swallow_grafana_version           release version (image tag or package version)
+#   swallow_grafana_port              host port (owned by the api-server domain)
+#   swallow_grafana_prometheus_url    datasource URL; empty reads the Prometheus on this Server
+#   swallow_grafana_prometheus_port   that Prometheus's port, used for the empty-URL default
+#   swallow_grafana_dashboards        Swallow-shipped dashboard bundles to provision
+# Idempotent: a converged host reruns with no changes.
+
+- name: Install Grafana
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: grafana

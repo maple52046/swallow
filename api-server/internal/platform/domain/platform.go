@@ -120,6 +120,12 @@ type Platform struct {
 	// this Platform. It is written only through GPUOperatorRecorder, never by Update, so a policy
 	// PATCH holding an older copy cannot roll back a state the Workflow observer recorded.
 	GPUOperator *GPUOperator
+	// Omnistat is the Swallow-managed Omnistat of a Slurm Platform, nil when Swallow never installed
+	// it here. Like GPUOperator it is written only through its recorder, never by Update.
+	Omnistat *Omnistat
+	// ContainerRuntime is the container runtime feature a Slurm deploy chose, empty when off. Set
+	// at creation; each Server's runtime install state is its Software Assignment.
+	ContainerRuntime ContainerRuntime
 
 	// OwnedIntegrationID is set only for a credential integration created by Swallow.
 	// It is private persistence metadata and is never exposed by the platform API.

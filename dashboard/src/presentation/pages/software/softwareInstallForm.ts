@@ -1,8 +1,10 @@
-import type {
-  InstallSoftwareInput,
-  SoftwareAssignment,
-  SoftwareCatalogEntry,
-  SoftwareRole,
+import {
+  SOFTWARE_INTEGER_SPEC_FIELDS,
+  SOFTWARE_LIST_SPEC_FIELDS,
+  type InstallSoftwareInput,
+  type SoftwareAssignment,
+  type SoftwareCatalogEntry,
+  type SoftwareRole,
 } from '@/domain/software/types'
 
 /** Operator intent shown on the final Software installation button. */
@@ -18,6 +20,8 @@ export interface SoftwareInstallDefaults {
 /**
  * Converts persisted assignment configuration into editable form values.
  * Unknown keys stay out of the form because the catalog's `specFields` remains authoritative.
+ * List-valued fields (`SOFTWARE_LIST_SPEC_FIELDS`) are shown one entry per line so a reconfigure
+ * resends the recorded list unchanged.
  */
 export function softwareInstallDefaults(
   entry: SoftwareCatalogEntry,
@@ -27,6 +31,10 @@ export function softwareInstallDefaults(
   for (const field of entry.specFields) {
     const value = assignment?.spec?.[field]
     if (field !== 'enableApi' && typeof value === 'string') spec[field] = value
+    if (SOFTWARE_LIST_SPEC_FIELDS.has(field) && Array.isArray(value)) {
+      spec[field] = value.filter((item): item is string => typeof item === 'string').join('\n')
+    }
+    if (SOFTWARE_INTEGER_SPEC_FIELDS.has(field) && typeof value === 'number') spec[field] = String(value)
   }
   return {
     roles: assignment?.roles ?? [],
@@ -75,8 +83,16 @@ export function buildSoftwareInstallInput({
       normalizedSpec.enableApi = enableApi
       continue
     }
+    if (SOFTWARE_LIST_SPEC_FIELDS.has(field)) {
+      // The contract takes an array; commas, spaces, and line breaks all separate entries.
+      const items = (spec[field] ?? '').split(/[\s,]+/).map((item) => item.trim()).filter(Boolean)
+      if (items.length > 0) normalizedSpec[field] = items
+      continue
+    }
     const value = spec[field]?.trim()
-    if (value) normalizedSpec[field] = value
+    if (!value) continue
+    // A non-numeric entry is sent as typed so the API's validation error explains it.
+    normalizedSpec[field] = SOFTWARE_INTEGER_SPEC_FIELDS.has(field) && /^\d+$/.test(value) ? Number(value) : value
   }
   return {
     kind: entry.kind,

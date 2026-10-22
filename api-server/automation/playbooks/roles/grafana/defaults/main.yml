@@ -1,0 +1,60 @@
+---
+# Grafana Managed Software (decision 063). Intent arrives as trusted swallow_grafana_* vars; the
+# defaults only keep a hand-run play working. Grafana listens on the Server's management address
+# and runs by one of two install methods:
+#   container  the pinned official image, under a Docker Compose project (docker-ce) or a Podman
+#              Quadlet unit (podman); the runtime must already be installed
+#   native     the pinned package from Grafana's official apt or yum repository, configured by a
+#              systemd drop-in
+# Either way it is read-only by design: anonymous Viewer access, no login form, no basic auth, and
+# no initial admin, so it holds no secret; the datasource and dashboards come only from
+# provisioning.
+grafana_state: present
+grafana_install_method: "{{ swallow_grafana_install_method | default('container', true) }}"
+grafana_container_runtime: "{{ swallow_grafana_container_runtime | default('docker-ce', true) }}"
+grafana_version: "{{ swallow_grafana_version | default('12.4.12', true) | regex_replace('^v', '') }}"
+grafana_port: "{{ swallow_grafana_port | default(3000) | int }}"
+# Empty reads the Prometheus on the same Server (Prometheus Managed Software's port).
+grafana_prometheus_url: >-
+  {{ swallow_grafana_prometheus_url
+     | default('http://' ~ ansible_host ~ ':' ~ (swallow_grafana_prometheus_port | default(9090) | string), true) }}
+grafana_dashboards: "{{ swallow_grafana_dashboards | default([]) }}"
+grafana_listen_address: "{{ ansible_host }}"
+grafana_config_dir: /etc/swallow/grafana
+grafana_data_dir: /var/lib/swallow/grafana
+# The datasource UID Omnistat's dashboards reference through their ${source} variable.
+grafana_datasource_uid: prometheus
+# Folder each shipped dashboard bundle (files/dashboards/<bundle>) is provisioned into.
+grafana_dashboard_folders:
+  omnistat: Omnistat RMS
+# Settings every install method applies; the address, port, and paths are added per method.
+grafana_environment:
+  GF_AUTH_ANONYMOUS_ENABLED: "true"
+  GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+  GF_AUTH_DISABLE_LOGIN_FORM: "true"
+  GF_AUTH_BASIC_ENABLED: "false"
+  GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+  GF_USERS_ALLOW_SIGN_UP: "false"
+  GF_ANALYTICS_REPORTING_ENABLED: "false"
+  GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+  GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+  GF_NEWS_NEWS_FEED_ENABLED: "false"
+
+# container method
+grafana_image: "docker.io/grafana/grafana:{{ grafana_version }}"
+grafana_container_name: swallow-grafana
+grafana_project: swallow-grafana
+# The Quadlet unit gets its own name so it can never shadow the package's unit.
+grafana_quadlet_unit: swallow-grafana-container
+# The official image runs as grafana (472).
+grafana_container_uid: 472
+# Where the container sees the dashboard bundles.
+grafana_container_dashboards_dir: /var/lib/swallow-dashboards
+
+# native method
+grafana_native_unit: grafana-server.service
+grafana_native_user: grafana
+grafana_native_dropin: /etc/systemd/system/grafana-server.service.d/10-swallow.conf
+grafana_apt_key_url: https://apt.grafana.com/gpg.key
+grafana_apt_repo_url: https://apt.grafana.com
+grafana_rpm_repo_url: https://rpm.grafana.com

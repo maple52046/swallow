@@ -146,7 +146,7 @@ func TestDockerCEPlaybooksConvergeEngineAPIListener(t *testing.T) {
 
 // The container-runtime roles must carry symmetric present/absent branches so uninstall is a real
 // removal path, not a no-op. Docker CE and Podman are mutually exclusive software kinds; each
-// owns one install implementation shared by any future platform composition.
+// owns one install implementation shared by every platform composition (decision 063).
 func TestContainerRuntimeRolesHaveInstallAndRemoveBranches(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "automation", "playbooks", "roles")
 	cases := []struct {

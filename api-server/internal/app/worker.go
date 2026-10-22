@@ -161,6 +161,7 @@ func RunWorker(cfg config.APIConfig) error {
 		managedPlatformIntegrationCleaner{integrations: integrations},
 	)
 	platformFinalizer.AttachGPUOperatorRecorder(platforms)
+	platformFinalizer.AttachOmnistatRecorder(platforms)
 	// Boot Media's ensure-boot-media Task (decisions 047 and 049) drives the BMC over Redfish with
 	// the connection read live from the provisioner. An OS deployment's Task carries the Boot ISO
 	// URL frozen at acceptance; an inspect-hardware Task resolves the Server's Boot ISO when it
@@ -189,7 +190,7 @@ func RunWorker(cfg config.APIConfig) error {
 		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		operationdomain.RunnerKindProvisioner: providerExecutor,
 	}, serverDeploymentStepObserver{servers: servers}, softwareAssignmentObserver{assignments: softwareAssignments},
-		gpuOperatorStepObserver{recorder: platforms})
+		gpuOperatorStepObserver{recorder: platforms}, omnistatStepObserver{recorder: platforms})
 	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{WorkerStopTimeout: 10 * time.Second})
 	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.OperationWorkflowV1,
 		workflowregister.RegisterOptions{Name: temporalworkflow.WorkflowNameV1})

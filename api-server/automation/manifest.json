@@ -64,6 +64,26 @@
     {
       "name": "uninstall-nfs",
       "path": "uninstall-nfs.yml"
+    },
+    {
+      "name": "deploy-prometheus",
+      "path": "deploy-prometheus.yml"
+    },
+    {
+      "name": "uninstall-prometheus",
+      "path": "uninstall-prometheus.yml"
+    },
+    {
+      "name": "deploy-grafana",
+      "path": "deploy-grafana.yml"
+    },
+    {
+      "name": "uninstall-grafana",
+      "path": "uninstall-grafana.yml"
+    },
+    {
+      "name": "configure-omnistat",
+      "path": "configure-omnistat.yml"
     }
   ]
 }

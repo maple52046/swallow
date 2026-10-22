@@ -41,3 +41,51 @@
       Slurm smoke-test srun did not complete cleanly (rc={{ slurm_verify_srun.rc }}). The
       cluster is deployed and nodes are registered; check scheduling with sinfo/squeue.
   when: slurm_verify_srun.rc != 0
+
+# GPU GRES must be usable, not merely configured (decision 063): every GPU node reports the GRES
+# Swallow mapped, and a job that requests one GPU on it sees exactly that GPU as device 0. Unlike
+# the smoke test this is fatal, because a GPU cluster that cannot hand out GPUs is not deployed.
+- name: Verify the GPU GRES
+  when: swallow_slurm_gpu_compute_ids | default([]) | length > 0
+  block:
+    - name: Wait for every GPU node to report its GRES
+      ansible.builtin.command:
+        cmd: sinfo --noheader --Node --format=%N|%G
+      become: true
+      register: slurm_verify_gres
+      until: >-
+        swallow_slurm_gpu_compute_ids
+        | map('extract', hostvars)
+        | rejectattr('slurm_node_gres', 'in', slurm_verify_gres.stdout)
+        | list | length == 0
+      retries: 12
+      delay: 5
+      changed_when: false
+
+    - name: Run a one-GPU job on every GPU node
+      ansible.builtin.command:
+        argv:
+          - srun
+          - --nodes=1
+          - --ntasks=1
+          - "--nodelist={{ hostvars[item].slurm_node_name }}"
+          - --gres=gpu:1
+          - printenv
+          - ROCR_VISIBLE_DEVICES
+      become: true
+      loop: "{{ swallow_slurm_gpu_compute_ids }}"
+      register: slurm_verify_gpu_job
+      until: slurm_verify_gpu_job.rc == 0 and slurm_verify_gpu_job.stdout | trim == '0'
+      retries: 6
+      delay: 5
+      changed_when: false
+  rescue:
+    - name: Report unusable GPU GRES
+      ansible.builtin.fail:
+        msg: >-
+          [slurm_gres_unusable] Slurm did not hand out the mapped GPUs. sinfo reported
+          "{{ slurm_verify_gres.stdout | default('') }}" and the one-GPU jobs returned
+          {{ slurm_verify_gpu_job.results | default([]) | map(attribute='stdout') | list
+             if slurm_verify_gpu_job.results is defined else '(not run)' }}; expected each node's
+          GRES {{ swallow_slurm_gpu_compute_ids | map('extract', hostvars, 'slurm_node_gres') | list }}
+          and ROCR_VISIBLE_DEVICES=0.

@@ -1,0 +1,33 @@
+---
+# Omnistat system-mode exporter on a Slurm compute node (decision 063). Intent arrives as trusted
+# swallow_omnistat_* vars from the Slurm deployment; nothing here is an operator choice.
+omnistat_version: "{{ swallow_omnistat_version | default('1.15.0', true) }}"
+# Pinned upstream source per version: the GitHub tag archive and its SHA-256.
+omnistat_sources:
+  "1.15.0":
+    url: https://github.com/ROCm/omnistat/archive/refs/tags/v1.15.0.tar.gz
+    checksum: sha256:899c681179b8dfe5b3ccebde360c7a39ef2fe13cd0fdebb34d088963ad32f96f
+    patch: omnistat-1.15.0-sriov-vf.patch
+    constraints: omnistat-1.15.0-constraints.txt
+omnistat_home: /opt/omnistat
+omnistat_prefix: "{{ omnistat_home }}/{{ omnistat_version }}"
+omnistat_src: "{{ omnistat_prefix }}/src"
+omnistat_venv: "{{ omnistat_prefix }}/venv"
+# The Slurm Prolog calls omnistat-rms-env through this version-independent link.
+omnistat_current_link: "{{ omnistat_home }}/current"
+omnistat_config_dir: /etc/omnistat
+omnistat_config: "{{ omnistat_config_dir }}/omnistat.conf"
+omnistat_user: omnistat
+omnistat_port: "{{ swallow_omnistat_port | default(8001) | int }}"
+omnistat_rocm_path: /opt/rocm
+# The node-wide job file the Slurm Prolog writes and the Epilog removes.
+omnistat_job_file: /tmp/omni_rmsjobinfo
+omnistat_system_name: "{{ swallow_omnistat_system_name | default('slurm', true) }}"
+# The observability Server runs Prometheus; it is the only remote address the exporter answers.
+omnistat_observability_id: "{{ swallow_omnistat_observability_id }}"
+omnistat_observability_address: "{{ hostvars[omnistat_observability_id].ansible_host }}"
+omnistat_prometheus_port: "{{ swallow_omnistat_prometheus_port | default(9090) | int }}"
+omnistat_grafana_port: "{{ swallow_omnistat_grafana_port | default(3000) | int }}"
+# A GPU compute node collects through AMD SMI and starts after the shared amdgpu loader.
+omnistat_gpu: "{{ inventory_hostname in (swallow_slurm_gpu_compute_ids | default([])) }}"
+omnistat_amdgpu_unit: swallow-amdgpu-load.service

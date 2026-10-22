@@ -1,0 +1,31 @@
+---
+# Remove the Podman Quadlet unit and its container. Tolerates a host whose Podman is already gone.
+
+- name: Read the Grafana Quadlet unit
+  ansible.builtin.stat:
+    path: "/etc/containers/systemd/{{ grafana_quadlet_unit }}.container"
+  register: grafana_quadlet_file
+
+- name: Stop and remove the Grafana Quadlet container
+  when: grafana_quadlet_file.stat.exists
+  block:
+    - name: Stop the Grafana Quadlet unit
+      ansible.builtin.systemd_service:
+        name: "{{ grafana_quadlet_unit }}.service"
+        state: stopped
+      failed_when: false
+
+    - name: Remove the Grafana Quadlet unit
+      ansible.builtin.file:
+        path: "/etc/containers/systemd/{{ grafana_quadlet_unit }}.container"
+        state: absent
+
+    - name: Reload systemd without the Grafana Quadlet unit
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    - name: Remove any leftover Grafana container
+      ansible.builtin.command:
+        argv: [podman, rm, --force, --ignore, "{{ grafana_container_name }}"]
+      changed_when: false
+      failed_when: false

@@ -1,0 +1,17 @@
+# Managed by Swallow (Prometheus Managed Software). Do not edit by hand; changes are overwritten.
+name: {{ prometheus_project }}
+services:
+  prometheus:
+    image: {{ prometheus_image }}
+    container_name: {{ prometheus_container_name }}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time={{ prometheus_retention }}
+      - --web.enable-lifecycle
+    ports:
+      - "{{ prometheus_listen_address }}:{{ prometheus_port }}:9090"
+    volumes:
+      - {{ prometheus_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - {{ prometheus_data_dir }}:/prometheus

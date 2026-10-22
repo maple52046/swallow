@@ -1,4 +1,4 @@
-import { Box, Container, FolderSync, type LucideIcon } from 'lucide-react'
+import { Activity, Box, Container, FolderSync, LayoutDashboard, type LucideIcon } from 'lucide-react'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
 import { softwareInstallBlocker } from '@/domain/software/targets'
@@ -10,7 +10,7 @@ import type {
 } from '@/domain/software/types'
 
 /** Stable catalog section owned by Dashboard presentation, not by the software API. */
-export type SoftwareCategory = 'container-runtimes' | 'storage-file-sharing'
+export type SoftwareCategory = 'container-runtimes' | 'storage-file-sharing' | 'observability'
 
 /** Curated copy and visual identity for one fixed Managed Software kind. */
 export interface SoftwareCatalogPresentation {
@@ -46,7 +46,12 @@ export interface SoftwareDeploymentRow {
   server: Server
 }
 
-/** Why a Server cannot be offered for a new installation of one software kind. */
+/**
+ * Why a Server cannot be offered for a new installation of one software kind. The container
+ * runtime a `container`-method install needs is not a target blocker: the method is chosen after
+ * the targets, so the configuration step checks it (`resolveContainerRuntime`). The API re-checks
+ * every rule and answers 409 regardless.
+ */
 export type SoftwareTargetBlocker =
   | 'existing_assignment'
   | 'locked'
@@ -79,6 +84,22 @@ const PRESENTATION: Record<SoftwareKind, SoftwareCatalogPresentation> = {
     capabilities: ['Server and client roles', 'Shared export settings', 'Mount configuration'],
     hasSettings: false,
   },
+  prometheus: {
+    category: 'observability',
+    description: 'Run a pinned Prometheus that scrapes the endpoints you list, as a container on Docker CE or Podman, or natively from the official release.',
+    icon: Activity,
+    order: 10,
+    capabilities: ['Static scrape targets', 'Version pinning', 'Container or native install'],
+    hasSettings: false,
+  },
+  grafana: {
+    category: 'observability',
+    description: 'Run a read-only Grafana with a provisioned Prometheus datasource and optional dashboard bundles, as a container or from the official package repository.',
+    icon: LayoutDashboard,
+    order: 20,
+    capabilities: ['Anonymous read-only access', 'Omnistat dashboards', 'Container or native install'],
+    hasSettings: false,
+  },
 }
 
 const CATEGORIES: ReadonlyArray<Omit<SoftwareCatalogGroup, 'entries'>> = [
@@ -91,6 +112,11 @@ const CATEGORIES: ReadonlyArray<Omit<SoftwareCatalogGroup, 'entries'>> = [
     key: 'storage-file-sharing',
     label: 'Storage & file sharing',
     description: 'Software that provides or consumes shared storage across Servers.',
+  },
+  {
+    key: 'observability',
+    label: 'Observability',
+    description: 'Metrics collection and dashboards installed on a Server.',
   },
 ]
 
@@ -216,6 +242,16 @@ export function softwareTargetBlockerLabel(blocker: SoftwareTargetBlocker): stri
   }
 }
 
+/**
+ * Display name of a container runtime kind recorded in a spec or offered as a choice. An
+ * unrecognized value is shown verbatim so a newer runtime still reads truthfully.
+ */
+export function containerRuntimeLabel(kind: string): string {
+  if (kind === 'docker-ce') return 'Docker CE'
+  if (kind === 'podman') return 'Podman'
+  return kind
+}
+
 /** Searches candidate Servers by the identity and Tag fields exposed in the target picker. */
 export function softwareTargetMatches(server: Server, query: string): boolean {
   const needle = query.trim().toLowerCase()
@@ -229,6 +265,12 @@ export function softwareAssignmentSummary(assignment: SoftwareAssignment): strin
   const parts: string[] = []
   if (assignment.roles.length > 0) parts.push(assignment.roles.join(' + '))
   const spec = assignment.spec ?? {}
+  if (spec.installMethod === 'native') parts.push('Native')
+  if (spec.installMethod === 'container') {
+    parts.push(typeof spec.containerRuntime === 'string' && spec.containerRuntime
+      ? `Container on ${containerRuntimeLabel(spec.containerRuntime)}`
+      : 'Container')
+  }
   if (typeof spec.version === 'string' && spec.version.trim()) parts.push(`Version ${spec.version}`)
   if (assignment.kind === 'docker-ce' && typeof spec.enableApi === 'boolean') {
     parts.push(spec.enableApi ? 'Docker API enabled' : 'Docker API disabled')
@@ -236,6 +278,13 @@ export function softwareAssignmentSummary(assignment: SoftwareAssignment): strin
   if (assignment.kind === 'nfs') {
     if (typeof spec.source === 'string' && spec.source.trim()) parts.push(spec.source)
     if (typeof spec.exportPath === 'string' && spec.exportPath.trim()) parts.push(spec.exportPath)
+  }
+  if (assignment.kind === 'prometheus' && Array.isArray(spec.scrapeTargets)) {
+    const count = spec.scrapeTargets.length
+    parts.push(`${count} scrape target${count === 1 ? '' : 's'}`)
+  }
+  if (assignment.kind === 'grafana' && Array.isArray(spec.dashboards) && spec.dashboards.length > 0) {
+    parts.push(`Dashboards: ${spec.dashboards.join(', ')}`)
   }
   return parts.join(' · ') || 'Default configuration'
 }

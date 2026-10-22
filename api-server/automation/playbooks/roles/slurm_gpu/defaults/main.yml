@@ -1,0 +1,9 @@
+---
+# Slurm GPU GRES on a compute node (decision 063). swallow selects the GPU compute nodes from its
+# GPU Inventory and passes them as swallow_slurm_gpu_compute_ids; nothing here is an operator choice.
+
+# Slurm's device cgroup (cgroup.conf ConstrainDevices=yes) is the GPU access boundary of a job: it
+# admits only the render nodes of the GPUs allocated to that job. The device nodes themselves are
+# therefore opened to every job user, so a job does not also depend on its user being in the
+# render group of the node's own group database.
+slurm_gpu_udev_rule: /etc/udev/rules.d/70-swallow-slurm-gpu.rules

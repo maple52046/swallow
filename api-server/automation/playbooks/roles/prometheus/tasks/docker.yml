@@ -1,0 +1,58 @@
+---
+# container method on Docker CE: one pinned container under a Swallow-owned Compose project.
+
+- name: Refuse a host without Docker Compose
+  ansible.builtin.command:
+    argv: [docker, compose, version]
+  register: prometheus_compose_check
+  changed_when: false
+  failed_when: false
+
+- name: Report the missing Docker CE
+  ansible.builtin.fail:
+    msg: >-
+      [docker_missing] The Prometheus container method on docker-ce needs "docker compose", which
+      is not available on {{ inventory_hostname }}: {{ prometheus_compose_check.stderr | default('') }}.
+      Install Docker CE on the Server first.
+  when: prometheus_compose_check.rc != 0
+
+- name: Create the Prometheus data directory
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "{{ prometheus_container_uid }}"
+    group: "{{ prometheus_container_uid }}"
+    mode: "0755"
+
+- name: Give the Prometheus data to its user
+  # Another install method may have left the data owned by a different user. Only ownership
+  # is recursive, so files keep the modes Prometheus gave them and a converged host reports no change.
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "{{ prometheus_container_uid }}"
+    group: "{{ prometheus_container_uid }}"
+    recurse: true
+
+- name: Render the Compose project
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ prometheus_config_dir }}/compose.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Start Prometheus
+  # up -d only recreates the container when the Compose definition (image, ports, volumes)
+  # changed, so a converged host keeps its running container.
+  ansible.builtin.command:
+    argv: [docker, compose, -f, "{{ prometheus_config_dir }}/compose.yaml", up, -d, --remove-orphans]
+  register: prometheus_up
+  changed_when: "'Started' in prometheus_up.stderr or 'Recreated' in prometheus_up.stderr or 'Created' in prometheus_up.stderr"
+  retries: 5
+  delay: 10
+  until: prometheus_up.rc == 0
+
+- name: Record whether Prometheus restarted
+  ansible.builtin.set_fact:
+    prometheus_restarted: "{{ prometheus_up is changed }}"

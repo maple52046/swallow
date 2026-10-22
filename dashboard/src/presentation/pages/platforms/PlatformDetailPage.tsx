@@ -4,7 +4,7 @@ import { ChartLine, ExternalLink, RefreshCw } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
-import type { Platform } from '@/domain/platform/types'
+import type { OmnistatState, Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
@@ -237,6 +237,14 @@ export function PlatformDetailPage() {
   )
 }
 
+/** Operator-facing text and badge palette for the Omnistat State; the text carries the meaning. */
+const OMNISTAT_STATE_PRESENTATION: Record<OmnistatState, { label: string; palette: string }> = {
+  installing: { label: 'Installing', palette: 'blue' },
+  ready: { label: 'Ready', palette: 'green' },
+  failed: { label: 'Failed', palette: 'red' },
+  absent: { label: 'Removed', palette: 'gray' },
+}
+
 /**
  * Where to watch this Platform: swallow's own usage charts for its members, and the runtime's own
  * monitoring UIs registered as Monitoring Links (for example Omnistat's Grafana on Slurm).
@@ -245,12 +253,16 @@ export function PlatformDetailPage() {
  * only while the experimental `monitoring` console is enabled. Monitoring Links are Platform
  * data, so they show regardless; they open in a new tab and swallow never fetches them. With no
  * links the section explains how to add one through the API or CLI, since the console has no
- * editor for them.
+ * editor for them. A Slurm Platform deployed with Omnistat also shows the Omnistat State (from
+ * the installing Workflow, not a live probe), how its Prometheus and Grafana were installed, and
+ * the Server that runs them.
  */
 function PlatformMonitoring({ platform }: { platform: Platform }) {
   const monitoringConsole = useExperimentalFeature('monitoring')
   const { scopedHref } = useSiteScope()
   const links = platform.monitoringLinks
+  const omnistat = platform.omnistat ?? null
+  const omnistatState = omnistat ? OMNISTAT_STATE_PRESENTATION[omnistat.state] : null
   const chartsHref = scopedHref(`/monitoring?${new URLSearchParams({ chartScope: 'platform', chartScopeId: platform.id }).toString()}`)
 
   return (
@@ -268,6 +280,19 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
         ) : undefined}
       />
       <div className="sw-section-content">
+        {omnistat && omnistatState && (
+          <HStack gap="2" wrap="wrap" mb="3" aria-label="Omnistat">
+            <Text fontSize="sm" fontWeight="medium">Omnistat {omnistat.version}</Text>
+            <Badge colorPalette={omnistatState.palette} variant="subtle">{omnistatState.label}</Badge>
+            <Text fontSize="sm" color="fg.muted">
+              Prometheus and Grafana {omnistat.installMethod === 'native' ? 'installed natively' : 'as containers'} on{' '}
+              <Link to={scopedHref(`/servers/${omnistat.observabilityServerId}`)}>the primary controller</Link>
+            </Text>
+            {omnistat.lastWorkflowId && omnistat.state !== 'ready' && (
+              <Link to={scopedHref(`/workflows/${omnistat.lastWorkflowId}`)}>Open workflow</Link>
+            )}
+          </HStack>
+        )}
         {links.length === 0 ? (
           <Text color="fg.muted" fontSize="sm">
             No monitoring links. Add the runtime's own dashboards (for example Omnistat's Grafana) with{' '}
@@ -296,11 +321,21 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
  * Secondary platform settings shown after operational state and membership.
  * Type already appears beside the page title, so this group keeps only the
  * configuration facts an operator may need while investigating the platform.
+ * A Slurm Platform also states its container runtime feature (or that it has none); each
+ * Server's runtime install state lives in its Software Assignment, not here.
  */
 function PlatformConfiguration({ platform }: { platform: Platform }) {
   const items = [
     { label: 'GPU stack', value: platform.gpuStackOwner },
     { label: 'Exporters', value: platform.exporterOwner },
+    ...(platform.type === 'slurm'
+      ? [{
+          label: 'Container runtime',
+          value: platform.containerRuntime
+            ? `${platform.containerRuntime === 'podman' ? 'Podman' : 'Docker CE'} on compute and login nodes`
+            : 'None',
+        }]
+      : []),
     { label: 'Integration', value: platform.integrationId || 'Not connected' },
   ]
 

@@ -23,8 +23,27 @@ SelectType=select/cons_tres
 SelectTypeParameters=CR_Core_Memory
 ProctrackType=proctrack/cgroup
 TaskPlugin=task/cgroup,task/affinity
+{% if slurm_omnistat_enabled | bool %}
+# Omnistat job attribution (decision 063): at allocation time the Prolog writes the node-wide job
+# file the Omnistat exporter reads, and the Epilog removes it.
+Prolog={{ slurm_conf_dir }}/{{ slurm_omnistat_prolog }}
+Epilog={{ slurm_conf_dir }}/{{ slurm_omnistat_epilog }}
+PrologFlags=Alloc,Contain
+{% else %}
 PrologFlags=Contain
+{% endif %}
 MpiDefault=none
+{% set gres_state = namespace(any=false) %}
+{% for nid in swallow_slurm_compute_ids %}
+{% if hostvars[nid].slurm_node_gres | default('') %}
+{% set gres_state.any = true %}
+{% endif %}
+{% endfor %}
+{% if gres_state.any %}
+
+# Generic resources: AMD GPUs mapped from each node's KFD topology (see gres.conf).
+GresTypes=gpu
+{% endif %}
 
 SlurmctldTimeout=120
 SlurmdTimeout=300
@@ -33,10 +52,17 @@ SlurmdTimeout=300
 SlurmctldLogFile={{ slurm_log_dir }}/slurmctld.log
 SlurmdLogFile={{ slurm_log_dir }}/slurmd.log
 
-# Compute nodes. The NodeName line is exactly what slurmd -C detected on each host, with the
-# connection address pinned via NodeAddr so the controller reaches nodes without DNS.
+# Compute nodes. The NodeName line is exactly what slurmd -C detected on each host (minus any
+# GRES it reported), with the connection address pinned via NodeAddr so the controller reaches
+# nodes without DNS, and the GPU GRES Swallow mapped from the node's KFD topology.
 {% for nid in swallow_slurm_compute_ids %}
-{{ hostvars[nid].slurm_node_line }} NodeAddr={{ hostvars[nid].ansible_host }} State=UNKNOWN
+{% set gres = hostvars[nid].slurm_node_gres | default('') %}
+{{ hostvars[nid].slurm_node_line | regex_replace(' Gres=\\S+', '') }}{{ (' Gres=' ~ gres) if gres else '' }} NodeAddr={{ hostvars[nid].ansible_host }} State=UNKNOWN
 {% endfor %}
 
+{% if slurm_omnistat_enabled | bool %}
+# Omnistat's job file describes the whole node, so a node runs one job at a time.
+PartitionName=main Nodes=ALL Default=YES MaxTime=INFINITE State=UP OverSubscribe=EXCLUSIVE
+{% else %}
 PartitionName=main Nodes=ALL Default=YES MaxTime=INFINITE State=UP
+{% endif %}

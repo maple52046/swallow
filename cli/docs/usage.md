@@ -628,6 +628,58 @@ draDriverVersion: v1.0.1
 `slurm-req.yaml`: `{ minimumResources: { cpuCores: 4, memoryMiB: 24576, storageGB: 80 } }`
 (send `{ minimumResources: null }` to disable).
 
+A Slurm deploy schedules the AMD GPUs of its compute nodes as GRES on its own
+(`--gres=gpu:N`). Add `containerRuntime` to install Docker CE or Podman on every compute and login
+node for containerized workloads. To also install Omnistat, add `omnistat`: the primary controller
+(the first controller) gets Prometheus and a read-only Grafana with Omnistat's dashboards, every
+compute node gets the exporter, and the platform gets the Monitoring Link `Omnistat Grafana`.
+`installMethod: container` (the default) runs Prometheus and Grafana as containers on the primary
+controller's runtime (the `containerRuntime` above, else Docker CE); `native` installs them from
+their official release and apt/yum repository instead. This `platform-slurm-omnistat.yaml` is the
+file of a lab run on MI308X SR-IOV guests, whose image needs the deployment-specific `pcie_p2p=0`
+driver option from cloud-init:
+
+```yaml
+siteId: site1
+name: omnistat-slurm-run1
+type: slurm
+containerRuntime:
+  kind: podman            # or docker-ce; omit for no runtime
+omnistat:
+  enabled: true
+  installMethod: container   # or native
+slurm:
+  clusterName: omnistat-run1
+  nodeAssignments:
+    - { serverId: srva, controller: true, compute: false, login: false }
+    - { serverId: srvb, controller: false, compute: true, login: false }
+    - { serverId: srvc, controller: false, compute: true, login: false }
+machinePreparation:
+  mode: provision_os
+  settings:
+    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
+    ephemeral: false
+  userData:
+    mode: replace
+    value: |
+      #cloud-config
+      write_files:
+        - path: /etc/modprobe.d/amdgpu-pcie-p2p.conf
+          permissions: "0644"
+          content: |
+            options amdgpu pcie_p2p=0
+  network:
+    mode: automatic
+    defaultGateway: false
+    assignments: []
+```
+
+```bash
+swallow platforms deploy -f platform-slurm-omnistat.yaml
+swallow workflows get <operationId>   # ensure-os, configure-slurm, configure-podman, configure-prometheus/-grafana, configure-omnistat
+swallow platforms get <platformId>    # containerRuntime, omnistat.state, then the Omnistat Grafana link in monitoringLinks
+```
+
 #### Kubernetes cluster explorer
 
 ```bash

@@ -1,0 +1,12 @@
+# Managed by Swallow (Grafana Managed Software). Do not edit by hand; changes are overwritten.
+[Service]
+Environment=GF_SERVER_HTTP_ADDR={{ grafana_listen_address }}
+Environment=GF_SERVER_HTTP_PORT={{ grafana_port }}
+Environment=GF_PATHS_DATA={{ grafana_data_dir }}
+Environment=GF_PATHS_PROVISIONING={{ grafana_config_dir }}/provisioning
+{% for key, value in grafana_environment | dictsort %}
+Environment={{ key }}={{ value }}
+{% endfor %}
+# The management address may come up after this unit at boot; retry until it can bind.
+Restart=always
+RestartSec=5

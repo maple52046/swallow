@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -101,75 +102,41 @@ type UninstallInput struct {
 	RequestedBy string
 }
 
+// ComposedInstall is a validated software install that another Workflow carries as its own
+// configure-<kind> Job (decision 038 §5, decision 063): the composing launcher runs the software
+// playbook with TrustedVars and then the record step, and calls RecordComposedInstall once its
+// Workflow exists. Spec is the normalized spec the assignments record.
+type ComposedInstall struct {
+	Kind          softwaredomain.Kind
+	ServerIDs     []string
+	RolesByServer map[string][]softwaredomain.Role
+	Spec          map[string]any
+	TrustedVars   map[string]any
+}
+
+// installPlan is the validated, normalized intent shared by Install and PlanComposedInstall.
+type installPlan struct {
+	entry         softwaredomain.CatalogEntry
+	serverIDs     []string
+	rolesByServer map[string][]softwaredomain.Role
+	spec          map[string]any
+}
+
 // Install validates the request against the catalog, the target Servers' state, mutual exclusion,
-// and Kubernetes membership, then launches the install Workflow and records a pending assignment
-// per target. It returns the Workflow (operation) id.
+// required kinds, and Kubernetes membership, then launches the install Workflow and records a
+// pending assignment per target. It returns the Workflow (operation) id.
 func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (string, error) {
 	if s.launcher == nil {
 		return "", fmt.Errorf("%w: software orchestration is unavailable", ErrInvalidRequest)
 	}
-	entry, ok := softwaredomain.LookupKind(input.Kind)
-	if !ok {
-		return "", fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, input.Kind)
-	}
-	if len(input.Targets) == 0 {
-		return "", fmt.Errorf("%w: at least one target Server is required", ErrInvalidRequest)
-	}
-
-	rolesByServer := make(map[string][]softwaredomain.Role, len(input.Targets))
-	serverIDs := make([]string, 0, len(input.Targets))
-	seen := map[string]bool{}
-	for _, target := range input.Targets {
-		if strings.TrimSpace(target.ServerID) == "" {
-			return "", fmt.Errorf("%w: each target requires a serverId", ErrInvalidRequest)
-		}
-		if seen[target.ServerID] {
-			return "", fmt.Errorf("%w: duplicate target %s", ErrInvalidRequest, target.ServerID)
-		}
-		seen[target.ServerID] = true
-		if err := validateRoles(entry, target.Roles); err != nil {
-			return "", err
-		}
-		rolesByServer[target.ServerID] = normalizeRoles(target.Roles)
-		serverIDs = append(serverIDs, target.ServerID)
-	}
-	sort.Strings(serverIDs)
-
-	if err := validateSpec(entry, rolesByServer, input.Spec); err != nil {
+	plan, err := s.planInstall(ctx, input, false)
+	if err != nil {
 		return "", err
-	}
-	// The normalized spec is both what the playbook receives and what the assignment records, so
-	// the record never disagrees with what was applied (an omitted enableApi is recorded as true).
-	spec := normalizeSpec(entry.Kind, input.Spec)
-
-	// Precondition checks give clean, specific errors before a Workflow is created. The launcher's
-	// PrepareAnsibleStep re-checks the deployed state and lock at execution acceptance, so a race
-	// after this point still cannot start work against an ineligible host.
-	for _, serverID := range serverIDs {
-		server, err := s.servers.FindByID(ctx, serverID)
-		if err != nil {
-			return "", err
-		}
-		if server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed" {
-			return "", fmt.Errorf("%w: %s is not deployed", ErrInvalidRequest, server.DisplayName())
-		}
-		if entry.RefusedForKubernetesMembers && s.membership != nil {
-			member, err := s.membership.IsKubernetesMember(ctx, serverID)
-			if err != nil {
-				return "", err
-			}
-			if member {
-				return "", fmt.Errorf("%w: %s is a Kubernetes platform member", softwaredomain.ErrKubernetesMember, server.DisplayName())
-			}
-		}
-		if err := s.checkMutualExclusion(ctx, entry, serverID); err != nil {
-			return "", err
-		}
 	}
 
 	launch := SoftwareLaunch{
-		Kind: input.Kind, ServerIDs: serverIDs, RolesByServer: rolesByServer,
-		TrustedVars: buildInstallVars(input.Kind, rolesByServer, spec), RequestedBy: input.RequestedBy,
+		Kind: input.Kind, ServerIDs: plan.serverIDs, RolesByServer: plan.rolesByServer,
+		TrustedVars: buildInstallVars(input.Kind, plan.rolesByServer, plan.spec), RequestedBy: input.RequestedBy,
 	}
 	workflowID, err := s.launcher.LaunchInstall(ctx, launch)
 	if err != nil {
@@ -180,24 +147,221 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 	// Workflow's record-software-assignment step flips these to installed on success; a failed
 	// install step is marked failed by the step observer. Writing after a successful launch keeps
 	// a rejected request (busy/locked target) from leaving orphaned assignments.
+	return workflowID, s.recordPending(ctx, input.Kind, plan.serverIDs, plan.rolesByServer, plan.spec, workflowID)
+}
+
+// PlanComposedInstall validates a software install that a platform deployment composes into its
+// own Workflow, without writing anything. It applies the same catalog, role, spec, mutual
+// exclusion, and Kubernetes-member rules as Install, but not the deployed-state or Requires checks:
+// the composing Workflow provisions its targets and installs the required kinds in earlier Jobs,
+// and its ansible Tasks are still accepted only through the operation layer's own checks.
+func (s *SoftwareService) PlanComposedInstall(ctx context.Context, input InstallInput) (ComposedInstall, error) {
+	plan, err := s.planInstall(ctx, input, true)
+	if err != nil {
+		return ComposedInstall{}, err
+	}
+	return ComposedInstall{
+		Kind: input.Kind, ServerIDs: plan.serverIDs, RolesByServer: plan.rolesByServer, Spec: plan.spec,
+		TrustedVars: buildInstallVars(input.Kind, plan.rolesByServer, plan.spec),
+	}, nil
+}
+
+// RecordComposedInstall writes the pending Software Assignments of a composed install once the
+// composing Workflow (workflowID) exists, mirroring what Install writes after its own launch; the
+// composed record step then marks them installed, and a failed install Task marks them failed.
+func (s *SoftwareService) RecordComposedInstall(ctx context.Context, install ComposedInstall, workflowID string) error {
+	return s.recordPending(ctx, install.Kind, install.ServerIDs, install.RolesByServer, install.Spec, workflowID)
+}
+
+// planInstall validates and normalizes an install. composed skips the checks that a composing
+// Workflow satisfies by its own Job order (targets deployed, required kinds installed).
+func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, composed bool) (installPlan, error) {
+	entry, ok := softwaredomain.LookupKind(input.Kind)
+	if !ok {
+		return installPlan{}, fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, input.Kind)
+	}
+	if len(input.Targets) == 0 {
+		return installPlan{}, fmt.Errorf("%w: at least one target Server is required", ErrInvalidRequest)
+	}
+
+	rolesByServer := make(map[string][]softwaredomain.Role, len(input.Targets))
+	serverIDs := make([]string, 0, len(input.Targets))
+	seen := map[string]bool{}
+	for _, target := range input.Targets {
+		if strings.TrimSpace(target.ServerID) == "" {
+			return installPlan{}, fmt.Errorf("%w: each target requires a serverId", ErrInvalidRequest)
+		}
+		if seen[target.ServerID] {
+			return installPlan{}, fmt.Errorf("%w: duplicate target %s", ErrInvalidRequest, target.ServerID)
+		}
+		seen[target.ServerID] = true
+		if err := validateRoles(entry, target.Roles); err != nil {
+			return installPlan{}, err
+		}
+		rolesByServer[target.ServerID] = normalizeRoles(target.Roles)
+		serverIDs = append(serverIDs, target.ServerID)
+	}
+	sort.Strings(serverIDs)
+
+	if err := validateSpec(entry, rolesByServer, input.Spec); err != nil {
+		return installPlan{}, err
+	}
+	// The normalized spec is both what the playbook receives and what the assignment records, so
+	// the record never disagrees with what was applied (an omitted enableApi is recorded as true,
+	// an omitted Prometheus or Grafana version as the pinned default).
+	spec := normalizeSpec(entry.Kind, input.Spec)
+
+	// Precondition checks give clean, specific errors before a Workflow is created. The launcher's
+	// PrepareAnsibleStep re-checks the deployed state and lock at execution acceptance, so a race
+	// after this point still cannot start work against an ineligible host.
+	for _, serverID := range serverIDs {
+		server, err := s.servers.FindByID(ctx, serverID)
+		if err != nil {
+			return installPlan{}, err
+		}
+		if !composed && (server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed") {
+			return installPlan{}, fmt.Errorf("%w: %s is not deployed", ErrInvalidRequest, server.DisplayName())
+		}
+		if entry.RefusedForKubernetesMembers && s.membership != nil {
+			member, err := s.membership.IsKubernetesMember(ctx, serverID)
+			if err != nil {
+				return installPlan{}, err
+			}
+			if member {
+				return installPlan{}, fmt.Errorf("%w: %s is a Kubernetes platform member", softwaredomain.ErrKubernetesMember, server.DisplayName())
+			}
+		}
+		if err := s.checkMutualExclusion(ctx, entry, serverID); err != nil {
+			return installPlan{}, err
+		}
+		if err := s.checkScrapeServers(ctx, spec, server.Source.SiteID); err != nil {
+			return installPlan{}, err
+		}
+	}
+	if err := s.resolveContainerRuntime(ctx, entry, serverIDs, spec, composed); err != nil {
+		return installPlan{}, err
+	}
+	return installPlan{entry: entry, serverIDs: serverIDs, rolesByServer: rolesByServer, spec: spec}, nil
+}
+
+// resolveContainerRuntime settles spec.containerRuntime for a kind installed by its container
+// method and records it in spec. A composing platform names the runtime it installs in an earlier
+// Job (an omitted value defaults to the catalog's first runtime). A standalone install uses the
+// runtime already installed on the targets: every target must have the same one in state
+// `installed`, and a requested runtime must match it; otherwise ErrRequiredSoftwareMissing. The
+// native method takes no runtime.
+func (s *SoftwareService) resolveContainerRuntime(
+	ctx context.Context,
+	entry softwaredomain.CatalogEntry,
+	serverIDs []string,
+	spec map[string]any,
+	composed bool,
+) error {
+	if len(entry.InstallMethods) == 0 || softwaredomain.InstallMethod(specString(spec, softwaredomain.SpecInstallMethod)) != softwaredomain.InstallMethodContainer {
+		return nil
+	}
+	requested := softwaredomain.Kind(specString(spec, softwaredomain.SpecContainerRuntime))
+	if composed {
+		if requested == "" {
+			requested = entry.ContainerRuntimes[0]
+		}
+		spec[softwaredomain.SpecContainerRuntime] = string(requested)
+		return nil
+	}
+	resolved := softwaredomain.Kind("")
+	for _, serverID := range serverIDs {
+		runtime, err := s.installedRuntime(ctx, entry, serverID)
+		if err != nil {
+			return err
+		}
+		if runtime == "" {
+			return fmt.Errorf("%w: the %s container method needs %s installed on %s",
+				softwaredomain.ErrRequiredSoftwareMissing, entry.Kind, kindList(entry.ContainerRuntimes), serverID)
+		}
+		if resolved != "" && runtime != resolved {
+			return fmt.Errorf("%w: targets run different container runtimes (%s and %s); install them separately",
+				softwaredomain.ErrSpecInvalid, resolved, runtime)
+		}
+		resolved = runtime
+	}
+	if requested != "" && requested != resolved {
+		return fmt.Errorf("%w: spec.%s is %s but the targets run %s",
+			softwaredomain.ErrRequiredSoftwareMissing, softwaredomain.SpecContainerRuntime, requested, resolved)
+	}
+	spec[softwaredomain.SpecContainerRuntime] = string(resolved)
+	return nil
+}
+
+// installedRuntime returns the entry's container runtime that is `installed` on the Server, or ""
+// when none is. The runtimes are mutually exclusive, so at most one can be installed.
+func (s *SoftwareService) installedRuntime(ctx context.Context, entry softwaredomain.CatalogEntry, serverID string) (softwaredomain.Kind, error) {
+	for _, runtime := range entry.ContainerRuntimes {
+		existing, err := s.assignments.FindByServerAndKind(ctx, serverID, runtime)
+		if errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if existing.State == softwaredomain.StateInstalled {
+			return runtime, nil
+		}
+	}
+	return "", nil
+}
+
+func kindList(kinds []softwaredomain.Kind) string {
+	names := make([]string, len(kinds))
+	for i, kind := range kinds {
+		names[i] = string(kind)
+	}
+	return strings.Join(names, " or ")
+}
+
+// checkScrapeServers requires every Prometheus scrapeServerIds entry to be a Server of the target's
+// Site, because the playbook resolves their addresses from that Site's inventory snapshot. A
+// missing Server is ErrServerNotFound; one at another Site is a spec error.
+func (s *SoftwareService) checkScrapeServers(ctx context.Context, spec map[string]any, siteID string) error {
+	serverIDs, _ := specStringList(spec, softwaredomain.SpecScrapeServerIDs)
+	for _, id := range serverIDs {
+		scraped, err := s.servers.FindByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if scraped.Source.SiteID != siteID {
+			return fmt.Errorf("%w: spec.%s entry %s is not at the target's Site", softwaredomain.ErrSpecInvalid, softwaredomain.SpecScrapeServerIDs, scraped.DisplayName())
+		}
+	}
+	return nil
+}
+
+// recordPending upserts a pending assignment per target naming workflowID.
+func (s *SoftwareService) recordPending(
+	ctx context.Context,
+	kind softwaredomain.Kind,
+	serverIDs []string,
+	rolesByServer map[string][]softwaredomain.Role,
+	spec map[string]any,
+	workflowID string,
+) error {
 	now := time.Now().UTC()
 	for _, serverID := range serverIDs {
 		server, err := s.servers.FindByID(ctx, serverID)
 		if err != nil {
-			return workflowID, err
+			return err
 		}
 		assignment := &softwaredomain.Assignment{
-			ServerID: serverID, SiteID: server.Source.SiteID, Kind: input.Kind,
+			ServerID: serverID, SiteID: server.Source.SiteID, Kind: kind,
 			Roles: rolesByServer[serverID], Spec: cloneSpec(spec),
 			State: softwaredomain.StatePending, LastWorkflowID: workflowID,
-			LastAppliedAt: s.previousAppliedAt(ctx, serverID, input.Kind),
+			LastAppliedAt: s.previousAppliedAt(ctx, serverID, kind),
 			CreatedAt:     now, UpdatedAt: now,
 		}
 		if err := s.assignments.Upsert(ctx, assignment); err != nil {
-			return workflowID, err
+			return err
 		}
 	}
-	return workflowID, nil
+	return nil
 }
 
 // Uninstall validates that each target has a live assignment of the kind, launches the uninstall
@@ -310,8 +474,176 @@ func validateSpec(entry softwaredomain.CatalogEntry, rolesByServer map[string][]
 		return validateRuntimeSpec(entry.Kind, spec)
 	case softwaredomain.KindNFS:
 		return validateNFSSpec(rolesByServer, spec)
+	case softwaredomain.KindPrometheus:
+		return validatePrometheusSpec(entry, spec)
+	case softwaredomain.KindGrafana:
+		return validateGrafanaSpec(entry, spec)
 	}
 	return nil
+}
+
+// validatePrometheusSpec checks the install method, release version, job name, and targets.
+func validatePrometheusSpec(entry softwaredomain.CatalogEntry, spec map[string]any) error {
+	if err := validateMethodAndVersion(entry, spec); err != nil {
+		return err
+	}
+	if value, present := spec[softwaredomain.SpecScrapeJob]; present && value != nil {
+		job, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("%w: spec.%s must be a string", softwaredomain.ErrSpecInvalid, softwaredomain.SpecScrapeJob)
+		}
+		if strings.TrimSpace(job) != "" {
+			if err := softwaredomain.ValidateScrapeJob(strings.TrimSpace(job)); err != nil {
+				return err
+			}
+		}
+	}
+	targets, err := specStringList(spec, softwaredomain.SpecScrapeTargets)
+	if err != nil {
+		return err
+	}
+	serverIDs, err := specStringList(spec, softwaredomain.SpecScrapeServerIDs)
+	if err != nil {
+		return err
+	}
+	if total := len(targets) + len(serverIDs); total > softwaredomain.MaxPrometheusScrapeTargets {
+		return fmt.Errorf("%w: spec.%s and spec.%s have %d entries, at most %d", softwaredomain.ErrSpecInvalid,
+			softwaredomain.SpecScrapeTargets, softwaredomain.SpecScrapeServerIDs, total, softwaredomain.MaxPrometheusScrapeTargets)
+	}
+	for _, target := range targets {
+		if err := softwaredomain.ValidateScrapeTarget(target); err != nil {
+			return err
+		}
+	}
+	port, present, err := specPort(spec, softwaredomain.SpecScrapePort)
+	if err != nil {
+		return err
+	}
+	if len(serverIDs) > 0 && !present {
+		return fmt.Errorf("%w: spec.%s requires spec.%s", softwaredomain.ErrSpecInvalid, softwaredomain.SpecScrapeServerIDs, softwaredomain.SpecScrapePort)
+	}
+	if present && len(serverIDs) == 0 {
+		return fmt.Errorf("%w: spec.%s is only valid with spec.%s (port %d)", softwaredomain.ErrSpecInvalid, softwaredomain.SpecScrapePort, softwaredomain.SpecScrapeServerIDs, port)
+	}
+	return nil
+}
+
+// specPort reads an optional TCP port. JSON numbers decode as float64 and a composing launcher
+// passes an int; both must be whole numbers in 1-65535.
+func specPort(spec map[string]any, key string) (int, bool, error) {
+	value, present := spec[key]
+	if !present || value == nil {
+		return 0, false, nil
+	}
+	var port float64
+	switch typed := value.(type) {
+	case int:
+		port = float64(typed)
+	case int32:
+		port = float64(typed)
+	case int64:
+		port = float64(typed)
+	case float64:
+		port = typed
+	default:
+		return 0, true, fmt.Errorf("%w: spec.%s must be a number", softwaredomain.ErrSpecInvalid, key)
+	}
+	if port != float64(int(port)) || port < 1 || port > 65535 {
+		return 0, true, fmt.Errorf("%w: spec.%s must be a whole number between 1 and 65535", softwaredomain.ErrSpecInvalid, key)
+	}
+	return int(port), true, nil
+}
+
+// validateGrafanaSpec checks the install method, release version, datasource URL, and bundles.
+func validateGrafanaSpec(entry softwaredomain.CatalogEntry, spec map[string]any) error {
+	if err := validateMethodAndVersion(entry, spec); err != nil {
+		return err
+	}
+	if value, present := spec[softwaredomain.SpecPrometheusURL]; present && value != nil {
+		raw, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("%w: spec.%s must be a string", softwaredomain.ErrSpecInvalid, softwaredomain.SpecPrometheusURL)
+		}
+		if strings.TrimSpace(raw) != "" {
+			if err := softwaredomain.ValidatePrometheusURL(strings.TrimSpace(raw)); err != nil {
+				return err
+			}
+		}
+	}
+	dashboards, err := specStringList(spec, softwaredomain.SpecDashboards)
+	if err != nil {
+		return err
+	}
+	for _, dashboard := range dashboards {
+		if err := softwaredomain.ValidateDashboardBundle(dashboard); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateMethodAndVersion checks the optional install method, container runtime, and release
+// version of a kind with several install methods. A runtime is only meaningful for the container
+// method and must be one of the kind's container runtimes.
+func validateMethodAndVersion(entry softwaredomain.CatalogEntry, spec map[string]any) error {
+	method := entry.InstallMethods[0]
+	if value, present := spec[softwaredomain.SpecInstallMethod]; present && value != nil {
+		raw, ok := value.(string)
+		if !ok || !entry.Allows(softwaredomain.InstallMethod(strings.TrimSpace(raw))) {
+			return fmt.Errorf("%w: spec.%s must be one of %v", softwaredomain.ErrSpecInvalid, softwaredomain.SpecInstallMethod, entry.InstallMethods)
+		}
+		method = softwaredomain.InstallMethod(strings.TrimSpace(raw))
+	}
+	if value, present := spec[softwaredomain.SpecContainerRuntime]; present && value != nil {
+		raw, ok := value.(string)
+		runtime := softwaredomain.Kind(strings.TrimSpace(raw))
+		switch {
+		case !ok:
+			return fmt.Errorf("%w: spec.%s must be a string", softwaredomain.ErrSpecInvalid, softwaredomain.SpecContainerRuntime)
+		case runtime != "" && method != softwaredomain.InstallMethodContainer:
+			return fmt.Errorf("%w: spec.%s applies only to installMethod %s", softwaredomain.ErrSpecInvalid, softwaredomain.SpecContainerRuntime, softwaredomain.InstallMethodContainer)
+		case runtime != "" && !entry.RunsContainersOn(runtime):
+			return fmt.Errorf("%w: spec.%s must be %s", softwaredomain.ErrSpecInvalid, softwaredomain.SpecContainerRuntime, kindList(entry.ContainerRuntimes))
+		}
+	}
+	value, present := spec[softwaredomain.SpecVersion]
+	if !present || value == nil {
+		return nil
+	}
+	raw, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("%w: spec.%s must be a string", softwaredomain.ErrSpecInvalid, softwaredomain.SpecVersion)
+	}
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	return softwaredomain.ValidateReleaseVersion(softwaredomain.NormalizeReleaseVersion(raw))
+}
+
+// specStringList reads an optional list of strings. JSON decodes arrays as []any, a composing
+// launcher passes []string, and a spec read back from MongoDB holds the driver's own slice type;
+// any slice is accepted, and an entry that is not a string is a validation error. Entries are
+// trimmed and empty ones dropped.
+func specStringList(spec map[string]any, key string) ([]string, error) {
+	value, present := spec[key]
+	if !present || value == nil {
+		return nil, nil
+	}
+	list := reflect.ValueOf(value)
+	if list.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("%w: spec.%s must be an array of strings", softwaredomain.ErrSpecInvalid, key)
+	}
+	out := make([]string, 0, list.Len())
+	for i := 0; i < list.Len(); i++ {
+		text, ok := list.Index(i).Interface().(string)
+		if !ok {
+			return nil, fmt.Errorf("%w: spec.%s must be an array of strings", softwaredomain.ErrSpecInvalid, key)
+		}
+		if trimmed := strings.TrimSpace(text); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out, nil
 }
 
 // validateRuntimeSpec checks the container-runtime spec types. A version must be a string, and
@@ -403,25 +735,107 @@ func buildInstallVars(kind softwaredomain.Kind, rolesByServer map[string][]softw
 		vars["swallow_docker_api_port"] = softwaredomain.DockerEngineAPIPort
 	case softwaredomain.KindPodman:
 		setIfPresent(vars, "swallow_podman_version", spec, softwaredomain.SpecVersion)
+	case softwaredomain.KindPrometheus:
+		// The spec is normalized, so the method, version, and job are always present (and the
+		// runtime for the container method) and the target list is never nil; the port comes from
+		// the domain so a composing platform agrees with it.
+		vars["swallow_prometheus_install_method"] = specString(spec, softwaredomain.SpecInstallMethod)
+		vars["swallow_prometheus_container_runtime"] = specString(spec, softwaredomain.SpecContainerRuntime)
+		vars["swallow_prometheus_version"] = specString(spec, softwaredomain.SpecVersion)
+		vars["swallow_prometheus_port"] = softwaredomain.PrometheusPort
+		vars["swallow_prometheus_scrape_job"] = specString(spec, softwaredomain.SpecScrapeJob)
+		targets, _ := specStringList(spec, softwaredomain.SpecScrapeTargets)
+		vars["swallow_prometheus_scrape_targets"] = nonNilStrings(targets)
+		// Server ids, not addresses: the playbook resolves each from the run's inventory snapshot.
+		serverIDs, _ := specStringList(spec, softwaredomain.SpecScrapeServerIDs)
+		vars["swallow_prometheus_scrape_server_ids"] = nonNilStrings(serverIDs)
+		if port, present, _ := specPort(spec, softwaredomain.SpecScrapePort); present {
+			vars["swallow_prometheus_scrape_port"] = port
+		}
+	case softwaredomain.KindGrafana:
+		vars["swallow_grafana_install_method"] = specString(spec, softwaredomain.SpecInstallMethod)
+		vars["swallow_grafana_container_runtime"] = specString(spec, softwaredomain.SpecContainerRuntime)
+		vars["swallow_grafana_version"] = specString(spec, softwaredomain.SpecVersion)
+		vars["swallow_grafana_port"] = softwaredomain.GrafanaPort
+		// Empty tells the playbook to read the Prometheus on the same Server.
+		vars["swallow_grafana_prometheus_url"] = strings.TrimSpace(specString(spec, softwaredomain.SpecPrometheusURL))
+		vars["swallow_grafana_prometheus_port"] = softwaredomain.PrometheusPort
+		dashboards, _ := specStringList(spec, softwaredomain.SpecDashboards)
+		vars["swallow_grafana_dashboards"] = nonNilStrings(dashboards)
 	}
 	return vars
 }
 
 // normalizeSpec applies the kind-specific defaults to an already validated install spec and returns
 // a copy. Docker CE's enableApi defaults to true (decision 043), recorded explicitly so a later read
-// can tell "enabled by default" from a legacy record that predates the variant.
+// can tell "enabled by default" from a legacy record that predates the variant. Prometheus and
+// Grafana record the pinned image tag they apply and their lists as plain string arrays.
 func normalizeSpec(kind softwaredomain.Kind, spec map[string]any) map[string]any {
 	out := cloneSpec(spec)
-	if kind != softwaredomain.KindDockerCE {
-		return out
-	}
-	if out == nil {
-		out = map[string]any{}
-	}
-	if value, ok := out[softwaredomain.SpecEnableAPI]; !ok || value == nil {
-		out[softwaredomain.SpecEnableAPI] = true
+	switch kind {
+	case softwaredomain.KindDockerCE:
+		if out == nil {
+			out = map[string]any{}
+		}
+		if value, ok := out[softwaredomain.SpecEnableAPI]; !ok || value == nil {
+			out[softwaredomain.SpecEnableAPI] = true
+		}
+	case softwaredomain.KindPrometheus:
+		if out == nil {
+			out = map[string]any{}
+		}
+		normalizeMethodAndVersion(kind, out, softwaredomain.DefaultPrometheusVersion)
+		setDefaultString(out, softwaredomain.SpecScrapeJob, softwaredomain.DefaultPrometheusScrapeJob)
+		targets, _ := specStringList(out, softwaredomain.SpecScrapeTargets)
+		out[softwaredomain.SpecScrapeTargets] = nonNilStrings(targets)
+		serverIDs, _ := specStringList(out, softwaredomain.SpecScrapeServerIDs)
+		out[softwaredomain.SpecScrapeServerIDs] = nonNilStrings(serverIDs)
+		if port, present, _ := specPort(out, softwaredomain.SpecScrapePort); present {
+			out[softwaredomain.SpecScrapePort] = port
+		}
+	case softwaredomain.KindGrafana:
+		if out == nil {
+			out = map[string]any{}
+		}
+		normalizeMethodAndVersion(kind, out, softwaredomain.DefaultGrafanaVersion)
+		out[softwaredomain.SpecPrometheusURL] = strings.TrimSpace(specString(out, softwaredomain.SpecPrometheusURL))
+		dashboards, _ := specStringList(out, softwaredomain.SpecDashboards)
+		out[softwaredomain.SpecDashboards] = nonNilStrings(dashboards)
 	}
 	return out
+}
+
+// normalizeMethodAndVersion records the install method (the catalog's default when omitted), drops a
+// container runtime from a native install (the container method's runtime is resolved later by
+// resolveContainerRuntime), and records the release version without a leading "v".
+func normalizeMethodAndVersion(kind softwaredomain.Kind, spec map[string]any, defaultVersion string) {
+	entry, _ := softwaredomain.LookupKind(kind)
+	setDefaultString(spec, softwaredomain.SpecInstallMethod, string(entry.InstallMethods[0]))
+	if softwaredomain.InstallMethod(specString(spec, softwaredomain.SpecInstallMethod)) != softwaredomain.InstallMethodContainer {
+		delete(spec, softwaredomain.SpecContainerRuntime)
+	} else {
+		spec[softwaredomain.SpecContainerRuntime] = strings.TrimSpace(specString(spec, softwaredomain.SpecContainerRuntime))
+	}
+	setDefaultString(spec, softwaredomain.SpecVersion, defaultVersion)
+	spec[softwaredomain.SpecVersion] = softwaredomain.NormalizeReleaseVersion(specString(spec, softwaredomain.SpecVersion))
+}
+
+// setDefaultString stores fallback under key when the value is absent, not a string, or blank, and
+// trims a present value.
+func setDefaultString(spec map[string]any, key, fallback string) {
+	value := strings.TrimSpace(specString(spec, key))
+	if value == "" {
+		value = fallback
+	}
+	spec[key] = value
+}
+
+// nonNilStrings keeps an empty list an empty array (not null) in trusted vars and stored specs.
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func setIfPresent(vars map[string]any, key string, spec map[string]any, specKey string) {

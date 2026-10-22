@@ -18,6 +18,7 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/pagination"
+	softwareapp "github.com/maple52046/swallow/internal/software/application"
 )
 
 const (
@@ -76,6 +77,10 @@ type platformDeploymentLauncher struct {
 	// bootMedia inserts ensure-boot-media into the ensure-os Job before each provision-os Task of
 	// a Server with Boot Media enabled (decision 047). Its zero value adds nothing.
 	bootMedia bootMediaPlanner
+	// software plans and records the Managed Software a Slurm deployment composes for its
+	// container runtime and Omnistat features (decision 063). Nil refuses such a deployment
+	// rather than skipping the feature.
+	software *softwareapp.SoftwareService
 }
 
 // Launch builds the durable Operation that deploys a Platform. It dispatches on the platform
@@ -173,14 +178,20 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 // validate-platform-health Task: the deployed reader integration only exists once the
 // install step's result is recorded, so cluster validation lives in the playbook itself and
 // membership is filled in by the background sync. Durable orchestration is required; there is
-// no legacy single-step Slurm path.
+// no legacy single-step Slurm path. With the container runtime or Omnistat feature (decision 063)
+// the Workflow also carries the composed software Jobs and the configure-omnistat Job after
+// install-platform, under the Workflow id the deploy use case preassigned for the Omnistat
+// record's fence.
 func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
 	if l.orchestrations == nil {
 		return "", fmt.Errorf("durable Slurm deployment is unavailable")
 	}
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 
-	operationID := uuid.NewString()
+	operationID := launch.OperationID
+	if operationID == "" {
+		operationID = uuid.NewString()
+	}
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
 		Kind: configureSlurmKind, PlaybookName: deploySlurmPlaybook,
 		Intent:          "Deploy Slurm platform " + launch.Platform.Name,
@@ -204,11 +215,22 @@ func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch plat
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	})
+	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst)
+	if err != nil {
+		return "", err
+	}
+	steps = append(steps, composed.steps...)
 
 	created, err := l.createDeploymentWorkflow(ctx, operationID, operationdomain.WorkflowKindConfigureSlurm,
 		"Deploy Slurm Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
 	if err != nil {
 		return "", err
+	}
+	if len(composed.installs) > 0 {
+		if err := l.recordComposedInstalls(ctx, composed, created.ID); err != nil {
+			slog.Error("record composed software assignments", "operationId", created.ID,
+				"platformId", launch.Platform.ID, "error", err)
+		}
 	}
 	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
 	return created.ID, nil
@@ -808,6 +830,25 @@ func slurmCredentialFromResult(result operationdomain.RunnerResult) *platformapp
 	}
 }
 
+// completeOmnistat records the Grafana URL a successful configure-omnistat run wrote to its result
+// file as the Platform's `Omnistat Grafana` Monitoring Link. A missing URL fails the Task, because
+// the playbook writes it only after Prometheus reported every exporter up; the Omnistat State
+// itself is projected by omnistatStepObserver.
+func (o platformDeploymentObserver) completeOmnistat(
+	ctx context.Context,
+	execution *operationdomain.AnsibleExecution,
+	result operationdomain.RunnerResult,
+) error {
+	grafanaURL := ""
+	if result.Data != nil {
+		grafanaURL = stringField(result.Data, omnistatResultGrafanaURL)
+	}
+	if grafanaURL == "" {
+		return fmt.Errorf("omnistat installation returned no Grafana URL")
+	}
+	return o.platforms.RecordOmnistatGrafana(ctx, execution.PlatformID, grafanaURL)
+}
+
 func stringField(data map[string]any, key string) string {
 	if value, ok := data[key].(string); ok {
 		return value
@@ -844,6 +885,17 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 		}
 		return o.credentials.Record(ctx, execution.PlatformID, *credential)
 	case operationdomain.WorkflowKindConfigureSlurm:
+		// A Slurm Workflow with a container runtime or Omnistat also runs composed software Tasks
+		// and the Omnistat Task (decision 063); their executions carry the Workflow's kind too.
+		// Only install-platform produces the slurmrestd credential, and only install-omnistat
+		// reports the Grafana URL.
+		switch execution.StepID {
+		case installPlatformStepID:
+		case omnistatStepID:
+			return o.completeOmnistat(ctx, execution, result)
+		default:
+			return nil
+		}
 		credential := slurmCredentialFromResult(result)
 		if credential == nil {
 			// A Slurm cluster (slurmctld + slurmd) is fully functional without slurmrestd, which

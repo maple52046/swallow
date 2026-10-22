@@ -1,0 +1,12 @@
+# Managed by Swallow (deploy-slurm). Do not edit by hand; changes are overwritten on redeploy.
+# AMD GPUs are mapped from each node's KFD topology (decision 063): the image's Slurm build has no
+# RSMI plugin, so autodetection stays off and every GPU's render node is listed explicitly.
+# amd_gpu_env sets only ROCR_VISIBLE_DEVICES; explicit makes even an exclusive job request GPUs.
+AutoDetect=off
+{% for nid in swallow_slurm_compute_ids %}
+{% set gpus = hostvars[nid].slurm_gpus | default([]) %}
+{% for type in gpus | map(attribute='type') | unique %}
+{% set minors = gpus | selectattr('type', 'equalto', type) | map(attribute='minor') | list %}
+NodeName={{ hostvars[nid].slurm_node_name }} Name=gpu Type={{ type }} File=/dev/dri/renderD{{ ('[' ~ (minors | join(',')) ~ ']') if minors | length > 1 else minors[0] }} Flags=amd_gpu_env,explicit
+{% endfor %}
+{% endfor %}

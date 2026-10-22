@@ -149,6 +149,11 @@ const platforms = [
     lifecycleOperationId: null, deployment: null,
     gpuStackOwner: 'provisioning', exporterOwner: 'ansible', gpuOperator: null,
     monitoringLinks: [{ name: 'Omnistat Grafana', url: 'https://omnistat.example/grafana' }],
+    omnistat: {
+      enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'srv-1', state: 'ready',
+      lastWorkflowId: 'op-slurm-omnistat', updatedAt: now,
+    },
+    containerRuntime: 'podman',
     sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 0, matchedCount: 0 },
     createdAt: '2026-08-22T00:00:00Z', updatedAt: now,
   },
@@ -1397,9 +1402,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     if (path === '/api/v1/software/catalog') {
       return json(route, { items: [
-        { kind: 'docker-ce', label: 'Docker CE', roles: [], mutuallyExclusiveWith: ['podman'], refusedForKubernetesMembers: true, specFields: ['version', 'enableApi'] },
-        { kind: 'podman', label: 'Podman', roles: [], mutuallyExclusiveWith: ['docker-ce'], refusedForKubernetesMembers: true, specFields: ['version'] },
-        { kind: 'nfs', label: 'NFS', roles: ['server', 'client'], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, specFields: ['exportPath', 'exportOptions', 'source', 'mountPath', 'mountOptions'] },
+        { kind: 'docker-ce', label: 'Docker CE', roles: [], mutuallyExclusiveWith: ['podman'], refusedForKubernetesMembers: true, installMethods: [], containerRuntimes: [], specFields: ['version', 'enableApi'] },
+        { kind: 'podman', label: 'Podman', roles: [], mutuallyExclusiveWith: ['docker-ce'], refusedForKubernetesMembers: true, installMethods: [], containerRuntimes: [], specFields: ['version'] },
+        { kind: 'nfs', label: 'NFS', roles: ['server', 'client'], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: ['exportPath', 'exportOptions', 'source', 'mountPath', 'mountOptions'] },
+        { kind: 'prometheus', label: 'Prometheus', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'scrapeJob', 'scrapeTargets', 'scrapeServerIds', 'scrapePort'] },
+        { kind: 'grafana', label: 'Grafana', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'prometheusUrl', 'dashboards'] },
       ] })
     }
     // Registry Credentials (registry-credentials.md): responses never carry a password.
@@ -2530,6 +2537,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         type?: 'kubernetes' | 'slurm'
         gpuStackOwner?: string
         gpuOperator?: Record<string, unknown> & { enabled?: boolean }
+        containerRuntime?: { kind?: 'docker-ce' | 'podman' }
+        omnistat?: { enabled?: boolean; installMethod?: 'container' | 'native' }
         roleAssignments?: Array<{
           serverId: string
           role: 'control-plane' | 'worker'
@@ -2565,6 +2574,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           exporterOwner: 'ansible',
           monitoringLinks: [],
           gpuOperator: null,
+          // Mirrors platforms.md "Omnistat": an enabled request records Omnistat as installing.
+          omnistat: body.omnistat?.enabled
+            ? {
+                enabled: true, version: '1.15.0', installMethod: body.omnistat.installMethod ?? 'container',
+                observabilityServerId: targetServerIds[0] ?? '',
+                state: 'installing', lastWorkflowId: operationId, updatedAt: now,
+              }
+            : null,
+          // Mirrors platforms.md "Container Runtime": the Platform records the chosen kind.
+          containerRuntime: body.containerRuntime?.kind ?? null,
           sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
           createdAt: now,
           updatedAt: now,

@@ -1,0 +1,27 @@
+# Managed by Swallow (Prometheus Managed Software). Do not edit by hand; changes are overwritten.
+[Unit]
+Description=Swallow Prometheus
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User={{ prometheus_native_user }}
+Group={{ prometheus_native_user }}
+ExecStart={{ prometheus_native_root }}/{{ prometheus_version }}/prometheus \
+  --config.file={{ prometheus_config_dir }}/prometheus.yml \
+  --storage.tsdb.path={{ prometheus_data_dir }} \
+  --storage.tsdb.retention.time={{ prometheus_retention }} \
+  --web.listen-address={{ prometheus_listen_address }}:{{ prometheus_port }} \
+  --web.enable-lifecycle
+ExecReload=/bin/kill -HUP $MAINPID
+# The management address may come up after this unit at boot; retry until it can bind.
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ prometheus_data_dir }}
+
+[Install]
+WantedBy=multi-user.target

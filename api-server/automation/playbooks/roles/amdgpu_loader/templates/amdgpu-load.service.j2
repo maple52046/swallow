@@ -1,0 +1,15 @@
+# Managed by Swallow. The OS image may keep amdgpu out of the boot path; this loads it once SSH is
+# up, so a GPU probe that hangs never locks an operator out of the node.
+[Unit]
+Description=Load the amdgpu driver after boot for Swallow-managed GPU workloads
+Wants=network-online.target {{ amdgpu_loader_ssh_unit }} systemd-user-sessions.service
+After=network-online.target {{ amdgpu_loader_ssh_unit }} systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec={{ amdgpu_loader_timeout }}
+ExecStart=/sbin/modprobe amdgpu
+
+[Install]
+WantedBy=multi-user.target

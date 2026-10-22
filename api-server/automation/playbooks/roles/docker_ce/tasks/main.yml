@@ -5,7 +5,8 @@
 # playbooks, so one software kind serves both image families under one Site.
 #
 # This role is the single source of the Docker CE install path so the standalone software deploy and
-# any future platform composition (for example a Kubernetes Docker runtime) share one implementation.
+# every platform composition (today a Slurm deploy with Omnistat, decision 063) share one
+# implementation.
 
 - name: Install Docker CE (Debian family)
   when: docker_ce_state == 'present' and ansible_facts['os_family'] == 'Debian'

@@ -1,0 +1,120 @@
+---
+# Converge the post-boot amdgpu loader and the ordering of the units that need GPUs. present
+# installs and starts the loader, waits for /dev/kfd, and fails the node when the driver does not
+# load; absent disables and removes it together with the drop-ins. A loaded driver is never
+# unloaded: only the next boot changes.
+
+- name: Find the units that need the GPUs
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item }}.service"
+  loop: "{{ amdgpu_loader_dependents }}"
+  register: amdgpu_loader_dependent_stats
+
+- name: Find the packaged units that need the GPUs
+  # Packaged daemons (slurmd) live under /lib/systemd/system rather than /etc/systemd/system.
+  ansible.builtin.stat:
+    path: "/lib/systemd/system/{{ item }}.service"
+  loop: "{{ amdgpu_loader_dependents }}"
+  register: amdgpu_loader_packaged_stats
+
+- name: Install and start the amdgpu loader
+  when: amdgpu_loader_state == 'present'
+  block:
+    - name: Install the post-boot amdgpu loader
+      ansible.builtin.template:
+        src: amdgpu-load.service.j2
+        dest: "/etc/systemd/system/{{ amdgpu_loader_unit }}"
+        mode: "0644"
+
+    - name: Create the dependent unit drop-in directories
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ item.0.item }}.service.d"
+        state: directory
+        mode: "0755"
+      loop: "{{ amdgpu_loader_dependent_stats.results | zip(amdgpu_loader_packaged_stats.results) | list }}"
+      loop_control:
+        label: "{{ item.0.item }}"
+      when: item.0.stat.exists or item.1.stat.exists
+
+    - name: Order the dependent units after the amdgpu loader
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ item.0.item }}.service.d/{{ amdgpu_loader_dropin }}"
+        content: |
+          # Managed by Swallow ({{ amdgpu_loader_owner }}): start once the GPUs are initialized.
+          [Unit]
+          Wants={{ amdgpu_loader_unit }}
+          After={{ amdgpu_loader_unit }}
+        mode: "0644"
+      loop: "{{ amdgpu_loader_dependent_stats.results | zip(amdgpu_loader_packaged_stats.results) | list }}"
+      loop_control:
+        label: "{{ item.0.item }}"
+      when: item.0.stat.exists or item.1.stat.exists
+
+    - name: Enable and start the amdgpu loader
+      # Starting it runs modprobe now when the driver is not loaded yet; a driver that is already
+      # loaded makes it a no-op.
+      ansible.builtin.systemd:
+        name: "{{ amdgpu_loader_unit }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      register: amdgpu_loader_load
+      failed_when: false
+
+    - name: Refuse a node whose amdgpu driver did not load
+      ansible.builtin.fail:
+        msg: >-
+          [amdgpu_driver_missing] the amdgpu driver did not load on {{ amdgpu_loader_node_name }}:
+          {{ amdgpu_loader_load.msg | default('modprobe amdgpu failed') }}. Check
+          "journalctl -u {{ amdgpu_loader_unit }}" on the node.
+      when: amdgpu_loader_load is failed
+
+    - name: Wait for the KFD device
+      ansible.builtin.stat:
+        path: /dev/kfd
+      register: amdgpu_loader_kfd
+      until: amdgpu_loader_kfd.stat.exists
+      retries: 30
+      delay: 2
+      failed_when: false
+
+    - name: Refuse a node without the KFD device
+      ansible.builtin.fail:
+        msg: >-
+          [amdgpu_driver_missing] {{ amdgpu_loader_node_name }} loaded amdgpu but has no
+          /dev/kfd, so no GPU can run workloads. Check the driver messages in the node's kernel
+          log.
+      when: not amdgpu_loader_kfd.stat.exists
+
+- name: Stop loading amdgpu at boot
+  when: amdgpu_loader_state == 'absent'
+  block:
+    - name: Read the amdgpu loader unit
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ amdgpu_loader_unit }}"
+      register: amdgpu_loader_unit_stat
+
+    - name: Disable the amdgpu loader
+      # Only the next boot changes; the loaded driver stays.
+      ansible.builtin.systemd:
+        name: "{{ amdgpu_loader_unit }}"
+        enabled: false
+      when: amdgpu_loader_unit_stat.stat.exists
+
+    - name: Remove the amdgpu loader
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ amdgpu_loader_unit }}"
+        state: absent
+      register: amdgpu_loader_removed
+
+    - name: Remove the dependent units' ordering after the amdgpu loader
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ item }}.service.d/{{ amdgpu_loader_dropin }}"
+        state: absent
+      loop: "{{ amdgpu_loader_dependents }}"
+      register: amdgpu_loader_ordering_removed
+
+    - name: Reload systemd after removing the amdgpu loader
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: amdgpu_loader_removed is changed or amdgpu_loader_ordering_removed is changed

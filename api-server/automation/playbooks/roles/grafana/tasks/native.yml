@@ -1,0 +1,129 @@
+---
+# native method: the pinned grafana package from Grafana's official apt or yum repository. The
+# package's own grafana-server unit runs it; a Swallow drop-in points it at the management address
+# and the Swallow-owned provisioning and data directories, so the package's /etc/grafana is never
+# edited.
+
+- name: Refuse an OS family without an official Grafana repository
+  ansible.builtin.fail:
+    msg: >-
+      [os_unsupported] The Grafana native method installs from Grafana's apt or yum repository,
+      which {{ ansible_facts['distribution'] }} ({{ ansible_facts['os_family'] }}) cannot use.
+  when: ansible_facts['os_family'] not in ['Debian', 'RedHat']
+
+- name: Install Grafana from the official apt repository
+  when: ansible_facts['os_family'] == 'Debian'
+  block:
+    - name: Ensure the apt keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the Grafana apt key
+      ansible.builtin.get_url:
+        url: "{{ grafana_apt_key_url }}"
+        dest: /etc/apt/keyrings/grafana.asc
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+      register: grafana_apt_key
+      until: grafana_apt_key is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Register the Grafana apt repository
+      # The cache is refreshed by the install below, which waits for the apt lock; this module
+      # cannot wait, and a freshly booted host is often still running its own apt-get.
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] {{ grafana_apt_repo_url }} stable main"
+        filename: grafana
+        state: present
+        update_cache: false
+
+    - name: Install the pinned Grafana package (apt)
+      ansible.builtin.apt:
+        name: "grafana={{ grafana_version }}"
+        state: present
+        allow_downgrade: true
+        update_cache: true
+        lock_timeout: 300
+      register: grafana_apt_package
+      until: grafana_apt_package is succeeded
+      retries: 60
+      delay: 5
+
+- name: Install Grafana from the official yum repository
+  when: ansible_facts['os_family'] == 'RedHat'
+  block:
+    - name: Register the Grafana yum repository
+      ansible.builtin.yum_repository:
+        name: grafana
+        description: Grafana
+        baseurl: "{{ grafana_rpm_repo_url }}"
+        gpgkey: "{{ grafana_rpm_repo_url }}/gpg.key"
+        gpgcheck: true
+        repo_gpgcheck: true
+        enabled: true
+
+    - name: Install the pinned Grafana package (dnf)
+      ansible.builtin.dnf:
+        name: "grafana-{{ grafana_version }}"
+        state: present
+        allow_downgrade: true
+      register: grafana_dnf_package
+      until: grafana_dnf_package is succeeded
+      retries: 10
+      delay: 10
+
+- name: Record whether the Grafana package changed
+  ansible.builtin.set_fact:
+    grafana_package_changed: "{{ grafana_apt_package is changed or grafana_dnf_package is changed }}"
+
+- name: Create the Grafana data directory
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}"
+    state: directory
+    owner: "{{ grafana_native_user }}"
+    group: "{{ grafana_native_user }}"
+    mode: "0750"
+
+- name: Give the Grafana data to its user
+  # Another install method may have left the data owned by a different user. Only ownership
+  # is recursive, so files keep the modes Grafana gave them and a converged host reports no change.
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}"
+    state: directory
+    owner: "{{ grafana_native_user }}"
+    group: "{{ grafana_native_user }}"
+    recurse: true
+
+- name: Ensure the Grafana drop-in directory exists
+  ansible.builtin.file:
+    path: "{{ grafana_native_dropin | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render the Grafana drop-in
+  ansible.builtin.template:
+    src: grafana-server-swallow.conf.j2
+    dest: "{{ grafana_native_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: grafana_native_dropin_file
+
+- name: Enable and start Grafana
+  ansible.builtin.systemd_service:
+    name: "{{ grafana_native_unit }}"
+    state: >-
+      {{ 'restarted' if (grafana_package_changed | bool or grafana_native_dropin_file is changed
+                         or grafana_provisioning_changed | bool)
+         else 'started' }}
+    enabled: true
+    daemon_reload: "{{ grafana_package_changed | bool or grafana_native_dropin_file is changed }}"

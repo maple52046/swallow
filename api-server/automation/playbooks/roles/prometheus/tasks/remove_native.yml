@@ -1,0 +1,36 @@
+---
+# Remove the native release, its systemd unit, and its system user.
+
+- name: Read the native Prometheus unit
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ prometheus_native_unit }}"
+  register: prometheus_native_unit_stat
+
+- name: Stop and remove the native Prometheus unit
+  when: prometheus_native_unit_stat.stat.exists
+  block:
+    - name: Stop and disable the native Prometheus unit
+      ansible.builtin.systemd_service:
+        name: "{{ prometheus_native_unit }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the native Prometheus unit
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ prometheus_native_unit }}"
+        state: absent
+
+    - name: Reload systemd without the native Prometheus unit
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+- name: Remove the native Prometheus releases
+  ansible.builtin.file:
+    path: "{{ prometheus_native_root }}"
+    state: absent
+
+- name: Remove the Prometheus system user
+  ansible.builtin.user:
+    name: "{{ prometheus_native_user }}"
+    state: absent

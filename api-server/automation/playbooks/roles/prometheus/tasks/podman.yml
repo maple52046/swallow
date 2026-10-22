@@ -1,0 +1,74 @@
+---
+# container method on Podman: one pinned container under a Swallow-owned Quadlet unit, so systemd
+# owns its lifecycle and starts it at boot. Quadlet needs Podman 4.4 or later.
+
+- name: Refuse a host without Podman Quadlet
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system-generators/podman-system-generator
+  register: prometheus_quadlet_generator
+
+- name: Report the missing Podman
+  ansible.builtin.fail:
+    msg: >-
+      [podman_missing] The Prometheus container method on podman needs Podman 4.4 or later
+      (Quadlet), which is not available on {{ inventory_hostname }}. Install Podman on the Server
+      first.
+  when: not prometheus_quadlet_generator.stat.exists
+
+- name: Create the Prometheus data directory
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "{{ prometheus_container_uid }}"
+    group: "{{ prometheus_container_uid }}"
+    mode: "0755"
+
+- name: Give the Prometheus data to its user
+  # Another install method may have left the data owned by a different user. Only ownership
+  # is recursive, so files keep the modes Prometheus gave them and a converged host reports no change.
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "{{ prometheus_container_uid }}"
+    group: "{{ prometheus_container_uid }}"
+    recurse: true
+
+- name: Pull the Prometheus image
+  # Pulled before the unit starts, so a registry failure reports here instead of as a unit
+  # start timeout.
+  ansible.builtin.command:
+    argv: [podman, pull, "{{ prometheus_image }}"]
+  register: prometheus_pull
+  changed_when: false
+  retries: 5
+  delay: 10
+  until: prometheus_pull.rc == 0
+
+- name: Ensure the Quadlet directory exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render the Quadlet unit
+  ansible.builtin.template:
+    src: prometheus.container.j2
+    dest: "/etc/containers/systemd/{{ prometheus_quadlet_unit }}.container"
+    owner: root
+    group: root
+    mode: "0644"
+  register: prometheus_quadlet
+
+- name: Start Prometheus
+  # A generated unit cannot be enabled; its [Install] section is applied by the generator.
+  ansible.builtin.systemd_service:
+    name: "{{ prometheus_quadlet_unit }}.service"
+    state: "{{ 'restarted' if prometheus_quadlet is changed else 'started' }}"
+    daemon_reload: "{{ prometheus_quadlet is changed }}"
+  register: prometheus_unit
+
+- name: Record whether Prometheus restarted
+  ansible.builtin.set_fact:
+    prometheus_restarted: "{{ prometheus_unit is changed }}"

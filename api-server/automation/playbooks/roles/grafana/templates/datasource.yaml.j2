@@ -1,0 +1,11 @@
+# Managed by Swallow (Grafana Managed Software). Do not edit by hand; changes are overwritten.
+apiVersion: 1
+
+datasources:
+  - name: prometheus
+    uid: {{ grafana_datasource_uid }}
+    type: prometheus
+    access: proxy
+    url: {{ grafana_prometheus_url | trim | to_json }}
+    isDefault: true
+    editable: false

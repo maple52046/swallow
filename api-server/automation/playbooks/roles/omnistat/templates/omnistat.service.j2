@@ -1,0 +1,29 @@
+# Managed by Swallow (configure-omnistat). Do not edit by hand; changes are overwritten.
+[Unit]
+Description=Omnistat {{ omnistat_version }} Prometheus exporter
+Documentation=https://rocm.github.io/omnistat/
+Wants=network-online.target{{ (' ' ~ omnistat_amdgpu_unit) if omnistat_gpu | bool else '' }}
+After=network-online.target{{ (' ' ~ omnistat_amdgpu_unit) if omnistat_gpu | bool else '' }}
+
+[Service]
+Type=simple
+User={{ omnistat_user }}
+Group={{ omnistat_user }}
+SupplementaryGroups=render video
+Environment="OMNISTAT_CONFIG={{ omnistat_config }}"
+Environment="ROCM_PATH={{ omnistat_rocm_path }}"
+Environment="LD_LIBRARY_PATH={{ omnistat_rocm_path }}/lib:{{ omnistat_rocm_path }}/lib64"
+# The service user has no home; libraries that write caches need a writable HOME.
+RuntimeDirectory=omnistat
+RuntimeDirectoryMode=0750
+Environment="HOME=/run/omnistat"
+WorkingDirectory=/run/omnistat
+ExecStart={{ omnistat_venv }}/bin/omnistat-monitor --configfile {{ omnistat_config }}
+ExecReload=/bin/kill -HUP $MAINPID
+TimeoutStopSec=20s
+Nice=19
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,182 @@
+---
+# Install the Omnistat system-mode exporter on a compute node: a dedicated user, a versioned
+# virtual environment built from the pinned upstream tag with Swallow's SR-IOV patch and pinned
+# Python dependencies, the configuration, and a systemd service. Idempotent: a converged node
+# reruns with no changes; a changed configuration or build restarts the exporter.
+
+- name: Install Omnistat's build prerequisites
+  ansible.builtin.apt:
+    name:
+      - python3-venv
+      - python3-dev
+      - build-essential
+      - patch
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  register: omnistat_prereqs
+  until: omnistat_prereqs is succeeded
+  retries: 30
+  delay: 10
+
+- name: Create the Omnistat group
+  ansible.builtin.group:
+    name: "{{ omnistat_user }}"
+    system: true
+
+- name: Create the Omnistat service user
+  # render and video grant the GPU device nodes AMD SMI opens.
+  ansible.builtin.user:
+    name: "{{ omnistat_user }}"
+    group: "{{ omnistat_user }}"
+    groups: [render, video]
+    append: true
+    system: true
+    create_home: false
+    home: /nonexistent
+    shell: /usr/sbin/nologin
+
+- name: Create the Omnistat directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ omnistat_prefix }}"
+    - "{{ omnistat_config_dir }}"
+
+- name: Download the pinned Omnistat source
+  ansible.builtin.get_url:
+    url: "{{ omnistat_sources[omnistat_version].url }}"
+    checksum: "{{ omnistat_sources[omnistat_version].checksum }}"
+    dest: "{{ omnistat_prefix }}/omnistat-{{ omnistat_version }}.tar.gz"
+    mode: "0644"
+  register: omnistat_download
+  until: omnistat_download is succeeded
+  retries: 5
+  delay: 10
+
+- name: Unpack the Omnistat source
+  ansible.builtin.unarchive:
+    src: "{{ omnistat_prefix }}/omnistat-{{ omnistat_version }}.tar.gz"
+    dest: "{{ omnistat_prefix }}"
+    remote_src: true
+    creates: "{{ omnistat_src }}/pyproject.toml"
+  register: omnistat_unpacked
+
+- name: Name the unpacked tree as the source directory
+  ansible.builtin.command:
+    cmd: mv {{ omnistat_prefix }}/omnistat-{{ omnistat_version }} {{ omnistat_src }}
+    creates: "{{ omnistat_src }}/pyproject.toml"
+
+- name: Copy the SR-IOV compatibility patch and the dependency pins
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ omnistat_prefix }}/{{ item }}"
+    mode: "0644"
+  loop:
+    - "{{ omnistat_sources[omnistat_version].patch }}"
+    - "{{ omnistat_sources[omnistat_version].constraints }}"
+
+- name: Check whether the source already carries the patch
+  ansible.builtin.command:
+    argv: [patch, -p1, --dry-run, --reverse, --force, --silent, -i, "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].patch }}"]
+    chdir: "{{ omnistat_src }}"
+  register: omnistat_patch_applied
+  changed_when: false
+  failed_when: false
+
+- name: Apply the SR-IOV compatibility patch
+  ansible.builtin.command:
+    argv: [patch, -p1, --forward, -i, "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].patch }}"]
+    chdir: "{{ omnistat_src }}"
+  when: omnistat_patch_applied.rc != 0
+  register: omnistat_patched
+
+- name: Create the Omnistat virtual environment
+  ansible.builtin.command:
+    cmd: python3 -m venv {{ omnistat_venv }}
+    creates: "{{ omnistat_venv }}/bin/python"
+
+- name: Check for an installed exporter
+  ansible.builtin.stat:
+    path: "{{ omnistat_venv }}/bin/omnistat-monitor"
+  register: omnistat_monitor_binary
+
+- name: Install Omnistat into the virtual environment
+  # Rebuilt when the source or the patch changed, or when a previous run never finished.
+  ansible.builtin.command:
+    argv:
+      - "{{ omnistat_venv }}/bin/pip"
+      - install
+      - --no-cache-dir
+      - --constraint
+      - "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].constraints }}"
+      - "{{ omnistat_src }}"
+  environment:
+    PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  when: >-
+    omnistat_unpacked is changed or omnistat_patched is changed or
+    not omnistat_monitor_binary.stat.exists
+  register: omnistat_pip
+  until: omnistat_pip is succeeded
+  retries: 3
+  delay: 15
+
+- name: Point the version-independent link at this version
+  ansible.builtin.file:
+    src: "{{ omnistat_prefix }}"
+    dest: "{{ omnistat_current_link }}"
+    state: link
+    force: true
+
+- name: Render the Omnistat configuration
+  ansible.builtin.template:
+    src: omnistat.conf.j2
+    dest: "{{ omnistat_config }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: omnistat_config_file
+
+- name: Install the Omnistat service
+  ansible.builtin.template:
+    src: omnistat.service.j2
+    dest: /etc/systemd/system/omnistat.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: omnistat_unit
+
+- name: Enable and start the Omnistat exporter
+  ansible.builtin.systemd:
+    name: omnistat
+    enabled: true
+    state: started
+    daemon_reload: true
+  register: omnistat_started
+
+- name: Restart the exporter after a changed build, configuration, or unit
+  ansible.builtin.systemd:
+    name: omnistat
+    state: restarted
+    daemon_reload: true
+  when:
+    - omnistat_started is not changed
+    - omnistat_pip is changed or omnistat_config_file is changed or omnistat_unit is changed
+
+- name: Wait for the exporter to serve metrics
+  # A GPU node must report its GPU count; every node reports the job-attribution series.
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ omnistat_port }}/metrics"
+    return_content: true
+  register: omnistat_metrics
+  until:
+    - omnistat_metrics.status == 200
+    - "'rmsjob_info' in omnistat_metrics.content"
+    - not (omnistat_gpu | bool) or 'rocm_num_gpus' in omnistat_metrics.content
+  retries: 30
+  delay: 4

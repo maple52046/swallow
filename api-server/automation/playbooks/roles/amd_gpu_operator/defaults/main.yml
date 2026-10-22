@@ -44,16 +44,16 @@ amd_gpu_operator_dra_links:
 amd_gpu_operator_dra_common_cdi: /var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml
 amd_gpu_operator_pod_resources_socket_dir: /var/lib/k0s/kubelet/pod-resources
 
-# Every managed node gets this post-boot amdgpu loader, and the k0s units on it are ordered after
-# it with the drop-in, so a node whose image keeps amdgpu out of the boot path still exposes its
-# GPUs after a reboot. Loading many GPUs can exceed systemd's default 90 s start timeout.
+# Every managed node gets the shared post-boot amdgpu loader (role amdgpu_loader), and the k0s
+# units on it are ordered after it with the drop-in, so a node whose image keeps amdgpu out of the
+# boot path still exposes its GPUs after a reboot. Loading many GPUs can exceed systemd's default
+# 90 s start timeout.
 amd_gpu_operator_driver_unit: swallow-amdgpu-load.service
 amd_gpu_operator_driver_dropin: 10-swallow-after-amdgpu.conf
 amd_gpu_operator_driver_load_timeout: 300
 amd_gpu_operator_k0s_units:
   - k0scontroller
   - k0sworker
-amd_gpu_operator_ssh_unit: "{{ 'ssh.service' if ansible_facts['os_family'] == 'Debian' else 'sshd.service' }}"
 
 # Node label prefixes the operator's node labeller and NFD write. They are removed from a node the
 # operator stops managing; the labeller does not clean up after itself.

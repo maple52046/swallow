@@ -194,7 +194,8 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
   `lastWorkflowId` 相符的 Workflow 能改狀態。
 - 只沿用 OS image 的 driver：chart 以 `kmm.enabled=false`、`remediation.enabled=false` 安裝，不需 cert-manager。
   節點檢查只確認 image 有 `amdgpu` module（`modinfo`）；image 可能以 `modprobe.blacklist=amdgpu` 讓開機時不載入，
-  所以 cluster play 之後、DeviceConfig 之前，每個納管節點都裝 `swallow-amdgpu-load.service`（SSH 起來後才
+  所以 cluster play 之後、DeviceConfig 之前，每個納管節點都裝 `swallow-amdgpu-load.service`（共用 role
+  `amdgpu_loader`，Slurm GPU GRES 也用同一份；SSH 起來後才
   `modprobe amdgpu`，`TimeoutStartSec=300`），並以 drop-in 讓 `k0scontroller`／`k0sworker` 排在它之後，再啟動它並等
   `/dev/kfd`。不再納管的節點、卸載 operator、`uninstall-kubernetes` 保留主機時都移除 unit 與 drop-in，但不卸載已載入的 driver。
 - helm 在 `swallow_amd_gpu_operator_controller_id`（初始 controller）上執行：playbook 下載固定版本的 helm、核對
@@ -337,6 +338,18 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   | `swallow_amd_gpu_operator_node_labeller` / `_metrics_exporter` | 布林 |
   | `swallow_amd_gpu_operator_controller_id` | 執行 helm 的 controller serverId |
   | `swallow_amd_gpu_operator_images` | 該版本固定的 operand image（`devicePlugin`、`nodeLabeller`、`utils`、`metricsExporter`、`draDriver`） |
+
+  Slurm 的 GPU GRES 與 Omnistat（§6.3、decision 063）新增：
+
+  | 變數 | 意義 |
+  | --- | --- |
+  | `swallow_slurm_gpu_compute_ids` | 有 AMD compute GPU 的 compute serverId（一律為 list） |
+  | `swallow_slurm_omnistat_enabled` | `deploy-slurm` 渲染 Omnistat 的 Slurm 端 overlay |
+  | `swallow_omnistat_version` / `swallow_omnistat_port` | Omnistat 版本（`1.15.0`）與 exporter port（`8001`） |
+  | `swallow_omnistat_compute_ids` | 裝 exporter 的 compute serverId |
+  | `swallow_omnistat_observability_id` | 跑 Prometheus／Grafana 的 serverId（primary controller） |
+  | `swallow_omnistat_prometheus_port` / `swallow_omnistat_grafana_port` | 由 launcher 依 software domain 填入（`9090`／`3000`） |
+  | `swallow_omnistat_system_name` | omnistat-query 報表標籤（cluster name） |
 
 ### 4.3 Secrets
 
@@ -618,14 +631,53 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   HA 時 state server 優先選 login node。支援兩種拓樸:single controller + n compute,以及
   1 login + n controllers(HA)+ n compute(login 提供整個 cluster 的 NFS)。詳見
   [ADR 024](../decisions/024-slurm-login-and-workload-storage.md)。
-- **非目標（後續）**：SlurmDBD/accounting、GRES/GPU 排程、production 等級/外部 HA controller-state
+- **GPU GRES（[decision 063](../decisions/063-omnistat-slurm-observability.md)）**：deploy use case 依
+  GPU Inventory（AMD `compute` GPU）挑出 compute Server，以 trusted var `swallow_slurm_gpu_compute_ids`
+  傳入（一律為 list，空 list 讓重跑時移除舊 GRES）。`slurm_gpu` role 在這些主機：裝共用的
+  `amdgpu_loader`（`swallow-amdgpu-load.service`，與 GPU Operator 同一份；`slurmd` 以 drop-in 排在其後）、
+  udev 規則把 `/dev/kfd` 與 `renderD*` 開給所有作業使用者（作業的存取邊界是 `ConstrainDevices=yes` 的
+  device cgroup）、從 KFD topology 讀 `drm_render_minor` 與 `gfx_target_version`（不數
+  `/dev/dri/renderD*`，因為 XCP 會多出 render node）；KFD 沒有 GPU 則以 `[slurm_gpu_missing]` 失敗。
+  controller 依這些 facts 渲染 `GresTypes=gpu`、node 行的 `Gres=gpu:<gfx>:<n>` 與 `gres.conf`
+  （`AutoDetect=off`、明確 `File=`、`Flags=amd_gpu_env,explicit`，configless 一併下發），`slurm_verify`
+  確認每台 GPU node 回報 GRES 且 `--gres=gpu:1` 作業拿到 `ROCR_VISIBLE_DEVICES=0`（致命）。image 的
+  SchedMD 套件沒有 `gpu_rsmi.so`，因此不做 RSMI autodetect／`gres/gpumem` accounting。需要的 module
+  option（MI308X 8-VF guest 的 `pcie_p2p=0`）放在部署的 cloud-init user data。
+- **選用功能：container runtime（decision 063）**：deploy request 帶 `containerRuntime.kind`
+  （`docker-ce`／`podman`）時，`Platform.containerRuntime` 記下選擇，`DeploymentLaunch.ContainerRuntime`
+  帶 compute ∪ login 的 serverId；launcher 把該 runtime 當 Managed Software 組入（見下表），每台 Server
+  的安裝狀態就是它的 Software Assignment。Kubernetes deploy 帶此欄位為 validation error。
+- **選用功能：Omnistat（decision 063）**：deploy request 帶 `omnistat.enabled` 時，deploy use case
+  預先指定 Workflow id、寫入 `Platform.omnistat`（`installing`，含 `installMethod`：`container` 預設／
+  `native`），並把 `swallow_slurm_omnistat_enabled` 交給 `deploy-slurm`——Slurm 端 overlay
+  （`swallow-omnistat-prolog`／`-epilog`、`PrologFlags=Alloc,Contain`、`OverSubscribe=EXCLUSIVE`）由
+  slurm.conf 的唯一擁有者渲染，所以重佈自然重套；Prolog 在 exporter 尚未安裝前直接成功，Job 順序不會讓
+  節點 drain。
+
+  launcher（`planSlurmComposition`）在 `install-platform` 之後組入（依序依賴前一個 record Task）：
+
+  | Job | Tasks | 說明 |
+  | --- | --- | --- |
+  | `configure-docker-ce`／`configure-podman` | `install-<runtime>` → `record-<runtime>` | 目標＝container runtime 功能的 compute＋login，加上 Omnistat `container` method 的 primary controller（無功能時採 primary 已 assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過；Docker CE `enableApi: false` |
+  | `configure-prometheus` | `install-prometheus` → `record-prometheus` | primary controller；Omnistat 的 install method／runtime，job `omnistat`，`scrapeServerIds`＝compute、`scrapePort` 8001（執行時解析位址） |
+  | `configure-grafana` | `install-grafana` → `record-grafana` | primary controller；dashboards `omnistat`、datasource 讀同機 Prometheus |
+  | `configure-omnistat` | `install-omnistat`（`configure-omnistat` playbook，全部 targets） | compute 裝 exporter；primary 等 Prometheus 回報全部 up 後寫 result `{grafanaUrl, prometheusUrl}` |
+
+  `omnistatStepObserver` 把 `install-omnistat` 的狀態投影成 Omnistat State（fence＝record id），
+  `AnsibleStepSucceeded` 讀 result 寫入 Monitoring Link `Omnistat Grafana`。同一 Workflow 的所有 ansible
+  execution 都帶 `configure-slurm` kind，所以 completion 依 **Task id** 分流（只有 `install-platform` 產
+  slurmrestd credential）。uninstall 移除 exporter、overlay、Slurm 的 amdgpu loader 與 udev 規則，state
+  → `absent` 並移除 link；container runtime／Prometheus／Grafana 的 assignment 保留。
+- **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
-  workload filesystem、使用者/UID-GID 佈建（swallow 只提供 mount,不管身分）、`auth/slurm`。
+  workload filesystem、使用者/UID-GID 佈建（swallow 只提供 mount,不管身分）、`auth/slurm`、部署後單獨
+  開關 Omnistat。
 
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/deploy-slurm.yml) 與
-`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、
+`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
-`slurm_cluster_credential`）。
+`slurm_cluster_credential`）；Omnistat：[`configure-omnistat.yml`](../../api-server/automation/playbooks/configure-omnistat.yml)
+與 `roles/omnistat`（上游 tag 壓縮檔 sha256、SR-IOV patch 與依賴 constraints 在 `files/`）。
 
 ### 6.4 讀取與管理視圖（type-specific，ADR 021）
 
@@ -656,6 +708,9 @@ API 契約的 "Read Slurm Cluster State"。
 | Deploy 意圖與驗證（trusted vars、ephemeral 防呆） | `internal/platform/application/deploy_platform.go` |
 | GPU Operator 設定、版本清單與驗證 | `internal/platform/domain/gpu_operator.go`、`internal/platform/application/gpu_operator.go` |
 | GPU Operator Workflow 組裝與狀態 observer | `internal/app/gpu_operator_adapter.go` |
+| Omnistat 記錄與 State | `internal/platform/domain/omnistat.go` |
+| Slurm container runtime 功能 | `internal/platform/domain/container_runtime.go` |
+| Slurm 功能的 software Job 組入（runtime、Prometheus、Grafana、Omnistat）與狀態 observer | `internal/app/omnistat_adapter.go` |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
 | Workflow/Task/Runner domain model | `internal/operation/domain/orchestration.go` |
 | Workflow 持久化與 secret sealing | `internal/operation/application/orchestration.go` |
@@ -679,6 +734,9 @@ API 契約的 "Read Slurm Cluster State"。
 | k0s roles（reference 範本） | `playbooks/roles/k0s_*`（`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`） |
 | Slurm playbook 與 roles | `playbooks/deploy-slurm.yml`、`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`） |
 | AMD GPU Operator playbook 與 role | `playbooks/configure-amd-gpu-operator.yml`、`playbooks/roles/amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
+| 共用 amdgpu loader（GPU Operator 與 Slurm GRES） | `playbooks/roles/amdgpu_loader` |
+| Omnistat playbook 與 role | `playbooks/configure-omnistat.yml`、`playbooks/roles/omnistat` |
+| Prometheus／Grafana software roles | `playbooks/roles/prometheus`、`playbooks/roles/grafana`（Omnistat dashboards 在 `files/dashboards/omnistat`） |
 
 映像：production 於 build 時 `COPY api-server/automation → /opt/swallow/automation`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

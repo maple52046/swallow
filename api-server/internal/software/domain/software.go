@@ -21,6 +21,10 @@ const (
 	KindDockerCE Kind = "docker-ce"
 	KindPodman   Kind = "podman"
 	KindNFS      Kind = "nfs"
+	// KindPrometheus and KindGrafana run as pinned Docker Compose containers, so both require
+	// Docker CE on the Server (decision 063).
+	KindPrometheus Kind = "prometheus"
+	KindGrafana    Kind = "grafana"
 )
 
 // Role is a variant of one software (for NFS, whether a Server is a server, a client, or both).
@@ -74,8 +78,49 @@ type CatalogEntry struct {
 	// RefusedForKubernetesMembers rejects installing this kind on a Server that is already a
 	// Kubernetes Platform member (Docker/Podman containerd coexisting with k0s is undefined).
 	RefusedForKubernetesMembers bool
+	// InstallMethods lists how this kind can be installed (spec installMethod); the first is the
+	// default. Empty for a kind with one fixed install path.
+	InstallMethods []InstallMethod
+	// ContainerRuntimes lists the Managed Software kinds that can run this kind's container install
+	// method. One of them must be installed on the Server (they are mutually exclusive); a standalone
+	// install refuses a target without one, while a platform deployment that composes this kind
+	// installs the runtime in an earlier Job of the same Workflow instead.
+	ContainerRuntimes []Kind
 	// SpecFields lists the kind-specific spec keys the API accepts, for documentation and UI.
 	SpecFields []string
+}
+
+// InstallMethod is how a Managed Software kind that supports several install paths is installed
+// on a Server (decision 063). It is a variant of the same software, not a different kind.
+type InstallMethod string
+
+const (
+	// InstallMethodContainer runs the software as a pinned container under one of the kind's
+	// ContainerRuntimes (Docker Compose for Docker CE, a Quadlet systemd unit for Podman).
+	InstallMethodContainer InstallMethod = "container"
+	// InstallMethodNative installs the software on the host from the vendor's official packages or
+	// release binaries, managed by systemd.
+	InstallMethodNative InstallMethod = "native"
+)
+
+// Allows reports whether the entry offers the install method.
+func (e CatalogEntry) Allows(method InstallMethod) bool {
+	for _, allowed := range e.InstallMethods {
+		if allowed == method {
+			return true
+		}
+	}
+	return false
+}
+
+// RunsContainersOn reports whether kind is one of the entry's container runtimes.
+func (e CatalogEntry) RunsContainersOn(kind Kind) bool {
+	for _, runtime := range e.ContainerRuntimes {
+		if runtime == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // Spec keys shared by the catalog, validation, and the trusted-variable assembly. They are
@@ -130,6 +175,23 @@ var catalog = []CatalogEntry{
 		MutuallyExclusiveWith:       nil,
 		RefusedForKubernetesMembers: false,
 		SpecFields:                  []string{"exportPath", "exportOptions", "source", "mountPath", "mountOptions"},
+	},
+	{
+		Kind:                        KindPrometheus,
+		Label:                       "Prometheus",
+		RefusedForKubernetesMembers: false,
+		InstallMethods:              []InstallMethod{InstallMethodContainer, InstallMethodNative},
+		ContainerRuntimes:           []Kind{KindDockerCE, KindPodman},
+		SpecFields: []string{SpecInstallMethod, SpecContainerRuntime, SpecVersion,
+			SpecScrapeJob, SpecScrapeTargets, SpecScrapeServerIDs, SpecScrapePort},
+	},
+	{
+		Kind:                        KindGrafana,
+		Label:                       "Grafana",
+		RefusedForKubernetesMembers: false,
+		InstallMethods:              []InstallMethod{InstallMethodContainer, InstallMethodNative},
+		ContainerRuntimes:           []Kind{KindDockerCE, KindPodman},
+		SpecFields:                  []string{SpecInstallMethod, SpecContainerRuntime, SpecVersion, SpecPrometheusURL, SpecDashboards},
 	},
 }
 
@@ -197,6 +259,9 @@ var (
 	ErrMutuallyExclusive = errors.New("a mutually exclusive software kind is already installed")
 	// ErrKubernetesMember means the kind refuses installation on a Kubernetes Platform member.
 	ErrKubernetesMember = errors.New("software kind cannot be installed on a Kubernetes platform member")
+	// ErrRequiredSoftwareMissing means a kind the requested kind requires (for example Docker CE
+	// under Prometheus) is not installed on a target. It is a state conflict, not a request error.
+	ErrRequiredSoftwareMissing = errors.New("a required software kind is not installed")
 	// ErrAssignmentNotFound means no Software Assignment exists for (ServerID, Kind).
 	ErrAssignmentNotFound = errors.New("software assignment not found")
 )

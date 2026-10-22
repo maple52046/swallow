@@ -27,9 +27,26 @@ type platformDoc struct {
 	MonitoringLinks []monitoringLinkDoc `bson:"monitoringLinks,omitempty"`
 	// GPUOperator is absent on every Platform Swallow never managed an operator on.
 	GPUOperator *gpuOperatorDoc `bson:"gpuOperator,omitempty"`
-	Sync        platformSync    `bson:"sync"`
-	CreatedAt   time.Time       `bson:"createdAt"`
-	UpdatedAt   time.Time       `bson:"updatedAt"`
+	// Omnistat is absent on every Platform Swallow never installed Omnistat on.
+	Omnistat *omnistatDoc `bson:"omnistat,omitempty"`
+	// ContainerRuntime is absent when the Slurm container runtime feature is off.
+	ContainerRuntime string       `bson:"containerRuntime,omitempty"`
+	Sync             platformSync `bson:"sync"`
+	CreatedAt        time.Time    `bson:"createdAt"`
+	UpdatedAt        time.Time    `bson:"updatedAt"`
+}
+
+// omnistatDoc persists the Swallow-managed Omnistat record. lastWorkflowId is the fence
+// UpdateOmnistatState matches on. installMethod is empty on records written before the native
+// method existed, which all used the container method.
+type omnistatDoc struct {
+	Enabled               bool      `bson:"enabled"`
+	Version               string    `bson:"version"`
+	InstallMethod         string    `bson:"installMethod,omitempty"`
+	ObservabilityServerID string    `bson:"observabilityServerId"`
+	State                 string    `bson:"state"`
+	LastWorkflowID        string    `bson:"lastWorkflowId"`
+	UpdatedAt             time.Time `bson:"updatedAt"`
 }
 
 // gpuOperatorDoc persists the Swallow-managed GPU Operator record. lastWorkflowId is the fence
@@ -226,6 +243,72 @@ func (r *MongoPlatformRepo) UpdateGPUOperatorState(
 	return result.MatchedCount > 0, nil
 }
 
+// SetOmnistat implements platformdomain.OmnistatRecorder: it writes the record, or unsets it for nil.
+func (r *MongoPlatformRepo) SetOmnistat(ctx context.Context, platformID string, omnistat *platformdomain.Omnistat) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if omnistat == nil {
+		update["$unset"] = bson.M{"omnistat": ""}
+	} else {
+		update["$set"].(bson.M)["omnistat"] = toOmnistatDoc(omnistat)
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return platformdomain.ErrPlatformNotFound
+	}
+	return nil
+}
+
+// UpdateOmnistatState implements platformdomain.OmnistatRecorder. The filter on lastWorkflowId is
+// the fence: a Task of a superseded Workflow matches nothing and changes nothing, reported as false.
+func (r *MongoPlatformRepo) UpdateOmnistatState(
+	ctx context.Context,
+	platformID, workflowID string,
+	state platformdomain.OmnistatState,
+	at time.Time,
+) (bool, error) {
+	if workflowID == "" {
+		return false, nil
+	}
+	result, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": platformID, "omnistat.lastWorkflowId": workflowID},
+		bson.M{"$set": bson.M{"omnistat.state": string(state), "omnistat.updatedAt": at}},
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.MatchedCount > 0, nil
+}
+
+func toOmnistatDoc(omnistat *platformdomain.Omnistat) *omnistatDoc {
+	if omnistat == nil {
+		return nil
+	}
+	return &omnistatDoc{
+		Enabled: omnistat.Enabled, Version: omnistat.Version, InstallMethod: string(omnistat.InstallMethod),
+		ObservabilityServerID: omnistat.ObservabilityServerID, State: string(omnistat.State),
+		LastWorkflowID: omnistat.LastWorkflowID, UpdatedAt: omnistat.UpdatedAt,
+	}
+}
+
+func toOmnistat(doc *omnistatDoc) *platformdomain.Omnistat {
+	if doc == nil {
+		return nil
+	}
+	method := platformdomain.OmnistatInstallMethod(doc.InstallMethod)
+	if method == "" {
+		method = platformdomain.OmnistatInstallContainer
+	}
+	return &platformdomain.Omnistat{
+		Enabled: doc.Enabled, Version: doc.Version, InstallMethod: method,
+		ObservabilityServerID: doc.ObservabilityServerID,
+		State:                 platformdomain.OmnistatState(doc.State), LastWorkflowID: doc.LastWorkflowID,
+		UpdatedAt: doc.UpdatedAt,
+	}
+}
+
 func toGPUOperatorDoc(operator platformdomain.GPUOperator) *gpuOperatorDoc {
 	settings := operator.Settings
 	return &gpuOperatorDoc{
@@ -285,6 +368,8 @@ func toDoc(platform *platformdomain.Platform) *platformDoc {
 		ExporterOwner:      string(platform.ExporterOwner),
 		MonitoringLinks:    toMonitoringLinkDocs(platform.MonitoringLinks),
 		GPUOperator:        optionalGPUOperatorDoc(platform.GPUOperator),
+		Omnistat:           toOmnistatDoc(platform.Omnistat),
+		ContainerRuntime:   string(platform.ContainerRuntime),
 		Sync: platformSync{
 			LastStartedAt:   platform.Sync.LastStartedAt,
 			LastSucceededAt: platform.Sync.LastSucceededAt,
@@ -315,6 +400,8 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		ExporterOwner:      exporterOwner,
 		MonitoringLinks:    toMonitoringLinks(doc.MonitoringLinks),
 		GPUOperator:        toGPUOperator(doc.GPUOperator),
+		Omnistat:           toOmnistat(doc.Omnistat),
+		ContainerRuntime:   platformdomain.ContainerRuntime(doc.ContainerRuntime),
 		Sync: platformdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,

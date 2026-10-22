@@ -1,0 +1,18 @@
+# Managed by Swallow (Grafana Managed Software). Do not edit by hand; changes are overwritten.
+name: {{ grafana_project }}
+services:
+  grafana:
+    image: {{ grafana_image }}
+    container_name: {{ grafana_container_name }}
+    restart: unless-stopped
+    environment:
+      GF_SERVER_HTTP_PORT: "3000"
+{% for key, value in grafana_environment | dictsort %}
+      {{ key }}: {{ value | string | to_json }}
+{% endfor %}
+    ports:
+      - "{{ grafana_listen_address }}:{{ grafana_port }}:3000"
+    volumes:
+      - {{ grafana_data_dir }}:/var/lib/grafana
+      - {{ grafana_config_dir }}/provisioning:/etc/grafana/provisioning:ro
+      - {{ grafana_config_dir }}/dashboards:{{ grafana_container_dashboards_dir }}:ro

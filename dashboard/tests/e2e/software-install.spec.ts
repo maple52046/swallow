@@ -359,6 +359,74 @@ test('the target picker explains Kubernetes and mutually exclusive software rest
   await expect(dialog.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
 })
 
+async function chooseSingleSelectOption(page: import('playwright/test').Page, fieldLabel: string, optionLabel: string) {
+  await page.getByRole('combobox', { name: fieldLabel, exact: true }).click()
+  await page.getByRole('option', { name: optionLabel, exact: true }).click()
+}
+
+test('Prometheus runs as a container on the targets\' installed runtime', async ({ page }) => {
+  const installs: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, {
+    fleetSize: 5,
+    softwareAssignments: [assignment('srv-5', 'podman', 'installed')],
+    onSoftwareInstallRequest: (body) => installs.push(body),
+  })
+  await page.goto('/software/prometheus?site=site-a')
+  await page.locator('header').getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('compute-node-005')
+  await dialog.getByRole('checkbox', { name: 'Select compute-node-005' }).locator('..').click()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+
+  await expect(dialog.getByRole('combobox', { name: 'Install method', exact: true })).toContainText('Container')
+  await expect(dialog.getByText('Runs on Podman, the runtime installed on the selected Servers.')).toBeVisible()
+  await dialog.getByRole('textbox', { name: 'Scrape targets' }).fill('10.0.0.21:9100')
+  await dialog.getByRole('button', { name: 'Install', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/workflows\/op-docker-reapply\?site=site-a/)
+  expect(installs).toEqual([
+    {
+      kind: 'prometheus',
+      assignments: [{ serverId: 'srv-5', roles: [] }],
+      spec: { installMethod: 'container', containerRuntime: 'podman', scrapeTargets: ['10.0.0.21:9100'] },
+    },
+  ])
+})
+
+test('a target without a container runtime blocks the container method until native is chosen', async ({ page }) => {
+  const installs: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, {
+    fleetSize: 5,
+    softwareAssignments: [assignment('srv-5', 'podman', 'installed')],
+    onSoftwareInstallRequest: (body) => installs.push(body),
+  })
+  await page.goto('/software/grafana?site=site-a')
+  await page.locator('header').getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('compute-node-005')
+  await dialog.getByRole('checkbox', { name: 'Select compute-node-005' }).locator('..').click()
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('gpu-node-03')
+  await dialog.getByRole('checkbox', { name: 'Select gpu-node-03' }).locator('..').click()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+
+  await expect(dialog.getByText('No container runtime installed')).toBeVisible()
+  await expect(dialog.getByText('Install Docker CE or Podman on gpu-node-03 first, or choose the native method.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeDisabled()
+
+  await chooseSingleSelectOption(page, 'Install method', 'Native (official release or package)')
+  await expect(dialog.getByText('No container runtime installed')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Install', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/workflows\/op-docker-reapply\?site=site-a/)
+  expect(installs).toEqual([
+    {
+      kind: 'grafana',
+      assignments: [{ serverId: 'srv-5', roles: [] }, { serverId: 'srv-3', roles: [] }],
+      spec: { installMethod: 'native' },
+    },
+  ])
+})
+
 test('a failed deployment retries with its complete spec and keeps backend errors inline', async ({ page }) => {
   const installs: Array<Record<string, unknown>> = []
   await installApiFixtures(page, {

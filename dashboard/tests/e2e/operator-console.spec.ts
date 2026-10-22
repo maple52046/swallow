@@ -574,7 +574,11 @@ test.describe('operator interactions', () => {
   })
 
   test('Platform wizard deploys a Slurm platform with per-daemon node roles', async ({ page }) => {
-    await installApiFixtures(page, { freePlatformCandidates: true })
+    let deployBody: Record<string, unknown> | undefined
+    await installApiFixtures(page, {
+      freePlatformCandidates: true,
+      onPlatformDeploymentRequest: (body) => { deployBody = body },
+    })
     await page.goto('/platforms/deploy?site=site-a')
     await chooseSingleSelectOption(page, 'Platform type', 'Slurm')
     await page.getByLabel('Platform name').fill('research-slurm-2')
@@ -592,12 +596,28 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('1 controller', { exact: true })).toBeVisible()
     await next.click()
 
-    // Slurm has no platform networking step, so Machines is followed by Review.
+    // Optional features follow the machine choice: the container runtime goes to the compute and
+    // login nodes, and Omnistat's Prometheus and Grafana run on the primary controller just picked.
+    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
+    await chooseSingleSelectOption(page, 'Container runtime', 'Podman')
+    await page.getByRole('checkbox', { name: 'Install Omnistat GPU monitoring' }).locator('..').click()
+    await expect(page.getByText('Runs both as containers on gpu-node-01, which gets Podman.')).toBeVisible()
+    await chooseSingleSelectOption(page, 'Prometheus and Grafana install method', 'Native (official release and package repository)')
+    await expect(page.getByText(/from the official Prometheus release and Grafana package repository/)).toBeVisible()
+    await next.click()
+
+    // Slurm has no platform networking step, so Features is followed by Review.
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await expect(page.getByText('Controllers')).toBeVisible()
+    await expect(page.getByText('Podman on compute and login nodes')).toBeVisible()
+    await expect(page.getByText('Install (Prometheus and Grafana on gpu-node-01, native)')).toBeVisible()
     await page.getByRole('button', { name: 'Deploy platform' }).click()
     await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
+    expect(deployBody?.containerRuntime).toEqual({ kind: 'podman' })
+    expect(deployBody?.omnistat).toEqual({ enabled: true, installMethod: 'native' })
+    await expect(page.getByLabel('Omnistat')).toContainText('Installing')
+    await expect(page.getByLabel('Omnistat')).toContainText('installed natively')
   })
 
   test('Platform deployment review shows ephemeral OS deployment', async ({ page }) => {
@@ -611,6 +631,8 @@ test.describe('operator interactions', () => {
     await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
