@@ -13,6 +13,9 @@
     amdgpu_loader_state: "{{ 'present' if amd_gpu_operator_managed | bool else 'absent' }}"
     amdgpu_loader_unit: "{{ amd_gpu_operator_driver_unit }}"
     amdgpu_loader_dependents: "{{ amd_gpu_operator_k0s_units }}"
+    # k0s also runs the node's non-GPU work (and may be a controller), so a driver failure must not
+    # keep it from starting; it is only ordered after the loader.
+    amdgpu_loader_strict: false
     amdgpu_loader_dropin: "{{ amd_gpu_operator_driver_dropin }}"
     amdgpu_loader_owner: AMD GPU Operator
     amdgpu_loader_node_name: "{{ amd_gpu_operator_node_name }}"

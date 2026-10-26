@@ -5,13 +5,14 @@ services:
     image: {{ prometheus_image }}
     container_name: {{ prometheus_container_name }}
     restart: unless-stopped
+    # The host network keeps the listen address the same as a native install's.
+    network_mode: host
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time={{ prometheus_retention }}
+      - --web.listen-address={{ prometheus_listen_address }}:{{ prometheus_port }}
       - --web.enable-lifecycle
-    ports:
-      - "{{ prometheus_listen_address }}:{{ prometheus_port }}:9090"
     volumes:
       - {{ prometheus_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - {{ prometheus_data_dir }}:/prometheus

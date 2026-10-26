@@ -2,8 +2,12 @@
 [Unit]
 Description=Omnistat {{ omnistat_version }} Prometheus exporter
 Documentation=https://rocm.github.io/omnistat/
-Wants=network-online.target{{ (' ' ~ omnistat_amdgpu_unit) if omnistat_gpu | bool else '' }}
+Wants=network-online.target
 After=network-online.target{{ (' ' ~ omnistat_amdgpu_unit) if omnistat_gpu | bool else '' }}
+{% if omnistat_gpu | bool %}
+# The exporter reads the GPUs, so it never starts without a loaded driver.
+Requires={{ omnistat_amdgpu_unit }}
+{% endif %}
 
 [Service]
 Type=simple

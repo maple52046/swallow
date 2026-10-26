@@ -381,6 +381,13 @@ test('Prometheus runs as a container on the targets\' installed runtime', async 
   await expect(dialog.getByRole('combobox', { name: 'Install method', exact: true })).toContainText('Container')
   await expect(dialog.getByText('Runs on Podman, the runtime installed on the selected Servers.')).toBeVisible()
   await dialog.getByRole('textbox', { name: 'Scrape targets' }).fill('10.0.0.21:9100')
+  // Prometheus has no login, so it answers on loopback unless the operator opens it up.
+  await expect(dialog.getByRole('combobox', { name: 'Answers on', exact: true })).toContainText('This Server only (127.0.0.1)')
+  await chooseSingleSelectOption(page, 'Answers on', 'Management address')
+  await dialog.getByRole('textbox', { name: 'Retention' }).fill('7 days')
+  await expect(dialog.getByText('Use a Prometheus duration such as 15d, 7d, 1w, or 12h.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeDisabled()
+  await dialog.getByRole('textbox', { name: 'Retention' }).fill('7d')
   await dialog.getByRole('button', { name: 'Install', exact: true }).click()
 
   await expect(page).toHaveURL(/\/workflows\/op-docker-reapply\?site=site-a/)
@@ -388,7 +395,10 @@ test('Prometheus runs as a container on the targets\' installed runtime', async 
     {
       kind: 'prometheus',
       assignments: [{ serverId: 'srv-5', roles: [] }],
-      spec: { installMethod: 'container', containerRuntime: 'podman', scrapeTargets: ['10.0.0.21:9100'] },
+      spec: {
+        installMethod: 'container', containerRuntime: 'podman', scrapeTargets: ['10.0.0.21:9100'],
+        listen: 'management', retention: '7d',
+      },
     },
   ])
 })

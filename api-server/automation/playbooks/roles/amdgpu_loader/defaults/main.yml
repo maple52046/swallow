@@ -3,8 +3,11 @@
 # for the GPU Operator, decision 063 for Slurm GPU GRES). An image may keep amdgpu out of the boot
 # path (modprobe.blacklist=amdgpu, AMD's guidance for Instinct hosts and SR-IOV guests); this unit
 # loads it once SSH is up, so a GPU probe that hangs never locks an operator out of the node.
-# Module options (for example pcie_p2p=0 on MI308X SR-IOV guests) are deployment policy and come
-# from /etc/modprobe.d written by the deployment's cloud-init, never from this role.
+#
+# Driver module options (decision 063) never name a GPU model or a virtualization mode. They are
+# the operator's swallow_gpu_driver_module_options plus options a topology rule derives from what
+# the node's KFD reports, written to a Swallow-owned modprobe.d file before the driver loads. A
+# driver loaded with other parameters is never unloaded: the node reboots once to apply them.
 
 # present installs, enables, and starts the loader; absent stops loading it at the next boot.
 amdgpu_loader_state: present
@@ -13,6 +16,9 @@ amdgpu_loader_unit: swallow-amdgpu-load.service
 # A unit that does not exist on the host is skipped.
 amdgpu_loader_dependents: []
 amdgpu_loader_dropin: 10-swallow-after-amdgpu.conf
+# true makes the dependents Require the loader, so they never start without a loaded driver; false
+# only orders them (Wants), for units that also serve non-GPU work.
+amdgpu_loader_strict: true
 # Who asked for the loader, written into the drop-in comment so a person reading the host knows.
 amdgpu_loader_owner: Swallow
 # Name used in failure messages; defaults to the host's short name.
@@ -20,3 +26,14 @@ amdgpu_loader_node_name: "{{ ansible_hostname }}"
 # Loading many GPUs can exceed systemd's default 90 s start timeout.
 amdgpu_loader_timeout: 300
 amdgpu_loader_ssh_unit: "{{ 'ssh.service' if ansible_facts['os_family'] == 'Debian' else 'sshd.service' }}"
+
+# Operator module options, {"name": "value"}. An option named here always wins over a rule.
+amdgpu_loader_module_options: "{{ swallow_gpu_driver_module_options | default({}, true) }}"
+# false keeps only the operator's options.
+amdgpu_loader_topology_rules: true
+amdgpu_loader_options_file: /etc/modprobe.d/swallow-amdgpu.conf
+# Options a rule derived, kept across runs: once applied, the condition that triggered the rule
+# can disappear (pcie_p2p=0 removes the duplicate links), so it is not re-derived on every run.
+amdgpu_loader_state_file: /var/lib/swallow/amdgpu/options.json
+# A GPU node can take several minutes to come back with many devices.
+amdgpu_loader_reboot_timeout: 1800

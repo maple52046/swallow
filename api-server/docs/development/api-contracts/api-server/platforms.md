@@ -103,6 +103,8 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
   ],
   "omnistat": null,
   "containerRuntime": null,
+  "gpuDriver": null,
+  "gpuGresType": null,
   "sync": {
     "lastStartedAt": null,
     "lastSucceededAt": null,
@@ -140,6 +142,14 @@ Omnistat, and removes only that link when the Platform is uninstalled (see [Omni
 `containerRuntime` is the container runtime a Slurm deploy installed on its compute and login
 nodes, `docker-ce` or `podman` (see [Container Runtime](#container-runtime)). It is `null` when
 the feature was off (always for Kubernetes).
+
+`gpuDriver` is the operator's amdgpu driver intent, `{ "moduleOptions": { "<name>": "<value>" } }`
+(see [GPU driver options](#gpu-driver-options)); `null` when the deploy requested none. Options a
+topology rule adds on a node are not listed here.
+
+`gpuGresType` is the GRES type name a Slurm deploy gave every GPU node (see
+[GPU GRES](#gpu-gres)); `null` when the type is derived per node from the GPU architecture
+(always for Kubernetes).
 
 `origin` is `registered | deployed`. New Platforms are always `deployed`; `origin=registered`
 is a one-release compatibility value for records created before the register-existing path was
@@ -427,20 +437,57 @@ whose credential is required). A Slurm platform can be uninstalled like Kubernet
 Operation that removes the Slurm configuration and daemons while keeping the host OS and
 image-supplied packages, and can optionally release the member servers.
 
-**GPU GRES.** Every Slurm deployment schedules AMD GPUs without extra request fields
+### GPU GRES
+
+Every Slurm deployment schedules AMD GPUs
 ([decision 063](../../../../../docs/decisions/063-omnistat-slurm-observability.md)). Swallow selects
 the compute Servers whose GPU Inventory lists AMD `compute` GPUs; on each it loads the image's
-`amdgpu` driver after boot (`swallow-amdgpu-load.service`, `slurmd` ordered after it), maps every
-GPU from the KFD topology, and configures `GresTypes=gpu`, `Gres=gpu:<gfx target>:<count>` (for
-example `gpu:gfx942:8`), and a `gres.conf` with explicit render nodes and
-`Flags=amd_gpu_env,explicit`. Jobs therefore see GPUs only when they request them
-(`--gres=gpu:N` or `--gres=gpu:gfx942:N`), receive `ROCR_VISIBLE_DEVICES`, and are confined to their
-GPUs by the device cgroup; the GPU device nodes are opened to every job user because that cgroup
-is the access boundary. A selected Server whose KFD topology shows no GPU fails the deployment
-(`slurm_gpu_missing`), and the deployment verifies that each GPU node hands out one GPU to a job.
-Driver module options a deployment needs (for example `options amdgpu pcie_p2p=0` on MI308X SR-IOV
-guests) belong in the deployment's cloud-init user data. The live
+`amdgpu` driver after boot (`swallow-amdgpu-load.service` with the
+[GPU driver options](#gpu-driver-options); `slurmd` requires it), maps every GPU from the KFD
+topology, and configures `GresTypes=gpu`, `Gres=gpu:<type>:<count>`, and a `gres.conf` with
+explicit render nodes and `Flags=amd_gpu_env,explicit`. The type is derived per node from the GPU
+architecture (for example `gpu:gfx942:8`) unless the deploy names one for every GPU node:
+
+```json
+"slurm": { "gpuGresType": "mi308x_vf", "nodeAssignments": [ /* ... */ ] }
+```
+
+`gpuGresType` starts with a letter and contains only letters, digits, or underscores; anything
+else is a `validation_error`. Jobs see GPUs only when they request them (`--gres=gpu:N`, which
+matches any type, or `--gres=gpu:<type>:N`), receive `ROCR_VISIBLE_DEVICES`, and are confined to
+their GPUs by the device cgroup; the GPU device nodes are opened to every job user because that
+cgroup is the access boundary. A selected Server whose KFD topology shows no GPU fails the
+deployment (`slurm_gpu_missing`).
+
+GPUs must be usable, not merely listed: on every GPU node the HIP probe
+(`/usr/local/libexec/swallow/hip-probe`) calls `hipGetDeviceCount` (which must equal the KFD GPU
+count), then `hipSetDevice`, `hipMalloc`, `hipMemset`, `hipDeviceSynchronize`, and `hipFree` on
+every GPU, three times, each in its own process so a crash at exit fails it. It runs directly on
+the node and again through Slurm: a job without a GPU request sees no GPU, a `--gres=gpu:1` job
+sees exactly one as device `0`, and a job requesting every GPU of the node passes the probe. A
+failure drains the node (`reason=swallow: GPU probe failed`) and fails the deployment with
+`gpu_probe_failed` (`hip_runtime_missing` when the image has no HIP runtime). The live
 [Slurm cluster read](#read-slurm-cluster-state) reports each node's `gres`.
+
+### GPU driver options
+
+A deploy of either platform type may set amdgpu module options for its GPU nodes:
+
+```json
+"gpuDriver": { "moduleOptions": { "pcie_p2p": "0" } }
+```
+
+A name is lower-case letters, digits, and underscores; a value is letters, digits, and `_.,:-`; at
+most 16 options. Anything else is a `validation_error`. Swallow also derives options from what a
+node's KFD topology shows, never from a GPU model or a virtualization mode. Today's only rule:
+when a GPU node reaches the same peer through both an XGMI `io_link` and a PCIe `p2p_link`, the
+ROCm thunk overflows its peer array and HIP processes corrupt the heap at exit, so the rule adds
+`pcie_p2p=0`. A rule option is kept once applied (the condition disappears with it); an option the
+operator names always wins over a rule. The options are written to
+`/etc/modprobe.d/swallow-amdgpu.conf` before the driver loads; a driver already loaded with other
+parameters is never unloaded — the node reboots once to apply them — and every option is then
+verified against `/sys/module/amdgpu/parameters` (`amdgpu_option_not_applied` otherwise). The
+options apply to the Slurm GPU nodes and to the GPU Operator's host driver step on Kubernetes.
 
 ## Container Runtime
 
@@ -517,8 +564,10 @@ acceptance until the Omnistat Task finishes, `ready` when it succeeded (every ex
 and the dashboards are provisioned), `failed` when it failed or never ran because an earlier Job
 failed, and `absent` after the Platform was uninstalled. Only `lastWorkflowId` may move it. On
 success Swallow also sets the Monitoring Link `Omnistat Grafana` to the observability Server's
-Grafana (`http://<primary address>:3000`, read-only, no login). Swallow never queries Omnistat's
-Prometheus. Uninstalling the Platform removes the exporter and the Slurm side, marks the state
+Grafana (`http://<primary address>:3000`, read-only, no login). Omnistat's Prometheus listens only
+on the observability Server's loopback address (`listen: loopback`, see
+[software](software.md#prometheus-and-grafana-spec)), so only that Grafana reads it, and Swallow
+never queries it. Uninstalling the Platform removes the exporter and the Slurm side, marks the state
 `absent`, and removes the link; the container runtime, Prometheus, and Grafana Software
 Assignments stay until they are uninstalled through the software API.
 

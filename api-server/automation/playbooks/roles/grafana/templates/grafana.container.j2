@@ -7,8 +7,10 @@ After=network-online.target
 [Container]
 ContainerName={{ grafana_container_name }}
 Image={{ grafana_image }}
-PublishPort={{ grafana_listen_address }}:{{ grafana_port }}:3000
-Environment=GF_SERVER_HTTP_PORT=3000
+# The host network lets Grafana reach a loopback-only Prometheus on the same Server.
+Network=host
+Environment=GF_SERVER_HTTP_ADDR={{ grafana_listen_address }}
+Environment=GF_SERVER_HTTP_PORT={{ grafana_port }}
 {% for key, value in grafana_environment | dictsort %}
 Environment={{ key }}={{ value }}
 {% endfor %}

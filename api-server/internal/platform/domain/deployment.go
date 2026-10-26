@@ -3,7 +3,9 @@ package domain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
+	"regexp"
 )
 
 // NodeRole is the part a server plays in a platform: running the control plane or running
@@ -174,6 +176,20 @@ type SlurmDeploymentSpec struct {
 	APIVersion        string
 	StateSaveLocation string
 	WorkloadStorage   SlurmWorkloadStorageSpec
+	// GPUGresType names the GRES type every GPU node advertises (for example mi308x_vf). Empty
+	// derives it per node from the GPU architecture KFD reports (for example gfx942).
+	GPUGresType string
+}
+
+var slurmGRESType = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
+
+// ValidateSlurmGRESType accepts an empty type (derived) or a name of letters, digits, and
+// underscores that starts with a letter, so it cannot break a gres.conf or slurm.conf line.
+func ValidateSlurmGRESType(name string) error {
+	if name == "" || slurmGRESType.MatchString(name) {
+		return nil
+	}
+	return fmt.Errorf("%w: slurm.gpuGresType %q must start with a letter and contain only letters, digits, or underscores", ErrInvalidDeployment, name)
 }
 
 // ControllerServerIDs returns the slurmctld hosts in request order. The first entry is the

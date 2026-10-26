@@ -290,6 +290,9 @@ func omnistatSoftwareSpec(kind softwaredomain.Kind, omnistat *platformdomain.Omn
 	}
 	switch kind {
 	case softwaredomain.KindPrometheus:
+		// Only Grafana on the same Server reads Omnistat's Prometheus, and its API has no
+		// authentication, so it never listens beyond the loopback address.
+		spec[softwaredomain.SpecListen] = string(softwaredomain.PrometheusListenLoopback)
 		spec[softwaredomain.SpecScrapeJob] = platformdomain.OmnistatScrapeJob
 		spec[softwaredomain.SpecScrapeServerIDs] = omnistat.ComputeServerIDs
 		spec[softwaredomain.SpecScrapePort] = platformdomain.OmnistatExporterPort

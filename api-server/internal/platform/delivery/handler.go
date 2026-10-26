@@ -163,6 +163,7 @@ func slurmSpecFromRequest(request *slurmDeployRequest) platformdomain.SlurmDeplo
 		StateSaveLocation: request.StateSaveLocation,
 		NodeAssignments:   assignments,
 		WorkloadStorage:   slurmWorkloadStorageFromRequest(request.WorkloadStorage),
+		GPUGresType:       request.GPUGresType,
 	}
 }
 
@@ -228,6 +229,8 @@ type deployPlatformRequest struct {
 	// ContainerRuntime optionally installs a container runtime on a Slurm Platform's compute and
 	// login nodes.
 	ContainerRuntime *containerRuntimeRequest `json:"containerRuntime"`
+	// GPUDriver optionally sets amdgpu module options on the Platform's GPU nodes.
+	GPUDriver *gpuDriverRequest `json:"gpuDriver"`
 	// Type selects the platform to build: "kubernetes" (default when omitted) or "slurm".
 	// The Kubernetes fields below are read for kubernetes; Slurm is read for slurm.
 	Type               string                    `json:"type"`
@@ -254,6 +257,12 @@ type containerRuntimeRequest struct {
 	Kind string `json:"kind"`
 }
 
+// gpuDriverRequest is the deploy body's optional amdgpu driver intent (platforms.md, "GPU driver
+// options"). Values are strings so a module parameter is written exactly as given.
+type gpuDriverRequest struct {
+	ModuleOptions map[string]string `json:"moduleOptions"`
+}
+
 // slurmDeployRequest is the Slurm-specific deploy body. Node roles are per-role flags because
 // a Server may run slurmctld, slurmd, both, or be a login (submission) host. Empty optional
 // fields let the application default them (clusterName from the platform name; a
@@ -265,6 +274,9 @@ type slurmDeployRequest struct {
 	StateSaveLocation string                   `json:"stateSaveLocation"`
 	NodeAssignments   []slurmNodeAssignReq     `json:"nodeAssignments"`
 	WorkloadStorage   *slurmWorkloadStorageReq `json:"workloadStorage"`
+	// GPUGresType optionally names the GRES type of every GPU node; omitted derives it from the
+	// GPU architecture.
+	GPUGresType string `json:"gpuGresType"`
 }
 
 // slurmNodeAssignReq assigns Slurm roles to one Server; an omitted flag is false. Login marks
@@ -332,6 +344,10 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 	if req.ContainerRuntime != nil {
 		containerRuntime = req.ContainerRuntime.Kind
 	}
+	var gpuDriver *platformdomain.GPUDriverSettings
+	if req.GPUDriver != nil {
+		gpuDriver = &platformdomain.GPUDriverSettings{ModuleOptions: req.GPUDriver.ModuleOptions}
+	}
 	result, err := h.deploy.Deploy(c.Context(), application.DeployPlatformInput{
 		SiteID:           req.SiteID,
 		Name:             req.Name,
@@ -339,6 +355,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		GPUStackOwner:    req.GPUStackOwner,
 		GPUOperator:      gpuOperator,
 		ContainerRuntime: containerRuntime,
+		GPUDriver:        gpuDriver,
 		Omnistat:         omnistat,
 		Spec: platformdomain.DeploymentSpec{
 			K0sVersion:      req.K0sVersion,
@@ -656,6 +673,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, platformdomain.ErrInvalidGPUOperator),
 		errors.Is(err, platformdomain.ErrInvalidOmnistat),
 		errors.Is(err, platformdomain.ErrInvalidContainerRuntime),
+		errors.Is(err, platformdomain.ErrInvalidGPUDriver),
 		errors.Is(err, serverdomain.ErrServerNotFound),
 		errors.Is(err, platformdomain.ErrUnsupportedPlatformType):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))

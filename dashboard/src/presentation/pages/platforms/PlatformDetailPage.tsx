@@ -4,6 +4,7 @@ import { ChartLine, ExternalLink, RefreshCw } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
+import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
 import type { OmnistatState, Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -322,9 +323,11 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
  * Type already appears beside the page title, so this group keeps only the
  * configuration facts an operator may need while investigating the platform.
  * A Slurm Platform also states its container runtime feature (or that it has none); each
- * Server's runtime install state lives in its Software Assignment, not here.
+ * Server's runtime install state lives in its Software Assignment, not here. GPU driver options
+ * and the GRES type appear only when the operator set them; derived values are a node fact.
  */
 function PlatformConfiguration({ platform }: { platform: Platform }) {
+  const driverOptions = formatGPUDriverModuleOptions(platform.gpuDriver?.moduleOptions)
   const items = [
     { label: 'GPU stack', value: platform.gpuStackOwner },
     { label: 'Exporters', value: platform.exporterOwner },
@@ -336,6 +339,8 @@ function PlatformConfiguration({ platform }: { platform: Platform }) {
             : 'None',
         }]
       : []),
+    ...(platform.gpuGresType ? [{ label: 'GPU GRES type', value: platform.gpuGresType }] : []),
+    ...(driverOptions ? [{ label: 'GPU driver options', value: driverOptions }] : []),
     { label: 'Integration', value: platform.integrationId || 'Not connected' },
   ]
 

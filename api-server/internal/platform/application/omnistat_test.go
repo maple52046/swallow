@@ -157,6 +157,86 @@ func TestDeploySlurmContainerRuntimeFeature(t *testing.T) {
 	}
 }
 
+// GPU driver options are recorded on the Platform and always reach the playbook, empty when none
+// were requested, so a redeploy without them clears what an earlier run applied.
+func TestDeploySlurmGPUDriverOptions(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(slurmServers()...)
+	input := validSlurmInput()
+	input.GPUDriver = &platformdomain.GPUDriverSettings{ModuleOptions: map[string]string{"pcie_p2p": "0"}}
+	result, err := service.Deploy(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	if got := platforms.platforms[result.PlatformID].GPUDriver.ModuleOptions["pcie_p2p"]; got != "0" {
+		t.Errorf("recorded pcie_p2p = %q, want 0", got)
+	}
+	if options, _ := launcher.launched.TrustedVars[varGPUDriverModuleOptions].(map[string]string); options["pcie_p2p"] != "0" {
+		t.Errorf("%s = %v, want pcie_p2p=0", varGPUDriverModuleOptions, launcher.launched.TrustedVars[varGPUDriverModuleOptions])
+	}
+
+	service, launcher, _ = newDeployHarness(slurmServers()...)
+	if _, err := service.Deploy(context.Background(), validSlurmInput()); err != nil {
+		t.Fatalf("Deploy(no options) error = %v", err)
+	}
+	if options, ok := launcher.launched.TrustedVars[varGPUDriverModuleOptions].(map[string]string); !ok || options == nil || len(options) != 0 {
+		t.Errorf("%s = %#v, want an empty map", varGPUDriverModuleOptions, launcher.launched.TrustedVars[varGPUDriverModuleOptions])
+	}
+
+	service, launcher, platforms = newDeployHarness(slurmServers()...)
+	input = validSlurmInput()
+	input.GPUDriver = &platformdomain.GPUDriverSettings{ModuleOptions: map[string]string{"pcie_p2p": "0\ninstall x"}}
+	if _, err := service.Deploy(context.Background(), input); !errors.Is(err, platformdomain.ErrInvalidGPUDriver) {
+		t.Fatalf("Deploy(bad option) error = %v, want ErrInvalidGPUDriver", err)
+	}
+	if launcher.launched != nil || len(platforms.platforms) != 0 {
+		t.Error("a refused deploy must create nothing")
+	}
+}
+
+// The GRES type is derived unless the deploy names one; the name reaches the playbook, is recorded
+// on the Platform, and must be a plain identifier.
+func TestDeploySlurmGPUGresType(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(slurmServers()...)
+	if _, err := service.Deploy(context.Background(), validSlurmInput()); err != nil {
+		t.Fatalf("Deploy(derived) error = %v", err)
+	}
+	if got, ok := launcher.launched.TrustedVars[varSlurmGPUGresType].(string); !ok || got != "" {
+		t.Errorf("%s = %#v, want an empty (derived) type", varSlurmGPUGresType, launcher.launched.TrustedVars[varSlurmGPUGresType])
+	}
+
+	service, launcher, platforms = newDeployHarness(slurmServers()...)
+	input := validSlurmInput()
+	input.SlurmSpec.GPUGresType = " mi308x_vf "
+	result, err := service.Deploy(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Deploy(named) error = %v", err)
+	}
+	if launcher.launched.TrustedVars[varSlurmGPUGresType] != "mi308x_vf" || platforms.platforms[result.PlatformID].GPUGresType != "mi308x_vf" {
+		t.Errorf("named type: var = %v, recorded = %q", launcher.launched.TrustedVars[varSlurmGPUGresType], platforms.platforms[result.PlatformID].GPUGresType)
+	}
+
+	for _, name := range []string{"gpu:8", "mi308x vf", "8gpu", "a,b"} {
+		service, launcher, platforms = newDeployHarness(slurmServers()...)
+		input := validSlurmInput()
+		input.SlurmSpec.GPUGresType = name
+		if _, err := service.Deploy(context.Background(), input); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+			t.Errorf("Deploy(%q) error = %v, want ErrInvalidDeployment", name, err)
+		}
+		if launcher.launched != nil || len(platforms.platforms) != 0 {
+			t.Errorf("Deploy(%q) created something", name)
+		}
+	}
+}
+
+// The GPU Operator's host driver step loads amdgpu too, so its vars carry the Platform's options.
+func TestGPUOperatorVarsCarryDriverOptions(t *testing.T) {
+	vars := buildGPUOperatorVars(platformdomain.GPUOperatorSettings{Enabled: true}, "c1",
+		platformdomain.GPUDriverSettings{ModuleOptions: map[string]string{"pcie_p2p": "0"}})
+	if options, _ := vars[varGPUDriverModuleOptions].(map[string]string); options["pcie_p2p"] != "0" {
+		t.Errorf("%s = %v, want pcie_p2p=0", varGPUDriverModuleOptions, vars[varGPUDriverModuleOptions])
+	}
+}
+
 func TestDeployRefusesContainerRuntimeItCannotApply(t *testing.T) {
 	service, launcher, platforms := newDeployHarness(slurmServers()...)
 	input := validSlurmInput()

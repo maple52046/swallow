@@ -50,7 +50,12 @@ import { useDeployableServers } from './useDeployableServers'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
 import { AdvancedSettings } from './AdvancedSettings'
 import { KubernetesDeploymentFeatures } from './KubernetesDeploymentFeatures'
-import { SlurmDeploymentFeatures } from './SlurmDeploymentFeatures'
+import { SlurmDeploymentFeatures, type GPUGresTypeMode } from './SlurmDeploymentFeatures'
+import {
+  formatGPUDriverModuleOptions,
+  isValidGPUGresType,
+  parseGPUDriverModuleOptions,
+} from '@/domain/platform/gpuDriver'
 import {
   DEFAULT_GPU_OPERATOR_FORM,
   gpuOperatorFormProblem,
@@ -246,6 +251,11 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   // primary controller by the chosen install method. Off by default because it adds software there.
   const [omnistatEnabled, setOmnistatEnabled] = useState(false)
   const [omnistatInstallMethod, setOmnistatInstallMethod] = useState<OmnistatInstallMethod>('container')
+  // GPU node settings (platforms.md "GPU GRES" and "GPU driver options"): the GRES type is derived
+  // from the GPU architecture unless named, and topology-required driver options apply regardless.
+  const [slurmGresTypeMode, setSlurmGresTypeMode] = useState<GPUGresTypeMode>('automatic')
+  const [slurmGresType, setSlurmGresType] = useState('')
+  const [gpuDriverOptionsText, setGPUDriverOptionsText] = useState('')
   const [topology, setTopology] = useState<TopologyChoice>('high-availability')
   const [apiVip, setAPIVip] = useState('')
   // Empty means the backend takes the prefix of the control plane's subnet, which is the only
@@ -408,7 +418,10 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   const gpuOperatorProblem = isSlurm
     ? null
     : gpuOperatorFormProblem(gpuOperatorForm, hasAMDGPUWorkload, gpuOperatorCatalog, k0sVersion.trim())
-  const featuresValid = isSlurm || gpuOperatorProblem === null
+  const slurmGresTypeInvalid = slurmGresTypeMode === 'custom' && !isValidGPUGresType(slurmGresType.trim())
+  const gpuDriverOptions = parseGPUDriverModuleOptions(gpuDriverOptionsText)
+  const slurmGPUSettingsValid = !slurmGresTypeInvalid && gpuDriverOptions.errors.length === 0
+  const featuresValid = isSlurm ? slurmGPUSettingsValid : gpuOperatorProblem === null
   const gpuOperatorReview = (() => {
     if (!gpuOperatorForm.enabled) return 'Not installed'
     const release = gpuOperatorCatalog ? resolveGPUOperatorRelease(gpuOperatorForm, gpuOperatorCatalog) : undefined
@@ -686,7 +699,9 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               gpuStackOwner: 'provisioning',
               ...(slurmContainerRuntime ? { containerRuntime: { kind: slurmContainerRuntime } } : {}),
               ...(omnistatEnabled ? { omnistat: { enabled: true, installMethod: omnistatInstallMethod } } : {}),
+              ...(Object.keys(gpuDriverOptions.options).length > 0 ? { gpuDriver: { moduleOptions: gpuDriverOptions.options } } : {}),
               slurm: {
+                ...(slurmGresTypeMode === 'custom' ? { gpuGresType: slurmGresType.trim() } : {}),
                 clusterName: clusterName.trim() || undefined,
                 apiVersion: slurmApiVersion.trim() || undefined,
                 // stateSaveLocation is intentionally omitted: Swallow provisions the HA shared
@@ -1219,8 +1234,10 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
     steps.push({
       id: 'deploy-features',
       name: 'Features',
-      canProceed: isSlurm ? slurmWorkloadValid : featuresValid,
-      blockedReason: isSlurm ? 'Complete the enabled shared-storage settings.' : gpuOperatorProblem ?? undefined,
+      canProceed: isSlurm ? slurmWorkloadValid && slurmGPUSettingsValid : featuresValid,
+      blockedReason: isSlurm
+        ? (slurmWorkloadValid ? 'Correct the advanced GPU settings.' : 'Complete the enabled shared-storage settings.')
+        : gpuOperatorProblem ?? undefined,
       content: (
         <WizardSection title={isSlurm ? 'Slurm features' : 'Kubernetes features'}>
           {isSlurm ? (
@@ -1241,6 +1258,14 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               omnistatInstallMethod={omnistatInstallMethod}
               onOmnistatInstallMethodChange={setOmnistatInstallMethod}
               primaryControllerName={slurmPrimaryControllerName}
+              gresTypeMode={slurmGresTypeMode}
+              onGresTypeModeChange={setSlurmGresTypeMode}
+              gresType={slurmGresType}
+              onGresTypeChange={setSlurmGresType}
+              gresTypeInvalid={slurmGresTypeInvalid && slurmGresType.trim() !== ''}
+              driverOptionsText={gpuDriverOptionsText}
+              onDriverOptionsTextChange={setGPUDriverOptionsText}
+              driverOptionErrors={gpuDriverOptions.errors}
             />
           ) : (
             <KubernetesDeploymentFeatures
@@ -1609,7 +1634,16 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                   ? `Prometheus and Grafana on ${slurmPrimaryControllerName}; ${omnistatInstallMethod === 'native' ? 'native packages' : 'containers'}`
                   : 'Not included',
               },
-              { label: 'GPU GRES', value: 'Included automatically for AMD GPU compute nodes' },
+              {
+                label: 'GPU GRES',
+                value: slurmGresTypeMode === 'custom'
+                  ? `Included automatically for AMD GPU compute nodes as type ${slurmGresType.trim()}`
+                  : 'Included automatically for AMD GPU compute nodes, typed by GPU architecture',
+              },
+              {
+                label: 'GPU driver options',
+                value: formatGPUDriverModuleOptions(gpuDriverOptions.options) || 'Only what each node\u2019s GPU topology needs',
+              },
             ],
           },
           ...(needsProvisioning

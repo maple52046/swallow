@@ -629,15 +629,18 @@ draDriverVersion: v1.0.1
 (send `{ minimumResources: null }` to disable).
 
 A Slurm deploy schedules the AMD GPUs of its compute nodes as GRES on its own
-(`--gres=gpu:N`). Add `containerRuntime` to install Docker CE or Podman on every compute and login
-node for containerized workloads. To also install Omnistat, add `omnistat`: the primary controller
-(the first controller) gets Prometheus and a read-only Grafana with Omnistat's dashboards, every
-compute node gets the exporter, and the platform gets the Monitoring Link `Omnistat Grafana`.
-`installMethod: container` (the default) runs Prometheus and Grafana as containers on the primary
-controller's runtime (the `containerRuntime` above, else Docker CE); `native` installs them from
-their official release and apt/yum repository instead. This `platform-slurm-omnistat.yaml` is the
-file of a lab run on MI308X SR-IOV guests, whose image needs the deployment-specific `pcie_p2p=0`
-driver option from cloud-init:
+(`--gres=gpu:N`). The GRES type is the GPU architecture (for example `gfx942`) unless
+`slurm.gpuGresType` names one. Every GPU must pass a HIP allocation probe, directly and through
+Slurm, or the node is drained and the deploy fails. Driver module options are derived from each
+node's GPU topology (for example `pcie_p2p=0` where the ROCm thunk would corrupt the heap); add
+`gpuDriver.moduleOptions` to set or override one. Add `containerRuntime` to install Docker CE or
+Podman on every compute and login node for containerized workloads. To also install Omnistat, add
+`omnistat`: the primary controller (the first controller) gets Prometheus (on its loopback
+address) and a read-only Grafana with Omnistat's dashboards, every compute node gets the exporter,
+and the platform gets the Monitoring Link `Omnistat Grafana`. `installMethod: container` (the
+default) runs Prometheus and Grafana as containers on the primary controller's runtime (the
+`containerRuntime` above, else Docker CE); `native` installs them from their official release and
+apt/yum repository instead. This `platform-slurm-omnistat.yaml` is the file of a lab run:
 
 ```yaml
 siteId: site1
@@ -648,8 +651,11 @@ containerRuntime:
 omnistat:
   enabled: true
   installMethod: container   # or native
+gpuDriver:                   # optional; topology rules already apply pcie_p2p=0 where needed
+  moduleOptions: {}
 slurm:
   clusterName: omnistat-run1
+  gpuGresType: mi308x_vf     # optional; omit to use the GPU architecture (gfx942)
   nodeAssignments:
     - { serverId: srva, controller: true, compute: false, login: false }
     - { serverId: srvb, controller: false, compute: true, login: false }
@@ -659,15 +665,6 @@ machinePreparation:
   settings:
     imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
     ephemeral: false
-  userData:
-    mode: replace
-    value: |
-      #cloud-config
-      write_files:
-        - path: /etc/modprobe.d/amdgpu-pcie-p2p.conf
-          permissions: "0644"
-          content: |
-            options amdgpu pcie_p2p=0
   network:
     mode: automatic
     defaultGateway: false

@@ -124,12 +124,14 @@
         enabled: false
       when: k0s_uninstall_amdgpu_loader.stat.exists
 
-    - name: Remove the GPU Operator's amdgpu loader and its k0s ordering
+    - name: Remove the GPU Operator's amdgpu loader, its module options, and its k0s ordering
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
         - /etc/systemd/system/swallow-amdgpu-load.service
+        - /etc/modprobe.d/swallow-amdgpu.conf
+        - /var/lib/swallow/amdgpu/options.json
         - /etc/systemd/system/k0scontroller.service.d/10-swallow-after-amdgpu.conf
         - /etc/systemd/system/k0sworker.service.d/10-swallow-after-amdgpu.conf
 

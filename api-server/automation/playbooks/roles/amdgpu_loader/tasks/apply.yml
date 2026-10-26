@@ -1,0 +1,85 @@
+---
+# Make the loaded amdgpu driver run with amdgpu_loader_desired: write the options file, load the
+# driver when it is not loaded, and reboot when it is loaded with other parameters (it is never
+# unloaded). Ends with the driver loaded, /dev/kfd present, and every option verified.
+
+- name: Write the amdgpu module options
+  ansible.builtin.template:
+    src: swallow-amdgpu.conf.j2
+    dest: "{{ amdgpu_loader_options_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Read the amdgpu driver state
+  ansible.builtin.script:
+    cmd: "amdgpu_node_state.py --desired {{ amdgpu_loader_desired | to_json | b64encode }}"
+    executable: /usr/bin/python3
+  register: amdgpu_loader_before
+  changed_when: false
+
+- name: Load the amdgpu driver
+  # modprobe reads the options file, so a first load already carries the options.
+  ansible.builtin.systemd:
+    name: "{{ amdgpu_loader_unit }}"
+    state: started
+  register: amdgpu_loader_load
+  failed_when: false
+  when: not (amdgpu_loader_before.stdout | from_json).loaded
+
+- name: Refuse a node whose amdgpu driver did not load
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_driver_missing] the amdgpu driver did not load on {{ amdgpu_loader_node_name }}:
+      {{ amdgpu_loader_load.msg | default('modprobe amdgpu failed') }}. Check
+      "journalctl -u {{ amdgpu_loader_unit }}" on the node.
+  when: amdgpu_loader_load is failed
+
+- name: Reboot to load the amdgpu driver with its new options
+  # A loaded driver keeps its parameters until it loads again, and unloading a GPU driver in use
+  # is not safe; the loader unit applies the options file on the next boot.
+  ansible.builtin.reboot:
+    msg: "Swallow: reboot to load amdgpu with options {{ amdgpu_loader_desired | to_json }}"
+    reboot_timeout: "{{ amdgpu_loader_reboot_timeout }}"
+  when:
+    - (amdgpu_loader_before.stdout | from_json).loaded
+    - ((amdgpu_loader_before.stdout | from_json).mismatched | length) > 0
+
+- name: Wait for the KFD device
+  ansible.builtin.stat:
+    path: /dev/kfd
+  register: amdgpu_loader_kfd
+  until: amdgpu_loader_kfd.stat.exists
+  retries: 60
+  delay: 5
+  failed_when: false
+
+- name: Refuse a node without the KFD device
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_driver_missing] {{ amdgpu_loader_node_name }} loaded amdgpu but has no
+      /dev/kfd, so no GPU can run workloads. Check the driver messages in the node's kernel
+      log.
+  when: not amdgpu_loader_kfd.stat.exists
+
+- name: Read the loaded amdgpu parameters
+  ansible.builtin.script:
+    cmd: "amdgpu_node_state.py --desired {{ amdgpu_loader_desired | to_json | b64encode }}"
+    executable: /usr/bin/python3
+  register: amdgpu_loader_after
+  changed_when: false
+
+- name: Refuse a driver that did not take its options
+  vars:
+    amdgpu_loader_report: "{{ amdgpu_loader_after.stdout | from_json }}"
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_option_not_applied] amdgpu on {{ amdgpu_loader_node_name }} runs with
+      {{ amdgpu_loader_report.parameters | to_json }} instead of {{ amdgpu_loader_desired | to_json }}
+      (not exposed by the driver: {{ amdgpu_loader_report.missing | to_json }}). A driver loaded from
+      the initramfs ignores {{ amdgpu_loader_options_file }}; keep amdgpu out of the initramfs, and
+      check the option names against "modinfo -p amdgpu".
+  when: >-
+    not amdgpu_loader_report.loaded
+    or (amdgpu_loader_report.mismatched | length) > 0
+    or (amdgpu_loader_report.missing | length) > 0

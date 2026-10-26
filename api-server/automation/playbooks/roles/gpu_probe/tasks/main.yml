@@ -1,0 +1,60 @@
+---
+# Install the HIP probe and run it against every GPU the node exposes. The report lands in
+# gpu_probe_report; a failure stops the play unless the caller handles it (gpu_probe_fail: false).
+
+- name: Install the HIP probe
+  when: gpu_probe_state == 'present'
+  block:
+    - name: Create the Swallow libexec directory
+      ansible.builtin.file:
+        path: "{{ gpu_probe_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the HIP probe
+      ansible.builtin.copy:
+        src: hip_probe.py
+        dest: "{{ gpu_probe_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Run the HIP probe on every GPU
+      ansible.builtin.command:
+        argv:
+          - "{{ gpu_probe_path }}"
+          - --expect
+          - "{{ gpu_probe_expect }}"
+          - --runs
+          - "{{ gpu_probe_runs }}"
+          - --bytes
+          - "{{ gpu_probe_bytes }}"
+      register: gpu_probe_run
+      changed_when: false
+      failed_when: false
+
+    - name: Read the HIP probe report
+      ansible.builtin.set_fact:
+        gpu_probe_report: >-
+          {{ (gpu_probe_run.stdout_lines | last | from_json)
+             if (gpu_probe_run.stdout_lines | length > 0 and (gpu_probe_run.stdout_lines | last).startswith('{'))
+             else {'ok': false, 'error': gpu_probe_run.stderr | default('the probe printed no report')} }}
+        gpu_probe_ok: "{{ gpu_probe_run.rc == 0 }}"
+
+    - name: Refuse GPUs the HIP runtime cannot use
+      ansible.builtin.fail:
+        msg: >-
+          [{{ 'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed' }}]
+          {{ gpu_probe_node_name }}: {{ gpu_probe_report.error | default('the HIP probe failed') }}
+          (run {{ gpu_probe_report.run | default('-') }} of {{ gpu_probe_runs }}, expected
+          {{ gpu_probe_expect }} GPUs, exit {{ gpu_probe_report.returncode | default(gpu_probe_run.rc) }}).
+          {{ gpu_probe_report.stderr | default('') }}
+      when: gpu_probe_fail | bool and not gpu_probe_ok | bool
+
+- name: Remove the HIP probe
+  ansible.builtin.file:
+    path: "{{ gpu_probe_path }}"
+    state: absent
+  when: gpu_probe_state == 'absent'

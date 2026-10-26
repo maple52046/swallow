@@ -1,0 +1,16 @@
+---
+# HIP probe shared by every Swallow feature that hands out AMD GPUs (decision 063). It proves the
+# GPUs work through the HIP runtime (allocate, fill, and free memory on every device, three times,
+# each in its own process) rather than trusting an inventory listing. It never names a GPU model.
+
+# present installs the probe and runs it; absent removes it.
+gpu_probe_state: present
+gpu_probe_path: /usr/local/libexec/swallow/hip-probe
+# GPUs the node must expose; every one of them is exercised.
+gpu_probe_expect: 0
+gpu_probe_runs: 3
+# Bytes allocated and filled on each GPU per run.
+gpu_probe_bytes: 67108864
+# true fails the play on a failed probe; false only records gpu_probe_report for the caller.
+gpu_probe_fail: true
+gpu_probe_node_name: "{{ ansible_hostname }}"

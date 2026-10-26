@@ -14,11 +14,14 @@ grafana_install_method: "{{ swallow_grafana_install_method | default('container'
 grafana_container_runtime: "{{ swallow_grafana_container_runtime | default('docker-ce', true) }}"
 grafana_version: "{{ swallow_grafana_version | default('12.4.12', true) | regex_replace('^v', '') }}"
 grafana_port: "{{ swallow_grafana_port | default(3000) | int }}"
-# Empty reads the Prometheus on the same Server (Prometheus Managed Software's port).
-grafana_prometheus_url: >-
-  {{ swallow_grafana_prometheus_url
-     | default('http://' ~ ansible_host ~ ':' ~ (swallow_grafana_prometheus_port | default(9090) | string), true) }}
+# Empty reads the Prometheus on the same Server: the address its role recorded in
+# grafana_local_prometheus_endpoint, else the loopback address on its port.
+grafana_prometheus_url: "{{ swallow_grafana_prometheus_url | default('', true) }}"
+grafana_local_prometheus_endpoint: /etc/swallow/prometheus/endpoint
+grafana_local_prometheus_port: "{{ swallow_grafana_prometheus_port | default(9090) }}"
 grafana_dashboards: "{{ swallow_grafana_dashboards | default([]) }}"
+# Grafana is the read-only UI people open, so it listens on the management address. Every install
+# method uses the host network, so it also reaches a loopback-only Prometheus on the same Server.
 grafana_listen_address: "{{ ansible_host }}"
 grafana_config_dir: /etc/swallow/grafana
 grafana_data_dir: /var/lib/swallow/grafana

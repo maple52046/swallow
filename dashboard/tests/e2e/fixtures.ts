@@ -1405,7 +1405,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'docker-ce', label: 'Docker CE', roles: [], mutuallyExclusiveWith: ['podman'], refusedForKubernetesMembers: true, installMethods: [], containerRuntimes: [], specFields: ['version', 'enableApi'] },
         { kind: 'podman', label: 'Podman', roles: [], mutuallyExclusiveWith: ['docker-ce'], refusedForKubernetesMembers: true, installMethods: [], containerRuntimes: [], specFields: ['version'] },
         { kind: 'nfs', label: 'NFS', roles: ['server', 'client'], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: ['exportPath', 'exportOptions', 'source', 'mountPath', 'mountOptions'] },
-        { kind: 'prometheus', label: 'Prometheus', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'scrapeJob', 'scrapeTargets', 'scrapeServerIds', 'scrapePort'] },
+        { kind: 'prometheus', label: 'Prometheus', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'scrapeJob', 'scrapeTargets', 'scrapeServerIds', 'scrapePort', 'listen', 'retention'] },
         { kind: 'grafana', label: 'Grafana', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'prometheusUrl', 'dashboards'] },
       ] })
     }
@@ -2539,6 +2539,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         gpuOperator?: Record<string, unknown> & { enabled?: boolean }
         containerRuntime?: { kind?: 'docker-ce' | 'podman' }
         omnistat?: { enabled?: boolean; installMethod?: 'container' | 'native' }
+        gpuDriver?: { moduleOptions?: Record<string, string> }
         roleAssignments?: Array<{
           serverId: string
           role: 'control-plane' | 'worker'
@@ -2546,6 +2547,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         }>
         slurm?: {
           nodeAssignments: Array<{ serverId: string; controller: boolean; compute: boolean }>
+          gpuGresType?: string
         }
       }
       const operationId = 'op-platform-new'
@@ -2584,6 +2586,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
             : null,
           // Mirrors platforms.md "Container Runtime": the Platform records the chosen kind.
           containerRuntime: body.containerRuntime?.kind ?? null,
+          // Mirrors platforms.md "GPU driver options" and "GPU GRES": only operator-set values are recorded.
+          gpuDriver: Object.keys(body.gpuDriver?.moduleOptions ?? {}).length > 0 ? body.gpuDriver : null,
+          gpuGresType: body.slurm?.gpuGresType ?? null,
           sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
           createdAt: now,
           updatedAt: now,

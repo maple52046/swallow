@@ -64,16 +64,29 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 				"'present' if amd_gpu_operator_managed | bool else 'absent'",
 				"amdgpu_loader_unit: \"{{ amd_gpu_operator_driver_unit }}\"",
 				"amdgpu_loader_dependents: \"{{ amd_gpu_operator_k0s_units }}\"",
+				// k0s also runs non-GPU work, so a driver failure only orders it.
+				"amdgpu_loader_strict: false",
 			},
 		},
 		{
 			path: filepath.Join("roles", "amdgpu_loader", "tasks", "main.yml"),
 			required: []string{
-				"[amdgpu_driver_missing]",
-				"/dev/kfd",
 				"After={{ amdgpu_loader_unit }}",
+				"'Requires' if amdgpu_loader_strict | bool else 'Wants'",
 				"enabled: false",
+				"amdgpu_loader_options_file",
 			},
+		},
+		{
+			path: filepath.Join("roles", "amdgpu_loader", "tasks", "apply.yml"),
+			required: []string{
+				"[amdgpu_driver_missing]",
+				"[amdgpu_option_not_applied]",
+				"/dev/kfd",
+				"ansible.builtin.reboot",
+			},
+			// A loaded GPU driver is never unloaded.
+			forbidden: []string{"modprobe -r", "rmmod"},
 		},
 		{
 			path: filepath.Join("roles", "amdgpu_loader", "templates", "amdgpu-load.service.j2"),
@@ -126,6 +139,7 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 			required: []string{
 				"/var/lib/kubelet/plugins_registry", "item.stat.lnk_source == item.item.target",
 				"/etc/systemd/system/swallow-amdgpu-load.service",
+				"/etc/modprobe.d/swallow-amdgpu.conf",
 				"/var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml",
 			},
 		},

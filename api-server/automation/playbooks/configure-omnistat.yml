@@ -10,8 +10,9 @@
 #   swallow_omnistat_prometheus_port / swallow_omnistat_grafana_port   their ports
 #   swallow_omnistat_system_name      label for omnistat-query reports
 #   swallow_slurm_gpu_compute_ids     compute nodes with AMD GPUs (AMD SMI collection)
-# On success it writes {grafanaUrl, prometheusUrl} to the run's result file; Swallow records the
-# Grafana URL as the Platform's "Omnistat Grafana" Monitoring Link. Idempotent.
+# On success it writes {grafanaUrl} to the run's result file; Swallow records it as the Platform's
+# "Omnistat Grafana" Monitoring Link. Prometheus listens only on the observability Server's loopback
+# address, so the check runs there. Idempotent.
 
 - name: Classify the Omnistat hosts
   hosts: all
@@ -36,12 +37,25 @@
   hosts: omnistat_observability
   gather_facts: false
   vars:
-    omnistat_prometheus_url: "http://{{ ansible_host }}:{{ swallow_omnistat_prometheus_port | default(9090) }}"
     omnistat_grafana_url: "http://{{ ansible_host }}:{{ swallow_omnistat_grafana_port | default(3000) }}"
     omnistat_expected_targets: >-
       {{ swallow_omnistat_compute_ids | map('extract', hostvars, 'ansible_host')
          | map('regex_replace', '$', ':' ~ (swallow_omnistat_port | default(8001) | string)) | list }}
   tasks:
+    - name: Read where Prometheus listens on this Server
+      # Omnistat's Prometheus listens on the loopback address; its role records the address.
+      ansible.builtin.slurp:
+        src: /etc/swallow/prometheus/endpoint
+      register: omnistat_prometheus_endpoint
+      failed_when: false
+
+    - name: Remember the Prometheus address
+      ansible.builtin.set_fact:
+        omnistat_prometheus_url: >-
+          {{ (omnistat_prometheus_endpoint.content | b64decode | trim)
+             if omnistat_prometheus_endpoint.content is defined
+             else 'http://127.0.0.1:' ~ (swallow_omnistat_prometheus_port | default(9090)) }}
+
     - name: Wait until Prometheus reports every exporter up
       ansible.builtin.uri:
         url: "{{ omnistat_prometheus_url }}/api/v1/targets?state=active"
@@ -60,7 +74,7 @@
     - name: Write the Omnistat result for Swallow
       ansible.builtin.copy:
         dest: "{{ swallow_result_path }}"
-        content: "{{ {'grafanaUrl': omnistat_grafana_url, 'prometheusUrl': omnistat_prometheus_url} | to_json }}"
+        content: "{{ {'grafanaUrl': omnistat_grafana_url} | to_json }}"
         mode: "0600"
       delegate_to: localhost
       when: swallow_result_path is defined and swallow_result_path | length > 0

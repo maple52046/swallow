@@ -4,6 +4,8 @@
 #   slurm_is_gpu_compute  whether swallow selected this node as a GPU node
 #   slurm_gpus            [{minor, type}] from the KFD topology, sorted by render minor
 #   slurm_node_gres       the slurm.conf Gres= value, for example gpu:gfx942:8 ('' without GPUs)
+#   slurm_node_gres_full  the GRES request for every GPU of the node, for example gpu:gfx942:8
+# Every GPU of a GPU node must pass the HIP probe (role gpu_probe) before it joins the cluster.
 # A GPU node loads amdgpu through the shared post-boot loader (the image may keep the driver out of
 # the boot path) with slurmd ordered after it; a CPU node stops loading it, so a rerun converges
 # both ways.
@@ -98,6 +100,13 @@
   ansible.builtin.set_fact:
     slurm_gpus: "{{ (slurm_kfd_gpus.stdout | from_json) if slurm_is_gpu_compute | bool else [] }}"
 
+- name: Name this node's GPU GRES type
+  # The type is derived from the GPU architecture unless the deployment names one type for every
+  # GPU node (swallow_slurm_gpu_gres_type, for example mi308x_vf).
+  ansible.builtin.set_fact:
+    slurm_gpus: "{{ slurm_gpus | map('combine', {'type': swallow_slurm_gpu_gres_type}) | list }}"
+  when: (swallow_slurm_gpu_gres_type | default('')) | length > 0
+
 - name: Refuse a GPU compute node whose KFD topology shows no GPU
   ansible.builtin.fail:
     msg: >-
@@ -117,3 +126,42 @@
       {%- set _ = entries.append('gpu:' ~ type ~ ':' ~ (slurm_gpus | selectattr('type', 'equalto', type) | list | length)) -%}
       {%- endfor -%}
       {{ entries | join(',') }}
+    # The request a job makes for every GPU of this node: typed when the node has one GPU type.
+    slurm_node_gres_full: >-
+      {{ ('gpu:' ~ (slurm_gpus | map(attribute='type') | first) ~ ':' ~ (slurm_gpus | length))
+         if (slurm_gpus | map(attribute='type') | unique | list | length) == 1
+         else ('gpu:' ~ (slurm_gpus | length)) }}
+
+- name: Prove every GPU works through the HIP runtime
+  # Inventory listings (amd-smi, rocminfo) do not prove a GPU can run work; the probe allocates,
+  # fills, and frees memory on every GPU, three times, each in its own process.
+  ansible.builtin.include_role:
+    name: gpu_probe
+    apply:
+      become: true
+  vars:
+    gpu_probe_expect: "{{ slurm_gpus | length }}"
+    gpu_probe_fail: false
+    gpu_probe_node_name: "{{ slurm_node_name }}"
+  when: slurm_is_gpu_compute | bool
+
+- name: Keep a node whose GPUs failed the probe out of scheduling
+  # An existing cluster drains the node at once; on a first deploy slurmctld is not up yet and
+  # the failed deployment keeps the node out instead.
+  ansible.builtin.command:
+    argv: [scontrol, update, "nodename={{ slurm_node_name }}", state=drain, "reason=swallow: GPU probe failed"]
+  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
+  become: true
+  changed_when: true
+  failed_when: false
+  when: slurm_is_gpu_compute | bool and not (gpu_probe_ok | default(true)) | bool
+
+- name: Refuse a node whose GPUs failed the probe
+  ansible.builtin.fail:
+    msg: >-
+      [{{ 'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed' }}]
+      {{ slurm_node_name }}: {{ gpu_probe_report.error | default('the HIP probe failed') }}
+      (run {{ gpu_probe_report.run | default('-') }} of 3 over {{ slurm_gpus | length }} GPUs, exit
+      {{ gpu_probe_report.returncode | default(gpu_probe_run.rc) }}). {{ gpu_probe_report.stderr | default('') }}
+      Check the driver options in /etc/modprobe.d/swallow-amdgpu.conf and "dmesg | grep amdgpu".
+  when: slurm_is_gpu_compute | bool and not (gpu_probe_ok | default(true)) | bool

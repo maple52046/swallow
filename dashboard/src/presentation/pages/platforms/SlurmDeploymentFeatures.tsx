@@ -1,9 +1,14 @@
-import { Badge, Field, Input, RadioCard, Text } from '@chakra-ui/react'
+import { Badge, Field, Input, RadioCard, Text, Textarea } from '@chakra-ui/react'
+import { useState } from 'react'
 import type { OmnistatInstallMethod, SlurmContainerRuntime } from '@/domain/platform/types'
 import { Alert } from '@/presentation/components/ui/alert'
+import { AdvancedSettings } from './AdvancedSettings'
 import { FeatureToggleCard } from './FeatureToggleCard'
 
 type WorkloadStorageMode = 'none' | 'self-hosted' | 'external'
+
+/** Whether the GPU GRES type is derived from the GPU architecture or named by the operator. */
+export type GPUGresTypeMode = 'automatic' | 'custom'
 
 interface SlurmDeploymentFeaturesProps {
   workloadMode: WorkloadStorageMode
@@ -22,6 +27,14 @@ interface SlurmDeploymentFeaturesProps {
   omnistatInstallMethod: OmnistatInstallMethod
   onOmnistatInstallMethodChange: (method: OmnistatInstallMethod) => void
   primaryControllerName: string
+  gresTypeMode: GPUGresTypeMode
+  onGresTypeModeChange: (mode: GPUGresTypeMode) => void
+  gresType: string
+  onGresTypeChange: (value: string) => void
+  gresTypeInvalid: boolean
+  driverOptionsText: string
+  onDriverOptionsTextChange: (value: string) => void
+  driverOptionErrors: string[]
 }
 interface ChoiceCardProps<T extends string> {
   label: string
@@ -63,7 +76,8 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
 /**
  * Slurm-only deployment features. Each optional capability is independently enabled, while
  * mode-specific settings expand inside the same card so the operator sees consequences before
- * choosing implementation details.
+ * choosing implementation details. GPU node overrides (GRES type name, driver module options) sit
+ * in a collapsed disclosure because the defaults are derived from each node's GPUs.
  */
 export function SlurmDeploymentFeatures({
   workloadMode,
@@ -82,9 +96,19 @@ export function SlurmDeploymentFeatures({
   omnistatInstallMethod,
   onOmnistatInstallMethodChange,
   primaryControllerName,
+  gresTypeMode,
+  onGresTypeModeChange,
+  gresType,
+  onGresTypeChange,
+  gresTypeInvalid,
+  driverOptionsText,
+  onDriverOptionsTextChange,
+  driverOptionErrors,
 }: SlurmDeploymentFeaturesProps) {
   const storageEnabled = workloadMode !== 'none'
   const runtimeEnabled = containerRuntime !== ''
+  // Opens on return to this step when a setting is in effect, but never collapses while editing.
+  const [advancedInitiallyOpen] = useState(() => gresTypeMode === 'custom' || driverOptionsText.trim() !== '')
 
   return (
     <div className="sw-platform-feature-list">
@@ -174,10 +198,47 @@ export function SlurmDeploymentFeatures({
       <div className="sw-platform-included-card">
         <div>
           <Text fontWeight="semibold">AMD GPU scheduling</Text>
-          <Text color="fg.muted" fontSize="sm">Compute nodes with AMD GPUs are configured as Slurm GRES. Jobs request GPUs explicitly and see only their allocation.</Text>
+          <Text color="fg.muted" fontSize="sm">Compute nodes with AMD GPUs are configured as Slurm GRES. Jobs request GPUs explicitly and see only their allocation. Every GPU must allocate and free memory before its node joins.</Text>
         </div>
         <Badge variant="subtle" colorPalette="green">Included automatically</Badge>
       </div>
+
+      <AdvancedSettings label="Advanced GPU settings" open={advancedInitiallyOpen}>
+        <div className="sw-platform-feature-stack">
+          <ChoiceCards
+            label="GPU GRES type"
+            value={gresTypeMode}
+            onChange={onGresTypeModeChange}
+            options={[
+              { value: 'automatic', label: 'GPU architecture', description: 'Name GPUs by their architecture, for example gfx942.' },
+              { value: 'custom', label: 'Custom name', description: 'Use the name existing job scripts request, for example mi308x_vf.' },
+            ]}
+          />
+          {gresTypeMode === 'custom' && (
+            <Field.Root required invalid={gresTypeInvalid}>
+              <Field.Label>GRES type name</Field.Label>
+              <Input value={gresType} onChange={(event) => onGresTypeChange(event.target.value)} placeholder="mi308x_vf" />
+              <Field.HelperText>Jobs request it as --gres=gpu:{gresType.trim() || 'name'}:N. Letters, digits, and underscores; start with a letter.</Field.HelperText>
+              <Field.ErrorText>Use letters, digits, and underscores, starting with a letter (at most 64 characters).</Field.ErrorText>
+            </Field.Root>
+          )}
+          <Field.Root invalid={driverOptionErrors.length > 0}>
+            <Field.Label>GPU driver module options</Field.Label>
+            <Textarea
+              value={driverOptionsText}
+              onChange={(event) => onDriverOptionsTextChange(event.target.value)}
+              placeholder="pcie_p2p=0"
+              rows={3}
+              fontFamily="mono"
+              fontSize="sm"
+            />
+            <Field.HelperText>
+              One amdgpu option per line as name=value. Options a node&apos;s GPU topology needs are applied automatically; an option set here wins. A node whose loaded driver differs is rebooted once.
+            </Field.HelperText>
+            {driverOptionErrors.map((error) => <Field.ErrorText key={error}>{error}</Field.ErrorText>)}
+          </Field.Root>
+        </div>
+      </AdvancedSettings>
     </div>
   )
 }

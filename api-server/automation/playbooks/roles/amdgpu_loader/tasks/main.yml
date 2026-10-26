@@ -1,8 +1,9 @@
 ---
-# Converge the post-boot amdgpu loader and the ordering of the units that need GPUs. present
-# installs and starts the loader, waits for /dev/kfd, and fails the node when the driver does not
-# load; absent disables and removes it together with the drop-ins. A loaded driver is never
-# unloaded: only the next boot changes.
+# Converge the post-boot amdgpu loader, its module options, and the ordering of the units that need
+# GPUs. present installs and starts the loader with the operator's options plus the options a
+# topology rule derives, rebooting once when the loaded driver runs with other parameters, and fails
+# the node when the driver does not load or ignores an option; absent disables and removes it
+# together with the drop-ins and the options. A loaded driver is never unloaded.
 
 - name: Find the units that need the GPUs
   ansible.builtin.stat:
@@ -42,7 +43,7 @@
         content: |
           # Managed by Swallow ({{ amdgpu_loader_owner }}): start once the GPUs are initialized.
           [Unit]
-          Wants={{ amdgpu_loader_unit }}
+          {{ 'Requires' if amdgpu_loader_strict | bool else 'Wants' }}={{ amdgpu_loader_unit }}
           After={{ amdgpu_loader_unit }}
         mode: "0644"
       loop: "{{ amdgpu_loader_dependent_stats.results | zip(amdgpu_loader_packaged_stats.results) | list }}"
@@ -50,41 +51,103 @@
         label: "{{ item.0.item }}"
       when: item.0.stat.exists or item.1.stat.exists
 
-    - name: Enable and start the amdgpu loader
-      # Starting it runs modprobe now when the driver is not loaded yet; a driver that is already
-      # loaded makes it a no-op.
+    - name: Enable the amdgpu loader
       ansible.builtin.systemd:
         name: "{{ amdgpu_loader_unit }}"
         enabled: true
-        state: started
         daemon_reload: true
-      register: amdgpu_loader_load
+
+    - name: Read the options a rule applied earlier
+      ansible.builtin.slurp:
+        src: "{{ amdgpu_loader_state_file }}"
+      register: amdgpu_loader_saved
       failed_when: false
 
-    - name: Refuse a node whose amdgpu driver did not load
-      ansible.builtin.fail:
-        msg: >-
-          [amdgpu_driver_missing] the amdgpu driver did not load on {{ amdgpu_loader_node_name }}:
-          {{ amdgpu_loader_load.msg | default('modprobe amdgpu failed') }}. Check
-          "journalctl -u {{ amdgpu_loader_unit }}" on the node.
-      when: amdgpu_loader_load is failed
+    - name: Remember the rule options
+      ansible.builtin.set_fact:
+        amdgpu_loader_saved_rules: >-
+          {{ ((amdgpu_loader_saved.content | b64decode | from_json).rules | default({}))
+             if amdgpu_loader_saved.content is defined else {} }}
 
-    - name: Wait for the KFD device
-      ansible.builtin.stat:
-        path: /dev/kfd
-      register: amdgpu_loader_kfd
-      until: amdgpu_loader_kfd.stat.exists
-      retries: 30
-      delay: 2
-      failed_when: false
+    - name: Decide the amdgpu module options
+      # Rule options persist until the operator names the same option; the operator always wins.
+      ansible.builtin.set_fact:
+        amdgpu_loader_desired: >-
+          {%- set options = {} -%}
+          {%- for name, rule in amdgpu_loader_saved_rules.items() if name not in amdgpu_loader_module_options -%}
+          {%- set _ = options.update({name: rule.value | string}) -%}
+          {%- endfor -%}
+          {%- for name, value in amdgpu_loader_module_options.items() -%}
+          {%- set _ = options.update({name: value | string}) -%}
+          {%- endfor -%}
+          {{ options }}
+        amdgpu_loader_option_sources: >-
+          {%- set sources = {} -%}
+          {%- for name, rule in amdgpu_loader_saved_rules.items() if name not in amdgpu_loader_module_options -%}
+          {%- set _ = sources.update({name: rule.reason | default('topology rule')}) -%}
+          {%- endfor -%}
+          {{ sources }}
 
-    - name: Refuse a node without the KFD device
-      ansible.builtin.fail:
+    - name: Load the driver with the decided options
+      ansible.builtin.include_tasks: apply.yml
+
+    - name: Apply the topology rules
+      when: amdgpu_loader_topology_rules | bool
+      block:
+        - name: Find the options the topology calls for
+          # The report was read after the driver loaded with the options decided so far.
+          ansible.builtin.set_fact:
+            amdgpu_loader_new_rules: >-
+              {%- set report = amdgpu_loader_after.stdout | from_json -%}
+              {%- set found = {} -%}
+              {%- for name, value in report.rules.items()
+                    if name not in amdgpu_loader_module_options and name not in amdgpu_loader_saved_rules -%}
+              {%- set _ = found.update({name: {'value': value, 'reason': report.ruleReasons[name]}}) -%}
+              {%- endfor -%}
+              {{ found }}
+
+        - name: Apply the options a topology rule calls for
+          when: amdgpu_loader_new_rules | length > 0
+          block:
+            - name: Create the loader state directory
+              ansible.builtin.file:
+                path: "{{ amdgpu_loader_state_file | dirname }}"
+                state: directory
+                owner: root
+                group: root
+                mode: "0755"
+
+            - name: Record the rule options
+              ansible.builtin.copy:
+                dest: "{{ amdgpu_loader_state_file }}"
+                content: "{{ {'rules': amdgpu_loader_saved_rules | combine(amdgpu_loader_new_rules)} | to_nice_json }}\n"
+                owner: root
+                group: root
+                mode: "0644"
+
+            - name: Add the rule options
+              ansible.builtin.set_fact:
+                amdgpu_loader_desired: >-
+                  {%- set options = dict(amdgpu_loader_desired) -%}
+                  {%- for name, rule in amdgpu_loader_new_rules.items() -%}
+                  {%- set _ = options.update({name: rule.value | string}) -%}
+                  {%- endfor -%}
+                  {{ options }}
+                amdgpu_loader_option_sources: >-
+                  {%- set sources = dict(amdgpu_loader_option_sources) -%}
+                  {%- for name, rule in amdgpu_loader_new_rules.items() -%}
+                  {%- set _ = sources.update({name: rule.reason}) -%}
+                  {%- endfor -%}
+                  {{ sources }}
+
+            - name: Reload the driver with the rule options
+              ansible.builtin.include_tasks: apply.yml
+
+    - name: Report the amdgpu module options
+      ansible.builtin.debug:
         msg: >-
-          [amdgpu_driver_missing] {{ amdgpu_loader_node_name }} loaded amdgpu but has no
-          /dev/kfd, so no GPU can run workloads. Check the driver messages in the node's kernel
-          log.
-      when: not amdgpu_loader_kfd.stat.exists
+          amdgpu on {{ amdgpu_loader_node_name }} runs with {{ amdgpu_loader_desired | to_json }}
+          ({{ amdgpu_loader_option_sources | to_json }})
 
 - name: Stop loading amdgpu at boot
   when: amdgpu_loader_state == 'absent'
@@ -101,10 +164,14 @@
         enabled: false
       when: amdgpu_loader_unit_stat.stat.exists
 
-    - name: Remove the amdgpu loader
+    - name: Remove the amdgpu loader and its options
       ansible.builtin.file:
-        path: "/etc/systemd/system/{{ amdgpu_loader_unit }}"
+        path: "{{ item }}"
         state: absent
+      loop:
+        - "/etc/systemd/system/{{ amdgpu_loader_unit }}"
+        - "{{ amdgpu_loader_options_file }}"
+        - "{{ amdgpu_loader_state_file }}"
       register: amdgpu_loader_removed
 
     - name: Remove the dependent units' ordering after the amdgpu loader

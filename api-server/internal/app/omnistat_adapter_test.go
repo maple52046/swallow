@@ -115,7 +115,8 @@ func TestOmnistatSoftwareSpecs(t *testing.T) {
 	prometheus := omnistatSoftwareSpec(softwaredomain.KindPrometheus, omnistat, softwaredomain.KindPodman)
 	if prometheus[softwaredomain.SpecScrapeJob] != platformdomain.OmnistatScrapeJob ||
 		prometheus[softwaredomain.SpecScrapePort] != platformdomain.OmnistatExporterPort ||
-		prometheus[softwaredomain.SpecInstallMethod] != "container" || prometheus[softwaredomain.SpecContainerRuntime] != "podman" {
+		prometheus[softwaredomain.SpecInstallMethod] != "container" || prometheus[softwaredomain.SpecContainerRuntime] != "podman" ||
+		prometheus[softwaredomain.SpecListen] != "loopback" {
 		t.Errorf("prometheus spec = %v", prometheus)
 	}
 	if ids, _ := prometheus[softwaredomain.SpecScrapeServerIDs].([]string); !slices.Equal(ids, []string{"s2", "s3"}) {

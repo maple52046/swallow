@@ -7,10 +7,11 @@ After=network-online.target
 [Container]
 ContainerName={{ prometheus_container_name }}
 Image={{ prometheus_image }}
-PublishPort={{ prometheus_listen_address }}:{{ prometheus_port }}:9090
+# The host network keeps the listen address the same as a native install's.
+Network=host
 Volume={{ prometheus_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
 Volume={{ prometheus_data_dir }}:/prometheus:Z
-Exec=--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time={{ prometheus_retention }} --web.enable-lifecycle
+Exec=--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time={{ prometheus_retention }} --web.listen-address={{ prometheus_listen_address }}:{{ prometheus_port }} --web.enable-lifecycle
 
 [Service]
 Restart=always

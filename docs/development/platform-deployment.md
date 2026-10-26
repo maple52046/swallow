@@ -344,6 +344,8 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   | 變數 | 意義 |
   | --- | --- |
   | `swallow_slurm_gpu_compute_ids` | 有 AMD compute GPU 的 compute serverId（一律為 list） |
+  | `swallow_slurm_gpu_gres_type` | GPU node 的 GRES type；空字串＝依 GPU 架構推導（一律送出） |
+  | `swallow_gpu_driver_module_options` | operator 的 amdgpu module options（`{name: value}`，一律送出，可為空）；Slurm 與 GPU Operator 共用 |
   | `swallow_slurm_omnistat_enabled` | `deploy-slurm` 渲染 Omnistat 的 Slurm 端 overlay |
   | `swallow_omnistat_version` / `swallow_omnistat_port` | Omnistat 版本（`1.15.0`）與 exporter port（`8001`） |
   | `swallow_omnistat_compute_ids` | 裝 exporter 的 compute serverId |
@@ -634,15 +636,29 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 - **GPU GRES（[decision 063](../decisions/063-omnistat-slurm-observability.md)）**：deploy use case 依
   GPU Inventory（AMD `compute` GPU）挑出 compute Server，以 trusted var `swallow_slurm_gpu_compute_ids`
   傳入（一律為 list，空 list 讓重跑時移除舊 GRES）。`slurm_gpu` role 在這些主機：裝共用的
-  `amdgpu_loader`（`swallow-amdgpu-load.service`，與 GPU Operator 同一份；`slurmd` 以 drop-in 排在其後）、
-  udev 規則把 `/dev/kfd` 與 `renderD*` 開給所有作業使用者（作業的存取邊界是 `ConstrainDevices=yes` 的
-  device cgroup）、從 KFD topology 讀 `drm_render_minor` 與 `gfx_target_version`（不數
-  `/dev/dri/renderD*`，因為 XCP 會多出 render node）；KFD 沒有 GPU 則以 `[slurm_gpu_missing]` 失敗。
-  controller 依這些 facts 渲染 `GresTypes=gpu`、node 行的 `Gres=gpu:<gfx>:<n>` 與 `gres.conf`
-  （`AutoDetect=off`、明確 `File=`、`Flags=amd_gpu_env,explicit`，configless 一併下發），`slurm_verify`
-  確認每台 GPU node 回報 GRES 且 `--gres=gpu:1` 作業拿到 `ROCR_VISIBLE_DEVICES=0`（致命）。image 的
-  SchedMD 套件沒有 `gpu_rsmi.so`，因此不做 RSMI autodetect／`gres/gpumem` accounting。需要的 module
-  option（MI308X 8-VF guest 的 `pcie_p2p=0`）放在部署的 cloud-init user data。
+  `amdgpu_loader`（`swallow-amdgpu-load.service`，與 GPU Operator 同一份；`slurmd` 以 drop-in
+  `Requires=`＋`After=`）、udev 規則把 `/dev/kfd` 與 `renderD*` 開給所有作業使用者（作業的存取邊界是
+  `ConstrainDevices=yes` 的 device cgroup）、從 KFD topology 讀 `drm_render_minor` 與
+  `gfx_target_version`（不數 `/dev/dri/renderD*`，因為 XCP 會多出 render node）；KFD 沒有 GPU 則以
+  `[slurm_gpu_missing]` 失敗。GRES type 預設由 GPU 架構推導（例 `gfx942`），
+  `swallow_slurm_gpu_gres_type` 非空時所有 GPU node 改用該名稱。controller 依這些 facts 渲染
+  `GresTypes=gpu`、node 行的 `Gres=gpu:<type>:<n>` 與 `gres.conf`（`AutoDetect=off`、明確 `File=`、
+  `Flags=amd_gpu_env,explicit`，configless 一併下發）。image 的 SchedMD 套件沒有 `gpu_rsmi.so`，因此不做
+  RSMI autodetect／`gres/gpumem` accounting。
+- **amdgpu driver options（decision 063）**：loader 在 driver 載入前寫 Swallow 擁有的
+  `/etc/modprobe.d/swallow-amdgpu.conf`＝operator 的 `swallow_gpu_driver_module_options`＋topology 規則
+  推導的選項（`roles/amdgpu_loader/files/amdgpu_node_state.py` 讀 sysfs）。目前唯一規則：KFD 某 GPU node
+  對同一 peer 同時有 `io_link` 與 `p2p_link`（libhsakmt peer array overflow）→ `pcie_p2p=0`。規則套用後記錄在
+  `/var/lib/swallow/amdgpu/options.json`（條件會隨之消失，所以不每次重推導）；operator 指定同名選項一律優先。
+  driver 已載入但參數不符 → `ansible.builtin.reboot`（絕不 unload/reload），之後逐一比對
+  `/sys/module/amdgpu/parameters`，不符以 `[amdgpu_option_not_applied]` 失敗。不比對任何 GPU 型號或 SR-IOV。
+- **GPU 可用性驗收（decision 063）**：`gpu_probe` role 在每台 GPU node 安裝
+  `/usr/local/libexec/swallow/hip-probe`（ctypes 呼叫 `libamdhip64`，無 device code、與架構無關）並直接執行：
+  `hipGetDeviceCount`＝KFD GPU 數，每張 GPU `hipSetDevice`／`hipMalloc`／`hipMemset`／`hipDeviceSynchronize`／
+  `hipFree`，連續 3 次、每次獨立 process（結束時 crash 也算失敗）。`slurm_verify` 再透過 Slurm 跑三種作業：無
+  GPU request（看到 0）、`--gres=gpu:1`（看到 1 且 `ROCR_VISIBLE_DEVICES=0`）、整台
+  （`slurm_node_gres_full`，probe 3 次）。失敗的節點 `scontrol update state=drain`，並以 `[gpu_probe_failed]`
+  （無 HIP runtime 為 `[hip_runtime_missing]`）失敗。
 - **選用功能：container runtime（decision 063）**：deploy request 帶 `containerRuntime.kind`
   （`docker-ce`／`podman`）時，`Platform.containerRuntime` 記下選擇，`DeploymentLaunch.ContainerRuntime`
   帶 compute ∪ login 的 serverId；launcher 把該 runtime 當 Managed Software 組入（見下表），每台 Server
@@ -661,7 +677,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   | `configure-docker-ce`／`configure-podman` | `install-<runtime>` → `record-<runtime>` | 目標＝container runtime 功能的 compute＋login，加上 Omnistat `container` method 的 primary controller（無功能時採 primary 已 assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過；Docker CE `enableApi: false` |
   | `configure-prometheus` | `install-prometheus` → `record-prometheus` | primary controller；Omnistat 的 install method／runtime，job `omnistat`，`scrapeServerIds`＝compute、`scrapePort` 8001（執行時解析位址） |
   | `configure-grafana` | `install-grafana` → `record-grafana` | primary controller；dashboards `omnistat`、datasource 讀同機 Prometheus |
-  | `configure-omnistat` | `install-omnistat`（`configure-omnistat` playbook，全部 targets） | compute 裝 exporter；primary 等 Prometheus 回報全部 up 後寫 result `{grafanaUrl, prometheusUrl}` |
+  | `configure-omnistat` | `install-omnistat`（`configure-omnistat` playbook，全部 targets） | compute 裝 exporter；primary 經 loopback（Prometheus `listen: loopback`）等全部 up 後寫 result `{grafanaUrl}` |
 
   `omnistatStepObserver` 把 `install-omnistat` 的狀態投影成 Omnistat State（fence＝record id），
   `AnsibleStepSucceeded` 讀 result 寫入 Monitoring Link `Omnistat Grafana`。同一 Workflow 的所有 ansible

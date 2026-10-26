@@ -34,6 +34,7 @@ import {
 } from './softwareCatalogPresentation'
 import {
   buildSoftwareInstallInput,
+  isPrometheusRetentionValid,
   isSoftwareInstallConfigurationValid,
   softwareInstallActionLabel,
   softwareInstallDefaults,
@@ -630,6 +631,28 @@ function SoftwareSpecFields({
           <Field.Label>Scraped Server port</Field.Label>
           <Input inputMode="numeric" value={value('scrapePort')} onChange={(event) => onChange('scrapePort', event.target.value)} placeholder="8001" />
           <Field.HelperText>Required when Server IDs are listed.</Field.HelperText>
+        </Field.Root>
+        <Field.Root>
+          <Field.Label id="software-prometheus-listen-label">Answers on</Field.Label>
+          <Select
+            id="software-prometheus-listen"
+            aria-label="Answers on"
+            value={value('listen') || 'loopback'}
+            onChange={(next) => onChange('listen', next)}
+            options={[
+              { value: 'loopback', label: 'This Server only (127.0.0.1)' },
+              { value: 'management', label: 'Management address' },
+            ]}
+          />
+          <Field.HelperText>
+            Prometheus has no login. Choose the management address only when another host, such as a Grafana elsewhere, must reach it.
+          </Field.HelperText>
+        </Field.Root>
+        <Field.Root invalid={!isPrometheusRetentionValid(value('retention'))}>
+          <Field.Label>Retention</Field.Label>
+          <Input value={value('retention')} onChange={(event) => onChange('retention', event.target.value)} placeholder="15d" />
+          <Field.HelperText>How long samples are kept, for example 7d or 12h; leave blank for 15 days.</Field.HelperText>
+          <Field.ErrorText>Use a Prometheus duration such as 15d, 7d, 1w, or 12h.</Field.ErrorText>
         </Field.Root>
       </Stack>
     )

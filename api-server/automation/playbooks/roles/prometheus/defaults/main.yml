@@ -1,7 +1,7 @@
 ---
 # Prometheus Managed Software (decision 063). Intent arrives as trusted swallow_prometheus_* vars;
-# the defaults only keep a hand-run play working. Prometheus listens only on the Server's
-# management address and runs by one of two install methods:
+# the defaults only keep a hand-run play working. Prometheus listens on the loopback address (or the
+# Server's management address when asked) and runs by one of two install methods:
 #   container  the pinned official image, under a Docker Compose project (docker-ce) or a Podman
 #              Quadlet unit (podman); the runtime must already be installed
 #   native     the pinned official release binary under a Swallow-owned systemd unit
@@ -20,10 +20,14 @@ prometheus_scrape_port: "{{ swallow_prometheus_scrape_port | default(0) | int }}
 # Scrape every 15 s with a 10 s timeout, the interval Omnistat's dashboards are verified with.
 prometheus_scrape_interval: 15s
 prometheus_scrape_timeout: 10s
-prometheus_retention: 15d
-# The connection address is the management address Prometheus binds to, never 0.0.0.0: Prometheus
-# has no authentication of its own.
-prometheus_listen_address: "{{ ansible_host }}"
+prometheus_retention: "{{ swallow_prometheus_retention | default('15d', true) }}"
+# Prometheus has no authentication of its own, so it binds the loopback address unless the spec
+# asks for the management address; never 0.0.0.0. Every install method uses the host network, so
+# the address means the same thing for a container and a native process.
+prometheus_listen: "{{ swallow_prometheus_listen | default('loopback', true) }}"
+prometheus_listen_address: "{{ '127.0.0.1' if prometheus_listen == 'loopback' else ansible_host }}"
+# Where Grafana on the same Server finds this Prometheus (read by the grafana role).
+prometheus_endpoint_file: "{{ prometheus_config_dir }}/endpoint"
 prometheus_config_dir: /etc/swallow/prometheus
 prometheus_data_dir: /var/lib/swallow/prometheus
 

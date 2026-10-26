@@ -1,10 +1,12 @@
 ---
 # Install Prometheus as Managed Software (docs/development/software-deployment.md, decision 063).
-# One pinned Prometheus per Server, listening on the Server's management address. Intent arrives
-# only through trusted variables:
+# One pinned Prometheus per Server, on the loopback address unless asked for the management
+# address. Intent arrives only through trusted variables:
 #   swallow_prometheus_install_method    container (default) or native
 #   swallow_prometheus_container_runtime docker-ce or podman (container method; already installed)
 #   swallow_prometheus_version           release version (image tag v<version> or release binary)
+#   swallow_prometheus_listen            loopback (default) or management
+#   swallow_prometheus_retention         how long samples are kept (a Prometheus duration, 15d)
 #   swallow_prometheus_port              host port (owned by the api-server domain)
 #   swallow_prometheus_scrape_job        job name of the static targets
 #   swallow_prometheus_scrape_targets    list of host:port endpoints to scrape

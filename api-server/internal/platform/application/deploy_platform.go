@@ -78,9 +78,16 @@ const (
 	// The playbook loads amdgpu on them and configures their GPU GRES (decision 063); a
 	// listed host whose KFD topology shows no GPU fails the run instead of joining without GRES.
 	varSlurmGPUComputeIDs = "swallow_slurm_gpu_compute_ids"
+	// varSlurmGPUGresType names the GRES type of every GPU node; empty derives it per node from the
+	// GPU architecture. Always sent so a rerun converges both ways.
+	varSlurmGPUGresType = "swallow_slurm_gpu_gres_type"
 	// varSlurmOmnistatEnabled makes deploy-slurm render the Slurm side of Omnistat (Prolog/Epilog,
 	// PrologFlags=Alloc, exclusive partition), so a redeploy re-applies it (decision 063).
 	varSlurmOmnistatEnabled = "swallow_slurm_omnistat_enabled"
+	// varGPUDriverModuleOptions is the operator's amdgpu module options ({"name": "value"}), read by
+	// the shared amdgpu loader of every Workflow that loads the driver (decision 063). It is always
+	// sent, possibly empty, so dropping an option converges on the next run.
+	varGPUDriverModuleOptions = "swallow_gpu_driver_module_options"
 )
 
 // Trusted extra-var names of the configure-omnistat playbook (decision 063). The Prometheus and
@@ -143,13 +150,15 @@ func NewDeployService(
 // (Kubernetes only). GPUStackOwner may then be empty and is derived from it. ContainerRuntime,
 // when set, installs that container runtime on every compute and login node, and Omnistat, when
 // non-nil and enabled, installs Omnistat with Prometheus and Grafana, both in the same Workflow
-// (Slurm only, decision 063).
+// (Slurm only, decision 063). GPUDriver, when non-nil, carries the operator's amdgpu module
+// options for the Platform's GPU nodes (either type).
 type DeployPlatformInput struct {
 	SiteID             string
 	Name               string
 	Type               platformdomain.PlatformType
 	GPUStackOwner      string
 	GPUOperator        *platformdomain.GPUOperatorSettings
+	GPUDriver          *platformdomain.GPUDriverSettings
 	ContainerRuntime   string
 	Omnistat           *platformdomain.OmnistatSettings
 	Spec               platformdomain.DeploymentSpec
@@ -261,6 +270,10 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	if strings.TrimSpace(input.ContainerRuntime) != "" {
 		return nil, fmt.Errorf("%w: a Kubernetes Platform runs containers on its own containerd", platformdomain.ErrInvalidContainerRuntime)
 	}
+	gpuDriver, err := normalizeDeployGPUDriver(input.GPUDriver)
+	if err != nil {
+		return nil, err
+	}
 	validated, err := s.validate(ctx, input)
 	if err != nil {
 		return nil, err
@@ -275,6 +288,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 		Name:          input.Name,
 		Type:          string(platformdomain.PlatformTypeKubernetes),
 		GPUStackOwner: gpuStackOwner,
+		GPUDriver:     gpuDriver,
 	})
 	if err != nil {
 		return nil, err
@@ -299,7 +313,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 			_ = s.platforms.Delete(ctx, platform.ID)
 			return nil, err
 		}
-		gpuOperatorVars = buildGPUOperatorVars(*gpuOperator, validated.spec.ControlPlaneServerIDs()[0])
+		gpuOperatorVars = buildGPUOperatorVars(*gpuOperator, validated.spec.ControlPlaneServerIDs()[0], platform.GPUDriver)
 	}
 
 	secretVars := map[string]any{}
@@ -398,6 +412,10 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if err != nil {
 		return nil, err
 	}
+	gpuDriver, err := normalizeDeployGPUDriver(input.GPUDriver)
+	if err != nil {
+		return nil, err
+	}
 	omnistatEnabled := input.Omnistat != nil && input.Omnistat.Enabled
 	var omnistat platformdomain.OmnistatSettings
 	if omnistatEnabled {
@@ -424,7 +442,8 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		SiteID:        input.SiteID,
 		Name:          input.Name,
 		Type:          string(platformdomain.PlatformTypeSlurm),
-		GPUStackOwner: gpuStackOwner, ContainerRuntime: containerRuntime,
+		GPUStackOwner: gpuStackOwner, ContainerRuntime: containerRuntime, GPUDriver: gpuDriver,
+		GPUGresType: validated.slurmSpec.GPUGresType,
 	})
 	if err != nil {
 		return nil, err
@@ -498,6 +517,10 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	}
 	if len(spec.NodeAssignments) == 0 {
 		return invalid, fmt.Errorf("%w: at least one node assignment is required", platformdomain.ErrInvalidDeployment)
+	}
+	spec.GPUGresType = strings.TrimSpace(spec.GPUGresType)
+	if err := platformdomain.ValidateSlurmGRESType(spec.GPUGresType); err != nil {
+		return invalid, err
 	}
 
 	var minimum *platformdomain.MinimumResources
@@ -1065,6 +1088,8 @@ func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.Slurm
 		varSlurmPrimaryController: spec.PrimaryControllerID(),
 		varSlurmHighAvailability:  spec.HighlyAvailable(),
 		varSlurmGPUComputeIDs:     gpuComputeIDs,
+		varSlurmGPUGresType:       spec.GPUGresType,
+		varGPUDriverModuleOptions: gpuDriverModuleOptionsVar(platform.GPUDriver),
 	}
 	if len(spec.LoginServerIDs()) > 0 {
 		// Login hosts are pure submission/client nodes here, so they use the cluster's
@@ -1163,6 +1188,24 @@ func slurmGPUComputeIDs(spec platformdomain.SlurmDeploymentSpec, targets []*serv
 		}
 	}
 	return ids
+}
+
+// normalizeDeployGPUDriver validates an optional GPU driver request; nil requests nothing.
+func normalizeDeployGPUDriver(settings *platformdomain.GPUDriverSettings) (platformdomain.GPUDriverSettings, error) {
+	if settings == nil {
+		return platformdomain.GPUDriverSettings{}, nil
+	}
+	return platformdomain.NormalizeGPUDriverSettings(*settings)
+}
+
+// gpuDriverModuleOptionsVar is the trusted module-options value: never nil, so an empty request
+// still clears options an earlier run applied.
+func gpuDriverModuleOptionsVar(settings platformdomain.GPUDriverSettings) map[string]string {
+	options := make(map[string]string, len(settings.ModuleOptions))
+	for name, value := range settings.ModuleOptions {
+		options[name] = value
+	}
+	return options
 }
 
 // slurmContainerRuntimeIDs selects the Servers the container runtime feature installs on: every

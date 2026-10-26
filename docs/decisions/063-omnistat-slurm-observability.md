@@ -21,8 +21,24 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   counting `/dev/dri/renderD*`, because XCP partitions add extra nodes), writes `GresTypes=gpu`,
   `Gres=gpu:<gfx target>:<n>`, and a `gres.conf` with `AutoDetect=off`, explicit `File=` lists, and
   `Flags=amd_gpu_env,explicit`; `ConstrainDevices=yes` stays on. A selected node whose KFD shows no
-  GPU fails the deploy. Module options an image or VM needs (for example `pcie_p2p=0` on MI308X
-  SR-IOV guests) come from the deployment's cloud-init user data, not from the playbook.
+  GPU fails the deploy. (Amended 2026-10-26: the GRES type defaults to that derived architecture
+  name but a deploy may name one for every GPU node, `slurm.gpuGresType`, for example `mi308x_vf`.)
+- **Driver options never name hardware** (amended 2026-10-26, replacing "module options come from
+  cloud-init"). The shared loader writes a Swallow-owned `/etc/modprobe.d/swallow-amdgpu.conf`
+  before the driver loads, from the operator's `gpuDriver.moduleOptions` plus options a topology
+  rule derives from what KFD reports. Today's only rule: a GPU node that reaches the same peer
+  through both an XGMI `io_link` and a PCIe `p2p_link` overflows libhsakmt's peer array (heap
+  corruption when HIP processes exit), so the rule adds `pcie_p2p=0`. A rule option is recorded
+  and kept once applied, because applying it removes the condition; an operator option always
+  wins. A driver loaded with other parameters is never unloaded: the node reboots once, and every
+  option is verified in `/sys/module/amdgpu/parameters`. Units that need the GPUs (`slurmd`,
+  `omnistat`) require the loader; k0s is only ordered after it because it also runs non-GPU work.
+- **GPUs are proven with the HIP runtime, not an inventory listing** (amended 2026-10-26). A
+  host-only HIP probe (ctypes against `libamdhip64`, no device code, so any architecture) must see
+  as many GPUs as KFD lists and allocate, fill, and free memory on each, three times, each in its own
+  process so a crash at exit fails it. It runs on every GPU node and again through Slurm (no GPU
+  request sees none, one GPU request sees one as device 0, a whole-node request passes the probe);
+  a failure drains the node and fails the deployment.
 - **The device cgroup is the GPU access boundary.** A udev rule opens `/dev/kfd` and the render
   nodes (mode 0666) on GPU nodes, so a job's user needs no membership in the node's `render`
   group; Slurm's device cgroup still admits a job only to its allocated GPUs (verified: a job
@@ -58,6 +74,11 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   run containers, so `containerRuntime.kind` (`docker-ce` or `podman`) composes that runtime's Job
   onto every compute and login node where it is not already installed. The Platform records only
   the choice; each Server's runtime is an ordinary Software Assignment that outlives the Platform.
+- **Prometheus listens on the loopback address by default** (amended 2026-10-26). Its API has no
+  authentication, so the Prometheus spec's `listen` is `loopback` unless an install asks for
+  `management`, and its `retention` (default `15d`) is a documented, overridable spec field.
+  Omnistat composes `loopback`: only Grafana on the same Server reads it, which every install
+  method reaches through the host network.
 - **Swallow still never queries Omnistat's Prometheus** (decision 003, 2026-10-12 amendment).
 
 ## Alternatives considered
@@ -71,7 +92,18 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   `gres/gpuutil` accounting need an RSMI build and stay out of scope.
 - **A fixed GRES type such as `mi308x_vf`.** Rejected for a generic name derived from the hardware
   (`gfx942`), so other Instinct models need no new setting; jobs may still request untyped
-  `--gres=gpu:N`.
+  `--gres=gpu:N`. A site whose job scripts depend on a product name sets `slurm.gpuGresType`.
+- **Matching GPU models or "SR-IOV" to decide driver options** (for example a PCI device ID list
+  for `pcie_p2p=0`). Rejected: it binds the deployment to hardware it must keep listing, misses new
+  models, and applies the workaround where the condition does not hold. The rule tests the KFD
+  topology condition the userspace bug needs instead.
+- **Unloading and reloading amdgpu to apply new options.** Rejected: unloading a GPU driver that a
+  daemon or a VF guest still holds is not reliably safe; one reboot is.
+- **A management-address Prometheus behind a firewall allowlist.** Rejected for now: Swallow does
+  not manage host firewalls, and only the local Grafana needs Omnistat's Prometheus.
+- **The reviewer's 7-day retention.** Not adopted as the default: it came from an unrelated
+  exporter guide; the default stays Prometheus's own `15d`, now written into the contract and
+  overridable per install.
 - **A dedicated observability Server.** Deferred: the primary controller hosts Prometheus and
   Grafana, which fits the lab topology without a new role.
 - **Requiring job users in the `render` group.** Rejected: user identity is site-managed (LDAP,

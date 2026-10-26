@@ -116,10 +116,29 @@ type PlatformItem struct {
 	// Omnistat is the Swallow-managed Omnistat of a Slurm Platform, null when never installed.
 	Omnistat *OmnistatItem `json:"omnistat"`
 	// ContainerRuntime is the Slurm container runtime feature (docker-ce or podman), null when off.
-	ContainerRuntime *string         `json:"containerRuntime"`
-	Sync             PlatformSyncItem `json:"sync"`
-	CreatedAt        string           `json:"createdAt"`
-	UpdatedAt        string           `json:"updatedAt"`
+	ContainerRuntime *string `json:"containerRuntime"`
+	// GPUDriver is the operator's amdgpu driver intent, null when none was requested.
+	GPUDriver *GPUDriverItem `json:"gpuDriver"`
+	// GPUGresType is the GRES type name a Slurm deploy gave every GPU node, null when it is
+	// derived per node from the GPU architecture.
+	GPUGresType *string          `json:"gpuGresType"`
+	Sync        PlatformSyncItem `json:"sync"`
+	CreatedAt   string           `json:"createdAt"`
+	UpdatedAt   string           `json:"updatedAt"`
+}
+
+// GPUDriverItem is the wire shape of a Platform's amdgpu driver intent (platforms.md, "GPU
+// driver options"): the operator's module options. Options a topology rule adds on a node are not
+// listed here; the Workflow that loads the driver reports them.
+type GPUDriverItem struct {
+	ModuleOptions map[string]string `json:"moduleOptions"`
+}
+
+func toGPUDriverItem(settings platformdomain.GPUDriverSettings) *GPUDriverItem {
+	if settings.Empty() {
+		return nil
+	}
+	return &GPUDriverItem{ModuleOptions: settings.ModuleOptions}
 }
 
 // OmnistatItem is the wire shape of a Slurm Platform's Swallow-managed Omnistat (platforms.md,
@@ -200,6 +219,10 @@ type CreatePlatformInput struct {
 	// ContainerRuntime is the Slurm container runtime feature, empty when off. The deploy use case
 	// validates it.
 	ContainerRuntime platformdomain.ContainerRuntime
+	// GPUDriver is the normalized amdgpu driver intent, empty when none was requested.
+	GPUDriver platformdomain.GPUDriverSettings
+	// GPUGresType is the validated Slurm GRES type override, empty when derived.
+	GPUGresType string
 }
 
 // ErrInvalidPlatform covers validation failures the delivery layer turns into a 400.
@@ -239,8 +262,8 @@ func (s *PlatformService) Create(ctx context.Context, input CreatePlatformInput)
 		ID: uuid.NewString(), SiteID: input.SiteID, Name: strings.TrimSpace(input.Name),
 		Type:          platformType,
 		GPUStackOwner: owner, ExporterOwner: exporterOwner,
-		ContainerRuntime: input.ContainerRuntime,
-		CreatedAt:        now, UpdatedAt: now,
+		ContainerRuntime: input.ContainerRuntime, GPUDriver: input.GPUDriver, GPUGresType: input.GPUGresType,
+		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.platforms.Create(ctx, platform); err != nil {
 		return nil, err
@@ -506,10 +529,12 @@ func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.
 		LifecycleOperationID: wire.String(lifecycle.OperationID),
 		Deployment:           toPlatformDeploymentItem(lifecycle.Deployment),
 		GPUStackOwner:        string(platform.GPUStackOwner), ExporterOwner: string(platform.ExporterOwner),
-		MonitoringLinks: toMonitoringLinkItems(platform.MonitoringLinks),
-		GPUOperator:     toGPUOperatorItem(platform.GPUOperator),
+		MonitoringLinks:  toMonitoringLinkItems(platform.MonitoringLinks),
+		GPUOperator:      toGPUOperatorItem(platform.GPUOperator),
 		Omnistat:         toOmnistatItem(platform.Omnistat),
 		ContainerRuntime: wire.String(string(platform.ContainerRuntime)),
+		GPUDriver:        toGPUDriverItem(platform.GPUDriver),
+		GPUGresType:      wire.String(platform.GPUGresType),
 		Sync: PlatformSyncItem{
 			LastStartedAt:   optionalTime(platform.Sync.LastStartedAt),
 			LastSucceededAt: optionalTime(platform.Sync.LastSucceededAt),

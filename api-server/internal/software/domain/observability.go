@@ -10,9 +10,11 @@ import (
 )
 
 // Prometheus and Grafana Managed Software (decision 063). Each installs either as a pinned
-// container (Docker CE or Podman) or natively from the vendor's official releases, listening on the
-// Server's management address. Their ports are owned here and passed to the playbooks as trusted
-// variables so a composing platform (Omnistat) and the playbooks cannot disagree.
+// container (Docker CE or Podman) or natively from the vendor's official releases. Grafana listens
+// on the Server's management address; Prometheus, whose API has no authentication, listens on the
+// loopback address unless the spec asks for the management address. Their ports are owned here and
+// passed to the playbooks as trusted variables so a composing platform (Omnistat) and the
+// playbooks cannot disagree.
 const (
 	// PrometheusPort is where Prometheus listens on the Server's address.
 	PrometheusPort = 9090
@@ -28,7 +30,44 @@ const (
 	// MaxPrometheusScrapeTargets bounds one install's static targets; a larger fleet belongs in a
 	// discovery-based setup, not a per-Server software spec.
 	MaxPrometheusScrapeTargets = 512
+	// DefaultPrometheusRetention is how long Prometheus keeps samples when the spec names no
+	// retention (Prometheus's own default).
+	DefaultPrometheusRetention = "15d"
 )
+
+// PrometheusListen is where Prometheus accepts connections.
+type PrometheusListen string
+
+const (
+	// PrometheusListenLoopback accepts only processes on the same Server (Grafana there, an
+	// operator's SSH session). It is the default.
+	PrometheusListenLoopback PrometheusListen = "loopback"
+	// PrometheusListenManagement accepts the Server's management network. The API has no
+	// authentication, so anyone who reaches the address can read every series.
+	PrometheusListenManagement PrometheusListen = "management"
+)
+
+// prometheusRetentionPattern is a Prometheus duration such as 7d, 15d, or 1w2d.
+var prometheusRetentionPattern = regexp.MustCompile(`^([0-9]+(y|w|d|h|m|s|ms))+$`)
+
+// ValidatePrometheusListen accepts loopback or management.
+func ValidatePrometheusListen(listen string) error {
+	switch PrometheusListen(listen) {
+	case PrometheusListenLoopback, PrometheusListenManagement:
+		return nil
+	default:
+		return fmt.Errorf("%w: spec.%s must be %s or %s, got %q", ErrSpecInvalid, SpecListen,
+			PrometheusListenLoopback, PrometheusListenManagement, listen)
+	}
+}
+
+// ValidatePrometheusRetention checks a Prometheus duration such as 7d or 1w2d.
+func ValidatePrometheusRetention(retention string) error {
+	if !prometheusRetentionPattern.MatchString(retention) {
+		return fmt.Errorf("%w: spec.%s %q must be a Prometheus duration such as 7d or 15d", ErrSpecInvalid, SpecRetention, retention)
+	}
+	return nil
+}
 
 // Spec keys of the Prometheus and Grafana kinds. They are published language of the software
 // contract (software.md), so renaming one is a breaking change.
@@ -48,6 +87,10 @@ const (
 	SpecScrapeServerIDs = "scrapeServerIds"
 	// SpecScrapePort is the port of every SpecScrapeServerIDs Server.
 	SpecScrapePort = "scrapePort"
+	// SpecListen is where Prometheus accepts connections (PrometheusListen); omitted is loopback.
+	SpecListen = "listen"
+	// SpecRetention is how long Prometheus keeps samples; omitted is DefaultPrometheusRetention.
+	SpecRetention = "retention"
 	// SpecPrometheusURL is the Prometheus Grafana's datasource reads; empty means the Prometheus
 	// on the same Server.
 	SpecPrometheusURL = "prometheusUrl"

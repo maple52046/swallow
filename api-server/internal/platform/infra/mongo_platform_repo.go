@@ -30,10 +30,33 @@ type platformDoc struct {
 	// Omnistat is absent on every Platform Swallow never installed Omnistat on.
 	Omnistat *omnistatDoc `bson:"omnistat,omitempty"`
 	// ContainerRuntime is absent when the Slurm container runtime feature is off.
-	ContainerRuntime string       `bson:"containerRuntime,omitempty"`
-	Sync             platformSync `bson:"sync"`
-	CreatedAt        time.Time    `bson:"createdAt"`
-	UpdatedAt        time.Time    `bson:"updatedAt"`
+	ContainerRuntime string `bson:"containerRuntime,omitempty"`
+	// GPUDriver is absent when the operator requested no driver options.
+	GPUDriver *gpuDriverDoc `bson:"gpuDriver,omitempty"`
+	// GPUGresType is absent when the Slurm GRES type is derived from the GPU architecture.
+	GPUGresType string       `bson:"gpuGresType,omitempty"`
+	Sync        platformSync `bson:"sync"`
+	CreatedAt   time.Time    `bson:"createdAt"`
+	UpdatedAt   time.Time    `bson:"updatedAt"`
+}
+
+// gpuDriverDoc persists the operator's amdgpu driver intent.
+type gpuDriverDoc struct {
+	ModuleOptions map[string]string `bson:"moduleOptions,omitempty"`
+}
+
+func toGPUDriverDoc(settings platformdomain.GPUDriverSettings) *gpuDriverDoc {
+	if settings.Empty() {
+		return nil
+	}
+	return &gpuDriverDoc{ModuleOptions: settings.ModuleOptions}
+}
+
+func toGPUDriver(doc *gpuDriverDoc) platformdomain.GPUDriverSettings {
+	if doc == nil {
+		return platformdomain.GPUDriverSettings{}
+	}
+	return platformdomain.GPUDriverSettings{ModuleOptions: doc.ModuleOptions}
 }
 
 // omnistatDoc persists the Swallow-managed Omnistat record. lastWorkflowId is the fence
@@ -370,6 +393,8 @@ func toDoc(platform *platformdomain.Platform) *platformDoc {
 		GPUOperator:        optionalGPUOperatorDoc(platform.GPUOperator),
 		Omnistat:           toOmnistatDoc(platform.Omnistat),
 		ContainerRuntime:   string(platform.ContainerRuntime),
+		GPUDriver:          toGPUDriverDoc(platform.GPUDriver),
+		GPUGresType:        platform.GPUGresType,
 		Sync: platformSync{
 			LastStartedAt:   platform.Sync.LastStartedAt,
 			LastSucceededAt: platform.Sync.LastSucceededAt,
@@ -402,6 +427,8 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		GPUOperator:        toGPUOperator(doc.GPUOperator),
 		Omnistat:           toOmnistat(doc.Omnistat),
 		ContainerRuntime:   platformdomain.ContainerRuntime(doc.ContainerRuntime),
+		GPUDriver:          toGPUDriver(doc.GPUDriver),
+		GPUGresType:        doc.GPUGresType,
 		Sync: platformdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,

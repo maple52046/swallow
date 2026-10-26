@@ -90,6 +90,51 @@ func TestInstallObservabilityResolvesContainerRuntime(t *testing.T) {
 	}
 }
 
+// Prometheus listens on the loopback address and keeps 15 days unless the spec says otherwise; the
+// applied values are recorded and reach the playbook.
+func TestInstallPrometheusListenAndRetention(t *testing.T) {
+	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+	if _, err := service.Install(context.Background(), InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+		Spec: map[string]any{"installMethod": "native"},
+	}); err != nil {
+		t.Fatalf("Install(defaults) error = %v", err)
+	}
+	vars := launcher.lastLaunch.TrustedVars
+	if vars["swallow_prometheus_listen"] != "loopback" || vars["swallow_prometheus_retention"] != "15d" {
+		t.Errorf("trusted vars = %v, want loopback and 15d", vars)
+	}
+	assignment, _ := repo.FindByServerAndKind(context.Background(), "a", softwaredomain.KindPrometheus)
+	if assignment.Spec["listen"] != "loopback" || assignment.Spec["retention"] != "15d" {
+		t.Errorf("recorded spec = %v, want loopback and 15d", assignment.Spec)
+	}
+
+	service, _, launcher = newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+	if _, err := service.Install(context.Background(), InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+		Spec: map[string]any{"installMethod": "native", "listen": "management", "retention": "1w2d"},
+	}); err != nil {
+		t.Fatalf("Install(management, 1w2d) error = %v", err)
+	}
+	if vars := launcher.lastLaunch.TrustedVars; vars["swallow_prometheus_listen"] != "management" || vars["swallow_prometheus_retention"] != "1w2d" {
+		t.Errorf("trusted vars = %v, want management and 1w2d", vars)
+	}
+
+	for name, spec := range map[string]map[string]any{
+		"unknown listen":    {"installMethod": "native", "listen": "all"},
+		"retention no unit": {"installMethod": "native", "retention": "7"},
+		"retention words":   {"installMethod": "native", "retention": "seven days"},
+		"listen not string": {"installMethod": "native", "listen": true},
+	} {
+		service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+		if _, err := service.Install(context.Background(), InstallInput{
+			Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}}, Spec: spec,
+		}); !errors.Is(err, softwaredomain.ErrSpecInvalid) {
+			t.Errorf("%s: error = %v, want ErrSpecInvalid", name, err)
+		}
+	}
+}
+
 // The native method installs from the official release or package repository and needs no
 // container runtime; a runtime named alongside it is a spec error.
 func TestInstallObservabilityNativeMethod(t *testing.T) {

@@ -236,6 +236,10 @@ export interface Platform {
   omnistat: PlatformOmnistat | null;
   /** The container runtime a Slurm deploy installed on compute and login nodes; null when off. */
   containerRuntime: SlurmContainerRuntime | null;
+  /** Operator-set amdgpu module options the deploy recorded; null when none were set. */
+  gpuDriver: GPUDriverSettings | null;
+  /** The operator's Slurm GPU GRES type name; null when the deploy derived it from the GPUs. */
+  gpuGresType: string | null;
   sync: PlatformSyncState;
   createdAt: string;
   updatedAt: string;
@@ -316,6 +320,16 @@ export interface SlurmDeploymentSpec {
   stateSaveLocation?: string;
   nodeAssignments: SlurmNodeAssignment[];
   workloadStorage?: SlurmWorkloadStorageSpec;
+  /** Names the GPU GRES type (for example `mi308x_vf`); omitted derives it from the GPUs. */
+  gpuGresType?: string;
+}
+
+/**
+ * amdgpu kernel module options for every GPU node of a deploy, by option name. Options a node's
+ * GPU topology needs are applied without being listed here; an option named here wins.
+ */
+export interface GPUDriverSettings {
+  moduleOptions: Record<string, string>;
 }
 
 /**
@@ -327,6 +341,7 @@ export interface SlurmDeploymentSpec {
  * derived by the backend and may be omitted. `containerRuntime` installs Docker CE or Podman on
  * every compute and login node, and `omnistat` installs Omnistat (with Prometheus and Grafana on
  * the primary controller, by `installMethod`); both are Slurm-only and rejected for Kubernetes.
+ * `gpuDriver` applies to the GPU nodes of either type.
  */
 export interface DeployPlatformInput {
   siteId: string;
@@ -334,6 +349,7 @@ export interface DeployPlatformInput {
   type?: PlatformType;
   gpuStackOwner?: GPUStackOwner;
   gpuOperator?: GPUOperatorSettings;
+  gpuDriver?: GPUDriverSettings;
   containerRuntime?: { kind: SlurmContainerRuntime };
   omnistat?: { enabled: boolean; installMethod?: OmnistatInstallMethod };
   k0sVersion?: string;

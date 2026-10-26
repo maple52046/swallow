@@ -283,6 +283,11 @@ export function softwareAssignmentSummary(assignment: SoftwareAssignment): strin
     const count = spec.scrapeTargets.length
     parts.push(`${count} scrape target${count === 1 ? '' : 's'}`)
   }
+  if (assignment.kind === 'prometheus') {
+    if (spec.listen === 'loopback') parts.push('This Server only')
+    if (spec.listen === 'management') parts.push('Management address')
+    if (typeof spec.retention === 'string' && spec.retention) parts.push(`Retention ${spec.retention}`)
+  }
   if (assignment.kind === 'grafana' && Array.isArray(spec.dashboards) && spec.dashboards.length > 0) {
     parts.push(`Dashboards: ${spec.dashboards.join(', ')}`)
   }

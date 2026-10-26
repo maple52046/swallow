@@ -62,7 +62,7 @@
         enabled: false
       failed_when: false
 
-    - name: Remove the Omnistat exporter, its configuration, and its job file
+    - name: Remove the Omnistat exporter, its configuration, its job file, and the HIP probe
       # Prometheus, Grafana, and Docker CE are Managed Software with their own assignments and are
       # left for the software uninstall.
       ansible.builtin.file:
@@ -73,6 +73,7 @@
         - /etc/omnistat
         - /opt/omnistat
         - /tmp/omni_rmsjobinfo
+        - /usr/local/libexec/swallow/hip-probe
 
     - name: Stop loading amdgpu for Slurm and remove slurmd's ordering after it
       ansible.builtin.include_role:

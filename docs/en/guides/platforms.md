@@ -102,6 +102,15 @@ topology and features. Its Features step uses separate Switches for shared workl
 storage, a container runtime, and Omnistat; AMD GPU GRES is included automatically
 on eligible compute nodes.
 
+Before a GPU node joins, swallow proves every GPU works by allocating and freeing
+memory on it through the HIP runtime, on the node and again through Slurm; a node
+that fails is drained and the deployment fails with the reason. The GRES type
+defaults to the GPU architecture (for example `gfx942`). Under **Advanced
+settings** you can name a different GRES type that existing job scripts expect
+(for example `mi308x_vf`) and set amdgpu driver module options. swallow already
+applies the options a node's GPU topology needs (for example `pcie_p2p=0` where
+ROCm would otherwise crash at exit), so most deployments leave them empty.
+
 Open **Platforms → Settings** to configure the system-wide Slurm deployment
 requirement. Enable the policy and set the minimum **CPU cores**, **Memory GiB**,
 and **Storage GB** that every selected Slurm node must report. All three values

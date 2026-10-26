@@ -126,6 +126,12 @@ type Platform struct {
 	// ContainerRuntime is the container runtime feature a Slurm deploy chose, empty when off. Set
 	// at creation; each Server's runtime install state is its Software Assignment.
 	ContainerRuntime ContainerRuntime
+	// GPUDriver is the operator's amdgpu driver intent, empty when none was requested. Set at
+	// creation and applied by every Workflow that loads the driver on the Platform's GPU nodes.
+	GPUDriver GPUDriverSettings
+	// GPUGresType is the GRES type name a Slurm deploy gave every GPU node, empty when it is
+	// derived per node from the GPU architecture. Set at creation.
+	GPUGresType string
 
 	// OwnedIntegrationID is set only for a credential integration created by Swallow.
 	// It is private persistence metadata and is never exposed by the platform API.

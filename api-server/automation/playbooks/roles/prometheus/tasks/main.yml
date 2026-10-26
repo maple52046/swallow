@@ -19,6 +19,12 @@
         or (prometheus_install_method == 'container'
             and prometheus_container_runtime not in ['docker-ce', 'podman'])
 
+    - name: Refuse an unknown listen address
+      ansible.builtin.fail:
+        msg: >-
+          [listen_invalid] Prometheus listen "{{ prometheus_listen }}" is not loopback or management.
+      when: prometheus_listen not in ['loopback', 'management']
+
     - name: Refuse a scraped Server without a current address
       ansible.builtin.fail:
         msg: >-
@@ -57,6 +63,15 @@
         group: root
         mode: "0644"
       register: prometheus_config
+
+    - name: Record where this Prometheus listens
+      # Grafana on the same Server reads it for its default datasource.
+      ansible.builtin.copy:
+        dest: "{{ prometheus_endpoint_file }}"
+        content: "http://{{ prometheus_listen_address }}:{{ prometheus_port }}\n"
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Install and start Prometheus by its install method
       ansible.builtin.include_tasks: "{{ prometheus_method_key }}.yml"

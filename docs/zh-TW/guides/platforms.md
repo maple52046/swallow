@@ -84,6 +84,12 @@ Slurm workspace 可獨立指派 controller、compute 與 login roles，並依 to
 shared workload storage、container runtime 與 Omnistat；符合條件的 compute node 會自動
 包含 AMD GPU GRES，不提供沒有實際語意的開關。
 
+GPU node 加入前，swallow 會透過 HIP runtime 在每張 GPU 上配置並釋放記憶體來證明 GPU 可用，節點上直接
+跑一次、透過 Slurm 再跑一次；失敗的節點會被 drain，部署也會帶著原因失敗。GRES type 預設是 GPU 架構（例如
+`gfx942`）。在 **Advanced settings** 可以指定既有 job script 使用的 GRES type（例如 `mi308x_vf`），以及
+amdgpu driver module option。swallow 已會套用節點 GPU topology 需要的選項（例如在 ROCm 結束時會 crash 的
+情況下加上 `pcie_p2p=0`），所以大多數部署可以留空。
+
 從 **Platforms → Settings** 設定 system-wide Slurm deployment requirement。
 啟用 policy 後，設定每個選取的 Slurm node 必須提供的最低 **CPU cores**、
 **Memory GiB** 與 **Storage GB**。啟用時三個值都必填；停用則移除這個 floor。

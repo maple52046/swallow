@@ -47,6 +47,21 @@
         - "{{ grafana_config_dir }}/provisioning/dashboards"
         - "{{ grafana_config_dir }}/dashboards"
 
+    - name: Read where the Prometheus on this Server listens
+      ansible.builtin.slurp:
+        src: "{{ grafana_local_prometheus_endpoint }}"
+      register: grafana_local_prometheus
+      failed_when: false
+      when: grafana_prometheus_url | length == 0
+
+    - name: Choose the datasource URL
+      ansible.builtin.set_fact:
+        grafana_datasource_url: >-
+          {{ grafana_prometheus_url if grafana_prometheus_url | length > 0
+             else ((grafana_local_prometheus.content | b64decode | trim)
+                   if grafana_local_prometheus.content is defined
+                   else 'http://127.0.0.1:' ~ grafana_local_prometheus_port) }}
+
     - name: Provision the Prometheus datasource
       ansible.builtin.template:
         src: datasource.yaml.j2

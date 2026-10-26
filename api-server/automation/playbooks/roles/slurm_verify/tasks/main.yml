@@ -43,10 +43,15 @@
   when: slurm_verify_srun.rc != 0
 
 # GPU GRES must be usable, not merely configured (decision 063): every GPU node reports the GRES
-# Swallow mapped, and a job that requests one GPU on it sees exactly that GPU as device 0. Unlike
-# the smoke test this is fatal, because a GPU cluster that cannot hand out GPUs is not deployed.
+# Swallow mapped, and the HIP probe (role gpu_probe, installed on every GPU node) runs in three jobs
+# per node: one without a GPU request sees no GPU, one that requests a GPU sees exactly one as
+# device 0, and one that requests every GPU of the node exercises all of them three times. Unlike
+# the smoke test this is fatal and drains the failed nodes, because a GPU cluster that cannot hand
+# out working GPUs is not deployed.
 - name: Verify the GPU GRES
   when: swallow_slurm_gpu_compute_ids | default([]) | length > 0
+  vars:
+    slurm_verify_probe: /usr/local/libexec/swallow/hip-probe
   block:
     - name: Wait for every GPU node to report its GRES
       ansible.builtin.command:
@@ -61,31 +66,105 @@
       retries: 12
       delay: 5
       changed_when: false
+      failed_when: false
 
-    - name: Run a one-GPU job on every GPU node
+    - name: Run the HIP probe in a job without a GPU request
       ansible.builtin.command:
         argv:
           - srun
           - --nodes=1
           - --ntasks=1
+          - --time=10
           - "--nodelist={{ hostvars[item].slurm_node_name }}"
-          - --gres=gpu:1
-          - printenv
-          - ROCR_VISIBLE_DEVICES
+          - "{{ slurm_verify_probe }}"
+          - --expect=0
+          - --runs=1
       become: true
       loop: "{{ swallow_slurm_gpu_compute_ids }}"
-      register: slurm_verify_gpu_job
-      until: slurm_verify_gpu_job.rc == 0 and slurm_verify_gpu_job.stdout | trim == '0'
+      register: slurm_verify_no_gpu
+      until: slurm_verify_no_gpu.rc == 0
       retries: 6
       delay: 5
       changed_when: false
-  rescue:
-    - name: Report unusable GPU GRES
+      failed_when: false
+
+    - name: Run the HIP probe in a one-GPU job
+      ansible.builtin.command:
+        argv:
+          - srun
+          - --nodes=1
+          - --ntasks=1
+          - --time=10
+          - "--nodelist={{ hostvars[item].slurm_node_name }}"
+          - --gres=gpu:1
+          - "{{ slurm_verify_probe }}"
+          - --expect=1
+          - --runs=1
+      become: true
+      loop: "{{ swallow_slurm_gpu_compute_ids }}"
+      register: slurm_verify_one_gpu
+      until: slurm_verify_one_gpu.rc == 0
+      retries: 3
+      delay: 5
+      changed_when: false
+      failed_when: false
+
+    - name: Run the HIP probe in a job that requests every GPU of the node
+      ansible.builtin.command:
+        argv:
+          - srun
+          - --nodes=1
+          - --ntasks=1
+          - --time=10
+          - "--nodelist={{ hostvars[item].slurm_node_name }}"
+          - "--gres={{ hostvars[item].slurm_node_gres_full }}"
+          - "{{ slurm_verify_probe }}"
+          - "--expect={{ hostvars[item].slurm_gpus | length }}"
+          - --runs=3
+      become: true
+      loop: "{{ swallow_slurm_gpu_compute_ids }}"
+      register: slurm_verify_full_node
+      changed_when: false
+      failed_when: false
+
+    - name: Find the GPU nodes that failed
+      ansible.builtin.set_fact:
+        slurm_verify_gpu_failures: >-
+          {%- set failures = [] -%}
+          {%- for node in swallow_slurm_gpu_compute_ids
+                if hostvars[node].slurm_node_gres not in (slurm_verify_gres.stdout | default('')) -%}
+          {%- set _ = failures.append({'node': hostvars[node].slurm_node_name, 'check': 'GRES',
+                'detail': 'sinfo does not report ' ~ hostvars[node].slurm_node_gres}) -%}
+          {%- endfor -%}
+          {%- for check, results in [['no GPU request', slurm_verify_no_gpu.results],
+                                     ['one GPU', slurm_verify_one_gpu.results],
+                                     ['every GPU', slurm_verify_full_node.results]] -%}
+          {%- for result in results -%}
+          {%- set report = (result.stdout_lines | last | from_json)
+                if (result.stdout_lines | default([]) | length > 0
+                    and (result.stdout_lines | last).startswith('{')) else {} -%}
+          {%- if result.rc | default(1) != 0 or not report.ok | default(false)
+                or (check == 'one GPU' and report.visible | default('') != '0') -%}
+          {%- set _ = failures.append({'node': hostvars[result.item].slurm_node_name, 'check': check,
+                'detail': (report.error | default('') ~ ' ' ~ (result.stderr | default('')))[-400:]
+                          ~ ((' (ROCR_VISIBLE_DEVICES=' ~ report.visible ~ ')') if check == 'one GPU' and report.ok | default(false) else '')}) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {{ failures }}
+
+    - name: Keep the failed GPU nodes out of scheduling
+      ansible.builtin.command:
+        argv: [scontrol, update, "nodename={{ item }}", state=drain, "reason=swallow: GPU probe failed"]
+      become: true
+      loop: "{{ slurm_verify_gpu_failures | map(attribute='node') | unique | list }}"
+      changed_when: true
+      failed_when: false
+
+    - name: Refuse GPUs Slurm cannot hand out
       ansible.builtin.fail:
         msg: >-
-          [slurm_gres_unusable] Slurm did not hand out the mapped GPUs. sinfo reported
-          "{{ slurm_verify_gres.stdout | default('') }}" and the one-GPU jobs returned
-          {{ slurm_verify_gpu_job.results | default([]) | map(attribute='stdout') | list
-             if slurm_verify_gpu_job.results is defined else '(not run)' }}; expected each node's
-          GRES {{ swallow_slurm_gpu_compute_ids | map('extract', hostvars, 'slurm_node_gres') | list }}
-          and ROCR_VISIBLE_DEVICES=0.
+          [gpu_probe_failed] Slurm did not hand out working GPUs:
+          {{ slurm_verify_gpu_failures | map('to_json') | join('; ') }}. The failed nodes are drained;
+          expected GRES {{ swallow_slurm_gpu_compute_ids | map('extract', hostvars, 'slurm_node_gres') | list }}.
+      when: slurm_verify_gpu_failures | length > 0

@@ -605,6 +605,21 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Run both as containers on gpu-node-01.')).toBeVisible()
     await page.getByRole('radio', { name: /Native/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByText(/official Prometheus release and Grafana package repository/)).toBeVisible()
+
+    // GPU settings are optional overrides: a custom GRES type and driver options are validated
+    // with the API grammar before the step can be left.
+    await page.getByText('Advanced GPU settings', { exact: true }).click()
+    await page.getByRole('radio', { name: /Custom name/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(next).toBeDisabled()
+    await page.getByLabel('GRES type name').fill('mi308x-vf')
+    await expect(page.getByText(/Use letters, digits, and underscores, starting with a letter/)).toBeVisible()
+    await expect(next).toBeDisabled()
+    await page.getByLabel('GRES type name').fill('mi308x_vf')
+    await expect(page.getByText('Jobs request it as --gres=gpu:mi308x_vf:N.', { exact: false })).toBeVisible()
+    await page.getByLabel('GPU driver module options').fill('pcie_p2p=0\nPCIe=1')
+    await expect(page.getByText(/Line 2: use name=value with a lower-case name/)).toBeVisible()
+    await expect(next).toBeDisabled()
+    await page.getByLabel('GPU driver module options').fill('pcie_p2p=0')
     await next.click()
 
     // Slurm has no platform networking step, so Features is followed by Review.
@@ -612,13 +627,20 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Controllers')).toBeVisible()
     await expect(page.getByText('Podman on compute and login nodes')).toBeVisible()
     await expect(page.getByText('Prometheus and Grafana on gpu-node-01; native packages')).toBeVisible()
+    await expect(page.getByText('Included automatically for AMD GPU compute nodes as type mi308x_vf')).toBeVisible()
+    await expect(page.getByText('pcie_p2p=0', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
     await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     expect(deployBody?.containerRuntime).toEqual({ kind: 'podman' })
     expect(deployBody?.omnistat).toEqual({ enabled: true, installMethod: 'native' })
+    expect(deployBody?.gpuDriver).toEqual({ moduleOptions: { pcie_p2p: '0' } })
+    expect((deployBody?.slurm as { gpuGresType?: string } | undefined)?.gpuGresType).toBe('mi308x_vf')
     await expect(page.getByLabel('Omnistat')).toContainText('Installing')
     await expect(page.getByLabel('Omnistat')).toContainText('installed natively')
+    await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
+    await expect(page.getByText('mi308x_vf', { exact: true })).toBeVisible()
+    await expect(page.getByText('GPU driver options', { exact: true })).toBeVisible()
   })
 
   test('Platform deployment review shows ephemeral OS deployment', async ({ page }) => {

@@ -1,6 +1,7 @@
 ---
 # Slurm GPU GRES on a compute node (decision 063). swallow selects the GPU compute nodes from its
-# GPU Inventory and passes them as swallow_slurm_gpu_compute_ids; nothing here is an operator choice.
+# GPU Inventory and passes them as swallow_slurm_gpu_compute_ids. The GRES type is derived from the
+# GPU architecture unless the operator names one (swallow_slurm_gpu_gres_type).
 
 # Slurm's device cgroup (cgroup.conf ConstrainDevices=yes) is the GPU access boundary of a job: it
 # admits only the render nodes of the GPUs allocated to that job. The device nodes themselves are

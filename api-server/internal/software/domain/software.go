@@ -21,8 +21,7 @@ const (
 	KindDockerCE Kind = "docker-ce"
 	KindPodman   Kind = "podman"
 	KindNFS      Kind = "nfs"
-	// KindPrometheus and KindGrafana run as pinned Docker Compose containers, so both require
-	// Docker CE on the Server (decision 063).
+	// KindPrometheus and KindGrafana install as pinned containers or natively (decision 063).
 	KindPrometheus Kind = "prometheus"
 	KindGrafana    Kind = "grafana"
 )
@@ -182,7 +181,7 @@ var catalog = []CatalogEntry{
 		RefusedForKubernetesMembers: false,
 		InstallMethods:              []InstallMethod{InstallMethodContainer, InstallMethodNative},
 		ContainerRuntimes:           []Kind{KindDockerCE, KindPodman},
-		SpecFields: []string{SpecInstallMethod, SpecContainerRuntime, SpecVersion,
+		SpecFields: []string{SpecInstallMethod, SpecContainerRuntime, SpecVersion, SpecListen, SpecRetention,
 			SpecScrapeJob, SpecScrapeTargets, SpecScrapeServerIDs, SpecScrapePort},
 	},
 	{

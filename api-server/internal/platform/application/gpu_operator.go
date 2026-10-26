@@ -30,12 +30,13 @@ const (
 // uninstall intent (state absent); the release is still passed so the playbook can name it. No
 // node list is passed: the playbook takes the managed nodes from the operator's Node Feature
 // Discovery (decision 062).
-func buildGPUOperatorVars(settings platformdomain.GPUOperatorSettings, controllerID string) map[string]any {
+func buildGPUOperatorVars(settings platformdomain.GPUOperatorSettings, controllerID string, driver platformdomain.GPUDriverSettings) map[string]any {
 	state := "present"
 	if !settings.Enabled {
 		state = "absent"
 	}
 	vars := map[string]any{
+		varGPUDriverModuleOptions:     gpuDriverModuleOptionsVar(driver),
 		varGPUOperatorState:           state,
 		varGPUOperatorVersion:         settings.Version,
 		varGPUOperatorAllocationMode:  string(settings.AllocationMode),
@@ -235,7 +236,7 @@ func (s *GPUOperatorService) Configure(ctx context.Context, input ConfigureGPUOp
 	launched, err := s.launcher.LaunchGPUOperator(ctx, platformdomain.GPUOperatorLaunch{
 		WorkflowID: workflowID, Platform: platform,
 		TargetServerIDs: append([]string(nil), snapshot.Deployment.TargetServerIDs...),
-		TrustedVars:     buildGPUOperatorVars(settings, controllers[0]),
+		TrustedVars:     buildGPUOperatorVars(settings, controllers[0], platform.GPUDriver),
 		Uninstall:       !settings.Enabled,
 		RequestedBy:     input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 	})

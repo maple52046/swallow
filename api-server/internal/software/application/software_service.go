@@ -482,10 +482,30 @@ func validateSpec(entry softwaredomain.CatalogEntry, rolesByServer map[string][]
 	return nil
 }
 
-// validatePrometheusSpec checks the install method, release version, job name, and targets.
+// validatePrometheusSpec checks the install method, release version, listen address, retention,
+// job name, and targets.
 func validatePrometheusSpec(entry softwaredomain.CatalogEntry, spec map[string]any) error {
 	if err := validateMethodAndVersion(entry, spec); err != nil {
 		return err
+	}
+	for key, validate := range map[string]func(string) error{
+		softwaredomain.SpecListen:    softwaredomain.ValidatePrometheusListen,
+		softwaredomain.SpecRetention: softwaredomain.ValidatePrometheusRetention,
+	} {
+		value, present := spec[key]
+		if !present || value == nil {
+			continue
+		}
+		raw, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("%w: spec.%s must be a string", softwaredomain.ErrSpecInvalid, key)
+		}
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		if err := validate(strings.TrimSpace(raw)); err != nil {
+			return err
+		}
 	}
 	if value, present := spec[softwaredomain.SpecScrapeJob]; present && value != nil {
 		job, ok := value.(string)
@@ -742,6 +762,8 @@ func buildInstallVars(kind softwaredomain.Kind, rolesByServer map[string][]softw
 		vars["swallow_prometheus_install_method"] = specString(spec, softwaredomain.SpecInstallMethod)
 		vars["swallow_prometheus_container_runtime"] = specString(spec, softwaredomain.SpecContainerRuntime)
 		vars["swallow_prometheus_version"] = specString(spec, softwaredomain.SpecVersion)
+		vars["swallow_prometheus_listen"] = specString(spec, softwaredomain.SpecListen)
+		vars["swallow_prometheus_retention"] = specString(spec, softwaredomain.SpecRetention)
 		vars["swallow_prometheus_port"] = softwaredomain.PrometheusPort
 		vars["swallow_prometheus_scrape_job"] = specString(spec, softwaredomain.SpecScrapeJob)
 		targets, _ := specStringList(spec, softwaredomain.SpecScrapeTargets)
@@ -785,6 +807,8 @@ func normalizeSpec(kind softwaredomain.Kind, spec map[string]any) map[string]any
 			out = map[string]any{}
 		}
 		normalizeMethodAndVersion(kind, out, softwaredomain.DefaultPrometheusVersion)
+		setDefaultString(out, softwaredomain.SpecListen, string(softwaredomain.PrometheusListenLoopback))
+		setDefaultString(out, softwaredomain.SpecRetention, softwaredomain.DefaultPrometheusRetention)
 		setDefaultString(out, softwaredomain.SpecScrapeJob, softwaredomain.DefaultPrometheusScrapeJob)
 		targets, _ := specStringList(out, softwaredomain.SpecScrapeTargets)
 		out[softwaredomain.SpecScrapeTargets] = nonNilStrings(targets)

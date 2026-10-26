@@ -101,6 +101,15 @@ export function buildSoftwareInstallInput({
   }
 }
 
+/**
+ * Whether a Prometheus retention is a duration Prometheus accepts, for example `15d` or `1w12h`.
+ * Blank is valid: the API then keeps its 15-day default.
+ */
+export function isPrometheusRetentionValid(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed === '' || /^([0-9]+(y|w|d|h|m|s|ms))+$/.test(trimmed)
+}
+
 /** Mirrors contract-required role/spec fields for immediate, non-authoritative form feedback. */
 export function isSoftwareInstallConfigurationValid({
   entry,
@@ -114,6 +123,7 @@ export function isSoftwareInstallConfigurationValid({
   spec: Readonly<Record<string, string>>
 }): boolean {
   if (!entry || serverIds.length === 0) return false
+  if (entry.kind === 'prometheus' && !isPrometheusRetentionValid(spec.retention ?? '')) return false
   if (entry.roles.length === 0) return true
   if (!serverIds.every((serverId) => (roles[serverId]?.length ?? 0) > 0)) return false
   const anyServer = serverIds.some((serverId) => roles[serverId]?.includes('server'))

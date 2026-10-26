@@ -89,7 +89,7 @@ rules. The result is a small bounded array, not paginated.
       "refusedForKubernetesMembers": false,
       "installMethods": ["container", "native"],
       "containerRuntimes": ["docker-ce", "podman"],
-      "specFields": ["installMethod", "containerRuntime", "version", "scrapeJob", "scrapeTargets", "scrapeServerIds", "scrapePort"]
+      "specFields": ["installMethod", "containerRuntime", "version", "listen", "retention", "scrapeJob", "scrapeTargets", "scrapeServerIds", "scrapePort"]
     },
     {
       "kind": "grafana",
@@ -240,8 +240,10 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
 
 ### Prometheus and Grafana spec
 
-Both run one pinned instance per Server on the Server's primary address (never all interfaces),
-installed by one of two methods:
+Both run one pinned instance per Server, never on all interfaces: Grafana on the Server's primary
+address, Prometheus (whose API has no authentication) on the loopback address unless `listen` asks
+for the primary address. Every method uses the host network, so an address means the same thing
+for a container and a native process. Each is installed by one of two methods:
 
 - `container` (the default): the official image (`docker.io/prom/prometheus:v<version>`,
   `docker.io/grafana/grafana:<version>`) under a Docker Compose project on `docker-ce` or a Podman
@@ -265,27 +267,30 @@ installed by one of two methods:
 | both | `installMethod` | string | `container` | `container` or `native`. |
 | both | `containerRuntime` | string | the runtime installed on the targets | `docker-ce` or `podman`; only valid with the `container` method. |
 | `prometheus` | `version` | string | `3.15.0` | Release version (`x.y.z`; a leading `v` is accepted and dropped). |
+| `prometheus` | `listen` | string | `loopback` | `loopback` (only processes on the Server, such as its Grafana) or `management` (the Server's primary address; anyone who reaches it can read every series). |
+| `prometheus` | `retention` | string | `15d` | How long samples are kept: a Prometheus duration such as `7d` or `1w2d`. |
 | `prometheus` | `scrapeJob` | string | `swallow` | Job name of the static targets: a letter or `_`, then letters, digits, `_`, `-` (at most 64). |
 | `prometheus` | `scrapeTargets` | string[] | `[]` | `host:port` endpoints scraped every 15 s. |
 | `prometheus` | `scrapeServerIds` | string[] | `[]` | Servers of the target's Site scraped on `scrapePort`. Each is resolved to the Server's current primary address every time the playbook runs, so a redeploy that changes an address converges on the next run. |
 | `prometheus` | `scrapePort` | integer | — | Port of every `scrapeServerIds` Server (1–65535); required with, and only valid with, `scrapeServerIds`. |
 | `grafana` | `version` | string | `12.4.12` | Release version (`x.y.z`; a leading `v` is accepted and dropped): the image tag or the package version. |
-| `grafana` | `prometheusUrl` | string | Prometheus on the same Server | Absolute `http`/`https` URL of the datasource (UID `prometheus`). |
+| `grafana` | `prometheusUrl` | string | Prometheus on the same Server (where it listens) | Absolute `http`/`https` URL of the datasource (UID `prometheus`). |
 | `grafana` | `dashboards` | string[] | `[]` | Swallow-shipped dashboard bundles to provision; the only bundle is `omnistat` (Omnistat's RMS global, node, and job dashboards). |
 
-- Prometheus listens on port `9090` and Grafana on port `3000` of the Server's primary address.
-  Prometheus has no authentication; Grafana is read-only: anonymous Viewer access, no login form,
-  no basic auth, and no admin account.
-- An unknown `installMethod`, a `containerRuntime` that is not a container runtime or comes with
-  the `native` method, targets on different runtimes, a version that is not `x.y.z`, a wrong type,
+- Prometheus listens on port `9090` (loopback by default) and Grafana on port `3000` of the
+  Server's primary address. Prometheus has no authentication; Grafana is read-only: anonymous
+  Viewer access, no login form, no basic auth, and no admin account.
+- An unknown `installMethod` or `listen`, a `retention` that is not a Prometheus duration, a
+  `containerRuntime` that is not a container runtime or comes with the `native` method, targets on
+  different runtimes, a version that is not `x.y.z`, a wrong type,
   a malformed target or URL, an unknown bundle, more than 512 `scrapeTargets` plus
   `scrapeServerIds`, a `scrapeServerIds` entry at another Site, or a missing/unexpected
   `scrapePort` is `400 validation_error`; a `scrapeServerIds` entry that names no Server is
   `404 not_found`. The `container` method on a target without an `installed` runtime, or with a
   different one than `containerRuntime` names, is `409 conflict`.
 - The recorded `spec` always carries the applied `installMethod`, `containerRuntime` (container
-  method only), `version`, the `scrapeJob`, and the lists as arrays; Grafana's `prometheusUrl` is
-  recorded as given (empty means the local Prometheus).
+  method only), `version`, Prometheus's `listen` and `retention`, the `scrapeJob`, and the lists as
+  arrays; Grafana's `prometheusUrl` is recorded as given (empty means the local Prometheus).
 - Re-installing with another method or runtime replaces the previous one on the Server and keeps
   Prometheus's data.
 - Uninstall removes the instance whichever method placed it (container, Quadlet unit, or native
@@ -356,7 +361,7 @@ composes:
 
 - with the container runtime feature, `docker-ce` (`enableApi: false`) or `podman` onto its
   compute and login nodes (see [platforms](platforms.md#container-runtime));
-- with Omnistat, `prometheus` (job `omnistat`, `scrapeServerIds` = the compute nodes,
+- with Omnistat, `prometheus` (`listen: loopback`, job `omnistat`, `scrapeServerIds` = the compute nodes,
   `scrapePort` = `8001`) and `grafana` (dashboards `omnistat`) onto its primary controller by
   Omnistat's install method; the `container` method also composes the runtime onto the primary
   controller (see [platforms](platforms.md#omnistat)).
