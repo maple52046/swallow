@@ -1,14 +1,6 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-async function chooseSingleSelectOption(
-  page: import('playwright/test').Page,
-  fieldLabel: string,
-  optionLabel: string,
-) {
-  await page.getByRole('combobox', { name: fieldLabel, exact: true }).click()
-  await page.getByRole('option', { name: optionLabel, exact: true }).click()
-}
 
 test.beforeEach(async ({ page }) => {
   await installApiFixtures(page, { freePlatformCandidates: true, minimumResourceCandidates: true })
@@ -33,8 +25,7 @@ test('Slurm settings enforce 24 GiB eligibility and disabling restores selection
   await save.click()
   await expect(page.getByText('Current policy: 4 cores / 24 GiB / 80 GB')).toBeVisible()
 
-  await page.goto('/platforms/deploy?site=site-a')
-  await chooseSingleSelectOption(page, 'Platform type', 'Slurm')
+  await page.goto('/platforms/deploy/slurm?site=site-a')
   await page.getByLabel('Platform name').fill('minimum-resource-slurm')
   await page.getByRole('button', { name: 'Next' }).click()
   const candidates = page.getByRole('table', { name: 'Deployable Servers' })
@@ -50,8 +41,7 @@ test('Slurm settings enforce 24 GiB eligibility and disabling restores selection
   await page.getByRole('button', { name: 'Save settings' }).click()
   await expect(page.getByText('Current policy: Disabled')).toBeVisible()
 
-  await page.goto('/platforms/deploy?site=site-a')
-  await chooseSingleSelectOption(page, 'Platform type', 'Slurm')
+  await page.goto('/platforms/deploy/slurm?site=site-a')
   await page.getByLabel('Platform name').fill('policy-disabled-slurm')
   await page.getByRole('button', { name: 'Next' }).click()
   await expect(page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' })).toBeEnabled()

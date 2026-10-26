@@ -131,6 +131,9 @@ const config = defineConfig({
       height: '100%',
       minWidth: '320px',
     },
+    html: {
+      background: 'bg.canvas',
+    },
     body: {
       background: 'bg.canvas',
       backgroundImage:

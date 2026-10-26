@@ -15,7 +15,11 @@ import { ServerContainersTab } from './presentation/pages/servers/ServerContaine
 import { ServerNetworkTab, ServerStorageTab, ServerPciTab } from './presentation/pages/servers/ServerDetailTableTab'
 import { PlatformsPage } from './presentation/pages/platforms/PlatformsPage'
 import { PlatformDetailPage } from './presentation/pages/platforms/PlatformDetailPage'
-import { DeployPlatformWizardPage } from './presentation/pages/platforms/DeployPlatformWizardPage'
+import {
+  DeployKubernetesPlatformPage,
+  DeploySlurmPlatformPage,
+} from './presentation/pages/platforms/DeployPlatformWizardPage'
+import { DeployPlatformCatalogPage } from './presentation/pages/platforms/DeployPlatformCatalogPage'
 import { PlatformSettingsPage } from './presentation/pages/platforms/PlatformSettingsPage'
 import { LegacyPlatformRedirect } from './presentation/pages/platforms/LegacyPlatformRedirect'
 import { SoftwarePage } from './presentation/pages/software/SoftwarePage'
@@ -88,7 +92,9 @@ export const router = createBrowserRouter([
       },
       { path: 'platforms', element: <PlatformsPage /> },
       { path: 'platforms/settings', element: <PlatformSettingsPage /> },
-      { path: 'platforms/deploy', element: <DeployPlatformWizardPage /> },
+      { path: 'platforms/deploy', element: <DeployPlatformCatalogPage /> },
+      { path: 'platforms/deploy/kubernetes', element: <DeployKubernetesPlatformPage /> },
+      { path: 'platforms/deploy/slurm', element: <DeploySlurmPlatformPage /> },
       { path: 'platforms/:id', element: <PlatformDetailPage /> },
       { path: 'software', element: <SoftwarePage /> },
       { path: 'software/settings', element: <SoftwareSettingsPage /> },

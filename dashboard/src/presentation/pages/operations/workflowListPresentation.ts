@@ -45,6 +45,19 @@ export function workflowDisplayIntent(operation: Operation): string {
   return imageId && target ? `Test OS image ${imageId} for ${target} deployment` : 'Test image deployment'
 }
 
+/**
+ * Gives resource-changing Workflows a concrete active verb without changing their canonical
+ * execution status. A Platform deployment still filters and polls as `running`, while operators
+ * see `Deploying` instead of the ambiguous generic label on list and detail surfaces.
+ */
+export function workflowDisplayStatus(operation: Operation): string {
+  const status = operationStatus(operation)
+  if (status !== 'running') return status.replaceAll('_', ' ')
+  if (operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm') return 'Deploying'
+  if (operation.kind === 'uninstall-kubernetes' || operation.kind === 'uninstall-slurm') return 'Uninstalling'
+  return 'Running'
+}
+
 /** Uses deployment-test language for Tasks that belong to an image-test Workflow. */
 export function workflowDisplayTaskName(operation: Operation, task: OperationStep): string {
   if (operation.kind !== 'verify-os-image') return task.name

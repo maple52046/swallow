@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Badge, Box, HStack, Table, Text } from '@chakra-ui/react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { OperationEvents, TaskEvent } from '@/domain/operation/types'
+import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -26,6 +27,13 @@ interface GroupCounts {
   unreachable: number
   skipped: number
   total: number
+}
+
+interface FailureDiagnostic {
+  status: 'FAILED' | 'UNREACHABLE'
+  task: string
+  host: string
+  details: string
 }
 
 function isErrorEvent(event: TaskEvent): boolean {
@@ -81,6 +89,48 @@ function eventMatchesQuery(event: TaskEvent, needle: string): boolean {
 }
 
 /**
+ * Parses the focused Step stderr report emitted by the runner into per-host task diagnostics.
+ *
+ * The event projection intentionally contains no module output because it is broadly reusable and
+ * secret-safe. The separately authorized stderr endpoint already exposes an operator diagnostic;
+ * matching that report here lets the Events view explain a failure without widening the event API.
+ */
+function parseFailureDiagnostics(report: string): FailureDiagnostic[] {
+  const diagnostics: FailureDiagnostic[] = []
+  let current: Omit<FailureDiagnostic, 'details'> | null = null
+  let detailLines: string[] = []
+
+  const finish = () => {
+    if (!current) return
+    diagnostics.push({ ...current, details: detailLines.join('\n').trim() })
+  }
+
+  for (const line of report.split(/\r?\n/)) {
+    const header = line.match(/^==>\s+(FAILED|UNREACHABLE)\s+task:\s+(.*?)\s{2,}host:\s+(.+?)\s*$/)
+    if (header) {
+      finish()
+      current = { status: header[1] as FailureDiagnostic['status'], task: header[2], host: header[3] }
+      detailLines = []
+    } else if (current) {
+      detailLines.push(line)
+    }
+  }
+  finish()
+  return diagnostics
+}
+
+/** Finds the most recent retained diagnostic for one per-host event. */
+function failureDiagnosticForEvent(diagnostics: FailureDiagnostic[], event: TaskEvent): FailureDiagnostic | undefined {
+  for (let index = diagnostics.length - 1; index >= 0; index--) {
+    const diagnostic = diagnostics[index]
+    if (diagnostic.task === event.task && diagnostic.host === event.host) return diagnostic
+  }
+  const sameHost = diagnostics.filter((diagnostic) => diagnostic.host === event.host)
+  if (sameHost.length === 1) return sameHost[0]
+  return diagnostics.length === 1 ? diagnostics[0] : undefined
+}
+
+/**
  * Task-grouped, error-forward view of one run's Ansible events.
  *
  * The per-host fan-out is folded into one row per task so the list stays readable at hundreds of
@@ -89,12 +139,27 @@ function eventMatchesQuery(event: TaskEvent, needle: string): boolean {
  * hosts sorted first. "Errors only" narrows to failures. Non-Ansible Steps carry no events, so this
  * renders the empty state for them unchanged.
  */
-export function OperationEventWorkspace({ events, running }: { events: OperationEvents | null; running: boolean }) {
+export function OperationEventWorkspace({
+  events,
+  running,
+  failureReport,
+  failureReportError,
+}: {
+  events: OperationEvents | null
+  running: boolean
+  /** `null` means the Step report is loading; omitted means this caller has no Step report. */
+  failureReport?: string | null
+  failureReportError?: string
+}) {
   const [query, setQuery] = useState('')
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
 
   const groups = useMemo(() => (events ? groupEventsByTask(events.events) : []), [events])
+  const failureDiagnostics = useMemo(
+    () => parseFailureDiagnostics(failureReport ?? ''),
+    [failureReport],
+  )
   const needle = query.trim().toLocaleLowerCase()
   const visibleGroups = useMemo(
     () =>
@@ -150,6 +215,9 @@ export function OperationEventWorkspace({ events, running }: { events: Operation
               needle={needle}
               errorsOnly={errorsOnly}
               override={overrides[group.key]}
+              failureDiagnostics={failureDiagnostics}
+              failureReport={failureReport}
+              failureReportError={failureReportError}
               onToggle={toggle}
             />
           ))}
@@ -165,12 +233,18 @@ function TaskGroupRow({
   needle,
   errorsOnly,
   override,
+  failureDiagnostics,
+  failureReport,
+  failureReportError,
   onToggle,
 }: {
   group: TaskGroup
   needle: string
   errorsOnly: boolean
   override: boolean | undefined
+  failureDiagnostics: FailureDiagnostic[]
+  failureReport?: string | null
+  failureReportError?: string
   onToggle: (key: string, collapsed: boolean) => void
 }) {
   const counts = groupCounts(group.events)
@@ -188,21 +262,28 @@ function TaskGroupRow({
 
   return (
     <Box className="sw-event-group" data-error={hasError || undefined}>
-      <button
-        type="button"
-        className="sw-event-group__header"
-        aria-expanded={!collapsed}
-        onClick={() => onToggle(group.key, collapsed)}
-      >
-        {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-        <span className="sw-event-group__task">
-          <strong>{group.task || 'No data'}</strong>
+      <div className="sw-event-group__header">
+        <div className="sw-event-group__identity">
+          <div className="sw-event-group__name-line">
+            <button
+              type="button"
+              className="sw-event-group__toggle"
+              aria-expanded={!collapsed}
+              onClick={() => onToggle(group.key, collapsed)}
+            >
+              {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+              <strong>{group.task || 'No data'}</strong>
+            </button>
+            <span className="sw-event-group__copy">
+              <CopyButton value={group.task} label={`Copy event name: ${group.task}`} />
+            </span>
+          </div>
           {group.play && (
-            <Text as="span" color="fg.muted" fontSize="xs">
+            <Text as="span" color="fg.muted" fontSize="xs" className="sw-event-group__play">
               {group.play}
             </Text>
           )}
-        </span>
+        </div>
         <StatusBadge status={groupStatus(counts)} />
         <span className="sw-event-group__counts">
           <Badge colorPalette="green" variant="subtle">{counts.ok} ok</Badge>
@@ -214,7 +295,7 @@ function TaskGroupRow({
         <Text as="span" color="fg.muted" className="sw-event-group__hosts">
           {counts.total} {counts.total === 1 ? 'host' : 'hosts'}
         </Text>
-      </button>
+      </div>
 
       {collapsed && hasError && (
         <div className="sw-event-group__failed">
@@ -227,17 +308,41 @@ function TaskGroupRow({
         <div className="sw-event-group__hostlist">
           <Table.Root size="sm" aria-label={`${group.task || 'task'} hosts`}>
             <Table.Body>
-              {rows.map((event, index) => (
-                <Table.Row key={`${event.host}-${index}`} data-error={isErrorEvent(event) || undefined}>
-                  <Table.Cell className="mono">{event.host || 'No data'}</Table.Cell>
-                  <Table.Cell>
-                    <HStack gap="2">
-                      <StatusBadge status={event.status} />
-                      {event.changed && <Badge colorPalette="blue" variant="outline">changed</Badge>}
-                    </HStack>
-                  </Table.Cell>
-                </Table.Row>
-              ))}
+              {rows.map((event, index) => {
+                const isError = isErrorEvent(event)
+                const diagnostic = isError ? failureDiagnosticForEvent(failureDiagnostics, event) : undefined
+                const hasStepReport = failureReport !== undefined || Boolean(failureReportError)
+                return (
+                  <Fragment key={`${event.host}-${index}`}>
+                    <Table.Row data-error={isError || undefined}>
+                      <Table.Cell className="mono">{event.host || 'No data'}</Table.Cell>
+                      <Table.Cell>
+                        <HStack gap="2">
+                          <StatusBadge status={event.status} />
+                          {event.changed && <Badge colorPalette="blue" variant="outline">changed</Badge>}
+                        </HStack>
+                      </Table.Cell>
+                    </Table.Row>
+                    {isError && hasStepReport && (
+                      <Table.Row className="sw-event-group__diagnostic" data-error>
+                        <Table.Cell colSpan={2}>
+                          <Text as="div" fontSize="xs" fontWeight="semibold" color="fg.muted" mb="1">
+                            Failure reason
+                          </Text>
+                          <pre>
+                            {diagnostic?.details ||
+                              (failureReport === null
+                                ? 'Loading the retained failure reason…'
+                                : failureReportError
+                                  ? `Failure details unavailable: ${failureReportError}`
+                                  : 'No detailed failure output was retained. Review Stdout for the complete runner output.')}
+                          </pre>
+                        </Table.Cell>
+                      </Table.Row>
+                    )}
+                  </Fragment>
+                )
+              })}
               {rows.length === 0 && (
                 <Table.Row>
                   <Table.Cell colSpan={2}>

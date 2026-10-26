@@ -20,6 +20,13 @@ Platform.
 
 The wizard revalidates current eligibility when the request is submitted.
 
+Open **Deploy platform** to choose Kubernetes or Slurm from the runtime catalog. The
+selection opens a dedicated workspace: Kubernetes and Slurm share Server discovery
+and OS-provisioning controls, but keep their own steps, validation, features, and
+review. Optional capabilities use Switches; topology and implementation modes remain
+explicit radio choices, and Slurm node roles remain independently selectable.
+
+
 ## Kubernetes
 
 Choose a supported topology and assign control-plane and worker roles. A
@@ -54,8 +61,8 @@ exposes.
 
 ### AMD GPU Operator
 
-The wizard's **Features** step can install the AMD GPU Operator with the
-Platform. Check **Install AMD GPU Operator** to see its options:
+The Kubernetes workspace's **Features** step can install the AMD GPU Operator with the
+Platform. Turn on **AMD GPU Operator** to see its options:
 
 - **Allocation mode**: **Device Plugin** (Pods request `amd.com/gpu`) or **DRA**
   (Pods claim GPUs through a ResourceClaim; Kubernetes 1.34 or later).
@@ -74,8 +81,8 @@ with the `amdgpu` driver. If the image does not load `amdgpu` at boot (some
 Instinct and SR-IOV images blacklist it on purpose), Swallow loads it on each
 managed node and keeps loading it after every reboot, once SSH is up; Kubernetes
 starts after it. The deployment succeeds only when every
-managed node exposes its GPUs. The checkbox is unavailable when no selected
-workload node has an AMD GPU.
+managed node exposes its GPUs. The Switch is unavailable, with a textual reason,
+when no selected workload node has an AMD GPU.
 
 After deployment, the **AMD GPU Operator** section of the Platform Overview shows
 its state and settings and offers **Install**, **Configure**, and **Uninstall**.
@@ -89,8 +96,11 @@ GPU charts keep using the host exporter.
 
 ## Slurm
 
-Slurm deployment assigns controller, compute, login, state-server, and workload
-storage responsibilities according to the selected topology.
+The Slurm workspace assigns controller, compute, and login roles independently,
+then derives state-server and workload-storage responsibilities from the selected
+topology and features. Its Features step uses separate Switches for shared workload
+storage, a container runtime, and Omnistat; AMD GPU GRES is included automatically
+on eligible compute nodes.
 
 Open **Platforms → Settings** to configure the system-wide Slurm deployment
 requirement. Enable the policy and set the minimum **CPU cores**, **Memory GiB**,

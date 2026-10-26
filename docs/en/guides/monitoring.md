@@ -90,7 +90,7 @@ reporting then. Neither is drawn as zero.
 Some runtimes bring a complete monitoring stack of their own — for example
 [Omnistat](https://github.com/ROCm/omnistat) on a Slurm Platform, with its own
 Prometheus and Grafana. When you deploy a Slurm Platform you can let swallow install
-Omnistat for you (**Features → Install Omnistat GPU monitoring** in the deploy wizard, or
+Omnistat for you (turn on **Features → Omnistat GPU monitoring** in the Slurm workspace, or
 `omnistat: { enabled: true }` in the deploy file): the primary controller gets Prometheus and a
 read-only Grafana with Omnistat's job dashboards, every compute node gets the exporter, and the
 Platform page shows the Omnistat state and an `Omnistat Grafana` link. Prometheus and Grafana run

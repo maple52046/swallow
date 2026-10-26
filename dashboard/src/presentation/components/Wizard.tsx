@@ -8,6 +8,8 @@ export interface WizardStepDef {
   content: ReactNode
   /** When false the Next/Finish control is disabled on this step. Defaults to true. */
   canProceed?: boolean
+  /** Concrete guidance displayed beside a disabled Next/Finish action. */
+  blockedReason?: string
   /**
    * Optional gate run when Next is pressed. Receives a `proceed` callback the handler must call
    * (typically after async validation) to actually advance. When present, header clicks cannot
@@ -27,23 +29,43 @@ interface WizardProps {
   finishLabel?: string
   /** Reflects an in-flight submit on the final step. */
   finishing?: boolean
+  /** Optional controlled active step, used by review actions that return to an earlier section. */
+  activeStep?: number
+  /** Receives backward, forward, and review-driven step navigation. */
+  onActiveStepChange?: (step: number) => void
 }
 
 /**
  * Linear deployment workspace built on Chakra `Steps`.
  *
- * Desktop uses a stable progress rail beside the active workspace; mobile keeps a
- * compact textual progress marker. Forward movement is gated by the active step,
- * while completed steps remain available for backward navigation.
+ * A horizontal, scrollable step bar keeps the whole deployment sequence above the active
+ * workspace at every viewport. Forward movement is gated by the active step, while completed
+ * steps remain available for backward navigation.
  */
-export function Wizard({ steps, onFinish, finishLabel = 'Finish', finishing = false }: WizardProps) {
-  const [current, setCurrent] = useState(0)
+export function Wizard({
+  steps,
+  onFinish,
+  finishLabel = 'Finish',
+  finishing = false,
+  activeStep,
+  onActiveStepChange,
+}: WizardProps) {
+  const [internalCurrent, setInternalCurrent] = useState(0)
+  const current = Math.min(activeStep ?? internalCurrent, Math.max(steps.length - 1, 0))
+  const wizardRef = useRef<HTMLDivElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
+  const activeTriggerRef = useRef<HTMLButtonElement>(null)
   const previousStepRef = useRef(current)
   const step = steps[current]
   const isLast = current === steps.length - 1
   const canProceed = step.canProceed !== false
-  const goNext = () => setCurrent((value) => Math.min(steps.length - 1, value + 1))
+  const updateCurrent = (next: number | ((value: number) => number)) => {
+    const value = typeof next === 'function' ? next(current) : next
+    const bounded = Math.max(0, Math.min(steps.length - 1, value))
+    if (activeStep === undefined) setInternalCurrent(bounded)
+    onActiveStepChange?.(bounded)
+  }
+  const goNext = () => updateCurrent((value) => value + 1)
 
   useEffect(() => {
     if (previousStepRef.current === current) return
@@ -53,27 +75,28 @@ export function Wizard({ steps, onFinish, finishLabel = 'Finish', finishing = fa
     // resets a long dialog workspace to the top without moving deployment data outside React.
     const progress = progressRef.current
     if (!progress) return
-    progress.scrollIntoView({ block: 'start' })
+    wizardRef.current?.scrollIntoView({ block: 'start' })
     progress.focus({ preventScroll: true })
+    activeTriggerRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' })
   }, [current])
 
   return (
-    <Box className="sw-wizard" colorPalette="brand">
-      <Box className="sw-wizard__rail">
-        <Text className="sw-wizard__rail-label">Deployment flow</Text>
+    <Box ref={wizardRef} className="sw-wizard" colorPalette="brand">
+      <Box className="sw-wizard__stepbar">
+        <Text className="sw-wizard__stepbar-label">Deployment flow</Text>
         <Steps.Root
           step={current}
           count={steps.length}
-          orientation="vertical"
+          orientation="horizontal"
           onStepChange={(details) => {
-            if (details.step < current || (details.step === current + 1 && canProceed && !step.onNext)) setCurrent(details.step)
+            if (details.step < current || (details.step === current + 1 && canProceed && !step.onNext)) updateCurrent(details.step)
           }}
           size="sm"
         >
           <Steps.List className="sw-wizard__steps">
             {steps.map((entry, index) => (
               <Steps.Item key={entry.id} index={index}>
-                <Steps.Trigger>
+                <Steps.Trigger ref={index === current ? activeTriggerRef : undefined}>
                   <Steps.Indicator />
                   <Steps.Title>{entry.name}</Steps.Title>
                 </Steps.Trigger>
@@ -92,23 +115,28 @@ export function Wizard({ steps, onFinish, finishLabel = 'Finish', finishing = fa
         <Box className="sw-wizard__content">{step.content}</Box>
 
         <Flex className="sw-wizard__actions" justify="space-between" gap="2">
-          <Button variant="ghost" disabled={current === 0} onClick={() => setCurrent((value) => Math.max(0, value - 1))}>
+          <Button variant="ghost" disabled={current === 0} onClick={() => updateCurrent((value) => value - 1)}>
             Back
           </Button>
-          {isLast ? (
-            <Button colorPalette="brand" loading={finishing} disabled={!canProceed || finishing} onClick={onFinish}>
-              {finishLabel}
-            </Button>
-          ) : (
-            <Button
-              colorPalette="brand"
-              loading={step.nextLoading}
-              disabled={!canProceed || Boolean(step.nextLoading)}
-              onClick={() => (step.onNext ? step.onNext(goNext) : goNext())}
-            >
-              {step.nextLabel ?? 'Next'}
-            </Button>
-          )}
+          <Box display="grid" justifyItems="end" gap="1" maxW={{ base: '65%', md: '34rem' }}>
+            {!canProceed && step.blockedReason && (
+              <Text className="sw-wizard__blocked-reason" role="status" textAlign="right">{step.blockedReason}</Text>
+            )}
+            {isLast ? (
+              <Button colorPalette="brand" loading={finishing} disabled={!canProceed || finishing} onClick={onFinish}>
+                {finishLabel}
+              </Button>
+            ) : (
+              <Button
+                colorPalette="brand"
+                loading={step.nextLoading}
+                disabled={!canProceed || Boolean(step.nextLoading)}
+                onClick={() => (step.onNext ? step.onNext(goNext) : goNext())}
+              >
+                {step.nextLabel ?? 'Next'}
+              </Button>
+            )}
+          </Box>
         </Flex>
       </Box>
     </Box>

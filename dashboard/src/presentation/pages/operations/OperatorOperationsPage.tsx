@@ -33,6 +33,7 @@ import {
   isWorkflowReviewStatus,
   workflowActionLabel,
   workflowDisplayIntent,
+  workflowDisplayStatus,
   workflowActivitySummary,
   type WorkflowActivitySummary,
 } from './workflowListPresentation'
@@ -122,10 +123,11 @@ function WorkflowIdentity({ operation, href }: { operation: Operation; href: str
  * cells: label first, then `InProgressSpinner` while the execution can still advance.
  * Status meaning stays on the badge text; the spinner is decorative only.
  */
-function WorkflowStatusLine({ status }: { status: OperationStatus }) {
+function WorkflowStatusLine({ operation }: { operation: Operation }) {
+  const status = operationStatus(operation)
   return (
     <div className="sw-workflow-status-line">
-      <StatusBadge status={status} />
+      <StatusBadge status={status} label={workflowDisplayStatus(operation)} />
       {isWorkflowChangingStatus(status) && <InProgressSpinner />}
     </div>
   )
@@ -208,7 +210,7 @@ function WorkflowRuntimeCard({ operation, workflowHref, platformHref }: Workflow
     <div className="sw-workflow-runtime-card" data-tone={workflowTone(status)}>
       <ResourceCard
         title={<WorkflowIdentity operation={operation} href={workflowHref} />}
-        status={<WorkflowStatusLine status={status} />}
+        status={<WorkflowStatusLine operation={operation} />}
         actions={
           <Button
             asChild
@@ -504,7 +506,7 @@ export function OperatorOperationsPage() {
                             </Table.Cell>
                             <Table.Cell>
                               <div className="sw-workflow-execution">
-                                <WorkflowStatusLine status={currentStatus} />
+                                <WorkflowStatusLine operation={operation} />
                                 <WorkflowActivityCopy summary={activity} />
                               </div>
                             </Table.Cell>

@@ -73,7 +73,7 @@ test('locked targets are excluded from Platform deployment', async ({ page }) =>
     lockedServerIds: ['srv-1'],
     freePlatformCandidates: true,
   })
-  await page.goto('/platforms/deploy?site=site-a')
+  await page.goto('/platforms/deploy/kubernetes?site=site-a')
   await page.getByLabel('Site', { exact: true }).click()
   await page.getByRole('option', { name: 'Taipei Lab', exact: true }).click()
   await page.getByLabel('Platform name').fill('locked-candidate-check')

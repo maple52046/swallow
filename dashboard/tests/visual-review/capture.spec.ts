@@ -29,7 +29,7 @@ const visualCases = [
   { name: 'server-detail-inspection-required', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-activity-releasing', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
-  { name: 'platform-wizard', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
+  { name: 'platform-selector', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
 ] as const
 
@@ -308,16 +308,16 @@ test.describe('AMD GPU Operator visual review', () => {
     await installApiFixtures(page, { freePlatformCandidates: true })
     await setAppearance(page, appearance)
 
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await page.getByLabel('Platform name').fill('gpu-k0s')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
-    await chooseOption(page, 'Topology', 'Multi-node (non-HA)')
+    await page.getByRole('radio', { name: /Multi-node \(non-HA\)/ }).locator('xpath=following-sibling::*[1]').click()
     await chooseOption(page, 'Role for gpu-node-01', 'Control-plane')
     await chooseOption(page, 'Role for gpu-node-02', 'Worker')
     await chooseOption(page, 'Role for gpu-node-03', 'Worker')
     await next.click()
-    await page.getByRole('checkbox', { name: 'Install AMD GPU Operator' }).locator('..').click()
+    await page.getByRole('switch', { name: 'Enable AMD GPU Operator' }).locator('xpath=following-sibling::*[1]').click()
     await chooseOption(page, 'GPU allocation mode', 'DRA')
     await expect(page.getByRole('combobox', { name: 'DRA driver version' })).toContainText('v1.0.1')
     await prepareCapture(page, appearance)
@@ -347,6 +347,46 @@ test.describe('AMD GPU Operator visual review', () => {
 })
 
 /**
+/**
+ * Captures the runtime-specific Kubernetes workspace at topology, network, and grouped Review.
+ * Desktop runs at 1280px to exercise the compact 13-inch hierarchy; mobile verifies card parity.
+ */
+test.describe('Kubernetes deployment studio visual review', () => {
+  test('kubernetes-deployment-studio', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    if (!mobile) await page.setViewportSize({ width: 1280, height: 800 })
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
+    await page.getByLabel('Platform name').fill('studio-k0s')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
+      await chooseOption(page, `Role for ${server}`, 'Control-plane')
+    }
+    await chooseOption(page, 'Role for gpu-node-04', 'Worker')
+    await prepareCapture(page, appearance)
+    await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-wizard-topology')
+
+    await next.click()
+    await next.click()
+    await page.getByLabel('API virtual IP').fill('192.168.40.200')
+    await prepareCapture(page, appearance)
+    await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-wizard-networking')
+
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-wizard-review')
+  })
+})
+
+/**
  * Captures the Slurm deploy wizard's Features step with Podman as the container runtime and
  * Omnistat selected (decision 063): the runtime choice, the Omnistat toggle and its install-method
  * choice naming the primary controller, and the automatic GPU GRES notice.
@@ -358,8 +398,7 @@ test.describe('Slurm Omnistat visual review', () => {
     await installApiFixtures(page, { freePlatformCandidates: true })
     await setAppearance(page, appearance)
 
-    await page.goto('/platforms/deploy?site=site-a')
-    await chooseOption(page, 'Platform type', 'Slurm')
+    await page.goto('/platforms/deploy/slurm?site=site-a')
     await page.getByLabel('Platform name').fill('omnistat-slurm')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
@@ -367,13 +406,19 @@ test.describe('Slurm Omnistat visual review', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-03' }).locator('..').click()
     await next.click()
-    await chooseOption(page, 'Container runtime', 'Podman')
-    await page.getByRole('checkbox', { name: 'Install Omnistat GPU monitoring' }).locator('..').click()
-    await expect(page.getByRole('checkbox', { name: 'Install Omnistat GPU monitoring' })).toBeChecked()
-    await expect(page.getByText('Runs both as containers on gpu-node-01, which gets Podman.')).toBeVisible()
+    await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('radio', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('switch', { name: 'Enable Omnistat GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('switch', { name: 'Enable Omnistat GPU monitoring' })).toBeChecked()
+    await expect(page.getByText('Run both as containers on gpu-node-01.')).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-omnistat-wizard-features')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-omnistat-wizard-review')
   })
 })
 
@@ -651,8 +696,7 @@ test.describe('OS deployment flow visual review', () => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 2, siteDhcpNetworkServerIds: ['srv-1', 'srv-2'] })
     await setAppearance(page, appearance)
-    await page.goto('/platforms/deploy?site=site-a')
-    await chooseOption(page, 'Platform type', 'Slurm')
+    await page.goto('/platforms/deploy/slurm?site=site-a')
     await page.getByLabel('Platform name').fill('site-dhcp-slurm')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
@@ -660,10 +704,10 @@ test.describe('OS deployment flow visual review', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await next.click()
+    await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
+    await next.click()
     await page.getByRole('radio', { name: 'Ubuntu 24.04 LTS', exact: false }).locator('..').click()
-    await next.click()
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
-    await next.click()
     await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
     await expect(page.getByRole('radio', { name: 'DHCP', exact: true })).toBeChecked()
     await prepareCapture(page, appearance)
@@ -732,14 +776,14 @@ test.describe('OS deployment flow visual review', () => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 1 })
     await setAppearance(page, appearance)
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await page.getByLabel('Platform name').fill('visual-k0s')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
-    await chooseOption(page, 'Topology', 'Standalone (single Server)')
+    await page.getByRole('radio', { name: /Standalone/ }).locator('xpath=following-sibling::*[1]').click()
     await chooseOption(page, 'Role for gpu-node-01', 'Standalone node')
     await next.click()
-    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Kubernetes features' })).toBeVisible()
     await next.click()
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
     const sharedImageStep = page.locator('.sw-os-image-selection-step')
@@ -762,11 +806,9 @@ test.describe('OS deployment flow visual review', () => {
 
     const image = page.getByRole('radio', { name: 'Ubuntu 22.04 LTS', exact: false })
     await image.locator('..').click()
-    await next.click()
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
     await capture(page, testInfo, 'platform-os-installation-step', false)
 
-    await next.click()
     await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
     await capture(page, testInfo, 'platform-os-networking-step', false)
   })

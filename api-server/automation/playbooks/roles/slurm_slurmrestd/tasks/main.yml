@@ -39,42 +39,88 @@
   become: true
   when: slurm_have_slurmrestd | bool
 
-- name: Configure slurmrestd to serve JWT-authenticated REST on a TCP port
+- name: Declare the slurmrestd TCP and JWT runtime
   when: slurm_have_slurmrestd | bool
-  ansible.builtin.copy:
+  ansible.builtin.template:
+    src: override.conf.j2
     dest: /etc/systemd/system/slurmrestd.service.d/override.conf
-    content: |
-      # Managed by Swallow (deploy-slurm).
-      [Service]
-      # Reset the packaged ExecStart (UNIX socket) and serve JWT REST on a TCP port so
-      # Swallow can read membership from the API server.
-      ExecStart=
-      Environment=SLURM_JWT=daemon
-      Environment=SLURM_CONF={{ slurm_conf_dir }}/slurm.conf
-      ExecStart=/usr/sbin/slurmrestd -a rest_auth/jwt 0.0.0.0:{{ slurmrestd_port }}
-      User=slurmrestd
-      Group=slurmrestd
-      DynamicUser=yes
-      RuntimeDirectory=slurmrestd
-      RuntimeDirectoryMode=0755
     owner: root
     group: root
     mode: "0644"
   become: true
-  notify: Restart slurmrestd
+  register: slurm_slurmrestd_override
 
-- name: Enable and start slurmrestd
-  ansible.builtin.systemd:
-    name: slurmrestd
-    state: started
-    enabled: true
-    daemon_reload: true
-  become: true
+- name: Converge and verify the declared slurmrestd runtime
   when: slurm_have_slurmrestd | bool
+  block:
+    - name: Converge slurmrestd service to the declared unit
+      # A changed declaration requires a restart now, not a deferred handler after verification.
+      # An unchanged, healthy declaration stays idempotent and only asserts the service is started.
+      ansible.builtin.systemd_service:
+        name: slurmrestd
+        state: "{{ 'restarted' if slurm_slurmrestd_override.changed else 'started' }}"
+        enabled: true
+        daemon_reload: true
+      become: true
+      register: slurm_slurmrestd_service
+      until: slurm_slurmrestd_service is succeeded
+      retries: 5
+      delay: 6
 
-- name: Wait for slurmrestd to accept TCP connections
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: "{{ slurmrestd_port }}"
-    timeout: 60
-  when: slurm_have_slurmrestd | bool
+    - name: Probe the desired slurmrestd TCP listener
+      # A prior deployment may have written this exact drop-in and failed before restarting. The
+      # file then has no diff on retry even though the live process still uses the packaged UNIX
+      # socket. Treat a missing listener as runtime drift instead of restarting healthy services.
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ slurmrestd_port }}"
+        connect_timeout: 1
+        timeout: 1
+        state: started
+      register: slurm_slurmrestd_listener_probe
+      changed_when: false
+      failed_when: false
+
+    - name: Reconcile slurmrestd runtime drift
+      ansible.builtin.systemd_service:
+        name: slurmrestd
+        state: restarted
+        enabled: true
+        daemon_reload: true
+      become: true
+      register: slurm_slurmrestd_reconcile
+      until: slurm_slurmrestd_reconcile is succeeded
+      retries: 5
+      delay: 6
+      when: (slurm_slurmrestd_listener_probe.msg | default('') | length) > 0
+
+    - name: Wait for slurmrestd to accept TCP connections
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ slurmrestd_port }}"
+        timeout: 60
+        state: started
+  rescue:
+    - name: Capture slurmrestd systemd status for diagnostics
+      ansible.builtin.command:
+        argv: [systemctl, status, slurmrestd, --no-pager, --full]
+      become: true
+      register: slurm_slurmrestd_status
+      changed_when: false
+      failed_when: false
+
+    - name: Capture the recent slurmrestd journal for diagnostics
+      ansible.builtin.command:
+        argv: [journalctl, -u, slurmrestd, --no-pager, --lines=30]
+      become: true
+      register: slurm_slurmrestd_journal
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with the slurmrestd convergence diagnostics
+      ansible.builtin.fail:
+        msg: >-
+          slurmrestd did not converge to the declared TCP listener
+          127.0.0.1:{{ slurmrestd_port }} on {{ inventory_hostname }}.
+          systemd status: {{ (slurm_slurmrestd_status.stdout_lines | default([]))[-8:] | join(' | ') | default('(status unavailable)', true) }}.
+          journal tail: {{ (slurm_slurmrestd_journal.stdout_lines | default([]))[-12:] | join(' | ') | default('(journal unavailable)', true) }}

@@ -29,7 +29,7 @@ import { softwareKindLabel } from '@/presentation/pages/software/softwarePresent
 import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
-import { workflowDisplayIntent, workflowDisplayTaskName } from './workflowListPresentation'
+import { workflowDisplayIntent, workflowDisplayStatus, workflowDisplayTaskName } from './workflowListPresentation'
 
 interface DurableOperationDetailProps {
   operation: Operation
@@ -222,7 +222,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
         metadata={
           <HStack gap="2">
-            <StatusBadge status={status} />
+            <StatusBadge status={status} label={workflowDisplayStatus(operation)} />
             {operation.statusReason && <Text as="span" color="fg.muted">{operation.statusReason}</Text>}
           </HStack>
         }
@@ -356,7 +356,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
             <Tabs.Content value="events">
               <div className="sw-tab-content">
                 {selectedStep.executor === 'ansible' ? (
-                  <StepEvents operation={operation} step={selectedStep} />
+                  <StepEvents key={selectedStep.id} operation={operation} step={selectedStep} />
                 ) : stepServerTarget(selectedStep) ? (
                   <StepProviderEvents serverId={stepServerTarget(selectedStep) as string} />
                 ) : (
@@ -611,15 +611,34 @@ function StepEvents({ operation, step }: { operation: Operation; step: Operation
   const { operations } = useApp()
   const [events, setEvents] = useState<OperationEvents | null>(null)
   const [error, setError] = useState('')
+  const [failureReport, setFailureReport] = useState<string | null>(null)
+  const [failureReportError, setFailureReportError] = useState('')
   useEffect(() => {
     let canceled = false
     operations
       .getStepEvents(operation.id, step.id)
       .then((result) => {
-        if (!canceled) setEvents(result)
+        if (!canceled) {
+          setEvents(result)
+          setError('')
+        }
       })
       .catch((caught: Error) => {
         if (!canceled) setError(caught.message)
+      })
+    operations
+      .getStepStderr(operation.id, step.id)
+      .then((report) => {
+        if (!canceled) {
+          setFailureReport(report)
+          setFailureReportError('')
+        }
+      })
+      .catch((caught: Error) => {
+        if (!canceled) {
+          setFailureReport('')
+          setFailureReportError(caught.message)
+        }
       })
     return () => {
       canceled = true
@@ -641,7 +660,12 @@ function StepEvents({ operation, step }: { operation: Operation; step: Operation
           {`${live.currentPlay && live.currentTask ? `Play "${live.currentPlay}" - ` : ''}${live.ok} ok, ${live.changed} changed, ${live.failed} failed${live.unreachable ? `, ${live.unreachable} unreachable` : ''}${live.skipped ? `, ${live.skipped} skipped` : ''}`}
         </Alert>
       )}
-      <OperationEventWorkspace events={events} running={running} />
+      <OperationEventWorkspace
+        events={events}
+        running={running}
+        failureReport={failureReport}
+        failureReportError={failureReportError}
+      />
     </Stack>
   )
 }

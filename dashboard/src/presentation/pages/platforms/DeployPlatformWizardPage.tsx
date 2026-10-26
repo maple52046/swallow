@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Badge, Button, Card, Field, Heading, HStack, Input, Table, Text, Textarea } from '@chakra-ui/react'
-import { useNavigate } from 'react-router-dom'
+import { Badge, Button, Card, Field, Heading, HStack, Input, RadioCard, Switch, Table, Text, Textarea } from '@chakra-ui/react'
+import { Boxes, Cpu, Search } from 'lucide-react'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import { evaluateMinimumResourceEligibility, formatGiB, formatMinimumResources } from '@/domain/platform/resourceEligibility'
@@ -22,6 +23,7 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -46,7 +48,9 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useDeployableServers } from './useDeployableServers'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
-import { GPUOperatorOptionsFields } from './GPUOperatorOptionsFields'
+import { AdvancedSettings } from './AdvancedSettings'
+import { KubernetesDeploymentFeatures } from './KubernetesDeploymentFeatures'
+import { SlurmDeploymentFeatures } from './SlurmDeploymentFeatures'
 import {
   DEFAULT_GPU_OPERATOR_FORM,
   gpuOperatorFormProblem,
@@ -55,6 +59,7 @@ import {
   type GPUOperatorFormValue,
 } from './gpuOperatorForm'
 import { useGPUOperatorReleases } from './useGPUOperatorReleases'
+import './platformDeployment.css'
 
 const DEFAULT_K0S_VERSION = 'v1.36.3+k0s.2'
 const DEFAULT_POD_CIDR = '10.244.0.0/16'
@@ -75,18 +80,6 @@ function slurmContainerRuntimeLabel(runtime: SlurmContainerRuntime): string {
   return runtime === 'podman' ? 'Podman' : 'Docker CE'
 }
 
-/** The Slurm container runtime choices; '' is the real "no runtime" choice, which is the default. */
-const SLURM_CONTAINER_RUNTIME_OPTIONS = [
-  { value: '', label: 'None' },
-  { value: 'docker-ce', label: slurmContainerRuntimeLabel('docker-ce') },
-  { value: 'podman', label: slurmContainerRuntimeLabel('podman') },
-]
-
-/** Omnistat's Prometheus and Grafana install methods, container (the API default) first. */
-const OMNISTAT_INSTALL_METHOD_OPTIONS: { value: OmnistatInstallMethod; label: string }[] = [
-  { value: 'container', label: 'Container' },
-  { value: 'native', label: 'Native (official release and package repository)' },
-]
 
 function validAddress(value: string): boolean {
   const parts = value.split('.')
@@ -126,6 +119,14 @@ function selectedNetworkGuidance(addresses: string[]): string {
   if (!ipv4) return 'Selected machines have no observed IPv4 address. Verify provider inventory before deployment.'
   const octets = ipv4.split('.')
   return `Observed addresses include ${octets.slice(0, 3).join('.')}.x. Confirm routing, DHCP ranges, and address reservations with the network owner.`
+}
+
+/** Matches the Server identity fields exposed by the deployment target picker. */
+function serverMatchesDeployQuery(server: Server, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return [serverDisplayName(server), server.fqdn ?? '', server.id, ...server.addresses, ...server.tags]
+    .some((value) => value.toLowerCase().includes(needle))
 }
 
 interface ExistingPlatformAssignment {
@@ -169,6 +170,27 @@ function WizardSection({ title, children }: { title: string; children: ReactNode
     </section>
   )
 }
+interface ReviewGroupProps {
+  title: string
+  items: Array<{ label: string; value: ReactNode }>
+  onEdit: () => void
+}
+
+/** One review section with a direct return path to its owning deployment step. */
+function ReviewGroup({ title, items, onEdit }: ReviewGroupProps) {
+  return (
+    <Card.Root size="sm" className="sw-platform-review-card">
+      <Card.Body gap="3">
+        <HStack justify="space-between" align="center" gap="3">
+          <Heading as="h3" size="sm">{title}</Heading>
+          <Button size="xs" variant="plain" colorPalette="brand" onClick={onEdit}>Edit</Button>
+        </HStack>
+        <DescriptionList items={items} />
+      </Card.Body>
+    </Card.Root>
+  )
+}
+
 
 /**
  * Warns operators that an ephemeral Kubernetes Platform has no durable node-local state.
@@ -183,6 +205,10 @@ function EphemeralKubernetesWarning() {
   )
 }
 
+interface DeployPlatformWizardPageProps {
+  platformType: PlatformType
+}
+
 /**
  * Platform deployment workflow.
  *
@@ -192,14 +218,13 @@ function EphemeralKubernetesWarning() {
  * While Deployment Templates are in development (always, in release builds) the OS step offers
  * only a custom configuration and never lists templates.
  */
-export function DeployPlatformWizardPage() {
+function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProps) {
   const navigate = useNavigate()
   const { platforms, provisioning, sites: siteRepository } = useApp()
   const { siteId: scopedSiteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
   const [name, setName] = useState('')
-  const [platformType, setPlatformType] = useState<PlatformType>('kubernetes')
   // The optional AMD GPU Operator feature (decision 062). The backend derives gpuStackOwner from
   // it, so the wizard never asks for the policy directly.
   const [gpuOperatorForm, setGPUOperatorForm] = useState<GPUOperatorFormValue>(DEFAULT_GPU_OPERATOR_FORM)
@@ -231,6 +256,8 @@ export function DeployPlatformWizardPage() {
   const [roles, setRoles] = useState<Record<string, RoleChoice>>({})
   const [workloadControllers, setWorkloadControllers] = useState<Record<string, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [serverQuery, setServerQuery] = useState('')
+  const [wizardStep, setWizardStep] = useState(0)
   const [candidateRevision, setCandidateRevision] = useState(0)
   const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
@@ -252,7 +279,7 @@ export function DeployPlatformWizardPage() {
   }>({ siteKey: null, items: [], error: '' })
   const effectiveSiteId = siteId ?? scopedSiteId
   const state = useDeployableServers(effectiveSiteId, CANDIDATE_PROVISIONING_STATES, candidateRevision)
-  const { state: slurmRequirementState, reload: reloadSlurmRequirement } = useSlurmDeploymentRequirement()
+  const { state: slurmRequirementState, reload: reloadSlurmRequirement } = useSlurmDeploymentRequirement(platformType === 'slurm')
 
   useEffect(() => {
     if (!effectiveSiteId) return
@@ -301,6 +328,10 @@ export function DeployPlatformWizardPage() {
   }, [effectiveSiteId, provisioning, templatesEnabled])
 
   const isSlurm = platformType === 'slurm'
+  const visibleServers = state.status === 'ready'
+    ? state.data.servers.filter((server) => serverMatchesDeployQuery(server, serverQuery))
+    : []
+
   const slurmMinimumResources = slurmRequirementState.status === 'ready' ? slurmRequirementState.requirement.minimumResources : null
   const slurmEligibilityByServerId = useMemo<Record<string, ReturnType<typeof evaluateMinimumResourceEligibility>>>(() => {
     if (state.status !== 'ready' || slurmRequirementState.status !== 'ready') return {}
@@ -575,25 +606,6 @@ export function DeployPlatformWizardPage() {
     setAPIVip('')
   }
 
-  // Switching platform type clears every selection so a k0s topology never leaks into a Slurm
-  // deploy or vice versa. Slurm has no GPU Operator, so the feature is reset with it.
-  const changeType = (next: PlatformType) => {
-    setPlatformType(next)
-    setRoles({})
-    setWorkloadControllers({})
-    setAPIVip('')
-    setSlurmDaemons({})
-    setSlurmWorkloadMode('none')
-    setSlurmWorkloadMountPath('/shared')
-    setSlurmWorkloadNfsUrl('')
-    setSlurmWorkloadMountOptions('')
-    setTemplateId('')
-    setImageId('')
-    setDeployTarget('ram')
-    setNetworkInspection(null)
-    setNetworkAssignments({})
-    setGPUOperatorForm(DEFAULT_GPU_OPERATOR_FORM)
-  }
 
   // Toggle one Slurm role on a node. A node keeps whichever roles are checked; a node with none
   // is simply not part of the cluster. Login is a submission/client host (no cluster daemon).
@@ -730,26 +742,20 @@ export function DeployPlatformWizardPage() {
   }
 
   const steps: WizardStepDef[] = []
+  const editStep = (stepId: string) => {
+    const index = steps.findIndex((step) => step.id === stepId)
+    if (index >= 0) setWizardStep(index)
+  }
+
   if (state.status === 'ready') {
     steps.push({
       id: 'deploy-basics',
-      name: 'Basics',
+      name: 'Platform',
       canProceed: basicsValid,
+      blockedReason: !effectiveSiteId ? 'Choose a Site.' : !name.trim() ? 'Enter a Platform name.' : !isSlurm && !k0sVersion.trim() ? 'Enter a k0s version.' : 'Wait for the Slurm deployment policy to load.',
       content: (
         <WizardSection title="Platform identity">
           <div className="sw-form-grid">
-            <Field.Root required>
-              <Field.Label>Platform type</Field.Label>
-              <Select
-                value={platformType}
-                aria-label="Platform type"
-                onChange={(value) => changeType(value as PlatformType)}
-                options={[
-                  { value: 'kubernetes', label: 'Kubernetes' },
-                  { value: 'slurm', label: 'Slurm' },
-                ]}
-              />
-            </Field.Root>
             <Field.Root required>
               <Field.Label>Site</Field.Label>
               <Select
@@ -760,14 +766,31 @@ export function DeployPlatformWizardPage() {
                 options={state.data.sites.map((site) => ({ value: site.id, label: site.name }))}
                 required
                 onChange={(value) => {
+                  if (value === effectiveSiteId) return
+                  if (selectedServerIds.length > 0 &&
+                    !window.confirm('Changing Site clears the selected Servers and Site-specific deployment settings. Continue?')) {
+                    return
+                  }
                   setSiteId(value)
+                  setWizardStep(0)
                   setRoles({})
                   setWorkloadControllers({})
                   setAPIVip('')
                   setSlurmDaemons({})
+                  setAPIVipPrefix('')
+                  setGPUOperatorForm(DEFAULT_GPU_OPERATOR_FORM)
                   setTemplateId('')
                   setImageId('')
                   setNetworkInspection(null)
+                  setDeployTarget('ram')
+                  setCloudInit('')
+                  setNetworkMode('automatic')
+                  setDefaultGateway(false)
+                  setSlurmWorkloadMode('none')
+                  setSlurmWorkloadNfsUrl('')
+                  setSlurmContainerRuntime('')
+                  setOmnistatEnabled(false)
+                  setServerQuery('')
                   setNetworkAssignments({})
                 }}
               />
@@ -782,21 +805,23 @@ export function DeployPlatformWizardPage() {
                 <Input value={k0sVersion} onChange={(event) => setK0sVersion(event.target.value)} />
               </Field.Root>
             )}
-            {isSlurm && (
-              <Field.Root>
-                <Field.Label>Cluster name</Field.Label>
-                <Input value={clusterName} onChange={(event) => setClusterName(event.target.value)} placeholder={name.trim() || 'lab-slurm'} />
-                <Field.HelperText>Slurm ClusterName; defaults to a sanitized platform name.</Field.HelperText>
-              </Field.Root>
-            )}
-            {isSlurm && (
-              <Field.Root>
-                <Field.Label>slurmrestd API version</Field.Label>
-                <Input value={slurmApiVersion} onChange={(event) => setSlurmApiVersion(event.target.value)} placeholder="auto-detect (e.g. v0.0.42)" />
-                <Field.HelperText>Optional. Leave blank to let the deployment detect the endpoint version.</Field.HelperText>
-              </Field.Root>
-            )}
           </div>
+          {isSlurm && (
+            <AdvancedSettings>
+              <div className="sw-form-grid">
+                <Field.Root>
+                  <Field.Label>Cluster name</Field.Label>
+                  <Input value={clusterName} onChange={(event) => setClusterName(event.target.value)} placeholder={name.trim() || 'lab-slurm'} />
+                  <Field.HelperText>Slurm ClusterName; defaults to a sanitized Platform name.</Field.HelperText>
+                </Field.Root>
+                <Field.Root>
+                  <Field.Label>slurmrestd API version</Field.Label>
+                  <Input value={slurmApiVersion} onChange={(event) => setSlurmApiVersion(event.target.value)} placeholder="Auto-detect (for example, v0.0.42)" />
+                  <Field.HelperText>Leave blank to detect the endpoint version during deployment.</Field.HelperText>
+                </Field.Root>
+              </div>
+            </AdvancedSettings>
+          )}
           {isSlurm && slurmRequirementState.status === 'loading' && (
             <Alert status="info" title="Loading Slurm deployment requirement">Node selection remains unavailable until the current policy is known.</Alert>
           )}
@@ -812,28 +837,39 @@ export function DeployPlatformWizardPage() {
 
     steps.push({
       id: 'deploy-machines',
-      name: 'Machines',
+      name: isSlurm ? 'Nodes & Roles' : 'Topology & Servers',
       canProceed: machinesValid,
+      blockedReason: isSlurm ? 'Assign at least one eligible controller and one eligible compute node.' : 'Complete the selected topology with the required control-plane and workload Servers.',
       content: (
         <WizardSection title={isSlurm ? 'Nodes and daemons' : 'Topology and machines'}>
           {!isSlurm && (
             <>
               <Field.Root required>
                 <Field.Label>Topology</Field.Label>
-                <Select
-                  value={topology}
+                <RadioCard.Root
                   aria-label="Topology"
-                  onChange={(value) => changeTopology(value as TopologyChoice)}
-                  options={[
-                    { value: 'standalone', label: 'Standalone (single Server)' },
-                    { value: 'multi-node', label: 'Multi-node (non-HA)' },
-                    { value: 'high-availability', label: 'High availability' },
-                  ]}
-                />
+                  colorPalette="brand"
+                  value={topology}
+                  className="sw-platform-topology-grid"
+                  onValueChange={(details) => changeTopology(details.value as TopologyChoice)}
+                >
+                  {(['standalone', 'multi-node', 'high-availability'] as const).map((choice) => {
+                    const presentation = topologyPresentation(choice)
+                    return (
+                      <RadioCard.Item key={choice} value={choice}>
+                        <RadioCard.ItemHiddenInput />
+                        <RadioCard.ItemControl className="sw-platform-option-card">
+                          <RadioCard.ItemContent>
+                            <RadioCard.ItemText>{presentation.label}</RadioCard.ItemText>
+                            <RadioCard.ItemDescription>{presentation.guidance}</RadioCard.ItemDescription>
+                          </RadioCard.ItemContent>
+                          <RadioCard.ItemIndicator />
+                        </RadioCard.ItemControl>
+                      </RadioCard.Item>
+                    )
+                  })}
+                </RadioCard.Root>
               </Field.Root>
-              <Alert status={topology === 'high-availability' ? 'info' : 'warning'} title={topologyPresentation(topology).label}>
-                {topologyPresentation(topology).guidance}
-              </Alert>
               <HStack gap="2" wrap="wrap">
                 <Badge colorPalette={controllers > 0 ? 'green' : 'orange'} variant="subtle">{controllers} control-plane</Badge>
                 <Badge colorPalette={workloadCount > 0 ? 'green' : 'orange'} variant="subtle">{workloadCount} workload-capable</Badge>
@@ -862,56 +898,13 @@ export function DeployPlatformWizardPage() {
                   every controller — so there is nothing to enter here. (Lab-grade: the export host is a single storage failure domain.)
                 </Alert>
               )}
-              <Field.Root>
-                <Field.Label>Shared workload storage</Field.Label>
-                <Select
-                  value={slurmWorkloadMode}
-                  aria-label="Shared workload storage mode"
-                  onChange={(value) => setSlurmWorkloadMode(value as 'none' | 'self-hosted' | 'external')}
-                  options={[
-                    { value: 'none', label: 'None (jobs stage their own data)' },
-                    { value: 'self-hosted', label: 'Self-hosted (NFS exported from the login node)' },
-                    { value: 'external', label: 'External (operator-provided NFS)' },
-                  ]}
-                />
-                <Field.HelperText>
-                  Optional shared filesystem for user/job data, mounted on every node. Distinct from controller state. Self-hosted requires a login node.
-                </Field.HelperText>
-              </Field.Root>
-              {slurmWorkloadMode !== 'none' && (
-                <>
-                  <Field.Root>
-                    <Field.Label>Storage type</Field.Label>
-                    <Select value="nfs" disabled aria-label="Workload storage type" onChange={() => undefined} options={[{ value: 'nfs', label: 'NFS' }]} />
-                  </Field.Root>
-                  <Field.Root>
-                    <Field.Label>Mount path</Field.Label>
-                    <Input value={slurmWorkloadMountPath} onChange={(event) => setSlurmWorkloadMountPath(event.target.value)} placeholder="/shared" />
-                    <Field.HelperText>Mounted on every node. Must not be /home (that would hide the SSH user's home).</Field.HelperText>
-                  </Field.Root>
-                  {slurmWorkloadMode === 'self-hosted' && slurmLoginIds.length === 0 && (
-                    <Alert status="warning" title="Self-hosted workload storage needs a login node">
-                      Assign the Login role to one node above; it will export the shared filesystem.
-                    </Alert>
-                  )}
-                  {slurmWorkloadMode === 'external' && (
-                    <>
-                      <Field.Root required invalid={Boolean(slurmWorkloadNfsUrl.trim()) && !/^[^\s:]+:\/\S*$/.test(slurmWorkloadNfsUrl.trim())}>
-                        <Field.Label>NFS URL</Field.Label>
-                        <Input value={slurmWorkloadNfsUrl} onChange={(event) => setSlurmWorkloadNfsUrl(event.target.value)} placeholder="nfs-server:/export/data" />
-                        <Field.HelperText>Form host:/path, for example 10.0.0.9:/export/data.</Field.HelperText>
-                        <Field.ErrorText>Form host:/path, for example 10.0.0.9:/export/data.</Field.ErrorText>
-                      </Field.Root>
-                      <Field.Root>
-                        <Field.Label>Mount options (optional)</Field.Label>
-                        <Input value={slurmWorkloadMountOptions} onChange={(event) => setSlurmWorkloadMountOptions(event.target.value)} placeholder="rw,_netdev,hard,timeo=600,retrans=2" />
-                      </Field.Root>
-                    </>
-                  )}
-                </>
-              )}
             </>
           )}
+          <HStack justify="space-between" gap="3" wrap="wrap">
+            <HStack className="sw-platform-server-search" gap="2"><Search size={16} aria-hidden="true" /><Input value={serverQuery} onChange={(event) => setServerQuery(event.target.value)} aria-label="Search Servers" placeholder="Search hostname, address, or tag" /></HStack>
+            <Text color="fg.muted" fontSize="sm">Showing {visibleServers.length} of {state.data.servers.length} Servers</Text>
+          </HStack>
+
           {hasAssignedServers && (
             <Alert status="warning" title="Some Servers are already assigned">
               Assigned Servers remain visible for context. Remove the existing Platform assignment before selecting a role.
@@ -940,8 +933,12 @@ export function DeployPlatformWizardPage() {
           )}
           {state.data.servers.length === 0 ? (
             <EmptyState title="No deployable Servers" message="This Site has no Ready or Deployed Servers to build a Platform from." />
+          ) : visibleServers.length === 0 ? (
+            <EmptyState title="No matching Servers" message="No deployable Server matches this search." />
           ) : (
-            <StickyTableFrame>
+            <ResponsiveDataView
+              desktop={(
+                <StickyTableFrame>
               <Table.Root size="sm" aria-label="Deployable Servers" className="sw-deploy-machines-table">
                 <Table.Header>
                   <Table.Row>
@@ -949,9 +946,9 @@ export function DeployPlatformWizardPage() {
                     <Table.ColumnHeader>Address</Table.ColumnHeader>
                     <Table.ColumnHeader>OS state</Table.ColumnHeader>
                     <Table.ColumnHeader>Current assignment</Table.ColumnHeader>
+                    <Table.ColumnHeader>Hardware</Table.ColumnHeader>
                     {isSlurm ? (
                       <>
-                        <Table.ColumnHeader>Resources</Table.ColumnHeader>
                         <Table.ColumnHeader>Eligibility</Table.ColumnHeader>
                         <Table.ColumnHeader>Controller</Table.ColumnHeader>
                         <Table.ColumnHeader>Compute</Table.ColumnHeader>
@@ -966,7 +963,7 @@ export function DeployPlatformWizardPage() {
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {state.data.servers.map((server) => {
+                  {visibleServers.map((server) => {
                     const existing = existingPlatformAssignment(server, state.data.platforms, state.data.deploymentClaims)
                     const deployed = server.provisioning?.state === 'deployed'
                     const eligibility = isSlurm ? slurmEligibilityByServerId[server.id] : undefined
@@ -1004,11 +1001,11 @@ export function DeployPlatformWizardPage() {
                             '-'
                           )}
                         </Table.Cell>
+                        <Table.Cell>
+                          {server.cpuCores} cores · {formatGiB(server.memoryMiB)} GiB · {server.storageGB} GB{server.gpus.length > 0 ? ` · ${server.gpus.length} GPU` : ''}
+                        </Table.Cell>
                         {isSlurm && (
                           <>
-                            <Table.Cell>
-                              {server.cpuCores} C / {formatGiB(server.memoryMiB)} GiB / {server.storageGB} GB
-                            </Table.Cell>
                             <Table.Cell>
                               {eligibility?.eligible ? (
                                 <Badge colorPalette="green" variant="subtle">Eligible</Badge>
@@ -1069,13 +1066,13 @@ export function DeployPlatformWizardPage() {
                             </Table.Cell>
                             <Table.Cell>
                               {role === 'control-plane' ? (
-                                <Checkbox
+                                <Switch.Root
                                   id={`platform-workload-${server.id}`}
-                                  aria-label={`Run workloads on ${serverDisplayName(server)}`}
                                   checked={topology === 'standalone' || Boolean(workloadControllers[server.id])}
                                   disabled={topology === 'standalone'}
-                                  onCheckedChange={(checked) => setWorkloadControllers((current) => ({ ...current, [server.id]: checked }))}
-                                />
+                                  colorPalette="brand"
+                                  onCheckedChange={(details) => setWorkloadControllers((current) => ({ ...current, [server.id]: details.checked === true }))}
+                                ><Switch.HiddenInput aria-label={`Run workloads on ${serverDisplayName(server)}`} /><Switch.Control><Switch.Thumb /></Switch.Control></Switch.Root>
                               ) : role === 'worker' ? (
                                 <Badge colorPalette="green" variant="subtle">Yes</Badge>
                               ) : (
@@ -1089,102 +1086,175 @@ export function DeployPlatformWizardPage() {
                   })}
                 </Table.Body>
               </Table.Root>
-            </StickyTableFrame>
+                </StickyTableFrame>
+              )}
+              mobile={(
+                <div className="sw-resource-card-list sw-platform-server-card-list" aria-label="Deployable Servers">
+                  {visibleServers.map((server) => {
+                    const existing = existingPlatformAssignment(server, state.data.platforms, state.data.deploymentClaims)
+                    const deployed = server.provisioning?.state === 'deployed'
+                    const eligibility = isSlurm ? slurmEligibilityByServerId[server.id] : undefined
+                    const unavailable = Boolean(existing) || (isSlurm && !eligibility?.eligible)
+                    const unavailableReason = existing
+                      ? 'assigned to ' + existing.platformName
+                      : eligibility?.explanation ?? 'the deployment requirement is unavailable'
+                    const role = unavailable ? 'none' : roles[server.id] ?? 'none'
+                    const daemons = slurmDaemons[server.id] ?? { controller: false, compute: false, login: false }
+                    const willProvision = !unavailable && (
+                      isSlurm ? daemons.controller || daemons.compute || daemons.login : role !== 'none'
+                    )
+                    const status = deployed
+                      ? <Badge colorPalette="green" variant="subtle">Deployed</Badge>
+                      : willProvision
+                        ? <Badge colorPalette="blue" variant="subtle">Will provision</Badge>
+                        : <Badge colorPalette="blue" variant="subtle">Ready</Badge>
+
+                    return (
+                      <ResourceCard
+                        key={server.id}
+                        title={serverDisplayName(server)}
+                        description={<span className="sw-mono">{serverPrimaryAddress(server) ?? 'No observed address'}</span>}
+                        status={status}
+                        selected={willProvision}
+                      >
+                        <ResourceCardField label="Hardware">
+                          {server.cpuCores} cores · {formatGiB(server.memoryMiB)} GiB · {server.storageGB} GB
+                          {server.gpus.length > 0 ? ` · ${server.gpus.length} GPU` : ''}
+                        </ResourceCardField>
+                        <ResourceCardField label="Current assignment">
+                          {existing ? (
+                            <span className="sw-cell-inline">
+                              <Badge colorPalette="red" variant="subtle">In use</Badge>
+                              <span>{existing.platformName} ({existing.platformType}, {existing.detail})</span>
+                            </span>
+                          ) : '-'}
+                        </ResourceCardField>
+                        {isSlurm && (
+                          <ResourceCardField label="Eligibility">
+                            {eligibility?.eligible ? (
+                              <Badge colorPalette="green" variant="subtle">Eligible</Badge>
+                            ) : (
+                              <span className="sw-cell-inline">
+                                <Badge colorPalette="red" variant="subtle">Ineligible</Badge>
+                                <Text className="sw-muted">{eligibility?.explanation ?? 'Policy unavailable'}</Text>
+                              </span>
+                            )}
+                          </ResourceCardField>
+                        )}
+                        {isSlurm ? (
+                          <>
+                            <ResourceCardField label="Controller">
+                              <Checkbox
+                                id={`mobile-slurm-controller-${server.id}`}
+                                aria-label={unavailable ? 'slurmctld on ' + serverDisplayName(server) + ', unavailable: ' + unavailableReason : 'Run slurmctld on ' + serverDisplayName(server)}
+                                checked={!unavailable && daemons.controller}
+                                disabled={unavailable}
+                                onCheckedChange={(checked) => toggleSlurmDaemon(server.id, 'controller', checked)}
+                              />
+                            </ResourceCardField>
+                            <ResourceCardField label="Compute">
+                              <Checkbox
+                                id={`mobile-slurm-compute-${server.id}`}
+                                aria-label={unavailable ? 'slurmd on ' + serverDisplayName(server) + ', unavailable: ' + unavailableReason : 'Run slurmd on ' + serverDisplayName(server)}
+                                checked={!unavailable && daemons.compute}
+                                disabled={unavailable}
+                                onCheckedChange={(checked) => toggleSlurmDaemon(server.id, 'compute', checked)}
+                              />
+                            </ResourceCardField>
+                            <ResourceCardField label="Login">
+                              <Checkbox
+                                id={`mobile-slurm-login-${server.id}`}
+                                aria-label={unavailable ? 'login node on ' + serverDisplayName(server) + ', unavailable: ' + unavailableReason : 'Make ' + serverDisplayName(server) + ' a login (submission) host'}
+                                checked={!unavailable && daemons.login}
+                                disabled={unavailable}
+                                onCheckedChange={(checked) => toggleSlurmDaemon(server.id, 'login', checked)}
+                              />
+                            </ResourceCardField>
+                          </>
+                        ) : (
+                          <>
+                            <ResourceCardField label="Role">
+                              <Select
+                                aria-label={existing ? `Role for ${serverDisplayName(server)}, unavailable because it is assigned to ${existing.platformName}` : `Role for ${serverDisplayName(server)}`}
+                                value={role}
+                                disabled={unavailable}
+                                size="sm"
+                                onChange={(value) => changeRole(server.id, value as RoleChoice)}
+                                options={[
+                                  { value: 'none', label: 'Not included' },
+                                  { value: 'control-plane', label: topology === 'standalone' ? 'Standalone node' : 'Control-plane' },
+                                  ...(topology !== 'standalone' ? [{ value: 'worker', label: 'Worker' }] : []),
+                                ]}
+                              />
+                            </ResourceCardField>
+                            <ResourceCardField label="Runs workloads">
+                              {role === 'control-plane' ? (
+                                <Switch.Root
+                                  id={`mobile-platform-workload-${server.id}`}
+                                  checked={topology === 'standalone' || Boolean(workloadControllers[server.id])}
+                                  disabled={topology === 'standalone'}
+                                  colorPalette="brand"
+                                  onCheckedChange={(details) => setWorkloadControllers((current) => ({ ...current, [server.id]: details.checked === true }))}
+                                >
+                                  <Switch.HiddenInput aria-label={`Run workloads on ${serverDisplayName(server)}`} />
+                                  <Switch.Control><Switch.Thumb /></Switch.Control>
+                                </Switch.Root>
+                              ) : role === 'worker' ? (
+                                <Badge colorPalette="green" variant="subtle">Yes</Badge>
+                              ) : '-'}
+                            </ResourceCardField>
+                          </>
+                        )}
+                      </ResourceCard>
+                    )
+                  })}
+                </div>
+              )}
+            />
           )}
         </WizardSection>
       ),
     })
 
-    if (isSlurm) {
-      // Slurm's optional features follow the machine choice, because the compute and login nodes
-      // just picked get the container runtime and the primary controller is where Omnistat's
-      // Prometheus and Grafana run. GPU GRES needs no choice: every compute node with AMD GPUs
-      // schedules them.
-      steps.push({
-        id: 'deploy-features',
-        name: 'Features',
-        canProceed: true,
-        content: (
-          <WizardSection title="Platform features">
-            <Field.Root>
-              <Field.Label id="slurm-container-runtime-label">Container runtime</Field.Label>
-              <Select
-                id="slurm-container-runtime"
-                aria-label="Container runtime"
-                value={slurmContainerRuntime}
-                onChange={(value) => setSlurmContainerRuntime(value as SlurmContainerRuntime | '')}
-                options={SLURM_CONTAINER_RUNTIME_OPTIONS}
-              />
-              <Field.HelperText>
-                Installs the runtime on every compute and login node for containerized workloads such
-                as AI jobs. Slurm itself does not need one. Each Server&apos;s runtime is then listed
-                under Software.
-              </Field.HelperText>
-            </Field.Root>
-            <Field.Root>
-              <Checkbox checked={omnistatEnabled} onCheckedChange={setOmnistatEnabled}>
-                Install Omnistat GPU monitoring
-              </Checkbox>
-              <Field.HelperText>
-                Adds AMD Omnistat to every compute node and runs Prometheus and a read-only Grafana with
-                Omnistat&apos;s job dashboards on {slurmPrimaryControllerName}. Each node then runs one
-                job at a time so metrics map to a single job. The Platform page links to the Grafana
-                when the deployment finishes.
-              </Field.HelperText>
-            </Field.Root>
-            {omnistatEnabled && (
-              <Field.Root>
-                <Field.Label id="omnistat-install-method-label">Prometheus and Grafana install method</Field.Label>
-                <Select
-                  id="omnistat-install-method"
-                  aria-label="Prometheus and Grafana install method"
-                  value={omnistatInstallMethod}
-                  onChange={(value) => setOmnistatInstallMethod(value as OmnistatInstallMethod)}
-                  options={OMNISTAT_INSTALL_METHOD_OPTIONS}
-                />
-                <Field.HelperText>
-                  {omnistatInstallMethod === 'container'
-                    ? `Runs both as containers on ${slurmPrimaryControllerName}, which gets ${
-                        slurmContainerRuntime
-                          ? slurmContainerRuntimeLabel(slurmContainerRuntime)
-                          : 'Docker CE unless a container runtime is already installed there'
-                      }.`
-                    : `Installs both on ${slurmPrimaryControllerName} from the official Prometheus release and Grafana package repository, with no container runtime.`}
-                </Field.HelperText>
-              </Field.Root>
-            )}
-            <Alert status="info" title="GPU scheduling is automatic">
-              Compute nodes with AMD GPUs schedule them as Slurm GRES. Jobs request GPUs explicitly, for
-              example <Text as="code" whiteSpace="nowrap">--gres=gpu:1</Text>, and see only the GPUs they were given.
-            </Alert>
-          </WizardSection>
-        ),
-      })
-    }
-
-    if (!isSlurm) {
-      // Optional platform features follow the machine choice, because which nodes can run a
-      // feature (here: workload nodes with AMD GPUs) depends on the roles just assigned.
-      steps.push({
-        id: 'deploy-features',
-        name: 'Features',
-        canProceed: featuresValid,
-        content: (
-          <WizardSection title="Platform features">
-            <GPUOperatorOptionsFields
+    steps.push({
+      id: 'deploy-features',
+      name: 'Features',
+      canProceed: isSlurm ? slurmWorkloadValid : featuresValid,
+      blockedReason: isSlurm ? 'Complete the enabled shared-storage settings.' : gpuOperatorProblem ?? undefined,
+      content: (
+        <WizardSection title={isSlurm ? 'Slurm features' : 'Kubernetes features'}>
+          {isSlurm ? (
+            <SlurmDeploymentFeatures
+              workloadMode={slurmWorkloadMode}
+              onWorkloadModeChange={setSlurmWorkloadMode}
+              workloadMountPath={slurmWorkloadMountPath}
+              onWorkloadMountPathChange={setSlurmWorkloadMountPath}
+              workloadNfsUrl={slurmWorkloadNfsUrl}
+              onWorkloadNfsUrlChange={setSlurmWorkloadNfsUrl}
+              workloadMountOptions={slurmWorkloadMountOptions}
+              onWorkloadMountOptionsChange={setSlurmWorkloadMountOptions}
+              loginNodeCount={slurmLoginIds.length}
+              containerRuntime={slurmContainerRuntime}
+              onContainerRuntimeChange={setSlurmContainerRuntime}
+              omnistatEnabled={omnistatEnabled}
+              onOmnistatEnabledChange={setOmnistatEnabled}
+              omnistatInstallMethod={omnistatInstallMethod}
+              onOmnistatInstallMethodChange={setOmnistatInstallMethod}
+              primaryControllerName={slurmPrimaryControllerName}
+            />
+          ) : (
+            <KubernetesDeploymentFeatures
               value={gpuOperatorForm}
               onChange={setGPUOperatorForm}
               hasAMDGPUWorkload={hasAMDGPUWorkload}
               releases={gpuOperatorReleases}
               onRetryReleases={reloadGPUOperatorReleases}
               k0sVersion={k0sVersion.trim() || null}
-              showInstallToggle
-              idPrefix="deploy-gpu-operator"
             />
-          </WizardSection>
-        ),
-      })
-    }
+          )}
+        </WizardSection>
+      ),
+    })
 
     if (needsProvisioning) {
       const preparationScopeTitle =
@@ -1206,6 +1276,7 @@ export function DeployPlatformWizardPage() {
         id: 'deploy-os-image',
         name: 'OS image',
         canProceed: osImageValid,
+        blockedReason: provisioningError || (provisioningLoading ? 'Wait for the OS image catalog to load.' : 'Choose an OS image for the Servers that need provisioning.'),
         content: (
           <OSImageSelectionStep
             images={images}
@@ -1253,6 +1324,7 @@ export function DeployPlatformWizardPage() {
         id: 'deploy-os-installation',
         name: 'Installation',
         canProceed: osInstallationValid,
+        blockedReason: 'Choose an OS image before configuring its installation mode.',
         content: (
           <WizardSection title="OS installation">
             {preparationScope}
@@ -1267,17 +1339,21 @@ export function DeployPlatformWizardPage() {
               />
               {!isSlurm && effectiveEphemeral && <EphemeralKubernetesWarning />}
               {!selectedTemplate && (
-                <Field.Root className="sw-form-grid__wide">
-                  <Field.Label>Cloud-init user data</Field.Label>
-                  <Textarea
-                    value={cloudInit}
-                    onChange={(event) => setCloudInit(event.target.value)}
-                    rows={7}
-                    autoComplete="off"
-                    placeholder="#cloud-config"
-                  />
-                  <Field.HelperText>Cloud-init stays in memory and is submitted only with this deployment.</Field.HelperText>
-                </Field.Root>
+                <div className="sw-form-grid__wide">
+                  <AdvancedSettings label="Advanced OS settings">
+                    <Field.Root>
+                      <Field.Label>Cloud-init user data</Field.Label>
+                      <Textarea
+                        value={cloudInit}
+                        onChange={(event) => setCloudInit(event.target.value)}
+                        rows={7}
+                        autoComplete="off"
+                        placeholder="#cloud-config"
+                      />
+                      <Field.HelperText>Cloud-init stays in memory and is submitted only with this deployment.</Field.HelperText>
+                    </Field.Root>
+                  </AdvancedSettings>
+                </div>
               )}
             </div>
             {selectedImageModeUnsupported && (
@@ -1299,6 +1375,7 @@ export function DeployPlatformWizardPage() {
         id: 'deploy-os-networking',
         name: 'OS networking',
         canProceed: osNetworkingValid,
+        blockedReason: provisioningError || 'Complete the network interface and addressing assignment for every Server being provisioned.',
         content: (
           <WizardSection title="OS networking">
             {preparationScope}
@@ -1364,6 +1441,21 @@ export function DeployPlatformWizardPage() {
           </WizardSection>
         ),
       })
+
+      const preparationSteps = steps.splice(-3, 3)
+      steps.push({
+        id: 'deploy-server-preparation',
+        name: isSlurm ? 'Server preparation' : 'Operating system',
+        canProceed: osConfigurationValid,
+        blockedReason: provisioningError || (effectiveImageId
+          ? 'Complete the addressing assignment for every Server being provisioned.'
+          : 'Choose an OS image for the Servers that need provisioning.'),
+        content: (
+          <div className="sw-platform-preparation-stack">
+            {preparationSteps.map((step) => <div key={step.id}>{step.content}</div>)}
+          </div>
+        ),
+      })
     }
 
     if (!isSlurm) {
@@ -1371,6 +1463,7 @@ export function DeployPlatformWizardPage() {
         id: 'deploy-networking',
         name: 'Networking',
         canProceed: networkingValid,
+        blockedReason: 'Enter valid Kubernetes Pod and Service CIDRs, plus an API virtual IP for high availability.',
         content: (
           <WizardSection title="Platform network">
             <section className="sw-network-context" aria-labelledby="selected-machine-addresses">
@@ -1395,15 +1488,17 @@ export function DeployPlatformWizardPage() {
                 The Kubernetes API will use {initialControllerAddress ?? 'the selected control-plane address'}:6443. This topology has no endpoint failover.
               </Alert>
             )}
-            <div className="sw-form-grid">
-              {topology === 'high-availability' && (
-                <>
-                  <Field.Root required invalid={Boolean(apiVip) && !validAddress(apiVip)}>
-                    <Field.Label>API virtual IP</Field.Label>
-                    <Input value={apiVip} onChange={(event) => setAPIVip(event.target.value)} placeholder="192.168.40.200" />
-                    <Field.HelperText>Enter an unused IPv4 address on the machine network.</Field.HelperText>
-                    <Field.ErrorText>Enter an unused IPv4 address on the machine network.</Field.ErrorText>
-                  </Field.Root>
+            {topology === 'high-availability' && (
+              <Field.Root required invalid={Boolean(apiVip) && !validAddress(apiVip)}>
+                <Field.Label>API virtual IP</Field.Label>
+                <Input value={apiVip} onChange={(event) => setAPIVip(event.target.value)} placeholder="192.168.40.200" />
+                <Field.HelperText>Enter an unused IPv4 address on the machine network.</Field.HelperText>
+                <Field.ErrorText>Enter an unused IPv4 address on the machine network.</Field.ErrorText>
+              </Field.Root>
+            )}
+            <AdvancedSettings label="Advanced networking">
+              <div className="sw-form-grid">
+                {topology === 'high-availability' && (
                   <Field.Root>
                     <Field.Label>VIP prefix length</Field.Label>
                     <Input
@@ -1416,93 +1511,174 @@ export function DeployPlatformWizardPage() {
                     />
                     <Field.HelperText>Leave empty to use the machine subnet's prefix. A different prefix is refused.</Field.HelperText>
                   </Field.Root>
-                </>
-              )}
-              <Field.Root required invalid={Boolean(podCidr) && !validCIDR(podCidr)}>
-                <Field.Label>Pod CIDR</Field.Label>
-                <Input value={podCidr} onChange={(event) => setPodCidr(event.target.value)} />
-                <Field.HelperText>Default {DEFAULT_POD_CIDR}; must not overlap selected machine addresses.</Field.HelperText>
-                <Field.ErrorText>Default {DEFAULT_POD_CIDR}; must not overlap selected machine addresses.</Field.ErrorText>
-              </Field.Root>
-              <Field.Root required invalid={Boolean(serviceCidr) && !validCIDR(serviceCidr)}>
-                <Field.Label>Service CIDR</Field.Label>
-                <Input value={serviceCidr} onChange={(event) => setServiceCidr(event.target.value)} />
-                <Field.HelperText>Default {DEFAULT_SERVICE_CIDR}; must not overlap selected machine addresses.</Field.HelperText>
-                <Field.ErrorText>Default {DEFAULT_SERVICE_CIDR}; must not overlap selected machine addresses.</Field.ErrorText>
-              </Field.Root>
-            </div>
+                )}
+                <Field.Root required invalid={Boolean(podCidr) && !validCIDR(podCidr)}>
+                  <Field.Label>Pod CIDR</Field.Label>
+                  <Input value={podCidr} onChange={(event) => setPodCidr(event.target.value)} />
+                  <Field.HelperText>Default {DEFAULT_POD_CIDR}; must not overlap selected machine addresses.</Field.HelperText>
+                  <Field.ErrorText>Default {DEFAULT_POD_CIDR}; must not overlap selected machine addresses.</Field.ErrorText>
+                </Field.Root>
+                <Field.Root required invalid={Boolean(serviceCidr) && !validCIDR(serviceCidr)}>
+                  <Field.Label>Service CIDR</Field.Label>
+                  <Input value={serviceCidr} onChange={(event) => setServiceCidr(event.target.value)} />
+                  <Field.HelperText>Default {DEFAULT_SERVICE_CIDR}; must not overlap selected machine addresses.</Field.HelperText>
+                  <Field.ErrorText>Default {DEFAULT_SERVICE_CIDR}; must not overlap selected machine addresses.</Field.ErrorText>
+                </Field.Root>
+              </div>
+            </AdvancedSettings>
           </WizardSection>
         ),
       })
     }
 
+    const reviewSite = state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId
+    const preparationSummary = needsProvisioning
+      ? `Provision ${readySelectedServers.length}; reuse existing OS on ${deployedSelectedServers.length}`
+      : 'Use existing OS on every selected Server'
+    const osReviewItems = [
+      { label: 'OS image', value: images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId },
+      { label: 'Deploy mode', value: osDeploymentModeLabel },
+      {
+        label: 'Addressing',
+        value: effectiveNetworkMode === 'static'
+          ? 'Static per Server'
+          : DEPLOYMENT_NETWORK_MODE_LABELS[effectiveNetworkMode],
+      },
+    ]
+    const reviewGroups: Array<{
+      title: string
+      stepId: string
+      items: Array<{ label: string; value: ReactNode }>
+    }> = isSlurm
+      ? [
+          {
+            title: 'Platform',
+            stepId: 'deploy-basics',
+            items: [
+              { label: 'Name', value: name },
+              { label: 'Site', value: reviewSite },
+              { label: 'Cluster name', value: clusterName.trim() || name.trim() },
+              { label: 'Minimum resources', value: formatMinimumResources(slurmMinimumResources) },
+              ...(slurmApiVersion.trim()
+                ? [{ label: 'slurmrestd API version', value: slurmApiVersion.trim() }]
+                : []),
+            ],
+          },
+          {
+            title: 'Nodes and roles',
+            stepId: 'deploy-machines',
+            items: [
+              { label: 'Controllers', value: String(slurmControllerIds.length) },
+              { label: 'Compute nodes', value: String(slurmComputeIds.length) },
+              { label: 'Login nodes', value: String(slurmLoginIds.length) },
+              { label: 'Server preparation', value: preparationSummary },
+              ...(slurmHighlyAvailable
+                ? [{ label: 'Shared controller state', value: 'Included automatically (NFS)' }]
+                : []),
+            ],
+          },
+          {
+            title: 'Shared workload storage',
+            stepId: 'deploy-features',
+            items: [{
+              label: 'Configuration',
+              value: slurmWorkloadMode === 'self-hosted'
+                ? `Self-hosted NFS at ${slurmWorkloadMountPath.trim() || '/shared'}`
+                : slurmWorkloadMode === 'external'
+                  ? `External ${slurmWorkloadNfsUrl.trim()} at ${slurmWorkloadMountPath.trim() || '/shared'}`
+                  : 'Not included',
+            }],
+          },
+          {
+            title: 'Container runtime',
+            stepId: 'deploy-features',
+            items: [{
+              label: 'Runtime',
+              value: slurmContainerRuntime
+                ? `${slurmContainerRuntimeLabel(slurmContainerRuntime)} on compute and login nodes`
+                : 'Not included',
+            }],
+          },
+          {
+            title: 'GPU monitoring and scheduling',
+            stepId: 'deploy-features',
+            items: [
+              {
+                label: 'Omnistat',
+                value: omnistatEnabled
+                  ? `Prometheus and Grafana on ${slurmPrimaryControllerName}; ${omnistatInstallMethod === 'native' ? 'native packages' : 'containers'}`
+                  : 'Not included',
+              },
+              { label: 'GPU GRES', value: 'Included automatically for AMD GPU compute nodes' },
+            ],
+          },
+          ...(needsProvisioning
+            ? [{ title: 'Server preparation', stepId: 'deploy-server-preparation', items: osReviewItems }]
+            : []),
+        ]
+      : [
+          {
+            title: 'Platform',
+            stepId: 'deploy-basics',
+            items: [
+              { label: 'Name', value: name },
+              { label: 'Site', value: reviewSite },
+              { label: 'k0s version', value: k0sVersion },
+            ],
+          },
+          {
+            title: 'Topology and Servers',
+            stepId: 'deploy-machines',
+            items: [
+              { label: 'Topology', value: topologyPresentation(topology).label },
+              { label: 'Servers', value: `${assignments.length} selected` },
+              { label: 'Roles', value: `${controllers} control-plane, ${workloadCount} workload-capable` },
+              { label: 'Operating system', value: preparationSummary },
+            ],
+          },
+          {
+            title: 'Features',
+            stepId: 'deploy-features',
+            items: [{ label: 'AMD GPU Operator', value: gpuOperatorReview }],
+          },
+          ...(needsProvisioning
+            ? [{ title: 'Operating system', stepId: 'deploy-server-preparation', items: osReviewItems }]
+            : []),
+          {
+            title: 'Networking',
+            stepId: 'deploy-networking',
+            items: [
+              {
+                label: 'API endpoint',
+                value: topology === 'high-availability'
+                  ? (apiVipPrefix.trim()
+                      ? `${apiVip}/${apiVipPrefix} (virtual IP)`
+                      : `${apiVip} (virtual IP, machine subnet prefix)`)
+                  : `${initialControllerAddress ?? '-'}:6443 (direct)`,
+              },
+              { label: 'Pod CIDR', value: podCidr },
+              { label: 'Service CIDR', value: serviceCidr },
+            ],
+          },
+        ]
+
     steps.push({
       id: 'deploy-review',
       name: 'Review',
       canProceed: basicsValid && machinesValid && featuresValid && osConfigurationValid && platformNetworkingValid && !submitting,
+      blockedReason: 'Return to the incomplete deployment step before submitting.',
       content: (
         <WizardSection title="Review deployment">
-          <Card.Root size="sm">
-            <Card.Body gap="3">
-              <Heading size="sm">{name}</Heading>
-              <DescriptionList
-                items={(isSlurm
-                  ? [
-                      ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
-                      ['Platform type', 'Slurm'],
-                      ['Minimum resources', formatMinimumResources(slurmMinimumResources)],
-                      ['Cluster name', clusterName.trim() || name.trim()],
-                      ['Machine preparation', needsProvisioning ? `Provision ${readySelectedServers.length}, ${deployedSelectedServers.length} already deployed` : 'Use existing OS'],
-                      ...(needsProvisioning
-                        ? [
-                            ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
-                            ['OS deployment mode', osDeploymentModeLabel],
-                            ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : DEPLOYMENT_NETWORK_MODE_LABELS[effectiveNetworkMode]],
-                          ]
-                        : []),
-                      ['Controllers', String(slurmControllerIds.length)],
-                      ['Compute nodes', String(slurmComputeIds.length)],
-                      ...(slurmLoginIds.length > 0 ? [['Login nodes', String(slurmLoginIds.length)]] : []),
-                      ...(slurmHighlyAvailable ? [['Shared state', 'Swallow-provisioned (NFS)']] : []),
-                      ...(slurmWorkloadMode === 'self-hosted'
-                        ? [['Workload storage', `Self-hosted NFS at ${slurmWorkloadMountPath.trim() || '/shared'}`]]
-                        : slurmWorkloadMode === 'external'
-                          ? [['Workload storage', `External ${slurmWorkloadNfsUrl.trim()} at ${slurmWorkloadMountPath.trim() || '/shared'}`]]
-                          : []),
-                      ...(slurmApiVersion.trim() ? [['slurmrestd API version', slurmApiVersion.trim()]] : []),
-                      ['Container runtime', slurmContainerRuntime
-                        ? `${slurmContainerRuntimeLabel(slurmContainerRuntime)} on compute and login nodes`
-                        : 'None'],
-                      ['Omnistat', omnistatEnabled
-                        ? `Install (Prometheus and Grafana on ${slurmPrimaryControllerName}, ${omnistatInstallMethod === 'native' ? 'native' : 'as containers'})`
-                        : 'Not installed'],
-                    ]
-                  : [
-                      ['Site', state.data.sites.find((site) => site.id === effectiveSiteId)?.name ?? effectiveSiteId],
-                      ['Platform type', 'Kubernetes'],
-                      ['Topology', topologyPresentation(topology).label],
-                      ['Machine preparation', needsProvisioning ? `Provision ${readySelectedServers.length}, ${deployedSelectedServers.length} already deployed` : 'Use existing OS'],
-                      ...(needsProvisioning
-                        ? [
-                            ['OS image', images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId],
-                            ['OS deployment mode', osDeploymentModeLabel],
-                            ['OS addressing', effectiveNetworkMode === 'static' ? 'Static per target' : DEPLOYMENT_NETWORK_MODE_LABELS[effectiveNetworkMode]],
-                          ]
-                        : []),
-                      ['k0s version', k0sVersion],
-                      ['AMD GPU Operator', gpuOperatorReview],
-                      ['API endpoint', topology === 'high-availability'
-                        ? (apiVipPrefix.trim() ? `${apiVip}/${apiVipPrefix} (virtual IP)` : `${apiVip} (virtual IP, machine subnet prefix)`)
-                        : `${initialControllerAddress ?? '-'}:6443 (direct)`],
-                      ['Pod CIDR', podCidr],
-                      ['Service CIDR', serviceCidr],
-                      ['Machines', `${assignments.length} selected`],
-                      ['Roles', `${controllers} control-plane, ${workloadCount} workload-capable`],
-                    ]
-                ).map(([label, value]) => ({ label: String(label), value }))}
+          <div className="sw-platform-review-grid">
+            {reviewGroups.map((group) => (
+              <ReviewGroup
+                key={group.title}
+                title={group.title}
+                items={group.items}
+                onEdit={() => editStep(group.stepId)}
               />
-            </Card.Body>
-          </Card.Root>
+            ))}
+          </div>
           <Alert status="info" title="Submitting creates a Platform and starts its deployment">
             You will continue on the Platform page. Open detailed Operation output only when you need automation-level troubleshooting.
           </Alert>
@@ -1512,15 +1688,55 @@ export function DeployPlatformWizardPage() {
     })
   }
 
+  const platformLabel = isSlurm ? 'Slurm' : 'Kubernetes'
+  const PlatformIcon = isSlurm ? Cpu : Boxes
+
   return (
     <div className="operator-page">
       <PageHeader
-        title="Deploy platform"
-        breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }, { label: 'Deploy' }]}
+        title={`Deploy ${platformLabel} Platform`}
+        subtitle={`Configure a ${platformLabel} runtime with its own topology, features, and preparation workflow.`}
+        breadcrumbs={[
+          { label: 'Platforms', href: scopedHref('/platforms') },
+          { label: 'Deploy', href: scopedHref('/platforms/deploy') },
+          { label: platformLabel },
+        ]}
       />
+      <div className="sw-platform-deploy-hero">
+        <div className="sw-platform-deploy-hero__identity">
+          <span className="sw-platform-deploy-hero__icon" aria-hidden="true"><PlatformIcon size={25} /></span>
+          <div>
+            <Text className="sw-platform-deploy-eyebrow">Managed runtime</Text>
+            <Heading as="h2" size="md">{platformLabel} deployment</Heading>
+          </div>
+        </div>
+        <Button asChild size="sm" variant="outline">
+          <RouterLink to={scopedHref('/platforms/deploy')}>Change platform</RouterLink>
+        </Button>
+      </div>
+
       {state.status === 'loading' && <LoadingState rows={7} />}
       {state.status === 'error' && <ErrorState message={state.message} />}
-      {state.status === 'ready' && <Wizard steps={steps} onFinish={() => void deploy()} finishLabel="Deploy platform" finishing={submitting} />}
+      {state.status === 'ready' && (
+        <Wizard
+          steps={steps}
+          activeStep={wizardStep}
+          onActiveStepChange={setWizardStep}
+          onFinish={() => void deploy()}
+          finishLabel={`Deploy ${platformLabel} Platform`}
+          finishing={submitting}
+        />
+      )}
     </div>
   )
+}
+
+/** Fixed Kubernetes deployment route; Platform type is no longer a form choice. */
+export function DeployKubernetesPlatformPage() {
+  return <DeployPlatformWizardPage platformType="kubernetes" />
+}
+
+/** Fixed Slurm deployment route; its steps and optional features remain Slurm-specific. */
+export function DeploySlurmPlatformPage() {
+  return <DeployPlatformWizardPage platformType="slurm" />
 }

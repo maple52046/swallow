@@ -17,6 +17,12 @@ Platform 是由 swallow 佈署的 Kubernetes 或 Slurm runtime。swallow 不會�
 
 送出 request 時 wizard 會重新驗證 current eligibility。
 
+開啟 **Deploy platform** 後，先從 runtime catalog 選擇 Kubernetes 或 Slurm，再進入各自的
+deployment workspace。兩者只共用 Server discovery 與 OS provisioning controls；steps、
+validation、features 與 review 仍依 Platform 類型設計。Optional capability 使用 Switch，
+topology 與 implementation mode 使用明確的 radio choice，Slurm node roles 則可各自複選。
+
+
 ## Kubernetes
 
 選擇 supported topology，指派 control-plane 與 worker role。Standalone deployment
@@ -47,8 +53,8 @@ Platform 是由 swallow 佈署的 Kubernetes 或 Slurm runtime。swallow 不會�
 
 ### AMD GPU Operator
 
-佈署精靈的 **Features** 步驟可以在佈署 Platform 時一併安裝 AMD GPU Operator。勾選
-**Install AMD GPU Operator** 後才會展開選項：
+Kubernetes workspace 的 **Features** 步驟可以在佈署 Platform 時一併安裝 AMD GPU Operator。
+開啟 **AMD GPU Operator** Switch 後才會展開選項：
 
 - **Allocation mode**：**Device Plugin**（Pod 以 `amd.com/gpu` 請求 GPU）或 **DRA**
   （Pod 透過 ResourceClaim 取得 GPU，需要 Kubernetes 1.34 以上）。
@@ -61,7 +67,8 @@ SR-IOV VF），operator 全部納管；之後加入叢集的節點，會在下�
 operator 使用 OS image 內建的 GPU driver，請選擇含 `amdgpu` driver 的 image。若 image 開機時不載入
 `amdgpu`（部分 Instinct 與 SR-IOV image 會刻意 blacklist），swallow 會在每個納管節點載入它，並在每次重開機、
 SSH 起來之後再載入一次，Kubernetes 會等它載入後才啟動。所有納管節點都提供
-GPU 之後，佈署才算成功。選取的 workload 節點都沒有 AMD GPU 時，無法勾選這個功能。
+GPU 之後，佈署才算成功。選取的 workload 節點都沒有 AMD GPU 時，Switch 會停用並顯示
+文字原因。
 
 佈署完成後，Platform Overview 的 **AMD GPU Operator** 區塊會顯示狀態與設定，並提供
 **Install**、**Configure** 與 **Uninstall**。仍有 Pod 使用 AMD GPU 時，切換 Device Plugin 與 DRA
@@ -72,8 +79,10 @@ Device Metrics Exporter 供叢集自己的監控使用；swallow 的 GPU 圖表�
 
 ## Slurm
 
-Slurm deployment 會依 topology 指派 controller、compute、login、state-server
-與 workload storage responsibility。
+Slurm workspace 可獨立指派 controller、compute 與 login roles，並依 topology 與 feature
+決定 state-server 與 workload storage responsibility。Features step 分別以 Switch 啟用
+shared workload storage、container runtime 與 Omnistat；符合條件的 compute node 會自動
+包含 AMD GPU GRES，不提供沒有實際語意的開關。
 
 從 **Platforms → Settings** 設定 system-wide Slurm deployment requirement。
 啟用 policy 後，設定每個選取的 Slurm node 必須提供的最低 **CPU cores**、

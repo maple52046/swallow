@@ -183,6 +183,55 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 		t.Errorf("play order must be compute -> login -> workload client, got %d, %d, %d",
 			computePlay, loginPlay, workloadClientPlay)
 	}
+	// Dynamic group names can collide with provider-owned inventory groups. Both workload roles
+	// must independently honor the frozen enabled flag, so choosing no shared storage cannot
+	// install NFS packages, create /shared, or write fstab even if such a group already exists.
+	if !strings.Contains(content, "when: (swallow_slurm_workload_enabled | default(false) | bool) and (slurm_is_workload_server | bool)") {
+		t.Error("the workload server role must be guarded by the enabled intent and selected server")
+	}
+	if !strings.Contains(content, "when: swallow_slurm_workload_enabled | default(false) | bool\n") {
+		t.Error("the workload client role must be guarded by the enabled intent")
+	}
+}
+
+// Login is a capability, not an exclusive node type. A controller+login node must retain the
+// authoritative slurm.conf rendered by slurm_config; only pure login clients converge to
+// configless discovery. Otherwise the later login play removes the primary controller's config
+// and systemd skips slurmrestd because its packaged ConditionPathExists is no longer satisfied.
+func TestSlurmLoginPreservesControllerConfiguration(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "automation", "playbooks", "roles", "slurm_login", "tasks", "main.yml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read slurm login tasks: %v", err)
+	}
+	tasks := string(raw)
+
+	guardedTasks := []string{
+		"Remove any local slurm.conf on a configless login host",
+		"Configure sackd controller discovery",
+		"Enable and start sackd on configless login hosts",
+		"Configure direct configless discovery when sackd is not used",
+	}
+	for _, name := range guardedTasks {
+		start := strings.Index(tasks, "- name: "+name)
+		if start == -1 {
+			t.Errorf("slurm login role missing task %q", name)
+			continue
+		}
+		end := strings.Index(tasks[start+1:], "\n- name: ")
+		section := tasks[start:]
+		if end >= 0 {
+			section = tasks[start : start+1+end]
+		}
+		if !strings.Contains(section, "not (slurm_is_controller | bool)") {
+			t.Errorf("task %q must exclude controller+login nodes", name)
+		}
+	}
+
+	stop := strings.Index(tasks, "- name: Stop sackd when it is not the selected login configuration manager")
+	if stop == -1 || !strings.Contains(tasks[stop:], "(slurm_is_controller | bool) or") {
+		t.Error("controller+login nodes must stop stale sackd and use their local configuration")
+	}
 }
 
 func TestSlurmPackageInstallsRetryAfterFreshBootLockRaces(t *testing.T) {

@@ -1,14 +1,6 @@
 import { expect, test } from "playwright/test";
 import { installApiFixtures } from "./fixtures";
 
-async function chooseSingleSelectOption(
-  page: import("playwright/test").Page,
-  fieldLabel: string,
-  optionLabel: string,
-) {
-  await page.getByRole("combobox", { name: fieldLabel, exact: true }).click();
-  await page.getByRole("option", { name: optionLabel, exact: true }).click();
-}
 
 test.beforeEach(async ({ page }) => {
   await installApiFixtures(page, {
@@ -23,13 +15,14 @@ test.beforeEach(async ({ page }) => {
 test("Slurm policy read failure blocks node selection but Kubernetes remains available", async ({
   page,
 }) => {
-  await page.goto("/platforms/deploy?site=site-a");
+  await page.goto("/platforms/deploy/kubernetes?site=site-a");
   const next = page.getByRole("button", { name: "Next" });
 
   await page.getByLabel("Platform name").fill("unaffected-kubernetes");
   await expect(next).toBeEnabled();
 
-  await chooseSingleSelectOption(page, "Platform type", "Slurm");
+  await page.goto("/platforms/deploy/slurm?site=site-a");
+
   await page.getByLabel("Platform name").fill("blocked-slurm");
   await expect(
     page.getByText("Slurm deployment requirement is unavailable"),

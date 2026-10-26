@@ -42,8 +42,10 @@ API 與 CLI 不受影響。
   Server。Bulk action 會固定 list 上已選的 Servers；若要增減 target，請先關閉
   dialog 並回到 list 調整 selection。
 - OS image 的 **Deploy** 會固定該 image，並從選擇 Servers 開始。
-- Platform deployment 在外層 wizard 中使用相同的 **OS image**、**Installation**
-  與 **OS networking** steps，但仍由 Platform workflow 送出。
+- Platform deployment 只有在選取的 Servers 仍需安裝 OS 時，才會重用相同的 image、
+  deploy mode、cloud-init、addressing 與 network-assignment controls。Kubernetes 會在
+  runtime networking 之前顯示為 **Operating system**；Slurm 則顯示為
+  **Server preparation**，且不包含 Kubernetes network fields。
 
 情境 dialog 完成後會留在來源頁。固定 Server 的 dialog 會先執行 live deployment
 preflight 與 network inspection，成功後才顯示第一個設定 step；失敗時會逐台列出

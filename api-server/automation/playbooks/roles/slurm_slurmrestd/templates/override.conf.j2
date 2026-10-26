@@ -1,0 +1,12 @@
+# Managed by Swallow (deploy-slurm). Local edits are replaced on convergence.
+[Service]
+# Reset the packaged ExecStart (normally a UNIX socket) and expose the reader endpoint over TCP.
+ExecStart=
+Environment=SLURM_JWT=daemon
+Environment=SLURM_CONF={{ slurm_conf_dir }}/slurm.conf
+ExecStart=/usr/sbin/slurmrestd -a rest_auth/jwt 0.0.0.0:{{ slurmrestd_port }}
+User=slurmrestd
+Group=slurmrestd
+DynamicUser=yes
+RuntimeDirectory=slurmrestd
+RuntimeDirectoryMode=0755

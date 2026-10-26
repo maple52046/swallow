@@ -15,14 +15,14 @@ async function chooseOption(page: Page, fieldLabel: string, optionLabel: string)
 
 /** Fills Basics and assigns gpu-node-01 as control plane with the given workers. */
 async function startKubernetesDeploy(page: Page, workers: string[]) {
-  await page.goto('/platforms/deploy?site=site-a')
+  await page.goto('/platforms/deploy/kubernetes?site=site-a')
   await page.getByLabel('Platform name').fill('gpu-k0s')
   await page.getByRole('button', { name: 'Next' }).click()
-  await chooseOption(page, 'Topology', 'Multi-node (non-HA)')
+  await page.getByRole('radio', { name: /Multi-node \(non-HA\)/ }).locator('xpath=following-sibling::*[1]').click()
   await chooseOption(page, 'Role for gpu-node-01', 'Control-plane')
   for (const worker of workers) await chooseOption(page, `Role for ${worker}`, 'Worker')
   await page.getByRole('button', { name: 'Next' }).click()
-  await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kubernetes features' })).toBeVisible()
 }
 
 // The GPU Operator is an optional deploy feature (decision 062): its options stay hidden until
@@ -33,16 +33,16 @@ test('the deploy wizard installs the AMD GPU Operator only when it is chosen', a
   await installApiFixtures(page, { freePlatformCandidates: true, onPlatformDeploymentRequest: (body) => { submitted = body } })
   await startKubernetesDeploy(page, ['gpu-node-02', 'gpu-node-03'])
 
-  const install = page.getByRole('checkbox', { name: 'Install AMD GPU Operator' })
+  const install = page.getByRole('switch', { name: 'Enable AMD GPU Operator' })
   await expect(install).not.toBeChecked()
   await expect(page.getByRole('combobox', { name: 'GPU allocation mode' })).toHaveCount(0)
 
-  await install.locator('..').click()
+  await install.locator('xpath=following-sibling::*[1]').click()
   await expect(page.getByRole('combobox', { name: 'GPU Operator version' })).toContainText('v1.5.1 (verified default)')
   await expect(page.getByRole('combobox', { name: 'GPU allocation mode' })).toContainText('Device Plugin')
   await expect(page.getByRole('combobox', { name: 'DRA driver version' })).toHaveCount(0)
-  await expect(page.getByRole('checkbox', { name: 'Node Labeller' })).toBeChecked()
-  await expect(page.getByRole('checkbox', { name: 'Device Metrics Exporter' })).not.toBeChecked()
+  await expect(page.getByRole('switch', { name: 'Node Labeller' })).toBeChecked()
+  await expect(page.getByRole('switch', { name: 'Device Metrics Exporter' })).not.toBeChecked()
 
   await expect(page.getByRole('group', { name: 'Managed GPU nodes' })).toHaveCount(0)
   await expect(page.getByRole('checkbox', { name: 'gpu-node-02' })).toHaveCount(0)
@@ -56,7 +56,7 @@ test('the deploy wizard installs the AMD GPU Operator only when it is chosen', a
   await page.getByRole('button', { name: 'Next' }).click()
   await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
   await expect(page.getByText('v1.5.1 · DRA', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Deploy platform' }).click()
+  await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
 
   await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
   expect(submitted?.gpuStackOwner).toBeUndefined()
@@ -73,12 +73,12 @@ test('the GPU Operator cannot be chosen without an AMD workload node', async ({ 
   await installApiFixtures(page, { freePlatformCandidates: true, onPlatformDeploymentRequest: (body) => { submitted = body } })
   await startKubernetesDeploy(page, ['gpu-node-04'])
 
-  await expect(page.getByRole('checkbox', { name: 'Install AMD GPU Operator' })).toBeDisabled()
+  await expect(page.getByRole('switch', { name: 'Enable AMD GPU Operator' })).toBeDisabled()
   await expect(page.getByText('None of the selected workload Servers has an AMD compute GPU.')).toBeVisible()
   await page.getByRole('button', { name: 'Next' }).click()
   await page.getByRole('button', { name: 'Next' }).click()
   await expect(page.getByText('Not installed', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Deploy platform' }).click()
+  await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
   await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
   expect(submitted?.gpuOperator).toBeUndefined()
 })
@@ -96,7 +96,7 @@ test('a Platform shows its GPU Operator and changes the allocation mode', async 
 
   await section.getByRole('button', { name: 'Configure' }).click()
   const dialog = page.getByRole('dialog', { name: 'Configure AMD GPU Operator' })
-  await expect(dialog.getByRole('checkbox', { name: 'Install AMD GPU Operator' })).toHaveCount(0)
+  await expect(dialog.getByRole('switch', { name: 'Enable AMD GPU Operator' })).toHaveCount(0)
   await dialog.getByRole('combobox', { name: 'GPU allocation mode', exact: true }).click()
   await page.getByRole('option', { name: 'DRA', exact: true }).click()
   await dialog.getByRole('button', { name: 'Apply changes' }).click()

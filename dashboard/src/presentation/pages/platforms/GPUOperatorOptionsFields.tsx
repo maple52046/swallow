@@ -1,4 +1,4 @@
-import { Button, Field, Stack, Text } from '@chakra-ui/react'
+import { Button, Field, Stack, Switch, Text } from '@chakra-ui/react'
 import { GPU_ALLOCATION_MODE_LABELS, GPU_RESOURCE_NAMING_LABELS } from '@/domain/platform/gpuOperator'
 import type { GPUAllocationMode, GPUResourceNaming } from '@/domain/platform/types'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -146,23 +146,27 @@ export function GPUOperatorOptionsFields({
               </Field.Root>
             )}
             <Field.Root>
-              <Checkbox
-                id={`${idPrefix}-labeller`}
+              <Switch.Root
                 checked={value.nodeLabeller}
-                onCheckedChange={(checked) => update({ nodeLabeller: checked })}
+                colorPalette="brand"
+                onCheckedChange={(details) => update({ nodeLabeller: details.checked === true })}
               >
-                Node Labeller
-              </Checkbox>
+                <Switch.HiddenInput id={`${idPrefix}-labeller`} role="switch" />
+                <Switch.Control><Switch.Thumb /></Switch.Control>
+                <Switch.Label>Node Labeller</Switch.Label>
+              </Switch.Root>
               <Field.HelperText>Labels nodes with amd.com/gpu.* properties such as product name and VRAM.</Field.HelperText>
             </Field.Root>
             <Field.Root>
-              <Checkbox
-                id={`${idPrefix}-metrics`}
+              <Switch.Root
                 checked={value.metricsExporter}
-                onCheckedChange={(checked) => update({ metricsExporter: checked })}
+                colorPalette="brand"
+                onCheckedChange={(details) => update({ metricsExporter: details.checked === true })}
               >
-                Device Metrics Exporter
-              </Checkbox>
+                <Switch.HiddenInput id={`${idPrefix}-metrics`} role="switch" />
+                <Switch.Control><Switch.Thumb /></Switch.Control>
+                <Switch.Label>Device Metrics Exporter</Switch.Label>
+              </Switch.Root>
               <Field.HelperText>Runs AMD's Device Metrics Exporter on the pod network. Swallow's GPU charts keep using the host exporter.</Field.HelperText>
             </Field.Root>
           </div>

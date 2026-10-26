@@ -126,7 +126,7 @@ test.describe('operator interactions', () => {
     await expect(page.locator('html')).not.toHaveClass(/dark/)
   })
   test('Deploy Platform renders its expanded Site placeholder in dark mode', async ({ page }) => {
-    await page.goto('/platforms/deploy')
+    await page.goto('/platforms/deploy/kubernetes')
     await visibleAppearance(page).click()
     await chooseMenuItem(page, 'Dark')
 
@@ -522,7 +522,7 @@ test.describe('operator interactions', () => {
   })
 
   test('Platform wizard explains and excludes Servers already claimed by Platforms', async ({ page }) => {
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await page.getByLabel('Platform name').fill('protected-targets')
     await page.getByRole('button', { name: 'Next' }).click()
 
@@ -547,7 +547,7 @@ test.describe('operator interactions', () => {
 
   test('Chakra wizard selects machines before networking and keeps Platform context', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true })
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     const next = page.getByRole('button', { name: 'Next' })
     await expect(next).toBeDisabled()
     await page.getByLabel('Platform name').fill('compute-k0s')
@@ -558,7 +558,7 @@ test.describe('operator interactions', () => {
     }
     await chooseSingleSelectOption(page, 'Role for gpu-node-04', 'Worker')
     await next.click()
-    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Kubernetes features' })).toBeVisible()
     await next.click()
     await expect(page.getByRole('heading', { name: 'Selected machine addresses', exact: true })).toBeVisible()
     await page.getByLabel('API virtual IP').fill('192.168.40.200')
@@ -567,7 +567,7 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Back' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveValue('192.168.40.200')
     await next.click()
-    await page.getByRole('button', { name: 'Deploy platform' }).click()
+    await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
     await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByRole('button', { name: 'View automation details' })).toBeVisible()
@@ -579,11 +579,11 @@ test.describe('operator interactions', () => {
       freePlatformCandidates: true,
       onPlatformDeploymentRequest: (body) => { deployBody = body },
     })
-    await page.goto('/platforms/deploy?site=site-a')
-    await chooseSingleSelectOption(page, 'Platform type', 'Slurm')
+    await page.goto('/platforms/deploy/slurm?site=site-a')
     await page.getByLabel('Platform name').fill('research-slurm-2')
     // Slurm swaps the k0s version field for a cluster name.
     await expect(page.getByLabel('k0s version')).toHaveCount(0)
+    await page.getByText('Advanced settings', { exact: true }).click()
     await expect(page.getByLabel('Cluster name')).toBeVisible()
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
@@ -598,20 +598,21 @@ test.describe('operator interactions', () => {
 
     // Optional features follow the machine choice: the container runtime goes to the compute and
     // login nodes, and Omnistat's Prometheus and Grafana run on the primary controller just picked.
-    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
-    await chooseSingleSelectOption(page, 'Container runtime', 'Podman')
-    await page.getByRole('checkbox', { name: 'Install Omnistat GPU monitoring' }).locator('..').click()
-    await expect(page.getByText('Runs both as containers on gpu-node-01, which gets Podman.')).toBeVisible()
-    await chooseSingleSelectOption(page, 'Prometheus and Grafana install method', 'Native (official release and package repository)')
-    await expect(page.getByText(/from the official Prometheus release and Grafana package repository/)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
+    await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('radio', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('switch', { name: 'Enable Omnistat GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByText('Run both as containers on gpu-node-01.')).toBeVisible()
+    await page.getByRole('radio', { name: /Native/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByText(/official Prometheus release and Grafana package repository/)).toBeVisible()
     await next.click()
 
     // Slurm has no platform networking step, so Features is followed by Review.
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await expect(page.getByText('Controllers')).toBeVisible()
     await expect(page.getByText('Podman on compute and login nodes')).toBeVisible()
-    await expect(page.getByText('Install (Prometheus and Grafana on gpu-node-01, native)')).toBeVisible()
-    await page.getByRole('button', { name: 'Deploy platform' }).click()
+    await expect(page.getByText('Prometheus and Grafana on gpu-node-01; native packages')).toBeVisible()
+    await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
     await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     expect(deployBody?.containerRuntime).toEqual({ kind: 'podman' })
@@ -622,8 +623,7 @@ test.describe('operator interactions', () => {
 
   test('Platform deployment review shows ephemeral OS deployment', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 2 })
-    await page.goto('/platforms/deploy?site=site-a')
-    await chooseSingleSelectOption(page, 'Platform type', 'Slurm')
+    await page.goto('/platforms/deploy/slurm?site=site-a')
     await page.getByLabel('Platform name').fill('ephemeral-slurm')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
@@ -632,7 +632,7 @@ test.describe('operator interactions', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await next.click()
-    await expect(page.getByRole('heading', { name: 'Platform features' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
@@ -644,26 +644,24 @@ test.describe('operator interactions', () => {
       { exact: true },
     )).toBeVisible()
     await chooseOSImage(page, 'Ubuntu 24.04 LTS')
-    await next.click()
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
     await expect(page.getByRole('radio', { name: 'RAM deploy' })).toBeChecked()
-    await next.click()
     await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
-    await expect(page.getByText('OS deployment mode', { exact: true })).toBeVisible()
+    await expect(page.getByText('Deploy mode', { exact: true })).toBeVisible()
     await expect(page.getByText('Ephemeral (memory-backed)', { exact: true })).toBeVisible()
   })
 
   test('Platform OS installation warns about an unsupported deploy mode without blocking Next', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 1 })
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await page.getByLabel('Platform name').fill('unsupported-mode-k0s')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
 
-    await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
+    await page.getByRole('radio', { name: /Standalone/ }).locator('xpath=following-sibling::*[1]').click()
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
     await next.click()
     await next.click()
@@ -671,7 +669,6 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Custom 1', exact: true }).click()
     await chooseOSImage(page, 'Ubuntu 24.04 ROCm')
-    await next.click()
 
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
     await expect(page.getByText('Deploy mode', { exact: true })).toBeVisible()
@@ -681,7 +678,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByText(/You can continue, but deployment may fail/)).toBeVisible()
     await expect(next).toBeEnabled()
     await next.click()
-    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Platform network' })).toBeVisible()
   })
 
   test('Kubernetes ephemeral deployment warns about volatile state and submits the intent', async ({ page }) => {
@@ -691,25 +688,22 @@ test.describe('operator interactions', () => {
       readyServerCount: 1,
       onPlatformDeploymentRequest: (body) => { submitted = body },
     })
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await page.getByLabel('Platform name').fill('ephemeral-k0s')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
 
-    await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
+    await page.getByRole('radio', { name: /Standalone/ }).locator('xpath=following-sibling::*[1]').click()
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
     await next.click()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
     await chooseOSImage(page, 'Ubuntu 24.04 LTS')
-    await next.click()
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
     await expect(page.getByRole('radio', { name: 'RAM deploy' })).toBeChecked()
     await expect(page.getByText('Ephemeral Kubernetes is disposable')).toBeVisible()
     await expect(page.getByText(/control-plane state, container runtime, and workloads are held in memory/)).toBeVisible()
-    await next.click()
-    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Platform network' })).toBeVisible()
@@ -717,7 +711,7 @@ test.describe('operator interactions', () => {
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await expect(page.getByText('Ephemeral (memory-backed)', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Deploy platform' }).click()
+    await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
     expect(submitted).toMatchObject({
       machinePreparation: {
         mode: 'provision_os',
@@ -728,10 +722,10 @@ test.describe('operator interactions', () => {
 
   test('Platform wizard supports standalone and non-HA multi-node without a VIP', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true })
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await page.getByLabel('Platform name').fill('edge-k0s')
     await page.getByRole('button', { name: 'Next' }).click()
-    await chooseSingleSelectOption(page, 'Topology', 'Standalone (single Server)')
+    await page.getByRole('radio', { name: /Standalone/ }).locator('xpath=following-sibling::*[1]').click()
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Standalone node')
     await page.getByRole('button', { name: 'Next' }).click()
     await page.getByRole('button', { name: 'Next' }).click()
@@ -740,7 +734,7 @@ test.describe('operator interactions', () => {
 
     await page.getByRole('button', { name: 'Back' }).click()
     await page.getByRole('button', { name: 'Back' }).click()
-    await chooseSingleSelectOption(page, 'Topology', 'Multi-node (non-HA)')
+    await page.getByRole('radio', { name: /Multi-node \(non-HA\)/ }).locator('xpath=following-sibling::*[1]').click()
     await chooseSingleSelectOption(page, 'Role for gpu-node-01', 'Control-plane')
     await chooseSingleSelectOption(page, 'Role for gpu-node-02', 'Worker')
     await page.getByRole('button', { name: 'Next' }).click()
@@ -1106,7 +1100,7 @@ test.describe('operator interactions', () => {
     await expect(rows.first()).toContainText('Deploy production k0s platform')
 
     const running = table.getByRole('row', { name: /Deploy production k0s platform/ })
-    await expect(running).toContainText('running')
+    await expect(running).toContainText('Deploying')
     await expect(running).toContainText('deploy-k0s.yml')
     await expect(running).toContainText('Legacy execution')
     await expect(running.getByRole('link', { name: 'View workflow' }))
@@ -1274,6 +1268,7 @@ test.describe('operator interactions', () => {
     await page.getByRole('button', { name: 'Failed', exact: true }).click()
     await expect(page).toHaveURL(/status=failed/)
     await page.goto('/workflows/op-running?site=site-a')
+    await expect(page.getByText('Deploying', { exact: true }).first()).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Stdout' })).toHaveAttribute('aria-selected', 'true')
     await page.getByPlaceholder('Search stdout').fill('TASK')
     await expect(page.getByText('1 / 3')).toBeVisible()
@@ -1292,11 +1287,102 @@ test.describe('operator interactions', () => {
     expect((await download).suggestedFilename()).toBe('swallow-operation-op-running-stdout.log')
     await page.getByRole('tab', { name: 'Events' }).click()
     await page.getByText('Errors only', { exact: true }).click()
-    await expect(page.getByRole('button', { name: /Start controller/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Start controller', exact: true })).toBeVisible()
     await expect(page.getByText('Gather facts', { exact: true })).toHaveCount(0)
     await page.goto('/workflows/op-failed?site=site-a')
     await page.getByRole('button', { name: 'Retry' }).click()
     await expect(page).toHaveURL('/workflows/op-retry?site=site-a')
+  })
+
+  test('Workflow Step events copy task names and explain failed hosts', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const operation = {
+      id: 'op-event-diagnostics', schemaVersion: 3, kind: 'configure-slurm',
+      intent: 'Configure Slurm platform', intentSnapshot: {},
+      definition: 'platform-deployment', definitionVersion: 1,
+      status: 'requires_attention', statusReason: 'A failed Step requires operator attention.',
+      startState: 'started', temporal: { workflowId: 'swallow-operation/op-event-diagnostics' },
+      siteId: 'site-a', platformId: 'platform-b',
+      targetResources: [{ kind: 'server', id: 'srv-1' }], targetServerIds: ['srv-1'],
+      retryOfOperationId: null,
+      steps: [{
+        id: 'configure-slurm', kind: 'ansible-playbook', name: 'Configure Slurm', job: 'configure-slurm',
+        executor: 'ansible', dependsOn: [], targets: [{ kind: 'server', id: 'srv-1' }],
+        status: 'failed', attempt: 1, progress: 0,
+        error: { code: 'runner_failed', message: 'Ansible task failed.', retryable: true, stage: 'configuration' },
+        externalExecution: { provider: 'ansible-runner', id: 'run-event-diagnostics', generation: 1 },
+        artifacts: [], startedAt: '2026-08-27T02:50:00Z', finishedAt: '2026-08-27T02:51:00Z',
+      }],
+      leases: [], requestCorrelation: 'req-event-diagnostics',
+      execution: {
+        runId: 'run-event-diagnostics', playbook: '', status: 'requires_attention',
+        statusReason: 'A failed Step requires operator attention.',
+        startedAt: '2026-08-27T02:50:00Z', finishedAt: null,
+      },
+      requestedBy: 'admin', requestedAt: '2026-08-27T02:49:00Z',
+      startedAt: '2026-08-27T02:50:00Z', finishedAt: null, updatedAt: '2026-08-27T02:51:00Z',
+    }
+    await page.route('**/api/v1/workflows/op-event-diagnostics**', async (route) => {
+      const path = new URL(route.request().url()).pathname
+      if (path === '/api/v1/workflows/op-event-diagnostics') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(operation) })
+        return
+      }
+      if (path.endsWith('/events')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            runId: 'run-event-diagnostics', status: 'failed', okCount: 0, changedCount: 0,
+            failedCount: 1, unreachableCount: 0, skippedCount: 0,
+            events: [{
+              play: 'Configure Slurm', task: 'Start Slurm controller', host: 'srv-1',
+              status: 'failed', changed: false,
+              startedAt: '2026-08-27T02:50:00Z', endedAt: '2026-08-27T02:51:00Z',
+            }],
+          }),
+        })
+        return
+      }
+      if (path.endsWith('/stderr')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/plain',
+          body: '==> FAILED  task: Start Slurm controller  host: srv-1\nmsg: slurmctld.service entered the failed state\nrc: 1\nstderr:\nslurmctld: fatal: Unable to determine this server name\n',
+        })
+        return
+      }
+      if (path.endsWith('/logs')) {
+        await route.fulfill({ status: 200, contentType: 'text/plain', body: 'fatal: [srv-1]: FAILED\n' })
+        return
+      }
+      if (path.endsWith('/artifacts')) {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+        return
+      }
+      await route.fallback()
+    })
+    await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (text: string) => localStorage.setItem('e2e.eventName', text) },
+    }))
+
+    await page.goto('/workflows/op-event-diagnostics?site=site-a')
+    await page.getByRole('tab', { name: 'Events' }).click()
+    const failureReason = page.locator('.sw-event-group__diagnostic pre')
+    await expect(failureReason).toContainText('slurmctld.service entered the failed state')
+    await expect(failureReason).toContainText('slurmctld: fatal: Unable to determine this server name')
+    await page.getByLabel('Copy event name: Start Slurm controller').click()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('e2e.eventName'))).toBe('Start Slurm controller')
+    const eventBounds = await page.locator('.sw-event-workspace').evaluate((workspace) => {
+      const workspaceRect = workspace.getBoundingClientRect()
+      const reasonRect = workspace.querySelector('.sw-event-group__diagnostic pre')?.getBoundingClientRect()
+      return {
+        workspaceFits: workspaceRect.left >= 0 && workspaceRect.right <= window.innerWidth + 1,
+        reasonFits: Boolean(reasonRect && reasonRect.left >= workspaceRect.left && reasonRect.right <= workspaceRect.right + 1),
+      }
+    })
+    expect(eventBounds).toEqual({ workspaceFits: true, reasonFits: true })
   })
 
   test('Monitoring filters, acknowledges, and exposes the provider Grafana link', async ({ page }) => {

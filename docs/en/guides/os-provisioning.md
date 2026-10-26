@@ -45,9 +45,10 @@ Choose the entry point that already knows the most about your intent:
   on the list before opening it.
 - **Deploy** on an OS image opens a dialog with the image fixed and starts by
   choosing Servers.
-- A Platform deployment uses the same **OS image**, **Installation**, and
-  **OS networking** steps inside its outer wizard, then submits through the
-  Platform workflow.
+- A Platform deployment reuses the same image, deploy-mode, cloud-init, addressing,
+  and network-assignment controls only when selected Servers still need an OS.
+  Kubernetes presents this as **Operating system** before its runtime networking;
+  Slurm presents it as **Server preparation** without Kubernetes network fields.
 
 Contextual dialogs stay on their source page. Fixed-Server dialogs run live
 deployment preflight and network inspection before showing the first configuration

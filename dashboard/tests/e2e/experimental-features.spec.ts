@@ -116,7 +116,7 @@ test.describe('with every in-development feature hidden (the release view)', () 
     await expect(page).toHaveURL('/provisioning/images?site=site-a')
     await expect(page.getByRole('tab', { name: 'Deploy OS', exact: true })).toHaveCount(0)
 
-    await page.goto('/platforms/deploy?site=site-a')
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await expect(page.getByLabel('Platform name')).toBeVisible()
 
     expect(templateRequests).toEqual([])

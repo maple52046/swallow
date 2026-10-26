@@ -18,7 +18,7 @@ import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
 import { DurableOperationDetail } from './DurableOperationDetail'
-import { workflowDisplayIntent } from './workflowListPresentation'
+import { workflowDisplayIntent, workflowDisplayStatus } from './workflowListPresentation'
 import { useOperation } from './useOperation'
 
 /** AWX-style operation debugger with stdout first, filtered events, and immutable details. */
@@ -103,7 +103,7 @@ export function OperatorOperationDetailPage() {
       <PageHeader
         title={workflowDisplayIntent(operation)}
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
-        metadata={<StatusBadge status={operation.execution.status} />}
+        metadata={<StatusBadge status={operation.execution.status} label={workflowDisplayStatus(operation)} />}
         actions={
           <>
             <Button variant="outline" onClick={reload}>
@@ -126,7 +126,7 @@ export function OperatorOperationDetailPage() {
         <TimelineStep label="Requested" value={formatDateTime(operation.requestedAt)} state="complete" />
         <TimelineStep label="Started" value={formatDateTime(operation.execution.startedAt ?? undefined)} state={operation.execution.startedAt ? 'complete' : 'current'} />
         <TimelineStep
-          label={terminal ? operation.execution.status : 'Running'}
+          label={terminal ? operation.execution.status : workflowDisplayStatus(operation)}
           value={terminal ? formatDateTime(operation.execution.finishedAt ?? undefined) : 'In progress'}
           state={operation.execution.status === 'failed' ? 'failed' : terminal ? 'complete' : 'current'}
         />

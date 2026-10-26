@@ -11,8 +11,10 @@ export type SlurmRequirementState =
 /**
  * Loads the global Slurm requirement and exposes an explicit reload for stale-policy
  * rejections. Until the provider answers, callers must not treat the policy as disabled.
+ * `enabled=false` keeps Kubernetes deployment routes from making an irrelevant Slurm request;
+ * callers must ignore the retained loading state while disabled.
  */
-export function useSlurmDeploymentRequirement(): {
+export function useSlurmDeploymentRequirement(enabled = true): {
   state: SlurmRequirementState;
   reload: () => void;
 } {
@@ -27,6 +29,7 @@ export function useSlurmDeploymentRequirement(): {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     platforms
       .getSlurmDeploymentRequirement()
@@ -39,7 +42,7 @@ export function useSlurmDeploymentRequirement(): {
     return () => {
       cancelled = true;
     };
-  }, [platforms, revision]);
+  }, [enabled, platforms, revision]);
 
   return { state, reload };
 }

@@ -47,7 +47,8 @@
         # absolute export path, so the Swallow-managed state share pins the proven protocol.
         slurm_state_fstype: nfs
         slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2,vers=3
-        # Login (submission/client) host: pure client, configless + sackd by default.
+        # Login (submission/client) capability. A pure login host uses configless + sackd by
+        # default; a controller+login host must retain its authoritative local slurm.conf.
         slurm_is_login: "{{ inventory_hostname in (swallow_slurm_login_ids | default([])) }}"
         slurm_login_config_mode: "{{ swallow_slurm_login_config_mode | default('configless', true) }}"
         slurm_login_use_sackd: "{{ swallow_slurm_login_use_sackd | default(true) }}"
@@ -226,9 +227,9 @@
     - role: slurm_compute
 
 - name: Configure login (submission) hosts
-  # Pure client hosts: configless discovery from the controllers (sackd cache by default).
-  # Runs after the controllers are up so discovery succeeds. No hosts in a topology without a
-  # login node.
+  # Pure client hosts use configless discovery from the controllers (sackd cache by default).
+  # A controller may also carry the login role; slurm_login preserves its authoritative local
+  # configuration. Runs after the controllers are up so discovery succeeds.
   hosts: slurm_login
   gather_facts: false
   roles:
@@ -241,6 +242,10 @@
   gather_facts: false
   roles:
     - role: slurm_workload_storage_server
+      # Defence in depth: the dynamic group should already be empty while the feature is off,
+      # but provider inventory may contain a colliding group name. Never touch NFS or its path
+      # unless this Workflow's frozen intent explicitly enabled workload storage.
+      when: (swallow_slurm_workload_enabled | default(false) | bool) and (slurm_is_workload_server | bool)
 
 - name: Mount the shared workload filesystem on every node
   # Runs on all nodes when workload storage is enabled (self-hosted or external). No hosts when
@@ -249,6 +254,9 @@
   gather_facts: false
   roles:
     - role: slurm_workload_storage_client
+      # Do not rely on group membership alone. This guard also makes retries of disabled-storage
+      # Workflows safe if an inventory source happens to expose a slurm_workload_client group.
+      when: swallow_slurm_workload_enabled | default(false) | bool
 
 - name: Expose slurmrestd, verify the cluster, and record the Swallow credential
   hosts: slurm_primary
