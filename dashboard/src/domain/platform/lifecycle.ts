@@ -41,14 +41,16 @@ export function platformLifecycleStatus(state: PlatformLifecycleState): string {
   }
 }
 
-/** Disabled reason for the destructive host-side uninstall command. */
+/**
+ * Disabled reason for the destructive host-side uninstall command. A Platform still deploying
+ * stays uninstallable: its dialog lists the running deployment, and the operator confirms that
+ * the backend cancels it first (`cancelActiveWorkflows`, decision 061).
+ */
 export function platformUninstallDisabledReason(platform: Platform): string | undefined {
   // Both Kubernetes and Slurm platforms deployed by Swallow can be uninstalled; only
   // externally registered platforms (no deployment history) are delete-only.
   if (platform.origin !== 'deployed') return 'Externally registered platforms can only be deleted.'
   switch (platform.lifecycleState) {
-    case 'deploying':
-      return 'Deployment is still running.'
     case 'uninstalling':
       return 'Uninstall is already running.'
     case 'uninstalled':
@@ -58,4 +60,16 @@ export function platformUninstallDisabledReason(platform: Platform): string | un
     default:
       return undefined
   }
+}
+
+/**
+ * The Servers a Platform was deployed onto (role assignments plus Slurm login nodes), without
+ * duplicates. An uninstall acts on exactly these, so they are what a Workflow can hold against it.
+ */
+export function platformDeploymentServerIds(platform: Platform): string[] {
+  const ids = [
+    ...(platform.deployment?.roleAssignments ?? []).map((assignment) => assignment.serverId),
+    ...(platform.deployment?.loginServerIds ?? []),
+  ]
+  return [...new Set(ids)]
 }

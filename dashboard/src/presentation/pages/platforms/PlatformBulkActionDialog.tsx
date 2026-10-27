@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { Button, Field, Input, List, Stack, Text } from '@chakra-ui/react'
+import { platformDeploymentServerIds } from '@/domain/platform/lifecycle'
 import type { Platform, UninstallPlatformOptions } from '@/domain/platform/types'
+import { BlockingWorkflowsNotice } from '@/presentation/components/BlockingWorkflowsNotice'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
 import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
+import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
 import { usePlatformBulkActions, type PlatformBulkAction } from './usePlatformBulkActions'
 
 interface PlatformBulkActionDialogProps {
@@ -24,8 +27,11 @@ interface PlatformBulkActionDialogProps {
  *
  * Bulk destructive actions cannot ask an operator to type every platform name, so the gate is
  * typing the action verb. Uninstall reuses the standalone mutually exclusive server-release
- * shortcut; delete only removes the Swallow records. The dialog stays open and shows an inline
- * error when every target failed, otherwise it hands control back to the page.
+ * shortcut and, like the single dialog, lists the unfinished Workflows holding any selected
+ * platform's servers and requires confirming that the backend cancels them first
+ * (`cancelActiveWorkflows`, decision 061); delete only removes the Swallow records. The dialog
+ * stays open and shows an inline error when every target failed, otherwise it hands control back
+ * to the page.
  */
 export function PlatformBulkActionDialog({ action, targets, skipped, onClose, onDone }: PlatformBulkActionDialogProps) {
   const { run, running } = usePlatformBulkActions()
@@ -33,17 +39,23 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
   const [error, setError] = useState('')
   const [releaseServers, setReleaseServers] = useState(false)
   const [releaseOptions, setReleaseOptions] = useState<ReleaseOptionsValue>(emptyReleaseOptions)
+  const [cancelBlocking, setCancelBlocking] = useState(false)
 
   const isUninstall = action === 'uninstall'
   const verb = isUninstall ? 'uninstall' : 'delete'
   const count = targets.length
+  const { activeOperations: blockingWorkflows } = useServerActiveOperations(
+    isUninstall ? [...new Set(targets.flatMap(platformDeploymentServerIds))] : [],
+  )
+  const blocked = isUninstall && blockingWorkflows.length > 0
+  const awaitingCancelConfirmation = blocked && !cancelBlocking
 
   const close = () => {
     if (!running) onClose()
   }
 
   const submit = async () => {
-    if (confirmation !== verb || running || count === 0) return
+    if (confirmation !== verb || running || count === 0 || awaitingCancelConfirmation) return
     setError('')
     const options: UninstallPlatformOptions | undefined = isUninstall
       ? {
@@ -56,6 +68,7 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
             quickErase: releaseServers && releaseOptions.erase && releaseOptions.quickErase,
             unbindStaticIps: releaseServers && releaseOptions.unbindStaticIPs,
           },
+          ...(blocked && cancelBlocking ? { cancelActiveWorkflows: true } : {}),
         }
       : undefined
 
@@ -83,7 +96,12 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
           <Button variant="ghost" onClick={close} disabled={running}>
             Cancel
           </Button>
-          <Button type="submit" colorPalette="red" loading={running} disabled={confirmation !== verb || running || count === 0}>
+          <Button
+            type="submit"
+            colorPalette="red"
+            loading={running}
+            disabled={confirmation !== verb || running || count === 0 || awaitingCancelConfirmation}
+          >
             {isUninstall
               ? releaseServers
                 ? 'Release all servers'
@@ -127,6 +145,22 @@ export function PlatformBulkActionDialog({ action, targets, skipped, onClose, on
         )}
         {isUninstall && (
           <>
+            <BlockingWorkflowsNotice
+              operations={blockingWorkflows}
+              title={blockingWorkflows.length === 1
+                ? 'An unfinished workflow still holds these platforms’ servers'
+                : `${blockingWorkflows.length} unfinished workflows still hold these platforms’ servers`}
+              checkboxId="bulk-uninstall-cancel-blocking"
+              checkboxLabel={releaseServers ? 'Cancel these workflows, then release the servers' : 'Cancel these workflows, then uninstall'}
+              listLabel="Workflows holding the selected platforms' servers"
+              checked={cancelBlocking}
+              disabled={running}
+              onCheckedChange={setCancelBlocking}
+            >
+              An uninstall is refused while another workflow holds its servers. Check the box to cancel them: each uninstall
+              is accepted now and starts by itself once the canceled workflows have ended. A canceled OS deployment first
+              returns the servers it was installing to Ready, which can take a few minutes; finished deployments are kept.
+            </BlockingWorkflowsNotice>
             <Checkbox
               id="bulk-uninstall-release-servers"
               checked={releaseServers}

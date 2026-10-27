@@ -437,11 +437,15 @@ func provisioningReleaseCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return sendJSON(cmd, "POST", "provisioning/release-operations", nil, body)
+			if body, err = withCancelActiveWorkflows(cmd, body); err != nil {
+				return err
+			}
+			return hintCancelActiveWorkflows(cmd, sendJSON(cmd, "POST", "provisioning/release-operations", nil, body), "")
 		},
 	}
 	addFileFlag(cmd, "release body ({serverIds, erase, ...}); omit to use the flags below")
 	cmd.Flags().StringSlice("server", nil, "target Server id (repeatable)")
+	addCancelActiveWorkflowsFlag(cmd)
 	addEraseFlags(cmd)
 	cmd.Flags().String("comment", "", "optional operator comment")
 	cmd.Flags().Bool("unbind-static-ips", false, "unbind captured static IPs after release")
@@ -466,11 +470,15 @@ func provisioningRecoverCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return sendJSON(cmd, "POST", "provisioning/recover-operations", nil, body)
+			if body, err = withCancelActiveWorkflows(cmd, body); err != nil {
+				return err
+			}
+			return hintCancelActiveWorkflows(cmd, sendJSON(cmd, "POST", "provisioning/recover-operations", nil, body), "")
 		},
 	}
 	addFileFlag(cmd, "recover body ({serverIds, ...}); omit to use the flags below")
 	cmd.Flags().StringSlice("server", nil, "target Server id (repeatable)")
+	addCancelActiveWorkflowsFlag(cmd)
 	cmd.Flags().String("comment", "", "optional operator comment")
 	cmd.Flags().Bool("unbind-static-ips", false, "unbind captured static IPs during recovery")
 	return cmd

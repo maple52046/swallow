@@ -80,13 +80,25 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 		{
 			path: filepath.Join("roles", "amdgpu_loader", "tasks", "apply.yml"),
 			required: []string{
+				"[amdgpu_option_unknown]",
 				"[amdgpu_driver_missing]",
 				"[amdgpu_option_not_applied]",
 				"/dev/kfd",
+				"reload.yml",
+			},
+			// Loading again (unload or reboot) lives only in reload.yml, behind its guards.
+			forbidden: []string{"ansible.builtin.reboot", "modprobe -r", "rmmod"},
+		},
+		{
+			path: filepath.Join("roles", "amdgpu_loader", "tasks", "reload.yml"),
+			required: []string{
+				"--property=RequiredBy",
+				"amdgpu_loader_unload_timeout",
+				"[amdgpu_reload_blocked]",
+				"memoryBackedRoot",
 				"ansible.builtin.reboot",
 			},
-			// A loaded GPU driver is never unloaded.
-			forbidden: []string{"modprobe -r", "rmmod"},
+			forbidden: []string{"rmmod"},
 		},
 		{
 			path: filepath.Join("roles", "amdgpu_loader", "templates", "amdgpu-load.service.j2"),

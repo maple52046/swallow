@@ -30,9 +30,18 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   through both an XGMI `io_link` and a PCIe `p2p_link` overflows libhsakmt's peer array (heap
   corruption when HIP processes exit), so the rule adds `pcie_p2p=0`. A rule option is recorded
   and kept once applied, because applying it removes the condition; an operator option always
-  wins. A driver loaded with other parameters is never unloaded: the node reboots once, and every
-  option is verified in `/sys/module/amdgpu/parameters`. Units that need the GPUs (`slurmd`,
-  `omnistat`) require the loader; k0s is only ordered after it because it also runs non-GPU work.
+  wins. Every option is verified in `/sys/module/amdgpu/parameters`. Units that need the GPUs
+  (`slurmd`, `omnistat`) require the loader; k0s is only ordered after it because it also runs
+  non-GPU work. (Amended 2026-10-27, replacing "a driver loaded with other parameters is never
+  unloaded; the node reboots once": a RAM-deployed node loses its operating system on reboot, so
+  every rule-driven deploy on such a node failed.) A name the installed driver does not have
+  (`modinfo -p amdgpu`) is refused before anything loads, with the closest real name. A rule is
+  known only after the driver loads, so a driver running with other parameters loads again: the
+  units requiring the loader stop, and a driver nothing holds (module reference count zero, no
+  process with `/dev/kfd` or a render node open) is unloaded and loaded in place. That is the
+  usual case, because Swallow loaded the driver moments earlier. A driver still held is applied by
+  one reboot on a disk root and refused (`amdgpu_reload_blocked`, naming the holders) on a
+  memory-backed root. Options an operator names load the first time, with no second load.
 - **GPUs are proven with the HIP runtime, not an inventory listing** (amended 2026-10-26). A
   host-only HIP probe (ctypes against `libamdhip64`, no device code, so any architecture) must see
   as many GPUs as KFD lists and allocate, fill, and free memory on each, three times, each in its own
@@ -51,9 +60,10 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   `PrologFlags=Alloc,Contain`, an exclusive partition because Omnistat's job file is node-wide) is
   rendered by `deploy-slurm`, the single owner of `slurm.conf`, so a redeploy re-applies it. The
   Prolog succeeds without attribution until the exporter exists, so the order of Jobs never drains
-  a node. A separate `configure-omnistat` playbook installs the pinned exporter (with a
-  compatibility patch for SR-IOV guests that reject the bulk GPU metrics call) and returns the
-  Grafana URL, which Swallow records as the Monitoring Link `Omnistat Grafana`.
+  a node. A separate `configure-omnistat` playbook installs the pinned exporter (with the patches
+  Swallow maintains under decision 064, first a compatibility patch for SR-IOV guests that reject
+  the bulk GPU metrics call) and returns the Grafana URL, which Swallow records as the Monitoring
+  Link `Omnistat Grafana`.
 - **Prometheus and Grafana are new Managed Software kinds, composed as Jobs.** With Omnistat
   enabled, the `configure-slurm` Workflow composes `configure-prometheus` and `configure-grafana`
   Jobs onto the primary controller after the Slurm install and before `configure-omnistat`, each
@@ -78,7 +88,15 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   authentication, so the Prometheus spec's `listen` is `loopback` unless an install asks for
   `management`, and its `retention` (default `15d`) is a documented, overridable spec field.
   Omnistat composes `loopback`: only Grafana on the same Server reads it, which every install
-  method reaches through the host network.
+  method reaches through the host network. (Amended 2026-10-27: `omnistat-query` on the compute
+  nodes pointed at the management address's `:9090` and stopped working; it now reads Prometheus
+  through Grafana's read-only datasource proxy, which already serves the same data to anonymous
+  viewers, so Prometheus and its lifecycle API stay off the network. Reopening Prometheus on the
+  management address, or adding basic auth whose credentials every cluster user must be able to
+  read, were rejected. Omnistat 1.15.0 sent an invalid step (`"60.0s"`) for jobs shorter than five
+  minutes; Swallow patches that under decision 064. Its report also locates a job's nodes by GPU
+  utilization, which SR-IOV virtual functions do not report, so on them it still cannot build a
+  report; that is reported to users rather than patched, since the report would be nearly empty.)
 - **Swallow still never queries Omnistat's Prometheus** (decision 003, 2026-10-12 amendment).
 
 ## Alternatives considered
@@ -97,8 +115,17 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   for `pcie_p2p=0`). Rejected: it binds the deployment to hardware it must keep listing, misses new
   models, and applies the workaround where the condition does not hold. The rule tests the KFD
   topology condition the userspace bug needs instead.
-- **Unloading and reloading amdgpu to apply new options.** Rejected: unloading a GPU driver that a
-  daemon or a VF guest still holds is not reliably safe; one reboot is.
+- **Unloading and reloading amdgpu to apply new options.** Rejected on 2026-10-26 because
+  unloading a GPU driver that a daemon or a VF guest still holds is not reliably safe; adopted on
+  2026-10-27 for a driver nothing holds, after a lab test on eight MI308X virtual functions
+  unloaded and reloaded it three times (about 1 s and 6 s) with every GPU passing the HIP probe.
+  A held driver still gets a reboot on a disk root.
+- **Rebooting a RAM-deployed node to apply options.** Rejected: the reboot erases the operating
+  system and the deployment with it.
+- **Requiring RAM deployments to declare driver options.** Rejected: it pushes hardware knowledge
+  back to the operator; the option remains available for anyone who wants no second load.
+- **Remembering each Server's derived options in the backend for the next deploy.** Not done: the
+  in-place reload makes it unnecessary; kept as the fallback had the reload proved unreliable.
 - **A management-address Prometheus behind a firewall allowlist.** Rejected for now: Swallow does
   not manage host firewalls, and only the local Grafana needs Omnistat's Prometheus.
 - **The reviewer's 7-day retention.** Not adopted as the default: it came from an unrelated

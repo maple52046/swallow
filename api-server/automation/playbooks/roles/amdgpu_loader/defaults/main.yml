@@ -6,8 +6,11 @@
 #
 # Driver module options (decision 063) never name a GPU model or a virtualization mode. They are
 # the operator's swallow_gpu_driver_module_options plus options a topology rule derives from what
-# the node's KFD reports, written to a Swallow-owned modprobe.d file before the driver loads. A
-# driver loaded with other parameters is never unloaded: the node reboots once to apply them.
+# the node's KFD reports, written to a Swallow-owned modprobe.d file before the driver loads; a
+# name the installed driver does not have is refused before anything loads. A rule is known only
+# once the driver is loaded, so a driver running with other parameters loads again: unloaded and
+# loaded in place when nothing holds it (the usual case, and the only one a RAM-deployed node can
+# survive), otherwise by a reboot on a disk root, and refused on a memory-backed root.
 
 # present installs, enables, and starts the loader; absent stops loading it at the next boot.
 amdgpu_loader_state: present
@@ -35,5 +38,7 @@ amdgpu_loader_options_file: /etc/modprobe.d/swallow-amdgpu.conf
 # Options a rule derived, kept across runs: once applied, the condition that triggered the rule
 # can disappear (pcie_p2p=0 removes the duplicate links), so it is not re-derived on every run.
 amdgpu_loader_state_file: /var/lib/swallow/amdgpu/options.json
+# Seconds modprobe -r may take before an unload counts as failed (it takes about a second).
+amdgpu_loader_unload_timeout: 120
 # A GPU node can take several minutes to come back with many devices.
 amdgpu_loader_reboot_timeout: 1800

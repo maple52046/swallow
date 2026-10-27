@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Button, Field, List, Stack, Text, Textarea } from '@chakra-ui/react'
+import { Button, Field, Stack, Text, Textarea } from '@chakra-ui/react'
 import type { ReleaseServerInput } from '@/domain/server/types'
+import { BlockingWorkflowsNotice } from '@/presentation/components/BlockingWorkflowsNotice'
 import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
 import { Alert } from '@/presentation/components/ui/alert'
-import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
-import { useServerActiveOperations } from './useServerActiveOperations'
+import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
 import type { ServerActionTarget } from './serverActionResults'
 
 interface ServerReleaseDialogProps {
@@ -112,29 +112,19 @@ export function ServerReleaseDialog({
           <strong>Targets:</strong> {shownNames.join(', ')}
           {remaining > 0 ? ` and ${remaining} more` : ''}
         </Text>
-        {hasActiveOperations && (
-          <Alert
-            status="warning"
-            title={activeOperationsTitle}
-          >
-            <Stack gap="2">
-              <Text>
-                A release is rejected while durable work is still running. Check the box to cancel it: the Release is
-                accepted now and starts by itself once the canceled work has ended, which can take a few minutes.
-              </Text>
-              <List.Root aria-label="Running operations blocking release">
-                {activeOperations.map((operation) => (
-                  <List.Item key={operation.id}>
-                    {operation.intent} — {operation.status}
-                  </List.Item>
-                ))}
-              </List.Root>
-              <Checkbox id="release-cancel-running" checked={cancelRunning} disabled={submitting} onCheckedChange={setCancelRunning}>
-                Cancel running operations before releasing
-              </Checkbox>
-            </Stack>
-          </Alert>
-        )}
+        <BlockingWorkflowsNotice
+          operations={activeOperations}
+          title={activeOperationsTitle}
+          checkboxId="release-cancel-running"
+          checkboxLabel="Cancel running operations before releasing"
+          listLabel="Running operations blocking release"
+          checked={cancelRunning}
+          disabled={submitting}
+          onCheckedChange={setCancelRunning}
+        >
+          A release is rejected while durable work is still running. Check the box to cancel it: the Release is
+          accepted now and starts by itself once the canceled work has ended, which can take a few minutes.
+        </BlockingWorkflowsNotice>
         <ReleaseOptionsFields
           idPrefix="release"
           value={options}

@@ -1,6 +1,6 @@
 ---
 # Install the Omnistat system-mode exporter on a compute node: a dedicated user, a versioned
-# virtual environment built from the pinned upstream tag with Swallow's SR-IOV patch and pinned
+# virtual environment built from the pinned upstream tag with Swallow's patches and pinned
 # Python dependencies, the configuration, and a systemd service. Idempotent: a converged node
 # reruns with no changes; a changed configuration or build restarts the exporter.
 
@@ -72,28 +72,30 @@
     cmd: mv {{ omnistat_prefix }}/omnistat-{{ omnistat_version }} {{ omnistat_src }}
     creates: "{{ omnistat_src }}/pyproject.toml"
 
-- name: Copy the SR-IOV compatibility patch and the dependency pins
+- name: Copy Swallow's patches and the dependency pins
   ansible.builtin.copy:
     src: "{{ item }}"
     dest: "{{ omnistat_prefix }}/{{ item }}"
     mode: "0644"
-  loop:
-    - "{{ omnistat_sources[omnistat_version].patch }}"
-    - "{{ omnistat_sources[omnistat_version].constraints }}"
+  loop: "{{ omnistat_sources[omnistat_version].patches + [omnistat_sources[omnistat_version].constraints] }}"
 
-- name: Check whether the source already carries the patch
+- name: Check which patches the source already carries
   ansible.builtin.command:
-    argv: [patch, -p1, --dry-run, --reverse, --force, --silent, -i, "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].patch }}"]
+    argv: [patch, -p1, --dry-run, --reverse, --force, --silent, -i, "{{ omnistat_prefix }}/{{ item }}"]
     chdir: "{{ omnistat_src }}"
+  loop: "{{ omnistat_sources[omnistat_version].patches }}"
   register: omnistat_patch_applied
   changed_when: false
   failed_when: false
 
-- name: Apply the SR-IOV compatibility patch
+- name: Apply the patches the source does not carry yet
   ansible.builtin.command:
-    argv: [patch, -p1, --forward, -i, "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].patch }}"]
+    argv: [patch, -p1, --forward, -i, "{{ omnistat_prefix }}/{{ item.item }}"]
     chdir: "{{ omnistat_src }}"
-  when: omnistat_patch_applied.rc != 0
+  loop: "{{ omnistat_patch_applied.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc != 0
   register: omnistat_patched
 
 - name: Create the Omnistat virtual environment
@@ -107,7 +109,7 @@
   register: omnistat_monitor_binary
 
 - name: Install Omnistat into the virtual environment
-  # Rebuilt when the source or the patch changed, or when a previous run never finished.
+  # Rebuilt when the source changed or a patch was applied, or when a previous run never finished.
   ansible.builtin.command:
     argv:
       - "{{ omnistat_venv }}/bin/pip"

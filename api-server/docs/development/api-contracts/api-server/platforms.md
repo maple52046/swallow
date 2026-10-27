@@ -483,11 +483,30 @@ node's KFD topology shows, never from a GPU model or a virtualization mode. Toda
 when a GPU node reaches the same peer through both an XGMI `io_link` and a PCIe `p2p_link`, the
 ROCm thunk overflows its peer array and HIP processes corrupt the heap at exit, so the rule adds
 `pcie_p2p=0`. A rule option is kept once applied (the condition disappears with it); an option the
-operator names always wins over a rule. The options are written to
-`/etc/modprobe.d/swallow-amdgpu.conf` before the driver loads; a driver already loaded with other
-parameters is never unloaded — the node reboots once to apply them — and every option is then
-verified against `/sys/module/amdgpu/parameters` (`amdgpu_option_not_applied` otherwise). The
-options apply to the Slurm GPU nodes and to the GPU Operator's host driver step on Kubernetes.
+operator names always wins over a rule. The options apply to the Slurm GPU nodes and to the GPU
+Operator's host driver step on Kubernetes.
+
+Every name is first checked against the installed driver's own list (`modinfo -p amdgpu`); a name it
+does not have fails the Task with `amdgpu_option_unknown`, naming the closest real option, before
+anything is written or loaded. The options are then written to
+`/etc/modprobe.d/swallow-amdgpu.conf`, and a driver that is not loaded yet loads with them. A rule is
+only known once the driver is loaded, so a driver running with other parameters loads again: the
+units that require it (`slurmd`, Omnistat) stop, and when nothing else holds the driver it is
+unloaded and loaded in place, which keeps the operating system of a RAM (ephemeral) deployment.
+When the driver is still held, a disk-deployed node reboots once to apply the options; a node whose
+root filesystem is in memory never reboots, because that would erase its operating system, and the
+Task fails with `amdgpu_reload_blocked`, naming the processes that hold the GPUs. An operator who
+names the options in `gpuDriver.moduleOptions` gets them on the first load, with no second load at
+all. Every readable option is then verified against `/sys/module/amdgpu/parameters`
+(`amdgpu_option_not_applied` otherwise); an option the driver has but does not expose for reading
+is reported as unverifiable.
+
+| Code | Meaning |
+| --- | --- |
+| `amdgpu_option_unknown` | an option name the installed driver does not have |
+| `amdgpu_reload_blocked` | the driver must load again but is held, and the root filesystem is in memory |
+| `amdgpu_option_not_applied` | a known option did not take effect, for example because the initramfs loaded the driver |
+| `amdgpu_driver_missing` | the driver did not load or exposed no `/dev/kfd` |
 
 ## Container Runtime
 
@@ -567,7 +586,12 @@ success Swallow also sets the Monitoring Link `Omnistat Grafana` to the observab
 Grafana (`http://<primary address>:3000`, read-only, no login). Omnistat's Prometheus listens only
 on the observability Server's loopback address (`listen: loopback`, see
 [software](software.md#prometheus-and-grafana-spec)), so only that Grafana reads it, and Swallow
-never queries it. Uninstalling the Platform removes the exporter and the Slurm side, marks the state
+never queries it. `omnistat-query` on a compute node reads it through that Grafana's read-only
+datasource proxy (`http://<primary address>:3000/api/datasources/proxy/uid/prometheus`), which
+serves the same data the anonymous dashboards already show. Omnistat 1.15.0's report needs GPU
+utilization, so on GPUs that do not report it (for example SR-IOV virtual functions, which expose
+only memory) `omnistat-query` cannot build one; the Grafana job dashboards still show memory per
+job. Uninstalling the Platform removes the exporter and the Slurm side, marks the state
 `absent`, and removes the link; the container runtime, Prometheus, and Grafana Software
 Assignments stay until they are uninstalled through the software API.
 
@@ -682,7 +706,7 @@ the old mode off and waits for it to disappear before the new one starts.
 Before the `DeviceConfig` is applied, every managed node gets `swallow-amdgpu-load.service`, which
 loads the image's `amdgpu` once SSH is up, with the k0s unit ordered after it; the Task starts it,
 so the GPUs exist now and after every reboot even when the image blacklists `amdgpu` at boot.
-Nodes no longer managed lose the unit and the ordering; a loaded driver is never unloaded.
+Nodes no longer managed lose the unit and the ordering, and their loaded driver stays loaded.
 For `dra` on k0s, the Task links `/var/lib/kubelet/plugins` and `/var/lib/kubelet/plugins_registry`
 to the k0s kubelet directories on managed nodes and removes those exact links when DRA is turned
 off or the operator is uninstalled. The Task succeeds when the `DeviceConfig` is Ready and every
@@ -714,9 +738,12 @@ the member servers to the provider in the same Operation, send:
     "secureErase": false,
     "quickErase": false,
     "unbindStaticIps": false
-  }
+  },
+  "cancelActiveWorkflows": false
 }
 ```
+
+`cancelActiveWorkflows` is described below the eligibility rules.
 
 When `releaseServers` is true, Swallow releases each member server directly instead of
 uninstalling the platform software first: releasing wipes the operating system, so the
@@ -736,16 +763,30 @@ unchanged:
 }
 ```
 
-Eligibility requires a Kubernetes Platform with durable `deploy-kubernetes` provenance.
-The target set is always the complete `targetServerIds` snapshot from its latest
+Eligibility requires a Platform with durable deployment provenance (`deploy-kubernetes` or
+`configure-slurm`). The target set is always the complete `targetServerIds` snapshot from its latest
 deployment Operation, never current membership. All targets must still exist, be present,
 be unlocked, and have no overlapping active Operation. Lock is checked live before
 the uninstall Operation is created. No single provisioning state is
 required because a failed deployment can leave a mixed target set.
 
-A pending or running deployment/uninstall, an already successful uninstall, a missing,
-absent, locked, or busy target, a registered Platform, or a Slurm Platform returns
-`409 conflict`. Failed, canceled, or indeterminate uninstalls may be submitted again; the
+A failed deployment waiting for operator attention (`requires_attention`) still holds its
+targets, as does a deployment still running. Send `"cancelActiveWorkflows": true` to have
+Swallow cancel every unfinished Workflow holding a target, with the same semantics as Release and
+Recover ([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md)):
+after every other check passes, Swallow requests their cancellation and creates the uninstall at
+once, ignoring them in the busy check. The uninstall takes the same resource leases, so it waits in
+`waiting_dependency` and starts by itself once they end; a canceled deployment first returns the
+Servers it was installing to Ready and keeps finished OS deployments
+([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). A cancel refused
+for a Workflow that is still running fails the request as `409 conflict` naming it. With the flag,
+a Platform whose lifecycle is `deploying` may be uninstalled; without it that is a conflict. The
+flag needs the durable orchestration topology, like `releaseServers`.
+
+A running uninstall, an already successful uninstall, a missing, absent, locked, or busy target
+(without `cancelActiveWorkflows`), a deployment still running (without the flag), or a registered
+Platform returns `409 conflict`. The busy conflict names the Workflow holding the target, its
+intent, and its status. Failed, canceled, or indeterminate uninstalls may be submitted again; the
 new Operation records `retryOfOperationId` pointing to the latest uninstall.
 
 When servers are kept, the release-owned playbook stops k0s services, runs `k0s reset`,

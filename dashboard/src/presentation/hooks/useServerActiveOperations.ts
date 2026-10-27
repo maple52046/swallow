@@ -6,7 +6,7 @@ import {
   type Operation,
 } from '@/domain/operation/types'
 
-/** A running Operation blocking a Server release, reduced to what the prompt shows. */
+/** An unfinished Operation holding a Server, reduced to what a confirmation prompt shows. */
 export interface ActiveOperationSummary {
   id: string
   kind: string
@@ -18,13 +18,13 @@ export interface ActiveOperationSummary {
 }
 
 /**
- * Detects the durable Operations that would make a Server Release or Recover fail.
+ * Detects the durable Operations that would make a Release, Recover, Delete, or Platform
+ * uninstall of these Servers fail.
  *
- * The backend rejects a Release or Recover while any target Server still has unfinished
- * durable work, so this hook lets the Release dialog (and the provider-failure Recover action)
- * surface that work up front. Canceling it is the backend's job (`cancelActiveWorkflows`,
- * decision 061): the browser never waits for a cancellation, which can take minutes once a
- * canceled deployment returns its Server to Ready.
+ * The backend rejects those actions while any target Server still has unfinished durable work,
+ * so this hook lets their dialogs surface that work up front. Canceling it is the backend's job
+ * (`cancelActiveWorkflows`, decision 061): the browser never waits for a cancellation, which can
+ * take minutes once a canceled deployment returns its Server to Ready.
  */
 export interface UseServerActiveOperationsResult {
   /** True while the initial detection request is in flight. */

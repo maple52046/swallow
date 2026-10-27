@@ -4,7 +4,7 @@
 # SR-IOV guests) and expect it to be loaded afterwards. A managed node therefore gets the shared
 # Swallow loader unit (role amdgpu_loader, also used by Slurm GPU GRES), and k0s is ordered after
 # it so the operator's device plugin or DRA driver finds the GPUs when it starts. A node Swallow
-# does not manage loses the unit and the ordering; a loaded driver is never unloaded.
+# does not manage loses the unit and the ordering, and its loaded driver stays loaded.
 
 - name: Converge the shared amdgpu loader and the k0s ordering
   ansible.builtin.include_role:

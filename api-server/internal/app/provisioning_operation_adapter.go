@@ -13,7 +13,6 @@ import (
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	"github.com/maple52046/swallow/internal/shared/pagination"
 )
 
 // durableProvisioningLauncher performs full preflight before saving a v3 Operation.
@@ -204,42 +203,13 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 }
 
 // supersedeActiveWorkflows applies RecoveryLaunchOptions.CancelActiveWorkflows (decision 061) once
-// every target passed validation: it asks each unfinished Workflow holding a target to cancel and
-// returns their IDs so Create does not refuse the Release or Recover as busy. The new Operation
-// waits for those Workflows' resource leases, so it acts only after they end, including after a
-// canceled deployment returned its Server to Ready (decision 060). A refused cancel is accepted
-// only when the Workflow finished meanwhile; one still running fails the request as a conflict
-// naming it, because the new Operation would otherwise wait behind it with no end. Without the
-// option it does nothing and Create's busy check applies as before.
+// every target passed validation; without the option it does nothing and Create's busy check
+// applies as before.
 func (l durableProvisioningLauncher) supersedeActiveWorkflows(ctx context.Context, targetIDs []string, options provisioningapp.RecoveryLaunchOptions) ([]string, error) {
 	if !options.CancelActiveWorkflows {
 		return nil, nil
 	}
-	seen := map[string]bool{}
-	var superseded []string
-	for _, serverID := range targetIDs {
-		active, _, err := l.operations.List(ctx, operationapp.ListOperationsInput{
-			ServerID: serverID, Active: true, Page: pagination.Page{Page: 1, PageSize: 100},
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, operation := range active {
-			if seen[operation.ID] {
-				continue
-			}
-			seen[operation.ID] = true
-			if err := l.operations.Cancel(ctx, operation.ID); err != nil {
-				current, findErr := l.operations.Get(ctx, operation.ID)
-				if findErr != nil || !operationdomain.WorkflowStatus(current.Status).Terminal() {
-					return nil, fmt.Errorf("%w: %s could not be canceled: %v", operationdomain.ErrTargetsBusy, operation.Intent, err)
-				}
-				continue
-			}
-			superseded = append(superseded, operation.ID)
-		}
-	}
-	return superseded, nil
+	return supersedeBlockingWorkflows(ctx, l.operations, targetIDs)
 }
 
 // LaunchRecover validates a bounded batch of "Return to Ready" intents and persists one

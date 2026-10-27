@@ -97,6 +97,9 @@ type UninstallLaunch struct {
 	ReleaseOptions     ServerReleaseOptions
 	RetryOfOperationID string
 	RequestedBy        string
+	// CancelActiveWorkflows cancels the unfinished Workflows holding the targets and lets the
+	// uninstall wait for them instead of being refused as busy (decision 061).
+	CancelActiveWorkflows bool
 }
 
 // UninstallLauncher starts an uninstall operation without coupling contexts.

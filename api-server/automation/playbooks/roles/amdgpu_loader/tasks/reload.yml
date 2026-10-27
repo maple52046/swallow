@@ -1,0 +1,102 @@
+---
+# Load an already loaded amdgpu driver again so it takes the options file (its parameters are read
+# only at load). A driver nothing holds is unloaded and loaded in place, which keeps a RAM-deployed
+# node's operating system; this is the usual case, since Swallow loaded the driver moments earlier
+# and nothing has opened a GPU yet. A driver still held is applied by a reboot on a disk root and
+# refused on a memory-backed root, whose operating system a reboot would erase.
+
+- name: Find the units that stop with the amdgpu loader
+  # Units that Require the loader (slurmd, Omnistat) stop with it; units that only Want it (k0s)
+  # keep running, and whatever of theirs holds a GPU keeps the driver held.
+  ansible.builtin.command:
+    argv: [systemctl, show, --property=RequiredBy, --value, "{{ amdgpu_loader_unit }}"]
+  register: amdgpu_loader_required_by
+  changed_when: false
+
+- name: Find which of them run now
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "{{ item }}"]
+  loop: "{{ amdgpu_loader_required_by.stdout.split() }}"
+  register: amdgpu_loader_required_states
+  changed_when: false
+  failed_when: false
+
+- name: Remember the units to start again
+  ansible.builtin.set_fact:
+    amdgpu_loader_restart_units: >-
+      {{ amdgpu_loader_required_states.results | selectattr('stdout', 'equalto', 'active')
+         | map(attribute='item') | list }}
+
+- name: Stop the amdgpu loader and the units that need it
+  ansible.builtin.systemd:
+    name: "{{ amdgpu_loader_unit }}"
+    state: stopped
+
+- name: Read what still holds the amdgpu driver
+  ansible.builtin.script:
+    cmd: amdgpu_node_state.py
+    executable: /usr/bin/python3
+  register: amdgpu_loader_release
+  changed_when: false
+
+- name: Unload the amdgpu driver
+  ansible.builtin.command:
+    argv: [timeout, "{{ amdgpu_loader_unload_timeout }}", modprobe, -r, amdgpu]
+  register: amdgpu_loader_unload
+  failed_when: false
+  when: >-
+    (amdgpu_loader_release.stdout | from_json).refcnt == 0
+    or not (amdgpu_loader_release.stdout | from_json).loaded
+
+- name: Decide how the new options take effect
+  ansible.builtin.set_fact:
+    amdgpu_loader_applied_by: >-
+      {{ 'reload' if (amdgpu_loader_unload.rc | default(1)) == 0
+         else ('reboot' if not (amdgpu_loader_release.stdout | from_json).memoryBackedRoot else 'blocked') }}
+
+- name: Load the amdgpu driver with its new options
+  ansible.builtin.systemd:
+    name: "{{ amdgpu_loader_unit }}"
+    state: started
+  register: amdgpu_loader_reload
+  failed_when: false
+  when: amdgpu_loader_applied_by != 'reboot'
+
+- name: Refuse a node whose amdgpu driver did not load again
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_driver_missing] the amdgpu driver did not load again on
+      {{ amdgpu_loader_node_name }}: {{ amdgpu_loader_reload.msg | default('modprobe amdgpu failed') }}.
+      Check "journalctl -u {{ amdgpu_loader_unit }}" on the node.
+  when: amdgpu_loader_reload is failed
+
+- name: Start the units stopped with the amdgpu loader
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+  loop: "{{ amdgpu_loader_restart_units }}"
+  when: amdgpu_loader_applied_by != 'reboot'
+
+- name: Refuse to reload a held driver on a memory-backed root
+  vars:
+    amdgpu_loader_report: "{{ amdgpu_loader_release.stdout | from_json }}"
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_reload_blocked] amdgpu on {{ amdgpu_loader_node_name }} must load again to take
+      {{ amdgpu_loader_desired | to_json }}, but it is still held
+      (references: {{ amdgpu_loader_report.refcnt }}; GPU devices open in:
+      {{ amdgpu_loader_report.holders | join(', ') | default('no process', true) }}
+      {%- if amdgpu_loader_unload.stderr | default('') %}; modprobe -r: {{ amdgpu_loader_unload.stderr | trim }}{% endif %}).
+      / is {{ amdgpu_loader_report.rootFilesystem }}, so a reboot would erase the operating system.
+      Stop what holds the GPUs and retry, or set the options in gpuDriver.moduleOptions so the
+      driver loads with them the first time.
+  when: amdgpu_loader_applied_by == 'blocked'
+
+- name: Reboot to load the amdgpu driver with its new options
+  # Only on a disk root: the loader unit loads the options file on the next boot.
+  ansible.builtin.reboot:
+    msg: "Swallow: reboot to load amdgpu with options {{ amdgpu_loader_desired | to_json }}"
+    reboot_timeout: "{{ amdgpu_loader_reboot_timeout }}"
+  when:
+    - amdgpu_loader_applied_by == 'reboot'
+    - not (amdgpu_loader_release.stdout | from_json).memoryBackedRoot

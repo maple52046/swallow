@@ -39,11 +39,14 @@ func NewUninstallService(
 //
 // When ReleaseServers is true the uninstall also releases every member server back to the
 // provider; ReleaseOptions then controls disk erasure and static-IP handling per server.
+// CancelActiveWorkflows cancels the unfinished Workflows holding the targets (a deployment parked
+// in requires_attention, or one still deploying) and starts the uninstall once they end.
 type UninstallPlatformInput struct {
-	PlatformID     string
-	RequestedBy    string
-	ReleaseServers bool
-	ReleaseOptions platformdomain.ServerReleaseOptions
+	PlatformID            string
+	RequestedBy           string
+	ReleaseServers        bool
+	ReleaseOptions        platformdomain.ServerReleaseOptions
+	CancelActiveWorkflows bool
 }
 
 // UninstallPlatformResult is the accepted uninstall operation.
@@ -79,7 +82,13 @@ func (s *UninstallService) Uninstall(
 
 	retryOf := ""
 	switch snapshot.State {
-	case platformdomain.PlatformLifecycleDeploying, platformdomain.PlatformLifecycleUninstalling:
+	case platformdomain.PlatformLifecycleDeploying:
+		// Only an operator who agreed to cancel the deployment may uninstall over it.
+		if !input.CancelActiveWorkflows {
+			return nil, fmt.Errorf("%w: platform lifecycle is %s; cancel its deployment, or send cancelActiveWorkflows",
+				platformdomain.ErrPlatformUninstallConflict, snapshot.State)
+		}
+	case platformdomain.PlatformLifecycleUninstalling:
 		return nil, fmt.Errorf("%w: platform lifecycle is %s",
 			platformdomain.ErrPlatformUninstallConflict, snapshot.State)
 	case platformdomain.PlatformLifecycleUninstalled:
@@ -128,6 +137,7 @@ func (s *UninstallService) Uninstall(
 		ReleaseServers:     input.ReleaseServers,
 		ReleaseOptions:     input.ReleaseOptions,
 		RetryOfOperationID: retryOf, RequestedBy: input.RequestedBy,
+		CancelActiveWorkflows: input.CancelActiveWorkflows,
 	})
 	if err != nil {
 		return nil, err

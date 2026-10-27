@@ -1,0 +1,16 @@
+# Omnistat v1.15.0 fix for omnistat-query on jobs shorter than five minutes (decision 063).
+# _coarse_step formats its seconds as f"{min_step}s", and SCAN_STEP is the float 60.0, so the
+# query step becomes "60.0s", which Prometheus rejects as an invalid duration ("bad_data"). A
+# step in plain seconds ("60.0") is accepted. Re-check upstream before bumping the Omnistat
+# version.
+--- a/omnistat/query.py
++++ b/omnistat/query.py
+@@ -297,7 +297,7 @@
+     def _coarse_step(self, duration_seconds):
+         # Make sure the default step is not longer than the execution.
+         min_step = min(QueryMetrics.SCAN_STEP, duration_seconds)
+-        step = f"{min_step}s"
++        step = min_step
+ 
+         # For longer jobs, select a coarser step for more efficient querying
+         # of info data since we don't need accurate timing.

@@ -6,7 +6,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { useServerActiveOperations } from './useServerActiveOperations'
+import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
 
 /**
  * Presents a provider-lifecycle failure (`failed` / `broken` / `rescue`) on the Server detail page

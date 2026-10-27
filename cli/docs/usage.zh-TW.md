@@ -435,6 +435,7 @@ swallow provisioning preflight --server srv1 --server srv2
 swallow provisioning deploy -f deploy.yaml
 swallow provisioning release --server srv1 --erase --secure-erase --comment "retire"
 swallow provisioning recover --server srv1 --unbind-static-ips
+swallow provisioning release --server srv1 --cancel-active-workflows   # 先取消佔著 srv1 的 Workflow
 swallow provisioning verify-image -f verify.yaml
 
 # Network inspection 與 tasks
@@ -522,6 +523,7 @@ swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exp
 swallow platforms delete plat1
 swallow platforms uninstall plat1                     # 只移除 software
 swallow platforms uninstall plat1 -f uninstall.yaml   # { releaseServers, releaseOptions }
+swallow platforms uninstall plat1 --cancel-active-workflows   # 一併取消佔著 Server 的失敗或進行中部署
 swallow platforms sync plat1
 swallow platforms sync-all
 swallow platforms slurm plat1                         # live Slurm cluster state

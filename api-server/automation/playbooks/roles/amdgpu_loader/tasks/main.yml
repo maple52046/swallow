@@ -1,9 +1,10 @@
 ---
 # Converge the post-boot amdgpu loader, its module options, and the ordering of the units that need
 # GPUs. present installs and starts the loader with the operator's options plus the options a
-# topology rule derives, rebooting once when the loaded driver runs with other parameters, and fails
-# the node when the driver does not load or ignores an option; absent disables and removes it
-# together with the drop-ins and the options. A loaded driver is never unloaded.
+# topology rule derives, loading the driver again when it runs with other parameters (apply.yml,
+# reload.yml), and fails the node when an option name is unknown, the driver does not load, or it
+# ignores an option; absent disables and removes it together with the drop-ins and the options,
+# leaving a loaded driver loaded.
 
 - name: Find the units that need the GPUs
   ansible.builtin.stat:
@@ -144,10 +145,14 @@
               ansible.builtin.include_tasks: apply.yml
 
     - name: Report the amdgpu module options
+      vars:
+        amdgpu_loader_unverifiable: "{{ (amdgpu_loader_after.stdout | from_json).unverifiable }}"
       ansible.builtin.debug:
         msg: >-
           amdgpu on {{ amdgpu_loader_node_name }} runs with {{ amdgpu_loader_desired | to_json }}
           ({{ amdgpu_loader_option_sources | to_json }})
+          {%- if amdgpu_loader_applied_by is defined %}; loaded again by {{ amdgpu_loader_applied_by }}{% endif %}
+          {%- if amdgpu_loader_unverifiable %}; not readable to verify: {{ amdgpu_loader_unverifiable | join(', ') }}{% endif %}
 
 - name: Stop loading amdgpu at boot
   when: amdgpu_loader_state == 'absent'

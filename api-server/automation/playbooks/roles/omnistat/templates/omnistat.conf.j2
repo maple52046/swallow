@@ -25,5 +25,8 @@ enable_proc_io_stats = False
 cpu_load_sampling_interval = 0.05
 
 [omnistat.query]
-prometheus_url = http://{{ omnistat_observability_address }}:{{ omnistat_prometheus_port }}
+# omnistat-query reads Prometheus through Grafana's read-only datasource proxy: Prometheus listens on
+# the observability Server's loopback only, and Grafana already serves the same data to anonymous
+# viewers.
+prometheus_url = http://{{ omnistat_observability_address }}:{{ omnistat_grafana_port }}/api/datasources/proxy/uid/{{ omnistat_grafana_datasource_uid }}
 system_name = {{ omnistat_system_name }}

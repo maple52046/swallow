@@ -1052,9 +1052,15 @@ test.describe('operator interactions', () => {
     await confirmation.fill('wrong-name')
     await expect(uninstall).toBeDisabled()
     await confirmation.fill('production-k0s')
+    // The deployment still running on these targets must be canceled first, and the operator says so.
+    await expect(dialog.getByText('An unfinished workflow still holds these servers')).toBeVisible()
+    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy production k0s platform')
+    await expect(uninstall).toBeDisabled()
+    await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
     await uninstall.click()
     await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
     await expect(page.getByText('Platform uninstall accepted')).toBeVisible()
+    await expect(page.getByText(/It starts once the canceled workflows have ended/)).toBeVisible()
 
     await page.goto('/platforms/platform-a?site=site-a')
     await page.getByRole('button', { name: 'Platform actions' }).click()
@@ -1091,6 +1097,7 @@ test.describe('operator interactions', () => {
     await dialog.getByLabel('Use secure erase when supported').locator('..').click()
     await dialog.getByLabel('Remove static IP bindings after release').locator('..').click()
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
+    await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
     await dialog.getByRole('button', { name: 'Release all servers' }).click()
 
     await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
@@ -1101,8 +1108,76 @@ test.describe('operator interactions', () => {
       body: {
         releaseServers: true,
         releaseOptions: { erase: true, secureErase: true, quickErase: false, unbindStaticIps: true },
+        cancelActiveWorkflows: true,
       },
     })
+  })
+
+  // A failed deployment parked for attention still holds its Servers, so an uninstall used to fail
+  // with "already has active durable work" until the operator found and canceled that Workflow. The
+  // dialog now names it, the operator confirms, and the backend cancels it; the browser never
+  // cancels or waits, so the dialog closes with the request.
+  test('Uninstall of a failed deployment cancels the Workflow holding its Servers in the backend', async ({ page }) => {
+    const uninstalls: Array<{ platformId: string; body: Record<string, unknown> | null }> = []
+    const superseded: string[] = []
+    const browserCancels: string[] = []
+    await installApiFixtures(page, {
+      onPlatformUninstallRequest: (platformId, body) => uninstalls.push({ platformId, body }),
+      onWorkflowSuperseded: (operationId) => superseded.push(operationId),
+    })
+    page.on('request', (request) => {
+      if (/\/api\/v1\/workflows\/[^/]+\/cancel$/.test(new URL(request.url()).pathname)) browserCancels.push(request.url())
+    })
+    await page.goto('/platforms/platform-b?site=site-a')
+    await page.getByRole('button', { name: 'Platform actions' }).click()
+    await page.getByRole('menuitem', { name: 'Uninstall platform', exact: true }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy edge-staging k0s platform')
+    await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
+    await dialog.getByLabel('Platform name confirmation').fill('edge-staging')
+    const release = dialog.getByRole('button', { name: 'Release all servers' })
+    await expect(release).toBeDisabled()
+    await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
+    await release.click()
+
+    await expect(dialog).toBeHidden({ timeout: 2_000 })
+    await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
+    expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ releaseServers: true, cancelActiveWorkflows: true }) }])
+    expect(superseded).toEqual(['op-deploy-failed'])
+    expect(browserCancels).toEqual([])
+  })
+
+  test('A deploying Platform can be uninstalled once the operator confirms canceling the deployment', async ({ page }) => {
+    await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'deploying' } })
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'Platform actions' }).click()
+    await expect(page.getByRole('menuitem', { name: 'Uninstall platform', exact: true })).toBeEnabled()
+    await page.getByRole('menuitem', { name: 'Uninstall platform', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy production k0s platform')
+    await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
+    await expect(dialog.getByRole('button', { name: 'Uninstall platform' })).toBeDisabled()
+  })
+
+  test('Bulk uninstall names the Workflows holding the selected Platforms and sends the cancel', async ({ page }) => {
+    const uninstalls: Array<{ platformId: string; body: Record<string, unknown> | null }> = []
+    await installApiFixtures(page, {
+      onPlatformUninstallRequest: (platformId, body) => uninstalls.push({ platformId, body }),
+    })
+    await page.goto('/platforms?site=site-a')
+    await page.getByRole('table', { name: 'Platforms' }).getByLabel('Select edge-staging').locator('..').click()
+    await page.getByRole('button', { name: 'Uninstall', exact: true }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Uninstall 1 platform' })
+    await expect(dialog.getByRole('list', { name: "Workflows holding the selected platforms' servers" })).toContainText('Deploy edge-staging k0s platform')
+    await dialog.getByLabel('Type uninstall to confirm').fill('uninstall')
+    const submit = dialog.getByRole('button', { name: 'Uninstall 1 platform' })
+    await expect(submit).toBeDisabled()
+    await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
+    await submit.click()
+    await expect(dialog).toBeHidden()
+    expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ releaseServers: false, cancelActiveWorkflows: true }) }])
   })
 
 

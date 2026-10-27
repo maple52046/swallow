@@ -574,9 +574,12 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	if l.orchestrations == nil {
 		// Server release is a multi-step durable operation; without Temporal we can only
 		// run the legacy single-step uninstall, so reject a release request rather than
-		// silently dropping it.
+		// silently dropping it. Superseding running work needs the durable leases too.
 		if launch.ReleaseServers {
 			return "", fmt.Errorf("durable Platform uninstall is unavailable; releasing servers requires it")
+		}
+		if launch.CancelActiveWorkflows {
+			return "", fmt.Errorf("durable Platform uninstall is unavailable; canceling active Workflows requires it")
 		}
 		item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
 			Kind: uninstallKind, Intent: intent,
@@ -605,6 +608,12 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 
 	steps := uninstallSteps(launch, prepared, operationID, stepName)
 
+	var superseded []string
+	if launch.CancelActiveWorkflows {
+		if superseded, err = supersedeBlockingWorkflows(ctx, l.orchestrations, launch.TargetServerIDs); err != nil {
+			return "", err
+		}
+	}
 	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
 		ID: operationID, Kind: workflowKind,
 		IntentSummary:  summary,
@@ -614,6 +623,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		TargetServerIDs: launch.TargetServerIDs,
 		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 		Steps:           steps, RetryOfOperationID: launch.RetryOfOperationID, RequestedBy: launch.RequestedBy,
+		SupersededOperationIDs: superseded,
 	})
 	if err != nil {
 		return "", err

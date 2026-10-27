@@ -338,7 +338,7 @@ export interface FixtureOptions {
   onServerDeleteRequest?: (serverId: string) => void
   /** Servers whose deletion the provisioner refuses with `409 conflict`. */
   serverDeleteFailureIds?: string[]
-  /** Called with each Operation a Release or Recover with `cancelActiveWorkflows` canceled. */
+  /** Called with each Operation a Release, Recover, or Platform uninstall with `cancelActiveWorkflows` canceled. */
   onWorkflowSuperseded?: (operationId: string) => void
   providerFailureRetryable?: boolean
   /**
@@ -2746,10 +2746,23 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     const uninstallMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/uninstall$/)
     if (uninstallMatch && request.method() === 'POST') {
-      options.onPlatformUninstallRequest?.(
-        uninstallMatch[1],
-        (request.postDataJSON() as Record<string, unknown> | null) ?? null,
-      )
+      const body = (request.postDataJSON() as Record<string, unknown> | null) ?? null
+      options.onPlatformUninstallRequest?.(uninstallMatch[1], body)
+      // Mirrors platforms.md "Uninstall": a Workflow still holding the deployment targets refuses the
+      // uninstall unless cancelActiveWorkflows supersedes it (decision 061).
+      const uninstalling = platformItems.find((item) => item.id === uninstallMatch[1])
+      const targets = operationItems.find((item) => item.id === uninstalling?.lifecycleOperationId)?.targetServerIds ?? []
+      if (body?.cancelActiveWorkflows) {
+        const refused = supersedeActiveOperations(targets)
+        if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-uninstall-busy' } }, 409)
+      } else {
+        const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled', 'indeterminate'])
+        const holder = operationItems.find((item) =>
+          item.targetServerIds.some((serverId) => targets.includes(serverId)) && !terminal.has(item.status ?? item.execution.status))
+        if (holder) {
+          return json(route, { error: { code: 'conflict', message: `a target is already in an unfinished operation: Server ${targets[0]} already has active durable work: Workflow ${holder.id} ("${holder.intent}", ${holder.status ?? holder.execution.status}) still holds it; finish or cancel it first`, requestId: 'req-uninstall-busy' } }, 409)
+        }
+      }
       return json(route, { platformId: uninstallMatch[1], operationId: 'op-uninstall' }, 202)
     }
     const platformMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)$/)

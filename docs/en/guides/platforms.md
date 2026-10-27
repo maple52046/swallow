@@ -109,7 +109,11 @@ defaults to the GPU architecture (for example `gfx942`). Under **Advanced
 settings** you can name a different GRES type that existing job scripts expect
 (for example `mi308x_vf`) and set amdgpu driver module options. swallow already
 applies the options a node's GPU topology needs (for example `pcie_p2p=0` where
-ROCm would otherwise crash at exit), so most deployments leave them empty.
+ROCm would otherwise crash at exit), so most deployments leave them empty. It
+learns them once the driver has loaded and then loads the driver again in place,
+without a reboot, so RAM (ephemeral) deployments work too; options you set are
+there from the first load. A misspelled option name fails the deployment at once
+with the closest real name.
 
 Open **Platforms → Settings** to configure the system-wide Slurm deployment
 requirement. Enable the policy and set the minimum **CPU cores**, **Memory GiB**,
@@ -129,7 +133,10 @@ nodes back to Server IDs.
 
 - **Sync** refreshes observed Platform membership/state.
 - **Uninstall** removes the swallow-deployed runtime from its original targets
-  and retains the Platform record for diagnosis.
+  and retains the Platform record for diagnosis. When a workflow still holds the
+  Platform's servers (a failed deployment waiting for attention, or one still
+  running), the dialog lists it and asks you to confirm canceling it; the
+  uninstall then starts by itself once it has ended.
 - **Delete** removes only the swallow record/projections and must not be
   confused with host-side uninstall.
 - Bulk actions remain subject to each Platform's lifecycle gate.

@@ -350,7 +350,7 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   | `swallow_omnistat_version` / `swallow_omnistat_port` | Omnistat 版本（`1.15.0`）與 exporter port（`8001`） |
   | `swallow_omnistat_compute_ids` | 裝 exporter 的 compute serverId |
   | `swallow_omnistat_observability_id` | 跑 Prometheus／Grafana 的 serverId（primary controller） |
-  | `swallow_omnistat_prometheus_port` / `swallow_omnistat_grafana_port` | 由 launcher 依 software domain 填入（`9090`／`3000`） |
+  | `swallow_omnistat_prometheus_port` / `swallow_omnistat_grafana_port` | 由 launcher 依 software domain 填入（`9090`／`3000`）；compute 的 `omnistat-query` 經 Grafana datasource proxy（`:3000/api/datasources/proxy/uid/prometheus`）查詢，因 Prometheus 只綁 loopback |
   | `swallow_omnistat_system_name` | omnistat-query 報表標籤（cluster name） |
 
 ### 4.3 Secrets
@@ -505,7 +505,11 @@ Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它�
 故 `deploy_failed` 期間目標受保護。要把這些節點放回可用池，先對錯誤節點 Recover／Release，再以
 **Uninstall（可勾 release servers）** 或 **Delete** 結束保護。Uninstall+release（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）
 對非 `deployed` 的 failed 目標**沿用同一條 Release 政策**（與 Server 的 Release 一致，見
-decision 033），不另立門檻，避免捷徑與獨立 Release 規則分裂。
+decision 033），不另立門檻，避免捷徑與獨立 Release 規則分裂。失敗的 deploy 停在 `requires_attention`
+時仍握著目標的 lease，uninstall 需帶 `cancelActiveWorkflows`（ADR 061 修訂）：後端取消佔用的
+Workflow、立即建立 uninstall（`SupersededOperationIDs`，共用 `internal/app/workflow_supersede.go`），uninstall
+停在 `waiting_dependency` 等它們結束；帶旗標時 `deploying` 也可 uninstall。Dashboard 的 uninstall 對話框列出
+佔用的 Workflow 並要求確認，CLI 為 `--cancel-active-workflows`。
 
 ---
 
@@ -650,8 +654,13 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   推導的選項（`roles/amdgpu_loader/files/amdgpu_node_state.py` 讀 sysfs）。目前唯一規則：KFD 某 GPU node
   對同一 peer 同時有 `io_link` 與 `p2p_link`（libhsakmt peer array overflow）→ `pcie_p2p=0`。規則套用後記錄在
   `/var/lib/swallow/amdgpu/options.json`（條件會隨之消失，所以不每次重推導）；operator 指定同名選項一律優先。
-  driver 已載入但參數不符 → `ansible.builtin.reboot`（絕不 unload/reload），之後逐一比對
-  `/sys/module/amdgpu/parameters`，不符以 `[amdgpu_option_not_applied]` 失敗。不比對任何 GPU 型號或 SR-IOV。
+  寫檔前先以 `modinfo -F parm amdgpu` 檢查名稱，不存在即 `[amdgpu_option_unknown]`（附最接近的名稱），driver
+  不會被載入。driver 已載入但參數不符 → `tasks/reload.yml`：停掉 loader（`RequiredBy` 的 `slurmd`、omnistat
+  一併停止，事後再啟動），`refcnt` 為 0 就 `timeout N modprobe -r amdgpu` 後重新啟動 loader（原地重載，RAM
+  deploy 也安全）；仍被佔用時 disk root `ansible.builtin.reboot`，memory-backed root（`/` 為 overlay／tmpfs）
+  以 `[amdgpu_reload_blocked]` 失敗並列出佔用者（整個 role 只有這一個 reboot，靜態測試守住 guard）。之後逐一
+  比對 `/sys/module/amdgpu/parameters`，不符以 `[amdgpu_option_not_applied]` 失敗；modinfo 有但 sysfs 不公開的
+  只列為 unverifiable。不比對任何 GPU 型號或 SR-IOV。
 - **GPU 可用性驗收（decision 063）**：`gpu_probe` role 在每台 GPU node 安裝
   `/usr/local/libexec/swallow/hip-probe`（ctypes 呼叫 `libamdhip64`，無 device code、與架構無關）並直接執行：
   `hipGetDeviceCount`＝KFD GPU 數，每張 GPU `hipSetDevice`／`hipMalloc`／`hipMemset`／`hipDeviceSynchronize`／
@@ -693,7 +702,23 @@ Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/depl
 `playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
 `slurm_cluster_credential`）；Omnistat：[`configure-omnistat.yml`](../../api-server/automation/playbooks/configure-omnistat.yml)
-與 `roles/omnistat`（上游 tag 壓縮檔 sha256、SR-IOV patch 與依賴 constraints 在 `files/`）。
+與 `roles/omnistat`（上游 tag 壓縮檔 sha256 在 `defaults/main.yml`，swallow 維護的 patch 與依賴 constraints 在 `files/`）。
+
+**swallow 維護的 Omnistat patch（[decision 064](../decisions/064-upstream-patches-are-the-exception.md)）**：
+`roles/omnistat/defaults/main.yml` 的 `omnistat_sources[<version>].patches` 列出每個版本要套的 patch；role 逐一以
+`patch --dry-run --reverse` 檢查，沒套過的才套，任一 patch 套上就重新 `pip install` 並重啟 exporter，所以新增的 patch
+也會套到已經帶有舊 patch 的節點。**升級 Omnistat 時**：先找看看有沒有不需要 patch 就能用的上游版本或 commit；對新版
+逐一依下表「如何確認」判斷，上游已修好的 patch 不要帶過去；仍需要的 patch 要對新版原始碼重新產生（行號會變），放進新版
+的 `patches`，並更新本表（`TestOmnistatPatchesAreDocumented` 會檢查 role 套用的每個 patch 都列在這裡）。
+
+| Patch | 解決的問題 | 沒有它時 | 如何確認新版是否仍需要 | 何時可以拿掉 |
+| --- | --- | --- | --- | --- |
+| `omnistat-1.15.0-sriov-vf.patch` | SR-IOV VF（例 MI308X VF）拒絕 `amdsmi_get_gpu_metrics_info` 與溫度查詢，上游 v1.15.0 的 AMD SMI collector 因此中止 exporter；patch 只把這條 bulk metrics 路徑降級為不可用，不偽造 utilization／power／clock／temperature | VF 節點的 `omnistat` 服務起不來，`install-omnistat` Task 失敗 | 在 VF 節點以未 patch 的新版啟動 exporter，確認它持續運作並回報 `rocm_num_gpus` 與 `rocm_vram_*`；或檢查 `omnistat/collector_amdsmi.py` 對不支援的 API 是否已改為略過而非中止 | 上游 collector 遇到不支援的 API 會降級而非中止 |
+| `omnistat-1.15.0-query-step.patch` | `omnistat/query.py` 的 `_coarse_step` 以 `f"{min_step}s"` 組 step，`SCAN_STEP` 是 `60.0`，5 分鐘以內的作業因此送出 `60.0s`，Prometheus 回 `bad_data`；patch 改送純秒數（`60.0`） | `omnistat-query --job` 對 5 分鐘以內的作業直接失敗 | 檢查新版 `_coarse_step` 是否仍可能產生帶小數的 duration 字串；或對一個 5 分鐘以內的作業執行 `omnistat-query --job` | 上游改成整數 duration 或純秒數 |
+
+未 patch 的已知限制（依 decision 064 如實告知使用者，不修補）：`omnistat-query` 以
+`rocm_utilization_percentage{card="0"}` 找作業節點，SR-IOV VF 不提供 GPU 使用率，報告無法產生（`AssertionError`）；作業層級的
+VRAM 請看 Grafana Job dashboard。
 
 ### 6.4 讀取與管理視圖（type-specific，ADR 021）
 

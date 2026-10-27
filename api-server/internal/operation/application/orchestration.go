@@ -137,9 +137,12 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 			return nil, err
 		}
 		blocking := total
+		var holder *operationdomain.Workflow
 		for _, operation := range active {
 			if superseded[operation.ID] {
 				blocking--
+			} else if holder == nil {
+				holder = operation
 			}
 		}
 		if blocking > 0 {
@@ -147,8 +150,13 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 			// malformed request: it is exactly operationdomain.ErrTargetsBusy, which
 			// every delivery mapper renders as 409 with this message. Classifying it
 			// as ErrInvalidOperation would leak it as an opaque 4xx/5xx that hides the
-			// actionable "the Server is busy" reason from operators.
-			return nil, fmt.Errorf("%w: Server %s already has active durable work", operationdomain.ErrTargetsBusy, serverID)
+			// actionable "the Server is busy" reason from operators, and naming the
+			// holder tells them which Workflow to finish or cancel.
+			if holder == nil {
+				return nil, fmt.Errorf("%w: Server %s already has active durable work", operationdomain.ErrTargetsBusy, serverID)
+			}
+			return nil, fmt.Errorf("%w: Server %s already has active durable work: Workflow %s (%q, %s) still holds it; finish or cancel it first",
+				operationdomain.ErrTargetsBusy, serverID, holder.ID, rerunSummary(holder), holder.Status)
 		}
 	}
 

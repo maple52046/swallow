@@ -88,7 +88,9 @@ GPU node 加入前，swallow 會透過 HIP runtime 在每張 GPU 上配置並釋
 跑一次、透過 Slurm 再跑一次；失敗的節點會被 drain，部署也會帶著原因失敗。GRES type 預設是 GPU 架構（例如
 `gfx942`）。在 **Advanced settings** 可以指定既有 job script 使用的 GRES type（例如 `mi308x_vf`），以及
 amdgpu driver module option。swallow 已會套用節點 GPU topology 需要的選項（例如在 ROCm 結束時會 crash 的
-情況下加上 `pcie_p2p=0`），所以大多數部署可以留空。
+情況下加上 `pcie_p2p=0`），所以大多數部署可以留空。這些選項要等 driver 載入後才看得出來，swallow 會原地重新載入
+driver、不重開機，所以 RAM（ephemeral）部署也適用；自己指定的選項在第一次載入就生效。option 名稱打錯時，部署會
+立刻失敗並提示最接近的正確名稱。
 
 從 **Platforms → Settings** 設定 system-wide Slurm deployment requirement。
 啟用 policy 後，設定每個選取的 Slurm node 必須提供的最低 **CPU cores**、
@@ -104,7 +106,8 @@ Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯
 
 - **Sync** refresh observed Platform membership／state。
 - **Uninstall** 從原始 target 移除 swallow-deployed runtime，並保留 Platform
-  record 供診斷。
+  record 供診斷。若仍有 workflow 佔著 Platform 的 Server（停在等待處理的失敗部署，或仍在進行的部署），
+  對話框會列出它並請你確認取消；uninstall 會在它結束後自動開始。
 - **Delete** 只移除 swallow record／projection，不等於 host-side uninstall。
 - Bulk action 仍受每個 Platform 的 lifecycle gate 限制。
 

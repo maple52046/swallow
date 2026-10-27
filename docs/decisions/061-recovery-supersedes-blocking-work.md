@@ -29,6 +29,15 @@ Workflow ends, which can take minutes, so the dialog would time out.
   ran.
 - **The dashboard only sends the flag.** Both dialogs close within the request; the toast says the
   work starts once the canceled Workflows end.
+- **Platform uninstall supersedes too** (amended 2026-10-27). A Platform whose deployment failed and
+  waits for attention (`requires_attention`) shows `deploy_failed` and offers Uninstall, yet that
+  deployment still holds its Servers, so the uninstall was refused as busy and the operator had to
+  find and cancel the Workflow first. `POST /platforms/{id}/uninstall` now accepts
+  `cancelActiveWorkflows` with the same semantics, and with it a Platform still `deploying` may be
+  uninstalled. The single and bulk uninstall dialogs list the Workflows holding the targets and
+  require the operator to confirm before sending the flag; the CLI's `platforms uninstall`,
+  `provisioning release`, and `provisioning recover` take `--cancel-active-workflows`. Without the
+  flag the conflict names the Workflow holding the Server.
 
 ## Alternatives considered
 
@@ -37,6 +46,9 @@ Workflow ends, which can take minutes, so the dialog would time out.
 - **Keep polling in the browser with a longer timeout and an escape button.** Rejected: the intent
   lives in a browser tab, so navigating away or closing it abandons the Release, and the wait is
   unbounded once a canceled deployment returns its Server.
+- **For uninstall, cancel from the dashboard and wait a bounded time before submitting** (backend
+  unchanged). Rejected by the user on 2026-10-27: a dialog that waits leaves the operator unsure
+  what is happening; the cancel belongs inside the uninstall, as it does for Release.
 
 ## Consequences
 
@@ -47,4 +59,4 @@ Workflow ends, which can take minutes, so the dialog would time out.
 
 ## Current status
 
-Implemented in `api-server` and `dashboard`.
+Implemented in `api-server`, `dashboard`, and `cli`.

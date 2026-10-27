@@ -157,17 +157,28 @@ func platformsUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "uninstall <platformId>",
 		Short: "Uninstall a deployed platform (optionally releasing members)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Uninstall a deployed platform. A Workflow still holding its Servers (a failed deployment\n" +
+			"waiting for attention, or one still running) refuses the uninstall; --cancel-active-workflows\n" +
+			"cancels those Workflows and the uninstall starts by itself once they end.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// The body is optional: an absent body removes the platform software only.
 			body, _, err := readBodyFile(cmd)
 			if err != nil {
 				return err
 			}
-			return sendJSON(cmd, "POST", fmt.Sprintf("platforms/%s/uninstall", args[0]), nil, body)
+			if body, err = withCancelActiveWorkflows(cmd, body); err != nil {
+				return err
+			}
+			err = sendJSON(cmd, "POST", fmt.Sprintf("platforms/%s/uninstall", args[0]), nil, body)
+			if _, busy := holdingWorkflowsConflict(err); busy {
+				return hintCancelActiveWorkflows(cmd, err, platformHoldingWorkflows(cmd, args[0]))
+			}
+			return err
 		},
 	}
-	addFileFlag(cmd, "optional uninstall body (releaseServers, releaseOptions)")
+	addFileFlag(cmd, "optional uninstall body (releaseServers, releaseOptions, cancelActiveWorkflows)")
+	addCancelActiveWorkflowsFlag(cmd)
 	return cmd
 }
 

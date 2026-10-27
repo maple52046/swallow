@@ -523,6 +523,41 @@ test.describe('Integration settings visual review', () => {
   })
 })
 
+/** Uninstall dialogs naming the Workflows that still hold the platform's Servers (decision 061). */
+test.describe('Platform uninstall visual review', () => {
+  test('uninstall dialog with a blocking workflow', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/platform-b?site=site-a')
+    await page.getByRole('button', { name: 'Platform actions' }).click()
+    await page.getByRole('menuitem', { name: 'Uninstall platform', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+    await expect(dialog.getByText('An unfinished workflow still holds these servers')).toBeVisible()
+    await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
+    await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-uninstall-blocking-workflow', false)
+  })
+
+  test('bulk uninstall dialog with a blocking workflow', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/platforms?site=site-a')
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    const scope = mobile ? page.locator('.sw-platform-runtime-card').filter({ hasText: 'edge-staging' }) : page.getByRole('table', { name: 'Platforms' })
+    await scope.getByLabel('Select edge-staging').check({ force: true })
+    await page.getByRole('button', { name: 'Uninstall', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Uninstall 1 platform' })
+    await expect(dialog.getByText('An unfinished workflow still holds these platforms’ servers')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-bulk-uninstall-blocking-workflow', false)
+  })
+})
+
 /** Captures both contextual entry points of the shared Managed Software installation flow. */
 test.describe('Software installation flow visual review', () => {
   test('software detail multi-node dialog', async ({ page }, testInfo) => {

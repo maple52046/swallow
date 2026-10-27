@@ -6,6 +6,7 @@ import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
 import { platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
 import type { Platform, UninstallPlatformOptions } from '@/domain/platform/types'
+import { BlockingWorkflowsNotice } from '@/presentation/components/BlockingWorkflowsNotice'
 import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -14,6 +15,7 @@ import { Modal } from '@/presentation/components/ui/modal'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
 import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
 
 type ConfirmationAction = 'uninstall' | 'delete'
@@ -43,6 +45,11 @@ interface PlatformLifecycleActionsProps {
  * preserving successful provider effects and protected inputs. Legacy deployment history keeps
  * the compatibility retry that creates a new Operation. The parent callback refreshes lifecycle
  * state without redirecting operators into the automation debugger.
+ *
+ * Uninstall lists the unfinished Workflows still holding the deployment targets (a failed
+ * deployment parked for attention, or one still running) and requires the operator to confirm
+ * that the backend cancels them (`cancelActiveWorkflows`, decision 061); the request returns at
+ * once and the uninstall starts by itself after they end, so the dialog never waits.
  */
 export function PlatformLifecycleActions({ platform, operation, targetServerIds, onRepairStarted }: PlatformLifecycleActionsProps) {
   const { platforms, operations } = useApp()
@@ -57,6 +64,8 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   // Uninstall-scoped choice to also release member servers back to the provider.
   const [releaseServers, setReleaseServers] = useState(false)
   const [releaseOptions, setReleaseOptions] = useState<ReleaseOptionsValue>(emptyReleaseOptions)
+  const [cancelBlocking, setCancelBlocking] = useState(false)
+  const { activeOperations: blockingWorkflows } = useServerActiveOperations(action === 'uninstall' ? targetServerIds ?? [] : [])
   const [repairOpen, setRepairOpen] = useState(false)
   const [repairError, setRepairError] = useState('')
   const [repairing, setRepairing] = useState(false)
@@ -94,6 +103,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
     setError('')
     setReleaseServers(false)
     setReleaseOptions(emptyReleaseOptions)
+    setCancelBlocking(false)
   }
 
   const close = () => {
@@ -103,10 +113,14 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
     setError('')
     setReleaseServers(false)
     setReleaseOptions(emptyReleaseOptions)
+    setCancelBlocking(false)
   }
 
+  const blocked = action === 'uninstall' && blockingWorkflows.length > 0
+  const awaitingCancelConfirmation = blocked && !cancelBlocking
+
   const submit = async () => {
-    if (!action || confirmation !== platform.name || submitting) return
+    if (!action || confirmation !== platform.name || submitting || awaitingCancelConfirmation) return
     setSubmitting(true)
     setError('')
     try {
@@ -122,15 +136,17 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
             quickErase: releaseServers && releaseOptions.erase && releaseOptions.quickErase,
             unbindStaticIps: releaseServers && releaseOptions.unbindStaticIPs,
           },
+          ...(blocked && cancelBlocking ? { cancelActiveWorkflows: true } : {}),
         }
         const accepted = await platforms.uninstallPlatform(platform.id, options)
         const cleaned = targetCount === undefined ? 'the original deployment targets' : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
+        const waits = blocked ? ' It starts once the canceled workflows have ended.' : ''
         showToast({
           tone: 'success',
           title: releaseServers ? 'Server release accepted' : 'Platform uninstall accepted',
-          description: releaseServers
+          description: (releaseServers
             ? `${cleaned} will be released directly to the provider. Platform software uninstall is skipped.`
-            : `Platform software will be removed from ${cleaned}.`,
+            : `Platform software will be removed from ${cleaned}.`) + waits,
         })
         navigate(scopedHref(`/workflows/${accepted.operationId}`))
         return
@@ -297,7 +313,12 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
             <Button variant="ghost" onClick={close} disabled={submitting}>
               Cancel
             </Button>
-            <Button type="submit" colorPalette="red" loading={submitting} disabled={confirmation !== platform.name || submitting}>
+            <Button
+              type="submit"
+              colorPalette="red"
+              loading={submitting}
+              disabled={confirmation !== platform.name || submitting || awaitingCancelConfirmation}
+            >
               {isUninstall ? (releaseServers ? 'Release all servers' : 'Uninstall platform') : 'Delete platform'}
             </Button>
           </>
@@ -320,6 +341,22 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
               <Text>
                 <strong>Targets:</strong> {targetLabel}
               </Text>
+              <BlockingWorkflowsNotice
+                operations={blockingWorkflows}
+                title={blockingWorkflows.length === 1
+                  ? 'An unfinished workflow still holds these servers'
+                  : `${blockingWorkflows.length} unfinished workflows still hold these servers`}
+                checkboxId="uninstall-cancel-blocking"
+                checkboxLabel={releaseServers ? 'Cancel these workflows, then release the servers' : 'Cancel these workflows, then uninstall'}
+                listLabel="Workflows holding the platform's servers"
+                checked={cancelBlocking}
+                disabled={submitting}
+                onCheckedChange={setCancelBlocking}
+              >
+                The uninstall is refused while another workflow holds the servers. Check the box to cancel it: the uninstall
+                is accepted now and starts by itself once the canceled workflow has ended. A canceled OS deployment first
+                returns the servers it was installing to Ready, which can take a few minutes; finished deployments are kept.
+              </BlockingWorkflowsNotice>
               <Checkbox
                 id="uninstall-release-servers"
                 checked={releaseServers}

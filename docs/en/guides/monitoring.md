@@ -93,7 +93,10 @@ Prometheus and Grafana. When you deploy a Slurm Platform you can let swallow ins
 Omnistat for you (turn on **Features → Omnistat GPU monitoring** in the Slurm workspace, or
 `omnistat: { enabled: true }` in the deploy file): the primary controller gets Prometheus, which
 answers only on that host's loopback address because its API has no login, and a read-only
-Grafana with Omnistat's job dashboards; every compute node gets the exporter, and the
+Grafana with Omnistat's job dashboards; every compute node gets the exporter and Omnistat's
+`omnistat-query` job report tool, which reads Prometheus through that Grafana (its report needs
+GPU utilization, which SR-IOV virtual functions do not report, so on those GPUs use the job
+dashboards instead), and the
 Platform page shows the Omnistat state and an `Omnistat Grafana` link. Prometheus and Grafana run
 as containers by default; choose the native install method to install them from their official
 release and apt/yum repository instead. swallow does not scrape or query such a stack. Instead:

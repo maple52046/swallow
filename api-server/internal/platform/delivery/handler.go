@@ -427,7 +427,8 @@ func (h *PlatformHandler) Update(c *fiber.Ctx) error {
 // Uninstall starts removal of a Swallow-deployed k0s platform from its original targets.
 // uninstallPlatformRequest is the optional uninstall body. An absent body keeps the
 // default of removing k0s only; releaseServers additionally returns each member server to
-// the provider, with releaseOptions mirroring the standalone Release action.
+// the provider, with releaseOptions mirroring the standalone Release action;
+// cancelActiveWorkflows supersedes the Workflows holding the targets (decision 061).
 type uninstallPlatformRequest struct {
 	ReleaseServers bool `json:"releaseServers"`
 	ReleaseOptions struct {
@@ -436,6 +437,7 @@ type uninstallPlatformRequest struct {
 		QuickErase      bool `json:"quickErase"`
 		UnbindStaticIPs bool `json:"unbindStaticIps"`
 	} `json:"releaseOptions"`
+	CancelActiveWorkflows bool `json:"cancelActiveWorkflows"`
 }
 
 // Uninstall handles POST /platforms/{id}/uninstall (platforms.md): it starts the uninstall
@@ -462,6 +464,7 @@ func (h *PlatformHandler) Uninstall(c *fiber.Ctx) error {
 			QuickErase:      req.ReleaseOptions.QuickErase,
 			UnbindStaticIPs: req.ReleaseOptions.UnbindStaticIPs,
 		},
+		CancelActiveWorkflows: req.CancelActiveWorkflows,
 	})
 	if err != nil {
 		return respondError(c, err)

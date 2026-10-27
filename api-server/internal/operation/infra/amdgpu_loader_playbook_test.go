@@ -3,22 +3,33 @@ package infra
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // amdgpuNodeState is the JSON report of roles/amdgpu_loader/files/amdgpu_node_state.py.
 type amdgpuNodeState struct {
-	Loaded      bool              `json:"loaded"`
-	Parameters  map[string]string `json:"parameters"`
-	Mismatched  []string          `json:"mismatched"`
-	Missing     []string          `json:"missing"`
-	GPUNodes    int               `json:"gpuNodes"`
-	Rules       map[string]string `json:"rules"`
-	RuleReasons map[string]string `json:"ruleReasons"`
+	Loaded           bool              `json:"loaded"`
+	Parameters       map[string]string `json:"parameters"`
+	Mismatched       []string          `json:"mismatched"`
+	Missing          []string          `json:"missing"`
+	Unknown          []string          `json:"unknown"`
+	Suggestions      map[string]string `json:"suggestions"`
+	Unverifiable     []string          `json:"unverifiable"`
+	Refcnt           *int              `json:"refcnt"`
+	Holders          []string          `json:"holders"`
+	RootFilesystem   *string           `json:"rootFilesystem"`
+	MemoryBackedRoot bool              `json:"memoryBackedRoot"`
+	GPUNodes         int               `json:"gpuNodes"`
+	Rules            map[string]string `json:"rules"`
+	RuleReasons      map[string]string `json:"ruleReasons"`
 }
 
 // kfdNode writes one KFD topology node under root: its properties and the peers of its io_links
@@ -50,7 +61,7 @@ func itoa(n int) string {
 	return string(b)
 }
 
-func runNodeState(t *testing.T, root string, desired map[string]string) amdgpuNodeState {
+func runNodeState(t *testing.T, root string, desired map[string]string, extra ...string) amdgpuNodeState {
 	t.Helper()
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -58,7 +69,8 @@ func runNodeState(t *testing.T, root string, desired map[string]string) amdgpuNo
 	}
 	script := filepath.Join("..", "..", "..", "automation", "playbooks", "roles", "amdgpu_loader", "files", "amdgpu_node_state.py")
 	encoded, _ := json.Marshal(desired)
-	out, err := exec.Command(python, script, "--root", root, "--desired", base64.StdEncoding.EncodeToString(encoded)).Output()
+	args := append([]string{script, "--root", root, "--desired", base64.StdEncoding.EncodeToString(encoded)}, extra...)
+	out, err := exec.Command(python, args...).Output()
 	if err != nil {
 		t.Fatalf("amdgpu_node_state.py: %v", err)
 	}
@@ -114,5 +126,177 @@ func TestAMDGPUNodeStateComparesLoadedParameters(t *testing.T) {
 	writeFile(t, filepath.Join(params, "pcie_p2p"), "N\n")
 	if state := runNodeState(t, root, map[string]string{"pcie_p2p": "0"}); len(state.Mismatched) != 0 || state.Parameters["pcie_p2p"] != "N" {
 		t.Errorf("applied option: report = %+v, want pcie_p2p=N matching", state)
+	}
+}
+
+// Option names are checked against the installed driver's own list before anything loads, so a
+// misspelled option fails with the closest real name; an option the driver has but does not expose
+// in sysfs is unverifiable rather than missing.
+func TestAMDGPUNodeStateChecksOptionNames(t *testing.T) {
+	root := t.TempDir()
+	parm := filepath.Join(root, "modinfo-parm")
+	writeFile(t, parm, "pcie_p2p:Enable PCIe P2P (requires large-BAR). (bool)\n"+
+		"msi:MSI support (1 = enable, 0 = disable, -1 = auto) (int)\n"+
+		"hidden_knob:Not readable in sysfs (int)\n")
+	state := runNodeState(t, root, map[string]string{"pcei_p2p": "0", "msi": "1"}, "--parm-file", parm)
+	if state.Loaded || !slices.Equal(state.Unknown, []string{"pcei_p2p"}) || state.Suggestions["pcei_p2p"] != "pcie_p2p" {
+		t.Errorf("misspelled option: report = %+v, want pcei_p2p unknown with suggestion pcie_p2p", state)
+	}
+
+	params := filepath.Join(root, "sys", "module", "amdgpu", "parameters")
+	writeFile(t, filepath.Join(params, "msi"), "1\n")
+	state = runNodeState(t, root, map[string]string{"msi": "1", "hidden_knob": "3"}, "--parm-file", parm)
+	if len(state.Unknown) != 0 || len(state.Missing) != 0 || !slices.Equal(state.Unverifiable, []string{"hidden_knob"}) || len(state.Mismatched) != 0 {
+		t.Errorf("hidden option: report = %+v, want hidden_knob unverifiable and nothing missing", state)
+	}
+
+	if state := runNodeState(t, root, map[string]string{"pcei_p2p": "0"}); len(state.Unknown) != 0 {
+		t.Errorf("no option list: unknown = %v, want the name check skipped", state.Unknown)
+	}
+}
+
+// A memory-backed root (MAAS RAM deployments run on tmpfs or overlay) is where a reboot erases the
+// operating system; the last mount on / is the one the system runs on.
+func TestAMDGPUNodeStateRootFilesystem(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mounts string
+		want   bool
+	}{
+		"RAM deploy tmpfs":   {"tmpfs / tmpfs rw,relatime 0 0\nproc /proc proc rw 0 0\n", true},
+		"overlay root":       {"overlay / overlay rw,lowerdir=/media/root-ro 0 0\n", true},
+		"disk root":          {"/dev/sda2 / ext4 rw,relatime 0 0\n", false},
+		"rootfs then disk":   {"rootfs / rootfs rw 0 0\n/dev/vda1 / xfs rw 0 0\n", false},
+		"no mounts readable": {"", false},
+	} {
+		root := t.TempDir()
+		if tc.mounts != "" {
+			writeFile(t, filepath.Join(root, "proc", "self", "mounts"), tc.mounts)
+		}
+		if state := runNodeState(t, root, nil); state.MemoryBackedRoot != tc.want {
+			t.Errorf("%s: memoryBackedRoot = %v (root %v), want %v", name, state.MemoryBackedRoot, state.RootFilesystem, tc.want)
+		}
+	}
+}
+
+// loaderTasks reads one task file of the amdgpu_loader role, flattening blocks so every task is
+// visible with its own conditions.
+func loaderTasks(t *testing.T, file string) []map[string]any {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", "automation", "playbooks", "roles", "amdgpu_loader", "tasks", file)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tasks []map[string]any
+	if err := yaml.Unmarshal(content, &tasks); err != nil {
+		t.Fatalf("%s: %v", file, err)
+	}
+	var flat []map[string]any
+	var walk func([]map[string]any)
+	walk = func(list []map[string]any) {
+		for _, task := range list {
+			flat = append(flat, task)
+			if block, ok := task["block"].([]any); ok {
+				var inner []map[string]any
+				for _, item := range block {
+					if m, ok := item.(map[string]any); ok {
+						inner = append(inner, m)
+					}
+				}
+				walk(inner)
+			}
+		}
+	}
+	walk(tasks)
+	return flat
+}
+
+func taskConditions(task map[string]any) string {
+	switch when := task["when"].(type) {
+	case string:
+		return when
+	case []any:
+		parts := make([]string, len(when))
+		for i, part := range when {
+			parts[i] = fmt.Sprint(part)
+		}
+		return strings.Join(parts, " and ")
+	}
+	return ""
+}
+
+// A RAM-deployed node loses its operating system on reboot, so the role's only reboot is guarded by
+// the memory-backed-root fact; option names are refused before the options file is written; and an
+// unload cannot hang the deployment.
+func TestAMDGPULoaderNeverRebootsAMemoryBackedRoot(t *testing.T) {
+	reboots := 0
+	for _, file := range []string{"main.yml", "apply.yml", "reload.yml"} {
+		for _, task := range loaderTasks(t, file) {
+			if _, ok := task["ansible.builtin.reboot"]; !ok {
+				continue
+			}
+			reboots++
+			if when := taskConditions(task); file != "reload.yml" || !strings.Contains(when, "not (amdgpu_loader_release.stdout | from_json).memoryBackedRoot") {
+				t.Errorf("%s: reboot task %q runs when %q, want only reload.yml guarded by not memoryBackedRoot", file, task["name"], when)
+			}
+		}
+	}
+	if reboots != 1 {
+		t.Errorf("reboot tasks = %d, want exactly one", reboots)
+	}
+
+	order := map[string]int{}
+	for i, task := range loaderTasks(t, "apply.yml") {
+		order[fmt.Sprint(task["name"])] = i
+	}
+	refuse, okRefuse := order["Refuse an option the amdgpu driver does not have"]
+	write, okWrite := order["Write the amdgpu module options"]
+	if !okRefuse || !okWrite || refuse > write {
+		t.Errorf("apply.yml order = %v, want the unknown-option refusal before the options file is written", order)
+	}
+
+	for _, task := range loaderTasks(t, "reload.yml") {
+		if task["name"] != "Unload the amdgpu driver" {
+			continue
+		}
+		command, _ := task["ansible.builtin.command"].(map[string]any)
+		argv, _ := command["argv"].([]any)
+		if len(argv) < 5 || argv[0] != "timeout" || argv[2] != "modprobe" || argv[3] != "-r" {
+			t.Errorf("unload argv = %v, want timeout N modprobe -r amdgpu", argv)
+		}
+	}
+}
+
+// The module reference count and the processes holding a GPU device decide whether the driver can
+// be unloaded and loaded again in place.
+func TestAMDGPUNodeStateReportsHolders(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "sys", "module", "amdgpu", "refcnt"), "2\n")
+	holder := filepath.Join(root, "proc", "4242")
+	writeFile(t, filepath.Join(holder, "comm"), "omnistat-monitor\n")
+	bystander := filepath.Join(root, "proc", "77")
+	writeFile(t, filepath.Join(bystander, "comm"), "sshd\n")
+	for path, target := range map[string]string{
+		filepath.Join(holder, "fd", "3"):    "/dev/null",
+		filepath.Join(holder, "fd", "4"):    "/dev/kfd",
+		filepath.Join(holder, "fd", "5"):    "/dev/dri/renderD129",
+		filepath.Join(bystander, "fd", "0"): "/dev/dri/card0",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := runNodeState(t, root, nil)
+	if state.Refcnt == nil || *state.Refcnt != 2 || !slices.Equal(state.Holders, []string{"4242 omnistat-monitor"}) {
+		t.Errorf("held driver: refcnt = %v, holders = %v, want 2 and the process with /dev/kfd open", state.Refcnt, state.Holders)
+	}
+
+	free := t.TempDir()
+	writeFile(t, filepath.Join(free, "sys", "module", "amdgpu", "refcnt"), "0\n")
+	if state := runNodeState(t, free, nil); state.Refcnt == nil || *state.Refcnt != 0 || len(state.Holders) != 0 {
+		t.Errorf("free driver: refcnt = %v, holders = %v, want 0 and none", state.Refcnt, state.Holders)
 	}
 }

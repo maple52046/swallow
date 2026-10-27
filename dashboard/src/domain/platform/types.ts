@@ -28,7 +28,9 @@ export interface SlurmDeploymentRequirement {
 /**
  * Options for uninstalling a platform. releaseServers additionally returns each member
  * server to the provider after k0s removal; releaseOptions then mirrors the standalone
- * Release action. The field names match the api-server uninstall request contract.
+ * Release action. cancelActiveWorkflows asks the backend to cancel the Workflows still
+ * holding the targets (a failed or running deployment) and start the uninstall once they
+ * end (decision 061). The field names match the api-server uninstall request contract.
  */
 export interface UninstallPlatformOptions {
   releaseServers: boolean;
@@ -38,6 +40,7 @@ export interface UninstallPlatformOptions {
     quickErase: boolean;
     unbindStaticIps: boolean;
   };
+  cancelActiveWorkflows?: boolean;
 }
 /** Whether Swallow registered the platform or deployed it through a durable operation. */
 export type PlatformOrigin = "registered" | "deployed";

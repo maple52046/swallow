@@ -1,7 +1,27 @@
 ---
-# Make the loaded amdgpu driver run with amdgpu_loader_desired: write the options file, load the
-# driver when it is not loaded, and reboot when it is loaded with other parameters (it is never
-# unloaded). Ends with the driver loaded, /dev/kfd present, and every option verified.
+# Make the amdgpu driver run with amdgpu_loader_desired: refuse an option the installed driver does
+# not have before anything is written, write the options file, load the driver when it is not
+# loaded, and load it again (reload.yml) when it runs with other parameters. Ends with the driver
+# loaded, /dev/kfd present, and every readable option verified.
+
+- name: Read the amdgpu driver state
+  ansible.builtin.script:
+    cmd: "amdgpu_node_state.py --desired {{ amdgpu_loader_desired | to_json | b64encode }}"
+    executable: /usr/bin/python3
+  register: amdgpu_loader_before
+  changed_when: false
+
+- name: Refuse an option the amdgpu driver does not have
+  vars:
+    amdgpu_loader_report: "{{ amdgpu_loader_before.stdout | from_json }}"
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_option_unknown] the amdgpu driver on {{ amdgpu_loader_node_name }} has no option
+      {{ amdgpu_loader_report.unknown | join(', ') }}
+      {%- if amdgpu_loader_report.suggestions %} (did you mean
+      {{ amdgpu_loader_report.suggestions.values() | join(', ') }}?){% endif %}. "modinfo -p amdgpu"
+      on the node lists the options it has.
+  when: (amdgpu_loader_report.unknown | length) > 0
 
 - name: Write the amdgpu module options
   ansible.builtin.template:
@@ -11,18 +31,12 @@
     group: root
     mode: "0644"
 
-- name: Read the amdgpu driver state
-  ansible.builtin.script:
-    cmd: "amdgpu_node_state.py --desired {{ amdgpu_loader_desired | to_json | b64encode }}"
-    executable: /usr/bin/python3
-  register: amdgpu_loader_before
-  changed_when: false
-
 - name: Load the amdgpu driver
-  # modprobe reads the options file, so a first load already carries the options.
+  # modprobe reads the options file, so a first load already carries the options. Restarting the
+  # oneshot unit runs modprobe again even when an earlier run left it active.
   ansible.builtin.systemd:
     name: "{{ amdgpu_loader_unit }}"
-    state: started
+    state: restarted
   register: amdgpu_loader_load
   failed_when: false
   when: not (amdgpu_loader_before.stdout | from_json).loaded
@@ -35,12 +49,8 @@
       "journalctl -u {{ amdgpu_loader_unit }}" on the node.
   when: amdgpu_loader_load is failed
 
-- name: Reboot to load the amdgpu driver with its new options
-  # A loaded driver keeps its parameters until it loads again, and unloading a GPU driver in use
-  # is not safe; the loader unit applies the options file on the next boot.
-  ansible.builtin.reboot:
-    msg: "Swallow: reboot to load amdgpu with options {{ amdgpu_loader_desired | to_json }}"
-    reboot_timeout: "{{ amdgpu_loader_reboot_timeout }}"
+- name: Load the amdgpu driver again with its new options
+  ansible.builtin.include_tasks: reload.yml
   when:
     - (amdgpu_loader_before.stdout | from_json).loaded
     - ((amdgpu_loader_before.stdout | from_json).mismatched | length) > 0
@@ -75,11 +85,17 @@
   ansible.builtin.fail:
     msg: >-
       [amdgpu_option_not_applied] amdgpu on {{ amdgpu_loader_node_name }} runs with
-      {{ amdgpu_loader_report.parameters | to_json }} instead of {{ amdgpu_loader_desired | to_json }}
-      (not exposed by the driver: {{ amdgpu_loader_report.missing | to_json }}). A driver loaded from
-      the initramfs ignores {{ amdgpu_loader_options_file }}; keep amdgpu out of the initramfs, and
-      check the option names against "modinfo -p amdgpu".
-  when: >-
-    not amdgpu_loader_report.loaded
-    or (amdgpu_loader_report.mismatched | length) > 0
-    or (amdgpu_loader_report.missing | length) > 0
+      {{ amdgpu_loader_report.parameters | to_json }} instead of {{ amdgpu_loader_desired | to_json }}.
+      A driver loaded from the initramfs ignores {{ amdgpu_loader_options_file }}; keep amdgpu out
+      of the initramfs.
+  when: not amdgpu_loader_report.loaded or (amdgpu_loader_report.mismatched | length) > 0
+
+- name: Refuse an option the driver does not expose
+  # Only reachable when the driver's option list could not be read, so the names were not checked.
+  vars:
+    amdgpu_loader_report: "{{ amdgpu_loader_after.stdout | from_json }}"
+  ansible.builtin.fail:
+    msg: >-
+      [amdgpu_option_not_applied] amdgpu on {{ amdgpu_loader_node_name }} does not expose
+      {{ amdgpu_loader_report.missing | join(', ') }}; check the names against "modinfo -p amdgpu".
+  when: (amdgpu_loader_report.missing | length) > 0

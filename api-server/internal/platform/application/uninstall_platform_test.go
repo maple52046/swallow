@@ -263,6 +263,35 @@ func TestUninstallRejectsUnsafeTargetsAndStates(t *testing.T) {
 	}
 }
 
+// cancelActiveWorkflows (decision 061) reaches the launcher, which cancels the Workflows holding the
+// targets; it is also the only way to uninstall over a deployment that is still running, while an
+// uninstall already in progress stays a conflict.
+func TestUninstallCancelActiveWorkflows(t *testing.T) {
+	for _, state := range []platformdomain.PlatformLifecycleState{
+		platformdomain.PlatformLifecycleActive,
+		platformdomain.PlatformLifecycleDeployFailed,
+		platformdomain.PlatformLifecycleDeploying,
+		platformdomain.PlatformLifecycleUninstallFailed,
+	} {
+		service, launcher, _, platform := newUninstallHarness(state)
+		_, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+			PlatformID: platform.ID, ReleaseServers: true, CancelActiveWorkflows: true,
+		})
+		if err != nil {
+			t.Fatalf("%s: uninstall error = %v", state, err)
+		}
+		if launcher.launch == nil || !launcher.launch.CancelActiveWorkflows || !launcher.launch.ReleaseServers {
+			t.Errorf("%s: launch = %+v, want cancelActiveWorkflows and releaseServers forwarded", state, launcher.launch)
+		}
+	}
+
+	service, launcher, _, platform := newUninstallHarness(platformdomain.PlatformLifecycleUninstalling)
+	_, err := service.Uninstall(context.Background(), UninstallPlatformInput{PlatformID: platform.ID, CancelActiveWorkflows: true})
+	if !errors.Is(err, platformdomain.ErrPlatformUninstallConflict) || launcher.launch != nil {
+		t.Fatalf("uninstalling: error = %v, launched = %v; want a conflict and no launch", err, launcher.launch != nil)
+	}
+}
+
 // A Slurm platform deployed by Swallow can be uninstalled just like a Kubernetes one; the
 // launcher then selects the Slurm uninstall path from the platform type it receives.
 func TestUninstallAcceptsSlurmPlatform(t *testing.T) {

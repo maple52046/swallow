@@ -13,7 +13,7 @@ import {
   serverActionRunResult,
   type ServerActionRunResult,
 } from './serverActionResults'
-import { useServerActiveOperations } from './useServerActiveOperations'
+import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
 
 interface ServerDeleteDialogProps {
   /** Servers to delete. One Server is confirmed by typing its name, several by typing the count. */
