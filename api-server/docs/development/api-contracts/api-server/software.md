@@ -275,7 +275,7 @@ for a container and a native process. Each is installed by one of two methods:
 | `prometheus` | `scrapePort` | integer | — | Port of every `scrapeServerIds` Server (1–65535); required with, and only valid with, `scrapeServerIds`. |
 | `grafana` | `version` | string | `12.4.12` | Release version (`x.y.z`; a leading `v` is accepted and dropped): the image tag or the package version. |
 | `grafana` | `prometheusUrl` | string | Prometheus on the same Server (where it listens) | Absolute `http`/`https` URL of the datasource (UID `prometheus`). |
-| `grafana` | `dashboards` | string[] | `[]` | Swallow-shipped dashboard bundles to provision; the only bundle is `omnistat` (Omnistat's RMS global, node, and job dashboards). |
+| `grafana` | `dashboards` | string[] | `[]` | Swallow-shipped dashboard bundles to provision: `omnistat` (Omnistat's RMS global, node, and job dashboards) and `device-metrics-exporter` (the Device Metrics Exporter's overview, GPU, node, and job dashboards). |
 
 - Prometheus listens on port `9090` (loopback by default) and Grafana on port `3000` of the
   Server's primary address. Prometheus has no authentication; Grafana is read-only: anonymous
@@ -364,7 +364,10 @@ composes:
 - with Omnistat, `prometheus` (`listen: loopback`, job `omnistat`, `scrapeServerIds` = the compute nodes,
   `scrapePort` = `8001`) and `grafana` (dashboards `omnistat`) onto its primary controller by
   Omnistat's install method; the `container` method also composes the runtime onto the primary
-  controller (see [platforms](platforms.md#omnistat)).
+  controller (see [platforms](platforms.md#omnistat));
+- with the Device Metrics Exporter, the same two kinds the same way, with job
+  `device-metrics-exporter`, `scrapeServerIds` = the GPU compute nodes, `scrapePort` = `5001`, and
+  dashboards `device-metrics-exporter` (see [platforms](platforms.md#device-metrics-exporter)).
 
 A composed runtime skips a Server where it is already `installed`, so an operator's own runtime
 spec is never reverted. Composition adds no endpoint.

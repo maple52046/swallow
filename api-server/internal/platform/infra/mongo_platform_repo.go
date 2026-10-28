@@ -29,15 +29,20 @@ type platformDoc struct {
 	GPUOperator *gpuOperatorDoc `bson:"gpuOperator,omitempty"`
 	// Omnistat is absent on every Platform Swallow never installed Omnistat on.
 	Omnistat *omnistatDoc `bson:"omnistat,omitempty"`
+	// DeviceMetricsExporter is absent on every Platform Swallow never installed the exporter on.
+	DeviceMetricsExporter *deviceMetricsExporterDoc `bson:"deviceMetricsExporter,omitempty"`
 	// ContainerRuntime is absent when the Slurm container runtime feature is off.
 	ContainerRuntime string `bson:"containerRuntime,omitempty"`
 	// GPUDriver is absent when the operator requested no driver options.
 	GPUDriver *gpuDriverDoc `bson:"gpuDriver,omitempty"`
 	// GPUGresType is absent when the Slurm GRES type is derived from the GPU architecture.
-	GPUGresType string       `bson:"gpuGresType,omitempty"`
-	Sync        platformSync `bson:"sync"`
-	CreatedAt   time.Time    `bson:"createdAt"`
-	UpdatedAt   time.Time    `bson:"updatedAt"`
+	GPUGresType string `bson:"gpuGresType,omitempty"`
+	// OCIContainers and PMIx are absent (false) when the Slurm features are off.
+	OCIContainers bool         `bson:"ociContainers,omitempty"`
+	PMIx          bool         `bson:"pmix,omitempty"`
+	Sync          platformSync `bson:"sync"`
+	CreatedAt     time.Time    `bson:"createdAt"`
+	UpdatedAt     time.Time    `bson:"updatedAt"`
 }
 
 // gpuDriverDoc persists the operator's amdgpu driver intent.
@@ -68,6 +73,20 @@ type omnistatDoc struct {
 	InstallMethod         string    `bson:"installMethod,omitempty"`
 	ObservabilityServerID string    `bson:"observabilityServerId"`
 	State                 string    `bson:"state"`
+	LastWorkflowID        string    `bson:"lastWorkflowId"`
+	UpdatedAt             time.Time `bson:"updatedAt"`
+}
+
+// deviceMetricsExporterDoc persists the Swallow-managed Device Metrics Exporter record.
+// lastWorkflowId is the fence UpdateDeviceMetricsExporterState and
+// UpdateDeviceMetricsExporterGPUIdentity match on; gpuIdentity is empty until an install reported it.
+type deviceMetricsExporterDoc struct {
+	Enabled               bool      `bson:"enabled"`
+	Version               string    `bson:"version"`
+	InstallMethod         string    `bson:"installMethod"`
+	ObservabilityServerID string    `bson:"observabilityServerId"`
+	State                 string    `bson:"state"`
+	GPUIdentity           string    `bson:"gpuIdentity,omitempty"`
 	LastWorkflowID        string    `bson:"lastWorkflowId"`
 	UpdatedAt             time.Time `bson:"updatedAt"`
 }
@@ -305,6 +324,90 @@ func (r *MongoPlatformRepo) UpdateOmnistatState(
 	return result.MatchedCount > 0, nil
 }
 
+// SetDeviceMetricsExporter implements platformdomain.DeviceMetricsExporterRecorder: it writes the
+// record, or unsets it for nil.
+func (r *MongoPlatformRepo) SetDeviceMetricsExporter(ctx context.Context, platformID string, exporter *platformdomain.DeviceMetricsExporter) error {
+	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
+	if exporter == nil {
+		update["$unset"] = bson.M{"deviceMetricsExporter": ""}
+	} else {
+		update["$set"].(bson.M)["deviceMetricsExporter"] = toDeviceMetricsExporterDoc(exporter)
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return platformdomain.ErrPlatformNotFound
+	}
+	return nil
+}
+
+// UpdateDeviceMetricsExporterState implements platformdomain.DeviceMetricsExporterRecorder. The
+// filter on lastWorkflowId is the fence: a Task of a superseded Workflow matches nothing and changes
+// nothing, reported as false.
+func (r *MongoPlatformRepo) UpdateDeviceMetricsExporterState(
+	ctx context.Context,
+	platformID, workflowID string,
+	state platformdomain.DeviceMetricsExporterState,
+	at time.Time,
+) (bool, error) {
+	return r.updateDeviceMetricsExporter(ctx, platformID, workflowID,
+		bson.M{"deviceMetricsExporter.state": string(state), "deviceMetricsExporter.updatedAt": at})
+}
+
+// UpdateDeviceMetricsExporterGPUIdentity implements platformdomain.DeviceMetricsExporterRecorder,
+// under the same fence as the state.
+func (r *MongoPlatformRepo) UpdateDeviceMetricsExporterGPUIdentity(
+	ctx context.Context,
+	platformID, workflowID string,
+	identity platformdomain.GPUIdentity,
+	at time.Time,
+) (bool, error) {
+	return r.updateDeviceMetricsExporter(ctx, platformID, workflowID,
+		bson.M{"deviceMetricsExporter.gpuIdentity": string(identity), "deviceMetricsExporter.updatedAt": at})
+}
+
+func (r *MongoPlatformRepo) updateDeviceMetricsExporter(ctx context.Context, platformID, workflowID string, set bson.M) (bool, error) {
+	if workflowID == "" {
+		return false, nil
+	}
+	result, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": platformID, "deviceMetricsExporter.lastWorkflowId": workflowID},
+		bson.M{"$set": set},
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.MatchedCount > 0, nil
+}
+
+func toDeviceMetricsExporterDoc(exporter *platformdomain.DeviceMetricsExporter) *deviceMetricsExporterDoc {
+	if exporter == nil {
+		return nil
+	}
+	return &deviceMetricsExporterDoc{
+		Enabled: exporter.Enabled, Version: exporter.Version, InstallMethod: string(exporter.InstallMethod),
+		ObservabilityServerID: exporter.ObservabilityServerID, State: string(exporter.State),
+		GPUIdentity: string(exporter.GPUIdentity), LastWorkflowID: exporter.LastWorkflowID,
+		UpdatedAt: exporter.UpdatedAt,
+	}
+}
+
+func toDeviceMetricsExporter(doc *deviceMetricsExporterDoc) *platformdomain.DeviceMetricsExporter {
+	if doc == nil {
+		return nil
+	}
+	return &platformdomain.DeviceMetricsExporter{
+		Enabled: doc.Enabled, Version: doc.Version,
+		InstallMethod:         platformdomain.ObservabilityInstallMethod(doc.InstallMethod),
+		ObservabilityServerID: doc.ObservabilityServerID,
+		State:                 platformdomain.DeviceMetricsExporterState(doc.State),
+		GPUIdentity:           platformdomain.GPUIdentity(doc.GPUIdentity),
+		LastWorkflowID:        doc.LastWorkflowID, UpdatedAt: doc.UpdatedAt,
+	}
+}
+
 func toOmnistatDoc(omnistat *platformdomain.Omnistat) *omnistatDoc {
 	if omnistat == nil {
 		return nil
@@ -320,9 +423,9 @@ func toOmnistat(doc *omnistatDoc) *platformdomain.Omnistat {
 	if doc == nil {
 		return nil
 	}
-	method := platformdomain.OmnistatInstallMethod(doc.InstallMethod)
+	method := platformdomain.ObservabilityInstallMethod(doc.InstallMethod)
 	if method == "" {
-		method = platformdomain.OmnistatInstallContainer
+		method = platformdomain.ObservabilityInstallContainer
 	}
 	return &platformdomain.Omnistat{
 		Enabled: doc.Enabled, Version: doc.Version, InstallMethod: method,
@@ -381,20 +484,23 @@ func (r *MongoPlatformRepo) Delete(ctx context.Context, id string) error {
 
 func toDoc(platform *platformdomain.Platform) *platformDoc {
 	return &platformDoc{
-		ID:                 platform.ID,
-		SiteID:             platform.SiteID,
-		Name:               platform.Name,
-		Type:               string(platform.Type),
-		IntegrationID:      platform.IntegrationID,
-		OwnedIntegrationID: platform.OwnedIntegrationID,
-		GPUStackOwner:      string(platform.GPUStackOwner),
-		ExporterOwner:      string(platform.ExporterOwner),
-		MonitoringLinks:    toMonitoringLinkDocs(platform.MonitoringLinks),
-		GPUOperator:        optionalGPUOperatorDoc(platform.GPUOperator),
-		Omnistat:           toOmnistatDoc(platform.Omnistat),
-		ContainerRuntime:   string(platform.ContainerRuntime),
-		GPUDriver:          toGPUDriverDoc(platform.GPUDriver),
-		GPUGresType:        platform.GPUGresType,
+		ID:                    platform.ID,
+		SiteID:                platform.SiteID,
+		Name:                  platform.Name,
+		Type:                  string(platform.Type),
+		IntegrationID:         platform.IntegrationID,
+		OwnedIntegrationID:    platform.OwnedIntegrationID,
+		GPUStackOwner:         string(platform.GPUStackOwner),
+		ExporterOwner:         string(platform.ExporterOwner),
+		MonitoringLinks:       toMonitoringLinkDocs(platform.MonitoringLinks),
+		GPUOperator:           optionalGPUOperatorDoc(platform.GPUOperator),
+		Omnistat:              toOmnistatDoc(platform.Omnistat),
+		DeviceMetricsExporter: toDeviceMetricsExporterDoc(platform.DeviceMetricsExporter),
+		ContainerRuntime:      string(platform.ContainerRuntime),
+		GPUDriver:             toGPUDriverDoc(platform.GPUDriver),
+		GPUGresType:           platform.GPUGresType,
+		OCIContainers:         platform.OCIContainers,
+		PMIx:                  platform.PMIx,
 		Sync: platformSync{
 			LastStartedAt:   platform.Sync.LastStartedAt,
 			LastSucceededAt: platform.Sync.LastSucceededAt,
@@ -415,20 +521,23 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		exporterOwner = platformdomain.ExporterOwnerAnsible
 	}
 	return &platformdomain.Platform{
-		ID:                 doc.ID,
-		SiteID:             doc.SiteID,
-		Name:               doc.Name,
-		Type:               platformdomain.PlatformType(doc.Type),
-		IntegrationID:      doc.IntegrationID,
-		OwnedIntegrationID: doc.OwnedIntegrationID,
-		GPUStackOwner:      platformdomain.GPUStackOwner(doc.GPUStackOwner),
-		ExporterOwner:      exporterOwner,
-		MonitoringLinks:    toMonitoringLinks(doc.MonitoringLinks),
-		GPUOperator:        toGPUOperator(doc.GPUOperator),
-		Omnistat:           toOmnistat(doc.Omnistat),
-		ContainerRuntime:   platformdomain.ContainerRuntime(doc.ContainerRuntime),
-		GPUDriver:          toGPUDriver(doc.GPUDriver),
-		GPUGresType:        doc.GPUGresType,
+		ID:                    doc.ID,
+		SiteID:                doc.SiteID,
+		Name:                  doc.Name,
+		Type:                  platformdomain.PlatformType(doc.Type),
+		IntegrationID:         doc.IntegrationID,
+		OwnedIntegrationID:    doc.OwnedIntegrationID,
+		GPUStackOwner:         platformdomain.GPUStackOwner(doc.GPUStackOwner),
+		ExporterOwner:         exporterOwner,
+		MonitoringLinks:       toMonitoringLinks(doc.MonitoringLinks),
+		GPUOperator:           toGPUOperator(doc.GPUOperator),
+		Omnistat:              toOmnistat(doc.Omnistat),
+		DeviceMetricsExporter: toDeviceMetricsExporter(doc.DeviceMetricsExporter),
+		ContainerRuntime:      platformdomain.ContainerRuntime(doc.ContainerRuntime),
+		GPUDriver:             toGPUDriver(doc.GPUDriver),
+		GPUGresType:           doc.GPUGresType,
+		OCIContainers:         doc.OCIContainers,
+		PMIx:                  doc.PMIx,
 		Sync: platformdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,

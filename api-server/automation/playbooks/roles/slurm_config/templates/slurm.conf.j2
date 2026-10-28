@@ -23,15 +23,18 @@ SelectType=select/cons_tres
 SelectTypeParameters=CR_Core_Memory
 ProctrackType=proctrack/cgroup
 TaskPlugin=task/cgroup,task/affinity
-{% if slurm_omnistat_enabled | bool %}
-# Omnistat job attribution (decision 063): at allocation time the Prolog writes the node-wide job
-# file the Omnistat exporter reads, and the Epilog removes it.
-Prolog={{ slurm_conf_dir }}/{{ slurm_omnistat_prolog }}
-Epilog={{ slurm_conf_dir }}/{{ slurm_omnistat_epilog }}
+# A job that names no memory gets memory in proportion to its CPUs instead of the whole node, so
+# jobs that share a node do not wait on memory nobody uses (the lowest per-CPU share of any node).
+DefMemPerCPU={{ slurm_def_mem_per_cpu }}
+
+# Job hooks: Swallow's dispatchers are the only Prolog and Epilog. They run every hook in
+# prolog.d/epilog.d on the compute node (installed there by deploy-slurm; configless does not
+# distribute scripts), and a failing hook never drains the node.
+Prolog={{ slurm_conf_dir }}/swallow-prolog
+Epilog={{ slurm_conf_dir }}/swallow-epilog
+# Contain (the job's processes in its cgroup) implies Alloc: the Prolog runs when the job is
+# allocated, so attribution hooks see the job before it starts.
 PrologFlags=Alloc,Contain
-{% else %}
-PrologFlags=Contain
-{% endif %}
 MpiDefault=none
 {% set gres_state = namespace(any=false) %}
 {% for nid in swallow_slurm_compute_ids %}
@@ -52,17 +55,19 @@ SlurmdTimeout=300
 SlurmctldLogFile={{ slurm_log_dir }}/slurmctld.log
 SlurmdLogFile={{ slurm_log_dir }}/slurmd.log
 
-# Compute nodes. The NodeName line is exactly what slurmd -C detected on each host (minus any
-# GRES it reported), with the connection address pinned via NodeAddr so the controller reaches
-# nodes without DNS, and the GPU GRES Swallow mapped from the node's KFD topology.
+# Compute nodes. The NodeName line is what slurmd -C detected on each host (minus any GRES it
+# reported), with RealMemory lowered by the memory kept for the operating system, the connection
+# address pinned via NodeAddr so the controller reaches nodes without DNS, and the GPU GRES Swallow
+# mapped from the node's KFD topology.
 {% for nid in swallow_slurm_compute_ids %}
 {% set gres = hostvars[nid].slurm_node_gres | default('') %}
-{{ hostvars[nid].slurm_node_line | regex_replace(' Gres=\\S+', '') }}{{ (' Gres=' ~ gres) if gres else '' }} NodeAddr={{ hostvars[nid].ansible_host }} State=UNKNOWN
+{{ hostvars[nid].slurm_node_line | regex_replace(' Gres=\\S+', '') | regex_replace('RealMemory=\\d+', 'RealMemory=' ~ hostvars[nid].slurm_node_schedulable_memory) }}{{ (' Gres=' ~ gres) if gres else '' }} NodeAddr={{ hostvars[nid].ansible_host }} State=UNKNOWN
 {% endfor %}
 
 {% if slurm_omnistat_enabled | bool %}
 # Omnistat's job file describes the whole node, so a node runs one job at a time.
 PartitionName=main Nodes=ALL Default=YES MaxTime=INFINITE State=UP OverSubscribe=EXCLUSIVE
 {% else %}
-PartitionName=main Nodes=ALL Default=YES MaxTime=INFINITE State=UP
+# Jobs share a node (separate CPUs, memory, and GPUs); CPUs are never oversubscribed.
+PartitionName=main Nodes=ALL Default=YES MaxTime=INFINITE State=UP OverSubscribe=NO
 {% endif %}

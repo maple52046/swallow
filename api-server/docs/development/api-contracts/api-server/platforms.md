@@ -38,6 +38,7 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 - [GPU Allocation Mode](../../../../../docs/development/glossaries/terms/gpu-allocation-mode.md)
 - [GPU Operator State](../../../../../docs/development/glossaries/terms/gpu-operator-state.md)
 - [Omnistat](../../../../../docs/development/glossaries/terms/omnistat.md)
+- [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
 - [Managed Software](../../../../../docs/development/glossaries/terms/managed-software.md)
 
 ## Endpoints
@@ -102,9 +103,12 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
     { "name": "Omnistat Grafana", "url": "https://omnistat.example.internal/grafana" }
   ],
   "omnistat": null,
+  "deviceMetricsExporter": null,
   "containerRuntime": null,
   "gpuDriver": null,
   "gpuGresType": null,
+  "ociContainers": false,
+  "pmix": false,
   "sync": {
     "lastStartedAt": null,
     "lastSucceededAt": null,
@@ -134,10 +138,16 @@ swallow-owned display data: swallow never connects to, authenticates against, or
 URL, and they are not a metrics Integration — swallow's own usage charts keep reading the Site
 metrics backend (see [server-metrics.md](server-metrics.md)). They are set with `PATCH`.
 Swallow itself replaces (or adds) only the link named `Omnistat Grafana` when it installs
-Omnistat, and removes only that link when the Platform is uninstalled (see [Omnistat](#omnistat)).
+Omnistat, or `Device Metrics Exporter Grafana` when it installs the Device Metrics Exporter, and
+removes only that link when the Platform is uninstalled (see [Omnistat](#omnistat) and
+[Device Metrics Exporter](#device-metrics-exporter)).
 
 `omnistat` is the Swallow-managed Omnistat of a Slurm Platform (see [Omnistat](#omnistat)). It is
 `null` when Swallow never installed Omnistat on the Platform (always for Kubernetes).
+
+`deviceMetricsExporter` is the Swallow-managed Device Metrics Exporter of a Slurm Platform (see
+[Device Metrics Exporter](#device-metrics-exporter)). It is `null` when Swallow never installed it
+on the Platform (always for Kubernetes, where the GPU Operator's `metricsExporter` runs it).
 
 `containerRuntime` is the container runtime a Slurm deploy installed on its compute and login
 nodes, `docker-ce` or `podman` (see [Container Runtime](#container-runtime)). It is `null` when
@@ -150,6 +160,10 @@ topology rule adds on a node are not listed here.
 `gpuGresType` is the GRES type name a Slurm deploy gave every GPU node (see
 [GPU GRES](#gpu-gres)); `null` when the type is derived per node from the GPU architecture
 (always for Kubernetes).
+
+`ociContainers` and `pmix` are whether a Slurm deploy set up native OCI containers (see
+[Native OCI Containers](#native-oci-containers)) and the host MPI stack (see [MPI (PMIx)](#mpi-pmix));
+both are `false` when the deploy did not request them (always for Kubernetes).
 
 `origin` is `registered | deployed`. New Platforms are always `deployed`; `origin=registered`
 is a one-release compatibility value for records created before the register-existing path was
@@ -417,7 +431,9 @@ the compute daemon (`slurmd`), or both.
       "type": "nfs",
       "mountPath": "/shared",
       "nfs": { "url": "10.0.0.9:/export/data", "mountOptions": "" }
-    }
+    },
+    "ociContainers": false,
+    "pmix": false
   },
   "machinePreparation": {
     "mode": "provision_os",
@@ -448,6 +464,30 @@ exports NFS from the login node, so it requires one) or `external` (mount the op
 `nfs.url`, `host:/path`, with optional `nfs.mountOptions`). Swallow provides the mount, not
 cluster identity: consistent workload-user UID/GID across nodes is the operator's
 responsibility.
+
+`ociContainers` (default `false`) sets up native OCI containers (see
+[Native OCI Containers](#native-oci-containers)); `pmix` (default `false`) installs the host MPI
+stack (see [MPI (PMIx)](#mpi-pmix)).
+
+### Node sharing, memory, and job hooks
+
+Jobs share a compute node: the `main` partition is `OverSubscribe=NO` (separate CPUs, memory, and
+GPUs per job, never oversubscribed CPUs) unless [Omnistat](#omnistat) needs whole nodes. Each node's
+`RealMemory` is what `slurmd -C` detects minus the memory kept for the operating system (5%, at
+least 2 GiB and at most 16 GiB, never more than half), and `DefMemPerCPU` is the smallest per-CPU
+share of schedulable memory over the compute nodes, so a job that names no memory gets memory in
+proportion to its CPUs instead of the whole node. The deployment proves it: two one-CPU jobs without
+`--mem` must run on one node at the same time, otherwise the Task fails with
+`slurm_shared_node_failed`.
+
+`slurm.conf` names exactly one Prolog and one Epilog, Swallow's dispatchers
+(`/etc/slurm/swallow-prolog`, `/etc/slurm/swallow-epilog`, `PrologFlags=Alloc,Contain`). On each
+compute node they run every executable in `/etc/slurm/prolog.d` and `/etc/slurm/epilog.d` in name
+order with the job's environment and a 30-second limit each; a hook that fails or times out is
+logged (syslog tag `swallow-prolog`/`swallow-epilog`) and never fails the job or drains the node.
+Swallow installs only its own hooks there (`10-omnistat`, `20-device-metrics-exporter`) and removes
+the ones a redeploy no longer enables; other executables an operator places there run too. A rerun
+of a converged deployment reports no change.
 
 The same target claim, lock, membership, and Site rules as Kubernetes apply. Before any Platform
 or Workflow is created, a Slurm deploy also reads the current minimum resource requirement once
@@ -586,9 +626,10 @@ else the runtime already assigned to the observability Server, or Docker CE — 
 `configure-prometheus` and `configure-grafana`, and finally a `configure-omnistat` Job that
 installs Omnistat `1.15.0` on every compute node (exporter on port `8001`, reachable only from the
 node itself and the observability Server). The Slurm side is part of the Slurm install: a
-Prolog/Epilog pair records each job for Omnistat, `PrologFlags=Alloc,Contain`, and the `main`
+job hook of the Prolog/Epilog dispatcher records each job for Omnistat, `PrologFlags=Alloc,Contain`, and the `main`
 partition is `OverSubscribe=EXCLUSIVE`, because Omnistat attributes a whole node to one job. The
-deployment succeeds only when every composed Job does. A composed software install that the
+deployment succeeds only when every composed Job does. Omnistat and the
+[Device Metrics Exporter](#device-metrics-exporter) are mutually exclusive. A composed software install that the
 software rules refuse (for example Docker CE requested where Podman is installed, the two being
 mutually exclusive) returns `409 conflict` before anything is created.
 
@@ -622,6 +663,111 @@ only memory) `omnistat-query` cannot build one; the Grafana job dashboards still
 job. Uninstalling the Platform removes the exporter and the Slurm side, marks the state
 `absent`, and removes the link; the container runtime, Prometheus, and Grafana Software
 Assignments stay until they are uninstalled through the software API.
+
+## Device Metrics Exporter
+
+A Slurm deploy may install AMD's
+[Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
+with Slurm job attribution, in the same Workflow
+([decision 066](../../../../../docs/decisions/066-slurm-job-hooks-and-device-metrics-exporter.md)):
+
+```json
+{
+  "siteId": "site-id",
+  "name": "lab-slurm",
+  "type": "slurm",
+  "deviceMetricsExporter": { "enabled": true, "installMethod": "container" },
+  "slurm": { "nodeAssignments": [ /* ... */ ] },
+  "machinePreparation": { "mode": "provision_os", "settings": { "imageId": "slurm-os-image-id" } }
+}
+```
+
+Omitting `deviceMetricsExporter`, or `enabled: false`, installs nothing. It is a `validation_error`
+on a Kubernetes deploy (the GPU Operator's `metricsExporter` runs it there), together with an
+enabled `omnistat`, when no compute Server lists AMD `compute` GPUs in its GPU Inventory, or with an
+`installMethod` other than `container` (default) or `native`. Like Omnistat, the primary controller
+becomes the observability Server and the Workflow composes, after the Slurm install, the container
+runtime (container method), `configure-prometheus` (`listen: loopback`, job
+`device-metrics-exporter`, the GPU compute nodes on port `5001`), and `configure-grafana`
+(dashboards `device-metrics-exporter`), and finally a `configure-device-metrics-exporter` Job. That
+Job installs AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-256 verified; Ubuntu
+24.04 only, `device_metrics_exporter_unsupported_os` otherwise) on every GPU compute node: `gpuagent`
+starts after the amdgpu loader, and the exporter serves Prometheus metrics on the node's address at
+port `5001` (AMD's default `5000` belongs to the host GPU exporter Swallow scrapes). Hardware
+profiler counters stay off. The Slurm side is part of the Slurm install: the
+`20-device-metrics-exporter` job hook writes `/run/exporter/<GRES index>` for every GPU a job is
+allocated and removes it at the job's end only while it still names that job, and jobs keep
+sharing nodes (`OverSubscribe=NO`). An exporter that serves no GPU health metrics fails the Task
+(`device_metrics_exporter_no_metrics`).
+
+The Platform then reports:
+
+```json
+"deviceMetricsExporter": {
+  "enabled": true,
+  "version": "1.5.3",
+  "installMethod": "container",
+  "observabilityServerId": "server-a",
+  "state": "ready",
+  "gpuIdentity": "collapsed",
+  "lastWorkflowId": "operation-id",
+  "updatedAt": "2026-10-29T00:00:00Z"
+}
+```
+
+`state` is the Device Metrics Exporter State, exactly `installing | ready | failed | absent`, with
+the same meaning and fence (`lastWorkflowId`) as the Omnistat State. On success Swallow sets the
+Monitoring Link `Device Metrics Exporter Grafana` (`http://<primary address>:3000`, read-only, no
+login) and records `gpuIdentity`:
+
+| Value | Meaning |
+| --- | --- |
+| `distinct` | every GPU node's exporter reports one distinct `gpu_id` per GPU its KFD topology lists, so a job's metrics carry its own GPUs |
+| `collapsed` | on at least one node the exporter reports fewer distinct `gpu_id`s than GPUs (for example MI308X SR-IOV virtual functions, which all report `gpu_id` `0`); the metrics endpoint works, but per-GPU job attribution there is wrong: a job on GPU 0 is attributed to every GPU, a job on another GPU to none |
+
+`gpuIdentity` is `null` until an install succeeded. A collapsed identity does not fail the
+deployment; clients must show it rather than present per-job GPU panels as reliable. Swallow never
+queries the exporter's Prometheus. Uninstalling the Platform removes the package, its
+configuration, and the job hook, marks the state `absent`, and removes the link; the container
+runtime, Prometheus, and Grafana Software Assignments stay until they are uninstalled through the
+software API.
+
+## Native OCI Containers
+
+`"slurm": { "ociContainers": true }` sets up Slurm's native OCI container support
+(`srun --container=<bundle>`) on the cluster
+([decision 066](../../../../../docs/decisions/066-slurm-job-hooks-and-device-metrics-exporter.md)):
+`crun` on every compute node and an `oci.conf` the controllers distribute with the configless
+configuration. slurmstepd runs each container rootless as the job user (`/usr/bin/crun
+--rootless=true`, state under `/run/user/<uid>/`), with `ContainerPath=/run/user/%U/slurm-oci` (the
+same string on every node, which multi-node PMIx needs). Each step's spool, with the PMIx server
+directory, appears at that same path inside the container, so a bundle must let the runtime create
+it (a writable rootfs, or a tmpfs on `/run`); MPI in a container also needs the host's
+`/run/munge` (PMIx authenticates ranks with MUNGE) and the host network (slurmstepd's PMIx server
+listens on the loopback address). The host keeps `kernel.apparmor_restrict_unprivileged_userns=1`: user namespaces are
+granted only to `/usr/bin/crun` by the distribution's path-scoped AppArmor profile, and a node that
+restricts them without that profile fails the deployment (`slurm_oci_failed`). The job's device
+cgroup applies inside the container: a container that binds `/dev` still opens only its allocated
+GPUs. Swallow does not build, pull, or distribute OCI bundles: a bundle must exist at the same
+absolute path on every node the job runs on. The deployment verifies the path with a bundle built
+from the node's own filesystem (`/var/lib/swallow/oci/probe`): a container step runs as an
+unprivileged user, and on every GPU node a one-GPU container sees exactly one GPU
+(`slurm_oci_failed` otherwise). Each rank of a step runs in its own container, so ranks on one node
+share no memory: an MPI program that places several ranks on a node selects a transport between
+them, for example `OMPI_MCA_btl=self,tcp` with OpenMPI. Turning the option off removes `oci.conf` and the probe bundle; the
+`crun` package stays, because Podman uses it too. Podman through `scrun` is not set up.
+
+## MPI (PMIx)
+
+`"slurm": { "pmix": true }` installs the distribution's OpenMPI with PMIx on every compute and login
+node so `srun --mpi=pmix_v5` launches MPI programs
+([decision 066](../../../../../docs/decisions/066-slurm-job-hooks-and-device-metrics-exporter.md)).
+The cluster's `MpiDefault` stays `none`: jobs ask for PMIx explicitly. The deployment verifies the
+launch path with an MPI probe: two ranks on one node and one rank on each of two compute nodes must
+pass a barrier under one PMIx namespace, and a failing rank must fail the step (`slurm_pmix_failed`
+otherwise). With `ociContainers` the probe also runs as one rank in a native OCI container on each of
+two compute nodes (one rank on one node when there is a single compute node). Turning the option off
+removes the probe; the OpenMPI packages stay.
 
 ## Manage The GPU Operator
 
@@ -823,7 +969,10 @@ Operator's DRA links, DRA common CDI spec, and amdgpu loader (a loaded driver st
 the next boot), and reloads systemd. It preserves the OS, user data, `conntrack`, unrelated
 packages, and power state, and does not reboot. When servers are released, this uninstall
 playbook is skipped entirely. Either way a successful uninstall sets `gpuOperator.state` to
-`absent` when Swallow managed one.
+`absent` when Swallow managed one. For Slurm, `uninstall-slurm` also removes the job hook
+dispatchers and Swallow's hooks, Omnistat, the Device Metrics Exporter package, `oci.conf` and the
+OCI probe bundle, and the MPI probe (the `crun` and OpenMPI packages stay), and a successful uninstall sets
+`omnistat.state` and `deviceMetricsExporter.state` to `absent` when Swallow managed them.
 
 On success Swallow clears membership, deletes only a credential Integration proven to be
 Swallow-owned, and clears the Platform integration/sync projection. If Kubernetes owned

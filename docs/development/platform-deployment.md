@@ -390,6 +390,19 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   | `swallow_omnistat_prometheus_port` / `swallow_omnistat_grafana_port` | 由 launcher 依 software domain 填入（`9090`／`3000`）；compute 的 `omnistat-query` 經 Grafana datasource proxy（`:3000/api/datasources/proxy/uid/prometheus`）查詢，因 Prometheus 只綁 loopback |
   | `swallow_omnistat_system_name` | omnistat-query 報表標籤（cluster name） |
 
+  Slurm 的 job hook、DME、OCI 與 PMIx（§6.3、decision 066）新增：
+
+  | 變數 | 意義 |
+  | --- | --- |
+  | `swallow_slurm_device_metrics_exporter_enabled` | `deploy-slurm` 安裝 `20-device-metrics-exporter` job hook |
+  | `swallow_slurm_oci_containers` / `swallow_slurm_pmix` | native OCI 與 host MPI 功能（布林，一律送出） |
+  | `swallow_device_metrics_exporter_version` / `_port` | DME 版本（`1.5.3`）與 exporter port（`5001`，避開 RDC 的 5000） |
+  | `swallow_device_metrics_exporter_compute_ids` | 裝 exporter 的 GPU compute serverId |
+  | `swallow_device_metrics_exporter_observability_id` | 跑 Prometheus／Grafana 的 serverId（primary controller） |
+  | `swallow_device_metrics_exporter_cluster_name` | exporter 的 `cluster_name` label（Slurm cluster name） |
+  | `swallow_device_metrics_exporter_record_id` | Platform 記錄所 fence 的 Workflow id；completion 以它寫入 GPU identity |
+  | `swallow_device_metrics_exporter_prometheus_port` / `_grafana_port` | 由 launcher 依 software domain 填入 |
+
 ### 4.3 Secrets
 
 secret **永不進入** workflow history。流程：launcher 提供 secret 值 → `WorkflowService.Create`
@@ -709,12 +722,37 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   （`docker-ce`／`podman`）時，`Platform.containerRuntime` 記下選擇，`DeploymentLaunch.ContainerRuntime`
   帶 compute ∪ login 的 serverId；launcher 把該 runtime 當 Managed Software 組入（見下表），每台 Server
   的安裝狀態就是它的 Software Assignment。Kubernetes deploy 帶此欄位為 validation error。
+- **Job hook dispatcher 與共用節點（decision 066）**：`slurm.conf` 固定
+  `Prolog=/etc/slurm/swallow-prolog`、`Epilog=/etc/slurm/swallow-epilog`、`PrologFlags=Alloc,Contain`。
+  `slurm_job_hooks` role（compute play、`slurm_compute` 之前，因為 Prolog 檔不存在會讓節點 drain）安裝
+  dispatcher 範本與 `slurm_job_hooks_enabled` 指定的 hook（`files/prolog.d|epilog.d/<NN-name>`），移除未啟用的
+  Swallow hook；dispatcher 依字典序執行目錄內所有可執行檔，每個有逾時，失敗只 `logger -t swallow-prolog`，
+  永遠 `exit 0`。configless 不配送 script，所以 hook 與 dispatcher 都由 Ansible 下發。非 Omnistat 時
+  partition `OverSubscribe=NO`；偵測 play 依 `slurmd -C` 的 `RealMemory` 扣 OS 保留（5%，2–16 GiB，至多一半）
+  得到 `slurm_node_schedulable_memory`，`slurm_config` 取各節點「可排程記憶體／CPU」最小值為 `DefMemPerCPU`。
+  `slurm_verify` 以兩個未帶 `--mem` 的一 CPU job 同時在同一節點 RUNNING 驗證（`[slurm_shared_node_failed]`）。
+  `group_by` 與結果檔 `changed_when: false`，收斂的叢集重跑 `changed=0`。
 - **選用功能：Omnistat（decision 063）**：deploy request 帶 `omnistat.enabled` 時，deploy use case
   預先指定 Workflow id、寫入 `Platform.omnistat`（`installing`，含 `installMethod`：`container` 預設／
   `native`），並把 `swallow_slurm_omnistat_enabled` 交給 `deploy-slurm`——Slurm 端 overlay
-  （`swallow-omnistat-prolog`／`-epilog`、`PrologFlags=Alloc,Contain`、`OverSubscribe=EXCLUSIVE`）由
-  slurm.conf 的唯一擁有者渲染，所以重佈自然重套；Prolog 在 exporter 尚未安裝前直接成功，Job 順序不會讓
-  節點 drain。
+  （`10-omnistat` job hook、`OverSubscribe=EXCLUSIVE`）由 slurm.conf 的唯一擁有者渲染，所以重佈自然重套；
+  hook 在 exporter 尚未安裝前直接成功，Job 順序不會讓節點 drain。與 DME 互斥。
+- **選用功能：Device Metrics Exporter（decision 066）**：deploy request 帶 `deviceMetricsExporter.enabled`
+  時（與 Omnistat 互斥、至少一台 GPU compute，否則 `ErrInvalidDeviceMetricsExporter`），deploy use case 預先指定
+  Workflow id、寫入 `Platform.deviceMetricsExporter`（`installing`），並把
+  `swallow_slurm_device_metrics_exporter_enabled` 交給 `deploy-slurm`（`20-device-metrics-exporter` hook：
+  `SLURM_JOB_GPUS` 每張 GPU 一個 `/run/exporter/<GRES index>`，暫存檔＋原子 rename；Epilog 只刪檔內
+  `SLURM_JOB_ID` 仍是自己的檔）。組入順序與 Omnistat 相同（runtime → Prometheus → Grafana），兩者共用
+  `slurmMonitoringOf`／`monitoringSoftwareSpec`：Prometheus job `device-metrics-exporter`、`scrapeServerIds`＝GPU
+  compute、port 5001；Grafana bundle `device-metrics-exporter`。最後的 `configure-device-metrics-exporter` Job
+  在 GPU compute 安裝官方 `amdgpu-exporter` DEB（SHA-256 釘死，僅 Ubuntu noble），`gpuagent` drop-in
+  `Requires=`/`After=` amdgpu loader，exporter drop-in 只開 Slurm（`-enable-k8s=false -enable-cri=false
+  -exit-on-rocpctl-error=false -bind <ansible_host>`），config 為套件的 `config.json` 疊上 Swallow 的 port、
+  labels、`cluster_name`、`HealthService` 與 profiler（預設關，`swallow_device_metrics_exporter_profiler`）。
+  `dme-identity-check` 比對 KFD GPU 數、`gpu_nodes_total`、health series 與 distinct `gpu_id`，result 寫
+  `{grafanaUrl, gpuIdentity, nodes}`；completion 寫入 link 與 `gpuIdentity`（fence＝record id），
+  `deviceMetricsExporterStepObserver` 投影 state。collapsed 不使 Task 失敗；沒有 GPU health series 才失敗
+  （`[device_metrics_exporter_no_metrics]`）。
 
   launcher（`planSlurmComposition`）在 `install-platform` 之後組入（依序依賴前一個 record Task）：
 
@@ -725,11 +763,26 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   | `configure-grafana` | `install-grafana` → `record-grafana` | primary controller；dashboards `omnistat`、datasource 讀同機 Prometheus |
   | `configure-omnistat` | `install-omnistat`（`configure-omnistat` playbook，全部 targets） | compute 裝 exporter；primary 經 loopback（Prometheus `listen: loopback`）等全部 up 後寫 result `{grafanaUrl}` |
 
+  （DME 時最後一列改為 `configure-device-metrics-exporter`／`install-device-metrics-exporter`，目標＝GPU compute。）
+
   `omnistatStepObserver` 把 `install-omnistat` 的狀態投影成 Omnistat State（fence＝record id），
   `AnsibleStepSucceeded` 讀 result 寫入 Monitoring Link `Omnistat Grafana`。同一 Workflow 的所有 ansible
   execution 都帶 `configure-slurm` kind，所以 completion 依 **Task id** 分流（只有 `install-platform` 產
-  slurmrestd credential）。uninstall 移除 exporter、overlay、Slurm 的 amdgpu loader 與 udev 規則，state
-  → `absent` 並移除 link；container runtime／Prometheus／Grafana 的 assignment 保留。
+  slurmrestd credential）。uninstall 移除 exporter、overlay、dispatcher 與 hook、DME 套件與設定、OCI 與 PMIx
+  的 Swallow 產物、Slurm 的 amdgpu loader 與 udev 規則，state → `absent` 並移除 link；container
+  runtime／Prometheus／Grafana 的 assignment 保留。
+- **選用功能：native OCI 與 PMIx（decision 066）**：`slurm.ociContainers`／`slurm.pmix` 記在 Platform，
+  以 `swallow_slurm_oci_containers`／`swallow_slurm_pmix` 交給 `deploy-slurm`（roles `slurm_oci`、`slurm_pmix`）；
+  兩者都以 probe job 驗證（`[slurm_oci_failed]`、`[slurm_pmix_failed]`）。OCI：`slurm_config` 渲染 `oci.conf`
+  （rootless `/usr/bin/crun`、`ContainerPath=/run/user/%U/slurm-oci`、不設 `MountSpoolDir`（容器內 spool 與主機同路徑，
+  PMIx server 目錄才對得上）、`RunTimeEnvExclude` 排除 `NOTIFY_SOCKET`），變更計入 `slurm_config_changed` 讓 slurmd 重啟重抓；`slurm_oci`
+  在 compute 裝 crun、確認 userns 受限時 crun 的 AppArmor profile 已載入（不改 sysctl）、以
+  `files/oci-probe-bundle.py` 建 `/var/lib/swallow/oci/probe`（唯讀空 rootfs＋bind 主機 `/usr`、`/etc`、`/opt`、`/dev`，
+  `/run` 為 tmpfs 並帶入主機 `/run/munge`，host network）。`slurm_verify` 以 `runuser -u nobody` 跑容器 step（uid_map
+  不可映射到 root）與每台 GPU node 的 1-GPU 容器 HIP probe。PMIx：`slurm_pmix` 在 compute＋login 裝 `openmpi-bin`、
+  `python3-mpi4py`（不裝 recommends；SchedMD 的 `mpi_pmix_v5.so` RPATH 指向 Ubuntu `libpmix2` 的目錄），compute 裝
+  `files/mpi-probe.py`；套件新裝時 slurmd 重啟。`slurm_verify` 跑單節點 2 rank、兩節點各 1 rank、（OCI 時）兩節點容器
+  各 1 rank，要求同一 PMIx namespace、barrier 通過，並確認失敗 rank 讓 step 失敗。關閉時移除 `oci.conf` 與 bundle，crun 套件保留（Podman 也依賴它）。
 - **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
   workload filesystem、使用者/UID-GID 佈建（swallow 只提供 mount,不管身分）、`auth/slurm`、部署後單獨
@@ -738,7 +791,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/deploy-slurm.yml) 與
 `playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
-`slurm_cluster_credential`）；Omnistat：[`configure-omnistat.yml`](../../api-server/automation/playbooks/configure-omnistat.yml)
+`slurm_cluster_credential`、`slurm_job_hooks`）；Device Metrics Exporter：
+[`configure-device-metrics-exporter.yml`](../../api-server/automation/playbooks/configure-device-metrics-exporter.yml)
+與 `roles/device_metrics_exporter`（套件 URL／SHA-256 與上游 `config.json` 在 role 內）；Omnistat：[`configure-omnistat.yml`](../../api-server/automation/playbooks/configure-omnistat.yml)
 與 `roles/omnistat`（上游 tag 壓縮檔 sha256 在 `defaults/main.yml`，swallow 維護的 patch 與依賴 constraints 在 `files/`）。
 
 **swallow 維護的 Omnistat patch（[decision 064](../decisions/064-upstream-patches-are-the-exception.md)）**：
@@ -787,8 +842,9 @@ API 契約的 "Read Slurm Cluster State"。
 | GPU Operator 設定、版本清單與驗證 | `internal/platform/domain/gpu_operator.go`、`internal/platform/application/gpu_operator.go` |
 | GPU Operator Workflow 組裝與狀態 observer | `internal/app/gpu_operator_adapter.go` |
 | Omnistat 記錄與 State | `internal/platform/domain/omnistat.go` |
+| Device Metrics Exporter 記錄、State 與 GPU identity | `internal/platform/domain/device_metrics_exporter.go` |
 | Slurm container runtime 功能 | `internal/platform/domain/container_runtime.go` |
-| Slurm 功能的 software Job 組入（runtime、Prometheus、Grafana、Omnistat）與狀態 observer | `internal/app/omnistat_adapter.go` |
+| Slurm 功能的 software Job 組入（runtime、Prometheus、Grafana、Omnistat、DME）與狀態 observer | `internal/app/slurm_composition_adapter.go` |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
 | `configure-ntp-<serverId>` Task 組裝（platform `ensure-os` 與 Deploy OS 共用）、`install-platform` 的時鐘檢查 vars | `internal/app/ntp_planner.go` |
 | Installation 的 NTP server 設定（`SWALLOW_API_NTP_SERVER`，validation） | `config/config.go`、`config/env.go`、`config/validate.go` |
@@ -817,6 +873,7 @@ API 契約的 "Read Slurm Cluster State"。
 | AMD GPU Operator playbook 與 role | `playbooks/configure-amd-gpu-operator.yml`、`playbooks/roles/amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
 | 共用 amdgpu loader（GPU Operator 與 Slurm GRES） | `playbooks/roles/amdgpu_loader` |
 | Omnistat playbook 與 role | `playbooks/configure-omnistat.yml`、`playbooks/roles/omnistat` |
+| DME playbook 與 role | `playbooks/configure-device-metrics-exporter.yml`、`playbooks/roles/device_metrics_exporter` |
 | Prometheus／Grafana software roles | `playbooks/roles/prometheus`、`playbooks/roles/grafana`（Omnistat dashboards 在 `files/dashboards/omnistat`） |
 | 時間同步（decision 065） | `playbooks/configure-ntp.yml`、`playbooks/roles/ntp_client`（偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）；`playbooks/roles/time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`） |
 

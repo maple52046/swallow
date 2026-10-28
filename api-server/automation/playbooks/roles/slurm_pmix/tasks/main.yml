@@ -1,0 +1,49 @@
+---
+# The host MPI stack on a compute or login node (decision 066): the distribution's OpenMPI with
+# PMIx, which SchedMD's mpi_pmix_v5 plugin loads from the same libpmix2 (its RPATH names Ubuntu's
+# pmix2 directory), and on compute nodes the MPI probe deploy-slurm proves srun --mpi=pmix_v5 with.
+# MpiDefault stays none: jobs ask for PMIx explicitly. When the feature is off the probe goes and the
+# packages stay, because users' own MPI programs may link them.
+
+- name: Install OpenMPI with PMIx and the MPI bindings the probe uses
+  ansible.builtin.apt:
+    name:
+      - openmpi-bin
+      - python3-mpi4py
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 600
+  become: true
+  register: slurm_pmix_packages
+  when: slurm_pmix | bool
+
+- name: Ensure Swallow's helper directory exists
+  ansible.builtin.file:
+    path: "{{ slurm_pmix_probe | dirname }}"
+    state: directory
+    mode: "0755"
+  become: true
+  when:
+    - slurm_pmix | bool
+    - slurm_is_compute | bool
+
+- name: Install the MPI probe
+  ansible.builtin.copy:
+    src: mpi-probe.py
+    dest: "{{ slurm_pmix_probe }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when:
+    - slurm_pmix | bool
+    - slurm_is_compute | bool
+
+- name: Remove the MPI probe when MPI is off
+  ansible.builtin.file:
+    path: "{{ slurm_pmix_probe }}"
+    state: absent
+  become: true
+  when: not (slurm_pmix | bool)

@@ -14,18 +14,19 @@ import (
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
-// Slurm feature composition (decision 063). After its install-platform Task a Slurm deployment
-// appends one Job per composed Managed Software install, each an ansible install Task plus the
-// record Task that marks its Software Assignments installed:
+// Slurm feature composition (decisions 063 and 066). After its install-platform Task a Slurm
+// deployment appends one Job per composed Managed Software install, each an ansible install Task
+// plus the record Task that marks its Software Assignments installed:
 //
 //  1. the container runtime, on the compute and login nodes when the containerRuntime feature is
-//     on, and on the observability Server when Omnistat uses the container method;
-//  2. Prometheus, then Grafana, on the observability Server when Omnistat is on;
+//     on, and on the observability Server when the monitoring feature uses the container method;
+//  2. Prometheus, then Grafana, on the observability Server when a monitoring feature is on;
 //
-// and finally the configure-omnistat Job that installs the exporter on every compute node. Each
-// Job depends on the previous one's record Task, so Prometheus never starts before its runtime is
-// recorded. This is decision 038's composition rule: no nested software Workflow, the same
-// playbooks and roles as a standalone install.
+// and finally the monitoring feature's own Job: configure-omnistat (the exporter on every compute
+// node) or configure-device-metrics-exporter (the exporter on every GPU compute node); a deployment
+// has at most one of the two. Each Job depends on the previous one's record Task, so Prometheus
+// never starts before its runtime is recorded. This is decision 038's composition rule: no nested
+// software Workflow, the same playbooks and roles as a standalone install.
 const (
 	jobConfigureOmnistat = "configure-omnistat"
 	omnistatStepID       = "install-omnistat"
@@ -38,10 +39,78 @@ const (
 	// omnistatResultGrafanaURL is the configure-omnistat result field Swallow records as the
 	// Platform's Omnistat Grafana Monitoring Link.
 	omnistatResultGrafanaURL = "grafanaUrl"
+
+	jobConfigureDeviceMetricsExporter = "configure-device-metrics-exporter"
+	deviceMetricsExporterStepID       = "install-device-metrics-exporter"
+	deviceMetricsExporterPlaybook     = "configure-device-metrics-exporter"
+	// The Device Metrics Exporter's Task carries the same owner and record parameters as Omnistat's.
+	deviceMetricsExporterStepParamOwner  = "deviceMetricsExporterPlatformId"
+	deviceMetricsExporterStepParamRecord = "deviceMetricsExporterRecordId"
+	// The configure-device-metrics-exporter result: the Grafana URL Swallow records as the
+	// Platform's Device Metrics Exporter Grafana Monitoring Link, and the GPU identity it found.
+	deviceMetricsExporterResultGrafanaURL  = "grafanaUrl"
+	deviceMetricsExporterResultGPUIdentity = "gpuIdentity"
 )
 
-// omnistatComposedSoftware is the order Omnistat's observability software is composed in.
-var omnistatComposedSoftware = []softwaredomain.Kind{softwaredomain.KindPrometheus, softwaredomain.KindGrafana}
+// monitoringComposedSoftware is the order a monitoring feature's observability software is
+// composed in.
+var monitoringComposedSoftware = []softwaredomain.Kind{softwaredomain.KindPrometheus, softwaredomain.KindGrafana}
+
+// slurmMonitoring is what the composition needs from the Slurm monitoring feature a deployment
+// carries (Omnistat or the Device Metrics Exporter): where Prometheus and Grafana go and how they
+// are installed, what Prometheus scrapes, which dashboards Grafana provisions, and the feature's own
+// install Task. It is a translation of the domain launch, so the composition is written once.
+type slurmMonitoring struct {
+	label                 string
+	observabilityServerID string
+	installMethod         platformdomain.ObservabilityInstallMethod
+	scrapeJob             string
+	scrapeServerIDs       []string
+	scrapePort            int
+	dashboardBundle       string
+	trustedVars           map[string]any
+	// The feature's install Task and the parameters its step observer reads.
+	stepID, stepName, job, playbook string
+	workflowKind                    operationdomain.WorkflowKind
+	ownerParam, recordParam         string
+	// portVars names the playbook variables the software domain's Prometheus and Grafana ports go in.
+	prometheusPortVar, grafanaPortVar string
+}
+
+// slurmMonitoringOf returns the deployment's monitoring feature, or nil when it has none. The
+// deploy use case never sets both features.
+func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring {
+	switch {
+	case launch.Omnistat != nil:
+		omnistat := launch.Omnistat
+		return &slurmMonitoring{
+			label: "Omnistat", observabilityServerID: omnistat.ObservabilityServerID,
+			installMethod: omnistat.InstallMethod, scrapeJob: platformdomain.OmnistatScrapeJob,
+			scrapeServerIDs: omnistat.ComputeServerIDs, scrapePort: platformdomain.OmnistatExporterPort,
+			dashboardBundle: platformdomain.OmnistatDashboardBundle, trustedVars: omnistat.TrustedVars,
+			stepID: omnistatStepID, stepName: "Install Omnistat", job: jobConfigureOmnistat,
+			playbook: omnistatPlaybook, workflowKind: operationdomain.WorkflowKindConfigureOmnistat,
+			ownerParam: omnistatStepParamOwner, recordParam: omnistatStepParamRecord,
+			prometheusPortVar: "swallow_omnistat_prometheus_port", grafanaPortVar: "swallow_omnistat_grafana_port",
+		}
+	case launch.DeviceMetricsExporter != nil:
+		exporter := launch.DeviceMetricsExporter
+		return &slurmMonitoring{
+			label: "the Device Metrics Exporter", observabilityServerID: exporter.ObservabilityServerID,
+			installMethod: exporter.InstallMethod, scrapeJob: platformdomain.DeviceMetricsExporterScrapeJob,
+			scrapeServerIDs: exporter.GPUComputeServerIDs, scrapePort: platformdomain.DeviceMetricsExporterPort,
+			dashboardBundle: platformdomain.DeviceMetricsExporterDashboardBundle, trustedVars: exporter.TrustedVars,
+			stepID: deviceMetricsExporterStepID, stepName: "Install the Device Metrics Exporter",
+			job: jobConfigureDeviceMetricsExporter, playbook: deviceMetricsExporterPlaybook,
+			workflowKind: operationdomain.WorkflowKindConfigureDeviceMetricsExporter,
+			ownerParam:   deviceMetricsExporterStepParamOwner, recordParam: deviceMetricsExporterStepParamRecord,
+			prometheusPortVar: "swallow_device_metrics_exporter_prometheus_port",
+			grafanaPortVar:    "swallow_device_metrics_exporter_grafana_port",
+		}
+	default:
+		return nil
+	}
+}
 
 // composedSoftwarePlaybook resolves a composed kind's configure Workflow kind and playbook from the
 // same table the standalone software launcher uses, so a composed install runs the same playbook.
@@ -61,7 +130,7 @@ type composedPlan struct {
 	installs []softwareapp.ComposedInstall
 }
 
-// planSlurmComposition validates and builds the container runtime and Omnistat Jobs. provisionFirst
+// planSlurmComposition validates and builds the container runtime and monitoring feature Jobs. provisionFirst
 // lets the deployment's provision-os Tasks satisfy the deployed-state requirement of every composed
 // ansible Task. A composed install the software policy refuses (for example Podman where Docker CE
 // is installed, the two being mutually exclusive) is reported as ErrComposedSoftwareConflict before
@@ -73,12 +142,16 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	provisionFirst bool,
 ) (composedPlan, error) {
 	plan := composedPlan{}
-	if launch.ContainerRuntime == nil && launch.Omnistat == nil {
+	monitoring := slurmMonitoringOf(launch)
+	if launch.ContainerRuntime == nil && monitoring == nil {
 		return plan, nil
 	}
 	if l.software == nil {
-		if launch.Omnistat != nil {
+		switch {
+		case launch.Omnistat != nil:
 			return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidOmnistat)
+		case launch.DeviceMetricsExporter != nil:
+			return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidDeviceMetricsExporter)
 		}
 		return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidContainerRuntime)
 	}
@@ -97,31 +170,30 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 		}
 	}
 
-	omnistat := launch.Omnistat
-	if omnistat == nil {
+	if monitoring == nil {
 		return plan, nil
 	}
-	observability := []string{omnistat.ObservabilityServerID}
-	for _, kind := range omnistatComposedSoftware {
+	observability := []string{monitoring.observabilityServerID}
+	for _, kind := range monitoringComposedSoftware {
 		previous, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
-			kind, observability, omnistatSoftwareSpec(kind, omnistat, runtime),
-			"Install "+softwareLabel(kind)+" for Omnistat on "+launch.Platform.Name)
+			kind, observability, monitoringSoftwareSpec(kind, monitoring, runtime),
+			"Install "+softwareLabel(kind)+" for "+monitoring.label+" on "+launch.Platform.Name)
 		if err != nil {
 			return plan, err
 		}
 	}
 
-	trustedVars := make(map[string]any, len(omnistat.TrustedVars)+2)
-	for key, value := range omnistat.TrustedVars {
+	trustedVars := make(map[string]any, len(monitoring.trustedVars)+2)
+	for key, value := range monitoring.trustedVars {
 		trustedVars[key] = value
 	}
 	// The software domain owns the Prometheus and Grafana ports; the exporter allowlist and the
 	// result URLs must use the same ones.
-	trustedVars["swallow_omnistat_prometheus_port"] = softwaredomain.PrometheusPort
-	trustedVars["swallow_omnistat_grafana_port"] = softwaredomain.GrafanaPort
+	trustedVars[monitoring.prometheusPortVar] = softwaredomain.PrometheusPort
+	trustedVars[monitoring.grafanaPortVar] = softwaredomain.GrafanaPort
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
-		Kind: string(operationdomain.WorkflowKindConfigureOmnistat), PlaybookName: omnistatPlaybook,
-		Intent:          "Install Omnistat on " + launch.Platform.Name,
+		Kind: string(monitoring.workflowKind), PlaybookName: monitoring.playbook,
+		Intent:          "Install " + monitoring.label + " on " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: trustedVars, RequestedBy: launch.RequestedBy,
 	}, operationID, provisionFirst)
@@ -129,13 +201,13 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 		return plan, err
 	}
 	plan.steps = append(plan.steps, operationdomain.Task{
-		ID: omnistatStepID, Kind: "ansible-playbook", Name: "Install Omnistat",
-		Job:      jobConfigureOmnistat,
+		ID: monitoring.stepID, Kind: "ansible-playbook", Name: monitoring.stepName,
+		Job:      monitoring.job,
 		Executor: operationdomain.RunnerKindAnsible, DependsOn: []string{previous},
 		Targets: prepared.Targets,
 		Parameters: map[string]any{
 			"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
-			omnistatStepParamOwner: launch.Platform.ID, omnistatStepParamRecord: operationID,
+			monitoring.ownerParam: launch.Platform.ID, monitoring.recordParam: operationID,
 		},
 	})
 	return plan, nil
@@ -209,8 +281,8 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 
 // composedContainerRuntime returns the container runtime the deployment composes and the Servers
 // that still need it. The containerRuntime feature names the runtime and puts it on the compute
-// and login nodes; Omnistat's container method adds the observability Server and, without the
-// feature, runs on the runtime already assigned there (Docker CE when none is). A Server whose
+// and login nodes; a monitoring feature's container method adds the observability Server and,
+// without the feature, runs on the runtime already assigned there (Docker CE when none is). A Server whose
 // runtime is already installed is left alone, so an operator's own runtime settings (an enabled
 // Docker Engine API, for example) are never reverted. The kind is "" when no runtime is needed.
 func (l platformDeploymentLauncher) composedContainerRuntime(
@@ -223,16 +295,16 @@ func (l platformDeploymentLauncher) composedContainerRuntime(
 		kind = softwaredomain.Kind(launch.ContainerRuntime.Kind)
 		serverIDs = append(serverIDs, launch.ContainerRuntime.ServerIDs...)
 	}
-	if omnistat := launch.Omnistat; omnistat != nil && omnistat.InstallMethod != platformdomain.OmnistatInstallNative {
+	if monitoring := slurmMonitoringOf(launch); monitoring != nil && monitoring.installMethod != platformdomain.ObservabilityInstallNative {
 		if kind == "" {
-			assigned, err := l.assignedContainerRuntime(ctx, omnistat.ObservabilityServerID)
+			assigned, err := l.assignedContainerRuntime(ctx, monitoring.observabilityServerID)
 			if err != nil {
 				return "", nil, err
 			}
 			kind = assigned
 		}
-		if !slices.Contains(serverIDs, omnistat.ObservabilityServerID) {
-			serverIDs = append(serverIDs, omnistat.ObservabilityServerID)
+		if !slices.Contains(serverIDs, monitoring.observabilityServerID) {
+			serverIDs = append(serverIDs, monitoring.observabilityServerID)
 		}
 	}
 	if kind == "" {
@@ -277,27 +349,27 @@ func containerRuntimeSpec(kind softwaredomain.Kind) map[string]any {
 	return map[string]any{}
 }
 
-// omnistatSoftwareSpec builds Prometheus's and Grafana's specs: Omnistat's install method, on the
-// composed runtime when it is the container method. Prometheus scrapes every compute node's
-// exporter by Server id (resolved to its current address on each run, so a provision_os deploy
+// monitoringSoftwareSpec builds Prometheus's and Grafana's specs for a monitoring feature: its
+// install method, on the composed runtime when it is the container method. Prometheus scrapes every
+// exporter node by Server id (resolved to its current address on each run, so a provision_os deploy
 // whose addresses are not known yet still converges); Grafana reads that Prometheus and provisions
-// Omnistat's dashboards.
-func omnistatSoftwareSpec(kind softwaredomain.Kind, omnistat *platformdomain.OmnistatLaunch, runtime softwaredomain.Kind) map[string]any {
+// the feature's dashboards.
+func monitoringSoftwareSpec(kind softwaredomain.Kind, monitoring *slurmMonitoring, runtime softwaredomain.Kind) map[string]any {
 	spec := map[string]any{softwaredomain.SpecInstallMethod: string(softwaredomain.InstallMethodNative)}
-	if omnistat.InstallMethod != platformdomain.OmnistatInstallNative {
+	if monitoring.installMethod != platformdomain.ObservabilityInstallNative {
 		spec[softwaredomain.SpecInstallMethod] = string(softwaredomain.InstallMethodContainer)
 		spec[softwaredomain.SpecContainerRuntime] = string(runtime)
 	}
 	switch kind {
 	case softwaredomain.KindPrometheus:
-		// Only Grafana on the same Server reads Omnistat's Prometheus, and its API has no
+		// Only Grafana on the same Server reads the feature's Prometheus, and its API has no
 		// authentication, so it never listens beyond the loopback address.
 		spec[softwaredomain.SpecListen] = string(softwaredomain.PrometheusListenLoopback)
-		spec[softwaredomain.SpecScrapeJob] = platformdomain.OmnistatScrapeJob
-		spec[softwaredomain.SpecScrapeServerIDs] = omnistat.ComputeServerIDs
-		spec[softwaredomain.SpecScrapePort] = platformdomain.OmnistatExporterPort
+		spec[softwaredomain.SpecScrapeJob] = monitoring.scrapeJob
+		spec[softwaredomain.SpecScrapeServerIDs] = monitoring.scrapeServerIDs
+		spec[softwaredomain.SpecScrapePort] = monitoring.scrapePort
 	case softwaredomain.KindGrafana:
-		spec[softwaredomain.SpecDashboards] = []string{platformdomain.OmnistatDashboardBundle}
+		spec[softwaredomain.SpecDashboards] = []string{monitoring.dashboardBundle}
 	}
 	return spec
 }
@@ -349,15 +421,76 @@ func (o omnistatStepObserver) ObserveStep(ctx context.Context, operationID strin
 // omnistatStateForTask returns the state a Task status implies, or false for a status that does
 // not move it (pending leaves the state recorded at acceptance).
 func omnistatStateForTask(status operationdomain.TaskStatus) (platformdomain.OmnistatState, bool) {
-	switch status {
-	case operationdomain.TaskRunning, operationdomain.TaskWaitingExternal:
+	switch installTaskPhaseOf(status) {
+	case installPhaseRunning:
 		return platformdomain.OmnistatInstalling, true
-	case operationdomain.TaskSucceeded:
+	case installPhaseSucceeded:
 		return platformdomain.OmnistatReady, true
-	case operationdomain.TaskFailed, operationdomain.TaskRequiresAttention, operationdomain.TaskCanceled,
-		operationdomain.TaskSkipped:
+	case installPhaseFailed:
 		return platformdomain.OmnistatFailed, true
 	default:
 		return "", false
 	}
+}
+
+// installTaskPhase is what a monitoring feature's install Task status means for the feature's state:
+// running and waiting are still installing, success is ready, and failure, requires_attention,
+// cancel, or skip (an earlier Job failed) is a failed install. Pending moves nothing.
+type installTaskPhase int
+
+const (
+	installPhaseNone installTaskPhase = iota
+	installPhaseRunning
+	installPhaseSucceeded
+	installPhaseFailed
+)
+
+func installTaskPhaseOf(status operationdomain.TaskStatus) installTaskPhase {
+	switch status {
+	case operationdomain.TaskRunning, operationdomain.TaskWaitingExternal:
+		return installPhaseRunning
+	case operationdomain.TaskSucceeded:
+		return installPhaseSucceeded
+	case operationdomain.TaskFailed, operationdomain.TaskRequiresAttention, operationdomain.TaskCanceled,
+		operationdomain.TaskSkipped:
+		return installPhaseFailed
+	default:
+		return installPhaseNone
+	}
+}
+
+// deviceMetricsExporterStepObserver projects the install-device-metrics-exporter Task onto the
+// Platform's Device Metrics Exporter State (implements temporalworkflow.StepProjectionObserver);
+// every other Task is ignored. Like Omnistat's, the write is fenced on the record id stamped on the
+// Task, so a superseded Workflow — or a Task of a deleted Platform — changes nothing.
+type deviceMetricsExporterStepObserver struct {
+	recorder platformdomain.DeviceMetricsExporterRecorder
+}
+
+// ObserveStep maps the Task status through installTaskPhaseOf.
+func (o deviceMetricsExporterStepObserver) ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error {
+	if step.ID != deviceMetricsExporterStepID || step.Kind != "ansible-playbook" || step.Parameters == nil {
+		return nil
+	}
+	platformID, _ := step.Parameters[deviceMetricsExporterStepParamOwner].(string)
+	if platformID == "" {
+		return nil
+	}
+	recordID, _ := step.Parameters[deviceMetricsExporterStepParamRecord].(string)
+	if recordID == "" {
+		recordID = operationID
+	}
+	var state platformdomain.DeviceMetricsExporterState
+	switch installTaskPhaseOf(step.Status) {
+	case installPhaseRunning:
+		state = platformdomain.DeviceMetricsExporterInstalling
+	case installPhaseSucceeded:
+		state = platformdomain.DeviceMetricsExporterReady
+	case installPhaseFailed:
+		state = platformdomain.DeviceMetricsExporterFailed
+	default:
+		return nil
+	}
+	_, err := o.recorder.UpdateDeviceMetricsExporterState(ctx, platformID, recordID, state, time.Now().UTC())
+	return err
 }

@@ -33,6 +33,10 @@ type PlatformService struct {
 	// omnistats is optional. When wired, a completed Platform uninstall marks a managed Omnistat
 	// absent and removes its Monitoring Link, because uninstall-slurm removed the exporter.
 	omnistats platformdomain.OmnistatRecorder
+	// deviceMetricsExporters is optional, like omnistats: a completed uninstall marks a managed
+	// Device Metrics Exporter absent and removes its link; an install's completion records the
+	// GPU identity it found.
+	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
 }
 
 // NewPlatformService constructs the platform application service.
@@ -69,18 +73,50 @@ func (s *PlatformService) AttachOmnistatRecorder(recorder platformdomain.Omnista
 	s.omnistats = recorder
 }
 
+// AttachDeviceMetricsExporterRecorder lets CompleteUninstall record that a Slurm uninstall also
+// removed the Platform's Swallow-managed Device Metrics Exporter, and lets an install's completion
+// record its GPU identity. Every process that completes uninstalls or installs must wire it.
+func (s *PlatformService) AttachDeviceMetricsExporterRecorder(recorder platformdomain.DeviceMetricsExporterRecorder) {
+	s.deviceMetricsExporters = recorder
+}
+
 // RecordOmnistatGrafana registers the Grafana a successful Omnistat install reported as the
-// Platform's `Omnistat Grafana` Monitoring Link, replacing a previous link of that name and keeping
-// every other link (glossary Monitoring Link). It is called from the install Task's completion, so
-// a write failure fails that Task and its retry records the link again. A Platform that already
-// holds the maximum number of other links cannot take it and returns ErrInvalidMonitoringLink.
+// Platform's `Omnistat Grafana` Monitoring Link (see recordFeatureGrafana).
 func (s *PlatformService) RecordOmnistatGrafana(ctx context.Context, platformID, grafanaURL string) error {
+	return s.recordFeatureGrafana(ctx, platformID, platformdomain.OmnistatGrafanaLinkName, grafanaURL)
+}
+
+// RecordDeviceMetricsExporterResult records what a successful Device Metrics Exporter install
+// reported: its Grafana as the Platform's `Device Metrics Exporter Grafana` Monitoring Link, and the
+// GPU identity it found, fenced on recordID (the Workflow the record names) so a superseded
+// Workflow's late result changes nothing. Like the link, a write failure fails the install Task.
+func (s *PlatformService) RecordDeviceMetricsExporterResult(
+	ctx context.Context,
+	platformID, recordID, grafanaURL string,
+	identity platformdomain.GPUIdentity,
+) error {
+	if s.deviceMetricsExporters == nil {
+		return fmt.Errorf("%w: Device Metrics Exporter recording is unavailable", platformdomain.ErrInvalidDeviceMetricsExporter)
+	}
+	if err := s.recordFeatureGrafana(ctx, platformID, platformdomain.DeviceMetricsExporterGrafanaLinkName, grafanaURL); err != nil {
+		return err
+	}
+	_, err := s.deviceMetricsExporters.UpdateDeviceMetricsExporterGPUIdentity(ctx, platformID, recordID, identity, time.Now().UTC())
+	return err
+}
+
+// recordFeatureGrafana registers the Grafana a successful Slurm monitoring feature install reported
+// as the Monitoring Link named linkName, replacing a previous link of that name and keeping every
+// other link (glossary Monitoring Link). It is called from the install Task's completion, so a write
+// failure fails that Task and its retry records the link again. A Platform that already holds the
+// maximum number of other links cannot take it and returns ErrInvalidMonitoringLink.
+func (s *PlatformService) recordFeatureGrafana(ctx context.Context, platformID, linkName, grafanaURL string) error {
 	platform, err := s.platforms.FindByID(ctx, platformID)
 	if err != nil {
 		return err
 	}
 	links, err := platformdomain.NormalizeMonitoringLinks(platformdomain.UpsertMonitoringLink(platform.MonitoringLinks,
-		platformdomain.MonitoringLink{Name: platformdomain.OmnistatGrafanaLinkName, URL: grafanaURL}))
+		platformdomain.MonitoringLink{Name: linkName, URL: grafanaURL}))
 	if err != nil {
 		return err
 	}
@@ -115,16 +151,23 @@ type PlatformItem struct {
 	GPUOperator *GPUOperatorItem `json:"gpuOperator"`
 	// Omnistat is the Swallow-managed Omnistat of a Slurm Platform, null when never installed.
 	Omnistat *OmnistatItem `json:"omnistat"`
+	// DeviceMetricsExporter is the Swallow-managed Device Metrics Exporter of a Slurm Platform,
+	// null when never installed.
+	DeviceMetricsExporter *DeviceMetricsExporterItem `json:"deviceMetricsExporter"`
 	// ContainerRuntime is the Slurm container runtime feature (docker-ce or podman), null when off.
 	ContainerRuntime *string `json:"containerRuntime"`
 	// GPUDriver is the operator's amdgpu driver intent, null when none was requested.
 	GPUDriver *GPUDriverItem `json:"gpuDriver"`
 	// GPUGresType is the GRES type name a Slurm deploy gave every GPU node, null when it is
 	// derived per node from the GPU architecture.
-	GPUGresType *string          `json:"gpuGresType"`
-	Sync        PlatformSyncItem `json:"sync"`
-	CreatedAt   string           `json:"createdAt"`
-	UpdatedAt   string           `json:"updatedAt"`
+	GPUGresType *string `json:"gpuGresType"`
+	// OCIContainers and PMIx are the Slurm native OCI container and host MPI features; false when
+	// off (always for Kubernetes).
+	OCIContainers bool             `json:"ociContainers"`
+	PMIx          bool             `json:"pmix"`
+	Sync          PlatformSyncItem `json:"sync"`
+	CreatedAt     string           `json:"createdAt"`
+	UpdatedAt     string           `json:"updatedAt"`
 }
 
 // GPUDriverItem is the wire shape of a Platform's amdgpu driver intent (platforms.md, "GPU
@@ -150,6 +193,21 @@ type OmnistatItem struct {
 	InstallMethod         string  `json:"installMethod"`
 	ObservabilityServerID string  `json:"observabilityServerId"`
 	State                 string  `json:"state"`
+	LastWorkflowID        *string `json:"lastWorkflowId"`
+	UpdatedAt             string  `json:"updatedAt"`
+}
+
+// DeviceMetricsExporterItem is the wire shape of a Slurm Platform's Swallow-managed Device Metrics
+// Exporter (platforms.md, "Device Metrics Exporter"): the pinned version, how Prometheus and
+// Grafana were installed and on which Server, the Device Metrics Exporter State of the Workflow
+// installing it, and the GPU identity a successful install found (null before one).
+type DeviceMetricsExporterItem struct {
+	Enabled               bool    `json:"enabled"`
+	Version               string  `json:"version"`
+	InstallMethod         string  `json:"installMethod"`
+	ObservabilityServerID string  `json:"observabilityServerId"`
+	State                 string  `json:"state"`
+	GPUIdentity           *string `json:"gpuIdentity"`
 	LastWorkflowID        *string `json:"lastWorkflowId"`
 	UpdatedAt             string  `json:"updatedAt"`
 }
@@ -223,6 +281,9 @@ type CreatePlatformInput struct {
 	GPUDriver platformdomain.GPUDriverSettings
 	// GPUGresType is the validated Slurm GRES type override, empty when derived.
 	GPUGresType string
+	// OCIContainers and PMIx are the Slurm native OCI container and host MPI features.
+	OCIContainers bool
+	PMIx          bool
 }
 
 // ErrInvalidPlatform covers validation failures the delivery layer turns into a 400.
@@ -263,6 +324,7 @@ func (s *PlatformService) Create(ctx context.Context, input CreatePlatformInput)
 		Type:          platformType,
 		GPUStackOwner: owner, ExporterOwner: exporterOwner,
 		ContainerRuntime: input.ContainerRuntime, GPUDriver: input.GPUDriver, GPUGresType: input.GPUGresType,
+		OCIContainers: input.OCIContainers, PMIx: input.PMIx,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.platforms.Create(ctx, platform); err != nil {
@@ -434,6 +496,11 @@ func (s *PlatformService) CompleteUninstall(ctx context.Context, id string) erro
 		// The exporter left with the Platform, so its Grafana shortcut goes too; other links stay.
 		platform.MonitoringLinks = platformdomain.RemoveMonitoringLink(platform.MonitoringLinks, platformdomain.OmnistatGrafanaLinkName)
 	}
+	exporterManaged := s.deviceMetricsExporters != nil && platform.DeviceMetricsExporter.Managed()
+	if exporterManaged {
+		platform.MonitoringLinks = platformdomain.RemoveMonitoringLink(platform.MonitoringLinks,
+			platformdomain.DeviceMetricsExporterGrafanaLinkName)
+	}
 	if err := s.platforms.Update(ctx, platform); err != nil {
 		return err
 	}
@@ -443,6 +510,14 @@ func (s *PlatformService) CompleteUninstall(ctx context.Context, id string) erro
 		omnistat.State = platformdomain.OmnistatAbsent
 		omnistat.UpdatedAt = platform.UpdatedAt
 		if err := s.omnistats.SetOmnistat(ctx, id, &omnistat); err != nil {
+			return err
+		}
+	}
+	if exporterManaged {
+		exporter := *platform.DeviceMetricsExporter
+		exporter.State = platformdomain.DeviceMetricsExporterAbsent
+		exporter.UpdatedAt = platform.UpdatedAt
+		if err := s.deviceMetricsExporters.SetDeviceMetricsExporter(ctx, id, &exporter); err != nil {
 			return err
 		}
 	}
@@ -529,12 +604,14 @@ func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.
 		LifecycleOperationID: wire.String(lifecycle.OperationID),
 		Deployment:           toPlatformDeploymentItem(lifecycle.Deployment),
 		GPUStackOwner:        string(platform.GPUStackOwner), ExporterOwner: string(platform.ExporterOwner),
-		MonitoringLinks:  toMonitoringLinkItems(platform.MonitoringLinks),
-		GPUOperator:      toGPUOperatorItem(platform.GPUOperator),
-		Omnistat:         toOmnistatItem(platform.Omnistat),
-		ContainerRuntime: wire.String(string(platform.ContainerRuntime)),
-		GPUDriver:        toGPUDriverItem(platform.GPUDriver),
-		GPUGresType:      wire.String(platform.GPUGresType),
+		MonitoringLinks:       toMonitoringLinkItems(platform.MonitoringLinks),
+		GPUOperator:           toGPUOperatorItem(platform.GPUOperator),
+		Omnistat:              toOmnistatItem(platform.Omnistat),
+		DeviceMetricsExporter: toDeviceMetricsExporterItem(platform.DeviceMetricsExporter),
+		ContainerRuntime:      wire.String(string(platform.ContainerRuntime)),
+		GPUDriver:             toGPUDriverItem(platform.GPUDriver),
+		GPUGresType:           wire.String(platform.GPUGresType),
+		OCIContainers:         platform.OCIContainers, PMIx: platform.PMIx,
 		Sync: PlatformSyncItem{
 			LastStartedAt:   optionalTime(platform.Sync.LastStartedAt),
 			LastSucceededAt: optionalTime(platform.Sync.LastSucceededAt),
@@ -588,6 +665,19 @@ func toOmnistatItem(omnistat *platformdomain.Omnistat) *OmnistatItem {
 		Enabled: omnistat.Enabled, Version: omnistat.Version, InstallMethod: string(omnistat.InstallMethod),
 		ObservabilityServerID: omnistat.ObservabilityServerID, State: string(omnistat.State),
 		LastWorkflowID: wire.String(omnistat.LastWorkflowID), UpdatedAt: wire.Time(omnistat.UpdatedAt),
+	}
+}
+
+// toDeviceMetricsExporterItem projects the record.
+func toDeviceMetricsExporterItem(exporter *platformdomain.DeviceMetricsExporter) *DeviceMetricsExporterItem {
+	if exporter == nil {
+		return nil
+	}
+	return &DeviceMetricsExporterItem{
+		Enabled: exporter.Enabled, Version: exporter.Version, InstallMethod: string(exporter.InstallMethod),
+		ObservabilityServerID: exporter.ObservabilityServerID, State: string(exporter.State),
+		GPUIdentity:    wire.String(string(exporter.GPUIdentity)),
+		LastWorkflowID: wire.String(exporter.LastWorkflowID), UpdatedAt: wire.Time(exporter.UpdatedAt),
 	}
 }
 

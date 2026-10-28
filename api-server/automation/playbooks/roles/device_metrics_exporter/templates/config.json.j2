@@ -1,0 +1,13 @@
+{#- Managed by Swallow (configure-device-metrics-exporter). AMD's package config with Swallow's
+    port, labels, cluster name, health metric, and profiler setting laid over it. -#}
+{{ (lookup('ansible.builtin.file', device_metrics_exporter_package.config) | from_json)
+   | combine({
+       'ServerPort': device_metrics_exporter_port | int,
+       'CommonConfig': {'MetricsFieldPrefix': 'amd_', 'HealthService': {'Enable': true}},
+       'GPUConfig': {
+         'Labels': device_metrics_exporter_labels,
+         'CustomLabels': {'CLUSTER_NAME': device_metrics_exporter_cluster_name},
+         'ProfilerMetrics': {'all': device_metrics_exporter_profiler | bool},
+       },
+     }, recursive=true)
+   | to_nice_json(indent=2) }}

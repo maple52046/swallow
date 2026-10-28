@@ -3,8 +3,6 @@ package domain
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 )
 
@@ -39,35 +37,18 @@ const (
 	OmnistatAbsent OmnistatState = "absent"
 )
 
-// OmnistatInstallMethod is how the deployment installs the Prometheus and Grafana Omnistat uses:
-// the Managed Software install method of both kinds.
-type OmnistatInstallMethod string
-
-const (
-	// OmnistatInstallContainer runs both as containers on the observability Server's container
-	// runtime. It is the default.
-	OmnistatInstallContainer OmnistatInstallMethod = "container"
-	// OmnistatInstallNative installs both from their official release and package repository.
-	OmnistatInstallNative OmnistatInstallMethod = "native"
-)
-
 // OmnistatSettings is the operator's Omnistat intent in a Slurm deploy request. An empty
 // InstallMethod is the container method.
 type OmnistatSettings struct {
 	Enabled       bool
-	InstallMethod OmnistatInstallMethod
+	InstallMethod ObservabilityInstallMethod
 }
 
 // NormalizeOmnistatSettings defaults the install method and refuses an unknown one.
 func NormalizeOmnistatSettings(settings OmnistatSettings) (OmnistatSettings, error) {
-	method := OmnistatInstallMethod(strings.TrimSpace(string(settings.InstallMethod)))
-	switch method {
-	case "":
-		method = OmnistatInstallContainer
-	case OmnistatInstallContainer, OmnistatInstallNative:
-	default:
-		return OmnistatSettings{}, fmt.Errorf("%w: installMethod must be %s or %s, got %q", ErrInvalidOmnistat,
-			OmnistatInstallContainer, OmnistatInstallNative, settings.InstallMethod)
+	method, err := normalizeObservabilityInstallMethod(settings.InstallMethod, ErrInvalidOmnistat)
+	if err != nil {
+		return OmnistatSettings{}, err
 	}
 	return OmnistatSettings{Enabled: settings.Enabled, InstallMethod: method}, nil
 }
@@ -79,7 +60,7 @@ func NormalizeOmnistatSettings(settings OmnistatSettings) (OmnistatSettings, err
 type Omnistat struct {
 	Enabled               bool
 	Version               string
-	InstallMethod         OmnistatInstallMethod
+	InstallMethod         ObservabilityInstallMethod
 	ObservabilityServerID string
 	State                 OmnistatState
 	LastWorkflowID        string
@@ -99,7 +80,7 @@ func (o *Omnistat) Managed() bool {
 type OmnistatLaunch struct {
 	ObservabilityServerID string
 	ComputeServerIDs      []string
-	InstallMethod         OmnistatInstallMethod
+	InstallMethod         ObservabilityInstallMethod
 	TrustedVars           map[string]any
 }
 

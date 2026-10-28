@@ -123,6 +123,9 @@ type Platform struct {
 	// Omnistat is the Swallow-managed Omnistat of a Slurm Platform, nil when Swallow never installed
 	// it here. Like GPUOperator it is written only through its recorder, never by Update.
 	Omnistat *Omnistat
+	// DeviceMetricsExporter is the Swallow-managed Device Metrics Exporter of a Slurm Platform, nil
+	// when Swallow never installed it here. Written only through its recorder, never by Update.
+	DeviceMetricsExporter *DeviceMetricsExporter
 	// ContainerRuntime is the container runtime feature a Slurm deploy chose, empty when off. Set
 	// at creation; each Server's runtime install state is its Software Assignment.
 	ContainerRuntime ContainerRuntime
@@ -132,6 +135,12 @@ type Platform struct {
 	// GPUGresType is the GRES type name a Slurm deploy gave every GPU node, empty when it is
 	// derived per node from the GPU architecture. Set at creation.
 	GPUGresType string
+	// OCIContainers is whether a Slurm deploy set up native OCI containers (srun --container):
+	// crun and oci.conf on the cluster. Set at creation; false for Kubernetes.
+	OCIContainers bool
+	// PMIx is whether a Slurm deploy installed the host MPI stack (OpenMPI with PMIx) that
+	// srun --mpi=pmix_v5 launches. Set at creation; false for Kubernetes.
+	PMIx bool
 
 	// OwnedIntegrationID is set only for a credential integration created by Swallow.
 	// It is private persistence metadata and is never exposed by the platform API.

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Managed by Swallow (deploy-slurm): Omnistat job attribution Epilog hook (decision 063).
+# Omnistat's job file describes the whole node, which runs one job at a time (OverSubscribe=EXCLUSIVE).
+rm -f /tmp/omni_rmsjobinfo
+exit 0

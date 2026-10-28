@@ -1,6 +1,6 @@
 import { Badge, Field, Input, RadioCard, Text, Textarea } from '@chakra-ui/react'
 import { useState } from 'react'
-import type { OmnistatInstallMethod, SlurmContainerRuntime } from '@/domain/platform/types'
+import type { ObservabilityInstallMethod, SlurmContainerRuntime } from '@/domain/platform/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { AdvancedSettings } from './AdvancedSettings'
 import { FeatureToggleCard } from './FeatureToggleCard'
@@ -9,6 +9,13 @@ type WorkloadStorageMode = 'none' | 'self-hosted' | 'external'
 
 /** Whether the GPU GRES type is derived from the GPU architecture or named by the operator. */
 export type GPUGresTypeMode = 'automatic' | 'custom'
+
+/**
+ * The wizard's GPU monitoring choice. The API has one request object per feature (`omnistat`,
+ * `deviceMetricsExporter`) and refuses both together, so the form keeps a single choice and the
+ * page maps it to at most one object.
+ */
+export type SlurmMonitoringChoice = 'none' | 'device-metrics-exporter' | 'omnistat'
 
 interface SlurmDeploymentFeaturesProps {
   workloadMode: WorkloadStorageMode
@@ -22,10 +29,16 @@ interface SlurmDeploymentFeaturesProps {
   loginNodeCount: number
   containerRuntime: SlurmContainerRuntime | ''
   onContainerRuntimeChange: (runtime: SlurmContainerRuntime | '') => void
-  omnistatEnabled: boolean
-  onOmnistatEnabledChange: (enabled: boolean) => void
-  omnistatInstallMethod: OmnistatInstallMethod
-  onOmnistatInstallMethodChange: (method: OmnistatInstallMethod) => void
+  monitoring: SlurmMonitoringChoice
+  onMonitoringChange: (choice: SlurmMonitoringChoice) => void
+  monitoringInstallMethod: ObservabilityInstallMethod
+  onMonitoringInstallMethodChange: (method: ObservabilityInstallMethod) => void
+  /** Whether a selected compute Server lists AMD compute GPUs; the exporter needs one. */
+  hasGPUComputeNode: boolean
+  ociContainers: boolean
+  onOCIContainersChange: (enabled: boolean) => void
+  pmix: boolean
+  onPMIxChange: (enabled: boolean) => void
   primaryControllerName: string
   gresTypeMode: GPUGresTypeMode
   onGresTypeModeChange: (mode: GPUGresTypeMode) => void
@@ -76,8 +89,11 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
 /**
  * Slurm-only deployment features. Each optional capability is independently enabled, while
  * mode-specific settings expand inside the same card so the operator sees consequences before
- * choosing implementation details. GPU node overrides (GRES type name, driver module options) sit
- * in a collapsed disclosure because the defaults are derived from each node's GPUs.
+ * choosing implementation details. GPU monitoring is one switch with a stack choice because the API
+ * refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
+ * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. Native OCI
+ * containers and MPI with PMIx are plain on/off features. GPU node overrides (GRES type name, driver
+ * module options) sit in a collapsed disclosure because the defaults are derived from each node's GPUs.
  */
 export function SlurmDeploymentFeatures({
   workloadMode,
@@ -91,10 +107,15 @@ export function SlurmDeploymentFeatures({
   loginNodeCount,
   containerRuntime,
   onContainerRuntimeChange,
-  omnistatEnabled,
-  onOmnistatEnabledChange,
-  omnistatInstallMethod,
-  onOmnistatInstallMethodChange,
+  monitoring,
+  onMonitoringChange,
+  monitoringInstallMethod,
+  onMonitoringInstallMethodChange,
+  hasGPUComputeNode,
+  ociContainers,
+  onOCIContainersChange,
+  pmix,
+  onPMIxChange,
   primaryControllerName,
   gresTypeMode,
   onGresTypeModeChange,
@@ -107,6 +128,7 @@ export function SlurmDeploymentFeatures({
 }: SlurmDeploymentFeaturesProps) {
   const storageEnabled = workloadMode !== 'none'
   const runtimeEnabled = containerRuntime !== ''
+  const monitoringEnabled = monitoring !== 'none'
   // Opens on return to this step when a setting is in effect, but never collapses while editing.
   const [advancedInitiallyOpen] = useState(() => gresTypeMode === 'custom' || driverOptionsText.trim() !== '')
 
@@ -175,25 +197,67 @@ export function SlurmDeploymentFeatures({
       </FeatureToggleCard>
 
       <FeatureToggleCard
-        title="Omnistat GPU monitoring"
-        description={`Install Omnistat on every compute node, with Prometheus and a read-only Grafana on ${primaryControllerName}.`}
-        checked={omnistatEnabled}
-        onCheckedChange={onOmnistatEnabledChange}
-        status={<Badge variant="subtle" colorPalette={omnistatEnabled ? 'blue' : 'gray'}>{omnistatEnabled ? 'Included' : 'Not included'}</Badge>}
+        title="GPU monitoring"
+        description={`Collect GPU metrics attributed to Slurm jobs, with Prometheus and a read-only Grafana on ${primaryControllerName}.`}
+        checked={monitoringEnabled}
+        onCheckedChange={(enabled) => onMonitoringChange(enabled ? 'device-metrics-exporter' : 'none')}
+        status={<Badge variant="subtle" colorPalette={monitoringEnabled ? 'blue' : 'gray'}>{monitoringEnabled ? 'Included' : 'Not included'}</Badge>}
       >
         <div className="sw-platform-feature-stack">
           <ChoiceCards
+            label="Monitoring stack"
+            value={monitoring === 'none' ? 'device-metrics-exporter' : monitoring}
+            onChange={onMonitoringChange}
+            options={[
+              {
+                value: 'device-metrics-exporter',
+                label: 'AMD Device Metrics Exporter',
+                description: 'Per-GPU metrics labelled with the job on each GPU. Jobs keep sharing nodes.',
+              },
+              {
+                value: 'omnistat',
+                label: 'Omnistat',
+                description: 'Node-level job metrics and reports. Each compute node runs one job at a time.',
+              },
+            ]}
+          />
+          {monitoring === 'device-metrics-exporter' && !hasGPUComputeNode && (
+            <Alert status="warning" title="No compute node has AMD GPUs">
+              The Device Metrics Exporter runs on GPU compute nodes. Select a compute Server whose GPU inventory lists AMD compute GPUs, or choose Omnistat.
+            </Alert>
+          )}
+          <ChoiceCards
             label="Prometheus and Grafana installation"
-            value={omnistatInstallMethod}
-            onChange={onOmnistatInstallMethodChange}
+            value={monitoringInstallMethod}
+            onChange={onMonitoringInstallMethodChange}
             options={[
               { value: 'container', label: 'Containers', description: `Run both as containers on ${primaryControllerName}.` },
               { value: 'native', label: 'Native', description: 'Use the official Prometheus release and Grafana package repository.' },
             ]}
           />
-          <Text color="fg.muted" fontSize="sm">Each compute node runs one job at a time so Omnistat metrics map to a single job.</Text>
+          <Text color="fg.muted" fontSize="sm">
+            {monitoring === 'omnistat'
+              ? 'Each compute node runs one job at a time so Omnistat metrics map to a single job.'
+              : 'Hardware profiler counters stay off. Where GPUs report the same id (for example MI308X virtual functions), the Platform reports the GPU identity as collapsed: metrics flow, but per-job GPU attribution is not reliable.'}
+          </Text>
         </div>
       </FeatureToggleCard>
+
+      <FeatureToggleCard
+        title="Native OCI containers"
+        description="Run job steps in OCI bundles with srun --container: crun and a rootless runtime on every compute node. Bundles must exist at the same path on every node."
+        checked={ociContainers}
+        onCheckedChange={onOCIContainersChange}
+        status={<Badge variant="subtle" colorPalette={ociContainers ? 'blue' : 'gray'}>{ociContainers ? 'Included' : 'Not included'}</Badge>}
+      />
+
+      <FeatureToggleCard
+        title="MPI with PMIx"
+        description="Install OpenMPI with PMIx on compute and login nodes so srun --mpi=pmix_v5 launches MPI jobs. The cluster's default MPI stays none."
+        checked={pmix}
+        onCheckedChange={onPMIxChange}
+        status={<Badge variant="subtle" colorPalette={pmix ? 'blue' : 'gray'}>{pmix ? 'Included' : 'Not included'}</Badge>}
+      />
 
       <div className="sw-platform-included-card">
         <div>

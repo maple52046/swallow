@@ -86,11 +86,11 @@ func TestDeploySlurmWithOmnistatRecordsTheWorkflowBeforeLaunch(t *testing.T) {
 // observability software is installed by, and an unknown method creates nothing.
 func TestDeploySlurmOmnistatInstallMethod(t *testing.T) {
 	for _, tc := range []struct {
-		requested platformdomain.OmnistatInstallMethod
-		want      platformdomain.OmnistatInstallMethod
+		requested platformdomain.ObservabilityInstallMethod
+		want      platformdomain.ObservabilityInstallMethod
 	}{
-		{requested: "", want: platformdomain.OmnistatInstallContainer},
-		{requested: platformdomain.OmnistatInstallNative, want: platformdomain.OmnistatInstallNative},
+		{requested: "", want: platformdomain.ObservabilityInstallContainer},
+		{requested: platformdomain.ObservabilityInstallNative, want: platformdomain.ObservabilityInstallNative},
 	} {
 		t.Run(string(tc.want), func(t *testing.T) {
 			service, launcher, platforms := newDeployHarness(slurmServers()...)

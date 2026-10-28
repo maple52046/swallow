@@ -1,0 +1,32 @@
+#!/bin/bash
+# Managed by Swallow (deploy-slurm): Device Metrics Exporter job attribution Prolog hook.
+# Records the job on every GPU it was allocated as /run/exporter/<GRES index>, the file the
+# exporter watches and joins to its gpu_id label. Each file names only its own GPU, so the Epilog
+# removing it detaches exactly that GPU. A file is written under a temporary name the exporter
+# ignores (not a number) and renamed into place, so the exporter never reads half a file. Until the
+# exporter is installed the directory does not exist and the hook does nothing.
+set -eu
+readonly state_dir=/run/exporter
+[ -d "$state_dir" ] || exit 0
+gpus=${SLURM_JOB_GPUS:-}
+[ -n "$gpus" ] || exit 0
+if [[ ! $gpus =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+  echo "SLURM_JOB_GPUS is not a list of GPU indexes: $gpus" >&2
+  exit 1
+fi
+
+json_string() {
+  local value=${1//\\/\\\\}
+  printf '"%s"' "${value//\"/\\\"}"
+}
+
+IFS=, read -ra ids <<<"$gpus"
+for id in "${ids[@]}"; do
+  tmp=$(mktemp "$state_dir/.job.XXXXXX")
+  printf '{"SLURM_JOB_ID":%s,"SLURM_JOB_USER":%s,"SLURM_JOB_PARTITION":%s,"SLURM_CLUSTER_NAME":%s,"SLURM_JOB_GPUS":%s,"CUDA_VISIBLE_DEVICES":%s,"SLURM_SCRIPT_CONTEXT":%s}\n' \
+    "$(json_string "${SLURM_JOB_ID:-}")" "$(json_string "${SLURM_JOB_USER:-}")" \
+    "$(json_string "${SLURM_JOB_PARTITION:-}")" "$(json_string "${SLURM_CLUSTER_NAME:-}")" \
+    "$(json_string "$gpus")" "$(json_string "$id")" "$(json_string "${SLURM_SCRIPT_CONTEXT:-}")" >"$tmp"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$state_dir/$id"
+done

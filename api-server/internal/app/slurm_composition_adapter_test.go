@@ -109,10 +109,11 @@ func TestPlatformDeploymentObserverRoutesSlurmTasksByID(t *testing.T) {
 func TestOmnistatSoftwareSpecs(t *testing.T) {
 	omnistat := &platformdomain.OmnistatLaunch{
 		ObservabilityServerID: "s1", ComputeServerIDs: []string{"s2", "s3"},
-		InstallMethod: platformdomain.OmnistatInstallContainer,
+		InstallMethod: platformdomain.ObservabilityInstallContainer,
 	}
 
-	prometheus := omnistatSoftwareSpec(softwaredomain.KindPrometheus, omnistat, softwaredomain.KindPodman)
+	prometheus := monitoringSoftwareSpec(softwaredomain.KindPrometheus,
+		slurmMonitoringOf(platformdomain.DeploymentLaunch{Omnistat: omnistat}), softwaredomain.KindPodman)
 	if prometheus[softwaredomain.SpecScrapeJob] != platformdomain.OmnistatScrapeJob ||
 		prometheus[softwaredomain.SpecScrapePort] != platformdomain.OmnistatExporterPort ||
 		prometheus[softwaredomain.SpecInstallMethod] != "container" || prometheus[softwaredomain.SpecContainerRuntime] != "podman" ||
@@ -123,8 +124,8 @@ func TestOmnistatSoftwareSpecs(t *testing.T) {
 		t.Errorf("scrapeServerIds = %v, want [s2 s3]", prometheus[softwaredomain.SpecScrapeServerIDs])
 	}
 
-	omnistat.InstallMethod = platformdomain.OmnistatInstallNative
-	grafana := omnistatSoftwareSpec(softwaredomain.KindGrafana, omnistat, "")
+	omnistat.InstallMethod = platformdomain.ObservabilityInstallNative
+	grafana := monitoringSoftwareSpec(softwaredomain.KindGrafana, slurmMonitoringOf(platformdomain.DeploymentLaunch{Omnistat: omnistat}), "")
 	if bundles, _ := grafana[softwaredomain.SpecDashboards].([]string); !slices.Equal(bundles, []string{"omnistat"}) {
 		t.Errorf("grafana dashboards = %v, want [omnistat]", grafana[softwaredomain.SpecDashboards])
 	}
@@ -169,8 +170,8 @@ func (a assignmentList) ListAll(context.Context) ([]*softwaredomain.Assignment, 
 func TestComposedContainerRuntime(t *testing.T) {
 	podmanOnS1 := assignmentList{{ServerID: "s1", Kind: softwaredomain.KindPodman, State: softwaredomain.StateInstalled}}
 	dockerOnS2 := assignmentList{{ServerID: "s2", Kind: softwaredomain.KindDockerCE, State: softwaredomain.StateInstalled}}
-	container := &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1", InstallMethod: platformdomain.OmnistatInstallContainer}
-	native := &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1", InstallMethod: platformdomain.OmnistatInstallNative}
+	container := &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer}
+	native := &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative}
 	feature := &platformdomain.ContainerRuntimeLaunch{Kind: platformdomain.ContainerRuntimeDockerCE, ServerIDs: []string{"s2", "s3"}}
 
 	tests := []struct {
@@ -203,5 +204,122 @@ func TestComposedContainerRuntime(t *testing.T) {
 				t.Errorf("composedContainerRuntime() = %q %v, want %q %v", kind, servers, tc.wantKind, tc.wantServers)
 			}
 		})
+	}
+}
+
+// exporterStateRecorder captures the last fenced Device Metrics Exporter State write.
+type exporterStateRecorder struct {
+	platformID, workflowID string
+	state                  platformdomain.DeviceMetricsExporterState
+	calls                  int
+}
+
+func (r *exporterStateRecorder) SetDeviceMetricsExporter(context.Context, string, *platformdomain.DeviceMetricsExporter) error {
+	return nil
+}
+
+func (r *exporterStateRecorder) UpdateDeviceMetricsExporterState(
+	_ context.Context, platformID, workflowID string, state platformdomain.DeviceMetricsExporterState, _ time.Time,
+) (bool, error) {
+	r.platformID, r.workflowID, r.state = platformID, workflowID, state
+	r.calls++
+	return true, nil
+}
+
+func (r *exporterStateRecorder) UpdateDeviceMetricsExporterGPUIdentity(
+	context.Context, string, string, platformdomain.GPUIdentity, time.Time,
+) (bool, error) {
+	return true, nil
+}
+
+// The Device Metrics Exporter State follows its install Task exactly like Omnistat's, fenced on the
+// recorded deploy Workflow; other Tasks (including Omnistat's) and pending move nothing.
+func TestDeviceMetricsExporterObserverProjectsItsTaskOnly(t *testing.T) {
+	task := func(id string, status operationdomain.TaskStatus) operationdomain.Task {
+		return operationdomain.Task{ID: id, Kind: "ansible-playbook", Status: status, Parameters: map[string]any{
+			deviceMetricsExporterStepParamOwner: "plat-1", deviceMetricsExporterStepParamRecord: "deploy-1",
+			omnistatStepParamOwner: "plat-1", omnistatStepParamRecord: "deploy-1",
+		}}
+	}
+	tests := []struct {
+		status operationdomain.TaskStatus
+		want   platformdomain.DeviceMetricsExporterState
+	}{
+		{status: operationdomain.TaskRunning, want: platformdomain.DeviceMetricsExporterInstalling},
+		{status: operationdomain.TaskSucceeded, want: platformdomain.DeviceMetricsExporterReady},
+		{status: operationdomain.TaskFailed, want: platformdomain.DeviceMetricsExporterFailed},
+		{status: operationdomain.TaskSkipped, want: platformdomain.DeviceMetricsExporterFailed},
+	}
+	for _, tc := range tests {
+		recorder := &exporterStateRecorder{}
+		observer := deviceMetricsExporterStepObserver{recorder: recorder}
+		if err := observer.ObserveStep(context.Background(), "rerun-2", task(deviceMetricsExporterStepID, tc.status)); err != nil {
+			t.Fatalf("ObserveStep: %v", err)
+		}
+		if recorder.state != tc.want || recorder.platformID != "plat-1" || recorder.workflowID != "deploy-1" {
+			t.Errorf("%s: recorded (%s, %s, %s), want (plat-1, deploy-1, %s)", tc.status,
+				recorder.platformID, recorder.workflowID, recorder.state, tc.want)
+		}
+	}
+	recorder := &exporterStateRecorder{}
+	observer := deviceMetricsExporterStepObserver{recorder: recorder}
+	for _, other := range []operationdomain.Task{task(omnistatStepID, operationdomain.TaskFailed),
+		task(deviceMetricsExporterStepID, operationdomain.TaskPending)} {
+		if err := observer.ObserveStep(context.Background(), "deploy-1", other); err != nil {
+			t.Fatalf("ObserveStep(%s): %v", other.ID, err)
+		}
+	}
+	if recorder.calls != 0 {
+		t.Errorf("recorder called %d times for other Tasks and pending, want 0", recorder.calls)
+	}
+}
+
+// The exporter's Prometheus scrapes the GPU compute nodes on port 5001 (never the RDC exporter's
+// 5000) under its own job, and Grafana provisions the exporter's dashboards.
+func TestDeviceMetricsExporterSoftwareSpecs(t *testing.T) {
+	launch := platformdomain.DeploymentLaunch{DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterLaunch{
+		ObservabilityServerID: "s1", GPUComputeServerIDs: []string{"s3"},
+		InstallMethod: platformdomain.ObservabilityInstallNative,
+	}}
+	monitoring := slurmMonitoringOf(launch)
+	prometheus := monitoringSoftwareSpec(softwaredomain.KindPrometheus, monitoring, "")
+	if prometheus[softwaredomain.SpecScrapeJob] != "device-metrics-exporter" || prometheus[softwaredomain.SpecScrapePort] != 5001 ||
+		prometheus[softwaredomain.SpecInstallMethod] != "native" || prometheus[softwaredomain.SpecListen] != "loopback" {
+		t.Errorf("prometheus spec = %v", prometheus)
+	}
+	if ids, _ := prometheus[softwaredomain.SpecScrapeServerIDs].([]string); !slices.Equal(ids, []string{"s3"}) {
+		t.Errorf("scrapeServerIds = %v, want the GPU compute node [s3]", prometheus[softwaredomain.SpecScrapeServerIDs])
+	}
+	grafana := monitoringSoftwareSpec(softwaredomain.KindGrafana, monitoring, "")
+	if bundles, _ := grafana[softwaredomain.SpecDashboards].([]string); !slices.Equal(bundles, []string{"device-metrics-exporter"}) {
+		t.Errorf("grafana dashboards = %v, want [device-metrics-exporter]", grafana[softwaredomain.SpecDashboards])
+	}
+	if monitoring.stepID != "install-device-metrics-exporter" || monitoring.workflowKind != operationdomain.WorkflowKindConfigureDeviceMetricsExporter {
+		t.Errorf("monitoring Task = %s/%s", monitoring.stepID, monitoring.workflowKind)
+	}
+}
+
+// The exporter's container method composes the observability Server's runtime like Omnistat's.
+func TestComposedContainerRuntimeForTheDeviceMetricsExporter(t *testing.T) {
+	launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(assignmentList{}, nil, nil)}
+	launch := platformdomain.DeploymentLaunch{DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterLaunch{
+		ObservabilityServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer,
+	}}
+	kind, servers, err := launcher.composedContainerRuntime(context.Background(), launch)
+	if err != nil || kind != softwaredomain.KindDockerCE || !slices.Equal(servers, []string{"s1"}) {
+		t.Errorf("composedContainerRuntime() = %q %v %v, want docker-ce [s1]", kind, servers, err)
+	}
+}
+
+// The exporter's Task must report a Grafana URL; without one it fails instead of leaving the
+// Platform without its link.
+func TestDeviceMetricsExporterCompletionNeedsTheGrafanaURL(t *testing.T) {
+	observer := platformDeploymentObserver{}
+	execution := &operationdomain.AnsibleExecution{
+		OperationID: "op-1", Kind: operationdomain.WorkflowKindConfigureSlurm, PlatformID: "plat-1",
+		StepID: deviceMetricsExporterStepID,
+	}
+	if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err == nil {
+		t.Error("a Device Metrics Exporter run without a Grafana URL must fail its Task")
 	}
 }

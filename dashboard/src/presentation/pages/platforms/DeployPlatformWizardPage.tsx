@@ -8,7 +8,7 @@ import { evaluateMinimumResourceEligibility, formatGiB, formatMinimumResources }
 import { GPU_ALLOCATION_MODE_LABELS, hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
 import type {
   NodeRole,
-  OmnistatInstallMethod,
+  ObservabilityInstallMethod,
   Platform,
   PlatformMachinePreparation,
   PlatformType,
@@ -51,7 +51,7 @@ import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
 import { AdvancedSettings } from './AdvancedSettings'
 import { KubernetesDeploymentFeatures } from './KubernetesDeploymentFeatures'
 import { TimeSyncCheckToggle } from './TimeSyncCheckToggle'
-import { SlurmDeploymentFeatures, type GPUGresTypeMode } from './SlurmDeploymentFeatures'
+import { SlurmDeploymentFeatures, type GPUGresTypeMode, type SlurmMonitoringChoice } from './SlurmDeploymentFeatures'
 import {
   formatGPUDriverModuleOptions,
   isValidGPUGresType,
@@ -248,10 +248,15 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   // Optional container runtime (decision 063): Docker CE or Podman on every compute and login node
   // for containerized workloads; '' installs none. Off by default because Slurm needs none.
   const [slurmContainerRuntime, setSlurmContainerRuntime] = useState<SlurmContainerRuntime | ''>('')
-  // Optional Omnistat (decision 063): exporter on every compute node, Prometheus and Grafana on the
+  // Optional GPU monitoring (decisions 063 and 066): the Device Metrics Exporter (per-GPU, jobs share
+  // nodes) or Omnistat (one job per node), never both, each with Prometheus and Grafana on the
   // primary controller by the chosen install method. Off by default because it adds software there.
-  const [omnistatEnabled, setOmnistatEnabled] = useState(false)
-  const [omnistatInstallMethod, setOmnistatInstallMethod] = useState<OmnistatInstallMethod>('container')
+  const [slurmMonitoring, setSlurmMonitoring] = useState<SlurmMonitoringChoice>('none')
+  const [monitoringInstallMethod, setMonitoringInstallMethod] = useState<ObservabilityInstallMethod>('container')
+  // Optional native OCI containers and host MPI (decision 066); both off by default because they
+  // install packages on every compute node.
+  const [slurmOCIContainers, setSlurmOCIContainers] = useState(false)
+  const [slurmPMIx, setSlurmPMIx] = useState(false)
   // GPU node settings (platforms.md "GPU GRES" and "GPU driver options"): the GRES type is derived
   // from the GPU architecture unless named, and topology-required driver options apply regardless.
   const [slurmGresTypeMode, setSlurmGresTypeMode] = useState<GPUGresTypeMode>('automatic')
@@ -425,7 +430,16 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   const slurmGresTypeInvalid = slurmGresTypeMode === 'custom' && !isValidGPUGresType(slurmGresType.trim())
   const gpuDriverOptions = parseGPUDriverModuleOptions(gpuDriverOptionsText)
   const slurmGPUSettingsValid = !slurmGresTypeInvalid && gpuDriverOptions.errors.length === 0
-  const featuresValid = isSlurm ? slurmGPUSettingsValid : gpuOperatorProblem === null
+  // The Device Metrics Exporter reports only GPUs, so the backend refuses it without a compute
+  // Server whose GPU Inventory lists AMD compute GPUs; the wizard blocks the step for the same rule.
+  const slurmHasGPUComputeNode =
+    state.status === 'ready' &&
+    slurmComputeIds.some((serverId) => {
+      const server = state.data.servers.find((candidate) => candidate.id === serverId)
+      return Boolean(server && hasAMDComputeGPU(server.gpus))
+    })
+  const slurmMonitoringValid = slurmMonitoring !== 'device-metrics-exporter' || slurmHasGPUComputeNode
+  const featuresValid = isSlurm ? slurmGPUSettingsValid && slurmMonitoringValid : gpuOperatorProblem === null
   const gpuOperatorReview = (() => {
     if (!gpuOperatorForm.enabled) return 'Not installed'
     const release = gpuOperatorCatalog ? resolveGPUOperatorRelease(gpuOperatorForm, gpuOperatorCatalog) : undefined
@@ -446,7 +460,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
       : []
   const selectedAddresses = selectedServers.flatMap((server) => server.addresses)
   // The backend makes the first controller in nodeAssignments (which follow slurmSelectedIds) the
-  // primary; with Omnistat it also hosts Prometheus and Grafana.
+  // primary; with a GPU monitoring feature it also hosts Prometheus and Grafana.
   const slurmPrimaryController = selectedServers.find((server) => server.id === slurmControllerIds[0])
   const slurmPrimaryControllerName = slurmPrimaryController ? serverDisplayName(slurmPrimaryController) : 'the primary controller'
   const initialController = selectedServers.find((server) => roles[server.id] === 'control-plane')
@@ -705,10 +719,15 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               type: 'slurm',
               gpuStackOwner: 'provisioning',
               ...(slurmContainerRuntime ? { containerRuntime: { kind: slurmContainerRuntime } } : {}),
-              ...(omnistatEnabled ? { omnistat: { enabled: true, installMethod: omnistatInstallMethod } } : {}),
+              ...(slurmMonitoring === 'omnistat' ? { omnistat: { enabled: true, installMethod: monitoringInstallMethod } } : {}),
+              ...(slurmMonitoring === 'device-metrics-exporter'
+                ? { deviceMetricsExporter: { enabled: true, installMethod: monitoringInstallMethod } }
+                : {}),
               ...(Object.keys(gpuDriverOptions.options).length > 0 ? { gpuDriver: { moduleOptions: gpuDriverOptions.options } } : {}),
               slurm: {
                 ...(slurmGresTypeMode === 'custom' ? { gpuGresType: slurmGresType.trim() } : {}),
+                ...(slurmOCIContainers ? { ociContainers: true } : {}),
+                ...(slurmPMIx ? { pmix: true } : {}),
                 clusterName: clusterName.trim() || undefined,
                 apiVersion: slurmApiVersion.trim() || undefined,
                 // stateSaveLocation is intentionally omitted: Swallow provisions the HA shared
@@ -813,7 +832,9 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                   setSlurmWorkloadMode('none')
                   setSlurmWorkloadNfsUrl('')
                   setSlurmContainerRuntime('')
-                  setOmnistatEnabled(false)
+                  setSlurmMonitoring('none')
+                  setSlurmOCIContainers(false)
+                  setSlurmPMIx(false)
                   setServerQuery('')
                   setNetworkAssignments({})
                 }}
@@ -1243,9 +1264,13 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
     steps.push({
       id: 'deploy-features',
       name: 'Features',
-      canProceed: isSlurm ? slurmWorkloadValid && slurmGPUSettingsValid : featuresValid,
+      canProceed: isSlurm ? slurmWorkloadValid && featuresValid : featuresValid,
       blockedReason: isSlurm
-        ? (slurmWorkloadValid ? 'Correct the advanced GPU settings.' : 'Complete the enabled shared-storage settings.')
+        ? (!slurmWorkloadValid
+            ? 'Complete the enabled shared-storage settings.'
+            : !slurmMonitoringValid
+              ? 'The Device Metrics Exporter needs a compute node with AMD GPUs.'
+              : 'Correct the advanced GPU settings.')
         : gpuOperatorProblem ?? undefined,
       content: (
         <WizardSection title={isSlurm ? 'Slurm features' : 'Kubernetes features'}>
@@ -1262,10 +1287,15 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               loginNodeCount={slurmLoginIds.length}
               containerRuntime={slurmContainerRuntime}
               onContainerRuntimeChange={setSlurmContainerRuntime}
-              omnistatEnabled={omnistatEnabled}
-              onOmnistatEnabledChange={setOmnistatEnabled}
-              omnistatInstallMethod={omnistatInstallMethod}
-              onOmnistatInstallMethodChange={setOmnistatInstallMethod}
+              monitoring={slurmMonitoring}
+              onMonitoringChange={setSlurmMonitoring}
+              monitoringInstallMethod={monitoringInstallMethod}
+              onMonitoringInstallMethodChange={setMonitoringInstallMethod}
+              hasGPUComputeNode={slurmHasGPUComputeNode}
+              ociContainers={slurmOCIContainers}
+              onOCIContainersChange={setSlurmOCIContainers}
+              pmix={slurmPMIx}
+              onPMIxChange={setSlurmPMIx}
               primaryControllerName={slurmPrimaryControllerName}
               gresTypeMode={slurmGresTypeMode}
               onGresTypeModeChange={setSlurmGresTypeMode}
@@ -1635,14 +1665,22 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
             }],
           },
           {
+            title: 'Containers and MPI',
+            stepId: 'deploy-features',
+            items: [
+              { label: 'Native OCI containers', value: slurmOCIContainers ? 'crun with srun --container on compute nodes' : 'Not included' },
+              { label: 'MPI with PMIx', value: slurmPMIx ? 'OpenMPI with srun --mpi=pmix_v5' : 'Not included' },
+            ],
+          },
+          {
             title: 'GPU monitoring and scheduling',
             stepId: 'deploy-features',
             items: [
               {
-                label: 'Omnistat',
-                value: omnistatEnabled
-                  ? `Prometheus and Grafana on ${slurmPrimaryControllerName}; ${omnistatInstallMethod === 'native' ? 'native packages' : 'containers'}`
-                  : 'Not included',
+                label: 'GPU monitoring',
+                value: slurmMonitoring === 'none'
+                  ? 'Not included'
+                  : `${slurmMonitoring === 'omnistat' ? 'Omnistat' : 'AMD Device Metrics Exporter'}; Prometheus and Grafana on ${slurmPrimaryControllerName} as ${monitoringInstallMethod === 'native' ? 'native packages' : 'containers'}`,
               },
               {
                 label: 'GPU GRES',

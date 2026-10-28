@@ -1,0 +1,19 @@
+#!/bin/bash
+# Managed by Swallow (deploy-slurm): the Slurm {{ slurm_job_hooks_phase | capitalize }} dispatcher.
+# slurmd runs this as the only {{ slurm_job_hooks_phase | capitalize }}. It runs every executable in
+# {{ slurm_job_hooks_dir }} in name order, each with the job's environment and a
+# {{ slurm_job_hooks_timeout_seconds }}-second limit. A failing hook is logged (tag
+# swallow-{{ slurm_job_hooks_phase }}) and the next one still runs: the hooks attribute jobs to
+# monitoring, and a non-zero {{ slurm_job_hooks_phase | capitalize }} would drain the node and requeue the job.
+set -u
+shopt -s nullglob
+for hook in {{ slurm_job_hooks_dir }}/*; do
+  [ -f "$hook" ] && [ -x "$hook" ] || continue
+  output=$(timeout --kill-after=5 {{ slurm_job_hooks_timeout_seconds }} "$hook" 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    logger -t swallow-{{ slurm_job_hooks_phase }} -- \
+      "hook ${hook##*/} failed for job ${SLURM_JOB_ID:-unknown} (rc=$rc): ${output:0:400}"
+  fi
+done
+exit 0

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Managed by Swallow (deploy-slurm): Omnistat job attribution Prolog hook (decision 063).
+# Writes the node-wide job file the Omnistat exporter reads. Until configure-omnistat has installed
+# the exporter there is nothing to attribute to, so the hook succeeds without doing anything.
+set -u
+readonly rms_env=/opt/omnistat/current/venv/bin/omnistat-rms-env
+readonly job_file=/tmp/omni_rmsjobinfo
+if [ ! -x "$rms_env" ] || ! id omnistat >/dev/null 2>&1; then
+  exit 0
+fi
+exec /usr/sbin/runuser --user omnistat --preserve-environment -- "$rms_env" "$job_file"

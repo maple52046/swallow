@@ -42,6 +42,248 @@
       cluster is deployed and nodes are registered; check scheduling with sinfo/squeue.
   when: slurm_verify_srun.rc != 0
 
+# Jobs share a node unless Omnistat needs whole nodes: two one-CPU jobs that name no memory must run
+# on the same node at once. Without DefMemPerCPU the first takes all of the node's memory and the
+# second waits, which is exactly the misconfiguration this catches. Fatal, like the GPU checks.
+- name: Verify that jobs share a node
+  when:
+    - not (slurm_omnistat_enabled | bool)
+    - (hostvars[swallow_slurm_compute_ids[0]].slurm_node_cpus | int) >= 2
+  vars:
+    slurm_verify_shared_node: "{{ hostvars[swallow_slurm_compute_ids[0]].slurm_node_name }}"
+  block:
+    - name: Submit two one-CPU jobs without a memory request to one node
+      ansible.builtin.command:
+        argv:
+          - sbatch
+          - --parsable
+          - --job-name=swallow-verify-shared
+          - --ntasks=1
+          - --time=5
+          - "--nodelist={{ slurm_verify_shared_node }}"
+          - --output=/dev/null
+          - --wrap=sleep 120
+      become: true
+      loop: [1, 2]
+      register: slurm_verify_shared_jobs
+      changed_when: false
+
+    - name: Wait until both jobs run at the same time
+      ansible.builtin.command:
+        argv:
+          - squeue
+          - --noheader
+          - --format=%T
+          - "--jobs={{ slurm_verify_shared_jobs.results | map(attribute='stdout') | map('split', ';') | map('first') | join(',') }}"
+      become: true
+      register: slurm_verify_shared_state
+      until: slurm_verify_shared_state.stdout_lines | select('equalto', 'RUNNING') | list | length == 2
+      retries: 12
+      delay: 5
+      changed_when: false
+      failed_when: false
+
+    - name: Cancel the shared-node jobs
+      ansible.builtin.command:
+        argv:
+          - scancel
+          - "{{ item.stdout.split(';') | first }}"
+      become: true
+      loop: "{{ slurm_verify_shared_jobs.results }}"
+      loop_control:
+        # The label is rendered even when the block is skipped, where results carry no stdout.
+        label: "{{ item.stdout | default('') }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse a cluster whose jobs cannot share a node
+      ansible.builtin.fail:
+        msg: >-
+          [slurm_shared_node_failed] two one-CPU jobs did not run together on {{ slurm_verify_shared_node }}
+          (states: {{ slurm_verify_shared_state.stdout_lines | join(', ') }}); check DefMemPerCPU and
+          the partition's OverSubscribe setting.
+      when: slurm_verify_shared_state.stdout_lines | select('equalto', 'RUNNING') | list | length != 2
+
+# Native OCI containers must run, not merely be configured (decision 066): a container step runs as
+# an unprivileged user (rootless crun; its user namespace maps that user, never root), and on every
+# GPU node a one-GPU container step sees exactly one GPU, because the job's device cgroup still
+# applies inside the container. Fatal: an operator who asked for containers gets working ones.
+- name: Verify native OCI containers
+  when: slurm_oci_containers | bool
+  vars:
+    slurm_verify_oci_user: nobody
+    slurm_verify_oci_node: "{{ hostvars[swallow_slurm_compute_ids[0]].slurm_node_name }}"
+  block:
+    - name: Run a container step as an unprivileged user
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - "{{ slurm_verify_oci_user }}"
+          - --
+          - srun
+          - --chdir=/tmp
+          - --nodes=1
+          - --ntasks=1
+          - --time=5
+          - "--nodelist={{ slurm_verify_oci_node }}"
+          - "--container={{ slurm_oci_probe_bundle }}"
+          - /bin/cat
+          - /proc/self/uid_map
+      become: true
+      register: slurm_verify_oci_rootless
+      until: slurm_verify_oci_rootless.rc == 0
+      retries: 3
+      delay: 5
+      changed_when: false
+      failed_when: false
+
+    - name: Run the HIP probe in a one-GPU container step on every GPU node
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - "{{ slurm_verify_oci_user }}"
+          - --
+          - srun
+          - --chdir=/tmp
+          - --nodes=1
+          - --ntasks=1
+          - --time=10
+          - "--nodelist={{ hostvars[item].slurm_node_name }}"
+          - --gres=gpu:1
+          - "--container={{ slurm_oci_probe_bundle }}"
+          - /usr/local/libexec/swallow/hip-probe
+          - --expect=1
+          - --runs=1
+      become: true
+      loop: "{{ swallow_slurm_gpu_compute_ids | default([]) }}"
+      register: slurm_verify_oci_gpu
+      changed_when: false
+      failed_when: false
+
+    - name: Find the container checks that failed
+      ansible.builtin.set_fact:
+        slurm_verify_oci_failures: >-
+          {%- set failures = [] -%}
+          {%- set mapping = (slurm_verify_oci_rootless.stdout | default('')).split() -%}
+          {%- if slurm_verify_oci_rootless.rc | default(1) != 0 or mapping | length < 2 or mapping[1] == '0' -%}
+          {%- set _ = failures.append(slurm_verify_oci_node ~ ': a rootless container step did not run ('
+                ~ ((slurm_verify_oci_rootless.stdout | default('')) ~ ' ' ~ (slurm_verify_oci_rootless.stderr | default('')))[-300:] ~ ')') -%}
+          {%- endif -%}
+          {%- for result in slurm_verify_oci_gpu.results | default([]) -%}
+          {%- set report = (result.stdout_lines | last | from_json)
+                if (result.stdout_lines | default([]) | length > 0 and (result.stdout_lines | last).startswith('{')) else {} -%}
+          {%- if result.rc | default(1) != 0 or not report.ok | default(false) -%}
+          {%- set _ = failures.append(hostvars[result.item].slurm_node_name ~ ': a one-GPU container did not see exactly one GPU ('
+                ~ ((report.error | default('')) ~ ' ' ~ (result.stderr | default('')))[-300:] ~ ')') -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ failures }}
+
+    - name: Refuse native OCI containers that do not work
+      ansible.builtin.fail:
+        msg: "[slurm_oci_failed] {{ slurm_verify_oci_failures | join('; ') }}"
+      when: slurm_verify_oci_failures | length > 0
+
+# srun --mpi=pmix_v5 must launch MPI programs, not merely list the plugin (decision 066). The MPI
+# probe initializes MPI through slurmstepd's PMIx server and passes a barrier: two ranks on one node,
+# one rank on each of two nodes, and with native OCI containers one rank in a container on each of
+# two nodes (one rank on one node when there is a single compute node: ranks of one node run in
+# separate containers, which share no memory, so that layout is the workload's choice of transport,
+# not a deployment property). A rank that exits non-zero must fail the step. Run as an unprivileged
+# user, like real jobs. Fatal.
+- name: Verify MPI with PMIx
+  when: slurm_pmix | bool
+  vars:
+    slurm_verify_mpi_user: nobody
+    slurm_verify_mpi_node: "{{ hostvars[swallow_slurm_compute_ids[0]].slurm_node_name }}"
+    slurm_verify_mpi_two_nodes: "{{ swallow_slurm_compute_ids | length >= 2 }}"
+    slurm_verify_mpi_runs: >-
+      {{ [{'name': 'two ranks on one node', 'nodes': 1, 'ranks': 2,
+           'args': ['--nodes=1', '--ntasks=2', '--nodelist=' ~ slurm_verify_mpi_node]}]
+         + ([{'name': 'one rank on each of two nodes', 'nodes': 2, 'ranks': 2, 'args': ['--nodes=2', '--ntasks-per-node=1']}]
+            if slurm_verify_mpi_two_nodes | bool else [])
+         + ([{'name': 'inside a container', 'nodes': 2 if slurm_verify_mpi_two_nodes | bool else 1,
+              'ranks': 2 if slurm_verify_mpi_two_nodes | bool else 1,
+              'args': (['--nodes=2', '--ntasks-per-node=1'] if slurm_verify_mpi_two_nodes | bool
+                       else ['--nodes=1', '--ntasks=1', '--nodelist=' ~ slurm_verify_mpi_node])
+                      + ['--container=' ~ slurm_oci_probe_bundle]}]
+            if slurm_oci_containers | bool else []) }}
+  block:
+    - name: List the MPI plugins
+      ansible.builtin.command:
+        argv: [srun, --mpi=list]
+      become: true
+      register: slurm_verify_mpi_list
+      changed_when: false
+      failed_when: false
+
+    - name: Run the MPI probe
+      ansible.builtin.command:
+        argv: >-
+          {{ ['runuser', '-u', slurm_verify_mpi_user, '--', 'srun', '--chdir=/tmp', '--mpi=pmix_v5', '--time=5']
+             + item.args + [slurm_pmix_probe] }}
+      become: true
+      loop: "{{ slurm_verify_mpi_runs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: slurm_verify_mpi
+      changed_when: false
+      failed_when: false
+
+    - name: Run the MPI probe with a failing rank
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - "{{ slurm_verify_mpi_user }}"
+          - --
+          - srun
+          - --chdir=/tmp
+          - --mpi=pmix_v5
+          - --time=5
+          - --nodes=1
+          - --ntasks=2
+          - "--nodelist={{ slurm_verify_mpi_node }}"
+          - "{{ slurm_pmix_probe }}"
+          - --fail-rank=1
+      become: true
+      register: slurm_verify_mpi_failing
+      changed_when: false
+      failed_when: false
+
+    - name: Find the MPI checks that failed
+      ansible.builtin.set_fact:
+        slurm_verify_mpi_failures: >-
+          {%- set failures = [] -%}
+          {%- if 'pmix_v5' not in slurm_verify_mpi_list.stdout | default('') -%}
+          {%- set _ = failures.append('srun --mpi=list does not offer pmix_v5') -%}
+          {%- endif -%}
+          {%- for result in slurm_verify_mpi.results -%}
+          {%- set reports = result.stdout_lines | default([]) | select('match', '^\{') | map('from_json') | list -%}
+          {%- set expected = result.item.ranks -%}
+          {%- set good = result.rc | default(1) == 0 and reports | length == expected
+                and reports | selectattr('barrier') | list | length == expected
+                and reports | map(attribute='size') | unique | list == [expected]
+                and reports | map(attribute='rank') | sort | list == range(expected) | list
+                and reports | map(attribute='pmixNamespace') | unique | list | length == 1
+                and (reports | first).pmixNamespace != ''
+                and reports | map(attribute='node') | unique | list | length == result.item.nodes -%}
+          {%- if not good -%}
+          {%- set _ = failures.append(result.item.name ~ ': ' ~ ((result.stdout | default('')) ~ ' ' ~ (result.stderr | default('')))[-400:]) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- if slurm_verify_mpi_failing.rc | default(0) == 0 -%}
+          {%- set _ = failures.append('a step whose rank exited 3 reported success') -%}
+          {%- endif -%}
+          {{ failures }}
+
+    - name: Refuse MPI that does not launch
+      ansible.builtin.fail:
+        msg: "[slurm_pmix_failed] {{ slurm_verify_mpi_failures | join('; ') }}"
+      when: slurm_verify_mpi_failures | length > 0
+
 # GPU GRES must be usable, not merely configured (decision 063): every GPU node reports the GRES
 # Swallow mapped, and the HIP probe (role gpu_probe, installed on every GPU node) runs in three jobs
 # per node: one without a GPU request sees no GPU, one that requests a GPU sees exactly one as

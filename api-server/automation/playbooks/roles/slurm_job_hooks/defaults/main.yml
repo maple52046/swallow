@@ -1,0 +1,22 @@
+---
+# Slurm job hooks on a compute node. slurm.conf names exactly one Prolog and one Epilog, Swallow's
+# dispatchers below; every integration that attributes jobs (Omnistat, the Device Metrics Exporter)
+# installs a hook into the dispatcher's directory instead of claiming Prolog=/Epilog= for itself.
+slurm_job_hooks_conf_dir: /etc/slurm
+slurm_job_hooks_prolog: "{{ slurm_job_hooks_conf_dir }}/swallow-prolog"
+slurm_job_hooks_epilog: "{{ slurm_job_hooks_conf_dir }}/swallow-epilog"
+slurm_job_hooks_prolog_dir: "{{ slurm_job_hooks_conf_dir }}/prolog.d"
+slurm_job_hooks_epilog_dir: "{{ slurm_job_hooks_conf_dir }}/epilog.d"
+# A hook that runs longer than this is killed and reported like a failed hook; slurmd waits for
+# the whole Prolog before it starts the job, so one stuck hook must not hold every job.
+slurm_job_hooks_timeout_seconds: 30
+
+# The hooks Swallow owns, in dispatch order (the file name's numeric prefix). The deployment enables
+# them by name (slurm_job_hooks_enabled); a hook that is not enabled is removed, and executables an
+# operator adds under other names are left alone and dispatched too.
+slurm_job_hooks_known:
+  - name: omnistat
+    file: 10-omnistat
+  - name: device-metrics-exporter
+    file: 20-device-metrics-exporter
+slurm_job_hooks_enabled: []

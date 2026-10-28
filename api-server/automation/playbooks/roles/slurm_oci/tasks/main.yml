@@ -1,0 +1,74 @@
+---
+# Native OCI containers on a compute node (decision 066): crun for slurmstepd to run each job's
+# container rootless as the job user, and the probe bundle deploy-slurm proves the path with. The
+# controllers render oci.conf (role slurm_config) and configless distributes it. The host keeps
+# kernel.apparmor_restrict_unprivileged_userns=1: Ubuntu's own path-scoped crun profile grants user
+# namespaces to /usr/bin/crun only, which is why oci.conf names that path. When the feature is off
+# the probe bundle goes; crun stays, because Podman (Managed Software) depends on it too.
+
+- name: Install crun
+  ansible.builtin.apt:
+    name: crun
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 600
+  become: true
+  when: slurm_oci_containers | bool
+
+- name: Read whether unprivileged user namespaces are restricted
+  ansible.builtin.command:
+    argv: [sysctl, -n, kernel.apparmor_restrict_unprivileged_userns]
+  register: slurm_oci_userns_restricted
+  changed_when: false
+  failed_when: false
+  when: slurm_oci_containers | bool
+
+- name: Read the loaded AppArmor profiles
+  ansible.builtin.slurp:
+    src: /sys/kernel/security/apparmor/profiles
+  become: true
+  register: slurm_oci_apparmor_profiles
+  failed_when: false
+  when:
+    - slurm_oci_containers | bool
+    - (slurm_oci_userns_restricted.stdout | default('0') | trim) == '1'
+
+- name: Refuse a host that restricts user namespaces without crun's AppArmor profile
+  # Turning the restriction off would open user namespaces to every program, so Swallow never does.
+  ansible.builtin.fail:
+    msg: >-
+      [slurm_oci_failed] {{ inventory_hostname }} restricts unprivileged user namespaces
+      (kernel.apparmor_restrict_unprivileged_userns=1) but has no loaded AppArmor profile for crun, so
+      rootless containers cannot start. Install the distribution's apparmor profiles (Ubuntu ships
+      /etc/apparmor.d/crun).
+  when:
+    - slurm_oci_containers | bool
+    - (slurm_oci_userns_restricted.stdout | default('0') | trim) == '1'
+    - not ((slurm_oci_apparmor_profiles.content | default('') | b64decode) is search('(?m)^crun '))
+
+- name: Ensure the probe bundle directory exists
+  ansible.builtin.file:
+    path: "{{ slurm_oci_probe_bundle }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: slurm_oci_containers | bool
+
+- name: Build the OCI probe bundle
+  ansible.builtin.script:
+    cmd: oci-probe-bundle.py --bundle {{ slurm_oci_probe_bundle }} --crun {{ slurm_oci_crun }}
+    executable: /usr/bin/python3
+  become: true
+  register: slurm_oci_bundle
+  changed_when: (slurm_oci_bundle.stdout | from_json).changed | bool
+  when: slurm_oci_containers | bool
+
+- name: Remove the OCI probe bundle when native OCI containers are off
+  ansible.builtin.file:
+    path: "{{ slurm_oci_probe_bundle | dirname }}"
+    state: absent
+  become: true
+  when: not (slurm_oci_containers | bool)

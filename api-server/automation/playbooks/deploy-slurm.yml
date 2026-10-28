@@ -79,12 +79,33 @@
         slurm_log_dir: /var/log/slurm
         slurm_jwt_key_path: /etc/slurm/jwt_hs256.key
         slurmrestd_port: 6820
-        # Omnistat (decision 063): deploy-slurm owns the Slurm side of the overlay (Prolog/Epilog,
+        # Omnistat (decision 063): deploy-slurm owns the Slurm side of the overlay (its job hook,
         # PrologFlags=Alloc, exclusive partition) so a redeploy re-applies it; configure-omnistat
-        # installs the exporter the Prolog hands the job to.
+        # installs the exporter the hook hands the job to.
         slurm_omnistat_enabled: "{{ swallow_slurm_omnistat_enabled | default(false) | bool }}"
-        slurm_omnistat_prolog: swallow-omnistat-prolog
-        slurm_omnistat_epilog: swallow-omnistat-epilog
+        # The job hooks Swallow's Prolog/Epilog dispatchers run (role slurm_job_hooks). Every
+        # integration that attributes jobs adds its hook here rather than its own Prolog=.
+        slurm_job_hooks_enabled: >-
+          {{ (['omnistat'] if (swallow_slurm_omnistat_enabled | default(false) | bool) else [])
+             + (['device-metrics-exporter'] if (swallow_slurm_device_metrics_exporter_enabled | default(false) | bool) else []) }}
+        # Memory every compute node keeps for the operating system and its daemons (sshd, slurmd,
+        # exporters, page cache): 5% of what slurmd detects, at least 2 GiB and at most 16 GiB.
+        # Slurm schedules only the rest (RealMemory), so a full node of jobs cannot starve the host.
+        slurm_memory_reserve_percent: "{{ swallow_slurm_memory_reserve_percent | default(5) | int }}"
+        slurm_memory_reserve_min_mib: "{{ swallow_slurm_memory_reserve_min_mib | default(2048) | int }}"
+        slurm_memory_reserve_max_mib: "{{ swallow_slurm_memory_reserve_max_mib | default(16384) | int }}"
+        # Native OCI containers and the host MPI stack (decision 066); both converge both ways.
+        slurm_oci_containers: "{{ swallow_slurm_oci_containers | default(false) | bool }}"
+        slurm_pmix: "{{ swallow_slurm_pmix | default(false) | bool }}"
+        # oci.conf's paths: the per-user state crun keeps and the per-step spool (see oci.conf.j2).
+        slurm_oci_crun: /usr/bin/crun
+        slurm_oci_runtime_root: /run/user/%U/
+        slurm_oci_container_path: /run/user/%U/slurm-oci
+        # The bundle deploy-slurm builds on every compute node from the node's own filesystem, used
+        # to prove the container path; it is not a workload image.
+        slurm_oci_probe_bundle: /var/lib/swallow/oci/probe
+        # The MPI probe deploy-slurm installs on every compute node to prove srun --mpi=pmix_v5.
+        slurm_pmix_probe: /usr/local/libexec/swallow/mpi-probe
 
     - name: Fail on a host with no Slurm role
       ansible.builtin.fail:
@@ -94,38 +115,47 @@
         - not (slurm_is_compute | bool)
         - not (slurm_is_login | bool)
 
+    # group_by only sorts hosts in memory, so it never reports a change: a converged cluster reruns
+    # with changed=0.
     - name: Group controllers
       ansible.builtin.group_by:
         key: "slurm_{{ 'controller' if slurm_is_controller | bool else 'noncontroller' }}"
+      changed_when: false
 
     - name: Group compute nodes
       ansible.builtin.group_by:
         key: "slurm_{{ 'compute' if slurm_is_compute | bool else 'noncompute' }}"
+      changed_when: false
 
     - name: Group login nodes
       ansible.builtin.group_by:
         key: "slurm_{{ 'login' if slurm_is_login | bool else 'nonlogin' }}"
+      changed_when: false
 
     - name: Group the primary controller
       ansible.builtin.group_by:
         key: "slurm_{{ 'primary' if slurm_is_primary | bool else 'secondary' }}"
+      changed_when: false
 
     - name: Group the shared-state server
       # Creates the slurm_state_server group only in HA (when a state server was selected), so
       # the state-server play below no-ops for a single-controller deploy.
       ansible.builtin.group_by:
         key: "slurm_{{ 'state_server' if slurm_is_state_server | bool else 'nonstate' }}"
+      changed_when: false
 
     - name: Group the workload storage server
       # Only the selected self-hosted server host (the login node) joins; empty for external or
       # no workload storage, so the workload-server play no-ops.
       ansible.builtin.group_by:
         key: "slurm_{{ 'workload_server' if (slurm_workload_enabled | bool and slurm_is_workload_server | bool) else 'nonworkload_server' }}"
+      changed_when: false
 
     - name: Group workload storage clients
       # Every node mounts the workload filesystem when it is enabled; empty otherwise.
       ansible.builtin.group_by:
         key: "slurm_{{ 'workload_client' if slurm_workload_enabled | bool else 'nonworkload_client' }}"
+      changed_when: false
 
     - name: Wait for image-started package operations to release dpkg locks
       # Fresh ephemeral boots may still be finishing unattended-upgrades when automation
@@ -173,6 +203,18 @@
     - name: Remember this node's detected NodeName line
       ansible.builtin.set_fact:
         slurm_node_line: "{{ slurm_node_detect.stdout_lines | select('match', '^NodeName=') | first }}"
+
+    - name: Keep the operating system's memory out of what Slurm schedules
+      # A node never gives up more than half of its memory, however small it is.
+      vars:
+        detected_mib: "{{ slurm_node_line | regex_search('RealMemory=(\\d+)', '\\1') | first | int }}"
+        reserve_mib: >-
+          {{ [[(detected_mib | int) * (slurm_memory_reserve_percent | int) // 100,
+               slurm_memory_reserve_min_mib | int] | max,
+              slurm_memory_reserve_max_mib | int] | min }}
+      ansible.builtin.set_fact:
+        slurm_node_cpus: "{{ slurm_node_line | regex_search('CPUs=(\\d+)', '\\1') | first | int }}"
+        slurm_node_schedulable_memory: "{{ [(detected_mib | int) - (reserve_mib | int), (detected_mib | int) // 2] | max }}"
 
     - name: Load amdgpu and map the GPUs of a GPU compute node
       # GPU GRES (decision 063): see the slurm_gpu role. A CPU compute node stops loading amdgpu
@@ -227,6 +269,10 @@
   hosts: slurm_compute
   gather_facts: false
   roles:
+    # Before slurmd (re)starts: slurm.conf names the dispatchers, and a missing Prolog drains a node.
+    - role: slurm_job_hooks
+    - role: slurm_oci
+    - role: slurm_pmix
     - role: slurm_compute
 
 - name: Configure login (submission) hosts
@@ -237,6 +283,8 @@
   gather_facts: false
   roles:
     - role: slurm_login
+    # Login hosts build and launch MPI programs too; a compute+login host already has it.
+    - role: slurm_pmix
 
 - name: Provision the shared workload NFS export
   # Self-hosted workload storage only: the login node exports the workload filesystem to every

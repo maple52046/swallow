@@ -900,6 +900,34 @@ func (o platformDeploymentObserver) completeOmnistat(
 	return o.platforms.RecordOmnistatGrafana(ctx, execution.PlatformID, grafanaURL)
 }
 
+// completeDeviceMetricsExporter records what a successful configure-device-metrics-exporter run
+// wrote to its result file: the Grafana URL as the Platform's `Device Metrics Exporter Grafana`
+// Monitoring Link, and the GPU identity the exporters showed. A missing URL fails the Task, because
+// the playbook writes it only after Prometheus reported every exporter up; a missing or unknown
+// identity is recorded as collapsed, never as distinct. The identity is fenced on the record id the
+// deploy use case put in the run's variables (the same id the State is fenced on), falling back to
+// this Workflow; the State itself is projected by deviceMetricsExporterStepObserver.
+func (o platformDeploymentObserver) completeDeviceMetricsExporter(
+	ctx context.Context,
+	execution *operationdomain.AnsibleExecution,
+	result operationdomain.RunnerResult,
+) error {
+	grafanaURL, identity := "", ""
+	if result.Data != nil {
+		grafanaURL = stringField(result.Data, deviceMetricsExporterResultGrafanaURL)
+		identity = stringField(result.Data, deviceMetricsExporterResultGPUIdentity)
+	}
+	if grafanaURL == "" {
+		return fmt.Errorf("device metrics exporter installation returned no Grafana URL")
+	}
+	recordID, _ := execution.ExtraVars[platformapp.VarDeviceMetricsExporterRecordID].(string)
+	if recordID == "" {
+		recordID = execution.OperationID
+	}
+	return o.platforms.RecordDeviceMetricsExporterResult(ctx, execution.PlatformID, recordID, grafanaURL,
+		platformdomain.ParseGPUIdentity(identity))
+}
+
 func stringField(data map[string]any, key string) string {
 	if value, ok := data[key].(string); ok {
 		return value
@@ -937,14 +965,17 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 		}
 		return o.credentials.Record(ctx, execution.PlatformID, *credential)
 	case operationdomain.WorkflowKindConfigureSlurm:
-		// A Slurm Workflow with a container runtime or Omnistat also runs composed software Tasks
-		// and the Omnistat Task (decision 063), and its ensure-os Job runs the time Tasks
-		// (decision 065); their executions carry the Workflow's kind too. Only install-platform
-		// produces the slurmrestd credential, and only install-omnistat reports the Grafana URL.
+		// A Slurm Workflow with a container runtime or a monitoring feature also runs composed
+		// software Tasks and the feature's Task (decisions 063 and 066), and its ensure-os Job runs
+		// the time Tasks (decision 065); their executions carry the Workflow's kind too. Only
+		// install-platform produces the slurmrestd credential, and only the feature's Task reports
+		// its Grafana URL.
 		switch execution.StepID {
 		case installPlatformStepID:
 		case omnistatStepID:
 			return o.completeOmnistat(ctx, execution, result)
+		case deviceMetricsExporterStepID:
+			return o.completeDeviceMetricsExporter(ctx, execution, result)
 		default:
 			return nil
 		}

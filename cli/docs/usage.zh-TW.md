@@ -661,6 +661,31 @@ swallow workflows get <operationId>   # ensure-os、configure-slurm、configure-
 swallow platforms get <platformId>    # containerRuntime、omnistat.state，以及 monitoringLinks 中的 Omnistat Grafana
 ```
 
+若不用 Omnistat（兩者不可同時開啟），`deviceMetricsExporter` 會在每台 GPU compute node 安裝 AMD 的 Device
+Metrics Exporter，Prometheus 與 Grafana 的組入方式與 `installMethod` 與 Omnistat 相同。作業仍可共用節點，每個作業的
+GPU 會帶上 job id 標籤。安裝成功後，`deviceMetricsExporter.gpuIdentity` 說明 exporter 是否分得出各張 GPU：
+`collapsed`（例如 MI308X virtual function）表示 metrics 照常收集，但至少有一台節點的逐作業 GPU 歸屬是錯的。
+`slurm.ociContainers: true` 設定 native OCI container（`srun --container=<bundle>`，bundle 必須在每台節點的相同路徑），
+`slurm.pmix: true` 安裝 OpenMPI，供 `srun --mpi=pmix_v5` 使用：
+
+```yaml
+deviceMetricsExporter:
+  enabled: true
+  installMethod: native      # 或 container
+slurm:
+  clusterName: dme-run1
+  ociContainers: true
+  pmix: true
+  nodeAssignments:
+    - { serverId: srva, controller: true, compute: false, login: true }
+    - { serverId: srvb, controller: false, compute: true, login: false }
+```
+
+```bash
+swallow workflows get <operationId>   # ...、configure-prometheus/-grafana、configure-device-metrics-exporter
+swallow platforms get <platformId>    # deviceMetricsExporter.state 與 .gpuIdentity、ociContainers、pmix
+```
+
 #### Kubernetes cluster explorer
 
 ```bash

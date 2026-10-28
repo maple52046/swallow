@@ -351,6 +351,11 @@ export interface FixtureOptions {
   onMetricsRequest?: (serverIds: string[]) => void
   /** Removes Platform membership and deployment target claims for wizard success paths. */
   freePlatformCandidates?: boolean
+  /**
+   * Gives research-slurm the Device Metrics Exporter instead of Omnistat (they are mutually
+   * exclusive): ready, with the GPU identity the lab's MI308X virtual functions report (collapsed).
+   */
+  slurmDeviceMetricsExporter?: boolean
   // Gives srv-1 exactly 4C/24GiB/80GB and srv-2 4C/16GiB/80GB.
   minimumResourceCandidates?: boolean
   /** Makes the Slurm requirement GET fail so the wizard fail-closed path can be verified. */
@@ -1075,6 +1080,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     ...structuredClone(platform),
     lifecycleState: options.platformLifecycleStates?.[platform.id] ?? platform.lifecycleState,
     gpuOperator: options.withoutPlatformGPUOperator && platform.id === 'platform-a' ? null : structuredClone(platform.gpuOperator),
+    ...(options.slurmDeviceMetricsExporter && platform.id === 'platform-slurm'
+      ? {
+          omnistat: null,
+          monitoringLinks: [{ name: 'Device Metrics Exporter Grafana', url: 'https://dme.example/grafana' }],
+          deviceMetricsExporter: {
+            enabled: true, version: '1.5.3', installMethod: 'native', observabilityServerId: 'srv-1',
+            state: 'ready', gpuIdentity: 'collapsed', lastWorkflowId: 'op-slurm-dme', updatedAt: now,
+          },
+          ociContainers: true,
+          pmix: true,
+        }
+      : {}),
   }))
   if (options.slurmDeployed) {
     // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
@@ -2539,6 +2556,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         gpuOperator?: Record<string, unknown> & { enabled?: boolean }
         containerRuntime?: { kind?: 'docker-ce' | 'podman' }
         omnistat?: { enabled?: boolean; installMethod?: 'container' | 'native' }
+        deviceMetricsExporter?: { enabled?: boolean; installMethod?: 'container' | 'native' }
         gpuDriver?: { moduleOptions?: Record<string, string> }
         roleAssignments?: Array<{
           serverId: string
@@ -2548,6 +2566,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         slurm?: {
           nodeAssignments: Array<{ serverId: string; controller: boolean; compute: boolean }>
           gpuGresType?: string
+          ociContainers?: boolean
+          pmix?: boolean
         }
       }
       const operationId = 'op-platform-new'
@@ -2584,11 +2604,23 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
                 state: 'installing', lastWorkflowId: operationId, updatedAt: now,
               }
             : null,
+          // Mirrors platforms.md "Device Metrics Exporter": an enabled request records it as
+          // installing, with no GPU identity until an install succeeded.
+          deviceMetricsExporter: body.deviceMetricsExporter?.enabled
+            ? {
+                enabled: true, version: '1.5.3', installMethod: body.deviceMetricsExporter.installMethod ?? 'container',
+                observabilityServerId: targetServerIds[0] ?? '', state: 'installing', gpuIdentity: null,
+                lastWorkflowId: operationId, updatedAt: now,
+              }
+            : null,
           // Mirrors platforms.md "Container Runtime": the Platform records the chosen kind.
           containerRuntime: body.containerRuntime?.kind ?? null,
           // Mirrors platforms.md "GPU driver options" and "GPU GRES": only operator-set values are recorded.
           gpuDriver: Object.keys(body.gpuDriver?.moduleOptions ?? {}).length > 0 ? body.gpuDriver : null,
           gpuGresType: body.slurm?.gpuGresType ?? null,
+          // Mirrors platforms.md "Native OCI Containers" and "MPI (PMIx)": false unless requested.
+          ociContainers: body.slurm?.ociContainers ?? false,
+          pmix: body.slurm?.pmix ?? false,
           sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
           createdAt: now,
           updatedAt: now,

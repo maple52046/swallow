@@ -1,0 +1,65 @@
+---
+# Install the Slurm Prolog/Epilog dispatchers and the job hooks this deployment enables. Runs on
+# every compute node before slurmd (re)starts, because slurm.conf always names the dispatchers and
+# slurmd drains a node whose Prolog is missing. A hook that is no longer enabled is removed, so a
+# redeploy converges both ways.
+
+- name: Ensure the Prolog and Epilog hook directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ slurm_job_hooks_prolog_dir }}"
+    - "{{ slurm_job_hooks_epilog_dir }}"
+
+- name: Install the Prolog and Epilog dispatchers
+  ansible.builtin.template:
+    src: dispatcher.j2
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  vars:
+    slurm_job_hooks_phase: "{{ item.phase }}"
+    slurm_job_hooks_dir: "{{ item.dir }}"
+  loop:
+    - { phase: prolog, dir: "{{ slurm_job_hooks_prolog_dir }}", dest: "{{ slurm_job_hooks_prolog }}" }
+    - { phase: epilog, dir: "{{ slurm_job_hooks_epilog_dir }}", dest: "{{ slurm_job_hooks_epilog }}" }
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: Install the enabled job hooks
+  ansible.builtin.copy:
+    src: "{{ item.0 }}/{{ item.1.file }}"
+    dest: "{{ slurm_job_hooks_conf_dir }}/{{ item.0 }}/{{ item.1.file }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  loop: "{{ ['prolog.d', 'epilog.d'] | product(slurm_job_hooks_known | selectattr('name', 'in', slurm_job_hooks_enabled) | list) | list }}"
+  loop_control:
+    label: "{{ item.0 }}/{{ item.1.file }}"
+
+- name: Remove the job hooks that are not enabled
+  ansible.builtin.file:
+    path: "{{ slurm_job_hooks_conf_dir }}/{{ item.0 }}/{{ item.1.file }}"
+    state: absent
+  become: true
+  loop: "{{ ['prolog.d', 'epilog.d'] | product(slurm_job_hooks_known | rejectattr('name', 'in', slurm_job_hooks_enabled) | list) | list }}"
+  loop_control:
+    label: "{{ item.0 }}/{{ item.1.file }}"
+
+- name: Remove the Omnistat Prolog and Epilog of earlier deployments
+  # Before the dispatcher, Omnistat's scripts were slurm.conf's Prolog and Epilog themselves.
+  ansible.builtin.file:
+    path: "{{ slurm_job_hooks_conf_dir }}/{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - swallow-omnistat-prolog
+    - swallow-omnistat-epilog

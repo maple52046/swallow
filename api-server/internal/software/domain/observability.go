@@ -102,8 +102,12 @@ const (
 // to the Omnistat release Swallow installs.
 const GrafanaDashboardOmnistat = "omnistat"
 
+// GrafanaDashboardDeviceMetricsExporter is the bundle of the Device Metrics Exporter's Slurm
+// dashboards (overview, GPU, node, job) pinned to the exporter release Swallow installs.
+const GrafanaDashboardDeviceMetricsExporter = "device-metrics-exporter"
+
 // grafanaDashboardBundles lists the dashboard bundles a release ships.
-var grafanaDashboardBundles = []string{GrafanaDashboardOmnistat}
+var grafanaDashboardBundles = []string{GrafanaDashboardOmnistat, GrafanaDashboardDeviceMetricsExporter}
 
 // releaseVersionPattern is a plain major.minor.patch release. It keeps a version usable both as a
 // container image tag and in an official download URL or package pin, and keeps it from smuggling

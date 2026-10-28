@@ -1,11 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { Badge, Button, HStack, Table, Tabs, Text } from '@chakra-ui/react'
 import { ChartLine, ExternalLink, RefreshCw } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
 import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
-import type { OmnistatState, Platform } from '@/domain/platform/types'
+import type { DeviceMetricsExporterState, ObservabilityInstallMethod, OmnistatState, Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
@@ -238,12 +238,62 @@ export function PlatformDetailPage() {
   )
 }
 
-/** Operator-facing text and badge palette for the Omnistat State; the text carries the meaning. */
-const OMNISTAT_STATE_PRESENTATION: Record<OmnistatState, { label: string; palette: string }> = {
+/**
+ * Operator-facing text and badge palette for a Slurm monitoring feature's state (the Omnistat State
+ * and the Device Metrics Exporter State share their values); the text carries the meaning.
+ */
+const MONITORING_FEATURE_STATE_PRESENTATION: Record<OmnistatState | DeviceMetricsExporterState, { label: string; palette: string }> = {
   installing: { label: 'Installing', palette: 'blue' },
   ready: { label: 'Ready', palette: 'green' },
   failed: { label: 'Failed', palette: 'red' },
   absent: { label: 'Removed', palette: 'gray' },
+}
+
+interface MonitoringFeatureSummaryProps {
+  /** The feature's name, used as the row's accessible label and visible title. */
+  name: string
+  version: string
+  state: OmnistatState | DeviceMetricsExporterState
+  installMethod: ObservabilityInstallMethod
+  observabilityServerId: string
+  lastWorkflowId: string | null
+  /** Extra facts about this feature shown under the row, such as a GPU identity warning. */
+  children?: ReactNode
+}
+
+/**
+ * One Slurm monitoring feature's status row (Omnistat or the Device Metrics Exporter): the recorded
+ * state from the installing Workflow (not a live probe), how its Prometheus and Grafana were
+ * installed and on which Server, and a link to the Workflow until it is ready. Both features use
+ * this one row so they read the same on the page.
+ */
+function MonitoringFeatureSummary({
+  name,
+  version,
+  state,
+  installMethod,
+  observabilityServerId,
+  lastWorkflowId,
+  children,
+}: MonitoringFeatureSummaryProps) {
+  const { scopedHref } = useSiteScope()
+  const presentation = MONITORING_FEATURE_STATE_PRESENTATION[state]
+  return (
+    <div aria-label={name}>
+      <HStack gap="2" wrap="wrap" mb="3">
+        <Text fontSize="sm" fontWeight="medium">{name} {version}</Text>
+        <Badge colorPalette={presentation.palette} variant="subtle">{presentation.label}</Badge>
+        <Text fontSize="sm" color="fg.muted">
+          Prometheus and Grafana {installMethod === 'native' ? 'installed natively' : 'as containers'} on{' '}
+          <Link to={scopedHref(`/servers/${observabilityServerId}`)}>the primary controller</Link>
+        </Text>
+        {lastWorkflowId && state !== 'ready' && (
+          <Link to={scopedHref(`/workflows/${lastWorkflowId}`)}>Open workflow</Link>
+        )}
+      </HStack>
+      {children}
+    </div>
+  )
 }
 
 /**
@@ -254,16 +304,16 @@ const OMNISTAT_STATE_PRESENTATION: Record<OmnistatState, { label: string; palett
  * only while the experimental `monitoring` console is enabled. Monitoring Links are Platform
  * data, so they show regardless; they open in a new tab and swallow never fetches them. With no
  * links the section explains how to add one through the API or CLI, since the console has no
- * editor for them. A Slurm Platform deployed with Omnistat also shows the Omnistat State (from
- * the installing Workflow, not a live probe), how its Prometheus and Grafana were installed, and
- * the Server that runs them.
+ * editor for them. A Slurm Platform deployed with Omnistat or the Device Metrics Exporter also shows
+ * that feature's row (MonitoringFeatureSummary). A collapsed GPU identity is stated in words: the
+ * exporter's job panels would otherwise look trustworthy while attributing jobs to the wrong GPUs.
  */
 function PlatformMonitoring({ platform }: { platform: Platform }) {
   const monitoringConsole = useExperimentalFeature('monitoring')
   const { scopedHref } = useSiteScope()
   const links = platform.monitoringLinks
   const omnistat = platform.omnistat ?? null
-  const omnistatState = omnistat ? OMNISTAT_STATE_PRESENTATION[omnistat.state] : null
+  const exporter = platform.deviceMetricsExporter ?? null
   const chartsHref = scopedHref(`/monitoring?${new URLSearchParams({ chartScope: 'platform', chartScopeId: platform.id }).toString()}`)
 
   return (
@@ -281,18 +331,33 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
         ) : undefined}
       />
       <div className="sw-section-content">
-        {omnistat && omnistatState && (
-          <HStack gap="2" wrap="wrap" mb="3" aria-label="Omnistat">
-            <Text fontSize="sm" fontWeight="medium">Omnistat {omnistat.version}</Text>
-            <Badge colorPalette={omnistatState.palette} variant="subtle">{omnistatState.label}</Badge>
-            <Text fontSize="sm" color="fg.muted">
-              Prometheus and Grafana {omnistat.installMethod === 'native' ? 'installed natively' : 'as containers'} on{' '}
-              <Link to={scopedHref(`/servers/${omnistat.observabilityServerId}`)}>the primary controller</Link>
-            </Text>
-            {omnistat.lastWorkflowId && omnistat.state !== 'ready' && (
-              <Link to={scopedHref(`/workflows/${omnistat.lastWorkflowId}`)}>Open workflow</Link>
+        {omnistat && (
+          <MonitoringFeatureSummary
+            name="Omnistat"
+            version={omnistat.version}
+            state={omnistat.state}
+            installMethod={omnistat.installMethod}
+            observabilityServerId={omnistat.observabilityServerId}
+            lastWorkflowId={omnistat.lastWorkflowId}
+          />
+        )}
+        {exporter && (
+          <MonitoringFeatureSummary
+            name="Device Metrics Exporter"
+            version={exporter.version}
+            state={exporter.state}
+            installMethod={exporter.installMethod}
+            observabilityServerId={exporter.observabilityServerId}
+            lastWorkflowId={exporter.lastWorkflowId}
+          >
+            {exporter.gpuIdentity === 'collapsed' && exporter.state !== 'absent' && (
+              <Alert status="warning" title="GPU identity collapsed" mb="3">
+                At least one node's exporter reports fewer distinct GPU ids than it has GPUs, so its job
+                dashboards attribute a job to the wrong GPUs. GPU metrics still flow; Slurm's own GPU
+                allocation and isolation are not affected.
+              </Alert>
             )}
-          </HStack>
+          </MonitoringFeatureSummary>
         )}
         {links.length === 0 ? (
           <Text color="fg.muted" fontSize="sm">
@@ -323,8 +388,9 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
  * Type already appears beside the page title, so this group keeps only the
  * configuration facts an operator may need while investigating the platform.
  * A Slurm Platform also states its container runtime feature (or that it has none); each
- * Server's runtime install state lives in its Software Assignment, not here. GPU driver options
- * and the GRES type appear only when the operator set them; derived values are a node fact.
+ * Server's runtime install state lives in its Software Assignment, not here. Native OCI containers
+ * and MPI are stated either way. GPU driver options and the GRES type appear only when the operator
+ * set them; derived values are a node fact.
  */
 function PlatformConfiguration({ platform }: { platform: Platform }) {
   const driverOptions = formatGPUDriverModuleOptions(platform.gpuDriver?.moduleOptions)
@@ -337,6 +403,12 @@ function PlatformConfiguration({ platform }: { platform: Platform }) {
           value: platform.containerRuntime
             ? `${platform.containerRuntime === 'podman' ? 'Podman' : 'Docker CE'} on compute and login nodes`
             : 'None',
+        }, {
+          label: 'Native OCI containers',
+          value: platform.ociContainers ? 'crun with srun --container' : 'Not set up',
+        }, {
+          label: 'MPI',
+          value: platform.pmix ? 'OpenMPI with srun --mpi=pmix_v5' : 'Not set up',
         }]
       : []),
     ...(platform.gpuGresType ? [{ label: 'GPU GRES type', value: platform.gpuGresType }] : []),

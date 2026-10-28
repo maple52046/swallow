@@ -1,0 +1,129 @@
+---
+# Install AMD's Device Metrics Exporter on a Swallow-deployed Slurm Platform. It runs as the last
+# Job of a configure-slurm Workflow, after deploy-slurm (which installs the job hook that records
+# each job on its GPUs) and after Prometheus and Grafana were composed onto the observability
+# Server. Topology arrives only through trusted variables:
+#   swallow_device_metrics_exporter_version           pinned exporter release
+#   swallow_device_metrics_exporter_port              exporter port on every GPU compute node
+#   swallow_device_metrics_exporter_compute_ids       GPU compute nodes (serverIds) that run it
+#   swallow_device_metrics_exporter_observability_id  Server running Prometheus and Grafana
+#   swallow_device_metrics_exporter_grafana_port      Grafana's port
+#   swallow_device_metrics_exporter_cluster_name      the Slurm cluster name, the cluster_name label
+# On success it writes {grafanaUrl, gpuIdentity, nodes} to the run's result file. gpuIdentity is
+# "distinct" only when every node's exporter tells its GPUs apart (see dme-identity-check);
+# "collapsed" still succeeds, because the endpoint works, but job attribution per GPU does not.
+# Prometheus listens only on the observability Server's loopback address, so the scrape check runs
+# there. Idempotent.
+
+- name: Classify the Device Metrics Exporter hosts
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Group the exporter hosts
+      ansible.builtin.group_by:
+        key: "dme_{{ 'exporter' if inventory_hostname in swallow_device_metrics_exporter_compute_ids else 'other' }}"
+      changed_when: false
+
+    - name: Group the observability host
+      ansible.builtin.group_by:
+        key: "dme_{{ 'observability' if inventory_hostname == swallow_device_metrics_exporter_observability_id else 'member' }}"
+      changed_when: false
+
+- name: Install the exporter on every GPU compute node
+  hosts: dme_exporter
+  gather_facts: false
+  become: true
+  roles:
+    - role: device_metrics_exporter
+
+- name: Check that every exporter tells its GPUs apart
+  hosts: dme_exporter
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Compare the KFD GPUs with the GPU identities the exporter reports
+      ansible.builtin.command:
+        argv:
+          - "{{ device_metrics_exporter_identity_check | default('/usr/local/libexec/swallow/dme-identity-check') }}"
+          - "--url=http://{{ ansible_host }}:{{ swallow_device_metrics_exporter_port | default(5001) }}/metrics"
+      register: dme_identity_run
+      changed_when: false
+      failed_when: false
+
+    - name: Remember this node's identity report
+      ansible.builtin.set_fact:
+        dme_identity: >-
+          {{ (dme_identity_run.stdout_lines | last | from_json)
+             if (dme_identity_run.stdout_lines | default([]) | length > 0
+                 and (dme_identity_run.stdout_lines | last).startswith('{'))
+             else {'ok': false, 'identity': 'collapsed', 'error': (dme_identity_run.stderr | default(''))[-400:]} }}
+
+    - name: Refuse an exporter that serves no GPU metrics
+      ansible.builtin.fail:
+        msg: >-
+          [device_metrics_exporter_no_metrics] the Device Metrics Exporter on {{ inventory_hostname }}
+          serves no GPU health metrics: {{ dme_identity.error | default('') }}
+      when: not (dme_identity.ok | default(false) | bool)
+
+    - name: Report a node whose exporter cannot tell its GPUs apart
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: the exporter reports {{ dme_identity.distinctGpuIds }} distinct gpu_id
+          over {{ dme_identity.healthSeries }} GPU health series for {{ dme_identity.kfdGpus }} KFD GPUs
+          ({{ dme_identity.deploymentModes }}); per-GPU job attribution is not reliable on this node.
+      when: dme_identity.identity != 'distinct'
+
+- name: Verify Prometheus scrapes every exporter and record the result
+  hosts: dme_observability
+  gather_facts: false
+  vars:
+    dme_grafana_url: "http://{{ ansible_host }}:{{ swallow_device_metrics_exporter_grafana_port | default(3000) }}"
+    dme_expected_targets: >-
+      {{ swallow_device_metrics_exporter_compute_ids | map('extract', hostvars, 'ansible_host')
+         | map('regex_replace', '$', ':' ~ (swallow_device_metrics_exporter_port | default(5001) | string)) | list }}
+  tasks:
+    - name: Read where Prometheus listens on this Server
+      # The Prometheus composed for the exporter listens on the loopback address; its role records it.
+      ansible.builtin.slurp:
+        src: /etc/swallow/prometheus/endpoint
+      register: dme_prometheus_endpoint
+      failed_when: false
+
+    - name: Remember the Prometheus address
+      ansible.builtin.set_fact:
+        dme_prometheus_url: >-
+          {{ (dme_prometheus_endpoint.content | b64decode | trim)
+             if dme_prometheus_endpoint.content is defined
+             else 'http://127.0.0.1:' ~ (swallow_device_metrics_exporter_prometheus_port | default(9090)) }}
+
+    - name: Wait until Prometheus reports every exporter up
+      ansible.builtin.uri:
+        url: "{{ dme_prometheus_url }}/api/v1/targets?state=active"
+        return_content: true
+      register: dme_targets
+      until: >-
+        dme_targets.status == 200 and
+        (dme_expected_targets
+         | difference(dme_targets.json.data.activeTargets
+                      | selectattr('health', 'equalto', 'up')
+                      | map(attribute='labels.instance') | list)
+         | length) == 0
+      retries: 30
+      delay: 5
+
+    - name: Write the Device Metrics Exporter result for Swallow
+      vars:
+        dme_nodes: >-
+          {{ dict(swallow_device_metrics_exporter_compute_ids
+                  | zip(swallow_device_metrics_exporter_compute_ids | map('extract', hostvars, 'dme_identity') | list)) }}
+      ansible.builtin.copy:
+        dest: "{{ swallow_result_path }}"
+        content: >-
+          {{ {'grafanaUrl': dme_grafana_url,
+              'gpuIdentity': ('distinct' if (dme_nodes.values() | map(attribute='identity') | unique | list) == ['distinct']
+                              else 'collapsed'),
+              'nodes': dme_nodes} | to_json }}
+        mode: "0600"
+      delegate_to: localhost
+      changed_when: false
+      when: swallow_result_path is defined and swallow_result_path | length > 0

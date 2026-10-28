@@ -86,6 +86,10 @@
       "path": "configure-omnistat.yml"
     },
     {
+      "name": "configure-device-metrics-exporter",
+      "path": "configure-device-metrics-exporter.yml"
+    },
+    {
       "name": "configure-ntp",
       "path": "configure-ntp.yml"
     }

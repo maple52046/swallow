@@ -4,7 +4,7 @@
   Slurm Platform; displayed by `dashboard` and `cli`.
 - Definition: AMD's Slurm-aware GPU monitoring stack, installed by Swallow as an optional part of
   deploying a Slurm Platform. Omnistat itself is the per-compute-node exporter plus the Slurm job
-  attribution (Prolog/Epilog); its Prometheus and Grafana are Managed Software that the same
+  attribution (the `10-omnistat` job hook of the Platform's Prolog/Epilog dispatcher); its Prometheus and Grafana are Managed Software that the same
   deployment composes onto the primary controller by Omnistat's install method: `container` (the
   default, on the primary controller's container runtime) or `native`.
 - Allowed meaning: The Platform records whether Omnistat is enabled, its pinned version, its
@@ -23,7 +23,8 @@
 - Disallowed meaning: Not Managed Software (the target is the Slurm Platform and its job
   attribution, not one host's software) and not a metrics Integration — Swallow never queries
   Omnistat's Prometheus. Not the GPU GRES of the Slurm Platform, which Swallow configures whether
-  or not Omnistat is enabled. Not Platform Lifecycle State.
+  or not Omnistat is enabled. Not the Device Metrics Exporter, which a Platform has instead of
+  Omnistat, never together. Not Platform Lifecycle State.
 - Synonyms: Omnistat system mode (AMD's name for this deployment shape).
 - Deprecated terms: None.
 - Examples: "The deployment enables Omnistat by the `container` method, so the primary controller
@@ -37,4 +38,6 @@
   Task, GPU Inventory.
 - Change note: Added 2026-10-21 (decision 063) when Swallow started installing Omnistat with a
   Slurm deployment instead of operators overlaying it by hand. 2026-10-22: added the install
-  method (`container` default, `native`).
+  method (`container` default, `native`). 2026-10-29 (decision 066): its job attribution became a
+  hook of the Prolog/Epilog dispatcher, and it is mutually exclusive with the Device Metrics
+  Exporter.

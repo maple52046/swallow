@@ -90,6 +90,11 @@ const (
 	// Omnistat exporter on the Slurm Platform (decision 063). It is never a standalone Workflow
 	// and never resolved through a site playbook mapping.
 	WorkflowKindConfigureOmnistat WorkflowKind = "configure-omnistat"
+	// WorkflowKindConfigureDeviceMetricsExporter labels the ansible Task of a Slurm deploy that
+	// installs AMD's Device Metrics Exporter on the Slurm Platform's GPU nodes (decision 066). Like
+	// configure-omnistat it is never a standalone Workflow and never resolved through a site
+	// playbook mapping.
+	WorkflowKindConfigureDeviceMetricsExporter WorkflowKind = "configure-device-metrics-exporter"
 	// WorkflowKindConfigureNTP labels the ansible Task that points a freshly provisioned Server at
 	// the installation's NTP server after SSH readiness (decision 065): one after every provision-os
 	// Task, in a Deploy OS Workflow and in a Platform deployment's ensure-os Job alike. It is never
@@ -126,6 +131,7 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindConfigureGrafana,
 	WorkflowKindUninstallGrafana,
 	WorkflowKindConfigureOmnistat,
+	WorkflowKindConfigureDeviceMetricsExporter,
 	WorkflowKindConfigureNTP,
 	WorkflowKindCustom,
 }
@@ -157,7 +163,7 @@ func (k WorkflowKind) RequiredProvisioningState() string {
 		WorkflowKindConfigureNFS, WorkflowKindUninstallNFS,
 		WorkflowKindConfigurePrometheus, WorkflowKindUninstallPrometheus,
 		WorkflowKindConfigureGrafana, WorkflowKindUninstallGrafana,
-		WorkflowKindConfigureOmnistat,
+		WorkflowKindConfigureOmnistat, WorkflowKindConfigureDeviceMetricsExporter,
 		// configure-ntp reaches the host over SSH; the preceding provision-os Task satisfies this
 		// (PrepareAnsibleStep provisionFirst).
 		WorkflowKindConfigureNTP:

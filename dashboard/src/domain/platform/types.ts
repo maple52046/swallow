@@ -174,11 +174,26 @@ export interface MonitoringLink {
 export type OmnistatState = "installing" | "ready" | "failed" | "absent";
 
 /**
- * How a Slurm deploy installs the Prometheus and Grafana Omnistat uses (platforms.md "Omnistat"):
- * `container` (default) on the primary controller's container runtime, or `native` from the
- * official release and package repository.
+ * How a Slurm deploy installs the Prometheus and Grafana its monitoring feature uses (platforms.md
+ * "Omnistat" and "Device Metrics Exporter"): `container` (default) on the primary controller's
+ * container runtime, or `native` from the official release and package repository.
  */
-export type OmnistatInstallMethod = "container" | "native";
+export type ObservabilityInstallMethod = "container" | "native";
+
+/**
+ * Where the latest Swallow change to a Slurm Platform's Device Metrics Exporter stands (glossary
+ * Device Metrics Exporter, platforms.md "Device Metrics Exporter"): projected from the Workflow Task
+ * installing it, never a live probe. Same values and meaning as the Omnistat State.
+ */
+export type DeviceMetricsExporterState = "installing" | "ready" | "failed" | "absent";
+
+/**
+ * Whether the Device Metrics Exporters tell a Platform's GPUs apart, which per-GPU job attribution
+ * depends on (platforms.md "Device Metrics Exporter"). `collapsed` means at least one node reports
+ * fewer distinct GPU ids than GPUs (MI308X virtual functions all report 0): metrics flow, but a job
+ * is attributed to the wrong GPUs there. Known only after a successful install.
+ */
+export type GPUIdentity = "distinct" | "collapsed";
 
 /**
  * The container runtime a Slurm deploy installs on its compute and login nodes for containerized
@@ -196,9 +211,27 @@ export type SlurmContainerRuntime = "docker-ce" | "podman";
 export interface PlatformOmnistat {
   enabled: boolean;
   version: string;
-  installMethod: OmnistatInstallMethod;
+  installMethod: ObservabilityInstallMethod;
   observabilityServerId: string;
   state: OmnistatState;
+  lastWorkflowId: string | null;
+  updatedAt: string;
+}
+
+/**
+ * The Swallow-managed Device Metrics Exporter of a Slurm Platform: AMD's per-GPU exporter on every
+ * GPU compute node with Slurm job attribution, and Prometheus and Grafana on
+ * `observabilityServerId` (the primary controller), installed by `installMethod`. The Grafana is
+ * reached through the `Device Metrics Exporter Grafana` Monitoring Link Swallow registers on
+ * success. `gpuIdentity` is null until an install succeeded.
+ */
+export interface PlatformDeviceMetricsExporter {
+  enabled: boolean;
+  version: string;
+  installMethod: ObservabilityInstallMethod;
+  observabilityServerId: string;
+  state: DeviceMetricsExporterState;
+  gpuIdentity: GPUIdentity | null;
   lastWorkflowId: string | null;
   updatedAt: string;
 }
@@ -237,12 +270,18 @@ export interface Platform {
   monitoringLinks: MonitoringLink[];
   /** The Swallow-managed Omnistat of a Slurm Platform; null when Swallow never installed it. */
   omnistat: PlatformOmnistat | null;
+  /** The Swallow-managed Device Metrics Exporter of a Slurm Platform; null when never installed. */
+  deviceMetricsExporter: PlatformDeviceMetricsExporter | null;
   /** The container runtime a Slurm deploy installed on compute and login nodes; null when off. */
   containerRuntime: SlurmContainerRuntime | null;
   /** Operator-set amdgpu module options the deploy recorded; null when none were set. */
   gpuDriver: GPUDriverSettings | null;
   /** The operator's Slurm GPU GRES type name; null when the deploy derived it from the GPUs. */
   gpuGresType: string | null;
+  /** Whether the Slurm deploy set up native OCI containers (`srun --container`); false otherwise. */
+  ociContainers: boolean;
+  /** Whether the Slurm deploy installed the host MPI stack for `srun --mpi=pmix_v5`; false otherwise. */
+  pmix: boolean;
   sync: PlatformSyncState;
   createdAt: string;
   updatedAt: string;
@@ -325,6 +364,10 @@ export interface SlurmDeploymentSpec {
   workloadStorage?: SlurmWorkloadStorageSpec;
   /** Names the GPU GRES type (for example `mi308x_vf`); omitted derives it from the GPUs. */
   gpuGresType?: string;
+  /** Sets up native OCI containers: crun and a configless oci.conf (platforms.md "Native OCI Containers"). */
+  ociContainers?: boolean;
+  /** Installs OpenMPI with PMIx for `srun --mpi=pmix_v5` (platforms.md "MPI (PMIx)"). */
+  pmix?: boolean;
 }
 
 /**
@@ -343,7 +386,9 @@ export interface GPUDriverSettings {
  * `gpuOperator` installs the AMD GPU Operator with a Kubernetes deploy; `gpuStackOwner` is then
  * derived by the backend and may be omitted. `containerRuntime` installs Docker CE or Podman on
  * every compute and login node, and `omnistat` installs Omnistat (with Prometheus and Grafana on
- * the primary controller, by `installMethod`); both are Slurm-only and rejected for Kubernetes.
+ * the primary controller, by `installMethod`); `deviceMetricsExporter` installs AMD's Device Metrics
+ * Exporter the same way instead (never both, and it needs a compute node with AMD GPUs). All three
+ * are Slurm-only and rejected for Kubernetes.
  * `gpuDriver` applies to the GPU nodes of either type. `timeSyncCheck` decides what the
  * deployment's time-sync check does with a node whose clock is unsynchronized or too far from the
  * installation's NTP server: `enforce` (the backend default) fails the deployment, `warn` reports it.
@@ -356,7 +401,8 @@ export interface DeployPlatformInput {
   gpuOperator?: GPUOperatorSettings;
   gpuDriver?: GPUDriverSettings;
   containerRuntime?: { kind: SlurmContainerRuntime };
-  omnistat?: { enabled: boolean; installMethod?: OmnistatInstallMethod };
+  omnistat?: { enabled: boolean; installMethod?: ObservabilityInstallMethod };
+  deviceMetricsExporter?: { enabled: boolean; installMethod?: ObservabilityInstallMethod };
   k0sVersion?: string;
   podCidr?: string;
   serviceCidr?: string;

@@ -1,0 +1,14 @@
+# Managed by Swallow (deploy-slurm). Do not edit by hand; changes are overwritten on redeploy.
+# Native OCI containers (srun --container=<bundle>, decision 066): rootless crun as the job user.
+# ContainerPath is the same string on every node, because PMIx hands expanded paths to the other
+# nodes of a step; slurmstepd creates it for the job user. Each step's spool (with the PMIx server
+# directory the ranks are told about) is mounted at the same path inside the container, so a bundle
+# must let the runtime create that path (a writable rootfs, or a tmpfs on /run). slurmd's
+# NOTIFY_SOCKET must not reach crun, which would try to mount it into the container.
+EnvExclude="^(SLURM_CONF|SLURM_CONF_SERVER)="
+RunTimeEnvExclude="^(SLURM_CONF|SLURM_CONF_SERVER|NOTIFY_SOCKET)="
+ContainerPath="{{ slurm_oci_container_path }}"
+RunTimeQuery="{{ slurm_oci_crun }} --rootless=true --root={{ slurm_oci_runtime_root }} state %n.%u.%j.%s.%t"
+RunTimeKill="{{ slurm_oci_crun }} --rootless=true --root={{ slurm_oci_runtime_root }} kill -a %n.%u.%j.%s.%t"
+RunTimeDelete="{{ slurm_oci_crun }} --rootless=true --root={{ slurm_oci_runtime_root }} delete --force %n.%u.%j.%s.%t"
+RunTimeRun="{{ slurm_oci_crun }} --rootless=true --root={{ slurm_oci_runtime_root }} run --bundle %b %n.%u.%j.%s.%t"

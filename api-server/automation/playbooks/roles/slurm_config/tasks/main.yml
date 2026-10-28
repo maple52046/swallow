@@ -107,6 +107,40 @@
   register: slurm_config_gres
   notify: Restart slurmctld
 
+- name: Render oci.conf for native OCI containers
+  # Configless compute nodes fetch it with slurm.conf; each slurmd reads it only at start.
+  ansible.builtin.template:
+    src: oci.conf.j2
+    dest: "{{ slurm_conf_dir }}/oci.conf"
+    owner: slurm
+    group: slurm
+    mode: "0644"
+  become: true
+  register: slurm_config_oci
+  notify: Restart slurmctld
+  when: slurm_oci_containers | bool
+
+- name: Remove oci.conf when native OCI containers are off
+  # Without oci.conf, srun --container is advisory only.
+  ansible.builtin.file:
+    path: "{{ slurm_conf_dir }}/oci.conf"
+    state: absent
+  become: true
+  register: slurm_config_oci_removed
+  notify: Restart slurmctld
+  when: not (slurm_oci_containers | bool)
+
+- name: Derive the default memory of a job per CPU
+  # The smallest per-CPU share of schedulable memory over the compute nodes, so a job that names no
+  # memory fits on any node with the CPUs it asked for.
+  ansible.builtin.set_fact:
+    slurm_def_mem_per_cpu: >-
+      {%- set shares = [] -%}
+      {%- for nid in swallow_slurm_compute_ids -%}
+      {%- set _ = shares.append((hostvars[nid].slurm_node_schedulable_memory | int) // ([hostvars[nid].slurm_node_cpus | int, 1] | max)) -%}
+      {%- endfor -%}
+      {{ shares | min }}
+
 - name: Render slurm.conf
   ansible.builtin.template:
     src: slurm.conf.j2
@@ -122,4 +156,6 @@
   # Read by slurm_compute on the primary's hostvars: a slurmd that was already running must
   # restart to fetch a changed configless slurm.conf or gres.conf (for example new GPU GRES).
   ansible.builtin.set_fact:
-    slurm_config_changed: "{{ slurm_config_gres is changed or slurm_config_conf is changed }}"
+    slurm_config_changed: >-
+      {{ slurm_config_gres is changed or slurm_config_conf is changed
+         or slurm_config_oci is changed or slurm_config_oci_removed is changed }}

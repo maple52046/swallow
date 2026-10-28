@@ -30,6 +30,7 @@ grafana_datasource_uid: prometheus
 # Folder each shipped dashboard bundle (files/dashboards/<bundle>) is provisioned into.
 grafana_dashboard_folders:
   omnistat: Omnistat RMS
+  device-metrics-exporter: Device Metrics Exporter
 # Settings every install method applies; the address, port, and paths are added per method.
 grafana_environment:
   GF_AUTH_ANONYMOUS_ENABLED: "true"

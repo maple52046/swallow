@@ -164,6 +164,8 @@ func slurmSpecFromRequest(request *slurmDeployRequest) platformdomain.SlurmDeplo
 		NodeAssignments:   assignments,
 		WorkloadStorage:   slurmWorkloadStorageFromRequest(request.WorkloadStorage),
 		GPUGresType:       request.GPUGresType,
+		OCIContainers:     request.OCIContainers,
+		PMIx:              request.PMIx,
 	}
 }
 
@@ -225,7 +227,10 @@ type deployPlatformRequest struct {
 	// GPUOperator optionally installs the AMD GPU Operator with a Kubernetes deploy.
 	GPUOperator *gpuOperatorRequest `json:"gpuOperator"`
 	// Omnistat optionally installs Omnistat (with Prometheus and Grafana) with a Slurm deploy.
-	Omnistat *omnistatRequest `json:"omnistat"`
+	Omnistat *monitoringFeatureRequest `json:"omnistat"`
+	// DeviceMetricsExporter optionally installs AMD's Device Metrics Exporter (with Prometheus and
+	// Grafana) with a Slurm deploy; it and Omnistat are mutually exclusive.
+	DeviceMetricsExporter *monitoringFeatureRequest `json:"deviceMetricsExporter"`
 	// ContainerRuntime optionally installs a container runtime on a Slurm Platform's compute and
 	// login nodes.
 	ContainerRuntime *containerRuntimeRequest `json:"containerRuntime"`
@@ -246,9 +251,11 @@ type deployPlatformRequest struct {
 	TimeSyncCheck string `json:"timeSyncCheck"`
 }
 
-// omnistatRequest is the deploy body's optional Omnistat intent (platforms.md, "Omnistat"). An
-// omitted object or enabled=false installs no Omnistat; an omitted installMethod is container.
-type omnistatRequest struct {
+// monitoringFeatureRequest is the deploy body's optional intent for a Slurm monitoring feature: the
+// omnistat object (platforms.md, "Omnistat") and the deviceMetricsExporter object (platforms.md,
+// "Device Metrics Exporter") share it. An omitted object or enabled=false installs nothing; an
+// omitted installMethod is container.
+type monitoringFeatureRequest struct {
 	Enabled       bool   `json:"enabled"`
 	InstallMethod string `json:"installMethod"`
 }
@@ -279,6 +286,10 @@ type slurmDeployRequest struct {
 	// GPUGresType optionally names the GRES type of every GPU node; omitted derives it from the
 	// GPU architecture.
 	GPUGresType string `json:"gpuGresType"`
+	// OCIContainers sets up native OCI containers (srun --container); omitted is false.
+	OCIContainers bool `json:"ociContainers"`
+	// PMIx installs the host MPI stack srun --mpi=pmix_v5 launches; omitted is false.
+	PMIx bool `json:"pmix"`
 }
 
 // slurmNodeAssignReq assigns Slurm roles to one Server; an omitted flag is false. Login marks
@@ -339,7 +350,14 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 	var omnistat *platformdomain.OmnistatSettings
 	if req.Omnistat != nil {
 		omnistat = &platformdomain.OmnistatSettings{
-			Enabled: req.Omnistat.Enabled, InstallMethod: platformdomain.OmnistatInstallMethod(req.Omnistat.InstallMethod),
+			Enabled: req.Omnistat.Enabled, InstallMethod: platformdomain.ObservabilityInstallMethod(req.Omnistat.InstallMethod),
+		}
+	}
+	var exporter *platformdomain.DeviceMetricsExporterSettings
+	if req.DeviceMetricsExporter != nil {
+		exporter = &platformdomain.DeviceMetricsExporterSettings{
+			Enabled:       req.DeviceMetricsExporter.Enabled,
+			InstallMethod: platformdomain.ObservabilityInstallMethod(req.DeviceMetricsExporter.InstallMethod),
 		}
 	}
 	containerRuntime := ""
@@ -351,14 +369,15 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		gpuDriver = &platformdomain.GPUDriverSettings{ModuleOptions: req.GPUDriver.ModuleOptions}
 	}
 	result, err := h.deploy.Deploy(c.Context(), application.DeployPlatformInput{
-		SiteID:           req.SiteID,
-		Name:             req.Name,
-		Type:             platformdomain.PlatformType(req.Type),
-		GPUStackOwner:    req.GPUStackOwner,
-		GPUOperator:      gpuOperator,
-		ContainerRuntime: containerRuntime,
-		GPUDriver:        gpuDriver,
-		Omnistat:         omnistat,
+		SiteID:                req.SiteID,
+		Name:                  req.Name,
+		Type:                  platformdomain.PlatformType(req.Type),
+		GPUStackOwner:         req.GPUStackOwner,
+		GPUOperator:           gpuOperator,
+		ContainerRuntime:      containerRuntime,
+		GPUDriver:             gpuDriver,
+		Omnistat:              omnistat,
+		DeviceMetricsExporter: exporter,
 		Spec: platformdomain.DeploymentSpec{
 			K0sVersion:      req.K0sVersion,
 			PodCIDR:         req.PodCIDR,
@@ -681,6 +700,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, platformdomain.ErrInvalidDeployment),
 		errors.Is(err, platformdomain.ErrInvalidGPUOperator),
 		errors.Is(err, platformdomain.ErrInvalidOmnistat),
+		errors.Is(err, platformdomain.ErrInvalidDeviceMetricsExporter),
 		errors.Is(err, platformdomain.ErrInvalidContainerRuntime),
 		errors.Is(err, platformdomain.ErrInvalidGPUDriver),
 		errors.Is(err, serverdomain.ErrServerNotFound),

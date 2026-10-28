@@ -179,6 +179,12 @@ type SlurmDeploymentSpec struct {
 	// GPUGresType names the GRES type every GPU node advertises (for example mi308x_vf). Empty
 	// derives it per node from the GPU architecture KFD reports (for example gfx942).
 	GPUGresType string
+	// OCIContainers sets up native OCI containers (srun --container) on the cluster: crun on every
+	// compute node and an oci.conf the controllers distribute with the configless configuration.
+	OCIContainers bool
+	// PMIx installs the host MPI stack (OpenMPI with PMIx) on every compute and login node, so
+	// srun --mpi=pmix_v5 launches MPI jobs. The cluster's MpiDefault stays none.
+	PMIx bool
 }
 
 var slurmGRESType = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
@@ -280,19 +286,21 @@ func (s SlurmDeploymentSpec) HighlyAvailable() bool {
 // GPUOperatorVars, when non-nil, adds the configure-gpu-operator Job with these trusted vars
 // after the Platform validates; nil installs no GPU Operator. ContainerRuntime and Omnistat, when
 // non-nil, add the container runtime and Omnistat Jobs to a Slurm deployment (decision 063); nil
-// installs neither.
+// installs neither. DeviceMetricsExporter, when non-nil, adds the Device Metrics Exporter's Jobs
+// (decision 066); it and Omnistat are never both set.
 type DeploymentLaunch struct {
-	Platform           *Platform
-	OperationID        string
-	TargetServerIDs    []string
-	TrustedVars        map[string]any
-	SecretVars         map[string]any
-	GPUOperatorVars    map[string]any
-	ContainerRuntime   *ContainerRuntimeLaunch
-	Omnistat           *OmnistatLaunch
-	RequestedBy        string
-	RequestCorrelation string
-	MachinePreparation MachinePreparation
+	Platform              *Platform
+	OperationID           string
+	TargetServerIDs       []string
+	TrustedVars           map[string]any
+	SecretVars            map[string]any
+	GPUOperatorVars       map[string]any
+	ContainerRuntime      *ContainerRuntimeLaunch
+	Omnistat              *OmnistatLaunch
+	DeviceMetricsExporter *DeviceMetricsExporterLaunch
+	RequestedBy           string
+	RequestCorrelation    string
+	MachinePreparation    MachinePreparation
 	// TimeSyncCheck decides whether the clock check that opens the platform's install playbook fails
 	// the deployment or only warns (decision 065). The deploy use case always sets it; an empty value
 	// is treated as enforce.

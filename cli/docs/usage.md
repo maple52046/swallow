@@ -679,6 +679,33 @@ swallow workflows get <operationId>   # ensure-os, configure-slurm, configure-po
 swallow platforms get <platformId>    # containerRuntime, omnistat.state, then the Omnistat Grafana link in monitoringLinks
 ```
 
+Instead of Omnistat (never both), `deviceMetricsExporter` installs AMD's Device Metrics Exporter on
+every GPU compute node, with the same Prometheus and Grafana composition and `installMethod`. Jobs
+keep sharing nodes, and each job's GPUs are labelled with its job id. After a successful install
+`deviceMetricsExporter.gpuIdentity` says whether the exporters tell the GPUs apart: `collapsed`
+(for example on MI308X virtual functions) means the metrics flow but per-job GPU attribution is
+wrong on at least one node. `slurm.ociContainers: true` sets up native OCI containers
+(`srun --container=<bundle>`, bundles at the same path on every node) and `slurm.pmix: true`
+installs OpenMPI for `srun --mpi=pmix_v5`:
+
+```yaml
+deviceMetricsExporter:
+  enabled: true
+  installMethod: native      # or container
+slurm:
+  clusterName: dme-run1
+  ociContainers: true
+  pmix: true
+  nodeAssignments:
+    - { serverId: srva, controller: true, compute: false, login: true }
+    - { serverId: srvb, controller: false, compute: true, login: false }
+```
+
+```bash
+swallow workflows get <operationId>   # ..., configure-prometheus/-grafana, configure-device-metrics-exporter
+swallow platforms get <platformId>    # deviceMetricsExporter.state and .gpuIdentity, ociContainers, pmix
+```
+
 #### Kubernetes cluster explorer
 
 ```bash

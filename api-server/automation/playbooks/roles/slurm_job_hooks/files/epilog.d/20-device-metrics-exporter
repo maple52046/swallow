@@ -1,0 +1,22 @@
+#!/bin/bash
+# Managed by Swallow (deploy-slurm): Device Metrics Exporter job attribution Epilog hook.
+# Removes this job's file from each GPU it was allocated, and only while the file still names this
+# job: an Epilog that runs late must not detach a later job that already took the GPU (AMD's own
+# epilog removes the file unconditionally).
+set -u
+readonly state_dir=/run/exporter
+[ -d "$state_dir" ] || exit 0
+gpus=${SLURM_JOB_GPUS:-}
+job=${SLURM_JOB_ID:-}
+[ -n "$gpus" ] && [ -n "$job" ] || exit 0
+[[ $gpus =~ ^[0-9]+(,[0-9]+)*$ ]] || exit 0
+
+IFS=, read -ra ids <<<"$gpus"
+for id in "${ids[@]}"; do
+  file="$state_dir/$id"
+  [ -f "$file" ] || continue
+  if grep -q "\"SLURM_JOB_ID\":\"$job\"" "$file"; then
+    rm -f "$file"
+  fi
+done
+exit 0

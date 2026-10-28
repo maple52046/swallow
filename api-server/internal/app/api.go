@@ -355,6 +355,7 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	platformService.AttachGPUOperatorRecorder(platformRepo)
 	platformService.AttachOmnistatRecorder(platformRepo)
+	platformService.AttachDeviceMetricsExporterRecorder(platformRepo)
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
 	// derived credential source; the configuration service reads the plain repository and derives
@@ -499,6 +500,7 @@ func RunAPI(cfg config.APIConfig) error {
 	deployService.AttachDeploymentKeyChecker(sshKeyService)
 	deployService.AttachGPUOperatorRecorder(platformRepo)
 	deployService.AttachOmnistatRecorder(platformRepo)
+	deployService.AttachDeviceMetricsExporterRecorder(platformRepo)
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,

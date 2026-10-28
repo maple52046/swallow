@@ -387,9 +387,57 @@ test.describe('Kubernetes deployment studio visual review', () => {
 })
 
 /**
+ * Captures the Device Metrics Exporter paths (decision 066): the Features step with the exporter
+ * chosen plus native OCI containers and PMIx, and a Platform whose exporter reports a collapsed GPU
+ * identity, which the page must state in words.
+ */
+test.describe('Slurm Device Metrics Exporter visual review', () => {
+  test('slurm-dme', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/deploy/slurm?site=site-a')
+    await page.getByLabel('Platform name').fill('dme-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+    await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('switch', { name: 'Enable Native OCI containers' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('switch', { name: 'Enable MPI with PMIx' }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('radio', { name: /AMD Device Metrics Exporter/ })).toBeChecked()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-dme-wizard-features')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-dme-wizard-review')
+  })
+
+  test('slurm-dme-platform', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { slurmDeviceMetricsExporter: true })
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/platform-slurm?site=site-a')
+    await expect(page.getByText('GPU identity collapsed')).toBeVisible()
+    await page.getByText('GPU identity collapsed').scrollIntoViewIfNeeded()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-dme-platform-monitoring')
+  })
+})
+
+/**
  * Captures the Slurm deploy wizard's Features step with Podman as the container runtime and
- * Omnistat selected (decision 063): the runtime choice, the Omnistat toggle and its install-method
- * choice naming the primary controller, and the automatic GPU GRES notice.
+ * Omnistat chosen as the GPU monitoring stack (decision 063): the runtime choice, the monitoring
+ * toggle with its stack and install-method choices naming the primary controller, and the automatic
+ * GPU GRES notice.
  */
 test.describe('Slurm Omnistat visual review', () => {
   test('slurm-omnistat', async ({ page }, testInfo) => {
@@ -408,8 +456,9 @@ test.describe('Slurm Omnistat visual review', () => {
     await next.click()
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('radio', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
-    await page.getByRole('switch', { name: 'Enable Omnistat GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
-    await expect(page.getByRole('switch', { name: 'Enable Omnistat GPU monitoring' })).toBeChecked()
+    await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('switch', { name: 'Enable GPU monitoring' })).toBeChecked()
+    await page.getByRole('radio', { name: /Omnistat/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByText('Run both as containers on gpu-node-01.')).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)

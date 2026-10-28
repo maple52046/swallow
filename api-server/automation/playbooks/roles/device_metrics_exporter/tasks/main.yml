@@ -1,0 +1,134 @@
+---
+# Install and start AMD's Device Metrics Exporter on a Slurm GPU compute node from its pinned
+# native package. The Slurm side (the job hook that writes /run/exporter) belongs to deploy-slurm;
+# this role only installs the exporter that hook hands the job to. Idempotent: a converged node
+# reruns with no changes.
+
+- name: Refuse an operating system AMD's package is not built for
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['distribution_release'] == device_metrics_exporter_package.distribution_release
+    fail_msg: >-
+      [device_metrics_exporter_unsupported_os] the Device Metrics Exporter {{ device_metrics_exporter_version }}
+      package is built for Ubuntu {{ device_metrics_exporter_package.distribution_release }}; this node runs
+      {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_release'] }}.
+    quiet: true
+
+- name: Ensure the package cache directory exists
+  ansible.builtin.file:
+    path: "{{ device_metrics_exporter_cache_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Download the pinned Device Metrics Exporter package
+  ansible.builtin.get_url:
+    url: "{{ device_metrics_exporter_package.url }}"
+    checksum: "{{ device_metrics_exporter_package.checksum }}"
+    dest: "{{ device_metrics_exporter_cache_dir }}/{{ device_metrics_exporter_package.url | basename }}"
+    mode: "0644"
+  register: device_metrics_exporter_download
+  until: device_metrics_exporter_download is succeeded
+  retries: 3
+  delay: 10
+
+- name: Install the Device Metrics Exporter package
+  # The package has no dependencies; apt only installs it when this version is not installed yet.
+  ansible.builtin.apt:
+    deb: "{{ device_metrics_exporter_download.dest }}"
+    lock_timeout: 600
+  notify:
+    - Restart gpuagent
+    - Restart the Device Metrics Exporter
+
+- name: Create the job directory at every boot
+  ansible.builtin.copy:
+    dest: "{{ device_metrics_exporter_tmpfiles }}"
+    content: |
+      # Managed by Swallow (configure-device-metrics-exporter): the directory the Slurm job hook
+      # writes and the Device Metrics Exporter watches. Node-local; never on shared storage.
+      d {{ device_metrics_exporter_job_dir }} 0755 root root -
+    owner: root
+    group: root
+    mode: "0644"
+  register: device_metrics_exporter_tmpfiles_conf
+
+- name: Create the job directory now
+  ansible.builtin.command:
+    argv: [systemd-tmpfiles, --create, "{{ device_metrics_exporter_tmpfiles }}"]
+  when: device_metrics_exporter_tmpfiles_conf is changed
+
+- name: Ensure the configuration directory exists
+  ansible.builtin.file:
+    path: "{{ device_metrics_exporter_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render the exporter configuration
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ device_metrics_exporter_config }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart the Device Metrics Exporter
+
+- name: Ensure the systemd drop-in directories exist
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.service.d"
+    state: directory
+    mode: "0755"
+  loop:
+    - gpuagent
+    - amd-metrics-exporter
+
+- name: Start gpuagent only after the GPU driver is loaded
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/gpuagent.service.d/{{ device_metrics_exporter_dropin_name }}"
+    content: |
+      # Managed by Swallow (configure-device-metrics-exporter). gpuagent reads the GPUs through the
+      # amdgpu driver that Swallow's post-boot loader loads, and stops with it.
+      [Unit]
+      Requires={{ device_metrics_exporter_amdgpu_unit }}
+      After={{ device_metrics_exporter_amdgpu_unit }}
+    mode: "0644"
+  notify: Restart gpuagent
+
+- name: Run the exporter for Slurm only, on the scrape address and port
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/amd-metrics-exporter.service.d/{{ device_metrics_exporter_dropin_name }}"
+    content: |
+      # Managed by Swallow (configure-device-metrics-exporter). GPU metrics with Slurm job
+      # attribution; the Kubernetes and CRI integrations are off, and a failing profiler never stops
+      # the general GPU metrics.
+      [Service]
+      ExecStart=
+      ExecStart=/usr/local/bin/amd-metrics-exporter -amd-metrics-config {{ device_metrics_exporter_config }} -bind {{ device_metrics_exporter_bind }} -monitor-gpu=true -monitor-nic=false -enable-k8s=false -enable-k8s-scl=false -enable-cri=false -enable-slurm-scl=true -exit-on-rocpctl-error=false
+    mode: "0644"
+  notify: Restart the Device Metrics Exporter
+
+- name: Enable and start gpuagent and the exporter
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop:
+    - gpuagent
+    - amd-metrics-exporter
+
+- name: Ensure Swallow's helper directory exists
+  ansible.builtin.file:
+    path: "{{ device_metrics_exporter_identity_check | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Install the identity check
+  ansible.builtin.copy:
+    src: dme-identity-check.py
+    dest: "{{ device_metrics_exporter_identity_check }}"
+    owner: root
+    group: root
+    mode: "0755"

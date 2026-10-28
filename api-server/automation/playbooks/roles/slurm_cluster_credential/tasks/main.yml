@@ -70,6 +70,8 @@
           'apiVersion': slurm_api_version} | to_json }}
     mode: "0600"
   delegate_to: localhost
+  # The hand-off to Swallow (a fresh token every run), not a change to any cluster host.
+  changed_when: false
   no_log: true
   when:
     - slurm_have_slurmrestd | default(false) | bool
