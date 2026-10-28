@@ -26,6 +26,8 @@ When the installer finishes:
   **Provisioning → Images**;
 - Temporal, the worker, and the Ansible executor are connected, the Deployment Key exists,
   and Site automation is enabled;
+- the VM serves NTP on UDP 123 (MAAS's own time service), and every Server swallow deploys
+  uses it (see [Time synchronization](guides/os-provisioning.md#time-synchronization));
 - the `swallow` CLI is installed at `/usr/local/bin/swallow`.
 
 ### Prerequisites
@@ -35,7 +37,12 @@ When the installer finishes:
 - Outbound access to `github.com` (the release), `ghcr.io` (swallow's own images), Docker Hub
   (the official MongoDB, PostgreSQL, and Temporal images), `download.docker.com`, the Snap
   Store, and `images.maas.io`.
-- Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS).
+- Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS). Machines
+  reach the VM's NTP on UDP 123.
+- A reachable NTP server for the VM itself. The VM follows `ntp.ubuntu.com` by default; on a
+  network that cannot reach it, pass another one with `SWALLOW_NTP_UPSTREAM`, for example
+  `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`, or change it later with
+  `sudo /opt/swallow/production/swallowctl ntp upstream set 10.0.0.123`.
 - No MAAS installed beforehand; the installer refuses a MAAS it did not create. Docker is
   installed from Docker's apt repository when missing.
 

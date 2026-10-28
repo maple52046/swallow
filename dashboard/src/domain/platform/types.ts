@@ -344,7 +344,9 @@ export interface GPUDriverSettings {
  * derived by the backend and may be omitted. `containerRuntime` installs Docker CE or Podman on
  * every compute and login node, and `omnistat` installs Omnistat (with Prometheus and Grafana on
  * the primary controller, by `installMethod`); both are Slurm-only and rejected for Kubernetes.
- * `gpuDriver` applies to the GPU nodes of either type.
+ * `gpuDriver` applies to the GPU nodes of either type. `timeSyncCheck` decides what the
+ * deployment's time-sync check does with a node whose clock is unsynchronized or too far from the
+ * installation's NTP server: `enforce` (the backend default) fails the deployment, `warn` reports it.
  */
 export interface DeployPlatformInput {
   siteId: string;
@@ -363,7 +365,15 @@ export interface DeployPlatformInput {
   roleAssignments?: RoleAssignment[];
   slurm?: SlurmDeploymentSpec;
   machinePreparation?: PlatformMachinePreparation;
+  timeSyncCheck?: TimeSyncCheck;
 }
+
+/**
+ * What a Platform deployment's time-sync check does with a problem (platforms.md "Time sync check",
+ * glossary Time Sync Check, decision 065). The check runs on every node before the platform is
+ * installed; OS provisioning, not the platform, configures time.
+ */
+export type TimeSyncCheck = 'enforce' | 'warn';
 
 /**
  * One slurmctld controller as reported by slurmrestd ping, in SlurmctldHost failover order.

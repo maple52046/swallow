@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
@@ -29,6 +31,9 @@ type durableProvisioningLauncher struct {
 	// bootMedia inserts ensure-boot-media before the provision-os Task of a Server with Boot Media
 	// enabled (decision 047). Its zero value adds nothing.
 	bootMedia bootMediaPlanner
+	// ntp adds a configure-ntp-<serverId> Task after each provision-os Task (decision 065). Its zero
+	// value adds nothing.
+	ntp ntpStepPlanner
 }
 
 // refreshTarget best-effort advances one Server's provisioning projection from its provisioner
@@ -66,6 +71,8 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	if err != nil {
 		return nil, err
 	}
+	// Preassigned so the configure-ntp Tasks' trusted variables name the Workflow they run in.
+	operationID := uuid.NewString()
 	steps := make([]operationdomain.Task, len(input.ServerIDs))
 	secretStepIDs := make([]string, 0, len(input.ServerIDs))
 	for index, serverID := range input.ServerIDs {
@@ -90,6 +97,12 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 		}
 		secretStepIDs = append(secretStepIDs, stepID)
 	}
+	// Every provisioned Server is pointed at the installation's NTP server once SSH is up.
+	ntpTasks, err := l.ntp.configureTasks(ctx, operationID, requestedBy, "", input.ServerIDs)
+	if err != nil {
+		return nil, err
+	}
+	steps = append(steps, ntpTasks...)
 	secretValues := map[string]any{}
 	if input.UserData.Mode == "replace" && secretValue != "" {
 		secretValues["userData"] = secretValue
@@ -98,6 +111,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 		return nil, err
 	}
 	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
+		ID:   operationID,
 		Kind: operationdomain.WorkflowKindDeployOS, IntentSummary: fmt.Sprintf("Deploy operating system to %d Server(s)", len(input.ServerIDs)),
 		IntentSnapshot: map[string]any{"request": structToMap(input)}, Definition: "os-deployment", DefinitionVersion: 1,
 		SiteID: first.Source.SiteID, TargetServerIDs: input.ServerIDs, Steps: steps,

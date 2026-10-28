@@ -109,3 +109,21 @@ subnet id. `automatic` and `static` deployment intent consume this observation
 (falling back to the provisioner's DNS when the list is empty), while `dhcp`
 intentionally takes DNS from the network DHCP server. Provider subnet ids and
 MAAS `dns_servers` remain outside the Swallow deployment model.
+
+## Time synchronization after SSH (decision 065)
+
+```text
+installation (SWALLOW_API_NTP_SERVER = SWALLOW_ADDRESS) --> api-server config
+Deploy OS / ensure-os launcher --ntpStepPlanner--> configure-ntp-<serverId> ansible Task --> the OS's own time client
+platform launcher --ntpStepPlanner--> install-platform trusted vars --> time_sync_check role (reads only)
+swallowctl ntp upstream (local-ntp.sh) --> MAAS ntp_servers --> MAAS chronyd on the swallow host (UDP 123)
+```
+
+Time sync crosses the provisioner boundary without a write-through. Every Server swallow
+provisions is pointed at the installation's NTP server by the `configure-ntp-<serverId>` Ansible
+Task right after SSH readiness; the target is an api-server setting, not a provider fact or a
+Site record. Platform deployments do not set time: their install playbooks only check it first.
+The co-located MAAS's chronyd is the installation's Control-Plane NTP Server, so the
+installation installs none of its own; the installation tooling (not the API) sets its upstream
+through MAAS's `ntp_servers`, which MAAS also uses to hand its rack to the machines it deploys
+through cloud-init. swallow composes no cloud-init for time (ADR 058 still holds).

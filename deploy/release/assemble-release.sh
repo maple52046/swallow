@@ -41,8 +41,8 @@ mv -- "${out}/swallow" "${out}/swallow-linux-amd64"
 chmod 0755 "${out}/swallow-linux-amd64"
 install -m 0755 "${out}/swallow-linux-amd64" "${out}/production/bin/swallow"
 
-for file in compose.yaml .env.example env.sh prepare-secrets.sh swallowctl local-maas.sh bootstrap.sh \
-  README.md README.zh-TW.md; do
+for file in compose.yaml .env.example env.sh prepare-secrets.sh swallowctl local-maas.sh local-ntp.sh \
+  bootstrap.sh README.md README.zh-TW.md; do
   cp "${root}/deploy/production/${file}" "${out}/production/"
 done
 for file in compose.yaml .env.example prepare.sh seed.sh README.md README.zh-TW.md; do

@@ -146,6 +146,9 @@
       failed_when: false
       become: true
   roles:
+    # MUNGE rejects credentials between nodes whose clocks disagree, so every node's clock is
+    # checked first (decision 065; swallow_time_sync_check decides enforce or warn).
+    - role: time_sync_check
     - role: slurm_preflight
     - role: slurm_packages_verify
 

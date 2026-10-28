@@ -8,6 +8,7 @@
 #   swallowctl doctor | ensure [--profile production|dev]
 #   swallowctl preflight | backup | restore BACKUP_DIRECTORY
 #   swallowctl uninstall [--purge-data]
+#   swallowctl ntp upstream [show | set SERVER... | default]
 #
 # install, upgrade, ensure, backup, restore, and uninstall need root: they install host
 # packages, manage the MAAS snap, and the secrets directory is root-owned (mode 0700).
@@ -36,7 +37,7 @@ installed_marker="${script_dir}/state/installed"
 # SWALLOW_SSH_KNOWN_HOSTS is left out: it may span lines, which .env cannot hold.
 setting_keys=(SWALLOW_ADDRESS SWALLOW_MAAS_URL SWALLOW_BOOT_MEDIA_BASE_URL SWALLOW_HTTP_PORT
   SWALLOW_POSTGRES_HOST_PORT SWALLOW_MAAS_IMAGE_TIMEOUT SWALLOW_SITE_NAME
-  SWALLOW_TEMPORAL_UI_IMAGE SWALLOW_TEMPORAL_UI_PORT)
+  SWALLOW_TEMPORAL_UI_IMAGE SWALLOW_TEMPORAL_UI_PORT SWALLOW_NTP_UPSTREAM SWALLOW_NTP_ALLOW)
 # profile selects the declared stack doctor and ensure act on (see use_profile); every other
 # command acts on the production installation only.
 profile=production
@@ -377,6 +378,8 @@ install_stack() {
   install_cli
   "${script_dir}/local-maas.sh" install
   "${script_dir}/local-maas.sh" ensure-image
+  "${script_dir}/local-ntp.sh" install
+  "${script_dir}/local-ntp.sh" upstream
   "${script_dir}/bootstrap.sh" apply
   doctor
   mark_installed
@@ -411,6 +414,10 @@ upgrade() {
   "${compose[@]}" up -d
   wait_for_ready
   install_cli
+  # An installation from before decision 065 gets its Control-Plane NTP Server and upstream; both
+  # steps are idempotent.
+  "${script_dir}/local-ntp.sh" install
+  "${script_dir}/local-ntp.sh" upstream
   # An installation from before decision 055 gets the rack's virsh SSH identity and records it on
   # the provisioner Integration; both steps are idempotent.
   if [[ -f "${maas_marker}" ]]; then
@@ -455,7 +462,9 @@ restore() {
 #   4. the Ansible executor process runs, and the shipped diagnostic-ping playbook runs;
 #   5. the Dashboard and API answer /readyz on the HTTP port;
 #   6. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
-#      identity (local-maas.sh check), and the installation records exist (bootstrap.sh verify).
+#      identity (local-maas.sh check), the Control-Plane NTP Server serves UDP 123 with the
+#      configured upstream (local-ntp.sh check), and the installation records exist
+#      (bootstrap.sh verify).
 # The configuration itself (compose.yaml, the .env digests, secrets/) is declared, not converged
 # here: changing it is upgrade, which backs up and migrates first.
 
@@ -577,9 +586,10 @@ doctor() {
   check 'ansible-runner runs the shipped diagnostic-ping playbook' ansible_runner_works || failed=1
   if [[ "${profile}" == production ]]; then
     "${script_dir}/local-maas.sh" check || failed=1
+    "${script_dir}/local-ntp.sh" check || failed=1
     "${script_dir}/bootstrap.sh" verify || failed=1
   else
-    printf 'skip  co-located MAAS and installation records (production profile only)\n'
+    printf 'skip  co-located MAAS, control-plane NTP, and installation records (production profile only)\n'
   fi
   report_active_operations
   if ((failed)); then
@@ -678,8 +688,20 @@ converge_local_maas() {
   "${script_dir}/local-maas.sh" ensure-virsh-identity && "${script_dir}/local-maas.sh" ensure-image
 }
 
+# converge_local_ntp reapplies the idempotent Control-Plane NTP Server steps when the read-only
+# check fails: install (nothing with the co-located MAAS) and upstream. It runs after the MAAS
+# conditions because MAAS's chronyd is the server on a production host.
+converge_local_ntp() {
+  if "${script_dir}/local-ntp.sh" check >/dev/null 2>&1; then
+    printf 'ok    control-plane NTP server serves UDP 123 with the configured upstream\n'
+    return 0
+  fi
+  printf 'fix   control-plane NTP server: running local-ntp.sh install and upstream\n'
+  "${script_dir}/local-ntp.sh" install && "${script_dir}/local-ntp.sh" upstream
+}
+
 # converge_installation_records reapplies the idempotent bootstrap (Site, MAAS Integration,
-# automation defaults that exist only when none do) when its read-only verify fails.
+# automation and NTP defaults that exist only when none do) when its read-only verify fails.
 converge_installation_records() {
   if "${script_dir}/bootstrap.sh" verify >/dev/null 2>&1; then
     printf 'ok    installation records exist\n'
@@ -712,6 +734,7 @@ ensure() {
     if [[ -f "${maas_marker}" ]]; then
       converge_local_maas || printf 'FAIL  co-located MAAS did not converge\n'
     fi
+    converge_local_ntp || printf 'FAIL  control-plane NTP server did not converge\n'
     converge_installation_records || printf 'FAIL  installation records did not converge\n'
   fi
   printf '\n'
@@ -721,6 +744,56 @@ ensure() {
     printf 'ensure could not converge every condition; the FAIL lines above show what remains\n' >&2
     return 1
   fi
+}
+
+# remove_env_value deletes KEY from .env, keeping it mode 0600, so the setting falls back to its
+# default.
+remove_env_value() {
+  local key="$1" tmp
+  [[ -f "${env_file}" ]] || return 0
+  tmp="$(mktemp "${script_dir}/.env.XXXXXX")"
+  grep -v "^${key}=" "${env_file}" >"${tmp}" || true
+  chmod 0600 "${tmp}"
+  mv -- "${tmp}" "${env_file}"
+}
+
+# ntp_command controls the Control-Plane NTP Server's upstream (decision 065). swallowctl owns it:
+# SWALLOW_NTP_UPSTREAM in .env is the setting, unset is the default (ntp.ubuntu.com), and every
+# install, upgrade, and ensure reapplies it. set and default apply the change first and record it
+# only when that succeeded, so a refused value never lands in .env.
+#   ntp upstream [show]        the configured upstream and what the NTP server does now
+#   ntp upstream set SERVER... use these IP addresses or host names, in order
+#   ntp upstream default       return to the default upstream
+ntp_command() {
+  local subject="${1:-}" action="${2:-show}" servers
+  [[ "${subject}" == upstream ]] || die 'usage: swallowctl ntp upstream [show | set SERVER... | default]'
+  shift 2 || shift $#
+  load_env
+  case "${action}" in
+    show)
+      if [[ -n "$(env_value SWALLOW_NTP_UPSTREAM)" ]]; then
+        log "upstream: $(env_value SWALLOW_NTP_UPSTREAM) (SWALLOW_NTP_UPSTREAM)"
+      else
+        log 'upstream: default (ntp.ubuntu.com)'
+      fi
+      "${script_dir}/local-ntp.sh" check
+      ;;
+    set)
+      require_root
+      (($# > 0)) || die 'usage: swallowctl ntp upstream set SERVER...'
+      servers="$(IFS=,; printf '%s' "$*")"
+      SWALLOW_NTP_UPSTREAM="${servers}" "${script_dir}/local-ntp.sh" upstream
+      set_env_value SWALLOW_NTP_UPSTREAM "${servers}"
+      log "recorded SWALLOW_NTP_UPSTREAM=${servers} in ${env_file}"
+      ;;
+    default)
+      require_root
+      SWALLOW_NTP_UPSTREAM='' "${script_dir}/local-ntp.sh" upstream
+      remove_env_value SWALLOW_NTP_UPSTREAM
+      log "removed SWALLOW_NTP_UPSTREAM from ${env_file}; the default upstream applies"
+      ;;
+    *) die 'usage: swallowctl ntp upstream [show | set SERVER... | default]' ;;
+  esac
 }
 
 uninstall_stack() {
@@ -750,8 +823,9 @@ case "${command_name}" in
   doctor) parse_profile_options "$@"; use_profile; doctor ;;
   ensure) parse_profile_options "$@"; use_profile; ensure ;;
   uninstall) uninstall_stack "$@" ;;
+  ntp) ntp_command "$@" ;;
   *)
-    printf 'usage: swallowctl {preflight|install|upgrade|ensure|backup|restore|doctor|uninstall}\n' >&2
+    printf 'usage: swallowctl {preflight|install|upgrade|ensure|backup|restore|doctor|uninstall|ntp}\n' >&2
     exit 2
     ;;
 esac

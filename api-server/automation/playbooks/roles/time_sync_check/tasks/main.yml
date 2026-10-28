@@ -1,0 +1,83 @@
+---
+# Examine this node's clock: is it synchronized, and how far is it from the installation's NTP
+# server? deploy-kubernetes and deploy-slurm run this before anything else (decision 065).
+# Problems stop the whole run in enforce mode and are only reported in warn mode. Nothing on the
+# host changes.
+
+- name: Read whether the clock is synchronized
+  # NTPSynchronized is the kernel's synchronized flag, set by chrony or systemd-timesyncd alike, so
+  # it also covers existing_os hosts swallow did not configure.
+  ansible.builtin.command:
+    argv: [timedatectl, show, --property=NTPSynchronized, --value]
+  register: time_sync_check_state
+  changed_when: false
+  failed_when: false
+
+- name: Measure the offset from the installation's NTP server
+  ansible.builtin.script:
+    cmd: "ntp_offset.py {{ time_sync_check_servers[0] | quote }}"
+    executable: python3
+  register: time_sync_check_probe
+  changed_when: false
+  failed_when: false
+  when: time_sync_check_servers | length > 0
+
+- name: Start with no time-sync problems
+  ansible.builtin.set_fact:
+    time_sync_check_problems: []
+    time_sync_check_offset: ""
+
+- name: Note a clock that is not synchronized
+  ansible.builtin.set_fact:
+    time_sync_check_problems: >-
+      {{ time_sync_check_problems + ['the clock is not synchronized (NTPSynchronized='
+         ~ (time_sync_check_state.stdout | default('') | trim | default('unknown', true)) ~ ')'] }}
+  when: (time_sync_check_state.stdout | default('') | trim) != 'yes'
+
+- name: Note an NTP server that does not answer
+  ansible.builtin.set_fact:
+    time_sync_check_problems: >-
+      {{ time_sync_check_problems + [(time_sync_check_probe.stderr | default('') | trim)
+         | default('no reply from ' ~ time_sync_check_servers[0], true)] }}
+  when:
+    - time_sync_check_servers | length > 0
+    - time_sync_check_probe.rc | default(1) != 0
+
+- name: Read the measured offset
+  ansible.builtin.set_fact:
+    time_sync_check_offset: "{{ (time_sync_check_probe.stdout | from_json).offset | float }}"
+  when:
+    - time_sync_check_servers | length > 0
+    - time_sync_check_probe.rc | default(1) == 0
+
+- name: Note a clock too far from the NTP server
+  ansible.builtin.set_fact:
+    time_sync_check_problems: >-
+      {{ time_sync_check_problems + ['the clock is ' ~ ('%.3f' | format(time_sync_check_offset | float | abs))
+         ~ ' s from ' ~ time_sync_check_servers[0] ~ ' (limit ' ~ time_sync_check_max_offset ~ ' s)'] }}
+  when:
+    - time_sync_check_offset | string | length > 0
+    - (time_sync_check_offset | float | abs) > (time_sync_check_max_offset | float)
+
+- name: Fail on a time-sync problem
+  # One node at fault must stop the platform on every node, not only drop that node from the play.
+  any_errors_fatal: true
+  ansible.builtin.fail:
+    msg: "[time_not_synchronized] {{ hostname | default(inventory_hostname) }}: {{ time_sync_check_problems | join('; ') }}"
+  when:
+    - time_sync_check_mode == 'enforce'
+    - time_sync_check_problems | length > 0
+
+- name: Warn about a time-sync problem
+  ansible.builtin.debug:
+    msg: "[time_sync_warning] {{ hostname | default(inventory_hostname) }}: {{ time_sync_check_problems | join('; ') }}"
+  when:
+    - time_sync_check_mode != 'enforce'
+    - time_sync_check_problems | length > 0
+
+- name: Report the checked clock
+  ansible.builtin.debug:
+    msg: >-
+      {{ hostname | default(inventory_hostname) }}: synchronized
+      {%- if time_sync_check_offset | string | length > 0 %}, {{ '%+.4f' | format(time_sync_check_offset | float) }} s from {{ time_sync_check_servers[0] }}{% endif %}
+  when: time_sync_check_problems | length == 0

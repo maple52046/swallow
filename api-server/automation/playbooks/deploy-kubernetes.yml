@@ -26,6 +26,14 @@
           {{ 'k0s_initial_controller' if k0s_is_initial
              else ('k0s_controller' if k0s_role == 'control-plane' else 'k0s_worker') }}
 
+- name: Check every node's clock
+  # etcd and TLS fail in confusing ways on disagreeing clocks, so this runs before k0s is
+  # downloaded (decision 065; swallow_time_sync_check decides enforce or warn).
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: time_sync_check
+
 - name: Prepare every node
   hosts: all
   gather_facts: true

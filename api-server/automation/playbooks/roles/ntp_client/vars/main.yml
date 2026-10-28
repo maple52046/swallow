@@ -1,0 +1,17 @@
+---
+# Time clients the role knows, by kind, with the systemd units each runs as. The role configures the
+# first installed kind in the order systemd-timesyncd, chrony, ntpd and stops every installed unit
+# of the other kinds, so only one client disciplines the clock. openntpd is never chosen, only
+# stopped.
+ntp_client_units:
+  timesyncd: [systemd-timesyncd]
+  chrony: [chrony, chronyd]
+  ntpd: [ntpsec, ntp, ntpd]
+  openntpd: [openntpd]
+
+# The client's status, shown in the failure message when it did not synchronize; bounded because a
+# stopped client leaves these waiting on D-Bus or a socket.
+ntp_client_status_argv:
+  timesyncd: [timeout, "10", timedatectl, timesync-status]
+  chrony: [timeout, "10", chronyc, -n, sources]
+  ntpd: [timeout, "10", ntpq, -pn]

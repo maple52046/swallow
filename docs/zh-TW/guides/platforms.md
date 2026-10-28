@@ -22,6 +22,17 @@ deployment workspace。兩者只共用 Server discovery 與 OS provisioning cont
 validation、features 與 review 仍依 Platform 類型設計。Optional capability 使用 Switch，
 topology 與 implementation mode 使用明確的 radio choice，Slurm node roles 則可各自複選。
 
+## 時鐘檢查
+
+platform 的安裝 step（**Install k0s Platform** 或 **Install Slurm Platform**）在安裝任何東西前，會先
+檢查每個節點的時鐘。它不更改任何設定；
+時間在 OS 佈署時就設定好了（見[時間同步](os-provisioning.md#時間同步)）。節點的時鐘未同步、
+swallow 主機的 NTP 服務沒有回應它，或與該服務相差超過一秒時，就不通過檢查。
+
+Features 步驟的 **Require synchronized clocks** Switch 預設開啟。此時只要有節點未通過檢查，所有節點的
+安裝 step 都會停止，step 的輸出會列出這些節點。Slurm 需要這個檢查：時鐘不一致的節點之間，MUNGE 會拒絕 credential。
+關閉 Switch 則只回報這些節點，佈署繼續進行。
+
 
 ## Kubernetes
 

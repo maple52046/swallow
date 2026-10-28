@@ -150,3 +150,37 @@ test('Slurm with shared storage switched off omits the workload-storage intent',
   const slurm = submitted?.slurm as Record<string, unknown> | undefined
   expect(slurm?.workloadStorage).toBeUndefined()
 })
+
+// The time-sync check runs on every Platform deployment (decision 065); the Features switch only
+// chooses whether an unsynchronized node fails it (enforce, the default) or is reported (warn).
+test('the clock check is required by default and can be relaxed to a warning', async ({ page }) => {
+  const submitted: Array<Record<string, unknown>> = []
+  await page.route('**/api/v1/platforms/deploy', async (route) => {
+    submitted.push(route.request().postDataJSON() as Record<string, unknown>)
+    await route.fallback()
+  })
+  // Each deployment claims its Servers, so the second one uses the other two.
+  const deploySlurm = async (relax: boolean, controller: string, compute: string) => {
+    await page.goto('/platforms/deploy/slurm?site=site-a')
+    await page.getByLabel('Platform name').fill(relax ? 'clock-warn' : 'clock-enforce')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('checkbox', { name: `Run slurmctld on ${controller}` }).locator('..').click()
+    await page.getByRole('checkbox', { name: `Run slurmd on ${compute}` }).locator('..').click()
+    await next.click()
+    const clocks = page.getByRole('switch', { name: 'Require synchronized clocks' })
+    await expect(clocks).toBeChecked()
+    if (relax) {
+      await clocks.locator('xpath=following-sibling::*[1]').click()
+      await expect(clocks).not.toBeChecked()
+      await expect(page.getByText(/only reported as a warning/)).toBeVisible()
+    }
+    await next.click()
+    await expect(page.getByText(relax ? /^Warning only/ : /^Required: an unsynchronized node/)).toBeVisible()
+    await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
+    await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+  }
+  await deploySlurm(false, 'gpu-node-01', 'gpu-node-02')
+  await deploySlurm(true, 'gpu-node-03', 'gpu-node-04')
+  expect(submitted.map((body) => body.timeSyncCheck)).toEqual(['enforce', 'warn'])
+})

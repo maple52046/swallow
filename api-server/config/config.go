@@ -118,6 +118,12 @@ type APIConfig struct {
 	// RedfishProbeMaxAge is how long a Redfish capability probe stays current before the sweep
 	// re-probes it; BMC firmware updates change what a BMC supports.
 	RedfishProbeMaxAge time.Duration `yaml:"redfishProbeMaxAge"`
+	// NTPServer is the address (IP or DNS name) of the installation's Control-Plane NTP Server, as
+	// the Servers swallow deploys reach it (decision 065). Every OS provisioning points the new
+	// Server's chrony at it, and Platform deployments measure node clocks against it. The
+	// production installation sets it to SWALLOW_ADDRESS. Optional for the process to start, but
+	// without it every OS deployment is refused at acceptance with the setting to fix.
+	NTPServer string `yaml:"ntpServer"`
 }
 
 // BootMediaConfig locates the Boot ISOs the API process builds and serves (decision 049) and the

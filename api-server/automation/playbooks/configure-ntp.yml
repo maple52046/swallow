@@ -1,0 +1,20 @@
+---
+# Point Servers at the installation's NTP server (decision 065; docs/development/platform-deployment.md).
+# swallow runs this play once per Server it provisions, after SSH readiness: in a Deploy OS Workflow
+# and in a Platform deployment's ensure-os Job alike (configure-ntp-<serverId>). It needs one trusted
+# variable:
+#   swallow_ntp_servers   ordered list of IP addresses or host names; the api-server validates its
+#                         SWALLOW_API_NTP_SERVER and freezes it into the Workflow at acceptance
+#
+# The play configures the time client the OS already has (systemd-timesyncd, else chrony, else
+# ntpd), installs chrony only when there is none, and stops every other client, so every provisioned
+# Server follows the same source. systemd-timesyncd still prefers a DHCP-offered server; on a subnet
+# MAAS serves that is the swallow host too. The play then waits a bounded time for a reply and fails
+# with [ntp_not_synchronized] otherwise: the clock is a prerequisite of what is configured next
+# (MUNGE, etcd, TLS). Idempotent: a converged host reruns with no changes.
+
+- name: Configure time synchronization
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: ntp_client

@@ -50,6 +50,7 @@ import { useDeployableServers } from './useDeployableServers'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
 import { AdvancedSettings } from './AdvancedSettings'
 import { KubernetesDeploymentFeatures } from './KubernetesDeploymentFeatures'
+import { TimeSyncCheckToggle } from './TimeSyncCheckToggle'
 import { SlurmDeploymentFeatures, type GPUGresTypeMode } from './SlurmDeploymentFeatures'
 import {
   formatGPUDriverModuleOptions,
@@ -256,6 +257,9 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   const [slurmGresTypeMode, setSlurmGresTypeMode] = useState<GPUGresTypeMode>('automatic')
   const [slurmGresType, setSlurmGresType] = useState('')
   const [gpuDriverOptionsText, setGPUDriverOptionsText] = useState('')
+  // The time-sync check runs on every deployment (decision 065); this only decides whether a node
+  // with an unsynchronized clock fails it. Strict by default, as the backend is.
+  const [timeSyncEnforced, setTimeSyncEnforced] = useState(true)
   const [topology, setTopology] = useState<TopologyChoice>('high-availability')
   const [apiVip, setAPIVip] = useState('')
   // Empty means the backend takes the prefix of the control plane's subnet, which is the only
@@ -427,6 +431,9 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
     const release = gpuOperatorCatalog ? resolveGPUOperatorRelease(gpuOperatorForm, gpuOperatorCatalog) : undefined
     return `${release?.version ?? 'Default release'} · ${GPU_ALLOCATION_MODE_LABELS[gpuOperatorForm.allocationMode]}`
   })()
+  const timeSyncReview = timeSyncEnforced
+    ? 'Required: an unsynchronized node fails the deployment'
+    : 'Warning only: an unsynchronized node is reported and the deployment continues'
 
   // Kubernetes selection comes from role assignments; Slurm from the per-daemon checkboxes.
   const selectedServerIds = isSlurm ? slurmSelectedIds : assignments.map((assignment) => assignment.serverId)
@@ -724,6 +731,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                       },
               },
               machinePreparation,
+              timeSyncCheck: timeSyncEnforced ? 'enforce' : 'warn',
             }
           : {
               siteId: effectiveSiteId,
@@ -738,6 +746,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               serviceCidr: serviceCidr.trim(),
               roleAssignments: assignments,
               machinePreparation,
+              timeSyncCheck: timeSyncEnforced ? 'enforce' : 'warn',
             },
       )
       showToast({
@@ -1277,6 +1286,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               k0sVersion={k0sVersion.trim() || null}
             />
           )}
+          <TimeSyncCheckToggle enforced={timeSyncEnforced} onEnforcedChange={setTimeSyncEnforced} />
         </WizardSection>
       ),
     })
@@ -1646,6 +1656,11 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               },
             ],
           },
+          {
+            title: 'Time synchronization',
+            stepId: 'deploy-features',
+            items: [{ label: 'Clock check', value: timeSyncReview }],
+          },
           ...(needsProvisioning
             ? [{ title: 'Server preparation', stepId: 'deploy-server-preparation', items: osReviewItems }]
             : []),
@@ -1673,7 +1688,10 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
           {
             title: 'Features',
             stepId: 'deploy-features',
-            items: [{ label: 'AMD GPU Operator', value: gpuOperatorReview }],
+            items: [
+              { label: 'AMD GPU Operator', value: gpuOperatorReview },
+              { label: 'Clock check', value: timeSyncReview },
+            ],
           },
           ...(needsProvisioning
             ? [{ title: 'Operating system', stepId: 'deploy-server-preparation', items: osReviewItems }]

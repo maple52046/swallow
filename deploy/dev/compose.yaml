@@ -122,6 +122,9 @@ services:
       # <base URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso. Empty base URL leaves Boot Media off.
       SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"
       SWALLOW_API_BOOT_MEDIA_BASE_URL: "${SWALLOW_API_BOOT_MEDIA_BASE_URL:-}"
+      # The NTP server every provisioned Server is pointed at (decision 065): the address machines
+      # reach this host by. Empty refuses OS deployments until it is set in .env.
+      SWALLOW_API_NTP_SERVER: "${SWALLOW_API_NTP_SERVER:-}"
       SWALLOW_API_REDFISH_PROBE_INTERVAL: "${SWALLOW_API_REDFISH_PROBE_INTERVAL:-10m}"
       # Server Enrollment (decision 053) serves the CLI at /downloads/swallow. Build it into
       # ./bin first: `cd cli && CGO_ENABLED=0 go build -o ../deploy/dev/bin/swallow ./cmd/swallow`.
@@ -181,6 +184,9 @@ services:
       # (decision 053), so the worker sees the Boot ISO files and their URL like the API does.
       SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"
       SWALLOW_API_BOOT_MEDIA_BASE_URL: "${SWALLOW_API_BOOT_MEDIA_BASE_URL:-}"
+      # The NTP server every provisioned Server is pointed at (decision 065): the address machines
+      # reach this host by. Empty refuses OS deployments until it is set in .env.
+      SWALLOW_API_NTP_SERVER: "${SWALLOW_API_NTP_SERVER:-}"
     volumes:
       - ../../api-server:/app
       - ./air-worker.toml:/etc/swallow/air.toml:ro

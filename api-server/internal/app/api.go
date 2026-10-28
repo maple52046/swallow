@@ -418,9 +418,13 @@ func RunAPI(cfg config.APIConfig) error {
 	// Deleting a platform cancels its in-flight durable operations so their leases are
 	// released and the member servers are freed rather than left blocked by orphaned work.
 	platformService.AttachOperationCanceler(platformOperationCanceler{orchestrations: orchestrationService})
+	// Both deployment launchers point every Server they provision at the installation's NTP server
+	// after SSH readiness, and Platform deployments check time sync (decision 065); the Tasks are
+	// prepared through the same ansible acceptance checks as any other.
+	ntpPlan := ntpStepPlanner{server: cfg.NTPServer, operations: operationService}
 	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
 		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo,
-		protection: serverProtection, refresh: refreshServerUC, bootMedia: bootMediaPlan,
+		protection: serverProtection, refresh: refreshServerUC, bootMedia: bootMediaPlan, ntp: ntpPlan,
 	})
 	// Server Enrollment (decision 053): Inspect and the automatic sweep both run hardware
 	// inspection as an inspect-hardware Workflow; existing-OS hosts get their bundle and script
@@ -483,7 +487,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Platform lifecycle adapters keep durable operations outside the platform context.
 	platformLauncher := platformDeploymentLauncher{
 		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC, servers: serverRepo,
-		bootMedia: bootMediaPlan, software: softwareService,
+		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan,
 	}
 	deployService := platformapp.NewDeployService(
 		platformService, platformRepo, serverRepo, lifecycleReader, platformLauncher,
@@ -843,7 +847,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	sites.Get("/:id/automation", deps.operations.GetAutomation)
 	sites.Put("/:id/automation", deps.operations.PutAutomation)
 	sites.Put("/:id/automation/credential", deps.operations.PutAutomationCredential)
-
 	integrations := v1.Group("/integrations", admin...)
 	integrations.Post("/", deps.sites.CreateIntegration)
 	integrations.Get("/", deps.sites.ListIntegrations)

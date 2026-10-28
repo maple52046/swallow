@@ -618,6 +618,24 @@ minutes. A machine that is still powered off becomes `requires_attention` with c
 power on, or resubmit it automatically. Providers without live power inspection retain
 the general two-hour observation timeout.
 
+**Time synchronization.** Every OS provisioning configures time
+([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md)):
+the Operation also has one `ansible` Step `configure-ntp-<serverId>` per Server, depending only
+on that Server's `provision-<serverId>`. It runs the release playbook `configure-ntp` against
+the installation's NTP server (the api-server setting `SWALLOW_API_NTP_SERVER`, which the
+production installation sets to `SWALLOW_ADDRESS`), frozen at acceptance as the trusted variable
+`swallow_ntp_servers`. The playbook configures the time client the OS already has, in the order
+`systemd-timesyncd`, `chrony`, `ntpd`, installs chrony only when there is none, and stops every
+other client; the run output names the client used. The Step fails with `ansible_failed` whose run
+output carries `[ntp_not_synchronized]` when the client gets no reply within two minutes.
+`systemd-timesyncd` still prefers a server a DHCP lease offers; on a subnet MAAS serves that is the
+MAAS rack, which is the swallow host too. The Server's `deployment` result still reflects only its
+`provision-os` Step. Acceptance fails with `409 conflict` when the installation has no NTP server
+(the message names `SWALLOW_API_NTP_SERVER`), and, because these Steps are Ansible, with
+`503 provider_unavailable` while the Site's automation is not runnable (see
+[site-automation.md](site-automation.md)). OS image verification does not configure time: it
+returns the Server afterwards.
+
 **Boot Media ensure.** For each target Server whose Boot Media is enabled when the Operation is
 accepted (see [server-detail-actions.md](server-detail-actions.md#boot-media) and
 [decision 047](../../../../../docs/decisions/047-redfish-boot-media.md)), the Operation also has

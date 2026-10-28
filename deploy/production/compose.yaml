@@ -139,6 +139,9 @@ services:
       # dashboard's port 80. An empty base URL keeps Boot Media off.
       SWALLOW_API_BOOT_MEDIA_DIR: /var/lib/swallow/boot-media
       SWALLOW_API_BOOT_MEDIA_BASE_URL: ${SWALLOW_BOOT_MEDIA_BASE_URL:-}
+      # Every provisioned Server is pointed at the Control-Plane NTP Server on this host, at the
+      # address machines reach it by (decision 065).
+      SWALLOW_API_NTP_SERVER: ${SWALLOW_ADDRESS:-}
       # Server Enrollment (decision 053): hosts that keep their OS download the bundled CLI from
       # /downloads/swallow, so the bundle's bin/ is mounted read-only.
       SWALLOW_API_CLI_BINARY: /usr/local/share/swallow/bin/swallow
@@ -195,6 +198,9 @@ services:
       # (decision 053), so the worker reads the Boot ISO files and their URL like the API does.
       SWALLOW_API_BOOT_MEDIA_DIR: /var/lib/swallow/boot-media
       SWALLOW_API_BOOT_MEDIA_BASE_URL: ${SWALLOW_BOOT_MEDIA_BASE_URL:-}
+      # Every provisioned Server is pointed at the Control-Plane NTP Server on this host, at the
+      # address machines reach it by (decision 065).
+      SWALLOW_API_NTP_SERVER: ${SWALLOW_ADDRESS:-}
     secrets:
       - mongo_uri
       - jwt_secret

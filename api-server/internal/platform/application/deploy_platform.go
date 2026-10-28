@@ -166,6 +166,9 @@ type DeployPlatformInput struct {
 	RequestedBy        string
 	RequestCorrelation string
 	MachinePreparation platformdomain.MachinePreparation
+	// TimeSyncCheck is the request's timeSyncCheck as sent; Deploy normalizes it (empty is enforce)
+	// before any record is created and hands it to the launcher.
+	TimeSyncCheck platformdomain.TimeSyncCheck
 }
 
 // DeployPlatformResult is the accepted deployment: the created platform and the operation
@@ -249,6 +252,11 @@ func (s *DeployService) Deploy(ctx context.Context, input DeployPlatformInput) (
 			return nil, platformdomain.ErrDeploymentKeyMissing
 		}
 	}
+	timeSyncCheck, err := platformdomain.ParseTimeSyncCheck(string(input.TimeSyncCheck))
+	if err != nil {
+		return nil, err
+	}
+	input.TimeSyncCheck = timeSyncCheck
 	platformType := input.Type
 	if platformType == "" {
 		platformType = platformdomain.PlatformTypeKubernetes
@@ -342,6 +350,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 		GPUOperatorVars: gpuOperatorVars,
 		RequestedBy:     input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 		MachinePreparation: validated.machinePreparation,
+		TimeSyncCheck:      input.TimeSyncCheck,
 	}
 	launchedID, err := s.launcher.Launch(ctx, launch)
 	if err != nil {
@@ -462,6 +471,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		RequestedBy:        input.RequestedBy,
 		RequestCorrelation: input.RequestCorrelation,
 		MachinePreparation: validated.machinePreparation,
+		TimeSyncCheck:      input.TimeSyncCheck,
 	}
 	if containerRuntime != "" {
 		launch.ContainerRuntime = &platformdomain.ContainerRuntimeLaunch{

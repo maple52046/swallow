@@ -123,6 +123,39 @@ accept only plain HTTP on port 80.
 Editing api-server Go code restarts the worker (Air), which fences a running
 deployment's lease; avoid it while a lab deployment is in flight.
 
+## Control-plane NTP
+
+Every OS provisioning points the new Server at this host's NTP server after SSH comes up
+(`configure-ntp` Task, decision 065), and each Platform's install playbook checks the nodes' clocks
+before installing. `SWALLOW_API_NTP_SERVER` in `.env` is the address Servers reach this host's NTP
+server at (not its upstream); the dev stack cannot derive it, so while it is empty every OS
+deployment is refused.
+
+The host's NTP server is the Control-Plane NTP Server. With a local MAAS snap it is MAAS's own
+chronyd and nothing is installed; otherwise `local-ntp.sh install` installs host chrony. Its
+upstream is set separately with `local-ntp.sh upstream` (the production installation uses
+`swallowctl ntp upstream`); unset means `ntp.ubuntu.com`. On `root123-intel` the physical network
+reaches no public NTP, so the upstream is the lab's chronos NTP-over-HTTP gateway on
+`tainan-node03` (`10.170.168.3`, rendered `server 10.170.168.3 iburst`), and the Servers use this
+host's lab address:
+
+```bash
+sudo SWALLOW_NTP_UPSTREAM=10.170.168.3 ../production/local-ntp.sh upstream
+sudo SWALLOW_NTP_UPSTREAM=10.170.168.3 ../production/local-ntp.sh check
+echo SWALLOW_API_NTP_SERVER=10.170.168.20 >> .env && docker compose up -d api-server worker
+```
+
+Outside an installation `local-ntp.sh` configures MAAS with `SWALLOW_MAAS_API_KEY`, or with the
+key of the MAAS user `SWALLOW_MAAS_ADMIN_USER` (default `admin`). Running `local-ntp.sh upstream`
+without `SWALLOW_NTP_UPSTREAM` returns MAAS to the default.
+
+The gateway must not run on this host, and `tainan-node03` must not take its time from it. A
+chronos gateway serves the clock of the host it runs on plus a correction, so while it ran here
+(`172.30.100.10`) MAAS's chronyd was chasing a target computed from the clock it disciplined: 33.5 s
+off at the first switch, the two ran away from real time together. `local-ntp.sh upstream` also
+steps the clock once when it is more than a second off the upstream, so set the upstream with the
+script rather than in MAAS by hand.
+
 ## Seed a demonstration Site
 
 The idempotent seed script creates the deployment key (`swallow-api deployment-key

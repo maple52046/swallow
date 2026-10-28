@@ -81,6 +81,9 @@ type platformDeploymentLauncher struct {
 	// container runtime and Omnistat features (decision 063). Nil refuses such a deployment
 	// rather than skipping the feature.
 	software *softwareapp.SoftwareService
+	// ntp adds configure-ntp after each provision-os Task of the ensure-os Job and the clock-check
+	// variables to the install step (decision 065). Its zero value adds no Task.
+	ntp ntpStepPlanner
 }
 
 // Launch builds the durable Operation that deploys a Platform. It dispatches on the platform
@@ -96,6 +99,7 @@ func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformd
 
 func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
+	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
 	if l.orchestrations == nil {
 		if provisionFirst {
 			return "", fmt.Errorf("durable Platform provisioning is unavailable")
@@ -138,7 +142,7 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 		}
 	}
 
-	ensure, err := l.buildEnsureOS(ctx, launch, provisionFirst, prepared.Targets)
+	ensure, err := l.buildEnsureOS(ctx, launch, operationID, provisionFirst, prepared)
 	if err != nil {
 		return "", err
 	}
@@ -187,6 +191,7 @@ func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch plat
 		return "", fmt.Errorf("durable Slurm deployment is unavailable")
 	}
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
+	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
 
 	operationID := launch.OperationID
 	if operationID == "" {
@@ -203,7 +208,7 @@ func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch plat
 		return "", err
 	}
 
-	ensure, err := l.buildEnsureOS(ctx, launch, provisionFirst, prepared.Targets)
+	ensure, err := l.buildEnsureOS(ctx, launch, operationID, provisionFirst, prepared)
 	if err != nil {
 		return "", err
 	}
@@ -251,16 +256,52 @@ type ensureOSPlan struct {
 // provision_os mode it provisions only targets that still need an OS (ADR 017 convergence):
 // a target already `deployed` in the same batch is reused as-is and only gets the SSH
 // readiness gate, so one deploy can mix ready and deployed servers. In existing_os mode it
-// adds a single readiness gate over the prepared targets. preparedTargets is the ansible
-// step's resolved target set, used for the existing_os gate.
+// adds a single readiness gate over the prepared targets. prepared is the install step's
+// resolved target set, used for the existing_os gate.
+//
+// Time (decision 065) is part of an OS being ready, so each Server this Job provisions is followed
+// by its own configure-ntp-<serverId>, exactly as in a Deploy OS Workflow, and the install step
+// depends on it; reused and existing_os Servers are not reconfigured. The clock check belongs to
+// each platform's install playbook, not to this Job.
 func (l platformDeploymentLauncher) buildEnsureOS(
+	ctx context.Context,
+	launch platformdomain.DeploymentLaunch,
+	operationID string,
+	provisionFirst bool,
+	prepared *operationapp.PreparedAnsibleStep,
+) (ensureOSPlan, error) {
+	plan, err := l.buildOSReadiness(ctx, launch, provisionFirst, prepared.Targets)
+	if err != nil {
+		return ensureOSPlan{}, err
+	}
+	var provisioned []string
+	for _, step := range plan.steps {
+		if step.Kind == "provision-os" {
+			provisioned = append(provisioned, firstTargetServer(step))
+		}
+	}
+	ntpTasks, err := l.ntp.configureTasks(ctx, operationID, launch.RequestedBy, jobEnsureOS, provisioned)
+	if err != nil {
+		return ensureOSPlan{}, err
+	}
+	for _, task := range ntpTasks {
+		plan.steps = append(plan.steps, task)
+		plan.installDeps = append(plan.installDeps, task.ID)
+	}
+	return plan, nil
+}
+
+// buildOSReadiness builds the part of the ensure-os Job that brings targets to a booted,
+// SSH-reachable OS: provision-os per target that needs one plus a wait-for-ssh gate over the
+// rest (provision_os), or a single wait-for-ssh gate over preparedTargets (existing_os).
+func (l platformDeploymentLauncher) buildOSReadiness(
 	ctx context.Context,
 	launch platformdomain.DeploymentLaunch,
 	provisionFirst bool,
 	preparedTargets []operationdomain.ResourceReference,
 ) (ensureOSPlan, error) {
 	plan := ensureOSPlan{
-		steps:         make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+2),
+		steps:         make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+3),
 		secretStepIDs: make([]string, 0, len(launch.TargetServerIDs)),
 	}
 	if !provisionFirst {
@@ -883,10 +924,11 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 	}
 	switch execution.Kind {
 	case operationdomain.WorkflowKindDeployKubernetes:
-		// An execution carries its Workflow's kind, so the GPU Operator Task of a deploy arrives
-		// here too. Only the k0s install produces the credential; the GPU Task's own outcome is
-		// projected by gpuOperatorStepObserver.
-		if execution.StepID == gpuOperatorStepID {
+		// An execution carries its Workflow's kind, so the GPU Operator Task and the ensure-os time
+		// Tasks of a deploy arrive here too. Only the k0s install produces the credential; the GPU
+		// Task's own outcome is projected by gpuOperatorStepObserver, and the time Tasks have
+		// nothing to record.
+		if execution.StepID == gpuOperatorStepID || isTimeTask(execution.StepID) {
 			return nil
 		}
 		credential := platformCredentialFromResult(result)
@@ -896,9 +938,9 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 		return o.credentials.Record(ctx, execution.PlatformID, *credential)
 	case operationdomain.WorkflowKindConfigureSlurm:
 		// A Slurm Workflow with a container runtime or Omnistat also runs composed software Tasks
-		// and the Omnistat Task (decision 063); their executions carry the Workflow's kind too.
-		// Only install-platform produces the slurmrestd credential, and only install-omnistat
-		// reports the Grafana URL.
+		// and the Omnistat Task (decision 063), and its ensure-os Job runs the time Tasks
+		// (decision 065); their executions carry the Workflow's kind too. Only install-platform
+		// produces the slurmrestd credential, and only install-omnistat reports the Grafana URL.
 		switch execution.StepID {
 		case installPlatformStepID:
 		case omnistatStepID:

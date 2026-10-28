@@ -1,0 +1,10 @@
+# Managed by Swallow (configure-ntp, decision 065): the installation's NTP server. Each OS
+# provisioning rewrites this file; change the swallow host's upstream instead.
+{% for server in ntp_client_servers %}
+{{ 'server' if (server is match('^[0-9.]+$') or ':' in server) else 'pool' }} {{ server }} iburst
+{% endfor %}
+driftfile {{ ntp_client_driftfile }}
+# Step a fresh host's clock at once instead of slewing it for hours.
+makestep 1.0 3
+rtcsync
+logdir /var/log/chrony

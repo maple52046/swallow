@@ -74,3 +74,37 @@ func TestValidate_BootMedia(t *testing.T) {
 		t.Errorf("Validate(zero probe interval) = %v, want an error", err)
 	}
 }
+
+// The NTP server is optional for startup, but a configured one is written into chrony on every
+// provisioned Server, so only one bare IP address or DNS name is accepted.
+func TestValidate_NTPServer(t *testing.T) {
+	tests := []struct {
+		name    string
+		server  string
+		wantErr bool
+	}{
+		{name: "unset", server: ""},
+		{name: "IPv4", server: " 10.170.168.20 "},
+		{name: "IPv6", server: "fd00::20"},
+		{name: "DNS name", server: "swallow.lab.example"},
+		{name: "single label", server: "swallow"},
+		{name: "port", server: "10.170.168.20:123", wantErr: true},
+		{name: "chrony option", server: "10.170.168.20 iburst", wantErr: true},
+		{name: "URL", server: "ntp://10.170.168.20", wantErr: true},
+		{name: "mistyped IPv4", server: "10.170.168.256", wantErr: true},
+		{name: "two servers", server: "10.0.0.1,10.0.0.2", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.API.NTPServer = tc.server
+			err := Validate(cfg)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Validate(ntpServer=%q) = %v, wantErr %t", tc.server, err, tc.wantErr)
+			}
+			if err == nil && cfg.API.NTPServer != strings.TrimSpace(tc.server) {
+				t.Errorf("Validate(ntpServer=%q) left %q, want it trimmed", tc.server, cfg.API.NTPServer)
+			}
+		})
+	}
+}

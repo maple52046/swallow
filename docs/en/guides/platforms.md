@@ -26,6 +26,21 @@ and OS-provisioning controls, but keep their own steps, validation, features, an
 review. Optional capabilities use Switches; topology and implementation modes remain
 explicit radio choices, and Slurm node roles remain independently selectable.
 
+## Clock check
+
+The platform's install step (**Install k0s Platform** or **Install Slurm Platform**)
+first examines every node's clock, before it installs anything. It changes nothing;
+time is set when an OS is deployed (see
+[Time synchronization](os-provisioning.md#time-synchronization)). A node fails the
+check when its clock is not synchronized, when the swallow host's NTP service does
+not answer it, or when it is more than a second away from that service.
+
+The **Require synchronized clocks** Switch in the Features step is on by default. A
+node that fails the check then stops the install step on every node, and the step's
+output names it.
+Slurm needs this: MUNGE rejects credentials between nodes whose clocks disagree. Turn
+the Switch off to report such nodes and continue anyway.
+
 
 ## Kubernetes
 

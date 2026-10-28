@@ -38,18 +38,3 @@
   when:
     - slurm_is_controller | bool
     - slurm_controller_state_mode == 'shared'
-
-- name: Check that the system clock is synchronized
-  # MUNGE rejects credentials across hosts whose clocks disagree, so an unsynced clock is a
-  # common, confusing failure. This is a warning, not a hard failure: some images sync through
-  # mechanisms timedatectl does not report.
-  ansible.builtin.command:
-    cmd: timedatectl show -p NTPSynchronized --value
-  register: slurm_clock_sync
-  changed_when: false
-  failed_when: false
-
-- name: Warn when the clock is not reported as synchronized
-  ansible.builtin.debug:
-    msg: "Clock on {{ inventory_hostname }} is not reported as NTP-synchronized; MUNGE requires synchronized clocks across the cluster."
-  when: slurm_clock_sync.stdout | default('') | trim != 'yes'

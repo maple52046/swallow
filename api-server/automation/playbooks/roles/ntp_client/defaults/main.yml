@@ -1,0 +1,9 @@
+---
+# ntp_client role defaults. The servers come only from the trusted swallow_ntp_servers variable.
+ntp_client_servers: "{{ swallow_ntp_servers | default([]) }}"
+
+# Synchronization wait budget, whichever client is used: tries x interval seconds (24 x 5 s =
+# 2 minutes). Long enough for an iburst exchange plus a clock step on a fresh host, short enough that
+# an unreachable server fails the Task instead of holding the Workflow.
+ntp_client_sync_tries: 24
+ntp_client_sync_interval: 5

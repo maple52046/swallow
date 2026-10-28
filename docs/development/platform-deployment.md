@@ -89,7 +89,8 @@ deployment 一律以這四層表達（完整定義見 glossary：
 | `ensure-os` | `ensure-boot-media-<serverId>`（僅限啟用 Boot Media 的 Server，[decision 047](../decisions/047-redfish-boot-media.md)） | `ensure-boot-media` | `internal` | 單一 Server | — | `isoUrl`（受理時的 Boot Media ISO URL） |
 | `ensure-os` | `provision-<serverId>`（每台需裝 OS 者一個） | `provision-os` | `provisioner` | 單一 Server | —（Job 內並行；啟用 Boot Media 者依賴其 `ensure-boot-media-<serverId>`） | `request`（凍結的 per-Server 佈署輸入）；啟用 Boot Media 者另有 `bootMediaIsoUrl` |
 | `ensure-os` | `wait-for-ssh` | `wait-for-ssh` | `internal` | 已 `deployed` 的 targets | — | — |
-| `configure-k0s` | `install-platform` | `ansible-playbook` | `ansible` | 全部 targets | 所有 `provision-*` + `wait-for-ssh` | `playbook`、`extraVars` |
+| `ensure-os` | `configure-ntp-<serverId>`（每台本次 provision 的 Server 一個，[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)） | `ansible-playbook` | `ansible` | 單一 Server | `provision-<serverId>` | `playbook`（`configure-ntp`）、`extraVars`（含 `swallow_ntp_servers`） |
+| `configure-k0s` | `install-platform` | `ansible-playbook` | `ansible` | 全部 targets | 所有 `provision-*` + `wait-for-ssh` + `configure-ntp-*` | `playbook`、`extraVars`（含時鐘檢查的 `swallow_time_sync_check`） |
 | `configure-k0s` | `validate-platform` | `validate-platform-health` | `internal` | 全部 targets | `install-platform` | — |
 
 ```mermaid
@@ -97,14 +98,20 @@ flowchart TB
     subgraph ensure["Job: ensure-os (child workflow)"]
         p1["provision-&lt;id&gt; (provisioner)"]
         p2["provision-&lt;id&gt; (provisioner)"]
+        n1["configure-ntp-&lt;id&gt; (ansible)"]
+        n2["configure-ntp-&lt;id&gt; (ansible)"]
         w["wait-for-ssh (internal)"]
     end
     subgraph configure["Job: configure-k0s (child workflow)"]
         inst["install-platform (ansible)"]
         val["validate-platform (internal)"]
     end
+    p1 --> n1
+    p2 --> n2
     p1 --> inst
     p2 --> inst
+    n1 --> inst
+    n2 --> inst
     w --> inst
     inst --> val
     ensure -->|cross-Job order| configure
@@ -118,6 +125,27 @@ flowchart TB
   OS 並等待就緒）；對**同一批中已 `deployed`** 的 Server 只加一個 `wait-for-ssh`（不重裝）。
   這就是 convergent deploy——一次佈署可**混合** `ready` 與 `deployed` 的 Server。
 - **`existing_os`**：不佈署，只以單一 `wait-for-ssh` 確認全部 targets 的 SSH 就緒。
+
+時間（[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)）在 OS
+佈署時就設定好；platform 佈署不設定，只在自己的 install playbook 裡檢查：
+
+- **設定（屬於 OS provisioning）**：`provision_os` 模式中，每台本次 provision 的 Server 在
+  `provision-<serverId>` 之後有自己的 `configure-ntp-<serverId>`，與 Deploy OS 完全相同——以受理時
+  凍結的 `swallow_ntp_servers`（api-server 設定 `SWALLOW_API_NTP_SERVER`，production 為
+  `SWALLOW_ADDRESS`）跑 `configure-ntp` playbook。它設定 OS 已有的時間 client（依序
+  `systemd-timesyncd`、`chrony`、`ntpd`；都沒有才安裝 chrony），停用其他 client，並在有限時間內等到
+  回應（否則 `[ntp_not_synchronized]`）。沿用的 `deployed` Server 與 `existing_os` 的 targets 不重新
+  設定。需要 provision 卻沒有 NTP server 時，受理即以 `ErrNTPServerMissing`（409）拒絕。Launcher 直接
+  指名 playbook，不需 site `playbookMappings`；這個 ansible execution 帶的是 Workflow 的 kind，
+  completion observer 以 `isTimeTask`（前綴 `configure-ntp-`）略過 platform 的完成處理。
+- **檢查（屬於各 platform）**：`deploy-kubernetes.yml` 在下載 k0s 之前、`deploy-slurm.yml` 在
+  `slurm_preflight`（MUNGE 之前）先跑 role `time_sync_check`，涵蓋全部 targets，不改主機：讀
+  `timedatectl` 的 `NTPSynchronized`，有 NTP server 時再以 SNTP 量測與它的 offset（上限
+  `swallow_time_sync_max_offset`，1 秒）。Launcher 把這些 vars 併進 `install-platform` 的 trusted vars；
+  `DeploymentLaunch.TimeSyncCheck`（deploy 欄位 `timeSyncCheck`，Dashboard 的 "Require synchronized
+  clocks"）決定結果：`enforce`（預設）時以 `any_errors_fatal` 在任何節點安裝前讓 `install-platform`
+  失敗，並以 `[time_not_synchronized]` 指出節點；`warn` 時只輸出 `[time_sync_warning]` 並繼續。
+  沒有獨立的時間檢查 Task。
 
 > **設計理念**：對「佈署 k0s」而言，`provision_os` 與 `existing_os` 之後的行為必須**完全一致**
 > ——差別只在 OS 是本次 workflow 裝的、還是先前就有的，而不是佈署機制本身。`configure-k0s`
@@ -326,6 +354,15 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
 
   注意 `inventory_hostname` 即 serverId，因此 `swallow_k0s_roles[inventory_hostname]` 可在
   playbook 內解析每台角色（deploy-kubernetes.yml 即如此）。
+
+  時間相關的 trusted vars（§2.2，decision 065）由 `ntpStepPlanner` 組裝：`configure-ntp-<serverId>`
+  帶 `swallow_ntp_servers`，`install-platform` 另併入時鐘檢查的三個變數：
+
+  | 變數 | 意義 |
+  | --- | --- |
+  | `swallow_ntp_servers` | Installation 的 NTP server（`SWALLOW_API_NTP_SERVER`，IP 或 host name；api-server 已驗證），受理時凍結為單一元素 list；`configure-ntp-<serverId>` 與 `install-platform` 都帶，後者在未設定時為空 list |
+  | `swallow_time_sync_check` | `install-platform` 開頭時鐘檢查的模式：`enforce` 或 `warn` |
+  | `swallow_time_sync_max_offset` | 時鐘檢查容許與 NTP server 的最大 offset（秒，`1.0`） |
 
   AMD GPU Operator（§2.3.1）的 trusted vars 由 `buildGPUOperatorVars` 組裝，部署與部署後調整共用：
 
@@ -753,6 +790,9 @@ API 契約的 "Read Slurm Cluster State"。
 | Slurm container runtime 功能 | `internal/platform/domain/container_runtime.go` |
 | Slurm 功能的 software Job 組入（runtime、Prometheus、Grafana、Omnistat）與狀態 observer | `internal/app/omnistat_adapter.go` |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
+| `configure-ntp-<serverId>` Task 組裝（platform `ensure-os` 與 Deploy OS 共用）、`install-platform` 的時鐘檢查 vars | `internal/app/ntp_planner.go` |
+| Installation 的 NTP server 設定（`SWALLOW_API_NTP_SERVER`，validation） | `config/config.go`、`config/env.go`、`config/validate.go` |
+| `TimeSyncCheck`（`enforce` / `warn`） | `internal/platform/domain/time_sync.go` |
 | Workflow/Task/Runner domain model | `internal/operation/domain/orchestration.go` |
 | Workflow 持久化與 secret sealing | `internal/operation/application/orchestration.go` |
 | Ansible 準備（playbook 解析、extra vars 合併） | `internal/operation/application/execution_service.go` |
@@ -778,6 +818,7 @@ API 契約的 "Read Slurm Cluster State"。
 | 共用 amdgpu loader（GPU Operator 與 Slurm GRES） | `playbooks/roles/amdgpu_loader` |
 | Omnistat playbook 與 role | `playbooks/configure-omnistat.yml`、`playbooks/roles/omnistat` |
 | Prometheus／Grafana software roles | `playbooks/roles/prometheus`、`playbooks/roles/grafana`（Omnistat dashboards 在 `files/dashboards/omnistat`） |
+| 時間同步（decision 065） | `playbooks/configure-ntp.yml`、`playbooks/roles/ntp_client`（偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）；`playbooks/roles/time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`） |
 
 映像：production 於 build 時 `COPY api-server/automation → /opt/swallow/automation`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

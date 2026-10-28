@@ -799,7 +799,8 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrSSHKeyRegistration):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 
-	case errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing):
+	case errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing),
+		errors.Is(err, provisioningdomain.ErrNTPServerMissing):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
 	case errors.Is(err, provisioningdomain.ErrDeploymentTemplateNotFound):
@@ -908,6 +909,15 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, operationapp.ErrInvalidOperation),
 		errors.Is(err, operationdomain.ErrTargetStateInvalid):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+
+	// Every durable OS deployment carries configure-ntp ansible Tasks (decision 065), so it is
+	// accepted only while the Site's automation can run; the operator fixes these outside the
+	// request, as the site-automation contract says.
+	case errors.Is(err, operationdomain.ErrAutomationConfigNotFound),
+		errors.Is(err, operationdomain.ErrAutomationDisabled),
+		errors.Is(err, operationdomain.ErrAutomationCredentialMissing),
+		errors.Is(err, operationdomain.ErrPlaybookNotAllowed):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 	}
 
 	var provErr *provisioningdomain.ProviderError

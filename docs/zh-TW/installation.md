@@ -25,6 +25,8 @@ Installer 完成時：
 - 官方 `ubuntu/noble` amd64 image 已 complete，出現在 **Provisioning → Images**；
 - Temporal、worker 與 Ansible executor 已串接，Deployment Key 已建立，Site automation
   已啟用；
+- VM 在 UDP 123 提供 NTP（MAAS 自己的時間服務），swallow 佈署的每台 Server 都使用它
+  （見[時間同步](guides/os-provisioning.md#時間同步)）；
 - `swallow` CLI 已安裝在 `/usr/local/bin/swallow`。
 
 ### 前置條件
@@ -35,6 +37,11 @@ Installer 完成時：
   MongoDB、PostgreSQL 與 Temporal images）、`download.docker.com`、Snap Store 與
   `images.maas.io`。
 - 未被占用的 port：80（Dashboard）、5240（MAAS），以及 loopback 5432（MAAS 用的 PostgreSQL）。
+  機器會連 VM 的 UDP 123 對時。
+- VM 本身要連得到一個 NTP server。VM 預設跟隨 `ntp.ubuntu.com`；網路連不到它時，以
+  `SWALLOW_NTP_UPSTREAM` 指定其他 server，例如
+  `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`，或之後以
+  `sudo /opt/swallow/production/swallowctl ntp upstream set 10.0.0.123` 修改。
 - 事先不要安裝 MAAS；installer 會拒絕不是它建立的 MAAS。缺少 Docker 時會從 Docker apt
   repository 安裝。
 

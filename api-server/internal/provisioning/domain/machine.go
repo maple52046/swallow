@@ -231,6 +231,12 @@ var (
 	// process; the deployment is refused before any provider write (decision 039).
 	ErrDeploymentKeyMissing = errors.New("no deployment key exists; run `swallow-api deployment-key ensure` (swallowctl install and upgrade run it)")
 
+	// ErrNTPServerMissing means the installation has not told the API process where its
+	// Control-Plane NTP Server is, so an OS deployment could not point the new Server's clock at it
+	// (decision 065). Every OS provisioning configures time, so the deployment is refused before any
+	// provider write; the production installation sets the address from SWALLOW_ADDRESS.
+	ErrNTPServerMissing = errors.New("no NTP server is configured for this installation; set SWALLOW_API_NTP_SERVER to the address Servers reach the swallow host at (swallowctl sets it to SWALLOW_ADDRESS)")
+
 	// ErrIntegrationNotProvisioner means the referenced integration is registered as
 	// something other than a provisioner.
 	ErrIntegrationNotProvisioner = errors.New("integration is not a provisioner")

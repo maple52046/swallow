@@ -96,6 +96,23 @@ Dashboard provisioning flow 會驗證：
 *Configuring OS*）。若該階段 25 分鐘沒有推進，Workflow step 會要求處理，而不是等到兩小時上限；
 provider 端的佈署仍保持執行，供你檢查、retry 或 release。
 
+## 時間同步
+
+swallow 主機在 UDP 123 提供 NTP，swallow provision 的每台 Server 都使用它。每次 OS 佈署都會在
+SSH 就緒後為每台 Server 加入一個 **Configure time synchronization** step；Platform 佈署所
+provision 的每台 Server 也一樣。這個 step 會把 OS 已有的時間 client 指向 swallow 主機：有
+`systemd-timesyncd` 就用它，否則用 `chrony`，再否則用 `ntpd`；OS 完全沒有 client 時才安裝 chrony，
+並停用其他 client。step 的輸出會寫出用了哪個 client。client 兩分鐘內沒有收到回應就會失敗。失敗時請確認
+UDP 123 能到達 swallow 主機，再 retry 該 step。
+這個 step 以 Ansible 執行，所以 Site automation 必須啟用，否則佈署會被拒絕。
+
+swallow 主機預設跟隨 `ntp.ubuntu.com`。管理員可以在主機上更改這個上游；無論如何，Server 都繼續
+跟隨 swallow 主機。
+
+Platform 佈署不會更改時間設定。它在安裝 platform 前會檢查每個節點的時鐘，見
+[時鐘檢查](platforms.md#時鐘檢查)。在這個 step 出現前就已佈署的 Server，在重新佈署前保留其 image
+自己的時間設定。
+
 ## 沒有 provisioner DHCP 的網路：Boot Media
 
 有些 Server 所在網路的 DHCP 由現場提供、而不是 provisioner，因此無法 PXE 開機進入 provisioner。

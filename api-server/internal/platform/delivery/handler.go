@@ -242,6 +242,8 @@ type deployPlatformRequest struct {
 	RoleAssignments    []roleAssignmentRequest   `json:"roleAssignments"`
 	Slurm              *slurmDeployRequest       `json:"slurm"`
 	MachinePreparation machinePreparationRequest `json:"machinePreparation"`
+	// TimeSyncCheck is "enforce" (default when omitted) or "warn" (platforms.md, "Time sync check").
+	TimeSyncCheck string `json:"timeSyncCheck"`
 }
 
 // omnistatRequest is the deploy body's optional Omnistat intent (platforms.md, "Omnistat"). An
@@ -368,6 +370,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		SlurmSpec:   slurmSpecFromRequest(req.Slurm),
 		RequestedBy: requestedBy, RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
 		MachinePreparation: machinePreparationFromRequest(req.MachinePreparation),
+		TimeSyncCheck:      platformdomain.TimeSyncCheck(req.TimeSyncCheck),
 	})
 	if err != nil {
 		return respondError(c, err)
@@ -658,6 +661,9 @@ func respondError(c *fiber.Ctx, err error) error {
 		// install step, reported with the command to run (decision 039).
 		errors.Is(err, platformdomain.ErrDeploymentKeyMissing),
 		errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing),
+		// A provision_os deploy points each provisioned Server at the installation's NTP server
+		// (decision 065), so an installation without one is refused like a missing key.
+		errors.Is(err, provisioningdomain.ErrNTPServerMissing),
 		// A target cannot take the Managed Software the deployment composes (decision 063).
 		errors.Is(err, platformdomain.ErrComposedSoftwareConflict),
 		errors.Is(err, serverdomain.ErrServerLocked):

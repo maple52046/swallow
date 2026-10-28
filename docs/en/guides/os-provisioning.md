@@ -108,6 +108,26 @@ for 25 minutes, the Workflow step asks for attention instead of waiting out the
 two-hour limit; the provider deployment is left running for you to inspect,
 retry, or release.
 
+## Time synchronization
+
+The swallow host serves NTP on UDP 123, and every Server swallow provisions uses it.
+Each OS deployment gets one **Configure time synchronization** step per Server after
+SSH comes up; so does each Server a Platform deployment provisions. The step points
+the time client the OS already has at the swallow host: `systemd-timesyncd` if present,
+otherwise `chrony`, otherwise `ntpd`. It installs chrony only when the OS has none, and
+stops any other client. Its output names the client it used. It fails when the client
+gets no reply within two minutes. If it fails, check that UDP 123 reaches the swallow
+host, then retry the step. The step runs with Ansible, so Site automation
+must be enabled; otherwise the deployment is refused.
+
+The swallow host follows `ntp.ubuntu.com` by default. Your administrator can change
+that upstream on the host. Servers keep following the swallow host either way.
+
+A Platform deployment does not change time settings. Before it installs the platform,
+it checks every node's clock; see
+[Clock check](platforms.md#clock-check). A Server deployed before this step
+existed keeps its image's time setup until it is deployed again.
+
 ## Boot Media for networks without provisioner DHCP
 
 Some Servers sit on a network whose DHCP is run by the site, not by the

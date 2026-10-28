@@ -1,0 +1,241 @@
+---
+# Point the host's time client at the installation's NTP server and prove it synchronizes. The role
+# uses the client the OS already has, in this order: systemd-timesyncd, chrony, ntpd (classic ntp
+# or ntpsec). Only a host with none of them gets chrony installed. Every other installed client is
+# stopped, so one client disciplines the clock. Builtin modules only; Debian/Ubuntu and the RHEL
+# family. Idempotent: a converged host produces no changes.
+
+- name: Require NTP servers that are IP addresses or host names
+  # The api-server already validated the server (api.ntpServer); re-checking here keeps a hand-run play
+  # from writing an arbitrary directive through the templates.
+  ansible.builtin.assert:
+    that:
+      - ntp_client_servers | length > 0
+      - ntp_client_servers | reject('match', '^[A-Za-z0-9]([A-Za-z0-9.:-]*[A-Za-z0-9])?$') | list | length == 0
+    fail_msg: "[ntp_servers_invalid] swallow_ntp_servers must list IP addresses or host names (got {{ ntp_client_servers }})"
+    quiet: true
+
+- name: Require a supported OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian', 'RedHat']
+    fail_msg: "configure-ntp supports the Debian and RHEL families (found {{ ansible_facts['os_family'] }})"
+    quiet: true
+
+- name: Read the installed services
+  ansible.builtin.service_facts:
+
+- name: Look for the chrony and ntpd daemons and the ntpd configuration
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/sbin/chronyd
+    - /usr/sbin/ntpd
+    - /etc/ntpsec/ntp.conf
+    - /etc/ntp.conf
+  register: ntp_client_paths
+
+- name: Find the time clients this host has
+  vars:
+    present: "{{ ntp_client_paths.results | selectattr('stat.exists') | map(attribute='item') | list }}"
+    # A known unit counts when systemd has it and it can run: not missing, masked, or only an alias.
+    units: >-
+      {%- set found = [] -%}
+      {%- for unit in ntp_client_units.values() | flatten -%}
+      {%- set state = ansible_facts.services[unit ~ '.service'] | default({}) -%}
+      {%- if state and state.status | default('unknown') not in ['not-found', 'masked', 'alias'] -%}
+      {%- set _ = found.append(unit) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ found }}
+  ansible.builtin.set_fact:
+    ntp_client_installed_units: "{{ units }}"
+    ntp_client_has_timesyncd: "{{ 'systemd-timesyncd' in units }}"
+    ntp_client_has_chrony: "{{ '/usr/sbin/chronyd' in present }}"
+    ntp_client_ntpd_unit: "{{ ntp_client_units.ntpd | select('in', units) | first | default('') }}"
+    ntp_client_ntpd_conf: >-
+      {{ '/etc/ntpsec/ntp.conf' if '/etc/ntpsec/ntp.conf' in present
+         else ('/etc/ntp.conf' if '/etc/ntp.conf' in present else '') }}
+    ntp_client_has_ntpd_binary: "{{ '/usr/sbin/ntpd' in present }}"
+
+- name: Choose the time client
+  ansible.builtin.set_fact:
+    ntp_client_kind: >-
+      {{ 'timesyncd' if ntp_client_has_timesyncd | bool
+         else ('chrony' if ntp_client_has_chrony | bool
+         else ('ntpd' if (ntp_client_has_ntpd_binary | bool and ntp_client_ntpd_unit | length > 0
+                          and ntp_client_ntpd_conf | length > 0)
+         else 'none')) }}
+
+- name: Install chrony on a host without a time client
+  when: ntp_client_kind == 'none'
+  become: true
+  block:
+    - name: Install chrony (Debian family)
+      ansible.builtin.apt:
+        name: chrony
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 300
+      register: ntp_client_apt
+      until: ntp_client_apt is succeeded
+      retries: 60
+      delay: 5
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Install chrony (RHEL family)
+      ansible.builtin.dnf:
+        name: chrony
+        state: present
+      register: ntp_client_dnf
+      until: ntp_client_dnf is succeeded
+      retries: 60
+      delay: 5
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Use the installed chrony
+      ansible.builtin.set_fact:
+        ntp_client_kind: chrony
+
+- name: Resolve the chosen client's unit and files
+  ansible.builtin.set_fact:
+    ntp_client_unit: >-
+      {{ {'timesyncd': 'systemd-timesyncd',
+          'chrony': ('chrony' if ansible_facts['os_family'] == 'Debian' else 'chronyd'),
+          'ntpd': ntp_client_ntpd_unit}[ntp_client_kind] }}
+    ntp_client_conf: >-
+      {{ {'timesyncd': '/etc/systemd/timesyncd.conf.d/swallow.conf',
+          'chrony': ('/etc/chrony/chrony.conf' if ansible_facts['os_family'] == 'Debian' else '/etc/chrony.conf'),
+          'ntpd': ntp_client_ntpd_conf}[ntp_client_kind] }}
+    ntp_client_template: "{{ {'timesyncd': 'timesyncd.conf.j2', 'chrony': 'chrony.conf.j2', 'ntpd': 'ntp.conf.j2'}[ntp_client_kind] }}"
+    ntp_client_driftfile: "{{ '/var/lib/chrony/chrony.drift' if ansible_facts['os_family'] == 'Debian' else '/var/lib/chrony/drift' }}"
+    ntp_client_ntpd_driftfile: "{{ '/var/lib/ntpsec/ntp.drift' if ntp_client_ntpd_conf == '/etc/ntpsec/ntp.conf' else '/var/lib/ntp/ntp.drift' }}"
+
+- name: Report the chosen client
+  ansible.builtin.debug:
+    msg: "using {{ ntp_client_kind }} ({{ ntp_client_unit }})"
+
+- name: Configure the chosen client
+  become: true
+  block:
+    - name: Stop the other time clients
+      # Two clients would discipline one clock.
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: "{{ false if ansible_facts.services[item ~ '.service'].status | default('') == 'enabled' else omit }}"
+      loop: >-
+        {{ ntp_client_units | dict2items | rejectattr('key', 'eq', ntp_client_kind)
+           | map(attribute='value') | flatten | select('in', ntp_client_installed_units) | list }}
+
+    - name: Create the timesyncd drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: ntp_client_kind == 'timesyncd'
+
+    - name: Write the swallow-owned client configuration
+      ansible.builtin.template:
+        src: "{{ ntp_client_template }}"
+        dest: "{{ ntp_client_conf }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: ntp_client_config
+
+    - name: Enable and start the client
+      ansible.builtin.systemd_service:
+        name: "{{ ntp_client_unit }}"
+        enabled: true
+        state: started
+
+    - name: Restart the client after a configuration change
+      ansible.builtin.systemd_service:
+        name: "{{ ntp_client_unit }}"
+        state: restarted
+      when: ntp_client_config is changed
+
+- name: Wait for systemd-timesyncd to hear from the NTP server
+  # NTPMessage stays empty until timesyncd has received a reply since it started, so this cannot
+  # pass on the kernel's synchronized flag left over from before the restart. A stopped timesyncd
+  # makes timedatectl wait 25 s for D-Bus, so each query is bounded to keep the budget.
+  ansible.builtin.shell: |
+    for attempt in $(seq {{ ntp_client_sync_tries | int }}); do
+      [ -n "$(timeout 5 timedatectl show-timesync --property=NTPMessage --value 2>/dev/null)" ] && exit 0
+      sleep {{ ntp_client_sync_interval | int }}
+    done
+    exit 1
+  register: ntp_client_timesyncd_wait
+  changed_when: false
+  failed_when: false
+  when: ntp_client_kind == 'timesyncd'
+
+- name: Wait for chrony to synchronize
+  ansible.builtin.command:
+    argv:
+      - chronyc
+      - waitsync
+      - "{{ ntp_client_sync_tries }}"
+      - "0"
+      - "0"
+      - "{{ ntp_client_sync_interval }}"
+  register: ntp_client_chrony_wait
+  changed_when: false
+  failed_when: false
+  when: ntp_client_kind == 'chrony'
+
+- name: Wait for ntpd to select the NTP server
+  # ntpq marks the selected system peer with a leading '*'.
+  ansible.builtin.shell: |
+    for attempt in $(seq {{ ntp_client_sync_tries | int }}); do
+      ntpq -pn 2>/dev/null | grep -q '^\*' && exit 0
+      sleep {{ ntp_client_sync_interval | int }}
+    done
+    exit 1
+  register: ntp_client_ntpd_wait
+  changed_when: false
+  failed_when: false
+  when: ntp_client_kind == 'ntpd'
+
+- name: Record whether the client synchronized
+  ansible.builtin.set_fact:
+    ntp_client_synchronized: >-
+      {{ ({'timesyncd': ntp_client_timesyncd_wait, 'chrony': ntp_client_chrony_wait,
+           'ntpd': ntp_client_ntpd_wait}[ntp_client_kind].rc | default(1)) == 0 }}
+
+- name: Read the client status for the failure message
+  ansible.builtin.command:
+    argv: "{{ ntp_client_status_argv[ntp_client_kind] }}"
+  register: ntp_client_status
+  changed_when: false
+  failed_when: false
+  when: not ntp_client_synchronized | bool
+
+- name: Fail when the client did not synchronize
+  ansible.builtin.fail:
+    msg: >-
+      [ntp_not_synchronized] {{ ntp_client_kind }} on {{ inventory_hostname }} did not synchronize to
+      {{ ntp_client_servers | join(', ') }} within
+      {{ (ntp_client_sync_tries | int) * (ntp_client_sync_interval | int) }} seconds; check that UDP 123
+      reaches them and that they serve time. Status: {{ ntp_client_status.stdout | default('') }}
+      {{ ntp_client_status.stderr | default('') }}
+  when: not ntp_client_synchronized | bool
+
+- name: Read the server systemd-timesyncd follows
+  ansible.builtin.command:
+    argv: [timeout, "5", timedatectl, show-timesync, --property=ServerAddress, --value]
+  register: ntp_client_timesyncd_server
+  changed_when: false
+  failed_when: false
+  when: ntp_client_kind == 'timesyncd'
+
+- name: Report the synchronized client
+  ansible.builtin.debug:
+    msg: >-
+      {{ ntp_client_kind }} synchronized
+      {%- if ntp_client_kind == 'timesyncd' %} via {{ ntp_client_timesyncd_server.stdout | default('') | trim }}{% endif %}
+      (configured {{ ntp_client_servers | join(', ') }})

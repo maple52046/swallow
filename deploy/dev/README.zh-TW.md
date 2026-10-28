@@ -115,6 +115,35 @@ docker compose up -d api-server
 
 修改 api-server 的 Go 程式會讓 worker 重啟（Air），使進行中佈署的 lease 失效；lab 佈署進行時請避免修改。
 
+## Control-plane NTP
+
+每次 OS provisioning 都會在 SSH 就緒後，把新的 Server 指到這台主機的 NTP server
+（`configure-ntp` Task，decision 065）；各 Platform 的 install playbook 在安裝前會檢查各節點的時鐘。
+`.env` 的 `SWALLOW_API_NTP_SERVER` 是 Server 連到這台主機 NTP server 的位址（不是它的上游）；dev
+環境無法自動推得，所以它是空的時候，所有 OS 佈署都會被拒絕。
+
+主機上的 NTP server 就是 Control-Plane NTP Server。有本機 MAAS snap 時是 MAAS 自己的
+chronyd，不另外安裝；否則由 `local-ntp.sh install` 安裝 host chrony。上游另外以
+`local-ntp.sh upstream` 設定（production installation 使用 `swallowctl ntp upstream`），沒有設定
+就是 `ntp.ubuntu.com`。`root123-intel` 的實體網路連不到公開的 NTP，所以上游是 `tainan-node03` 上
+lab 的 chronos NTP-over-HTTP gateway（`10.170.168.3`，寫成 `server 10.170.168.3 iburst`），Server
+則使用這台主機的 lab 位址：
+
+```bash
+sudo SWALLOW_NTP_UPSTREAM=10.170.168.3 ../production/local-ntp.sh upstream
+sudo SWALLOW_NTP_UPSTREAM=10.170.168.3 ../production/local-ntp.sh check
+echo SWALLOW_API_NTP_SERVER=10.170.168.20 >> .env && docker compose up -d api-server worker
+```
+
+在 installation 之外，`local-ntp.sh` 以 `SWALLOW_MAAS_API_KEY`，或 MAAS 使用者
+`SWALLOW_MAAS_ADMIN_USER`（預設 `admin`）的 key 設定 MAAS。沒有設定 `SWALLOW_NTP_UPSTREAM` 就執行
+`local-ntp.sh upstream`，會把 MAAS 改回 default。
+
+Gateway 不能跑在這台主機上，`tainan-node03` 也不能從這台主機取得時間。chronos gateway 提供的是
+它所在主機的時鐘加上修正量，所以它跑在這台主機（`172.30.100.10`）時，MAAS 的 chronyd 追的目標是
+用它自己在調整的時鐘算出來的：第一次切換時差 33.5 秒，兩者一起偏離真實時間。`local-ntp.sh upstream`
+也會在與上游差超過一秒時先 step 一次，所以請用這支 script 設定上游，不要手動改 MAAS。
+
 ## Seed demonstration Site
 
 Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、註冊 in-Compose Prometheus Integration、

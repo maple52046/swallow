@@ -153,6 +153,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SWALLOW_API_BOOT_MEDIA_BASE_URL"); v != "" {
 		cfg.API.BootMedia.BaseURL = v
 	}
+	if v := os.Getenv("SWALLOW_API_NTP_SERVER"); v != "" {
+		cfg.API.NTPServer = v
+	}
 	if v := os.Getenv("SWALLOW_API_BOOT_MEDIA_DIR"); v != "" {
 		cfg.API.BootMedia.Dir = v
 	}

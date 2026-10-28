@@ -287,6 +287,34 @@ for a memory-backed root, because an `overlayfs` snapshotter cannot reliably nes
 MAAS overlay root. MAAS custom `root.tgz` boots may expose `/` as either overlayfs or tmpfs;
 both are volatile and leave physical disks untouched.
 
+### Time sync check
+
+A Platform deployment checks time; it does not set it
+([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md)).
+Time is configured when an OS is provisioned: in `provision_os` mode each Server the Operation
+provisions gets its own `configure-ntp-<serverId>` Step after `provision-<serverId>`, exactly as
+in an OS deployment ([provisioning.md](provisioning.md#durable-os-operations)), so such a deploy
+is refused with `409 conflict` when the installation has no NTP server. Servers that are reused
+as already deployed, and every target in `existing_os` mode, are not reconfigured.
+
+Each platform checks its own nodes' clocks: the install playbook (`install-platform`) begins, in
+both modes, by examining every target before it installs anything (before k0s is downloaded, and
+before Slurm's preflight and MUNGE). The check changes nothing on the hosts: on each node it reads
+whether the clock is synchronized (`timedatectl` `NTPSynchronized`) and, when the installation has
+an NTP server, measures the node's offset from it with an SNTP query (limit 1 second). There is no
+separate time-check Step. The optional deploy field `timeSyncCheck` decides what a problem does:
+
+```json
+{ "timeSyncCheck": "enforce" }
+```
+
+| Value | A node with an unsynchronized clock, an NTP server that does not answer, or a larger offset |
+| --- | --- |
+| `enforce` (default when omitted) | fails `install-platform` with `ansible_failed` before anything is installed on any node; the run output names each node with `[time_not_synchronized]` |
+| `warn` | is reported with `[time_sync_warning]` in the run output, and the installation continues |
+
+Any other value is `400 validation_error`. This applies to Kubernetes and Slurm alike.
+
 A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
 defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
 runs workloads.

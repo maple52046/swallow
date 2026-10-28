@@ -2,9 +2,15 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
+	"regexp"
 	"strings"
 )
+
+// ntpHostName matches an RFC 1123 DNS name whose last label is not all digits, so a mistyped IPv4
+// address is not accepted as a name.
+var ntpHostName = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9-]*[A-Za-z-][A-Za-z0-9-]*$`)
 
 // Validate checks that all required fields are present in the final merged config.
 // Validation must run after all sources have been merged so that it reflects the
@@ -88,6 +94,14 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.API.RedfishProbeInterval <= 0 || cfg.API.RedfishProbeMaxAge <= 0 {
 		return fmt.Errorf("api.redfishProbeInterval and api.redfishProbeMaxAge must be > 0")
+	}
+	// The address is written into chrony's configuration on every provisioned Server, so it must
+	// be exactly one IP address or DNS name: no port, scheme, option, or whitespace.
+	if server := strings.TrimSpace(cfg.API.NTPServer); server != "" {
+		if net.ParseIP(server) == nil && !ntpHostName.MatchString(server) {
+			return fmt.Errorf("api.ntpServer must be one IP address or DNS name, got %q", cfg.API.NTPServer)
+		}
+		cfg.API.NTPServer = server
 	}
 	if base := strings.TrimSpace(cfg.API.BootMedia.BaseURL); base != "" {
 		if parsed, err := url.Parse(strings.TrimRight(base, "/")); err != nil ||

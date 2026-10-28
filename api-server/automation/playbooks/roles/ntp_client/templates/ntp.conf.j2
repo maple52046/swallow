@@ -1,0 +1,12 @@
+# Managed by Swallow (configure-ntp, decision 065): the installation's NTP server. Each OS
+# provisioning rewrites this file; change the swallow host's upstream instead.
+{% for server in ntp_client_servers %}
+{{ 'server' if (server is match('^[0-9.]+$') or ':' in server) else 'pool' }} {{ server }} iburst
+{% endfor %}
+driftfile {{ ntp_client_ntpd_driftfile }}
+# Correct a fresh host's clock however far off it is instead of exiting.
+tinker panic 0
+# A client: answer time requests, refuse remote control and status queries except from this host.
+restrict default kod nomodify noquery limited
+restrict 127.0.0.1
+restrict ::1

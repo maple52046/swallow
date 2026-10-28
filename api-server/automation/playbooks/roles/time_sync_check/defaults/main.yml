@@ -1,0 +1,6 @@
+---
+# time_sync_check role defaults. Every value comes from the trusted swallow_ variables; the
+# defaults only keep a hand-run play strict.
+time_sync_check_servers: "{{ swallow_ntp_servers | default([]) }}"
+time_sync_check_mode: "{{ swallow_time_sync_check | default('enforce') }}"
+time_sync_check_max_offset: "{{ swallow_time_sync_max_offset | default(1.0) | float }}"

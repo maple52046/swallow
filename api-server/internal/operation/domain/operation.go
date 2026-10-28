@@ -90,6 +90,12 @@ const (
 	// Omnistat exporter on the Slurm Platform (decision 063). It is never a standalone Workflow
 	// and never resolved through a site playbook mapping.
 	WorkflowKindConfigureOmnistat WorkflowKind = "configure-omnistat"
+	// WorkflowKindConfigureNTP labels the ansible Task that points a freshly provisioned Server at
+	// the installation's NTP server after SSH readiness (decision 065): one after every provision-os
+	// Task, in a Deploy OS Workflow and in a Platform deployment's ensure-os Job alike. It is never
+	// a standalone Workflow and never resolved through a site playbook mapping; the launchers name
+	// the configure-ntp playbook.
+	WorkflowKindConfigureNTP WorkflowKind = "configure-ntp"
 )
 
 var ValidWorkflowKinds = []WorkflowKind{
@@ -120,6 +126,7 @@ var ValidWorkflowKinds = []WorkflowKind{
 	WorkflowKindConfigureGrafana,
 	WorkflowKindUninstallGrafana,
 	WorkflowKindConfigureOmnistat,
+	WorkflowKindConfigureNTP,
 	WorkflowKindCustom,
 }
 
@@ -150,7 +157,10 @@ func (k WorkflowKind) RequiredProvisioningState() string {
 		WorkflowKindConfigureNFS, WorkflowKindUninstallNFS,
 		WorkflowKindConfigurePrometheus, WorkflowKindUninstallPrometheus,
 		WorkflowKindConfigureGrafana, WorkflowKindUninstallGrafana,
-		WorkflowKindConfigureOmnistat:
+		WorkflowKindConfigureOmnistat,
+		// configure-ntp reaches the host over SSH; the preceding provision-os Task satisfies this
+		// (PrepareAnsibleStep provisionFirst).
+		WorkflowKindConfigureNTP:
 		return "deployed"
 	default:
 		// Uninstalling exporters intentionally has no state requirement: a machine

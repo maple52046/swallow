@@ -293,6 +293,10 @@ type DeploymentLaunch struct {
 	RequestedBy        string
 	RequestCorrelation string
 	MachinePreparation MachinePreparation
+	// TimeSyncCheck decides whether the clock check that opens the platform's install playbook fails
+	// the deployment or only warns (decision 065). The deploy use case always sets it; an empty value
+	// is treated as enforce.
+	TimeSyncCheck TimeSyncCheck
 }
 
 // DeploymentLauncher starts the durable Operation that builds a Platform and returns its

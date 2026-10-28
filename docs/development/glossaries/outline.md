@@ -21,6 +21,10 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Installation](terms/installation.md): Installing and managing the swallow control
   plane (single-VM production, including the co-located MAAS and its official `ubuntu/noble`
   image); never the MAAS-owned deployment of an OS to a managed server.
+- [Control-Plane NTP Server](terms/control-plane-ntp-server.md): The one host NTP service an
+  Installation provides at `SWALLOW_ADDRESS`, which every provisioned Server follows (the
+  co-located MAAS chronyd, or distribution chrony with another provisioner); its upstream is set
+  separately with `swallowctl ntp upstream`; never a container.
 
 ### Compute Resource
 
@@ -53,6 +57,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [GPU Operator](terms/gpu-operator.md): The in-cluster operator that makes a Platform's GPUs schedulable; Swallow installs and configures the AMD GPU Operator on a Swallow-deployed Kubernetes Platform, using the OS image's driver.
 - [GPU Allocation Mode](terms/gpu-allocation-mode.md): How the GPU Operator exposes GPUs — `device-plugin` (extended resource) or `dra` (ResourceSlice devices); one at a time.
 - [GPU Operator State](terms/gpu-operator-state.md): Where the latest Swallow change to a Platform's GPU Operator stands — `installing | ready | failed | uninstalling | absent`.
+- [Time Sync Check](terms/time-sync-check.md): How a Platform deployment treats a target whose clock is not in sync — `enforce` (default, stop before installing) or `warn` (report and continue); each Platform checks as the first part of its own installation, never sets time.
 - [Omnistat](terms/omnistat.md): AMD's Slurm-aware GPU monitoring that Swallow optionally installs with a Slurm deployment — exporter and job attribution on the Platform, Prometheus and Grafana composed as Managed Software; Omnistat State `installing | ready | failed | absent`.
 
 ### OS Provisioning

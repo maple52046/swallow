@@ -118,6 +118,22 @@ func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
 			wantCode:            apierror.CodeValidation,
 			wantMessageContains: "at least one Step is required",
 		},
+		{
+			// Every OS provisioning points the Server at the installation's NTP server (decision 065).
+			name:                "an installation without an NTP server is a conflict",
+			err:                 provisioningdomain.ErrNTPServerMissing,
+			wantStatus:          http.StatusConflict,
+			wantCode:            apierror.CodeConflict,
+			wantMessageContains: "SWALLOW_API_NTP_SERVER",
+		},
+		{
+			// Every OS provisioning carries configure-ntp ansible Tasks (decision 065).
+			name:                "time sync without runnable automation is provider unavailable",
+			err:                 operationdomain.ErrAutomationDisabled,
+			wantStatus:          http.StatusServiceUnavailable,
+			wantCode:            apierror.CodeProviderUnavailable,
+			wantMessageContains: "automation is disabled",
+		},
 	}
 
 	for _, tc := range cases {
