@@ -61,7 +61,7 @@
 | [`007-cluster-deployment-ownership.md`](007-cluster-deployment-ownership.md) | Swallow 擁有「建立 Kubernetes Platform」的意圖：k0s HA 拓樸、專職 controller 為何不是 k8s node、部署後如何取得叢集憑證 |
 | [`008-operator-overview-read-model.md`](008-operator-overview-read-model.md) | operator overview 是一個唯讀聚合視圖（read model），彙整跨 context 的營運現況 |
 | [`009-deployment-template-ownership.md`](009-deployment-template-ownership.md) | Deployment Template 只擁有可重用的 OS deployment intent，不擁有 image、automation content 或 execution lifecycle |
-| [`010-cluster-lifecycle-actions.md`](010-cluster-lifecycle-actions.md) | Platform Uninstall changes original k0s targets while Delete removes only Swallow records and owned projections |
+| [`010-cluster-lifecycle-actions.md`](010-cluster-lifecycle-actions.md) | Platform Uninstall changes original k0s targets while Delete removes only Swallow records and owned projections; 2026-10-29 amendment：Uninstall 可帶 `deleteRecord`，成功後才刪除紀錄（失敗保留）；dashboard 改為單一紅色控制項（Uninstall split button，選單內為 Delete only；Uninstall 對話框的確認鈕也是 split button，選單內為 Uninstall and delete record；已 uninstalled 時只剩 Delete） |
 | [`011-flexible-k0s-topologies.md`](011-flexible-k0s-topologies.md) | k0s deployment supports standalone, non-HA multi-node, and HA shapes without changing Node Role vocabulary |
 | [`012-provider-network-configuration.md`](012-provider-network-configuration.md) | Swallow owns DHCP/static deployment intent while provider adapters translate and verify NIC configuration |
 | [`013-server-lock-protection.md`](013-server-lock-protection.md) | Provider-owned Server Lock is the common guard for every provider and host mutation while reads and monitoring remain available |

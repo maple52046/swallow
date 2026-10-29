@@ -159,6 +159,22 @@ func TestUninstallUsesDeploymentTargetSnapshot(t *testing.T) {
 	if launcher.launch.RetryOfOperationID != "" {
 		t.Errorf("unexpected retry lineage %q", launcher.launch.RetryOfOperationID)
 	}
+	if launcher.launch.DeleteRecord {
+		t.Error("a plain uninstall must keep the platform record")
+	}
+}
+
+func TestUninstallForwardsDeleteRecord(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+
+	if _, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+		PlatformID: "platform-1", DeleteRecord: true,
+	}); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if launcher.launch == nil || !launcher.launch.DeleteRecord {
+		t.Fatalf("launch = %+v, want deleteRecord forwarded", launcher.launch)
+	}
 }
 
 func TestUninstallReleaseServersForwardsOptionsAndSkipsExporterRestore(t *testing.T) {
@@ -438,7 +454,7 @@ func TestCompleteUninstallKeepsRecordAndClearsOwnedProjections(t *testing.T) {
 		platforms, &deployFakeSiteRepo{}, servers, nil, cleaner,
 	)
 
-	if err := service.CompleteUninstall(context.Background(), platform.ID); err != nil {
+	if err := service.CompleteUninstall(context.Background(), platform.ID, false); err != nil {
 		t.Fatalf("complete uninstall: %v", err)
 	}
 	persisted, ok := platforms.platforms[platform.ID]
@@ -472,8 +488,41 @@ func TestCompleteUninstallAfterDeleteIsIdempotent(t *testing.T) {
 		nil,
 		nil,
 	)
-	if err := service.CompleteUninstall(context.Background(), "deleted-platform"); err != nil {
-		t.Fatalf("completion after delete: %v", err)
+	for _, deleteRecord := range []bool{false, true} {
+		if err := service.CompleteUninstall(context.Background(), "deleted-platform", deleteRecord); err != nil {
+			t.Fatalf("CompleteUninstall(deleteRecord=%v) after delete: %v", deleteRecord, err)
+		}
+	}
+}
+
+// deleteRecord removes the record after the same projection cleanup, and must not cancel the
+// platform's Operations: the caller is the uninstall's own success hook.
+func TestCompleteUninstallWithDeleteRecordRemovesRecordWithoutCanceling(t *testing.T) {
+	platforms, servers, lifecycle, platform := newDeleteHarness()
+	platform.OwnedIntegrationID = "integration-owned"
+	servers.servers["server-1"] = &serverdomain.Server{
+		ID: "server-1", Membership: &serverdomain.MembershipStatus{PlatformID: platform.ID},
+	}
+	servers.memberships[platform.ID] = []string{"server-1"}
+	canceler := &recordingPlatformOperationCanceler{}
+	cleaner := &recordingIntegrationCleaner{}
+	service := NewPlatformService(platforms, &deployFakeSiteRepo{}, servers, lifecycle, cleaner)
+	service.AttachOperationCanceler(canceler)
+
+	if err := service.CompleteUninstall(context.Background(), platform.ID, true); err != nil {
+		t.Fatalf("CompleteUninstall(deleteRecord) error = %v", err)
+	}
+	if _, ok := platforms.platforms[platform.ID]; ok {
+		t.Error("platform record remains after a deleteRecord uninstall completed")
+	}
+	if canceler.called {
+		t.Error("deleteRecord completion canceled the platform's Operations, which include the completing uninstall")
+	}
+	if len(servers.cleared) != 1 || servers.cleared[0] != "server-1" {
+		t.Errorf("cleared memberships = %v, want [server-1]", servers.cleared)
+	}
+	if cleaner.platformID != platform.ID || !cleaner.allowLegacy {
+		t.Errorf("cleaner call = platform %q legacy=%v, want %q and true", cleaner.platformID, cleaner.allowLegacy, platform.ID)
 	}
 }
 

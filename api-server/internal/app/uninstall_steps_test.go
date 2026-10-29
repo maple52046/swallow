@@ -28,6 +28,7 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 		TargetServerIDs: []string{"srv-1", "srv-2"},
 		ReleaseServers:  true,
 		ReleaseOptions:  platformdomain.ServerReleaseOptions{Erase: true},
+		DeleteRecord:    true,
 	}
 	prepared := &operationapp.PreparedAnsibleStep{SiteID: "site-a"}
 
@@ -60,6 +61,11 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 	}
 	if finalize.Job != jobFinalizeUninstall {
 		t.Errorf("finalize step Job = %q, want %q", finalize.Job, jobFinalizeUninstall)
+	}
+	// The release path has no extra vars, so the operator's deleteRecord choice must ride on the
+	// finalize Task that performs the cleanup.
+	if got, _ := finalize.Parameters[deleteRecordParameter].(bool); !got {
+		t.Errorf("finalize step parameters = %v, want %s=true", finalize.Parameters, deleteRecordParameter)
 	}
 	if len(finalize.DependsOn) != len(launch.TargetServerIDs) {
 		t.Fatalf("finalize dependsOn = %v, want one per release", finalize.DependsOn)

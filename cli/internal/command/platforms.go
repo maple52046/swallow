@@ -159,7 +159,9 @@ func platformsUninstallCmd() *cobra.Command {
 		Short: "Uninstall a deployed platform (optionally releasing members)",
 		Long: "Uninstall a deployed platform. A Workflow still holding its Servers (a failed deployment\n" +
 			"waiting for attention, or one still running) refuses the uninstall; --cancel-active-workflows\n" +
-			"cancels those Workflows and the uninstall starts by itself once they end.",
+			"cancels those Workflows and the uninstall starts by itself once they end. A body with\n" +
+			"\"deleteRecord\": true also deletes the platform record once the uninstall succeeds; use\n" +
+			"`platforms delete` instead to delete only the record without uninstalling.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// The body is optional: an absent body removes the platform software only.
@@ -177,7 +179,7 @@ func platformsUninstallCmd() *cobra.Command {
 			return err
 		},
 	}
-	addFileFlag(cmd, "optional uninstall body (releaseServers, releaseOptions, cancelActiveWorkflows)")
+	addFileFlag(cmd, "optional uninstall body (releaseServers, releaseOptions, cancelActiveWorkflows, deleteRecord)")
 	addCancelActiveWorkflowsFlag(cmd)
 	return cmd
 }

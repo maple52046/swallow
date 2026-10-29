@@ -38,7 +38,15 @@ const (
 	uninstallSlurmPlaybook = "uninstall-slurm"
 	restoreExportersVar    = "swallow_restore_ansible_exporters"
 	platformNameVar        = "swallow_platform_name"
+	// deletePlatformRecordVar carries the uninstall's deleteRecord choice on the Operation's
+	// trusted vars, where the kept-servers completion hook (AnsibleStepSucceeded, or the legacy
+	// observer) reads it back. The uninstall playbooks ignore it.
+	deletePlatformRecordVar = "swallow_delete_platform_record"
 )
+
+// deleteRecordParameter is the complete-uninstall Task parameter carrying the same choice on the
+// release path, whose Workflow has no ansible step and so no extra vars.
+const deleteRecordParameter = "deleteRecord"
 
 // Deploy Jobs (ADR 017): the k0s deployment is composed of two reusable, convergent Jobs.
 // `ensure-os` brings every target Server to a booted, SSH-reachable OS (provisioner Tasks
@@ -609,8 +617,9 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	}
 
 	trustedVars := map[string]any{
-		restoreExportersVar: launch.RestoreExporters,
-		platformNameVar:     launch.Platform.Name,
+		restoreExportersVar:     launch.RestoreExporters,
+		platformNameVar:         launch.Platform.Name,
+		deletePlatformRecordVar: launch.DeleteRecord,
 	}
 	if l.orchestrations == nil {
 		// Server release is a multi-step durable operation; without Temporal we can only
@@ -658,7 +667,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
 		ID: operationID, Kind: workflowKind,
 		IntentSummary:  summary,
-		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "releaseServers": launch.ReleaseServers},
+		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "releaseServers": launch.ReleaseServers, "deleteRecord": launch.DeleteRecord},
 		Definition:     "platform-uninstall", DefinitionVersion: 1,
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
@@ -719,13 +728,15 @@ func uninstallSteps(
 	}
 	// Internal finalize step: v3 Platform completion is otherwise tied to the ansible step
 	// (AnsibleStepSucceeded), which this path omits, so this clears the Platform's membership,
-	// owned credential Integration, and sync projection once every release succeeds. Exporter
-	// restoration stays off (a released host is wiped).
+	// owned credential Integration, and sync projection once every release succeeds, and removes
+	// the record when the operator asked for it. Exporter restoration stays off (a released host
+	// is wiped).
 	steps = append(steps, operationdomain.Task{
 		ID: completeUninstallStepID, Kind: "complete-uninstall", Name: "Finalize platform uninstall",
 		Job:      jobFinalizeUninstall,
 		Executor: operationdomain.RunnerKindInternal, DependsOn: releaseDeps,
-		Targets: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		Targets:    []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		Parameters: map[string]any{deleteRecordParameter: launch.DeleteRecord},
 	})
 	return steps
 }
@@ -801,7 +812,8 @@ func (o platformDeploymentObserver) completeUninstall(
 	ctx context.Context,
 	operation *operationdomain.ExecutionOperation,
 ) {
-	if err := o.platforms.CompleteUninstall(ctx, operation.PlatformID); err != nil {
+	deleteRecord, _ := operation.ExtraVars[deletePlatformRecordVar].(bool)
+	if err := o.platforms.CompleteUninstall(ctx, operation.PlatformID, deleteRecord); err != nil {
 		slog.Error("complete platform uninstall projections",
 			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
 		return
@@ -991,7 +1003,9 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 		}
 		return o.credentials.RecordSlurm(ctx, execution.PlatformID, *credential)
 	case operationdomain.WorkflowKindUninstallKubernetes, operationdomain.WorkflowKindUninstallSlurm:
-		if err := o.platforms.CompleteUninstall(ctx, execution.PlatformID); err != nil {
+		// An uninstall accepted before deleteRecord existed has no such var and keeps the record.
+		deleteRecord, _ := execution.ExtraVars[deletePlatformRecordVar].(bool)
+		if err := o.platforms.CompleteUninstall(ctx, execution.PlatformID, deleteRecord); err != nil {
 			return err
 		}
 		o.restoreExporters(ctx, operation)

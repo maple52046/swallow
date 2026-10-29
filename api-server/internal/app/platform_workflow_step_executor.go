@@ -22,12 +22,13 @@ import (
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
-// platformUninstallFinalizer clears a Platform's projections after a successful uninstall.
-// It is the completion hook for the release-and-uninstall path, whose workflow has no ansible
-// step (the usual AnsibleStepSucceeded trigger), so this narrow port lets the internal
-// complete-uninstall step run the same cleanup keyed only by platform id.
+// platformUninstallFinalizer clears a Platform's projections after a successful uninstall, and
+// removes its record when deleteRecord is set. It is the completion hook for the
+// release-and-uninstall path, whose workflow has no ansible step (the usual AnsibleStepSucceeded
+// trigger), so this narrow port lets the internal complete-uninstall step run the same cleanup
+// keyed only by platform id. Implementations must treat an already-deleted Platform as success.
 type platformUninstallFinalizer interface {
-	CompleteUninstall(ctx context.Context, platformID string) error
+	CompleteUninstall(ctx context.Context, platformID string, deleteRecord bool) error
 }
 
 // platformWorkflowStepExecutor implements Swallow-owned readiness and health phases.
@@ -66,7 +67,7 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 	case "validate-platform-health":
 		return e.validatePlatform(ctx, input.PlatformID, input.Step)
 	case "complete-uninstall":
-		return e.completeUninstall(ctx, input.PlatformID)
+		return e.completeUninstall(ctx, input.PlatformID, input.Step)
 	case "record-image-verification":
 		return e.recordImageVerification(ctx, input)
 	case "record-image-verification-failure":
@@ -145,15 +146,18 @@ func (e platformWorkflowStepExecutor) recordImageVerificationFailure(ctx context
 }
 
 // completeUninstall finalizes a release-and-uninstall Operation by clearing the Platform's
-// projections (membership, owned credential Integration, sync). It runs after every release
+// projections (membership, owned credential Integration, sync), and removing the record when the
+// Task's deleteRecord parameter says the operator asked for it. It runs after every release
 // step succeeds, replacing the ansible step's AnsibleStepSucceeded cleanup that this path
 // omits. A missing finalizer or platform id is a non-retryable failure; the cleanup itself is
 // idempotent, so a retried step is safe.
-func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, platformID string) temporalworkflow.StepExecutionResult {
+func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, platformID string, step operationdomain.Task) temporalworkflow.StepExecutionResult {
 	if e.finalizer == nil || strings.TrimSpace(platformID) == "" {
 		return internalStepFailed("platform_finalize_unavailable", "Platform uninstall finalization is unavailable.", false)
 	}
-	if err := e.finalizer.CompleteUninstall(ctx, platformID); err != nil {
+	// A Workflow accepted before deleteRecord existed has no such parameter and keeps the record.
+	deleteRecord, _ := step.Parameters[deleteRecordParameter].(bool)
+	if err := e.finalizer.CompleteUninstall(ctx, platformID, deleteRecord); err != nil {
 		return internalStepFailed("platform_finalize_failed", err.Error(), true)
 	}
 	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}

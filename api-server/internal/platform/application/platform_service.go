@@ -470,8 +470,14 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 // CompleteUninstall clears projections after a successful uninstall operation.
 //
 // A record deleted while the operation was running is already clean from this observer's
-// perspective, so a missing platform is an idempotent success.
-func (s *PlatformService) CompleteUninstall(ctx context.Context, id string) error {
+// perspective, so a missing platform is an idempotent success. That also makes a retried
+// completion safe after deleteRecord already removed the record.
+//
+// deleteRecord is the operator's uninstall-time choice (recorded on the Operation) to remove the
+// Platform record once the cleanup succeeds. Unlike Delete it never cancels Operations: the
+// caller is the uninstall's own success hook, and that uninstall is still the Workflow holding
+// the targets, so canceling would turn a finished uninstall into a canceled one.
+func (s *PlatformService) CompleteUninstall(ctx context.Context, id string, deleteRecord bool) error {
 	platform, err := s.platforms.FindByID(ctx, id)
 	if errors.Is(err, platformdomain.ErrPlatformNotFound) {
 		return nil
@@ -531,7 +537,19 @@ func (s *PlatformService) CompleteUninstall(ctx context.Context, id string) erro
 			return err
 		}
 	}
-	return s.platforms.UpdateSyncState(ctx, id, "", platformdomain.SyncState{})
+	if err := s.platforms.UpdateSyncState(ctx, id, "", platformdomain.SyncState{}); err != nil {
+		return err
+	}
+	if !deleteRecord {
+		return nil
+	}
+	// Membership and the owned Integration are already gone above, which is everything Delete
+	// removes besides the record itself. An operator Delete racing this step leaves the same end
+	// state, so a record that is already gone is not a failure.
+	if err := s.platforms.Delete(ctx, id); err != nil && !errors.Is(err, platformdomain.ErrPlatformNotFound) {
+		return err
+	}
+	return nil
 }
 
 func (s *PlatformService) clearMemberships(ctx context.Context, platformID string) error {

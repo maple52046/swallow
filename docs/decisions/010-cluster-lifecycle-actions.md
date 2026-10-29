@@ -69,3 +69,32 @@ Operations cannot be retried after their referenced Cluster is deleted.
 ## Current status
 
 Implemented by the Cluster Uninstall and Delete workflow.
+
+## Amendment (2026-10-29): Uninstall can also delete the record once it succeeds
+
+Operators who wanted both host cleanup and record removal had to uninstall, wait for
+`uninstalled`, and come back for Delete. The dashboard also showed Uninstall and Delete as two
+separate destructive actions, which read as one harmless action and one dangerous one.
+
+Uninstall now accepts `deleteRecord`. Swallow records the choice on the uninstall Operation
+and, only after the uninstall succeeds, removes the Platform record together with the same
+projections Delete removes. It does not cancel Operations, because the completing uninstall
+is the Workflow holding the targets. A failed, canceled, or indeterminate uninstall still keeps
+the record, so the reason for keeping the record after a partial teardown still holds.
+Without `deleteRecord`, a successful uninstall keeps the record as before. Delete itself is
+unchanged: it removes only the record and never changes hosts.
+
+The dashboard presents removal as one red control: while the Platform can still be uninstalled
+it is a split button whose primary part opens Uninstall and whose menu holds "Delete only"
+(record-only Delete); once the Platform is `uninstalled`, or can never be uninstalled, it is a
+single Delete. The Uninstall dialog's submit is the same kind of split button: its primary part
+keeps the record, and "Uninstall and delete record" in its menu sends `deleteRecord`. Each
+variant is deliberately a secondary menu entry rather than a peer of the primary action, so the
+action that leaves the runtime running on the hosts is never the obvious one.
+
+Alternatives considered:
+
+- Have the dashboard send Delete after the uninstall: rejected because Delete cancels the
+  Platform's in-flight Operations, so a Delete sent during the uninstall stops it, and a browser
+  cannot be relied on to wait for the uninstall to finish.
+- Add a Forget command: still rejected; record-only removal remains Delete.

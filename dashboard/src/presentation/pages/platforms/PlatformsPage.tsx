@@ -11,7 +11,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
-import { isPlatformLifecycleInProgress, platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
+import { isPlatformLifecycleInProgress, platformPrimaryRemovalAction } from '@/domain/platform/lifecycle'
 import type { Platform, PlatformLifecycleState, PlatformType } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -22,13 +22,14 @@ import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentat
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { SearchInput } from '@/presentation/components/ui/search-input'
-import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
-import { PlatformBulkActionDialog } from './PlatformBulkActionDialog'
+import { PlatformBulkDeleteDialog } from './PlatformBulkDeleteDialog'
+import { PlatformBulkUninstallDialog } from './PlatformBulkUninstallDialog'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
+import { PlatformRemovalSplitButton } from './PlatformRemovalSplitButton'
 import { usePlatforms } from './usePlatforms'
-import type { PlatformBulkAction } from './usePlatformBulkActions'
+import { usePlatformUninstallEligibility } from './usePlatformUninstallEligibility'
 
 /** Shareable URL filter values; the empty string represents the unfiltered state. */
 type PlatformTypeFilter = PlatformType | ''
@@ -306,7 +307,7 @@ export function PlatformsPage() {
     filterKey: '',
     ids: new Set(),
   })
-  const [bulkAction, setBulkAction] = useState<PlatformBulkAction | null>(null)
+  const [bulkDialog, setBulkDialog] = useState<'uninstall' | 'delete' | null>(null)
 
   const query = searchParams.get('q') ?? ''
   const typeFilter = parseTypeFilter(searchParams.get('type'))
@@ -370,13 +371,16 @@ export function PlatformsPage() {
   const clearSelection = () => setSelectionState({ filterKey, ids: new Set() })
 
   const selectedPlatforms = platforms.filter((platform) => selected.has(platform.id))
-  const uninstallEligible = selectedPlatforms.filter((platform) => !platformUninstallDisabledReason(platform))
-  const uninstallSkipped = selectedPlatforms.filter((platform) => Boolean(platformUninstallDisabledReason(platform)))
-  const uninstallDisabledReason = uninstallEligible.length === 0 ? 'No selected platform can be uninstalled.' : undefined
+  // The red removal control follows what the selection leads with (decision 010 amendment): a
+  // split button while any selected Platform leads with Uninstall ("Uninstall eligible" when the
+  // selection also holds delete-only ones), and a single Delete when none does.
+  const primaryRemovalActions = new Set(selectedPlatforms.map(platformPrimaryRemovalAction))
+  const uninstallEligibility = usePlatformUninstallEligibility(selectedPlatforms)
 
-  const onBulkDone = () => {
-    setBulkAction(null)
-    clearSelection()
+  // Accepted Platforms leave the selection; skipped and failed ones stay for a follow-up action.
+  const onBulkDone = (acceptedIds: readonly string[]) => {
+    setBulkDialog(null)
+    updateSelection((current) => new Set([...current].filter((id) => !acceptedIds.includes(id))))
     reload()
   }
 
@@ -468,19 +472,20 @@ export function PlatformsPage() {
           >
 
             <SelectionToolbar count={selected.size} onClear={clearSelection}>
-              <Tooltip content={uninstallDisabledReason ?? 'Uninstall selected platforms'}>
-                <span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={Boolean(uninstallDisabledReason)}
-                    onClick={() => setBulkAction('uninstall')}
-                  >
-                    Uninstall
-                  </Button>
-                </span>
-              </Tooltip>
-              <Button colorPalette="red" size="sm" onClick={() => setBulkAction('delete')}>Delete</Button>
+              {primaryRemovalActions.has('uninstall') ? (
+                <PlatformRemovalSplitButton
+                  primaryLabel="Uninstall"
+                  primaryLabelSuffix={primaryRemovalActions.has('delete') ? 'eligible' : 'selected'}
+                  primaryDisabledReason={uninstallEligibility.disabledReason}
+                  onPrimaryAction={() => setBulkDialog('uninstall')}
+                  menuItemLabel="Delete only…"
+                  onMenuSelect={() => setBulkDialog('delete')}
+                  size="sm"
+                  placement="toolbar"
+                />
+              ) : (
+                <Button colorPalette="red" size="sm" onClick={() => setBulkDialog('delete')}>Delete selected</Button>
+              )}
             </SelectionToolbar>
 
             {platforms.length === 0 ? (
@@ -586,14 +591,11 @@ export function PlatformsPage() {
         </>
       )}
 
-      {bulkAction && (
-        <PlatformBulkActionDialog
-          action={bulkAction}
-          targets={bulkAction === 'uninstall' ? uninstallEligible : selectedPlatforms}
-          skipped={bulkAction === 'uninstall' ? uninstallSkipped : []}
-          onClose={() => setBulkAction(null)}
-          onDone={onBulkDone}
-        />
+      {bulkDialog === 'uninstall' && (
+        <PlatformBulkUninstallDialog eligibility={uninstallEligibility} onClose={() => setBulkDialog(null)} onDone={onBulkDone} />
+      )}
+      {bulkDialog === 'delete' && (
+        <PlatformBulkDeleteDialog platforms={selectedPlatforms} onClose={() => setBulkDialog(null)} onDone={onBulkDone} />
       )}
     </div>
   )

@@ -1,24 +1,32 @@
 import { useRef, useState } from 'react'
-import { Button, Field, Input, Menu, Portal, Stack, Text } from '@chakra-ui/react'
+import { Button, Field, Input, Stack, Text } from '@chakra-ui/react'
 import { Redo } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
-import { platformUninstallDisabledReason } from '@/domain/platform/lifecycle'
-import type { Platform, UninstallPlatformOptions } from '@/domain/platform/types'
-import { BlockingWorkflowsNotice } from '@/presentation/components/BlockingWorkflowsNotice'
-import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
+import { platformPrimaryRemovalAction, platformUninstallAvailability } from '@/domain/platform/lifecycle'
+import type { Platform } from '@/domain/platform/types'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
 import { Alert } from '@/presentation/components/ui/alert'
-import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
 import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
+import { PlatformRemovalSplitButton } from './PlatformRemovalSplitButton'
+import { PlatformUninstallChoices } from './PlatformUninstallChoices'
+import {
+  platformRecordDeleteConsequence,
+  platformUninstallAcceptedToast,
+  platformUninstallConfirmLabel,
+  platformUninstallConsequence,
+  platformUninstallDeleteHint,
+  type PlatformRecordDeleteContext,
+} from './platformRemovalCopy'
+import { platformUninstallOptions } from './platformUninstallRequest'
 
-type ConfirmationAction = 'uninstall' | 'delete'
+type RemovalDialog = 'uninstall' | 'delete'
 
 /**
  * Whether a repair error is an HTTP 409 conflict. For a Step retry this means the durable
@@ -39,38 +47,49 @@ interface PlatformLifecycleActionsProps {
 }
 
 /**
- * Exposes Platform-scoped repair and the separate uninstall/delete lifecycle actions.
+ * Exposes Platform-scoped repair and the red Platform removal control.
  *
  * Schema-v3 repair signals each retryable failed Step on the existing durable Operation,
  * preserving successful provider effects and protected inputs. Legacy deployment history keeps
  * the compatibility retry that creates a new Operation. The parent callback refreshes lifecycle
  * state without redirecting operators into the automation debugger.
  *
- * Uninstall lists the unfinished Workflows still holding the deployment targets (a failed
- * deployment parked for attention, or one still running) and requires the operator to confirm
- * that the backend cancels them (`cancelActiveWorkflows`, decision 061); the request returns at
- * once and the uninstall starts by itself after they end, so the dialog never waits.
+ * Removal (decision 010, 2026-10-29 amendment): while the Platform can still be uninstalled the
+ * control is a split button whose primary part opens the Uninstall dialog and whose chevron menu
+ * offers "Delete only…" (record-only Delete), so host cleanup and record removal are never
+ * presented as peers. The Uninstall dialog's submit is the same kind of split button: its primary
+ * part uninstalls and keeps the record, and "… and delete record" in its menu also sends
+ * `deleteRecord`, which the backend honors only after the uninstall succeeds. A running uninstall or
+ * a locked target disables only the header's Uninstall part, with its reason; record-only Delete
+ * never mutates hosts, so it stays available. Once the Platform is `uninstalled`, or was never
+ * deployed by Swallow, the control is a single "Delete platform" button.
+ *
+ * The Uninstall dialog lists the unfinished Workflows still holding the deployment targets (a
+ * failed deployment parked for attention, or one still running) and requires the operator to
+ * confirm that the backend cancels them (`cancelActiveWorkflows`, decision 061); the request
+ * returns at once and the uninstall starts by itself after they end, so the dialog never waits.
  */
 export function PlatformLifecycleActions({ platform, operation, targetServerIds, onRepairStarted }: PlatformLifecycleActionsProps) {
   const { platforms, operations } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
   const navigate = useNavigate()
-  const [action, setAction] = useState<ConfirmationAction | null>(null)
+  const [dialog, setDialog] = useState<RemovalDialog | null>(null)
   const [confirmation, setConfirmation] = useState('')
   const confirmationRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  // Uninstall-scoped choice to also release member servers back to the provider.
   const [releaseServers, setReleaseServers] = useState(false)
   const [releaseOptions, setReleaseOptions] = useState<ReleaseOptionsValue>(emptyReleaseOptions)
   const [cancelBlocking, setCancelBlocking] = useState(false)
-  const { activeOperations: blockingWorkflows } = useServerActiveOperations(action === 'uninstall' ? targetServerIds ?? [] : [])
+  // Read only while the Uninstall dialog is open, so a closed page issues no Workflow lookups.
+  const { activeOperations: blockingWorkflows } = useServerActiveOperations(dialog === 'uninstall' ? targetServerIds ?? [] : [])
   const [repairOpen, setRepairOpen] = useState(false)
   const [repairError, setRepairError] = useState('')
   const [repairing, setRepairing] = useState(false)
   const targetProtection = useTargetLockProtection(targetServerIds)
   const targetCount = targetServerIds?.length
+  const targetLabel = targetCount === undefined ? 'the original deployment targets' : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
 
   const failedProvisioningRecovery = Boolean(
     operation &&
@@ -90,15 +109,27 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
       : targetProtection.lockedNames.length > 0
         ? `${targetProtection.lockedNames.join(', ')} ${targetProtection.lockedNames.length === 1 ? 'is' : 'are'} locked. Unlock ${targetProtection.lockedNames.length === 1 ? 'it' : 'them'} before changing this Platform.`
         : undefined
-  const uninstallDisabledReason = platformUninstallDisabledReason(platform) ?? lockedDisabledReason
   const repairDisabledReason = !platform.lifecycleOperationId
     ? 'The deployment Operation is unavailable.'
     : legacyReadinessOnly
       ? 'This older readiness Step can only recheck SSH and cannot repair missing provider addresses. Release and redeploy the affected Servers.'
       : lockedDisabledReason
 
-  const openConfirmation = (next: ConfirmationAction) => {
-    setAction(next)
+  const recordOnly = platformPrimaryRemovalAction(platform) === 'delete'
+  // Lock state fails closed for Uninstall. A missing target list is not treated as an error: the
+  // backend resolves the frozen deployment snapshot and re-checks locks live anyway.
+  const uninstall = platformUninstallAvailability(platform, {
+    status: targetProtection.checking ? 'checking' : targetProtection.error ? 'error' : 'ready',
+    lockedNames: targetProtection.lockedNames,
+  })
+  const recordDeleteContext: PlatformRecordDeleteContext = !recordOnly
+    ? 'installed'
+    : platform.lifecycleState === 'uninstalled'
+      ? 'uninstalled'
+      : 'external'
+
+  const open = (next: RemovalDialog) => {
+    setDialog(next)
     setConfirmation('')
     setError('')
     setReleaseServers(false)
@@ -107,53 +138,46 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   }
 
   const close = () => {
-    if (submitting) return
-    setAction(null)
+    if (!submitting) setDialog(null)
+  }
+
+  // Releasing changes what the typed name and the cancel consent agree to, so both are asked for
+  // again.
+  const changeReleaseServers = (checked: boolean) => {
+    setReleaseServers(checked)
+    if (!checked) setReleaseOptions(emptyReleaseOptions)
     setConfirmation('')
-    setError('')
-    setReleaseServers(false)
-    setReleaseOptions(emptyReleaseOptions)
     setCancelBlocking(false)
   }
 
-  const blocked = action === 'uninstall' && blockingWorkflows.length > 0
+  const blocked = dialog === 'uninstall' && blockingWorkflows.length > 0
   const awaitingCancelConfirmation = blocked && !cancelBlocking
+  const canSubmit = dialog !== null && confirmation === platform.name && !submitting && !awaitingCancelConfirmation
 
-  const submit = async () => {
-    if (!action || confirmation !== platform.name || submitting || awaitingCancelConfirmation) return
+  // `deleteRecord` is chosen at submit time: the primary part of the Uninstall submit keeps the
+  // record, and the variant in its menu also deletes it after the uninstall succeeds.
+  const submit = async (deleteRecord = false) => {
+    if (!canSubmit) return
     setSubmitting(true)
     setError('')
     try {
-      if (action === 'uninstall') {
-        // Gate every erase/unbind choice on releaseServers so an unchecked release can never
-        // submit stray options; also mirror the standalone Release rule that the erase modes
-        // only apply when erase itself is on.
-        const options: UninstallPlatformOptions = {
-          releaseServers,
-          releaseOptions: {
-            erase: releaseServers && releaseOptions.erase,
-            secureErase: releaseServers && releaseOptions.erase && releaseOptions.secureErase,
-            quickErase: releaseServers && releaseOptions.erase && releaseOptions.quickErase,
-            unbindStaticIps: releaseServers && releaseOptions.unbindStaticIPs,
-          },
-          ...(blocked && cancelBlocking ? { cancelActiveWorkflows: true } : {}),
-        }
-        const accepted = await platforms.uninstallPlatform(platform.id, options)
-        const cleaned = targetCount === undefined ? 'the original deployment targets' : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
+      if (dialog === 'uninstall') {
+        const accepted = await platforms.uninstallPlatform(platform.id, platformUninstallOptions({
+          releaseServers, releaseOptions, deleteRecord, cancelActiveWorkflows: blocked && cancelBlocking,
+        }))
+        const toast = platformUninstallAcceptedToast({ releaseServers, deleteRecord }, targetLabel)
         const waits = blocked ? ' It starts once the canceled workflows have ended.' : ''
-        showToast({
-          tone: 'success',
-          title: releaseServers ? 'Server release accepted' : 'Platform uninstall accepted',
-          description: (releaseServers
-            ? `${cleaned} will be released directly to the provider. Platform software uninstall is skipped.`
-            : `Platform software will be removed from ${cleaned}.`) + waits,
-        })
+        showToast({ tone: 'success', title: toast.title, description: toast.description + waits })
         navigate(scopedHref(`/workflows/${accepted.operationId}`))
         return
       }
 
       await platforms.deletePlatform(platform.id)
-      showToast({ tone: 'success', title: 'Platform deleted', description: 'The Swallow record and owned projections were removed. Hosts were not changed.' })
+      showToast({
+        tone: 'success',
+        title: 'Platform record deleted',
+        description: 'The Swallow record and owned projections were removed. Hosts were not changed. Any in-flight workflows were canceled.',
+      })
       navigate(scopedHref('/platforms'), { replace: true })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The platform action failed.')
@@ -161,9 +185,6 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
       setSubmitting(false)
     }
   }
-
-  const isUninstall = action === 'uninstall'
-  const targetLabel = targetCount === undefined ? 'the original deployment targets' : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
 
   const startRepair = async () => {
     if (!platform.lifecycleOperationId || repairing) return
@@ -215,6 +236,8 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
     }
   }
 
+  const consequence = dialog === 'uninstall' ? platformUninstallConsequence(releaseServers, 'single') : platformRecordDeleteConsequence(recordDeleteContext)
+
   return (
     <>
       {platform.lifecycleState === 'deploy_failed' && (
@@ -235,30 +258,20 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
           </span>
         </Tooltip>
       )}
-      <Menu.Root>
-        <Menu.Trigger asChild>
-          <Button variant="outline">Platform actions</Button>
-        </Menu.Trigger>
-        <Portal>
-          <Menu.Positioner>
-            <Menu.Content>
-              <Menu.Item value="uninstall" disabled={Boolean(uninstallDisabledReason)} onClick={() => openConfirmation('uninstall')}>
-                <Text>
-                  Uninstall platform
-                  {uninstallDisabledReason && (
-                    <Text as="span" display="block" fontSize="xs" color="fg.muted">
-                      {uninstallDisabledReason}
-                    </Text>
-                  )}
-                </Text>
-              </Menu.Item>
-              <Menu.Item value="delete" color="red.fg" onClick={() => openConfirmation('delete')}>
-                Delete platform
-              </Menu.Item>
-            </Menu.Content>
-          </Menu.Positioner>
-        </Portal>
-      </Menu.Root>
+      {recordOnly ? (
+        <Button colorPalette="red" className="sw-removal-delete" onClick={() => open('delete')}>
+          Delete platform
+        </Button>
+      ) : (
+        <PlatformRemovalSplitButton
+          primaryLabel="Uninstall platform"
+          primaryDisabledReason={uninstall.reason}
+          onPrimaryAction={() => open('uninstall')}
+          menuItemLabel="Delete only…"
+          onMenuSelect={() => open('delete')}
+          placement="header"
+        />
+      )}
 
       <Modal
         open={repairOpen}
@@ -298,12 +311,16 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
       </Modal>
 
       <Modal
-        open={action !== null}
+        open={dialog !== null}
         onClose={close}
-        size={releaseServers ? 'lg' : 'md'}
+        size={dialog === 'uninstall' ? 'lg' : 'md'}
         closeOnInteractOutside={!submitting}
+        dismissDisabled={submitting}
         initialFocusEl={() => confirmationRef.current}
-        title={isUninstall ? 'Uninstall platform' : 'Delete platform'}
+        title={dialog === 'uninstall' ? 'Uninstall platform' : 'Delete platform record'}
+        description={dialog === 'uninstall'
+          ? `Remove Swallow-managed platform software from “${platform.name}”. This acts on the original deployment targets; the Swallow record is kept unless you choose to delete it after success.`
+          : `Permanently delete the Swallow record for “${platform.name}”. This never changes hosts.`}
         onSubmit={(event) => {
           event.preventDefault()
           void submit()
@@ -313,14 +330,22 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
             <Button variant="ghost" onClick={close} disabled={submitting}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              colorPalette="red"
-              loading={submitting}
-              disabled={confirmation !== platform.name || submitting || awaitingCancelConfirmation}
-            >
-              {isUninstall ? (releaseServers ? 'Release all servers' : 'Uninstall platform') : 'Delete platform'}
-            </Button>
+            {dialog === 'uninstall' ? (
+              <PlatformRemovalSplitButton
+                primaryType="submit"
+                primaryLabel={platformUninstallConfirmLabel({ releaseServers, deleteRecord: false })}
+                disabled={!canSubmit}
+                loading={submitting}
+                menuItemLabel={platformUninstallConfirmLabel({ releaseServers, deleteRecord: true })}
+                onMenuSelect={() => void submit(true)}
+                menuTriggerLabel="More uninstall options"
+                placement="dialog"
+              />
+            ) : (
+              <Button type="submit" colorPalette="red" loading={submitting} disabled={!canSubmit}>
+                Delete record
+              </Button>
+            )}
           </>
         }
       >
@@ -330,64 +355,47 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
               {error}
             </Alert>
           )}
-          {isUninstall ? (
-            <>
-              {!releaseServers && (
-                <Text>
-                  Platform services, configuration, credentials, and managed state will be removed. The operating system, user data, and other installed
-                  packages remain. Hosts are not rebooted, and the Swallow platform record is retained.
-                </Text>
+          {/* Polite so a screen reader hears the new targets and consequence when a choice changes. */}
+          <Stack gap="3" aria-live="polite">
+            <Text>
+              {dialog === 'uninstall' ? (
+                <><strong>Targets:</strong> {targetLabel}</>
+              ) : (
+                <><strong>Target:</strong> Swallow record “{platform.name}”. Hosts are not targeted.</>
               )}
-              <Text>
-                <strong>Targets:</strong> {targetLabel}
-              </Text>
-              <BlockingWorkflowsNotice
-                operations={blockingWorkflows}
-                title={blockingWorkflows.length === 1
-                  ? 'An unfinished workflow still holds these servers'
-                  : `${blockingWorkflows.length} unfinished workflows still hold these servers`}
-                checkboxId="uninstall-cancel-blocking"
-                checkboxLabel={releaseServers ? 'Cancel these workflows, then release the servers' : 'Cancel these workflows, then uninstall'}
-                listLabel="Workflows holding the platform's servers"
-                checked={cancelBlocking}
-                disabled={submitting}
-                onCheckedChange={setCancelBlocking}
-              >
-                The uninstall is refused while another workflow holds the servers. Check the box to cancel it: the uninstall
-                is accepted now and starts by itself once the canceled workflow has ended. A canceled OS deployment first
-                returns the servers it was installing to Ready, which can take a few minutes; finished deployments are kept.
-              </BlockingWorkflowsNotice>
-              <Checkbox
-                id="uninstall-release-servers"
-                checked={releaseServers}
-                onCheckedChange={(checked) => {
-                  setReleaseServers(checked)
-                  if (!checked) setReleaseOptions(emptyReleaseOptions)
-                }}
-              >
-                Release all servers instead of uninstalling platform software
-              </Checkbox>
-              {releaseServers && (
-                <>
-                  <Alert status="error" title="Platform software uninstall is skipped">
-                    {targetLabel} will be released directly to the provider, which removes each deployed operating
-                    system. The Swallow platform record is retained.
-                  </Alert>
-                  <ReleaseOptionsFields idPrefix="uninstall-release" value={releaseOptions} onChange={setReleaseOptions} />
-                </>
-              )}
-            </>
-          ) : (
-            <Alert status="warning" title="Hosts will not be uninstalled">
-              Only the Swallow record and owned projections are deleted. Any platform still running on the hosts and
-              any accepted Operations will continue.
+            </Text>
+            <Alert status={consequence.status} title={consequence.title}>
+              {consequence.body}
             </Alert>
+          </Stack>
+          {dialog === 'uninstall' && (
+            <>
+              <PlatformUninstallChoices
+                scope="single"
+                idPrefix="uninstall"
+                releaseServers={releaseServers}
+                onReleaseServersChange={changeReleaseServers}
+                releaseOptions={releaseOptions}
+                onReleaseOptionsChange={setReleaseOptions}
+                blockingWorkflows={blockingWorkflows}
+                cancelBlocking={cancelBlocking}
+                onCancelBlockingChange={setCancelBlocking}
+                disabled={submitting}
+              />
+              <Text fontSize="sm" color="fg.muted">{platformUninstallDeleteHint(releaseServers, 'single')}</Text>
+            </>
           )}
           <Field.Root required>
             <Field.Label>
-              Type "{platform.name}" to confirm <Field.RequiredIndicator />
+              Type “{platform.name}” to confirm <Field.RequiredIndicator />
             </Field.Label>
-            <Input ref={confirmationRef} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="Platform name confirmation" />
+            <Input
+              ref={confirmationRef}
+              value={confirmation}
+              disabled={submitting}
+              onChange={(event) => setConfirmation(event.target.value)}
+              aria-label="Platform name confirmation"
+            />
           </Field.Root>
         </Stack>
       </Modal>

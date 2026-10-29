@@ -450,7 +450,8 @@ func (h *PlatformHandler) Update(c *fiber.Ctx) error {
 // uninstallPlatformRequest is the optional uninstall body. An absent body keeps the
 // default of removing k0s only; releaseServers additionally returns each member server to
 // the provider, with releaseOptions mirroring the standalone Release action;
-// cancelActiveWorkflows supersedes the Workflows holding the targets (decision 061).
+// cancelActiveWorkflows supersedes the Workflows holding the targets (decision 061);
+// deleteRecord removes the Platform record once the uninstall succeeds.
 type uninstallPlatformRequest struct {
 	ReleaseServers bool `json:"releaseServers"`
 	ReleaseOptions struct {
@@ -460,6 +461,7 @@ type uninstallPlatformRequest struct {
 		UnbindStaticIPs bool `json:"unbindStaticIps"`
 	} `json:"releaseOptions"`
 	CancelActiveWorkflows bool `json:"cancelActiveWorkflows"`
+	DeleteRecord          bool `json:"deleteRecord"`
 }
 
 // Uninstall handles POST /platforms/{id}/uninstall (platforms.md): it starts the uninstall
@@ -487,6 +489,7 @@ func (h *PlatformHandler) Uninstall(c *fiber.Ctx) error {
 			UnbindStaticIPs: req.ReleaseOptions.UnbindStaticIPs,
 		},
 		CancelActiveWorkflows: req.CancelActiveWorkflows,
+		DeleteRecord:          req.DeleteRecord,
 	})
 	if err != nil {
 		return respondError(c, err)

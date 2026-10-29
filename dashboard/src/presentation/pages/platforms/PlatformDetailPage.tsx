@@ -482,7 +482,8 @@ function LifecycleNotice({
     case 'uninstalled':
       return (
         <Alert status="info" title="Platform is uninstalled">
-          The platform was removed from the original targets. This record remains until you delete it.
+          Platform software was removed from the original deployment targets. The Swallow record remains. Use Delete platform
+          above to permanently delete the record and owned projections; hosts will not be changed.
         </Alert>
       )
     default:

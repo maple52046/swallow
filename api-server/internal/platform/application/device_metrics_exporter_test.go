@@ -244,7 +244,7 @@ func TestPlatformServiceRecordsAndRetiresTheDeviceMetricsExporter(t *testing.T) 
 		t.Errorf("a superseded Workflow's identity was recorded: %q", platform.DeviceMetricsExporter.GPUIdentity)
 	}
 
-	if err := service.CompleteUninstall(ctx, "p1"); err != nil {
+	if err := service.CompleteUninstall(ctx, "p1", false); err != nil {
 		t.Fatalf("CompleteUninstall() error = %v", err)
 	}
 	platform = platforms.platforms["p1"]

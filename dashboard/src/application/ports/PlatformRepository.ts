@@ -44,7 +44,9 @@ export interface PlatformRepository {
   /**
    * Remove platform software from the original deployment targets and retain the record.
    * When `options.releaseServers` is set, release each target directly instead; release wipes
-   * the operating system, so the software-uninstall steps are skipped.
+   * the operating system, so the software-uninstall steps are skipped. When
+   * `options.deleteRecord` is set, the backend also deletes the record once the uninstall
+   * succeeds, so a caller must not follow the returned Workflow back to the Platform.
    */
   uninstallPlatform(id: string, options?: UninstallPlatformOptions): Promise<DeployPlatformResult>
   /** Delete only the Swallow record and owned projections; hosts are untouched. */

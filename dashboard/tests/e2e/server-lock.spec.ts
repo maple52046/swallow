@@ -91,11 +91,14 @@ test('locked targets disable Platform repair, uninstall, and Operation retry', a
   })
   await expect(repair).toBeDisabled()
 
-  await page.getByRole('button', { name: 'Platform actions' }).click()
-  const uninstall = page.getByRole('menuitem', { name: /Uninstall platform/ })
-  await expect(uninstall).toBeDisabled()
-  await expect(uninstall).toContainText('Unlock it before changing this Platform.')
-  await expect(page.getByRole('menuitem', { name: 'Delete platform' })).toBeEnabled()
+  // Only the Uninstall part is refused, with the lock in its name; record-only Delete never
+  // mutates the locked host, so the chevron menu stays available.
+  await expect(page.getByRole('button', {
+    name: 'Uninstall platform: Server “gpu-node-04” is locked. Unlock it before changing hosts.',
+  })).toBeDisabled()
+  await page.getByRole('button', { name: 'More removal options' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Delete only…' })).toBeEnabled()
+  await page.keyboard.press('Escape')
 
   await page.goto('/workflows/op-deploy-failed?site=site-a')
   await expect(page.getByRole('button', {

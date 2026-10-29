@@ -41,12 +41,15 @@ func NewUninstallService(
 // provider; ReleaseOptions then controls disk erasure and static-IP handling per server.
 // CancelActiveWorkflows cancels the unfinished Workflows holding the targets (a deployment parked
 // in requires_attention, or one still deploying) and starts the uninstall once they end.
+// DeleteRecord also removes the Platform record once the uninstall succeeds; it does not change
+// eligibility, so a refused request deletes nothing.
 type UninstallPlatformInput struct {
 	PlatformID            string
 	RequestedBy           string
 	ReleaseServers        bool
 	ReleaseOptions        platformdomain.ServerReleaseOptions
 	CancelActiveWorkflows bool
+	DeleteRecord          bool
 }
 
 // UninstallPlatformResult is the accepted uninstall operation.
@@ -138,6 +141,7 @@ func (s *UninstallService) Uninstall(
 		ReleaseOptions:     input.ReleaseOptions,
 		RetryOfOperationID: retryOf, RequestedBy: input.RequestedBy,
 		CancelActiveWorkflows: input.CancelActiveWorkflows,
+		DeleteRecord:          input.DeleteRecord,
 	})
 	if err != nil {
 		return nil, err

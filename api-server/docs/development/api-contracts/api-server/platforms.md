@@ -921,11 +921,13 @@ the member servers to the provider in the same Operation, send:
     "quickErase": false,
     "unbindStaticIps": false
   },
-  "cancelActiveWorkflows": false
+  "cancelActiveWorkflows": false,
+  "deleteRecord": false
 }
 ```
 
-`cancelActiveWorkflows` is described below the eligibility rules.
+`cancelActiveWorkflows` is described below the eligibility rules, and `deleteRecord` after
+the success cleanup.
 
 When `releaseServers` is true, Swallow releases each member server directly instead of
 uninstalling the platform software first: releasing wipes the operating system, so the
@@ -988,6 +990,25 @@ exporters, Swallow separately queues `install-exporters` for targets that remain
 deployed, and unlocked. That Operation has its own failure lifecycle and does not roll back
 the uninstall.
 
+`deleteRecord: true` asks Swallow to also remove the Platform record once the uninstall
+succeeds, so an operator who wants both host cleanup and record removal does not have to come
+back for a separate Delete. It is recorded on the uninstall Operation when the request is
+accepted and applies to both the kept-servers and the `releaseServers` path. It changes
+nothing until that success cleanup: the Platform stays addressable (`uninstalling`) while the
+Operation runs, and a failed, canceled, or indeterminate uninstall keeps the record
+(`uninstall_failed`) for diagnosis and retry. Retrying a Step of, or rerunning, that same
+Workflow keeps the choice it was accepted with; submitting the uninstall again is a new
+request, which deletes the record only if it also sends `deleteRecord: true`. The removal runs
+as the last part of the success cleanup
+and removes the same record and projections as Delete, but it never cancels Operations,
+because the only Operation still holding the targets is the uninstall that is completing.
+Exporter restoration is still queued as described above. A missing or `false` value keeps the
+record, which stays `uninstalled` until Delete. A request whose Operation is refused deletes
+nothing.
+
+Do not send `DELETE` while an uninstall is running to get the same result: Delete cancels the
+Platform's in-flight Operations first, so the uninstall would stop instead of finishing.
+
 ## List, Get, Update, And Delete
 
 `GET /api/v1/platforms/` returns a plain array, optionally filtered by `siteId`.
@@ -1012,7 +1033,9 @@ Integration is set only by its deployment, and repointing it at an operator-owne
 would be a register-existing back door, which
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) removes.
 
-`DELETE /api/v1/platforms/{platformId}` returns `{"success":true}` on success. It first
+`DELETE /api/v1/platforms/{platformId}` removes only the Swallow record; it is not a way to
+finish an uninstall (use the uninstall's `deleteRecord` for that). It returns
+`{"success":true}` on success. It first
 cancels the Platform's in-flight durable Operations so their resource leases are released
 and the member servers are freed, then clears membership and a Swallow-owned credential
 Integration, and finally removes the Platform record. Cancellation only stops durable work

@@ -266,7 +266,7 @@ export interface FixtureOptions {
   /** Called for every per-Server provisioner action POST (inspect, power-on, lock, ...). */
   onServerActionRequest?: (serverId: string, action: string) => void
   /** Overrides a seeded Platform's lifecycle state by id, e.g. `{ 'platform-a': 'deploying' }`. */
-  platformLifecycleStates?: Record<string, 'deploying' | 'uninstalling' | 'active' | 'deploy_failed'>
+  platformLifecycleStates?: Record<string, 'deploying' | 'uninstalling' | 'active' | 'deploy_failed' | 'uninstall_failed' | 'uninstalled'>
   /** Removes platform-a's seeded GPU Operator, modelling a Platform that never had one. */
   withoutPlatformGPUOperator?: boolean
   /** Receives every `PUT /platforms/{id}/gpu-operator` body. */

@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 
-/** Current read-only lock check for a set of Operation or Platform targets. */
+/**
+ * Current read-only lock check for a set of Operation or Platform targets. `lockedTargets`
+ * keeps each locked Server's id beside its display name so a caller checking several Platforms
+ * at once (`usePlatformUninstallEligibility`) can attribute a lock to the Platform that owns it;
+ * `lockedNames` is the same list as display names only.
+ */
 export interface TargetLockProtection {
   checking: boolean
   lockedNames: string[]
+  lockedTargets: ReadonlyArray<{ serverId: string; name: string }>
   error?: string
 }
 
@@ -23,9 +29,9 @@ export function useTargetLockProtection(
   )
   const [state, setState] = useState<{
     targetKey: string
-    lockedNames: string[]
+    lockedTargets: ReadonlyArray<{ serverId: string; name: string }>
     error?: string
-  }>({ targetKey: '', lockedNames: [] })
+  }>({ targetKey: '', lockedTargets: [] })
 
   useEffect(() => {
     const ids = targetKey ? targetKey.split(',') : []
@@ -35,8 +41,8 @@ export function useTargetLockProtection(
         if (cancelled) return
         setState({
           targetKey,
-          lockedNames: targets.flatMap((server) =>
-            server?.provisioning?.locked ? [server.hostname || server.id] : [],
+          lockedTargets: targets.flatMap((server) =>
+            server?.provisioning?.locked ? [{ serverId: server.id, name: server.hostname || server.id }] : [],
           ),
         })
       })
@@ -44,7 +50,7 @@ export function useTargetLockProtection(
         if (!cancelled) {
           setState({
             targetKey,
-            lockedNames: [],
+            lockedTargets: [],
             error: 'Target protection could not be checked. Refresh and try again.',
           })
         }
@@ -56,7 +62,8 @@ export function useTargetLockProtection(
 
   return {
     checking: state.targetKey !== targetKey,
-    lockedNames: state.lockedNames,
+    lockedNames: state.lockedTargets.map((target) => target.name),
+    lockedTargets: state.lockedTargets,
     error: state.error,
   }
 }

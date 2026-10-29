@@ -1920,6 +1920,57 @@ tbody .sw-sticky-selection { z-index: 2; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* Platform removal split button: the Uninstall part and the chevron menu part read as one
+   attached control. The primary sits in a span (so a tooltip still opens when it is disabled),
+   which is why the joined corners are squared here instead of by Chakra's attached group. */
+.sw-removal-split {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+}
+
+.sw-removal-split__primary {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.sw-removal-split__primary > button {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.sw-removal-split__toggle {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--chakra-colors-white) 40%, transparent);
+}
+
+@media (max-width: 47.99rem) {
+  /* On a phone the header control takes its own full-width row; the chevron keeps a 44px target. */
+  .sw-removal-split[data-placement='header'],
+  .sw-removal-delete {
+    flex: 1 1 100%;
+  }
+  .sw-removal-split[data-placement='header'] .sw-removal-split__primary,
+  .sw-removal-split[data-placement='header'] .sw-removal-split__primary > button {
+    flex: 1;
+  }
+  .sw-removal-split[data-placement='header'] .sw-removal-split__toggle {
+    min-width: 2.75rem;
+  }
+  /* The bulk dock is too narrow for "Uninstall eligible" plus the chevron; the dialog still lists
+     exactly which Platforms are targeted and skipped. */
+  .sw-removal-split[data-placement='toolbar'] .sw-removal-split__suffix {
+    display: none;
+  }
+}
+
+/* Bounded, scrollable name lists in bulk confirmation dialogs; every name stays listed. */
+.sw-dialog-name-list {
+  max-height: 10rem;
+  overflow-y: auto;
+}
+
 /* The addressing mode spans its form grid's full row so its three cards keep a readable width. */
 .sw-addressing-mode-field {
   grid-column: 1 / -1;

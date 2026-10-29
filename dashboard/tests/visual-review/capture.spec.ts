@@ -574,38 +574,104 @@ test.describe('Integration settings visual review', () => {
   })
 })
 
-/** Uninstall dialogs naming the Workflows that still hold the platform's Servers (decision 061). */
-test.describe('Platform uninstall visual review', () => {
+/**
+ * The red Platform removal control (decision 010, 2026-10-29 amendment): the split button with its
+ * record-only menu open, the Uninstall dialog with the release shortcut, record deletion after
+ * success, and a Workflow still holding the Servers (decision 061), the split button while an
+ * uninstall runs (only the Uninstall part disabled), the record-only dialogs reached from the menu
+ * and from an uninstalled Platform, and the bulk toolbar and dialogs for a mixed selection.
+ */
+test.describe('Platform removal visual review', () => {
+  test('split button menu and record-only dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'More removal options' }).click()
+    await expect(page.getByRole('menuitem', { name: 'Delete only…' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-removal-split-menu', false)
+    await page.getByRole('menuitem', { name: 'Delete only…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Delete platform record' })
+    await expect(dialog.getByText('Hosts will not be cleaned up')).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'platform-removal-record-only-installed', false)
+  })
+
   test('uninstall dialog with a blocking workflow', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     await installApiFixtures(page)
     await setAppearance(page, appearance)
     await page.goto('/platforms/platform-b?site=site-a')
-    await page.getByRole('button', { name: 'Platform actions' }).click()
-    await page.getByRole('menuitem', { name: 'Uninstall platform', exact: true }).click()
+    await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
     await expect(dialog.getByText('An unfinished workflow still holds these servers')).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'platform-uninstall-dialog', false)
     await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
     await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
+    await dialog.getByLabel('Platform name confirmation').fill('edge-staging')
+    await dialog.getByRole('button', { name: 'More uninstall options' }).click()
+    await expect(dialog.getByRole('menuitem', { name: 'Release servers and delete record' })).toBeVisible()
     await prepareCapture(page, appearance)
     if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
-    await capture(page, testInfo, 'platform-uninstall-blocking-workflow', false)
+    await capture(page, testInfo, 'platform-uninstall-release-and-delete', false)
   })
 
-  test('bulk uninstall dialog with a blocking workflow', async ({ page }, testInfo) => {
+  test('split button while an uninstall runs', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'uninstalling' } })
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/platform-a?site=site-a')
+    await expect(page.getByRole('button', { name: 'Uninstall platform: Uninstall is already running.' })).toBeDisabled()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-removal-uninstalling', false)
+  })
+
+  test('record-only dialog of an uninstalled platform', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'uninstalled' } })
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'Delete platform', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Delete platform record' })
+    await expect(dialog.getByText('Delete the remaining record')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-removal-record-only', false)
+  })
+
+  test('bulk removal of a mixed selection', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     await installApiFixtures(page)
     await setAppearance(page, appearance)
     await page.goto('/platforms?site=site-a')
     const mobile = testInfo.project.name.startsWith('mobile-')
-    const scope = mobile ? page.locator('.sw-platform-runtime-card').filter({ hasText: 'edge-staging' }) : page.getByRole('table', { name: 'Platforms' })
-    await scope.getByLabel('Select edge-staging').check({ force: true })
-    await page.getByRole('button', { name: 'Uninstall', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Uninstall 1 platform' })
-    await expect(dialog.getByText('An unfinished workflow still holds these platforms’ servers')).toBeVisible()
+    for (const name of ['edge-staging', 'research-slurm']) {
+      const scope = mobile ? page.locator('.sw-platform-runtime-card').filter({ hasText: name }) : page.getByRole('table', { name: 'Platforms' })
+      await scope.getByLabel(`Select ${name}`).check({ force: true })
+    }
+    await page.getByRole('button', { name: 'More removal options' }).click()
+    await expect(page.getByRole('menuitem', { name: 'Delete only…' })).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
-    await capture(page, testInfo, 'platform-bulk-uninstall-blocking-workflow', false)
+    await capture(page, testInfo, 'platform-bulk-removal-toolbar', false)
+    await page.getByRole('menuitem', { name: 'Delete only…' }).click()
+    const deleteDialog = page.getByRole('dialog', { name: 'Delete selected platform records' })
+    await expect(deleteDialog.getByText('Hosts will not be changed', { exact: true })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'platform-bulk-delete-dialog', false)
+    await deleteDialog.getByRole('button', { name: 'Cancel' }).click()
+    // Phone-width docks drop the "eligible" qualifier so the chevron stays in view.
+    await page.getByRole('button', { name: mobile ? 'Uninstall' : 'Uninstall eligible', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Uninstall selected platforms' })
+    await expect(dialog.getByText('An unfinished workflow still holds these platforms’ servers')).toBeVisible()
+    await expect(dialog.getByRole('list', { name: 'Platforms skipped by uninstall' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-bulk-uninstall-dialog', false)
   })
 })
 

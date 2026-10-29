@@ -100,6 +100,11 @@ type UninstallLaunch struct {
 	// CancelActiveWorkflows cancels the unfinished Workflows holding the targets and lets the
 	// uninstall wait for them instead of being refused as busy (decision 061).
 	CancelActiveWorkflows bool
+	// DeleteRecord removes the Platform record as the last part of the success cleanup. The
+	// launcher must persist it on the Operation itself, because the completion hook runs in a
+	// later process (worker or executor) that sees only the durable Operation; a failed
+	// uninstall never reaches that cleanup and so keeps the record.
+	DeleteRecord bool
 }
 
 // UninstallLauncher starts an uninstall operation without coupling contexts.
