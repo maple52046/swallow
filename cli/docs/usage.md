@@ -685,7 +685,9 @@ keep sharing nodes, and each job's GPUs are labelled with its job id. After a su
 `deviceMetricsExporter.gpuIdentity` says whether the exporters tell the GPUs apart: `collapsed`
 (for example on MI308X virtual functions) means the metrics flow but per-job GPU attribution is
 wrong on at least one node. `slurm.ociContainers: true` sets up native OCI containers
-(`srun --container=<bundle>`, bundles at the same path on every node) and `slurm.pmix: true`
+(`srun --container=<bundle>`, bundles at the same path on every node; independent of
+`containerRuntime`, which installs a container engine; the deployment provides both as
+capabilities and leaves how jobs run to the cluster's users) and `slurm.pmix: true`
 installs OpenMPI for `srun --mpi=pmix_v5`:
 
 ```yaml

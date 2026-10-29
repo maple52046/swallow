@@ -245,17 +245,20 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   const [slurmWorkloadMountPath, setSlurmWorkloadMountPath] = useState('/shared')
   const [slurmWorkloadNfsUrl, setSlurmWorkloadNfsUrl] = useState('')
   const [slurmWorkloadMountOptions, setSlurmWorkloadMountOptions] = useState('')
-  // Optional container runtime (decision 063): Docker CE or Podman on every compute and login node
-  // for containerized workloads; '' installs none. Off by default because Slurm needs none.
+  // Optional containers (decisions 063 and 066), one card with two independent choices that are sent
+  // only while the card is on: native OCI containers (slurm.ociContainers) and at most one container
+  // engine, Docker CE or Podman, on every compute and login node (containerRuntime; '' installs none).
+  // Off by default because Slurm needs neither; turning the card on starts with native OCI only.
+  const [slurmContainersEnabled, setSlurmContainersEnabled] = useState(false)
   const [slurmContainerRuntime, setSlurmContainerRuntime] = useState<SlurmContainerRuntime | ''>('')
+  const [slurmOCIContainers, setSlurmOCIContainers] = useState(false)
   // Optional GPU monitoring (decisions 063 and 066): the Device Metrics Exporter (per-GPU, jobs share
   // nodes) or Omnistat (one job per node), never both, each with Prometheus and Grafana on the
   // primary controller by the chosen install method. Off by default because it adds software there.
   const [slurmMonitoring, setSlurmMonitoring] = useState<SlurmMonitoringChoice>('none')
   const [monitoringInstallMethod, setMonitoringInstallMethod] = useState<ObservabilityInstallMethod>('container')
-  // Optional native OCI containers and host MPI (decision 066); both off by default because they
-  // install packages on every compute node.
-  const [slurmOCIContainers, setSlurmOCIContainers] = useState(false)
+  // Optional host MPI (decision 066); off by default because it installs packages on every compute
+  // and login node.
   const [slurmPMIx, setSlurmPMIx] = useState(false)
   // GPU node settings (platforms.md "GPU GRES" and "GPU driver options"): the GRES type is derived
   // from the GPU architecture unless named, and topology-required driver options apply regardless.
@@ -439,7 +442,14 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
       return Boolean(server && hasAMDComputeGPU(server.gpus))
     })
   const slurmMonitoringValid = slurmMonitoring !== 'device-metrics-exporter' || slurmHasGPUComputeNode
-  const featuresValid = isSlurm ? slurmGPUSettingsValid && slurmMonitoringValid : gpuOperatorProblem === null
+  // What the Container runtime card sends: nothing while it is off, its choices while it is on. On with
+  // nothing chosen is incomplete rather than silently off, so the step asks for a choice.
+  const slurmEngine = slurmContainersEnabled ? slurmContainerRuntime : ''
+  const slurmOCIRequested = slurmContainersEnabled && slurmOCIContainers
+  const slurmContainersEmpty = slurmContainersEnabled && !slurmOCIContainers && slurmContainerRuntime === ''
+  const featuresValid = isSlurm
+    ? slurmGPUSettingsValid && slurmMonitoringValid && !slurmContainersEmpty
+    : gpuOperatorProblem === null
   const gpuOperatorReview = (() => {
     if (!gpuOperatorForm.enabled) return 'Not installed'
     const release = gpuOperatorCatalog ? resolveGPUOperatorRelease(gpuOperatorForm, gpuOperatorCatalog) : undefined
@@ -718,7 +728,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               name: name.trim(),
               type: 'slurm',
               gpuStackOwner: 'provisioning',
-              ...(slurmContainerRuntime ? { containerRuntime: { kind: slurmContainerRuntime } } : {}),
+              ...(slurmEngine ? { containerRuntime: { kind: slurmEngine } } : {}),
               ...(slurmMonitoring === 'omnistat' ? { omnistat: { enabled: true, installMethod: monitoringInstallMethod } } : {}),
               ...(slurmMonitoring === 'device-metrics-exporter'
                 ? { deviceMetricsExporter: { enabled: true, installMethod: monitoringInstallMethod } }
@@ -726,7 +736,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               ...(Object.keys(gpuDriverOptions.options).length > 0 ? { gpuDriver: { moduleOptions: gpuDriverOptions.options } } : {}),
               slurm: {
                 ...(slurmGresTypeMode === 'custom' ? { gpuGresType: slurmGresType.trim() } : {}),
-                ...(slurmOCIContainers ? { ociContainers: true } : {}),
+                ...(slurmOCIRequested ? { ociContainers: true } : {}),
                 ...(slurmPMIx ? { pmix: true } : {}),
                 clusterName: clusterName.trim() || undefined,
                 apiVersion: slurmApiVersion.trim() || undefined,
@@ -831,6 +841,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                   setDefaultGateway(false)
                   setSlurmWorkloadMode('none')
                   setSlurmWorkloadNfsUrl('')
+                  setSlurmContainersEnabled(false)
                   setSlurmContainerRuntime('')
                   setSlurmMonitoring('none')
                   setSlurmOCIContainers(false)
@@ -1270,7 +1281,9 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
             ? 'Complete the enabled shared-storage settings.'
             : !slurmMonitoringValid
               ? 'The Device Metrics Exporter needs a compute node with AMD GPUs.'
-              : 'Correct the advanced GPU settings.')
+              : slurmContainersEmpty
+                ? 'Choose native OCI containers or a container engine, or turn Container runtime off.'
+                : 'Correct the advanced GPU settings.')
         : gpuOperatorProblem ?? undefined,
       content: (
         <WizardSection title={isSlurm ? 'Slurm features' : 'Kubernetes features'}>
@@ -1285,6 +1298,13 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               workloadMountOptions={slurmWorkloadMountOptions}
               onWorkloadMountOptionsChange={setSlurmWorkloadMountOptions}
               loginNodeCount={slurmLoginIds.length}
+              containersEnabled={slurmContainersEnabled}
+              onContainersEnabledChange={(enabled) => {
+                setSlurmContainersEnabled(enabled)
+                // A fresh card offers native OCI only; the engine is an explicit second choice.
+                setSlurmOCIContainers(enabled)
+                setSlurmContainerRuntime('')
+              }}
               containerRuntime={slurmContainerRuntime}
               onContainerRuntimeChange={setSlurmContainerRuntime}
               monitoring={slurmMonitoring}
@@ -1294,6 +1314,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               hasGPUComputeNode={slurmHasGPUComputeNode}
               ociContainers={slurmOCIContainers}
               onOCIContainersChange={setSlurmOCIContainers}
+              containersEmpty={slurmContainersEmpty}
               pmix={slurmPMIx}
               onPMIxChange={setSlurmPMIx}
               primaryControllerName={slurmPrimaryControllerName}
@@ -1657,20 +1678,18 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
           {
             title: 'Container runtime',
             stepId: 'deploy-features',
-            items: [{
-              label: 'Runtime',
-              value: slurmContainerRuntime
-                ? `${slurmContainerRuntimeLabel(slurmContainerRuntime)} on compute and login nodes`
-                : 'Not included',
-            }],
+            items: [
+              { label: 'Native OCI containers', value: slurmOCIRequested ? 'crun with srun --container on compute nodes' : 'Not included' },
+              {
+                label: 'Container engine',
+                value: slurmEngine ? `${slurmContainerRuntimeLabel(slurmEngine)} on compute and login nodes` : 'Not included',
+              },
+            ],
           },
           {
-            title: 'Containers and MPI',
+            title: 'MPI',
             stepId: 'deploy-features',
-            items: [
-              { label: 'Native OCI containers', value: slurmOCIContainers ? 'crun with srun --container on compute nodes' : 'Not included' },
-              { label: 'MPI with PMIx', value: slurmPMIx ? 'OpenMPI with srun --mpi=pmix_v5' : 'Not included' },
-            ],
+            items: [{ label: 'MPI with PMIx', value: slurmPMIx ? 'OpenMPI with srun --mpi=pmix_v5' : 'Not included' }],
           },
           {
             title: 'GPU monitoring and scheduling',

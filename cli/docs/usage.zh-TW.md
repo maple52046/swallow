@@ -665,7 +665,8 @@ swallow platforms get <platformId>    # containerRuntime、omnistat.state，以�
 Metrics Exporter，Prometheus 與 Grafana 的組入方式與 `installMethod` 與 Omnistat 相同。作業仍可共用節點，每個作業的
 GPU 會帶上 job id 標籤。安裝成功後，`deviceMetricsExporter.gpuIdentity` 說明 exporter 是否分得出各張 GPU：
 `collapsed`（例如 MI308X virtual function）表示 metrics 照常收集，但至少有一台節點的逐作業 GPU 歸屬是錯的。
-`slurm.ociContainers: true` 設定 native OCI container（`srun --container=<bundle>`，bundle 必須在每台節點的相同路徑），
+`slurm.ociContainers: true` 設定 native OCI container（`srun --container=<bundle>`，bundle 必須在每台節點的相同路徑；
+與安裝容器引擎的 `containerRuntime` 互相獨立；部署只提供這些能力，作業怎麼跑由叢集的使用者決定），
 `slurm.pmix: true` 安裝 OpenMPI，供 `srun --mpi=pmix_v5` 使用：
 
 ```yaml

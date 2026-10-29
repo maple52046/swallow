@@ -387,9 +387,9 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
  * Secondary platform settings shown after operational state and membership.
  * Type already appears beside the page title, so this group keeps only the
  * configuration facts an operator may need while investigating the platform.
- * A Slurm Platform also states its container runtime feature (or that it has none); each
- * Server's runtime install state lives in its Software Assignment, not here. Native OCI containers
- * and MPI are stated either way. GPU driver options and the GRES type appear only when the operator
+ * A Slurm Platform also states its containers in one fact, as the deploy wizard groups them: native
+ * OCI containers and the container engine (or that it has neither); each Server's engine install
+ * state lives in its Software Assignment, not here. MPI is stated either way. GPU driver options and the GRES type appear only when the operator
  * set them; derived values are a node fact.
  */
 function PlatformConfiguration({ platform }: { platform: Platform }) {
@@ -400,12 +400,12 @@ function PlatformConfiguration({ platform }: { platform: Platform }) {
     ...(platform.type === 'slurm'
       ? [{
           label: 'Container runtime',
-          value: platform.containerRuntime
-            ? `${platform.containerRuntime === 'podman' ? 'Podman' : 'Docker CE'} on compute and login nodes`
-            : 'None',
-        }, {
-          label: 'Native OCI containers',
-          value: platform.ociContainers ? 'crun with srun --container' : 'Not set up',
+          value: [
+            ...(platform.ociContainers ? ['Native OCI (srun --container)'] : []),
+            ...(platform.containerRuntime
+              ? [`${platform.containerRuntime === 'podman' ? 'Podman' : 'Docker CE'} on compute and login nodes`]
+              : []),
+          ].join('; ') || 'None',
         }, {
           label: 'MPI',
           value: platform.pmix ? 'OpenMPI with srun --mpi=pmix_v5' : 'Not set up',

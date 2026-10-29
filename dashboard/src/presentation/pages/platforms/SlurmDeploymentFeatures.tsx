@@ -1,4 +1,4 @@
-import { Badge, Field, Input, RadioCard, Text, Textarea } from '@chakra-ui/react'
+import { Badge, CheckboxCard, Field, Input, RadioCard, Radiomark, Text, Textarea } from '@chakra-ui/react'
 import { useState } from 'react'
 import type { ObservabilityInstallMethod, SlurmContainerRuntime } from '@/domain/platform/types'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -6,6 +6,12 @@ import { AdvancedSettings } from './AdvancedSettings'
 import { FeatureToggleCard } from './FeatureToggleCard'
 
 type WorkloadStorageMode = 'none' | 'self-hosted' | 'external'
+
+/** The container engines a Slurm deploy can install on compute and login nodes; at most one. */
+const CONTAINER_ENGINES: ReadonlyArray<{ value: SlurmContainerRuntime; label: string; description: string }> = [
+  { value: 'docker-ce', label: 'Docker CE', description: 'Install Docker Engine for docker commands on compute and login nodes.' },
+  { value: 'podman', label: 'Podman', description: 'Install the daemonless Podman runtime on compute and login nodes.' },
+]
 
 /** Whether the GPU GRES type is derived from the GPU architecture or named by the operator. */
 export type GPUGresTypeMode = 'automatic' | 'custom'
@@ -27,6 +33,9 @@ interface SlurmDeploymentFeaturesProps {
   workloadMountOptions: string
   onWorkloadMountOptionsChange: (value: string) => void
   loginNodeCount: number
+  /** Whether the Container runtime card is on; its choices below apply only while it is. */
+  containersEnabled: boolean
+  onContainersEnabledChange: (enabled: boolean) => void
   containerRuntime: SlurmContainerRuntime | ''
   onContainerRuntimeChange: (runtime: SlurmContainerRuntime | '') => void
   monitoring: SlurmMonitoringChoice
@@ -37,6 +46,8 @@ interface SlurmDeploymentFeaturesProps {
   hasGPUComputeNode: boolean
   ociContainers: boolean
   onOCIContainersChange: (enabled: boolean) => void
+  /** True when the card is on with neither native OCI nor an engine chosen; the page blocks the step. */
+  containersEmpty: boolean
   pmix: boolean
   onPMIxChange: (enabled: boolean) => void
   primaryControllerName: string
@@ -55,6 +66,37 @@ interface ChoiceCardProps<T extends string> {
   onChange: (value: T) => void
   options: ReadonlyArray<{ value: T; label: string; description: string }>
   columns?: 2 | 3
+}
+
+interface OptionCardProps {
+  label: string
+  description: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}
+
+/**
+ * One option card that can be unselected again (a radio card cannot), such as the container engines
+ * and native OCI. It keeps checkbox semantics for assistive technology but draws the same round mark
+ * as the radio cards around it, so every option card on the page looks alike.
+ */
+function OptionCard({ label, description, checked, onCheckedChange }: OptionCardProps) {
+  return (
+    <CheckboxCard.Root
+      colorPalette="brand"
+      checked={checked}
+      onCheckedChange={(details) => onCheckedChange(details.checked === true)}
+    >
+      <CheckboxCard.HiddenInput />
+      <CheckboxCard.Control className="sw-platform-option-card">
+        <CheckboxCard.Content>
+          <CheckboxCard.Label>{label}</CheckboxCard.Label>
+          <CheckboxCard.Description>{description}</CheckboxCard.Description>
+        </CheckboxCard.Content>
+        <Radiomark checked={checked} aria-hidden="true" />
+      </CheckboxCard.Control>
+    </CheckboxCard.Root>
+  )
 }
 
 /** Mutually exclusive settings use radio cards; Switches are reserved for enablement. */
@@ -91,9 +133,14 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
  * mode-specific settings expand inside the same card so the operator sees consequences before
  * choosing implementation details. GPU monitoring is one switch with a stack choice because the API
  * refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
- * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. Native OCI
- * containers and MPI with PMIx are plain on/off features. GPU node overrides (GRES type name, driver
- * module options) sit in a collapsed disclosure because the defaults are derived from each node's GPUs.
+ * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. The
+ * Container runtime card holds two independent choices, both sent only while the card is on and
+ * separated by a vertical rule: at most one container engine (the Docker CE and Podman cards,
+ * Managed Software; `containerRuntime`) and native OCI (Slurm runs it inside the job's allocation;
+ * `slurm.ociContainers`). The deployment only provides these capabilities; how jobs use containers is
+ * the cluster users' choice, so the card describes what is installed and never advises on running jobs. MPI with PMIx is a
+ * plain on/off feature. GPU node overrides (GRES type name, driver module options) sit in a collapsed
+ * disclosure because the defaults are derived from each node's GPUs.
  */
 export function SlurmDeploymentFeatures({
   workloadMode,
@@ -105,6 +152,8 @@ export function SlurmDeploymentFeatures({
   workloadMountOptions,
   onWorkloadMountOptionsChange,
   loginNodeCount,
+  containersEnabled,
+  onContainersEnabledChange,
   containerRuntime,
   onContainerRuntimeChange,
   monitoring,
@@ -114,6 +163,7 @@ export function SlurmDeploymentFeatures({
   hasGPUComputeNode,
   ociContainers,
   onOCIContainersChange,
+  containersEmpty,
   pmix,
   onPMIxChange,
   primaryControllerName,
@@ -127,7 +177,6 @@ export function SlurmDeploymentFeatures({
   driverOptionErrors,
 }: SlurmDeploymentFeaturesProps) {
   const storageEnabled = workloadMode !== 'none'
-  const runtimeEnabled = containerRuntime !== ''
   const monitoringEnabled = monitoring !== 'none'
   // Opens on return to this step when a setting is in effect, but never collapses while editing.
   const [advancedInitiallyOpen] = useState(() => gresTypeMode === 'custom' || driverOptionsText.trim() !== '')
@@ -180,20 +229,45 @@ export function SlurmDeploymentFeatures({
 
       <FeatureToggleCard
         title="Container runtime"
-        description="Install a runtime on every compute and login node for containerized workloads. Slurm itself does not require one."
-        checked={runtimeEnabled}
-        onCheckedChange={(enabled) => onContainerRuntimeChange(enabled ? 'docker-ce' : '')}
-        status={<Badge variant="subtle" colorPalette={runtimeEnabled ? 'blue' : 'gray'}>{runtimeEnabled ? 'Included' : 'Not included'}</Badge>}
+        description="Give the cluster the ability to run containers: a container engine on compute and login nodes, Slurm's native OCI support, or both. How jobs use them is up to the cluster's users."
+        checked={containersEnabled}
+        onCheckedChange={onContainersEnabledChange}
+        status={<Badge variant="subtle" colorPalette={containersEnabled ? 'blue' : 'gray'}>{containersEnabled ? 'Included' : 'Not included'}</Badge>}
       >
-        <ChoiceCards
-          label="Runtime"
-          value={containerRuntime || 'docker-ce'}
-          onChange={onContainerRuntimeChange}
-          options={[
-            { value: 'docker-ce', label: 'Docker CE', description: 'Install Docker Engine on every target node.' },
-            { value: 'podman', label: 'Podman', description: 'Install the daemonless Podman runtime.' },
-          ]}
-        />
+        <div className="sw-platform-feature-stack">
+          <div className="sw-platform-container-choices">
+            <fieldset className="sw-platform-container-choices__group">
+              <legend>Container engine (one at most)</legend>
+              <div className="sw-platform-feature-option-grid sw-platform-feature-option-grid--two">
+                {CONTAINER_ENGINES.map((engine) => (
+                  <OptionCard
+                    key={engine.value}
+                    label={engine.label}
+                    description={engine.description}
+                    checked={containerRuntime === engine.value}
+                    // Choosing one engine replaces the other; unchoosing it leaves none.
+                    onCheckedChange={(checked) => onContainerRuntimeChange(checked ? engine.value : '')}
+                  />
+                ))}
+              </div>
+            </fieldset>
+            <div className="sw-platform-container-choices__divider" aria-hidden="true" />
+            <fieldset className="sw-platform-container-choices__group">
+              <legend>Slurm</legend>
+              <OptionCard
+                label="Native OCI"
+                description="Configure Slurm so job steps can run in OCI bundles with srun --container (crun)."
+                checked={ociContainers}
+                onCheckedChange={onOCIContainersChange}
+              />
+            </fieldset>
+          </div>
+          {containersEmpty && (
+            <Alert status="warning" title="Nothing selected">
+              Select native OCI containers or a container engine, or turn Container runtime off.
+            </Alert>
+          )}
+        </div>
       </FeatureToggleCard>
 
       <FeatureToggleCard
@@ -242,14 +316,6 @@ export function SlurmDeploymentFeatures({
           </Text>
         </div>
       </FeatureToggleCard>
-
-      <FeatureToggleCard
-        title="Native OCI containers"
-        description="Run job steps in OCI bundles with srun --container: crun and a rootless runtime on every compute node. Bundles must exist at the same path on every node."
-        checked={ociContainers}
-        onCheckedChange={onOCIContainersChange}
-        status={<Badge variant="subtle" colorPalette={ociContainers ? 'blue' : 'gray'}>{ociContainers ? 'Included' : 'Not included'}</Badge>}
-      />
 
       <FeatureToggleCard
         title="MPI with PMIx"

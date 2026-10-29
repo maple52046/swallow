@@ -600,8 +600,15 @@ test.describe('operator interactions', () => {
     // login nodes, and the GPU monitoring stack's Prometheus and Grafana run on the primary
     // controller just picked. The Device Metrics Exporter is the default stack; Omnistat is chosen.
     await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
+    // The Container runtime card starts with native OCI only; this run uses Podman alone.
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
-    await page.getByRole('radio', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('checkbox', { name: /Native OCI/ })).toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Docker CE/ })).not.toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Podman/ })).not.toBeChecked()
+    await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Native OCI/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('checkbox', { name: /Native OCI/ })).not.toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Podman/ })).toBeChecked()
     await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('radio', { name: /AMD Device Metrics Exporter/ })).toBeChecked()
     await page.getByRole('radio', { name: /Omnistat/ }).locator('xpath=following-sibling::*[1]').click()
@@ -637,6 +644,7 @@ test.describe('operator interactions', () => {
     await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     expect(deployBody?.containerRuntime).toEqual({ kind: 'podman' })
+    expect((deployBody?.slurm as { ociContainers?: boolean } | undefined)?.ociContainers).toBeUndefined()
     expect(deployBody?.omnistat).toEqual({ enabled: true, installMethod: 'native' })
     expect(deployBody?.deviceMetricsExporter).toBeUndefined()
     expect(deployBody?.gpuDriver).toEqual({ moduleOptions: { pcie_p2p: '0' } })
@@ -666,23 +674,38 @@ test.describe('operator interactions', () => {
     await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('radio', { name: /AMD Device Metrics Exporter/ })).toBeChecked()
     await expect(page.getByText(/Platform reports the GPU identity as collapsed/)).toBeVisible()
-    await page.getByRole('switch', { name: 'Enable Native OCI containers' }).locator('xpath=following-sibling::*[1]').click()
+    // Native OCI and a container engine are independent choices of one card, and a card with nothing
+    // chosen blocks the step.
+    // Choosing Podman replaces Docker CE: the engines are at most one.
+    await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Docker CE/ }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('checkbox', { name: /Docker CE/ })).not.toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Podman/ })).toBeChecked()
+    await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Native OCI/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByText('Nothing selected')).toBeVisible()
+    await expect(next).toBeDisabled()
+    await page.getByRole('checkbox', { name: /Native OCI/ }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Docker CE/ }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('switch', { name: 'Enable MPI with PMIx' }).locator('xpath=following-sibling::*[1]').click()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await expect(page.getByText('AMD Device Metrics Exporter; Prometheus and Grafana on gpu-node-01 as containers')).toBeVisible()
     await expect(page.getByText('crun with srun --container on compute nodes')).toBeVisible()
+    await expect(page.getByText('Docker CE on compute and login nodes')).toBeVisible()
     await expect(page.getByText('OpenMPI with srun --mpi=pmix_v5')).toBeVisible()
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
     await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+    expect(deployBody?.containerRuntime).toEqual({ kind: 'docker-ce' })
     expect(deployBody?.deviceMetricsExporter).toEqual({ enabled: true, installMethod: 'container' })
     expect(deployBody?.omnistat).toBeUndefined()
     const slurm = deployBody?.slurm as { ociContainers?: boolean; pmix?: boolean } | undefined
     expect(slurm?.ociContainers).toBe(true)
     expect(slurm?.pmix).toBe(true)
     await expect(page.getByLabel('Device Metrics Exporter')).toContainText('Installing')
-    await expect(page.getByText('crun with srun --container', { exact: true })).toBeVisible()
+    await expect(page.getByText('Native OCI (srun --container); Docker CE on compute and login nodes', { exact: true })).toBeVisible()
   })
 
   test('A Slurm Platform states a collapsed Device Metrics Exporter GPU identity', async ({ page }) => {

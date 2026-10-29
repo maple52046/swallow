@@ -597,6 +597,14 @@ install state is its Software Assignment, and the Platform reports the choice as
 `409 conflict` before anything is created. Uninstalling the Platform leaves the runtime's Software
 Assignments until they are uninstalled through the software API.
 
+The runtime is independent of [native OCI containers](#native-oci-containers) (`slurm.ociContainers`):
+a deploy may request either, both, or neither, and the two do not conflict (Docker CE brings its own
+`runc`; native OCI uses `/usr/bin/crun`). Both only give the cluster a capability; the deployment does
+not decide whether or how jobs use containers, which is up to the cluster's users. For reference,
+the Docker CE Swallow installs is the system (rootful) Docker Engine with its default runtime, and
+Swallow configures no Slurm integration for it (Slurm's rootless Docker with `scrun` is not set
+up), so a container that `docker run` starts is created by that daemon rather than by Slurm.
+
 ## Omnistat
 
 A Slurm deploy may install [Omnistat](../../../../../docs/development/glossaries/terms/omnistat.md),

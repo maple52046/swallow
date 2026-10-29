@@ -388,7 +388,7 @@ test.describe('Kubernetes deployment studio visual review', () => {
 
 /**
  * Captures the Device Metrics Exporter paths (decision 066): the Features step with the exporter
- * chosen plus native OCI containers and PMIx, and a Platform whose exporter reports a collapsed GPU
+ * chosen, the Container runtime card with native OCI and Docker CE, and PMIx, and a Platform whose exporter reports a collapsed GPU
  * identity, which the page must state in words.
  */
 test.describe('Slurm Device Metrics Exporter visual review', () => {
@@ -406,7 +406,9 @@ test.describe('Slurm Device Metrics Exporter visual review', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await next.click()
     await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
-    await page.getByRole('switch', { name: 'Enable Native OCI containers' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Docker CE/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('checkbox', { name: /Docker CE/ })).toBeChecked()
     await page.getByRole('switch', { name: 'Enable MPI with PMIx' }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('radio', { name: /AMD Device Metrics Exporter/ })).toBeChecked()
     await prepareCapture(page, appearance)
@@ -455,7 +457,7 @@ test.describe('Slurm Omnistat visual review', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-03' }).locator('..').click()
     await next.click()
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
-    await page.getByRole('radio', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('switch', { name: 'Enable GPU monitoring' })).toBeChecked()
     await page.getByRole('radio', { name: /Omnistat/ }).locator('xpath=following-sibling::*[1]').click()

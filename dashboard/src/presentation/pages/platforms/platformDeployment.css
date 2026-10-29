@@ -221,6 +221,36 @@
   padding: 0.9rem;
 }
 
+/* Container runtime card: the engines (at most one) | a vertical rule | native OCI. */
+.sw-platform-container-choices {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) auto minmax(0, 1fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.sw-platform-container-choices__group {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sw-platform-container-choices__group > legend {
+  float: left;
+  padding: 0;
+  font-size: var(--chakra-font-sizes-sm);
+  font-weight: var(--chakra-font-weights-medium);
+}
+
+.sw-platform-container-choices__divider {
+  width: 1px;
+  background: var(--chakra-colors-border);
+}
+
 .sw-platform-server-search {
   max-width: 26rem;
 }
@@ -249,8 +279,14 @@
 @media (max-width: 62rem) {
   .sw-platform-topology-grid,
   .sw-platform-feature-option-grid,
-  .sw-platform-review-grid {
+  .sw-platform-review-grid,
+  .sw-platform-container-choices {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sw-platform-container-choices__divider {
+    width: auto;
+    height: 1px;
   }
 }
 
