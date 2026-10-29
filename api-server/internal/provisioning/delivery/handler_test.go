@@ -127,6 +127,26 @@ func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
 			wantMessageContains: "SWALLOW_API_NTP_SERVER",
 		},
 		{
+			// A Platform's Server is released through its uninstall (decision 067).
+			name: "a Platform-claimed Server is a conflict naming the Platform",
+			err: &provisioningdomain.ServerClaimedByPlatformError{
+				Server: "gpu-node-01", PlatformID: "platform-a", PlatformName: "production-k0s", PlatformType: "kubernetes",
+			},
+			wantStatus:          http.StatusConflict,
+			wantCode:            apierror.CodeConflict,
+			wantMessageContains: "belongs to kubernetes Platform production-k0s; uninstall the Platform",
+		},
+		{
+			name: "a Delete refused for a Platform-claimed Server names the record deletion too",
+			err: &provisioningdomain.ServerClaimedByPlatformError{
+				Server: "gpu-node-01", PlatformID: "platform-a", PlatformName: "production-k0s",
+				PlatformType: "kubernetes", Action: provisioningdomain.ClaimRefusedDelete,
+			},
+			wantStatus:          http.StatusConflict,
+			wantCode:            apierror.CodeConflict,
+			wantMessageContains: "or delete its record before deleting the Server",
+		},
+		{
 			// Every OS provisioning carries configure-ntp ansible Tasks (decision 065).
 			name:                "time sync without runnable automation is provider unavailable",
 			err:                 operationdomain.ErrAutomationDisabled,

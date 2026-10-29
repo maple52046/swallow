@@ -247,7 +247,9 @@ test.describe('Server and Platform operations visual review', () => {
   test('ops-polish', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     const mobile = testInfo.project.name.startsWith('mobile-')
-    await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'deploying' } })
+    // Without Platform Claims so the Release dialog can open for these Servers; the claim-disabled
+    // Release has its own capture below.
+    await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'deploying' }, withoutPlatformClaims: true })
     await setAppearance(page, appearance)
 
     await page.goto('/platforms?site=site-a')
@@ -278,7 +280,7 @@ test.describe('Server and Platform operations visual review', () => {
     await page.getByLabel(`${selection}gpu-node-01`, { exact: true }).check()
     await page.getByLabel(`${selection}gpu-node-04`, { exact: true }).check()
     await page.getByRole('button', { name: 'Take action' }).click()
-    await page.getByRole('menuitem', { name: 'Delete server', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Delete only', exact: true }).click()
     const deleteDialog = page.getByRole('alertdialog', { name: 'Delete 2 servers' })
     await expect(deleteDialog).toContainText('2 of these servers have running operations')
     await deleteDialog.getByLabel('Server count confirmation').fill('2')
@@ -293,6 +295,46 @@ test.describe('Server and Platform operations visual review', () => {
     await releaseDialog.getByLabel('Cancel running operations before releasing').locator('..').click()
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'server-release-cancel-running', false)
+  })
+})
+
+/**
+ * Captures Release and Delete disabled by a Platform Claim: the row Actions menu, the bulk Take
+ * action menu with two claimed Servers, and Server Detail for a failed deployment's target, each
+ * with the one note naming the Platform above those two actions.
+ */
+test.describe('Platform Claim visual review', () => {
+  test('server-platform-claim', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    const note = (text: string) => page.getByRole('group', { name: text })
+
+    await page.goto('/servers?site=site-a')
+    await page.getByRole('button', { name: 'Actions for gpu-node-01', exact: true }).filter({ visible: true }).click()
+    await expect(note('This server belongs to Platform production-k0s and cannot be released or deleted.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    // The note wraps inside the menu rather than widening it past a phone screen.
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'server-row-release-claimed', false)
+    await page.keyboard.press('Escape')
+
+    const selection = mobile ? 'Mobile selection: ' : 'Select '
+    await page.getByLabel(`${selection}gpu-node-01`, { exact: true }).check()
+    await page.getByLabel(`${selection}gpu-node-02`, { exact: true }).check()
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await expect(note('2 selected servers belong to Platform production-k0s and cannot be released or deleted.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'server-bulk-release-claimed', false)
+    await page.keyboard.press('Escape')
+
+    await page.goto('/servers/srv-4/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await expect(note('This server belongs to Platform edge-staging and cannot be released or deleted.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'server-detail-release-claimed', false)
   })
 })
 

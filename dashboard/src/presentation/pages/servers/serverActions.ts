@@ -19,6 +19,11 @@ export type ServerMenuAction = BulkAction | 'delete'
 export interface ServerActionDef {
   action: ServerMenuAction
   label: string
+  /**
+   * The action's name in result summaries and Activity, when the menu label only reads right
+   * beside its neighbours (Delete only, next to Release).
+   */
+  resultLabel?: string
   /** Marks a destructive action for red styling; Release and Delete own their required confirmation flows. */
   destructive?: boolean
   /** False for actions whose blast radius must remain one explicitly named Server. */
@@ -48,7 +53,7 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
     label: 'Removal',
     capability: 'machineRemoval',
     // Bulk delete is confirmed by typing the Server count (ServerDeleteDialog).
-    actions: [{ action: 'delete', label: 'Delete server', destructive: true }],
+    actions: [{ action: 'delete', label: 'Delete only', resultLabel: 'Delete server', destructive: true }],
   },
   {
     label: 'Power',
@@ -86,7 +91,7 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
 export function actionLabel(action: ServerMenuAction): string {
   for (const group of SERVER_ACTION_GROUPS) {
     const found = group.actions.find((entry) => entry.action === action)
-    if (found) return found.label
+    if (found) return found.resultLabel ?? found.label
   }
 
   return action
@@ -123,6 +128,11 @@ export interface ServerActionAvailability {
   eligible: readonly Server[]
   skipped: readonly Server[]
   disabledReason?: string
+  /**
+   * Set when the reason is a Platform Claim. The menu states it once, as `platformClaimNote`
+   * above Release and Delete, instead of under each.
+   */
+  platformClaimed?: boolean
 }
 
 /** The normalized provisioning state to branch on, or '' when the axis is unobserved. */
@@ -166,16 +176,54 @@ function stateGatedAvailability(
   return { eligible: [...targets], skipped: [] }
 }
 
+/** Optional context for `serverActionAvailability`. */
+export interface ServerActionContext {
+  /**
+   * Platform names by id, so the Platform Claim note names the Platform. Without it (or for an
+   * unknown id) the note names the Platform by id.
+   */
+  platformNames?: ReadonlyMap<string, string>
+}
+
+/**
+ * The one sentence saying which Platform claims the selected Servers (decision 067), or
+ * undefined when none is claimed. A claimed Server can be neither released nor deleted, and the
+ * API refuses both with 409, so the menu shows this once above those two actions.
+ */
+export function platformClaimNote(targets: readonly Server[], platformNames?: ReadonlyMap<string, string>): string | undefined {
+  const claimed = targets.filter((server) => server.platformClaim)
+  if (claimed.length === 0) return undefined
+  const names = [...new Set(claimed.map((server) => {
+    const platformId = server.platformClaim?.platformId ?? ''
+    return platformNames?.get(platformId) ?? platformId
+  }))]
+  const platform = `${names.length === 1 ? 'Platform' : 'Platforms'} ${names.join(', ')}`
+  if (targets.length === 1) return `This server belongs to ${platform} and cannot be released or deleted.`
+  if (claimed.length === 1) {
+    return `${claimed[0].hostname ?? claimed[0].id} belongs to ${platform} and cannot be released or deleted.`
+  }
+  return `${claimed.length} selected servers belong to ${platform} and cannot be released or deleted.`
+}
+
+/** Release or Delete availability when a selected Server carries a Platform Claim, or undefined. */
+function platformClaimAvailability(targets: readonly Server[], platformNames?: ReadonlyMap<string, string>): ServerActionAvailability | undefined {
+  const note = platformClaimNote(targets, platformNames)
+  if (!note) return undefined
+  return { eligible: [], skipped: targets.filter((server) => server.platformClaim), disabledReason: note, platformClaimed: true }
+}
+
 /**
  * One protection policy for list rows, bulk actions, and Server Detail.
  *
  * Lock and Unlock converge mixed selections by acting only on Servers that need the
  * requested state. Every other action is atomic from the UI's perspective and remains
- * disabled when any selected Server is protected.
+ * disabled when any selected Server is protected. Release and Delete are also disabled while any
+ * selected Server carries a Platform Claim, mirroring the API's refusal.
  */
 export function serverActionAvailability(
   action: ServerMenuAction,
   targets: readonly Server[],
+  context: ServerActionContext = {},
 ): ServerActionAvailability {
   if (targets.length === 0) {
     return { eligible: [], skipped: [], disabledReason: 'Select at least one Server.' }
@@ -224,8 +272,13 @@ export function serverActionAvailability(
       'Recover returns an allocated, failed, broken, or rescue Server to Ready.')
   }
   if (action === 'release') {
-    return stateGatedAvailability(targets, (server) => RELEASE_SOURCE_STATES.has(provisioningState(server)),
-      'Release is available from deployed, allocated, failed, broken, or rescue.')
+    // Active provider work is the reason to wait (a claimed Server may already be releasing through
+    // its Platform's uninstall). Otherwise the claim wins over lock and state reasons, because
+    // clearing those would still leave Release refused.
+    const busy = targets.some((server) => isProvisioningInProgress(server.provisioning?.state))
+    return (busy ? undefined : platformClaimAvailability(targets, context.platformNames)) ??
+      stateGatedAvailability(targets, (server) => RELEASE_SOURCE_STATES.has(provisioningState(server)),
+        'Release is available from deployed, allocated, failed, broken, or rescue.')
   }
   if (action === 'mark-fixed') {
     return stateGatedAvailability(targets, (server) => provisioningState(server) === 'broken',
@@ -244,6 +297,10 @@ export function serverActionAvailability(
     return stateGatedAvailability(targets, (server) => provisioningState(server) === 'rescue',
       'Exit rescue is available only while the Server is in rescue mode.')
   }
+  // Delete stays available during provider work (its dialog warns about it), so only the claim
+  // precedes the lock check.
+  const claimed = action === 'delete' ? platformClaimAvailability(targets, context.platformNames) : undefined
+  if (claimed) return claimed
   const locked = targets.filter((server) => server.provisioning?.locked)
   if (locked.length > 0) {
     const name = locked[0].hostname ?? locked[0].id

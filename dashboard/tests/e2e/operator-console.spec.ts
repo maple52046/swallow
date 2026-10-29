@@ -506,9 +506,11 @@ test.describe('operator interactions', () => {
   })
 
   test('provider-backed server deletion requires typed confirmation', async ({ page }) => {
+    // A Server no Platform claims; a claimed one cannot be deleted (server-platform-claim.spec.ts).
+    await installApiFixtures(page, { withoutPlatformClaims: true })
     await page.goto('/servers/srv-1/summary?site=site-a')
     await page.getByRole('button', { name: 'Take action' }).click()
-    await chooseMenuItem(page, 'Delete server')
+    await chooseMenuItem(page, 'Delete only')
 
     const dialog = page.getByRole('alertdialog', { name: 'Delete server' })
     await expect(dialog).toContainText('permanently delete the Machine')

@@ -7,12 +7,13 @@ import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerW
 
 export interface DeployableData {
   sites: Site[]
-  /** Deployed Servers stay visible even when an existing Platform makes them unavailable. */
+  /**
+   * Deployed Servers stay visible even when an existing Platform makes them unavailable: each
+   * carries its Platform Claim, which marks it as another Platform's target.
+   */
   servers: Server[]
-  /** Site Platforms resolve observed membership IDs into operator-readable context. */
+  /** Site Platforms resolve Platform Claim and observed membership IDs into operator-readable context. */
   platforms: Platform[]
-  /** Durable non-uninstalled deployment targets keyed by Server ID. */
-  deploymentClaims: Record<string, Platform>
 }
 
 export type DeployableState =
@@ -25,11 +26,9 @@ export type DeployableState =
  *
  * Servers in any of the requested preparation states are listed and merged (deduped by id),
  * so a convergent deploy can mix pool-ready Servers (provisioned first) with already-deployed
- * ones (reused as-is). Non-uninstalled deployment target snapshots and observed membership are
- * also loaded so occupied Servers remain visible with context but cannot be assigned a role.
- * Claim reads fail closed: without durable target history the wizard must not offer a Server
- * that may contain a partial platform. A stale-guard drops out-of-order responses whenever
- * Site scope changes.
+ * ones (reused as-is). Claimed or member Servers remain visible with context but cannot be
+ * assigned a role; the Site's Platforms are loaded to name them. A stale-guard drops
+ * out-of-order responses whenever Site scope changes.
  *
  * `provisioningStates` must be a stable reference (e.g. a module constant) because it keys the
  * load effect; an inline array literal would refetch on every render.
@@ -40,7 +39,7 @@ export function useDeployableServers(
   provisioningStates: readonly string[] = ['deployed'],
   refreshKey = 0,
 ): DeployableState {
-  const { sites, servers, platforms, operations } = useApp()
+  const { sites, servers, platforms } = useApp()
   const [state, setState] = useState<DeployableState>({ status: 'loading' })
 
   useEffect(() => {
@@ -49,7 +48,7 @@ export function useDeployableServers(
     const loadSites = sites.listSites()
     const loadCandidates = async (): Promise<Omit<DeployableData, 'sites'>> => {
       if (!siteId) {
-        return { servers: [], platforms: [], deploymentClaims: {} }
+        return { servers: [], platforms: [] }
       }
       const [workingSets, sitePlatforms] = await Promise.all([
         Promise.all(
@@ -67,37 +66,9 @@ export function useDeployableServers(
       for (const workingSet of workingSets) {
         for (const server of workingSet.servers) byId.set(server.id, server)
       }
-      const mergedServers = [...byId.values()].filter((server) => !server.provisioning?.locked)
-      const claimedPlatforms = sitePlatforms.filter((platform) => (
-        platform.origin === 'deployed' &&
-        platform.lifecycleState !== 'uninstalled' &&
-        platform.lifecycleOperationId
-      ))
-      const deploymentClaims: Record<string, Platform> = {}
-      const claimSources = await Promise.all(claimedPlatforms.map(async (platform) => {
-        const operationId = platform.lifecycleOperationId
-        if (!operationId) {
-          throw new Error(`Deployment lifecycle for ${platform.name} has no Operation.`)
-        }
-        const operation = await operations.getOperation(operationId)
-        if (!operation) {
-          throw new Error(`Deployment target history for ${platform.name} is unavailable.`)
-        }
-        return { platform, operation }
-      }))
-      for (const source of claimSources) {
-        for (const serverId of source.operation.targetServerIds) {
-          // Preserve Platform list order if corrupt history claims one Server twice; backend
-          // preflight still refuses the target, while the UI gives one stable explanation.
-          if (!deploymentClaims[serverId]) {
-            deploymentClaims[serverId] = source.platform
-          }
-        }
-      }
       return {
-        servers: mergedServers,
+        servers: [...byId.values()].filter((server) => !server.provisioning?.locked),
         platforms: sitePlatforms,
-        deploymentClaims,
       }
     }
 
@@ -113,7 +84,7 @@ export function useDeployableServers(
     return () => {
       cancelled = true
     }
-  }, [sites, servers, platforms, operations, siteId, provisioningStates, refreshKey])
+  }, [sites, servers, platforms, siteId, provisioningStates, refreshKey])
 
   return state
 }

@@ -16,9 +16,15 @@ import (
 // side is already absent, so deleting the stale projection completes the requested state.
 // A local persistence failure after provider success is retryable because the next call
 // observes ErrMachineNotFound and attempts the local delete again.
+//
+// A Server a Platform claims is refused before the provider is called, whatever its state and
+// even when its Machine is already gone, because deleting it takes the node out from under that
+// Platform (decision 067).
 type DeleteServerUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
+	// names resolves the claiming Platform for the refusal; optional.
+	names provisioningdomain.PlatformNames
 }
 
 // NewDeleteServerUseCase wires provider-first deletion through the two owning ports.
@@ -29,10 +35,20 @@ func NewDeleteServerUseCase(
 	return &DeleteServerUseCase{servers: servers, providers: providers}
 }
 
-// Execute deletes the provider Machine before removing its Server projection.
+// AttachPlatformNames lets Execute name the Platform that claims a refused Server. Without it the
+// refusal names the Platform by id.
+func (uc *DeleteServerUseCase) AttachPlatformNames(names provisioningdomain.PlatformNames) {
+	uc.names = names
+}
+
+// Execute deletes the provider Machine before removing its Server projection. A claimed Server
+// returns *ServerClaimedByPlatformError and nothing is deleted.
 func (uc *DeleteServerUseCase) Execute(ctx context.Context, serverID string) error {
 	server, err := uc.servers.FindByID(ctx, serverID)
 	if err != nil {
+		return err
+	}
+	if err := RefusePlatformClaimed(ctx, uc.names, server, provisioningdomain.ClaimRefusedDelete); err != nil {
 		return err
 	}
 

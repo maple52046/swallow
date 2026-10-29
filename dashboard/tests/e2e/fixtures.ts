@@ -269,6 +269,13 @@ export interface FixtureOptions {
   platformLifecycleStates?: Record<string, 'deploying' | 'uninstalling' | 'active' | 'deploy_failed' | 'uninstall_failed' | 'uninstalled'>
   /** Removes platform-a's seeded GPU Operator, modelling a Platform that never had one. */
   withoutPlatformGPUOperator?: boolean
+  /**
+   * Seeds no Platform Claims, modelling Servers no Platform's deployment targets, for journeys
+   * that exercise Server Release or Delete mechanics rather than Platform ownership. By default
+   * every non-uninstalled deployed Platform claims its deployment targets (decision 067), so the
+   * API refuses to release or delete them with 409.
+   */
+  withoutPlatformClaims?: boolean
   /** Receives every `PUT /platforms/{id}/gpu-operator` body. */
   onGPUOperatorRequest?: (platformId: string, body: Record<string, unknown>) => void
   /** Makes `PUT .../gpu-operator` answer 409 as if a target were held by another Workflow. */
@@ -349,7 +356,10 @@ export interface FixtureOptions {
   deployExecutionLost?: boolean
   onNetworkLinkRequest?: (method: string, serverId: string, interfaceId: string, linkId: string | null, body: Record<string, unknown> | null) => void
   onMetricsRequest?: (serverIds: string[]) => void
-  /** Removes Platform membership and deployment target claims for wizard success paths. */
+  /**
+   * Removes Platform membership, Platform Claims, and deployment target history for wizard
+   * success paths.
+   */
   freePlatformCandidates?: boolean
   /**
    * Gives research-slurm the Device Metrics Exporter instead of Omnistat (they are mutually
@@ -1134,6 +1144,44 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 2, matchedCount: 2 },
       createdAt: now, updatedAt: now,
     })
+  }
+  // Platform Claim (decision 067): a deployed Platform claims its targets from deploy acceptance
+  // until its uninstall succeeds or its record is deleted.
+  const claimPlatformTargets = (platformId: string, serverIds: readonly string[]) => {
+    for (const serverId of serverIds) {
+      const server = fleet.find((item) => item.id === serverId)
+      if (server && !server.platformClaim) server.platformClaim = { platformId, claimedAt: now }
+    }
+  }
+  const releasePlatformClaims = (platformId: string) => {
+    for (const server of fleet) {
+      if (server.platformClaim?.platformId === platformId) server.platformClaim = null
+    }
+  }
+  if (!options.withoutPlatformClaims && !options.freePlatformCandidates) {
+    for (const platform of platformItems) {
+      if (platform.origin !== 'deployed' || platform.lifecycleState === 'uninstalled') continue
+      claimPlatformTargets(platform.id, platform.deployment?.roleAssignments.map((assignment) => assignment.serverId) ?? [])
+    }
+  }
+  // Mirrors the backend's refusal: a claimed Server is released through its Platform's uninstall
+  // and cannot be deleted until then; Recover is refused only for a deployed one, which it would
+  // release.
+  const platformClaimRefusal = (serverIds: readonly string[], action: 'release' | 'recover' | 'delete'): string | null => {
+    const nextSteps = {
+      release: 'instead of releasing the Server directly',
+      recover: 'instead of recovering it, which would release the deployed Server',
+      delete: 'or delete its record before deleting the Server',
+    }
+    for (const serverId of serverIds) {
+      const server = fleet.find((item) => item.id === serverId)
+      const claim = server?.platformClaim
+      if (!server || !claim || (action === 'recover' && server.provisioning.state !== 'deployed')) continue
+      const platform = platformItems.find((item) => item.id === claim.platformId)
+      const owner = platform ? `${platform.type} Platform ${platform.name}` : `Platform ${claim.platformId}`
+      return `Server ${server.hostname ?? server.id} belongs to ${owner}; uninstall the Platform (with releaseServers to also release its Servers) ${nextSteps[action]}`
+    }
+    return null
   }
   const operationItems = structuredClone(operations)
   if (options.serverActivityItemCount) {
@@ -1993,6 +2041,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/provisioning/release-operations' && request.method() === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       const serverIds = body.serverIds as string[]
+      const claimed = platformClaimRefusal(serverIds, 'release')
+      if (claimed) return json(route, { error: { code: 'conflict', message: claimed, requestId: 'req-release-claimed' } }, 409)
       if (body.cancelActiveWorkflows) {
         const refused = supersedeActiveOperations(serverIds)
         if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-release-busy' } }, 409)
@@ -2035,6 +2085,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/provisioning/recover-operations' && request.method() === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       const serverIds = body.serverIds as string[]
+      const claimed = platformClaimRefusal(serverIds, 'recover')
+      if (claimed) return json(route, { error: { code: 'conflict', message: claimed, requestId: 'req-recover-claimed' } }, 409)
       if (body.cancelActiveWorkflows) {
         const refused = supersedeActiveOperations(serverIds)
         if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-recover-busy' } }, 409)
@@ -2420,6 +2472,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (request.method() === 'DELETE') {
         if (index < 0) return json(route, { error: { code: 'not_found', message: 'Server not found' } }, 404)
         options.onServerDeleteRequest?.(serverMatch[1])
+        const claimed = platformClaimRefusal([serverMatch[1]], 'delete')
+        if (claimed) return json(route, { error: { code: 'conflict', message: claimed, requestId: 'req-delete-claimed' } }, 409)
         if (options.serverDeleteFailureIds?.includes(serverMatch[1])) {
           return json(route, { error: { code: 'conflict', message: 'MAAS refused to delete the machine: it hosts running virtual machines.', requestId: 'req-delete-' + serverMatch[1] } }, 409)
         }
@@ -2625,6 +2679,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           createdAt: now,
           updatedAt: now,
         })
+        claimPlatformTargets('platform-new', targetServerIds)
         return json(route, { platformId: 'platform-new', operationId }, 202)
       }
       const roleAssignments = body.roleAssignments ?? []
@@ -2670,6 +2725,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         createdAt: now,
         updatedAt: now,
       })
+      claimPlatformTargets('platform-new', roleAssignments.map((assignment) => assignment.serverId))
       return json(route, { platformId: 'platform-new', operationId }, 202)
     }
     if (path === '/api/v1/platforms') {
@@ -2802,6 +2858,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const index = platformItems.findIndex((platform) => platform.id === platformMatch[1])
       if (index < 0) return json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
       platformItems.splice(index, 1)
+      releasePlatformClaims(platformMatch[1])
       return json(route, { success: true })
     }
     if (platformMatch) {

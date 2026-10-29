@@ -9,6 +9,7 @@ import (
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
@@ -135,6 +136,21 @@ func TestRecoveryLaunchSupersedesActiveWorkflows(t *testing.T) {
 				t.Error("an Operation was created behind a Workflow that would not stop")
 			}
 		})
+		t.Run(name+" of a Platform's deployed Server is refused even with the cancel option", func(t *testing.T) {
+			launcher, repo, controller := supersedeLauncher()
+			server := launcher.servers.(*deploymentProjectionTestRepo).server
+			server.Provisioning.State = "deployed"
+			server.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-a"}
+			launcher.platformNames = staticPlatformNames{"platform-a": "production-k0s"}
+			err := launch(launcher, cancelActive)
+			var claimed *provisioningdomain.ServerClaimedByPlatformError
+			if !errors.As(err, &claimed) || !strings.Contains(err.Error(), "Platform production-k0s") {
+				t.Fatalf("err = %v, want a ServerClaimedByPlatformError naming production-k0s", err)
+			}
+			if repo.created != nil || len(controller.canceled) != 0 {
+				t.Errorf("created %v, canceled %v; a refused claim must create and cancel nothing", repo.created != nil, controller.canceled)
+			}
+		})
 		t.Run(name+" refused cancel of finished work proceeds", func(t *testing.T) {
 			launcher, repo, controller := supersedeLauncher()
 			controller.refuse, controller.finish = true, true
@@ -146,4 +162,31 @@ func TestRecoveryLaunchSupersedesActiveWorkflows(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Recover is refused for a Platform's Server only when it is deployed (recovering it would release
+// it); recovering a Platform's failed node back to Ready is how a broken deployment is repaired.
+func TestRecoverOfAPlatformsFailedServerIsAllowed(t *testing.T) {
+	launcher, repo, _ := supersedeLauncher()
+	server := launcher.servers.(*deploymentProjectionTestRepo).server
+	server.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-a"}
+	_, err := launcher.LaunchRecover(context.Background(), []provisioningapp.RecoverServerInput{{ServerID: "server-id"}},
+		provisioningapp.RecoveryLaunchOptions{CancelActiveWorkflows: true}, "admin", "request-id")
+	if err != nil {
+		t.Fatalf("LaunchRecover() error = %v, want a failed Platform node to be recoverable", err)
+	}
+	if repo.created == nil {
+		t.Error("no recover Operation was created")
+	}
+}
+
+// staticPlatformNames resolves Platform ids from a map, for refusal messages in tests.
+type staticPlatformNames map[string]string
+
+func (n staticPlatformNames) PlatformName(_ context.Context, platformID string) (string, string, error) {
+	name, ok := n[platformID]
+	if !ok {
+		return "", "", errors.New("unknown platform")
+	}
+	return name, "kubernetes", nil
 }

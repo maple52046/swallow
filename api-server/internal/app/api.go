@@ -273,6 +273,10 @@ func RunAPI(cfg config.APIConfig) error {
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
 	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory, osImageOverlayRepo)
+	// The direct-release path names the Platform that claims a refused Server; its name reader is
+	// attached once the platform repository exists below.
+	releaseServerUC := provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo)
+	deleteServerUC := provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		deployServerUC,
 		deploymentsUC,
@@ -280,14 +284,14 @@ func RunAPI(cfg config.APIConfig) error {
 		templateService,
 		networkService,
 		taskService,
-		provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo),
+		releaseServerUC,
 		refreshServerUC,
 		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
 		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
-		provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory),
+		deleteServerUC,
 		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
 		provisioningapp.NewUploadOSImageUseCase(providerFactory, osImageOverlayRepo),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo, reconcileUC),
@@ -320,6 +324,9 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("platform repo init: %w", err)
 	}
+	platformNames := platformNameReader{platforms: platformRepo}
+	releaseServerUC.AttachPlatformNames(platformNames)
+	deleteServerUC.AttachPlatformNames(platformNames)
 
 	// Monitoring reads (alerts, current values, usage history) need the grouping repositories
 	// above: a usage-history scope names a Zone, Pool, or Platform, and metrics carry only
@@ -356,6 +363,16 @@ func RunAPI(cfg config.APIConfig) error {
 	platformService.AttachGPUOperatorRecorder(platformRepo)
 	platformService.AttachOmnistatRecorder(platformRepo)
 	platformService.AttachDeviceMetricsExporterRecorder(platformRepo)
+	platformService.AttachPlatformClaims(serverRepo)
+	// Platforms deployed before Platform Claims existed get theirs now, and claims left by a
+	// Platform that is gone or uninstalled are dropped (decision 067). The pass is idempotent and
+	// small (one lifecycle batch), and it runs before the API serves, so a Release refused or
+	// allowed by a claim never sees the pre-claim data. A failure is logged, not fatal.
+	claimCtx, cancelClaims := context.WithTimeout(ctx, time.Minute)
+	if err := platformService.ReconcilePlatformClaims(claimCtx); err != nil {
+		slog.Error("reconcile platform claims", "error", err)
+	}
+	cancelClaims()
 	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
 	// derived credential source; the configuration service reads the plain repository and derives
@@ -426,6 +443,7 @@ func RunAPI(cfg config.APIConfig) error {
 	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
 		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo,
 		protection: serverProtection, refresh: refreshServerUC, bootMedia: bootMediaPlan, ntp: ntpPlan,
+		platformNames: platformNames,
 	})
 	// Server Enrollment (decision 053): Inspect and the automatic sweep both run hardware
 	// inspection as an inspect-hardware Workflow; existing-OS hosts get their bundle and script
@@ -491,9 +509,10 @@ func RunAPI(cfg config.APIConfig) error {
 		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan,
 	}
 	deployService := platformapp.NewDeployService(
-		platformService, platformRepo, serverRepo, lifecycleReader, platformLauncher,
+		platformService, platformRepo, serverRepo, platformLauncher,
 		serverProtection,
 	)
+	deployService.AttachPlatformClaims(serverRepo)
 	deployService.AttachMachinePreparationValidator(platformMachinePreparationValidator{deployments: deploymentsUC})
 	deployService.AttachNodeSubnetResolver(platformNodeSubnetResolver{networks: networkService})
 	deployService.AttachDeploymentRequirementReader(requirementRepo)

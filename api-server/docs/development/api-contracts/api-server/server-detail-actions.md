@@ -148,6 +148,16 @@ projection and still succeeds. Provider refusal, authentication failure, or unav
 leaves the projection intact. Swallow never adds a provider-specific force flag implicitly;
 an operator must resolve any provider safeguard before retrying. Success is `204 No Content`.
 
+A Server a Platform claims (its `platformClaim`, see
+[servers-list.md](servers-list.md#platform-claim) and
+[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)) is refused with
+`409 conflict` before the provisioner is called, whatever its state and even when its Machine is
+already gone: deleting it would take a node out from under that Platform. The message names the
+Server and the Platform, for example `Server gpu-node-01 belongs to kubernetes Platform
+production-k0s; uninstall the Platform (with releaseServers to also release its Servers) or
+delete its record before deleting the Server`. Either one releases the claim
+([platforms.md](platforms.md)).
+
 `POST /servers/{id}/release` accepts an absent body for backwards compatibility,
 or this optional JSON body:
 

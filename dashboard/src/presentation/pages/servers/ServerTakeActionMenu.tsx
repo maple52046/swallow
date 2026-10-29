@@ -8,6 +8,7 @@
 import { Box, Button, HStack, Menu, Portal, Text } from '@chakra-ui/react'
 import {
   BadgeCheck,
+  Boxes,
   ChevronDown,
   ChevronRight,
   CircleStop,
@@ -33,6 +34,7 @@ import {
 import type { ProvisionerCapabilities, Server } from '@/domain/server/types'
 import {
   SERVER_ACTION_GROUPS,
+  platformClaimNote,
   serverActionAvailability,
   type ServerActionDef,
   type ServerMenuAction,
@@ -142,6 +144,7 @@ export function ServerTakeActionMenu({
   deployDisabledReason,
   includeInstallSoftware = false,
   installSoftwareDisabledReason,
+  platformNames,
   onAction,
   onDeploy,
   onInstallSoftware,
@@ -169,6 +172,8 @@ export function ServerTakeActionMenu({
   /** Detail only: offer Install software for the one target (Managed Software, decision 038). */
   includeInstallSoftware?: boolean
   installSoftwareDisabledReason?: string
+  /** Platform names by id, so a Release or Delete disabled by a Platform Claim names the Platform. */
+  platformNames?: ReadonlyMap<string, string>
   onAction: (action: ServerMenuAction) => void
   onDeploy?: () => void
   onInstallSoftware?: () => void
@@ -191,6 +196,29 @@ export function ServerTakeActionMenu({
 
   const chooseAction = (entry: ServerActionDef) => {
     onAction(entry.action)
+  }
+
+  // A Platform Claim blocks Release and Delete alike, so it is stated once, as the label of a
+  // group holding those two, rather than repeated under each.
+  const claimNote = platformClaimNote(targets, platformNames)
+  const claimBlocked = claimNote
+    ? lifecycleActions.filter((entry) => entry.action === 'release' || entry.action === 'delete')
+    : []
+  const renderLifecycleItem = (entry: ServerActionDef) => {
+    const availability = serverActionAvailability(entry.action, targets, { platformNames })
+    const Icon = ACTION_ICONS[entry.action]
+    const reason = availability.platformClaimed ? undefined : availability.disabledReason ?? ACTION_HINTS[entry.action]
+    return (
+      <Menu.Item
+        key={entry.action}
+        value={entry.action}
+        disabled={Boolean(availability.disabledReason)}
+        color={entry.destructive ? 'red.fg' : undefined}
+        onSelect={() => chooseAction(entry)}
+      >
+        <ServerActionMenuRow icon={Icon} label={entry.label} reason={reason} />
+      </Menu.Item>
+    )
   }
 
   return (
@@ -217,7 +245,7 @@ export function ServerTakeActionMenu({
       </Menu.Trigger>
       <Portal>
         <Menu.Positioner>
-          <Menu.Content minW="17rem">
+          <Menu.Content className="sw-server-action-menu" minW="17rem">
             {includeDeploy && (
               <Menu.Item value="deploy" disabled={Boolean(deployDisabledReason)} onSelect={() => onDeploy?.()}>
                 <ServerActionMenuRow icon={Rocket} label="Deploy OS" reason={deployDisabledReason} />
@@ -238,9 +266,9 @@ export function ServerTakeActionMenu({
                   </Menu.TriggerItem>
                   <Portal>
                     <Menu.Positioner>
-                      <Menu.Content minW="18rem">
+                      <Menu.Content className="sw-server-action-menu" minW="18rem">
                         {group.actions.map((entry) => {
-                          const availability = serverActionAvailability(entry.action, targets)
+                          const availability = serverActionAvailability(entry.action, targets, { platformNames })
                           const Icon = ACTION_ICONS[entry.action]
                           return (
                             <Menu.Item
@@ -269,21 +297,23 @@ export function ServerTakeActionMenu({
               )
             })}
             {lifecycleActions.length > 0 && <Menu.Separator />}
-            {lifecycleActions.map((entry) => {
-              const availability = serverActionAvailability(entry.action, targets)
-              const Icon = ACTION_ICONS[entry.action]
-              return (
-                <Menu.Item
-                  key={entry.action}
-                  value={entry.action}
-                  disabled={Boolean(availability.disabledReason)}
-                  color={entry.destructive ? 'red.fg' : undefined}
-                  onSelect={() => chooseAction(entry)}
-                >
-                  <ServerActionMenuRow icon={Icon} label={entry.label} reason={availability.disabledReason ?? ACTION_HINTS[entry.action]} />
-                </Menu.Item>
-              )
-            })}
+            {lifecycleActions.filter((entry) => !claimBlocked.includes(entry)).map(renderLifecycleItem)}
+            {claimNote && claimBlocked.length > 0 && (
+              <>
+                <Menu.Separator />
+                <Menu.ItemGroup>
+                  <Menu.ItemGroupLabel className="sw-server-claim-note">
+                    <HStack align="flex-start" gap="3">
+                      <Box mt="0.5" aria-hidden>
+                        <Boxes size={16} />
+                      </Box>
+                      <Text>{claimNote}</Text>
+                    </HStack>
+                  </Menu.ItemGroupLabel>
+                  {claimBlocked.map(renderLifecycleItem)}
+                </Menu.ItemGroup>
+              </>
+            )}
           </Menu.Content>
         </Menu.Positioner>
       </Portal>

@@ -48,6 +48,7 @@ import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-sea
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
 import { NOT_AVAILABLE_IN_RELEASE } from '@/presentation/components/releaseAvailability'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { actionLabel, isRamDeploy, serverActionAvailability, type ServerMenuAction } from './serverActions'
@@ -519,6 +520,7 @@ export function ServersPage() {
   const workingSetQuery = useMemo(() => ({ siteId, includeAbsent: true }), [siteId])
   const { state, reload, isRefreshing, streamStatus } = useServerWorkingSet(workingSetQuery)
   const workingSet = state.status === 'ready' ? state.data.servers : EMPTY_SERVERS
+  const platformNames = usePlatformNames(siteId, workingSet)
   const bulk = useServerBulkActions()
 
   useEffect(() => {
@@ -664,7 +666,7 @@ export function ServersPage() {
     const targets = ids
       .map((id) => workingSet.find((server) => server.id === id))
       .filter((server): server is Server => Boolean(server))
-    const availability = serverActionAvailability(action, targets)
+    const availability = serverActionAvailability(action, targets, { platformNames })
     if (availability.disabledReason) return
     if ((action === 'lock' || action === 'unlock') && !confirmed) {
       setPendingLockAction({ action, targets: availability.eligible, skipped: availability.skipped })
@@ -702,7 +704,7 @@ export function ServersPage() {
     setResultDialogOpen(failedServerActionOutcomes(result).length > 0)
     clearSelection()
     reload()
-  }, [bulk, clearSelection, reload, siteKey, workingSet])
+  }, [bulk, clearSelection, platformNames, reload, siteKey, workingSet])
 
   const confirmRelease = useCallback(async (input: ReleaseServerInput) => {
     if (!releaseTargets?.length) return
@@ -966,6 +968,7 @@ export function ServersPage() {
                 busy={bulk.running}
                 trigger="take-action"
                 size="sm"
+                platformNames={platformNames}
                 onAction={(action) => void runAction(action, [...selected])}
               />
               {selected.size < visibleServers.length && (
@@ -1026,6 +1029,7 @@ export function ServersPage() {
                               sites={sites}
                               integrations={provisioners}
                               scopedHref={scopedHref}
+                              platformNames={platformNames}
                               onCollapse={() => setCollapsedGroups((current) => {
                                 const next = new Set(current)
                                 if (next.has(group.key)) next.delete(group.key)
@@ -1061,6 +1065,7 @@ export function ServersPage() {
                                 sites={sites}
                                 integrations={provisioners}
                                 scopedHref={scopedHref}
+                                platformNames={platformNames}
                                 onToggle={() => toggleOne(server.id)}
                                 onAction={(action) => void runAction(action, [server.id])}
                                 onDeploy={() => setDeploymentTargets([server])}
@@ -1342,6 +1347,7 @@ function ServerGroupRows({
   sites,
   integrations,
   scopedHref,
+  platformNames,
   onCollapse,
   onToggleOne,
   onToggleGroup,
@@ -1356,6 +1362,7 @@ function ServerGroupRows({
   sites: readonly Site[]
   integrations: readonly Integration[]
   scopedHref: (path: string) => string
+  platformNames: ReadonlyMap<string, string>
   onCollapse: () => void
   onToggleOne: (id: string) => void
   onToggleGroup: (ids: string[], checked: boolean) => void
@@ -1389,6 +1396,7 @@ function ServerGroupRows({
           sites={sites}
           integrations={integrations}
           scopedHref={scopedHref}
+          platformNames={platformNames}
           onToggle={() => onToggleOne(server.id)}
           onAction={(action) => onAction(action, server.id)}
           onDeploy={() => onDeploy(server)}
@@ -1721,6 +1729,7 @@ function ServerRow({
   sites,
   integrations,
   scopedHref,
+  platformNames,
   onToggle,
   onAction,
   onDeploy,
@@ -1731,6 +1740,7 @@ function ServerRow({
   sites: readonly Site[]
   integrations: readonly Integration[]
   scopedHref: (path: string) => string
+  platformNames: ReadonlyMap<string, string>
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
   onDeploy: () => void
@@ -1760,7 +1770,7 @@ function ServerRow({
         <Table.Cell className="sw-server-col--pool">{textOrDash(server.providerResourcePool)}</Table.Cell>
         <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.health} /></Table.Cell>
         <Table.Cell className="sw-server-row-actions">
-          <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} onAction={onAction} />
+          <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} platformNames={platformNames} onAction={onAction} />
         </Table.Cell>
       </Table.Row>
       {expanded && (
@@ -1789,6 +1799,7 @@ function ServerMobileCard({
   sites,
   integrations,
   scopedHref,
+  platformNames,
   onToggle,
   onAction,
   onDeploy,
@@ -1799,6 +1810,7 @@ function ServerMobileCard({
   sites: readonly Site[]
   integrations: readonly Integration[]
   scopedHref: (path: string) => string
+  platformNames: ReadonlyMap<string, string>
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
   onDeploy: () => void
@@ -1819,7 +1831,7 @@ function ServerMobileCard({
         actions={
           <>
             <Checkbox id={`server-mobile-${server.id}`} aria-label={`Mobile selection: ${serverDisplayName(server)}`} checked={checked} onCheckedChange={onToggle}>Select</Checkbox>
-            <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} onAction={onAction} />
+            <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} platformNames={platformNames} onAction={onAction} />
           </>
         }
       >

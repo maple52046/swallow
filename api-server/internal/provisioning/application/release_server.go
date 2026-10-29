@@ -31,10 +31,38 @@ type ReleaseServerInput struct {
 
 // ReleaseServerUseCase returns a Server to its provider pool and can persist
 // release-time static cleanup before dispatching the asynchronous provider action.
+//
+// ExecuteWithOptions is the release primitive Workflow Steps use (release-os, including a Platform
+// uninstall's release and an image verification's return), so it does not check Platform Claims:
+// the Workflow that runs it is the authority. ExecuteForOperator is the operator-facing direct
+// release, and it refuses a Server a Platform claims.
 type ReleaseServerUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
 	tasks     provisioningdomain.ProvisioningTaskRepository
+	// names resolves the claiming Platform for ExecuteForOperator's refusal; optional.
+	names provisioningdomain.PlatformNames
+}
+
+// AttachPlatformNames lets ExecuteForOperator name the Platform that claims a refused Server.
+// Without it the refusal names the Platform by id.
+func (uc *ReleaseServerUseCase) AttachPlatformNames(names provisioningdomain.PlatformNames) {
+	uc.names = names
+}
+
+// ExecuteForOperator is the operator's direct release of one Server (the deprecated
+// `POST /servers/{id}/release`). It refuses a Server a Platform's accepted deployment claims with
+// *ServerClaimedByPlatformError, because releasing it would take the node out from under that
+// Platform (decision 067); otherwise it behaves exactly like ExecuteWithOptions.
+func (uc *ReleaseServerUseCase) ExecuteForOperator(ctx context.Context, input ReleaseServerInput) (*ProvisioningStateItem, error) {
+	server, err := uc.servers.FindByID(ctx, input.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	if err := RefusePlatformClaimed(ctx, uc.names, server, provisioningdomain.ClaimRefusedRelease); err != nil {
+		return nil, err
+	}
+	return uc.ExecuteWithOptions(ctx, input)
 }
 
 // NewReleaseServerUseCase wires provider release and durable cleanup ownership.

@@ -430,6 +430,9 @@ func provisioningReleaseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "release",
 		Short: "Create a durable release Operation",
+		Long: "Create a durable release Operation. A Server a Platform claims (its platformClaim) is\n" +
+			"refused with a conflict, even with --cancel-active-workflows: release a Platform's Servers\n" +
+			"through `platforms uninstall` with \"releaseServers\": true instead.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			extra := map[string]any{}
 			collectEraseFlags(cmd, extra)
@@ -440,7 +443,8 @@ func provisioningReleaseCmd() *cobra.Command {
 			if body, err = withCancelActiveWorkflows(cmd, body); err != nil {
 				return err
 			}
-			return hintCancelActiveWorkflows(cmd, sendJSON(cmd, "POST", "provisioning/release-operations", nil, body), "")
+			err = sendJSON(cmd, "POST", "provisioning/release-operations", nil, body)
+			return hintPlatformClaim(cmd, hintCancelActiveWorkflows(cmd, err, ""), bodyServerIDs(body), releaseThroughUninstall)
 		},
 	}
 	addFileFlag(cmd, "release body ({serverIds, erase, ...}); omit to use the flags below")
@@ -456,6 +460,10 @@ func provisioningRecoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recover",
 		Short: "Create a durable recover (Return to Ready) Operation",
+		Long: "Create a durable recover (Return to Ready) Operation. Recovering a deployed Server a\n" +
+			"Platform claims is refused with a conflict, because it would release the Server; release a\n" +
+			"Platform's Servers through `platforms uninstall` with \"releaseServers\": true instead. A\n" +
+			"claimed Server that is not deployed (for example a failed one) can still be recovered.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			extra := map[string]any{}
 			if cmd.Flags().Changed("comment") {
@@ -473,7 +481,8 @@ func provisioningRecoverCmd() *cobra.Command {
 			if body, err = withCancelActiveWorkflows(cmd, body); err != nil {
 				return err
 			}
-			return hintCancelActiveWorkflows(cmd, sendJSON(cmd, "POST", "provisioning/recover-operations", nil, body), "")
+			err = sendJSON(cmd, "POST", "provisioning/recover-operations", nil, body)
+			return hintPlatformClaim(cmd, hintCancelActiveWorkflows(cmd, err, ""), bodyServerIDs(body), releaseThroughUninstall)
 		},
 	}
 	addFileFlag(cmd, "recover body ({serverIds, ...}); omit to use the flags below")

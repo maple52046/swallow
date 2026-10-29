@@ -142,18 +142,21 @@ interface ExistingPlatformAssignment {
 }
 
 /**
- * Maps backend-owned deployment claims and observed membership into one candidate-table
- * explanation. Durable claims take precedence because they also cover partial deployments whose
- * membership has not become observable yet.
+ * Maps the Server's Platform Claim and observed membership into one candidate-table
+ * explanation. The claim takes precedence because it also covers partial deployments whose
+ * membership has not become observable yet. A claim whose Platform is not in the Site list still
+ * blocks the Server, named by its Platform id.
  */
-function existingPlatformAssignment(server: Server, platforms: Platform[], deploymentClaims: Record<string, Platform>): ExistingPlatformAssignment | null {
-  const claim = deploymentClaims[server.id]
+function existingPlatformAssignment(server: Server, platforms: Platform[]): ExistingPlatformAssignment | null {
+  const claim = server.platformClaim
   if (claim) {
-    const role = server.membership?.platformId === claim.id ? server.membership.role : null
+    const platform = platforms.find((candidate) => candidate.id === claim.platformId)
+    const role = server.membership?.platformId === claim.platformId ? server.membership.role : null
+    const lifecycle = platform ? platformLifecycleLabel(platform.lifecycleState) : 'Claimed'
     return {
-      platformName: claim.name,
-      platformType: claim.type,
-      detail: role ? `${role} · ${platformLifecycleLabel(claim.lifecycleState)}` : platformLifecycleLabel(claim.lifecycleState),
+      platformName: platform?.name ?? claim.platformId,
+      platformType: platform?.type ?? 'unknown',
+      detail: role ? `${role} · ${lifecycle}` : lifecycle,
     }
   }
   if (!server.membership) return null
@@ -400,7 +403,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   // "unavailable" reason left to surface is an existing Platform assignment.
   const hasAssignedServers =
     state.status === 'ready' &&
-    state.data.servers.some((server) => Boolean(existingPlatformAssignment(server, state.data.platforms, state.data.deploymentClaims)))
+    state.data.servers.some((server) => Boolean(existingPlatformAssignment(server, state.data.platforms)))
   const topologyValid =
     topology === 'standalone'
       ? assignments.length === 1 && controllers === 1 && workloadCount === 1
@@ -1020,7 +1023,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                 </Table.Header>
                 <Table.Body>
                   {visibleServers.map((server) => {
-                    const existing = existingPlatformAssignment(server, state.data.platforms, state.data.deploymentClaims)
+                    const existing = existingPlatformAssignment(server, state.data.platforms)
                     const deployed = server.provisioning?.state === 'deployed'
                     const eligibility = isSlurm ? slurmEligibilityByServerId[server.id] : undefined
                     const unavailable = Boolean(existing) || (isSlurm && !eligibility?.eligible)
@@ -1147,7 +1150,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
               mobile={(
                 <div className="sw-resource-card-list sw-platform-server-card-list" aria-label="Deployable Servers">
                   {visibleServers.map((server) => {
-                    const existing = existingPlatformAssignment(server, state.data.platforms, state.data.deploymentClaims)
+                    const existing = existingPlatformAssignment(server, state.data.platforms)
                     const deployed = server.provisioning?.state === 'deployed'
                     const eligibility = isSlurm ? slurmEligibilityByServerId[server.id] : undefined
                     const unavailable = Boolean(existing) || (isSlurm && !eligibility?.eligible)

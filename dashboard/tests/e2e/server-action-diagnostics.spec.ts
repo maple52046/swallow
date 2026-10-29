@@ -12,8 +12,10 @@ async function confirmRelease(page: import('playwright/test').Page, targetCount:
   await confirmation.getByRole('button', { name: title, exact: true }).click()
 }
 
+// These journeys exercise Release mechanics on Servers no Platform claims; refusing to release a
+// Platform's Server is covered by server-platform-claim.spec.ts.
 test.beforeEach(async ({ page }) => {
-  await installApiFixtures(page, { serverActionFailureIds: ['srv-2'] })
+  await installApiFixtures(page, { withoutPlatformClaims: true, serverActionFailureIds: ['srv-2'] })
   await page.addInitScript(() => {
     localStorage.setItem('swallow.appearance', 'light')
     localStorage.setItem('access_token', 'e2e-token')
@@ -77,6 +79,7 @@ test('Release requires confirmation and submits MAAS disk-erasure options', asyn
   const requests: Array<{ serverId: string; body: Record<string, unknown> | null }> = []
   const refreshes: string[] = []
   await installApiFixtures(page, {
+    withoutPlatformClaims: true,
     onServerReleaseRequest: (serverId, body) => requests.push({ serverId, body }),
     onServerRefreshRequest: (serverId) => refreshes.push(serverId),
   })
@@ -141,6 +144,7 @@ test('Release hands canceling the running operations to the backend and closes a
   const superseded: string[] = []
   const browserCancels: string[] = []
   await installApiFixtures(page, {
+    withoutPlatformClaims: true,
     onServerReleaseRequest: (serverId, body) => releases.push({ serverId, body }),
     onWorkflowSuperseded: (operationId) => superseded.push(operationId),
   })
@@ -175,6 +179,7 @@ test('Release reports a refused cancel at once instead of waiting it out', async
   const releases: string[] = []
   const refusal = 'operation cannot accept this control in its current state'
   await installApiFixtures(page, {
+    withoutPlatformClaims: true,
     cancelRefusedMessage: refusal,
     onServerReleaseRequest: (serverId) => releases.push(serverId),
   })
@@ -195,6 +200,7 @@ test('Release reports a refused cancel at once instead of waiting it out', async
 
 test('Server list waits for release cleanup and refreshes addresses and Ephemeral state', async ({ page }) => {
   await installApiFixtures(page, {
+    withoutPlatformClaims: true,
     staticNetworkServerIds: ['srv-1'],
     ephemeralServerIds: ['srv-1'],
     releaseConvergesAfterRefreshes: 1,
@@ -232,6 +238,7 @@ test('Server list follows a released server that starts deployed until it conver
   // Model the real durable release: the Server is not flipped to "releasing" at accept time,
   // so it is not in an active provisioning axis. The list must still follow it to ready.
   await installApiFixtures(page, {
+    withoutPlatformClaims: true,
     deferReleaseProjection: true,
     releaseConvergesAfterRefreshes: 2,
   })
@@ -253,7 +260,7 @@ test('Server list follows a released server that starts deployed until it conver
 })
 
 test('Server detail follows Release until the projection becomes ready', async ({ page }) => {
-  await installApiFixtures(page, { releaseConvergesAfterRefreshes: 2 })
+  await installApiFixtures(page, { withoutPlatformClaims: true, releaseConvergesAfterRefreshes: 2 })
   await page.goto('/servers/srv-1/summary?site=site-a')
   await page.getByRole('button', { name: 'Take action' }).click()
   await chooseMenuItem(page, 'Release')
@@ -270,6 +277,7 @@ test('Server detail follows Release until the projection becomes ready', async (
 test('Release static cleanup is opt-in, durable, and retries cleanup without another Release', async ({ page }) => {
   const releases: Array<Record<string, unknown> | null> = []
   await installApiFixtures(page, {
+    withoutPlatformClaims: true,
     releaseCleanupFails: true,
     onServerReleaseRequest: (_serverId, body) => releases.push(body),
   })
@@ -333,7 +341,7 @@ test('Release Operation keeps complete per-Step partial diagnostics', async ({ p
 })
 
 test('Server detail failure exposes and reopens its correlated provider error', async ({ page }) => {
-  await installApiFixtures(page, { serverActionFailureIds: ['srv-1'] })
+  await installApiFixtures(page, { withoutPlatformClaims: true, serverActionFailureIds: ['srv-1'] })
   await page.goto('/servers/srv-1/summary?site=site-a')
   await page.getByRole('button', { name: 'Take action' }).click()
   await chooseMenuItem(page, 'Release')
@@ -361,6 +369,7 @@ test('Server detail failure exposes and reopens its correlated provider error', 
 
 test('Durable Operation retries one safe Step and accepts cancellation', async ({ page }) => {
   await installApiFixtures(page, {
+    withoutPlatformClaims: true,
     serverActionFailureIds: ['srv-1'],
     providerFailureRetryable: true,
   })

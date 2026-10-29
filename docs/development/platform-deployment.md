@@ -543,17 +543,21 @@ Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它�
   **Recover**（Return to Ready）相同的 provider recovery（decision 033）把 Server 收回 `ready`
   （不解除 static IP），再重送凍結的部署內容；同批其他 Server 與已完成的 Task 保留（decision 059）。
   首次 attempt 與 activity 重試不會自動回復，已 `deployed` 但 image 不符的 Server 也不會被覆蓋。
-  若要放棄整個部署，才 cancel Workflow，再對錯誤節點 Recover／Release。不要用 Mark fixed 去修一個
+  若要放棄整個部署，才 cancel Workflow，再對錯誤節點 Recover（直接 Release 會因 Platform Claim
+  被拒，見下方「Platform Claim 與 `deploy_failed`」）。不要用 Mark fixed 去修一個
   `failed` 節點（Mark fixed 只清 `broken`），也不要期待 Rescue 讓它變 `ready`——Rescue 是診斷環境，
   Exit 只會回到進入前狀態（見 glossary [Rescue Mode](glossaries/terms/rescue-mode.md)、
   [Provider Recovery](glossaries/terms/provider-recovery.md)）。
 - **ansible 層失敗（OS 已 `deployed`、平台軟體未就緒）**：Server 的 `provisioning` 仍是
-  `deployed`，**不要**對節點做 Recover／Release；改用既有 **Repair／Rerun**（§4.7）或
-  **Uninstall**。節點可留在池中供重配。
+  `deployed`，**不要**對節點做 Recover／Release（後端也會以 Platform Claim 拒絕）；改用既有
+  **Repair／Rerun**（§4.7）或 **Uninstall**。節點可留在池中供重配。
 
-**claim 與 `deploy_failed`**：部分失敗的 deploy 仍以完整 `targetServerIds` 快照 claim 目標，
-故 `deploy_failed` 期間目標受保護。要把這些節點放回可用池，先對錯誤節點 Recover／Release，再以
-**Uninstall（可勾 release servers）** 或 **Delete** 結束保護。Uninstall+release（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）
+**Platform Claim 與 `deploy_failed`**：deploy 受理時即把完整 `targetServerIds` 寫入各 Server 的
+Platform Claim（[decision 067](../decisions/067-platform-claim-on-server.md)），部分失敗的 deploy
+仍保有 claim，故 `deploy_failed` 期間目標受保護：直接 Release 一律被拒（409，訊息帶 Platform
+名稱，`cancelActiveWorkflows` 也繞不過），Recover 只對 `deployed` 的目標被拒。要把這些節點放回
+可用池，可先 Recover 錯誤（非 `deployed`）的節點，再以 **Uninstall（可勾 release servers）** 或
+**Delete** 解除 claim。Uninstall+release（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）
 對非 `deployed` 的 failed 目標**沿用同一條 Release 政策**（與 Server 的 Release 一致，見
 decision 033），不另立門檻，避免捷徑與獨立 Release 規則分裂。失敗的 deploy 停在 `requires_attention`
 時仍握著目標的 lease，uninstall 需帶 `cancelActiveWorkflows`（ADR 061 修訂）：後端取消佔用的

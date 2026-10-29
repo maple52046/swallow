@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,7 +92,8 @@ func (r *deployFakeLifecycleReader) Read(
 }
 
 type deployFakeServerRepo struct {
-	servers map[string]*serverdomain.Server
+	servers          map[string]*serverdomain.Server
+	claimedElsewhere map[string]string
 }
 
 func (r *deployFakeServerRepo) FindByID(_ context.Context, id string) (*serverdomain.Server, error) {
@@ -128,6 +130,64 @@ func (r *deployFakeServerRepo) CountByIntegration(context.Context, string) (int,
 }
 func (r *deployFakeServerRepo) Delete(context.Context, string) error { return nil }
 
+// ClaimForPlatform mirrors the Mongo store's conditional claim on the in-memory Servers: a Server
+// claimed by another Platform refuses the whole call and the claims this call wrote are undone.
+// claimedElsewhere models a concurrent deployment that claimed a Server after validation read it.
+func (r *deployFakeServerRepo) ClaimForPlatform(_ context.Context, platformID string, serverIDs []string, at time.Time) error {
+	written := []string{}
+	for _, id := range serverIDs {
+		server, ok := r.servers[id]
+		if !ok {
+			r.undoClaims(written)
+			return serverdomain.ErrServerNotFound
+		}
+		holder := ""
+		if server.PlatformClaim != nil {
+			holder = server.PlatformClaim.PlatformID
+		}
+		if other, raced := r.claimedElsewhere[id]; raced {
+			holder = other
+		}
+		switch holder {
+		case "":
+			server.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: platformID, ClaimedAt: at}
+			written = append(written, id)
+		case platformID:
+		default:
+			r.undoClaims(written)
+			return &serverdomain.ServerClaimedError{ServerID: id, PlatformID: holder}
+		}
+	}
+	return nil
+}
+
+func (r *deployFakeServerRepo) undoClaims(ids []string) {
+	for _, id := range ids {
+		r.servers[id].PlatformClaim = nil
+	}
+}
+
+func (r *deployFakeServerRepo) ReleasePlatformClaims(_ context.Context, platformID string) error {
+	for _, server := range r.servers {
+		if server.PlatformClaim != nil && server.PlatformClaim.PlatformID == platformID {
+			server.PlatformClaim = nil
+		}
+	}
+	return nil
+}
+
+func (r *deployFakeServerRepo) ClaimingPlatformIDs(context.Context) ([]string, error) {
+	seen := map[string]bool{}
+	ids := []string{}
+	for _, server := range r.servers {
+		if server.PlatformClaim != nil && !seen[server.PlatformClaim.PlatformID] {
+			seen[server.PlatformClaim.PlatformID] = true
+			ids = append(ids, server.PlatformClaim.PlatformID)
+		}
+	}
+	return ids, nil
+}
+
 type deployFakeSiteRepo struct{ ids map[string]bool }
 
 func (r *deployFakeSiteRepo) Create(context.Context, *sitedomain.Site) error { return nil }
@@ -143,9 +203,14 @@ func (r *deployFakeSiteRepo) Delete(context.Context, string) error             {
 
 type recordingLauncher struct {
 	launched *platformdomain.DeploymentLaunch
+	// err refuses the launch, modelling an orchestration that will not accept the Workflow.
+	err error
 }
 
 func (l *recordingLauncher) Launch(_ context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
+	if l.err != nil {
+		return "", l.err
+	}
 	l.launched = &launch
 	return "operation-1", nil
 }
@@ -162,25 +227,26 @@ func deployedServer(id, hostname, siteID string, addresses ...string) *serverdom
 }
 
 func newDeployHarness(servers ...*serverdomain.Server) (*DeployService, *recordingLauncher, *deployFakePlatformRepo) {
-	return newDeployHarnessWithLifecycle(
-		&deployFakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{}},
-		servers...,
-	)
+	service, launcher, platforms, _ := newClaimingDeployHarness(servers...)
+	return service, launcher, platforms
 }
 
-func newDeployHarnessWithLifecycle(
-	lifecycle platformdomain.LifecycleReader,
+// newClaimingDeployHarness also returns the in-memory Server repository, which is the Platform
+// Claim store the DeployService writes to.
+func newClaimingDeployHarness(
 	servers ...*serverdomain.Server,
-) (*DeployService, *recordingLauncher, *deployFakePlatformRepo) {
+) (*DeployService, *recordingLauncher, *deployFakePlatformRepo, *deployFakeServerRepo) {
 	platformRepo := &deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}}
-	serverRepo := &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}}
+	serverRepo := &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}, claimedElsewhere: map[string]string{}}
 	for _, s := range servers {
 		serverRepo.servers[s.ID] = s
 	}
 	siteRepo := &deployFakeSiteRepo{ids: map[string]bool{"site-1": true}}
 	platformService := NewPlatformService(platformRepo, siteRepo, serverRepo, nil, nil)
 	launcher := &recordingLauncher{}
-	return NewDeployService(platformService, platformRepo, serverRepo, lifecycle, launcher), launcher, platformRepo
+	service := NewDeployService(platformService, platformRepo, serverRepo, launcher)
+	service.AttachPlatformClaims(serverRepo)
+	return service, launcher, platformRepo, serverRepo
 }
 
 func threeControllersFourWorkers() []platformdomain.RoleAssignment {
@@ -454,59 +520,85 @@ func TestDeployRejectsTargetWithObservedMembership(t *testing.T) {
 	}
 }
 
-func TestDeployReservesTargetsUntilSuccessfulUninstall(t *testing.T) {
-	tests := []struct {
-		name       string
-		state      platformdomain.PlatformLifecycleState
-		wantReject bool
-	}{
-		{name: "deploying", state: platformdomain.PlatformLifecycleDeploying, wantReject: true},
-		{name: "deployment failed", state: platformdomain.PlatformLifecycleDeployFailed, wantReject: true},
-		{name: "active", state: platformdomain.PlatformLifecycleActive, wantReject: true},
-		{name: "uninstalling", state: platformdomain.PlatformLifecycleUninstalling, wantReject: true},
-		{name: "uninstall failed", state: platformdomain.PlatformLifecycleUninstallFailed, wantReject: true},
-		{name: "uninstalled", state: platformdomain.PlatformLifecycleUninstalled, wantReject: false},
+// A Server another Platform claims (decision 067) is refused at validation, naming that Platform,
+// whatever the other Platform's lifecycle: only its uninstall or deletion releases the claim.
+func TestDeployRefusesATargetClaimedByAnotherPlatform(t *testing.T) {
+	servers := haServers()
+	servers[0].PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "existing-platform"}
+	service, launcher, platforms, _ := newClaimingDeployHarness(servers...)
+	platforms.platforms["existing-platform"] = &platformdomain.Platform{
+		ID: "existing-platform", SiteID: "site-1", Name: "existing-k8s", Type: platformdomain.PlatformTypeKubernetes,
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			existing := &platformdomain.Platform{
-				ID: "existing-platform", SiteID: "site-1", Name: "existing-k8s",
-				Type: platformdomain.PlatformTypeKubernetes,
-			}
-			lifecycle := &deployFakeLifecycleReader{
-				snapshots: map[string]platformdomain.LifecycleSnapshot{
-					existing.ID: {
-						Origin: platformdomain.PlatformOriginDeployed,
-						State:  test.state,
-						Deployment: &platformdomain.LifecycleOperation{
-							ID:              "existing-deployment",
-							Status:          "failed",
-							TargetServerIDs: []string{"c1"},
-						},
-					},
-				},
-			}
-			service, launcher, platforms := newDeployHarnessWithLifecycle(lifecycle, haServers()...)
-			platforms.platforms[existing.ID] = existing
+	_, err := service.Deploy(context.Background(), validDeployInput())
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) || !strings.Contains(err.Error(), "kubernetes Platform existing-k8s") {
+		t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment naming kubernetes Platform existing-k8s", err)
+	}
+	if launcher.launched != nil {
+		t.Error("Deploy() launched automation for a claimed Server")
+	}
+	if len(platforms.platforms) != 1 {
+		t.Errorf("Deploy() left %d Platforms, want only the existing one", len(platforms.platforms))
+	}
+}
 
-			_, err := service.Deploy(context.Background(), validDeployInput())
-			if test.wantReject {
-				if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
-					t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment", err)
-				}
-				if launcher.launched != nil {
-					t.Error("Deploy() launched automation for a claimed Server")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Deploy() error = %v, want nil after successful uninstall", err)
-			}
-			if launcher.launched == nil {
-				t.Error("Deploy() did not release targets after successful uninstall")
-			}
-		})
+// An accepted deployment claims exactly the targets it launches against.
+func TestDeployClaimsItsTargets(t *testing.T) {
+	service, launcher, _, servers := newClaimingDeployHarness(haServers()...)
+
+	result, err := service.Deploy(context.Background(), validDeployInput())
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	for _, id := range launcher.launched.TargetServerIDs {
+		claim := servers.servers[id].PlatformClaim
+		if claim == nil || claim.PlatformID != result.PlatformID {
+			t.Errorf("target %s claim = %+v, want the new Platform %s", id, claim, result.PlatformID)
+		}
+	}
+}
+
+// A refused launch removes the Platform and every claim it wrote, so the Servers stay free.
+func TestDeployRefusedLaunchReleasesItsClaims(t *testing.T) {
+	service, launcher, platforms, servers := newClaimingDeployHarness(haServers()...)
+	launcher.err = errors.New("workflow orchestration unavailable")
+
+	if _, err := service.Deploy(context.Background(), validDeployInput()); err == nil {
+		t.Fatal("Deploy() error = nil, want the launch refusal")
+	}
+	if len(platforms.platforms) != 0 {
+		t.Errorf("Deploy() left %d Platforms after a refused launch, want none", len(platforms.platforms))
+	}
+	for id, server := range servers.servers {
+		if server.PlatformClaim != nil {
+			t.Errorf("server %s kept claim %+v after a refused launch", id, server.PlatformClaim)
+		}
+	}
+}
+
+// Two deployments validated at the same time cannot both take a Server: the one whose claim lands
+// second is refused like a validation refusal and leaves no Platform or partial claim behind.
+func TestDeployLosingAConcurrentClaimIsRefusedCleanly(t *testing.T) {
+	service, launcher, platforms, servers := newClaimingDeployHarness(haServers()...)
+	platforms.platforms["rival"] = &platformdomain.Platform{
+		ID: "rival", SiteID: "site-1", Name: "rival-k8s", Type: platformdomain.PlatformTypeKubernetes,
+	}
+	servers.claimedElsewhere["c3"] = "rival"
+
+	_, err := service.Deploy(context.Background(), validDeployInput())
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) || !strings.Contains(err.Error(), "rival-k8s") {
+		t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment naming rival-k8s", err)
+	}
+	if launcher.launched != nil {
+		t.Error("Deploy() launched automation after losing a claim")
+	}
+	if len(platforms.platforms) != 1 {
+		t.Errorf("Deploy() left %d Platforms, want only the rival", len(platforms.platforms))
+	}
+	for id, server := range servers.servers {
+		if server.PlatformClaim != nil {
+			t.Errorf("server %s kept claim %+v after the deployment lost a claim", id, server.PlatformClaim)
+		}
 	}
 }
 

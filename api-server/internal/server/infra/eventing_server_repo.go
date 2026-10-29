@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -106,6 +107,60 @@ func (r *EventingServerRepository) SetDefaultUser(ctx context.Context, id string
 	r.publishByID(ctx, id)
 	return nil
 }
+
+// claimLister is the Mongo repository's lookup of the Servers a Platform claims, used to
+// publish each Server a release clears.
+type claimLister interface {
+	ClaimedServerIDs(ctx context.Context, platformID string) ([]string, error)
+}
+
+// ClaimForPlatform delegates to the inner repository's PlatformClaimStore and publishes every
+// Server it was asked to claim, so lists show the claim without a reload. It fails with an error
+// when the inner repository does not persist claims, rather than silently claiming nothing.
+func (r *EventingServerRepository) ClaimForPlatform(ctx context.Context, platformID string, serverIDs []string, at time.Time) error {
+	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	if !ok {
+		return errPlatformClaimsUnsupported
+	}
+	if err := store.ClaimForPlatform(ctx, platformID, serverIDs, at); err != nil {
+		return err
+	}
+	for _, id := range serverIDs {
+		r.publishByID(ctx, id)
+	}
+	return nil
+}
+
+// ReleasePlatformClaims reads the claimed Servers first, clears the claims, then publishes those
+// Servers. A failed read only loses the live events; the release itself still runs.
+func (r *EventingServerRepository) ReleasePlatformClaims(ctx context.Context, platformID string) error {
+	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	if !ok {
+		return errPlatformClaimsUnsupported
+	}
+	var ids []string
+	if lister, ok := r.inner.(claimLister); ok {
+		ids, _ = lister.ClaimedServerIDs(ctx, platformID)
+	}
+	if err := store.ReleasePlatformClaims(ctx, platformID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		r.publishByID(ctx, id)
+	}
+	return nil
+}
+
+// ClaimingPlatformIDs is a read and is delegated unchanged.
+func (r *EventingServerRepository) ClaimingPlatformIDs(ctx context.Context) ([]string, error) {
+	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	if !ok {
+		return nil, errPlatformClaimsUnsupported
+	}
+	return store.ClaimingPlatformIDs(ctx)
+}
+
+var errPlatformClaimsUnsupported = errors.New("the server repository does not persist platform claims")
 
 // Delete reads the projection before removal so the removal event can be scoped to the
 // Server's Site, then publishes the removal.

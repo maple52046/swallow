@@ -12,6 +12,7 @@ import (
 
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -34,6 +35,25 @@ type durableProvisioningLauncher struct {
 	// ntp adds a configure-ntp-<serverId> Task after each provision-os Task (decision 065). Its zero
 	// value adds nothing.
 	ntp ntpStepPlanner
+	// platformNames names the Platform that claims a refused Release or Recover target (decision
+	// 067). Optional: without it the refusal names the Platform by id.
+	platformNames provisioningdomain.PlatformNames
+}
+
+// platformNameReader adapts the platform repository to provisioning's PlatformNames port, so a
+// refusal names the claiming Platform without provisioning reading the platform model.
+type platformNameReader struct {
+	platforms interface {
+		FindByID(ctx context.Context, id string) (*platformdomain.Platform, error)
+	}
+}
+
+func (r platformNameReader) PlatformName(ctx context.Context, platformID string) (string, string, error) {
+	platform, err := r.platforms.FindByID(ctx, platformID)
+	if err != nil {
+		return "", "", err
+	}
+	return platform.Name, string(platform.Type), nil
 }
 
 // refreshTarget best-effort advances one Server's provisioning projection from its provisioner
@@ -184,6 +204,12 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 		if server.Absent || server.Provisioning == nil {
 			return nil, fmt.Errorf("%w: Server %s has no observed provisioning state to release", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())
 		}
+		// A Platform's Server is released only through that Platform's uninstall (decision 067).
+		// Checked before the lock and before superseding blocking work, so cancelActiveWorkflows
+		// cannot get around it, and one claimed target refuses the whole batch.
+		if err := provisioningapp.RefusePlatformClaimed(ctx, l.platformNames, server, provisioningdomain.ClaimRefusedRelease); err != nil {
+			return nil, err
+		}
 		if decision := provisioningdomain.EvaluateRecovery(provisioningdomain.RecoveryIntentRelease, provisioningdomain.MachineStatus(server.Provisioning.State)); !decision.Allowed {
 			return nil, fmt.Errorf("%w: Server %s %s", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName(), decision.Reason)
 		}
@@ -258,6 +284,14 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 		}
 		if server.Absent || server.Provisioning == nil {
 			return nil, fmt.Errorf("%w: Server %s has no observed provisioning state to recover", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())
+		}
+		// Recovering a deployed Server releases it, so a Platform's deployed node is refused like a
+		// release (decision 067). A failed, broken, rescue, or allocated node of a Platform is not:
+		// returning it to Ready is how an operator recovers a broken deployment.
+		if server.Provisioning.State == "deployed" {
+			if err := provisioningapp.RefusePlatformClaimed(ctx, l.platformNames, server, provisioningdomain.ClaimRefusedRecover); err != nil {
+				return nil, err
+			}
 		}
 		if decision := provisioningdomain.EvaluateRecovery(provisioningdomain.RecoveryIntentRecover, provisioningdomain.MachineStatus(server.Provisioning.State)); !decision.Allowed {
 			return nil, fmt.Errorf("%w: Server %s %s", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName(), decision.Reason)

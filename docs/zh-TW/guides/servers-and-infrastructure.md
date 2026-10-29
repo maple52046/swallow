@@ -300,7 +300,11 @@ placement action 也受 provider capability 與 current state 限制。
 刪除 Server 是 provider-backed action：先刪除 backing machine，再刪除 projection，
 避免下一輪 reconcile 立刻重建。
 
-要一次刪除多台 Server，先勾選它們，再從 **Take action** 選 **Delete server**。對話框會
+部署過 Platform 的 Server 會一直歸屬於該 Platform，直到該 Platform uninstall 或其紀錄被刪除。
+在這之前，**Take action** 會說明它屬於哪個 Platform，並停用 **Release** 與 **Delete only**；
+要 release 這些 Server，請 uninstall 該 Platform 並選 **Release all servers**。
+
+要一次刪除多台 Server，先勾選它們，再從 **Take action** 選 **Delete only**。對話框會
 列出所有目標，並標出屬於某個 Platform 或仍被執行中 Workflow 佔用的 Server；刪除不會
 uninstall 該 Platform，也不會取消那些工作。輸入要刪除的台數即可確認。若 provisioner
 拒絕其中幾台，其他仍會繼續刪除，結果明細會列出每一台被拒絕的原因。

@@ -103,6 +103,7 @@ query language. `includeAbsent=true` changes visibility only.
         "observedAt": "2026-05-02T15:00:00Z"
       },
       "health": {"state": "up", "observedAt": "2026-05-02T15:00:00Z"},
+      "platformClaim": {"platformId": "platform-id", "claimedAt": "2026-05-02T13:40:00Z"},
       "defaultUser": {"user": "ubuntu", "source": "os_image"},
       "absent": false,
       "lastSeenAt": "2026-05-02T15:00:00Z",
@@ -175,6 +176,26 @@ own record, not the provider's transition time, so its precision is the observat
 how long a Server has been in its state, for example the running time of `releasing`. It is
 omitted when unknown, which includes a projection stored before the field existed until its
 state is observed again.
+
+### Platform Claim
+
+`platformClaim` is the Swallow-owned **Platform Claim**
+([decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)): the Platform
+whose accepted deployment targets this Server. It is `null` when no Platform claims the Server.
+
+| Field | Meaning |
+| --- | --- |
+| `platformId` | The claiming Platform. Its name is not included; read the Platform to show it. |
+| `claimedAt` | When that deployment was accepted (or, for a Platform deployed before claims existed, when its deployment was requested). |
+
+It is written when a Platform deployment is accepted and cleared when that Platform's uninstall
+succeeds or its record is deleted ([platforms.md](platforms.md)); a failed deployment or a failed
+uninstall keeps it. It is intent, not observation: `membership` is the platform runtime's own
+answer and can be missing exactly when the claim matters (a deployment that never joined, a
+failing sync). A claimed Server cannot be released directly, and a deployed one cannot be
+recovered, through [provisioning.md](provisioning.md#durable-os-operations), nor can it be
+deleted ([server-detail-actions.md](server-detail-actions.md)); its Servers are released
+through the Platform's uninstall with `releaseServers`.
 
 ### Provisioning axis fields
 

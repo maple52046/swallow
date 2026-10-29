@@ -52,6 +52,11 @@ type serverDoc struct {
 	// methods, never by SetBootMedia, so recording progress cannot overwrite the setting.
 	BootMediaApply *bootMediaApplyDoc `bson:"bootMediaApply,omitempty"`
 
+	// PlatformClaim is the Platform whose accepted deployment targets this Server (decision 067).
+	// Top-level and written only by ClaimForPlatform / ReleasePlatformClaims, so a reconcile Upsert
+	// never erases it; absent reads as "not claimed".
+	PlatformClaim *platformClaimDoc `bson:"platformClaim,omitempty"`
+
 	Absent     bool      `bson:"absent"`
 	LastSeenAt time.Time `bson:"lastSeenAt"`
 	CreatedAt  time.Time `bson:"createdAt"`
@@ -236,6 +241,11 @@ func NewMongoServerRepo(db *mongo.Database) (*MongoServerRepo, error) {
 		{
 			Keys:    bson.D{{Key: "membership.platformId", Value: 1}},
 			Options: options.Index().SetSparse(true).SetName("membership_platform"),
+		},
+		// Releasing a Platform's claims finds its Servers by claim, not by observed membership.
+		{
+			Keys:    bson.D{{Key: "platformClaim.platformId", Value: 1}},
+			Options: options.Index().SetSparse(true).SetName("platform_claim"),
 		},
 	}
 
@@ -727,6 +737,113 @@ func (r *MongoServerRepo) EndBootMediaApply(ctx context.Context, id string, star
 	return err
 }
 
+// platformClaimDoc stores serverdomain.PlatformClaim.
+type platformClaimDoc struct {
+	PlatformID string    `bson:"platformId"`
+	ClaimedAt  time.Time `bson:"claimedAt"`
+}
+
+// ClaimForPlatform claims each Server with a conditional update that only matches an unclaimed
+// document, so a concurrent deployment cannot claim the same Server: whichever write lands first
+// wins and the other reads the holder back. Claims this call wrote are released again on any
+// failure; claims the Platform already held are left alone.
+func (r *MongoServerRepo) ClaimForPlatform(ctx context.Context, platformID string, serverIDs []string, at time.Time) error {
+	claimed := make([]string, 0, len(serverIDs))
+	rollback := func() {
+		for _, id := range claimed {
+			// Best effort: the call is already failing and its error is what the caller needs. A
+			// claim left behind here still names the refused Platform, whose record the caller
+			// deletes together with all of its claims (ReleasePlatformClaims).
+			if _, err := r.col.UpdateOne(ctx,
+				bson.M{"_id": id, "platformClaim.platformId": platformID},
+				bson.M{"$unset": bson.M{"platformClaim": ""}, "$set": bson.M{"updatedAt": time.Now().UTC()}}); err != nil {
+				log.Printf("release platform claim of server %s after a refused claim: %v", id, err)
+			}
+		}
+	}
+	for _, id := range serverIDs {
+		result, err := r.col.UpdateOne(ctx,
+			bson.M{"_id": id, "platformClaim": bson.M{"$exists": false}},
+			bson.M{"$set": bson.M{
+				"platformClaim": platformClaimDoc{PlatformID: platformID, ClaimedAt: at},
+				"updatedAt":     time.Now().UTC(),
+			}})
+		if err != nil {
+			rollback()
+			return err
+		}
+		if result.ModifiedCount == 1 {
+			claimed = append(claimed, id)
+			continue
+		}
+		var holder struct {
+			PlatformClaim *platformClaimDoc `bson:"platformClaim"`
+		}
+		err = r.col.FindOne(ctx, bson.M{"_id": id}, options.FindOne().SetProjection(bson.M{"platformClaim": 1})).Decode(&holder)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			rollback()
+			return serverdomain.ErrServerNotFound
+		}
+		if err != nil {
+			rollback()
+			return err
+		}
+		if holder.PlatformClaim != nil && holder.PlatformClaim.PlatformID == platformID {
+			continue
+		}
+		rollback()
+		claimedBy := ""
+		if holder.PlatformClaim != nil {
+			claimedBy = holder.PlatformClaim.PlatformID
+		}
+		return &serverdomain.ServerClaimedError{ServerID: id, PlatformID: claimedBy}
+	}
+	return nil
+}
+
+// ReleasePlatformClaims clears every claim held by platformID in one update.
+func (r *MongoServerRepo) ReleasePlatformClaims(ctx context.Context, platformID string) error {
+	_, err := r.col.UpdateMany(ctx,
+		bson.M{"platformClaim.platformId": platformID},
+		bson.M{"$unset": bson.M{"platformClaim": ""}, "$set": bson.M{"updatedAt": time.Now().UTC()}})
+	return err
+}
+
+// ClaimingPlatformIDs returns the distinct claiming Platform ids, served by the platform_claim index.
+func (r *MongoServerRepo) ClaimingPlatformIDs(ctx context.Context) ([]string, error) {
+	values, err := r.col.Distinct(ctx, "platformClaim.platformId", bson.M{"platformClaim": bson.M{"$exists": true}})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(values))
+	for _, value := range values {
+		if id, ok := value.(string); ok && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// ClaimedServerIDs lists the Servers platformID claims. The eventing decorator reads it before a
+// release so it can publish each Server whose claim it cleared.
+func (r *MongoServerRepo) ClaimedServerIDs(ctx context.Context, platformID string) ([]string, error) {
+	cursor, err := r.col.Find(ctx, bson.M{"platformClaim.platformId": platformID}, options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var docs []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(docs))
+	for _, doc := range docs {
+		ids = append(ids, doc.ID)
+	}
+	return ids, nil
+}
+
 // updateExisting applies update to one document and maps "no such document" to ErrServerNotFound.
 func (r *MongoServerRepo) updateExisting(ctx context.Context, id string, update bson.M) error {
 	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
@@ -970,6 +1087,10 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			State:      m.State,
 			ObservedAt: m.ObservedAt,
 		}
+	}
+
+	if c := doc.PlatformClaim; c != nil {
+		s.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: c.PlatformID, ClaimedAt: c.ClaimedAt}
 	}
 
 	return s

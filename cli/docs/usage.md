@@ -453,6 +453,13 @@ swallow provisioning tasks get task1
 swallow provisioning tasks retry task1
 ```
 
+A Server that a Platform's deployment claims (its `platformClaim`) cannot be released directly,
+and a deployed one cannot be recovered, even with `--cancel-active-workflows`; nor can
+`swallow servers delete` delete it. The CLI names the Platform and the next step: release a
+Platform's Servers through `swallow platforms uninstall <platformId> -f body.yaml` with
+`releaseServers: true`. A claimed Server can be deleted once that uninstall succeeds or the
+Platform's record is deleted (`swallow platforms delete <platformId>`).
+
 `overlay.yaml`: `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
 
 `overlay set` replaces the whole overlay, so include every value you want to keep.

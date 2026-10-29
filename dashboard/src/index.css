@@ -4017,6 +4017,25 @@ tbody .sw-sticky-selection { z-index: 2; }
   justify-content: space-between;
 }
 
+/* Take-action menus carry long disabled reasons (a Platform Claim names its Platform and next
+   step); they wrap within the viewport instead of widening the menu past a phone screen. */
+.sw-server-action-menu {
+  max-inline-size: min(24rem, calc(100vw - 1rem));
+}
+
+.sw-server-action-menu [data-part='item'] {
+  white-space: normal;
+}
+
+/* The Platform Claim note labels the Release and Delete group: plain explanatory text aligned
+   with the item icons, not a bold group heading. */
+.sw-server-action-menu .sw-server-claim-note {
+  color: var(--chakra-colors-fg-muted);
+  font-size: var(--chakra-font-sizes-sm);
+  font-weight: var(--chakra-font-weights-normal);
+  white-space: normal;
+}
+
 .sw-server-hardware-summary {
   width: 100%;
   gap: 0.125rem;

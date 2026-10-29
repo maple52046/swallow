@@ -11,6 +11,8 @@ test.beforeEach(async ({ page }) => {
 test('a failed Server offers Recover and Release, but Mark fixed is gated to Broken', async ({ page }) => {
   const recovered: Array<{ serverId: string; body: Record<string, unknown> | null }> = []
   await installApiFixtures(page, {
+    // A Platform's failed Server cannot be released directly (server-platform-claim.spec.ts).
+    withoutPlatformClaims: true,
     failedServerIds: ['srv-1'],
     onServerRecoverRequest: (serverId, body) => recovered.push({ serverId, body }),
   })

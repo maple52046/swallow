@@ -128,7 +128,6 @@ type DeployService struct {
 	platformService    *PlatformService
 	platforms          platformdomain.PlatformRepository
 	servers            serverdomain.ServerRepository
-	lifecycle          platformdomain.LifecycleReader
 	launcher           platformdomain.DeploymentLauncher
 	protection         serverdomain.MutationGuard
 	machinePreparation platformdomain.MachinePreparationValidator
@@ -139,22 +138,24 @@ type DeployService struct {
 	omnistats          platformdomain.OmnistatRecorder
 	// deviceMetricsExporters is required to accept a deploy that requests the exporter.
 	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
+	// claims writes the accepted deployment's Platform Claims (decision 067); nil in tests.
+	claims serverdomain.PlatformClaimStore
 }
 
-// NewDeployService constructs deployment preflight with both Server observations and the
-// batch lifecycle reader. The lifecycle dependency must preserve original target snapshots
-// so partial deployments cannot be assigned to a second Platform.
+// NewDeployService constructs deployment preflight over Server observations. Which Platform
+// already holds a target comes from the Servers' stored Platform Claims (AttachPlatformClaims),
+// so a partial deployment cannot be assigned to a second Platform even before its platform API
+// reports membership.
 func NewDeployService(
 	platformService *PlatformService,
 	platforms platformdomain.PlatformRepository,
 	servers serverdomain.ServerRepository,
-	lifecycle platformdomain.LifecycleReader,
 	launcher platformdomain.DeploymentLauncher,
 	protection ...serverdomain.MutationGuard,
 ) *DeployService {
 	service := &DeployService{
 		platformService: platformService, platforms: platforms,
-		servers: servers, lifecycle: lifecycle, launcher: launcher,
+		servers: servers, launcher: launcher,
 	}
 	if len(protection) > 0 {
 		service.protection = protection[0]
@@ -217,11 +218,11 @@ type validatedDeployment struct {
 	machinePreparation platformdomain.MachinePreparation
 }
 
-// deploymentTargetAvailability combines intent-owned deployment claims with observed
-// membership. The former protects partial deployments before a platform API is reachable;
-// the latter protects externally registered platforms that have no deployment provenance.
+// deploymentTargetAvailability names the Platforms a target can be taken by: the one its stored
+// Platform Claim names, which protects a partial deployment before its platform API is reachable,
+// and the one it reports observed membership in, which protects an externally registered platform
+// that has no deployment provenance.
 type deploymentTargetAvailability struct {
-	claims        map[string]*platformdomain.Platform
 	platformsByID map[string]*platformdomain.Platform
 }
 
@@ -344,6 +345,11 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	if err != nil {
 		return nil, err
 	}
+	targetIDs := serverIDs(validated.targets)
+	if err := s.claimTargets(ctx, platform, targetIDs, validated.targets); err != nil {
+		s.abandon(ctx, platform.ID)
+		return nil, err
+	}
 
 	var operationID string
 	var gpuOperatorVars map[string]any
@@ -356,7 +362,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 			LastWorkflowID: operationID, UpdatedAt: time.Now().UTC(),
 		}
 		if err := s.gpuOperators.SetGPUOperator(ctx, platform.ID, record, platform.GPUStackOwner); err != nil {
-			_ = s.platforms.Delete(ctx, platform.ID)
+			s.abandon(ctx, platform.ID)
 			return nil, err
 		}
 		gpuOperatorVars = buildGPUOperatorVars(*gpuOperator, validated.spec.ControlPlaneServerIDs()[0], platform.GPUDriver)
@@ -366,7 +372,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	if validated.spec.HighlyAvailable() {
 		authPass, err := generateVRRPPassword()
 		if err != nil {
-			_ = s.platforms.Delete(ctx, platform.ID)
+			s.abandon(ctx, platform.ID)
 			return nil, err
 		}
 		secretVars[varK0sVRRPAuthPass] = authPass
@@ -382,7 +388,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	launch := platformdomain.DeploymentLaunch{
 		Platform:        platform,
 		OperationID:     operationID,
-		TargetServerIDs: serverIDs(validated.targets),
+		TargetServerIDs: targetIDs,
 		TrustedVars:     trustedVars,
 		SecretVars:      secretVars,
 		GPUOperatorVars: gpuOperatorVars,
@@ -392,9 +398,9 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	}
 	launchedID, err := s.launcher.Launch(ctx, launch)
 	if err != nil {
-		// The operation was refused, so nothing is building this platform; remove it
-		// rather than leave a platform that will never converge.
-		_ = s.platforms.Delete(ctx, platform.ID)
+		// The operation was refused, so nothing is building this platform; remove it (and free
+		// its targets) rather than leave a platform that will never converge.
+		s.abandon(ctx, platform.ID)
 		return nil, err
 	}
 
@@ -521,10 +527,15 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if err != nil {
 		return nil, err
 	}
+	targetIDs := validated.slurmSpec.ServerIDs()
+	if err := s.claimTargets(ctx, platform, targetIDs, validated.targets); err != nil {
+		s.abandon(ctx, platform.ID)
+		return nil, err
+	}
 
 	launch := platformdomain.DeploymentLaunch{
 		Platform:           platform,
-		TargetServerIDs:    validated.slurmSpec.ServerIDs(),
+		TargetServerIDs:    targetIDs,
 		TrustedVars:        buildSlurmVars(platform, validated.slurmSpec, gpuComputeIDs),
 		RequestedBy:        input.RequestedBy,
 		RequestCorrelation: input.RequestCorrelation,
@@ -548,7 +559,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
 		if err := s.omnistats.SetOmnistat(ctx, platform.ID, record); err != nil {
-			_ = s.platforms.Delete(ctx, platform.ID)
+			s.abandon(ctx, platform.ID)
 			return nil, err
 		}
 		launch.TrustedVars[varSlurmOmnistatEnabled] = true
@@ -570,7 +581,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
 		if err := s.deviceMetricsExporters.SetDeviceMetricsExporter(ctx, platform.ID, record); err != nil {
-			_ = s.platforms.Delete(ctx, platform.ID)
+			s.abandon(ctx, platform.ID)
 			return nil, err
 		}
 		launch.TrustedVars[varSlurmDeviceMetricsExporterEnabled] = true
@@ -584,8 +595,9 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	}
 	operationID, err := s.launcher.Launch(ctx, launch)
 	if err != nil {
-		// The operation was refused, so nothing is building this platform; remove it.
-		_ = s.platforms.Delete(ctx, platform.ID)
+		// The operation was refused, so nothing is building this platform; remove it and free
+		// its targets.
+		s.abandon(ctx, platform.ID)
 		return nil, err
 	}
 	return &DeployPlatformResult{PlatformID: platform.ID, OperationID: operationID}, nil
@@ -691,11 +703,9 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 		if s.protection == nil && server.Provisioning != nil && server.Provisioning.Locked {
 			return invalid, &serverdomain.ServerLockedError{Name: server.DisplayName()}
 		}
-		if claimedBy := availability.claims[server.ID]; claimedBy != nil {
-			return invalid, fmt.Errorf(
-				"%w: server %s is already claimed by %s Platform %s",
-				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy.Type, claimedBy.Name,
-			)
+		if server.PlatformClaim != nil {
+			return invalid, fmt.Errorf("%w: server %s is already claimed by %s",
+				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy(server, availability.platformsByID))
 		}
 		if server.Membership != nil {
 			platformName := server.Membership.PlatformID
@@ -891,11 +901,9 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 		if s.protection == nil && server.Provisioning.Locked {
 			return invalid, &serverdomain.ServerLockedError{Name: server.DisplayName()}
 		}
-		if claimedBy := availability.claims[server.ID]; claimedBy != nil {
-			return invalid, fmt.Errorf(
-				"%w: server %s is already claimed by Kubernetes Platform %s",
-				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy.Name,
-			)
+		if server.PlatformClaim != nil {
+			return invalid, fmt.Errorf("%w: server %s is already claimed by %s",
+				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy(server, availability.platformsByID))
 		}
 		if server.Membership != nil {
 			platformName := server.Membership.PlatformID
@@ -1003,40 +1011,20 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 	return validatedDeployment{spec: spec, targets: targets, apiAddress: apiAddress, machinePreparation: preparation}, nil
 }
 
-// targetAvailability resolves all claims in one lifecycle batch before any Platform record
-// is created. Non-uninstalled deployment claims deliberately use the original target
-// snapshot rather than current membership, which may be absent after a partial failure.
+// targetAvailability loads the Site's Platforms once before any Platform record is created, so
+// a refusal can name the Platform that claims a target (its stored Platform Claim, decision 067)
+// or that a target reports membership in.
 func (s *DeployService) targetAvailability(
 	ctx context.Context,
 	siteID string,
 ) (deploymentTargetAvailability, error) {
-	availability := deploymentTargetAvailability{
-		claims:        map[string]*platformdomain.Platform{},
-		platformsByID: map[string]*platformdomain.Platform{},
-	}
+	availability := deploymentTargetAvailability{platformsByID: map[string]*platformdomain.Platform{}}
 	platforms, err := s.platforms.List(ctx, siteID)
 	if err != nil {
 		return availability, err
 	}
-	platformIDs := make([]string, 0, len(platforms))
 	for _, platform := range platforms {
 		availability.platformsByID[platform.ID] = platform
-		platformIDs = append(platformIDs, platform.ID)
-	}
-	snapshots, err := s.lifecycle.Read(ctx, platformIDs)
-	if err != nil {
-		return availability, err
-	}
-	for _, platform := range platforms {
-		snapshot := snapshots[platform.ID]
-		if snapshot.Origin != platformdomain.PlatformOriginDeployed ||
-			snapshot.State == platformdomain.PlatformLifecycleUninstalled ||
-			snapshot.Deployment == nil {
-			continue
-		}
-		for _, serverID := range snapshot.Deployment.TargetServerIDs {
-			availability.claims[serverID] = platform
-		}
 	}
 	return availability, nil
 }

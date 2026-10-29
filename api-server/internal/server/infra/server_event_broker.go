@@ -170,10 +170,16 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 		// DefaultUser is the operator-set Server Default User: setting or clearing it changes only
 		// this field, so without it that write's live event would be suppressed.
 		DefaultUser string
+		// PlatformClaim is the claiming Platform's id: claiming or releasing changes only this
+		// field, and the Servers list gates Release on it.
+		PlatformClaim string
 	}{
 		Absent:      s.Absent,
 		Observed:    s.Observed,
 		DefaultUser: s.DefaultUser,
+	}
+	if s.PlatformClaim != nil {
+		fp.PlatformClaim = s.PlatformClaim.PlatformID
 	}
 	if s.Provisioning != nil {
 		fp.Provisioning = &provisioning{

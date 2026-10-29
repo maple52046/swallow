@@ -444,6 +444,12 @@ swallow provisioning tasks get task1
 swallow provisioning tasks retry task1
 ```
 
+被 Platform 部署 claim 的 Server（其 `platformClaim`）不能直接 release，已 deployed 的也不能
+recover，加上 `--cancel-active-workflows` 也一樣；`swallow servers delete` 也無法刪除它。CLI 會
+指出所屬的 Platform 與下一步：透過 `swallow platforms uninstall <platformId> -f body.yaml` 並設定
+`releaseServers: true` 來 release 該 Platform 的 Server。uninstall 成功或刪除 Platform 紀錄
+（`swallow platforms delete <platformId>`）之後，才能刪除該 Server。
+
 `overlay.yaml`：
 `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
 

@@ -46,9 +46,10 @@ function namesSentence(servers: readonly Server[]): string {
  * bulk selection lists its targets and is confirmed by typing how many Servers will be deleted;
  * while it runs the dialog reports how many have finished, so a long batch never looks frozen.
  * When every deletion failed it stays open with the first reason, otherwise it hands the result
- * to the page. Targets that belong to a Platform or that unfinished Workflows still hold are
- * named in warnings but not excluded, because deletion does not cancel that work or uninstall the
- * Platform.
+ * to the page. A Server a Platform claims never reaches this dialog: Delete is disabled for it
+ * (and refused by the API) until its Platform is uninstalled or deleted. Targets with only an
+ * observed Platform membership, or that unfinished Workflows still hold, are named in warnings but
+ * not excluded, because deletion does not cancel that work or uninstall the Platform.
  */
 export function ServerDeleteDialog({ targets, onClose, onDeleted }: ServerDeleteDialogProps) {
   const { servers } = useApp()

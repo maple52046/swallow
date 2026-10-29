@@ -38,6 +38,11 @@ type ServerItem struct {
 	Membership   *MembershipAxisItem   `json:"membership"`
 	Health       *HealthAxisItem       `json:"health"`
 
+	// PlatformClaim is the Platform whose accepted deployment targets this Server (decision 067),
+	// null when none does. It is Swallow-owned intent, unlike the observed membership axis, and it
+	// is why a claimed Server cannot be released directly.
+	PlatformClaim *PlatformClaimItem `json:"platformClaim"`
+
 	// DefaultUser is the effective Server Default User (decision 045), omitted when unknown. It is
 	// what automation logs in as, so a client showing an SSH login or a docker-group account must
 	// read this rather than provisioning.deployedImageDefaultUser.
@@ -137,6 +142,13 @@ type MembershipAxisItem struct {
 type HealthAxisItem struct {
 	State      string `json:"state"`
 	ObservedAt string `json:"observedAt"`
+}
+
+// PlatformClaimItem is the published shape of a Platform Claim: the claiming Platform and when
+// its deployment was accepted. The Platform's name is not included; clients resolve it.
+type PlatformClaimItem struct {
+	PlatformID string `json:"platformId"`
+	ClaimedAt  string `json:"claimedAt"`
 }
 
 // DefaultUserItem is the published shape of the effective Server Default User: the account and
@@ -258,6 +270,10 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 			State:      h.State,
 			ObservedAt: wire.Time(h.ObservedAt),
 		}
+	}
+
+	if c := s.PlatformClaim; c != nil {
+		item.PlatformClaim = &PlatformClaimItem{PlatformID: c.PlatformID, ClaimedAt: wire.Time(c.ClaimedAt)}
 	}
 
 	return item

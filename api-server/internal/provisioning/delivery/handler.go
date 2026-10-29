@@ -190,7 +190,8 @@ func (h *ProvisioningHandler) Release(c *fiber.Ctx) error {
 		}
 	}
 
-	item, err := h.release.ExecuteWithOptions(c.Context(), application.ReleaseServerInput{
+	// The operator path: a Server a Platform claims is refused (409) rather than released.
+	item, err := h.release.ExecuteForOperator(c.Context(), application.ReleaseServerInput{
 		ServerID:        id,
 		Erase:           req.Erase,
 		SecureErase:     req.SecureErase,
@@ -904,6 +905,11 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, operationdomain.ErrTargetLocked),
 		errors.Is(err, operationdomain.ErrPolicyConflict),
 		errors.Is(err, operationdomain.ErrWorkflowControlConflict):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+
+	// A Platform's Server is released through that Platform's uninstall (decision 067); the
+	// message names the Platform and is safe to show as is.
+	case errors.Is(err, provisioningdomain.ErrServerClaimedByPlatform):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
 	case errors.Is(err, operationapp.ErrInvalidOperation),

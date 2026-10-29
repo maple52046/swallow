@@ -149,7 +149,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	membershipSync := platformapp.NewMembershipSyncUseCase(platformRepo, servers, readerFactory)
 	platformService := platformapp.NewPlatformService(platformRepo, sites, servers, lifecycle, nil)
 	deployService := platformapp.NewDeployService(
-		platformService, platformRepo, servers, lifecycle, &fakeDeploymentLauncher{})
+		platformService, platformRepo, servers, &fakeDeploymentLauncher{})
 	deployService.AttachDeploymentRequirementReader(requirementRepo)
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, servers, lifecycle, uninstallLauncher)

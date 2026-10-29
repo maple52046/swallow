@@ -754,6 +754,17 @@ returned its Server to Ready by then, which the Step accepts as above. A cancel 
 for a Workflow that is still running fails the request with `409 conflict` naming that Workflow,
 and nothing is created.
 
+A Server a Platform claims (its `platformClaim`, see
+[servers-list.md](servers-list.md#platform-claim) and
+[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)) is refused:
+releasing it would take a node out from under that Platform. The whole batch fails with
+`409 conflict` before anything is created or canceled, so `cancelActiveWorkflows` does not get
+around it, and the message names the Server and the Platform, for example `Server gpu-node-01
+belongs to kubernetes Platform production-k0s; uninstall the Platform (with releaseServers to
+also release its Servers) instead of releasing the Server directly`. A Platform's Servers are
+released through its uninstall with `releaseServers`
+([platforms.md](platforms.md#uninstall-a-deployed-platform)), which is not subject to this rule.
+
 Release is the primary provider-recovery path and is not restricted to `deployed`. The
 Swallow-owned recovery policy (decision 033, extended by decision 036) allows Release from
 `deployed`, `allocated`, `failed`, `broken`, and `rescue`, always converging the Machine to
@@ -770,8 +781,9 @@ Acceptance-time rejection is reported with the shared error envelope, never as a
 `500 internal_error`: malformed input (missing or out-of-range `serverIds`, a target in a
 state Release is not allowed from, a duplicate target, or a cross-Site batch) is
 `400 validation_error`; a Server unknown to Swallow is `404 not_found`; a target already
-inside an unfinished Operation or a locked target is `409 conflict`; and a build without
-durable provisioning wired up is `503 provider_unavailable`.
+inside an unfinished Operation, a locked target, or a target a Platform claims is
+`409 conflict`; and a build without durable provisioning wired up is
+`503 provider_unavailable`.
 
 `POST /recover-operations` returns a Server to `ready` from a not-usable state and accepts
 the same bounded batch shape as Release, without the disk-erase controls:
@@ -799,6 +811,11 @@ Mark fixed, which returns it to `ready` without a disk erase; this is the only p
 a Machine whose exit-rescue and disk-erase both fail on the provider. `unbindStaticIPs`
 behaves as it does for Release when the recovery path performs a Release. Error mapping
 matches `/release-operations`.
+
+Recovering a `deployed` Server releases it, so a `deployed` target a Platform claims is refused
+with `409 conflict` exactly like a Release of it. A Platform's Server in a not-usable state
+(`failed`, `broken`, `rescue`, `allocated`) can still be recovered: returning it to `ready` is
+how a broken deployment is repaired.
 
 ## Image Verification
 
@@ -895,3 +912,9 @@ layout needs a new inspection (`inspection_required`), and `deployment_failed` m
 carrying the provider's error description and installation error line. Both keep their status
 codes and error codes; clients that branch on codes are unaffected
 ([decision 057 amendment](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)).
+
+On 2026-10-29 `POST /release-operations`, the deprecated `POST /servers/{id}/release`, and
+`POST /recover-operations` for a `deployed` target began refusing a Server a Platform claims
+with `409 conflict` (see Durable OS Operations). Before, such a request was accepted and took
+the node out from under its Platform. Release a Platform's Servers through its uninstall
+([decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)).

@@ -172,6 +172,19 @@ export interface MembershipAxis {
   observedAt: string
 }
 
+/**
+ * The swallow-owned Platform Claim (glossary Platform Claim, decision 067): the Platform whose
+ * accepted deployment targets this Server. It is intent, not observation: unlike `membership` it
+ * stays while the Platform is deploying, failed, or uninstalling, and it is cleared only when that
+ * Platform's uninstall succeeds or its record is deleted. A claimed Server cannot be released
+ * directly; the API refuses it with 409. The Platform's name is not included (it can change), so
+ * callers resolve it from the Platform list.
+ */
+export interface PlatformClaim {
+  platformId: string
+  claimedAt: string
+}
+
 /** Liveness, owned by the metrics store. Resolved at query time, never stored. */
 export interface HealthAxis {
   state: 'up' | 'down'
@@ -463,6 +476,11 @@ export interface Server {
   provisioning: ProvisioningAxis | null
   membership: MembershipAxis | null
   health: HealthAxis | null
+  /**
+   * The Platform whose deployment claims this Server, or null when none does. Optional so a
+   * Server value built without it reads as unclaimed; the API always sends it.
+   */
+  platformClaim?: PlatformClaim | null
 
   /** Effective Server Default User; absent when unknown (automation then probes fallback users). */
   defaultUser?: ServerDefaultUser

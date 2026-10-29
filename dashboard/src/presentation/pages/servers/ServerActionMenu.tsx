@@ -8,6 +8,7 @@ import { serverDisplayName } from '@/domain/server/list'
 import { softwareInstallBlocker } from '@/domain/software/targets'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
 import { ServerSoftwareInstallDialog } from '@/presentation/pages/software/ServerSoftwareInstallDialog'
 import { softwareInstallBlockerReason } from '@/presentation/pages/software/softwarePresentation'
 import { DeployOSDialog } from '@/presentation/pages/provisioning/DeployOSDialog'
@@ -66,6 +67,7 @@ export function ServerActionMenu({
   const { showToast } = useToast()
   const navigate = useNavigate()
   const { scopedHref } = useSiteScope()
+  const platformNames = usePlatformNames(server.source.siteId, [server])
   const [busy, setBusy] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [releaseOpen, setReleaseOpen] = useState(false)
@@ -205,6 +207,7 @@ export function ServerActionMenu({
           deployDisabledReason={deployDisabledReason}
           includeInstallSoftware
           installSoftwareDisabledReason={installSoftwareDisabledReason}
+          platformNames={platformNames}
           onAction={chooseAction}
           onDeploy={() => setDeployOSOpen(true)}
           onInstallSoftware={() => setInstallSoftwareOpen(true)}

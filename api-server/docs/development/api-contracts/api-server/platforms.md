@@ -333,13 +333,22 @@ A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
 defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
 runs workloads.
 
-A target is rejected while it is claimed by another Swallow-deployed Platform whose
-lifecycle is `deploying`, `deploy_failed`, `active`, `uninstalling`, or
-`uninstall_failed`. Claims use the durable deployment Operation's complete
-`targetServerIds` snapshot, so a partial failed deployment remains protected even before
-membership can be observed. A successful Uninstall transitions the Platform to
-`uninstalled` and releases that claim. A target carrying any observed Platform membership
-is also rejected. The current Server projection has one membership axis; allowing
+A target is rejected while another Platform claims it: its Server's `platformClaim`
+([servers-list.md](servers-list.md#platform-claim),
+[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)) names that
+Platform, and the `400 validation_error` message names it too. When the deployment is accepted,
+Swallow claims every target of its `targetServerIds` for the new Platform with a conditional write
+per Server, so of two deployments accepted at the same time only one can take a Server; the other
+is refused the same way and leaves no Platform record or partial claim behind. A refused launch
+also removes the new Platform and its claims. The claim stays while the Platform is
+`deploying`, `deploy_failed`, `active`, `uninstalling`, or `uninstall_failed`, so a partial
+failed deployment remains protected even before membership can be observed; a successful
+Uninstall (with or without `deleteRecord`) and Delete release it. Platforms deployed before
+claims existed get their claims from the latest deployment Operation's `targetServerIds` when the
+API starts. A claimed Server cannot be released directly
+([provisioning.md](provisioning.md#durable-os-operations)) or deleted
+([server-detail-actions.md](server-detail-actions.md)). A target carrying any observed
+Platform membership is also rejected. The current Server projection has one membership axis; allowing
 cross-platform co-residency requires a future platform-scoped multi-membership contract
 rather than overwriting the existing observation.
 
@@ -984,8 +993,9 @@ dispatchers and Swallow's hooks, Omnistat, the Device Metrics Exporter package, 
 OCI probe bundle, and the MPI probe (the `crun` and OpenMPI packages stay), and a successful uninstall sets
 `omnistat.state` and `deviceMetricsExporter.state` to `absent` when Swallow managed them.
 
-On success Swallow clears membership, deletes only a credential Integration proven to be
-Swallow-owned, and clears the Platform integration/sync projection. If Kubernetes owned
+On success Swallow clears membership, releases the Platform's Platform Claims on its Servers,
+deletes only a credential Integration proven to be Swallow-owned, and clears the Platform
+integration/sync projection. If Kubernetes owned
 exporters, Swallow separately queues `install-exporters` for targets that remain present,
 deployed, and unlocked. That Operation has its own failure lifecycle and does not roll back
 the uninstall.
@@ -1037,8 +1047,8 @@ would be a register-existing back door, which
 finish an uninstall (use the uninstall's `deleteRecord` for that). It returns
 `{"success":true}` on success. It first
 cancels the Platform's in-flight durable Operations so their resource leases are released
-and the member servers are freed, then clears membership and a Swallow-owned credential
-Integration, and finally removes the Platform record. Cancellation only stops durable work
+and the member servers are freed, then clears membership, the Platform's Platform Claims, and a
+Swallow-owned credential Integration, and finally removes the Platform record. Cancellation only stops durable work
 and frees leases; Delete still never runs Ansible, changes hosts, waits for Uninstall, or
 restores exporters, and it remains available while targets are locked because it does not
 mutate them. If cancellation cannot be performed the Delete is refused and the record is

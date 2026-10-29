@@ -37,6 +37,9 @@ type PlatformService struct {
 	// Device Metrics Exporter absent and removes its link; an install's completion records the
 	// GPU identity it found.
 	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
+	// claims is optional (tests). When wired, Delete and a successful uninstall release the
+	// Platform's Platform Claims, so its Servers can be released or claimed again (decision 067).
+	claims serverdomain.PlatformClaimStore
 }
 
 // NewPlatformService constructs the platform application service.
@@ -458,6 +461,11 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 	if err := s.clearMemberships(ctx, id); err != nil {
 		return err
 	}
+	// The record is going away, so nothing can uninstall through it any more; its claims go with
+	// it (the hosts are not changed, which is what Delete means).
+	if err := s.releaseClaims(ctx, id); err != nil {
+		return err
+	}
 	if s.integrations != nil {
 		allowLegacy := lifecycle.Origin == platformdomain.PlatformOriginDeployed
 		if err := s.integrations.DeleteForPlatform(ctx, platform, allowLegacy); err != nil {
@@ -486,6 +494,10 @@ func (s *PlatformService) CompleteUninstall(ctx context.Context, id string, dele
 		return err
 	}
 	if err := s.clearMemberships(ctx, id); err != nil {
+		return err
+	}
+	// The hosts no longer carry the platform, so its Servers are free to be released or claimed.
+	if err := s.releaseClaims(ctx, id); err != nil {
 		return err
 	}
 	if s.integrations != nil {

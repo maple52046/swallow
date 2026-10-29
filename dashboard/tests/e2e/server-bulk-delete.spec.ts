@@ -13,16 +13,17 @@ async function openBulkDelete(page: Page) {
   await page.getByLabel('Select gpu-node-01').check()
   await page.getByLabel('Select gpu-node-04').check()
   await page.getByRole('button', { name: 'Take action' }).click()
-  await page.getByRole('menuitem', { name: 'Delete server', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Delete only', exact: true }).click()
   return page.getByRole('alertdialog', { name: 'Delete 2 servers' })
 }
 
 // Servers could only be deleted one at a time. A selection is now deleted together: the dialog
 // lists the targets, warns about Platform members and Servers held by running Workflows without
-// excluding them, and is confirmed by typing how many Servers will go.
+// excluding them, and is confirmed by typing how many Servers will go. These journeys use Servers
+// no Platform claims; a claimed Server cannot be deleted (server-platform-claim.spec.ts).
 test('a selection of Servers is deleted after typing the count', async ({ page }) => {
   const deleted: string[] = []
-  await installApiFixtures(page, { onServerDeleteRequest: (serverId) => deleted.push(serverId) })
+  await installApiFixtures(page, { withoutPlatformClaims: true, onServerDeleteRequest: (serverId) => deleted.push(serverId) })
   const dialog = await openBulkDelete(page)
 
   await expect(dialog.getByRole('list', { name: 'Servers to delete' })).toContainText('gpu-node-01')
@@ -47,7 +48,7 @@ test('a selection of Servers is deleted after typing the count', async ({ page }
 })
 
 test('a partly refused bulk delete reports each refusal', async ({ page }) => {
-  await installApiFixtures(page, { serverDeleteFailureIds: ['srv-4'] })
+  await installApiFixtures(page, { withoutPlatformClaims: true, serverDeleteFailureIds: ['srv-4'] })
   const dialog = await openBulkDelete(page)
   await dialog.getByLabel('Server count confirmation').fill('2')
   await dialog.getByRole('button', { name: 'Delete 2 servers' }).click()
@@ -59,7 +60,7 @@ test('a partly refused bulk delete reports each refusal', async ({ page }) => {
 })
 
 test('a bulk delete that every Server refused stays open with the reason', async ({ page }) => {
-  await installApiFixtures(page, { serverDeleteFailureIds: ['srv-1', 'srv-4'] })
+  await installApiFixtures(page, { withoutPlatformClaims: true, serverDeleteFailureIds: ['srv-1', 'srv-4'] })
   const dialog = await openBulkDelete(page)
   await dialog.getByLabel('Server count confirmation').fill('2')
   await dialog.getByRole('button', { name: 'Delete 2 servers' }).click()

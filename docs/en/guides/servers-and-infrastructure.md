@@ -346,7 +346,12 @@ also gated by provider capability and current state.
 Deleting a Server is provider-backed: it removes the backing machine before the
 projection, preventing reconcile from immediately recreating it.
 
-To delete several Servers, select them and choose **Delete server** from
+A Server that a Platform was deployed onto belongs to that Platform until the
+Platform is uninstalled or its record is deleted. While it does, **Take action**
+says which Platform it belongs to and disables **Release** and **Delete only**;
+release its Servers by uninstalling the Platform with **Release all servers**.
+
+To delete several Servers, select them and choose **Delete only** from
 **Take action**. The dialog lists them and names any that belong to a Platform or
 that a running Workflow holds; deleting does not uninstall the Platform or cancel
 that work. Type the number of Servers to confirm. If the provisioner refuses

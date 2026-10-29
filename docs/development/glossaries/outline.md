@@ -47,6 +47,9 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   runtime; Uninstall changes original deployment targets while Delete removes only the record.
 - [Platform Lifecycle State](terms/platform-lifecycle-state.md): Backend operation-derived
   state from registration through deployment and uninstall, independent of connectivity.
+- [Platform Claim](terms/platform-claim.md): The swallow-owned record on a Server that an accepted
+  Platform deployment targets it; released by that Platform's successful uninstall or deletion,
+  and the reason a claimed Server cannot be released directly.
 - [Node Role](terms/node-role.md): The part a server plays in a Platform — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a Platform.
 - [Kubernetes Topology](terms/kubernetes-topology.md): The supported placement and availability
   shape of a Kubernetes deployment — standalone, non-HA multi-node, or high availability.

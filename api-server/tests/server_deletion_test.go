@@ -3,9 +3,12 @@ package tests
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 func TestDeleteServer_RemovesProviderMachineBeforeProjection(t *testing.T) {
@@ -97,6 +100,37 @@ func TestDeleteServer_UnsupportedProviderRetainsProjection(t *testing.T) {
 	}
 	if _, ok := f.servers.servers["srv-1"]; !ok {
 		t.Error("unsupported provider must retain the Server projection")
+	}
+}
+
+// A Platform's Server is removed through its Platform (decision 067): Delete is refused before the
+// provisioner is called, even when the Machine is already gone, and both records are kept.
+func TestDeleteServer_PlatformClaimedServerIsConflict(t *testing.T) {
+	for name, withMachine := range map[string]bool{"machine present": true, "machine already gone": false} {
+		t.Run(name, func(t *testing.T) {
+			f := setupPlatform(t)
+			f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+			if withMachine {
+				f.provider.withMachine(testMachine("machine-srv-1", "gpu-node-01"))
+			}
+			f.servers.servers["srv-1"].PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-a", ClaimedAt: time.Now()}
+
+			resp := doRequest(t, f.app, http.MethodDelete, "/api/v1/servers/srv-1", nil, f.adminAuth(t))
+			if resp.StatusCode != http.StatusConflict {
+				t.Fatalf("DELETE claimed server status = %d, want 409", resp.StatusCode)
+			}
+			body := parseBody(t, resp)
+			message, _ := body["error"].(map[string]any)["message"].(string)
+			if !strings.Contains(message, "gpu-node-01 belongs to Platform platform-a") || !strings.Contains(message, "before deleting the Server") {
+				t.Errorf("message = %q, want the Server, the Platform, and the next step", message)
+			}
+			if len(f.provider.deleteCalls) != 0 {
+				t.Errorf("provider delete calls = %v, want none for a claimed Server", f.provider.deleteCalls)
+			}
+			if _, ok := f.servers.servers["srv-1"]; !ok {
+				t.Error("a refused Delete must retain the Server projection")
+			}
+		})
 	}
 }
 

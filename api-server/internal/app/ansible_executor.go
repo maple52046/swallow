@@ -111,6 +111,8 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	platformService.AttachGPUOperatorRecorder(platforms)
 	platformService.AttachOmnistatRecorder(platforms)
 	platformService.AttachDeviceMetricsExporterRecorder(platforms)
+	// An uninstall completed by its ansible Step frees its Servers (decision 067).
+	platformService.AttachPlatformClaims(servers)
 	credentials := platformapp.NewDeploymentCredentialService(platforms, integrations, membership)
 	durable := operationapp.NewWorkflowService(orchestrations, nil, operationSecrets)
 	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)

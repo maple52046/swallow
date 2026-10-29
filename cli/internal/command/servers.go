@@ -138,9 +138,12 @@ func serversDeleteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <serverId>",
 		Short: "Delete a Server and its backing provisioner Machine",
-		Args:  cobra.ExactArgs(1),
+		Long: "Delete a Server and its backing provisioner Machine. A Server a Platform claims (its\n" +
+			"platformClaim) is refused with a conflict: uninstall that Platform or delete its record first.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sendNoContent(cmd, "DELETE", "servers/"+args[0], nil, nil)
+			err := sendNoContent(cmd, "DELETE", "servers/"+args[0], nil, nil)
+			return hintPlatformClaim(cmd, err, []string{args[0]}, deleteAfterPlatform)
 		},
 	}
 }
