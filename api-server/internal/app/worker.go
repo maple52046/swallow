@@ -163,8 +163,10 @@ func RunWorker(cfg config.APIConfig) error {
 	platformFinalizer.AttachGPUOperatorRecorder(platforms)
 	platformFinalizer.AttachOmnistatRecorder(platforms)
 	platformFinalizer.AttachDeviceMetricsExporterRecorder(platforms)
-	// A completed uninstall frees its Servers (decision 067).
+	// A completed uninstall frees its Servers (decision 067) and, for Slurm, retires their Device
+	// Metrics Exporter records (decision 068).
 	platformFinalizer.AttachPlatformClaims(servers)
+	platformFinalizer.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	// Boot Media's ensure-boot-media Task (decisions 047 and 049) drives the BMC over Redfish with
 	// the connection read live from the provisioner. An OS deployment's Task carries the Boot ISO
 	// URL frozen at acceptance; an inspect-hardware Task resolves the Server's Boot ISO when it

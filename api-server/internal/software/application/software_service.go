@@ -49,6 +49,13 @@ type MembershipChecker interface {
 	IsKubernetesMember(ctx context.Context, serverID string) (bool, error)
 }
 
+// PlatformNames resolves a claiming Platform's display name and type, so a refusal for a
+// Platform-claimed Server names the Platform. It is a port so the software context never reads the
+// platform context's model; an error leaves the refusal naming the Platform by id.
+type PlatformNames interface {
+	PlatformName(ctx context.Context, platformID string) (name, platformType string, err error)
+}
+
 // SoftwareService owns Managed Software policy and drives the launcher. It never talks to Temporal
 // directly; it validates intent, records the swallow-owned assignment, and delegates orchestration.
 type SoftwareService struct {
@@ -56,6 +63,8 @@ type SoftwareService struct {
 	servers     serverdomain.ServerRepository
 	membership  MembershipChecker
 	launcher    SoftwareLauncher
+	// names is optional; see AttachPlatformNames.
+	names PlatformNames
 }
 
 // NewSoftwareService constructs the Managed Software use cases. The launcher is attached later
@@ -70,6 +79,10 @@ func NewSoftwareService(
 
 // AttachLauncher wires the Workflow-composing launcher. Install and Uninstall require it.
 func (s *SoftwareService) AttachLauncher(launcher SoftwareLauncher) { s.launcher = launcher }
+
+// AttachPlatformNames lets a refusal for a Platform-claimed Server name the Platform. Without it
+// the refusal names the Platform by id.
+func (s *SoftwareService) AttachPlatformNames(names PlatformNames) { s.names = names }
 
 // Catalog returns the fixed set of installable software kinds and their rules.
 func (s *SoftwareService) Catalog() []softwaredomain.CatalogEntry {
@@ -123,8 +136,9 @@ type installPlan struct {
 }
 
 // Install validates the request against the catalog, the target Servers' state, mutual exclusion,
-// required kinds, and Kubernetes membership, then launches the install Workflow and records a
-// pending assignment per target. It returns the Workflow (operation) id.
+// required kinds, Kubernetes membership, Platform Claims, and GPU inventory, then launches the
+// install Workflow and records a pending assignment per target. It returns the Workflow (operation)
+// id.
 func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (string, error) {
 	if s.launcher == nil {
 		return "", fmt.Errorf("%w: software orchestration is unavailable", ErrInvalidRequest)
@@ -152,9 +166,10 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 
 // PlanComposedInstall validates a software install that a platform deployment composes into its
 // own Workflow, without writing anything. It applies the same catalog, role, spec, mutual
-// exclusion, and Kubernetes-member rules as Install, but not the deployed-state or Requires checks:
-// the composing Workflow provisions its targets and installs the required kinds in earlier Jobs,
-// and its ansible Tasks are still accepted only through the operation layer's own checks.
+// exclusion, Kubernetes-member, and GPU rules as Install, but not the deployed-state, Requires, or
+// Platform Claim checks: the composing Workflow provisions its targets and installs the required
+// kinds in earlier Jobs, it is the Platform that claims them, and its ansible Tasks are still
+// accepted only through the operation layer's own checks.
 func (s *SoftwareService) PlanComposedInstall(ctx context.Context, input InstallInput) (ComposedInstall, error) {
 	plan, err := s.planInstall(ctx, input, true)
 	if err != nil {
@@ -174,7 +189,8 @@ func (s *SoftwareService) RecordComposedInstall(ctx context.Context, install Com
 }
 
 // planInstall validates and normalizes an install. composed skips the checks that a composing
-// Workflow satisfies by its own Job order (targets deployed, required kinds installed).
+// Workflow satisfies by its own Job order (targets deployed, required kinds installed) and the
+// Platform Claim refusal, which exists to leave a Platform's Servers to that Platform.
 func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, composed bool) (installPlan, error) {
 	entry, ok := softwaredomain.LookupKind(input.Kind)
 	if !ok {
@@ -221,6 +237,15 @@ func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, c
 		}
 		if !composed && (server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed") {
 			return installPlan{}, fmt.Errorf("%w: %s is not deployed", ErrInvalidRequest, server.DisplayName())
+		}
+		if !composed {
+			if err := s.refuseClaimed(ctx, entry, server, "install"); err != nil {
+				return installPlan{}, err
+			}
+		}
+		if entry.RequiresAMDComputeGPU && !serverdomain.HasAMDComputeGPU(server.Observed.GPUs) {
+			return installPlan{}, fmt.Errorf("%w: %s lists no AMD compute GPU in its GPU Inventory, which %s needs",
+				softwaredomain.ErrTargetIneligible, server.DisplayName(), entry.Label)
 		}
 		if entry.RefusedForKubernetesMembers && s.membership != nil {
 			member, err := s.membership.IsKubernetesMember(ctx, serverID)
@@ -290,6 +315,23 @@ func (s *SoftwareService) resolveContainerRuntime(
 	}
 	spec[softwaredomain.SpecContainerRuntime] = string(resolved)
 	return nil
+}
+
+// refuseClaimed returns ErrPlatformClaimed when entry refuses claimed Servers and server carries a
+// Platform Claim: that Platform installs and removes the kind on its Servers (decision 068). verb is
+// the refused action ("install" or "uninstall").
+func (s *SoftwareService) refuseClaimed(ctx context.Context, entry softwaredomain.CatalogEntry, server *serverdomain.Server, verb string) error {
+	if !entry.RefusedForClaimedServers || server.PlatformClaim == nil {
+		return nil
+	}
+	platform := "Platform " + server.PlatformClaim.PlatformID
+	if s.names != nil {
+		if name, platformType, err := s.names.PlatformName(ctx, server.PlatformClaim.PlatformID); err == nil && name != "" {
+			platform = strings.TrimSpace(platformType + " Platform " + name)
+		}
+	}
+	return fmt.Errorf("%w: %s belongs to %s, which manages %s on its Servers; cannot %s it directly",
+		softwaredomain.ErrPlatformClaimed, server.DisplayName(), platform, entry.Label, verb)
 }
 
 // installedRuntime returns the entry's container runtime that is `installed` on the Server, or ""
@@ -364,14 +406,16 @@ func (s *SoftwareService) recordPending(
 	return nil
 }
 
-// Uninstall validates that each target has a live assignment of the kind, launches the uninstall
+// Uninstall validates that each target has a live assignment of the kind (and, for a kind that
+// refuses claimed Servers, no Platform Claim: its Platform removes it), launches the uninstall
 // Workflow, and marks the assignments uninstalling. The clear-software-assignment step marks them
 // absent on success.
 func (s *SoftwareService) Uninstall(ctx context.Context, input UninstallInput) (string, error) {
 	if s.launcher == nil {
 		return "", fmt.Errorf("%w: software orchestration is unavailable", ErrInvalidRequest)
 	}
-	if _, ok := softwaredomain.LookupKind(input.Kind); !ok {
+	entry, ok := softwaredomain.LookupKind(input.Kind)
+	if !ok {
 		return "", fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, input.Kind)
 	}
 	if len(input.ServerIDs) == 0 {
@@ -393,6 +437,18 @@ func (s *SoftwareService) Uninstall(ctx context.Context, input UninstallInput) (
 		}
 		if assignment.State == softwaredomain.StateAbsent {
 			return "", fmt.Errorf("%w: %s has no %s assignment", softwaredomain.ErrAssignmentNotFound, serverID, input.Kind)
+		}
+		if entry.RefusedForClaimedServers {
+			// A Server that no longer exists has no claim to honour; the operation layer refuses it.
+			server, err := s.servers.FindByID(ctx, serverID)
+			if err != nil && !errors.Is(err, serverdomain.ErrServerNotFound) {
+				return "", err
+			}
+			if err == nil {
+				if err := s.refuseClaimed(ctx, entry, server, "uninstall"); err != nil {
+					return "", err
+				}
+			}
 		}
 		rolesByServer[serverID] = assignment.Roles
 		if spec == nil {
@@ -478,6 +534,11 @@ func validateSpec(entry softwaredomain.CatalogEntry, rolesByServer map[string][]
 		return validatePrometheusSpec(entry, spec)
 	case softwaredomain.KindGrafana:
 		return validateGrafanaSpec(entry, spec)
+	case softwaredomain.KindDeviceMetricsExporter:
+		// The version is pinned and recorded by normalizeSpec; there is nothing to choose yet.
+		if len(spec) > 0 {
+			return fmt.Errorf("%w: %s takes no spec fields", softwaredomain.ErrSpecInvalid, entry.Kind)
+		}
 	}
 	return nil
 }
@@ -784,6 +845,16 @@ func buildInstallVars(kind softwaredomain.Kind, rolesByServer map[string][]softw
 		vars["swallow_grafana_prometheus_port"] = softwaredomain.PrometheusPort
 		dashboards, _ := specStringList(spec, softwaredomain.SpecDashboards)
 		vars["swallow_grafana_dashboards"] = nonNilStrings(dashboards)
+	case softwaredomain.KindDeviceMetricsExporter:
+		// A record written by this release always carries the version; fall back for safety. A
+		// composing Slurm deployment overlays its own job attribution and topology on these.
+		version := strings.TrimSpace(specString(spec, softwaredomain.SpecVersion))
+		if version == "" {
+			version = softwaredomain.DeviceMetricsExporterVersion
+		}
+		vars["swallow_device_metrics_exporter_version"] = version
+		vars["swallow_device_metrics_exporter_port"] = softwaredomain.DeviceMetricsExporterPort
+		vars["swallow_device_metrics_exporter_job_attribution"] = string(softwaredomain.JobAttributionNone)
 	}
 	return vars
 }
@@ -791,7 +862,8 @@ func buildInstallVars(kind softwaredomain.Kind, rolesByServer map[string][]softw
 // normalizeSpec applies the kind-specific defaults to an already validated install spec and returns
 // a copy. Docker CE's enableApi defaults to true (decision 043), recorded explicitly so a later read
 // can tell "enabled by default" from a legacy record that predates the variant. Prometheus and
-// Grafana record the pinned image tag they apply and their lists as plain string arrays.
+// Grafana record the pinned image tag they apply and their lists as plain string arrays. The Device
+// Metrics Exporter takes no spec and records the pinned version it applies.
 func normalizeSpec(kind softwaredomain.Kind, spec map[string]any) map[string]any {
 	out := cloneSpec(spec)
 	switch kind {
@@ -825,6 +897,8 @@ func normalizeSpec(kind softwaredomain.Kind, spec map[string]any) map[string]any
 		out[softwaredomain.SpecPrometheusURL] = strings.TrimSpace(specString(out, softwaredomain.SpecPrometheusURL))
 		dashboards, _ := specStringList(out, softwaredomain.SpecDashboards)
 		out[softwaredomain.SpecDashboards] = nonNilStrings(dashboards)
+	case softwaredomain.KindDeviceMetricsExporter:
+		out = map[string]any{softwaredomain.SpecVersion: softwaredomain.DeviceMetricsExporterVersion}
 	}
 	return out
 }

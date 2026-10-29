@@ -28,7 +28,9 @@ import {
   isSoftwareAssignmentChanging,
   softwareAssignmentSummary,
   softwareCatalogPresentation,
+  softwareCategoryBadge,
   softwareDeploymentRows,
+  softwareManagedByPlatform,
   type SoftwareDeploymentLens,
   type SoftwareDeploymentRow,
 } from './softwareCatalogPresentation'
@@ -192,7 +194,7 @@ export function SoftwareDetailPage() {
         title={entry.label}
         subtitle={presentation.description}
         breadcrumbs={[{ label: 'Software', href: scopedHref('/software') }, { label: entry.label }]}
-        metadata={<Badge variant="subtle" colorPalette="gray">{presentation.category === 'container-runtimes' ? 'Container runtime' : 'Storage & file sharing'}</Badge>}
+        metadata={<Badge variant="subtle" colorPalette="gray">{softwareCategoryBadge(presentation.category)}</Badge>}
         stackActionsOnMobile
         actions={
           <>
@@ -240,6 +242,8 @@ export function SoftwareDetailPage() {
             value={[
               entry.mutuallyExclusiveWith.length > 0 ? `Cannot coexist with ${entry.mutuallyExclusiveWith.join(', ')}` : 'No catalog conflicts',
               entry.refusedForKubernetesMembers ? 'Not available to Kubernetes members' : 'Platform membership allowed',
+              ...(entry.requiresAmdComputeGpu ? ['Needs AMD compute GPUs'] : []),
+              ...(entry.refusedForClaimedServers ? ['Managed by the Platform on its Servers'] : []),
             ].join(' · ')}
           />
         </div>
@@ -305,6 +309,7 @@ export function SoftwareDetailPage() {
                         <SoftwareDeploymentTableRow
                           key={row.assignment.serverId}
                           row={row}
+                          managedByPlatformId={softwareManagedByPlatform(row.server, entry) ? row.server.platformClaim?.platformId ?? null : null}
                           showSite={!siteId}
                           siteName={siteName(row.server.source.siteId)}
                           scopedHref={scopedHref}
@@ -322,6 +327,7 @@ export function SoftwareDetailPage() {
                     <SoftwareDeploymentCard
                       key={row.assignment.serverId}
                       row={row}
+                      managedByPlatformId={softwareManagedByPlatform(row.server, entry) ? row.server.platformClaim?.platformId ?? null : null}
                       showSite={!siteId}
                       siteName={siteName(row.server.source.siteId)}
                       scopedHref={scopedHref}
@@ -376,6 +382,11 @@ function SoftwareCapability({ label, value }: { label: string; value: string }) 
 
 interface DeploymentPresentationProps {
   row: SoftwareDeploymentRow
+  /**
+   * The Platform that manages this software on the Server (a claimed Server of a kind that refuses
+   * claimed Servers), or null. Its deployment is then changed only through that Platform.
+   */
+  managedByPlatformId: string | null
   showSite: boolean
   siteName: string
   scopedHref: (path: string) => string
@@ -383,8 +394,11 @@ interface DeploymentPresentationProps {
   onUninstall: () => void
 }
 
-/** Contextual primary and overflow actions shared by desktop rows and mobile cards. */
-function SoftwareDeploymentActions({ row, scopedHref, onReconfigure, onUninstall }: DeploymentPresentationProps) {
+/**
+ * Contextual primary and overflow actions shared by desktop rows and mobile cards. A deployment its
+ * Platform manages offers a link to that Platform instead of Reconfigure and Uninstall.
+ */
+function SoftwareDeploymentActions({ row, managedByPlatformId, scopedHref, onReconfigure, onUninstall }: DeploymentPresentationProps) {
   const { assignment, server } = row
   const changing = isSoftwareAssignmentChanging(assignment)
   return (
@@ -396,7 +410,14 @@ function SoftwareDeploymentActions({ row, scopedHref, onReconfigure, onUninstall
           <RouterLink to={scopedHref(`/workflows/${assignment.lastWorkflowId}`)}>View workflow</RouterLink>
         </Button>
       )}
-      {!changing && (
+      {managedByPlatformId && (
+        <Button asChild size="sm" variant="ghost">
+          <RouterLink to={scopedHref(`/platforms/${managedByPlatformId}`)} title="Its Platform manages this software on the Server">
+            Managed by Platform
+          </RouterLink>
+        </Button>
+      )}
+      {!changing && !managedByPlatformId && (
         <Menu.Root positioning={{ placement: 'bottom-end' }}>
           <Menu.Trigger asChild><Button size="sm" variant="ghost">More <ChevronDown size={14} aria-hidden /></Button></Menu.Trigger>
           <Portal><Menu.Positioner><Menu.Content>

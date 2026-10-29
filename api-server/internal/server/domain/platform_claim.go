@@ -56,4 +56,8 @@ type PlatformClaimStore interface {
 	// ClaimingPlatformIDs lists every Platform id that claims at least one Server, so the startup
 	// reconciliation can drop claims whose Platform is gone or already uninstalled.
 	ClaimingPlatformIDs(ctx context.Context) ([]string, error)
+	// ClaimedServerIDs lists the Servers platformID claims (none is an empty result, not an
+	// error). A successful uninstall reads them before releasing the claims, to clean up what the
+	// uninstall removed from those Servers.
+	ClaimedServerIDs(ctx context.Context, platformID string) ([]string, error)
 }

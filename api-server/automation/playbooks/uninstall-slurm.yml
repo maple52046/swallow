@@ -90,41 +90,13 @@
         - /usr/local/libexec/swallow/hip-probe
         - /usr/local/libexec/swallow/mpi-probe
 
-    - name: Stop and disable the Device Metrics Exporter
-      # Part of the Slurm Platform like Omnistat; a node that never ran it is fine.
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: stopped
-        enabled: false
-      failed_when: false
-      loop:
-        - amd-metrics-exporter
-        - gpuagent
-
-    - name: Remove the Device Metrics Exporter package
-      ansible.builtin.apt:
-        name: amdgpu-exporter
-        state: absent
-        purge: true
-        lock_timeout: 600
-      failed_when: false
-
-    - name: Remove the Device Metrics Exporter configuration, job directory, and package cache
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /etc/systemd/system/gpuagent.service.d/10-swallow.conf
-        - /etc/systemd/system/amd-metrics-exporter.service.d/10-swallow.conf
-        - /etc/swallow/device-metrics-exporter
-        - /etc/tmpfiles.d/swallow-device-metrics-exporter.conf
-        - /run/exporter
-        - /usr/local/libexec/swallow/dme-identity-check
-        - /var/cache/swallow/amdgpu-exporter_1.5.3~24.04_amd64.deb
-
-    - name: Reload systemd after removing the exporter's drop-ins
-      ansible.builtin.systemd:
-        daemon_reload: true
+    - name: Remove the Device Metrics Exporter
+      # Part of the Slurm Platform's feature (decision 068): the exporter goes from every target,
+      # and a successful uninstall marks those Servers' device-metrics-exporter assignments absent.
+      # A node that never ran it is fine.
+      ansible.builtin.include_role:
+        name: device_metrics_exporter
+        tasks_from: uninstall
 
     - name: Stop loading amdgpu for Slurm and remove slurmd's ordering after it
       ansible.builtin.include_role:

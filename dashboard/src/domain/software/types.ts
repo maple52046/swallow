@@ -11,11 +11,13 @@ import type { SoftwareInstallMethod } from './installMethod'
 /**
  * A single installable software. Values are domain language owned by swallow's glossary;
  * `prometheus` and `grafana` install as containers (on Docker CE or Podman) or natively
- * (decision 063).
+ * (decision 063); `device-metrics-exporter` is AMD's per-GPU exporter, native only (decision 068).
  */
-export type SoftwareKind = 'docker-ce' | 'podman' | 'nfs' | 'prometheus' | 'grafana'
+export type SoftwareKind = 'docker-ce' | 'podman' | 'nfs' | 'prometheus' | 'grafana' | 'device-metrics-exporter'
 
-const SOFTWARE_KINDS: ReadonlySet<string> = new Set<SoftwareKind>(['docker-ce', 'podman', 'nfs', 'prometheus', 'grafana'])
+const SOFTWARE_KINDS: ReadonlySet<string> = new Set<SoftwareKind>([
+  'docker-ce', 'podman', 'nfs', 'prometheus', 'grafana', 'device-metrics-exporter',
+])
 
 /** Narrows an untyped value (for example the kind inside a Workflow Job id) to a known SoftwareKind. */
 export function isSoftwareKind(value: string): value is SoftwareKind {
@@ -46,6 +48,13 @@ export interface SoftwareCatalogEntry {
   mutuallyExclusiveWith: SoftwareKind[]
   /** Whether installing this kind is refused on a Kubernetes Platform member. */
   refusedForKubernetesMembers: boolean
+  /**
+   * Whether a standalone install or uninstall of this kind is refused on a Server with a Platform
+   * Claim, because that Platform manages the kind there. Absent (an older API) reads as false.
+   */
+  refusedForClaimedServers?: boolean
+  /** Whether every target must list AMD compute GPUs. Absent (an older API) reads as false. */
+  requiresAmdComputeGpu?: boolean
   /**
    * Ways this kind can be installed, the default first (`container`, `native`). Empty for a kind
    * with one built-in way. Always an array.

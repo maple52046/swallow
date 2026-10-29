@@ -50,6 +50,8 @@ export function softwareKindLabel(kind: SoftwareKind, catalogLabel?: string): st
       return 'Prometheus'
     case 'grafana':
       return 'Grafana'
+    case 'device-metrics-exporter':
+      return 'AMD Device Metrics Exporter'
     default:
       return kind
   }

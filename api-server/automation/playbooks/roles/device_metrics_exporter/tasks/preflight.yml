@@ -1,0 +1,14 @@
+---
+# Refuse a host AMD's pinned package is not built for, before anything is installed on it (the
+# standalone install loads the amdgpu driver first). Needs gathered facts.
+
+- name: Refuse an operating system AMD's package is not built for
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['distribution_release'] == device_metrics_exporter_package.distribution_release
+    fail_msg: >-
+      [device_metrics_exporter_unsupported_os] the Device Metrics Exporter {{ device_metrics_exporter_version }}
+      package is built for Ubuntu {{ device_metrics_exporter_package.distribution_release }}; this node runs
+      {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_release'] }}.
+    quiet: true

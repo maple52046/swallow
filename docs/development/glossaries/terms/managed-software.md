@@ -15,12 +15,15 @@
   install methods, the first being its default: Prometheus and Grafana install by `container`
   (the official image on the Server's container runtime, Docker CE or Podman, which must already
   be installed) or `native` (the official release binary or the official apt/yum package); the
-  method and the runtime are variants of the same software. The same software kind can also be
-  composed as a Job into a platform deployment, sharing the same Ansible roles and recording the
-  same Software Assignment — a Slurm deploy composes its container runtime onto its compute and
-  login nodes, and with Omnistat composes `prometheus` and `grafana` (plus their runtime, for the
-  `container` method) onto its primary controller. Docker CE and Podman are distinct kinds and
-  are mutually exclusive on one Server.
+  method and the runtime are variants of the same software. `device-metrics-exporter` (AMD's
+  per-GPU exporter) has one native install path and needs AMD compute GPUs. A kind may refuse a
+  Server with a Platform Claim, whose Platform then manages that kind on it. The same software
+  kind can also be composed as a Job into a platform deployment, sharing the same Ansible roles
+  and recording the same Software Assignment — a Slurm deploy composes its container runtime onto
+  its compute and login nodes, with Omnistat or the Device Metrics Exporter composes `prometheus`
+  and `grafana` (plus their runtime, for the `container` method) onto its primary controller, and
+  with the Device Metrics Exporter composes `device-metrics-exporter` onto its GPU compute nodes.
+  Docker CE and Podman are distinct kinds and are mutually exclusive on one Server.
 - Disallowed meaning: Not a Platform — the target is a single software, not a multi-component
   runtime, and Managed Software has no cluster membership, no platform credential, and no
   whole-batch target claim. Not defined by whether OS provisioning runs, whether a batch of
@@ -37,8 +40,8 @@
   and `grafana` as Jobs rather than duplicating their playbooks; the primary controller ends up
   with three ordinary Software Assignments." / "Grafana installed by the `native` method comes
   from Grafana's apt repository and needs no container runtime."
-- Related terms: Software Assignment, Docker Host Explorer, Platform, Workflow, Job, Task, Runner,
-  Server.
+- Related terms: Software Assignment, Docker Host Explorer, Device Metrics Exporter, Platform,
+  Platform Claim, Workflow, Job, Task, Runner, Server.
 - Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md))
   to name single-software deployment as distinct from platform deployment, with the deploy
   target's granularity as the authoritative boundary. 2026-10-02
@@ -47,4 +50,6 @@
   added `prometheus` and `grafana`, and the first composition into a platform deployment.
   2026-10-22 (decision 063): install methods (`container` default, `native`) replaced
   Prometheus's and Grafana's Docker CE requirement, and a Slurm deploy may compose a container
-  runtime onto its compute and login nodes.
+  runtime onto its compute and login nodes. 2026-10-30
+  ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md)): added
+  `device-metrics-exporter`, the first kind that refuses Platform-claimed Servers.

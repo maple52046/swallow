@@ -31,6 +31,8 @@ and progress is observed through the [workflows](workflows.md) surface.
 - [Workflow](../../../../../docs/development/glossaries/terms/workflow.md)
 - [Server Status](../../../../../docs/development/glossaries/terms/server-status.md)
 - [Docker Host Explorer](../../../../../docs/development/glossaries/terms/docker-host-explorer.md)
+- [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
+- [Platform Claim](../../../../../docs/development/glossaries/terms/platform-claim.md)
 
 ## Endpoints
 
@@ -100,10 +102,28 @@ rules. The result is a small bounded array, not paginated.
       "installMethods": ["container", "native"],
       "containerRuntimes": ["docker-ce", "podman"],
       "specFields": ["installMethod", "containerRuntime", "version", "prometheusUrl", "dashboards"]
+    },
+    {
+      "kind": "device-metrics-exporter",
+      "label": "AMD Device Metrics Exporter",
+      "roles": [],
+      "mutuallyExclusiveWith": [],
+      "refusedForKubernetesMembers": true,
+      "refusedForClaimedServers": true,
+      "requiresAmdComputeGpu": true,
+      "installMethods": [],
+      "containerRuntimes": [],
+      "specFields": []
     }
   ]
 }
 ```
+
+Every entry carries `refusedForClaimedServers` and `requiresAmdComputeGpu` (`false` unless
+shown). `refusedForClaimedServers: true` means a standalone install or uninstall refuses a Server
+with a [Platform Claim](../../../../../docs/development/glossaries/terms/platform-claim.md),
+because that Platform manages the kind on its Servers. `requiresAmdComputeGpu: true` means every
+target must list AMD `compute` GPUs in its GPU Inventory.
 
 `kind`, `roles`, `mutuallyExclusiveWith`, `installMethods`, and `containerRuntimes` values are
 domain language from the
@@ -204,7 +224,8 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
 - `spec` is kind-specific and optional per field. For NFS, at least one `server` role in the
   batch requires `exportPath`, and a `client` role requires `source` and `mountPath`. Docker CE
   is described in [Docker CE spec](#docker-ce-spec), Prometheus and Grafana in
-  [Prometheus and Grafana spec](#prometheus-and-grafana-spec).
+  [Prometheus and Grafana spec](#prometheus-and-grafana-spec), and the Device Metrics Exporter
+  in [Device Metrics Exporter](#device-metrics-exporter).
 - Every target Server must be in provisioning state `deployed`. A kind installed by its
   `container` method also needs one of the entry's `containerRuntimes` in state `installed` on
   every target (see [Prometheus and Grafana spec](#prometheus-and-grafana-spec)).
@@ -296,6 +317,39 @@ for a container and a native process. Each is installed by one of two methods:
 - Uninstall removes the instance whichever method placed it (container, Quadlet unit, or native
   release, unit, and package), its configuration, and its data; the container runtime stays.
 
+### Device Metrics Exporter
+
+`device-metrics-exporter` installs AMD's
+[Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
+on each target: AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-256 verified),
+with `gpuagent` started after Swallow's post-boot amdgpu loader (`swallow-amdgpu-load.service`,
+installed when the Server has none). The exporter serves per-GPU Prometheus metrics on the
+Server's primary address at port `5001` (`5000` belongs to the host GPU exporter Swallow scrapes),
+with Slurm job attribution and the hardware profiler off. It installs only the exporter: to graph
+it, install `prometheus` with `scrapeServerIds` naming these Servers and `scrapePort: 5001`, and
+`grafana` with the `device-metrics-exporter` dashboard bundle.
+
+```json
+{
+  "kind": "device-metrics-exporter",
+  "assignments": [{ "serverId": "srv-abc" }]
+}
+```
+
+- The request takes no `spec` fields; any field is `400 validation_error`. The recorded `spec` is
+  `{ "version": "1.5.3" }`.
+- Every target must list AMD `compute` GPUs in its GPU Inventory, or the request is
+  `409 conflict`. A Kubernetes Platform member (whose GPU Operator runs its own exporter) and a
+  Server with a Platform Claim (whose Platform manages the exporter) are `409 conflict` too.
+- Only Ubuntu 24.04 is supported. The install Task fails with
+  `device_metrics_exporter_unsupported_os` on another distribution, and with
+  `device_metrics_exporter_no_metrics` when the exporter serves no GPU health metrics. When a
+  node's exporter reports fewer distinct `gpu_id`s than GPUs (for example MI308X SR-IOV virtual
+  functions), the install still succeeds and the Task output says so.
+- Uninstall removes the package, its configuration, and Swallow's amdgpu loader unless another
+  unit (slurmd or k0s) still depends on the loader. A Server with a Platform Claim is refused with
+  `409 conflict`.
+
 On success the response is `202 Accepted`:
 
 ```json
@@ -309,7 +363,7 @@ In addition to the shared codes in [conventions](conventions.md):
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |
 | `validation_error` | 400 | Unknown kind, missing/invalid roles for the kind, missing required spec field, or a spec field of the wrong type. |
-| `conflict` | 409 | A target already has an active durable Workflow, a mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, or a target is already a Kubernetes Platform member for a kind that refuses members. |
+| `conflict` | 409 | A target already has an active durable Workflow, a mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
 | `not_found` | 404 | A target Server does not exist. |
 | `conflict` | 409 | A target Server is not in the required `deployed` provisioning state, or is locked. |
 
@@ -342,7 +396,7 @@ On success the response is `202 Accepted`:
 | --- | ---: | --- |
 | `validation_error` | 400 | Unknown kind or empty `serverIds`. |
 | `not_found` | 404 | A target Server or its assignment does not exist. |
-| `conflict` | 409 | A target has active durable Workflow, is not `deployed`, or is locked. |
+| `conflict` | 409 | A target has active durable Workflow, is not `deployed`, is locked, or has a Platform Claim for a kind that refuses claimed Servers. |
 
 ## Compatibility Notes
 
@@ -350,6 +404,10 @@ On success the response is `202 Accepted`:
   model change per [conventions](conventions.md).
 - The install/uninstall responses intentionally return only `operationId`; clients read
   progress and the per-Task Job grouping through the [workflows](workflows.md) surface.
+- 2026-10-30: added the `device-metrics-exporter` kind and the catalog fields
+  `refusedForClaimedServers` and `requiresAmdComputeGpu`
+  ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md)).
+  Clients that do not know a field read it as `false`.
 
 ## Composition Into Platform Deployments
 
@@ -367,10 +425,14 @@ composes:
   controller (see [platforms](platforms.md#omnistat));
 - with the Device Metrics Exporter, the same two kinds the same way, with job
   `device-metrics-exporter`, `scrapeServerIds` = the GPU compute nodes, `scrapePort` = `5001`, and
-  dashboards `device-metrics-exporter` (see [platforms](platforms.md#device-metrics-exporter)).
+  dashboards `device-metrics-exporter`, and then `device-metrics-exporter` itself onto the GPU
+  compute nodes with Slurm job attribution on (see [platforms](platforms.md#device-metrics-exporter)).
 
 A composed runtime skips a Server where it is already `installed`, so an operator's own runtime
-spec is never reverted. Composition adds no endpoint.
+spec is never reverted. Composition adds no endpoint. A Slurm Platform's uninstall removes the
+Device Metrics Exporter from its Servers, and a successful one marks their
+`device-metrics-exporter` assignments `absent`; the composed Prometheus, Grafana, and runtime stay
+for the software uninstall.
 
 Slurm's embedded NFS (HA state and workload storage) is still not the generic `nfs` software
 above; extracting it into the shared `configure-nfs` Job is deferred. Until then, generic NFS and

@@ -24,6 +24,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	siteinfra "github.com/maple52046/swallow/internal/site/infra"
+	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
 )
 
 // RunAnsibleExecutor owns all v3 ansible-runner processes. Stopping this process leaves
@@ -111,8 +112,14 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	platformService.AttachGPUOperatorRecorder(platforms)
 	platformService.AttachOmnistatRecorder(platforms)
 	platformService.AttachDeviceMetricsExporterRecorder(platforms)
-	// An uninstall completed by its ansible Step frees its Servers (decision 067).
+	// An uninstall completed by its ansible Step frees its Servers (decision 067) and, for Slurm,
+	// retires their Device Metrics Exporter records (decision 068).
 	platformService.AttachPlatformClaims(servers)
+	softwareAssignments, err := softwareinfra.NewMongoAssignmentRepo(db)
+	if err != nil {
+		return err
+	}
+	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	credentials := platformapp.NewDeploymentCredentialService(platforms, integrations, membership)
 	durable := operationapp.NewWorkflowService(orchestrations, nil, operationSecrets)
 	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)

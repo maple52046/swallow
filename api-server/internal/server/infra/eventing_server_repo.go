@@ -108,12 +108,6 @@ func (r *EventingServerRepository) SetDefaultUser(ctx context.Context, id string
 	return nil
 }
 
-// claimLister is the Mongo repository's lookup of the Servers a Platform claims, used to
-// publish each Server a release clears.
-type claimLister interface {
-	ClaimedServerIDs(ctx context.Context, platformID string) ([]string, error)
-}
-
 // ClaimForPlatform delegates to the inner repository's PlatformClaimStore and publishes every
 // Server it was asked to claim, so lists show the claim without a reload. It fails with an error
 // when the inner repository does not persist claims, rather than silently claiming nothing.
@@ -138,10 +132,7 @@ func (r *EventingServerRepository) ReleasePlatformClaims(ctx context.Context, pl
 	if !ok {
 		return errPlatformClaimsUnsupported
 	}
-	var ids []string
-	if lister, ok := r.inner.(claimLister); ok {
-		ids, _ = lister.ClaimedServerIDs(ctx, platformID)
-	}
+	ids, _ := store.ClaimedServerIDs(ctx, platformID)
 	if err := store.ReleasePlatformClaims(ctx, platformID); err != nil {
 		return err
 	}
@@ -158,6 +149,15 @@ func (r *EventingServerRepository) ClaimingPlatformIDs(ctx context.Context) ([]s
 		return nil, errPlatformClaimsUnsupported
 	}
 	return store.ClaimingPlatformIDs(ctx)
+}
+
+// ClaimedServerIDs is a read and is delegated unchanged.
+func (r *EventingServerRepository) ClaimedServerIDs(ctx context.Context, platformID string) ([]string, error) {
+	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	if !ok {
+		return nil, errPlatformClaimsUnsupported
+	}
+	return store.ClaimedServerIDs(ctx, platformID)
 }
 
 var errPlatformClaimsUnsupported = errors.New("the server repository does not persist platform claims")

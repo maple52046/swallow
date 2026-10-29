@@ -62,7 +62,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [GPU Operator State](terms/gpu-operator-state.md): Where the latest Swallow change to a Platform's GPU Operator stands — `installing | ready | failed | uninstalling | absent`.
 - [Time Sync Check](terms/time-sync-check.md): How a Platform deployment treats a target whose clock is not in sync — `enforce` (default, stop before installing) or `warn` (report and continue); each Platform checks as the first part of its own installation, never sets time.
 - [Omnistat](terms/omnistat.md): AMD's Slurm-aware GPU monitoring that Swallow optionally installs with a Slurm deployment — exporter and job attribution on the Platform, Prometheus and Grafana composed as Managed Software; Omnistat State `installing | ready | failed | absent`.
-- [Device Metrics Exporter](terms/device-metrics-exporter.md): AMD's per-GPU exporter that Swallow optionally installs with a Slurm deployment instead of Omnistat — exporter and job hook on the Platform, Prometheus and Grafana composed as Managed Software; state `installing | ready | failed | absent` and GPU identity `distinct | collapsed`.
+- [Device Metrics Exporter](terms/device-metrics-exporter.md): AMD's per-GPU exporter, the Managed Software kind `device-metrics-exporter` installable on a single Server, and the Slurm feature (instead of Omnistat) that composes it onto the GPU compute nodes with job attribution plus Prometheus and Grafana; Platform state `installing | ready | failed | absent` and GPU identity `distinct | collapsed`.
 
 ### OS Provisioning
 

@@ -1,13 +1,23 @@
-{#- Managed by Swallow (configure-device-metrics-exporter). AMD's package config with Swallow's
-    port, labels, cluster name, health metric, and profiler setting laid over it. -#}
-{{ (lookup('ansible.builtin.file', device_metrics_exporter_package.config) | from_json)
+{#- Managed by Swallow (device-metrics-exporter). AMD's package config with Swallow's port,
+    labels, health metric, and profiler setting laid over it. With Slurm attribution it also
+    carries the job labels and the Slurm cluster name; without it the package's Kubernetes cluster
+    name label is dropped too, so no metric names a cluster the host is not in. -#}
+{%- set dme_slurm = device_metrics_exporter_slurm | bool -%}
+{%- set dme_package = lookup('ansible.builtin.file', device_metrics_exporter_package.config) | from_json -%}
+{%- set dme_base = dme_package if dme_slurm else dme_package | combine({
+      'GPUConfig': dme_package.GPUConfig | dict2items | rejectattr('key', 'equalto', 'CustomLabels') | list | items2dict,
+    }) -%}
+{%- set dme_gpu = {
+      'Labels': device_metrics_exporter_labels if dme_slurm
+                else device_metrics_exporter_labels | reject('in', device_metrics_exporter_job_labels) | list,
+      'ProfilerMetrics': {'all': device_metrics_exporter_profiler | bool},
+    } -%}
+{%- set dme_gpu = dme_gpu | combine({'CustomLabels': {'CLUSTER_NAME': device_metrics_exporter_cluster_name}})
+                  if dme_slurm else dme_gpu -%}
+{{ dme_base
    | combine({
        'ServerPort': device_metrics_exporter_port | int,
        'CommonConfig': {'MetricsFieldPrefix': 'amd_', 'HealthService': {'Enable': true}},
-       'GPUConfig': {
-         'Labels': device_metrics_exporter_labels,
-         'CustomLabels': {'CLUSTER_NAME': device_metrics_exporter_cluster_name},
-         'ProfilerMetrics': {'all': device_metrics_exporter_profiler | bool},
-       },
+       'GPUConfig': dme_gpu,
      }, recursive=true)
    | to_nice_json(indent=2) }}

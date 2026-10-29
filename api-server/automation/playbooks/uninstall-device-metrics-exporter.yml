@@ -1,0 +1,31 @@
+---
+# Uninstall the Managed Software kind device-metrics-exporter from its targets (decision 068): the
+# exporter, its configuration, and Swallow's amdgpu loader when nothing else still needs it. The
+# loader is shared with the Slurm GPU role and the GPU Operator, which order their own units
+# (slurmd, k0s) after it with an amdgpu_loader drop-in; while any such drop-in exists, the loader
+# stays. Idempotent.
+
+- name: Uninstall the Device Metrics Exporter
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Remove the exporter
+      ansible.builtin.include_role:
+        name: device_metrics_exporter
+        tasks_from: uninstall
+
+    - name: Find units that still start after Swallow's amdgpu loader
+      ansible.builtin.find:
+        paths: /etc/systemd/system
+        patterns: 10-swallow-after-amdgpu.conf
+        recurse: true
+      register: dme_loader_dependents
+
+    - name: Stop loading amdgpu when no other unit needs it
+      ansible.builtin.include_role:
+        name: amdgpu_loader
+      vars:
+        amdgpu_loader_state: absent
+        amdgpu_loader_owner: Device Metrics Exporter
+      when: dme_loader_dependents.matched == 0

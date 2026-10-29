@@ -36,6 +36,8 @@ type catalogEntryResponse struct {
 	Roles                       []string `json:"roles"`
 	MutuallyExclusiveWith       []string `json:"mutuallyExclusiveWith"`
 	RefusedForKubernetesMembers bool     `json:"refusedForKubernetesMembers"`
+	RefusedForClaimedServers    bool     `json:"refusedForClaimedServers"`
+	RequiresAMDComputeGPU       bool     `json:"requiresAmdComputeGpu"`
 	InstallMethods              []string `json:"installMethods"`
 	ContainerRuntimes           []string `json:"containerRuntimes"`
 	SpecFields                  []string `json:"specFields"`
@@ -68,6 +70,8 @@ func (h *SoftwareHandler) Catalog(c *fiber.Ctx) error {
 			Kind: string(entry.Kind), Label: entry.Label,
 			Roles: rolesToStrings(entry.Roles), MutuallyExclusiveWith: kindsToStrings(entry.MutuallyExclusiveWith),
 			RefusedForKubernetesMembers: entry.RefusedForKubernetesMembers,
+			RefusedForClaimedServers:    entry.RefusedForClaimedServers,
+			RequiresAMDComputeGPU:       entry.RequiresAMDComputeGPU,
 			InstallMethods:              methodsToStrings(entry.InstallMethods),
 			ContainerRuntimes:           kindsToStrings(entry.ContainerRuntimes),
 			SpecFields:                  stringsOrEmpty(entry.SpecFields),
@@ -231,6 +235,8 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, softwaredomain.ErrMutuallyExclusive),
 		errors.Is(err, softwaredomain.ErrKubernetesMember),
 		errors.Is(err, softwaredomain.ErrRequiredSoftwareMissing),
+		errors.Is(err, softwaredomain.ErrPlatformClaimed),
+		errors.Is(err, softwaredomain.ErrTargetIneligible),
 		errors.Is(err, operationdomain.ErrTargetsBusy),
 		errors.Is(err, operationdomain.ErrTargetLocked),
 		errors.Is(err, operationdomain.ErrTargetStateInvalid),

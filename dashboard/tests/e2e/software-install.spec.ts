@@ -472,3 +472,50 @@ test('an unknown software kind returns to the catalog safely', async ({ page }) 
   await page.getByRole('button', { name: 'Back to Software' }).click()
   await expect(page).toHaveURL('/software?site=site-a')
 })
+
+// AMD's Device Metrics Exporter is Managed Software (decision 068): it installs on an AMD GPU Server
+// no Platform claims, with nothing to configure, and is offered under Observability.
+test('the AMD Device Metrics Exporter installs on an AMD GPU Server with nothing to configure', async ({ page }) => {
+  const installs: Array<Record<string, unknown>> = []
+  // No Platform claims or runs on these Servers (gpu-node-01 is otherwise a Kubernetes member).
+  await installApiFixtures(page, { fleetSize: 5, freePlatformCandidates: true, onSoftwareInstallRequest: (body) => installs.push(body) })
+  await page.goto('/software?site=site-a')
+  await expect(page.getByRole('heading', { name: 'Observability', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Open AMD Device Metrics Exporter' }).click()
+  await expect(page).toHaveURL('/software/device-metrics-exporter?site=site-a')
+
+  await page.getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await expect(dialog.getByRole('checkbox', { name: 'Select compute-node-005' })).toBeDisabled()
+  await expect(dialog.getByText('This Server has no AMD compute GPU.')).toBeVisible()
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('gpu-node-01')
+  await dialog.getByText('Select all available results', { exact: true }).click()
+  await expect(dialog.getByRole('checkbox', { name: 'Select gpu-node-01' })).toBeChecked()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Install', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/workflows\/op-docker-reapply\?site=site-a/)
+  expect(installs).toHaveLength(1)
+  expect(installs[0]).toMatchObject({ kind: 'device-metrics-exporter', assignments: [{ serverId: 'srv-1', roles: [] }] })
+  expect(Object.keys((installs[0].spec as Record<string, unknown> | undefined) ?? {})).toEqual([])
+})
+
+// On a Server a Platform claims, the Platform manages the exporter: the Software page neither
+// installs nor reconfigures nor uninstalls it there, and points at the Platform instead.
+test('a Platform\'s Servers keep their Device Metrics Exporter under the Platform', async ({ page }) => {
+  await installApiFixtures(page, {
+    softwareAssignments: [assignment('srv-2', 'device-metrics-exporter', 'installed', { spec: { version: '1.5.3' } })],
+  })
+  await page.goto('/software/device-metrics-exporter?site=site-a')
+
+  const table = page.getByRole('table', { name: 'AMD Device Metrics Exporter deployments' })
+  const row = table.getByRole('row').filter({ hasText: 'gpu-node-02' })
+  await expect(row).toContainText('Version 1.5.3 · Port 5001')
+  await expect(row.getByRole('link', { name: 'Managed by Platform' })).toHaveAttribute('href', '/platforms/platform-a?site=site-a')
+  await expect(row.getByRole('button', { name: 'More' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await expect(dialog.getByRole('checkbox', { name: 'Select gpu-node-01' })).toBeDisabled()
+  await expect(dialog.getByText('Its Platform manages this software on the Server.').first()).toBeVisible()
+})

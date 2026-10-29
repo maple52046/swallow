@@ -64,7 +64,8 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `podman` | 無 role；選用 `version` | `version`（選用） | 與 `docker-ce` 互斥；拒絕已是 Kubernetes member 的 Server |
 | `nfs` | `server` / `client`（可同時） | server：`exportPath`、`exportOptions`；client：`source`（`host:/path`）、`mountPath`、`mountOptions` | 可與 Platform 共存 |
 | `prometheus` | 無 role；`installMethod`；`containerRuntime` | `installMethod`（`container` 預設／`native`）、`containerRuntime`（container method：`docker-ce`／`podman`）、`version`（release 版本 `x.y.z`，預設 `3.15.0`）、`listen`（`loopback` 預設／`management`）、`retention`（Prometheus duration，預設 `15d`）、`scrapeJob`、`scrapeTargets`（`host:port`）、`scrapeServerIds` + `scrapePort`（同 Site 的 Server，每次執行時以 inventory 解析成當下的 primary address） | container method 需 runtime 已 `installed` |
-| `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle，目前只有 `omnistat`） | container method 需 runtime 已 `installed` |
+| `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
+| `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
 
 擴充新 kind（未來 PostgreSQL、LDAP client）就是新增一筆目錄 + 一支 playbook，前提是仍只依賴
 本文件的契約。
@@ -85,6 +86,17 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
   由套件自己的 `grafana-server.service` 執行，Swallow 只加 drop-in
   （`grafana-server.service.d/10-swallow.conf`，`GF_*` 指向 management address 與 Swallow 擁有的
   provisioning／data 目錄），不改 `/etc/grafana`。uninstall 只移除帶 Swallow drop-in 的套件。
+
+**AMD Device Metrics Exporter**（[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)）：
+與 Slurm 功能同一支 role（`roles/device_metrics_exporter`），安裝 AMD 的 pinned native 套件
+（`amdgpu-exporter`，SHA-256 驗證），exporter 綁 management address 的 port `5001`（`5000` 是 Swallow
+抓取的 RDC exporter）、profiler 關閉。job attribution 由 trusted var 決定：standalone 為 `none`
+（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm`。`gpuagent` 依賴共用的
+`swallow-amdgpu-load.service`：standalone install 會套 `amdgpu_loader`（不加 dependents），uninstall
+只在沒有其他 unit 帶 loader 的 ordering drop-in（slurmd、k0s）時才移除 loader；Slurm 組入時 loader
+由 `slurm_gpu` 管。兩種模式都跑 identity check（沒有 GPU health metrics 即失敗，collapsed 只記錄）；
+Prometheus 抓取驗證與 result 檔只在帶 observability id（Slurm）時執行。Standalone 只提供 exporter，
+要看圖時另裝 Prometheus（`scrapeServerIds` + `scrapePort: 5001`）與 Grafana（`device-metrics-exporter` bundle）。
 
 切換方法或 runtime 會先移除前一種的 artifacts（data 目錄保留並改 owner）。三種方法都用 host network，
 位址語意一致：Grafana 綁 management address（`ansible_host`）；Prometheus 的 API 沒有驗證，預設只綁
@@ -145,6 +157,11 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
   - Grafana：`swallow_grafana_install_method`、`swallow_grafana_container_runtime`、
     `swallow_grafana_version`、`swallow_grafana_port`（固定 `3000`）、
     `swallow_grafana_prometheus_url`（空＝同機）、`swallow_grafana_prometheus_port`、`swallow_grafana_dashboards`
+  - Device Metrics Exporter：`swallow_device_metrics_exporter_version`、`swallow_device_metrics_exporter_port`
+    （固定 `5001`，domain 擁有）、`swallow_device_metrics_exporter_job_attribution`（standalone 為 `none`）。
+    Slurm 組入時另疊加 `_job_attribution: slurm`、`_compute_ids`、`_observability_id`、`_cluster_name`、
+    `_prometheus_port`、`_grafana_port`、`_record_id`（缺 `_job_attribution` 而有 `_compute_ids` 時，
+    playbook 視為 `slurm`，相容 068 之前的 run）
 
 ### 4.3 record / failure 契約
 
@@ -159,7 +176,9 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 - 於 [`api-server/automation/manifest.json`](../../api-server/automation/manifest.json) 註冊：
   `deploy-docker-ce` / `uninstall-docker-ce`、`deploy-podman` / `uninstall-podman`、
   `deploy-nfs` / `uninstall-nfs`、`deploy-prometheus` / `uninstall-prometheus`、
-  `deploy-grafana` / `uninstall-grafana`。
+  `deploy-grafana` / `uninstall-grafana`、`deploy-device-metrics-exporter` /
+  `uninstall-device-metrics-exporter`（舊名 `configure-device-metrics-exporter` 仍指向同一支
+  playbook，供 068 之前受理的 Workflow 重試）。
 - playbook 名由 launcher **硬編碼**（比照 Slurm / uninstall-kubernetes），**不需**站台
   `playbookMappings`。
 - Python/collection 依賴 pin 於 `requirements.txt` / `requirements.yml`；只用 `ansible.builtin`
@@ -215,8 +234,14 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
   1. container runtime Job（`configure-docker-ce` 或 `configure-podman`）：`containerRuntime` 功能的
      compute＋login node，加上 Omnistat `container` method 的 primary controller（無功能時採該機已
      assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過，不覆蓋 operator 的 spec；
-  2. Omnistat 開啟時 `configure-prometheus`、`configure-grafana`（目標＝primary controller，spec 帶
-     Omnistat 的 `installMethod` 與 runtime）。
+  2. Omnistat 或 Device Metrics Exporter 開啟時 `configure-prometheus`、`configure-grafana`（目標＝
+     primary controller，spec 帶該功能的 `installMethod` 與 runtime）；
+  3. Device Metrics Exporter 開啟時 `configure-device-metrics-exporter`（目標＝GPU compute nodes 的
+     `device-metrics-exporter`，[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)）。
+     其 `install-device-metrics-exporter` Task 同時帶 software 參數與 Platform 的 owner／record 參數，
+     Platform 的 DME State、GPU identity、Monitoring Link 照舊由 step observer 與 result 檔記錄；Slurm
+     專屬 trusted vars 疊加在 software vars 上。Slurm uninstall 照舊在每個 target 移除 DME，成功時把
+     該 Platform 各 Server 的 `device-metrics-exporter` assignment 標為 `absent`。
 
   每個 Job 是「該 kind 的 ansible Task（`install-<kind>`，帶 `softwareKind`／`serverIds`／
   `softwareMode=install`）＋ `record-<kind>` internal record Task」，下一個 Job 依賴上一個的 record
@@ -248,7 +273,7 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 | Software launcher（Job 組裝） | `api-server/internal/app/software_deployment_adapter.go` |
 | record/clear internal step | `api-server/internal/app/platform_workflow_step_executor.go` |
 | 失敗標記 observer | `api-server/internal/app/software_assignment_observer.go` |
-| Playbooks 與 roles | `api-server/automation/playbooks/deploy-*.yml`、`roles/docker_ce`（Engine API listener：`tasks/api.yml`）、`roles/podman`、`roles/nfs_server`、`roles/nfs_client` |
+| Playbooks 與 roles | `api-server/automation/playbooks/deploy-*.yml`、`roles/docker_ce`（Engine API listener：`tasks/api.yml`）、`roles/podman`、`roles/nfs_server`、`roles/nfs_client`、`roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用） |
 | Docker Host Explorer（port、use case、Engine client、handler） | `api-server/internal/software/domain/docker.go`、`application/docker_explorer.go`、`infra/dockerengine/`、`delivery/docker_handler.go` |
 | API 契約 | `api-server/docs/development/api-contracts/api-server/software.md`、`servers-docker.md` |
 

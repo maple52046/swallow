@@ -1,8 +1,15 @@
 ---
-# AMD Device Metrics Exporter on a Slurm GPU compute node. Intent arrives as trusted
-# swallow_device_metrics_exporter_* vars from the Slurm deployment; nothing here is an operator
-# choice except the profiler, which only operations turn on for a bounded measurement.
+# AMD Device Metrics Exporter on a GPU node (Managed Software device-metrics-exporter, decision
+# 068). Intent arrives as trusted swallow_device_metrics_exporter_* vars from a standalone software
+# install or a Slurm deployment; nothing here is an operator choice except the profiler, which only
+# operations turn on for a bounded measurement.
 device_metrics_exporter_version: "{{ swallow_device_metrics_exporter_version | default('1.5.3', true) }}"
+# Which scheduler GPU metrics are attributed to: none (standalone) or slurm. A Slurm run accepted
+# before decision 068 sends compute ids but no attribution, so it still reads as slurm.
+device_metrics_exporter_job_attribution: >-
+  {{ (swallow_device_metrics_exporter_job_attribution
+      | default('slurm' if swallow_device_metrics_exporter_compute_ids is defined else 'none', true)) | trim }}
+device_metrics_exporter_slurm: "{{ device_metrics_exporter_job_attribution == 'slurm' }}"
 # AMD's native Ubuntu package per version: gpuagent and amd-metrics-exporter under systemd, with
 # their runtime libraries embedded, so no privileged container and no apt repository is needed.
 # config is the package's own /etc/metrics/config.json, kept unchanged as the base Swallow overrides.
@@ -31,7 +38,8 @@ device_metrics_exporter_tmpfiles: /etc/tmpfiles.d/swallow-device-metrics-exporte
 # (swallow_device_metrics_exporter_profiler=true) and must turn them off again.
 device_metrics_exporter_profiler: "{{ swallow_device_metrics_exporter_profiler | default(false) | bool }}"
 # Labels on every GPU metric: GPU identity, the Slurm job the GPU is attributed to, and the host.
-# The Kubernetes labels (pod, namespace, container) have no meaning on a Slurm node.
+# The Kubernetes labels (pod, namespace, container) have no meaning on a Slurm node, and the job
+# labels (device_metrics_exporter_job_labels) none without Slurm attribution.
 device_metrics_exporter_labels:
   - GPU_UUID
   - SERIAL_NUMBER
@@ -51,6 +59,11 @@ device_metrics_exporter_labels:
   - GPU_MEMORY_PARTITION_TYPE
   - KFD_PROCESS_ID
   - DEPLOYMENT_MODE
+device_metrics_exporter_job_labels:
+  - JOB_ID
+  - JOB_USER
+  - JOB_PARTITION
+  - CLUSTER_NAME
 # The exporter starts after the GPU driver: gpuagent requires the shared post-boot amdgpu loader.
 device_metrics_exporter_amdgpu_unit: swallow-amdgpu-load.service
 device_metrics_exporter_dropin_name: 10-swallow.conf

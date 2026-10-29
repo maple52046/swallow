@@ -86,8 +86,16 @@
       "path": "configure-omnistat.yml"
     },
     {
+      "name": "deploy-device-metrics-exporter",
+      "path": "deploy-device-metrics-exporter.yml"
+    },
+    {
+      "name": "uninstall-device-metrics-exporter",
+      "path": "uninstall-device-metrics-exporter.yml"
+    },
+    {
       "name": "configure-device-metrics-exporter",
-      "path": "configure-device-metrics-exporter.yml"
+      "path": "deploy-device-metrics-exporter.yml"
     },
     {
       "name": "configure-ntp",

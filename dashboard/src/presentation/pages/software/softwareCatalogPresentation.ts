@@ -1,4 +1,5 @@
-import { Activity, Box, Container, FolderSync, LayoutDashboard, type LucideIcon } from 'lucide-react'
+import { Activity, Box, Container, FolderSync, Gauge, LayoutDashboard, type LucideIcon } from 'lucide-react'
+import { hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
 import { softwareInstallBlocker } from '@/domain/software/targets'
@@ -55,6 +56,8 @@ export interface SoftwareDeploymentRow {
 export type SoftwareTargetBlocker =
   | 'existing_assignment'
   | 'locked'
+  | 'platform_claimed'
+  | 'no_amd_compute_gpu'
   | 'kubernetes_member'
   | 'mutually_exclusive'
   | 'server_unavailable'
@@ -100,6 +103,14 @@ const PRESENTATION: Record<SoftwareKind, SoftwareCatalogPresentation> = {
     capabilities: ['Anonymous read-only access', 'Omnistat dashboards', 'Container or native install'],
     hasSettings: false,
   },
+  'device-metrics-exporter': {
+    category: 'observability',
+    description: 'Serve per-GPU metrics from AMD GPU Servers with AMD\'s native exporter, for a Prometheus to scrape on port 5001.',
+    icon: Gauge,
+    order: 30,
+    capabilities: ['Per-GPU metrics', 'Native AMD package', 'AMD compute GPUs only'],
+    hasSettings: false,
+  },
 }
 
 const CATEGORIES: ReadonlyArray<Omit<SoftwareCatalogGroup, 'entries'>> = [
@@ -119,6 +130,18 @@ const CATEGORIES: ReadonlyArray<Omit<SoftwareCatalogGroup, 'entries'>> = [
     description: 'Metrics collection and dashboards installed on a Server.',
   },
 ]
+
+/** The singular badge naming one software's catalog section on its detail page. */
+export function softwareCategoryBadge(category: SoftwareCategory): string {
+  switch (category) {
+    case 'container-runtimes':
+      return 'Container runtime'
+    case 'storage-file-sharing':
+      return 'Storage & file sharing'
+    case 'observability':
+      return 'Observability'
+  }
+}
 
 /** Returns curated Dashboard presentation for a contract-owned software kind. */
 export function softwareCatalogPresentation(kind: SoftwareKind): SoftwareCatalogPresentation {
@@ -212,11 +235,14 @@ export function softwareTargetBlocker(
   entry: SoftwareCatalogEntry,
   assignments: readonly SoftwareAssignment[],
 ): SoftwareTargetBlocker | null {
+  // Before the existing-assignment reason: a Platform-managed deployment has no Reconfigure here.
+  if (softwareManagedByPlatform(server, entry)) return 'platform_claimed'
   if (assignments.some((assignment) => assignment.serverId === server.id && assignment.kind === entry.kind)) {
     return 'existing_assignment'
   }
   if (softwareInstallBlocker(server) !== null) return 'server_unavailable'
   if (server.provisioning?.locked) return 'locked'
+  if (entry.requiresAmdComputeGpu && !hasAMDComputeGPU(server.gpus)) return 'no_amd_compute_gpu'
   if (entry.refusedForKubernetesMembers && server.membership !== null) return 'kubernetes_member'
   if (assignments.some((assignment) =>
     assignment.serverId === server.id &&
@@ -226,6 +252,15 @@ export function softwareTargetBlocker(
   return null
 }
 
+/**
+ * Whether the Platform that claims the Server manages this software kind on it, so the Software
+ * page neither installs nor uninstalls it there (the API refuses both with 409); the Platform's
+ * own deployment and uninstall do.
+ */
+export function softwareManagedByPlatform(server: Server, entry: SoftwareCatalogEntry): boolean {
+  return Boolean(entry.refusedForClaimedServers && server.platformClaim)
+}
+
 /** Operator-facing reason rendered beside a disabled target or software choice. */
 export function softwareTargetBlockerLabel(blocker: SoftwareTargetBlocker): string {
   switch (blocker) {
@@ -233,6 +268,10 @@ export function softwareTargetBlockerLabel(blocker: SoftwareTargetBlocker): stri
       return 'Already managed; use Reconfigure from its deployment.'
     case 'locked':
       return 'Unlock this Server before installing software.'
+    case 'platform_claimed':
+      return 'Its Platform manages this software on the Server.'
+    case 'no_amd_compute_gpu':
+      return 'This Server has no AMD compute GPU.'
     case 'kubernetes_member':
       return 'This software cannot be installed on a Kubernetes member.'
     case 'mutually_exclusive':
@@ -291,5 +330,6 @@ export function softwareAssignmentSummary(assignment: SoftwareAssignment): strin
   if (assignment.kind === 'grafana' && Array.isArray(spec.dashboards) && spec.dashboards.length > 0) {
     parts.push(`Dashboards: ${spec.dashboards.join(', ')}`)
   }
+  if (assignment.kind === 'device-metrics-exporter') parts.push('Port 5001')
   return parts.join(' · ') || 'Default configuration'
 }

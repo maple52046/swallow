@@ -502,6 +502,9 @@ func RunAPI(cfg config.APIConfig) error {
 	softwareService.AttachLauncher(softwareDeploymentLauncher{
 		operations: operationService, orchestrations: orchestrationService,
 	})
+	softwareService.AttachPlatformNames(platformNames)
+	// A Slurm uninstall completed here retires its Servers' Device Metrics Exporter records (068).
+	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignmentRepo})
 
 	// Platform lifecycle adapters keep durable operations outside the platform context.
 	platformLauncher := platformDeploymentLauncher{

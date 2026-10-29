@@ -40,6 +40,9 @@ type PlatformService struct {
 	// claims is optional (tests). When wired, Delete and a successful uninstall release the
 	// Platform's Platform Claims, so its Servers can be released or claimed again (decision 067).
 	claims serverdomain.PlatformClaimStore
+	// exporterAssignments is optional (tests). When wired with claims, a successful Slurm uninstall
+	// marks its Servers' device-metrics-exporter Software Assignments absent (decision 068).
+	exporterAssignments platformdomain.DeviceMetricsExporterAssignments
 }
 
 // NewPlatformService constructs the platform application service.
@@ -81,6 +84,14 @@ func (s *PlatformService) AttachOmnistatRecorder(recorder platformdomain.Omnista
 // record its GPU identity. Every process that completes uninstalls or installs must wire it.
 func (s *PlatformService) AttachDeviceMetricsExporterRecorder(recorder platformdomain.DeviceMetricsExporterRecorder) {
 	s.deviceMetricsExporters = recorder
+}
+
+// AttachDeviceMetricsExporterAssignments lets a successful Slurm uninstall mark the
+// device-metrics-exporter Software Assignments of its Servers absent, as the uninstall removed the
+// exporter from them. Every process that completes uninstalls must wire it together with the
+// Platform Claim store (which names those Servers), or the records outlive the package.
+func (s *PlatformService) AttachDeviceMetricsExporterAssignments(assignments platformdomain.DeviceMetricsExporterAssignments) {
+	s.exporterAssignments = assignments
 }
 
 // RecordOmnistatGrafana registers the Grafana a successful Omnistat install reported as the
@@ -475,6 +486,20 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 	return s.platforms.Delete(ctx, id)
 }
 
+// markExportersRemoved marks the device-metrics-exporter Software Assignments of a Slurm
+// Platform's claimed Servers absent. Kubernetes Platforms are skipped: their uninstall does not
+// touch a standalone exporter. Without the claim store or the port there is nothing to do.
+func (s *PlatformService) markExportersRemoved(ctx context.Context, platform *platformdomain.Platform) error {
+	if platform.Type != platformdomain.PlatformTypeSlurm || s.claims == nil || s.exporterAssignments == nil {
+		return nil
+	}
+	serverIDs, err := s.claims.ClaimedServerIDs(ctx, platform.ID)
+	if err != nil || len(serverIDs) == 0 {
+		return err
+	}
+	return s.exporterAssignments.MarkDeviceMetricsExporterRemoved(ctx, serverIDs)
+}
+
 // CompleteUninstall clears projections after a successful uninstall operation.
 //
 // A record deleted while the operation was running is already clean from this observer's
@@ -494,6 +519,11 @@ func (s *PlatformService) CompleteUninstall(ctx context.Context, id string, dele
 		return err
 	}
 	if err := s.clearMemberships(ctx, id); err != nil {
+		return err
+	}
+	// uninstall-slurm removes the Device Metrics Exporter from every target whatever the feature
+	// was, so the Servers' records go with it. They are named by the claims released below.
+	if err := s.markExportersRemoved(ctx, platform); err != nil {
 		return err
 	}
 	// The hosts no longer carry the platform, so its Servers are free to be released or claimed.

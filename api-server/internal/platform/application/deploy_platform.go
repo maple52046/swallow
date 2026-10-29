@@ -108,13 +108,17 @@ const (
 	varOmnistatSystemName      = "swallow_omnistat_system_name"
 )
 
-// Trusted extra-var names of the configure-device-metrics-exporter playbook (decision 066). The
-// Prometheus and Grafana ports are added by the launcher from the software domain, which owns them.
-// The record id is the Workflow the Platform's record names, which the install's completion fences
-// the GPU identity on; it survives a rerun that copies the Task under a new Workflow id.
+// Trusted extra-var names the Slurm side lays over the composed device-metrics-exporter install
+// (decisions 066 and 068), read by the deploy-device-metrics-exporter playbook. The Prometheus and
+// Grafana ports are added by the launcher from the software domain, which owns them. The record id
+// is the Workflow the Platform's record names, which the install's completion fences the GPU
+// identity on; it survives a rerun that copies the Task under a new Workflow id.
 const (
-	varDeviceMetricsExporterVersion         = "swallow_device_metrics_exporter_version"
-	varDeviceMetricsExporterPort            = "swallow_device_metrics_exporter_port"
+	varDeviceMetricsExporterVersion = "swallow_device_metrics_exporter_version"
+	varDeviceMetricsExporterPort    = "swallow_device_metrics_exporter_port"
+	// varDeviceMetricsExporterJobAttribution turns on Slurm job attribution; a standalone install
+	// sends none.
+	varDeviceMetricsExporterJobAttribution  = "swallow_device_metrics_exporter_job_attribution"
 	varDeviceMetricsExporterComputeIDs      = "swallow_device_metrics_exporter_compute_ids"
 	varDeviceMetricsExporterObservabilityID = "swallow_device_metrics_exporter_observability_id"
 	varDeviceMetricsExporterClusterName     = "swallow_device_metrics_exporter_cluster_name"
@@ -1251,11 +1255,11 @@ func buildOmnistatVars(
 	}
 }
 
-// buildDeviceMetricsExporterVars translates the Slurm topology into the
-// configure-device-metrics-exporter playbook's trusted variables: every GPU compute node runs the
-// exporter (it reports only GPUs), the observability Server (the primary controller) runs
-// Prometheus and Grafana and is the source of the result URL, and the Slurm cluster name becomes
-// the exporter's cluster_name label the dashboards select on.
+// buildDeviceMetricsExporterVars translates the Slurm topology into the variables the Slurm side
+// lays over the composed device-metrics-exporter install: Slurm job attribution, every GPU compute
+// node running the exporter (it reports only GPUs), the observability Server (the primary
+// controller) that runs Prometheus and Grafana and is the source of the result URL, and the Slurm
+// cluster name as the exporter's cluster_name label the dashboards select on.
 func buildDeviceMetricsExporterVars(
 	platform *platformdomain.Platform,
 	spec platformdomain.SlurmDeploymentSpec,
@@ -1266,6 +1270,7 @@ func buildDeviceMetricsExporterVars(
 	return map[string]any{
 		varDeviceMetricsExporterVersion:         platformdomain.DeviceMetricsExporterVersion,
 		varDeviceMetricsExporterPort:            platformdomain.DeviceMetricsExporterPort,
+		varDeviceMetricsExporterJobAttribution:  "slurm",
 		varDeviceMetricsExporterComputeIDs:      gpuComputeIDs,
 		varDeviceMetricsExporterObservabilityID: observabilityID,
 		varDeviceMetricsExporterClusterName:     slurmClusterName(spec.ClusterName, platform.Name),

@@ -6,11 +6,13 @@ import (
 	"time"
 )
 
-// The Device Metrics Exporter on a Swallow-deployed Slurm Platform (decision 066, glossary Device
-// Metrics Exporter): AMD's per-GPU-node exporter plus the Slurm job attribution (a job hook of the
-// Prolog/Epilog dispatcher). Like Omnistat it belongs to the Platform, and its Prometheus and
-// Grafana are Managed Software the same deployment composes onto the observability Server (the
-// primary controller). The two features are mutually exclusive on a Platform.
+// The Device Metrics Exporter feature of a Swallow-deployed Slurm Platform (decisions 066 and 068,
+// glossary Device Metrics Exporter): AMD's per-GPU-node exporter plus the Slurm job attribution (a
+// job hook of the Prolog/Epilog dispatcher). The exporter itself is the Managed Software kind
+// device-metrics-exporter, which the deployment composes onto its GPU compute nodes together with
+// Prometheus and Grafana on the observability Server (the primary controller); the feature's state,
+// GPU identity, and Monitoring Link belong to the Platform. Omnistat and this feature are mutually
+// exclusive on a Platform.
 const (
 	// DeviceMetricsExporterVersion is the exporter release Swallow installs. The playbook pins its
 	// native package and that package's SHA-256 per version.
@@ -57,7 +59,7 @@ const (
 	GPUIdentityCollapsed GPUIdentity = "collapsed"
 )
 
-// ParseGPUIdentity reads an identity a configure-device-metrics-exporter run reported. Anything
+// ParseGPUIdentity reads an identity a Slurm run of deploy-device-metrics-exporter reported. Anything
 // but distinct is collapsed: an identity Swallow cannot confirm is never reported as reliable.
 func ParseGPUIdentity(value string) GPUIdentity {
 	if GPUIdentity(value) == GPUIdentityDistinct {
@@ -106,9 +108,10 @@ func (e *DeviceMetricsExporter) Managed() bool {
 
 // DeviceMetricsExporterLaunch adds the Device Metrics Exporter to a Slurm deployment Workflow:
 // Prometheus and Grafana composed onto ObservabilityServerID by InstallMethod (the container method
-// also composes that Server's container runtime), then the exporter on every GPUComputeServerIDs
-// node. TrustedVars are the configure-device-metrics-exporter playbook's
-// swallow_device_metrics_exporter_* variables.
+// also composes that Server's container runtime), then the Managed Software device-metrics-exporter
+// composed onto every GPUComputeServerIDs node. TrustedVars are the Slurm side's
+// swallow_device_metrics_exporter_* variables (job attribution, topology, record id), laid over the
+// software install's own.
 type DeviceMetricsExporterLaunch struct {
 	ObservabilityServerID string
 	GPUComputeServerIDs   []string
@@ -130,6 +133,17 @@ type DeviceMetricsExporterRecorder interface {
 	UpdateDeviceMetricsExporterState(ctx context.Context, platformID, workflowID string, state DeviceMetricsExporterState, at time.Time) (bool, error)
 	// UpdateDeviceMetricsExporterGPUIdentity records what an install found, under the same fence.
 	UpdateDeviceMetricsExporterGPUIdentity(ctx context.Context, platformID, workflowID string, identity GPUIdentity, at time.Time) (bool, error)
+}
+
+// DeviceMetricsExporterAssignments is the software context's record of the exporter on a Platform's
+// Servers (their device-metrics-exporter Software Assignments, decision 068). The Slurm uninstall
+// removes the exporter from every target, so its successful completion marks those records absent
+// through this port; the platform context never reads Software Assignments itself.
+type DeviceMetricsExporterAssignments interface {
+	// MarkDeviceMetricsExporterRemoved marks the device-metrics-exporter Software Assignment of
+	// every Server in serverIDs absent. A Server without one, or whose one is already absent, is
+	// skipped, so a rerun is a no-op.
+	MarkDeviceMetricsExporterRemoved(ctx context.Context, serverIDs []string) error
 }
 
 var (

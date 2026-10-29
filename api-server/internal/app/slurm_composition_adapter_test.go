@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	softwareapp "github.com/maple52046/swallow/internal/software/application"
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
@@ -294,8 +296,14 @@ func TestDeviceMetricsExporterSoftwareSpecs(t *testing.T) {
 	if bundles, _ := grafana[softwaredomain.SpecDashboards].([]string); !slices.Equal(bundles, []string{"device-metrics-exporter"}) {
 		t.Errorf("grafana dashboards = %v, want [device-metrics-exporter]", grafana[softwaredomain.SpecDashboards])
 	}
-	if monitoring.stepID != "install-device-metrics-exporter" || monitoring.workflowKind != operationdomain.WorkflowKindConfigureDeviceMetricsExporter {
-		t.Errorf("monitoring Task = %s/%s", monitoring.stepID, monitoring.workflowKind)
+	// The exporter itself is the composed Managed Software (decision 068), whose install Task id is
+	// the one the Platform's step observer and completion select.
+	if monitoring.composedKind != softwaredomain.KindDeviceMetricsExporter || !slices.Equal(monitoring.composedServerIDs, []string{"s3"}) {
+		t.Errorf("composed exporter = %s on %v, want device-metrics-exporter on the GPU compute node [s3]",
+			monitoring.composedKind, monitoring.composedServerIDs)
+	}
+	if deviceMetricsExporterStepID != "install-device-metrics-exporter" {
+		t.Errorf("deviceMetricsExporterStepID = %q", deviceMetricsExporterStepID)
 	}
 }
 
@@ -321,5 +329,102 @@ func TestDeviceMetricsExporterCompletionNeedsTheGrafanaURL(t *testing.T) {
 	}
 	if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err == nil {
 		t.Error("a Device Metrics Exporter run without a Grafana URL must fail its Task")
+	}
+}
+
+// slurmTestServers is a FindByID-only ServerRepository of deployed Servers at one Site; the ids in
+// gpus list AMD compute GPUs.
+type slurmTestServers struct {
+	serverdomain.ServerRepository
+	gpus map[string]bool
+}
+
+func (r slurmTestServers) FindByID(_ context.Context, id string) (*serverdomain.Server, error) {
+	server := &serverdomain.Server{
+		ID: id, Source: serverdomain.Source{SiteID: "site-1", IntegrationID: "maas-1"},
+		Observed:     serverdomain.Observed{Hostname: id},
+		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed"},
+	}
+	if r.gpus[id] {
+		server.Observed.GPUs = []serverdomain.GPU{{Vendor: "Advanced Micro Devices, Inc. [AMD/ATI]", Count: 8, Kind: serverdomain.GPUKindCompute}}
+	}
+	return server, nil
+}
+
+// slurmTestCatalog registers every playbook name.
+type slurmTestCatalog struct{}
+
+func (slurmTestCatalog) Resolve(name string) (string, error) { return name + ".yml", nil }
+
+// The Device Metrics Exporter feature composes the Managed Software device-metrics-exporter after
+// Prometheus and Grafana (decision 068): its install Task is the one the Platform's observer and
+// completion select, carries both the software identity (for the assignments) and the Platform's
+// owner and record ids, reaches every target for the scrape check, and has the Slurm side's
+// variables laid over the software install's; a record Task then marks the GPU nodes installed.
+func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
+	servers := slurmTestServers{gpus: map[string]bool{"s2": true, "s3": true}}
+	launcher := platformDeploymentLauncher{
+		operations: operationapp.NewExecutionService(nil, servers, ntpTestAutomation{}, slurmTestCatalog{}, nil, nil, nil),
+		software:   softwareapp.NewSoftwareService(assignmentList{}, servers, nil),
+	}
+	launch := platformdomain.DeploymentLaunch{
+		Platform:        &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm},
+		TargetServerIDs: []string{"s1", "s2", "s3"},
+		RequestedBy:     "admin",
+		DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterLaunch{
+			ObservabilityServerID: "s1", GPUComputeServerIDs: []string{"s2", "s3"},
+			InstallMethod: platformdomain.ObservabilityInstallNative,
+			TrustedVars: map[string]any{
+				"swallow_device_metrics_exporter_job_attribution": "slurm",
+				"swallow_device_metrics_exporter_compute_ids":     []string{"s2", "s3"},
+				"swallow_device_metrics_exporter_record_id":       "op-1",
+			},
+		},
+	}
+	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false)
+	if err != nil {
+		t.Fatalf("planSlurmComposition() error = %v", err)
+	}
+	if got := taskIDs(plan.steps); !slices.Equal(got, []string{
+		"install-prometheus", "record-prometheus", "install-grafana", "record-grafana",
+		deviceMetricsExporterStepID, "record-device-metrics-exporter",
+	}) {
+		t.Fatalf("composed Tasks = %v", got)
+	}
+	install, record := plan.steps[4], plan.steps[5]
+	if install.Job != "configure-device-metrics-exporter" || !slices.Equal(install.DependsOn, []string{"record-grafana"}) ||
+		!slices.Equal(install.Targets, serverRefs("s1", "s2", "s3")) {
+		t.Errorf("install Task = Job %s DependsOn %v Targets %v", install.Job, install.DependsOn, install.Targets)
+	}
+	params := install.Parameters
+	if params["playbook"] != "deploy-device-metrics-exporter" || params["softwareKind"] != string(softwaredomain.KindDeviceMetricsExporter) ||
+		params["softwareMode"] != "install" || !slices.Equal(params["serverIds"].([]string), []string{"s2", "s3"}) ||
+		params[deviceMetricsExporterStepParamOwner] != "plat-1" || params[deviceMetricsExporterStepParamRecord] != "op-1" {
+		t.Errorf("install Task parameters = %v", params)
+	}
+	vars := extraVars(t, install)
+	if vars["swallow_device_metrics_exporter_job_attribution"] != "slurm" || vars["swallow_software_kind"] != string(softwaredomain.KindDeviceMetricsExporter) ||
+		vars["swallow_device_metrics_exporter_port"] != softwaredomain.DeviceMetricsExporterPort ||
+		vars["swallow_device_metrics_exporter_grafana_port"] != softwaredomain.GrafanaPort ||
+		vars["swallow_device_metrics_exporter_record_id"] != "op-1" {
+		t.Errorf("install Task extraVars = %v, want the Slurm side over the software install", vars)
+	}
+	if record.Kind != softwareStepKindRecord || !slices.Equal(record.DependsOn, []string{deviceMetricsExporterStepID}) ||
+		!slices.Equal(record.Targets, serverRefs("s2", "s3")) {
+		t.Errorf("record Task = %+v", record)
+	}
+	if last := plan.installs[len(plan.installs)-1]; last.Kind != softwaredomain.KindDeviceMetricsExporter ||
+		!slices.Equal(last.ServerIDs, []string{"s2", "s3"}) {
+		t.Errorf("last composed install = %s on %v, want the exporter on the GPU nodes", last.Kind, last.ServerIDs)
+	}
+}
+
+// Both Device Metrics Exporters are the same software: the platform domain's constants (the Slurm
+// feature) and the software domain's (the Managed Software kind) must agree.
+func TestDeviceMetricsExporterConstantsAgree(t *testing.T) {
+	if platformdomain.DeviceMetricsExporterVersion != softwaredomain.DeviceMetricsExporterVersion ||
+		platformdomain.DeviceMetricsExporterPort != softwaredomain.DeviceMetricsExporterPort {
+		t.Errorf("platform %s:%d, software %s:%d", platformdomain.DeviceMetricsExporterVersion, platformdomain.DeviceMetricsExporterPort,
+			softwaredomain.DeviceMetricsExporterVersion, softwaredomain.DeviceMetricsExporterPort)
 	}
 }

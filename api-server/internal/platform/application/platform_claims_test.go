@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
@@ -121,6 +122,38 @@ func TestReconcilePlatformClaims(t *testing.T) {
 	for id, platformID := range want {
 		if got := claimOf(servers, id); got != platformID {
 			t.Errorf("%s claim = %q, want %q", id, got, platformID)
+		}
+	}
+}
+
+// recordingExporterAssignments records the Servers whose exporter records were marked removed.
+type recordingExporterAssignments struct{ removed []string }
+
+func (r *recordingExporterAssignments) MarkDeviceMetricsExporterRemoved(_ context.Context, serverIDs []string) error {
+	r.removed = append(r.removed, serverIDs...)
+	return nil
+}
+
+// uninstall-slurm removes the Device Metrics Exporter from every target, so a successful Slurm
+// uninstall retires those Servers' records (decision 068), named by the claims it is about to
+// release. A Kubernetes uninstall leaves a standalone exporter alone.
+func TestCompleteUninstallRetiresASlurmPlatformsExporterRecords(t *testing.T) {
+	for _, platformType := range []platformdomain.PlatformType{platformdomain.PlatformTypeSlurm, platformdomain.PlatformTypeKubernetes} {
+		platform := &platformdomain.Platform{ID: "platform-1", SiteID: "site-1", Name: "lab", Type: platformType}
+		service, _ := newClaimPlatformService(nil, []*platformdomain.Platform{platform},
+			claimServer("server-1", platform.ID), claimServer("server-2", platform.ID), claimServer("server-9", "platform-9"))
+		exporters := &recordingExporterAssignments{}
+		service.AttachDeviceMetricsExporterAssignments(exporters)
+
+		if err := service.CompleteUninstall(context.Background(), platform.ID, false); err != nil {
+			t.Fatalf("CompleteUninstall(%s) error = %v", platformType, err)
+		}
+		want := []string{"server-1", "server-2"}
+		if platformType != platformdomain.PlatformTypeSlurm {
+			want = nil
+		}
+		if !slices.Equal(exporters.removed, want) {
+			t.Errorf("%s uninstall retired exporter records of %v, want %v", platformType, exporters.removed, want)
 		}
 	}
 }

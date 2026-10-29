@@ -706,12 +706,17 @@ enabled `omnistat`, when no compute Server lists AMD `compute` GPUs in its GPU I
 becomes the observability Server and the Workflow composes, after the Slurm install, the container
 runtime (container method), `configure-prometheus` (`listen: loopback`, job
 `device-metrics-exporter`, the GPU compute nodes on port `5001`), and `configure-grafana`
-(dashboards `device-metrics-exporter`), and finally a `configure-device-metrics-exporter` Job. That
-Job installs AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-256 verified; Ubuntu
-24.04 only, `device_metrics_exporter_unsupported_os` otherwise) on every GPU compute node: `gpuagent`
-starts after the amdgpu loader, and the exporter serves Prometheus metrics on the node's address at
-port `5001` (AMD's default `5000` belongs to the host GPU exporter Swallow scrapes). Hardware
-profiler counters stay off. The Slurm side is part of the Slurm install: the
+(dashboards `device-metrics-exporter`), and finally the Managed Software
+[`device-metrics-exporter`](software.md#device-metrics-exporter) on every GPU compute node, as a
+`configure-device-metrics-exporter` Job ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md)).
+Each GPU compute node gets an ordinary Software Assignment, `installed` by the Job's record Task.
+That Job installs AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-256 verified; Ubuntu
+24.04 only, `device_metrics_exporter_unsupported_os` otherwise) with Slurm job attribution on:
+`gpuagent` starts after the amdgpu loader, and the exporter serves Prometheus metrics on the node's
+address at port `5001` (AMD's default `5000` belongs to the host GPU exporter Swallow scrapes).
+Hardware profiler counters stay off. While the Platform claims its Servers, the standalone software
+install and uninstall refuse them, so the exporter there stays the Platform's. The Slurm side is
+part of the Slurm install: the
 `20-device-metrics-exporter` job hook writes `/run/exporter/<GRES index>` for every GPU a job is
 allocated and removes it at the job's end only while it still names that job, and jobs keep
 sharing nodes (`OverSubscribe=NO`). An exporter that serves no GPU health metrics fails the Task
@@ -745,9 +750,10 @@ login) and records `gpuIdentity`:
 `gpuIdentity` is `null` until an install succeeded. A collapsed identity does not fail the
 deployment; clients must show it rather than present per-job GPU panels as reliable. Swallow never
 queries the exporter's Prometheus. Uninstalling the Platform removes the package, its
-configuration, and the job hook, marks the state `absent`, and removes the link; the container
-runtime, Prometheus, and Grafana Software Assignments stay until they are uninstalled through the
-software API.
+configuration, and the job hook from every target, marks the state `absent`, removes the link, and
+marks the Servers' `device-metrics-exporter` Software Assignments `absent`; the container runtime,
+Prometheus, and Grafana Software Assignments stay until they are uninstalled through the software
+API.
 
 ## Native OCI Containers
 

@@ -12,6 +12,11 @@ deployed Servers. It is intentionally separate from Platform deployment.
   the host's Docker from the Server's **Containers** tab; see below.
 - **Podman:** installs the Podman variant selected by the request.
 - **NFS:** installs a server or client role with the required storage settings.
+- **Prometheus** and **Grafana:** install one pinned instance per Server, as a
+  container on the Server's Docker CE or Podman or natively from the vendor's
+  official release or package.
+- **AMD Device Metrics Exporter:** installs AMD's per-GPU metrics exporter
+  natively on AMD GPU Servers; see below.
 
 The shipped automation manifest is the allowlist. If a software kind or variant
 does not appear in the active API contract and manifest, it is not supported.
@@ -58,6 +63,24 @@ does not silently imply every software uninstall.
 
 NFS server/client role changes deserve extra review because they can affect
 mounted storage and workload availability.
+
+## AMD Device Metrics Exporter
+
+The AMD Device Metrics Exporter serves per-GPU Prometheus metrics on the
+Server's address at port 5001. It needs a Server with AMD compute GPUs running
+Ubuntu 24.04, and it has no settings. Installing it also installs swallow's
+amdgpu driver loader when the Server has none.
+
+It installs only the exporter. To graph the metrics, install **Prometheus**
+scraping those Servers on port 5001, and **Grafana** with the Device Metrics
+Exporter dashboards.
+
+A Slurm Platform deployed with the Device Metrics Exporter installs the same
+software on its GPU nodes, with Slurm job attribution. While a Platform owns a
+Server, the exporter there is managed through the Platform: the Software page
+does not install or uninstall it on that Server, and uninstalling the Platform
+removes it. A Kubernetes Platform's GPU Operator runs its own exporter, so this
+software is not offered on Kubernetes nodes.
 
 ## The docker group
 

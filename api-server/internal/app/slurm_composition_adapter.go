@@ -14,19 +14,22 @@ import (
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
-// Slurm feature composition (decisions 063 and 066). After its install-platform Task a Slurm
+// Slurm feature composition (decisions 063, 066, and 068). After its install-platform Task a Slurm
 // deployment appends one Job per composed Managed Software install, each an ansible install Task
 // plus the record Task that marks its Software Assignments installed:
 //
 //  1. the container runtime, on the compute and login nodes when the containerRuntime feature is
 //     on, and on the observability Server when the monitoring feature uses the container method;
 //  2. Prometheus, then Grafana, on the observability Server when a monitoring feature is on;
+//  3. with the Device Metrics Exporter feature, the Managed Software device-metrics-exporter on
+//     every GPU compute node, its install Task also carrying the Platform's owner and record ids
+//     and the Slurm side's variables;
 //
-// and finally the monitoring feature's own Job: configure-omnistat (the exporter on every compute
-// node) or configure-device-metrics-exporter (the exporter on every GPU compute node); a deployment
-// has at most one of the two. Each Job depends on the previous one's record Task, so Prometheus
-// never starts before its runtime is recorded. This is decision 038's composition rule: no nested
-// software Workflow, the same playbooks and roles as a standalone install.
+// or, with Omnistat, finally the feature's own configure-omnistat Job (the exporter on every
+// compute node); a deployment has at most one of the two features. Each Job depends on the previous
+// one's record Task, so Prometheus never starts before its runtime is recorded. This is decision
+// 038's composition rule: no nested software Workflow, the same playbooks and roles as a standalone
+// install.
 const (
 	jobConfigureOmnistat = "configure-omnistat"
 	omnistatStepID       = "install-omnistat"
@@ -40,13 +43,15 @@ const (
 	// Platform's Omnistat Grafana Monitoring Link.
 	omnistatResultGrafanaURL = "grafanaUrl"
 
-	jobConfigureDeviceMetricsExporter = "configure-device-metrics-exporter"
-	deviceMetricsExporterStepID       = "install-device-metrics-exporter"
-	deviceMetricsExporterPlaybook     = "configure-device-metrics-exporter"
+	// deviceMetricsExporterStepID is the composed device-metrics-exporter install Task:
+	// appendComposedInstall names it install-<kind>, and the step observer and the result
+	// completion find the feature's Task by it, as they did before the exporter was Managed
+	// Software (decision 068).
+	deviceMetricsExporterStepID = "install-" + string(softwaredomain.KindDeviceMetricsExporter)
 	// The Device Metrics Exporter's Task carries the same owner and record parameters as Omnistat's.
 	deviceMetricsExporterStepParamOwner  = "deviceMetricsExporterPlatformId"
 	deviceMetricsExporterStepParamRecord = "deviceMetricsExporterRecordId"
-	// The configure-device-metrics-exporter result: the Grafana URL Swallow records as the
+	// The Slurm run's deploy-device-metrics-exporter result: the Grafana URL Swallow records as the
 	// Platform's Device Metrics Exporter Grafana Monitoring Link, and the GPU identity it found.
 	deviceMetricsExporterResultGrafanaURL  = "grafanaUrl"
 	deviceMetricsExporterResultGPUIdentity = "gpuIdentity"
@@ -69,7 +74,11 @@ type slurmMonitoring struct {
 	scrapePort            int
 	dashboardBundle       string
 	trustedVars           map[string]any
-	// The feature's install Task and the parameters its step observer reads.
+	// composedKind, when set, is the Managed Software the feature installs on composedServerIDs
+	// (the Device Metrics Exporter); otherwise the feature has its own install Task below.
+	composedKind      softwaredomain.Kind
+	composedServerIDs []string
+	// The feature's own install Task (Omnistat) and the parameters its step observer reads.
 	stepID, stepName, job, playbook string
 	workflowKind                    operationdomain.WorkflowKind
 	ownerParam, recordParam         string
@@ -100,10 +109,8 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 			installMethod: exporter.InstallMethod, scrapeJob: platformdomain.DeviceMetricsExporterScrapeJob,
 			scrapeServerIDs: exporter.GPUComputeServerIDs, scrapePort: platformdomain.DeviceMetricsExporterPort,
 			dashboardBundle: platformdomain.DeviceMetricsExporterDashboardBundle, trustedVars: exporter.TrustedVars,
-			stepID: deviceMetricsExporterStepID, stepName: "Install the Device Metrics Exporter",
-			job: jobConfigureDeviceMetricsExporter, playbook: deviceMetricsExporterPlaybook,
-			workflowKind: operationdomain.WorkflowKindConfigureDeviceMetricsExporter,
-			ownerParam:   deviceMetricsExporterStepParamOwner, recordParam: deviceMetricsExporterStepParamRecord,
+			composedKind: softwaredomain.KindDeviceMetricsExporter, composedServerIDs: exporter.GPUComputeServerIDs,
+			ownerParam: deviceMetricsExporterStepParamOwner, recordParam: deviceMetricsExporterStepParamRecord,
 			prometheusPortVar: "swallow_device_metrics_exporter_prometheus_port",
 			grafanaPortVar:    "swallow_device_metrics_exporter_grafana_port",
 		}
@@ -164,7 +171,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	if len(runtimeTargets) > 0 {
 		previous, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			runtime, runtimeTargets, containerRuntimeSpec(runtime),
-			"Install "+softwareLabel(runtime)+" on "+launch.Platform.Name)
+			"Install "+softwareLabel(runtime)+" on "+launch.Platform.Name, composedInstallExtras{})
 		if err != nil {
 			return plan, err
 		}
@@ -177,7 +184,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	for _, kind := range monitoringComposedSoftware {
 		previous, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			kind, observability, monitoringSoftwareSpec(kind, monitoring, runtime),
-			"Install "+softwareLabel(kind)+" for "+monitoring.label+" on "+launch.Platform.Name)
+			"Install "+softwareLabel(kind)+" for "+monitoring.label+" on "+launch.Platform.Name, composedInstallExtras{})
 		if err != nil {
 			return plan, err
 		}
@@ -191,6 +198,18 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	// result URLs must use the same ones.
 	trustedVars[monitoring.prometheusPortVar] = softwaredomain.PrometheusPort
 	trustedVars[monitoring.grafanaPortVar] = softwaredomain.GrafanaPort
+	if monitoring.composedKind != "" {
+		// The software install with the Slurm side laid over it. Its inventory is every target, like
+		// the feature Task it replaced, because the scrape check runs on the observability Server.
+		_, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
+			monitoring.composedKind, monitoring.composedServerIDs, map[string]any{},
+			"Install "+softwareLabel(monitoring.composedKind)+" on "+launch.Platform.Name,
+			composedInstallExtras{
+				ansibleTargetIDs: launch.TargetServerIDs, trustedVars: trustedVars,
+				params: map[string]any{monitoring.ownerParam: launch.Platform.ID, monitoring.recordParam: operationID},
+			})
+		return plan, err
+	}
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
 		Kind: string(monitoring.workflowKind), PlaybookName: monitoring.playbook,
 		Intent:          "Install " + monitoring.label + " on " + launch.Platform.Name,
@@ -213,6 +232,19 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	return plan, nil
 }
 
+// composedInstallExtras is what a feature that owns a composed software install adds to it (the
+// Device Metrics Exporter). The zero value adds nothing.
+type composedInstallExtras struct {
+	// ansibleTargetIDs is the install Task's inventory when the playbook must reach more Servers
+	// than it installs on; nil is the install targets. Software Assignments are still written for
+	// the install targets only.
+	ansibleTargetIDs []string
+	// trustedVars are laid over the software install's own trusted variables.
+	trustedVars map[string]any
+	// params are added to the install Task's parameters, for the feature's step observer.
+	params map[string]any
+}
+
 // appendComposedInstall plans one composed software install on serverIDs and appends its Job (the
 // ansible install Task after previous, then its record Task). It returns the record Task's id, the
 // dependency of the next Job.
@@ -227,6 +259,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	serverIDs []string,
 	spec map[string]any,
 	intent string,
+	extras composedInstallExtras,
 ) (string, error) {
 	targets := make([]softwareapp.InstallTarget, len(serverIDs))
 	for i, id := range serverIDs {
@@ -242,13 +275,36 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	if err != nil {
 		return "", err
 	}
+	trustedVars := install.TrustedVars
+	if len(extras.trustedVars) > 0 {
+		trustedVars = make(map[string]any, len(install.TrustedVars)+len(extras.trustedVars))
+		for key, value := range install.TrustedVars {
+			trustedVars[key] = value
+		}
+		for key, value := range extras.trustedVars {
+			trustedVars[key] = value
+		}
+	}
+	ansibleTargets := install.ServerIDs
+	if extras.ansibleTargetIDs != nil {
+		ansibleTargets = extras.ansibleTargetIDs
+	}
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
 		Kind: string(mapping.workflowKind), PlaybookName: mapping.playbook,
-		Intent: intent, TargetServerIDs: install.ServerIDs, PlatformID: launch.Platform.ID,
-		TrustedVars: install.TrustedVars, RequestedBy: launch.RequestedBy,
+		Intent: intent, TargetServerIDs: ansibleTargets, PlatformID: launch.Platform.ID,
+		TrustedVars: trustedVars, RequestedBy: launch.RequestedBy,
 	}, operationID, provisionFirst)
 	if err != nil {
 		return "", err
+	}
+	// The software identity lets the software step observer mark the assignments failed when this
+	// Task fails and the record Task never runs.
+	installParams := map[string]any{
+		"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
+		"softwareKind": string(kind), "serverIds": install.ServerIDs, "softwareMode": "install",
+	}
+	for key, value := range extras.params {
+		installParams[key] = value
 	}
 	installID := "install-" + string(kind)
 	recordID := "record-" + string(kind)
@@ -258,13 +314,8 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 			ID: installID, Kind: "ansible-playbook", Name: "Install " + softwareLabel(kind),
 			Job:      job,
 			Executor: operationdomain.RunnerKindAnsible, DependsOn: []string{previous},
-			Targets: prepared.Targets,
-			// The software identity lets the software step observer mark the assignments failed
-			// when this Task fails and the record Task never runs.
-			Parameters: map[string]any{
-				"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
-				"softwareKind": string(kind), "serverIds": install.ServerIDs, "softwareMode": "install",
-			},
+			Targets:    prepared.Targets,
+			Parameters: installParams,
 		},
 		operationdomain.Task{
 			ID: recordID, Kind: softwareStepKindRecord, Name: "Record " + softwareLabel(kind) + " assignment",

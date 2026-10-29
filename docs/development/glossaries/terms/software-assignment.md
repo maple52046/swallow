@@ -13,7 +13,9 @@
   wrote it, and the last successful apply time. It is swallow-owned intent plus a last-applied
   fact, updated by the install/uninstall Workflow's internal record step — including the record
   step of a software Job composed into a platform deployment (Prometheus and Grafana of a Slurm
-  deploy with Omnistat).
+  deploy with Omnistat, or the Device Metrics Exporter on its GPU compute nodes). A Slurm
+  Platform's successful uninstall marks its Servers' `device-metrics-exporter` assignments
+  `absent`, because the uninstall removes that exporter from the hosts.
 - Disallowed meaning: Not a fourth Server status axis — the three axes
   (`provisioning`/`membership`/`health`) are unchanged, and a Software Assignment is neither
   provisioning state nor membership nor health. Not a live probe of the host's packages: it is
@@ -33,4 +35,6 @@
   ([decision 043](../../../decisions/043-docker-host-management.md)): an installed `docker-ce`
   assignment with `enableApi` is the only eligibility source for the Docker Host Explorer.
   2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md)): composed
-  software Jobs record assignments too.
+  software Jobs record assignments too. 2026-10-30
+  ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md)): the
+  Device Metrics Exporter of a Slurm Platform has assignments, cleared by the Platform's uninstall.

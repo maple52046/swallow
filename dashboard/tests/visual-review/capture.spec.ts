@@ -732,6 +732,44 @@ test.describe('Software installation flow visual review', () => {
     await capture(page, testInfo, 'software-multi-node-dialog', false)
   })
 
+  // The AMD Device Metrics Exporter (decision 068): its catalog card under Observability, a
+  // deployment its Platform manages, and the install picker's GPU and Platform blockers.
+  test('AMD Device Metrics Exporter', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, {
+      fleetSize: 5,
+      softwareAssignments: [
+        ...visualSoftwareAssignments,
+        {
+          serverId: 'srv-2', kind: 'device-metrics-exporter', roles: [], spec: { version: '1.5.3' }, state: 'installed',
+          lastWorkflowId: 'op-dme-srv-2', lastAppliedAt: '2026-08-20T00:00:00Z', createdAt: '2026-08-20T00:00:00Z', updatedAt: '2026-08-20T00:00:00Z',
+        },
+      ],
+    })
+    await setAppearance(page, appearance)
+    await page.goto('/software?site=site-a')
+    const card = page.getByRole('link', { name: 'Open AMD Device Metrics Exporter' })
+    await expect(card).toBeVisible()
+    await card.scrollIntoViewIfNeeded()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-dme-catalog', false)
+
+    await page.goto('/software/device-metrics-exporter?site=site-a')
+    await expect(page.getByRole('link', { name: 'Managed by Platform' }).filter({ visible: true })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-dme-detail', false)
+
+    await page.getByRole('button', { name: 'Install software', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Install software' })
+    await expect(dialog.getByText('This Server has no AMD compute GPU.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-dme-install-blockers', false)
+  })
+
   test('install method with a missing container runtime', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     await installApiFixtures(page, { fleetSize: 5, softwareAssignments: visualSoftwareAssignments })

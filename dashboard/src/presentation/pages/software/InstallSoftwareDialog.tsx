@@ -28,6 +28,7 @@ import {
   containerRuntimeLabel,
   groupSoftwareCatalog,
   softwareCatalogPresentation,
+  softwareManagedByPlatform,
   softwareTargetBlocker,
   softwareTargetBlockerLabel,
   softwareTargetMatches,
@@ -138,6 +139,8 @@ export function InstallSoftwareDialog({
     const current = assignments.find((item) => item.serverId === fixedServer.id && item.kind === candidate.kind)
     if (current?.state === 'pending') return 'Installation is already in progress.'
     if (current?.state === 'uninstalling') return 'Uninstall is already in progress.'
+    // A Platform-managed kind cannot be reconfigured here either; the Platform owns it.
+    if (softwareManagedByPlatform(fixedServer, candidate)) return softwareTargetBlockerLabel('platform_claimed')
     if (current?.state === 'installed' || current?.state === 'failed') return null
     const blocker = softwareTargetBlocker(fixedServer, candidate, assignments)
     return blocker ? softwareTargetBlockerLabel(blocker) : null

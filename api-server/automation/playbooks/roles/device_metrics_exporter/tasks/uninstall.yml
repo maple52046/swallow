@@ -1,0 +1,41 @@
+---
+# Remove AMD's Device Metrics Exporter and everything Swallow put next to it: the units' drop-ins,
+# the configuration, the job directory, the identity check, and the cached package. Shared by the
+# software uninstall (uninstall-device-metrics-exporter) and the Slurm uninstall, which removes the
+# exporter from every target. Every task tolerates a host that never ran it, so reruns are safe.
+# The amdgpu loader is not touched here; each caller decides whether it still owns it.
+
+- name: Stop and disable the Device Metrics Exporter
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  failed_when: false
+  loop:
+    - amd-metrics-exporter
+    - gpuagent
+
+- name: Remove the Device Metrics Exporter package
+  ansible.builtin.apt:
+    name: amdgpu-exporter
+    state: absent
+    purge: true
+    lock_timeout: 600
+  failed_when: false
+
+- name: Remove the Device Metrics Exporter configuration, job directory, and package cache
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/etc/systemd/system/gpuagent.service.d/{{ device_metrics_exporter_dropin_name }}"
+    - "/etc/systemd/system/amd-metrics-exporter.service.d/{{ device_metrics_exporter_dropin_name }}"
+    - "{{ device_metrics_exporter_config_dir }}"
+    - "{{ device_metrics_exporter_tmpfiles }}"
+    - "{{ device_metrics_exporter_job_dir }}"
+    - "{{ device_metrics_exporter_identity_check }}"
+    - "{{ device_metrics_exporter_cache_dir }}/{{ device_metrics_exporter_package.url | basename }}"
+
+- name: Reload systemd after removing the exporter's drop-ins
+  ansible.builtin.systemd:
+    daemon_reload: true

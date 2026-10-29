@@ -1,19 +1,28 @@
 ---
-# Install AMD's Device Metrics Exporter on a Swallow-deployed Slurm Platform. It runs as the last
-# Job of a configure-slurm Workflow, after deploy-slurm (which installs the job hook that records
-# each job on its GPUs) and after Prometheus and Grafana were composed onto the observability
-# Server. Topology arrives only through trusted variables:
+# Install AMD's Device Metrics Exporter, the Managed Software kind device-metrics-exporter
+# (decision 068). One playbook serves both callers:
+#   - a standalone software install on its targets, with no job attribution; and
+#   - a Swallow-deployed Slurm Platform, as the last Job of its configure-slurm Workflow, after
+#     deploy-slurm (which installs the job hook that records each job on its GPUs) and after
+#     Prometheus and Grafana were composed onto the observability Server.
+# Intent arrives only through trusted variables:
 #   swallow_device_metrics_exporter_version           pinned exporter release
-#   swallow_device_metrics_exporter_port              exporter port on every GPU compute node
+#   swallow_device_metrics_exporter_port              exporter port on every exporter host
+#   swallow_device_metrics_exporter_job_attribution   none (standalone) or slurm
+# and, from a Slurm deployment only:
 #   swallow_device_metrics_exporter_compute_ids       GPU compute nodes (serverIds) that run it
 #   swallow_device_metrics_exporter_observability_id  Server running Prometheus and Grafana
 #   swallow_device_metrics_exporter_grafana_port      Grafana's port
 #   swallow_device_metrics_exporter_cluster_name      the Slurm cluster name, the cluster_name label
-# On success it writes {grafanaUrl, gpuIdentity, nodes} to the run's result file. gpuIdentity is
-# "distinct" only when every node's exporter tells its GPUs apart (see dme-identity-check);
-# "collapsed" still succeeds, because the endpoint works, but job attribution per GPU does not.
-# Prometheus listens only on the observability Server's loopback address, so the scrape check runs
-# there. Idempotent.
+# Without compute ids every target runs the exporter. A run accepted before decision 068 carries
+# compute ids but no job attribution, which the role reads as slurm.
+#
+# A standalone run also installs Swallow's post-boot amdgpu loader, which gpuagent needs; inside a
+# Slurm deployment the Slurm GPU role owns it. A Slurm run writes {grafanaUrl, gpuIdentity, nodes}
+# to the run's result file once Prometheus scrapes every exporter. gpuIdentity is "distinct" only
+# when every node's exporter tells its GPUs apart (see dme-identity-check); "collapsed" still
+# succeeds, because the endpoint works, but job attribution per GPU does not. Prometheus listens
+# only on the observability Server's loopback address, so the scrape check runs there. Idempotent.
 
 - name: Classify the Device Metrics Exporter hosts
   hosts: all
@@ -21,15 +30,38 @@
   tasks:
     - name: Group the exporter hosts
       ansible.builtin.group_by:
-        key: "dme_{{ 'exporter' if inventory_hostname in swallow_device_metrics_exporter_compute_ids else 'other' }}"
+        key: "dme_{{ 'exporter' if inventory_hostname in (swallow_device_metrics_exporter_compute_ids | default(ansible_play_hosts_all)) else 'other' }}"
       changed_when: false
 
     - name: Group the observability host
       ansible.builtin.group_by:
-        key: "dme_{{ 'observability' if inventory_hostname == swallow_device_metrics_exporter_observability_id else 'member' }}"
+        key: "dme_{{ 'observability' if inventory_hostname == (swallow_device_metrics_exporter_observability_id | default('')) else 'member' }}"
       changed_when: false
 
-- name: Install the exporter on every GPU compute node
+- name: Load the amdgpu driver on a standalone exporter host
+  hosts: dme_exporter
+  gather_facts: false
+  become: true
+  vars:
+    # The role's own default, read here because an included role's defaults are not the play's.
+    dme_job_attribution: >-
+      {{ swallow_device_metrics_exporter_job_attribution
+         | default('slurm' if swallow_device_metrics_exporter_compute_ids is defined else 'none', true) }}
+  tasks:
+    - name: Refuse an operating system the exporter package is not built for
+      ansible.builtin.include_role:
+        name: device_metrics_exporter
+        tasks_from: preflight
+
+    - name: Install Swallow's post-boot amdgpu loader
+      # gpuagent starts after this unit. No dependents: the exporter role orders gpuagent itself.
+      ansible.builtin.include_role:
+        name: amdgpu_loader
+      vars:
+        amdgpu_loader_owner: Device Metrics Exporter
+      when: dme_job_attribution | trim == 'none'
+
+- name: Install the exporter on every exporter host
   hosts: dme_exporter
   gather_facts: false
   become: true
@@ -70,10 +102,11 @@
         msg: >-
           {{ inventory_hostname }}: the exporter reports {{ dme_identity.distinctGpuIds }} distinct gpu_id
           over {{ dme_identity.healthSeries }} GPU health series for {{ dme_identity.kfdGpus }} KFD GPUs
-          ({{ dme_identity.deploymentModes }}); per-GPU job attribution is not reliable on this node.
+          ({{ dme_identity.deploymentModes }}); per-GPU attribution is not reliable on this node.
       when: dme_identity.identity != 'distinct'
 
 - name: Verify Prometheus scrapes every exporter and record the result
+  # Only a Slurm deployment names an observability Server; a standalone install has no such host.
   hosts: dme_observability
   gather_facts: false
   vars:

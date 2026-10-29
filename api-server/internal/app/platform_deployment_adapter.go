@@ -912,7 +912,7 @@ func (o platformDeploymentObserver) completeOmnistat(
 	return o.platforms.RecordOmnistatGrafana(ctx, execution.PlatformID, grafanaURL)
 }
 
-// completeDeviceMetricsExporter records what a successful configure-device-metrics-exporter run
+// completeDeviceMetricsExporter records what a successful Slurm run of deploy-device-metrics-exporter
 // wrote to its result file: the Grafana URL as the Platform's `Device Metrics Exporter Grafana`
 // Monitoring Link, and the GPU identity the exporters showed. A missing URL fails the Task, because
 // the playbook writes it only after Prometheus reported every exporter up; a missing or unknown

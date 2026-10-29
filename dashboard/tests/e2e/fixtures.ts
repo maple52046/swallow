@@ -1472,6 +1472,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'nfs', label: 'NFS', roles: ['server', 'client'], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: ['exportPath', 'exportOptions', 'source', 'mountPath', 'mountOptions'] },
         { kind: 'prometheus', label: 'Prometheus', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'scrapeJob', 'scrapeTargets', 'scrapeServerIds', 'scrapePort', 'listen', 'retention'] },
         { kind: 'grafana', label: 'Grafana', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'prometheusUrl', 'dashboards'] },
+        { kind: 'device-metrics-exporter', label: 'AMD Device Metrics Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: true, refusedForClaimedServers: true, requiresAmdComputeGpu: true, installMethods: [], containerRuntimes: [], specFields: [] },
       ] })
     }
     // Registry Credentials (registry-credentials.md): responses never carry a password.
@@ -1523,6 +1524,19 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         spec?: Record<string, unknown>
       }
       options.onSoftwareInstallRequest?.(body as Record<string, unknown>)
+      // Mirrors software.md: the Device Metrics Exporter needs AMD compute GPUs and is left to the
+      // Platform that claims a Server.
+      if (body.kind === 'device-metrics-exporter') {
+        for (const target of body.assignments ?? []) {
+          const server = fleet.find((item) => item.id === target.serverId)
+          if (server?.platformClaim) {
+            return json(route, { error: { code: 'conflict', message: `${server.hostname} belongs to Platform ${server.platformClaim.platformId}, which manages AMD Device Metrics Exporter on its Servers; cannot install it directly` } }, 409)
+          }
+          if (server && !server.gpus.some((gpu) => gpu.kind === 'compute' && /amd|advanced micro devices/i.test(gpu.vendor))) {
+            return json(route, { error: { code: 'conflict', message: `${server.hostname} lists no AMD compute GPU in its GPU Inventory, which AMD Device Metrics Exporter needs` } }, 409)
+          }
+        }
+      }
       if (options.softwareInstallError) {
         return json(route, {
           error: { code: options.softwareInstallError.code, message: options.softwareInstallError.message },
@@ -1561,6 +1575,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (path === '/api/v1/software/uninstall' && request.method() === 'POST') {
       const body = (request.postDataJSON() ?? {}) as { kind?: SoftwareAssignment['kind']; serverIds?: string[] }
       options.onSoftwareUninstallRequest?.(body as Record<string, unknown>)
+      const claimed = body.kind === 'device-metrics-exporter'
+        ? fleet.find((item) => body.serverIds?.includes(item.id) && item.platformClaim)
+        : undefined
+      if (claimed) {
+        return json(route, { error: { code: 'conflict', message: `${claimed.hostname} belongs to Platform ${claimed.platformClaim?.platformId}, which manages AMD Device Metrics Exporter on its Servers; cannot uninstall it directly` } }, 409)
+      }
       for (const serverId of body.serverIds ?? []) {
         const existing = softwareAssignmentItems.find((item) => item.serverId === serverId && item.kind === body.kind)
         if (existing) Object.assign(existing, { state: 'uninstalling', lastWorkflowId: 'op-software-uninstall', updatedAt: now })

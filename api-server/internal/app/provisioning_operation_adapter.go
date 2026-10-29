@@ -40,8 +40,9 @@ type durableProvisioningLauncher struct {
 	platformNames provisioningdomain.PlatformNames
 }
 
-// platformNameReader adapts the platform repository to provisioning's PlatformNames port, so a
-// refusal names the claiming Platform without provisioning reading the platform model.
+// platformNameReader adapts the platform repository to the PlatformNames ports of provisioning and
+// software (the same signature), so a refusal names the claiming Platform without either context
+// reading the platform model.
 type platformNameReader struct {
 	platforms interface {
 		FindByID(ctx context.Context, id string) (*platformdomain.Platform, error)

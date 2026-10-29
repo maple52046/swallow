@@ -12,6 +12,10 @@ Managed Software 會在已 deployed 的 Server 安裝或移除一個 host-level 
   **Containers** tab 管理該 host 的 Docker；見下文。
 - **Podman：** 安裝 request 選擇的 Podman variant。
 - **NFS：** 依 required storage settings 安裝 server 或 client role。
+- **Prometheus** 與 **Grafana：** 每台 Server 安裝一個 pinned instance，可用 Server 上的
+  Docker CE 或 Podman 以 container 執行，或從原廠的官方 release／套件以 native 安裝。
+- **AMD Device Metrics Exporter：** 在 AMD GPU Server 上以 native 方式安裝 AMD 的
+  per-GPU metrics exporter；見下文。
 
 Shipped automation manifest 是 allowlist。Software kind／variant 沒有出現在 active
 API contract 與 manifest 時，就不是 supported capability。
@@ -52,6 +56,20 @@ software。
 
 變更 NFS server/client role 可能影響 mounted storage 與 workload availability，
 需要額外檢查。
+
+## AMD Device Metrics Exporter
+
+AMD Device Metrics Exporter 在 Server 位址的 port 5001 提供 per-GPU 的 Prometheus
+metrics。目標須有 AMD compute GPU 且執行 Ubuntu 24.04，沒有可設定的選項。若 Server 還沒有
+swallow 的 amdgpu driver loader，安裝時會一併裝上。
+
+它只安裝 exporter。要看圖時，另外安裝會 scrape 這些 Server 的 port 5001 的
+**Prometheus**，以及帶 Device Metrics Exporter dashboard 的 **Grafana**。
+
+以 Device Metrics Exporter 部署的 Slurm Platform 會在其 GPU node 安裝同一個 software，
+並開啟 Slurm job attribution。Server 屬於某個 Platform 期間，其上的 exporter 由該 Platform
+管理：Software 頁面不會在那台 Server 上安裝或解除安裝它，uninstall 該 Platform 時會一併移除。
+Kubernetes Platform 的 GPU Operator 有自己的 exporter，因此 Kubernetes node 不提供此 software。
 
 ## docker group
 

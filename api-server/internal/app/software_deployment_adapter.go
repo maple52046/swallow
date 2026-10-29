@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -56,6 +57,9 @@ var softwareInstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
 	softwaredomain.KindNFS:        {operationdomain.WorkflowKindConfigureNFS, "deploy-nfs"},
 	softwaredomain.KindPrometheus: {operationdomain.WorkflowKindConfigurePrometheus, "deploy-prometheus"},
 	softwaredomain.KindGrafana:    {operationdomain.WorkflowKindConfigureGrafana, "deploy-grafana"},
+	softwaredomain.KindDeviceMetricsExporter: {
+		operationdomain.WorkflowKindConfigureDeviceMetricsExporter, "deploy-device-metrics-exporter",
+	},
 }
 
 var softwareUninstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
@@ -64,6 +68,9 @@ var softwareUninstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
 	softwaredomain.KindNFS:        {operationdomain.WorkflowKindUninstallNFS, "uninstall-nfs"},
 	softwaredomain.KindPrometheus: {operationdomain.WorkflowKindUninstallPrometheus, "uninstall-prometheus"},
 	softwaredomain.KindGrafana:    {operationdomain.WorkflowKindUninstallGrafana, "uninstall-grafana"},
+	softwaredomain.KindDeviceMetricsExporter: {
+		operationdomain.WorkflowKindUninstallDeviceMetricsExporter, "uninstall-device-metrics-exporter",
+	},
 }
 
 // softwareDeploymentLauncher composes the durable software Workflow. It reuses the operation
@@ -180,6 +187,38 @@ func serverResourceRefs(serverIDs []string) []operationdomain.ResourceReference 
 		refs = append(refs, operationdomain.ResourceReference{Kind: "server", ID: serverID})
 	}
 	return refs
+}
+
+// deviceMetricsExporterAssignments implements the platform context's DeviceMetricsExporterAssignments
+// port on the Software Assignment repository: a successful Slurm uninstall removed the exporter
+// from the Platform's Servers, so their device-metrics-exporter records become absent (decision
+// 068). The record keeps its last Workflow, like the sweep that marks a released Server's records.
+type deviceMetricsExporterAssignments struct {
+	assignments softwaredomain.AssignmentRepository
+}
+
+// MarkDeviceMetricsExporterRemoved skips a Server without a live record and reports every write
+// failure, after trying the other Servers.
+func (a deviceMetricsExporterAssignments) MarkDeviceMetricsExporterRemoved(ctx context.Context, serverIDs []string) error {
+	var errs []error
+	for _, serverID := range serverIDs {
+		existing, err := a.assignments.FindByServerAndKind(ctx, serverID, softwaredomain.KindDeviceMetricsExporter)
+		if errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
+			continue
+		}
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if existing.State == softwaredomain.StateAbsent {
+			continue
+		}
+		if err := a.assignments.SetState(ctx, serverID, softwaredomain.KindDeviceMetricsExporter,
+			softwaredomain.StateAbsent, existing.LastWorkflowID, nil); err != nil && !errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // kubernetesMembershipChecker reports whether a Server is a Kubernetes Platform member, which gates

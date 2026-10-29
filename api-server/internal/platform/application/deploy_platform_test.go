@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +175,17 @@ func (r *deployFakeServerRepo) ReleasePlatformClaims(_ context.Context, platform
 		}
 	}
 	return nil
+}
+
+func (r *deployFakeServerRepo) ClaimedServerIDs(_ context.Context, platformID string) ([]string, error) {
+	ids := []string{}
+	for id, server := range r.servers {
+		if server.PlatformClaim != nil && server.PlatformClaim.PlatformID == platformID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 func (r *deployFakeServerRepo) ClaimingPlatformIDs(context.Context) ([]string, error) {

@@ -24,6 +24,8 @@ const (
 	// KindPrometheus and KindGrafana install as pinned containers or natively (decision 063).
 	KindPrometheus Kind = "prometheus"
 	KindGrafana    Kind = "grafana"
+	// KindDeviceMetricsExporter is AMD's per-GPU exporter, installed natively (decision 068).
+	KindDeviceMetricsExporter Kind = "device-metrics-exporter"
 )
 
 // Role is a variant of one software (for NFS, whether a Server is a server, a client, or both).
@@ -77,6 +79,12 @@ type CatalogEntry struct {
 	// RefusedForKubernetesMembers rejects installing this kind on a Server that is already a
 	// Kubernetes Platform member (Docker/Podman containerd coexisting with k0s is undefined).
 	RefusedForKubernetesMembers bool
+	// RefusedForClaimedServers rejects a standalone install or uninstall of this kind on a Server
+	// with a Platform Claim (decision 067), because that Platform manages the kind on its Servers
+	// (decision 068). A Platform's own composition of the kind is not subject to it.
+	RefusedForClaimedServers bool
+	// RequiresAMDComputeGPU rejects a target whose GPU Inventory lists no AMD compute GPU.
+	RequiresAMDComputeGPU bool
 	// InstallMethods lists how this kind can be installed (spec installMethod); the first is the
 	// default. Empty for a kind with one fixed install path.
 	InstallMethods []InstallMethod
@@ -192,6 +200,15 @@ var catalog = []CatalogEntry{
 		ContainerRuntimes:           []Kind{KindDockerCE, KindPodman},
 		SpecFields:                  []string{SpecInstallMethod, SpecContainerRuntime, SpecVersion, SpecPrometheusURL, SpecDashboards},
 	},
+	{
+		// One native install path and no operator spec: the version is pinned and recorded.
+		Kind:                        KindDeviceMetricsExporter,
+		Label:                       "AMD Device Metrics Exporter",
+		RefusedForKubernetesMembers: true,
+		RefusedForClaimedServers:    true,
+		RequiresAMDComputeGPU:       true,
+		SpecFields:                  []string{},
+	},
 }
 
 // Catalog returns a copy of the Managed Software catalog so callers cannot mutate the source.
@@ -263,4 +280,10 @@ var (
 	ErrRequiredSoftwareMissing = errors.New("a required software kind is not installed")
 	// ErrAssignmentNotFound means no Software Assignment exists for (ServerID, Kind).
 	ErrAssignmentNotFound = errors.New("software assignment not found")
+	// ErrPlatformClaimed means the kind refuses a standalone install or uninstall on a Server a
+	// Platform claims, whose Platform manages it there. It is a state conflict.
+	ErrPlatformClaimed = errors.New("software kind is managed by the platform that claims the server")
+	// ErrTargetIneligible means a target lacks what the kind needs on the host (for example AMD
+	// compute GPUs for the Device Metrics Exporter). It is a state conflict, not a request error.
+	ErrTargetIneligible = errors.New("target server cannot run this software kind")
 )
