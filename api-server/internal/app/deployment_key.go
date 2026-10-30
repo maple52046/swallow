@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
-	mongoopts "go.mongodb.org/mongo-driver/mongo/options"
-
 	"github.com/maple52046/swallow/config"
+	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	"github.com/maple52046/swallow/internal/migration"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	"github.com/maple52046/swallow/internal/shared/secret"
@@ -41,18 +39,15 @@ func EnsureDeploymentKey(cfg config.APIConfig) (DeploymentKeyResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	client, err := mongo.Connect(ctx, mongoopts.Client().ApplyURI(cfg.MongoURI))
+	client, err := storemongo.Connect(ctx, cfg.MongoURI)
 	if err != nil {
-		return DeploymentKeyResult{}, fmt.Errorf("mongo connect: %w", err)
+		return DeploymentKeyResult{}, err
 	}
 	defer func() {
 		disconnectCtx, cancelDisconnect := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancelDisconnect()
 		_ = client.Disconnect(disconnectCtx)
 	}()
-	if err := client.Ping(ctx, nil); err != nil {
-		return DeploymentKeyResult{}, fmt.Errorf("mongo ping: %w", err)
-	}
 	db := client.Database(cfg.MongoDB)
 	if err := migration.Check(ctx, db); err != nil {
 		return DeploymentKeyResult{}, fmt.Errorf("database schema (run `swallow-api migrate` first): %w", err)

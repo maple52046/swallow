@@ -9,10 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
-	mongoopts "go.mongodb.org/mongo-driver/mongo/options"
-
 	"github.com/maple52046/swallow/config"
+	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	"github.com/maple52046/swallow/internal/migration"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
@@ -39,14 +37,11 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	mongoClient, err := mongo.Connect(connectCtx, mongoopts.Client().ApplyURI(cfg.MongoURI))
+	mongoClient, err := storemongo.Connect(connectCtx, cfg.MongoURI)
 	if err != nil {
-		return fmt.Errorf("mongo connect: %w", err)
+		return err
 	}
 	defer mongoClient.Disconnect(context.Background())
-	if err := mongoClient.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("mongo ping: %w", err)
-	}
 	db := mongoClient.Database(cfg.MongoDB)
 	if err := migration.Check(connectCtx, db); err != nil {
 		return fmt.Errorf("database schema: %w", err)

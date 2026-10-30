@@ -6,10 +6,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/maple52046/swallow/config"
+	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	"github.com/maple52046/swallow/internal/migration"
 )
 
@@ -25,13 +24,15 @@ var migrateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Connecting has a short deadline so a wrong URI fails fast. The migration
-		// itself deliberately runs without an artificial deadline: a large collection
-		// rename must be allowed to finish, because an interrupted migration leaves the
-		// schema marker behind and the binary would then refuse to start.
+		// Connecting has a short deadline so a wrong URI fails fast, and it refuses a
+		// standalone MongoDB before any schema change, because no swallow process could start
+		// on it afterwards. The migration itself deliberately runs without an artificial
+		// deadline: a large collection rename must be allowed to finish, because an
+		// interrupted migration leaves the schema marker behind and the binary would then
+		// refuse to start.
 		connectCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		client, err := mongo.Connect(connectCtx, options.Client().ApplyURI(cfg.API.MongoURI))
+		client, err := storemongo.Connect(connectCtx, cfg.API.MongoURI)
 		if err != nil {
 			return err
 		}

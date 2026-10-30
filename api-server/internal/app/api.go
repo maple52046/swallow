@@ -18,12 +18,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
-	"go.mongodb.org/mongo-driver/mongo"
-	mongoopts "go.mongodb.org/mongo-driver/mongo/options"
 	temporalclient "go.temporal.io/sdk/client"
 
 	"github.com/maple52046/swallow/bootstrap"
 	"github.com/maple52046/swallow/config"
+	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	apikeyapp "github.com/maple52046/swallow/internal/apikey/application"
 	apikeydelivery "github.com/maple52046/swallow/internal/apikey/delivery"
 	apikeyinfra "github.com/maple52046/swallow/internal/apikey/infra"
@@ -102,12 +101,9 @@ func RunAPI(cfg config.APIConfig) error {
 	connectCtx, cancelConnect := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelConnect()
 
-	client, err := mongo.Connect(connectCtx, mongoopts.Client().ApplyURI(cfg.MongoURI))
+	client, err := storemongo.Connect(connectCtx, cfg.MongoURI)
 	if err != nil {
-		return fmt.Errorf("mongo connect: %w", err)
-	}
-	if err := client.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("mongo ping: %w", err)
+		return err
 	}
 	slog.Info("connected to mongodb")
 	defer func() {

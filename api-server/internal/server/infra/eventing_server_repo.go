@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
@@ -15,9 +16,13 @@ import (
 // without each caller knowing about the stream.
 //
 // Reads are delegated unchanged. Writes delegate first and publish only on success, so a
-// failed write never emits a phantom change. Publishing is best-effort and non-blocking
-// (see ServerEventPublisher): a re-read needed to build the full projection is skipped
-// silently on error rather than failing the write the caller already completed.
+// failed write never emits a phantom change. Inside a store transaction the event waits for the
+// commit (store.AfterCommit), so a rolled-back or retried unit of work never announces state that
+// was not committed; outside one it is published at once. An id-only write re-reads the
+// projection with the caller's ctx, which inside a transaction sees the transaction's own writes,
+// and publishes that snapshot after the commit. Publishing is best-effort and non-blocking
+// (see ServerEventPublisher): a re-read failure is skipped silently rather than failing the
+// write the caller already made.
 type EventingServerRepository struct {
 	inner     serverdomain.ServerRepository
 	publisher serverdomain.ServerEventPublisher
@@ -54,7 +59,7 @@ func (r *EventingServerRepository) Upsert(ctx context.Context, server *serverdom
 	if err := r.inner.Upsert(ctx, server); err != nil {
 		return err
 	}
-	r.publishUpsert(server)
+	r.publishUpsert(ctx, server)
 	return nil
 }
 
@@ -65,9 +70,11 @@ func (r *EventingServerRepository) MarkAbsent(ctx context.Context, integrationID
 	if err != nil {
 		return nil, err
 	}
-	for _, id := range ids {
-		r.publisher.PublishServerEvent(serverdomain.ServerEvent{Kind: serverdomain.ServerRemoved, ServerID: id})
-	}
+	store.AfterCommit(ctx, func() {
+		for _, id := range ids {
+			r.publisher.PublishServerEvent(serverdomain.ServerEvent{Kind: serverdomain.ServerRemoved, ServerID: id})
+		}
+	})
 	return ids, nil
 }
 
@@ -112,11 +119,11 @@ func (r *EventingServerRepository) SetDefaultUser(ctx context.Context, id string
 // Server it was asked to claim, so lists show the claim without a reload. It fails with an error
 // when the inner repository does not persist claims, rather than silently claiming nothing.
 func (r *EventingServerRepository) ClaimForPlatform(ctx context.Context, platformID string, serverIDs []string, at time.Time) error {
-	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	claims, ok := r.inner.(serverdomain.PlatformClaimStore)
 	if !ok {
 		return errPlatformClaimsUnsupported
 	}
-	if err := store.ClaimForPlatform(ctx, platformID, serverIDs, at); err != nil {
+	if err := claims.ClaimForPlatform(ctx, platformID, serverIDs, at); err != nil {
 		return err
 	}
 	for _, id := range serverIDs {
@@ -128,12 +135,12 @@ func (r *EventingServerRepository) ClaimForPlatform(ctx context.Context, platfor
 // ReleasePlatformClaims reads the claimed Servers first, clears the claims, then publishes those
 // Servers. A failed read only loses the live events; the release itself still runs.
 func (r *EventingServerRepository) ReleasePlatformClaims(ctx context.Context, platformID string) error {
-	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	claims, ok := r.inner.(serverdomain.PlatformClaimStore)
 	if !ok {
 		return errPlatformClaimsUnsupported
 	}
-	ids, _ := store.ClaimedServerIDs(ctx, platformID)
-	if err := store.ReleasePlatformClaims(ctx, platformID); err != nil {
+	ids, _ := claims.ClaimedServerIDs(ctx, platformID)
+	if err := claims.ReleasePlatformClaims(ctx, platformID); err != nil {
 		return err
 	}
 	for _, id := range ids {
@@ -144,20 +151,20 @@ func (r *EventingServerRepository) ReleasePlatformClaims(ctx context.Context, pl
 
 // ClaimingPlatformIDs is a read and is delegated unchanged.
 func (r *EventingServerRepository) ClaimingPlatformIDs(ctx context.Context) ([]string, error) {
-	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	claims, ok := r.inner.(serverdomain.PlatformClaimStore)
 	if !ok {
 		return nil, errPlatformClaimsUnsupported
 	}
-	return store.ClaimingPlatformIDs(ctx)
+	return claims.ClaimingPlatformIDs(ctx)
 }
 
 // ClaimedServerIDs is a read and is delegated unchanged.
 func (r *EventingServerRepository) ClaimedServerIDs(ctx context.Context, platformID string) ([]string, error) {
-	store, ok := r.inner.(serverdomain.PlatformClaimStore)
+	claims, ok := r.inner.(serverdomain.PlatformClaimStore)
 	if !ok {
 		return nil, errPlatformClaimsUnsupported
 	}
-	return store.ClaimedServerIDs(ctx, platformID)
+	return claims.ClaimedServerIDs(ctx, platformID)
 }
 
 var errPlatformClaimsUnsupported = errors.New("the server repository does not persist platform claims")
@@ -172,8 +179,10 @@ func (r *EventingServerRepository) Delete(ctx context.Context, id string) error 
 	if err := r.inner.Delete(ctx, id); err != nil {
 		return err
 	}
-	r.publisher.PublishServerEvent(serverdomain.ServerEvent{
-		Kind: serverdomain.ServerRemoved, ServerID: id, SiteID: siteID,
+	store.AfterCommit(ctx, func() {
+		r.publisher.PublishServerEvent(serverdomain.ServerEvent{
+			Kind: serverdomain.ServerRemoved, ServerID: id, SiteID: siteID,
+		})
 	})
 	return nil
 }
@@ -186,14 +195,17 @@ func (r *EventingServerRepository) publishByID(ctx context.Context, id string) {
 	if err != nil || server == nil {
 		return
 	}
-	r.publishUpsert(server)
+	r.publishUpsert(ctx, server)
 }
 
-func (r *EventingServerRepository) publishUpsert(server *serverdomain.Server) {
-	r.publisher.PublishServerEvent(serverdomain.ServerEvent{
-		Kind:     serverdomain.ServerUpserted,
-		ServerID: server.ID,
-		SiteID:   server.Source.SiteID,
-		Server:   server,
+// publishUpsert announces server once ctx's unit of work commits (immediately outside one).
+func (r *EventingServerRepository) publishUpsert(ctx context.Context, server *serverdomain.Server) {
+	store.AfterCommit(ctx, func() {
+		r.publisher.PublishServerEvent(serverdomain.ServerEvent{
+			Kind:     serverdomain.ServerUpserted,
+			ServerID: server.ID,
+			SiteID:   server.Source.SiteID,
+			Server:   server,
+		})
 	})
 }
