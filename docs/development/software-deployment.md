@@ -141,6 +141,10 @@ Swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
 **收斂**：已 `installed` 且 spec 等價仍可再跑（playbook ensure 為 no-op）；spec 不同則再 ensure；
 互斥 kind 已 `installed` → 4xx（在建立 Workflow 前擋下）。
 
+**與 Workflow 一起寫入**（decision 069）：install 先在 store transaction 之外規劃 Workflow（lock 檢查與 target
+解析），再在一個 transaction 內寫入 Workflow 與每台 target 的 `pending` assignment；uninstall 同樣把 Workflow 與
+`uninstalling` 一起寫入。被拒的請求（target busy 或 locked）不留下 Workflow，也不留下 assignment 的變更。
+
 **OS 生命週期**：Server 離開 `deployed`（release / recover 回 `ready` / 重裝）時，其所有 assignment
 標為 `absent`（背景 sweep，週期與 membership sync 相同），避免「記錄說有 Docker、磁碟已無」。
 Assignment 是 swallow-owned intent + last-applied，**不是**第四條 Server status 軸
@@ -307,8 +311,8 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   `softwareMode=install`）＋ `record-<kind>` internal record Task」，下一個 Job 依賴上一個的 record
   Task。組入用的 trusted vars 與驗證由 `SoftwareService.PlanComposedInstall` 產生（同樣的
   catalog／role／spec／互斥／k8s 規則，但不檢查 deployed 與 runtime 狀態，因為由 Job 順序保證）；
-  launcher 在 Workflow 建立後呼叫 `RecordComposedInstall` 寫入 pending assignment，失敗由既有 step
-  observer 標 `failed`。
+  launcher 在寫入 Workflow 的同一個 transaction 中呼叫 `RecordComposedInstall` 寫入 pending assignment
+  （decision 069），寫入失敗會讓整個 deploy 受理失敗；安裝失敗由既有 step observer 標 `failed`。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
   per-Server lease、retry/cancel 歸屬混亂、出現兩個 operator-visible Workflow）。
 - **禁止**只用 ansible `include_role` 當唯一連動（會抹掉 Job 邊界與 dashboard 分組）。playbook 內部

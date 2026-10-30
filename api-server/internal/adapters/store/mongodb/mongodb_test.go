@@ -98,6 +98,34 @@ func TestTransactorRollsBackEveryWriteWhenTheUnitFails(t *testing.T) {
 	}
 }
 
+// A write the server rejects inside a transaction (here a duplicate key) aborts the transaction
+// server-side. The unit must fail at once with that error, not be retried as transient.
+func TestTransactorReturnsAServerRejectedWritePromptly(t *testing.T) {
+	client, db := testDatabase(t)
+	tx := NewTransactor(client)
+	if _, err := db.Collection("platforms").InsertOne(context.Background(), bson.D{{Key: "_id", Value: "p1"}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	started := time.Now()
+	err := tx.InTransaction(context.Background(), func(ctx context.Context) error {
+		if _, err := db.Collection("servers").InsertOne(ctx, bson.D{{Key: "_id", Value: "s1"}}); err != nil {
+			return err
+		}
+		_, err := db.Collection("platforms").InsertOne(ctx, bson.D{{Key: "_id", Value: "p1"}})
+		return err
+	})
+	if !mongo.IsDuplicateKeyError(err) {
+		t.Fatalf("InTransaction() error = %v, want the duplicate key error", err)
+	}
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Errorf("InTransaction() took %s; a rejected write must not be retried", elapsed)
+	}
+	if got := count(t, db.Collection("servers")); got != 0 {
+		t.Errorf("servers after the rejected unit = %d, want 0", got)
+	}
+}
+
 func TestTransactorCommitsTogetherAndJoinsNestedCalls(t *testing.T) {
 	client, db := testDatabase(t)
 	tx := NewTransactor(client)

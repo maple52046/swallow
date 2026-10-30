@@ -82,23 +82,47 @@ type softwareDeploymentLauncher struct {
 	orchestrations *operationapp.WorkflowService
 }
 
-// LaunchInstall builds the install Workflow: prepare-hosts -> configure-<kind> -> record-software.
-func (l softwareDeploymentLauncher) LaunchInstall(ctx context.Context, launch softwareapp.SoftwareLaunch) (string, error) {
-	mapping, ok := softwareInstallPlaybooks[launch.Kind]
-	if !ok {
-		return "", fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
-	}
-	return l.launch(ctx, launch, mapping, softwareStepKindRecord, "install", "Install "+softwareLabel(launch.Kind))
+// preparedSoftwareWorkflow is the plan the software launcher's prepare steps return
+// (softwareapp.PreparedSoftwareWorkflow): the complete Workflow, not yet written.
+type preparedSoftwareWorkflow struct {
+	workflow operationapp.CreateWorkflowInput
 }
 
-// LaunchUninstall builds the uninstall Workflow: prepare-hosts -> configure-<kind> (uninstall
+// WorkflowID is the preassigned id the Workflow gets when persisted.
+func (p *preparedSoftwareWorkflow) WorkflowID() string { return p.workflow.ID }
+
+// PrepareInstall plans the install Workflow: prepare-hosts -> configure-<kind> -> record-software.
+func (l softwareDeploymentLauncher) PrepareInstall(ctx context.Context, launch softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error) {
+	mapping, ok := softwareInstallPlaybooks[launch.Kind]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
+	}
+	return l.prepare(ctx, launch, mapping, softwareStepKindRecord, "install", "Install "+softwareLabel(launch.Kind))
+}
+
+// PrepareUninstall plans the uninstall Workflow: prepare-hosts -> configure-<kind> (uninstall
 // playbook) -> record-software (clear).
-func (l softwareDeploymentLauncher) LaunchUninstall(ctx context.Context, launch softwareapp.SoftwareLaunch) (string, error) {
+func (l softwareDeploymentLauncher) PrepareUninstall(ctx context.Context, launch softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error) {
 	mapping, ok := softwareUninstallPlaybooks[launch.Kind]
 	if !ok {
-		return "", fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
+		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
 	}
-	return l.launch(ctx, launch, mapping, softwareStepKindClear, "uninstall", "Uninstall "+softwareLabel(launch.Kind))
+	return l.prepare(ctx, launch, mapping, softwareStepKindClear, "uninstall", "Uninstall "+softwareLabel(launch.Kind))
+}
+
+// PersistWorkflow writes a plan from PrepareInstall or PrepareUninstall. The software service runs
+// it inside the transaction that also writes the Software Assignments; a busy target is detected
+// here and returned unchanged.
+func (l softwareDeploymentLauncher) PersistWorkflow(ctx context.Context, prepared softwareapp.PreparedSoftwareWorkflow) (string, error) {
+	plan, ok := prepared.(*preparedSoftwareWorkflow)
+	if !ok || plan == nil {
+		return "", fmt.Errorf("persist software workflow: plan %T was not prepared by this launcher", prepared)
+	}
+	created, err := l.orchestrations.Create(ctx, plan.workflow)
+	if err != nil {
+		return "", err
+	}
+	return created.ID, nil
 }
 
 // softwareLabel is the catalog's operator-facing name for a kind ("Docker CE", "NFS"), so Workflow
@@ -111,17 +135,18 @@ func softwareLabel(kind softwaredomain.Kind) string {
 	return string(kind)
 }
 
-// launch is the shared install/uninstall composition. recordKind selects the internal record step
-// behaviour (mark installed vs absent); mode is stamped on the ansible Task so the failure observer
-// only marks assignments failed for an install.
-func (l softwareDeploymentLauncher) launch(
+// prepare is the shared install/uninstall composition: the lock check, playbook, and target
+// resolution read outside the store, and the Workflow is returned unwritten under a preassigned id.
+// recordKind selects the internal record step behaviour (mark installed vs absent); mode is
+// stamped on the ansible Task so the failure observer only marks assignments failed for an install.
+func (l softwareDeploymentLauncher) prepare(
 	ctx context.Context,
 	launch softwareapp.SoftwareLaunch,
 	mapping softwarePlaybook,
 	recordKind, mode, summary string,
-) (string, error) {
+) (*preparedSoftwareWorkflow, error) {
 	if l.orchestrations == nil {
-		return "", fmt.Errorf("durable software deployment is unavailable")
+		return nil, fmt.Errorf("durable software deployment is unavailable")
 	}
 	operationID := uuid.NewString()
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
@@ -130,7 +155,7 @@ func (l softwareDeploymentLauncher) launch(
 		TrustedVars: launch.TrustedVars, RequestedBy: launch.RequestedBy,
 	}, operationID, false)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	softwareParams := map[string]any{
@@ -166,7 +191,7 @@ func (l softwareDeploymentLauncher) launch(
 		},
 	}
 
-	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
+	return &preparedSoftwareWorkflow{workflow: operationapp.CreateWorkflowInput{
 		ID: operationID, Kind: mapping.workflowKind,
 		IntentSummary:  summary,
 		IntentSnapshot: map[string]any{"softwareKind": string(launch.Kind), "mode": mode},
@@ -174,11 +199,7 @@ func (l softwareDeploymentLauncher) launch(
 		SiteID:          prepared.SiteID,
 		TargetServerIDs: launch.ServerIDs,
 		Steps:           steps, RequestedBy: launch.RequestedBy,
-	})
-	if err != nil {
-		return "", err
-	}
-	return created.ID, nil
+	}}, nil
 }
 
 func serverResourceRefs(serverIDs []string) []operationdomain.ResourceReference {

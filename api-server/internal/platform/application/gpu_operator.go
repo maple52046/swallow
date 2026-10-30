@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/maple52046/swallow/internal/core/store"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
@@ -111,6 +112,7 @@ func GPUOperatorReleaseItems() []GPUOperatorReleaseItem {
 // launcher owns Workflow composition and the operation context's busy and lock checks. The
 // deploy-time install is owned by DeployService, which reuses the same normalization and vars.
 type GPUOperatorService struct {
+	transactor     store.Transactor
 	platforms      platformdomain.PlatformRepository
 	recorder       platformdomain.GPUOperatorRecorder
 	servers        serverdomain.ServerRepository
@@ -122,6 +124,7 @@ type GPUOperatorService struct {
 // NewGPUOperatorService wires the change use case. deploymentKeys may be nil (tests); production
 // wiring supplies it so a change is refused before anything is written when Swallow cannot log in.
 func NewGPUOperatorService(
+	transactor store.Transactor,
 	platforms platformdomain.PlatformRepository,
 	recorder platformdomain.GPUOperatorRecorder,
 	servers serverdomain.ServerRepository,
@@ -130,7 +133,8 @@ func NewGPUOperatorService(
 	deploymentKeys platformdomain.DeploymentKeyChecker,
 ) *GPUOperatorService {
 	return &GPUOperatorService{
-		platforms: platforms, recorder: recorder, servers: servers,
+		transactor: transactor,
+		platforms:  platforms, recorder: recorder, servers: servers,
 		lifecycle: lifecycle, launcher: launcher, deploymentKeys: deploymentKeys,
 	}
 }
@@ -154,9 +158,11 @@ type ConfigureGPUOperatorResult struct {
 // It returns ErrPlatformNotFound for a missing Platform; ErrGPUOperatorConflict when the Platform
 // is not an active Swallow-deployed Kubernetes Platform, its Kubernetes version is unknown, or an
 // uninstall finds no managed operator; ErrInvalidGPUOperator for invalid settings; and
-// ErrDeploymentKeyMissing without a Deployment Key. The record is written before the launch, so
-// the Task observer's fence matches from the first Task, and restored if the launch is refused
-// (for example a busy or locked target), so a refused request changes nothing.
+// ErrDeploymentKeyMissing without a Deployment Key. The Workflow is planned first (the lock check
+// and target resolution read outside the store); then the record and the Workflow are written in
+// one transaction. The record names the preassigned Workflow id, so the Task observer's fence
+// matches from the first Task, and a refusal at either step (for example a locked or busy target)
+// changes nothing.
 func (s *GPUOperatorService) Configure(ctx context.Context, input ConfigureGPUOperatorInput) (*ConfigureGPUOperatorResult, error) {
 	platform, err := s.platforms.FindByID(ctx, input.PlatformID)
 	if err != nil {
@@ -187,14 +193,7 @@ func (s *GPUOperatorService) Configure(ctx context.Context, input ConfigureGPUOp
 
 	intent := snapshot.Deployment.Intent
 	spec := platformdomain.DeploymentSpec{RoleAssignments: intent.RoleAssignments}
-	// A refused launch restores the record and owner this write replaces. They are copied first
-	// because a recorder that shares the loaded Platform (an in-memory store) changes it in place.
-	previousOwner := platform.GPUStackOwner
-	var previous *platformdomain.GPUOperator
-	if platform.GPUOperator != nil {
-		copied := *platform.GPUOperator
-		previous = &copied
-	}
+	previous := platform.GPUOperator
 	settings := input.Settings
 	if settings.Enabled {
 		kubernetes, ok := platformdomain.ParseKubernetesMinorVersion(intent.K0sVersion)
@@ -230,10 +229,7 @@ func (s *GPUOperatorService) Configure(ctx context.Context, input ConfigureGPUOp
 	record := &platformdomain.GPUOperator{
 		Settings: settings, State: state, LastWorkflowID: workflowID, UpdatedAt: time.Now().UTC(),
 	}
-	if err := s.recorder.SetGPUOperator(ctx, platform.ID, record, owner); err != nil {
-		return nil, err
-	}
-	launched, err := s.launcher.LaunchGPUOperator(ctx, platformdomain.GPUOperatorLaunch{
+	prepared, err := s.launcher.PrepareGPUOperator(ctx, platformdomain.GPUOperatorLaunch{
 		WorkflowID: workflowID, Platform: platform,
 		TargetServerIDs: append([]string(nil), snapshot.Deployment.TargetServerIDs...),
 		TrustedVars:     buildGPUOperatorVars(settings, controllers[0], platform.GPUDriver),
@@ -241,9 +237,18 @@ func (s *GPUOperatorService) Configure(ctx context.Context, input ConfigureGPUOp
 		RequestedBy:     input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 	})
 	if err != nil {
-		if restoreErr := s.recorder.SetGPUOperator(ctx, platform.ID, previous, previousOwner); restoreErr != nil {
-			return nil, fmt.Errorf("%w (restoring the previous GPU Operator record also failed: %v)", err, restoreErr)
+		return nil, err
+	}
+	var launched string
+	err = s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.recorder.SetGPUOperator(ctx, platform.ID, record, owner); err != nil {
+			return err
 		}
+		id, err := s.launcher.PersistGPUOperator(ctx, prepared)
+		launched = id
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
 	return &ConfigureGPUOperatorResult{PlatformID: platform.ID, WorkflowID: launched}, nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
@@ -27,7 +28,7 @@ func (busyWorkflowRepo) List(
 // ErrInvalidOperation, which the provisioning delivery mapper would otherwise leak as an
 // opaque Internal error.
 func TestCreateClassifiesActiveDurableWorkAsBusyConflict(t *testing.T) {
-	service := NewWorkflowService(busyWorkflowRepo{}, nil)
+	service := NewWorkflowService(&storetest.Transactor{}, busyWorkflowRepo{}, nil)
 
 	_, err := service.Create(context.Background(), CreateWorkflowInput{
 		Kind:              operationdomain.WorkflowKindReleaseOS,
@@ -83,10 +84,10 @@ func TestCreateIgnoresOnlySupersededOperations(t *testing.T) {
 	}
 
 	repo := &supersededWorkflowRepo{}
-	if _, err := NewWorkflowService(repo, nil).Create(context.Background(), input("op-canceling")); !errors.Is(err, operationdomain.ErrTargetsBusy) {
+	if _, err := NewWorkflowService(&storetest.Transactor{}, repo, nil).Create(context.Background(), input("op-canceling")); !errors.Is(err, operationdomain.ErrTargetsBusy) {
 		t.Fatalf("Create with one of two holders superseded err = %v, want ErrTargetsBusy", err)
 	}
-	if _, err := NewWorkflowService(repo, nil).Create(context.Background(), input("op-canceling", "op-other")); err != nil {
+	if _, err := NewWorkflowService(&storetest.Transactor{}, repo, nil).Create(context.Background(), input("op-canceling", "op-other")); err != nil {
 		t.Fatalf("Create with every holder superseded err = %v, want nil", err)
 	}
 	if repo.created == nil {

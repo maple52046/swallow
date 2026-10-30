@@ -230,10 +230,6 @@ type deploymentTargetAvailability struct {
 	platformsByID map[string]*platformdomain.Platform
 }
 
-// Deploy validates the topology, creates the platform, and launches the build operation.
-//
-// The platform is created before the operation so the operation can carry its id, and is
-// deleted again if the launch is rejected, so a failed request leaves no orphan platform.
 // AttachMachinePreparationValidator adds provisioner preflight without coupling Platform to provisioning models.
 func (s *DeployService) AttachMachinePreparationValidator(validator platformdomain.MachinePreparationValidator) {
 	s.machinePreparation = validator
@@ -278,9 +274,16 @@ func (s *DeployService) AttachDeploymentRequirementReader(reader platformdomain.
 	s.requirements = reader
 }
 
-// Deploy dispatches on the requested platform type. An empty type defaults to Kubernetes so
-// callers that predate the type field are unaffected; an unknown type is a domain error the
-// delivery layer turns into a 400.
+// Deploy validates the topology, plans the build Workflow, and accepts the deployment. It
+// dispatches on the requested platform type. An empty type defaults to Kubernetes so callers
+// that predate the type field are unaffected; an unknown type is a domain error the delivery
+// layer turns into a 400.
+//
+// Acceptance has two phases (see accept). Everything that reads a provider happens first and
+// writes nothing: validation, and the launcher's PrepareDeployment against an unsaved Platform
+// record. Then one store transaction claims the targets, stores the Platform and its feature
+// records, and persists the Workflow, so a refusal at any point — including losing a claim to a
+// concurrent deployment — leaves no Platform, claim, or Workflow behind (decisions 067, 069).
 func (s *DeployService) Deploy(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
 	if s.deploymentKeys != nil {
 		exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
@@ -334,7 +337,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 		return nil, err
 	}
 
-	created, err := s.platformService.Create(ctx, CreatePlatformInput{
+	platform, err := s.platformService.newPlatform(ctx, CreatePlatformInput{
 		SiteID:        input.SiteID,
 		Name:          input.Name,
 		Type:          string(platformdomain.PlatformTypeKubernetes),
@@ -344,31 +347,22 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	if err != nil {
 		return nil, err
 	}
-
-	platform, err := s.platforms.FindByID(ctx, created.ID)
-	if err != nil {
-		return nil, err
-	}
 	targetIDs := serverIDs(validated.targets)
-	if err := s.claimTargets(ctx, platform, targetIDs, validated.targets); err != nil {
-		s.abandon(ctx, platform.ID)
-		return nil, err
-	}
+	// The Workflow id is assigned before planning, so a feature record can name the deploy
+	// Workflow before it exists and the observer of that feature's Task matches from its first
+	// transition.
+	operationID := uuid.NewString()
 
-	var operationID string
+	var records []featureRecord
 	var gpuOperatorVars map[string]any
 	if gpuOperator != nil {
-		// The record names the deploy Workflow before it exists, so the observer of the
-		// GPU Operator Task matches from its first transition.
-		operationID = uuid.NewString()
 		record := &platformdomain.GPUOperator{
 			Settings: *gpuOperator, State: platformdomain.GPUOperatorInstalling,
 			LastWorkflowID: operationID, UpdatedAt: time.Now().UTC(),
 		}
-		if err := s.gpuOperators.SetGPUOperator(ctx, platform.ID, record, platform.GPUStackOwner); err != nil {
-			s.abandon(ctx, platform.ID)
-			return nil, err
-		}
+		records = append(records, func(ctx context.Context) error {
+			return s.gpuOperators.SetGPUOperator(ctx, platform.ID, record, platform.GPUStackOwner)
+		})
 		gpuOperatorVars = buildGPUOperatorVars(*gpuOperator, validated.spec.ControlPlaneServerIDs()[0], platform.GPUDriver)
 	}
 
@@ -376,7 +370,6 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	if validated.spec.HighlyAvailable() {
 		authPass, err := generateVRRPPassword()
 		if err != nil {
-			s.abandon(ctx, platform.ID)
 			return nil, err
 		}
 		secretVars[varK0sVRRPAuthPass] = authPass
@@ -400,15 +393,55 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 		MachinePreparation: validated.machinePreparation,
 		TimeSyncCheck:      input.TimeSyncCheck,
 	}
-	launchedID, err := s.launcher.Launch(ctx, launch)
+	prepared, err := s.launcher.PrepareDeployment(ctx, launch)
 	if err != nil {
-		// The operation was refused, so nothing is building this platform; remove it (and free
-		// its targets) rather than leave a platform that will never converge.
-		s.abandon(ctx, platform.ID)
 		return nil, err
 	}
-
+	launchedID, err := s.accept(ctx, platform, validated.targets, targetIDs, records, prepared)
+	if err != nil {
+		return nil, err
+	}
 	return &DeployPlatformResult{PlatformID: platform.ID, OperationID: launchedID}, nil
+}
+
+// featureRecord writes one record a deployment carries besides the Platform itself (its GPU
+// Operator, Omnistat, or Device Metrics Exporter state). It runs inside accept's transaction.
+type featureRecord func(ctx context.Context) error
+
+// accept is the second phase of Deploy: one store transaction that claims the targets, stores the
+// Platform and its feature records, and persists the prepared Workflow. The claims come first, so
+// a target lost to a concurrent deployment (whose transaction committed first, or conflicts with
+// this one and wins on the retry) fails the unit before anything else is written. The caller has
+// already done every provider read; nothing in here calls out of the store.
+func (s *DeployService) accept(
+	ctx context.Context,
+	platform *platformdomain.Platform,
+	targets []*serverdomain.Server,
+	targetIDs []string,
+	records []featureRecord,
+	prepared platformdomain.PreparedWorkflow,
+) (string, error) {
+	var operationID string
+	err := s.platformService.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.claimTargets(ctx, platform, targetIDs, targets); err != nil {
+			return err
+		}
+		if err := s.platforms.Create(ctx, platform); err != nil {
+			return err
+		}
+		for _, record := range records {
+			if err := record(ctx); err != nil {
+				return err
+			}
+		}
+		id, err := s.launcher.PersistDeployment(ctx, prepared)
+		operationID = id
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return operationID, nil
 }
 
 // validateDeployGPUOperator normalizes an optional GPU Operator request against the validated
@@ -456,9 +489,9 @@ func (s *DeployService) validateDeployGPUOperator(
 	return &settings, string(platformdomain.GPUStackOwnerGPUOperator), nil
 }
 
-// deploySlurm validates the Slurm topology, registers the platform, and launches the build
-// operation. Like deployKubernetes it deletes the platform if the launch is refused so a
-// rejected request leaves no orphan record. Slurm needs no launch-time secret: the playbook
+// deploySlurm validates the Slurm topology, plans the build operation, and accepts the
+// deployment in one transaction like deployKubernetes, so a rejected request leaves no record.
+// Slurm needs no launch-time secret: the playbook
 // mints the shared MUNGE key and the slurmrestd JWT on the primary controller itself, and the
 // resulting reader credential is recorded from the run's result file.
 func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInput) (*DeployPlatformResult, error) {
@@ -515,7 +548,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		gpuStackOwner = string(platformdomain.GPUStackOwnerProvisioning)
 	}
 
-	created, err := s.platformService.Create(ctx, CreatePlatformInput{
+	platform, err := s.platformService.newPlatform(ctx, CreatePlatformInput{
 		SiteID:        input.SiteID,
 		Name:          input.Name,
 		Type:          string(platformdomain.PlatformTypeSlurm),
@@ -526,19 +559,13 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if err != nil {
 		return nil, err
 	}
-
-	platform, err := s.platforms.FindByID(ctx, created.ID)
-	if err != nil {
-		return nil, err
-	}
 	targetIDs := validated.slurmSpec.ServerIDs()
-	if err := s.claimTargets(ctx, platform, targetIDs, validated.targets); err != nil {
-		s.abandon(ctx, platform.ID)
-		return nil, err
-	}
 
+	// Preassigned so the Omnistat or Device Metrics Exporter record names the deploy Workflow
+	// before it exists: the observer of that Task, and the install's completion, are fenced on it.
 	launch := platformdomain.DeploymentLaunch{
 		Platform:           platform,
+		OperationID:        uuid.NewString(),
 		TargetServerIDs:    targetIDs,
 		TrustedVars:        buildSlurmVars(platform, validated.slurmSpec, gpuComputeIDs),
 		RequestedBy:        input.RequestedBy,
@@ -552,20 +579,17 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			ServerIDs: slurmContainerRuntimeIDs(validated.slurmSpec),
 		}
 	}
+	var records []featureRecord
 	if omnistatEnabled {
-		// The record names the deploy Workflow before it exists, so the observer of the Omnistat
-		// Task matches from its first transition (the same fence as the GPU Operator).
-		launch.OperationID = uuid.NewString()
 		observability := validated.slurmSpec.PrimaryControllerID()
 		record := &platformdomain.Omnistat{
 			Enabled: true, Version: platformdomain.OmnistatVersion, InstallMethod: omnistat.InstallMethod,
 			ObservabilityServerID: observability, State: platformdomain.OmnistatInstalling,
 			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
-		if err := s.omnistats.SetOmnistat(ctx, platform.ID, record); err != nil {
-			s.abandon(ctx, platform.ID)
-			return nil, err
-		}
+		records = append(records, func(ctx context.Context) error {
+			return s.omnistats.SetOmnistat(ctx, platform.ID, record)
+		})
 		launch.TrustedVars[varSlurmOmnistatEnabled] = true
 		launch.Omnistat = &platformdomain.OmnistatLaunch{
 			ObservabilityServerID: observability,
@@ -575,19 +599,15 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		}
 	}
 	if exporterEnabled {
-		// Preassigned for the same reason as Omnistat's: the record names the Workflow its observer
-		// and the install's completion are fenced on.
-		launch.OperationID = uuid.NewString()
 		observability := validated.slurmSpec.PrimaryControllerID()
 		record := &platformdomain.DeviceMetricsExporter{
 			Enabled: true, Version: platformdomain.DeviceMetricsExporterVersion, InstallMethod: exporter.InstallMethod,
 			ObservabilityServerID: observability, State: platformdomain.DeviceMetricsExporterInstalling,
 			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
-		if err := s.deviceMetricsExporters.SetDeviceMetricsExporter(ctx, platform.ID, record); err != nil {
-			s.abandon(ctx, platform.ID)
-			return nil, err
-		}
+		records = append(records, func(ctx context.Context) error {
+			return s.deviceMetricsExporters.SetDeviceMetricsExporter(ctx, platform.ID, record)
+		})
 		launch.TrustedVars[varSlurmDeviceMetricsExporterEnabled] = true
 		launch.DeviceMetricsExporter = &platformdomain.DeviceMetricsExporterLaunch{
 			ObservabilityServerID: observability,
@@ -597,11 +617,12 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 				gpuComputeIDs, launch.OperationID),
 		}
 	}
-	operationID, err := s.launcher.Launch(ctx, launch)
+	prepared, err := s.launcher.PrepareDeployment(ctx, launch)
 	if err != nil {
-		// The operation was refused, so nothing is building this platform; remove it and free
-		// its targets.
-		s.abandon(ctx, platform.ID)
+		return nil, err
+	}
+	operationID, err := s.accept(ctx, platform, validated.targets, targetIDs, records, prepared)
+	if err != nil {
 		return nil, err
 	}
 	return &DeployPlatformResult{PlatformID: platform.ID, OperationID: operationID}, nil

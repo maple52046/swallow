@@ -53,6 +53,8 @@ func RunWorker(cfg config.APIConfig) error {
 		return err
 	}
 	defer mongoClient.Disconnect(context.Background())
+	// The one Transactor of this process, shared by every use case it composes (decision 069).
+	transactor := storemongo.NewTransactor(mongoClient)
 	db := mongoClient.Database(cfg.MongoDB)
 	if err := migration.Check(connectCtx, db); err != nil {
 		return fmt.Errorf("database schema: %w", err)
@@ -152,8 +154,7 @@ func RunWorker(cfg config.APIConfig) error {
 	// Finalizes the release-and-uninstall path's complete-uninstall step. Only CompleteUninstall
 	// is used, so sites and lifecycle are nil; it needs the platform, server, and owned-credential
 	// integration repositories the worker already has.
-	platformFinalizer := platformapp.NewPlatformService(
-		platforms, nil, servers, nil,
+	platformFinalizer := platformapp.NewPlatformService(transactor, platforms, nil, servers, nil,
 		managedPlatformIntegrationCleaner{integrations: integrations},
 	)
 	platformFinalizer.AttachGPUOperatorRecorder(platforms)

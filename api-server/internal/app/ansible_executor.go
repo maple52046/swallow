@@ -42,6 +42,8 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	defer mongoClient.Disconnect(context.Background())
+	// The one Transactor of this process, shared by every use case it composes (decision 069).
+	transactor := storemongo.NewTransactor(mongoClient)
 	db := mongoClient.Database(cfg.MongoDB)
 	if err := migration.Check(connectCtx, db); err != nil {
 		return fmt.Errorf("database schema: %w", err)
@@ -103,7 +105,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platforminfra.NewReaderFactory(integrations))
 	lifecycles := platformLifecycleReader{operations: legacyOperations, orchestrations: orchestrations}
-	platformService := platformapp.NewPlatformService(platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
+	platformService := platformapp.NewPlatformService(transactor, platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
 	platformService.AttachGPUOperatorRecorder(platforms)
 	platformService.AttachOmnistatRecorder(platforms)
 	platformService.AttachDeviceMetricsExporterRecorder(platforms)
@@ -115,8 +117,8 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
-	credentials := platformapp.NewDeploymentCredentialService(platforms, integrations, membership)
-	durable := operationapp.NewWorkflowService(orchestrations, nil, operationSecrets)
+	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
+	durable := operationapp.NewWorkflowService(transactor, orchestrations, nil, operationSecrets)
 	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}

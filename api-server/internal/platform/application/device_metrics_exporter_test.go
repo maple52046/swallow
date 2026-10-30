@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
@@ -217,7 +218,7 @@ func TestPlatformServiceRecordsAndRetiresTheDeviceMetricsExporter(t *testing.T) 
 			Enabled: true, State: platformdomain.DeviceMetricsExporterInstalling, LastWorkflowID: "deploy-1",
 		},
 	}
-	service := NewPlatformService(platforms, &deployFakeSiteRepo{}, &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}}, nil, nil)
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}}, nil, nil)
 	service.AttachDeviceMetricsExporterRecorder(recorder)
 	ctx := context.Background()
 

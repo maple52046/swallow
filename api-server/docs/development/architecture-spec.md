@@ -203,14 +203,20 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
   在改為 replica set 之前，新功能不得依賴「沒有 transaction」來設計，也不得新增補償邏輯。
 - 跨文件的不變式（例如 Platform 與其 Server 上的 Platform Claim）必須在同一個 transaction 內完成。
   Application 透過 transaction port 表達交易範圍，不 import driver 的 session 型別。
-- Transaction callback 不得有外部 I/O（provider、HTTP、檔案），而且必須可以重跑。
+- Transaction callback 不得有外部 I/O（provider、HTTP、Temporal、檔案），而且必須可以重跑。需要 provider 資料的
+  use case 先在 transaction 外 prepare（例如 `DeploymentLauncher.PrepareDeployment`），再在 transaction 內 persist。
+- Repository 方法在 transaction 內不得於寫入被拒後繼續操作（例如「insert，duplicate key 時再 find」）：MongoDB 會中止
+  transaction，之後的操作以 transient 錯誤失敗，driver 重試整個 unit 直到逾時。冪等寫入改用 `$setOnInsert` upsert 之類
+  的單一條件式寫入。
 - 事件（包括 SSE 的 Server 事件）在 commit 之後才發布；跨 process 的變化以 change feed port 取得。
 - `bson`、Mongo update operator、change stream resume token 只出現在 infra。
 - Application tests 使用 `internal/core/store/storetest` 的 fake Transactor，驗證 use case 在 transaction 內寫入，
   以及事件只在成功後發布；記憶體 fake 無法 rollback，所以「失敗時沒有任何寫入」由 replica set 上的 infra 整合測試
   驗證。
 
-既有的補償（例如 Platform Claim 的 `abandon`）與修復 sweep 是待遷移的現況，不得當成新功能的範例。
+Platform deploy 受理、Platform Delete、CompleteUninstall、Workflow 建立與 rerun、GPU Operator 變更與 Software
+install／uninstall 已是 transaction。其餘仍以補償或修復 sweep 維持一致的流程（Temporal activity 的投影寫入、和
+provider 交錯的流程）是待遷移的現況，不得當成新功能的範例。
 
 ## Configuration Boundary
 

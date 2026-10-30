@@ -379,9 +379,13 @@ Platform 對 target 的佔用存成 Server 上 swallow 擁有的 [Platform Claim
 Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以改）。API 投影為 Server 的 `platformClaim`
 （[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md#platform-claim)）。
 
-- **寫入**：deploy 受理時，對 `targetServerIds` 的每台以「只符合未被 claim 的 Server」的條件寫入。兩個同時受理的 deploy
-  只有一個拿得到，另一個以 already claimed 拒絕，並移除它的 Platform 紀錄與已寫入的 claim；launch 被拒時同樣移除。
-  deploy preflight 讀 claim，不重算 lifecycle 歷史；帶 claim 或帶任何 observed membership 的 target 都拒絕。
+- **寫入**：deploy 受理分兩段（decision 069）。先在 store transaction 之外完成驗證與 Workflow 規劃（provider 讀取、
+  lock 檢查、網路解析、Task 組合，不寫入任何紀錄）；再以一個 transaction 依序寫入 claim、Platform 紀錄、功能紀錄
+  （GPU Operator、Omnistat、Device Metrics Exporter）、Workflow 與它組入的 Software Assignment 和初始 deployment 投影。
+  claim 對 `targetServerIds` 的每台以「只符合未被 claim 的 Server」的條件寫入：兩個同時受理的 deploy 在同一台 Server
+  上衝突，driver 重試較晚的那個，它的新 snapshot 看到對方的 claim 後以 already claimed 拒絕。任何一步被拒（claim
+  衝突、target busy、規劃失敗）都不留下 Platform、claim 或 Workflow。deploy preflight 讀 claim，不重算 lifecycle 歷史；
+  帶 claim 或帶任何 observed membership 的 target 都拒絕。
 - **保留與釋放**：Platform 為 `deploying`、`deploy_failed`、`active`、`uninstalling`、`uninstall_failed` 時保留，因為主機
   可能仍帶 platform 狀態；uninstall 成功（不論有無 `deleteRecord`）與 Delete 時釋放。provider reconcile 保留 claim，
   與 Server 的 Deployment result 相同。
@@ -390,9 +394,12 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
   `cancelActiveWorkflows` 也繞不過。Recover 處於不可用狀態（`failed`／`broken`／`rescue`／`allocated`）的 claimed Server
   仍允許，因為那是修復失敗部署的方式。代表該 Platform 執行的 Workflow（例如 uninstall 的 `release-os`）不受此規則限制；
   Platform 的 Server 只透過 uninstall 搭配 `releaseServers` 釋放。
-- **API 啟動時 reconcile**：依 durable lifecycle 一次性補齊與清理。非 uninstalled Platform 的 target 沒有 claim 就補上
-  （claim 出現前部署的 Platform 由此取得），指向已不存在或已 uninstalled Platform 的 claim 則釋放，也修復 crash 遺留的
-  claim。claim 是新的選用欄位，不需 schema migration。
+- **API 啟動時 backfill**：依 durable lifecycle 一次性補齊與清理。非 uninstalled Platform 的 target 沒有 claim 就補上
+  （claim 出現前部署的 Platform 由此取得），指向已不存在或已 uninstalled Platform 的 claim 則釋放（受理、Delete 與
+  uninstall 改為 transaction 之前的安裝可能留下這種 claim）。它不是修復迴圈：claim 現在只與它所屬的 Platform 變更一起
+  寫入或釋放。claim 是新的選用欄位，不需 schema migration。
+- **Delete 與 uninstall 完成**：Delete 先向 Temporal 取消該 Platform 進行中的 Workflow，之後清除 membership、釋放
+  claim、刪除 owned Integration 與刪除紀錄是同一個 transaction；`CompleteUninstall` 的整段清理也是一個 transaction。
 - Dashboard 與 CLI 從 Server 投影讀 `platformClaim`：Dashboard 以 Platform 名稱停用 Release 與 Delete，CLI 指向
   `platforms uninstall`（Delete 另指 `platforms delete`）。
 - 失敗部署期間的處理見 §4.8 的「Platform Claim 與 `deploy_failed`」。設計理由：否決每次重算、以 membership 判斷、

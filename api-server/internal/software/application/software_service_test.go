@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store"
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
@@ -96,18 +98,30 @@ type fakeLauncher struct {
 	install    bool
 	uninstall  bool
 	lastLaunch SoftwareLaunch
+	// persistedInTransaction reports whether the last PersistWorkflow ran inside a transaction.
+	persistedInTransaction bool
 }
 
-func (l *fakeLauncher) LaunchInstall(_ context.Context, launch SoftwareLaunch) (string, error) {
+// fakePreparedSoftware is the opaque plan fakeLauncher hands back.
+type fakePreparedSoftware struct{ id string }
+
+func (p fakePreparedSoftware) WorkflowID() string { return p.id }
+
+func (l *fakeLauncher) PrepareInstall(_ context.Context, launch SoftwareLaunch) (PreparedSoftwareWorkflow, error) {
 	l.install = true
 	l.lastLaunch = launch
-	return "op-install", nil
+	return fakePreparedSoftware{id: "op-install"}, nil
 }
 
-func (l *fakeLauncher) LaunchUninstall(_ context.Context, launch SoftwareLaunch) (string, error) {
+func (l *fakeLauncher) PrepareUninstall(_ context.Context, launch SoftwareLaunch) (PreparedSoftwareWorkflow, error) {
 	l.uninstall = true
 	l.lastLaunch = launch
-	return "op-uninstall", nil
+	return fakePreparedSoftware{id: "op-uninstall"}, nil
+}
+
+func (l *fakeLauncher) PersistWorkflow(ctx context.Context, prepared PreparedSoftwareWorkflow) (string, error) {
+	l.persistedInTransaction = store.InTransaction(ctx)
+	return prepared.WorkflowID(), nil
 }
 
 func deployedServer(id string) *serverdomain.Server {
@@ -120,7 +134,7 @@ func deployedServer(id string) *serverdomain.Server {
 
 func newTestService(servers map[string]*serverdomain.Server, membership map[string]bool) (*SoftwareService, *fakeAssignmentRepo, *fakeLauncher) {
 	repo := newFakeAssignmentRepo()
-	service := NewSoftwareService(repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
+	service := NewSoftwareService(&storetest.Transactor{}, repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
 	launcher := &fakeLauncher{}
 	service.AttachLauncher(launcher)
 	return service, repo, launcher
@@ -415,5 +429,33 @@ func TestUninstallRejectsMissingAssignment(t *testing.T) {
 	})
 	if !errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
 		t.Fatalf("err = %v, want ErrAssignmentNotFound", err)
+	}
+}
+
+// Accepting an install writes its Workflow and the pending assignments in one transaction
+// (decision 069), so a refused Workflow leaves no orphaned assignment.
+func TestInstallWritesTheWorkflowAndAssignmentsInOneTransaction(t *testing.T) {
+	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+	tx := &storetest.Transactor{}
+	service.transactor = tx
+
+	workflowID, err := service.Install(context.Background(), InstallInput{
+		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if got := tx.Calls(); got != 1 {
+		t.Errorf("transactions = %d, want 1", got)
+	}
+	if !launcher.persistedInTransaction {
+		t.Error("the Workflow was persisted outside the transaction")
+	}
+	assignment, err := repo.FindByServerAndKind(context.Background(), "a", softwaredomain.KindDockerCE)
+	if err != nil {
+		t.Fatalf("FindByServerAndKind() error = %v", err)
+	}
+	if assignment.LastWorkflowID != workflowID {
+		t.Errorf("assignment workflow = %q, want %q", assignment.LastWorkflowID, workflowID)
 	}
 }

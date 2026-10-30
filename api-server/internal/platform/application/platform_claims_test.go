@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
@@ -34,7 +35,7 @@ func newClaimPlatformService(
 	for _, server := range servers {
 		serverRepo.servers[server.ID] = server
 	}
-	service := NewPlatformService(platformRepo, &deployFakeSiteRepo{}, serverRepo, lifecycle, &recordingIntegrationCleaner{})
+	service := NewPlatformService(&storetest.Transactor{}, platformRepo, &deployFakeSiteRepo{}, serverRepo, lifecycle, &recordingIntegrationCleaner{})
 	service.AttachPlatformClaims(serverRepo)
 	return service, serverRepo
 }

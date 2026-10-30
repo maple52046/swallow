@@ -149,6 +149,33 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 // materializeInitialDeployments closes the API-to-worker visibility gap so returning
 // to Servers immediately starts polling the accepted durable deployment.
 func materializeInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []operationdomain.Task) {
+	forEachInitialDeployment(ctx, servers, operationID, steps, func(serverID string, err error) bool {
+		slog.Error("materialize initial Server deployment projection", "operationId", operationID, "serverId", serverID, "error", err)
+		return true
+	})
+}
+
+// persistInitialDeployments writes the same initial deployment projections as
+// materializeInitialDeployments, for a caller inside a store transaction: the first failure is
+// returned (and rolls the caller's unit of work back) instead of being logged.
+func persistInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []operationdomain.Task) error {
+	var failed error
+	forEachInitialDeployment(ctx, servers, operationID, steps, func(serverID string, err error) bool {
+		failed = fmt.Errorf("record the initial deployment of Server %s: %w", serverID, err)
+		return false
+	})
+	return failed
+}
+
+// forEachInitialDeployment marks every Server a provision-os Task targets as deploying under
+// operationID. onError decides whether to continue after a failed write.
+func forEachInitialDeployment(
+	ctx context.Context,
+	servers serverdomain.ServerRepository,
+	operationID string,
+	steps []operationdomain.Task,
+	onError func(serverID string, err error) bool,
+) {
 	if servers == nil {
 		return
 	}
@@ -168,8 +195,8 @@ func materializeInitialDeployments(ctx context.Context, servers serverdomain.Ser
 		if err := servers.SetDeployment(ctx, serverID, &serverdomain.DeploymentStatus{
 			State: serverdomain.DeploymentDeploying, OperationID: operationID,
 			StepID: step.ID, Attempt: attempt, StartedAt: now, UpdatedAt: now,
-		}); err != nil {
-			slog.Error("materialize initial Server deployment projection", "operationId", operationID, "serverId", serverID, "error", err)
+		}); err != nil && !onError(serverID, err) {
+			return
 		}
 	}
 }

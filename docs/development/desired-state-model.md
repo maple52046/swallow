@@ -281,8 +281,11 @@ store 規則與資料庫引擎無關：
 
 - **transaction port**：
   - 跨文件或跨資料表的不變式必須在同一個 transaction 內完成，例如 Platform 與其 Server 上的 Platform Claim。
-  - transaction 的 callback 不得有外部寫入（provider 呼叫、HTTP、檔案），而且必須可以重跑，因為資料庫可能在
-    暫時性錯誤時重試整個 transaction。
+  - transaction 的 callback 不得有外部 I/O（provider 呼叫、HTTP、檔案，讀取也一樣），而且必須可以重跑，因為
+    資料庫可能在暫時性錯誤時重試整個 transaction。需要外部資料的流程分兩段：先在 transaction 外完成讀取與規劃，
+    再在 transaction 內寫入。
+  - transaction 內不得以「寫入被拒（例如 duplicate key）之後再做別的事」作為正常流程：被拒的寫入會讓資料庫中止
+    transaction，之後的每個操作都失敗。冪等的寫入改用條件式寫入（例如只在不存在時插入的 upsert）。
   - 事件在 commit 之後才發布；transaction 失敗時不得有任何事件送出。
 - **change feed port**：store 的變化通知，是 controller 與事件流（例如 SSE）的觸發來源，讓不同 process 的寫入
   都能被看到。

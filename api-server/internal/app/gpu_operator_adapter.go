@@ -76,11 +76,12 @@ type gpuOperatorLauncher struct {
 	orchestrations *operationapp.WorkflowService
 }
 
-// LaunchGPUOperator creates the Workflow under the preassigned id. Busy, lock, and automation
-// errors from the operation layer are returned unchanged so the API maps them to 409 / 503.
-func (l gpuOperatorLauncher) LaunchGPUOperator(ctx context.Context, launch platformdomain.GPUOperatorLaunch) (string, error) {
+// PrepareGPUOperator plans the Workflow under the preassigned id without writing it. Lock and
+// automation errors from the operation layer are returned unchanged so the API maps them to
+// 409 / 503.
+func (l gpuOperatorLauncher) PrepareGPUOperator(ctx context.Context, launch platformdomain.GPUOperatorLaunch) (platformdomain.PreparedWorkflow, error) {
 	if l.orchestrations == nil {
-		return "", fmt.Errorf("durable GPU Operator changes are unavailable")
+		return nil, fmt.Errorf("durable GPU Operator changes are unavailable")
 	}
 	summary := "Configure AMD GPU Operator on " + launch.Platform.Name
 	stepName := "Configure AMD GPU Operator"
@@ -91,7 +92,7 @@ func (l gpuOperatorLauncher) LaunchGPUOperator(ctx context.Context, launch platf
 	prepared, err := prepareGPUOperatorStep(ctx, l.operations, launch.WorkflowID, launch.Platform.ID, summary,
 		launch.TargetServerIDs, launch.TrustedVars, launch.RequestedBy, false)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	steps := []operationdomain.Task{
 		{
@@ -101,7 +102,7 @@ func (l gpuOperatorLauncher) LaunchGPUOperator(ctx context.Context, launch platf
 		},
 		gpuOperatorTask(prepared, launch.Platform.ID, launch.WorkflowID, []string{softwareWaitStepID}, stepName),
 	}
-	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
+	return &preparedPlatformDeployment{workflow: operationapp.CreateWorkflowInput{
 		ID: launch.WorkflowID, Kind: operationdomain.WorkflowKindConfigureGPUOperator,
 		IntentSummary:  summary,
 		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "extraVars": prepared.ExtraVars},
@@ -110,7 +111,18 @@ func (l gpuOperatorLauncher) LaunchGPUOperator(ctx context.Context, launch platf
 		TargetServerIDs: launch.TargetServerIDs,
 		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
-	})
+	}}, nil
+}
+
+// PersistGPUOperator writes a plan from PrepareGPUOperator; the caller runs it inside the
+// transaction that also writes the GPU Operator record. A busy target is detected here and
+// returned unchanged.
+func (l gpuOperatorLauncher) PersistGPUOperator(ctx context.Context, prepared platformdomain.PreparedWorkflow) (string, error) {
+	plan, ok := prepared.(*preparedPlatformDeployment)
+	if !ok || plan == nil {
+		return "", fmt.Errorf("persist GPU Operator change: plan %T was not prepared by this launcher", prepared)
+	}
+	created, err := l.orchestrations.Create(ctx, plan.workflow)
 	if err != nil {
 		return "", err
 	}

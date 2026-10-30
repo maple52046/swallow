@@ -1071,11 +1071,22 @@ type fakeDeploymentLauncher struct {
 	err         error
 }
 
-func (l *fakeDeploymentLauncher) Launch(_ context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
+// fakePreparedDeployment is the opaque plan fakeDeploymentLauncher hands back.
+type fakePreparedDeployment struct {
+	launch platformdomain.DeploymentLaunch
+}
+
+func (d fakePreparedDeployment) OperationID() string { return d.launch.OperationID }
+
+func (l *fakeDeploymentLauncher) PrepareDeployment(_ context.Context, launch platformdomain.DeploymentLaunch) (platformdomain.PreparedWorkflow, error) {
 	if l.err != nil {
-		return "", l.err
+		return nil, l.err
 	}
-	launchCopy := launch
+	return fakePreparedDeployment{launch: launch}, nil
+}
+
+func (l *fakeDeploymentLauncher) PersistDeployment(_ context.Context, prepared platformdomain.PreparedWorkflow) (string, error) {
+	launchCopy := prepared.(fakePreparedDeployment).launch
 	l.lastLaunch = &launchCopy
 	if l.operationID == "" {
 		return "operation-deploy-1", nil

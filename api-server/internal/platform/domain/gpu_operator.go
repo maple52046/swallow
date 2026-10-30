@@ -200,11 +200,16 @@ type GPUOperatorLaunch struct {
 	RequestCorrelation string
 }
 
-// GPUOperatorLauncher starts the configure-gpu-operator Workflow and returns its id. It is a
-// port so the platform context does not depend on the operation context. Implementations return
-// the operation context's busy, lock, and validation errors unchanged.
+// GPUOperatorLauncher builds the configure-gpu-operator Workflow. It is a port so the platform
+// context does not depend on the operation context. Like DeploymentLauncher it is split so the
+// change is accepted in one store transaction without external calls (decision 069):
+// PrepareGPUOperator does the reads (lock check, playbook and target resolution) and writes
+// nothing; PersistGPUOperator writes the prepared Workflow and runs inside the caller's
+// transaction, which also writes the GPU Operator record. Implementations return the operation
+// context's busy, lock, and validation errors unchanged, from whichever step detects them.
 type GPUOperatorLauncher interface {
-	LaunchGPUOperator(ctx context.Context, launch GPUOperatorLaunch) (string, error)
+	PrepareGPUOperator(ctx context.Context, launch GPUOperatorLaunch) (PreparedWorkflow, error)
+	PersistGPUOperator(ctx context.Context, prepared PreparedWorkflow) (workflowID string, err error)
 }
 
 var (

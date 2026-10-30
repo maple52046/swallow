@@ -745,22 +745,11 @@ type platformClaimDoc struct {
 
 // ClaimForPlatform claims each Server with a conditional update that only matches an unclaimed
 // document, so a concurrent deployment cannot claim the same Server: whichever write lands first
-// wins and the other reads the holder back. Claims this call wrote are released again on any
-// failure; claims the Platform already held are left alone.
+// wins and the other reads the holder back. Inside a transaction, two deployments claiming the
+// same Server conflict on its document; the driver retries the loser, whose new snapshot then
+// sees the winner's claim and refuses. The claims written before a refusal are not undone here:
+// the caller's transaction rolls them back (see PlatformClaimStore).
 func (r *MongoServerRepo) ClaimForPlatform(ctx context.Context, platformID string, serverIDs []string, at time.Time) error {
-	claimed := make([]string, 0, len(serverIDs))
-	rollback := func() {
-		for _, id := range claimed {
-			// Best effort: the call is already failing and its error is what the caller needs. A
-			// claim left behind here still names the refused Platform, whose record the caller
-			// deletes together with all of its claims (ReleasePlatformClaims).
-			if _, err := r.col.UpdateOne(ctx,
-				bson.M{"_id": id, "platformClaim.platformId": platformID},
-				bson.M{"$unset": bson.M{"platformClaim": ""}, "$set": bson.M{"updatedAt": time.Now().UTC()}}); err != nil {
-				log.Printf("release platform claim of server %s after a refused claim: %v", id, err)
-			}
-		}
-	}
 	for _, id := range serverIDs {
 		result, err := r.col.UpdateOne(ctx,
 			bson.M{"_id": id, "platformClaim": bson.M{"$exists": false}},
@@ -769,11 +758,9 @@ func (r *MongoServerRepo) ClaimForPlatform(ctx context.Context, platformID strin
 				"updatedAt":     time.Now().UTC(),
 			}})
 		if err != nil {
-			rollback()
 			return err
 		}
 		if result.ModifiedCount == 1 {
-			claimed = append(claimed, id)
 			continue
 		}
 		var holder struct {
@@ -781,17 +768,14 @@ func (r *MongoServerRepo) ClaimForPlatform(ctx context.Context, platformID strin
 		}
 		err = r.col.FindOne(ctx, bson.M{"_id": id}, options.FindOne().SetProjection(bson.M{"platformClaim": 1})).Decode(&holder)
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			rollback()
 			return serverdomain.ErrServerNotFound
 		}
 		if err != nil {
-			rollback()
 			return err
 		}
 		if holder.PlatformClaim != nil && holder.PlatformClaim.PlatformID == platformID {
 			continue
 		}
-		rollback()
 		claimedBy := ""
 		if holder.PlatformClaim != nil {
 			claimedBy = holder.PlatformClaim.PlatformID

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/maple52046/swallow/internal/core/store"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
@@ -79,7 +80,13 @@ type WorkflowItem struct {
 }
 
 // WorkflowService accepts durable workflows and exposes their query projection.
+//
+// Accepting a Workflow writes its sealed secrets, the Workflow record, and its first timeline
+// event in one store transaction, so a failure leaves none of them behind (decision 069). A caller
+// that persists its own records with the Workflow (a Platform deployment, a Software
+// Assignment) calls Create inside its own transaction, which Create joins.
 type WorkflowService struct {
+	transactor    store.Transactor
 	operations    operationdomain.WorkflowRepository
 	controller    WorkflowController
 	secrets       operationdomain.OperationSecretRepository
@@ -87,8 +94,11 @@ type WorkflowService struct {
 	leaseReleaser operationdomain.ResourceLeaseReleaser
 }
 
-func NewWorkflowService(operations operationdomain.WorkflowRepository, controller WorkflowController, secrets ...operationdomain.OperationSecretRepository) *WorkflowService {
-	service := &WorkflowService{operations: operations, controller: controller}
+// NewWorkflowService builds the service. transactor is required: every multi-document write it
+// makes runs through it. secrets is optional for compositions that never create a Workflow with
+// secret values or rerun one.
+func NewWorkflowService(transactor store.Transactor, operations operationdomain.WorkflowRepository, controller WorkflowController, secrets ...operationdomain.OperationSecretRepository) *WorkflowService {
+	service := &WorkflowService{transactor: transactor, operations: operations, controller: controller}
 	if len(secrets) > 0 {
 		service.secrets = secrets[0]
 	}
@@ -106,8 +116,24 @@ func (s *WorkflowService) AttachLeaseReleaser(releaser operationdomain.ResourceL
 	s.leaseReleaser = releaser
 }
 
-// Create persists pending intent before the starter attempts to contact Temporal.
+// Create persists pending intent before the starter attempts to contact Temporal. The target-busy
+// check, the sealed secrets, the Workflow record, and its operation_requested event share one
+// transaction: either the Workflow is accepted with everything it needs, or nothing is written.
 func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput) (*WorkflowItem, error) {
+	var item *WorkflowItem
+	err := s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		created, err := s.create(ctx, input)
+		item = created
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// create is Create's unit of work; it must run inside a transaction.
+func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput) (*WorkflowItem, error) {
 	if !input.Kind.Valid() {
 		return nil, fmt.Errorf("%w: invalid kind %q", ErrInvalidOperation, input.Kind)
 	}
@@ -205,7 +231,6 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 		for name, value := range input.SecretValues {
 			reference, err := s.secrets.Store(ctx, id, name, value)
 			if err != nil {
-				_ = s.secrets.DeleteForOperation(ctx, id)
 				return nil, err
 			}
 			references[name] = reference
@@ -223,7 +248,6 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 			}
 		}
 		if len(wanted) > 0 {
-			_ = s.secrets.DeleteForOperation(ctx, id)
 			return nil, fmt.Errorf("%w: one or more secret Steps were not found", ErrInvalidOperation)
 		}
 	}
@@ -247,7 +271,6 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 		for name, value := range values {
 			reference, err := s.secrets.Store(ctx, id, stepID+"."+name, value)
 			if err != nil {
-				_ = s.secrets.DeleteForOperation(ctx, id)
 				return nil, err
 			}
 			steps[stepIndex].SecretRefs[name] = reference
@@ -273,15 +296,14 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 	}
 	operation.Intent["summary"] = strings.TrimSpace(input.IntentSummary)
 	if err := s.operations.Create(ctx, operation); err != nil {
-		if s.secrets != nil {
-			_ = s.secrets.DeleteForOperation(ctx, id)
-		}
 		return nil, err
 	}
-	_ = s.operations.AppendEvent(ctx, operationdomain.TimelineEvent{
+	if err := s.operations.AppendEvent(ctx, operationdomain.TimelineEvent{
 		ID: uuid.NewString(), OperationID: operation.ID, Type: "operation_requested",
 		Message: "Operation accepted and waiting for durable workflow start.", CreatedAt: now,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("record workflow %s requested: %w", operation.ID, err)
+	}
 	item := toWorkflowItem(operation)
 	return &item, nil
 }
@@ -402,11 +424,11 @@ func (s *WorkflowService) Timeline(ctx context.Context, id string) ([]operationd
 // canceled itself. A finished Workflow is a control conflict.
 //
 // When the execution is already gone (ErrWorkflowExecutionGone) no workflow code will ever record
-// the outcome, so Cancel records it here: the leases the dead execution still holds are released
-// first, then the projection is closed as canceled with CanceledWithoutExecutionReason. Releasing
-// first means a failure leaves the Workflow cancelable again rather than canceled with its
-// Servers still leased. Without this a Workflow whose execution Temporal had terminated stayed
-// non-terminal forever and blocked every new Workflow on its Servers.
+// the outcome, so Cancel records it here: in one transaction, the leases the dead execution still
+// holds are released and the projection is closed as canceled with
+// CanceledWithoutExecutionReason. A failure therefore leaves the Workflow cancelable again, never
+// canceled with its Servers still leased. Without this a Workflow whose execution Temporal had
+// terminated stayed non-terminal forever and blocked every new Workflow on its Servers.
 func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
@@ -419,10 +441,12 @@ func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	if !errors.Is(err, operationdomain.ErrWorkflowExecutionGone) {
 		return err
 	}
-	if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, operation); err != nil {
-		return err
-	}
-	return FinalizeCanceledProjection(ctx, s.operations, operation, CanceledWithoutExecutionReason, time.Now().UTC())
+	return s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, operation); err != nil {
+			return err
+		}
+		return FinalizeCanceledProjection(ctx, s.operations, operation, CanceledWithoutExecutionReason, time.Now().UTC())
+	})
 }
 
 func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) error {
@@ -464,6 +488,11 @@ func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) erro
 // terminal first — best-effort canceling any still-live parked execution and forcing the
 // projection canceled — so the replacement can claim the same targets instead of being rejected
 // as busy. Secret storage is required; without it Rerun returns ErrInvalidOperation.
+//
+// The cancel request to Temporal happens before, and outside, the transaction. Everything that
+// follows — releasing a lost execution's leases, closing the original's projection, cloning its
+// secrets, and accepting the replacement — is one transaction, so a rejected rerun (for example a
+// target that became busy again) leaves the original exactly as it was and no orphaned secrets.
 func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*WorkflowItem, error) {
 	old, err := s.operations.FindByID(ctx, id)
 	if err != nil {
@@ -487,43 +516,47 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 	// released here only for a lost execution: a live one still needs them for its own cancel
 	// path (for example a verification's compensation) and releases them as it exits.
 	now := time.Now().UTC()
+	executionGone := false
 	if !old.Status.Terminal() {
 		cancelErr := s.controller.Cancel(ctx, old)
 		if cancelErr != nil && !errors.Is(cancelErr, operationdomain.ErrWorkflowControlConflict) {
 			return nil, cancelErr
 		}
-		if errors.Is(cancelErr, operationdomain.ErrWorkflowExecutionGone) {
-			if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, old); err != nil {
-				return nil, err
-			}
-		}
-		if err := FinalizeCanceledProjection(ctx, s.operations, old, "Superseded by a rerun.", now); err != nil {
-			return nil, err
-		}
+		executionGone = errors.Is(cancelErr, operationdomain.ErrWorkflowExecutionGone)
 	}
 
-	newID := uuid.NewString()
-	references, err := s.secrets.CloneForOperation(ctx, old.ID, newID)
-	if err != nil {
-		return nil, fmt.Errorf("clone operation secrets: %w", err)
-	}
-	item, err := s.Create(ctx, CreateWorkflowInput{
-		ID: newID, Kind: old.Kind,
-		IntentSummary:  rerunSummary(old),
-		IntentSnapshot: cloneMap(old.Intent),
-		Definition:     old.Definition, DefinitionVersion: old.DefinitionVersion,
-		SiteID: old.SiteID, PlatformID: old.PlatformID,
-		TargetServerIDs:    append([]string(nil), old.TargetServerIDs...),
-		TargetResources:    append([]operationdomain.ResourceReference(nil), old.TargetResources...),
-		Steps:              cloneStepsForRerun(old.Steps, references),
-		RetryOfOperationID: old.ID,
-		RequestedBy:        requestedBy,
+	var item *WorkflowItem
+	err = s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if !old.Status.Terminal() {
+			if executionGone {
+				if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, old); err != nil {
+					return err
+				}
+			}
+			if err := FinalizeCanceledProjection(ctx, s.operations, old, "Superseded by a rerun.", now); err != nil {
+				return err
+			}
+		}
+		newID := uuid.NewString()
+		references, err := s.secrets.CloneForOperation(ctx, old.ID, newID)
+		if err != nil {
+			return fmt.Errorf("clone operation secrets: %w", err)
+		}
+		item, err = s.create(ctx, CreateWorkflowInput{
+			ID: newID, Kind: old.Kind,
+			IntentSummary:  rerunSummary(old),
+			IntentSnapshot: cloneMap(old.Intent),
+			Definition:     old.Definition, DefinitionVersion: old.DefinitionVersion,
+			SiteID: old.SiteID, PlatformID: old.PlatformID,
+			TargetServerIDs:    append([]string(nil), old.TargetServerIDs...),
+			TargetResources:    append([]operationdomain.ResourceReference(nil), old.TargetResources...),
+			Steps:              cloneStepsForRerun(old.Steps, references),
+			RetryOfOperationID: old.ID,
+			RequestedBy:        requestedBy,
+		})
+		return err
 	})
 	if err != nil {
-		// Roll back the just-cloned secrets so a rejected rerun (for example a target that
-		// became busy again) leaves no sealed values keyed to an Operation that was never
-		// created.
-		_ = s.secrets.DeleteForOperation(ctx, newID)
 		return nil, err
 	}
 	return item, nil

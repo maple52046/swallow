@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -103,8 +104,10 @@ func TestDeployWithoutGPUOperatorKeepsProvisioningOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	if launcher.launched.GPUOperatorVars != nil || launcher.launched.OperationID != "" {
-		t.Errorf("launch = %+v, want no GPU Operator Job and a launcher-chosen id", launcher.launched)
+	// The Workflow id is always preassigned now, because the deployment is planned before it is
+	// accepted in one transaction.
+	if launcher.launched.GPUOperatorVars != nil || launcher.launched.OperationID == "" {
+		t.Errorf("launch = %+v, want no GPU Operator Job and a preassigned id", launcher.launched)
 	}
 	platform := platforms.platforms[result.PlatformID]
 	if platform.GPUStackOwner != platformdomain.GPUStackOwnerProvisioning || platform.GPUOperator != nil {
@@ -164,12 +167,21 @@ type recordingGPUOperatorLauncher struct {
 	err      error
 }
 
-func (l *recordingGPUOperatorLauncher) LaunchGPUOperator(_ context.Context, launch platformdomain.GPUOperatorLaunch) (string, error) {
+// recordedGPUOperatorChange is the opaque plan recordingGPUOperatorLauncher hands back.
+type recordedGPUOperatorChange struct{ workflowID string }
+
+func (c recordedGPUOperatorChange) OperationID() string { return c.workflowID }
+
+func (l *recordingGPUOperatorLauncher) PrepareGPUOperator(_ context.Context, launch platformdomain.GPUOperatorLaunch) (platformdomain.PreparedWorkflow, error) {
 	l.launched = &launch
 	if l.err != nil {
-		return "", l.err
+		return nil, l.err
 	}
-	return launch.WorkflowID, nil
+	return recordedGPUOperatorChange{workflowID: launch.WorkflowID}, nil
+}
+
+func (l *recordingGPUOperatorLauncher) PersistGPUOperator(_ context.Context, prepared platformdomain.PreparedWorkflow) (string, error) {
+	return prepared.OperationID(), nil
 }
 
 // gpuOperatorHarness is an active Swallow-deployed HA Platform "p1" whose c1 controller also
@@ -200,7 +212,7 @@ func gpuOperatorHarness(t *testing.T, state platformdomain.PlatformLifecycleStat
 		},
 	}}
 	launcher := &recordingGPUOperatorLauncher{}
-	service := NewGPUOperatorService(platforms, &fakeGPUOperatorRecorder{platforms: platforms}, servers, lifecycle, launcher, nil)
+	service := NewGPUOperatorService(&storetest.Transactor{}, platforms, &fakeGPUOperatorRecorder{platforms: platforms}, servers, lifecycle, launcher, nil)
 	return service, launcher, platforms
 }
 
@@ -298,7 +310,7 @@ func TestPlatformPolicyCannotLeaveAManagedGPUOperator(t *testing.T) {
 		"p1": {ID: "p1", Type: platformdomain.PlatformTypeKubernetes, GPUStackOwner: platformdomain.GPUStackOwnerGPUOperator,
 			GPUOperator: &platformdomain.GPUOperator{State: platformdomain.GPUOperatorReady}},
 	}}
-	service := NewPlatformService(platforms, nil, nil, nil, nil)
+	service := NewPlatformService(&storetest.Transactor{}, platforms, nil, nil, nil, nil)
 	owner := string(platformdomain.GPUStackOwnerProvisioning)
 
 	_, err := service.Update(context.Background(), "p1", UpdatePlatformInput{GPUStackOwner: &owner})

@@ -94,37 +94,84 @@ type platformDeploymentLauncher struct {
 	ntp ntpStepPlanner
 }
 
-// Launch builds the durable Operation that deploys a Platform. It dispatches on the platform
-// type: k0s (Kubernetes) and Slurm share the ensure-os Job (OS provisioning plus the SSH
-// readiness gate) and differ only in the configure Job's playbook, workflow kind, and
-// post-install validation.
-func (l platformDeploymentLauncher) Launch(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
-	if launch.Platform != nil && launch.Platform.Type == platformdomain.PlatformTypeSlurm {
-		return l.launchSlurm(ctx, launch)
-	}
-	return l.launchKubernetes(ctx, launch)
+// preparedPlatformDeployment is the plan the platform launchers' prepare steps return
+// (platformdomain.PreparedWorkflow): the complete durable Workflow, with the Software Assignments
+// a Slurm deployment composes, or, for a deployment without durable orchestration, the legacy
+// single-step Operation. Only the launcher that prepared it persists it.
+type preparedPlatformDeployment struct {
+	workflow operationapp.CreateWorkflowInput
+	composed composedPlan
+	// legacy is set instead of workflow when durable orchestration is unavailable.
+	legacy *operationapp.CreateExecutionInput
 }
 
-func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
-	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
-	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
-	if l.orchestrations == nil {
-		if provisionFirst {
-			return "", fmt.Errorf("durable Platform provisioning is unavailable")
-		}
-		if launch.GPUOperatorVars != nil {
-			return "", fmt.Errorf("durable GPU Operator installation is unavailable")
-		}
-		item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
-			Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
-			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
-			TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
-			RequestedBy: launch.RequestedBy,
-		})
+// OperationID is the preassigned Workflow id; the legacy path learns its id only when persisted.
+func (p *preparedPlatformDeployment) OperationID() string { return p.workflow.ID }
+
+// PrepareDeployment plans the durable Operation that deploys a Platform (see
+// platformdomain.DeploymentLauncher): it performs the provider reads, the lock check, and the Task
+// planning, and writes no durable record. It dispatches on the platform type: k0s (Kubernetes)
+// and Slurm share the ensure-os Job (OS provisioning plus the SSH readiness gate) and differ only
+// in the configure Job's playbook, workflow kind, and post-install validation.
+func (l platformDeploymentLauncher) PrepareDeployment(ctx context.Context, launch platformdomain.DeploymentLaunch) (platformdomain.PreparedWorkflow, error) {
+	if launch.Platform != nil && launch.Platform.Type == platformdomain.PlatformTypeSlurm {
+		return l.prepareSlurm(ctx, launch)
+	}
+	return l.prepareKubernetes(ctx, launch)
+}
+
+// PersistDeployment writes a plan from PrepareDeployment: the Workflow (with its sealed secrets
+// and first event), the Software Assignments a Slurm deployment composes, and the initial
+// deployment projection of every Server it provisions. The caller runs it inside the store
+// transaction that also writes the Platform and its claims, so every failure here is returned
+// rather than logged: any one of them rolls the whole deployment back.
+func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepared platformdomain.PreparedWorkflow) (string, error) {
+	plan, ok := prepared.(*preparedPlatformDeployment)
+	if !ok || plan == nil {
+		return "", fmt.Errorf("persist platform deployment: plan %T was not prepared by this launcher", prepared)
+	}
+	if plan.legacy != nil {
+		item, err := l.operations.Create(ctx, *plan.legacy)
 		if err != nil {
 			return "", err
 		}
 		return item.ID, nil
+	}
+	created, err := l.orchestrations.Create(ctx, plan.workflow)
+	if err != nil {
+		return "", err
+	}
+	if len(plan.composed.installs) > 0 {
+		if err := l.recordComposedInstalls(ctx, plan.composed, created.ID); err != nil {
+			return "", fmt.Errorf("record composed software assignments: %w", err)
+		}
+	}
+	if err := persistInitialDeployments(ctx, l.servers, created.ID, plan.workflow.Steps); err != nil {
+		return "", err
+	}
+	return created.ID, nil
+}
+
+// prepareKubernetes plans the k0s deployment: the ensure-os Job, the install and health-validation
+// Tasks, and the optional GPU Operator Job, under the Workflow id the deploy use case preassigned.
+// Without durable orchestration it plans the legacy single-step Operation instead, which supports
+// neither OS provisioning nor the GPU Operator.
+func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
+	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
+	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
+	if l.orchestrations == nil {
+		if provisionFirst {
+			return nil, fmt.Errorf("durable Platform provisioning is unavailable")
+		}
+		if launch.GPUOperatorVars != nil {
+			return nil, fmt.Errorf("durable GPU Operator installation is unavailable")
+		}
+		return &preparedPlatformDeployment{legacy: &operationapp.CreateExecutionInput{
+			Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
+			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
+			TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
+			RequestedBy: launch.RequestedBy,
+		}}, nil
 	}
 
 	operationID := launch.OperationID
@@ -138,7 +185,7 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 		RequestedBy: launch.RequestedBy,
 	}, operationID, provisionFirst)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	var gpuPrepared *operationapp.PreparedAnsibleStep
 	if launch.GPUOperatorVars != nil {
@@ -146,13 +193,13 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 			"Install AMD GPU Operator on "+launch.Platform.Name, launch.TargetServerIDs,
 			launch.GPUOperatorVars, launch.RequestedBy, provisionFirst)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 
 	ensure, err := l.buildEnsureOS(ctx, launch, operationID, provisionFirst, prepared)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	steps := ensure.steps
 	steps = append(steps, operationdomain.Task{
@@ -175,16 +222,15 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 			[]string{"validate-platform"}, "Install AMD GPU Operator"))
 	}
 
-	created, err := l.createDeploymentWorkflow(ctx, operationID, operationdomain.WorkflowKindDeployKubernetes,
+	workflow, err := l.deploymentWorkflowInput(ctx, operationID, operationdomain.WorkflowKindDeployKubernetes,
 		"Deploy k0s Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
-	return created.ID, nil
+	return &preparedPlatformDeployment{workflow: workflow}, nil
 }
 
-// launchSlurm builds the durable Slurm deployment Operation. It reuses the ensure-os Job to
+// prepareSlurm plans the durable Slurm deployment Operation. It reuses the ensure-os Job to
 // bring targets to a booted, SSH-reachable OS (with the operator's Slurm image in provision_os
 // mode) and then runs the hardcoded deploy-slurm playbook. Unlike k0s it adds no internal
 // validate-platform-health Task: the deployed reader integration only exists once the
@@ -193,10 +239,10 @@ func (l platformDeploymentLauncher) launchKubernetes(ctx context.Context, launch
 // no legacy single-step Slurm path. With the container runtime or Omnistat feature (decision 063)
 // the Workflow also carries the composed software Jobs and the configure-omnistat Job after
 // install-platform, under the Workflow id the deploy use case preassigned for the Omnistat
-// record's fence.
-func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
+// record's fence. The composed Software Assignments are written by PersistDeployment.
+func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
 	if l.orchestrations == nil {
-		return "", fmt.Errorf("durable Slurm deployment is unavailable")
+		return nil, fmt.Errorf("durable Slurm deployment is unavailable")
 	}
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
@@ -213,12 +259,12 @@ func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch plat
 		RequestedBy: launch.RequestedBy,
 	}, operationID, provisionFirst)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	ensure, err := l.buildEnsureOS(ctx, launch, operationID, provisionFirst, prepared)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	steps := ensure.steps
 	steps = append(steps, operationdomain.Task{
@@ -230,23 +276,16 @@ func (l platformDeploymentLauncher) launchSlurm(ctx context.Context, launch plat
 	})
 	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	steps = append(steps, composed.steps...)
 
-	created, err := l.createDeploymentWorkflow(ctx, operationID, operationdomain.WorkflowKindConfigureSlurm,
+	workflow, err := l.deploymentWorkflowInput(ctx, operationID, operationdomain.WorkflowKindConfigureSlurm,
 		"Deploy Slurm Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if len(composed.installs) > 0 {
-		if err := l.recordComposedInstalls(ctx, composed, created.ID); err != nil {
-			slog.Error("record composed software assignments", "operationId", created.ID,
-				"platformId", launch.Platform.ID, "error", err)
-		}
-	}
-	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
-	return created.ID, nil
+	return &preparedPlatformDeployment{workflow: workflow, composed: composed}, nil
 }
 
 // ensureOSPlan is the ensure-os Job's Tasks plus what the caller needs to finish the
@@ -386,11 +425,13 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 	return plan, nil
 }
 
-// createDeploymentWorkflow persists the deployment Workflow shared by k0s and Slurm. It seals
-// the install step's platform secrets and, in provision_os mode with replace cloud-init, the
-// resolved user data, and records the machine-preparation and frozen provisioning snapshots in
-// the operation intent so a retry replays the same inputs.
-func (l platformDeploymentLauncher) createDeploymentWorkflow(
+// deploymentWorkflowInput builds the deployment Workflow shared by k0s and Slurm without writing
+// it. It carries the install step's platform secrets and, in provision_os mode with replace
+// cloud-init, the resolved user data for sealing at persist time, and records the
+// machine-preparation and frozen provisioning snapshots in the operation intent so a retry
+// replays the same inputs. Boot Media's ensure Tasks are planned here, from the Servers' stored
+// settings, so persisting needs no further read.
+func (l platformDeploymentLauncher) deploymentWorkflowInput(
 	ctx context.Context,
 	operationID string,
 	kind operationdomain.WorkflowKind,
@@ -399,7 +440,7 @@ func (l platformDeploymentLauncher) createDeploymentWorkflow(
 	prepared *operationapp.PreparedAnsibleStep,
 	steps []operationdomain.Task,
 	ensure ensureOSPlan,
-) (*operationapp.WorkflowItem, error) {
+) (operationapp.CreateWorkflowInput, error) {
 	preparation := launch.MachinePreparation
 	preparation.UserData = ""
 	stepSecrets := map[string]map[string]any{}
@@ -418,9 +459,9 @@ func (l platformDeploymentLauncher) createDeploymentWorkflow(
 	}
 	steps, err := l.bootMedia.withEnsureTasks(ctx, steps)
 	if err != nil {
-		return nil, err
+		return operationapp.CreateWorkflowInput{}, err
 	}
-	return l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
+	return operationapp.CreateWorkflowInput{
 		ID: operationID, Kind: kind,
 		IntentSummary:  summary,
 		IntentSnapshot: intentSnapshot,
@@ -431,7 +472,7 @@ func (l platformDeploymentLauncher) createDeploymentWorkflow(
 		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
 		SecretStepIDs: ensure.secretStepIDs, SecretValues: sharedSecrets,
 		StepSecretValues: stepSecrets,
-	})
+	}, nil
 }
 
 // platformOperationCanceler implements platformdomain.PlatformOperationCanceler by finding

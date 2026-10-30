@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 )
 
@@ -144,7 +145,7 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 	repo := &fakeRerunRepo{byID: map[string]*operationdomain.Workflow{old.ID: old}}
 	controller := &fakeRerunController{}
 	secrets := &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}
-	service := NewWorkflowService(repo, controller, secrets)
+	service := NewWorkflowService(&storetest.Transactor{}, repo, controller, secrets)
 
 	item, err := service.Rerun(context.Background(), old.ID, "operator")
 	if err != nil {
@@ -258,7 +259,7 @@ func TestRerunFinalizesNonTerminalOperationBeforeReplacing(t *testing.T) {
 	leases := &fakeLeaseReleaser{held: map[string][]operationdomain.ResourceLease{
 		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
 	}}
-	service := NewWorkflowService(repo, controller, secrets)
+	service := NewWorkflowService(&storetest.Transactor{}, repo, controller, secrets)
 	service.AttachLeaseReleaser(leases)
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
@@ -288,7 +289,7 @@ func TestRerunKeepsLeasesOfLiveParkedExecution(t *testing.T) {
 	leases := &fakeLeaseReleaser{held: map[string][]operationdomain.ResourceLease{
 		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
 	}}
-	service := NewWorkflowService(repo, &fakeRerunController{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
 	service.AttachLeaseReleaser(leases)
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
@@ -302,7 +303,7 @@ func TestRerunKeepsLeasesOfLiveParkedExecution(t *testing.T) {
 func TestRerunRejectsSucceededOperation(t *testing.T) {
 	old := newRerunOldOp(operationdomain.WorkflowSucceeded, operationdomain.TaskSucceeded)
 	repo := &fakeRerunRepo{byID: map[string]*operationdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(repo, &fakeRerunController{}, &fakeRerunSecrets{})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{}, &fakeRerunSecrets{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, operationdomain.ErrWorkflowControlConflict) {
@@ -316,7 +317,7 @@ func TestRerunRejectsSucceededOperation(t *testing.T) {
 func TestRerunRejectsStillRunningOperation(t *testing.T) {
 	old := newRerunOldOp(operationdomain.WorkflowRunning, operationdomain.TaskRunning)
 	repo := &fakeRerunRepo{byID: map[string]*operationdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(repo, &fakeRerunController{}, &fakeRerunSecrets{})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{}, &fakeRerunSecrets{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, operationdomain.ErrWorkflowControlConflict) {

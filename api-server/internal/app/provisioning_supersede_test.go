@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
@@ -82,7 +83,7 @@ func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *
 		Provisioning: &serverdomain.ProvisioningStatus{State: "failed"},
 	}
 	return durableProvisioningLauncher{
-		operations: operationapp.NewWorkflowService(repo, controller),
+		operations: operationapp.NewWorkflowService(&storetest.Transactor{}, repo, controller),
 		servers:    &deploymentProjectionTestRepo{server: server},
 	}, repo, controller
 }

@@ -106,6 +106,9 @@ func RunAPI(cfg config.APIConfig) error {
 		return err
 	}
 	slog.Info("connected to mongodb")
+	// The one Transactor of this process: every use case that keeps a cross-document invariant
+	// receives it through its constructor (decision 069).
+	transactor := storemongo.NewTransactor(client)
 	defer func() {
 		disconnectCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
@@ -353,9 +356,7 @@ func RunAPI(cfg config.APIConfig) error {
 	}
 	lifecycleReader := platformLifecycleReader{operations: operationRepo, orchestrations: orchestrationRepo}
 	integrationCleaner := managedPlatformIntegrationCleaner{integrations: integrationRepo}
-	platformService := platformapp.NewPlatformService(
-		platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner,
-	)
+	platformService := platformapp.NewPlatformService(transactor, platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner)
 	platformService.AttachGPUOperatorRecorder(platformRepo)
 	platformService.AttachOmnistatRecorder(platformRepo)
 	platformService.AttachDeviceMetricsExporterRecorder(platformRepo)
@@ -422,7 +423,7 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	automationService.AttachDeploymentKeys(deploymentKeys)
 	orchestrationService := operationapp.NewWorkflowService(
-		orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
+		transactor, orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
 	)
 	resourceLeases := operationinfra.NewMongoResourceLeaseRepo(db)
 	orchestrationService.AttachLeaseReader(resourceLeases)
@@ -492,7 +493,7 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("software assignment repo init: %w", err)
 	}
 	softwareService := softwareapp.NewSoftwareService(
-		softwareAssignmentRepo, serverRepo,
+		transactor, softwareAssignmentRepo, serverRepo,
 		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
 	)
 	softwareService.AttachLauncher(softwareDeploymentLauncher{
@@ -530,7 +531,7 @@ func RunAPI(cfg config.APIConfig) error {
 		kubernetesExplorer, requirementService)
 	// GPU Operator changes after deployment (decision 062) run as their own durable Workflow.
 	platformHandler.AttachGPUOperatorService(platformapp.NewGPUOperatorService(
-		platformRepo, platformRepo, serverRepo, lifecycleReader,
+		transactor, platformRepo, platformRepo, serverRepo, lifecycleReader,
 		gpuOperatorLauncher{operations: operationService, orchestrations: orchestrationService},
 		sshKeyService,
 	))

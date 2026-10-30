@@ -20,7 +20,7 @@ func (s *PlatformService) AttachPlatformClaims(store serverdomain.PlatformClaimS
 }
 
 // AttachPlatformClaims wires the Platform Claim store so an accepted deployment claims its
-// targets atomically. Without it (tests) no claim is written.
+// targets inside the transaction that accepts it. Without it (tests) no claim is written.
 func (s *DeployService) AttachPlatformClaims(store serverdomain.PlatformClaimStore) {
 	s.claims = store
 }
@@ -59,20 +59,6 @@ func (s *DeployService) claimTargets(ctx context.Context, platform *platformdoma
 	return err
 }
 
-// abandon undoes an accepted-but-refused deployment: it releases the claims and deletes the
-// Platform record, so a failed request leaves neither an orphan Platform nor a blocked Server.
-// Failures are logged, not returned, because the caller is already returning the refusal.
-func (s *DeployService) abandon(ctx context.Context, platformID string) {
-	if s.claims != nil {
-		if err := s.claims.ReleasePlatformClaims(ctx, platformID); err != nil {
-			slog.Error("release platform claims of a refused deployment", "platformId", platformID, "error", err)
-		}
-	}
-	if err := s.platforms.Delete(ctx, platformID); err != nil {
-		slog.Error("delete the platform of a refused deployment", "platformId", platformID, "error", err)
-	}
-}
-
 // claimedBy names the Platform that claims server for a refusal message: its type and name when
 // the record is known, its id otherwise.
 func claimedBy(server *serverdomain.Server, platformsByID map[string]*platformdomain.Platform) string {
@@ -82,9 +68,12 @@ func claimedBy(server *serverdomain.Server, platformsByID map[string]*platformdo
 	return "Platform " + server.PlatformClaim.PlatformID
 }
 
-// ReconcilePlatformClaims repairs the stored Platform Claims against the Platforms' durable
-// lifecycle (decision 067). It is run once when the API starts, and it is what turns the claims
-// of Platforms deployed before claims existed into stored ones.
+// ReconcilePlatformClaims backfills the stored Platform Claims from the Platforms' durable
+// lifecycle (decision 067). It is run once when the API starts. It is what turns the claims of
+// Platforms deployed before claims existed into stored ones, and what drops a claim left behind by
+// an installation from before acceptance, Delete, and uninstall became transactions (decision
+// 069). It is not a repair loop: since then a claim is written and released only together with
+// the Platform change it belongs to, so a new stale claim does not arise.
 //
 // It works in both directions and never fights a live decision:
 //   - every target of a Swallow-deployed Platform that is not uninstalled gets that Platform's

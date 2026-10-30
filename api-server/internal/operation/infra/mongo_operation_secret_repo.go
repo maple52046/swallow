@@ -49,16 +49,22 @@ func (r *MongoOperationSecretRepo) Store(ctx context.Context, operationID, name 
 	if err != nil {
 		return "", err
 	}
+	// One conditional upsert keeps Store idempotent per (workflowId, name) — an existing secret
+	// keeps its value and reference — without relying on a duplicate-key error. Inside a store
+	// transaction a duplicate-key error aborts the transaction, so the former "insert, then read
+	// the existing one" made every later operation fail as transient and the unit retry until it
+	// timed out.
 	doc := operationSecretDoc{ID: uuid.NewString(), OperationID: operationID, Name: name, SealedValue: sealed, CreatedAt: time.Now().UTC()}
-	_, err = r.col.InsertOne(ctx, doc)
-	if mongo.IsDuplicateKeyError(err) {
-		var existing operationSecretDoc
-		if findErr := r.col.FindOne(ctx, bson.M{"workflowId": operationID, "name": name}).Decode(&existing); findErr != nil {
-			return "", findErr
-		}
-		return existing.ID, nil
+	var stored operationSecretDoc
+	err = r.col.FindOneAndUpdate(ctx,
+		bson.M{"workflowId": operationID, "name": name},
+		bson.M{"$setOnInsert": doc},
+		options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After),
+	).Decode(&stored)
+	if err != nil {
+		return "", err
 	}
-	return doc.ID, err
+	return stored.ID, nil
 }
 
 func (r *MongoOperationSecretRepo) Resolve(ctx context.Context, reference string) (any, error) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/maple52046/swallow/internal/core/store"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
@@ -28,18 +29,36 @@ type DeploymentCredential struct {
 // successful deploy-kubernetes operation into a call here, so the platform context never
 // depends on the operation context.
 type DeploymentCredentialService struct {
+	transactor   store.Transactor
 	platforms    platformdomain.PlatformRepository
 	integrations sitedomain.IntegrationRepository
 	membership   *MembershipSyncUseCase
 }
 
-// NewDeploymentCredentialService constructs the credential recorder.
+// NewDeploymentCredentialService constructs the credential recorder. The Integration and the
+// Platform that names it are written in one transaction through transactor.
 func NewDeploymentCredentialService(
+	transactor store.Transactor,
 	platforms platformdomain.PlatformRepository,
 	integrations sitedomain.IntegrationRepository,
 	membership *MembershipSyncUseCase,
 ) *DeploymentCredentialService {
-	return &DeploymentCredentialService{platforms: platforms, integrations: integrations, membership: membership}
+	return &DeploymentCredentialService{transactor: transactor, platforms: platforms, integrations: integrations, membership: membership}
+}
+
+// attach stores integration with its sealed token and makes it the Platform's owned read
+// Integration, in one transaction: a failure leaves neither an orphaned Integration nor a
+// Platform naming one that does not exist, so the completion hook can simply retry.
+func (s *DeploymentCredentialService) attach(ctx context.Context, platform *platformdomain.Platform, integration *sitedomain.Integration, token string) error {
+	return s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.integrations.Create(ctx, integration, token); err != nil {
+			return err
+		}
+		platform.IntegrationID = integration.ID
+		platform.OwnedIntegrationID = integration.ID
+		platform.UpdatedAt = integration.UpdatedAt
+		return s.platforms.Update(ctx, platform)
+	})
 }
 
 // Record attaches a freshly deployed platform's read credential and syncs its membership.
@@ -79,17 +98,10 @@ func (s *DeploymentCredentialService) Record(ctx context.Context, platformID str
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := s.integrations.Create(ctx, integration, credential.Token); err != nil {
+	if err := s.attach(ctx, platform, integration, credential.Token); err != nil {
 		return err
 	}
-
-	platform.IntegrationID = integration.ID
-	platform.OwnedIntegrationID = integration.ID
-	platform.UpdatedAt = now
-	if err := s.platforms.Update(ctx, platform); err != nil {
-		return err
-	}
-
+	// After the commit: the first membership read calls the Platform's API.
 	_, _ = s.membership.Execute(ctx, platform.ID)
 	return nil
 }
@@ -139,17 +151,10 @@ func (s *DeploymentCredentialService) RecordSlurm(ctx context.Context, platformI
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := s.integrations.Create(ctx, integration, credential.Token); err != nil {
+	if err := s.attach(ctx, platform, integration, credential.Token); err != nil {
 		return err
 	}
-
-	platform.IntegrationID = integration.ID
-	platform.OwnedIntegrationID = integration.ID
-	platform.UpdatedAt = now
-	if err := s.platforms.Update(ctx, platform); err != nil {
-		return err
-	}
-
+	// After the commit: the first membership read calls slurmrestd.
 	_, _ = s.membership.Execute(ctx, platform.ID)
 	return nil
 }

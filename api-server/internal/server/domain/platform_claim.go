@@ -47,8 +47,9 @@ type PlatformClaimStore interface {
 	// ClaimForPlatform claims every Server in serverIDs for platformID. A Server that is
 	// unclaimed is claimed at `at`; one already claimed by platformID is left as it is. A Server
 	// claimed by another Platform fails the call with *ServerClaimedError, and an unknown id with
-	// ErrServerNotFound; either way the claims this call wrote are released again, so a refused
-	// deployment leaves no partial claim behind.
+	// ErrServerNotFound. The call does not undo the claims it already wrote: a caller that claims
+	// more than one Server runs it inside a store transaction, whose rollback removes them, so a
+	// refused deployment leaves no partial claim behind (decision 069).
 	ClaimForPlatform(ctx context.Context, platformID string, serverIDs []string, at time.Time) error
 	// ReleasePlatformClaims clears the claim of every Server claimed by platformID. It is
 	// idempotent: a Platform that claims nothing is a success.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
@@ -148,7 +149,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	lifecycle := newFakeLifecycleReader()
 	uninstallLauncher := &fakeUninstallLauncher{}
 	membershipSync := platformapp.NewMembershipSyncUseCase(platformRepo, servers, readerFactory)
-	platformService := platformapp.NewPlatformService(platformRepo, sites, servers, lifecycle, nil)
+	platformService := platformapp.NewPlatformService(&storetest.Transactor{}, platformRepo, sites, servers, lifecycle, nil)
 	deployService := platformapp.NewDeployService(
 		platformService, platformRepo, servers, &fakeDeploymentLauncher{})
 	deployService.AttachDeploymentRequirementReader(requirementRepo)

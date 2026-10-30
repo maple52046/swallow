@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	"github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -354,7 +355,7 @@ func newWorkflowContractHandler() *ExecutionHandler {
 			},
 		},
 	}
-	orchestrations := application.NewWorkflowService(workflows, contractController{}, contractSecrets{})
+	orchestrations := application.NewWorkflowService(&storetest.Transactor{}, workflows, contractController{}, contractSecrets{})
 	orchestrations.AttachLeaseReader(contractLeases{leases: []operationdomain.ResourceLease{{
 		ResourceKey: "server:server-1", Owner: running.Temporal.WorkflowID, FencingToken: 4,
 		ExpiresAt: now.Add(time.Hour), UpdatedAt: started,

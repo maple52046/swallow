@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store"
+	"github.com/maple52046/swallow/internal/core/store/storetest"
+	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
@@ -213,16 +216,39 @@ func (r *deployFakeSiteRepo) List(context.Context) ([]*sitedomain.Site, error) {
 func (r *deployFakeSiteRepo) Update(context.Context, *sitedomain.Site) error   { return nil }
 func (r *deployFakeSiteRepo) Delete(context.Context, string) error             { return nil }
 
+// recordingLauncher records the launch it planned and, once persisted, the launch it launched.
 type recordingLauncher struct {
+	// launched is the launch whose Workflow was persisted; nil when nothing was launched.
 	launched *platformdomain.DeploymentLaunch
-	// err refuses the launch, modelling an orchestration that will not accept the Workflow.
+	// persistedInTransaction reports whether PersistDeployment ran inside a store transaction.
+	persistedInTransaction bool
+	// err refuses the launch at prepare time, modelling an orchestration that will not accept the
+	// Workflow (a locked target, an unavailable automation).
 	err error
+	// persistErr refuses it at persist time, modelling a target that became busy.
+	persistErr error
 }
 
-func (l *recordingLauncher) Launch(_ context.Context, launch platformdomain.DeploymentLaunch) (string, error) {
+// recordedDeployment is the opaque plan recordingLauncher hands back from PrepareDeployment.
+type recordedDeployment struct {
+	launch platformdomain.DeploymentLaunch
+}
+
+func (d recordedDeployment) OperationID() string { return d.launch.OperationID }
+
+func (l *recordingLauncher) PrepareDeployment(_ context.Context, launch platformdomain.DeploymentLaunch) (platformdomain.PreparedWorkflow, error) {
 	if l.err != nil {
-		return "", l.err
+		return nil, l.err
 	}
+	return recordedDeployment{launch: launch}, nil
+}
+
+func (l *recordingLauncher) PersistDeployment(ctx context.Context, prepared platformdomain.PreparedWorkflow) (string, error) {
+	l.persistedInTransaction = store.InTransaction(ctx)
+	if l.persistErr != nil {
+		return "", l.persistErr
+	}
+	launch := prepared.(recordedDeployment).launch
 	l.launched = &launch
 	return "operation-1", nil
 }
@@ -254,7 +280,7 @@ func newClaimingDeployHarness(
 		serverRepo.servers[s.ID] = s
 	}
 	siteRepo := &deployFakeSiteRepo{ids: map[string]bool{"site-1": true}}
-	platformService := NewPlatformService(platformRepo, siteRepo, serverRepo, nil, nil)
+	platformService := NewPlatformService(&storetest.Transactor{}, platformRepo, siteRepo, serverRepo, nil, nil)
 	launcher := &recordingLauncher{}
 	service := NewDeployService(platformService, platformRepo, serverRepo, launcher)
 	service.AttachPlatformClaims(serverRepo)
@@ -570,7 +596,8 @@ func TestDeployClaimsItsTargets(t *testing.T) {
 	}
 }
 
-// A refused launch removes the Platform and every claim it wrote, so the Servers stay free.
+// A launch refused while it is planned is refused before anything is written, so the Servers stay
+// free and no Platform exists.
 func TestDeployRefusedLaunchReleasesItsClaims(t *testing.T) {
 	service, launcher, platforms, servers := newClaimingDeployHarness(haServers()...)
 	launcher.err = errors.New("workflow orchestration unavailable")
@@ -588,8 +615,40 @@ func TestDeployRefusedLaunchReleasesItsClaims(t *testing.T) {
 	}
 }
 
+// Accepting a deployment writes the claims, the Platform, and the Workflow in one transaction
+// (decision 069), with the claims first. The fake cannot roll back, so this proves the order and
+// the boundary; the replica-set integration tests prove the rollback itself.
+func TestDeployAcceptsTheDeploymentInOneTransaction(t *testing.T) {
+	service, launcher, _, _ := newClaimingDeployHarness(haServers()...)
+	tx := &storetest.Transactor{}
+	service.platformService.transactor = tx
+
+	if _, err := service.Deploy(context.Background(), validDeployInput()); err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	if got := tx.Calls(); got != 1 {
+		t.Errorf("transactions = %d, want 1", got)
+	}
+	if !launcher.persistedInTransaction {
+		t.Error("the Workflow was persisted outside the acceptance transaction")
+	}
+}
+
+// A Workflow refused while it is persisted (a target that became busy) fails the whole acceptance.
+func TestDeployRefusedAtPersistReturnsTheRefusal(t *testing.T) {
+	service, launcher, _, _ := newClaimingDeployHarness(haServers()...)
+	launcher.persistErr = operationdomain.ErrTargetsBusy
+
+	if _, err := service.Deploy(context.Background(), validDeployInput()); !errors.Is(err, operationdomain.ErrTargetsBusy) {
+		t.Errorf("Deploy() error = %v, want ErrTargetsBusy", err)
+	}
+	if launcher.launched != nil {
+		t.Error("Deploy() reported a launched Workflow although persisting it failed")
+	}
+}
+
 // Two deployments validated at the same time cannot both take a Server: the one whose claim lands
-// second is refused like a validation refusal and leaves no Platform or partial claim behind.
+// second is refused like a validation refusal, before it writes a Platform or a Workflow.
 func TestDeployLosingAConcurrentClaimIsRefusedCleanly(t *testing.T) {
 	service, launcher, platforms, servers := newClaimingDeployHarness(haServers()...)
 	platforms.platforms["rival"] = &platformdomain.Platform{

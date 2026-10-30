@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/maple52046/swallow/internal/core/store"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/wire"
@@ -18,7 +19,12 @@ import (
 )
 
 // PlatformService owns platform registration, lifecycle projection, and record cleanup.
+//
+// Every multi-document change it makes — accepting a deployment (through DeployService), Delete,
+// and CompleteUninstall — runs in one store transaction (decision 069), so a Platform, its
+// Platform Claims, its memberships, and its owned Integration never disagree after a failure.
 type PlatformService struct {
+	transactor   store.Transactor
 	platforms    platformdomain.PlatformRepository
 	sites        sitedomain.SiteRepository
 	servers      serverdomain.ServerRepository
@@ -45,8 +51,10 @@ type PlatformService struct {
 	exporterAssignments platformdomain.DeviceMetricsExporterAssignments
 }
 
-// NewPlatformService constructs the platform application service.
+// NewPlatformService constructs the platform application service. transactor is required; it is
+// also the transaction DeployService accepts a deployment in.
 func NewPlatformService(
+	transactor store.Transactor,
 	platforms platformdomain.PlatformRepository,
 	sites sitedomain.SiteRepository,
 	servers serverdomain.ServerRepository,
@@ -54,7 +62,8 @@ func NewPlatformService(
 	integrations platformdomain.ManagedIntegrationCleaner,
 ) *PlatformService {
 	return &PlatformService{
-		platforms: platforms, sites: sites, servers: servers,
+		transactor: transactor,
+		platforms:  platforms, sites: sites, servers: servers,
 		lifecycle: lifecycle, integrations: integrations,
 	}
 }
@@ -307,6 +316,21 @@ var ErrInvalidPlatform = errors.New("invalid platform")
 // `deployed` once the caller launches a deploy Operation for it; a record left without an
 // Operation would read as the legacy `registered` state, which no public route now produces.
 func (s *PlatformService) Create(ctx context.Context, input CreatePlatformInput) (*PlatformItem, error) {
+	platform, err := s.newPlatform(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.platforms.Create(ctx, platform); err != nil {
+		return nil, err
+	}
+	item := toPlatformItem(platform, registeredLifecycle())
+	return &item, nil
+}
+
+// newPlatform validates input and builds the Platform record, with its id, without storing it.
+// DeployService plans the deployment Workflow against this record first and stores it later,
+// inside the transaction that accepts the deployment.
+func (s *PlatformService) newPlatform(ctx context.Context, input CreatePlatformInput) (*platformdomain.Platform, error) {
 	platformType := platformdomain.PlatformType(strings.TrimSpace(input.Type))
 	if !platformType.Valid() {
 		return nil, fmt.Errorf("%w: type must be one of %v", ErrInvalidPlatform, platformdomain.ValidPlatformTypes)
@@ -341,12 +365,7 @@ func (s *PlatformService) Create(ctx context.Context, input CreatePlatformInput)
 		OCIContainers: input.OCIContainers, PMIx: input.PMIx,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if err := s.platforms.Create(ctx, platform); err != nil {
-		return nil, err
-	}
-
-	item := toPlatformItem(platform, registeredLifecycle())
-	return &item, nil
+	return platform, nil
 }
 
 // List returns platforms with lifecycle states loaded in one operation query.
@@ -454,7 +473,10 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 
 // Delete removes the record and projections. It first cancels the platform's in-flight
 // durable operations so their resource leases are released and the member servers are freed;
-// leaving them would orphan work that blocks any later deploy or release on those hosts.
+// leaving them would orphan work that blocks any later deploy or release on those hosts. The
+// cancellation reaches Temporal, so it happens before, and outside, the transaction that then
+// clears the memberships, releases the claims, deletes the owned Integration, and deletes the
+// record: either all of those happen or none does.
 func (s *PlatformService) Delete(ctx context.Context, id string) error {
 	platform, err := s.platforms.FindByID(ctx, id)
 	if err != nil {
@@ -469,21 +491,23 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	if err := s.clearMemberships(ctx, id); err != nil {
-		return err
-	}
-	// The record is going away, so nothing can uninstall through it any more; its claims go with
-	// it (the hosts are not changed, which is what Delete means).
-	if err := s.releaseClaims(ctx, id); err != nil {
-		return err
-	}
-	if s.integrations != nil {
-		allowLegacy := lifecycle.Origin == platformdomain.PlatformOriginDeployed
-		if err := s.integrations.DeleteForPlatform(ctx, platform, allowLegacy); err != nil {
+	return s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.clearMemberships(ctx, id); err != nil {
 			return err
 		}
-	}
-	return s.platforms.Delete(ctx, id)
+		// The record is going away, so nothing can uninstall through it any more; its claims go
+		// with it (the hosts are not changed, which is what Delete means).
+		if err := s.releaseClaims(ctx, id); err != nil {
+			return err
+		}
+		if s.integrations != nil {
+			allowLegacy := lifecycle.Origin == platformdomain.PlatformOriginDeployed
+			if err := s.integrations.DeleteForPlatform(ctx, platform, allowLegacy); err != nil {
+				return err
+			}
+		}
+		return s.platforms.Delete(ctx, id)
+	})
 }
 
 // markExportersRemoved marks the device-metrics-exporter Software Assignments of a Slurm
@@ -510,7 +534,17 @@ func (s *PlatformService) markExportersRemoved(ctx context.Context, platform *pl
 // Platform record once the cleanup succeeds. Unlike Delete it never cancels Operations: the
 // caller is the uninstall's own success hook, and that uninstall is still the Workflow holding
 // the targets, so canceling would turn a finished uninstall into a canceled one.
+//
+// The whole cleanup is one transaction (it makes no external call), so a failure leaves the
+// Platform as it was and the caller's retry starts from a consistent record.
 func (s *PlatformService) CompleteUninstall(ctx context.Context, id string, deleteRecord bool) error {
+	return s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		return s.completeUninstall(ctx, id, deleteRecord)
+	})
+}
+
+// completeUninstall is CompleteUninstall's unit of work; it must run inside a transaction.
+func (s *PlatformService) completeUninstall(ctx context.Context, id string, deleteRecord bool) error {
 	platform, err := s.platforms.FindByID(ctx, id)
 	if errors.Is(err, platformdomain.ErrPlatformNotFound) {
 		return nil

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
@@ -347,9 +348,7 @@ func TestDeleteRemovesRecordMembershipAndOwnedIntegrationOnly(t *testing.T) {
 		platform.ID: deployedLifecycle(platformdomain.PlatformLifecycleUninstalling),
 	}}
 	cleaner := &recordingIntegrationCleaner{}
-	service := NewPlatformService(
-		platforms, &deployFakeSiteRepo{}, servers, lifecycle, cleaner,
-	)
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, cleaner)
 
 	if err := service.Delete(context.Background(), platform.ID); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -400,7 +399,7 @@ func newDeleteHarness() (*deployFakePlatformRepo, *lifecycleServerRepo, fakeLife
 func TestDeleteCancelsInFlightOperationsBeforeRemovingTheRecord(t *testing.T) {
 	platforms, servers, lifecycle, platform := newDeleteHarness()
 	canceler := &recordingPlatformOperationCanceler{}
-	service := NewPlatformService(platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
 	service.AttachOperationCanceler(canceler)
 
 	if err := service.Delete(context.Background(), platform.ID); err != nil {
@@ -417,7 +416,7 @@ func TestDeleteCancelsInFlightOperationsBeforeRemovingTheRecord(t *testing.T) {
 func TestDeleteAbortsWhenOperationCancellationFails(t *testing.T) {
 	platforms, servers, lifecycle, platform := newDeleteHarness()
 	canceler := &recordingPlatformOperationCanceler{err: errors.New("temporal unavailable")}
-	service := NewPlatformService(platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
 	service.AttachOperationCanceler(canceler)
 
 	if err := service.Delete(context.Background(), platform.ID); err == nil {
@@ -450,9 +449,7 @@ func TestCompleteUninstallKeepsRecordAndClearsOwnedProjections(t *testing.T) {
 		memberships: map[string][]string{platform.ID: {"server-1"}},
 	}
 	cleaner := &recordingIntegrationCleaner{}
-	service := NewPlatformService(
-		platforms, &deployFakeSiteRepo{}, servers, nil, cleaner,
-	)
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, nil, cleaner)
 
 	if err := service.CompleteUninstall(context.Background(), platform.ID, false); err != nil {
 		t.Fatalf("complete uninstall: %v", err)
@@ -481,8 +478,7 @@ func TestCompleteUninstallKeepsRecordAndClearsOwnedProjections(t *testing.T) {
 }
 
 func TestCompleteUninstallAfterDeleteIsIdempotent(t *testing.T) {
-	service := NewPlatformService(
-		&deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}},
+	service := NewPlatformService(&storetest.Transactor{}, &deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}},
 		&deployFakeSiteRepo{},
 		&deployFakeServerRepo{servers: map[string]*serverdomain.Server{}},
 		nil,
@@ -506,7 +502,7 @@ func TestCompleteUninstallWithDeleteRecordRemovesRecordWithoutCanceling(t *testi
 	servers.memberships[platform.ID] = []string{"server-1"}
 	canceler := &recordingPlatformOperationCanceler{}
 	cleaner := &recordingIntegrationCleaner{}
-	service := NewPlatformService(platforms, &deployFakeSiteRepo{}, servers, lifecycle, cleaner)
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, cleaner)
 	service.AttachOperationCanceler(canceler)
 
 	if err := service.CompleteUninstall(context.Background(), platform.ID, true); err != nil {

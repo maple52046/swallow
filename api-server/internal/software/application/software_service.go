@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/store"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
@@ -35,11 +36,25 @@ type SoftwareLaunch struct {
 }
 
 // SoftwareLauncher composes the software Workflow (prepare-hosts -> configure-<kind> ->
-// record-software) and returns its Workflow id. It is implemented in the app layer so the software
-// context does not import the operation orchestration internals directly.
+// record-software). It is implemented in the app layer so the software context does not import the
+// operation orchestration internals directly.
+//
+// It is split so an install or uninstall is accepted in one store transaction without external
+// calls (decision 069): PrepareInstall and PrepareUninstall do the reads (lock check, playbook and
+// target resolution) and write nothing; PersistWorkflow writes the prepared Workflow and runs inside
+// the service's transaction, which also writes the Software Assignments. Busy, lock, and automation
+// errors are returned unchanged from whichever step detects them.
 type SoftwareLauncher interface {
-	LaunchInstall(ctx context.Context, launch SoftwareLaunch) (string, error)
-	LaunchUninstall(ctx context.Context, launch SoftwareLaunch) (string, error)
+	PrepareInstall(ctx context.Context, launch SoftwareLaunch) (PreparedSoftwareWorkflow, error)
+	PrepareUninstall(ctx context.Context, launch SoftwareLaunch) (PreparedSoftwareWorkflow, error)
+	PersistWorkflow(ctx context.Context, prepared PreparedSoftwareWorkflow) (workflowID string, err error)
+}
+
+// PreparedSoftwareWorkflow is a software Workflow the launcher has planned but not written; only
+// that launcher can persist it. WorkflowID is the id it will have, which the pending assignments
+// name.
+type PreparedSoftwareWorkflow interface {
+	WorkflowID() string
 }
 
 // MembershipChecker reports whether a Server is a Kubernetes Platform member, which gates the
@@ -59,6 +74,7 @@ type PlatformNames interface {
 // SoftwareService owns Managed Software policy and drives the launcher. It never talks to Temporal
 // directly; it validates intent, records the swallow-owned assignment, and delegates orchestration.
 type SoftwareService struct {
+	transactor  store.Transactor
 	assignments softwaredomain.AssignmentRepository
 	servers     serverdomain.ServerRepository
 	membership  MembershipChecker
@@ -67,14 +83,17 @@ type SoftwareService struct {
 	names PlatformNames
 }
 
-// NewSoftwareService constructs the Managed Software use cases. The launcher is attached later
-// (like the platform launcher) to keep the operation orchestration wiring in the app layer.
+// NewSoftwareService constructs the Managed Software use cases. transactor is required: an
+// install's or uninstall's Workflow and its assignment changes are written together. The launcher
+// is attached later (like the platform launcher) to keep the operation orchestration wiring in the
+// app layer.
 func NewSoftwareService(
+	transactor store.Transactor,
 	assignments softwaredomain.AssignmentRepository,
 	servers serverdomain.ServerRepository,
 	membership MembershipChecker,
 ) *SoftwareService {
-	return &SoftwareService{assignments: assignments, servers: servers, membership: membership}
+	return &SoftwareService{transactor: transactor, assignments: assignments, servers: servers, membership: membership}
 }
 
 // AttachLauncher wires the Workflow-composing launcher. Install and Uninstall require it.
@@ -136,9 +155,10 @@ type installPlan struct {
 }
 
 // Install validates the request against the catalog, the target Servers' state, mutual exclusion,
-// required kinds, Kubernetes membership, Platform Claims, and GPU inventory, then launches the
-// install Workflow and records a pending assignment per target. It returns the Workflow (operation)
-// id.
+// required kinds, Kubernetes membership, Platform Claims, and GPU inventory, plans the install
+// Workflow, and then writes the Workflow and a pending assignment per target in one transaction,
+// so a refused request (a busy or locked target) leaves neither. It returns the Workflow
+// (operation) id.
 func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (string, error) {
 	if s.launcher == nil {
 		return "", fmt.Errorf("%w: software orchestration is unavailable", ErrInvalidRequest)
@@ -152,16 +172,25 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 		Kind: input.Kind, ServerIDs: plan.serverIDs, RolesByServer: plan.rolesByServer,
 		TrustedVars: buildInstallVars(input.Kind, plan.rolesByServer, plan.spec), RequestedBy: input.RequestedBy,
 	}
-	workflowID, err := s.launcher.LaunchInstall(ctx, launch)
+	prepared, err := s.launcher.PrepareInstall(ctx, launch)
 	if err != nil {
 		return "", err
 	}
-
-	// Record a pending assignment per target after the Workflow is accepted. The install
-	// Workflow's record-software-assignment step flips these to installed on success; a failed
-	// install step is marked failed by the step observer. Writing after a successful launch keeps
-	// a rejected request (busy/locked target) from leaving orphaned assignments.
-	return workflowID, s.recordPending(ctx, input.Kind, plan.serverIDs, plan.rolesByServer, plan.spec, workflowID)
+	// The install Workflow's record-software-assignment step flips the pending assignments to
+	// installed on success; a failed install step is marked failed by the step observer.
+	var workflowID string
+	err = s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		id, err := s.launcher.PersistWorkflow(ctx, prepared)
+		if err != nil {
+			return err
+		}
+		workflowID = id
+		return s.recordPending(ctx, input.Kind, plan.serverIDs, plan.rolesByServer, plan.spec, id)
+	})
+	if err != nil {
+		return "", err
+	}
+	return workflowID, nil
 }
 
 // PlanComposedInstall validates a software install that a platform deployment composes into its
@@ -407,9 +436,9 @@ func (s *SoftwareService) recordPending(
 }
 
 // Uninstall validates that each target has a live assignment of the kind (and, for a kind that
-// refuses claimed Servers, no Platform Claim: its Platform removes it), launches the uninstall
-// Workflow, and marks the assignments uninstalling. The clear-software-assignment step marks them
-// absent on success.
+// refuses claimed Servers, no Platform Claim: its Platform removes it), plans the uninstall
+// Workflow, and writes it together with the assignments' uninstalling state in one transaction.
+// The clear-software-assignment step marks them absent on success.
 func (s *SoftwareService) Uninstall(ctx context.Context, input UninstallInput) (string, error) {
 	if s.launcher == nil {
 		return "", fmt.Errorf("%w: software orchestration is unavailable", ErrInvalidRequest)
@@ -462,14 +491,26 @@ func (s *SoftwareService) Uninstall(ctx context.Context, input UninstallInput) (
 		Kind: input.Kind, ServerIDs: serverIDs, RolesByServer: rolesByServer,
 		TrustedVars: buildInstallVars(input.Kind, rolesByServer, spec), RequestedBy: input.RequestedBy,
 	}
-	workflowID, err := s.launcher.LaunchUninstall(ctx, launch)
+	prepared, err := s.launcher.PrepareUninstall(ctx, launch)
 	if err != nil {
 		return "", err
 	}
-	for _, serverID := range serverIDs {
-		if err := s.assignments.SetState(ctx, serverID, input.Kind, softwaredomain.StateUninstalling, workflowID, nil); err != nil {
-			return workflowID, err
+	var workflowID string
+	err = s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		id, err := s.launcher.PersistWorkflow(ctx, prepared)
+		if err != nil {
+			return err
 		}
+		workflowID = id
+		for _, serverID := range serverIDs {
+			if err := s.assignments.SetState(ctx, serverID, input.Kind, softwaredomain.StateUninstalling, id, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
 	}
 	return workflowID, nil
 }

@@ -307,11 +307,29 @@ type DeploymentLaunch struct {
 	TimeSyncCheck TimeSyncCheck
 }
 
-// DeploymentLauncher starts the durable Operation that builds a Platform and returns its
-// operation id. It is a port so the platform context does not depend on the operation
-// context; the composition root supplies an adapter over the operation service.
+// DeploymentLauncher builds the durable Operation that deploys a Platform. It is a port so the
+// platform context does not depend on the operation context; the composition root supplies an
+// adapter over the operation service.
+//
+// Launching is split in two so the deploy use case can accept the whole deployment in one store
+// transaction, which must not contain provider or other external calls (decision 069):
+// PrepareDeployment does every read the Workflow needs — provider observations, the lock check,
+// network inspection, Task planning — and returns the complete plan without writing durable
+// records (it may refresh observed Server state, which is not part of the deployment).
+// PersistDeployment then writes the Workflow and the records it implies (composed Software
+// Assignments, initial deployment projections); the caller runs it inside the transaction that
+// also writes the Platform and its claims, so a refusal at any point leaves nothing behind.
 type DeploymentLauncher interface {
-	Launch(ctx context.Context, launch DeploymentLaunch) (operationID string, err error)
+	PrepareDeployment(ctx context.Context, launch DeploymentLaunch) (PreparedWorkflow, error)
+	PersistDeployment(ctx context.Context, prepared PreparedWorkflow) (operationID string, err error)
+}
+
+// PreparedWorkflow is a Workflow that a launcher's prepare step (PrepareDeployment,
+// PrepareGPUOperator) has fully planned but not written. It is opaque to the platform context;
+// only the launcher that prepared it can persist it. OperationID is the id the Workflow will have
+// once persisted.
+type PreparedWorkflow interface {
+	OperationID() string
 }
 
 var (

@@ -95,12 +95,15 @@ history；更早的 history 依舊走舊路徑。
 3. **Busy check**：對每台 `targetServerIds`，若已有未結束的 Workflow 以它為 target，受理以
    `ErrTargetsBusy`（`409 conflict`）拒絕，訊息點名佔用者（Workflow id、intent、status）。
    `SupersededOperationIDs` 中的 Workflow 不計入（§9）。
-4. **封存 secret**：launcher 提供的 secret 值加密存入 sealed store，Task 只拿到 reference；後續任何一步失敗都會
-   刪除已封存的值。
+4. **封存 secret**：launcher 提供的 secret 值加密存入 sealed store，Task 只拿到 reference。
 5. **Target resources**：宣告的 resources 加上每台 target Server，去重並排序；它們就是執行時的 lease key
    （`server:<id>`、`platform:<id>`）。
 6. **持久化**：`status=pending`、`startState=pending`、`temporal.workflowId=swallow-operation/<id>`，並寫入
    timeline 事件 `operation_requested`。API 此時回 `202 Accepted`；Temporal 可能在回應之後才啟動。
+   第 3～6 步在同一個 store transaction 內（decision 069）：任何一步失敗，secret、Workflow 紀錄與事件都不會留下。
+   launcher 自己的紀錄（Platform 與其 claim、Software Assignment、初始的 deployment 投影）由 launcher 在同一個
+   transaction 中寫入：launcher 先在 transaction 外完成所有 provider 讀取與 Task 規劃（prepare），再在 transaction
+   內寫入（persist），Create 加入那個 transaction。
 7. **啟動**（Starter）：每 `TemporalStartInterval`（預設 1 秒，`SWALLOW_API_TEMPORAL_START_INTERVAL`）依
    `requestedAt` 由舊到新讀取最多 100 筆 `startState=pending`，以固定的 Temporal Workflow ID 與
    `WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE` 啟動；已啟動（AlreadyStarted）視同成功。之後寫入
@@ -109,6 +112,9 @@ history；更早的 history 依舊走舊路徑。
 ### 規則與不變式
 
 - **先持久化，再啟動**：受理不依賴 Temporal 當下可用。
+- **受理是原子的**：一個被拒絕的受理不留下任何紀錄，所以不需要事後的補償或刪除。Rerun 也一樣：取消原 Workflow 的
+  Temporal 請求在 transaction 之外先送出，之後的釋放 lease、收尾原投影、複製 secret 與受理新 Workflow 是同一個
+  transaction（§7）。
 - **一個 Workflow ↔ 一個 Temporal Workflow ID，終身不變**。Starter 只啟動 `startState=pending`，從不重新啟動
   `started` 的紀錄；回復已不能前進的 Workflow 一律建立新 Workflow（§7），不重設 `startState`、不換 ID。
 - Starter 在多個 process 同時執行是安全的：重複啟動被 Temporal 拒絕，紀錄照樣標為 started。
