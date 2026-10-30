@@ -36,7 +36,8 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 2. 把 manifest 的 version 與 exact image digests 寫入 `.env`，加入 environment 中有設定的
    下列設定（保留 `.env` 其他設定），並用 `prepare-secrets.sh` 在 `secrets/`（權限 0700）
    產生 secrets；
-3. 只拉缺少的 images，啟動 MongoDB 與 PostgreSQL，執行 `swallow-api migrate`，建立
+3. 只拉缺少的 images，啟動 MongoDB 與 PostgreSQL 並等兩者 healthy（MongoDB 是 single-node replica set
+   `rs0`），執行 `swallow-api migrate`，建立
    Deployment Key（`swallow-api deployment-key ensure`），再啟動整個 stack；
 4. 把附帶的 CLI 安裝到 `/usr/local/bin/swallow`（API 也會在 `/downloads/swallow` 提供
    `bin/swallow`，給保留 OS 納管的主機下載）；
@@ -66,7 +67,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 | --- | --- | --- |
 | Dashboard（Nginx） | Compose | HTTP `${SWALLOW_HTTP_PORT:-80}`，唯一 public listener |
 | API、worker、Ansible executor | Compose | internal `control` 加上 `egress`（連 MAAS 與 Server） |
-| MongoDB、Temporal | Compose | 只在 internal |
+| MongoDB（single-node replica set `rs0`）、Temporal | Compose | 只在 internal |
 | PostgreSQL | Compose | Temporal databases 與 `maasdb`；MAAS 經 `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` 連入 |
 | MAAS 3.6 region+rack | host 上的 snap | `SWALLOW_MAAS_URL`；swallow 的 provisioner Integration 也用這個位址 |
 | Control-Plane NTP Server（MAAS 的 chronyd） | host 上的 snap | 所有位址（含 `SWALLOW_ADDRESS`）的 UDP 123 |

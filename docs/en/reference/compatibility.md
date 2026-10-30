@@ -32,7 +32,9 @@ The current implemented integrations and automation target:
 - Kubernetes deployed through the shipped k0s automation;
 - Slurm deployed through the shipped automation;
 - Temporal for durable orchestration;
-- MongoDB 8 for swallow-owned state.
+- MongoDB 8 for swallow-owned state, running as a replica set (the installation runs a
+  single-node replica set; swallow needs transactions and change streams and refuses to
+  start against a standalone MongoDB).
 
 Exact release media versions and digests belong to the candidate/release and
 third-party manifests, not to this overview.

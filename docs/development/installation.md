@@ -85,6 +85,25 @@ production installation 拓樸、`swallowctl` lifecycle 的保證、release 發�
   並要求 PostgreSQL 14 以上（MAAS 3.6 的需求）。
 - 絕不使用 `maas-test-db`。swallow 自己的狀態只在 MongoDB（database `swallow`）。
 
+### 2.3a MongoDB：single-node replica set
+
+swallow 需要 store 支援多文件 transaction 與 change stream（decision 069、
+[desired-state-model.md](desired-state-model.md) §10），所以 MongoDB 在每個環境都是 single-node replica set
+`rs0`，每個 swallow process 啟動時檢查，不是 replica set 就拒絕啟動。
+
+- Production：開啟認證，replica set 的內部認證使用 secret `mongo-keyfile`（`prepare-secrets.sh` 以
+  `openssl rand -base64 756` 產生，只補不換）。`mongo-entrypoint.sh` 是 mongo container 的 entrypoint：它把
+  keyFile 複製到 tmpfs 的 `/tmp`、改成 mongodb 擁有的 0400（secret 以 0444 掛載，root filesystem 是唯讀），
+  再以 `--replSet rs0 --keyFile` 啟動 mongod。它同時是 healthcheck：以 root 帳密認證，第一次啟動時以成員
+  `mongo:27017` 執行 `rs.initiate`，只有這個成員是可寫入的 primary 才算健康。
+- 官方 image 第一次啟動時以暫時的 mongod 建立 root 帳號，那個 mongod 不帶 `--replSet` 與 `--keyFile`；真正的
+  mongod 才帶，所以 initiate 由 healthcheck 執行。
+- `mongo-uri` 不帶 `replicaSet` 參數：driver 經由成員名稱 `mongo:27017` 發現 replica set，所以既有安裝的
+  `mongo-uri` 不需要改寫。
+- dev stack（`deploy/dev`）沒有認證，只加 `--replSet rs0`，不需要 keyFile；主機上的工具與測試以
+  `mongodb://localhost:27017/?directConnection=true` 連線，因為成員名稱 `mongo` 在主機上解析不到。
+- 自行提供 MongoDB 時（`SWALLOW_API_MONGO_URI` 指向外部），它必須是 replica set 或 sharded cluster。
+
 ### 2.4 共置的 MAAS
 
 - `swallowctl`（經 `local-maas.sh`）自己安裝 MAAS snap（channel 預設 `3.6/stable`，`SWALLOW_MAAS_CHANNEL`）、
@@ -185,8 +204,9 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
    佔用。
 5. preflight：x86_64、Ubuntu 24.04、Docker 與 Compose、必要工具、SemVer 版本、digest 參照、secrets 齊全
    與目錄權限、Compose 設定有效。
-6. 啟動 MongoDB 與 PostgreSQL，執行 `swallow-api migrate` 與 `swallow-api deployment-key ensure`（Deployment
-   Key 只在這裡建立，既有的保留），啟動整個 stack，等 API 回應 `/readyz`。
+6. 啟動 MongoDB 與 PostgreSQL 並等兩者 healthy（MongoDB 要等 replica set 有 primary，§2.3a；最多 300 秒），
+   執行 `swallow-api migrate` 與 `swallow-api deployment-key ensure`（Deployment Key 只在這裡建立，既有的
+   保留），啟動整個 stack，等 API 回應 `/readyz`。
 7. 把 bundle 的 CLI 安裝為 `/usr/local/bin/swallow`。
 8. 共置 MAAS：`local-maas.sh install` 與 `ensure-image`（§2.4）。
 9. 時間：`local-ntp.sh install` 與 `upstream`（§6.1、§6.2）。
@@ -197,6 +217,8 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 - 有未到終態的 Workflow（包含停在 `requires_attention` 等待 operator 的）時拒絕，除非帶 `--force`。
 - 先執行 `backup`，再寫入新 manifest、持久化設定、補齊 secrets、preflight、pull。
+- 啟動 MongoDB 與 PostgreSQL 並等兩者 healthy。replica set 之前的 installation 在這一步轉換：補上的
+  `mongo-keyfile` 與新的 mongo 設定讓 container 重建，healthcheck 在既有資料上執行 `rs.initiate`（資料保留）。
 - `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema rename）、
   `deployment-key ensure`、以新 image 啟動 stack、等 `/readyz`、更新 CLI。
 - 重新套用冪等步驟：`local-ntp.sh install` 與 `upstream`；有共置 MAAS 時另有
@@ -211,18 +233,19 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 收斂的目標：
 
 1. 每個宣告的 Compose service 都在執行。
-2. Temporal cluster healthy。
-3. worker 在 `swallow-operations` task queue 上同時有 workflow 與 activity poller。
-4. Ansible executor process 在執行，且能以 `ansible-runner` 跑隨附的 `diagnostic-ping` playbook。
-5. Dashboard 與 API 在 HTTP port 回應 `/readyz`。
-6. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
+2. MongoDB 是 replica set `rs0` 的可寫入 primary（§2.3a）。
+3. Temporal cluster healthy。
+4. worker 在 `swallow-operations` task queue 上同時有 workflow 與 activity poller。
+5. Ansible executor process 在執行，且能以 `ansible-runner` 跑隨附的 `diagnostic-ping` playbook。
+6. Dashboard 與 API 在 HTTP port 回應 `/readyz`。
+7. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
    Control-Plane NTP Server 在 UDP 123 服務且上游為設定值（`local-ntp.sh check`，§6.1）；installation records
    存在（`bootstrap.sh verify`：admin 登入、Deployment Key、可執行的 Site automation、MAAS Integration sync
    無錯誤、catalog 有 `ubuntu/noble` amd64、Integration 記有 virsh 公鑰）。
 
 - 未到終態的 Workflow 數只是資訊：忙碌的 installation 仍是健康的。
 - `--profile dev` 讓 `doctor` 與 `ensure` 改看 source checkout 的開發 stack（`deploy/dev`），不需要 root，
-  並略過第 6 項；release bundle 不含 `deploy/dev`，所以只有 checkout 能用。
+  並略過第 7 項；release bundle 不含 `deploy/dev`，所以只有 checkout 能用。
 
 ### 3.5 `ensure`
 
@@ -280,7 +303,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 | Artifact | 內容 |
 | --- | --- |
-| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
+| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`mongo-entrypoint.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
 | `install.sh` | 一行指令的 installer 與 upgrader，預設版本就是這個 release（§5） |
 | `swallow-linux-amd64` | CLI binary，從已推送的 `cli` image 以 `crane export` 取出 |
 | `release-manifest.json` | image digest 與 release metadata（§4.3） |
@@ -522,6 +545,7 @@ Configuration、共用的 `check-time-sync` Task 與一律安裝 chrony，以及
 | Lifecycle 工具（install、upgrade、doctor、ensure、backup、restore、uninstall、ntp） | `deploy/production/swallowctl` |
 | `.env` 讀取（environment 優先） | `deploy/production/env.sh` |
 | Secrets 產生（只補不換） | `deploy/production/prepare-secrets.sh` |
+| MongoDB replica set（keyFile、啟動、initiate 與 healthcheck） | `deploy/production/mongo-entrypoint.sh` |
 | 共置 MAAS（role／database、snap、init、admin、virsh identity、`ubuntu/noble`） | `deploy/production/local-maas.sh` |
 | Control-Plane NTP Server（install、upstream、check） | `deploy/production/local-ntp.sh` |
 | Installation records（Site、Integration、automation 預設） | `deploy/production/bootstrap.sh` |

@@ -30,7 +30,8 @@ migration note。
 - 透過 shipped k0s automation 佈署的 Kubernetes。
 - 透過 shipped automation 佈署的 Slurm。
 - 提供 durable orchestration 的 Temporal。
-- 保存 swallow-owned state 的 MongoDB 8。
+- 保存 swallow-owned state 的 MongoDB 8，以 replica set 執行（installation 使用 single-node replica set；
+  swallow 需要 transaction 與 change stream，遇到 standalone MongoDB 會拒絕啟動）。
 
 Exact release media version／digest 屬於 candidate/release 與 third-party manifest，
 不在本 overview 固定。

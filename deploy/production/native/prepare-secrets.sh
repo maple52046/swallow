@@ -18,6 +18,8 @@ write_secret mongo-root-password "$(openssl rand -hex 24)"
 mongo_user="$(<"${secrets_dir}/mongo-root-username")"
 mongo_password="$(<"${secrets_dir}/mongo-root-password")"
 write_secret mongo-uri "mongodb://${mongo_user}:${mongo_password}@127.0.0.1:27017/swallow?authSource=admin"
+# The replica set's internal authentication key (decision 069); swallowctl gives mongod a copy.
+write_secret mongo-keyfile "$(openssl rand -base64 756)"
 write_secret jwt-secret "$(openssl rand -hex 32)"
 write_secret bootstrap-admin-password "$(openssl rand -hex 18)"
 write_secret credential-key "$(openssl rand -base64 32)"

@@ -36,5 +36,6 @@ preview。沒有完整 topology 時任何 Workflow 都無法執行；請使用 p
 的 Compose topology 驗證完整產品。
 
 `upgrade` 預設拒絕 active Workflow 並先 backup；`uninstall` 保留 data，
-只有 `--purge-data` 刪除。Installer 初始化 authenticated localhost-only MongoDB，
+只有 `--purge-data` 刪除。Installer 初始化 authenticated localhost-only MongoDB 為 single-node
+replica set `rs0`（既有的 standalone mongod 會原地轉換），
 執行 explicit migration，並設定 backup retention。

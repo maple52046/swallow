@@ -54,7 +54,8 @@ For the complete runnable development topology, use
 ## Run with explicit dependencies
 
 ```bash
-export SWALLOW_API_MONGO_URI=mongodb://localhost:27017
+# MongoDB must be a replica set; this reaches the dev stack's single-node rs0 from the host.
+export SWALLOW_API_MONGO_URI='mongodb://localhost:27017/?directConnection=true'
 export SWALLOW_API_JWT_SECRET='replace-me'
 export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
 export SWALLOW_API_TEMPORAL_ADDRESS=localhost:7233

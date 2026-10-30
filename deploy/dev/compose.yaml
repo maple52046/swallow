@@ -6,15 +6,30 @@ name: swallow-dev
 # .env file; copy .env.example to .env only when you need to override something.
 
 services:
+  # A single-node replica set (rs0), the store topology swallow requires (decision 069). The dev
+  # stack runs without authentication, so it needs no keyFile. Tools on the host reach it with
+  # mongodb://localhost:27017/?directConnection=true, because the member is named mongo:27017.
   mongo:
     image: mongo:8
     restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
     ports:
       - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo-data:/data/db
+    # The healthcheck initiates the replica set on first start (an existing standalone data
+    # directory keeps its data) and is healthy only while this member is the writable primary.
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - >-
+          try { rs.status() } catch (e) {
+          if (e.codeName !== 'NotYetInitialized') throw e;
+          rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}) }
+          quit(db.hello().isWritablePrimary ? 0 : 1)
       interval: 10s
       timeout: 5s
       retries: 12

@@ -8,6 +8,8 @@ secrets:
     file: ./secrets/mongo-root-username
   mongo_root_password:
     file: ./secrets/mongo-root-password
+  mongo_keyfile:
+    file: ./secrets/mongo-keyfile
   mongo_uri:
     file: ./secrets/mongo-uri
   jwt_secret:

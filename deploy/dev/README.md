@@ -23,7 +23,7 @@ The local-only bootstrap account is `admin` / `admin`.
 | --- | ---: | --- |
 | `dashboard` | 5173 | Vite dev server and same-origin API proxy |
 | `api-server` | 30051 | swallow HTTP API |
-| `mongo` | 27017 | swallow-owned state and projections |
+| `mongo` | 27017 | swallow-owned state and projections; a single-node replica set `rs0` (connect from the host with `mongodb://localhost:27017/?directConnection=true`) |
 | `temporal` | 7233 | durable orchestration |
 | `temporal-ui` | 8233 | development diagnostics |
 | `temporal-postgresql` | internal | Temporal databases |

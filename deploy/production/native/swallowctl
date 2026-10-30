@@ -26,7 +26,7 @@ preflight() {
   done
   [[ -s "${config_root}/tls/tls.crt" && -s "${config_root}/tls/tls.key" ]] ||
     { printf 'installation CA certificate and key are required under %s/tls\n' "${config_root}" >&2; exit 1; }
-  for secret in mongo-root-username mongo-root-password mongo-uri jwt-secret \
+  for secret in mongo-root-username mongo-root-password mongo-keyfile mongo-uri jwt-secret \
     bootstrap-admin-password credential-key machine-token; do
     [[ -s "${config_root}/secrets/${secret}" ]] ||
       { printf 'missing native secret: %s\n' "${secret}" >&2; exit 1; }
@@ -63,31 +63,82 @@ require_runtime_tools() {
   done
 }
 
+# mongod_keyfile is the copy mongod reads: owned by mongodb and 0400, because mongod rejects a
+# keyFile others can read, and /etc/swallow is closed to the mongodb user.
+mongod_keyfile=/var/lib/mongodb/swallow-keyfile
+
+# configure_mongodb brings the local mongod to the topology swallow requires (decision 069): the
+# single-node replica set rs0 with authorization and keyFile authentication. A fresh mongod first
+# gets its root user over the localhost exception; an installation from before the replica set is
+# converted in place. Only a swallow-marked block of /etc/mongod.conf is managed; a security or
+# replication section written by someone else needs manual setup.
 configure_mongodb() {
   local uri
   uri="$(<"${config_root}/secrets/mongo-uri")"
-  if mongosh "${uri}" --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1; then
+  if mongosh "${uri}" --quiet --eval 'quit(db.hello().setName === "rs0" ? 0 : 1)' >/dev/null 2>&1; then
     return
   fi
-  if ! mongosh mongodb://127.0.0.1:27017/admin --quiet \
-    --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1; then
-    printf 'MongoDB is neither freshly local nor reachable with configured credentials\n' >&2
-    exit 1
-  fi
-  mongosh mongodb://127.0.0.1:27017/admin --quiet --eval \
-    'const fs=require("fs");
-     const u=fs.readFileSync("/etc/swallow/secrets/mongo-root-username","utf8").trim();
-     const p=fs.readFileSync("/etc/swallow/secrets/mongo-root-password","utf8").trim();
-     if (!db.getUser(u)) db.createUser({user:u,pwd:p,roles:[{role:"root",db:"admin"}]});'
-  if ! grep -Eq '^[[:space:]]*authorization:[[:space:]]*enabled' /etc/mongod.conf; then
-    if grep -Eq '^security:' /etc/mongod.conf; then
-      printf 'existing MongoDB security configuration requires manual authorization setup\n' >&2
+  if ! mongosh "${uri}" --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1; then
+    if ! mongosh mongodb://127.0.0.1:27017/admin --quiet \
+      --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1; then
+      printf 'MongoDB is neither freshly local nor reachable with configured credentials\n' >&2
       exit 1
     fi
-    printf '\nsecurity:\n  authorization: enabled\n' >>/etc/mongod.conf
+    mongosh mongodb://127.0.0.1:27017/admin --quiet --eval \
+      'const fs=require("fs");
+       const u=fs.readFileSync("/etc/swallow/secrets/mongo-root-username","utf8").trim();
+       const p=fs.readFileSync("/etc/swallow/secrets/mongo-root-password","utf8").trim();
+       if (!db.getUser(u)) db.createUser({user:u,pwd:p,roles:[{role:"root",db:"admin"}]});'
   fi
+  install -m 0400 -o mongodb -g mongodb "${config_root}/secrets/mongo-keyfile" "${mongod_keyfile}"
+  write_mongod_config
   systemctl restart mongod
-  mongosh "${uri}" --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null
+  # Initiating keeps the existing data. The member is named as the services reach it.
+  for _ in $(seq 1 30); do
+    mongosh "${uri}" --quiet --eval \
+      'try { rs.status() } catch (e) {
+         if (e.codeName !== "NotYetInitialized") throw e;
+         rs.initiate({_id: "rs0", members: [{_id: 0, host: "127.0.0.1:27017"}]})
+       }
+       quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null 2>&1 && return
+    sleep 2
+  done
+  printf 'MongoDB did not become the writable primary of replica set rs0\n' >&2
+  exit 1
+}
+
+# write_mongod_config replaces swallow's marked block in /etc/mongod.conf. The block from before
+# the replica set (security with authorization only, appended without markers) is replaced too.
+write_mongod_config() {
+  local config=/etc/mongod.conf begin='# BEGIN swallow' end='# END swallow'
+  awk -v begin="${begin}" -v end="${end}" '
+    $0 == begin { skip = 1; next }
+    $0 == end { skip = 0; next }
+    skip { next }
+    { lines[++n] = $0 }
+    END {
+      # Drop the unmarked block an earlier swallowctl appended at the end of the file.
+      if (n >= 2 && lines[n - 1] == "security:" && lines[n] == "  authorization: enabled") n -= 2
+      while (n > 0 && lines[n] == "") n--
+      for (i = 1; i <= n; i++) print lines[i]
+    }' "${config}" >"${config}.swallow"
+  if grep -Eq '^(security|replication):' "${config}.swallow"; then
+    rm -f "${config}.swallow"
+    printf 'existing MongoDB security or replication configuration requires manual setup\n' >&2
+    exit 1
+  fi
+  cat >>"${config}.swallow" <<EOF
+
+${begin}
+security:
+  authorization: enabled
+  keyFile: ${mongod_keyfile}
+replication:
+  replSetName: rs0
+${end}
+EOF
+  chmod --reference="${config}" "${config}.swallow"
+  mv "${config}.swallow" "${config}"
 }
 
 active_operations() {

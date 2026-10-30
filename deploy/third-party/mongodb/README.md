@@ -4,12 +4,14 @@
 
 The Compose path consumes the exact MongoDB OCI digest recorded in
 `release-manifest.json`: the official `mongo` image, pulled by digest from Docker Hub;
-production never pulls by tag.
+production never pulls by tag. It runs as the single-node replica set `rs0` with keyFile
+authentication, because swallow requires transactions and change streams.
 
 The native path consumes Ubuntu 24.04 amd64 packages from the separately checksummed
 third-party media under `third-party/packages/`. The native installer starts a
 localhost-only MongoDB, creates the configured administrative user, enables
-authorization, and verifies the authenticated URI before migration.
+authorization and keyFile authentication, initiates the single-node replica set `rs0`,
+and verifies the authenticated URI before migration.
 
 Daily backups contain MongoDB, the credential encryption key, and runner artifacts.
 Seven daily and four weekly recovery points are retained. Restore drills remain a

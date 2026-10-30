@@ -16,8 +16,11 @@ api:
   # HTTP listen address.
   addr: ":30051"
 
-  # MongoDB connection string.
-  mongoUri: "mongodb://localhost:27017"
+  # MongoDB connection string. The server must be a replica set (or sharded cluster):
+  # every process checks at startup, because swallow needs transactions and change
+  # streams. directConnection=true reaches the dev stack's single-node replica set from
+  # the host, where its member name (mongo:27017) does not resolve.
+  mongoUri: "mongodb://localhost:27017/?directConnection=true"
 
   # MongoDB database name.
   mongoDb: "swallow"

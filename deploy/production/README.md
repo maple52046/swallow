@@ -36,7 +36,8 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 2. writes the manifest's version and exact image digests to `.env`, adds the settings below
    that are set in the environment (other settings in `.env` are kept), and generates secrets
    in `secrets/` (mode 0700) with `prepare-secrets.sh`;
-3. pulls only missing images, starts MongoDB and PostgreSQL, runs `swallow-api migrate`,
+3. pulls only missing images, starts MongoDB and PostgreSQL and waits until both are healthy
+   (MongoDB runs as the single-node replica set `rs0`), runs `swallow-api migrate`,
    creates the Deployment Key (`swallow-api deployment-key ensure`), and starts the stack;
 4. installs the bundled CLI to `/usr/local/bin/swallow` (the API also serves `bin/swallow`
    at `/downloads/swallow` for hosts that enroll with their OS kept);
@@ -70,7 +71,7 @@ It never creates an SSH Access Key: the operator adds their own in the Dashboard
 | --- | --- | --- |
 | Dashboard (Nginx) | Compose | HTTP `${SWALLOW_HTTP_PORT:-80}`, the only public listener |
 | API, worker, Ansible executor | Compose | internal `control` plus `egress` (reach MAAS and Servers) |
-| MongoDB, Temporal | Compose | internal only |
+| MongoDB (single-node replica set `rs0`), Temporal | Compose | internal only |
 | PostgreSQL | Compose | Temporal databases and `maasdb`; `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` for MAAS |
 | MAAS 3.6 region+rack | snap on the host | `SWALLOW_MAAS_URL`, which swallow's provisioner Integration uses too |
 | Control-Plane NTP Server (MAAS's chronyd) | snap on the host | UDP 123 on every address, including `SWALLOW_ADDRESS` |

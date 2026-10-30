@@ -10,26 +10,33 @@ x-backend-hosts: &backend-hosts
     - "host.docker.internal:host-gateway"
 
 services:
+  # A single-node replica set (rs0) with keyFile authentication: swallow needs transactions and
+  # change streams (decision 069). mongo-entrypoint.sh starts mongod with a private keyFile copy
+  # and, as the healthcheck, initiates the replica set on first start.
   mongo:
     image: ${SWALLOW_MONGO_IMAGE:?set a digest-pinned SWALLOW_MONGO_IMAGE}
     restart: unless-stopped
+    entrypoint: ["bash", "/opt/swallow/mongo-entrypoint.sh"]
     environment:
       MONGO_INITDB_ROOT_USERNAME_FILE: /run/secrets/mongo_root_username
       MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_root_password
     secrets:
       - mongo_root_username
       - mongo_root_password
+      - mongo_keyfile
     volumes:
       - mongo-data:/data/db
       - mongo-config:/data/configdb
+      - ./mongo-entrypoint.sh:/opt/swallow/mongo-entrypoint.sh:ro
     read_only: true
     tmpfs: [/tmp]
     networks: [control]
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" >/dev/null"]
+      test: ["CMD", "bash", "/opt/swallow/mongo-entrypoint.sh", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 30s
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
@@ -294,6 +301,8 @@ secrets:
     file: ./secrets/mongo-root-username
   mongo_root_password:
     file: ./secrets/mongo-root-password
+  mongo_keyfile:
+    file: ./secrets/mongo-keyfile
   mongo_uri:
     file: ./secrets/mongo-uri
   temporal_db_password:

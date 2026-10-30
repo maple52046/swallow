@@ -41,7 +41,8 @@ cannot execute Workflows.
 
 `upgrade` refuses active Workflows unless `--force` is explicit and always takes a
 backup first. `uninstall` retains data and backups; only `uninstall --purge-data`
-removes them. The installer initializes authenticated localhost-only MongoDB, runs the
+removes them. The installer initializes authenticated localhost-only MongoDB as the
+single-node replica set `rs0` (an existing standalone mongod is converted in place), runs the
 explicit schema migration before starting the API, and enables
 `swallow-backup.timer`. The timer keeps seven daily and four weekly backups under
 `/var/backups/swallow`.

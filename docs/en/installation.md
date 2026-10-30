@@ -75,7 +75,8 @@ always installs the newest one.
 
 Run the same command with the newer release's `install.sh`. It keeps `.env`, secrets, backups,
 and state, and runs `swallowctl upgrade`, which backs up first and refuses while Workflows are
-active.
+active. An installation whose MongoDB still runs standalone is converted to the single-node
+replica set swallow now requires during this upgrade; its data is kept.
 
 ### After installation
 

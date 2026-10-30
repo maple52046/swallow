@@ -17,7 +17,8 @@ field references.
 
 Important production-sensitive values include:
 
-- MongoDB URI/database and migration access;
+- MongoDB URI/database and migration access; the MongoDB must be a replica set (or sharded
+  cluster), and every swallow process checks this at startup;
 - JWT signing secret and Session lifetimes (`accessTokenTTL` 15m, `refreshTokenTTL` 168h,
   `sessionMaxAge` 720h; the old `jwtExpiryHours` is ignored);
 - bootstrap admin username/password;

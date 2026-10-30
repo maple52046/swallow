@@ -70,7 +70,8 @@ MB）、在 swallow 註冊 MAAS，最後執行 `swallowctl doctor`。重複執�
 ### 升級
 
 用較新 release 的 `install.sh` 執行同一個指令。它會保留 `.env`、secrets、backups 與 state，並
-執行 `swallowctl upgrade`：先 backup，有 active Workflow 時拒絕升級。
+執行 `swallowctl upgrade`：先 backup，有 active Workflow 時拒絕升級。MongoDB 仍是 standalone 的
+installation 會在這次升級中轉換為 swallow 現在需要的 single-node replica set，資料保留。
 
 ### 安裝後
 

@@ -23,7 +23,7 @@ Local-only bootstrap account 是 `admin` / `admin`。
 | --- | ---: | --- |
 | `dashboard` | 5173 | Vite dev server 與 same-origin API proxy |
 | `api-server` | 30051 | swallow HTTP API |
-| `mongo` | 27017 | swallow-owned state 與 projection |
+| `mongo` | 27017 | swallow-owned state 與 projection；single-node replica set `rs0`（從 host 連線用 `mongodb://localhost:27017/?directConnection=true`） |
 | `temporal` | 7233 | durable orchestration |
 | `temporal-ui` | 8233 | development diagnostics |
 | `temporal-postgresql` | internal | Temporal databases |

@@ -28,8 +28,8 @@ default_manifest="${script_dir}/../release-manifest.json"
 required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
   SWALLOW_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE)
 managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}")
-required_secrets=(mongo-root-username mongo-root-password mongo-uri temporal-db-password jwt-secret
-  bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
+required_secrets=(mongo-root-username mongo-root-password mongo-keyfile mongo-uri temporal-db-password
+  jwt-secret bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
 # installed_marker records the release of the last install or upgrade that passed doctor;
 # install.sh upgrades only an installation that has one.
 installed_marker="${script_dir}/state/installed"
@@ -226,6 +226,16 @@ pull_images() {
   done
 }
 
+# start_stores starts MongoDB and PostgreSQL and waits until both are healthy, because migrate and
+# every swallow process need them: MongoDB is healthy only once its replica set has a writable
+# primary (decision 069). On an installation from before the replica set, the recreated mongo
+# container converts the existing data in place, and the existing mongo-uri keeps working: the
+# driver discovers the replica set through the member name mongo:27017.
+start_stores() {
+  "${compose[@]}" up -d --wait --wait-timeout 300 mongo postgres ||
+    die 'MongoDB or PostgreSQL did not become healthy (docker compose logs mongo postgres)'
+}
+
 wait_for_ready() {
   local url="http://127.0.0.1:${SWALLOW_HTTP_PORT:-80}/readyz"
   for _ in $(seq 1 60); do
@@ -370,7 +380,7 @@ install_stack() {
   check_ports
   preflight
   pull_images
-  "${compose[@]}" up -d mongo postgres
+  start_stores
   "${compose[@]}" run --rm --no-deps api-server migrate
   ensure_deployment_key
   "${compose[@]}" up -d
@@ -408,7 +418,7 @@ upgrade() {
   "${script_dir}/prepare-secrets.sh"
   preflight
   pull_images
-  "${compose[@]}" up -d mongo postgres
+  start_stores
   "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
   ensure_deployment_key
   "${compose[@]}" up -d
@@ -457,11 +467,12 @@ restore() {
 # The probes below are the installation's health contract: the state ensure converges to and
 # doctor reports drift from.
 #   1. every declared Compose service runs;
-#   2. the Temporal cluster is healthy;
-#   3. the worker polls the swallow-operations task queue with workflow and activity pollers;
-#   4. the Ansible executor process runs, and the shipped diagnostic-ping playbook runs;
-#   5. the Dashboard and API answer /readyz on the HTTP port;
-#   6. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
+#   2. MongoDB is the writable primary of the replica set rs0 (decision 069);
+#   3. the Temporal cluster is healthy;
+#   4. the worker polls the swallow-operations task queue with workflow and activity pollers;
+#   5. the Ansible executor process runs, and the shipped diagnostic-ping playbook runs;
+#   6. the Dashboard and API answer /readyz on the HTTP port;
+#   7. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
 #      identity (local-maas.sh check), the Control-Plane NTP Server serves UDP 123 with the
 #      configured upstream (local-ntp.sh check), and the installation records exist
 #      (bootstrap.sh verify).
@@ -527,6 +538,17 @@ dashboard_ready() {
   curl -fsS --max-time 5 "http://127.0.0.1:$(http_port)/readyz"
 }
 
+# mongo_replica_set_ready proves the store topology swallow requires (decision 069): MongoDB runs
+# as the replica set rs0 and this member is its writable primary. Every swallow process refuses to
+# start otherwise.
+mongo_replica_set_ready() {
+  mongo_eval "const h = db.hello();
+    if (h.setName !== 'rs0' || !h.isWritablePrimary) {
+      print('setName=' + h.setName + ' isWritablePrimary=' + h.isWritablePrimary);
+      quit(1);
+    }"
+}
+
 temporal_healthy() {
   "${compose[@]}" exec -T temporal temporal operator cluster health --address temporal:7233
 }
@@ -580,6 +602,7 @@ doctor() {
   "${compose[@]}" ps
   printf '\n'
   check "Dashboard and API answer on HTTP port $(http_port)" dashboard_ready || failed=1
+  check 'MongoDB is the writable primary of replica set rs0' mongo_replica_set_ready || failed=1
   check 'Temporal cluster is healthy' temporal_healthy || failed=1
   check 'worker polls the swallow-operations task queue' worker_polls_task_queue || failed=1
   check 'Ansible executor is running' ansible_executor_running || failed=1

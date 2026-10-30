@@ -3,11 +3,13 @@
 [English](README.md) · [Third-party overview](../README.zh-TW.md)
 
 Compose path 使用 `release-manifest.json` 記錄的 exact MongoDB OCI digest：官方 `mongo`
-image，從 Docker Hub 依 digest 拉取；production 從不依 tag 拉取。
+image，從 Docker Hub 依 digest 拉取；production 從不依 tag 拉取。它以 keyFile 認證的
+single-node replica set `rs0` 執行，因為 swallow 需要 transaction 與 change stream。
 
 Native path 使用 separately checksummed Ubuntu 24.04 amd64 packages，放在
 `third-party/packages/`。Native installer 啟動 localhost-only MongoDB、建立
-configured admin user、啟用 authorization，並在 migration 前驗證 authenticated URI。
+configured admin user、啟用 authorization 與 keyFile 認證、initiate single-node replica set
+`rs0`，並在 migration 前驗證 authenticated URI。
 
 Daily backup 包含 MongoDB、credential encryption key 與 runner artifacts。
 Retention 是七份 daily、四份 weekly；restore drill 是 release acceptance gate。
