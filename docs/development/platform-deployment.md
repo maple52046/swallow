@@ -14,6 +14,11 @@ Workflow / Job / Task / Runner 語言，落成「swallow 如何佈署一個 plat
 > 與 trusted-vars 契約、並在 manifest 註冊**；OS 佈署、SSH 就緒、credential 記錄等骨架由
 > swallow 提供並重用，不必為每個 platform 重寫。
 
+> **目標結構**：依 [decision 070](../decisions/070-core-providers-and-extensions.md)，新增一種 platform
+> 的目標做法是交一個 **Platform 模組**（見 [core-and-extensions.md](core-and-extensions.md)）；本文件的
+> playbook 與 inventory／trusted-vars 契約是該模組的 host automation 內容。所有權與收斂規則以
+> [desired-state-model.md](desired-state-model.md) 為準。模組第一階段實作前，本文件描述的現行做法不變。
+
 > **與 software deployment 的分界**：platform 的 deploy target 是**由多個 component 組成的 runtime
 > 整體**；單一軟體（Docker CE、Podman、NFS…）的安裝屬於 **software deployment**（見
 > [software-deployment.md](software-deployment.md) 與 [decision 038](../decisions/038-software-deployment.md)）。

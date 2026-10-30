@@ -141,9 +141,27 @@ Generic subdomain 不應吸走 core domain 的設計注意力。若通用機制�
 
 新增概念前必須先確認：glossary 是否已有、API contract 是否已定義、程式碼中是否已存在。能延伸就延伸，不新增平行概念。
 
-## Provider ownership：capability-first with swallow-owned fallback
+## Desired state 與收斂（ADR 069）
 
-對任何「provisioner *可能* 擁有」的事實（tag、name、zone/pool、image 等），ownership 不是二選一，而是依 concrete provider 的能力決定，且規則固定：**capability-first with a swallow-owned fallback**。swallow 以 `ProviderCapabilities` 宣告該能力並以 optional provider interface（type assertion）取得；provider 有能力時，provider 就是 source of truth，swallow 驅動 provider 執行寫入、並透過既有 reconcile 把結果鏡射回來（此 fact 為 mirrored fact，swallow 不另存 owned 副本以免 drift）；provider 沒有能力時，swallow 自行 own 該 fact（以 provider/entity 身分為 key 的 owned collection），並沿用 [ADR 025](../decisions/025-provider-data-overlay.md) 的 overlay 機制於讀取時合併（owned data：無 staleness、永不回寫 provider、隨 owning entity 刪除）。capable/non-capable 分支與讀時合併集中在單一位置，讓所有 consumer 看到相同的 effective value；fallback 一律建成同形狀，即使目前唯一 provider 已 capable（例如 MAAS tags 使 fallback inert）。此為上位規則，完整脈絡與替代方案見 [ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（收斂 ADR 025 與 [ADR 029](../decisions/029-infrastructure-zone-pool-ownership.md)，refine ADR 001）。新功能碰到這類 fact 時，直接套用本規則，不再逐案重新爭論 ownership。
+swallow 的 store 是所有受管資源 **desired state（spec）** 與 Workflow 執行狀態的唯一真相來源；provider 負責把它實現出來，從 provider 讀回的只是 **observed state（status）**，帶來源與觀察時間。provider 永遠不寫 desired state。metrics、alert 評估、workload 排程與 Platform 內部的資源仍由各自的系統擁有，swallow 不保存（同 [ADR 001](../decisions/001-system-ownership-boundaries.md)）。
+
+- 每個欄位必須標明是 desired、observed 或 derived，且只有一個寫入者。
+- 收斂採混合模式：非破壞性的差異由 controller 持續自動收斂；破壞性變更先產生 Change Plan，經 operator 核准後以 Workflow 執行；drift 只回報，不自動修正。
+- Workflow 的語意由 swallow 定義、狀態存在 swallow 的 store；Workflow executor（目前是 Temporal）只負責執行。
+- 跨文件的不變式必須在同一個 transaction 內完成，不得以補償或修復 sweep 取代；store 規則以 port 表達，資料庫特有的型別不得越過 infra。
+
+完整規則見 [`desired-state-model.md`](desired-state-model.md)，決策理由見 [ADR 069](../decisions/069-swallow-owns-desired-state.md)。它取代了原本的 capability-first with swallow-owned fallback 規則（[ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)）：provider 沒有能力實現某個欄位時，回報 `realized=false`（reason `capability_missing`），不再建立同形狀的 fallback。尚未遷移的功能維持現行行為，以各功能規格為準。
+
+## Core、provider adapter 與擴充模組（ADR 070）
+
+swallow 採 ports and adapters：
+
+- **core** 只有領域模型（資源、desired／observed state、Change Plan）、Workflow 的模型與語意、controller，以及各類 provider interface。core 不得含有任何廠商、產品、平台或 GPU 廠商的名稱、型別與知識，也不得依 adapter 識別碼分支。
+- **provider adapter** 實作 provider interface，而且都可以抽換：OS provisioning（MAAS）、Workflow executor（Temporal）、host automation（Ansible）、store（MongoDB）、metrics 與 alerts（Prometheus／Alertmanager）、BMC 與 hypervisor（Redfish／libvirt）。廠商詞彙只存在 adapter 內。
+- **擴充模組**是 swallow 能管理的東西：Platform 模組（Kubernetes、Slurm）、Accelerator 模組（AMD，與 Platform 分開的維度）、Software 模組（Managed Software）。平台與 GPU 廠商專屬的邏輯只能放在模組。
+- 交付給客戶的是 core 加上一組驗證過的 adapter 與模組，以支援矩陣記錄。
+
+判斷新程式碼的位置：在說「swallow 管什麼」放模組，在說「怎麼和某個外部系統溝通」放 adapter，兩者都不是才放 core。完整規則見 [`core-and-extensions.md`](core-and-extensions.md)，決策理由見 [ADR 070](../decisions/070-core-providers-and-extensions.md)。
 
 ## Large-scale Structure
 
@@ -155,13 +173,19 @@ flowchart TB
     codebaseStructure["Codebase Structure"]
     glossaryIndex["Root Glossaries"]
     apiContractIndex["API Contract Workflow"]
+    desiredStateModel["Desired-state Model"]
+    coreAndExtensions["Core and Extensions"]
     componentSpec["Component Architecture Spec"]
     implementation["Implementation"]
 
     rootSpec --> codebaseStructure
     rootSpec --> glossaryIndex
     rootSpec --> apiContractIndex
+    rootSpec --> desiredStateModel
+    rootSpec --> coreAndExtensions
     rootSpec --> componentSpec
+    desiredStateModel --> componentSpec
+    coreAndExtensions --> componentSpec
     codebaseStructure --> componentSpec
     glossaryIndex --> implementation
     apiContractIndex --> implementation
@@ -199,6 +223,8 @@ flowchart TB
 - 已讀取本文件。
 - 已辨識本次工作所屬 bounded context。
 - 已依 root `AGENTS.md` 判斷是否需要讀取 glossary、API contract workflow、commit spec 或 component `AGENTS.md`。
+- 涉及受管資源、欄位或改變外部世界的動作時，已讀取 [`desired-state-model.md`](desired-state-model.md)，並為每個新欄位標明 desired、observed 或 derived。
+- 涉及外部系統、平台、GPU 廠商或 Managed Software 時，已讀取 [`core-and-extensions.md`](core-and-extensions.md)，並確認新程式碼屬於 core、哪一個 provider adapter，還是哪一種擴充模組。
 - 已確認是否需要更新 context map、API contract、資料模型或測試策略。
 
 ## Agent 執行規則
@@ -213,5 +239,7 @@ AI agent 執行任務時必須遵守：
 - 若發現 API contract 缺漏、過期或模糊，必須依 API contract workflow 更新 contract 或詢問使用者，不得依賴 provider/consumer 的 private implementation。
 - 若工作跨越 contexts，必須說明 context map 影響與翻譯策略。
 - 若進入某個 component，必須先讀取該 component 的 `AGENTS.md`；若不存在且任務涉及架構或 domain，必須停下並要求補齊或取得確認。
+- 不得讓 provider 成為 desired state 的真相來源，不得以補償或修復 sweep 取代 transaction（[`desired-state-model.md`](desired-state-model.md)）。
+- 不得在 core 加入廠商、產品、平台或 GPU 廠商專屬的詞彙、型別、常數或分支；這類程式碼屬於 provider adapter 或擴充模組（[`core-and-extensions.md`](core-and-extensions.md)）。
 - 修改程式碼時，命名必須符合 glossary 與該 context 的 ubiquitous language。
 - 完成 domain 行為或 API 行為變更時，必須檢查 glossary、API contract、component spec、測試與文件是否需要同步更新。

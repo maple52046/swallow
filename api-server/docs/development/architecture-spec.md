@@ -9,10 +9,14 @@ architecture spec、shared glossary 與 provider-owned API contracts 同時適�
 `api-server` 是 swallow 唯一 API provider，負責：
 
 - HTTP REST API、authentication 與 authorization。
-- Swallow-owned intent、policy、stable identity mapping 與 projections。
+- Swallow-owned desired state、policy、stable identity mapping 與 observed-state projections。
 - Provisioner／Platform／monitoring reconciliation 與 query adapters。
-- Temporal-based durable Workflow orchestration。
-- Versioned Ansible content 與 execution attempts。
+- Durable Workflow orchestration（Workflow executor port；目前的 adapter 是 Temporal）。
+- Versioned host automation content（目前是 Ansible）與 execution attempts。
+
+上位模型與結構以 root 的 [`desired-state-model.md`](../../../docs/development/desired-state-model.md)
+與 [`core-and-extensions.md`](../../../docs/development/core-and-extensions.md) 為準；本文件描述它們在
+`api-server` 內的分層與實作限制。
 
 `dashboard` 與 `cli` 是 conformist HTTP consumers，只能透過 published
 contract 整合。`api-server` 不發布 HTTP 以外的 public protocol。
@@ -26,7 +30,7 @@ contract 整合。`api-server` 不發布 HTTP 以外的 public protocol。
 - `ansible-executor` — 執行 idempotent Ansible attempt、保存 artifacts、發布 events。
 - `migrate` — service startup 前的 explicit migration。
 
-Temporal 是唯一 durable orchestration engine。API process 不執行 in-process
+Workflow executor port 目前唯一的 adapter 是 Temporal。API process 不執行 in-process
 fallback。完整 execution topology 還需要 Temporal Server/PostgreSQL、MongoDB、
 worker 與 ansible-executor。
 
@@ -48,7 +52,8 @@ flowchart TB
 
 - `internal/<feature>/domain` 定義 entity、value、invariant、domain error 與
   inner-owned port。不得 import Fiber、MongoDB、Temporal、Ansible、provider SDK
-  或 config。
+  或 config，也不得含有廠商或產品專屬的詞彙、型別與常數（例如 MAAS 的 port、狀態碼或
+  chain URL）；這些屬於 provider adapter。
 - `internal/<feature>/application` 實作 use case，協調 domain 與 port。不得
   import delivery／infra implementation。
 - `internal/<feature>/delivery` 將 HTTP transport 映射到 use-case input/output。
@@ -71,7 +76,7 @@ Ansible event、provider SDK response 或 YAML node。
   `OwnerDirectory` port 由 `internal/app` adapter 對接 auth 的 user store（decision 042）。
 - `site`／`infrastructure` — Sites、Integrations、Zones、Pools。
 - `server` — stable Server projection 與 event stream。
-- `provisioning` — MAAS adapter、images、templates、tags、network、deploy/release/recovery。
+- `provisioning` — OS provisioning port 與其 MAAS adapter、images、templates、tags、network、deploy/release/recovery。
 - `platform` — Kubernetes／Slurm deployment policy、credentials、membership、live APIs。
 - `software` — Managed Software catalog、Assignments 與 lifecycle intent。
 - `sshkey` — SSH Keys（Deployment Key 與 Access Keys）、provisioner 同步；Deployment Key 由安裝步驟
@@ -109,18 +114,34 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 
 ## Provider Ownership
 
-MAAS、Kubernetes／Slurm、Prometheus／Alertmanager 分別擁有其 external facts。
-Swallow 只保存 identity mapping、intent、policy 與必要 projection。
+所有權以 root 的 [`desired-state-model.md`](../../../docs/development/desired-state-model.md) 為準：
 
-對 provisioner 可能擁有的 fact 使用 capability-first with swallow-owned fallback：
+- Swallow 擁有受管資源的 desired state（spec），store 是唯一真相來源；provider adapter 只寫入 observed
+  state（status），帶來源 Integration 與觀察時間，永遠不寫 desired state。
+- 每個欄位只有一個寫入者：spec 由 API 或擁有它的上層資源寫入，observed 由 adapter 的觀察路徑寫入，
+  conditions 由該資源的 controller 寫入。
+- provider 沒有能力實現某個欄位時回報 `realized=false`（reason `capability_missing`），不再建立同形狀的
+  swallow-owned fallback（decision 069 取代 decision 031）。
+- metrics、alert 評估、workload 排程與 Platform 內部的資源仍由各自的系統擁有，只即時讀取。
 
-- provider 有 capability 時，它是 source of truth，reconcile mirror observation；
-- provider 無 capability 時，swallow own 同形狀 fallback；
-- capable/non-capable 分支與 effective-value merge 集中在 adapter/use case；
-- owned fallback 不回寫不支援該能力的 provider。
+尚未遷移的功能維持現行行為（包括 capability-first fallback 與 Provider Data Overlay），以各功能規格為準；
+修改它們的所有權或收斂行為時，依上述規則重做該部分。
+
+## Provider Adapter Boundary
+
+依 root 的 [`core-and-extensions.md`](../../../docs/development/core-and-extensions.md)：
+
+- Provider interface（port）由 domain 或 application 層以 core 的詞彙定義；adapter 位於
+  `internal/<feature>/infra/<adapter>`，負責把廠商的狀態碼、ID、預設值與錯誤翻譯成 inner type。
+- Adapter 的識別碼（provider kind、`RunnerKind` 的值）在 domain 與 use case 中只是不透明的資料；
+  已持久化或已在 API 上的值維持不變。行為依 adapter 宣告的 capability 決定，不依識別碼分支。
+- 平台專屬（Kubernetes、Slurm）與 GPU 廠商專屬（AMD）的邏輯屬於擴充模組，不得新增到 core 的 feature
+  slice 或 `internal/app`；現有的越界列在 core-and-extensions.md §3.6，修改時不得擴大。
 
 ## Durable Workflow Boundary
 
+- Workflow 的語意與狀態由 swallow 擁有、存在 store；Temporal 只是 Workflow executor adapter，它的型別與
+  概念不得越過 `internal/operation/infra/temporalworkflow`（見 desired-state-model.md §9）。
 - Application 建立 intent 與 durable Workflow record，不直接長時間 block HTTP request。
 - Temporal Workflow code 必須 deterministic；I/O、clock、randomness、provider call
   與 Mongo write 留在 activity。
@@ -129,6 +150,22 @@ Swallow 只保存 identity mapping、intent、policy 與必要 projection。
 - Ansible executor 只接受 manifest allowlist 內的 playbook，credential 經 write-only
   secret boundary 傳遞，event/artifact 不得洩漏 secret。
 - 無法證明 external side effect 的 expired run 變成 `indeterminate`，不得自動 retry。
+
+## Store and Transaction Boundary
+
+依 root 的 [`desired-state-model.md`](../../../docs/development/desired-state-model.md) §10：
+
+- MongoDB 必須以 single-node replica set 執行；每個 process role 啟動時檢查 store 支援 transaction 與
+  change stream，不支援時拒絕啟動。目前 dev、testing 與 production 的 compose 仍是 standalone，
+  在改為 replica set 之前，新功能不得依賴「沒有 transaction」來設計，也不得新增補償邏輯。
+- 跨文件的不變式（例如 Platform 與其 Server 上的 Platform Claim）必須在同一個 transaction 內完成。
+  Application 透過 transaction port 表達交易範圍，不 import driver 的 session 型別。
+- Transaction callback 不得有外部 I/O（provider、HTTP、檔案），而且必須可以重跑。
+- 事件（包括 SSE 的 Server 事件）在 commit 之後才發布；跨 process 的變化以 change feed port 取得。
+- `bson`、Mongo update operator、change stream resume token 只出現在 infra。
+- Application tests 使用可 rollback 的 fake transaction，驗證失敗時沒有任何寫入或事件。
+
+既有的補償（例如 Platform Claim 的 `abandon`）與修復 sweep 是待遷移的現況，不得當成新功能的範例。
 
 ## Configuration Boundary
 
@@ -169,13 +206,17 @@ Temporal、artifact path、retention、parallelism 等 security/lifecycle semant
 - 直接執行未在 release manifest 登錄的 playbook。
 - 將 credential、token、private key 或 become password 寫入 log/event/artifact。
 - 以 hostname／IP 取代 opaque Server identity。
+- 以 provider 為 desired state 的真相來源，或讓 provider adapter 寫入 desired state。
+- 以補償（先寫再刪）或修復 sweep 取代 transaction。
+- 在 core 的 feature slice 或 `internal/app` 新增平台（Kubernetes、Slurm）或 GPU 廠商（AMD、NVIDIA）專屬的邏輯。
+- 在 domain 或 application 使用廠商或產品專屬的詞彙、型別、常數，或依 adapter 識別碼分支。
 
 ## Completion Gate
 
 任何 code change 必須：
 
 1. 先確認 glossary 與 Active API contract。
-2. 保持 dependency direction 與 provider ownership。
+2. 保持 dependency direction、provider ownership 與 provider adapter boundary。
 3. 執行 `gofmt -l .`、`go vet ./...`、`go test ./...`、`go build ./...`。
 4. 依 coding style 手動檢查 changed Go files 的 comments、security、concurrency、
    cleanup 與 compatibility。

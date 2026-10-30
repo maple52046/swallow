@@ -1,6 +1,6 @@
 # 016. Operation v3 is a Temporal-orchestrated multi-step workflow
 
-- Status: Accepted; vocabulary and model refined by [ADR 017](017-workflow-job-task-runner-model.md)
+- Status: Accepted; vocabulary and model refined by [ADR 017](017-workflow-job-task-runner-model.md); Temporal's role refined by [ADR 069](069-swallow-owns-desired-state.md) (Workflow state is swallow-owned, Temporal only executes) and [ADR 070](070-core-providers-and-extensions.md) (Temporal is the current Workflow executor adapter)
 - Date: 2026-09-05
 
 > **Refined by [ADR 017](017-workflow-job-task-runner-model.md):** the domain vocabulary here

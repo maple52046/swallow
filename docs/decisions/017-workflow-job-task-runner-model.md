@@ -1,6 +1,6 @@
 # 017. Workflow model: Workflow / Job / Task / Runner, convergent and playbook-pluggable
 
-- Status: Accepted
+- Status: Accepted; Refined by [ADR 069](069-swallow-owns-desired-state.md) (Workflow state is swallow-owned; Change Plans for destructive changes) and [ADR 070](070-core-providers-and-extensions.md) (Runner kinds named by port; a new platform is a module)
 - Date: 2026-09-05
 
 ## Context

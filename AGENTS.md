@@ -43,6 +43,12 @@ flows, also read:
 
 1. `docs/development/architecture-spec.md` — understand root codebase design principles and the Strategic DDD constraints.
 2. `docs/development/glossaries/README.md` — understand the glossary workflow and locate relevant domain terminology.
+3. `docs/development/desired-state-model.md` — the model every feature follows: swallow owns desired
+ state, providers report observed state, how differences converge, when a Change Plan is required, and
+ the store and Workflow execution rules.
+4. `docs/development/core-and-extensions.md` — what belongs in the core, in a provider adapter (MAAS,
+ Temporal, Ansible, MongoDB, …), or in an extension module (Platform, Accelerator, Software), and the
+ contracts between them.
 
 If the task creates, modifies, consumes, or validates APIs, also read:
 

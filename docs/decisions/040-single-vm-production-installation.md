@@ -1,6 +1,6 @@
 # 040. Single-VM production installation co-locates MAAS
 
-- Status: Accepted; "One image package" superseded by [ADR 051](051-ghcr-holds-only-swallow-images.md); backend egress refined by [ADR 052](052-one-command-installation.md)
+- Status: Accepted; "One image package" superseded by [ADR 051](051-ghcr-holds-only-swallow-images.md); backend egress refined by [ADR 052](052-one-command-installation.md); MongoDB topology refined by [ADR 069](069-swallow-owns-desired-state.md) (single-node replica set)
 - Date: 2026-10-01
 - 現行規格：[installation.md](../development/installation.md) §2 安裝拓樸、§3 `swallowctl` lifecycle
 

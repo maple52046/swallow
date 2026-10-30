@@ -7,5 +7,5 @@
 - Synonyms: Freshness.
 - Deprecated terms: None.
 - Examples: "MAAS is unreachable, so the provisioning axis is stale while the health axis stays current." / "A cross-Site listing shows each Site's own last-sync time."
-- Related terms: Integration, Server Status, Machine, Server.
-- Change note: Migrated 2026-09-05 from `docs/glossaries/site.md`; elevated because [decision 001](../../../decisions/001-system-ownership-boundaries.md) makes freshness part of the API (reorg D2).
+- Related terms: Integration, Server Status, Machine, Server, Observed State.
+- Change note: Migrated 2026-09-05 from `docs/glossaries/site.md`; elevated because [decision 001](../../../decisions/001-system-ownership-boundaries.md) makes freshness part of the API (reorg D2). 2026-10-30 ([decision 069](../../../decisions/069-swallow-owns-desired-state.md)): a mirrored fact is the Observed State of the desired-state model, so these rules apply to all Observed State; Desired State is owned and has no staleness.

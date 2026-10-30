@@ -12,9 +12,30 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - [swallow](terms/swallow.md): The system this repository builds; the only name for it — not "the platform" and not a `Platform`.
 - [Site](terms/site.md): A swallow-owned location that owns its own infrastructure and frames every other managed fact.
-- [Integration](terms/integration.md): A swallow-owned registration of an external system (`provisioner` / `metrics` / `cluster`), scoped to one Site.
-- [Staleness](terms/staleness.md): The freshness of a mirrored fact — its source and last-observed time — surfaced as part of the API.
-- [Provider Data Overlay](terms/provider-data-overlay.md): Swallow-owned fields merged onto a provider-owned fact at read time (e.g. an OS Image name), owned data keyed by provider identity and never written back.
+- [Integration](terms/integration.md): A swallow-owned registration of one Provider Adapter at one Site (`provisioner` / `metrics` / `platform`).
+- [Staleness](terms/staleness.md): The freshness of a mirrored fact (Observed State) — its source and last-observed time — surfaced as part of the API.
+- [Provider Data Overlay](terms/provider-data-overlay.md): Swallow-owned fields merged onto a provider-owned fact at read time (e.g. an OS Image name), owned data keyed by provider identity and never written back; current behavior that retires as features move to Desired State.
+
+### Resource Ownership and Convergence
+
+- [Desired State](terms/desired-state.md): What an operator wants a managed resource to be (its spec); swallow-owned, the only source of truth, realized by providers.
+- [Observed State](terms/observed-state.md): What a provider reports a resource actually is, with source and observation time; never authoritative for a write.
+- [Condition](terms/condition.md): A named judgement in a resource's status — shared types `realized`, `drifted`, `requires_attention`, `held` — written only by its controller.
+- [Drift](terms/drift.md): Observed State that departed from Desired State without swallow asking; reported, not corrected, by default.
+- [Convergence](terms/convergence.md): The controller's continuous, level-triggered process of bringing Observed State to Desired State; not provider reconcile.
+- [Change Plan](terms/change-plan.md): The operator-approved preview of a Destructive Change, applied as a Workflow — `pending_approval | approved | applied | rejected | superseded | expired`.
+- [Destructive Change](terms/destructive-change.md): A change whose realization erases data, takes a Server out of service or a Platform, interrupts workloads, or cannot be undone by reapplying the old spec.
+
+### Core and Extensions
+
+- [Provider Interface](terms/provider-interface.md): A core-defined port, in core vocabulary, for one kind of external system (OS provisioning, Workflow executor, host automation, store, metrics and alerts, BMC and hypervisor).
+- [Provider Adapter](terms/provider-adapter.md): The replaceable implementation of a Provider Interface for one system (MAAS, Temporal, Ansible, MongoDB, …), translating its vocabulary; never part of the core.
+- [Extension Module](terms/extension-module.md): A unit adding something swallow manages — a Platform Module, Accelerator Module, or Software Module — through the module contract.
+- [Platform Module](terms/platform-module.md): The module that makes one kind of Platform runtime manageable (Kubernetes, Slurm).
+- [Accelerator Module](terms/accelerator-module.md): The module for one GPU vendor (AMD, later NVIDIA), an axis separate from Platforms.
+- [Software Module](terms/software-module.md): The module that provides one Managed Software kind.
+- [Module Manifest](terms/module-manifest.md): The data declaration, with a contract version, by which the core loads a module.
+- [Module Package](terms/module-package.md): A planned bundle of one module installed or updated without upgrading swallow — stage 2 for project-built modules, stage 3 (signed, no Go hooks) for modules owned outside the project.
 
 ### swallow Delivery
 
@@ -25,6 +46,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   Installation provides at `SWALLOW_ADDRESS`, which every provisioned Server follows (the
   co-located MAAS chronyd, or distribution chrony with another provisioner); its upstream is set
   separately with `swallowctl ntp upstream`; never a container.
+- [Support Matrix](terms/support-matrix.md): The per-release record of included adapters and
+  modules and the validated combinations; only those may be claimed as supported.
 
 ### Compute Resource
 
@@ -66,8 +89,9 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### OS Provisioning
 
-- [OS Provisioning Provider](terms/os-provisioning-provider.md): External system (MAAS)
-  that enumerates hardware and installs operating systems; registered as a `provisioner` Integration.
+- [OS Provisioning Provider](terms/os-provisioning-provider.md): External system (MAAS, the
+  current Provider Adapter of the OS provisioning interface) that enumerates hardware and installs
+  operating systems; registered as a `provisioner` Integration.
 - [Machine](terms/machine.md): An entry in a provider's inventory — the provider's view;
   a Server is swallow's projection of it.
 - [Server Enrollment](terms/server-enrollment.md): Putting a machine into the provisioner's inventory —
@@ -133,7 +157,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Workflow](terms/workflow.md): An operator intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; compatibility code and wire fields still contain "Operation").
 - [Job](terms/job.md): A reusable, convergent unit of Tasks that brings resources to a sub-goal (e.g. `ensure-os`), composable into Workflows and runnable on its own.
 - [Task](terms/task.md): The atomic, idempotent ("ensure") unit of work run by exactly one Runner (code/API still say "Step").
-- [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` / `internal` (named by purpose; code still says "executor", and `maas` → `provisioner`).
+- [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` (host automation) / `internal` (named by the Provider Interface it drives; code still says "executor", and `maas` → `provisioner`).
 - [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for Swallow-owned Ansible execution.
 
 > Deprecated aliases kept for the [decision 017](../../decisions/017-workflow-job-task-runner-model.md) rename window: [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.

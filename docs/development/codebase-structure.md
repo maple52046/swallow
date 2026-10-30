@@ -101,7 +101,9 @@ flowchart LR
   - [`architecture-spec.md`](architecture-spec.md) — Strategic DDD architecture constitution。
   - [`codebase-structure.md`](codebase-structure.md) — 本檔，結構契約。
   - [`api-contracts.md`](api-contracts.md) — API contract 的 provider-first discovery workflow。
-  - [`platform-deployment.md`](platform-deployment.md) — platform deployment 的設計、開發與整合規範（Workflow/Job/Task/Runner；新增 platform = 交一支 playbook）。
+  - [`desired-state-model.md`](desired-state-model.md) — 所有功能都必須遵守的上位模型：swallow 擁有 desired state、provider 回報 observed state、收斂與 drift、Change Plan，以及 store 與 Workflow 執行的規則（decision 069）。
+  - [`core-and-extensions.md`](core-and-extensions.md) — 大尺度結構：core 的內容、provider interface 與可抽換的 adapter、三種擴充模組與其契約、支援矩陣（decision 070）。
+  - [`platform-deployment.md`](platform-deployment.md) — platform deployment 的設計、開發與整合規範（Workflow/Job/Task/Runner；新增 platform 的現行做法）。
   - [`software-deployment.md`](software-deployment.md) — software deployment（Managed Software）的設計與整合規範：單一軟體的安裝/卸載，與 platform 的分界是 deploy target 的粒度。
   - [`os-provisioning.md`](os-provisioning.md) — OS provisioning 的現行行為：OS Image、Deployment Template、部署網路意圖、provider recovery、Zone/Pool 與 write-through 的 provisioner 設定。
   - [`server-enrollment-and-boot-media.md`](server-enrollment-and-boot-media.md) — Server Enrollment、硬體檢視、Power Configuration、Boot Media 與 Boot ISO。
@@ -116,6 +118,17 @@ flowchart LR
 
 每個類別目錄內的文件應遵循相同風格：採結構化段落，描述 swallow 範圍內的共識，不描述某個
 component 的內部實作細節。
+
+## Provider Adapter 與擴充模組的位置
+
+[`core-and-extensions.md`](core-and-extensions.md) 定義的 provider adapter 與擴充模組都在 component 之內，
+不是新的頂層 component：
+
+- Provider adapter 目前位於 `api-server/internal/<feature>/infra/<adapter>`（例如 `provisioning/infra/maas`、
+  `operation/infra/temporalworkflow`）。
+- 擴充模組（Platform、Accelerator、Software）在 repository 中的目標位置，於模組第一階段實作時定案並登錄於本節；
+  在那之前，現有的 Kubernetes、Slurm、AMD 與 Managed Software 程式碼維持在 `api-server/internal/platform`、
+  `api-server/internal/software`、`api-server/internal/app` 與 `api-server/automation`。
 
 ## Rules
 

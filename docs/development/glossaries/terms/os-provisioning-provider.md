@@ -7,5 +7,5 @@
 - Synonyms: Provisioner; provider, within the OS Provisioning context.
 - Deprecated terms: None.
 - Examples: "`providerKind` selects the adapter; `integrationId` selects the instance." / "A provider that cannot do an ephemeral deploy refuses the request rather than deploying normally."
-- Related terms: Integration, Machine, OS Image, OS Deployment, OS Provisioning State, Release, Server.
-- Change note: Migrated 2026-09-05 from the narrative `docs/glossaries/provisioning.md` (reorg D2). Updated 2026-10-04 ([decision 048](../../../decisions/048-os-provisioning-generic-states.md)): adapters map onto the swallow-defined OS Provisioning State; the MAAS Commission action is swallow's Inspect.
+- Related terms: Integration, Machine, OS Image, OS Deployment, OS Provisioning State, Release, Server, Provider Interface, Provider Adapter.
+- Change note: Migrated 2026-09-05 from the narrative `docs/glossaries/provisioning.md` (reorg D2). Updated 2026-10-04 ([decision 048](../../../decisions/048-os-provisioning-generic-states.md)): adapters map onto the swallow-defined OS Provisioning State; the MAAS Commission action is swallow's Inspect. Updated 2026-10-30 ([decision 070](../../../decisions/070-core-providers-and-extensions.md)): OS provisioning is a Provider Interface of the core and MAAS is its current Provider Adapter, not part of the core; [decision 069](../../../decisions/069-swallow-owns-desired-state.md) makes what the provider reports Observed State, so "mirrors their results" means it observes them.

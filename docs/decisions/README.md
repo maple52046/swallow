@@ -15,7 +15,7 @@
 ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 
 - 改變 component 邊界、跨 component 的互動方式，或某個事實由誰擁有。
-- 建立之後的功能都必須遵守的規則（例如 [031](031-provider-capability-first-with-swallow-owned-fallback.md)、
+- 建立之後的功能都必須遵守的規則（例如 [069](069-swallow-owns-desired-state.md)、
   [064](064-upstream-patches-are-the-exception.md)）。
 - 引入、更換或否決重大的技術依賴或 runtime 拓撲（例如 [016](016-temporal-operation-orchestration.md)、
   [040](040-single-vm-production-installation.md)）。
@@ -135,6 +135,8 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [066](066-slurm-job-hooks-and-device-metrics-exporter.md) | Slurm 以單一 Prolog/Epilog dispatcher 執行 hook、預設共用節點，並提供 DME、OCI、PMIx 選項 | — |
 | [067](067-platform-claim-on-server.md) | Platform 對 Server 的佔用存為 Platform Claim，被佔用的 Server 不能直接 Release 或刪除 | — |
 | [068](068-device-metrics-exporter-managed-software.md) | AMD Device Metrics Exporter 成為可單台安裝的 Managed Software，Slurm 部署改為組入同一 kind | refine 038、066 |
+| [069](069-swallow-owns-desired-state.md) | swallow 擁有 desired state 與執行狀態，provider 收斂到它；混合收斂、Temporal 只執行、store 需要 transaction | refine 001、016、017、040；supersede 031 |
+| [070](070-core-providers-and-extensions.md) | core 只有領域模型、Workflow 與 provider interface；外部系統都是可抽換的 adapter，平台與 GPU 廠商邏輯放在擴充模組，交付為發行版 | refine 001、006、016、017、038 |
 
 `001`–`003` 的章節結構與上方格式不同（Decision / Context / Consequences / Rejected
 alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄 `Date`，依「不得杜撰歷史理由」

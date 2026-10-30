@@ -9,6 +9,11 @@
 它與 [platform-deployment.md](platform-deployment.md) 平行：platform deployment 佈署由多個
 component 組成的 runtime；software deployment 佈署單一軟體及其變體。
 
+> **目標結構**：依 [decision 070](../decisions/070-core-providers-and-extensions.md)，每個 Managed Software
+> kind 由一個 **Software 模組**提供（見 [core-and-extensions.md](core-and-extensions.md)）；Software Assignment
+> 已有 desired 與 last-applied，是最接近 [desired-state-model.md](desired-state-model.md) 的現有設計。
+> 模組第一階段實作前，本文件描述的現行做法不變。
+
 ## 0. 權威分界：佈署對象，不是 OS 管線
 
 **software 與 platform 的差別是 deploy target 的粒度，不是有沒有碰 OS provisioning。**

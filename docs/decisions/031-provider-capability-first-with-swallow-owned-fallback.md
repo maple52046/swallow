@@ -1,6 +1,6 @@
 # 031. Provider-capability-first with a swallow-owned fallback
 
-- Status: Accepted
+- Status: Superseded by [ADR 069](069-swallow-owns-desired-state.md)
 - Date: 2026-09-15
 
 ## Context

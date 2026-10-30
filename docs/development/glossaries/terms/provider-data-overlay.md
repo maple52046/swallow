@@ -28,11 +28,15 @@
   swallow built-in default rather than over a provider value, and never changes what the image
   deploys."
 - Related terms: Integration, OS Image, OS Provisioning Provider, Machine, Server, Staleness,
-  Deployment Template.
+  Deployment Template, Desired State.
 - Change note: Added for the provider-data-overlay refactor to name the reusable pattern of
   merging swallow-owned display data onto provider-owned facts. See
   [decision 025](../../../decisions/025-provider-data-overlay.md), which refines
   [decision 001](../../../decisions/001-system-ownership-boundaries.md) and
   [decision 009](../../../decisions/009-deployment-template-ownership.md). Updated 2026-10-01 for
   the OS Image `defaultUser` bookkeeping field per
-  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md).
+  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md). 2026-10-30
+  ([decision 069](../../../decisions/069-swallow-owns-desired-state.md)): still the current
+  behavior, but no longer a pattern for new features. In the desired-state model an overlay's
+  fields are swallow-owned Desired State on the resource, and the overlay concept retires as the
+  OS Image catalog and Server tags migrate.

@@ -1,6 +1,6 @@
 # 001 — System Ownership Boundaries
 
-- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated)
+- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated); ownership of managed resources refined by [ADR 069](069-swallow-owns-desired-state.md); product positioning and external systems as adapters refined by [ADR 070](070-core-providers-and-extensions.md)
 
 > Automation ownership in this decision is amended by [ADR 006](006-embedded-ansible-execution.md).
 >

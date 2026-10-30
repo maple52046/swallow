@@ -40,8 +40,8 @@
   and `grafana` as Jobs rather than duplicating their playbooks; the primary controller ends up
   with three ordinary Software Assignments." / "Grafana installed by the `native` method comes
   from Grafana's apt repository and needs no container runtime."
-- Related terms: Software Assignment, Docker Host Explorer, Device Metrics Exporter, Platform,
-  Platform Claim, Workflow, Job, Task, Runner, Server.
+- Related terms: Software Assignment, Software Module, Docker Host Explorer, Device Metrics
+  Exporter, Platform, Platform Claim, Workflow, Job, Task, Runner, Server.
 - Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md))
   to name single-software deployment as distinct from platform deployment, with the deploy
   target's granularity as the authoritative boundary. 2026-10-02
@@ -52,4 +52,6 @@
   Prometheus's and Grafana's Docker CE requirement, and a Slurm deploy may compose a container
   runtime onto its compute and login nodes. 2026-10-30
   ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md)): added
-  `device-metrics-exporter`, the first kind that refuses Platform-claimed Servers.
+  `device-metrics-exporter`, the first kind that refuses Platform-claimed Servers. 2026-10-30
+  ([decision 070](../../../decisions/070-core-providers-and-extensions.md)): each kind is
+  provided by a Software Module; the meaning of Managed Software is unchanged.

@@ -1,6 +1,6 @@
 # 038. Software deployment: single-software deploy target, distinct from platform, composed as a Job
 
-- Status: Accepted
+- Status: Accepted; Refined by [ADR 070](070-core-providers-and-extensions.md) (Managed Software is provided by Software modules)
 - Date: 2026-09-24
 
 ## Context

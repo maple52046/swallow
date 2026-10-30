@@ -112,6 +112,35 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
 - SSE ownership、reconnect/backoff、abort/cancellation 與 cleanup 必須集中且有註解。
 - Unknown enum 使用 least-privileged/safe presentation，不 fail open。
 
+## Desired and observed state
+
+依 root 的 [`desired-state-model.md`](../../../docs/development/desired-state-model.md) §11，資源遷移到
+desired-state 模型後：
+
+- 詳情畫面分開呈現 desired（spec）與 observed（status），並標出兩者的差異與 observed 的觀察時間；
+  observed 變舊不得呈現成失敗。
+- Conditions 以文字呈現 type、status 與 reason（例如「尚未實現：provider 不支援」），不只靠色彩。
+- Drift 顯示偏離的欄位，並提供 adopt（把 spec 改成目前的 observed 值）與 reapply（重新實現 desired）兩個動作；
+  reapply 屬於破壞性時，走 Change Plan 而不是直接執行。
+- 待核准的 Change Plan 有核准畫面：列出每個 target 的動作、標示破壞性動作與預期影響（例如哪些 Server
+  會離開服務），並清楚說明核准後不可撤回；`superseded` 或 `expired` 的 plan 不可核准。
+- 寫入 spec 時帶 API 契約定義的預期 `generation`；收到 conflict 時重新讀取並告知 operator，不默默覆蓋。
+
+這些規則是 presentation 與 application 的規則；判斷是否破壞性、是否 drift 一律以 API 的回應為準，
+dashboard 不自行推導。
+
+## Module UI
+
+依 root 的 [`core-and-extensions.md`](../../../docs/development/core-and-extensions.md) §7：
+
+- 第一方擴充模組（Kubernetes、Slurm、AMD、Managed Software）可以有專屬畫面，由共用的 Platform／Software
+  外殼依模組 id 選擇；外殼本身不依平台或 GPU 廠商名稱分支。
+- 沒有專屬畫面的模組，依 API 提供的 spec schema 產生通用的表單與詳情。
+- 使用者概念以 port 呈現（例如「provisioner」），不以 adapter 名稱呈現（例如「MAAS」）；adapter 專屬的設定
+  畫面（例如 MAAS Integration 的連線設定）例外。
+
+註冊方式的細節在模組第一階段實作時定案，並更新本節。
+
 ## Experimental features
 
 開發中的 dashboard 功能（目前為 `monitoring`、`osImageUpload`、`deploymentTemplates`、`virtualMachines`）只在
@@ -168,6 +197,9 @@ Domain/use-case logic 應保持可在不 render React、不啟動 browser、不�
 - UI 發明 Planned endpoint、field、enum 或 authorization behavior。
 - 將 `null` unknown 呈現成 failure，或製造 combined Server status。
 - 以 duplicated composed UI 取代 shared component。
+- 在 dashboard 自行推導 drift、破壞性分類或 Change Plan 內容，而不是讀取 API。
+- 在新的 UI 中以 adapter 或廠商名稱作為使用者概念，或在共用外殼中依平台、GPU 廠商名稱寫死分支
+  （現有畫面於所屬功能遷移時調整）。
 
 ## Completion Gate
 
