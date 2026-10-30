@@ -1,19 +1,8 @@
 # 012. Swallow owns provisioning network intent
 
-- Status: Accepted (mode choice refined by [ADR 018](018-automatic-addressing-provider-auto-assign.md))
+- Status: Accepted (mode choice refined by [ADR 018](018-automatic-addressing-provider-auto-assign.md) and [ADR 058](058-deployment-dhcp-and-subnet-dns.md))
 - Date: 2026-09-02
-
-> Refinement (2026-09-06): this ADR's decision to expose **DHCP** as the automatic deployment
-> mode and to translate it to the provider's raw DHCP — rejecting MAAS `AUTO` — is superseded
-> by [ADR 018](018-automatic-addressing-provider-auto-assign.md). The automatic intent is now
-> named `automatic` and is realized by provider **auto-assign** (MAAS `AUTO`), which is stable
-> and always provider-known; `dhcp` is a deprecated one-release alias. Everything else in this
-> ADR (swallow owns the intent, MAAS vocabulary stays in the adapter, no force option, verify
-> after mutation, Static mode, release cleanup as a Provisioning Task) still holds.
->
-> Refinement (2026-10-13): [ADR 058](058-deployment-dhcp-and-subnet-dns.md) brings DHCP back as
-> a deployment mode beside `automatic` and `static`, for subnets whose DHCP the provisioner does
-> not serve.
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §6 部署網路意圖與 Subnet DNS
 
 ## Context
 
@@ -29,9 +18,10 @@ subnets, IP allocation, and execution APIs.
 ## Decision
 
 The OS Provisioning bounded context owns deployment network intent, policy,
-defaults, validation, and workflow. Its deployment modes are DHCP and Static,
-with DHCP as the default. Provider adapters translate this published language to
-their own APIs and expose provider-managed legacy states only as observations.
+defaults, validation, and workflow. Its deployment modes are a closed,
+provider-neutral set with a Swallow default. Provider adapters translate this
+published language to their own APIs and expose provider-managed legacy states
+only as observations.
 
 The MAAS relationship is an anticorruption layer: `AUTO`, `LINK_UP`, link IDs,
 and operation names remain in the adapter. The adapter never uses provider force
@@ -42,8 +32,19 @@ continuously reconcile deployed hosts, because an unsolicited change could break
 running workloads.
 
 Release cleanup is represented by a durable Provisioning Task rather than an
-Operation. Operations remain reserved for Swallow-owned playbook execution;
-Provisioning Tasks coordinate provider state transitions and link mutations.
+Operation; Provisioning Tasks coordinate provider state transitions and link
+mutations. When this was decided, Operations were reserved for Swallow-owned
+playbook execution; Workflows have since gained provider Tasks
+([ADR 016](016-temporal-operation-orchestration.md)), but release network cleanup
+remains a Provisioning Task.
+
+Revision history: this ADR chose the modes DHCP (default, realized as the
+provider's raw DHCP, never MAAS `AUTO`) and Static. On 2026-09-06
+[ADR 018](018-automatic-addressing-provider-auto-assign.md) replaced the default
+with `automatic`, realized by MAAS `AUTO`; on 2026-10-13
+[ADR 058](058-deployment-dhcp-and-subnet-dns.md) made `dhcp` a separate mode again.
+The modes are now `automatic` (default), `dhcp`, and `static` (original text in
+git history).
 
 ## Alternatives considered
 
@@ -59,14 +60,8 @@ Provisioning Tasks coordinate provider state transitions and link mutations.
 ## Consequences
 
 Adapters that cannot honour network intent must reject deployment before writes;
-they may not silently keep provider defaults. Historical MAAS AUTO links remain
-visible but are changed to DHCP at the next explicit Swallow deployment unless
-the operator selects Static.
+they may not silently keep provider defaults.
 
 Swallow persists only the intent and cleanup coordination it owns. Provider NIC,
 subnet, and link identifiers remain live references and are revalidated before
 each mutation.
-
-## Current status
-
-Implemented by the Server Network Configuration workflow on 2026-09-02.

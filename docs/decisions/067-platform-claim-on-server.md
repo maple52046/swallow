@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-29
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §2.6 Platform Claim：Platform 對其 Server 的佔用（decision 067）
 
 ## Context
 
@@ -28,33 +29,23 @@ Slurm cluster without slurmrestd, or a failing membership sync.
 The Server carries a swallow-owned **Platform Claim**: the claiming Platform's id and when its
 deployment was accepted.
 
-- When a Platform deployment is accepted, Swallow claims every target of that deployment for the
-  new Platform. Each Server is claimed with a conditional write that only matches an unclaimed
-  Server, so of two concurrent deployments only one can take it. The other is refused as
-  "already claimed", and its Platform record and any claims it wrote are removed. A refused
-  launch removes them the same way.
-- The claim stays while the Platform is `deploying`, `deploy_failed`, `active`, `uninstalling`, or
-  `uninstall_failed`: the hosts may still carry platform state. A successful uninstall (with or
-  without `deleteRecord`) and Delete release it.
-- Release of a claimed Server is refused with `409 conflict`, naming the Server and the Platform,
-  for the Release Operation, the deprecated single-Server release, and a Recover of a deployed
-  Server. `cancelActiveWorkflows` does not get around it. A Platform's Servers are released
-  through its uninstall with `releaseServers`. The Workflows that act for the Platform, such as
-  that uninstall's `release-os` Steps, are not subject to the rule.
-- Delete of a claimed Server is refused the same way, before the provisioner is called and even
-  when its Machine is already gone. Deleting removes the Machine and the Server record, so it is
-  at least as destructive as a release; the operator uninstalls the Platform or deletes its
-  record first, which releases the claim.
-- Recover of a claimed Server in a not-usable state (`failed`, `broken`, `rescue`, `allocated`)
-  stays allowed, because returning it to Ready is how a broken deployment is repaired.
-- The deployment preflight reads the claim instead of the lifecycle history, and the dashboard
-  and CLI read it from the Server projection (`platformClaim`).
-- The claim does not store the Platform's name, because a Platform can be renamed. Provider
-  reconciliation preserves the claim, like the Server's `Deployment` result.
-- When the API starts, Swallow reconciles the claims against the durable lifecycle once: every
-  target of a Platform that is not uninstalled gets that Platform's claim if it has none, which is
-  how Platforms deployed before claims existed get theirs, and a claim naming a Platform that is
-  gone or uninstalled is released.
+- An accepted Platform deployment claims every target with a conditional write that only matches
+  an unclaimed Server, so of two concurrent deployments only one can take it; the other is refused
+  and leaves no Platform record or claim behind.
+- The claim stays while the hosts may still carry platform state (from `deploying` through
+  `uninstall_failed`). A successful uninstall and Delete release it.
+- Release and Delete of a claimed Server are refused with `409 conflict` naming the Server and the
+  Platform, and `cancelActiveWorkflows` does not get around it. A Platform's Servers are released
+  through its uninstall with `releaseServers`; the Workflows that act for the Platform are not
+  subject to the rule. Deleting removes the Machine and the Server record, so it is at least as
+  destructive as a release.
+- Recover of a claimed Server in a not-usable state stays allowed, because returning it to Ready is
+  how a broken deployment is repaired.
+- The deployment preflight, the dashboard, and the CLI read the claim instead of reconstructing the
+  hold. The claim does not store the Platform's name, because a Platform can be renamed, and
+  provider reconciliation preserves it.
+- When the API starts, Swallow reconciles the claims against the durable lifecycle once, which is
+  how Platforms deployed before claims existed get theirs and how a stale claim is released.
 
 ## Alternatives considered
 
@@ -79,7 +70,3 @@ disable Release and Delete on a claimed Server with the Platform's name, and the
 
 A Server whose Platform record was lost outside these paths stays protected until the startup
 reconciliation releases the stale claim on the next API start.
-
-## Current status
-
-Implemented.

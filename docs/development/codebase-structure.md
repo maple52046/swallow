@@ -103,10 +103,15 @@ flowchart LR
   - [`api-contracts.md`](api-contracts.md) — API contract 的 provider-first discovery workflow。
   - [`platform-deployment.md`](platform-deployment.md) — platform deployment 的設計、開發與整合規範（Workflow/Job/Task/Runner；新增 platform = 交一支 playbook）。
   - [`software-deployment.md`](software-deployment.md) — software deployment（Managed Software）的設計與整合規範：單一軟體的安裝/卸載，與 platform 的分界是 deploy target 的粒度。
+  - [`os-provisioning.md`](os-provisioning.md) — OS provisioning 的現行行為：OS Image、Deployment Template、部署網路意圖、provider recovery、Zone/Pool 與 write-through 的 provisioner 設定。
+  - [`server-enrollment-and-boot-media.md`](server-enrollment-and-boot-media.md) — Server Enrollment、硬體檢視、Power Configuration、Boot Media 與 Boot ISO。
+  - [`workflow-execution.md`](workflow-execution.md) — durable Workflow 的跨功能執行語意：啟動、lease、Task 重試、rerun、取消、取代佔用的工作與即時事件。
+  - [`access-and-credentials.md`](access-and-credentials.md) — swallow 擁有的憑證（Deployment Key、Access Key、Server Default User、Site automation credential）與認證概要。
+  - [`installation.md`](installation.md) — 支援的安裝拓樸、`swallowctl` 生命週期保證、發佈產物與時間同步。
   - [`commit-spec.md`](commit-spec.md) — commit message 規範。
   - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義平台的 ubiquitous language。
   - `context-maps/` — 跨 context 的 context map（依需要建立）。
-- [`docs/decisions/`](../decisions) — 輕量 ADR，記錄影響面廣的架構決策。
+- [`docs/decisions/`](../decisions) — 輕量 ADR，只記錄「為什麼」並在 Accepted 後凍結；現行行為寫在上列規格。
 - `docs/plans/` — 歷史計畫紀錄；`docs/plans/manuscripts/` 為進行中的計畫草稿。
 
 每個類別目錄內的文件應遵循相同風格：採結構化段落，描述 swallow 範圍內的共識，不描述某個

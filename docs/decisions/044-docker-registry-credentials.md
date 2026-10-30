@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-02
+- 現行規格：[software-deployment.md](../development/software-deployment.md) §4.7 Docker CE 的 Registry Credential
 
 ## Context
 
@@ -17,24 +18,21 @@ than type them for every pull.
 
 ## Decision
 
-**A Registry Credential is swallow-owned, installation-wide data.** It records one registry (a
-normalized host with optional port), a username, and a password or token. The password is sealed
-with the installation credential key, like integration credentials and the Deployment Key, is
-write-only through the API, and is never logged. There is at most one credential per registry.
-
-**Credentials are resolved per pull from the image reference.** The registry of a reference is
-Docker's own rule: the first path component when it contains `.` or `:` or is `localhost`,
-otherwise Docker Hub (`docker.io`, which also covers `index.docker.io` and `registry-1.docker.io`).
-When a credential exists for that registry, api-server sends it to the Engine as
-`X-Registry-Auth` for that one request; otherwise the pull is anonymous. The pull response says
-which registry was used and whether it authenticated. Nothing is written to the host.
-
-**Scope is the installation, not the Site or the Server.** Registries are organization-wide and
-named by host, so different registries for different Sites already coexist. Per-Site or per-Server
-credentials for the same host are deferred until there is a need.
-
-**ADR 043's "nothing Docker-owned is persisted" still holds.** A Registry Credential is swallow's
-own secret used to act on the Engine, not a mirror of an Engine object.
+- **A Registry Credential is swallow-owned, installation-wide data.** It records one registry (a
+  normalized host with optional port), a username, and a password or token; there is at most one
+  credential per registry. The password is sealed with the installation credential key, like
+  integration credentials and the Deployment Key
+  ([ADR 039](039-ssh-key-management-and-default-user.md)), is write-only through the API, and is
+  never logged.
+- **Credentials are resolved per pull from the image reference**, by Docker's own registry rule
+  (a reference without a registry host is Docker Hub). When a credential exists for that registry,
+  api-server sends it to the Engine as `X-Registry-Auth` for that one request; otherwise the pull
+  is anonymous. Nothing is written to the host.
+- **Scope is the installation, not the Site or the Server.** Registries are organization-wide and
+  named by host, so different registries for different Sites already coexist. Per-Site or
+  per-Server credentials for the same host are deferred until there is a need.
+- **ADR 043's "nothing Docker-owned is persisted" still holds.** A Registry Credential is swallow's
+  own secret used to act on the Engine, not a mirror of an Engine object.
 
 ## Alternatives considered
 
@@ -51,27 +49,10 @@ own secret used to act on the Engine, not a mirror of an Engine object.
 
 ## Consequences
 
-- New swallow-owned collection `software_registry_credentials` (unique by registry, sealed
-  password), a `/api/v1/software/docker-ce/registry-credentials` contract, and the glossary term Registry
-  Credential.
-- The Docker Engine client gains an optional per-pull credential; the explorer use case resolves it.
-- Credentials are a Docker CE setting, not a software-wide one: the API lives under
-  `/software/docker-ce/`, and the dashboard manages them in Software › Settings, which groups
-  settings by software kind (Docker CE now; later kinds add their own group). The Pull image dialog
-  shows which credential a reference will use.
+- Credentials are a Docker CE setting, not a software-wide one: they live with Docker CE in the API
+  and the dashboard, and later kinds add their own settings.
 - The credential crosses the network to the host in the clear, because ADR 043's Engine API
   listener is plain HTTP. On the internal networks that listener is limited to, anyone able to read
   that traffic can already control the host; the hardening slice (TLS) covers both.
 - Rotating the installation credential key makes stored registry passwords unreadable, as with
   every other sealed credential; they must be re-entered.
-
-## Current status
-
-Implemented: credential storage and API, per-pull resolution, dashboard management, and the pull
-dialog hint. Per-Site scoping and save-time verification are future work.
-
-## Related
-
-- [ADR 043](043-docker-host-management.md) — the Docker Host Explorer this extends.
-- [ADR 039](039-ssh-key-management-and-default-user.md) — the sealed, write-only secret handling
-  this follows.

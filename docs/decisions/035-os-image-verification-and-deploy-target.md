@@ -1,7 +1,8 @@
 # 035. OS image verification and deploy-target vocabulary
 
-- Status: Accepted
+- Status: Accepted (verification failure handling refined by [ADR 036](036-provisioning-lifecycle-integrity.md))
 - Date: 2026-09-21
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §5 OS Image 驗證與 Deploy Target
 
 ## Context
 
@@ -23,23 +24,30 @@ Introduce a **Deploy Target** vocabulary and a **swallow-owned OS Image
 verification** attestation.
 
 - **Deploy Target** (`disk` | `ram`) is the canonical operator-facing concept.
-  `ram` is exactly today's `ephemeral`; the two map one-to-one at every existing
-  boundary (`disk ↔ ephemeral=false`, `ram ↔ ephemeral=true`). Deploy request
-  DTOs accept an optional `deployTarget` (preferred) mapping onto the internal
-  bool, with `ephemeral` kept as a still-accepted deprecated alias. No wire,
-  BSON, durable-snapshot, MAAS, or k0s field is renamed.
+  `ram` is exactly the existing `ephemeral`; the two map one-to-one at every
+  boundary (`disk ↔ ephemeral=false`, `ram ↔ ephemeral=true`). Deploy requests
+  accept `deployTarget` (preferred), with `ephemeral` kept as a still-accepted
+  deprecated alias. No wire, BSON, durable-snapshot, MAAS, or k0s field is
+  renamed.
 - **Verification** is a swallow-owned fact (Swallow ran a real deploy and it
   worked), not a provider capability. It follows the Provider Data Overlay
   identity rule ([ADR 025](025-provider-data-overlay.md)), keyed by
   `(integrationId, imageId, architecture)`, stored separately from the display
-  overlay, with per-target evidence `{ verifiedAt, operationId, serverId }`.
-- A new durable `verify-os-image` Workflow proves an image for a target: a real
-  `provision-os` deploy on an operator-chosen ready Server, then an internal
-  `record-image-verification` finalize step, then an auto-`release-os`. The
-  proving deploy is exempt from the gate below.
+  overlay, with per-target evidence of the run that produced it.
+- A durable `verify-os-image` Workflow proves an image for a target with a real
+  `provision-os` deploy on an operator-chosen ready Server, records the outcome,
+  and returns the Server. The proving deploy is exempt from the gate below.
 - A **deploy gate**: a *custom* image not verified for the requested deploy
   target is refused at deploy acceptance with a Swallow reason. Synced provider
   images are provider-trusted and never gated.
+
+Revision history: this ADR recorded only a successful verification and released
+the Server only after success. On 2026-09-21
+[ADR 036](036-provisioning-lifecycle-integrity.md) made verification a
+borrow-and-return contract: the Server is returned on success, failure, or
+cancel, a failed outcome is recorded per target as well, and a proving
+install/SSH failure is non-retryable so the Workflow terminates (original text in
+git history).
 
 ## Alternatives considered
 
@@ -59,31 +67,11 @@ verification** attestation.
 
 ## Consequences
 
-- Operators see per-target trust at a glance (OS Images "Verification" column)
-  and can prove an image with one action; a verified target is required before a
-  normal custom-image deploy in that target, preventing a known-bad image from
-  reaching production.
-- One new swallow-owned collection (`os_image_verifications`) and one new durable
-  Workflow kind; both follow existing overlay and operation patterns.
-- `deployTarget` becomes the vocabulary in new surface (verify endpoint, catalog
-  projection, dashboard) while `ephemeral` keeps working, so existing clients and
-  platform deploys are unaffected.
-- Verification runs a real deploy: it consumes a ready Server for several minutes
-  and auto-releases it; a failed verification leaves the target unverified with
-  the provider's reason.
-
-## Current status
-
-Implemented. Deploy-target mapping, the verification model + Mongo repo, the
-`verify-os-image` Workflow, the deploy gate, and the dashboard surfaces are in
-place. Pruning verification on Integration delete is a small follow-up (orphan
-rows are harmless); the deprecated single-server deploy endpoint is not
-separately gated (superseded by the gated durable path).
-
-Refined by [decision 036](036-provisioning-lifecycle-integrity.md): the
-`verify-os-image` Workflow now returns the borrowed Server toward `ready` on
-failure or cancel (not only on success), records the attestation only on a
-successful proving deploy, and treats a proving install/SSH failure as a
-non-retryable proof failure so the Workflow terminates instead of parking at
-`requires_attention`. A failed verification therefore no longer strands the
-borrowed Server or shows a perpetual "verifying" badge.
+- Operators see per-target trust at a glance and can prove an image with one
+  action; a verified target is required before a normal custom-image deploy in
+  that target, preventing a known-bad image from reaching production.
+- One new swallow-owned collection and one new durable Workflow kind; both follow
+  existing overlay and operation patterns.
+- `deployTarget` becomes the vocabulary in new surface while `ephemeral` keeps
+  working, so existing clients and platform deploys are unaffected.
+- Verification runs a real deploy: it consumes a ready Server for several minutes.

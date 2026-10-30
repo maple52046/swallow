@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-19
+- 現行規格：[workflow-execution.md](../development/workflow-execution.md) §9 取代佔用中的工作（`cancelActiveWorkflows`）
 
 ## Context
 
@@ -14,30 +15,32 @@ operators read as a frozen dashboard. [Decision 060](060-cancel-and-rerun-conver
 wait longer: canceling an OS deployment now returns the interrupted Server to Ready before the
 Workflow ends, which can take minutes, so the dialog would time out.
 
+On 2026-10-27 the same gap showed up for Platform uninstall. A Platform whose deployment failed and
+waits for attention (`requires_attention`) shows `deploy_failed` and offers Uninstall, yet that
+deployment still holds its Servers, so the uninstall was refused as busy and the operator had to
+find and cancel the Workflow first.
+
 ## Decision
 
-- **The backend supersedes the blocking work.** `POST /provisioning/release-operations` and
-  `POST /provisioning/recover-operations` accept `cancelActiveWorkflows`. After every other
-  validation passes, Swallow requests cancellation of each unfinished Workflow holding a target and
-  creates the Operation at once, ignoring those Workflows in its busy check. The Operation acquires
-  the same resource leases, so it waits in `waiting_dependency` and runs only after they end. A
-  cancel refused for a Workflow that is still running fails the request as a conflict naming it.
+- **The backend supersedes the blocking work.** Release, Recover, and Platform uninstall accept
+  `cancelActiveWorkflows`. After every other validation passes, Swallow requests cancellation of
+  each unfinished Workflow holding a target and creates the new Operation at once, ignoring those
+  Workflows in its busy check. The Operation acquires the same resource leases, so it runs only
+  after they end. A cancel refused for a Workflow that is still running fails the request as a
+  conflict naming it. With the flag, a Platform still `deploying` may be uninstalled.
 - **A Release observes before acting on every attempt.** A first `release-os` attempt that finds
   the Server already Ready (for example returned by a canceled deployment) or Releasing follows
   that instead of sending another Release. When static IP cleanup was requested but this Step sent
-  no Release, it fails with `release_cleanup_not_applied` rather than claiming a cleanup that never
-  ran.
-- **The dashboard only sends the flag.** Both dialogs close within the request; the toast says the
-  work starts once the canceled Workflows end.
-- **Platform uninstall supersedes too** (amended 2026-10-27). A Platform whose deployment failed and
-  waits for attention (`requires_attention`) shows `deploy_failed` and offers Uninstall, yet that
-  deployment still holds its Servers, so the uninstall was refused as busy and the operator had to
-  find and cancel the Workflow first. `POST /platforms/{id}/uninstall` now accepts
-  `cancelActiveWorkflows` with the same semantics, and with it a Platform still `deploying` may be
-  uninstalled. The single and bulk uninstall dialogs list the Workflows holding the targets and
-  require the operator to confirm before sending the flag; the CLI's `platforms uninstall`,
-  `provisioning release`, and `provisioning recover` take `--cancel-active-workflows`. Without the
-  flag the conflict names the Workflow holding the Server.
+  no Release, it fails rather than claiming a cleanup that never ran.
+- **Clients only send the flag.** The dashboard's Release and Recover dialogs close within the
+  request; its uninstall dialogs list the Workflows holding the targets and require the operator to
+  confirm first; the CLI exposes the same flag. Without the flag, the conflict names the Workflow
+  holding the Server.
+
+Revision history: 2026-10-27 extended `cancelActiveWorkflows` from Release and Recover to Platform
+uninstall (letting a `deploying` Platform be uninstalled with it), added the confirmation in the
+uninstall dialogs and the CLI flag, and made the conflict without the flag name the holding
+Workflow (original text in git history).
 
 ## Alternatives considered
 
@@ -52,11 +55,7 @@ Workflow ends, which can take minutes, so the dialog would time out.
 
 ## Consequences
 
-- Release and Recover behind running work are durable intents that start by themselves.
+- Release, Recover, and uninstall behind running work are durable intents that start by themselves.
 - A superseding Operation can wait as long as the canceled Workflow's own cancel path takes,
   including returning an interrupted deployment (up to 30 minutes).
 - The cancel-then-act sequence lives in one backend place for every client, including the CLI.
-
-## Current status
-
-Implemented in `api-server`, `dashboard`, and `cli`.

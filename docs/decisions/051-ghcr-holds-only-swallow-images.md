@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-05
+- 現行規格：[installation.md](../development/installation.md) §4 Release artifacts 與 image provenance
 
 ## Context
 
@@ -19,17 +20,14 @@ Compose service `temporal-postgresql`, although it also hosts the co-located MAA
 
 ## Decision
 
-- **GHCR holds only what swallow builds:** `api`, `dashboard`, and `cli`, tagged
-  `<component>-<version>`. This supersedes the "One image package" part of ADR 040.
-- **Official images are used as they are.** `deploy/release/runtime-images.env` pins
-  `docker.io/library/mongo`, `docker.io/library/postgres`, and `docker.io/temporalio/auto-setup`
-  by their upstream index digests. `publish.sh` checks that each resolves to a linux/amd64 image
-  and writes it unchanged into `release-manifest.json`, and the installation pulls it from
+- **GHCR holds only what swallow builds:** `api`, `dashboard`, and `cli`. This supersedes the
+  "One image package" part of ADR 040.
+- **Official images are used as they are.** MongoDB, PostgreSQL, and Temporal Server are pinned
+  by their upstream index digests, recorded unchanged in the release manifest, and pulled from
   Docker Hub. Installations still never use tags.
-- **The shared PostgreSQL has a neutral name.** The manifest key is `postgres`, the variable
-  `SWALLOW_POSTGRES_IMAGE`, the Compose service `postgres`, and its volume `postgres-data`. Its
-  superuser stays `temporal` and its password secret `temporal-db-password`, because Temporal
-  logs in with that account.
+- **The shared PostgreSQL has a neutral name:** `postgres` wherever swallow names it (manifest
+  key, image variable, Compose service, volume). Its superuser and password secret keep their
+  Temporal names, because Temporal logs in with that account.
 - **Offline installation is a separate concern.** When it is built, it ships its own media; it
   is not a reason to copy third-party images into GHCR.
 
@@ -54,9 +52,3 @@ Compose service `temporal-postgresql`, although it also hosts the co-located MAA
   was decided.
 - The mirror tags already in GHCR for `0.1.0-rc.1` and `0.1.0-rc.2` stay, because the
   `0.1.0-rc.2` manifest refers to them.
-
-## Current status
-
-Implemented in `deploy/release` (`runtime-images.env`, `publish.sh`, `assemble-release.sh`,
-`validate.sh`), `deploy/production` (`compose.yaml`, `swallowctl`, `local-maas.sh`), and the
-testing environment. `0.1.0-rc.3`, published on 2026-10-06, is the first release under it.

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-09
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §6.3 Slurm reference（已實作現況）的「HA shared state 由 swallow 供給」
 
 ## Context
 
@@ -25,26 +26,26 @@ playbook. swallow was missing both.
 
 **swallow provisions the HA shared `StateSaveLocation` itself; the operator supplies nothing.**
 
-- **State-server selection (in the deploy use case).** For a multi-controller deploy swallow picks
-  a state server from the existing targets: a **compute-only** node (compute and not a controller)
-  when one exists, otherwise the **primary controller**. Preferring an off-controller host keeps
-  controller state off the controllers (a controller-host loss does not also lose state) and avoids
-  a kernel NFS loopback mount on a controller. It emits `swallow_slurm_controller_state_mode=shared`,
-  `swallow_slurm_state_server_id`, and `swallow_slurm_state_export`.
-- **Managed NFS export (`slurm_state_server` role).** On the selected host, export a directory over
-  NFS to the controller addresses only (`rw,sync,no_subtree_check,root_squash`). The `slurm` uid is
-  uniform across nodes because they share one image, so `root_squash` is safe.
-- **Fail-closed controller mount (`slurm_controller_state` role).** Each controller mounts the
-  export at the `StateSaveLocation` and installs a `slurmctld` systemd drop-in
-  (`RequiresMountsFor` + `ConditionPathIsMountPoint`) so the daemon refuses to start unless the
-  path is a real mountpoint — state can never be written silently to a local disk. Single
-  controllers use `mode=local` (a controller-local directory, no NFS).
-- **`stateSaveLocation` becomes an optional override**, not a required field. The HA "required"
-  validation is removed.
-
-**Only `ansible.builtin` is used** for the mount (an fstab entry plus a guarded `mount`), not
-`ansible.posix.mount`: the executor image installs no galaxy collections and playbooks must stay
-air-gap-friendly.
+- **State-server selection in the deploy use case.** For a multi-controller deploy swallow picks
+  a state server from the existing targets: a compute-only node when one exists, otherwise the
+  primary controller. Preferring an off-controller host keeps controller state off the
+  controllers (a controller-host loss does not also lose state) and avoids a kernel NFS loopback
+  mount on a controller. ([ADR 024](024-slurm-login-and-workload-storage.md) later put a login
+  node first.)
+- **Managed NFS export.** The selected host exports a directory over NFS to the controller
+  addresses only, with `root_squash`; the `slurm` uid is uniform across nodes because they share
+  one image, so `root_squash` is safe.
+- **Fail-closed controller mount.** Each controller mounts the export at the `StateSaveLocation`
+  and `slurmctld` refuses to start unless the path is a real mountpoint, so state can never be
+  written silently to a local disk. Single controllers keep a controller-local directory.
+- **`stateSaveLocation` becomes an optional override**, not a required field.
+- **Only `ansible.builtin` is used** for the mount, not `ansible.posix.mount`: the executor image
+  installs no galaxy collections and playbooks must stay air-gap-friendly.
+- **The primary starts before any backup.** Shared state alone is not sufficient: a backup that
+  starts first comes up in standby, blocks waiting for a heartbeat the not-yet-configured primary
+  cannot write, and its failing `scontrol ping` aborts the run before the primary is configured.
+  `group_by` does not preserve primary-first order, so the primary is configured in its own play
+  before the backups.
 
 ## Alternatives considered
 
@@ -59,44 +60,17 @@ air-gap-friendly.
   within the same model. It remains the fallback when every node is a controller.
 - **Add the `ansible.posix` collection for `mount`:** rejected — it adds an image/build dependency
   and works against air-gap packaging for one task expressible with builtins.
-
-## Controller start order (required for HA to form)
-
-Shared state alone is not sufficient: the **primary must be configured and started before any
-backup**. A backup that starts first comes up in standby and blocks waiting for a heartbeat the
-not-yet-configured primary cannot write; its `scontrol ping` then fails and aborts the run
-before the primary is even given `slurm.conf`, so the cluster never forms (this was the actual
-failure behind the "every `slurmctld` DOWN" reports, independent of local vs shared state).
-`group_by` does not preserve primary-first order, so `deploy-slurm.yml` runs the primary in its
-own play (`hosts: slurm_primary`) and the backups in a following play
-(`hosts: slurm_controller:!slurm_primary`, `serial: 1`), rather than relying on `serial`
-ordering within a single controller play.
+- **Rely on `serial` ordering within a single controller play:** not used — `group_by` does not
+  preserve primary-first order.
 
 ## Consequences
 
-- An HA Slurm deploy now succeeds with no manual storage setup: controllers mount one shared
-  `StateSaveLocation`, the primary becomes active and writes the heartbeat, backups settle into
-  standby, and `slurmctld` stays up cluster-wide. Verified from 0 on a 3-controller / 4-compute
-  lab cluster (all three `slurmctld` UP, partition up, nodes idle).
+- An HA Slurm deploy succeeds with no manual storage setup: controllers mount one shared
+  `StateSaveLocation`, the primary becomes active, backups settle into standby, and `slurmctld`
+  stays up cluster-wide.
 - The selected state server is a **single storage failure domain** — a documented lab-grade
   limitation, not storage HA. Production external/HA storage is future work.
-- The mount guard makes a missing share a fast, explicit failure (with the enriched executor
-  error) instead of silent local-state corruption.
-- `slurm_config` no longer manages the state directory; `slurm_controller_state` owns it in both
+- The mount guard makes a missing share a fast, explicit failure instead of silent local-state
+  corruption.
+- The controller-state role, not the Slurm configuration role, owns the state directory in both
   modes.
-
-## Current status
-
-Implemented. Roles `slurm_state_server` and `slurm_controller_state`, wired into `deploy-slurm.yml`
-(state-server play, then controller-state play, then the controller-config play); state-server
-selection and trusted vars in `deploy_platform.go` (`buildSlurmVars`, `slurmStateServerID`);
-preflight assertion for HA shared-state inputs. Covered by `deploy_slurm_test.go` and
-`slurm_ha_state_playbook_test.go`.
-
-## Related
-
-- [ADR 019](019-slurm-platform-deployment.md) — the Slurm platform deployment this completes.
-- [platform-deployment.md](../development/platform-deployment.md) §6.3 — the Slurm reference,
-  updated for swallow-provisioned HA shared state.
-- `knowledge/Slurm/controller-ha-and-configless.md`, `knowledge/Slurm/shared-workload-storage.md`
-  — the domain rationale for shared state and its failure domains.

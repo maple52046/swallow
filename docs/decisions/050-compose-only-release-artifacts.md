@@ -2,14 +2,15 @@
 
 - Status: Accepted
 - Date: 2026-10-05
+- 現行規格：[installation.md](../development/installation.md) §4 Release artifacts 與 image provenance
 
 ## Context
 
 The single-VM installation ([ADR 040](040-single-vm-production-installation.md)) needs three
 things from a release: the Compose bundle, its `release-manifest.json`, and the images that
-manifest pins. Each release also produced a native preview bundle, an
-offline OCI archive of the runtime images (about 900 MB), and a mirrored Temporal UI image, and
-`publish.sh` ran crane from a container when crane was not installed.
+manifest pins. Each release also produced a native preview bundle, an offline OCI archive of the
+runtime images (about 900 MB), and a mirrored Temporal UI image, and `publish.sh` ran crane from a
+container when crane was not installed.
 
 None of those serve the installation that works today. The native installer cannot run
 Workflows until native Temporal and PostgreSQL packaging lands, yet its Python wheelhouse made
@@ -22,22 +23,18 @@ and did not return after streaming its output.
 
 ## Decision
 
-- A release contains the Compose bundle, the CLI binary, `release-manifest.json`,
-  `offline-media-manifest.json`, and `SHA256SUMS`. The manifest pins `api`, `dashboard`, `cli`,
-  `mongo`, `temporalPostgres` (renamed `postgres` by
-  [ADR 051](051-ghcr-holds-only-swallow-images.md)), and `temporalServer`. It no longer lists
-  `images.temporalUI`,
-  `artifacts.ociArchive`, or `artifacts.nativeBundle`; `schemaVersion` stays 1 because no
-  consumer reads them.
+- A release contains only the Compose installation: the Compose bundle, the CLI binary, the
+  release manifest, the offline media manifest, and checksums. The manifest no longer lists the
+  Temporal UI image, an offline archive, or a native bundle; its `schemaVersion` stays 1 because no
+  consumer reads those fields.
 - The native bundle is not published until native Temporal and PostgreSQL packaging is
-  complete. Its template stays in `deploy/production/native/`.
+  complete.
 - No offline image archive is published until offline installation, including MAAS images, is
   supported.
-- The Temporal UI is not mirrored. `SWALLOW_TEMPORAL_UI_IMAGE` is operator-owned: the installer
-  no longer writes it from the manifest, and it must still be an exact digest when set.
-- The publishing host needs crane on `PATH`; `publish.sh` has no container fallback. Release
-  assembly reads the CLI binary from the pushed image with `crane export` instead of a local
-  container engine.
+- The Temporal UI is not mirrored. Its image is the operator's choice, and it must still be an
+  exact digest when set.
+- The publishing host needs crane on `PATH`; there is no container fallback. Release assembly
+  reads the CLI binary from the pushed image with crane instead of a local container engine.
 
 This defers the air-gap goal stated in [ADR 006](006-embedded-ansible-execution.md) and
 [ADR 016](016-temporal-operation-orchestration.md); it does not drop it.
@@ -63,9 +60,3 @@ This defers the air-gap goal stated in [ADR 006](006-embedded-ansible-execution.
 - An air-gapped site cannot install from a release. An offline archive returns together with
   offline MAAS image support.
 - Operators who start the diagnostics UI choose and pin its image themselves.
-
-## Current status
-
-Implemented in `deploy/release` (`publish.sh`, `assemble-release.sh`,
-`mirror-runtime-images.sh`) and `deploy/production/swallowctl`. `0.1.0-rc.3`, published on
-2026-10-06, is the first release under it.

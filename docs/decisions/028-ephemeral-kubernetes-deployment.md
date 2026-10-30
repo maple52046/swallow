@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-14
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §2.3.2 Ephemeral（RAM）Kubernetes（decision 028）
 
 ## Context
 
@@ -17,18 +18,16 @@ into a partial cluster installation.
 
 ## Decision
 
-The existing `machinePreparation.settings.ephemeral` field is accepted for Kubernetes without
-a schema change. Its contract is explicitly volatile: OS changes, etcd, container runtime data,
-and workloads are lost when a Server reboots.
+The existing ephemeral OS intent is accepted for Kubernetes without a schema change. Its contract
+is explicitly volatile: OS changes, etcd, container runtime data, and workloads are lost when a
+Server reboots.
 
-Kubernetes automation installs the requested k0s binary, then performs a fail-closed host gate
-before starting any controller or worker. The gate verifies required commands, cgroup v2,
-required networking/filesystem kernel modules, and the version-matched `k0s sysinfo` report.
-For a MAAS memory-backed root, the gate also configures containerd's `native` snapshotter:
-nesting the default overlayfs snapshotter inside `overlayroot` produces unreliable `EINVAL`
-pod mounts. Custom `root.tgz` boots may expose `/` as overlayfs or directly as tmpfs; both are
-accepted only under provider-confirmed ephemeral intent.
-The retained Ansible stdout is the diagnostic artifact. Image construction remains outside
+Kubernetes automation installs the requested k0s binary, then performs a fail-closed gate on the
+booted host before starting any controller or worker: required commands, cgroup v2, required
+networking/filesystem kernel modules, and the version-matched `k0s sysinfo` report. On a
+memory-backed root (overlayfs or tmpfs) it also uses containerd's `native` snapshotter, because
+nesting the default overlayfs snapshotter inside `overlayroot` produces unreliable `EINVAL` pod
+mounts. The retained Ansible stdout is the diagnostic artifact. Image construction remains outside
 Swallow; the image must carry modules that match the provider's boot kernel.
 
 ## Alternatives considered
@@ -50,17 +49,3 @@ Swallow; the image must carry modules that match the provider's boot kernel.
   capability in retained automation output.
 - Operators must recreate or redeploy a Platform after an ephemeral host reboot; automatic
   restoration is not part of this decision.
-
-## Current status
-
-Implemented in backend validation, k0s automation, the provider-owned API contract, and the
-Dashboard. Lab validation uses an ABI-matched Ubuntu 24.04 MAAS image and a seven-node HA k0s
-Platform.
-
-## Related
-
-- [ADR 007](007-cluster-deployment-ownership.md) — Swallow ownership of k0s deployment.
-- [ADR 009](009-deployment-template-ownership.md) — reusable OS deployment intent.
-- [ADR 018](018-automatic-addressing-provider-auto-assign.md) — provider automatic addressing.
-- [`docs/development/platform-deployment.md`](../development/platform-deployment.md) — workflow
-  and playbook integration contract.

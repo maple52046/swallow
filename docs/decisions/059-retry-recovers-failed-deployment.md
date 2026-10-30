@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-19
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §11 Provider Recovery（§11.3 重試失敗的部署）
 
 ## Context
 
@@ -12,8 +13,8 @@ in under a second by Swallow's deployment preflight, which accepts only `ready` 
 refusal was reported as a retryable `provider_outcome_unknown`, so the Task parked in
 `requires_attention` again every time. The Server never redeployed.
 
-[Decision 033](033-provider-recovery-policy.md) and the platform-deployment guide prescribe the way
-out: Recover or Release the node to `ready`, then retry the Task. That path did not work. The
+[Decision 033](033-provider-recovery-policy.md) and the platform-deployment guide prescribed the
+way out: Recover or Release the node to `ready`, then retry the Task. That path did not work. The
 parked platform deployment still holds the Server, so the Recover Operation is refused as busy, and
 the Server page's only action canceled the whole platform deployment. A retry that cannot succeed
 and a recovery that cannot start left no route out short of abandoning the deployment.
@@ -58,7 +59,3 @@ instead of parking on a retry that repeats the refusal.
   operator can retry there rather than cancel the whole Operation.
 - Each attempt's normalized error is kept on its timeline event, so a retry no longer erases why an
   earlier attempt failed.
-
-## Current status
-
-Implemented.

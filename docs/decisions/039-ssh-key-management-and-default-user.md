@@ -1,10 +1,9 @@
 # 039. SSH key management, Deployment Key, and OS Image default user
 
-- Status: Accepted
+- Status: Accepted; the Site private-key override in "Effective credential" is superseded by
+  [ADR 041](041-deployment-key-only-automation.md) — automation now uses only the Deployment Key.
 - Date: 2026-10-01
-
-> The Site private-key override in "Effective credential" below is superseded by
-> [ADR 041](041-deployment-key-only-automation.md): automation now uses only the Deployment Key.
+- 現行規格：[access-and-credentials.md](../development/access-and-credentials.md) §3 Deployment Key、§4 Access Key、§5 Provisioner realization（capability-first）、§7 Automation 登入帳號解析
 
 ## Context
 
@@ -28,40 +27,30 @@ key model must not assume a single human.
 purpose `deployment` or `access`:
 
 - The **Deployment Key** is the single system-owned key pair. The installation creates it as
-  ed25519 with the idempotent one-shot command `swallow-api deployment-key ensure`, which
-  `swallowctl install` and `upgrade` (Compose and native) run right after `migrate` and the
-  dev/testing seeds run post-install. swallow holds its private key sealed with the existing
-  credential key and never returns it. It can be regenerated or replaced with an uploaded
-  unencrypted private key, never deleted. A partial unique index keeps it single even when the
-  command runs concurrently.
-- **API startup is independent of the key**: the API process neither creates nor requires it.
-  Only OS deployment (including image verification) and Platform deploy require it, and they
-  reject at acceptance with `409 conflict` while it is missing.
-- **Access Keys** belong to a User (today the admin) and are public-key only. Generating one
-  returns the private key exactly once; importing one accepts a public key only.
+  ed25519 with the idempotent one-shot command `swallow-api deployment-key ensure`; the API
+  process neither creates nor requires it. swallow holds its private key sealed with the
+  existing credential key and never returns it. It can be regenerated or replaced, never
+  deleted. OS deployment (including image verification) and Platform deploy require it and
+  reject at acceptance while it is missing.
+- **Access Keys** belong to a User (today the admin) and are public-key only.
 
-**Effective credential.** A Site Automation Configuration's private key, when set, overrides
-the Deployment Key for that Site; otherwise automation uses the Deployment Key. The become
-password stays site-scoped. Existing Sites keep working unchanged.
+**Effective credential.** Automation uses the Deployment Key; the become password stays
+site-scoped. As first decided, a Site Automation Configuration's private key could override the
+Deployment Key for that Site; ADR 041 removed that override (original text in git history).
 
 **Provisioner realization is capability-first** ([ADR 031](031-provider-capability-first-with-swallow-owned-fallback.md)).
-A provisioner that can hold SSH keys advertises `SSHKeyRegistration` and implements the
-optional `SSHKeyRegistrar` interface; MAAS does so through the API-key owner's
-`/account/prefs/sshkeys/`, and MAAS injects those keys into the image's default user at deploy.
-swallow lists first, adopts identical key material, adds what is missing, and removes only the
-provider keys it recorded; keys an operator added in the provisioner are never touched. Sync runs
-immediately after a key change, periodically in the API process, and — so a Server is never
-deployed without the Deployment Key — as a pre-deploy ensure that fails the provision Task
-(retryable `ssh_key_registration_failed`) when a capable provisioner cannot be synced. A
-non-capable provisioner reports sync state `unsupported`.
+A provisioner that can hold SSH keys advertises the capability, and swallow realizes every key's
+public key there (MAAS injects those keys into the image's default user at deploy). swallow
+adopts identical key material, adds what is missing, and removes only the provider keys it
+recorded; keys an operator added in the provisioner are never touched. So that a Server is
+never deployed without the Deployment Key, every OS deployment first ensures a capable
+provisioner holds it. A non-capable provisioner is reported as unsupported.
 
 **OS Image default user** is a swallow-owned field on the existing OS Image Provider Data
-Overlay ([ADR 025](025-provider-data-overlay.md)), settable at upload or later. The effective
-value is the overlay value, else a built-in derived from the provider OS family
-(`ubuntu`→`ubuntu`, `centos`→`centos`, `rhel`→`cloud-user`), else none. The deployed-image
-resolver that already mirrors `deployedImageName` also mirrors the effective default user onto
-each Server, and automation uses it **exclusively** as the login user; only when a Server has
-none does swallow fall back to the previous `[site sshUser, cloud-user, ubuntu]` probe.
+Overlay ([ADR 025](025-provider-data-overlay.md)). The effective value is the overlay value,
+else a built-in derived from the provider OS family, else none. It is mirrored onto each Server
+deployed with the image, and automation uses it **exclusively** as the login user; only when a
+Server has none does swallow fall back to probing candidate users.
 
 ## Alternatives considered
 
@@ -87,16 +76,9 @@ none does swallow fall back to the previous `[site sshUser, cloud-user, ubuntu]`
 
 ## Consequences
 
-- New `api-server` feature slice `sshkey` and HTTP contract `ssh-keys.md`; `provisioning.md`,
-  `site-automation.md`, and the Server contract gain `defaultUser` / `credentialSource` /
-  `deployedImageDefaultUser`.
 - Fresh installations can deploy with no Site credential once automation is enabled; an
   installation that skipped the step is told, at deploy acceptance, which command to run.
 - The Deployment Key's private key lives only in MongoDB, sealed with `credentialKey`; a restore
   needs both.
 - MAAS injects keys only at deploy time: regenerating the Deployment Key or deleting an Access
   Key does not change already-deployed Servers. Pushing keys to deployed hosts is future work.
-
-## Current status
-
-Implemented.

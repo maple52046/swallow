@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-09
+- 現行規格：[server-enrollment-and-boot-media.md](../development/server-enrollment-and-boot-media.md) §1.3 libvirt virtual machine、§4.6 `libvirt` method
 
 ## Context
 
@@ -22,35 +23,30 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
 
 - **Virtual machines enroll by name.** An operator names libvirt domains on a Hypervisor (a
   deployed swallow Server) and, for an externally served network, a Boot ISO. swallow reads each
-  domain's MAC addresses and architecture over SSH, registers the Machine with MAAS without
-  commissioning it, with the `virsh` Power Configuration (`qemu+ssh://<account>@<hypervisor>/system`,
-  power ID the domain name), and leaves it `new` and powered off. Automatic hardware inspection then
-  takes it to `ready`; its commission is what starts the domain, through MAAS.
-- **It is a durable Workflow,** `enroll-virtual-machines`, targeting the hypervisor Server, with one
-  independent `enroll-virtual-machine` ensure Task per domain, so thirty VMs run in parallel up to the
-  Workflow parallelism and one failure is retried alone.
-- **swallow reaches the Hypervisor with the Deployment Key** (ADR 039/041) as the hypervisor's
-  effective Server Default User, or an account the operator names, and runs `virsh -c
-  qemu:///system`. Being a Hypervisor is a role of a deployed Server, not a new record or credential.
-  This refines ADR 054's rejection of driving libvirt from swallow: swallow still never switches
-  power — MAAS does — and holds no hypervisor secret of its own; it touches libvirt only for what
-  MAAS cannot do, reading domains and attaching Boot Media.
-- **Boot Media has a method.** `redfish` for a Server with a BMC (ADR 047/049, unchanged) and
-  `libvirt` for a `virsh` Server whose address names a Hypervisor: the Boot ISO is uploaded as a
-  volume in the Hypervisor's `default` pool (defined as a directory pool at
-  `/var/lib/libvirt/images` when missing, as `virt-install` does), put on the domain's CD-ROM (added
-  when missing), and the CD-ROM boots first in the domain's persistent definition. Boot Media is an extension of the power
-  adapter: the virsh adapter names the Hypervisor through its address. Everything else about Boot
-  Media (the setting, the Boot ISO, the preflight, the ensure Task before inspection and deployment)
-  is shared.
+  domain's MAC addresses and architecture, registers the Machine with the provisioner without
+  commissioning it and with its `virsh` Power Configuration, and leaves it `new` and powered off.
+  Automatic hardware inspection then takes it to `ready`; its commission is what starts the domain,
+  through MAAS.
+- **It is a durable Workflow** targeting the Hypervisor, with one independent ensure Task per
+  domain, so many VMs run in parallel and one failure is retried alone.
+- **swallow reaches the Hypervisor with the Deployment Key** (ADR 039/041), as the Hypervisor's
+  effective Server Default User or an account the operator names. Being a Hypervisor is a role of
+  a deployed Server, not a new record or credential. This refines ADR 054's rejection of driving
+  libvirt from swallow: swallow still does not switch power — MAAS does — and holds no hypervisor
+  secret of its own; it touches libvirt only for what MAAS cannot do, reading domains and attaching
+  Boot Media (and, only when the operator explicitly asks, stopping a running domain before
+  enrollment).
+- **Boot Media has a method**, chosen from the Power Configuration: `redfish` for a Server with a
+  BMC (ADR 047/049, unchanged) and `libvirt` for a `virsh` Server whose address names a Hypervisor,
+  where the Boot ISO is uploaded to the Hypervisor's storage, put on the domain's CD-ROM, and the
+  CD-ROM boots first in the domain's persistent definition. The setting, the Boot ISO, the
+  preflight, and the ensure Task before inspection and deployment are shared.
 - **The provisioner's SSH identity is prepared by the installation and placed by swallow.** The
-  installation makes the co-located MAAS rack accept new hypervisor host keys and records its public
-  key as the provisioner Integration setting `virshSshPublicKey`; virtual-machine enrollment
-  authorizes that key for the login account on the Hypervisor. After installation no step leaves
-  swallow.
-- **The Dashboard path is an experimental feature** (`virtualMachines`); the API and the CLI
-  (`swallow servers virtual-machines list|enroll`) are generally available, because experimental
-  switches only ever change Dashboard presentation.
+  installation records the co-located MAAS rack's public key on the provisioner Integration, and
+  virtual-machine enrollment authorizes it for the login account on the Hypervisor. After
+  installation no step leaves swallow.
+- **The Dashboard path is an experimental feature**; the API and the CLI are generally available,
+  because experimental switches only ever change Dashboard presentation.
 
 ## Alternatives considered
 
@@ -74,17 +70,9 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
 
 ## Consequences
 
-- New routes `GET /servers/{id}/virtual-machines` and `POST
-  /provisioning/virtual-machine-enrollments`, Workflow kind `enroll-virtual-machines`, Task kind
-  `enroll-virtual-machine`, provider capability `MachineRegistration`, and Integration setting
-  `virshSshPublicKey`.
-- Boot Media's Read gains `method` and `libvirt`; a `virsh` Server on a Hypervisor can enable Boot
-  Media, and its ensure Task runs before every inspection and deployment.
 - A Hypervisor's login account must be in its `libvirt` group and have the Deployment Key
-  authorized. Boot Media may create and start the Hypervisor's `default` storage pool.
+  authorized. Boot Media may create and start the Hypervisor's default storage pool.
 - Changing a VM's domain definition is a mutation of the Hypervisor, so a locked Hypervisor refuses
   libvirt Boot Media and enrollment.
-
-## Current status
-
-Implemented.
+- New published Workflow and Task vocabulary, a provider capability for machine registration, and
+  an Integration setting for the provisioner's public key.

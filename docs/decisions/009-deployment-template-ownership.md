@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-28
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §3 Deployment Template
 
 ## Context
 
@@ -18,29 +19,31 @@ mode, and cloud-init for a named Swallow Integration.
 ## Decision
 
 Swallow owns an integration-scoped `DeploymentTemplate` as reusable deployment
-intent. It may contain an OS Image reference, ephemeral mode, provider-neutral
-DHCP-or-static network intent, and encrypted write-only cloud-init. It must not
-contain a provider NIC identity, target-specific static IP, packages, scripts,
-playbooks, or an execution lifecycle.
+intent. It may contain an OS Image reference, the deploy mode, provider-neutral
+network intent, and encrypted write-only cloud-init. It must not contain a
+provider NIC identity, target-specific static IP, packages, scripts, playbooks,
+or an execution lifecycle.
 
-A multi-Server deployment stores no durable Swallow job. Swallow validates the
-batch and submits the same resolved request to the owning provisioner; progress
-continues to be observed independently on each Server provisioning axis.
+A multi-Server deployment stores no durable Swallow job of its own: Swallow
+validates the batch and submits the same resolved request to the owning
+provisioner, and progress is observed independently on each Server provisioning
+axis. (Clients now submit OS deployments as a durable `deploy-os` Workflow, and
+this direct batch remains as a deprecated endpoint; see the current spec. The
+template owns no execution lifecycle on either path.)
 
 OS Images are read live from each Integration and are never mirrored into the
 template collection. Creating, changing, or using a template validates its image
 against the current provider catalog.
 
-One narrow exception is the mirrored display name of a Server's currently deployed
-image. The reconciler already reads each Integration's catalog once per pass, so it
-resolves each deployed machine's `osSystem`/`distroSeries` to the image's effective
-name (provider title overlaid with any Swallow custom name per
+One narrow exception is the mirrored display name of a Server's currently
+deployed image. The reconciler already reads each Integration's catalog once per
+pass, so it resolves each deployed machine's image to its effective name (the
+provider title overlaid with any Swallow custom name per
 [ADR 025](025-provider-data-overlay.md)) and mirrors that single string onto the
-Server provisioning axis with an `observedAt`. This is the ADR 001 mirror mechanism
-(one catalog read per Integration per reconcile, never a per-request fleet fan-out),
-and it exists so the fleet Server list can show a meaningful image name rather than a
-bare `osSystem/distroSeries`. The image catalog itself remains live-read and
-un-mirrored; only this derived name is cached on the Server.
+Server provisioning axis with an `observedAt`. This is the ADR 001 mirror
+mechanism, and it exists so the fleet Server list can show a meaningful image
+name without a per-request fan-out. The catalog itself remains live-read and
+un-mirrored.
 
 ## Alternatives considered
 
@@ -62,7 +65,3 @@ condition without copying image metadata into the template.
 Encrypted cloud-init can be inherited, replaced, or omitted for one deployment,
 but never read back. Provider calls can partially succeed after preflight and
 cannot be rolled back safely.
-
-## Current status
-
-Implemented by the OS Provisioning Workflow.

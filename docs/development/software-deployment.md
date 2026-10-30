@@ -87,22 +87,38 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
   （`grafana-server.service.d/10-swallow.conf`，`GF_*` 指向 management address 與 Swallow 擁有的
   provisioning／data 目錄），不改 `/etc/grafana`。uninstall 只移除帶 Swallow drop-in 的套件。
 
-**AMD Device Metrics Exporter**（[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)）：
-與 Slurm 功能同一支 role（`roles/device_metrics_exporter`），安裝 AMD 的 pinned native 套件
-（`amdgpu-exporter`，SHA-256 驗證），exporter 綁 management address 的 port `5001`（`5000` 是 Swallow
-抓取的 RDC exporter）、profiler 關閉。job attribution 由 trusted var 決定：standalone 為 `none`
-（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm`。`gpuagent` 依賴共用的
-`swallow-amdgpu-load.service`：standalone install 會套 `amdgpu_loader`（不加 dependents），uninstall
-只在沒有其他 unit 帶 loader 的 ordering drop-in（slurmd、k0s）時才移除 loader；Slurm 組入時 loader
-由 `slurm_gpu` 管。兩種模式都跑 identity check（沒有 GPU health metrics 即失敗，collapsed 只記錄）；
-Prometheus 抓取驗證與 result 檔只在帶 observability id（Slurm）時執行。Standalone 只提供 exporter，
-要看圖時另裝 Prometheus（`scrapeServerIds` + `scrapePort: 5001`）與 Grafana（`device-metrics-exporter` bundle）。
-
 切換方法或 runtime 會先移除前一種的 artifacts（data 目錄保留並改 owner）。三種方法都用 host network，
 位址語意一致：Grafana 綁 management address（`ansible_host`）；Prometheus 的 API 沒有驗證，預設只綁
 `127.0.0.1`（`listen: management` 才綁 management address），並把位址寫進
 `/etc/swallow/prometheus/endpoint`，同機 Grafana 的預設 datasource 讀這個檔。Grafana 是唯讀
 （anonymous Viewer、無 login form、無 admin），不持有任何 secret。
+
+**AMD Device Metrics Exporter**（[Device Metrics Exporter](glossaries/terms/device-metrics-exporter.md)）：
+standalone 安裝與 Slurm 功能（§5）是同一個 kind、同一支 playbook 與 role（`roles/device_metrics_exporter`），
+因此每個 Swallow 管理的 exporter 都有 Software Assignment。它只有一種安裝路徑：AMD 的 pinned native 套件
+（`amdgpu-exporter`，SHA-256 驗證；沒有 `container` method）。exporter 綁 management address 的 port `5001`
+（`5000` 是 Swallow 抓取的 RDC exporter）、profiler 關閉。請求不接受任何 spec 欄位（帶了即
+`validation_error`），assignment 的 spec 記錄 `{ "version": "1.5.3" }`。job attribution 由 trusted var 決定：
+standalone 為 `none`（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm`。
+
+- **目標資格**（建立 Workflow 前檢查，不符為 `409 conflict`）：[GPU Inventory](glossaries/terms/gpu-inventory.md)
+  須列出 AMD compute GPU；拒絕 Kubernetes member（GPU Operator 自己跑 exporter）；拒絕帶
+  [Platform Claim](glossaries/terms/platform-claim.md) 的 Server，install 與 uninstall 皆然（Platform 節點上的
+  exporter 由該 Platform 安裝與移除）。
+- **OS**：只支援 Ubuntu 24.04。Server projection 對 custom image 只報 `osSystem` `custom`，分辨不出發行版，
+  因此由 playbook 在安裝任何東西之前檢查主機，不符即以 `device_metrics_exporter_unsupported_os` 失敗。
+- **amdgpu driver**：`gpuagent` 依賴共用的 `swallow-amdgpu-load.service`。standalone install 會套
+  `amdgpu_loader`（不加 dependents），uninstall 只在沒有其他 unit 帶 loader 的 ordering drop-in（slurmd、k0s）
+  時才移除 loader；Slurm 組入時 loader 由 `slurm_gpu` 管。
+- **驗證**：兩種模式都跑 identity check：exporter 沒有 GPU health metrics 即以
+  `device_metrics_exporter_no_metrics` 失敗；distinct `gpu_id` 少於 GPU 數（collapsed，例如 MI308X SR-IOV VF）
+  只記錄在 Task output，不使安裝失敗。Prometheus 抓取驗證與 result 檔只在帶 observability id（Slurm）時執行。
+- Standalone 只提供 exporter，要看圖時另裝 Prometheus（`scrapeServerIds` + `scrapePort: 5001`）與 Grafana
+  （`device-metrics-exporter` bundle）。
+
+設計理由（為何是 Managed Software 而不只共用 role、為何沒有 container method、為何 standalone 不一併裝
+Prometheus／Grafana、為何不從 projection 判斷 OS）見
+[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)。
 
 ## 3. Software Assignment（durable record）
 
@@ -195,7 +211,10 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 
 ### 4.6 Docker CE 的 Engine API 與 Docker Host Explorer
 
-依 [decision 043](../decisions/043-docker-host-management.md)：
+Docker CE 的 `enableApi` 變體讓 api-server 能即時管理主機上的 Docker Engine
+（[Docker Host Explorer](glossaries/terms/docker-host-explorer.md)）。設計理由（為何由 api-server 代呼而非瀏覽器直連
+或透明 proxy、為何不逐次跑 Workflow、為何不把 Docker 物件鏡射進 Mongo）見
+[decision 043](../decisions/043-docker-host-management.md)。
 
 - **Spec 正規化**：install 時 `enableApi` 省略即寫成 `true`，非 boolean 為 `validation_error`；
   因此新紀錄的 assignment `spec` 一定帶明確值。043 之前寫入、沒有此鍵的紀錄視為**未啟用**
@@ -203,27 +222,62 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 - **Playbook 行為**（`roles/docker_ce/tasks/api.yml`）：啟用時寫 systemd drop-in
   `/etc/systemd/system/docker.service.d/swallow-api.conf`，在原本的 `-H fd://` 之外加
   `-H tcp://0.0.0.0:<port>`（Docker 官方的 remote access 作法；不碰 `daemon.json`，避免與操作者自己的
-  `hosts` 設定衝突），daemon-reload 後重啟 dockerd 並等 port 開啟；停用或卸載時移除 drop-in 並確認
-  port 已關。RHEL family 若 firewalld 為 active，同步開/關該 port（runtime + permanent，不 reload）；
-  ufw 不處理（MAAS Ubuntu image 預設未啟用）。
+  `hosts` 設定衝突），daemon-reload 後重啟 dockerd 並等 port 開啟（60 秒內沒開即 install 失敗，不會留下
+  `installed` 卻連不上的 assignment）；停用或卸載時移除 drop-in 並確認 port 已關。RHEL family 若 firewalld
+  為 active，同步開/關該 port（runtime + permanent，不 reload）；ufw 不處理（MAAS Ubuntu image 預設未啟用）。
 - **重啟代價**：drop-in 變更會重啟 dockerd，沒有 restart policy 的 container 會停止；dashboard 在切換處
   明示。
 - **切換 = 重跑 ensure**：已安裝主機要開/關 API，就是同 kind 再送一次 install（spec 改變即再 ensure），
   不另設 Job 或 Workflow kind。
-- **Explorer 邊界**：`/api/v1/servers/{id}/docker/...` 由 api-server 同步呼叫主機 Engine API，資格只看
-  swallow-owned 事實（Server `deployed` 且有 primary address、`docker-ce` assignment `installed`、
-  `enableApi: true`）；Docker 物件不寫入 Mongo；寫入受 Server Lock 管制。契約見
-  [servers-docker](../../api-server/docs/development/api-contracts/api-server/servers-docker.md)。
-- **安全**：listener 為無認證 plain HTTP，只適用內網；TLS／mTLS 為後續 hardening。
-- **Private registry**（[decision 044](../decisions/044-docker-registry-credentials.md)）：pull 依 image
-  reference 解析 registry，若有 swallow 保存的 Registry Credential（installation 級、加密、write-only）就以
-  `X-Registry-Auth` 隨該次請求送給 Engine；主機上的 `docker login` 對 Engine API 無效，不使用。契約見
-  [registry-credentials](../../api-server/docs/development/api-contracts/api-server/registry-credentials.md)。
+- **Explorer 邊界**：api-server 在 `/api/v1/servers/{id}/docker/...`（summary、images、containers、volumes、
+  networks）同步呼叫主機的 Engine API，瀏覽器從不直連主機。這是刻意收斂、使用 Docker 原生名詞的路由集合
+  （同源、admin 授權、經 provider-owned contract），不是透明的 Docker API proxy；新的 Engine 能力以明確路由加入。
+  契約見 [servers-docker](../../api-server/docs/development/api-contracts/api-server/servers-docker.md)。
+- **資格只看 swallow-owned 事實**：Server `deployed` 且有 primary address、`docker-ce` assignment
+  `installed`、`enableApi: true`。swallow 不探測、也不使用 operator 在 swallow 之外開啟的 Docker API；Podman
+  沒有 explorer。不符合時 explorer 回 `409`，consumer 應依 Software Assignment 決定是否提供 explorer。
+- **不保存 Docker 物件**：images、containers、volumes、networks 屬於 Docker Engine，每次讀寫都在請求當下呼叫
+  Engine，不寫入 Mongo；寫入是同步呼叫，不建立 Workflow。swallow 與 Docker 相關的狀態只有 Software Assignment
+  與 §4.7 的 Registry Credential（swallow 自己的 secret，不是 Engine 物件的鏡射）。
+- **寫入受 Server Lock 管制**：pull／remove image，以及 create／start／stop／restart／remove container、
+  volume、network 在鎖定的 Server 上被拒；讀取照常可用。
+- **安全**：listener 是無認證的 plain HTTP、綁所有介面，任何連得到該 port 的人等同取得主機 root，只適用內網。
+  dashboard 在 install 選項與 Containers tab 要求啟用處顯示同一份風險提示，建議可從 Internet 連到的 Server
+  保持關閉。TLS／mTLS 為後續 hardening（見 §6）。
+- **Dashboard**：Server detail 的 "Containers" tab 只在 swallow 裝了 Docker CE 的 Server 上列出；該 tab 也能開關
+  API，作法是送出只改了 `enableApi` 的完整 recorded spec 重跑 install。
 - **`docker` group**（[decision 045](../decisions/045-server-default-user.md)）：`roles/docker_ce` 把
   `ansible_user`——也就是該 Server 的 effective Server Default User（Server 上設定的值，否則 OS Image 的
   default user）——加入 `docker` group（`root` 除外），讓該帳號不需 sudo 就能用 Docker；新的 group 在該帳號
   下次登入後生效。不另帶 trusted var；043 之前或本變更之前安裝的主機重跑 install 即補上。卸載不移除該帳號
   的 group membership。
+
+### 4.7 Docker CE 的 Registry Credential
+
+Docker Host Explorer 拉 private image 時使用 swallow 保存的
+[Registry Credential](glossaries/terms/registry-credential.md)。設計理由（為何存在 swallow 而不是每次輸入、為何不在
+主機上 `docker login`、為何是 installation 範圍）見 [decision 044](../decisions/044-docker-registry-credentials.md)。
+
+- **擁有者與範圍**：swallow-owned、installation 級的資料（不分 Site、Server 或 User），存於 collection
+  `software_registry_credentials`，以正規化的 registry（host 或 `host:port`）為唯一鍵（unique index），每個
+  registry 至多一筆；registry 建立後不能改，要換就刪除再建立。正規化規則見契約。
+- **密碼封存**：密碼（或 access token）以 installation credential key 封存，與 Integration credential、Deployment
+  Key 相同；API 為 write-only，任何 response 都不回傳密碼，也不寫進 log 或錯誤訊息，只在 pull 當下解封一次。輪替
+  credential key 後既有密碼無法解封、必須重新輸入；解封失敗會讓該次 pull 失敗，不會退回匿名 pull。
+- **每次 pull 解析**：依 image reference 以 Docker 自己的規則決定 registry（沒有 registry host 的 reference 屬於
+  `docker.io`）；有對應的 credential 就以 `X-Registry-Auth` 隨該次請求交給 Engine，否則匿名 pull。credential 不寫入
+  主機。pull response 回報解析出的 registry 與是否帶了 credential；pull 失敗時，錯誤訊息附註這次是匿名或以哪個帳號
+  登入，因為 registry 的拒絕訊息兩者看起來一樣。
+- **主機上的 `docker login` 無效**：它只寫 CLI 的 `config.json`，Engine API pull 只認呼叫端送來的
+  `X-Registry-Auth`，因此不使用。
+- **管理不接觸外部**：建立、取代、刪除 credential 都不連 registry 也不連主機，也不在儲存時驗證；錯誤的 credential
+  在第一次 pull 時以 registry 自己的理由呈現。
+- **屬於 Docker CE 的設定**：API 在 `/api/v1/software/docker-ce/registry-credentials`（`/software/` 之下只有 catalog
+  與 assignments 是各 kind 共用的）；dashboard 在 Docker CE 自己的 Settings 管理，其他 kind 有設定時各自另立。Pull
+  image 對話框提示該 reference 會用哪一筆 credential，實際選擇以 api-server 為準。契約見
+  [registry-credentials](../../api-server/docs/development/api-contracts/api-server/registry-credentials.md)。
+- **安全**：§4.6 的 listener 是 plain HTTP，credential 以明文經網路送到主機；在該 listener 限定的內網上，讀得到這段
+  流量的人本來就能控制主機。listener 的 TLS hardening 會一併涵蓋。
 
 ## 5. 與 Platform deployment 的連動（規範）
 
@@ -238,10 +292,11 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
      primary controller，spec 帶該功能的 `installMethod` 與 runtime）；
   3. Device Metrics Exporter 開啟時 `configure-device-metrics-exporter`（目標＝GPU compute nodes 的
      `device-metrics-exporter`，[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)）。
-     其 `install-device-metrics-exporter` Task 同時帶 software 參數與 Platform 的 owner／record 參數，
-     Platform 的 DME State、GPU identity、Monitoring Link 照舊由 step observer 與 result 檔記錄；Slurm
-     專屬 trusted vars 疊加在 software vars 上。Slurm uninstall 照舊在每個 target 移除 DME，成功時把
-     該 Platform 各 Server 的 `device-metrics-exporter` assignment 標為 `absent`。
+     其 `install-device-metrics-exporter` Task 同時帶 software 參數（因此安裝失敗時 assignment 隨之標
+     `failed`）與 Platform 的 owner／record 參數，Platform 的 DME State、GPU identity、Monitoring Link 照舊由
+     step observer 與 result 檔記錄；Slurm 專屬 trusted vars（job attribution、cluster name label、observability
+     Server 上的抓取驗證，見 §4.2）疊加在 software vars 上。Slurm uninstall 照舊在每個 target 移除 DME，成功時把
+     該 Platform 各 Server 的 `device-metrics-exporter` assignment 標為 `absent`，紀錄不會比套件活得久。
 
   每個 Job 是「該 kind 的 ansible Task（`install-<kind>`，帶 `softwareKind`／`serverIds`／
   `softwareMode=install`）＋ `record-<kind>` internal record Task」，下一個 Job 依賴上一個的 record
@@ -261,6 +316,15 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
   managed state NFS**，直到 slice 2 收斂。
 - 不做 k8s + Docker runtime、不做 PostgreSQL / LDAP、不把 software 做成 Platform 形狀的聚合、
   不做持續 package 輪詢、不做 air-gap 套件庫。（Slurm launcher 的組入已由 decision 063 實作，見 §5。）
+- **Docker Engine API 的 hardening**：listener 的 TLS／mTLS 認證，或改由 api-server 經 SSH tunnel 連 local
+  socket；做的時候一併處理 Registry Credential 的明文傳輸。
+- **Swarm 與 fleet 級 Docker 管理**：Docker Swarm 或跨 Server 的 Docker 檢視可能需要 swallow 保存 Docker 資料，
+  會推翻 §4.6 的「不保存 Docker 物件」，須另立 ADR；依 §0 的分界，跨主機組成的 Swarm 會是 Platform 而非
+  Managed Software。
+- **Registry Credential 的延伸**：同一 registry 的 Site 或 Server 範圍 credential（需要優先序模型），以及儲存時
+  驗證（需要一台主機代為呼叫 Engine 的 `/auth`）。
+- **Kubernetes 與 standalone Device Metrics Exporter**：把 Kubernetes 部署到已有 standalone exporter 的 Server，
+  目前沒有處理。
 
 ## 7. 程式與內容位置對照（導航用）
 
@@ -274,19 +338,26 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 | record/clear internal step | `api-server/internal/app/platform_workflow_step_executor.go` |
 | 失敗標記 observer | `api-server/internal/app/software_assignment_observer.go` |
 | Playbooks 與 roles | `api-server/automation/playbooks/deploy-*.yml`、`roles/docker_ce`（Engine API listener：`tasks/api.yml`）、`roles/podman`、`roles/nfs_server`、`roles/nfs_client`、`roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用） |
-| Docker Host Explorer（port、use case、Engine client、handler） | `api-server/internal/software/domain/docker.go`、`application/docker_explorer.go`、`infra/dockerengine/`、`delivery/docker_handler.go` |
-| API 契約 | `api-server/docs/development/api-contracts/api-server/software.md`、`servers-docker.md` |
+| Docker Host Explorer（view types、use case、Engine client、handler） | `api-server/internal/software/domain/docker.go`（port 常數 `DockerEngineAPIPort` 在 `domain/software.go`）、`application/docker_explorer.go`、`infra/dockerengine/`、`delivery/docker_handler.go` |
+| Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/software/domain/registry.go`、`application/registry_credentials.go`、`infra/mongo_registry_credential_repo.go`、`delivery/registry_credential_handler.go` |
+| Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |
+| API 契約 | `api-server/docs/development/api-contracts/api-server/software.md`、`servers-docker.md`、`registry-credentials.md` |
 
 ## 8. 相關文件
 
 - 決策：[decision 038 Software deployment](../decisions/038-software-deployment.md)、
   [decision 043 Docker host management](../decisions/043-docker-host-management.md)、
+  [decision 044 Docker registry credentials](../decisions/044-docker-registry-credentials.md)、
+  [decision 068 Device Metrics Exporter Managed Software](../decisions/068-device-metrics-exporter-managed-software.md)、
   [decision 017 Workflow/Job/Task/Runner](../decisions/017-workflow-job-task-runner-model.md)、
   [decision 019 Slurm platform deployment](../decisions/019-slurm-platform-deployment.md)。
 - 語言：glossary [Managed Software](glossaries/terms/managed-software.md)、
   [Software Assignment](glossaries/terms/software-assignment.md)、
-  [Docker Host Explorer](glossaries/terms/docker-host-explorer.md)、[Platform](glossaries/terms/platform.md)。
+  [Docker Host Explorer](glossaries/terms/docker-host-explorer.md)、
+  [Registry Credential](glossaries/terms/registry-credential.md)、
+  [Device Metrics Exporter](glossaries/terms/device-metrics-exporter.md)、[Platform](glossaries/terms/platform.md)。
 - 平行設計：[platform-deployment.md](platform-deployment.md)。
 - API 契約（`api-server` 擁有）：
   [software](../../api-server/docs/development/api-contracts/api-server/software.md)、
-  [servers-docker](../../api-server/docs/development/api-contracts/api-server/servers-docker.md)。
+  [servers-docker](../../api-server/docs/development/api-contracts/api-server/servers-docker.md)、
+  [registry-credentials](../../api-server/docs/development/api-contracts/api-server/registry-credentials.md)。

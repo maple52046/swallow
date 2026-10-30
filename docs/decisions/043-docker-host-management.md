@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-02
+- 現行規格：[software-deployment.md](../development/software-deployment.md) §4.6 Docker CE 的 Engine API 與 Docker Host Explorer
 
 ## Context
 
@@ -23,47 +24,35 @@ enabled without inventing a second software lifecycle.
 
 ## Decision
 
-**Docker CE gains an `enableApi` variant.** The `docker-ce` install spec accepts a boolean
-`enableApi`, defaulting to `true`. When enabled, the install playbook makes `dockerd` listen on
-`tcp://0.0.0.0:2375` (plain HTTP, unauthenticated) in addition to its local socket; when
-disabled, or on uninstall, swallow's listener configuration is removed. The recorded assignment
-always carries the explicit value; an assignment recorded before this decision has none and is
-treated as disabled, because nothing configured a listener on that host. Turning the API on or
-off for an installed Server is the same convergent install with a changed spec — no separate
-Job or Workflow kind. Changing it restarts `dockerd`.
-
-**A Docker Host Explorer, mediated by api-server.** For a Server where swallow installed Docker
-CE with the API enabled, api-server exposes an opinionated REST surface under
-`/api/v1/servers/{id}/docker/...` (summary, images, containers, volumes, networks) and calls the
-host's Engine API itself. The browser never connects to a host. This is the explorer plane of
-[ADR 032](032-self-deployed-platform-management.md) applied to one Server: same-origin, admin
-authorized, behind the provider-owned contract, with Docker-native names rather than a generic
-workload vocabulary.
-
-**Eligibility comes only from swallow-owned facts.** The explorer is available when the Server
-is deployed with a known primary address, its `docker-ce` assignment is `installed`, and the
-assignment's `enableApi` is `true`. Swallow does not probe for, and does not use, a Docker API
-the operator enabled by other means.
-
-**Nothing Docker-owned is persisted.** Images, containers, volumes, and networks are facts the
-Docker Engine owns; every read and write goes to the Engine at request time and stores nothing
-in Mongo, consistent with ADR 001. Writes are synchronous calls, not Workflows. Swallow's only
-Docker-related state remains the Software Assignment.
-
-**Writes respect the Server Lock.** Pulling or removing images and creating, starting,
-stopping, or removing containers, volumes, and networks change the host, so they are refused
-on a locked Server ([ADR 013](013-server-lock-protection.md)); reads stay available.
-
-**Security posture of this version.** The listener is unauthenticated plain HTTP bound to every
-interface, acceptable only on internal networks. The dashboard states this risk where the
-option is set and where the explorer asks to enable it, and recommends disabling it on Servers
-reachable from the Internet.
-
-**Anticipated evolution (not decided here).** If swallow later manages Docker Swarm, or Docker
-across a whole cluster or fleet (for example an aggregate inventory or cross-Server views), that
-feature may need swallow-owned Docker data in its database. That would revisit the
-"nothing persisted" clause above and needs its own ADR. By ADR 038's boundary, a Swarm — a
-runtime composed across hosts — would be modelled as a Platform rather than as Managed Software.
+- **Docker CE gains an `enableApi` variant**, on by default. When enabled, `dockerd` also listens
+  on `tcp://0.0.0.0:2375` (plain HTTP, unauthenticated); when disabled, or on uninstall, swallow's
+  listener configuration is removed. An assignment recorded before this decision is treated as
+  disabled, because nothing configured a listener on that host. Turning the API on or off for an
+  installed Server is the same convergent install with a changed spec — no separate Job or
+  Workflow kind.
+- **A Docker Host Explorer, mediated by api-server.** For a Server where swallow installed Docker
+  CE with the API enabled, api-server exposes an opinionated REST surface (summary, images,
+  containers, volumes, networks) and calls the host's Engine API itself. The browser never
+  connects to a host. This is the explorer plane of
+  [ADR 032](032-self-deployed-platform-management.md) applied to one Server: same-origin, admin
+  authorized, behind the provider-owned contract, with Docker-native names rather than a generic
+  workload vocabulary.
+- **Eligibility comes only from swallow-owned facts**: the Server is deployed with a known primary
+  address, and its `docker-ce` assignment is `installed` with `enableApi` true. Swallow does not
+  probe for, and does not use, a Docker API the operator enabled by other means.
+- **Nothing Docker-owned is persisted.** Images, containers, volumes, and networks are facts the
+  Docker Engine owns; every read and write goes to the Engine at request time, consistent with
+  ADR 001. Writes are synchronous calls, not Workflows. Swallow's only Docker-related state remains
+  the Software Assignment.
+- **Writes respect the Server Lock** ([ADR 013](013-server-lock-protection.md)): they change the
+  host, so they are refused on a locked Server; reads stay available.
+- **Security posture of this version.** The listener is acceptable only on internal networks. The
+  dashboard states the risk where the option is set and where the explorer asks to enable it.
+- **Anticipated evolution (not decided here).** If swallow later manages Docker Swarm, or Docker
+  across a whole cluster or fleet (for example an aggregate inventory or cross-Server views), that
+  feature may need swallow-owned Docker data in its database. That would revisit the
+  "nothing persisted" clause above and needs its own ADR. By ADR 038's boundary, a Swarm — a
+  runtime composed across hosts — would be modelled as a Platform rather than as Managed Software.
 
 ## Alternatives considered
 
@@ -92,31 +81,12 @@ runtime composed across hosts — would be modelled as a Platform rather than as
 
 ## Consequences
 
-- The `docker-ce` catalog entry lists `enableApi`; installs carry the trusted vars
-  `swallow_docker_enable_api` and `swallow_docker_api_port`. The port is owned by api-server so
-  the playbook and the explorer cannot disagree.
-- A new Active contract `servers-docker.md` and glossary term Docker Host Explorer; the
-  `software` feature in api-server owns the explorer next to the assignment it gates on.
-- The dashboard Server detail gains a "Containers" tab for Servers with an installed Docker CE,
-  and the install dialog gains the option with its risk notice.
-- Enabling the API on an existing installation restarts `dockerd`; containers without a restart
-  policy stop. The UI and docs say so.
+- The listener port is owned by api-server and handed to the playbook, so the playbook and the
+  explorer cannot disagree.
+- The `software` feature in api-server owns the explorer next to the assignment it gates on; the
+  explorer has its own Active contract and the glossary term Docker Host Explorer.
+- Enabling or disabling the API on an existing installation restarts `dockerd`; containers without
+  a restart policy stop.
 - Hosts with the API enabled expose an unauthenticated Docker daemon to their network — root-
   equivalent access for anyone who can reach port 2375. This is accepted for internal networks
   only and is the main item for a future hardening slice.
-
-## Current status
-
-Implemented: the `enableApi` spec, the playbook listener and firewalld handling, the explorer
-contract and api-server routes, and the dashboard Containers tab. TLS/authentication, Swarm,
-and fleet-wide Docker views are future work.
-
-## Related
-
-- [ADR 001](001-system-ownership-boundaries.md) — integrate, don't rebuild; Docker objects are a
-  live read.
-- [ADR 013](013-server-lock-protection.md) — the lock that gates explorer writes.
-- [ADR 032](032-self-deployed-platform-management.md) — the explorer plane pattern this follows.
-- [ADR 038](038-software-deployment.md) — Docker CE as Managed Software and the Software Assignment.
-- [`docs/development/software-deployment.md`](../development/software-deployment.md) — the
-  Docker CE spec, trusted vars, and playbook behavior.

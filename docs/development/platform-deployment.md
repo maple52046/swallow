@@ -82,6 +82,31 @@ deployment 一律以這四層表達（完整定義見 glossary：
 - 分成兩個 Job，依 **cross-Job 依賴序**以 child workflow 執行：先 `ensure-os`，後
   `configure-k0s`。
 
+**拓樸與角色**（[decision 007](../decisions/007-cluster-deployment-ownership.md)、
+[decision 011](../decisions/011-flexible-k0s-topologies.md)）：deploy 請求以 `roleAssignments[]`
+（[Node Role](glossaries/terms/node-role.md) `control-plane | worker`，control-plane 可選 `runWorkloads`）表達意圖；
+deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-topology.md)（`standalone`、`multi-node`、
+`high-availability`），並在建立任何紀錄前驗證。欄位與錯誤見
+[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#deploy-a-new-platform)。
+
+- control-plane 為 1 台或至少 3 台的奇數（2 台與偶數拒絕），且至少一台 Server 跑 workload。`runWorkloads` 只是
+  placement，不改 Node Role：observed membership 維持封閉的 `control-plane | worker`。
+- pod／service CIDR 不得涵蓋任何 target 的位址；HA 的 VIP 不得等於 target 位址（子網規則見 §2.3 的 HA VIP 契約）。
+- 只有 HA 設定 keepalived 並需要 `apiVip`：k0s control plane load balancing（keepalived VRRP VIP）加 node-local load
+  balancing（`EnvoyProxy`），不用外部 load balancer；VRRP 密碼是 sealed secret（§4.3）。單一 control-plane 以該 Server
+  的 observed 位址為 API endpoint，不建立 VIP。Dashboard 在送出前標示非 HA 拓樸沒有 control-plane failover。
+- 角色由 server-side 組成 trusted vars（§4.2），operator 的變數無法影響哪台成為 controller。controller 預設為
+  dedicated（不帶 `--enable-worker`，不註冊成 Kubernetes node）；`runWorkloads` 的 controller 以
+  `--enable-worker --no-taints` 安裝。其他 controller 以 k0s controller join token 加入，token 帶 CA material，
+  主機之間不複製憑證。
+- `k0s_verify` 斷言 etcd member 數等於 control-plane 數、Kubernetes node 數等於跑 workload 的 Server 數。
+- playbook 以既有的 k0s systemd unit（`k0scontroller.service`／`k0sworker.service`）判定已安裝，所以重跑是安全的。
+- 不在範圍：叢集升級與 bootstrap 後的叢集設定變更。bootstrap 時只有初始 controller 的設定生效，之後改叢集設定
+  不是單純重跑。
+
+設計理由：否決 k0sctl、外部 load balancer、保存 admin kubeconfig、由 swallow 記錄 controller 清單，見 decision 007；
+不新增 `control-plane-worker` role、不允許偶數 control-plane、非 HA 不要求 VIP，見 decision 011。
+
 ### 2.1 Task 組成
 
 | Job | Task ID | Kind | Runner | Targets | DependsOn | 主要 Parameters |
@@ -244,6 +269,39 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
   symlink；playbook 只建立目的地不存在的 link，關閉 DRA 或卸載時以 `readlink` 確認後才移除。
   `uninstall-kubernetes` 保留主機時也移除它們，以及 DRA driver 寫在 k0s 狀態之外的
   `/var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml`。
+- 每次 Operation 都重讀 NFD 的結果，所以新加入叢集的節點在下一次變更時納管。
+- 一次只有一種 [GPU Allocation Mode](glossaries/terms/gpu-allocation-mode.md)：切換時先關閉舊模式、等它消失再啟用新模式；
+  有 Pod 佔用 AMD GPU 或有已配置的 `gpu.amd.com` `ResourceClaim` 時，拒絕切換與卸載（`[gpu_workloads_present]`）。
+- 不接管 swallow 沒有安裝的 operator：叢集已有 AMD GPU Operator、`DeviceConfig` 或手動套用的 AMD device plugin／labeller
+  時以 `[gpu_operator_unmanaged]` 拒絕。其他失敗碼見 platforms 契約的 "What The Operation Does"。
+- 支援的版本是 swallow 的 release catalog（chart、DRA driver 版本、固定的 operand image），以
+  `GET /platforms/gpu-operator/releases` 讀取。新增版本＝新增 catalog 項目、隨發行包附帶的 chart archive，以及一次 lab
+  驗證。chart 與 helm checksum 隨發行包；operand image 依固定 tag 從 Docker Hub（`docker.io/rocm/...`）拉取，helm binary
+  於執行時下載。
+- `gpuStackOwner` 隨功能推導：啟用 operator 即為 `gpu-operator`；swallow 管理 operator 期間（state 不是 `absent`）不能
+  改回 `provisioning`。`gpu-operator` 卻沒有 swallow 管理的 operator，表示 operator 由 swallow 以外管理。
+- 監控不變：operator 的 Device Metrics Exporter 為選用、不用 host network，swallow 不 scrape 它；host 的 RDC exporter
+  維持固定 port 5000（[decision 003](../decisions/003-metrics-label-contract.md)）。
+- GPU Operator 的安裝是部署成功的一部分：GPU Task 失敗讓部署停在 `requires_attention`，該 Task 可重試。
+- 設計理由：選 Platform Job 而非 Managed Software、否決 k0s Chart CR、直接以 NFD label 選節點、讓使用者勾選 Server
+  與第一版採 KMM，見 decision 062。
+
+### 2.3.2 Ephemeral（RAM）Kubernetes（decision 028）
+
+Kubernetes deploy 接受既有的 `machinePreparation.settings.ephemeral`（[Deploy Target](glossaries/terms/deploy-target.md)
+`ram`），不改 schema：provider 以 memory-backed root 開機、不碰磁碟。這是刻意 volatile 的契約：節點重開後 OS、etcd、
+container runtime 與 workload state 全部消失，swallow 不自動復原，operator 需重建或重新部署 Platform。
+
+- 本次以 RAM provision 時，launcher 帶 trusted var `swallow_k0s_ephemeral_root`；`k0s_host_preflight` 斷言 `/` 為
+  `overlay`（MAAS overlayroot）或 `tmpfs`（custom `root.tgz`），並把 containerd 改用 `native` snapshotter
+  （overlayroot 上 nested overlayfs 會造成不穩定的 `EINVAL` pod mount）。
+- 每個 k0s 部署（不限 ephemeral）都在 k0s binary 安裝後、任何 controller／worker 啟動前 fail-closed 檢查實際開機的
+  主機：必要指令、cgroup v2、必要 kernel modules，並執行與版本相符的 `k0s sysinfo` 記錄報告。相容性失敗因此發生在
+  叢集狀態建立之前，保留的 Ansible stdout 就是診斷依據。
+- image 由 swallow 以外建置，必須帶有與 provider 開機 kernel 相符的 modules；image metadata 不足以證明相容，所以以開機後
+  的主機為準。
+- 設計理由：否決「繼續拒絕 ephemeral」、「相信 image tag」、「把 k0s 烤進 image」與「當成持久叢集」，見
+  [decision 028](../decisions/028-ephemeral-kubernetes-deployment.md)。
 
 ### 2.4 Uninstall 的 Job 分組（對稱於 deploy）
 
@@ -265,11 +323,81 @@ Task 帶 Job，所有 Task 都必須帶 Job**（Temporal 只要偵測到任一 J
 混用會把無 Job 的 Task 落到未命名桶）。Release 捷徑（略過 ansible）仍依 [ADR 022](../decisions/022-uninstall-release-shortcut.md)，
 此處只加 Job 邊界，不改步驟語意；legacy（無 Temporal）單步 uninstall 無 v3 Job。
 
+**Release 捷徑**（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）：release 會清除 OS，所以帶 `releaseServers`
+時不跑 platform 軟體的 uninstall playbook，直接並行 release 每台成員。`complete-uninstall` 做的就是保留主機路徑上
+`uninstall-platform` 成功時由 completion observer（`AnsibleStepSucceeded`）做的投影清理（`CompleteUninstall`，§2.5），
+只需要 Platform id、不帶 ansible result；released 主機已被清除，所以不還原 exporter。保留主機的路徑不變。
+
+- 只用於整個 Platform 的 uninstall。未來的 scale-in 必須先把節點從叢集移除（drain／remove）再 release，不沿用此捷徑。
+- Workflow kind 仍是 `uninstall-kubernetes`／`uninstall-slurm`（definition `platform-uninstall` v1），lifecycle 照舊由
+  Operation 狀態推導（`uninstalling` → `uninstalled`），`retryOfOperationId` 的重試規則相同。
+- release 需要 durable orchestration（Temporal）；不可用時拒絕帶 `releaseServers` 的請求。
+- 設計理由：否決「保留 uninstall step 但當 no-op」、「改接通用的 operation-success hook」與「受理時就清理投影」，
+  見 ADR 022。
+
+### 2.5 Uninstall 與 Delete：分開的 lifecycle 動作（decision 010）
+
+Platform 的移除分成兩個指令（[decision 010](../decisions/010-cluster-lifecycle-actions.md)）。欄位、eligibility 與錯誤見
+platforms 契約的 [Uninstall A Deployed Platform](../../api-server/docs/development/api-contracts/api-server/platforms.md#uninstall-a-deployed-platform)
+與 [List, Get, Update, And Delete](../../api-server/docs/development/api-contracts/api-server/platforms.md#list-get-update-and-delete)。
+
+- **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 一律是最新 deploy Operation 的完整
+  `targetServerIds` snapshot，不看 membership（membership 可能過期、未比對，或在失敗部署後正好消失）；任一 target 缺少、
+  absent、locked 或 busy 就在派送前整批拒絕（busy 可用 `cancelActiveWorkflows`，§4.8）。保留主機時跑
+  `uninstall-<type>` playbook，移除 swallow 安裝的 runtime 狀態、保留 OS；也可 release 主機（§2.4）。失敗、取消或
+  indeterminate 的 uninstall 可再送出，新 Operation 以 `retryOfOperationId` 指向前一次，並沿用同一份凍結的 target set
+  （playbook 冪等）。Platform 紀錄與 Operation 歷史保留，供診斷與重試。
+- **成功後的清理**（`CompleteUninstall`）：清 membership、釋放 Platform Claim（§2.6）、只刪證明為 swallow 擁有的 credential
+  Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
+  都相符才刪），並清 integration／sync 投影。Kubernetes 擁有 exporter（`exporterOwner=k8s`）且保留主機時，另排一個
+  `install-exporters` Operation 給仍 present、deployed、unlocked 的 target；它有自己的失敗生命週期，不回滾 uninstall。
+- **`deleteRecord`**：受理時記錄在 uninstall Operation 上；只有 uninstall 成功時才在清理的最後刪除紀錄，刪除的紀錄與投影
+  與 Delete 相同，但不取消 Operation，因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗、取消或 indeterminate 時
+  保留紀錄（`uninstall_failed`）。清理把已不存在的紀錄視為成功，所以重試是安全的。
+- **Delete** 只移除紀錄與 swallow 擁有的投影：先取消該 Platform 未完成的 durable Operation 以釋放 lease（無法取消就拒絕
+  Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
+  automation、不改主機、不等 uninstall、不還原 exporter，target locked 時仍可執行。Platform 刪除後，已結束的
+  deploy／uninstall Operation 不能再重試。
+- **Lifecycle read model**：`origin`、`lifecycleState`、`lifecycleOperationId` 由 API 從 durable deploy 與 uninstall
+  Operation 以一次 batch 推導（[Platform Lifecycle State](glossaries/terms/platform-lifecycle-state.md)）；client 不得從
+  membership 或 `integrationId` 推論。
+- **Dashboard**：移除是單一紅色控制項。仍可 uninstall 時是 split button，主要部分開 Uninstall，選單內是「Delete only」；
+  已 `uninstalled` 或永遠不能 uninstall 時只剩 Delete。Uninstall 對話框的送出鈕也是 split button：主要部分保留紀錄，
+  選單內的「Uninstall and delete record」送 `deleteRecord`。讓 runtime 留在主機上的動作永遠不是最顯眼的那個。不要在
+  uninstall 執行中送 Delete 來達到同樣效果：Delete 會先取消那個 uninstall。
+- 設計理由：Delete 不做 k0s reset、不以 membership 推導 target、不刪所有連結的 Integration、uninstall 後不移除紀錄、
+  不加 Force／Forget 指令，以及 dashboard 不在 uninstall 後自行送 Delete，見 decision 010。
+
+### 2.6 Platform Claim：Platform 對其 Server 的佔用（decision 067）
+
+Platform 對 target 的佔用存成 Server 上 swallow 擁有的 [Platform Claim](glossaries/terms/platform-claim.md)：claiming
+Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以改）。API 投影為 Server 的 `platformClaim`
+（[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md#platform-claim)）。
+
+- **寫入**：deploy 受理時，對 `targetServerIds` 的每台以「只符合未被 claim 的 Server」的條件寫入。兩個同時受理的 deploy
+  只有一個拿得到，另一個以 already claimed 拒絕，並移除它的 Platform 紀錄與已寫入的 claim；launch 被拒時同樣移除。
+  deploy preflight 讀 claim，不重算 lifecycle 歷史；帶 claim 或帶任何 observed membership 的 target 都拒絕。
+- **保留與釋放**：Platform 為 `deploying`、`deploy_failed`、`active`、`uninstalling`、`uninstall_failed` 時保留，因為主機
+  可能仍帶 platform 狀態；uninstall 成功（不論有無 `deleteRecord`）與 Delete 時釋放。provider reconcile 保留 claim，
+  與 Server 的 Deployment result 相同。
+- **保護**：claimed Server 的 Release（Release Operation、deprecated 單台 release、Recover 已 `deployed` 的 Server）與
+  Server Delete（在呼叫 provisioner 之前，即使 Machine 已不存在）一律 `409 conflict`，訊息指名 Server 與 Platform，
+  `cancelActiveWorkflows` 也繞不過。Recover 處於不可用狀態（`failed`／`broken`／`rescue`／`allocated`）的 claimed Server
+  仍允許，因為那是修復失敗部署的方式。代表該 Platform 執行的 Workflow（例如 uninstall 的 `release-os`）不受此規則限制；
+  Platform 的 Server 只透過 uninstall 搭配 `releaseServers` 釋放。
+- **API 啟動時 reconcile**：依 durable lifecycle 一次性補齊與清理。非 uninstalled Platform 的 target 沒有 claim 就補上
+  （claim 出現前部署的 Platform 由此取得），指向已不存在或已 uninstalled Platform 的 claim 則釋放，也修復 crash 遺留的
+  claim。claim 是新的選用欄位，不需 schema migration。
+- Dashboard 與 CLI 從 Server 投影讀 `platformClaim`：Dashboard 以 Platform 名稱停用 Release 與 Delete，CLI 指向
+  `platforms uninstall`（Delete 另指 `platforms delete`）。
+- 失敗部署期間的處理見 §4.8 的「Platform Claim 與 `deploy_failed`」。設計理由：否決每次重算、以 membership 判斷、
+  警告後仍允許 release 與新增 schema migration，見 decision 067。
+
 ## 3. Runners（執行機制）
 
 | Runner（glossary） | code 值 | 負責的 Task kind | 行為 |
 | --- | --- | --- | --- |
-| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`noop` | swallow 自身邏輯：**驗證式 SSH 就緒**（以 Deployment Key 對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
+| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`complete-uninstall`、`noop` | swallow 自身邏輯（`complete-uninstall` 見 §2.4）：**驗證式 SSH 就緒**（以 Deployment Key 對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
 | `ansible` | `ansible` | `ansible-playbook` | 在遠端主機跑一支 manifest 註冊的 idempotent playbook |
 | `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 vendor adapter（MAAS/Ironic）驅動 OS provisioning，含佈署後 SSH 就緒；佈署前先確保 provisioner 持有 swallow 的 SSH Keys（見 §4.6.1） |
 
@@ -351,6 +479,9 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   | `swallow_k0s_controller_ids` / `swallow_k0s_worker_ids` | 角色成員清單 |
   | `swallow_k0s_workload_ids` / `swallow_k0s_workload_controller_ids` | 可跑 workload 的節點 |
   | `swallow_k0s_initial_controller_id` | 第一個 bootstrap 的 controller |
+  | `swallow_k0s_ephemeral_root` | 本次以 RAM Deploy Target provision（§2.3.2）；只在為 true 時送出 |
+
+  HA 的 keepalived 密碼 `swallow_k0s_vrrp_auth_pass` 是 sealed secret（§4.3），不在 trusted vars 內。
 
   注意 `inventory_hostname` 即 serverId，因此 `swallow_k0s_roles[inventory_hostname]` 可在
   playbook 內解析每台角色（deploy-kubernetes.yml 即如此）。
@@ -414,9 +545,22 @@ extra var 使用。
 ### 4.4 Result / credential 契約
 
 playbook 若需回傳結果（例如叢集 credential），寫入 runner 提供的 `swallow_result_path`
-（該次 run private dir 的 `result.json`）。k0s 由 `k0s_cluster_credential` role 寫入
-`{ "apiEndpoint": "...", "token": "...", "caCertificate": "..." }`；成功後由
-`platformDeploymentObserver` 存為 platform credential。無 credential 需求的 platform 可不寫。
+（該次 run private dir 的 `result.json`）；credential 因此不經過 run output 或保留的 artifacts，碰到 token 的 task 皆
+`no_log`。無 credential 需求的 platform 可不寫。
+
+- **k0s**（[decision 007](../decisions/007-cluster-deployment-ownership.md)）：`k0s_cluster_credential` 在新叢集建立
+  ServiceAccount `swallow-reader`（`kube-system`，綁定 `swallow_k0s_reader_clusterrole`，預設 `cluster-admin`）與它的
+  token Secret，寫入 `{ "apiEndpoint": "https://<API 位址>:6443", "token": "..." }`（API 位址是 HA VIP，或非 HA 的初始
+  controller 位址）。成功後 `platformDeploymentObserver` 經 `DeploymentCredentialService.Record` 建立 sealed 的
+  `platform` kind Integration（與其他 Integration credential 同一把加密金鑰，所以該金鑰的備份與輪替也涵蓋叢集存取），
+  記為該 Platform 擁有的 Integration，並立即讀一次 membership。在此之前 Platform 沒有 Integration（`integrationId` 為
+  `null`）。result 可另帶 `caCertificate`；目前 playbook 不寫，因此 Integration 設定 `insecureSkipVerify`。k0s 的
+  credential 是必要的，Slurm 的是選用（§6.3）。
+- **k0s membership 來源**：worker 與帶 `--enable-worker` 的 controller 從 `/api/v1/nodes` 讀，只回報一次；dedicated
+  controller 不是 node，改從 `kube-node-lease` 的 `k0s-ctrl-*` Lease 讀。Lease 讀取是 per-Integration 設定
+  （`controllerLeaseDiscovery`），因為 lease 命名是 k0s 的實作細節，不能假設每個 Kubernetes 叢集都有；swallow 部署的
+  Integration 一律開啟。runtime 仍是自身 membership 的權威（[decision 002](../decisions/002-server-identity.md)），
+  swallow 不另存 controller 清單。
 
 ### 4.5 Playbook manifest 與 site playbookMappings
 
@@ -481,60 +625,32 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
 
 ### 4.7 冪等、失敗與重試語意
 
-- 每個 Task 與每支 playbook 必須 idempotent（ensure）。
-- **worker turnover 會自動續跑同一個 Task attempt**：worker graceful stop 會中止本地等待，
-  但不會對 MAAS 發 abort，也不會對 Ansible 發 cancel。heartbeat timeout／retry 由 Temporal
-  重新派發 activity；Runner 以同一個 MAAS deployment 或 Ansible idempotency key 接續觀測。
-  只有真正的 Workflow cancellation 才取消 provider／Ansible 的外部工作。此 infrastructure
-  retry 不建立新的 operator-visible Task attempt。
-- 可重試的失敗會讓 Workflow 停在 `requires_attention`，由 **operator 觸發**單一 Task 重試（不自動
-  重試）；Job 重試會**遞增該 Job 內 Task 的 attempt**，使 Runner 以新的 idempotency key 真正重跑，
-  而非回傳前次快取結果。
-- **等待期撐過中斷**：Workflow 停在 `requires_attention` 等 operator 輸入時，續租 lease 的失敗
-  （主機重開機、資料庫短暫中斷）**不會**結束該 Operation；它會記 log 後繼續等待，唯一離開條件是
-  收到 Task 重試或真正的 operator 取消。等待期間沒有 host 變更，且 Task 重試前會重新 validate/
-  acquire lease，故暫時沒有有效 lease 也不會造成重複執行。
-- **execution 遺失的回復（不刪 Platform）**：Temporal Workflow ID 固定且 reject-duplicate，Starter
-  只會啟動 `startState=pending` 的紀錄，因此終態或 execution 已消失的 Operation 無法就地重啟。回復
-  路徑是 **rerun**（`POST /workflows/{id}/rerun`）：以新的 Operation（新 WorkflowID、`RetryOfOperationId`
-  指回原 Operation）重跑同一意圖、把封存 secrets 複製到新 Operation。Rerun **收斂到目標狀態**
-  （decision 060）：ensure 類 Task（`provision-os`、`ensure-boot-media`、`wait-for-ssh`、
-  `ansible-playbook`、`validate-platform-health`、`release-os`、`recover-server`）不論先前結果一律重跑，
-  attempt 延續上次再加一，executor 先觀察再動作——已以凍結 image 部署且 SSH 可連的節點幾秒內成功並
-  以新 Operation 寫回 Server 的 deployment 結果（不重炸已部署節點），`failed`／`allocated` 等先回收再部署；
-  一次性動作（例如 image 驗證紀錄、uninstall 收尾）沿用舊結果，同一 Operation 已有 `release-os` 成功時，
-  已成功的 playbook 也沿用。平台 lifecycle 以 `requestedAt` 最新的 deploy Operation 為準，新 Operation
-  自然接管，原 Operation 留作診斷；全程不需刪 Platform。
-- **lost-execution reconciler**：週期性 sweep 會偵測「Mongo 仍非終態、但 Temporal execution 已關閉/
-  消失」的 Operation，將其標為 `requires_attention`（lifecycle 顯示 `deploy_failed` 可 repair）。它
-  只標記、不自動 rerun；rerun 一律是明確的 operator 動作。dashboard 的 Repair 會先試單一 Task 重試，
-  遇 409（execution 已消失）或無可重試 Step 時改走 rerun。
-- **Kubernetes deploy 支援 disposable ephemeral OS**：既有 `machinePreparation.settings.ephemeral`
-  可要求 provider 以 RAM-backed root 啟動且不碰磁碟。k0s binary 安裝後、任何 controller/worker
-  啟動前，playbook fail-closed 驗證 cgroup v2、host commands、必要 kernel modules 與 `k0s sysinfo`；
-  `/` 可為 MAAS 所提供的 overlayfs 或直接 tmpfs；兩者都改用 containerd `native` snapshotter，
-  避免 overlayroot 上 nested overlayfs 的 `EINVAL`。
-  節點重開後 OS、etcd、container runtime 與 workload state 都會消失；此模式不提供持久叢集。
+- 每個 Task 與每支 playbook 必須 idempotent（ensure）。以下所有回復機制都以此為前提。
+- Platform deploy 沿用 durable Workflow 的通用執行語意，規則以
+  [workflow-execution.md](workflow-execution.md) 為準：
+  - worker turnover 的 infrastructure retry 接續同一個 Task attempt、不取消外部工作 → §5.3；
+  - 可重試的失敗停在 `requires_attention`，由 operator 觸發 Task／Job 重試 → §5.4；
+  - 停等期間續租 lease 的失敗不會結束 Workflow → §6；
+  - 終態或 execution 已消失的 Workflow 以 rerun 收斂（新 Workflow、`RetryOfOperationId`、ensure 類
+    Task 一律重跑、已部署的節點不重裝）→ §7；
+  - lost-execution reconciler 只標記、不自動 rerun → §10。
+- Platform 特有的部分：Platform lifecycle 以 `requestedAt` 最新的 deploy Workflow 為準，rerun 的新
+  Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。execution 遺失時 lifecycle 顯示
+  `deploy_failed`；dashboard 的 Repair 先試單一 Task 重試，遇 409（execution 已消失）或沒有可重試的
+  Task 時改走 rerun。
+
+Kubernetes 的 ephemeral（RAM）部署語意見 §2.3.2。
 
 ### 4.8 錯誤節點的復原（Provider Recovery）
 
 Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它停在 `requires_attention`／
 `deploy_failed`，交由 operator 收斂。收斂時必須分清兩種失敗層級，並用對應機制：
 
-> **取消 ≠ 回退已完成的 OS 佈署**：取消一個 platform deploy Workflow **不會**把成員 Server 已
-> `succeeded` 的 `provision-os`（OS 佈署）改成 `canceled`。Server 的 `deployment` 軸是它**自身的
-> OS 佈署結果**，與 platform 分離；platform 的取消由 Workflow 狀態與 `Platform.lifecycleState`
-> 表達，不寫進各 Server 的 deployment 軸（見 glossary [Server](glossaries/terms/server.md) 的
-> Deployment result 定義）。jobbed parent 以啟動時的快照（全部 pending、attempt 1）完成取消，所以
-> 此不變式由三道機制保證（decision 060）：`UpdateStep` 的 monotonic guard 拒絕退化並回報
-> `ErrStepTransitionIgnored`，被拒的轉換不會通知 observer 也不寫時間軸；deployment observer 對同一
-> Operation／Task 不以較舊或相同 attempt 的取消覆寫 `succeeded`／`failed`；修復 sweep 在 Workflow 結束後
-> 依 Task 還原被錯寫的 `canceled`。
->
-> **取消會回收被中斷的部署**：取消當下仍在執行的 `provision-os`，由該 Workflow 在釋放 lease 前執行
-> internal step `return-canceled-deployment`：中止 Deploying、等它離開，Allocated（MAAS 中止部署後的
-> 狀態）以 Recover 計畫 Release 回 Ready（保留 static IP、不清磁碟）；deployed／failed／broken／rescue
-> 不動。結果寫在該 Task 的時間軸；parent 以 `WaitForCancellation` 等 Job child 做完。
+> **取消不回退已完成的 OS 佈署**：取消 platform deploy Workflow **不會**把成員 Server 已成功的 OS
+> 佈署改成 `canceled`。Server 的 `deployment` 軸是它**自身的 OS 佈署結果**，與 platform 分離；platform
+> 的取消只由 Workflow 狀態與 `Platform.lifecycleState` 表達（見 glossary [Server](glossaries/terms/server.md)
+> 的 Deployment result）。取消當下仍在執行的 `provision-os` 會在釋放 lease 前被帶回 Ready。保證這兩點
+> 的機制見 [workflow-execution.md](workflow-execution.md) §8.2（投影單調性）與 §8.3（回收被中斷的部署）。
 
 - **provider 層失敗（Server 的 `provisioning` 軸不是 `ready`）**：`ensure-os`／`provision-os`
   失敗會讓該 Server 落在 `failed`（或 `allocated`／`broken`／`rescue`）。Workflow 停在
@@ -560,10 +676,8 @@ Platform Claim（[decision 067](../decisions/067-platform-claim-on-server.md)）
 **Delete** 解除 claim。Uninstall+release（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）
 對非 `deployed` 的 failed 目標**沿用同一條 Release 政策**（與 Server 的 Release 一致，見
 decision 033），不另立門檻，避免捷徑與獨立 Release 規則分裂。失敗的 deploy 停在 `requires_attention`
-時仍握著目標的 lease，uninstall 需帶 `cancelActiveWorkflows`（ADR 061 修訂）：後端取消佔用的
-Workflow、立即建立 uninstall（`SupersededOperationIDs`，共用 `internal/app/workflow_supersede.go`），uninstall
-停在 `waiting_dependency` 等它們結束；帶旗標時 `deploying` 也可 uninstall。Dashboard 的 uninstall 對話框列出
-佔用的 Workflow 並要求確認，CLI 為 `--cancel-active-workflows`。
+時仍握著目標的 lease，所以 uninstall 需帶 `cancelActiveWorkflows`（帶旗標時 `deploying` 也可
+uninstall）；後端取代佔用工作的流程見 [workflow-execution.md](workflow-execution.md) §9。
 
 ---
 
@@ -579,7 +693,9 @@ Workflow、立即建立 uninstall（`SupersededOperationIDs`，共用 `internal/
 4. **排序留在 playbook**：`serial`、handlers、host loop 等屬 ansible 的排序留在 playbook；只有當
    中途必須插入**非 ansible** 動作時，才拆成兩個 Task。
 5. **註冊與鎖定**：在 `manifest.json` 註冊；Python/collection 依賴 pin 在 `requirements.txt`/
-   `requirements.yml`；不得引用 project root 外的路徑。
+   `requirements.yml`；不得引用 project root 外的路徑。executor image 目前不裝任何 galaxy collection
+   （`requirements.yml` 為空），所以只用 `ansible.builtin`：例如 Slurm 的 NFS mount 以 fstab＋有防護的 `mount`＋
+   `mountpoint` 驗證實作，不引入 `ansible.posix`（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
 6. **credential 走契約**：需要回傳結果時只透過 `swallow_result_path` 寫 `result.json`。
 7. **secret 走契約**：機密只經 sealed secret ref 傳入，不得寫入 log 或 history。
 8. **可離線**：release 需可打包（air-gap）；避免執行期對外抓取未鎖定的內容。
@@ -630,16 +746,25 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 落地方式如下，可與 §6.2 對照：
 
 - **角色模型 = per-daemon 旗標**：不用 k0s 的互斥 `NodeRole`。deploy 請求帶
-  `slurm.nodeAssignments[]` 的 `{ serverId, controller, compute }`（一台可兩者皆是）。至少一台
-  `slurmctld`（controller）與一台 `slurmd`（compute），兩者皆未勾的節點會被拒絕。
+  `slurm.nodeAssignments[]` 的 `{ serverId, controller, compute, login }`（一台可兼多個角色）。至少一台
+  `slurmctld`（controller）與一台 `slurmd`（compute）；沒有任何角色或重複指派的 Server 會被拒絕。第一個
+  controller 是 primary：產生共用的 MUNGE key、跑 `slurmrestd`、產生 reader credential。Platform 的 `deployment`
+  投影由記錄的 `swallow_slurm_controller_ids`／`swallow_slurm_compute_ids` 推導：controller → `control-plane`、
+  controller＋compute → `control-plane` 且 `runWorkloads`、compute → `worker`；login-only 不是 role assignment，
+  另列在 `loginServerIds`。因此 slurmrestd 只把 compute 回報成 member 時，controller 仍會被計入與列出。
 - **Job**：重用 `ensure-os`（用 operator 的 Slurm image 佈 OS 或重用已 `deployed` 者），新增
   `configure-slurm` Job 只含 `install-platform`（ansible）。**無 `validate-platform-health`**——
-  deployed integration 要等 install 步驟成功後才存在，故驗證放在 playbook 內（`slurm_verify`），
-  成員由背景 membership sync 補上。
-- **trusted vars**（`swallow_slurm_*`，client 不可偽造）：`cluster_name`、`platform_name`、
-  `controller_ids`（有序，第一個為 primary）、`compute_ids`、`primary_controller_id`、
-  `high_availability`、選用的 `state_save_location`、`api_version`。由
-  [`deploy_platform.go`](../../api-server/internal/platform/application/deploy_platform.go) 的
+  deployed integration 要等 install 步驟成功後才存在，故驗證放在 playbook 內（`slurm_verify`：`scontrol ping` 與
+  `sinfo --Node` 必須通過；跨 compute 的 `srun` smoke test 只警告，因為 slurmd 剛啟動時可能仍在註冊），成員由背景
+  membership sync 補上。
+- **trusted vars**（`swallow_slurm_*`，client 不可偽造）：`cluster_name`（未指定時為清理過的 Platform 名稱）、
+  `platform_name`、`controller_ids`（有序，第一個為 primary）、`compute_ids`、`login_ids`、`primary_controller_id`、
+  `high_availability`、`controller_state_mode`（`local`／`shared`）、HA 時的 `state_server_id` 與 `state_export`
+  （`/srv/slurm-state`）、選用的 `state_save_location` 與 `api_version`；有 login node 時另有 `login_config_mode`
+  （`configless`）與 `login_use_sackd`；workload storage 為 `workload_enabled`，啟用時另有 `workload_mode`、
+  `workload_mount_path`、`workload_fstype`、`workload_mount_options`，以及 self-hosted 的 `workload_server_id`／
+  `workload_export`（`/srv/slurm-workspace`）或 external 的 `workload_source`。GPU、Omnistat、DME、OCI、PMIx 的
+  vars 見 §4.2。由 [`deploy_platform.go`](../../api-server/internal/platform/application/deploy_platform.go) 的
   `buildSlurmVars` 組裝。
 - **套件來源**：Slurm 官方建議自編 deb/rpm 且 swallow 尚無 local repo，故 `slurm-smd` 套件由
   **MAAS image 內建**；playbook 只 `dpkg-query` 驗證、不重編/不從 distro 裝 slurm。其他支援
@@ -647,22 +772,29 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 - **manifest 與 playbook 名**：`deploy-slurm` 註冊於 `manifest.json`；launcher **硬編** playbook
   名（比照 `uninstall-kubernetes`），因此**不需**站台 `playbookMappings["configure-slurm"]`。
 - **credential（membership，選用）**：Slurm 無 kubeconfig。primary controller 起 `slurmrestd`
-  （TCP + `auth/jwt`），`scontrol token` 產生 JWT，`slurm_cluster_credential` role 以
-  `swallow_result_path` 寫 `result.json`（`slurmrestdEndpoint`/`token`/`apiVersion`）。後端記為
-  `ProviderKindSlurm` 的 platform integration（`DeploymentCredentialService.RecordSlurm`），
-  `SlurmReader` 即可讀成員。**`slurmrestd`（`slurm-smd-slurmrestd`）為選用**：它只負責 swallow
+  （TCP + `auth/jwt`），`scontrol token` 為 SlurmUser `slurm` 產生長效 JWT（一年），`slurm_cluster_credential` role 以
+  `swallow_result_path` 寫 `result.json`（`slurmrestdEndpoint`/`token`/`apiVersion`）。`apiVersion` 有 pin
+  （`slurm.apiVersion`）就用它，否則由新到舊探測 slurmrestd 回應的版本並記錄，讓跑不同 Slurm release 的 Platform
+  各自讀對的 endpoint 版本。後端記為 `ProviderKindSlurm` 的 platform integration（`DeploymentCredentialService.RecordSlurm`，
+  設 `insecureSkipVerify`，因為 slurmrestd 在 site 內常是 plain HTTP），`SlurmReader` 即可讀成員。**`slurmrestd`（`slurm-smd-slurmrestd`）為選用**：它只負責 swallow
   的 membership 讀取，叢集本體（slurmctld + slurmd）不依賴它。若 image 未含此套件，
   `slurm_slurmrestd` 與 `slurm_cluster_credential` 會**優雅跳過**、不寫 credential，deploy 仍
   成功（platform 為 active、無 integration、members=0）；要讓 membership 顯示，image 需納入
   `slurm-smd-slurmrestd`。對應地，後端把「Slurm 無 credential」視為**非致命**（k0s 的 kubeconfig
   則為必要）。
-- **HA shared state 由 swallow 供給**：一台 controller 免 shared storage（controller-local
-  `StateSaveLocation`）；多台為 HA 時 swallow **自動佈署** shared `StateSaveLocation`——deploy use
-  case 選一台 state server（優先非 controller 的 compute-only 節點，全為 controller 時退回
-  primary），playbook 以 `slurm_state_server`（managed NFS export，限定 controllers、`root_squash`）
-  匯出，並由 `slurm_controller_state` 在每台 controller 掛載、加上 systemd mount guard
+- **HA shared state 由 swallow 供給**：一台 controller 免 shared storage（`controller_state_mode=local`，
+  controller-local `StateSaveLocation`）；多台為 HA 時 swallow **自動佈署** shared `StateSaveLocation`，operator 不必提供
+  任何東西——deploy use case 選一台 state server，順序為 login node、非 controller 的 compute-only 節點、primary
+  controller（讓 controller state 不在 controller 上，controller 主機遺失時不連帶遺失 state，也避免 controller 上的
+  kernel NFS loopback mount）。playbook 以 `slurm_state_server` 匯出（managed NFS export，只開給 controller 位址，
+  `rw,sync,no_subtree_check,root_squash`；各節點共用同一 image，`slurm` uid 一致，所以 `root_squash` 安全），並由
+  `slurm_controller_state` 在每台 controller 掛載、加上 systemd mount guard
   （`RequiresMountsFor` + `ConditionPathIsMountPoint`，未掛載即拒絕啟動 slurmctld，避免 state 靜默
-  寫入 local disk）後才啟動 slurmctld。`stateSaveLocation` 由必填改為**選用覆寫**（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
+  寫入 local disk）後才啟動 slurmctld。兩種 mode 的 state 目錄都由 `slurm_controller_state` 擁有，`slurm_config` 不管。
+  `stateSaveLocation` 由必填改為**選用覆寫**（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
+  只有 shared state 還不夠：primary 必須先設定並啟動，backup 才能啟動（先起的 backup 會停在 standby 等不到 heartbeat，
+  `scontrol ping` 失敗而在 primary 拿到 `slurm.conf` 前就中止部署）。`group_by` 不保證順序，所以 `deploy-slurm.yml` 以
+  獨立的 play 先跑 `hosts: slurm_primary`，再以 `hosts: slurm_controller:!slurm_primary`、`serial: 1` 跑 backup。
   該 state server 為單一 storage failure domain（lab 等級，非 storage HA）；production 的外部/
   pre-mounted 共享儲存為後續延伸（role 已保留 mode 掛勾）。當 export path 位於 ephemeral
   OverlayFS 時，kernel NFS 無法直接 export，server role 會只在此情況掛一個 bounded、按需配置
@@ -672,20 +804,29 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 - **支援 ephemeral OS**：與 Kubernetes 共用 provider intent；Slurm 的 package 與 runtime
   相容性仍由自己的 image contract 和 playbook preflight 負責。
 - **minimum resource policy**：Slurm 可啟用一份 system-wide CPU cores、memory MiB、storage GB
-  eligibility floor（[ADR 026](../decisions/026-slurm-minimum-resource-policy.md)）。controller、compute、
-  login 套用同一門檻；Dashboard 顯示但禁選不足節點，backend 在建立 Platform／Workflow 前以
-  inventory observed hardware 再驗證。policy 不存在即停用，讀取失敗則 fail closed；Kubernetes
-  不受影響。它不保證任意 image 的 ephemeral rootfs 一定能容納。
+  eligibility floor（[ADR 026](../decisions/026-slurm-minimum-resource-policy.md)、
+  [Minimum Resource Requirement](glossaries/terms/minimum-resource-requirement.md)）。啟用時三個值都必須大於 0；
+  controller、compute、login 套用同一門檻，每個維度都要達到（相等即合格，observed 值未知或為 0 時不合格）。policy 以
+  Platform type 為唯一識別存放，只能經 canonical Platforms API 管理（`/platforms/deployment-requirements/slurm`，無
+  `/clusters` alias，見 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#manage-the-slurm-deployment-requirement)）。
+  Dashboard 顯示不合格的 Server 與差距並停用其所有 Slurm 角色控制項；deploy use case 在 Slurm preflight 讀一次
+  policy，於建立 Platform／Workflow 前以 inventory observed hardware 權威驗證。policy 不存在即停用（不需 migration），
+  讀取失敗則 fail closed；Kubernetes 不讀也不套用。它只是資格門檻：不保留資源、不改 Slurm scheduler 容量、不從 image
+  推導，也不保證任意 image 的 ephemeral rootfs 一定能容納。
 - **uninstall**：`uninstall-slurm`（[uninstall-slurm.yml](../../api-server/automation/playbooks/uninstall-slurm.yml)）
   比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge、移除 Swallow 佈的
   設定/金鑰/controller state（保留 OS 與 image 套件），可選擇同時 release 成員機。已在 lab
   以 5 節點驗證(rc=0、platform → uninstalled)。
 - **login 角色 + workload 共享儲存**：Slurm 節點角色新增 **login**(提交/client 主機,不跑
-  cluster daemon;可兼任 NFS server)。`nodeAssignments[]` 帶 `login` 旗標,login-only 節點合法。
+  cluster daemon;可兼任 NFS server)。`nodeAssignments[]` 帶 `login` 旗標,login-only 節點合法。login host 是
+  configless client，預設以 sackd 快取設定（叢集用 `auth/munge`，所以 sackd 是快取選擇而不是認證需求）。
   另新增**選用的 workload 共享檔案系統**(使用者/job 資料,與 controller state 分離),掛在所有
-  節點的非重疊路徑(預設 `/shared`,不可為 `/home`):`slurm.workloadStorage.mode` 為
-  `self-hosted`(由 login node 匯出 NFS,需有 login node)或 `external`(掛操作者提供的 `nfs.url`);
-  對應 roles `slurm_login`、`slurm_workload_storage_server`、`slurm_workload_storage_client`。
+  節點的非重疊路徑(預設 `/shared`;不可為 `/home`,因為一開始為空的 export 會蓋掉 automation 使用者的 `~/.ssh`,
+  部署中途 SSH／Ansible 就斷了):`slurm.workloadStorage.mode` 為
+  `self-hosted`(由 login node 匯出 NFS,需有 login node)或 `external`(掛操作者提供的 `nfs.url`,不跑 server);
+  `type` 為 `nfs`（enum,其他 backend 屬於擴充）;省略 `workloadStorage` 即沒有共享檔案系統。
+  對應 roles `slurm_login`、`slurm_workload_storage_server`、`slurm_workload_storage_client`;mount 只用
+  `ansible.builtin`（§5）且 fail-closed。
   self-hosted export 在 ephemeral OverlayFS 上使用 bounded tmpfs（預設 4 GiB）及 NFSv3；external
   storage 不受此選擇影響，仍使用 Workflow snapshot 捕捉的 NFSv4 與 operator mount options。
   HA 時 state server 優先選 login node。支援兩種拓樸:single controller + n compute,以及
@@ -695,8 +836,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   GPU Inventory（AMD `compute` GPU）挑出 compute Server，以 trusted var `swallow_slurm_gpu_compute_ids`
   傳入（一律為 list，空 list 讓重跑時移除舊 GRES）。`slurm_gpu` role 在這些主機：裝共用的
   `amdgpu_loader`（`swallow-amdgpu-load.service`，與 GPU Operator 同一份；`slurmd` 以 drop-in
-  `Requires=`＋`After=`）、udev 規則把 `/dev/kfd` 與 `renderD*` 開給所有作業使用者（作業的存取邊界是
-  `ConstrainDevices=yes` 的 device cgroup）、從 KFD topology 讀 `drm_render_minor` 與
+  `Requires=`＋`After=`）、udev 規則把 `/dev/kfd` 與 `renderD*` 開給所有作業使用者（mode 0666，作業使用者不必在
+  `render` group；作業的存取邊界是 `ConstrainDevices=yes` 的 device cgroup。代價：Slurm 以外的 process，例如沒有
+  `pam_slurm_adopt` 的 SSH 登入，也能開啟 GPU，等同把所有使用者加入 `render`）、從 KFD topology 讀 `drm_render_minor` 與
   `gfx_target_version`（不數 `/dev/dri/renderD*`，因為 XCP 會多出 render node）；KFD 沒有 GPU 則以
   `[slurm_gpu_missing]` 失敗。GRES type 預設由 GPU 架構推導（例 `gfx942`），
   `swallow_slurm_gpu_gres_type` 非空時所有 GPU node 改用該名稱。controller 依這些 facts 渲染
@@ -708,6 +850,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   推導的選項（`roles/amdgpu_loader/files/amdgpu_node_state.py` 讀 sysfs）。目前唯一規則：KFD 某 GPU node
   對同一 peer 同時有 `io_link` 與 `p2p_link`（libhsakmt peer array overflow）→ `pcie_p2p=0`。規則套用後記錄在
   `/var/lib/swallow/amdgpu/options.json`（條件會隨之消失，所以不每次重推導）；operator 指定同名選項一律優先。
+  規則要等 driver 載入後才知道，所以可能需要第二次載入；operator 在 `gpuDriver.moduleOptions` 指定的選項第一次載入就生效。
   寫檔前先以 `modinfo -F parm amdgpu` 檢查名稱，不存在即 `[amdgpu_option_unknown]`（附最接近的名稱），driver
   不會被載入。driver 已載入但參數不符 → `tasks/reload.yml`：停掉 loader（`RequiredBy` 的 `slurmd`、omnistat
   一併停止，事後再啟動），`refcnt` 為 0 就 `timeout N modprobe -r amdgpu` 後重新啟動 loader（原地重載，RAM
@@ -730,9 +873,11 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `Prolog=/etc/slurm/swallow-prolog`、`Epilog=/etc/slurm/swallow-epilog`、`PrologFlags=Alloc,Contain`。
   `slurm_job_hooks` role（compute play、`slurm_compute` 之前，因為 Prolog 檔不存在會讓節點 drain）安裝
   dispatcher 範本與 `slurm_job_hooks_enabled` 指定的 hook（`files/prolog.d|epilog.d/<NN-name>`），移除未啟用的
-  Swallow hook；dispatcher 依字典序執行目錄內所有可執行檔，每個有逾時，失敗只 `logger -t swallow-prolog`，
-  永遠 `exit 0`。configless 不配送 script，所以 hook 與 dispatcher 都由 Ansible 下發。非 Omnistat 時
-  partition `OverSubscribe=NO`；偵測 play 依 `slurmd -C` 的 `RealMemory` 扣 OS 保留（5%，2–16 GiB，至多一半）
+  Swallow hook；dispatcher 依字典序執行目錄內所有可執行檔（operator 以其他名稱放入的也會執行），每個上限 30 秒，
+  失敗只 `logger -t swallow-prolog`，永遠 `exit 0`——hook 只負責把 job 歸屬給監控，不能讓 job 失敗或讓節點 drain。
+  configless 不配送 script，所以 hook 與 dispatcher 都由 Ansible 下發。每個 Slurm 部署都有 dispatcher（即使沒有
+  hook），舊 Platform 重佈時取代 Omnistat 先前的 Prolog/Epilog 檔。非 Omnistat 時
+  partition `OverSubscribe=NO`（既有叢集在下次重佈時生效，之後 job 以 `--exclusive` 要求整台節點）；偵測 play 依 `slurmd -C` 的 `RealMemory` 扣 OS 保留（5%，2–16 GiB，至多一半）
   得到 `slurm_node_schedulable_memory`，`slurm_config` 取各節點「可排程記憶體／CPU」最小值為 `DefMemPerCPU`。
   `slurm_verify` 以兩個未帶 `--mem` 的一 CPU job 同時在同一節點 RUNNING 驗證（`[slurm_shared_node_failed]`）。
   `group_by` 與結果檔 `changed_when: false`，收斂的叢集重跑 `changed=0`。
@@ -740,7 +885,10 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   預先指定 Workflow id、寫入 `Platform.omnistat`（`installing`，含 `installMethod`：`container` 預設／
   `native`），並把 `swallow_slurm_omnistat_enabled` 交給 `deploy-slurm`——Slurm 端 overlay
   （`10-omnistat` job hook、`OverSubscribe=EXCLUSIVE`）由 slurm.conf 的唯一擁有者渲染，所以重佈自然重套；
-  hook 在 exporter 尚未安裝前直接成功，Job 順序不會讓節點 drain。與 DME 互斥。
+  hook 在 exporter 尚未安裝前直接成功，Job 順序不會讓節點 drain。與 DME 互斥（Omnistat 要整台節點，而且兩者都會佔用
+  唯一的硬體 profiler；dispatcher 本身允許並存）。swallow 從不查詢 Omnistat 的 Prometheus。Omnistat 與它需要的 Python
+  套件在執行時依固定版本下載，container image 依固定 tag 拉取，native method 從上游下載固定版本的 Prometheus release
+  與 Grafana 套件（安裝方法的細節見 [software-deployment.md](software-deployment.md) §2）。
 - **選用功能：Device Metrics Exporter（decision 066）**：deploy request 帶 `deviceMetricsExporter.enabled`
   時（與 Omnistat 互斥、至少一台 GPU compute，否則 `ErrInvalidDeviceMetricsExporter`），deploy use case 預先指定
   Workflow id、寫入 `Platform.deviceMetricsExporter`（`installing`），並把
@@ -796,7 +944,11 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 - **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
   workload filesystem、使用者/UID-GID 佈建（swallow 只提供 mount,不管身分）、`auth/slurm`、部署後單獨
-  開關 Omnistat。
+  開關 Omnistat、經 `scrun` 的 Podman、cluster-wide `MpiDefault`（job 以 `--mpi=pmix_v5` 明確要求）。
+- **設計理由**：per-daemon 角色、套件由 image 提供、選用的 slurmrestd credential 見 decision 019；swallow 供給 HA state
+  與 primary 先啟動見 ADR 023；login 與 workload storage 見 ADR 024；GRES、driver options、Omnistat 與
+  Prometheus／Grafana 組入見 decision 063；dispatcher、共用節點、DME、OCI、PMIx 見 decision 066。各 ADR 保留完整的
+  否決方案。
 
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/deploy-slurm.yml) 與
 `playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
@@ -831,9 +983,15 @@ Platform 的**管理/讀取**面不再用 k0s 形狀的統一 UI:平台詳情頁
 - **membership sync**(`ListMembers`)= 寫入 `Server.membership` 軸(Slurm 只含 compute/slurmd);
 - **Slurm-native live read**(新增,on-demand,只讀)= `GET /api/v1/platforms/{id}/slurm`,經
   `SlurmClusterReader.GetClusterState` 讀 slurmrestd `/ping`(controllers 依 SlurmctldHost 順序 +
-  `up|down|unknown` RPC 狀態)、`/partitions`、`/nodes`(排程狀態 + cpu/mem/GRES)。它**不**寫
-  membership 軸或 sync 計數,也不跑在 reconcile interval 上;slurmrestd 不可用時前端 degrade 回
-  intent + membership。
+  `up|down|unknown` RPC 狀態)、`/partitions`、`/nodes`(排程狀態 + cpu/mem/GRES)。`SlurmClusterReader` 是
+  具體 Slurm reader 在 `ListMembers` 之外實作的 superset reader,經同一個 reader factory 取得。它**不**寫
+  membership 軸或 sync 計數,也不跑在 reconcile interval 上;slurmrestd 未記錄(image 沒有
+  `slurm-smd-slurmrestd`,`integrationId` 為 `null`)或不可達時,前端 degrade 回 controller intent + 最後一次同步的
+  compute membership,不顯示誤報的 down。
+
+Shell(header、lifecycle 提示、sync、lifecycle 動作、相關 Operation)真正共用,所以是一條 route 加依 type 切換的
+body(`KubernetesPlatformView`／`SlurmPlatformView`);共用行為由共用 helper 組合,兩種 type 不繼承彼此的詞彙或狀態模型。
+Slurm view 尚未提供:QOS、reservation、account(依賴 SlurmDBD)、live jobs 列表與 type 專屬的寫入動作(drain、cancel)。
 
 **health(監控)為獨立軸**:節點/成員的 State 欄只呈現 scheduler 狀態(Slurm node state;k8s
 `Ready`)與 controller ping 狀態,不借用 host power 或監控 health;monitoring 整合後再以獨立欄位
@@ -897,13 +1055,17 @@ API 契約的 "Read Slurm Cluster State"。
 - 決策：[decision 016 Temporal orchestration](../decisions/016-temporal-operation-orchestration.md)、
   [decision 017 Workflow/Job/Task/Runner](../decisions/017-workflow-job-task-runner-model.md)、
   [decision 006 Embedded Ansible execution](../decisions/006-embedded-ansible-execution.md)。
+  Platform 專屬決策（007、010、011、019、021、022、023、024、026、028、062、063、066、067）在各自的章節以「設計理由」連結。
 - 語言：glossary [Workflow](glossaries/terms/workflow.md)、[Job](glossaries/terms/job.md)、
   [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)、
   [OS Deployment](glossaries/terms/os-deployment.md)、
-  [Automation Configuration](glossaries/terms/automation-configuration.md)。
+  [Automation Configuration](glossaries/terms/automation-configuration.md)、
+  [Platform](glossaries/terms/platform.md)、[Platform Lifecycle State](glossaries/terms/platform-lifecycle-state.md)、
+  [Platform Claim](glossaries/terms/platform-claim.md)、[Kubernetes Topology](glossaries/terms/kubernetes-topology.md)。
 - Context map：[automation-execution](context-maps/automation-execution.md)。
 - API 契約（`api-server` 擁有）：
   [site-automation](../../api-server/docs/development/api-contracts/api-server/site-automation.md)、
   [workflows](../../api-server/docs/development/api-contracts/api-server/workflows.md)、
-  [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)。
+  [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)、
+  [platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md)。
 - 背景：[platform orchestration & deploy reliability plan](../plans/20260906_2027_platform_orchestration_and_deploy_reliability.md)。

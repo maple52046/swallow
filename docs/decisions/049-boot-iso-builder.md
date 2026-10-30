@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-05
+- 現行規格：[server-enrollment-and-boot-media.md](../development/server-enrollment-and-boot-media.md) §5 Boot ISO（另見 §4 Boot Media）
 
 ## Context
 
@@ -17,23 +18,21 @@ script that takes a DHCP lease from the site network, sets `next-server` to the 
 
 ## Decision
 
-- **swallow builds Boot ISOs.** On the Provisioning page an operator chooses a provisioner
-  Integration and gives its MAAS rack address (pre-filled from the Integration endpoint's host);
-  swallow renders the script from its fixed template — no free-form script — and builds the ISO
-  synchronously. The ISO is stored under the installation's Boot Media directory and served,
-  unauthenticated and with Range, at `<baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso`.
-- **No compiler at runtime.** The api-server image carries iPXE `ipxe.lkrn` and `ipxe.efi`
-  compiled once from a pinned tag with no embedded script, plus iPXE's `genfsimg`. Each ISO is
-  `genfsimg -s autoexec.ipxe`: the script goes on the ISO's ESP root, which iPXE's EFI build runs
-  as its autoexec script, and to the BIOS kernel as its initrd script.
-- **Boot Media selects a Boot ISO.** A Server's Boot Media setting names one Boot ISO of the
-  Server's own provisioner Integration; enabling or switching ISOs runs the 047 preflight with
-  it, and deployments freeze that ISO's URL in their `ensure-boot-media` and `provision-os`
-  Tasks. A Boot ISO cannot be deleted while an enabled Boot Media setting uses it.
-- **The installation ISO is retired.** `bootMedia.isoPath` and the fixed
-  `/boot-media/ipxe/swallow-ipxe.iso` route are removed. A setting enabled before this decision
-  has no Boot ISO; the Server page asks for one and its ensure Task fails
-  `boot_media_not_configured` until it is chosen.
+- **swallow builds Boot ISOs.** An operator chooses a provisioner Integration and gives its MAAS
+  rack address; swallow renders the boot script from its fixed template — no free-form script —
+  builds the ISO synchronously, stores it under the installation's Boot Media directory, and
+  serves it unauthenticated with Range at a URL derived from the Boot ISO's id.
+- **No compiler at runtime.** The api-server image carries iPXE compiled once from a pinned tag
+  with no embedded script, plus iPXE's `genfsimg`; each ISO is packaged with `genfsimg -s`.
+- **Boot Media selects a Boot ISO** of the Server's own provisioner Integration. Enabling or
+  switching runs the decision 047 preflight with it, and deployments freeze that ISO's URL. A Boot
+  ISO cannot be deleted while an enabled Boot Media setting uses it.
+- **The installation ISO is retired**, with its configuration and fixed route. A setting enabled
+  before this decision must choose a Boot ISO before its next deployment.
+
+Revision history: 2026-10-13 changed the UEFI boot path from iPXE (`ipxe.efi` chaining `ipxe.cfg`)
+to a GRUB built into each ISO, and added rebuild in place ([ADR 057](057-uefi-boot-iso-hand-off.md))
+(original text in git history).
 
 ## Alternatives considered
 
@@ -49,17 +48,9 @@ script that takes a DHCP lease from the site network, sets `next-server` to the 
 
 ## Consequences
 
-- New contract `boot-isos.md`; Boot Media in `server-detail-actions.md` gains `isoId` and an
-  `image` naming the chosen Boot ISO; `provisioning.md` freezes the Server's own ISO URL.
-- The api-server image grows by the iPXE binaries and mtools, xorriso, and syslinux files; the
-  Boot Media directory must be writable by the API process.
+- The api-server image grows by the iPXE binaries and the packaging tools; the Boot Media
+  directory must be writable by the API process.
 - An upgraded installation's enabled Servers must choose a Boot ISO before their next deployment.
 - iPXE is unsigned: a Server booting a Boot ISO must have Secure Boot off.
 - Changing the iPXE version means rebuilding Boot ISOs to pick it up; each records the version it
   was built with.
-
-## Current status
-
-Implemented. [ADR 057](057-uefi-boot-iso-hand-off.md) refines it: UEFI firmware boots a GRUB
-built into the ISO that loads MAAS's per-MAC GRUB configuration instead of running iPXE, and a
-Boot ISO can be rebuilt in place.

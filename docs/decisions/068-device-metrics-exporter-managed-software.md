@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-30
+- 現行規格：[software-deployment.md](../development/software-deployment.md) §2 Managed Software 目錄（AMD Device Metrics Exporter）與 §5 與 Platform deployment 的連動
 
 ## Context
 
@@ -19,34 +20,28 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
 ## Decision
 
 - **A new Managed Software kind, `device-metrics-exporter`.** It is role-less and has one built-in
-  install path (no `installMethods`), the same native package as the Slurm feature. A standalone
-  install provides the exporter only, on the Server's address at port `5001`, with Slurm job
-  attribution off. Prometheus and Grafana stay separate kinds the operator installs to scrape and
-  show it. Version 1.5.3 is pinned; the request takes no spec fields and the assignment records the
-  applied version.
+  install path, the same pinned native package as the Slurm feature. A standalone install provides
+  the exporter only, with Slurm job attribution off; Prometheus and Grafana stay separate kinds the
+  operator installs to scrape and show it. The request takes no spec fields; the assignment records
+  the applied version.
 - **Standalone targets.** Besides the usual `deployed` requirement, a target must list AMD compute
   GPUs in its GPU Inventory. A Kubernetes member is refused (the GPU Operator runs its own
   exporter), and so is a Server with a Platform Claim, for install and uninstall alike: the
-  exporter on a Platform's node belongs to that Platform. Only Ubuntu 24.04 is supported. The
-  Server projection names a custom image rather than its distribution, so the playbook checks the
-  host and fails with `device_metrics_exporter_unsupported_os`.
-- **The amdgpu driver.** `gpuagent` needs the shared post-boot amdgpu loader
-  (`swallow-amdgpu-load.service`, decisions 062 and 063). A standalone install installs it; its
-  uninstall removes it only when no other unit (slurmd, k0s) still depends on it. Inside a Slurm
-  deployment the Slurm GPU role owns the loader.
+  exporter on a Platform's node belongs to that Platform. Only Ubuntu 24.04 is supported; because
+  the Server projection names a custom image rather than its distribution, the playbook checks the
+  host.
+- **The amdgpu driver.** `gpuagent` needs the shared post-boot amdgpu loader (decisions 062 and
+  063). A standalone install installs it; its uninstall removes it only when no other unit still
+  depends on it. Inside a Slurm deployment the Slurm GPU role owns the loader.
 - **Slurm composes the kind.** With `deviceMetricsExporter` enabled, the Slurm Workflow composes
-  `device-metrics-exporter` onto its GPU compute nodes like Prometheus and Grafana: an
-  `install-device-metrics-exporter` Task carrying the software identity (so the assignments turn
-  `failed` with it) and the Platform's owner and record ids, then `record-device-metrics-exporter`.
-  Slurm job attribution, the cluster name label, and the scrape check on the observability Server
-  are the Slurm run's extra trusted variables. The Platform's Device Metrics Exporter State, GPU
-  identity, and Monitoring Link are recorded exactly as before.
-- **Slurm uninstall.** `uninstall-slurm` keeps removing the exporter from every target, and a
-  successful Slurm uninstall marks the `device-metrics-exporter` assignments of the Platform's
-  Servers `absent`, so the record never outlives the package.
-- The playbooks are `deploy-device-metrics-exporter` and `uninstall-device-metrics-exporter`. The
-  former `configure-device-metrics-exporter` name stays registered for the same playbook so a
-  Workflow accepted before this change can still be retried.
+  `device-metrics-exporter` onto its GPU compute nodes like Prometheus and Grafana. The install
+  Task carries the software identity (so the assignments turn `failed` with it) and the Platform's
+  owner and record ids; Slurm job attribution and the scrape check are the Slurm run's extra
+  trusted variables. The Platform's Device Metrics Exporter State, GPU identity, and Monitoring
+  Link are recorded exactly as before.
+- **Slurm uninstall.** It keeps removing the exporter from every target, and a successful Slurm
+  uninstall marks the `device-metrics-exporter` assignments of the Platform's Servers `absent`, so
+  the record never outlives the package.
 
 ## Alternatives considered
 
@@ -67,7 +62,3 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
   every exporter Swallow manages has a Software Assignment.
 - The glossary's Device Metrics Exporter is now Managed Software as well as a Slurm feature.
 - A Kubernetes deployment onto a Server that already runs a standalone exporter is not handled yet.
-
-## Current status
-
-Implemented in `api-server` and `dashboard`.

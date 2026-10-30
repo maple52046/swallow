@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-14
+- 現行規格：[workflow-execution.md](../development/workflow-execution.md) §11 Ansible Task 即時事件串流與進度投影（`Task.Live`）
 
 ## Context
 
@@ -19,17 +20,14 @@ Stream a run's per-task results into MongoDB as they are produced, expose the ru
 Task as soon as the run starts, and surface a live progress summary — keeping the existing polling
 delivery and not inventing a percentage.
 
-- The `ansible-executor` process, which owns the `ansible-runner` subprocess, tails the run's
-  events on a short interval and appends compact, output-free task results to a durable store
-  (`ansible_task_events`, idempotent on `(runId, seq)`). It also records a coarse
-  `AnsibleExecution.Progress` (current play/task and cumulative ok/changed/failed/unreachable/skipped
-  counts). Raw stdout is never streamed into MongoDB; it remains the on-disk artifact served by the
-  logs endpoint.
-- The Temporal ansible activity publishes the Task's `externalExecution` and `startedAt` on its
-  first observation (the key unblock), and mirrors `AnsibleExecution.Progress` onto a new advisory
-  `Task.Live` on each poll via a targeted step update that never clobbers the Task's intent.
-- The API reads task events from the durable store, so a Step's task list is available live during
-  the run, independent of the artifact filesystem. Counts are derived from the events.
+- The process that owns the `ansible-runner` subprocess streams compact, output-free task results
+  into a durable store and keeps a coarse run progress (current play/task and cumulative result
+  counts). Raw stdout is never streamed into MongoDB; it remains the on-disk artifact.
+- The Temporal ansible activity publishes the Task's run reference as soon as the run starts (the key
+  unblock) and mirrors the run progress onto an advisory `Task.Live` without clobbering the Task's
+  intent.
+- The API reads task events from the durable store, so a Task's task list is available live during
+  the run, independent of the artifact filesystem.
 - Progress is expressed as counts and the current play/task, never a percentage: Ansible's total
   task count is not known up front.
 
@@ -52,13 +50,8 @@ delivery and not inventing a percentage.
   and the single step no longer hides the many tasks it performs. No change to how deployments run.
 - A new durable collection grows with play size. Events are compact and output-free; aligning their
   retention with workflow/artifact retention is a follow-up.
-- `Task.Live` and `AnsibleExecution.Progress` are advisory: the authoritative outcome remains the
+- `Task.Live` and the run progress are advisory: the authoritative outcome remains the
   Task/Operation status. Live projection is best-effort and never affects a run's result.
-- Refines ADR 016 (Temporal orchestration) and ADR 017 (Workflow/Job/Task/Runner) by adding live
+- Refines [ADR 016](016-temporal-operation-orchestration.md) (Temporal orchestration) and
+  [ADR 017](017-workflow-job-task-runner-model.md) (Workflow/Job/Task/Runner) by adding live
   intra-Task observability; it does not change the execution model or the Runner boundary.
-
-## Current status
-
-Implemented: durable event stream + progress model, executor streaming, early reference and live
-projection in the ansible activity, API read path, the `workflows` contract, and the dashboard
-operation detail. A push (SSE) delivery and event retention alignment remain follow-ups.

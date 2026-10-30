@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-02
+- 現行規格：[access-and-credentials.md](../development/access-and-credentials.md) §6 Automation 的 SSH 金鑰與 Site automation credential
 
 ## Context
 
@@ -23,14 +24,12 @@ refused unless it had stored at least a become password.
 readiness (`wait-for-ssh`), the per-host login-user probe, and every Ansible run.
 
 - The Site credential holds only the write-only become password. A credential request that
-  contains `sshPrivateKey` is refused with `400 validation_error`, not silently ignored, so
-  no caller believes an override took effect. To use another key installation-wide, replace
-  the Deployment Key (`PUT /ssh-keys/deployment`).
-- A private key stored by an earlier release is ignored on read and dropped on the next
-  credential write.
-- `credentialSource` reports only `deploymentKey` or `none`.
+  contains `sshPrivateKey` is refused (`400 validation_error`), not silently ignored, so no
+  caller believes an override took effect. To use another key installation-wide, replace the
+  Deployment Key.
+- A private key stored by an earlier release is ignored.
 - Ansible may run for a Site when automation is enabled and the Deployment Key exists. That
-  single rule replaces the stored-credential checks at acceptance and in the Ansible Task.
+  single rule replaces the stored-credential checks.
 
 ## Alternatives considered
 
@@ -45,9 +44,3 @@ readiness (`wait-for-ssh`), the per-host login-user probe, and every Ansible run
 - Breaking for any client that set a Site private key; such a Site's existing hosts must be
   redeployed (or their Deployment Key authorized) before automation can log in.
 - Supersedes the "Effective credential" override of ADR 039; the rest of ADR 039 stands.
-
-## Current status
-
-Implemented in `api-server` (operation domain, application, delivery, and the automation
-configuration repository), the site-automation contract, the CLI help, and the installation
-and development seeds.

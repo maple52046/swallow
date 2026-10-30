@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-09
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §6.4 讀取與管理視圖（type-specific，ADR 021）
 
 ## Context
 
@@ -23,29 +24,21 @@ Slurm through the Kubernetes shape produced confusing, incorrect information.
 
 ## Decision
 
-**Platforms share a shell but own type-specific views.** The platform detail page is a shared
-shell (header, lifecycle notice, sync, lifecycle actions, related operations) that renders a
-per-type body: `KubernetesPlatformView` or `SlurmPlatformView`. Shared behaviour is composed
-from shared helpers; each type is free to present its own management surface. Different platform
-types may have similar functions, but neither inherits the other's vocabulary or state model.
-
-**Add a Slurm-native cluster read, on demand and read-only.** A new
-`GET /api/v1/platforms/{id}/slurm` reads live Slurm state from slurmrestd — controllers
-(`/ping`, in SlurmctldHost failover order with `up`/`down`/`unknown` RPC status), partitions
-(`/partitions`), and compute node scheduler state (`/nodes`, with CPU/memory/GRES). It is a
-superset reader (`SlurmClusterReader`) that the concrete Slurm reader implements alongside
-`ListMembers`, resolved through the same reader factory. It performs no writes: it does not
-touch the membership axis or the sync counters, and it never runs on the reconcile interval.
-
-**Keep the three data sources separate.** Deployment intent (operation history) says what was
-requested; membership sync (`ListMembers`) writes the `Server.membership` axis (compute only
-for Slurm); the new live read describes the running cluster. The dashboard degrades from the
-live read to intent-plus-membership when slurmrestd is not recorded or unreachable.
-
-**Health is a distinct axis, temporarily not shown.** The member/node `State` column carries
-only scheduler state (Slurm node state; Kubernetes `Ready`) and controller RPC status; it no
-longer borrows host power or monitoring health. Health remains a separate axis to be surfaced
-in its own column once monitoring is integrated.
+- **Platforms share a shell but own type-specific views.** The platform detail page is a shared
+  shell (header, lifecycle notice, sync, lifecycle actions, related operations) that renders a
+  per-type body. Shared behaviour is composed from shared helpers; different platform types may
+  have similar functions, but neither inherits the other's vocabulary or state model.
+- **Add a Slurm-native cluster read, on demand and read-only.** A new
+  `GET /api/v1/platforms/{id}/slurm` reads live controllers, partitions, and compute node
+  scheduler state from slurmrestd. It performs no writes: it does not touch the membership axis or
+  the sync counters, and it never runs on the reconcile interval.
+- **Keep the three data sources separate.** Deployment intent (operation history) says what was
+  requested; membership sync writes the `Server.membership` axis (compute only for Slurm); the live
+  read describes the running cluster. The dashboard degrades from the live read to
+  intent-plus-membership when slurmrestd is not recorded or unreachable.
+- **Health is a distinct axis, temporarily not shown.** The member/node `State` column carries
+  only scheduler state and controller RPC status; it no longer borrows host power or monitoring
+  health. Health is to be surfaced in its own column once monitoring is integrated.
 
 ## Alternatives considered
 
@@ -65,30 +58,11 @@ in its own column once monitoring is integrated.
 
 ## Consequences
 
-- The Slurm view shows real controllers (with primary/backup and ping status), partitions, and
-  per-node Slurm state with CPU/memory/GRES, aligned with the Slurm validation knowledge
-  (`deployment-validation.md`: CTRL-01 ping, NODE-01 sinfo states, CFG-02 config).
-- The membership sync, `platform.deployment` intent projection, and
-  `GET /servers?platformId=` member list are unchanged; the live read is additive.
-- When slurmrestd is absent (image without `slurm-smd-slurmrestd`, so `integrationId` is null)
-  or unreachable, the Slurm view degrades to the recorded controller intent plus the last-synced
-  compute membership, without a false-alarm "down".
+- The Slurm view shows real controllers (primary/backup and ping status), partitions, and
+  per-node Slurm state with CPU/memory/GRES, aligned with the Slurm validation knowledge.
+- The membership sync, the deployment intent projection, and the member list are unchanged; the
+  live read is additive.
+- Without slurmrestd, the Slurm view degrades to the recorded controller intent plus the
+  last-synced compute membership, without a false-alarm "down".
 - Health is intentionally missing from the view until monitoring is integrated; it must be added
   as its own axis, not folded back into scheduler state.
-
-## Current status
-
-Implemented. Backend: `SlurmClusterReader`/`SlurmClusterState`, `SlurmReader.GetClusterState`,
-`GetSlurmClusterUseCase`, and `GET /api/v1/platforms/{id}/slurm`. Frontend: a shared
-`PlatformDetailPage` shell with `KubernetesPlatformView` and `SlurmPlatformView`, the
-`getSlurmCluster` port/adapter, and the `useSlurmCluster` hook. QOS, reservations, accounts
-(SlurmDBD-dependent), a live jobs list, and type-specific write actions (drain/cancel) are
-Planned.
-
-## Related
-
-- [ADR 019](019-slurm-platform-deployment.md) — Slurm platform deployment (per-daemon roles,
-  slurmrestd credential) whose read side this refines.
-- [ADR 003](003-metrics-label-contract.md) — the monitoring/health axis kept separate here.
-- [`docs/development/platform-deployment.md`](../development/platform-deployment.md) and the
-  `platforms` API contract, updated for the Slurm cluster read.

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-09
+- 現行規格：[server-enrollment-and-boot-media.md](../development/server-enrollment-and-boot-media.md) §3 Power Configuration 與 power adapters（另見 §2.2）
 
 ## Context
 
@@ -27,37 +28,32 @@ Three gaps met there:
 
 ## Decision
 
-- **Power Configuration is provisioner-owned and written through.** A Server's Power
-  Configuration is the power driver its provisioner uses and that driver's parameters. swallow
-  reads it live and writes it through to the provisioner (MAAS `power_type` and
-  `power_parameters`) from the API, the CLI, and the Dashboard, and never stores it. The password
-  is write-only: omitted keeps it for an unchanged driver and clears it when the driver changes.
-  A VM-host member's power belongs to its VM host and is read-only.
-- **Power adapters are the code model.** Each driver family is one power adapter: `bmc` (drivers
-  `ipmi` and `redfish`) and `virsh`. A registry resolves a driver to its adapter, which validates
-  and normalizes a configuration. Functions only some families have are optional adapter
-  extensions: the BMC adapter exposes the out-of-band access Redfish Boot Media runs against, and
-  callers ask the adapter for it instead of branching on the driver or on VM-host membership. A
-  driver the registry does not know is reported verbatim, has no extension, and cannot be
+- **Power Configuration is provisioner-owned and written through.** swallow reads a Server's power
+  driver and parameters live and writes them through to the provisioner from the API, the CLI, and
+  the Dashboard, and never stores them. The password is write-only. A VM-host member's power
+  belongs to its VM host and is read-only.
+- **Power adapters are the code model.** Each driver family is one adapter — `bmc` (`ipmi`,
+  `redfish`) and `virsh` — that validates and normalizes a configuration. Functions only some
+  families have are optional adapter extensions; the BMC adapter exposes the out-of-band access
+  Redfish Boot Media runs against, and callers ask the adapter for it instead of branching on the
+  driver or on VM-host membership. A driver no family knows is reported verbatim and cannot be
   written.
-- **Redfish is a BMC extension, not a power type.** The provisioner's `redfish` driver is one way
-  the BMC family switches power; Redfish Boot Media stays a probe of the BMC whatever its driver
-  ([ADR 047](047-redfish-boot-media.md)).
-- **Control is classified per driver.** `none` (no driver), `manual` (MAAS `manual`), or
-  `automatic` (every other driver, including drivers swallow does not write).
-- **The enrollment wait diagnoses power.** The provider reports an observation instead of a
-  boolean: settled, enrolling, or power uncontrollable. MAAS reports power uncontrollable only
-  once its enlistment script set has finished and the driver is not automatic and power is not
-  recorded off, because MAAS sets a physical Machine's BMC driver from within that script set.
-  Two such readings stop the Task in `requires_attention` with `power_configuration_required`.
-- **A retry waits again.** Only a Workflow requested through `POST /servers/{id}/inspect` skips
-  the wait; it still stops for `power_configuration_required` when the Machine has no driver at
-  all, because the provisioner could not power it on. Automatic inspection keeps its one-shot,
-  no-resume policy.
-- **Virsh addresses are clean `qemu+ssh` URIs.** swallow accepts `qemu+ssh://[user@]host[:port]/system`
-  without a password, query, or fragment, and a domain name or UUID as `powerId`. The provisioner
-  connects with them; its SSH access to the hypervisor is an installation prerequisite, not
-  something swallow manages.
+- **Redfish is a BMC extension, not a power type**; Redfish Boot Media stays a probe of the BMC
+  whatever its driver ([ADR 047](047-redfish-boot-media.md)).
+- **Control is classified per driver**: `none`, `manual`, or `automatic`.
+- **The enrollment wait diagnoses power.** The provider reports settled, enrolling, or power
+  uncontrollable; MAAS reports the last only once its enlistment script set — where it sets a
+  physical Machine's BMC driver — has finished without an automatic driver or a recorded
+  power-off. That stops the Task for a Power Configuration instead of timing out.
+- **A retry waits again.** Only an operator-requested inspection skips the wait, and it still stops
+  when the Machine has no driver at all, because the provisioner could not power it on.
+- **Virsh addresses are clean `qemu+ssh` URIs** that the provisioner connects with; its SSH access
+  to the hypervisor is an installation prerequisite, not part of the Power Configuration.
+
+Revision history: 2026-10-09 (same day) let virtual-machine enrollment place the provisioner's
+installation-recorded public key on a swallow Hypervisor, and let a `virsh` Server whose address
+names a Hypervisor use `libvirt` Boot Media ([ADR 055](055-libvirt-virtual-machine-enrollment.md))
+(original text in git history).
 
 ## Alternatives considered
 
@@ -78,18 +74,10 @@ Three gaps met there:
 
 ## Consequences
 
-- New routes `GET` and `PUT /servers/{id}/power-configuration`, provider capability
-  `powerConfiguration`, and CLI `swallow servers power-configuration get|set`.
-- The provisioner detail shows a `BMC` section only for the `bmc` family; other drivers get a
-  password-free `Power` section.
-- New attention code `power_configuration_required`; ADR 053's "any retried run succeeds at once"
-  is replaced by "a retried run waits again".
+- New Power Configuration routes, provider capability, and CLI commands; only the `bmc` family is
+  presented as a BMC.
+- New attention code for a missing Power Configuration; ADR 053's "any retried run succeeds at
+  once" is replaced by "a retried run waits again".
 - A MAAS integration account must be an administrator to read and write power parameters.
 - Lab VMs from any number of hypervisors can be enrolled and inspected once MAAS can reach each
   hypervisor over SSH.
-
-## Current status
-
-Implemented. [ADR 055](055-libvirt-virtual-machine-enrollment.md) refines it: a `virsh` Server whose
-address names a swallow Hypervisor gets `libvirt` Boot Media, and swallow reaches that Hypervisor's
-libvirt with the Deployment Key for domain reads and Boot Media only, never for power.

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-03
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §10 部署進度與 provider-stage stall
 
 ## Context
 
@@ -18,12 +19,12 @@ finish, and operators had no way to see which installation stage a deployment wa
 
 While a provider reports a machine as deploying, the `provision-os` Task reads the provider's
 machine event stream on every observation. The newest event since the current attempt started is
-projected onto the Server deployment axis as a non-terminal `stage` and `statusReason` (code stays
-empty), so the Server shows the stage it is in. If no newer event arrives for 25 minutes, the Task
-becomes `requires_attention` with `deployment_provider_stage_stall`, naming the stuck stage.
-Progress is measured from provider event timestamps, so a worker restart or activity retry
-continues the same measurement. The provider deployment is not aborted. A provider without an
-event stream, or a failed read, never produces a stall.
+projected onto the Server deployment axis as a non-terminal stage, so the Server shows the stage
+it is in. If no newer event arrives for 25 minutes, the Task becomes `requires_attention` with
+`deployment_provider_stage_stall`, naming the stuck stage. Progress is measured from provider
+event timestamps, so a worker restart or activity retry continues the same measurement. The
+provider deployment is not aborted. A provider without an event stream, or a failed read, never
+produces a stall.
 
 ## Alternatives considered
 
@@ -49,8 +50,3 @@ event stream, or a failed read, never produces a stall.
 - Unreachable package sources are still discovered only during installation. Configuring the
   sources installations actually use (provider package repositories, or cloud-init for the
   installed OS) is separate, later work.
-
-## Current status
-
-Implemented: `api-server` step-executor progress projection and stage stall; `dashboard` Server
-deploying stage line.

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-06
+- 現行規格：[server-enrollment-and-boot-media.md](../development/server-enrollment-and-boot-media.md) §1 Server Enrollment、§2 Hardware inspection
 
 ## Context
 
@@ -22,42 +23,31 @@ in Commissioning until a timeout, while the operator's fix is Boot Media
 
 ## Decision
 
-- **Server Enrollment has two guided paths**, offered from **Add servers** on the Server list:
-  network boot (power cycle; Boot Media first on an externally served network), and existing
-  OS (no reboot). Enrollment only puts a Machine into the provisioner's inventory; the Server
-  still comes from reconciliation.
-- **Hardware inspection is a durable Workflow**, kind `inspect-hardware`, one Server each, one
-  Job `ensure-inspected` of three ensure Tasks:
-  1. `wait-enrollment-settled` (provisioner Runner) waits for the provider's enrollment to
-     finish through an optional provider capability. MAAS reports it settled once the Machine
-     has left New, or is New and powered off. A provisioner without the capability skips it.
-     Twenty minutes without a settled reading is `requires_attention`; nothing is commissioned.
-  2. `ensure-boot-media` (internal Runner) applies the Server's Boot Media, read when the Task
-     runs, and does nothing when Boot Media is disabled.
-  3. `inspect` (provisioner Runner) issues Inspect (MAAS commission) at most three times. An
-     attempt that records no provider progress for 15 minutes is aborted, which returns a
-     never-inspected MAAS Machine to New. After the last attempt the Task stops in
-     `requires_attention` and names Boot Media as the fix for an unreachable network.
-- **swallow does not mark the Server failed.** The attention lives on the Workflow, and a
-  Machine that never booted returns to New. Retrying the Task re-runs the whole Job, so Boot
-  Media enabled in the meantime is applied before the next commission.
-- **Inspection starts automatically** for a present, unlocked Server in `new`, first observed
-  within the last 24 hours, whose provisioner Integration is enabled and has not set
-  `settings.autoInspect` to `false`, and that never had an `inspect-hardware` Workflow. The
-  reconciler stays a read-only projection; a separate sweep starts the Workflow.
-- **Manual Inspect uses the same Workflow.** `POST /servers/{id}/inspect` starts it without the
-  enrollment wait, or retries the one waiting for attention.
-- **Existing-OS enrollment is one command on the host.** It downloads an enrollment script from
-  the installation (`/downloads/swallow-enroll.sh`, no credential needed), which downloads the
-  swallow CLI from the installation (`/downloads/swallow`) and runs
-  `swallow servers enroll --provisioner=maas`. That wraps `maas-run-scripts register-machine`,
-  which creates the Machine as Deployed, and `report-results`, which records its hardware
-  without a reboot. The Server is projected as `deployed` and keeps its OS; automatic inspection
-  never starts for it. An admin-only endpoint hands out the provisioner endpoint and its stored
-  API credential for the generated command. The host needs nothing from swallow beforehand.
-- **External DHCP is still PXE**, through the iPXE Boot ISO. For the enlisting boot the guide
-  shows the Boot ISO URL to mount from the BMC console or with Redfish commands, because swallow
-  does not know the BMC of a machine the provisioner has not enlisted yet.
+- **Server Enrollment has guided paths**, offered from **Add servers** on the Server list:
+  network boot (power cycle; on an externally served network, PXE through the iPXE Boot ISO) and
+  existing OS (no reboot). Enrollment only puts a Machine into the provisioner's inventory; the
+  Server still comes from reconciliation.
+- **Hardware inspection is a durable Workflow**, `inspect-hardware`, one Server each, one Job of
+  three ensure Tasks: wait until the provider's own enrollment has finished, apply the Server's
+  Boot Media as read when the Task runs, then issue a bounded number of inspections, aborting one
+  that makes no progress.
+- **swallow does not mark the Server failed.** The attention lives on the Workflow, a Machine that
+  never booted returns to New, and a retry re-runs the whole Job so Boot Media enabled in the
+  meantime is applied before the next commission.
+- **Inspection starts automatically** for fresh enrollments only — a `new`, unlocked Server first
+  observed recently, on an enabled Integration that has not turned it off, that never had an
+  inspection Workflow. The reconciler stays a read-only projection; a separate sweep starts it.
+- **Manual Inspect uses the same Workflow**, without the enrollment wait, or retries the one
+  waiting for attention.
+- **Existing-OS enrollment is one command on the host**: it downloads an enrollment script and the
+  swallow CLI from the installation, and the CLI registers the host with the provisioner without a
+  reboot. The Server is `deployed` and is never inspected automatically. An admin-only endpoint
+  hands out the provisioner endpoint and its stored API credential for the command.
+
+Revision history: 2026-10-09 made the enrollment wait stop for a missing Power Configuration and
+made a retried run wait again instead of succeeding at once
+([ADR 054](054-provisioner-power-configuration.md)), and added a third, virtual-machine path
+([ADR 055](055-libvirt-virtual-machine-enrollment.md)) (original text in git history).
 
 ## Alternatives considered
 
@@ -83,19 +73,11 @@ in Commissioning until a timeout, while the operator's fix is Boot Media
 
 ## Consequences
 
-- New Workflow kind `inspect-hardware`, Task kinds `wait-enrollment-settled` and `inspect`, and
-  a live-resolving form of `ensure-boot-media`. `POST /servers/{id}/inspect` now answers with
-  the Workflow it started or resumed and refuses in-progress and deployed states.
-- New provider capabilities: enrollment settling and existing-host enrollment (MAAS only).
-- New Integration setting `autoInspect`; unset means on.
-- New unauthenticated downloads `/downloads/swallow-enroll.sh` and `/downloads/swallow`, and
-  config `api.cliBinary`; the production Compose mounts the bundle's `bin/` into the API.
+- New published Workflow and Task vocabulary; Inspect answers with the Workflow it started or
+  resumed and refuses in-progress and deployed states.
+- New optional provider capabilities for enrollment settling and existing-host enrollment (MAAS
+  only), and an Integration setting that turns automatic inspection off.
+- Two new unauthenticated downloads; the installation must serve its CLI to the API process.
 - The generated existing-OS command carries the provisioner's API key; a host that runs it
   could use that key. Rotate it when a host is not trusted.
 - The Server Default User is still not captured during enrollment (ADR 045 future direction).
-
-## Current status
-
-Implemented. [ADR 054](054-provisioner-power-configuration.md) refines the enrollment wait: it
-stops for `power_configuration_required` when the power-off cannot be observed, and a retried
-run waits again instead of succeeding at once.

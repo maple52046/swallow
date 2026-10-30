@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-29
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §6.3 Slurm reference（已實作現況）的 Job hook dispatcher 與共用節點、Device Metrics Exporter、native OCI 與 PMIx
 
 ## Context
 
@@ -13,50 +14,45 @@ the way. A job that named no memory took the whole node (`DefMemPerNode=UNLIMITE
 job waited although CPUs and GPUs were free. And AI workloads wanted MPI and containers launched by
 Slurm itself, which the cluster could not do (`MpiDefault=none`, no `oci.conf`).
 
-Lab work on MI308X SR-IOV virtual functions (vanguard knowledge, DME `sriov-guest-capabilities`)
-showed that DME 1.5.3 reports every GPU of such a node as `gpu_id="0"`, so its Slurm join attributes
-a one-GPU job to all eight GPUs and a job on another GPU to none, while Slurm's own GRES allocation
-and device cgroup are correct.
+Lab work on MI308X SR-IOV virtual functions showed that DME 1.5.3 reports every GPU of such a node
+as `gpu_id="0"`, so its Slurm join attributes a one-GPU job to all eight GPUs and a job on another
+GPU to none, while Slurm's own GRES allocation and device cgroup are correct.
 
 ## Decision
 
-- **One Prolog/Epilog dispatcher.** `slurm.conf` always names `/etc/slurm/swallow-prolog` and
-  `/etc/slurm/swallow-epilog` (`PrologFlags=Alloc,Contain`). They run every executable in
-  `prolog.d`/`epilog.d` in name order, each with a 30-second limit; a failing hook is logged and
-  never fails the job or drains the node, because the hooks attribute jobs to monitoring. Swallow's
-  hooks are `10-omnistat` and `20-device-metrics-exporter`; `deploy-slurm` installs the enabled
-  ones on every compute node (configless distributes no scripts) before slurmd restarts and
-  removes the rest. Executables an operator adds under other names run too.
-- **Jobs share nodes by default.** Without Omnistat the partition is `OverSubscribe=NO`; each
-  node's `RealMemory` keeps 5% (2–16 GiB) for the operating system, and `DefMemPerCPU` is the
-  smallest per-CPU share over the compute nodes. `slurm_verify` proves two jobs without `--mem` run
-  on one node together. Omnistat keeps `EXCLUSIVE`.
+- **One Prolog/Epilog dispatcher.** `slurm.conf` always names Swallow's Prolog and Epilog
+  dispatchers. They run every executable in `prolog.d`/`epilog.d` in name order, each with a
+  30-second limit; a failing hook is logged and never fails the job or drains the node, because the
+  hooks attribute jobs to monitoring. Swallow installs its own enabled hooks on every compute node
+  (configless distributes no scripts) and removes the rest; executables an operator adds under
+  other names run too.
+- **Jobs share nodes by default.** Without Omnistat the partition is `OverSubscribe=NO`, each
+  node's `RealMemory` keeps a share for the operating system, and `DefMemPerCPU` is the smallest
+  per-CPU share over the compute nodes, so a job that names no memory gets memory in proportion to
+  its CPUs. The deployment proves two such jobs run on one node together. Omnistat keeps
+  `EXCLUSIVE`.
 - **The Device Metrics Exporter is a Slurm Platform feature like Omnistat, never together with
-  it.** `deviceMetricsExporter: { enabled, installMethod }` composes Prometheus and Grafana onto the
-  primary controller exactly as Omnistat does (one composition path for both features), then a
-  `configure-device-metrics-exporter` Job installs AMD's pinned native package on every GPU compute
-  node: no privileged container, `gpuagent` after the amdgpu loader, the exporter on the node's
-  address at port 5001 (5000 is the RDC exporter Swallow scrapes, decision 003), Slurm attribution
-  only, profiler counters off. The hook writes one file per allocated GPU through a temporary name
-  and an atomic rename and removes a file only while it still names the ending job. The two
-  features are mutually exclusive: Omnistat needs whole nodes and both would take the single
-  hardware profiler; whether they may coexist is left to the team, and the dispatcher already
-  allows it.
+  it.** It composes Prometheus and Grafana onto the primary controller exactly as Omnistat does
+  (one composition path for both features), then installs AMD's pinned native package on every GPU
+  compute node: no privileged container, `gpuagent` after the amdgpu loader, the exporter at port
+  5001 (5000 is the RDC exporter Swallow scrapes, decision 003), Slurm attribution only, profiler
+  counters off. The hook writes one file per allocated GPU atomically and removes a file only while
+  it still names the ending job. The two features are mutually exclusive: Omnistat needs whole
+  nodes and both would take the single hardware profiler; whether they may coexist is left to the
+  team, and the dispatcher already allows it. ([ADR 068](068-device-metrics-exporter-managed-software.md)
+  later made the exporter a Managed Software kind that this feature composes.)
 - **Swallow reports whether the exporters tell GPUs apart.** The install compares each node's KFD
-  GPU count with the exporter's GPU health series and distinct `gpu_id` values and records the
-  Platform's GPU identity, `distinct` or `collapsed`. A collapsed identity does not fail the
-  deployment (the endpoint works) but is shown to the operator instead of letting job dashboards
-  look right.
-- **Native OCI containers and PMIx are Slurm options.** `slurm.ociContainers` installs crun and an
-  `oci.conf` the controllers distribute with the configless configuration: rootless `/usr/bin/crun`
-  as the job user, a `ContainerPath` string identical on every node so PMIx paths resolve across
-  nodes, the step spool left at that same path inside the container (the ranks are told the host
-  path of the PMIx server directory; a separate `MountSpoolDir` broke `MPI_Init`), and slurmd's
-  `NOTIFY_SOCKET` kept from crun. MPI in a container also needs the host's MUNGE socket and network. The host keeps
-  `kernel.apparmor_restrict_unprivileged_userns=1`; the distribution's path-scoped crun profile is
-  what grants the user namespace, so no Swallow wrapper or profile is needed. `slurm.pmix` installs the distribution's OpenMPI with PMIx on
-  compute and login nodes; `MpiDefault` stays `none`. Each is proven by a probe job. Podman through
-  `scrun` is a later slice.
+  GPU count with the exporter's distinct GPU identities and records the Platform's GPU identity,
+  `distinct` or `collapsed`. A collapsed identity does not fail the deployment (the endpoint works)
+  but is shown to the operator instead of letting job dashboards look right.
+- **Native OCI containers and PMIx are Slurm options.** Native OCI installs crun and a
+  configless-distributed `oci.conf`: rootless crun as the job user, a `ContainerPath` identical on
+  every node so PMIx paths resolve across nodes, the step spool at that same path inside the
+  container (a separate `MountSpoolDir` broke `MPI_Init`), and slurmd's `NOTIFY_SOCKET` kept from
+  crun. The host keeps `kernel.apparmor_restrict_unprivileged_userns=1`; the distribution's
+  path-scoped crun profile grants the user namespace, so no Swallow wrapper or profile is needed.
+  PMIx installs the distribution's OpenMPI with PMIx on compute and login nodes; `MpiDefault` stays
+  `none`. Each is proven by a probe job. Podman through `scrun` is a later slice.
 
 ## Alternatives considered
 
@@ -89,7 +85,3 @@ and device cgroup are correct.
   `--exclusive` is how a job asks for a whole node.
 - On MI308X virtual functions the exporter installs and is scraped, but the Platform reports a
   `collapsed` GPU identity until AMD fixes the per-VF identity.
-
-## Current status
-
-Implemented in `api-server`, `dashboard`, and `cli` documentation.

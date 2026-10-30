@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-19
+- 現行規格：[workflow-execution.md](../development/workflow-execution.md) §8 取消、§7 Rerun：以新 Workflow 收斂
 
 ## Context
 
@@ -30,31 +31,24 @@ deployment` (Allocated). Every such Server needed a manual Release before anythi
 ## Decision
 
 - **A cancel never changes a finished OS deployment.** A Task transition the Workflow repository
-  ignores as a regression reaches no projection observer and no timeline event. The Server
-  deployment observer also ignores a `canceled` or `skipped` Task for the same Operation and Task
-  when its attempt is not newer than a recorded `succeeded` or `failed` result. A background sweep
-  restores a `canceled` result whose Task recorded `succeeded` or `failed` at the same or a later
-  attempt, once that Workflow has ended.
-- **A cancel returns what it interrupted to Ready.** For every `provision-os` whose activity was
-  running when the cancel arrived, the canceled Workflow runs an internal
-  `return-canceled-deployment` step under its own leases. It aborts a Deploying Machine, waits for
-  it to leave Deploying, and returns an Allocated one to Ready with the Recover plan: a plain
-  Release, with static IP bindings kept and no disk erase. A Machine that is deployed, failed,
-  broken, or in rescue holds the deployment's outcome and is left as it is. The step is
-  best-effort, bounded, and recorded on the Workflow timeline. A parent Workflow waits for a Job
-  child's cancellation, so the step finishes before the leases are released.
-  `verify-os-image` keeps its own return-to-ready compensation.
+  ignores as a regression reaches no projection observer and no timeline event; the Server
+  deployment observer does not let a cancel from an attempt no newer than a recorded outcome
+  overwrite it; and a background sweep restores a wrongly written `canceled` result once the
+  Workflow has ended.
+- **A cancel returns what it interrupted to Ready.** For every `provision-os` that was running when
+  the cancel arrived, the canceled Workflow, still holding its leases, runs a best-effort, bounded
+  `return-canceled-deployment` step: it aborts a Deploying Machine and returns an Allocated one to
+  Ready with the Recover plan (a plain Release, static IP bindings kept, no disk erase). A Machine
+  that is deployed, failed, broken, or in rescue holds the deployment's outcome and is left as it
+  is. A parent Workflow waits for a Job child's cancellation, so the step finishes before the leases
+  are released. `verify-os-image` keeps its own return-to-ready compensation.
 - **Rerun converges to the desired state.** Rerun runs every ensure Task again, whatever its
-  earlier outcome, at the attempt after its last one: `provision-os`, `ensure-boot-media`,
-  `wait-for-ssh`, `ansible-playbook`, `validate-platform-health`, `release-os`, and
-  `recover-server`. Each executor observes before it acts on a later attempt, as an explicit retry
-  does ([decision 059](059-retry-recovers-failed-deployment.md)): a Server already deployed with
-  the frozen image and reachable over SSH succeeds in seconds and records that result under the new
-  Workflow; `release-os` and `recover-server` succeed on a Server that is already Ready. A Server
-  Default User is cleared only when a deployment is actually submitted, so a converged Server keeps
-  it. One-time actions (image verification records, platform uninstall finalization, inspection)
-  keep the earlier carry-over rule, and so does a succeeded playbook once a `release-os` in the
-  same Workflow succeeded, because a released host no longer runs the OS the playbook needs.
+  earlier outcome, at the attempt after its last one, and each executor observes before it acts on a
+  later attempt, as an explicit retry does ([decision 059](059-retry-recovers-failed-deployment.md)).
+  One-time actions keep the earlier carry-over rule, and so does a succeeded playbook once a
+  `release-os` in the same Workflow succeeded, because a released host no longer runs the OS the
+  playbook needs. A Server Default User is cleared only when a deployment is actually submitted, so
+  a converged Server keeps it.
 
 ## Alternatives considered
 
@@ -76,7 +70,3 @@ deployment` (Allocated). Every such Server needed a manual Release before anythi
 - A rerun repairs Server results and re-validates every node instead of assuming them. It costs the
   time of the idempotent playbook again, about 10 minutes for k0s.
 - Every Task kind added to the convergent set must observe before it acts on a later attempt.
-
-## Current status
-
-Implemented in `api-server`.

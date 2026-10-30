@@ -1,7 +1,8 @@
 # 033. Swallow-owned provider recovery policy
 
-- Status: Accepted
+- Status: Accepted (allowed sources refined by [ADR 036](036-provisioning-lifecycle-integrity.md); the retry path refined by [ADR 059](059-retry-recovers-failed-deployment.md))
 - Date: 2026-09-20
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §11 Provider Recovery
 
 ## Context
 
@@ -31,18 +32,17 @@ normalized `provisioning.state`, and which provider primitive sequence realizes
 it. The provisioner executes the chosen primitive; it is no longer the first
 gate an operator meets.
 
-- **Release** is allowed from `deployed`, `failed`, `broken`, and `rescue`, and
-  converges the Machine to `ready`. This relaxes the former `deployed`-only rule
-  to match what the provider already supports.
-- **Recover** ("Return to Ready") is a new Swallow-owned durable Operation that
+- **Release** is allowed from `deployed`, `allocated`, `failed`, `broken`, and
+  `rescue`, and converges the Machine to `ready`. This relaxes the former
+  `deployed`-only rule to match what the provider already supports.
+- **Recover** ("Return to Ready") is a Swallow-owned durable Operation that
   chooses the primitive by state: `broken` -> `mark_fixed`; `rescue` ->
-  `exit_rescue_mode`, then Release if the Machine is still not `ready`; `failed`
-  -> Release. Its success condition is observing `ready`. A Machine that will not
-  leave rescue (the provider keeps reporting a failed exit, or hangs in the
-  transition past a grace period) is escalated to `mark_broken` and then
-  `mark_fixed`, the MAAS-idiomatic way to unstick a rescue without a disk erase;
-  the rescue-transition states (including their failed variants) normalize to
-  `rescue` so the policy and UI treat them as one rescue problem.
+  `exit_rescue_mode`, then Release if the Machine is still not `ready`; `failed`,
+  `allocated`, or `deployed` -> Release. Its success condition is observing
+  `ready`. A Machine that will not leave rescue is escalated to `mark_broken` and
+  then `mark_fixed`, the MAAS-idiomatic way to unstick a rescue without a disk
+  erase; the rescue-transition states (including their failed variants) normalize
+  to `rescue` so the policy and UI treat them as one rescue problem.
 - **Mark fixed / Mark broken / Rescue enter / Rescue exit** stay available as
   advanced primitives, but Swallow gates them on live state before calling the
   provider and returns a Swallow-authored reason on refusal, never only the raw
@@ -50,11 +50,18 @@ gate an operator meets.
 - **Rescue** is a diagnostic environment, not a recovery path. It is allowed from
   `deployed`, `broken`, and `failed`; exiting restores the previous provider
   state and does not by itself reach `ready`.
+- The allowed-source matrix and the Recover primitive plan live in one domain
+  policy, reused by durable Release, the Recover Operation, and the single-action
+  operator-state use cases so they never drift.
+- Recovery is operator-initiated.
 
-The allowed-source matrix and the Recover primitive plan live in one domain
-policy (`provisioning/domain/recovery_policy.go`), reused by durable Release,
-the Recover Operation, and the single-action operator-state use cases so the
-three never drift.
+Revision history: on 2026-09-21 [ADR 036](036-provisioning-lifecycle-integrity.md)
+added `allocated` as a Release and Recover source. On 2026-10-19
+[ADR 059](059-retry-recovers-failed-deployment.md) replaced the documented
+"Recover the node, then retry the Task" path, which could not run while the
+deploying Operation held the Server: an explicit retry of a failed `provision-os`
+now runs the Recover plan itself before redeploying (original text in git
+history).
 
 ## Alternatives considered
 
@@ -77,26 +84,6 @@ three never drift.
   Swallow reason instead of a provider error.
 - The recovery matrix is centralized, so the durable Release, the Recover
   Operation, the operator-state actions, the dashboard availability gating, and
-  the platform failure playbook all reference one source of truth.
-- A platform deploy that leaves a node `failed` now has a documented path: Recover
-  or Release the node to `ready`, then retry the Task or rerun the Workflow.
+  the platform failure guidance all reference one source of truth.
 - New provider adapters must map their own states onto the normalized set the
   policy branches on; they do not re-implement the policy.
-
-## Current status
-
-Implemented: domain policy, relaxed durable Release, Recover Operation and its
-provider Step, operator-state gating, dashboard intents and gating, and the
-contract/glossary/platform-deployment documentation.
-
-Refined by [decision 036](036-provisioning-lifecycle-integrity.md): the
-allowed-source set adds `allocated` (reserved but not deployed), so Recover and
-Release converge it to `ready` instead of dead-ending; the recovery matrix and
-dashboard gate are otherwise unchanged.
-
-Refined by [decision 059](059-retry-recovers-failed-deployment.md): the
-documented "Recover the node, then retry the Task" path could not run while the
-deployment parked, because that Operation keeps the Server busy. An explicit
-retry of a failed `provision-os` now runs the Recover plan itself before
-redeploying. Recovery is still operator-initiated: only the operator's retry
-triggers it.

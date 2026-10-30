@@ -2,11 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-08-30
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §2 一次 platform deployment 的解剖（k0s reference）的「拓樸與角色」
 
-> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md).
-> Where it names the swallow aggregate or public resource *Cluster*, the canonical term is
-> now **Platform**; *cluster* stays valid only for the external technology (Kubernetes/k0s).
-> See [ADR 015](015-platform-term-disambiguation.md).
+> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md). Where it
+> names the swallow aggregate *Cluster*, the canonical term is now **Platform**; *cluster* stays
+> valid only for the external technology (see [ADR 015](015-platform-term-disambiguation.md)).
 
 ## Context
 
@@ -51,13 +51,8 @@ workload-capable control-plane Servers, and the resolved API endpoint.
 ## Consequences
 
 The automation must conditionally install keepalived and must support k0s controllers with
-`--enable-worker`. Verification counts workload-capable control-plane Servers as
-Kubernetes nodes while still counting every control-plane Server as an etcd member.
+`--enable-worker`. Verification counts workload-capable control-plane Servers as Kubernetes
+nodes while still counting every control-plane Server as an etcd member.
 
 Non-HA deployments are explicitly less resilient and the Dashboard must label that tradeoff
 before submission. API and playbook compatibility remain additive for existing HA callers.
-
-## Current status
-
-Implemented in the Cluster deployment contract, Dashboard workflow, and embedded k0s
-playbook.

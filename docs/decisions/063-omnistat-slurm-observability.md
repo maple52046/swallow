@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-21
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §6.3 Slurm reference（已實作現況）的 GPU GRES、amdgpu driver options、GPU 可用性驗收、container runtime 與 Omnistat；Prometheus／Grafana 的安裝方法見 [software-deployment.md](../development/software-deployment.md) §2 Managed Software 目錄（第一刀）
 
 ## Context
 
@@ -16,88 +17,69 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
 
 - **GPU GRES is part of every Slurm deployment.** Compute nodes whose GPU Inventory has AMD
   `compute` GPUs become GPU nodes. Their `amdgpu` driver is loaded by the same post-boot unit as
-  the GPU Operator (`swallow-amdgpu-load.service`, decision 062), now a shared role, and `slurmd`
-  is ordered after it. The playbook derives each GPU's render node from the KFD topology (never by
-  counting `/dev/dri/renderD*`, because XCP partitions add extra nodes), writes `GresTypes=gpu`,
-  `Gres=gpu:<gfx target>:<n>`, and a `gres.conf` with `AutoDetect=off`, explicit `File=` lists, and
-  `Flags=amd_gpu_env,explicit`; `ConstrainDevices=yes` stays on. A selected node whose KFD shows no
-  GPU fails the deploy. (Amended 2026-10-26: the GRES type defaults to that derived architecture
-  name but a deploy may name one for every GPU node, `slurm.gpuGresType`, for example `mi308x_vf`.)
-- **Driver options never name hardware** (amended 2026-10-26, replacing "module options come from
-  cloud-init"). The shared loader writes a Swallow-owned `/etc/modprobe.d/swallow-amdgpu.conf`
-  before the driver loads, from the operator's `gpuDriver.moduleOptions` plus options a topology
-  rule derives from what KFD reports. Today's only rule: a GPU node that reaches the same peer
-  through both an XGMI `io_link` and a PCIe `p2p_link` overflows libhsakmt's peer array (heap
-  corruption when HIP processes exit), so the rule adds `pcie_p2p=0`. A rule option is recorded
-  and kept once applied, because applying it removes the condition; an operator option always
-  wins. Every option is verified in `/sys/module/amdgpu/parameters`. Units that need the GPUs
-  (`slurmd`, `omnistat`) require the loader; k0s is only ordered after it because it also runs
-  non-GPU work. (Amended 2026-10-27, replacing "a driver loaded with other parameters is never
-  unloaded; the node reboots once": a RAM-deployed node loses its operating system on reboot, so
-  every rule-driven deploy on such a node failed.) A name the installed driver does not have
-  (`modinfo -p amdgpu`) is refused before anything loads, with the closest real name. A rule is
-  known only after the driver loads, so a driver running with other parameters loads again: the
-  units requiring the loader stop, and a driver nothing holds (module reference count zero, no
-  process with `/dev/kfd` or a render node open) is unloaded and loaded in place. That is the
-  usual case, because Swallow loaded the driver moments earlier. A driver still held is applied by
-  one reboot on a disk root and refused (`amdgpu_reload_blocked`, naming the holders) on a
-  memory-backed root. Options an operator names load the first time, with no second load.
-- **GPUs are proven with the HIP runtime, not an inventory listing** (amended 2026-10-26). A
-  host-only HIP probe (ctypes against `libamdhip64`, no device code, so any architecture) must see
-  as many GPUs as KFD lists and allocate, fill, and free memory on each, three times, each in its own
-  process so a crash at exit fails it. It runs on every GPU node and again through Slurm (no GPU
-  request sees none, one GPU request sees one as device 0, a whole-node request passes the probe);
-  a failure drains the node and fails the deployment.
+  the GPU Operator ([decision 062](062-swallow-managed-gpu-operator.md)), now a shared role, and
+  `slurmd` is ordered after it. Each GPU's render node is derived from the KFD topology (never by
+  counting `/dev/dri/renderD*`, because XCP partitions add extra nodes), GRES is configured
+  explicitly (no autodetection), and `ConstrainDevices=yes` stays on. The GRES type defaults to the
+  derived architecture name, and a deploy may name one type for every GPU node. A selected node
+  whose KFD shows no GPU fails the deploy.
+- **Driver options never name hardware.** The shared loader writes a Swallow-owned modprobe file
+  before the driver loads, from the operator's options plus options a topology rule derives from
+  what KFD reports. Today's only rule: a GPU node that reaches the same peer through both an XGMI
+  `io_link` and a PCIe `p2p_link` overflows libhsakmt's peer array (heap corruption when HIP
+  processes exit), so the rule adds `pcie_p2p=0`. A rule option is kept once applied, because
+  applying it removes the condition; an operator option always wins; every option is verified
+  against the loaded driver, and a name the installed driver does not have is refused before
+  anything loads. A rule is known only after the driver loads, so a driver running with other
+  parameters loads again: a driver nothing holds is unloaded and loaded in place; a driver still
+  held is applied by one reboot on a disk root and refused on a memory-backed root. Units that need
+  the GPUs (`slurmd`, `omnistat`) require the loader; k0s is only ordered after it because it also
+  runs non-GPU work.
+- **GPUs are proven with the HIP runtime, not an inventory listing.** A host-only HIP probe (no
+  device code, so any architecture) must see as many GPUs as KFD lists and allocate, fill, and free
+  memory on each, repeatedly and in separate processes, directly and again through Slurm; a
+  failure drains the node and fails the deployment.
 - **The device cgroup is the GPU access boundary.** A udev rule opens `/dev/kfd` and the render
-  nodes (mode 0666) on GPU nodes, so a job's user needs no membership in the node's `render`
-  group; Slurm's device cgroup still admits a job only to its allocated GPUs (verified: a job
-  without `--gres` cannot open a render node). The trade-off is that a process outside Slurm on a
-  compute node (for example an SSH login without `pam_slurm_adopt`) could open the GPUs, the same
-  exposure as adding every user to `render`.
-- **Omnistat is a Slurm Platform feature, not Managed Software.** The deploy request carries
-  `omnistat.enabled`; the Platform records Omnistat and its Omnistat State, projected from the
-  `install-omnistat` Task like the GPU Operator State. The Slurm-side overlay (Prolog/Epilog,
-  `PrologFlags=Alloc,Contain`, an exclusive partition because Omnistat's job file is node-wide) is
-  rendered by `deploy-slurm`, the single owner of `slurm.conf`, so a redeploy re-applies it. The
-  Prolog succeeds without attribution until the exporter exists, so the order of Jobs never drains
-  a node. A separate `configure-omnistat` playbook installs the pinned exporter (with the patches
-  Swallow maintains under decision 064, first a compatibility patch for SR-IOV guests that reject
-  the bulk GPU metrics call) and returns the Grafana URL, which Swallow records as the Monitoring
-  Link `Omnistat Grafana`.
+  nodes to every user on GPU nodes, so a job's user needs no `render` group membership; Slurm's
+  device cgroup still admits a job only to its allocated GPUs. The trade-off is that a process
+  outside Slurm on a compute node (for example an SSH login without `pam_slurm_adopt`) could open
+  the GPUs, the same exposure as adding every user to `render`.
+- **Omnistat is a Slurm Platform feature, not Managed Software.** The Platform records Omnistat
+  and its Omnistat State, projected from its install Task like the GPU Operator State. The
+  Slurm-side overlay (job attribution, `PrologFlags=Alloc,Contain`, an exclusive partition because
+  Omnistat's job file is node-wide) is rendered by `deploy-slurm`, the single owner of
+  `slurm.conf`, so a redeploy re-applies it; attribution succeeds as a no-op until the exporter
+  exists, so the order of Jobs never drains a node. A separate playbook installs the pinned exporter
+  (with the patches Swallow maintains under [decision 064](064-upstream-patches-are-the-exception.md))
+  and returns the Grafana URL, which Swallow records as a Monitoring Link.
+  ([ADR 066](066-slurm-job-hooks-and-device-metrics-exporter.md) later moved the attribution into a
+  Prolog/Epilog dispatcher hook.)
 - **Prometheus and Grafana are new Managed Software kinds, composed as Jobs.** With Omnistat
-  enabled, the `configure-slurm` Workflow composes `configure-prometheus` and `configure-grafana`
-  Jobs onto the primary controller after the Slurm install and before `configure-omnistat`, each
-  with its ansible Task and record Task, so the primary controller gets ordinary Software
-  Assignments. This is the first implementation of decision 038's composition rule: no nested
-  software Workflow and no `include_role` as the only link.
-- **Containers are the default install method, not the only one** (amended 2026-10-22). Prometheus
-  and Grafana install by `container` (the official image under Docker Compose on Docker CE or a
-  Podman Quadlet unit on Podman; the runtime must already be installed) or `native` (Prometheus's
-  checksum-verified release binary under a Swallow systemd unit, Grafana's pinned package from
-  Grafana's apt/yum repository with a Swallow drop-in). The method and the runtime are spec
-  variants of the same kind; switching either replaces the previous instance on the Server. The
-  deploy request's `omnistat.installMethod` picks the method for both; the `container` method also
-  composes the primary controller's runtime (the deploy's container runtime, else the runtime
-  already assigned there, else Docker CE).
-- **A container runtime is a Slurm Platform feature, composed as Managed Software** (amended
-  2026-10-22). Slurm needs no container runtime, but its workloads (AI ones especially) usually
-  run containers, so `containerRuntime.kind` (`docker-ce` or `podman`) composes that runtime's Job
-  onto every compute and login node where it is not already installed. The Platform records only
-  the choice; each Server's runtime is an ordinary Software Assignment that outlives the Platform.
-- **Prometheus listens on the loopback address by default** (amended 2026-10-26). Its API has no
-  authentication, so the Prometheus spec's `listen` is `loopback` unless an install asks for
-  `management`, and its `retention` (default `15d`) is a documented, overridable spec field.
-  Omnistat composes `loopback`: only Grafana on the same Server reads it, which every install
-  method reaches through the host network. (Amended 2026-10-27: `omnistat-query` on the compute
-  nodes pointed at the management address's `:9090` and stopped working; it now reads Prometheus
-  through Grafana's read-only datasource proxy, which already serves the same data to anonymous
-  viewers, so Prometheus and its lifecycle API stay off the network. Reopening Prometheus on the
-  management address, or adding basic auth whose credentials every cluster user must be able to
-  read, were rejected. Omnistat 1.15.0 sent an invalid step (`"60.0s"`) for jobs shorter than five
-  minutes; Swallow patches that under decision 064. Its report also locates a job's nodes by GPU
-  utilization, which SR-IOV virtual functions do not report, so on them it still cannot build a
-  report; that is reported to users rather than patched, since the report would be nearly empty.)
+  enabled, the `configure-slurm` Workflow composes their Jobs onto the primary controller after the
+  Slurm install and before the Omnistat Job, so the primary controller gets ordinary Software
+  Assignments. This is the first implementation of [decision 038](038-software-deployment.md)'s
+  composition rule: no nested software Workflow and no `include_role` as the only link.
+- **Containers are the default install method, not the only one.** Prometheus and Grafana install
+  by `container` (on an already installed Docker CE or Podman) or `native` (each project's official
+  release or package repository at a pinned version). Method and runtime are spec variants of the
+  same kind; switching either replaces the previous instance on the Server.
+- **A container runtime is a Slurm Platform feature, composed as Managed Software.** Slurm needs no
+  container runtime, but its workloads (AI ones especially) usually run containers, so a deploy may
+  compose `docker-ce` or `podman` onto every compute and login node where it is not already
+  installed. The Platform records only the choice; each Server's runtime is an ordinary Software
+  Assignment that outlives the Platform.
+- **Prometheus listens on the loopback address by default.** Its API has no authentication.
+  Omnistat composes `loopback`: only Grafana on the same Server reads it, and `omnistat-query` on
+  the compute nodes reads it through Grafana's read-only datasource proxy, which already serves the
+  same data to anonymous viewers, so Prometheus and its lifecycle API stay off the network.
 - **Swallow still never queries Omnistat's Prometheus** (decision 003, 2026-10-12 amendment).
+
+Revision history: 2026-10-22 added the `native` install method and the container-runtime feature
+(containers had been the only method, with a hard Docker CE requirement); 2026-10-26 replaced
+module options from cloud-init with operator options plus KFD topology rules, added the HIP probe
+and the per-deploy GRES type, and made Prometheus listen on loopback with a documented retention;
+2026-10-27 replaced "never unload, reboot once" with an in-place reload of an unheld driver and
+moved `omnistat-query` to Grafana's datasource proxy (original text in git history).
 
 ## Alternatives considered
 
@@ -128,6 +110,9 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   in-place reload makes it unnecessary; kept as the fallback had the reload proved unreliable.
 - **A management-address Prometheus behind a firewall allowlist.** Rejected for now: Swallow does
   not manage host firewalls, and only the local Grafana needs Omnistat's Prometheus.
+- **Reopening Prometheus on the management address for `omnistat-query`, or adding basic auth whose
+  credentials every cluster user must be able to read** (2026-10-27). Rejected in favor of the
+  Grafana datasource proxy.
 - **The reviewer's 7-day retention.** Not adopted as the default: it came from an unrelated
   exporter guide; the default stays Prometheus's own `15d`, now written into the contract and
   overridable per install.
@@ -160,10 +145,8 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
 - Omnistat and the Python packages it needs are downloaded at pinned versions at run time; the
   container images are pulled at pinned tags, and the native method downloads the pinned
   Prometheus release and Grafana package from upstream.
+- Omnistat 1.15.0's report locates a job's nodes by GPU utilization, which SR-IOV virtual
+  functions do not report, so on them it cannot build a report; that is reported to users rather
+  than patched.
 - Grafana's `native` method owns the Server's `grafana` package: uninstalling it removes the
-  package Swallow installed (marked by Swallow's systemd drop-in), never one installed outside
-  Swallow.
-
-## Current status
-
-Implemented in `api-server`, `dashboard`, and `cli`.
+  package Swallow installed, never one installed outside Swallow.

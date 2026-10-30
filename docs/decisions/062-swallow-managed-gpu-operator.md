@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-20
+- 現行規格：[platform-deployment.md](../development/platform-deployment.md) §2.3.1 選用功能：AMD GPU Operator（decision 062）
 
 ## Context
 
@@ -15,39 +16,31 @@ with a choice between the device plugin and DRA, and want to change those settin
 
 - **A Platform deployment Job, not Managed Software.** The deploy target is the Platform, so the
   operator is installed by a `configure-gpu-operator` Job: inside the `deploy-kubernetes` Workflow
-  after `validate-platform`, or in its own `configure-gpu-operator` Workflow when changed later
-  (`PUT /platforms/{id}/gpu-operator`). Both run one idempotent playbook.
+  after `validate-platform`, or in its own `configure-gpu-operator` Workflow when changed later.
+  Both run one idempotent playbook.
 - **Swallow owns the settings and the state; the cluster owns the operator.** The Platform records
-  the release, GPU Allocation Mode (`device-plugin` or `dra`), resource naming, node labeller,
-  and Device Metrics Exporter, plus the GPU Operator State projected from the applying Task. Only
-  the latest Workflow may move the state.
+  the release, GPU Allocation Mode (`device-plugin` or `dra`), resource naming, node labeller, and
+  Device Metrics Exporter, plus the GPU Operator State projected from the applying Task. Only the
+  latest Workflow may move the state.
 - **The OS image's driver only.** The chart runs with KMM and remediation disabled, so no
-  cert-manager or driver registry is needed. Preflight refuses a node whose image has no `amdgpu`
-  module. An image may keep `amdgpu` out of the boot path (`modprobe.blacklist=amdgpu`, AMD's
-  guidance for Instinct hosts and SR-IOV guests), so every managed node gets a Swallow unit,
-  `swallow-amdgpu-load.service`, that loads the driver after SSH is up, and the k0s unit is
-  ordered after it so the device plugin or DRA driver sees the GPUs after a reboot. The unit
-  and the ordering are removed when the node stops being managed or k0s is uninstalled; a loaded
-  driver is never unloaded.
-- **Helm on the initial controller, with a pinned binary and a bundled chart.** The playbook
-  downloads a pinned Helm release, verifies its SHA-256, copies the chart archive shipped in the
-  release, and runs `helm upgrade --install` / `helm uninstall` with the controller's admin
-  kubeconfig. Supported releases (chart, DRA driver, and pinned operand images) are a Swallow
-  catalog.
+  cert-manager or driver registry is needed, and a node whose image has no `amdgpu` module is
+  refused. An image may keep `amdgpu` out of the boot path (`modprobe.blacklist=amdgpu`, AMD's
+  guidance for Instinct hosts and SR-IOV guests), so every managed node gets a Swallow unit that
+  loads the driver after SSH is up, with k0s ordered after it, so the GPUs are visible after a
+  reboot. The unit is removed when the node stops being managed; a loaded driver is never unloaded.
+- **Helm on the initial controller, with a pinned binary and a bundled chart.** Supported releases
+  (chart, DRA driver, and pinned operand images) are a Swallow catalog.
 - **The operator's NFD decides which nodes are managed; nobody lists them.** No API, CLI, or
   dashboard surface names the nodes or Servers to manage, because a cluster may mix thousands of
-  CPU-only and GPU nodes. The chart's Node Feature Discovery runs on every node and marks AMD GPU
-  nodes by PCI id: `feature.node.kubernetes.io/amd-gpu=true` for a physical GPU,
-  `feature.node.kubernetes.io/amd-vgpu=true` for an SR-IOV virtual function. The playbook mirrors
-  that result into `swallow.dev/amd-gpu-operator=managed`, and the single `DeviceConfig` selects
-  that label, because a `DeviceConfig` selector is an AND-only label map that cannot match either
-  NFD label. Each Operation re-reads NFD, so a node that joins is managed after the next change.
-  If per-node control is ever needed, it is an exclusion of named Servers from the NFD result,
-  never a list of nodes to include.
-- **One allocation mode at a time, changed safely.** A change turns the old mode off and waits for
-  its DaemonSet to disappear before enabling the new one, and is refused while any Pod holds an
-  AMD GPU or a `ResourceClaim` is allocated. DRA on k0s gets two exact symlinks from
-  `/var/lib/kubelet/plugins*` to `/var/lib/k0s/kubelet/plugins*`, removed again when DRA is off.
+  CPU-only and GPU nodes. The chart's Node Feature Discovery marks AMD GPU nodes by PCI id
+  (`amd-gpu` for a physical GPU, `amd-vgpu` for an SR-IOV virtual function); Swallow mirrors that
+  result into its own label, and the single `DeviceConfig` selects it, because a `DeviceConfig`
+  selector is an AND-only label map that cannot match either NFD label. If per-node control is
+  ever needed, it is an exclusion of named Servers from the NFD result, never a list of nodes to
+  include.
+- **One allocation mode at a time, changed safely.** A change turns the old mode off before
+  enabling the new one, and is refused while GPUs are in use. DRA on k0s gets two exact symlinks to
+  the k0s kubelet directories, removed again when DRA is off.
 - **`gpuStackOwner` follows the feature.** Enabling the operator sets `gpu-operator`; while
   Swallow manages one, the policy cannot be set back to `provisioning`. A `gpu-operator` Platform
   without a Swallow-managed operator still means an operator managed outside Swallow.
@@ -86,7 +79,3 @@ with a choice between the device plugin and DRA, and want to change those settin
 - Swallow does not adopt an operator it did not install; preflight refuses one.
 - Node-level checks need NFD, so a node whose image has no `amdgpu`, or whose driver does not load,
   is refused after the release is installed and before the `DeviceConfig` is applied.
-
-## Current status
-
-Implemented in `api-server`, `dashboard`, and `cli`.

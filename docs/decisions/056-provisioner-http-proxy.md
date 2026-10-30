@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-13
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §7 Provisioner HTTP Proxy
 
 ## Context
 
@@ -19,14 +20,14 @@ reaches the provisioner (`timeout`, `insecureSkipVerify`) and swallow's own poli
 
 - **The proxy is provisioner-owned and written through.** A provisioner Integration's
   Provisioner HTTP Proxy is read live from the provider and written through to it from the API
-  and the Dashboard; swallow stores nothing. MAAS calls are `GET /maas/?op=get_config` and
-  `POST /maas/?op=set_config`, one per setting, inside the MAAS adapter.
+  and the Dashboard; swallow stores nothing. The MAAS configuration calls stay inside the MAAS
+  adapter.
 - **A closed mode set, not three flags.** Operators choose `none`, `builtin`, `external`, or
   `peer`, matching the MAAS UI; the adapter maps a mode onto the three settings and derives the
   mode back with MAAS's own rule for which proxy a deployed machine gets. A write always replaces
   all three settings, so a read after a write reports what was written.
-- **Its own Integration-scoped route.** `GET` and `PUT /provisioning/integrations/{id}/http-proxy`,
-  behind a provider capability, so a provisioner without one refuses rather than ignores it.
+- **Its own Integration-scoped route**, behind a provider capability, so a provisioner without one
+  refuses rather than ignores it.
 - **No credentials in the URL.** A proxy URL with a user or password is refused: the setting is
   readable back, and swallow does not return secrets.
 
@@ -42,15 +43,9 @@ reaches the provisioner (`timeout`, `insecureSkipVerify`) and swallow's own poli
 
 ## Consequences
 
-- New contract `provisioner-http-proxy.md`, glossary term Provisioner HTTP Proxy, provider
-  capability `HTTPProxy`, and an HTTP Proxy section in the Dashboard's MAAS Integration dialog.
+- Provisioner HTTP Proxy becomes a provisioner-owned glossary term with its own contract and
+  provider capability.
 - The MAAS account behind the Integration must be an administrator to write the setting.
-- The three `set_config` calls are not atomic. A failure part-way leaves a mixed state that the
-  next read reports; repeating the write converges.
+- The three MAAS settings are written one at a time, not atomically. A failure part-way leaves a
+  mixed state that the next read reports; repeating the write converges.
 - A change affects only deployments MAAS starts afterwards.
-
-## Current status
-
-Implemented in `api-server` and `dashboard`. The CLI has no command for it yet. The Dashboard
-section now lives on the HTTP proxy tab of the Integration settings page, which replaced the Edit
-integration dialog.

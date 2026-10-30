@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-13
+- 現行規格：[os-provisioning.md](../development/os-provisioning.md) §6 部署網路意圖與 Subnet DNS
 
 ## Context
 
@@ -34,19 +35,20 @@ that swallow does not model.
   on a subnet whose DHCP the provisioner does not serve, and the wrong one where it does, so the
   two are no longer the same request.
 - **Network inspection suggests it.** When the boot NIC has no static binding and the subnet it
-  would use has no provisioner DHCP (MAAS: DHCP off on the VLAN), the suggested mode is `dhcp`.
-  The suggestion stays non-authoritative; the operator can pick any mode.
+  would use has no provisioner DHCP, the suggested mode is `dhcp`. The suggestion stays
+  non-authoritative; the operator can pick any mode.
 - **The alias ends.** `dhcp` no longer normalizes to `automatic`. Deployment Templates are
   normalized on write since ADR 018, so only a template stored before 2026-09-06 can still say
   `dhcp`; it now means DHCP.
 - **Subnet DNS is written through.** A provisioner Integration's subnets and their DNS servers
-  are read live and the DNS servers written through (`GET .../integrations/{id}/subnets`,
-  `PUT .../integrations/{id}/subnets/{subnetId}/dns-servers`), behind a provider capability, the
-  way [ADR 056](056-provisioner-http-proxy.md) writes the HTTP proxy. swallow stores nothing.
-  The list applies to `automatic` and `static` deployments on that subnet; `dhcp` deployments
-  take DNS from the DHCP server.
+  are read live and the DNS servers written through, behind a provider capability, the way
+  [ADR 056](056-provisioner-http-proxy.md) writes the HTTP proxy. swallow stores nothing. The
+  list applies to `automatic` and `static` deployments on that subnet; `dhcp` deployments take
+  DNS from the DHCP server.
 - **ADR 001 still holds.** swallow models no DNS zones, records, resolvers, or subnets of its
   own; it edits one attribute the provisioner owns, through the provisioner.
+
+This partly supersedes ADR 018 (its `dhcp` alias and its rejection of a separate DHCP mode).
 
 ## Alternatives considered
 
@@ -63,22 +65,11 @@ that swallow does not model.
 
 ## Consequences
 
-- The provisioning contract's `network.mode` gains `dhcp`; new contract
-  `provisioner-subnet-dns.md`; glossary terms Network Configuration and OS Deployment change and
-  Subnet DNS is added; the Dashboard's Deploy, Deployment Template, and Platform deploy forms
-  offer DHCP, and the MAAS Integration settings page gains a Subnet DNS tab.
+- The published deployment network mode set gains `dhcp`, and Subnet DNS becomes a new
+  provisioner-owned term and contract.
 - With site DHCP, MAAS receives no lease for a deployed machine. The address swallow shows is
   the one MAAS last observed for the interface, and SSH-based automation after deployment
   depends on it.
 - The MAAS account behind the Integration must be an administrator to edit a subnet.
 - A DNS change affects only deployments the provisioner starts afterwards; deployed hosts keep
   their netplan.
-
-## Current status
-
-Implemented in `api-server` and `dashboard`; verified on `10.170.168.0/23` (MAAS DHCP off). Subnet
-DNS written through swallow changed only that subnet's `dns_servers`. Network inspection suggested
-`dhcp` for both `lab-afde-mi308` Servers; `lab-afde-mi308-2` deployed with `dhcp` received a
-`dhcp4` netplan, kept its site DHCP address `10.170.169.127`, which MAAS and swallow reported,
-and passed SSH readiness; `lab-afde-mi308-1` deployed with `automatic` received the Subnet DNS as
-its nameservers. The CLI has no Subnet DNS command yet.

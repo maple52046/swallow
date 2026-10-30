@@ -62,6 +62,36 @@ platform deploy, also read:
  deploy-target boundary versus platform deployment, and the inventory / trusted-vars / manifest
  integration contract.
 
+If the task involves OS provisioning (OS Images and their verification, Deployment Templates,
+deployment network intent, provider recovery such as Release / Recover / Rescue, Zones and Pools,
+or provisioner settings written through such as HTTP proxy and Subnet DNS), also read:
+
+1. `docs/development/os-provisioning.md` — the current OS provisioning behavior and which facts the
+ provisioner owns versus swallow.
+
+If the task involves Server Enrollment, hardware inspection, Power Configuration, Boot Media, or
+Boot ISOs, also read:
+
+1. `docs/development/server-enrollment-and-boot-media.md` — how Servers are enrolled and inspected,
+ and how Boot Media and Boot ISOs work.
+
+If the task involves the generic behavior of durable Workflows (start, leases, Task retry, rerun,
+cancellation, superseding blocking work, lost executions, live task events), also read:
+
+1. `docs/development/workflow-execution.md` — the cross-feature Workflow execution semantics.
+
+If the task involves SSH keys (the Deployment Key, Access Keys), the automation login user, the
+Server Default User, Site automation credentials, or authentication sessions and API keys, also read:
+
+1. `docs/development/access-and-credentials.md` — the credentials swallow owns and how automation
+ authenticates.
+
+If the task involves the installation topology, `swallowctl`, release artifacts, or the
+control-plane NTP service and post-provision time synchronization, also read:
+
+1. `docs/development/installation.md` — the supported installation, its lifecycle guarantees, and
+ time synchronization.
+
 ## Component Work
 
 After completing the required root reading for the task, identify the affected
