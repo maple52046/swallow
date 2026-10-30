@@ -218,7 +218,8 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 團隊外部的開發者會加入本 repository，與團隊一起開發模組；他們不是依契約在 repository 之外獨立開發、獨立擁有模組。
 第一階段因此要讓貢獻者不必先理解整個 core，就能安全地新增或修改一個模組：
 
-- **一個模組一個目錄**：manifest、host automation 內容與 Go hook 放在同一個目錄（位置在實作時定案，登錄於
+- **一個模組一個目錄**：manifest、host automation 內容與 Go hook 放在同一個目錄
+  `api-server/modules/<種類>/<id>/`，跨模組共用的內容放在 `api-server/modules/shared/`（登錄於
   [codebase-structure.md](codebase-structure.md)）。這個目錄本身就是模組的套件格式，第一階段不另外定義套件。
 - **負責人**：每個模組目錄在 `.github/CODEOWNERS` 登錄負責人，review 依此分派；core、adapter 與共用的 role
   也各有負責人。
@@ -265,6 +266,14 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 ## 12. 設計理由與相關文件
 
 - 為什麼採 ports and adapters、三種模組與三個階段：[decision 070](../decisions/070-core-providers-and-extensions.md)。
+- 模組放在 `api-server/modules/<種類>/<id>/` 的理由：Go hook 必須編進 `swallow-api`，放在 `api-server` 的 Go
+  module 內，一個模組才能是一個目錄，CODEOWNERS 一行就能指定負責人。考慮過的替代方案：
+  - repository 頂層的 `modules/`：看起來最獨立，但 Go hook 不在 `api-server` 的 Go module 內，只能把 hook 拆到
+    `api-server/internal/modules`（一個模組分在兩處），或另開 Go module 並以 `go.work` 連接；模組也只服務
+    api-server，放在頂層會讓人誤以為跨 component 共用。
+  - 保留 `api-server/automation/` 並依模組分子目錄：改動最小，但一個模組永遠分在兩處，而且把「模組」和
+    「host automation 的內容」混在一起。
+  - Go hook 不在 `internal/` 之下，Go 不會阻止外部 import；由 §9 的 import 檢查守住。
 - 資源的所有權與收斂：[desired-state-model.md](desired-state-model.md)、[decision 069](../decisions/069-swallow-owns-desired-state.md)。
 - 現行的 Platform 與 Managed Software 設計：[platform-deployment.md](platform-deployment.md)、
   [software-deployment.md](software-deployment.md)。

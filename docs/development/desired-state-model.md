@@ -300,7 +300,8 @@ store 規則與資料庫引擎無關：
 
 ### 10.4 測試
 
-- domain 與 application 的 unit test 使用可 rollback 的 fake transaction，以驗證「失敗時沒有任何寫入或事件」。
+- domain 與 application 的 unit test 以 fake transaction 驗證 use case 確實在 transaction 內寫入，以及事件只在
+  成功後發布。記憶體 fake 無法 rollback，所以「失敗時沒有任何寫入」由下面的整合測試驗證。
 - infra 的整合測試在 replica set 上執行。
 
 ## 11. API 與 UI 慣例

@@ -66,6 +66,49 @@ flowchart TB
 內層不能接受 `*fiber.Ctx`、`bson.M`、Mongo cursor、Temporal activity context、
 Ansible event、provider SDK response 或 YAML node。
 
+## Target Layout
+
+依 root 的 [`core-and-extensions.md`](../../../docs/development/core-and-extensions.md)，`api-server` 的程式碼分成
+core、provider adapter 與擴充模組三部分：
+
+```text
+api-server/
+├── cmd/swallow-api/  config/
+├── internal/
+│   ├── core/                        # 不含廠商、產品、平台或 GPU 廠商的知識
+│   │   ├── store/                   # store port：Transactor、AfterCommit
+│   │   └── <context>/domain|application|delivery
+│   ├── adapters/                    # 依 provider interface 分組
+│   │   ├── store/mongodb/           # client、topology 檢查、Transactor；之後放各 context 的 repo 與 migration
+│   │   ├── osprovisioning/maas/
+│   │   ├── executor/temporal/
+│   │   ├── hostautomation/ansible/
+│   │   ├── metrics/promstack/
+│   │   ├── bmc/redfish/
+│   │   └── hypervisor/libvirt/
+│   ├── shared/                      # 無業務規則的共用 helper
+│   └── app/                         # composition root
+└── modules/
+    ├── platform/kubernetes/  platform/slurm/
+    ├── accelerator/amd/
+    ├── software/<kind>/
+    └── shared/roles/                # 跨模組共用的 role
+```
+
+- **core**：`<context>` 是現在的 feature slice（site、server、provisioning、workflow、platform、software、sshkey、
+  auth、apikey、infrastructure、monitoring、overview、discovery），各自保留 domain、application、delivery 三層。
+  Delivery（HTTP）屬於 core，因為它是 swallow 自己發佈的契約。core 不得 import `internal/adapters` 或
+  `modules`。
+- **adapters**：依它實作的 provider interface 分組；只依賴 core 的 port 與外部 SDK，不得 import 其他 adapter
+  或模組。Mongo repository 屬於 `store/mongodb`，不再分散在各 feature 的 `infra`。
+- **modules**：一個模組一個目錄，Go hook 與 manifest、host automation 內容放在一起；只經由模組契約依賴 core，
+  不得 import adapter 或其他模組的內部程式碼。執行時讀取的 playbook 目錄與 manifest 由 release 建置時從模組
+  目錄組合，安裝路徑不變。
+- **`internal/app`**：唯一可以同時看到 core、adapter 與模組的地方。
+
+過渡規則：新程式碼一律放在目標位置；既有程式碼在依此配置搬移之前維持原位，兩者可以並存。搬移時不得改變行為，
+並同時建立 import 檢查來守住上述依賴方向。
+
 ## Feature Slices
 
 目前主要 vertical slices 包含：
@@ -163,7 +206,9 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 - Transaction callback 不得有外部 I/O（provider、HTTP、檔案），而且必須可以重跑。
 - 事件（包括 SSE 的 Server 事件）在 commit 之後才發布；跨 process 的變化以 change feed port 取得。
 - `bson`、Mongo update operator、change stream resume token 只出現在 infra。
-- Application tests 使用可 rollback 的 fake transaction，驗證失敗時沒有任何寫入或事件。
+- Application tests 使用 `internal/core/store/storetest` 的 fake Transactor，驗證 use case 在 transaction 內寫入，
+  以及事件只在成功後發布；記憶體 fake 無法 rollback，所以「失敗時沒有任何寫入」由 replica set 上的 infra 整合測試
+  驗證。
 
 既有的補償（例如 Platform Claim 的 `abandon`）與修復 sweep 是待遷移的現況，不得當成新功能的範例。
 

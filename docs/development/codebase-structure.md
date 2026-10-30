@@ -119,16 +119,26 @@ flowchart LR
 每個類別目錄內的文件應遵循相同風格：採結構化段落，描述 swallow 範圍內的共識，不描述某個
 component 的內部實作細節。
 
-## Provider Adapter 與擴充模組的位置
+## Core、Provider Adapter 與擴充模組的位置
 
-[`core-and-extensions.md`](core-and-extensions.md) 定義的 provider adapter 與擴充模組都在 component 之內，
-不是新的頂層 component：
+[`core-and-extensions.md`](core-and-extensions.md) 定義的 core、provider adapter 與擴充模組都在 `api-server`
+component 之內，不是新的頂層 component。目標位置：
 
-- Provider adapter 目前位於 `api-server/internal/<feature>/infra/<adapter>`（例如 `provisioning/infra/maas`、
-  `operation/infra/temporalworkflow`）。
-- 擴充模組（Platform、Accelerator、Software）在 repository 中的目標位置，於模組第一階段實作時定案並登錄於本節；
-  在那之前，現有的 Kubernetes、Slurm、AMD 與 Managed Software 程式碼維持在 `api-server/internal/platform`、
-  `api-server/internal/software`、`api-server/internal/app` 與 `api-server/automation`。
+| 部分 | 目標位置 |
+| --- | --- |
+| core | `api-server/internal/core/` |
+| provider adapter | `api-server/internal/adapters/<provider interface>/<adapter>/` |
+| 擴充模組 | `api-server/modules/<種類>/<id>/`（一個模組一個目錄，含 manifest、host automation 內容與 Go hook） |
+| 跨模組共用的 host automation 內容 | `api-server/modules/shared/` |
+
+`api-server` 內部的完整目錄配置與依賴規則見
+[`api-server/docs/development/architecture-spec.md`](../../api-server/docs/development/architecture-spec.md) 的
+Target Layout。
+
+過渡規則：新程式碼一律放在目標位置。既有程式碼在搬移完成之前維持原位，兩者可以並存：provider adapter 目前多半
+位於 `api-server/internal/<feature>/infra/<adapter>`，Kubernetes、Slurm、AMD 與 Managed Software 的程式碼位於
+`api-server/internal/platform`、`api-server/internal/software`、`api-server/internal/app` 與
+`api-server/automation`。
 
 ## Rules
 
